@@ -68,9 +68,6 @@ export class Renderer {
      * Render frame
      */
     render(options: RenderOptions = {}): void {
-        // #region agent log
-        fetch('http://127.0.0.1:7248/ingest/23432d39-3a37-4dd4-80fc-bbd61504cb4e', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'renderer/index.ts:render', message: 'Render called', data: { isInitialized: this.device.isInitialized(), hasPipeline: !!this.pipeline, meshCount: this.scene.getMeshes().length }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H3' }) }).catch(() => { });
-        // #endregion
         if (!this.device.isInitialized() || !this.pipeline) return;
 
         // Validate canvas dimensions
@@ -114,9 +111,6 @@ export class Renderer {
 
             // Get current texture and create view
             const currentTexture = context.getCurrentTexture();
-            // #region agent log
-            fetch('http://127.0.0.1:7248/ingest/23432d39-3a37-4dd4-80fc-bbd61504cb4e', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'renderer/index.ts:render-texture', message: 'Got texture', data: { textureWidth: currentTexture.width, textureHeight: currentTexture.height, canvasWidth: this.canvas.width, canvasHeight: this.canvas.height }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H2-H3' }) }).catch(() => { });
-            // #endregion
             const textureView = currentTexture.createView();
 
             const pass = encoder.beginRenderPass({
@@ -138,12 +132,6 @@ export class Renderer {
 
             pass.setPipeline(this.pipeline.getPipeline());
             pass.setBindGroup(0, this.pipeline.getBindGroup());
-
-            // #region agent log
-            if (meshes.length > 0) {
-                fetch('http://127.0.0.1:7248/ingest/23432d39-3a37-4dd4-80fc-bbd61504cb4e', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'renderer/index.ts:draw-loop', message: 'Drawing meshes', data: { meshCount: meshes.length, viewProjFirst4: [viewProj[0], viewProj[1], viewProj[2], viewProj[3]], hasNaNInViewProj: viewProj.some((v: number) => !Number.isFinite(v)), firstMeshIndexCount: meshes[0]?.indexCount }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H7-H8' }) }).catch(() => { });
-            }
-            // #endregion
 
             for (const mesh of meshes) {
                 const model = mesh.transform.m;

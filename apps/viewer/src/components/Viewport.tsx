@@ -27,11 +27,6 @@ export function Viewport({ geometry }: ViewportProps) {
         let aborted = false;
         let resizeObserver: ResizeObserver | null = null;
 
-        // #region agent log
-        const instanceId = Math.random().toString(36).slice(2, 8);
-        fetch('http://127.0.0.1:7248/ingest/23432d39-3a37-4dd4-80fc-bbd61504cb4e', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'Viewport.tsx:useEffect-init', message: 'Starting renderer init', data: { instanceId, hasExistingRenderer: !!rendererRef.current }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H1-H5' }) }).catch(() => { });
-        // #endregion
-
         // Set canvas pixel dimensions from CSS dimensions before init
         const rect = canvas.getBoundingClientRect();
         const width = Math.max(1, Math.floor(rect.width));
@@ -45,15 +40,8 @@ export function Viewport({ geometry }: ViewportProps) {
         renderer.init().then(() => {
             // Skip if component was unmounted during async init
             if (aborted) {
-                // #region agent log
-                fetch('http://127.0.0.1:7248/ingest/23432d39-3a37-4dd4-80fc-bbd61504cb4e', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'Viewport.tsx:init-aborted', message: 'Init aborted (cleanup called)', data: { instanceId }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H1-H5' }) }).catch(() => { });
-                // #endregion
                 return;
             }
-
-            // #region agent log
-            fetch('http://127.0.0.1:7248/ingest/23432d39-3a37-4dd4-80fc-bbd61504cb4e', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'Viewport.tsx:init-complete', message: 'Renderer init complete', data: { instanceId, isInitialized: true }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H1' }) }).catch(() => { });
-            // #endregion
             console.log('[Viewport] Renderer initialized');
             setIsInitialized(true);
 
@@ -112,9 +100,6 @@ export function Viewport({ geometry }: ViewportProps) {
         });
 
         return () => {
-            // #region agent log
-            fetch('http://127.0.0.1:7248/ingest/23432d39-3a37-4dd4-80fc-bbd61504cb4e', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'Viewport.tsx:cleanup', message: 'Cleanup called', data: { instanceId, hadRenderer: !!rendererRef.current }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H5' }) }).catch(() => { });
-            // #endregion
             aborted = true;
             if (resizeObserver) {
                 resizeObserver.disconnect();
@@ -148,38 +133,20 @@ export function Viewport({ geometry }: ViewportProps) {
             max: { x: -Infinity, y: -Infinity, z: -Infinity },
         };
 
-        // #region agent log
-        if (geometry.length > 0) {
-            const first = geometry[0];
-            fetch('http://127.0.0.1:7248/ingest/23432d39-3a37-4dd4-80fc-bbd61504cb4e', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'Viewport.tsx:positions-debug', message: 'First mesh positions', data: { positionsType: first.positions?.constructor?.name, positionsLength: first.positions?.length, firstValues: first.positions ? Array.from(first.positions.slice(0, 12)) : [], byteLength: first.positions?.byteLength, isTypedArray: first.positions instanceof Float32Array }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H4-detail' }) }).catch(() => { });
-        }
-        // #endregion
 
         // Create GPU buffers for each mesh
-        // Max reasonable IFC coordinate - based on valid Y range of ~125 units
-        // Using 500 as threshold to filter garbage while keeping valid coordinates
-        const MAX_COORD = 500;
-        const isValidCoord = (v: number) => Number.isFinite(v) && Math.abs(v) < MAX_COORD;
-
         for (const meshData of geometry) {
-            // Update bounds from positions (skip invalid/extreme values)
+            // Update bounds from positions
             for (let i = 0; i < meshData.positions.length; i += 3) {
                 const x = meshData.positions[i];
                 const y = meshData.positions[i + 1];
                 const z = meshData.positions[i + 2];
-                // Only update bounds with valid values (finite and within reasonable range)
-                if (isValidCoord(x)) {
-                    bounds.min.x = Math.min(bounds.min.x, x);
-                    bounds.max.x = Math.max(bounds.max.x, x);
-                }
-                if (isValidCoord(y)) {
-                    bounds.min.y = Math.min(bounds.min.y, y);
-                    bounds.max.y = Math.max(bounds.max.y, y);
-                }
-                if (isValidCoord(z)) {
-                    bounds.min.z = Math.min(bounds.min.z, z);
-                    bounds.max.z = Math.max(bounds.max.z, z);
-                }
+                bounds.min.x = Math.min(bounds.min.x, x);
+                bounds.min.y = Math.min(bounds.min.y, y);
+                bounds.min.z = Math.min(bounds.min.z, z);
+                bounds.max.x = Math.max(bounds.max.x, x);
+                bounds.max.y = Math.max(bounds.max.y, y);
+                bounds.max.z = Math.max(bounds.max.z, z);
             }
 
             // Build interleaved buffer
@@ -221,10 +188,6 @@ export function Viewport({ geometry }: ViewportProps) {
 
         console.log('[Viewport] Bounds:', bounds);
         console.log('[Viewport] Meshes added:', scene.getMeshes().length);
-
-        // #region agent log
-        fetch('http://127.0.0.1:7248/ingest/23432d39-3a37-4dd4-80fc-bbd61504cb4e', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'Viewport.tsx:before-fitToBounds', message: 'About to fit bounds', data: { minX: bounds.min.x, minY: bounds.min.y, minZ: bounds.min.z, maxX: bounds.max.x, maxY: bounds.max.y, maxZ: bounds.max.z, meshCount: scene.getMeshes().length }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H4' }) }).catch(() => { });
-        // #endregion
 
         // Fit camera to calculated bounds (only if we have valid finite bounds)
         const hasValidBounds =

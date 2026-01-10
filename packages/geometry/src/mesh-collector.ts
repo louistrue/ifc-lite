@@ -101,7 +101,7 @@ export class MeshCollector {
                             // Get transformation matrix from placed geometry
                             // flatTransformation is a 4x4 matrix in column-major order (16 elements)
                             const transformRaw = placed.flatTransformation;
-                            
+
                             // Convert to number array for easier access
                             // Handle both Array and TypedArray (Float32Array, etc.)
                             let m: number[] | null = null;
@@ -109,16 +109,20 @@ export class MeshCollector {
                                 if (Array.isArray(transformRaw)) {
                                     m = transformRaw;
                                 } else if (ArrayBuffer.isView(transformRaw)) {
-                                    m = Array.from(transformRaw);
+                                    // Cast to any to work around TypeScript's strict ArrayBufferView typing
+                                    const typedArray = transformRaw as any;
+                                    if (typedArray.length === 16) {
+                                        m = Array.from(typedArray);
+                                    }
                                 }
                             }
-                            
+
                             // Validate transformation matrix
                             const hasValidTransform = m &&
                                 m.length === 16 &&
                                 Number.isFinite(m[0]) &&
                                 Number.isFinite(m[15]);
-                            
+
                             // Extract positions and normals, applying transformation
                             for (let k = 0; k < vertexSize; k++) {
                                 const base = k * 6;
@@ -130,7 +134,7 @@ export class MeshCollector {
                                     const nx = vertexData[base + 3];
                                     const ny = vertexData[base + 4];
                                     const nz = vertexData[base + 5];
-                                    
+
                                     if (hasValidTransform && m) {
                                         // Transform position: worldPos = matrix * localPos
                                         // Column-major matrix: m[0-3] = col0, m[4-7] = col1, m[8-11] = col2, m[12-15] = col3
@@ -139,13 +143,13 @@ export class MeshCollector {
                                             m[1] * x + m[5] * y + m[9] * z + m[13],
                                             m[2] * x + m[6] * y + m[10] * z + m[14]
                                         );
-                                        
+
                                         // Transform normal (rotation only, no translation)
                                         // Use upper-left 3x3 rotation part of matrix
                                         const tnx = m[0] * nx + m[4] * ny + m[8] * nz;
                                         const tny = m[1] * nx + m[5] * ny + m[9] * nz;
                                         const tnz = m[2] * nx + m[6] * ny + m[10] * nz;
-                                        
+
                                         // Renormalize (handles non-uniform scaling)
                                         const len = Math.sqrt(tnx * tnx + tny * tny + tnz * tnz);
                                         if (len > 1e-10) {

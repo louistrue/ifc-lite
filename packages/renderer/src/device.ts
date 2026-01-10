@@ -10,17 +10,11 @@ export class WebGPUDevice {
   private canvas: HTMLCanvasElement | null = null;
   private lastWidth: number = 0;
   private lastHeight: number = 0;
-  // #region agent log
-  private deviceId = Math.random().toString(36).slice(2, 8);
-  // #endregion
 
   /**
    * Initialize WebGPU device and canvas context
    */
   async init(canvas: HTMLCanvasElement): Promise<void> {
-    // #region agent log
-    fetch('http://127.0.0.1:7248/ingest/23432d39-3a37-4dd4-80fc-bbd61504cb4e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'device.ts:init-start',message:'Device init starting',data:{deviceId:this.deviceId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-    // #endregion
     if (!navigator.gpu) {
       throw new Error('WebGPU not available');
     }
@@ -39,9 +33,6 @@ export class WebGPUDevice {
       throw new Error('Failed to get WebGPU context');
     }
 
-    // #region agent log
-    fetch('http://127.0.0.1:7248/ingest/23432d39-3a37-4dd4-80fc-bbd61504cb4e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'device.ts:init-complete',message:'Device init complete',data:{deviceId:this.deviceId,hasDevice:!!this.device,hasContext:!!this.context},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H2'})}).catch(()=>{});
-    // #endregion
     this.configureContext();
   }
 
@@ -51,14 +42,10 @@ export class WebGPUDevice {
    */
   configureContext(): void {
     if (!this.context || !this.device || !this.canvas) return;
-    
-    // #region agent log
-    fetch('http://127.0.0.1:7248/ingest/23432d39-3a37-4dd4-80fc-bbd61504cb4e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'device.ts:configureContext',message:'Configuring context',data:{deviceId:this.deviceId,width:this.canvas.width,height:this.canvas.height},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
-    // #endregion
-    
+
     this.lastWidth = this.canvas.width;
     this.lastHeight = this.canvas.height;
-    
+
     this.context.configure({
       device: this.device,
       format: this.format,

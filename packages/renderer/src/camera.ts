@@ -144,9 +144,6 @@ export class Camera {
    * Fit view to bounding box
    */
   fitToBounds(min: Vec3, max: Vec3): void {
-    // #region agent log
-    fetch('http://127.0.0.1:7248/ingest/23432d39-3a37-4dd4-80fc-bbd61504cb4e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'camera.ts:fitToBounds-input',message:'fitToBounds input',data:{minX:min.x,minY:min.y,minZ:min.z,maxX:max.x,maxY:max.y,maxZ:max.z,hasNaN:isNaN(min.x)||isNaN(max.x)||isNaN(min.y)||isNaN(max.y)||isNaN(min.z)||isNaN(max.z)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
-    // #endregion
     const center = {
       x: (min.x + max.x) / 2,
       y: (min.y + max.y) / 2,
@@ -158,9 +155,6 @@ export class Camera {
       z: max.z - min.z,
     };
     const maxSize = Math.max(size.x, size.y, size.z);
-    // #region agent log
-    fetch('http://127.0.0.1:7248/ingest/23432d39-3a37-4dd4-80fc-bbd61504cb4e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'camera.ts:fitToBounds-calc',message:'fitToBounds calculated',data:{centerX:center.x,centerY:center.y,centerZ:center.z,sizeX:size.x,sizeY:size.y,sizeZ:size.z,maxSize:maxSize,isMaxSizeNaN:isNaN(maxSize)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
-    // #endregion
     const distance = maxSize * 2.0;
 
     this.camera.target = center;
@@ -170,7 +164,7 @@ export class Camera {
       y: center.y - distance,  // Look from front (negative Y direction)
       z: center.z + distance * 0.5, // Elevated view
     };
-    
+
     // Adjust far plane for large models
     this.camera.far = Math.max(10000, distance * 20);
     this.camera.near = Math.max(0.01, distance * 0.0001);
@@ -184,11 +178,6 @@ export class Camera {
     });
 
     this.updateMatrices();
-    
-    // #region agent log
-    const vp = this.viewProjMatrix.m;
-    fetch('http://127.0.0.1:7248/ingest/23432d39-3a37-4dd4-80fc-bbd61504cb4e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'camera.ts:matrices-after-fit',message:'Matrices after fitToBounds',data:{viewProjFirst4:[vp[0],vp[1],vp[2],vp[3]],hasNaN:vp.some((v:number)=>!Number.isFinite(v)),near:this.camera.near,far:this.camera.far,distance},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7'})}).catch(()=>{});
-    // #endregion
   }
 
   getViewProjMatrix(): Mat4 {
