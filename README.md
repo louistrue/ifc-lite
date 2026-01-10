@@ -1,6 +1,6 @@
-# IFC-Lite MVP
+# IFC-Lite
 
-High-performance browser-native IFC platform - Minimal Viable Prototype.
+High-performance browser-native IFC platform.
 
 ## Quick Start
 
@@ -21,23 +21,44 @@ pnpm dev
 ```
 ifc-lite/
 ├── packages/
-│   ├── parser/      # STEP tokenizer and entity extraction
+│   ├── parser/       # STEP tokenizer and entity extraction
 │   ├── geometry/     # web-ifc bridge for triangulation
 │   ├── renderer/     # WebGPU rendering pipeline
 │   └── query/        # Property query system
 ├── apps/
 │   └── viewer/       # React viewer application
+├── plan/             # Technical specification and roadmap
 └── prototype/        # Feasibility spikes (reference)
 ```
 
-## Features
+## Current State
 
-- ✅ Fast IFC parsing (~1,200 MB/s)
-- ✅ web-ifc triangulation (93% coverage)
-- ✅ WebGPU rendering (60+ FPS)
-- ✅ Property queries (<2ms)
+The project is at **early MVP stage** (~20% of planned features).
+
+### Working
+
+- ✅ IFC parsing with entity/property extraction
+- ✅ Geometry triangulation via web-ifc
+- ✅ WebGPU rendering pipeline
 - ✅ Basic 3D navigation (orbit, pan, zoom)
-- ✅ Object picking and property display
+- ✅ Camera fit-to-bounds
+- ✅ Property panel display
+
+### In Progress / Known Issues
+
+- ⚠️ Materials use hardcoded gray (should use IFC materials)
+- ⚠️ No selection highlighting
+
+### Not Yet Implemented
+
+- ❌ Hierarchy tree (spatial structure)
+- ❌ Frustum culling
+- ❌ LOD system
+- ❌ Instancing/batching
+- ❌ Section planes
+- ❌ Measurement tools
+- ❌ Progressive loading
+- ❌ IndexedDB caching
 
 ## Browser Requirements
 
@@ -57,6 +78,12 @@ cd packages/parser && pnpm build
 cd apps/viewer && pnpm dev
 ```
 
-## Next Steps
+## Roadmap
 
-See `plan/` directory for full specification and roadmap.
+See `plan/` directory for full technical specification:
+
+- `plan/01-overview-architecture.md` - System architecture
+- `plan/02-core-data-structures.md` - Data structures
+- `plan/03-parsing-pipeline.md` - Parsing pipeline
+- `plan/04-query-system.md` - Query system
+- `plan/viewer/` - Viewer-specific plans
