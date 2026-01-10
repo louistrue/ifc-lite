@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IFC-Lite Feasibility Spikes</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    h1 {
+      color: #333;
+    }
+    .spike-container {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .spike-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+    .spike-title {
+      font-size: 1.2em;
+      font-weight: bold;
+      color: #333;
+    }
+    .status {
+      padding: 4px 12px;
+      border-radius: 4px;
+      font-size: 0.9em;
+      font-weight: bold;
+    }
+    .status.pending {
+      background: #e0e0e0;
+      color: #666;
+    }
+    .status.running {
+      background: #2196F3;
+      color: white;
+    }
+    .status.pass {
+      background: #4CAF50;
+      color: white;
+    }
+    .status.fail {
+      background: #f44336;
+      color: white;
+    }
+    .results {
+      margin-top: 10px;
+    }
+    .metric {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #eee;
+    }
+    .metric-label {
+      color: #666;
+    }
+    .metric-value {
+      font-weight: bold;
+      color: #333;
+    }
+    button {
+      background: #2196F3;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 1em;
+      margin-right: 10px;
+    }
+    button:hover {
+      background: #1976D2;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .file-input {
+      margin: 10px 0;
+    }
+    .file-input label {
+      display: block;
+      margin-bottom: 5px;
+      color: #666;
+    }
+    .file-input input[type="file"] {
+      padding: 5px;
+    }
+  </style>
+</head>
+<body>
+  <h1>IFC-Lite Feasibility Spikes</h1>
+  
+  <div style="margin-bottom: 20px;">
+    <button id="runAll">Run All Spikes</button>
+    <button id="runSpike1">Run Spike 1 (Parsing)</button>
+    <button id="runSpike2">Run Spike 2 (Triangulation)</button>
+    <button id="runSpike3">Run Spike 3 (WebGPU)</button>
+    <button id="runSpike4">Run Spike 4 (Query)</button>
+  </div>
+
+  <div class="file-input">
+    <label for="ifcFile">IFC File (for Spikes 1 & 2):</label>
+    <input type="file" id="ifcFile" accept=".ifc" />
+  </div>
+
+  <div id="spike1" class="spike-container">
+    <div class="spike-header">
+      <div class="spike-title">Spike 1: Parsing Speed</div>
+      <div class="status pending" id="spike1-status">Pending</div>
+    </div>
+    <div class="results" id="spike1-results"></div>
+  </div>
+
+  <div id="spike2" class="spike-container">
+    <div class="spike-header">
+      <div class="spike-title">Spike 2: Triangulation Coverage</div>
+      <div class="status pending" id="spike2-status">Pending</div>
+    </div>
+    <div class="results" id="spike2-results"></div>
+  </div>
+
+  <div id="spike3" class="spike-container">
+    <div class="spike-header">
+      <div class="spike-title">Spike 3: WebGPU Triangle Throughput</div>
+      <div class="status pending" id="spike3-status">Pending</div>
+    </div>
+    <div class="results" id="spike3-results"></div>
+  </div>
+
+  <div id="spike4" class="spike-container">
+    <div class="spike-header">
+      <div class="spike-title">Spike 4: Columnar Query Speed</div>
+      <div class="status pending" id="spike4-status">Pending</div>
+    </div>
+    <div class="results" id="spike4-results"></div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

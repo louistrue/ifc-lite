@@ -1,0 +1,101 @@
+/**
+ * @ifc-lite/parser - Main parser interface
+ */
+
+export { StepTokenizer } from './tokenizer.js';
+export { EntityIndexBuilder } from './entity-index.js';
+export { EntityExtractor } from './entity-extractor.js';
+export { PropertyExtractor } from './property-extractor.js';
+export { RelationshipExtractor } from './relationship-extractor.js';
+export * from './types.js';
+
+import type { ParseResult, EntityRef } from './types.js';
+import { StepTokenizer } from './tokenizer.js';
+import { EntityIndexBuilder } from './entity-index.js';
+import { EntityExtractor } from './entity-extractor.js';
+import { PropertyExtractor } from './property-extractor.js';
+import { RelationshipExtractor } from './relationship-extractor.js';
+
+export interface ParseOptions {
+  onProgress?: (progress: { phase: string; percent: number }) => void;
+}
+
+/**
+ * Main parser class
+ */
+export class IfcParser {
+  /**
+   * Parse IFC file into structured data
+   */
+  async parse(buffer: ArrayBuffer, options: ParseOptions = {}): Promise<ParseResult> {
+    const uint8Buffer = new Uint8Array(buffer);
+
+    // Phase 1: Scan for entities
+    options.onProgress?.({ phase: 'scan', percent: 0 });
+    const tokenizer = new StepTokenizer(uint8Buffer);
+    const indexBuilder = new EntityIndexBuilder();
+
+    let scanned = 0;
+    const entityRefs: EntityRef[] = [];
+
+    for (const ref of tokenizer.scanEntities()) {
+      indexBuilder.addEntity({
+        expressId: ref.expressId,
+        type: ref.type,
+        byteOffset: ref.offset,
+        byteLength: ref.length,
+        lineNumber: ref.line,
+      });
+      entityRefs.push({
+        expressId: ref.expressId,
+        type: ref.type,
+        byteOffset: ref.offset,
+        byteLength: ref.length,
+        lineNumber: ref.line,
+      });
+      scanned++;
+    }
+
+    const entityIndex = indexBuilder.build();
+    options.onProgress?.({ phase: 'scan', percent: 100 });
+
+    // Phase 2: Extract entities
+    options.onProgress?.({ phase: 'extract', percent: 0 });
+    const extractor = new EntityExtractor(uint8Buffer);
+    const entities = new Map<number, any>();
+
+    for (let i = 0; i < entityRefs.length; i++) {
+      const ref = entityRefs[i];
+      const entity = extractor.extractEntity(ref);
+      if (entity) {
+        entities.set(ref.expressId, entity);
+      }
+      if ((i + 1) % 1000 === 0) {
+        options.onProgress?.({ phase: 'extract', percent: ((i + 1) / entityRefs.length) * 100 });
+      }
+    }
+
+    options.onProgress?.({ phase: 'extract', percent: 100 });
+
+    // Phase 3: Extract properties
+    options.onProgress?.({ phase: 'properties', percent: 0 });
+    const propertyExtractor = new PropertyExtractor(entities);
+    const propertySets = propertyExtractor.extractPropertySets();
+    options.onProgress?.({ phase: 'properties', percent: 100 });
+
+    // Phase 4: Extract relationships
+    options.onProgress?.({ phase: 'relationships', percent: 0 });
+    const relationshipExtractor = new RelationshipExtractor(entities);
+    const relationships = relationshipExtractor.extractRelationships();
+    options.onProgress?.({ phase: 'relationships', percent: 100 });
+
+    return {
+      entities,
+      propertySets,
+      relationships,
+      entityIndex,
+      fileSize: buffer.byteLength,
+      entityCount: entities.size,
+    };
+  }
+}
