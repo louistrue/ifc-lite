@@ -41,7 +41,7 @@ export async function debugProperties(filePath: string): Promise<DebugResult> {
 
     console.log('⏳ Parsing IFC file...');
     const startTime = performance.now();
-    const parseResult = await parser.parse(buffer, {
+    const parseResult = await parser.parse(buffer.buffer as ArrayBuffer, {
         onProgress: (progress: { phase: string; percent: number }) => {
             if (progress.phase === 'scan' && progress.percent === 100) {
                 console.log(`✓ Indexed entities`);

@@ -7,11 +7,13 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "debug-properties": "tsx src/debug-properties.ts"
+    "debug-properties": "tsx src/debug-properties.ts",
+    "debug-geometry": "tsx src/debug-geometry.ts"
   },
   "dependencies": {
     "web-ifc": "^0.0.57",
-    "@ifc-lite/parser": "workspace:*"
+    "@ifc-lite/parser": "workspace:*",
+    "@ifc-lite/geometry": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.21.0",

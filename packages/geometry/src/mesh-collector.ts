@@ -48,15 +48,18 @@ export class MeshCollector {
                 const placed = flatMesh.geometries.get(j);
                 try {
                     const meshGeom = this.ifcApi.GetGeometry(this.modelID, placed.geometryExpressID);
-                    const vertexSize = meshGeom.GetVertexDataSize();
+                    // GetVertexDataSize() returns TOTAL FLOATS (not vertex count)
+                    // Format: [x,y,z,nx,ny,nz, x,y,z,nx,ny,nz, ...] = 6 floats per vertex
+                    const totalFloats = meshGeom.GetVertexDataSize();
                     const indexSize = meshGeom.GetIndexDataSize();
+                    const vertexCount = totalFloats / 6; // Actual vertex count
 
                     // Log first few for debugging
                     if (i < 3 && j < 2) {
-                        console.log(`[MeshCollector] Geom ${i}.${j}: vertexSize=${vertexSize}, indexSize=${indexSize}`);
+                        console.log(`[MeshCollector] Geom ${i}.${j}: totalFloats=${totalFloats}, vertexCount=${vertexCount}, indexSize=${indexSize}`);
                     }
 
-                    if (vertexSize > 0 && indexSize > 0) {
+                    if (totalFloats > 0 && indexSize > 0) {
                         // GetVertexData() returns a pointer (number) to WASM heap memory
                         // We need to read from the WASM heap using the pointer
                         const vertexPtr = meshGeom.GetVertexData();
@@ -73,9 +76,7 @@ export class MeshCollector {
                         }
 
                         // Calculate byte offsets (pointers are byte offsets)
-                        // vertexSize is number of vertices, each has 6 floats (x,y,z,nx,ny,nz)
-                        const floatsPerVertex = 6;
-                        const vertexFloatCount = vertexSize * floatsPerVertex;
+                        // totalFloats is the total number of floats in the buffer
                         const vertexByteOffset = vertexPtr / 4; // Float32 is 4 bytes
                         const indexByteOffset = indexPtr / 4;   // Uint32 is 4 bytes
 
@@ -83,7 +84,7 @@ export class MeshCollector {
                         const vertexData = new Float32Array(
                             wasmModule.HEAPF32.buffer,
                             vertexByteOffset * 4,
-                            vertexFloatCount
+                            totalFloats
                         ).slice(); // slice() creates a copy
 
                         const indexData = new Uint32Array(
@@ -124,7 +125,7 @@ export class MeshCollector {
                                 Number.isFinite(m[15]);
 
                             // Extract positions and normals, applying transformation
-                            for (let k = 0; k < vertexSize; k++) {
+                            for (let k = 0; k < vertexCount; k++) {
                                 const base = k * 6;
                                 if (base + 5 < vertexData.length) {
                                     // Local coordinates
@@ -138,28 +139,33 @@ export class MeshCollector {
                                     if (hasValidTransform && m) {
                                         // Transform position: worldPos = matrix * localPos
                                         // Column-major matrix: m[0-3] = col0, m[4-7] = col1, m[8-11] = col2, m[12-15] = col3
-                                        positions.push(
-                                            m[0] * x + m[4] * y + m[8] * z + m[12],
-                                            m[1] * x + m[5] * y + m[9] * z + m[13],
-                                            m[2] * x + m[6] * y + m[10] * z + m[14]
-                                        );
+                                        const transformedX = m[0] * x + m[4] * y + m[8] * z + m[12];
+                                        const transformedY = m[1] * x + m[5] * y + m[9] * z + m[13];
+                                        const transformedZ = m[2] * x + m[6] * y + m[10] * z + m[14];
 
-                                        // Transform normal (rotation only, no translation)
-                                        // Use upper-left 3x3 rotation part of matrix
+                                        // web-ifc outputs Y-up coordinates, matching WebGL convention
+                                        positions.push(transformedX, transformedY, transformedZ);
+
+                                        // Transform normal (rotation only, using upper-left 3x3 of matrix)
                                         const tnx = m[0] * nx + m[4] * ny + m[8] * nz;
                                         const tny = m[1] * nx + m[5] * ny + m[9] * nz;
                                         const tnz = m[2] * nx + m[6] * ny + m[10] * nz;
 
+                                        const finalNX = tnx;
+                                        const finalNY = tny;
+                                        const finalNZ = tnz;
+
                                         // Renormalize (handles non-uniform scaling)
-                                        const len = Math.sqrt(tnx * tnx + tny * tny + tnz * tnz);
+                                        const len = Math.sqrt(finalNX * finalNX + finalNY * finalNY + finalNZ * finalNZ);
                                         if (len > 1e-10) {
-                                            normals.push(tnx / len, tny / len, tnz / len);
+                                            normals.push(finalNX / len, finalNY / len, finalNZ / len);
                                         } else {
                                             // Fallback if normal becomes zero (shouldn't happen)
-                                            normals.push(nx, ny, nz);
+                                            normals.push(finalNX, finalNY, finalNZ);
                                         }
                                     } else {
-                                        // Use identity transformation (copy raw positions/normals)
+                                        // No transformation matrix - use raw coordinates
+                                        // web-ifc already outputs Y-up coordinates
                                         positions.push(x, y, z);
                                         normals.push(nx, ny, nz);
                                     }
@@ -171,7 +177,7 @@ export class MeshCollector {
                                 for (let k = 0; k < indexData.length; k++) {
                                     indices.push(indexData[k] + indexOffset);
                                 }
-                                indexOffset += vertexSize;
+                                indexOffset += vertexCount;
                             }
                             successCount++;
                         } else {

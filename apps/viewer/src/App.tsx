@@ -22,7 +22,10 @@ export function App() {
       <Toolbar />
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <div style={{ flex: 1, position: 'relative' }}>
-          <Viewport geometry={geometryResult?.meshes || null} />
+          <Viewport 
+            geometry={geometryResult?.meshes || null}
+            coordinateInfo={geometryResult?.coordinateInfo}
+          />
         </div>
         <div
           style={{

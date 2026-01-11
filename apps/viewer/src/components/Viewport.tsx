@@ -2,22 +2,55 @@
  * 3D viewport component
  */
 
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { Renderer } from '@ifc-lite/renderer';
-import { MathUtils } from '@ifc-lite/renderer';
-import type { MeshData } from '@ifc-lite/geometry';
+import { useEffect, useRef, useState } from 'react';
+import { Renderer, MathUtils } from '@ifc-lite/renderer';
+import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 import { useViewerStore } from '../store.js';
 
 interface ViewportProps {
     geometry: MeshData[] | null;
+    coordinateInfo?: CoordinateInfo;
 }
 
-export function Viewport({ geometry }: ViewportProps) {
+export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const rendererRef = useRef<Renderer | null>(null);
     const [isInitialized, setIsInitialized] = useState(false);
     const selectedEntityId = useViewerStore((state) => state.selectedEntityId);
     const setSelectedEntityId = useViewerStore((state) => state.setSelectedEntityId);
+
+    // Animation frame ref
+    const animationFrameRef = useRef<number | null>(null);
+    const lastFrameTimeRef = useRef<number>(0);
+
+    // Mouse state
+    const mouseStateRef = useRef({
+        isDragging: false,
+        isPanning: false,
+        lastX: 0,
+        lastY: 0,
+        button: 0, // 0 = left, 1 = middle, 2 = right
+    });
+
+    // Touch state
+    const touchStateRef = useRef({
+        touches: [] as Touch[],
+        lastDistance: 0,
+        lastCenter: { x: 0, y: 0 },
+    });
+
+    // Double-click detection
+    const lastClickTimeRef = useRef<number>(0);
+    const lastClickPosRef = useRef<{ x: number; y: number } | null>(null);
+
+    // Keyboard handlers refs
+    const keyboardHandlersRef = useRef<{
+        handleKeyDown: ((e: KeyboardEvent) => void) | null;
+        handleKeyUp: ((e: KeyboardEvent) => void) | null;
+    }>({ handleKeyDown: null, handleKeyUp: null });
+
+    // First-person mode state
+    const firstPersonModeRef = useRef<boolean>(false);
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -45,47 +78,323 @@ export function Viewport({ geometry }: ViewportProps) {
             console.log('[Viewport] Renderer initialized');
             setIsInitialized(true);
 
-            // Setup mouse controls
-            let isDragging = false;
-            let lastX = 0;
-            let lastY = 0;
+            const camera = renderer.getCamera();
+            const mouseState = mouseStateRef.current;
+            const touchState = touchStateRef.current;
 
+            // Animation loop for camera inertia
+            const animate = (currentTime: number) => {
+                if (aborted) return;
+
+                const deltaTime = currentTime - lastFrameTimeRef.current;
+                lastFrameTimeRef.current = currentTime;
+
+                const isAnimating = camera.update(deltaTime);
+                if (isAnimating) {
+                    renderer.render();
+                }
+
+                animationFrameRef.current = requestAnimationFrame(animate);
+            };
+            lastFrameTimeRef.current = performance.now();
+            animationFrameRef.current = requestAnimationFrame(animate);
+
+            // Mouse controls
             canvas.addEventListener('mousedown', (e) => {
-                isDragging = true;
-                lastX = e.clientX;
-                lastY = e.clientY;
+                e.preventDefault();
+                mouseState.isDragging = true;
+                mouseState.isPanning = e.button === 1 || e.button === 2 || e.shiftKey;
+                mouseState.button = e.button;
+                mouseState.lastX = e.clientX;
+                mouseState.lastY = e.clientY;
+                canvas.style.cursor = mouseState.isPanning ? 'move' : 'grab';
             });
 
             canvas.addEventListener('mousemove', (e) => {
-                if (isDragging) {
-                    const dx = e.clientX - lastX;
-                    const dy = e.clientY - lastY;
-                    renderer.getCamera().orbit(dx, dy);
-                    lastX = e.clientX;
-                    lastY = e.clientY;
+                if (mouseState.isDragging) {
+                    const dx = e.clientX - mouseState.lastX;
+                    const dy = e.clientY - mouseState.lastY;
+
+                    if (mouseState.isPanning) {
+                        camera.pan(dx, dy, false);
+                    } else {
+                        camera.orbit(dx, dy, false);
+                    }
+
+                    mouseState.lastX = e.clientX;
+                    mouseState.lastY = e.clientY;
                     renderer.render();
                 }
             });
 
             canvas.addEventListener('mouseup', () => {
-                isDragging = false;
+                mouseState.isDragging = false;
+                mouseState.isPanning = false;
+                canvas.style.cursor = 'default';
             });
 
+            canvas.addEventListener('mouseleave', () => {
+                mouseState.isDragging = false;
+                mouseState.isPanning = false;
+                camera.stopInertia();
+                canvas.style.cursor = 'default';
+            });
+
+            // Prevent context menu on right-click
+            canvas.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+            });
+
+            // Wheel zoom - zoom towards mouse position
             canvas.addEventListener('wheel', (e) => {
                 e.preventDefault();
-                renderer.getCamera().zoom(e.deltaY);
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                camera.zoom(e.deltaY, false, mouseX, mouseY, canvas.width, canvas.height);
                 renderer.render();
             });
 
+            // Click and double-click
             canvas.addEventListener('click', async (e) => {
                 const rect = canvas.getBoundingClientRect();
                 const x = e.clientX - rect.left;
                 const y = e.clientY - rect.top;
-                console.log('[Viewport] Click at:', { x, y });
-                const pickedId = await renderer.pick(x, y);
-                console.log('[Viewport] Picked expressId:', pickedId);
-                setSelectedEntityId(pickedId);
+
+                const now = Date.now();
+                const timeSinceLastClick = now - lastClickTimeRef.current;
+                const clickPos = { x, y };
+
+                // Check for double-click
+                if (lastClickPosRef.current &&
+                    timeSinceLastClick < 300 &&
+                    Math.abs(clickPos.x - lastClickPosRef.current.x) < 5 &&
+                    Math.abs(clickPos.y - lastClickPosRef.current.y) < 5) {
+                    // Double-click: zoom to fit selected element
+                    const pickedId = await renderer.pick(x, y);
+                    if (pickedId) {
+                        setSelectedEntityId(pickedId);
+                        // Find bounds of selected element (simplified - would need scene bounds)
+                        const meshes = renderer.getScene().getMeshes();
+                        const selectedMesh = meshes.find(m => m.expressId === pickedId);
+                        if (selectedMesh) {
+                            // For now, just zoom to current bounds
+                            // In production, would calculate element bounds
+                            const bounds = {
+                                min: { x: -10, y: -10, z: -10 },
+                                max: { x: 10, y: 10, z: 10 },
+                            };
+                            camera.zoomToFit(bounds.min, bounds.max, 500);
+                        }
+                    }
+                    lastClickTimeRef.current = 0;
+                    lastClickPosRef.current = null;
+                } else {
+                    // Single click: pick element
+                    console.log('[Viewport] Click at:', { x, y });
+                    const pickedId = await renderer.pick(x, y);
+                    console.log('[Viewport] Picked expressId:', pickedId);
+                    setSelectedEntityId(pickedId);
+                    lastClickTimeRef.current = now;
+                    lastClickPosRef.current = clickPos;
+                }
             });
+
+            // Touch controls
+            canvas.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                touchState.touches = Array.from(e.touches);
+
+                if (touchState.touches.length === 1) {
+                    touchState.lastCenter = {
+                        x: touchState.touches[0].clientX,
+                        y: touchState.touches[0].clientY,
+                    };
+                } else if (touchState.touches.length === 2) {
+                    const dx = touchState.touches[1].clientX - touchState.touches[0].clientX;
+                    const dy = touchState.touches[1].clientY - touchState.touches[0].clientY;
+                    touchState.lastDistance = Math.sqrt(dx * dx + dy * dy);
+                    touchState.lastCenter = {
+                        x: (touchState.touches[0].clientX + touchState.touches[1].clientX) / 2,
+                        y: (touchState.touches[0].clientY + touchState.touches[1].clientY) / 2,
+                    };
+                }
+            });
+
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                touchState.touches = Array.from(e.touches);
+
+                if (touchState.touches.length === 1) {
+                    // Single finger: orbit
+                    const dx = touchState.touches[0].clientX - touchState.lastCenter.x;
+                    const dy = touchState.touches[0].clientY - touchState.lastCenter.y;
+                    camera.orbit(dx, dy, false);
+                    touchState.lastCenter = {
+                        x: touchState.touches[0].clientX,
+                        y: touchState.touches[0].clientY,
+                    };
+                    renderer.render();
+                } else if (touchState.touches.length === 2) {
+                    // Two fingers: pan and zoom
+                    const dx1 = touchState.touches[1].clientX - touchState.touches[0].clientX;
+                    const dy1 = touchState.touches[1].clientY - touchState.touches[0].clientY;
+                    const distance = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+
+                    // Pan
+                    const centerX = (touchState.touches[0].clientX + touchState.touches[1].clientX) / 2;
+                    const centerY = (touchState.touches[0].clientY + touchState.touches[1].clientY) / 2;
+                    const panDx = centerX - touchState.lastCenter.x;
+                    const panDy = centerY - touchState.lastCenter.y;
+                    camera.pan(panDx, panDy, false);
+
+                    // Zoom (pinch) towards center of pinch gesture
+                    const zoomDelta = distance - touchState.lastDistance;
+                    const rect = canvas.getBoundingClientRect();
+                    camera.zoom(zoomDelta * 10, false, centerX - rect.left, centerY - rect.top, canvas.width, canvas.height);
+
+                    touchState.lastDistance = distance;
+                    touchState.lastCenter = { x: centerX, y: centerY };
+                    renderer.render();
+                }
+            });
+
+            canvas.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                touchState.touches = Array.from(e.touches);
+                if (touchState.touches.length === 0) {
+                    camera.stopInertia();
+                }
+            });
+
+            // Keyboard controls
+            const keyState: { [key: string]: boolean } = {};
+
+            const handleKeyDown = (e: KeyboardEvent) => {
+                // Only handle if canvas is focused or no input is focused
+                if (document.activeElement?.tagName === 'INPUT' ||
+                    document.activeElement?.tagName === 'TEXTAREA') {
+                    return;
+                }
+
+                keyState[e.key.toLowerCase()] = true;
+
+                // Preset views
+                if (e.key === '1') camera.setPresetView('top');
+                if (e.key === '2') camera.setPresetView('bottom');
+                if (e.key === '3') camera.setPresetView('front');
+                if (e.key === '4') camera.setPresetView('back');
+                if (e.key === '5') camera.setPresetView('left');
+                if (e.key === '6') camera.setPresetView('right');
+
+                // Frame selection
+                if (e.key === 'f' || e.key === 'F') {
+                    if (selectedEntityId) {
+                        const bounds = {
+                            min: { x: -10, y: -10, z: -10 },
+                            max: { x: 10, y: 10, z: 10 },
+                        };
+                        camera.zoomToFit(bounds.min, bounds.max, 500);
+                    }
+                }
+
+                // Home view (reset)
+                if (e.key === 'h' || e.key === 'H') {
+                    const bounds = {
+                        min: { x: -100, y: -100, z: -100 },
+                        max: { x: 100, y: 100, z: 100 },
+                    };
+                    camera.zoomToFit(bounds.min, bounds.max, 500);
+                }
+
+                // Toggle first-person mode
+                if (e.key === 'c' || e.key === 'C') {
+                    firstPersonModeRef.current = !firstPersonModeRef.current;
+                    camera.enableFirstPersonMode(firstPersonModeRef.current);
+                    console.log('[Viewport] First-person mode:', firstPersonModeRef.current ? 'enabled' : 'disabled');
+                }
+            };
+
+            const handleKeyUp = (e: KeyboardEvent) => {
+                keyState[e.key.toLowerCase()] = false;
+            };
+
+            // Store handlers in ref for cleanup
+            keyboardHandlersRef.current.handleKeyDown = handleKeyDown;
+            keyboardHandlersRef.current.handleKeyUp = handleKeyUp;
+
+            // Continuous keyboard movement
+            const keyboardMove = () => {
+                if (aborted) return;
+
+                let moved = false;
+                const panSpeed = 5;
+                const zoomSpeed = 0.1;
+
+                if (firstPersonModeRef.current) {
+                    // First-person movement
+                    if (keyState['w'] || keyState['arrowup']) {
+                        camera.moveFirstPerson(1, 0, 0);
+                        moved = true;
+                    }
+                    if (keyState['s'] || keyState['arrowdown']) {
+                        camera.moveFirstPerson(-1, 0, 0);
+                        moved = true;
+                    }
+                    if (keyState['a'] || keyState['arrowleft']) {
+                        camera.moveFirstPerson(0, -1, 0);
+                        moved = true;
+                    }
+                    if (keyState['d'] || keyState['arrowright']) {
+                        camera.moveFirstPerson(0, 1, 0);
+                        moved = true;
+                    }
+                    if (keyState['q']) {
+                        camera.moveFirstPerson(0, 0, -1);
+                        moved = true;
+                    }
+                    if (keyState['e']) {
+                        camera.moveFirstPerson(0, 0, 1);
+                        moved = true;
+                    }
+                } else {
+                    // Orbit mode movement
+                    if (keyState['w'] || keyState['arrowup']) {
+                        camera.pan(0, panSpeed, false);
+                        moved = true;
+                    }
+                    if (keyState['s'] || keyState['arrowdown']) {
+                        camera.pan(0, -panSpeed, false);
+                        moved = true;
+                    }
+                    if (keyState['a'] || keyState['arrowleft']) {
+                        camera.pan(-panSpeed, 0, false);
+                        moved = true;
+                    }
+                    if (keyState['d'] || keyState['arrowright']) {
+                        camera.pan(panSpeed, 0, false);
+                        moved = true;
+                    }
+                    if (keyState['q']) {
+                        camera.zoom(-zoomSpeed * 100, false);
+                        moved = true;
+                    }
+                    if (keyState['e']) {
+                        camera.zoom(zoomSpeed * 100, false);
+                        moved = true;
+                    }
+                }
+
+                if (moved) {
+                    renderer.render();
+                }
+
+                requestAnimationFrame(keyboardMove);
+            };
+
+            window.addEventListener('keydown', handleKeyDown);
+            window.addEventListener('keyup', handleKeyUp);
+            keyboardMove();
 
             // Handle resize
             resizeObserver = new ResizeObserver(() => {
@@ -103,8 +412,17 @@ export function Viewport({ geometry }: ViewportProps) {
 
         return () => {
             aborted = true;
+            if (animationFrameRef.current !== null) {
+                cancelAnimationFrame(animationFrameRef.current);
+            }
             if (resizeObserver) {
                 resizeObserver.disconnect();
+            }
+            if (keyboardHandlersRef.current.handleKeyDown) {
+                window.removeEventListener('keydown', keyboardHandlersRef.current.handleKeyDown);
+            }
+            if (keyboardHandlersRef.current.handleKeyUp) {
+                window.removeEventListener('keyup', keyboardHandlersRef.current.handleKeyUp);
             }
             setIsInitialized(false);
             rendererRef.current = null;
@@ -133,27 +451,11 @@ export function Viewport({ geometry }: ViewportProps) {
         const scene = renderer.getScene();
         scene.clear();
 
-        // Calculate bounds from mesh data
-        const bounds = {
-            min: { x: Infinity, y: Infinity, z: Infinity },
-            max: { x: -Infinity, y: -Infinity, z: -Infinity },
-        };
-
-
         // Create GPU buffers for each mesh
+        // Note: Coordinates have already been shifted to origin by CoordinateHandler
+        // if large coordinates were detected. Use shifted bounds from coordinateInfo.
         for (const meshData of geometry) {
-            // Update bounds from positions
-            for (let i = 0; i < meshData.positions.length; i += 3) {
-                const x = meshData.positions[i];
-                const y = meshData.positions[i + 1];
-                const z = meshData.positions[i + 2];
-                bounds.min.x = Math.min(bounds.min.x, x);
-                bounds.min.y = Math.min(bounds.min.y, y);
-                bounds.min.z = Math.min(bounds.min.z, z);
-                bounds.max.x = Math.max(bounds.max.x, x);
-                bounds.max.y = Math.max(bounds.max.y, y);
-                bounds.max.z = Math.max(bounds.max.z, z);
-            }
+            // No need to calculate bounds here - use coordinateInfo.shiftedBounds
 
             // Build interleaved buffer
             const vertexCount = meshData.positions.length / 3;
@@ -192,19 +494,57 @@ export function Viewport({ geometry }: ViewportProps) {
             });
         }
 
-        console.log('[Viewport] Bounds:', bounds);
         console.log('[Viewport] Meshes added:', scene.getMeshes().length);
 
-        // Fit camera to calculated bounds (only if we have valid finite bounds)
-        const hasValidBounds =
-            Number.isFinite(bounds.min.x) && Number.isFinite(bounds.max.x) &&
-            Number.isFinite(bounds.min.y) && Number.isFinite(bounds.max.y) &&
-            Number.isFinite(bounds.min.z) && Number.isFinite(bounds.max.z);
-
-        if (hasValidBounds) {
-            renderer.getCamera().fitToBounds(bounds.min, bounds.max);
+        // Use shifted bounds from coordinate handler if available
+        // Positions have already been shifted to origin if large coordinates were detected
+        if (coordinateInfo && coordinateInfo.shiftedBounds) {
+            const shiftedBounds = coordinateInfo.shiftedBounds;
+            console.log('[Viewport] Using coordinateInfo shifted bounds:', {
+                shiftedBounds,
+                isGeoReferenced: coordinateInfo.isGeoReferenced,
+                originShift: coordinateInfo.originShift,
+            });
+            renderer.getCamera().fitToBounds(shiftedBounds.min, shiftedBounds.max);
         } else {
-            console.warn('[Viewport] Invalid bounds, using default camera position');
+            // Fallback: calculate bounds from positions (shouldn't happen if coordinate handler worked)
+            console.warn('[Viewport] No coordinateInfo, calculating bounds from positions');
+            const fallbackBounds = {
+                min: { x: Infinity, y: Infinity, z: Infinity },
+                max: { x: -Infinity, y: -Infinity, z: -Infinity },
+            };
+
+            for (const meshData of geometry) {
+                const positions = meshData.positions;
+                for (let i = 0; i < positions.length; i += 3) {
+                    const x = positions[i];
+                    const y = positions[i + 1];
+                    const z = positions[i + 2];
+                    if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+                        fallbackBounds.min.x = Math.min(fallbackBounds.min.x, x);
+                        fallbackBounds.min.y = Math.min(fallbackBounds.min.y, y);
+                        fallbackBounds.min.z = Math.min(fallbackBounds.min.z, z);
+                        fallbackBounds.max.x = Math.max(fallbackBounds.max.x, x);
+                        fallbackBounds.max.y = Math.max(fallbackBounds.max.y, y);
+                        fallbackBounds.max.z = Math.max(fallbackBounds.max.z, z);
+                    }
+                }
+            }
+
+            const hasValidBounds =
+                fallbackBounds.min.x !== Infinity && fallbackBounds.max.x !== -Infinity &&
+                fallbackBounds.min.y !== Infinity && fallbackBounds.max.y !== -Infinity &&
+                fallbackBounds.min.z !== Infinity && fallbackBounds.max.z !== -Infinity;
+
+            if (hasValidBounds) {
+                renderer.getCamera().fitToBounds(fallbackBounds.min, fallbackBounds.max);
+            } else {
+                console.warn('[Viewport] Invalid bounds, using scene bounds fallback');
+                const sceneBounds = renderer.getScene().getBounds();
+                if (sceneBounds) {
+                    renderer.getCamera().fitToBounds(sceneBounds.min, sceneBounds.max);
+                }
+            }
         }
         renderer.render();
     }, [geometry, isInitialized]);
