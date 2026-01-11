@@ -22,6 +22,13 @@ export interface Camera {
   far: number;
 }
 
+export interface Material {
+  baseColor: [number, number, number, number];
+  metallic: number;
+  roughness: number;
+  transparency?: number;
+}
+
 export interface Mesh {
   expressId: number;
   vertexBuffer: GPUBuffer;
@@ -29,6 +36,10 @@ export interface Mesh {
   indexCount: number;
   transform: Mat4;
   color: [number, number, number, number];
+  material?: Material;
+  // Per-mesh GPU resources for unique colors
+  uniformBuffer?: GPUBuffer;
+  bindGroup?: GPUBindGroup;
 }
 
 export interface RenderOptions {

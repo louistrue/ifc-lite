@@ -2,12 +2,11 @@
  * Hook for loading and processing IFC files
  */
 
-import { useEffect } from 'react';
+import { useMemo, useCallback, useRef } from 'react';
 import { useViewerStore } from '../store.js';
 import { IfcParser } from '@ifc-lite/parser';
 import { GeometryProcessor } from '@ifc-lite/geometry';
 import { EntityTable, PropertyTable, QueryInterface } from '@ifc-lite/query';
-import type { Relationship } from '@ifc-lite/parser';
 
 export function useIfc() {
   const {
@@ -23,7 +22,10 @@ export function useIfc() {
     setGeometryResult,
   } = useViewerStore();
 
-  const loadFile = async (file: File) => {
+  // Track if we've already logged for this parseResult
+  const lastLoggedParseResultRef = useRef<typeof parseResult>(null);
+
+  const loadFile = useCallback(async (file: File) => {
     try {
       setLoading(true);
       setError(null);
@@ -59,43 +61,50 @@ export function useIfc() {
       setError(err instanceof Error ? err.message : 'Unknown error');
       setLoading(false);
     }
-  };
+  }, [setLoading, setError, setProgress, setParseResult, setGeometryResult]);
 
-  const queryInterface = parseResult
-    ? (() => {
-        const propertyTable = new PropertyTable();
-        
-        // Add property sets
-        console.log('[useIfc] Property sets count:', parseResult.propertySets.size);
-        for (const [id, pset] of parseResult.propertySets) {
-          propertyTable.addPropertySet(id, pset);
+  // Memoize queryInterface to prevent recreation on every render
+  const queryInterface = useMemo(() => {
+    if (!parseResult) return null;
+
+    const propertyTable = new PropertyTable();
+
+    // Only log once per parseResult
+    const shouldLog = lastLoggedParseResultRef.current !== parseResult;
+    if (shouldLog) {
+      lastLoggedParseResultRef.current = parseResult;
+      console.log('[useIfc] Property sets count:', parseResult.propertySets.size);
+    }
+
+    // Add property sets
+    for (const [id, pset] of parseResult.propertySets) {
+      propertyTable.addPropertySet(id, pset);
+    }
+
+    // Associate property sets with entities via relationships
+    let associationCount = 0;
+    for (const rel of parseResult.relationships) {
+      if (rel.type.toUpperCase() === 'IFCRELDEFINESBYPROPERTIES' && rel.relatingObject !== null) {
+        const propertySetId = rel.relatingObject;
+        for (const entityId of rel.relatedObjects) {
+          propertyTable.associatePropertySet(entityId, propertySetId);
+          associationCount++;
         }
-        
-        // Associate property sets with entities via relationships
-        // IFC entity types may be uppercase or mixed case
-        const propRelationships = parseResult.relationships.filter(
-          rel => rel.type.toUpperCase() === 'IFCRELDEFINESBYPROPERTIES'
-        );
-        console.log('[useIfc] IfcRelDefinesByProperties count:', propRelationships.length);
-        
-        let associationCount = 0;
-        for (const rel of parseResult.relationships) {
-          if (rel.type.toUpperCase() === 'IFCRELDEFINESBYPROPERTIES' && rel.relatingObject !== null) {
-            const propertySetId = rel.relatingObject;
-            for (const entityId of rel.relatedObjects) {
-              propertyTable.associatePropertySet(entityId, propertySetId);
-              associationCount++;
-            }
-          }
-        }
-        console.log('[useIfc] Property associations created:', associationCount);
-        
-        return new QueryInterface(
-          new EntityTable(parseResult.entities, parseResult.entityIndex),
-          propertyTable
-        );
-      })()
-    : null;
+      }
+    }
+
+    if (shouldLog) {
+      console.log('[useIfc] IfcRelDefinesByProperties count:', parseResult.relationships.filter(
+        rel => rel.type.toUpperCase() === 'IFCRELDEFINESBYPROPERTIES'
+      ).length);
+      console.log('[useIfc] Property associations created:', associationCount);
+    }
+
+    return new QueryInterface(
+      new EntityTable(parseResult.entities, parseResult.entityIndex),
+      propertyTable
+    );
+  }, [parseResult]);
 
   return {
     loading,

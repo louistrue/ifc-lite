@@ -569,6 +569,10 @@ export class Camera {
     return this.viewProjMatrix;
   }
 
+  getPosition(): Vec3 {
+    return { ...this.camera.position };
+  }
+
   private updateMatrices(): void {
     this.viewMatrix = MathUtils.lookAt(
       this.camera.position,

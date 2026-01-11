@@ -11,5 +11,5 @@
       "@ifc-lite/query": ["../../packages/query/src"]
     }
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "../../packages/renderer/src/webgpu-types.d.ts"]
 }

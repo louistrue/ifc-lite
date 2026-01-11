@@ -7,7 +7,9 @@ export { EntityIndexBuilder } from './entity-index.js';
 export { EntityExtractor } from './entity-extractor.js';
 export { PropertyExtractor } from './property-extractor.js';
 export { RelationshipExtractor } from './relationship-extractor.js';
+export { StyleExtractor } from './style-extractor.js';
 export * from './types.js';
+export * from './style-extractor.js';
 export { getAttributeNames, getAttributeNameAt, isKnownType } from './ifc-schema.js';
 
 import type { ParseResult, EntityRef } from './types.js';

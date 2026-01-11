@@ -3,7 +3,6 @@
  */
 
 import type { Mesh } from './types.js';
-import { MathUtils } from './math.js';
 
 export class Scene {
   private meshes: Mesh[] = [];
@@ -29,6 +28,10 @@ export class Scene {
     for (const mesh of this.meshes) {
       mesh.vertexBuffer.destroy();
       mesh.indexBuffer.destroy();
+      // Destroy per-mesh uniform buffer if it exists
+      if (mesh.uniformBuffer) {
+        mesh.uniformBuffer.destroy();
+      }
     }
     this.meshes = [];
   }

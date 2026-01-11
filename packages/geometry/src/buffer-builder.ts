@@ -2,7 +2,13 @@
  * Buffer builder - creates GPU-ready interleaved vertex buffers
  */
 
-import type { MeshData, GeometryResult } from './types.js';
+import type { MeshData } from './types.js';
+
+export interface BufferResult {
+  meshes: MeshData[];
+  totalTriangles: number;
+  totalVertices: number;
+}
 
 export class BufferBuilder {
   /**
@@ -35,7 +41,7 @@ export class BufferBuilder {
   /**
    * Process all meshes and build GPU-ready buffers
    */
-  processMeshes(meshes: MeshData[]): GeometryResult {
+  processMeshes(meshes: MeshData[]): BufferResult {
     let totalTriangles = 0;
     let totalVertices = 0;
 

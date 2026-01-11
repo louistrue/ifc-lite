@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "debug-properties": "tsx src/debug-properties.ts",
-    "debug-geometry": "tsx src/debug-geometry.ts"
+    "debug-geometry": "tsx src/debug-geometry.ts",
+    "debug-colors": "tsx src/debug-colors.ts"
   },
   "dependencies": {
     "web-ifc": "^0.0.57",

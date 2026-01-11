@@ -10,5 +10,8 @@ declare module 'web-ifc' {
     CloseModel(modelID: number): void;
     LoadAllGeometry(modelID: number): any;
     GetGeometry(modelID: number, geometryExpressID: number): any;
+    GetLineType(modelID: number, expressID: number): string | number;
+    GetLine(modelID: number, expressID: number): any;
+    GetLineIDsWithType(modelID: number, type: string | number): { size(): number; get(index: number): number };
   }
 }

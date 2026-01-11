@@ -7,6 +7,7 @@ export { MeshCollector } from './mesh-collector.js';
 export { BufferBuilder } from './buffer-builder.js';
 export { CoordinateHandler } from './coordinate-handler.js';
 export * from './types.js';
+export * from './default-materials.js';
 
 import { WebIfcBridge } from './web-ifc-bridge.js';
 import { MeshCollector } from './mesh-collector.js';
@@ -46,12 +47,12 @@ export class GeometryProcessor {
     console.log('[Geometry] Opening model, buffer size:', buffer.length);
     const modelID = this.bridge.openModel(buffer);
     console.log('[Geometry] Model opened, ID:', modelID);
-    
+
     try {
       const collector = new MeshCollector(this.bridge.getApi(), modelID);
       const meshes = collector.collectMeshes();
       console.log('[Geometry] Collected meshes:', meshes.length);
-      
+
       if (meshes.length > 0) {
         console.log('[Geometry] First mesh:', {
           expressId: meshes[0].expressId,
@@ -60,13 +61,13 @@ export class GeometryProcessor {
           indices: meshes[0].indices.length,
         });
       }
-      
+
       // Handle large coordinates by shifting to origin
       const coordinateInfo = this.coordinateHandler.processMeshes(meshes);
-      
+
       // Build GPU-ready buffers
       const bufferResult = this.bufferBuilder.processMeshes(meshes);
-      
+
       // Combine results
       const result: GeometryResult = {
         meshes: bufferResult.meshes,
@@ -74,7 +75,7 @@ export class GeometryProcessor {
         totalVertices: bufferResult.totalVertices,
         coordinateInfo,
       };
-      
+
       console.log('[Geometry] Result:', {
         meshCount: result.meshes.length,
         totalTriangles: result.totalTriangles,
@@ -82,7 +83,7 @@ export class GeometryProcessor {
         isGeoReferenced: coordinateInfo.isGeoReferenced,
         originShift: coordinateInfo.originShift,
       });
-      
+
       return result;
     } finally {
       this.bridge.closeModel(modelID);

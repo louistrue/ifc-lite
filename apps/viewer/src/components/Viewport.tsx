@@ -56,6 +56,9 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         const canvas = canvasRef.current;
         if (!canvas) return;
 
+        // Reset initialized state at start of effect (important for HMR)
+        setIsInitialized(false);
+
         // Abort flag to prevent stale async operations from completing
         let aborted = false;
         let resizeObserver: ResizeObserver | null = null;
@@ -429,8 +432,17 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         };
     }, [setSelectedEntityId]);
 
+    // Track if geometry has been processed to avoid re-processing on HMR
+    const geometryProcessedRef = useRef<MeshData[] | null>(null);
+
     useEffect(() => {
         const renderer = rendererRef.current;
+        
+        // Skip if geometry is already processed (avoid re-processing on rapid re-renders)
+        if (geometry === geometryProcessedRef.current && renderer?.getScene().getMeshes().length > 0) {
+            return;
+        }
+
         console.log('[Viewport] Geometry effect:', {
             hasRenderer: !!renderer,
             hasGeometry: !!geometry,
@@ -448,6 +460,9 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         }
 
         console.log('[Viewport] Processing geometry:', geometry.length, 'meshes');
+        
+        // Mark geometry as processed
+        geometryProcessedRef.current = geometry;
         const scene = renderer.getScene();
         scene.clear();
 

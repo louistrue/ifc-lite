@@ -58,10 +58,66 @@ export class Renderer {
     }
 
     /**
-     * Add mesh to scene
+     * Add mesh to scene with per-mesh GPU resources for unique colors
      */
     addMesh(mesh: Mesh): void {
+        // Create per-mesh uniform buffer and bind group if not already created
+        if (!mesh.uniformBuffer && this.pipeline && this.device.isInitialized()) {
+            const device = this.device.getDevice();
+
+            // Create uniform buffer for this mesh
+            mesh.uniformBuffer = device.createBuffer({
+                size: this.pipeline.getUniformBufferSize(),
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            });
+
+            // Create bind group for this mesh
+            mesh.bindGroup = device.createBindGroup({
+                layout: this.pipeline.getBindGroupLayout(),
+                entries: [
+                    {
+                        binding: 0,
+                        resource: { buffer: mesh.uniformBuffer },
+                    },
+                ],
+            });
+        }
+
         this.scene.addMesh(mesh);
+    }
+
+    /**
+     * Ensure all meshes have GPU resources (call after adding meshes if pipeline wasn't ready)
+     */
+    ensureMeshResources(): void {
+        if (!this.pipeline || !this.device.isInitialized()) return;
+
+        const device = this.device.getDevice();
+        let created = 0;
+
+        for (const mesh of this.scene.getMeshes()) {
+            if (!mesh.uniformBuffer) {
+                mesh.uniformBuffer = device.createBuffer({
+                    size: this.pipeline.getUniformBufferSize(),
+                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+                });
+
+                mesh.bindGroup = device.createBindGroup({
+                    layout: this.pipeline.getBindGroupLayout(),
+                    entries: [
+                        {
+                            binding: 0,
+                            resource: { buffer: mesh.uniformBuffer },
+                        },
+                    ],
+                });
+                created++;
+            }
+        }
+
+        if (created > 0) {
+            console.log(`[Renderer] Created GPU resources for ${created} meshes`);
+        }
     }
 
     /**
@@ -80,12 +136,14 @@ export class Renderer {
             this.canvas.width = width;
             this.canvas.height = height;
             this.camera.setAspect(width / height);
+            // Force reconfigure when dimensions change
+            this.device.configureContext();
         }
 
         // Skip rendering if canvas is invalid
         if (this.canvas.width === 0 || this.canvas.height === 0) return;
 
-        // Reconfigure context if canvas was resized (required by WebGPU)
+        // Always check if reconfigure is needed (handles HMR and other edge cases)
         if (this.device.needsReconfigure()) {
             this.device.configureContext();
         }
@@ -94,6 +152,10 @@ export class Renderer {
         const device = this.device.getDevice();
 
         const viewProj = this.camera.getViewProjMatrix().m;
+
+        // Ensure all meshes have GPU resources (in case they were added before pipeline was ready)
+        this.ensureMeshResources();
+
         const meshes = this.scene.getMeshes();
 
         // Resize depth texture if needed
@@ -102,7 +164,6 @@ export class Renderer {
         }
 
         try {
-            const encoder = device.createCommandEncoder();
             const clearColor = options.clearColor
                 ? (Array.isArray(options.clearColor)
                     ? { r: options.clearColor[0], g: options.clearColor[1], b: options.clearColor[2], a: options.clearColor[3] }
@@ -113,6 +174,46 @@ export class Renderer {
             const currentTexture = context.getCurrentTexture();
             const textureView = currentTexture.createView();
 
+            // Separate meshes into opaque and transparent
+            const opaqueMeshes: typeof meshes = [];
+            const transparentMeshes: typeof meshes = [];
+
+            for (const mesh of meshes) {
+                const alpha = mesh.color[3];
+                const transparency = mesh.material?.transparency ?? 0.0;
+                const isTransparent = alpha < 0.99 || transparency > 0.01;
+
+                if (isTransparent) {
+                    transparentMeshes.push(mesh);
+                } else {
+                    opaqueMeshes.push(mesh);
+                }
+            }
+
+            // Sort transparent meshes back-to-front for proper blending
+            if (transparentMeshes.length > 0) {
+                transparentMeshes.sort((a, b) => {
+                    return b.expressId - a.expressId; // Back to front (simplified)
+                });
+            }
+
+            // Write uniform data to each mesh's buffer BEFORE recording commands
+            // This ensures each mesh has its own color data
+            const allMeshes = [...opaqueMeshes, ...transparentMeshes];
+            for (const mesh of allMeshes) {
+                if (mesh.uniformBuffer) {
+                    const buffer = new Float32Array(40);
+                    buffer.set(viewProj, 0);
+                    buffer.set(mesh.transform.m, 16);
+                    buffer.set(mesh.color, 32);
+                    buffer[36] = mesh.material?.metallic ?? 0.0;
+                    buffer[37] = mesh.material?.roughness ?? 0.6;
+                    device.queue.writeBuffer(mesh.uniformBuffer, 0, buffer);
+                }
+            }
+
+            // Now record draw commands
+            const encoder = device.createCommandEncoder();
             const pass = encoder.beginRenderPass({
                 colorAttachments: [
                     {
@@ -131,12 +232,26 @@ export class Renderer {
             });
 
             pass.setPipeline(this.pipeline.getPipeline());
-            pass.setBindGroup(0, this.pipeline.getBindGroup());
 
-            for (const mesh of meshes) {
-                const model = mesh.transform.m;
-                this.pipeline.updateUniforms(viewProj, model);
+            // Render opaque meshes with per-mesh bind groups
+            for (const mesh of opaqueMeshes) {
+                if (mesh.bindGroup) {
+                    pass.setBindGroup(0, mesh.bindGroup);
+                } else {
+                    pass.setBindGroup(0, this.pipeline.getBindGroup());
+                }
+                pass.setVertexBuffer(0, mesh.vertexBuffer);
+                pass.setIndexBuffer(mesh.indexBuffer, 'uint32');
+                pass.drawIndexed(mesh.indexCount, 1, 0, 0, 0);
+            }
 
+            // Render transparent meshes with per-mesh bind groups
+            for (const mesh of transparentMeshes) {
+                if (mesh.bindGroup) {
+                    pass.setBindGroup(0, mesh.bindGroup);
+                } else {
+                    pass.setBindGroup(0, this.pipeline.getBindGroup());
+                }
                 pass.setVertexBuffer(0, mesh.vertexBuffer);
                 pass.setIndexBuffer(mesh.indexBuffer, 'uint32');
                 pass.drawIndexed(mesh.indexCount, 1, 0, 0, 0);
