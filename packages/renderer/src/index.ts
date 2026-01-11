@@ -176,4 +176,21 @@ export class Renderer {
     getScene(): Scene {
         return this.scene;
     }
+
+    /**
+     * Check if renderer is fully initialized and ready to use
+     */
+    isReady(): boolean {
+        return this.device.isInitialized() && this.pipeline !== null;
+    }
+
+    /**
+     * Get the GPU device (returns null if not initialized)
+     */
+    getGPUDevice(): GPUDevice | null {
+        if (!this.device.isInitialized()) {
+            return null;
+        }
+        return this.device.getDevice();
+    }
 }

@@ -17,12 +17,23 @@ export class RelationshipExtractor {
   extractRelationships(): Relationship[] {
     const relationships: Relationship[] = [];
 
-    for (const [id, entity] of this.entities) {
+    // Debug: count relationship types found
+    const typeCounts = new Map<string, number>();
+
+    for (const [, entity] of this.entities) {
+      const typeUpper = entity.type.toUpperCase();
+      if (typeUpper.startsWith('IFCREL')) {
+        typeCounts.set(typeUpper, (typeCounts.get(typeUpper) || 0) + 1);
+      }
+      
       const rel = this.extractRelationship(entity);
       if (rel) {
         relationships.push(rel);
       }
     }
+
+    console.log('[RelationshipExtractor] Relationship type counts:', Object.fromEntries(typeCounts));
+    console.log('[RelationshipExtractor] Successfully extracted:', relationships.length);
 
     return relationships;
   }
@@ -31,32 +42,61 @@ export class RelationshipExtractor {
    * Extract relationship from entity
    */
   private extractRelationship(entity: IfcEntity): Relationship | null {
+    // IFC entity types may be uppercase or mixed case
+    const entityTypeUpper = entity.type.toUpperCase();
+    
     const relTypes = [
-      'IfcRelContainedInSpatialStructure',
-      'IfcRelAggregates',
-      'IfcRelDefinesByProperties',
-      'IfcRelDefinesByType',
-      'IfcRelAssociatesMaterial',
-      'IfcRelVoidsElement',
-      'IfcRelFillsElement',
+      'IFCRELCONTAINEDINSPATIALSTRUCTURE',
+      'IFCRELAGGREGATES',
+      'IFCRELDEFINESBYPROPERTIES',
+      'IFCRELDEFINESBYTYPE',
+      'IFCRELASSOCIATESMATERIAL',
+      'IFCRELVOIDSELEMENT',
+      'IFCRELFILLSELEMENT',
     ];
 
-    if (!relTypes.includes(entity.type)) {
+    if (!relTypes.includes(entityTypeUpper)) {
       return null;
     }
 
     try {
-      // Common structure: (GlobalId, OwnerHistory, Name, Description, RelatingObject, RelatedObjects)
-      const relatingObject = this.getAttributeValue(entity, 4);
-      const relatedObjects = this.getAttributeValue(entity, 5);
+      // IFC relationship attribute order varies by type:
+      // IfcRelDefinesByProperties: RelatedObjects (4), RelatingPropertyDefinition (5)
+      // IfcRelAggregates: RelatingObject (4), RelatedObjects (5)
+      // IfcRelContainedInSpatialStructure: RelatedElements (4), RelatingStructure (5)
+      
+      let relatingObject: any;
+      let relatedObjects: any;
 
-      if (relatingObject === null || !Array.isArray(relatedObjects)) {
+      if (entityTypeUpper === 'IFCRELDEFINESBYPROPERTIES') {
+        // RelatedObjects at 4, RelatingPropertyDefinition at 5
+        relatedObjects = this.getAttributeValue(entity, 4);
+        relatingObject = this.getAttributeValue(entity, 5);
+        
+        // Debug first few
+        if (entity.expressId < 1000) {
+          console.log('[RelExtract] IFCRELDEFINESBYPROPERTIES #' + entity.expressId, 
+            'attrs:', entity.attributes.length, 
+            'relatedObjs:', relatedObjects, 
+            'relatingObj:', relatingObject);
+        }
+      } else if (entityTypeUpper === 'IFCRELCONTAINEDINSPATIALSTRUCTURE') {
+        // RelatedElements at 4, RelatingStructure at 5
+        relatedObjects = this.getAttributeValue(entity, 4);
+        relatingObject = this.getAttributeValue(entity, 5);
+      } else {
+        // Standard: RelatingObject at 4, RelatedObjects at 5
+        relatingObject = this.getAttributeValue(entity, 4);
+        relatedObjects = this.getAttributeValue(entity, 5);
+      }
+
+      if (relatingObject === null || typeof relatingObject !== 'number' || !Array.isArray(relatedObjects)) {
         return null;
       }
 
       return {
         type: entity.type,
-        relatingObject: typeof relatingObject === 'number' ? relatingObject : null,
+        relatingObject: relatingObject,
         relatedObjects: relatedObjects.filter((id): id is number => typeof id === 'number'),
       };
     } catch (error) {

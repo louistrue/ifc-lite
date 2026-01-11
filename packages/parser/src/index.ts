@@ -8,6 +8,7 @@ export { EntityExtractor } from './entity-extractor.js';
 export { PropertyExtractor } from './property-extractor.js';
 export { RelationshipExtractor } from './relationship-extractor.js';
 export * from './types.js';
+export { getAttributeNames, getAttributeNameAt, isKnownType } from './ifc-schema.js';
 
 import type { ParseResult, EntityRef } from './types.js';
 import { StepTokenizer } from './tokenizer.js';

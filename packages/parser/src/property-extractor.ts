@@ -18,7 +18,8 @@ export class PropertyExtractor {
     const propertySets = new Map<number, PropertySet>();
 
     for (const [id, entity] of this.entities) {
-      if (entity.type === 'IfcPropertySet') {
+      // IFC entity types may be uppercase (IFCPROPERTYSET) or mixed case (IfcPropertySet)
+      if (entity.type.toUpperCase() === 'IFCPROPERTYSET') {
         const pset = this.extractPropertySet(entity);
         if (pset) {
           propertySets.set(id, pset);

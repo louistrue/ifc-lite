@@ -66,19 +66,29 @@ export function useIfc() {
         const propertyTable = new PropertyTable();
         
         // Add property sets
+        console.log('[useIfc] Property sets count:', parseResult.propertySets.size);
         for (const [id, pset] of parseResult.propertySets) {
           propertyTable.addPropertySet(id, pset);
         }
         
         // Associate property sets with entities via relationships
+        // IFC entity types may be uppercase or mixed case
+        const propRelationships = parseResult.relationships.filter(
+          rel => rel.type.toUpperCase() === 'IFCRELDEFINESBYPROPERTIES'
+        );
+        console.log('[useIfc] IfcRelDefinesByProperties count:', propRelationships.length);
+        
+        let associationCount = 0;
         for (const rel of parseResult.relationships) {
-          if (rel.type === 'IfcRelDefinesByProperties' && rel.relatingObject !== null) {
+          if (rel.type.toUpperCase() === 'IFCRELDEFINESBYPROPERTIES' && rel.relatingObject !== null) {
             const propertySetId = rel.relatingObject;
             for (const entityId of rel.relatedObjects) {
               propertyTable.associatePropertySet(entityId, propertySetId);
+              associationCount++;
             }
           }
         }
+        console.log('[useIfc] Property associations created:', associationCount);
         
         return new QueryInterface(
           new EntityTable(parseResult.entities, parseResult.entityIndex),

@@ -81,7 +81,9 @@ export function Viewport({ geometry }: ViewportProps) {
                 const rect = canvas.getBoundingClientRect();
                 const x = e.clientX - rect.left;
                 const y = e.clientY - rect.top;
+                console.log('[Viewport] Click at:', { x, y });
                 const pickedId = await renderer.pick(x, y);
+                console.log('[Viewport] Picked expressId:', pickedId);
                 setSelectedEntityId(pickedId);
             });
 
@@ -120,8 +122,12 @@ export function Viewport({ geometry }: ViewportProps) {
 
         if (!renderer || !geometry || !isInitialized) return;
 
-        const device = (renderer as any).device.getDevice();
-        if (!device) return;
+        // Use the safe getGPUDevice() method that returns null if not ready
+        const device = renderer.getGPUDevice();
+        if (!device) {
+            console.warn('[Viewport] Device not ready, skipping geometry processing');
+            return;
+        }
 
         console.log('[Viewport] Processing geometry:', geometry.length, 'meshes');
         const scene = renderer.getScene();

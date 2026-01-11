@@ -98,6 +98,47 @@ export class EntityExtractor {
       return null;
     }
 
+    // List/Array: (#123) or (#123, #456) or ()
+    if (value.startsWith('(') && value.endsWith(')')) {
+      const listContent = value.slice(1, -1).trim();
+      if (!listContent) {
+        return []; // Empty list
+      }
+      
+      // Parse list items (comma-separated)
+      const items: any[] = [];
+      let depth = 0;
+      let current = '';
+      
+      for (let i = 0; i < listContent.length; i++) {
+        const char = listContent[i];
+        
+        if (char === '(') {
+          depth++;
+          current += char;
+        } else if (char === ')') {
+          depth--;
+          current += char;
+        } else if (char === ',' && depth === 0) {
+          // End of item
+          const itemValue = current.trim();
+          if (itemValue) {
+            items.push(this.parseAttributeValue(itemValue));
+          }
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      
+      // Add last item
+      if (current.trim()) {
+        items.push(this.parseAttributeValue(current.trim()));
+      }
+      
+      return items;
+    }
+
     // Reference: #123
     if (value.startsWith('#')) {
       const id = parseInt(value.substring(1), 10);
