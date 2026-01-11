@@ -15,5 +15,3 @@ export * from './types.js';
 // Explicitly export const enums for runtime use
 export { IfcTypeEnum, PropertyValueType, QuantityType, RelationshipType, EntityFlags } from './types.js';
 export type { SpatialNode, SpatialHierarchy } from './types.js';
-export type { EntityTable } from './entity-table.js';
-export type { RelationshipGraph as RelationshipGraphType } from './relationship-graph.js';

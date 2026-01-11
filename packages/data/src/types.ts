@@ -136,6 +136,13 @@ export interface SpatialHierarchy {
   bySite: Map<number, number[]>;      // siteId -> element IDs
   bySpace: Map<number, number[]>;     // spaceId -> element IDs
   storeyElevations: Map<number, number>;  // storeyId -> elevation (z)
+  elementToStorey: Map<number, number>;  // elementId -> storeyId (reverse lookup)
+  
+  // Helper methods
+  getStoreyElements(storeyId: number): number[];
+  getStoreyByElevation(z: number): number | null;
+  getContainingSpace(elementId: number): number | null;
+  getPath(elementId: number): SpatialNode[]; // Project → ... → Element
 }
 
 // Type conversion helpers

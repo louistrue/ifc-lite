@@ -23,10 +23,12 @@ export class SpatialHierarchyBuilder {
     const bySite = new Map<number, number[]>();
     const bySpace = new Map<number, number[]>();
     const storeyElevations = new Map<number, number>();
+    const elementToStorey = new Map<number, number>();
 
     // Find IfcProject (should be only one)
     const projectIds = entities.getByType(IfcTypeEnum.IfcProject);
     if (projectIds.length === 0) {
+      console.warn('[SpatialHierarchyBuilder] No IfcProject found in IFC file');
       throw new Error('No IfcProject found in IFC file');
     }
     const projectId = projectIds[0];
@@ -43,17 +45,98 @@ export class SpatialHierarchyBuilder {
       byBuilding,
       bySite,
       bySpace,
-      storeyElevations
+      storeyElevations,
+      elementToStorey
     );
 
-    return {
+    // Build reverse lookup map: elementId -> storeyId
+    for (const [storeyId, elementIds] of byStorey) {
+      for (const elementId of elementIds) {
+        elementToStorey.set(elementId, storeyId);
+      }
+    }
+
+    // Validation: log warnings if maps are empty
+    if (byStorey.size === 0) {
+      console.warn('[SpatialHierarchyBuilder] No storeys found in spatial hierarchy');
+    }
+    if (byBuilding.size === 0) {
+      console.warn('[SpatialHierarchyBuilder] No buildings found in spatial hierarchy');
+    }
+
+    const hierarchy: SpatialHierarchy = {
       project: projectNode,
       byStorey,
       byBuilding,
       bySite,
       bySpace,
       storeyElevations,
+      elementToStorey,
+      
+      getStoreyElements(storeyId: number): number[] {
+        return byStorey.get(storeyId) ?? [];
+      },
+      
+      getStoreyByElevation(z: number): number | null {
+        let closestStorey: number | null = null;
+        let closestDistance = Infinity;
+        
+        for (const [storeyId, elevation] of storeyElevations) {
+          const distance = Math.abs(elevation - z);
+          if (distance < closestDistance) {
+            closestDistance = distance;
+            closestStorey = storeyId;
+          }
+        }
+        
+        // Only return if within reasonable distance (1 meter)
+        return closestDistance < 1.0 ? closestStorey : null;
+      },
+      
+      getContainingSpace(elementId: number): number | null {
+        // Check if element is directly contained in a space
+        for (const [spaceId, elementIds] of bySpace) {
+          if (elementIds.includes(elementId)) {
+            return spaceId;
+          }
+        }
+        return null;
+      },
+      
+      getPath(elementId: number): SpatialNode[] {
+        const path: SpatialNode[] = [];
+        
+        // Find which storey contains this element
+        const storeyId = elementToStorey.get(elementId);
+        if (!storeyId) return path;
+        
+        // Build path from project to element
+        const findPath = (node: SpatialNode, targetId: number): boolean => {
+          path.push(node);
+          
+          // Check if this node contains the target
+          if (node.elements.includes(targetId)) {
+            return true;
+          }
+          
+          // Recursively search children
+          for (const child of node.children) {
+            if (findPath(child, targetId)) {
+              return true;
+            }
+          }
+          
+          // Backtrack
+          path.pop();
+          return false;
+        };
+        
+        findPath(projectNode, elementId);
+        return path;
+      },
     };
+
+    return hierarchy;
   }
 
   private buildNode(
@@ -67,7 +150,8 @@ export class SpatialHierarchyBuilder {
     byBuilding: Map<number, number[]>,
     bySite: Map<number, number[]>,
     bySpace: Map<number, number[]>,
-    storeyElevations: Map<number, number>
+    storeyElevations: Map<number, number>,
+    elementToStorey: Map<number, number>
   ): SpatialNode {
     const typeEnum = this.getTypeEnum(expressId, entities);
     const name = entities.getName(expressId);
@@ -117,7 +201,8 @@ export class SpatialHierarchyBuilder {
           byBuilding,
           bySite,
           bySpace,
-          storeyElevations
+          storeyElevations,
+          elementToStorey
         );
         childNodes.push(childNode);
       }

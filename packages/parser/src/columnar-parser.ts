@@ -13,25 +13,15 @@ import {
     RelationshipGraphBuilder,
     RelationshipType,
     PropertyValueType,
-    IfcTypeEnum,
 } from '@ifc-lite/data';
+import type { SpatialHierarchy } from '@ifc-lite/data';
 
-// Type alias for SpatialHierarchy (will be properly exported after data package rebuild)
-type SpatialHierarchy = {
-    project: {
-        expressId: number;
-        type: IfcTypeEnum;
-        name: string;
-        elevation?: number;
-        children: any[];
-        elements: number[];
-    };
-    byStorey: Map<number, number[]>;
-    byBuilding: Map<number, number[]>;
-    bySite: Map<number, number[]>;
-    bySpace: Map<number, number[]>;
-    storeyElevations: Map<number, number>;
-};
+// SpatialIndex interface - matches BVH from @ifc-lite/spatial
+// Defined here to avoid circular dependency
+export interface SpatialIndex {
+    queryAABB(bounds: { min: [number, number, number]; max: [number, number, number] }): number[];
+    raycast(origin: [number, number, number], direction: [number, number, number]): number[];
+}
 
 export interface IfcDataStore {
     fileSize: number;
@@ -49,7 +39,7 @@ export interface IfcDataStore {
 
     // Spatial structures (optional, built after parsing)
     spatialHierarchy?: SpatialHierarchy;
-    spatialIndex?: any; // BVH from @ifc-lite/spatial (avoid circular dependency)
+    spatialIndex?: SpatialIndex; // BVH from @ifc-lite/spatial
 }
 
 export class ColumnarParser {

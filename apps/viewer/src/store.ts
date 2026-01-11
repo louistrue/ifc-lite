@@ -18,6 +18,7 @@ interface ViewerState {
 
   // Selection
   selectedEntityId: number | null;
+  selectedStorey: number | null;
 
   // Actions
   setLoading: (loading: boolean) => void;
@@ -28,6 +29,7 @@ interface ViewerState {
   appendGeometryBatch: (meshes: GeometryResult['meshes'], coordinateInfo?: CoordinateInfo) => void;
   updateCoordinateInfo: (coordinateInfo: CoordinateInfo) => void;
   setSelectedEntityId: (id: number | null) => void;
+  setSelectedStorey: (id: number | null) => void;
 }
 
 export const useViewerStore = create<ViewerState>((set) => ({
@@ -37,6 +39,7 @@ export const useViewerStore = create<ViewerState>((set) => ({
   ifcDataStore: null,
   geometryResult: null,
   selectedEntityId: null,
+  selectedStorey: null,
 
   setLoading: (loading) => set({ loading }),
   setProgress: (progress) => set({ progress }),
@@ -99,4 +102,5 @@ export const useViewerStore = create<ViewerState>((set) => ({
     };
   }),
   setSelectedEntityId: (selectedEntityId) => set({ selectedEntityId }),
+  setSelectedStorey: (selectedStorey) => set({ selectedStorey }),
 }));
