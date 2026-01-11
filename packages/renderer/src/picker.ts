@@ -235,7 +235,7 @@ export class Picker {
 
     this.device.queue.submit([encoder.finish()]);
     // GPUMapMode.READ = 1
-    await readBuffer.mapAsync(1);
+    await readBuffer.mapAsync('read' as GPUMapMode);
     const data = new Uint32Array(readBuffer.getMappedRange());
     const objectId = data[0];
     readBuffer.unmap();

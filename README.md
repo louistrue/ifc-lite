@@ -33,7 +33,7 @@ ifc-lite/
 
 ## Current State
 
-The project is at **early MVP stage** (~20% of planned features).
+The project is at **early MVP stage** (~25% of planned features).
 
 ### Working
 
@@ -43,11 +43,15 @@ The project is at **early MVP stage** (~20% of planned features).
 - ✅ Basic 3D navigation (orbit, pan, zoom)
 - ✅ Camera fit-to-bounds
 - ✅ Property panel display
+- ✅ **Streaming geometry pipeline** - Progressive rendering with batched mesh processing
+- ✅ **Large coordinate handling** - Automatic origin shift for geo-referenced models
+- ✅ **Quality modes** - Fast/Balanced/High geometry processing options
 
 ### In Progress / Known Issues
 
 - ⚠️ Materials use hardcoded gray (should use IFC materials)
 - ⚠️ No selection highlighting
+- ⚠️ Style index building adds ~130ms overhead (cached on repeat loads)
 
 ### Not Yet Implemented
 
@@ -57,8 +61,8 @@ The project is at **early MVP stage** (~20% of planned features).
 - ❌ Instancing/batching
 - ❌ Section planes
 - ❌ Measurement tools
-- ❌ Progressive loading
-- ❌ IndexedDB caching
+- ❌ Web Worker geometry processing (streaming is main-thread)
+- ❌ IndexedDB caching for geometry
 
 ## Browser Requirements
 

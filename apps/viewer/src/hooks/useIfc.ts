@@ -5,8 +5,9 @@
 import { useMemo, useCallback, useRef } from 'react';
 import { useViewerStore } from '../store.js';
 import { IfcParser } from '@ifc-lite/parser';
-import { GeometryProcessor } from '@ifc-lite/geometry';
+import { GeometryProcessor, GeometryQuality } from '@ifc-lite/geometry';
 import { EntityTable, PropertyTable, QueryInterface } from '@ifc-lite/query';
+import { BufferBuilder } from '@ifc-lite/geometry';
 
 export function useIfc() {
   const {
@@ -20,6 +21,8 @@ export function useIfc() {
     setError,
     setParseResult,
     setGeometryResult,
+    appendGeometryBatch,
+    updateCoordinateInfo,
   } = useViewerStore();
 
   // Track if we've already logged for this parseResult
@@ -49,13 +52,72 @@ export function useIfc() {
       setParseResult(result);
       setProgress({ phase: 'Triangulating geometry', percent: 50 });
 
-      // Process geometry
-      const geometryProcessor = new GeometryProcessor();
+      // Process geometry with streaming for progressive rendering
+      // Quality: Fast for speed, Balanced for quality, High for best quality
+      const geometryProcessor = new GeometryProcessor({
+        useWorkers: false,
+        quality: GeometryQuality.Balanced // Can be GeometryQuality.Fast, Balanced, or High
+      });
       await geometryProcessor.init();
-      const geometry = await geometryProcessor.process(new Uint8Array(buffer));
 
-      setGeometryResult(geometry);
-      setProgress({ phase: 'Complete', percent: 100 });
+      // Pass entity index for priority-based loading
+      const entityIndexMap = new Map<number, any>();
+      if (result.entityIndex?.byId) {
+        for (const [id, entity] of result.entityIndex.byId) {
+          entityIndexMap.set(id, { type: entity.type });
+        }
+      }
+
+      // Use streaming processing for progressive rendering
+      const bufferBuilder = new BufferBuilder();
+      let estimatedTotal = 0;
+      let totalMeshes = 0;
+
+      // Clear existing geometry result
+      setGeometryResult(null);
+
+      try {
+        console.log('[useIfc] Starting streaming geometry processing...');
+        for await (const event of geometryProcessor.processStreaming(new Uint8Array(buffer), entityIndexMap, 100)) {
+          console.log('[useIfc] Streaming event:', event.type);
+          switch (event.type) {
+            case 'start':
+              estimatedTotal = event.totalEstimate;
+              console.log('[useIfc] Start event, estimated total:', estimatedTotal);
+              break;
+            case 'model-open':
+              setProgress({ phase: 'Processing geometry', percent: 50 });
+              console.log('[useIfc] Model opened, ID:', event.modelID);
+              break;
+            case 'batch':
+              // Convert MeshData[] to GPU-ready format and append
+              console.log('[useIfc] Batch event:', event.meshes.length, 'meshes, total so far:', event.totalSoFar);
+              const gpuMeshes = bufferBuilder.processMeshes(event.meshes).meshes;
+              appendGeometryBatch(gpuMeshes, event.coordinateInfo);
+              totalMeshes = event.totalSoFar;
+
+              // Update progress (50-95% for geometry processing)
+              const progressPercent = 50 + Math.min(45, (totalMeshes / Math.max(estimatedTotal, totalMeshes)) * 45);
+              setProgress({
+                phase: `Rendering geometry (${totalMeshes} meshes)`,
+                percent: progressPercent
+              });
+              break;
+            case 'complete':
+              // Update geometry result with final coordinate info
+              console.log('[useIfc] Complete event, total meshes:', event.totalMeshes);
+              // Use functional update to get current state (avoids stale closure)
+              updateCoordinateInfo(event.coordinateInfo);
+              setProgress({ phase: 'Complete', percent: 100 });
+              break;
+          }
+        }
+        console.log('[useIfc] Streaming processing complete');
+      } catch (err) {
+        console.error('[useIfc] Error in streaming processing:', err);
+        setError(err instanceof Error ? err.message : 'Unknown error during geometry processing');
+      }
+
       setLoading(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');

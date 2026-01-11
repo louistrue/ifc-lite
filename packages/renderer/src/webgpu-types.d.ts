@@ -496,3 +496,7 @@ declare const GPUShaderStage: {
 interface GPUBindGroup {
   readonly label?: string;
 }
+
+interface GPUBindGroupLayout {
+  readonly label?: string;
+}

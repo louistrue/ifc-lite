@@ -42,11 +42,25 @@
 
 ## Key Innovations
 
-1. **Progressive Streaming** — First geometry in <2s, priority queue by screen size
-2. **Hierarchical Instancing** — 50-80% memory reduction, GPU instance culling
-3. **Hybrid LOD System** — Screen-space error, mesh simplification, smooth transitions
-4. **GPU-Driven Rendering** — WebGPU compute culling, indirect draws, single-pass picking
-5. **Smart Memory** — Out-of-core streaming, LRU eviction, IndexedDB caching
+1. **Progressive Streaming** — ✅ Implemented: Batched mesh processing with async generator, first geometry in <1s
+2. **Hierarchical Instancing** — 🔲 Planned: 50-80% memory reduction, GPU instance culling
+3. **Hybrid LOD System** — 🔲 Planned: Screen-space error, mesh simplification, smooth transitions
+4. **GPU-Driven Rendering** — ✅ Partial: WebGPU pipeline working, compute culling not yet implemented
+5. **Smart Memory** — 🔲 Planned: Out-of-core streaming, LRU eviction, IndexedDB caching
+
+## Current Implementation Status
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| WebGPU Rendering | ✅ Done | Basic pipeline with instanced draws |
+| Streaming Geometry | ✅ Done | 100-mesh batches, progressive rendering |
+| Large Coordinates | ✅ Done | Auto-detect and shift to origin |
+| Quality Modes | ✅ Done | Fast (no style index), Balanced, High |
+| Camera Controls | ✅ Done | Orbit, pan, zoom, fit-to-bounds |
+| Property Panel | ✅ Done | Display selected element properties |
+| Selection Highlight | 🔲 Planned | |
+| Frustum Culling | 🔲 Planned | |
+| LOD System | 🔲 Planned | |
 
 ---
 

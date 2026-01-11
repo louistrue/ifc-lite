@@ -33,11 +33,11 @@ export interface StyleMapping {
  */
 export class StyleExtractor {
   private entities: Map<number, IfcEntity>;
-  private entityIndex: EntityIndex;
   
-  constructor(entities: Map<number, IfcEntity>, entityIndex: EntityIndex) {
+  constructor(entities: Map<number, IfcEntity>, _entityIndex: EntityIndex) {
     this.entities = entities;
-    this.entityIndex = entityIndex;
+    // entityIndex reserved for future type-specific style lookups
+    void _entityIndex;
   }
   
   /**

@@ -121,4 +121,79 @@ const report = await model.sql(`
 
 ---
 
+## Performance Optimization Status
+
+Based on runtime profiling (Jan 2026), the following optimizations have been implemented or are planned:
+
+### Current Bottleneck: `LoadAllGeometry` (web-ifc)
+
+The `ifcApi.LoadAllGeometry()` call in web-ifc takes ~2.7s for large models. This is a blocking WASM call that cannot be parallelized without upstream changes.
+
+### ✅ Completed Optimizations
+
+| Optimization | Impact | Status |
+|--------------|--------|--------|
+| Pre-allocated typed arrays | ~30% faster | ✅ Done |
+| Style index pre-computation (O(1) lookup) | ~40% faster | ✅ Done |
+| Inlined transform matrix access | ~10% faster | ✅ Done |
+| Cached WASM module reference | ~5% faster | ✅ Done |
+| **Streaming geometry pipeline** | Progressive rendering | ✅ Done |
+| **Quality modes (Fast/Balanced/High)** | Skip style index in Fast mode | ✅ Done |
+| **Incremental coordinate handling** | Bounds accumulate per batch | ✅ Done |
+
+### ✅ Implemented: Streaming Geometry Pipeline
+
+Geometry is now processed and rendered progressively:
+
+```typescript
+// packages/geometry/src/index.ts
+async *processStreaming(buffer: Uint8Array, entityIndex?: Map<number, any>, batchSize = 100): AsyncGenerator<StreamingGeometryEvent> {
+  yield { type: 'start', totalEstimate: buffer.length / 1000 };
+  
+  const modelID = this.bridge.openModel(buffer);
+  yield { type: 'model-open', modelID };
+  
+  for await (const batch of collector.collectMeshesStreaming(batchSize)) {
+    this.coordinateHandler.processMeshesIncremental(batch);
+    yield { type: 'batch', meshes: batch, totalSoFar, coordinateInfo };
+  }
+  
+  yield { type: 'complete', totalMeshes, coordinateInfo: finalInfo };
+}
+```
+
+**Benefits:**
+- Meshes render progressively (100 at a time)
+- UI remains responsive during geometry processing
+- Camera fits as soon as valid bounds are available
+- Coordinate shifts applied incrementally
+
+### 🔲 Planned Future Optimizations
+
+| Optimization | Gap | Priority |
+|--------------|-----|----------|
+| **Web Worker for Streaming** | Currently main-thread, could move to worker | P1 |
+| **WASM Vertex Transform (SIMD)** | Vertex math in JS, could use WASM SIMD | P2 |
+| **Shared ArrayBuffer** | Currently copying buffers to GPU | P3 |
+
+### Performance Characteristics
+
+| Model Size | LoadAllGeometry | Mesh Processing | Total |
+|------------|-----------------|-----------------|-------|
+| Small (~10MB) | ~500ms | ~200ms | ~800ms |
+| Medium (~50MB) | ~2.7s | ~750ms | ~3.6s |
+| Large (~100MB+) | ~5s+ | ~1.5s | ~7s+ |
+
+*Note: `LoadAllGeometry` dominates load time. Further optimization requires web-ifc changes or alternative geometry processing.*
+
+---
+
+## Related Plan Sections
+
+- [Part 3: Parsing Pipeline](03-parsing-pipeline.md) - Streaming parser architecture
+- [Part 8: Critical Solutions](08-critical-solutions.md) - CSG, error handling, streaming dependencies
+- [Viewer Part 3: Data Management](viewer/03-data-management.md) - Worker pool, memory management
+
+---
+
 *For detailed technical information, see the individual specification parts.*

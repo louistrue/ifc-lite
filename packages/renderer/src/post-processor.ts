@@ -18,11 +18,11 @@ export interface PostProcessorOptions {
  * SSAO and edge enhancement can be added as separate passes
  */
 export class PostProcessor {
-  private device: WebGPUDevice;
+  private _device: WebGPUDevice;
   private options: PostProcessorOptions;
   
   constructor(device: WebGPUDevice, options: PostProcessorOptions = {}) {
-    this.device = device;
+    this._device = device;
     this.options = {
       enableSSAO: false,
       enableEdgeEnhancement: false,
@@ -37,10 +37,13 @@ export class PostProcessor {
    * Currently tone mapping is handled in the main shader
    * This class provides infrastructure for future SSAO and edge detection
    */
-  apply(inputTexture: GPUTexture, outputTexture: GPUTexture): void {
+  apply(_inputTexture: GPUTexture, _outputTexture: GPUTexture): void {
     // Tone mapping is already applied in the main PBR shader
     // SSAO and edge enhancement would be implemented here as separate passes
-    // For now, this is a placeholder for future enhancements
+    // Reserved for future use
+    void this._device;
+    void _inputTexture;
+    void _outputTexture;
   }
   
   /**

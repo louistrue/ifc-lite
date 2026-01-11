@@ -432,25 +432,20 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         };
     }, [setSelectedEntityId]);
 
-    // Track if geometry has been processed to avoid re-processing on HMR
-    const geometryProcessedRef = useRef<MeshData[] | null>(null);
+    // Track processed meshes for incremental updates
+    const processedMeshIdsRef = useRef<Set<number>>(new Set());
+    const lastGeometryLengthRef = useRef<number>(0);
+    const cameraFittedRef = useRef<boolean>(false);
 
     useEffect(() => {
         const renderer = rendererRef.current;
-
-        // Skip if geometry is already processed (avoid re-processing on rapid re-renders)
-        if (geometry === geometryProcessedRef.current && renderer) {
-            const existingScene = renderer.getScene();
-            if (existingScene && existingScene.getMeshes().length > 0) {
-                return;
-            }
-        }
 
         console.log('[Viewport] Geometry effect:', {
             hasRenderer: !!renderer,
             hasGeometry: !!geometry,
             isInitialized,
-            geometryLength: geometry?.length
+            geometryLength: geometry?.length,
+            lastLength: lastGeometryLengthRef.current
         });
 
         if (!renderer || !geometry || !isInitialized) return;
@@ -462,18 +457,49 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             return;
         }
 
-        console.log('[Viewport] Processing geometry:', geometry.length, 'meshes');
-
-        // Mark geometry as processed
-        geometryProcessedRef.current = geometry;
         const scene = renderer.getScene();
-        scene.clear();
+        const currentLength = geometry.length;
+        const lastLength = lastGeometryLengthRef.current;
+        const isIncremental = currentLength > lastLength;
 
-        // Create GPU buffers for each mesh
+        console.log(`[Viewport] Geometry update check: current=${currentLength}, last=${lastLength}, incremental=${isIncremental}`);
+
+        if (isIncremental) {
+            // Incremental update: only add new meshes
+            console.log(`[Viewport] Incremental update: adding ${currentLength - lastLength} new meshes (total: ${currentLength})`);
+        } else if (currentLength === 0) {
+            // Clear scene if geometry was cleared
+            scene.clear();
+            processedMeshIdsRef.current.clear();
+            cameraFittedRef.current = false;
+            lastGeometryLengthRef.current = 0;
+            return;
+        } else if (currentLength === lastGeometryLengthRef.current) {
+            // Same length - might be a re-render, skip if already processed
+            return;
+        } else {
+            // Length decreased - this means a new file was loaded, clear and rebuild from scratch
+            console.log('[Viewport] Geometry length decreased, clearing and rebuilding from scratch');
+            scene.clear();
+            processedMeshIdsRef.current.clear();
+            cameraFittedRef.current = false;
+            lastGeometryLengthRef.current = 0; // Reset so we process all new meshes
+        }
+
+        // Process only new meshes (for incremental updates)
+        const startIndex = lastGeometryLengthRef.current;
+        const meshesToAdd = geometry.slice(startIndex);
+
+        console.log(`[Viewport] Processing ${meshesToAdd.length} meshes (starting at index ${startIndex})`);
+
+        // Create GPU buffers for new meshes only
         // Note: Coordinates have already been shifted to origin by CoordinateHandler
         // if large coordinates were detected. Use shifted bounds from coordinateInfo.
-        for (const meshData of geometry) {
-            // No need to calculate bounds here - use coordinateInfo.shiftedBounds
+        for (const meshData of meshesToAdd) {
+            // Skip if already processed (safety check)
+            if (processedMeshIdsRef.current.has(meshData.expressId)) {
+                continue;
+            }
 
             // Build interleaved buffer
             const vertexCount = meshData.positions.length / 3;
@@ -510,21 +536,75 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
                 transform: MathUtils.identity(),
                 color: meshData.color,
             });
+
+            processedMeshIdsRef.current.add(meshData.expressId);
         }
+
+        // Update last length
+        lastGeometryLengthRef.current = currentLength;
 
         console.log('[Viewport] Meshes added:', scene.getMeshes().length);
 
-        // Use shifted bounds from coordinate handler if available
-        // Positions have already been shifted to origin if large coordinates were detected
-        if (coordinateInfo && coordinateInfo.shiftedBounds) {
+        // Fit camera only once (on first batch or when we have coordinate info)
+        // For incremental updates, fit camera when we get valid bounds
+        if (!cameraFittedRef.current && coordinateInfo && coordinateInfo.shiftedBounds) {
             const shiftedBounds = coordinateInfo.shiftedBounds;
-            console.log('[Viewport] Using coordinateInfo shifted bounds:', {
-                shiftedBounds,
-                isGeoReferenced: coordinateInfo.isGeoReferenced,
-                originShift: coordinateInfo.originShift,
-            });
-            renderer.getCamera().fitToBounds(shiftedBounds.min, shiftedBounds.max);
-        } else {
+            const size = {
+                x: shiftedBounds.max.x - shiftedBounds.min.x,
+                y: shiftedBounds.max.y - shiftedBounds.min.y,
+                z: shiftedBounds.max.z - shiftedBounds.min.z,
+            };
+            const maxSize = Math.max(size.x, size.y, size.z);
+
+            // Only fit camera if bounds are valid (non-zero size)
+            if (maxSize > 0 && Number.isFinite(maxSize)) {
+                console.log('[Viewport] Fitting camera to bounds:', {
+                    shiftedBounds,
+                    size,
+                    maxSize,
+                    isGeoReferenced: coordinateInfo.isGeoReferenced,
+                    originShift: coordinateInfo.originShift,
+                });
+                renderer.getCamera().fitToBounds(shiftedBounds.min, shiftedBounds.max);
+                cameraFittedRef.current = true;
+            } else {
+                console.warn('[Viewport] Invalid bounds, skipping camera fit:', { shiftedBounds, maxSize });
+            }
+        } else if (!cameraFittedRef.current && geometry.length > 0) {
+            // Fallback: calculate bounds from current geometry if no coordinate info yet
+            console.log('[Viewport] Calculating bounds from current geometry');
+            const fallbackBounds = {
+                min: { x: Infinity, y: Infinity, z: Infinity },
+                max: { x: -Infinity, y: -Infinity, z: -Infinity },
+            };
+
+            for (const meshData of geometry) {
+                const positions = meshData.positions;
+                for (let i = 0; i < positions.length; i += 3) {
+                    const x = positions[i];
+                    const y = positions[i + 1];
+                    const z = positions[i + 2];
+                    if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+                        fallbackBounds.min.x = Math.min(fallbackBounds.min.x, x);
+                        fallbackBounds.min.y = Math.min(fallbackBounds.min.y, y);
+                        fallbackBounds.min.z = Math.min(fallbackBounds.min.z, z);
+                        fallbackBounds.max.x = Math.max(fallbackBounds.max.x, x);
+                        fallbackBounds.max.y = Math.max(fallbackBounds.max.y, y);
+                        fallbackBounds.max.z = Math.max(fallbackBounds.max.z, z);
+                    }
+                }
+            }
+
+            const hasValidBounds =
+                fallbackBounds.min.x !== Infinity && fallbackBounds.max.x !== -Infinity &&
+                fallbackBounds.min.y !== Infinity && fallbackBounds.max.y !== -Infinity &&
+                fallbackBounds.min.z !== Infinity && fallbackBounds.max.z !== -Infinity;
+
+            if (hasValidBounds) {
+                renderer.getCamera().fitToBounds(fallbackBounds.min, fallbackBounds.max);
+                cameraFittedRef.current = true;
+            }
+        } else if (!cameraFittedRef.current) {
             // Fallback: calculate bounds from positions (shouldn't happen if coordinate handler worked)
             console.warn('[Viewport] No coordinateInfo, calculating bounds from positions');
             const fallbackBounds = {
@@ -555,12 +635,48 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
                 fallbackBounds.min.z !== Infinity && fallbackBounds.max.z !== -Infinity;
 
             if (hasValidBounds) {
-                renderer.getCamera().fitToBounds(fallbackBounds.min, fallbackBounds.max);
+                const size = {
+                    x: fallbackBounds.max.x - fallbackBounds.min.x,
+                    y: fallbackBounds.max.y - fallbackBounds.min.y,
+                    z: fallbackBounds.max.z - fallbackBounds.min.z,
+                };
+                const maxSize = Math.max(size.x, size.y, size.z);
+                if (maxSize > 0) {
+                    console.log('[Viewport] Fitting camera to calculated bounds:', { fallbackBounds, size, maxSize });
+                    renderer.getCamera().fitToBounds(fallbackBounds.min, fallbackBounds.max);
+                    cameraFittedRef.current = true;
+                } else {
+                    console.warn('[Viewport] Calculated bounds have zero size, trying scene bounds');
+                    const sceneBounds = renderer.getScene().getBounds();
+                    if (sceneBounds) {
+                        const sceneSize = {
+                            x: sceneBounds.max.x - sceneBounds.min.x,
+                            y: sceneBounds.max.y - sceneBounds.min.y,
+                            z: sceneBounds.max.z - sceneBounds.min.z,
+                        };
+                        const sceneMaxSize = Math.max(sceneSize.x, sceneSize.y, sceneSize.z);
+                        if (sceneMaxSize > 0) {
+                            console.log('[Viewport] Fitting camera to scene bounds:', { sceneBounds, sceneSize, sceneMaxSize });
+                            renderer.getCamera().fitToBounds(sceneBounds.min, sceneBounds.max);
+                            cameraFittedRef.current = true;
+                        }
+                    }
+                }
             } else {
                 console.warn('[Viewport] Invalid bounds, using scene bounds fallback');
                 const sceneBounds = renderer.getScene().getBounds();
                 if (sceneBounds) {
-                    renderer.getCamera().fitToBounds(sceneBounds.min, sceneBounds.max);
+                    const sceneSize = {
+                        x: sceneBounds.max.x - sceneBounds.min.x,
+                        y: sceneBounds.max.y - sceneBounds.min.y,
+                        z: sceneBounds.max.z - sceneBounds.min.z,
+                    };
+                    const sceneMaxSize = Math.max(sceneSize.x, sceneSize.y, sceneSize.z);
+                    if (sceneMaxSize > 0) {
+                        console.log('[Viewport] Fitting camera to scene bounds:', { sceneBounds, sceneSize, sceneMaxSize });
+                        renderer.getCamera().fitToBounds(sceneBounds.min, sceneBounds.max);
+                        cameraFittedRef.current = true;
+                    }
                 }
             }
         }

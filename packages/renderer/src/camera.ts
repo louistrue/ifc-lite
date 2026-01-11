@@ -303,7 +303,9 @@ export class Camera {
    * Update camera animation and inertia
    * Returns true if camera is still animating
    */
-  update(deltaTime: number): boolean {
+  update(_deltaTime: number): boolean {
+    // deltaTime reserved for future physics-based animation smoothing
+    void _deltaTime;
     let isAnimating = false;
 
     // Handle animation

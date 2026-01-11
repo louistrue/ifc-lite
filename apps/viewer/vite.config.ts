@@ -20,4 +20,20 @@ export default defineConfig({
     target: 'esnext',
   },
   assetsInclude: ['**/*.wasm'],
+  worker: {
+    format: 'es',
+    plugins: () => [
+      react(),
+      // Resolve aliases in worker context
+      {
+        name: 'worker-alias-resolver',
+        resolveId(id) {
+          if (id.startsWith('@ifc-lite/')) {
+            const packageName = id.split('/')[1];
+            return path.resolve(__dirname, `../../packages/${packageName}/src`);
+          }
+        },
+      },
+    ],
+  },
 });
