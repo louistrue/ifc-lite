@@ -6,3 +6,9 @@ build/
 .env
 .env.local
 *.tsbuildinfo
+
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb

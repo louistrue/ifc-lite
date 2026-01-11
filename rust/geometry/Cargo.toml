@@ -1,0 +1,30 @@
+[package]
+name = "ifc-lite-geometry"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Core IFC parsing
+ifc-lite-core = { path = "../core" }
+
+# Math library
+nalgebra = { version = "0.33", default-features = false, features = ["std"] }
+
+# Triangulation
+earcutr = "0.4"
+
+# Error handling
+thiserror = "1.0"
+
+# Optional: CSG operations
+# manifold3d = { version = "0.1", optional = true }
+
+[dev-dependencies]
+approx = "0.5"
+
+[features]
+default = []
+# csg = ["dep:manifold3d"]
