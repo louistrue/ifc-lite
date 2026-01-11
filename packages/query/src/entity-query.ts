@@ -15,6 +15,7 @@ export class EntityQuery {
   private propertyFilters: Array<{ pset: string; prop: string; op: ComparisonOperator; value: any }> = [];
   private limitCount: number | null = null;
   private offsetCount: number = 0;
+  private includeFlags: { geometry?: boolean; properties?: boolean; quantities?: boolean } = {};
   
   constructor(store: IfcDataStore, types: IfcTypeEnum[] | null, ids: number[] | null = null) {
     this.store = store;
@@ -42,6 +43,30 @@ export class EntityQuery {
   }
 
   // ═══════════════════════════════════════════════════════════════
+  // EAGER LOADING
+  // ═══════════════════════════════════════════════════════════════
+  
+  includeGeometry(): this {
+    this.includeFlags.geometry = true;
+    return this;
+  }
+  
+  includeProperties(): this {
+    this.includeFlags.properties = true;
+    return this;
+  }
+  
+  includeQuantities(): this {
+    this.includeFlags.quantities = true;
+    return this;
+  }
+  
+  includeAll(): this {
+    this.includeFlags = { geometry: true, properties: true, quantities: true };
+    return this;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
   // EXECUTION
   // ═══════════════════════════════════════════════════════════════
   
@@ -56,7 +81,22 @@ export class EntityQuery {
       ids = ids.slice(0, this.limitCount);
     }
     
-    return ids.map(id => new QueryResultEntity(this.store, id));
+    const results = ids.map(id => new QueryResultEntity(this.store, id, this.includeFlags));
+    
+    // Eager load based on flags
+    for (const result of results) {
+      if (this.includeFlags.properties) {
+        result.loadProperties();
+      }
+      if (this.includeFlags.quantities) {
+        result.loadQuantities();
+      }
+      if (this.includeFlags.geometry) {
+        result.loadGeometry();
+      }
+    }
+    
+    return results;
   }
   
   async ids(): Promise<number[]> {

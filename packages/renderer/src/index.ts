@@ -15,6 +15,7 @@ import { RenderPipeline } from './pipeline.js';
 import { Camera } from './camera.js';
 import { Scene } from './scene.js';
 import { Picker } from './picker.js';
+import { FrustumUtils } from '@ifc-lite/spatial';
 import type { RenderOptions, Mesh } from './types.js';
 
 /**
@@ -156,7 +157,19 @@ export class Renderer {
         // Ensure all meshes have GPU resources (in case they were added before pipeline was ready)
         this.ensureMeshResources();
 
-        const meshes = this.scene.getMeshes();
+        let meshes = this.scene.getMeshes();
+
+        // Frustum culling (if enabled and spatial index available)
+        if (options.enableFrustumCulling && options.spatialIndex) {
+          try {
+            const frustum = FrustumUtils.fromViewProjMatrix(viewProj);
+            const visibleIds = new Set(options.spatialIndex.queryFrustum(frustum));
+            meshes = meshes.filter(mesh => visibleIds.has(mesh.expressId));
+          } catch (error) {
+            // Fallback: render all meshes if frustum culling fails
+            console.warn('Frustum culling failed:', error);
+          }
+        }
 
         // Resize depth texture if needed
         if (this.pipeline.needsResize(this.canvas.width, this.canvas.height)) {

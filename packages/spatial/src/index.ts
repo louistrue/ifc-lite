@@ -10,6 +10,8 @@ export { buildSpatialIndex } from './spatial-index-builder.js';
 
 import type { AABB } from './aabb.js';
 
+import type { Frustum } from './frustum.js';
+
 /**
  * Spatial index interface for IfcDataStore
  * Matches BVH interface for type-safe integration
@@ -24,4 +26,9 @@ export interface SpatialIndex {
      * Raycast - returns expressIds of meshes hit by ray
      */
     raycast(origin: [number, number, number], direction: [number, number, number]): number[];
+
+    /**
+     * Query frustum - returns expressIds of meshes visible in frustum
+     */
+    queryFrustum(frustum: Frustum): number[];
 }

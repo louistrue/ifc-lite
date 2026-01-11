@@ -40,9 +40,13 @@ export interface Mesh {
   // Per-mesh GPU resources for unique colors
   uniformBuffer?: GPUBuffer;
   bindGroup?: GPUBindGroup;
+  // Bounding box for frustum culling (optional)
+  bounds?: { min: [number, number, number]; max: [number, number, number] };
 }
 
 export interface RenderOptions {
   clearColor?: [number, number, number, number];
   enableDepthTest?: boolean;
+  enableFrustumCulling?: boolean;
+  spatialIndex?: import('@ifc-lite/spatial').SpatialIndex;
 }

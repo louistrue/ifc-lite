@@ -4,6 +4,8 @@
 
 import type { AABB } from './aabb.js';
 import { AABBUtils } from './aabb.js';
+import type { Frustum } from './frustum.js';
+import { FrustumUtils } from './frustum.js';
 
 export interface BVHNode {
   bounds: AABB;
@@ -65,6 +67,17 @@ export class BVH {
     ];
     
     this.raycastNode(this.root, origin, dir, results);
+    return results;
+  }
+
+  /**
+   * Query frustum - returns expressIds of meshes visible in frustum
+   */
+  queryFrustum(frustum: Frustum): number[] {
+    const results: number[] = [];
+    if (!this.root) return results;
+    
+    this.queryFrustumNode(this.root, frustum, results);
     return results;
   }
   
@@ -171,6 +184,26 @@ export class BVH {
       // Internal node - recurse
       if (node.left) this.raycastNode(node.left, origin, direction, results);
       if (node.right) this.raycastNode(node.right, origin, direction, results);
+    }
+  }
+  
+  private queryFrustumNode(node: BVHNode, frustum: Frustum, results: number[]): void {
+    // Check if node bounds are visible in frustum
+    if (!FrustumUtils.isAABBVisible(frustum, node.bounds)) {
+      return;
+    }
+    
+    if (node.meshIndices) {
+      // Leaf node - check all meshes
+      for (const idx of node.meshIndices) {
+        if (FrustumUtils.isAABBVisible(frustum, this.meshes[idx].bounds)) {
+          results.push(this.meshes[idx].expressId);
+        }
+      }
+    } else {
+      // Internal node - recurse
+      if (node.left) this.queryFrustumNode(node.left, frustum, results);
+      if (node.right) this.queryFrustumNode(node.right, frustum, results);
     }
   }
   
