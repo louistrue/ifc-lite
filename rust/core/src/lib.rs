@@ -6,7 +6,9 @@
 pub mod parser;
 pub mod schema;
 pub mod error;
+pub mod streaming;
 
 pub use error::{Error, Result};
 pub use parser::{Token, EntityScanner, parse_entity};
 pub use schema::IfcType;
+pub use streaming::{ParseEvent, StreamConfig, parse_stream};

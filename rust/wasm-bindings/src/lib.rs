@@ -8,8 +8,12 @@ use wasm_bindgen::prelude::*;
 pub use console_error_panic_hook::set_once as set_panic_hook;
 
 mod utils;
+mod zero_copy;
+mod api;
 
 pub use utils::set_panic_hook as init_panic_hook;
+pub use zero_copy::{ZeroCopyMesh, get_memory};
+pub use api::IfcAPI;
 
 /// Initialize the WASM module
 #[wasm_bindgen(start)]

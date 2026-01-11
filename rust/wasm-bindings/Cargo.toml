@@ -28,9 +28,13 @@ web-sys = { version = "0.3", features = [
 
 # Async support
 wasm-bindgen-futures = "0.4"
+futures-util = "0.3"
 
 # Error handling
 thiserror = "1.0"
+
+# Fast hashing
+rustc-hash = "1.1"
 
 # Serialization for JS interop
 serde = { version = "1.0", features = ["derive"] }
