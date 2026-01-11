@@ -30,6 +30,8 @@ pub enum Token<'a> {
     Enum(&'a str),
     /// List: (1, 2, 3)
     List(Vec<Token<'a>>),
+    /// Typed value: IFCPARAMETERVALUE(0.), IFCBOOLEAN(.T.)
+    TypedValue(&'a str, Vec<Token<'a>>),
     /// Null value: $
     Null,
     /// Asterisk (derived value): *
@@ -149,6 +151,26 @@ fn derived(input: &str) -> IResult<&str, Token> {
     map(char('*'), |_| Token::Derived)(input)
 }
 
+/// Parse typed value: IFCPARAMETERVALUE(0.), IFCBOOLEAN(.T.)
+fn typed_value(input: &str) -> IResult<&str, Token> {
+    map(
+        pair(
+            // Type name (all caps with optional numbers/underscores)
+            take_while1(|c: char| c.is_alphanumeric() || c == '_'),
+            // Arguments
+            delimited(
+                char('('),
+                separated_list0(
+                    delimited(ws, char(','), ws),
+                    token
+                ),
+                char(')')
+            )
+        ),
+        |(type_name, args)| Token::TypedValue(type_name, args)
+    )(input)
+}
+
 /// Skip whitespace
 fn ws(input: &str) -> IResult<&str, ()> {
     map(
@@ -162,12 +184,13 @@ fn token(input: &str) -> IResult<&str, Token> {
     delimited(
         ws,
         alt((
-            float,      // Try float before integer (float includes '.')
+            float,        // Try float before integer (float includes '.')
             integer,
             entity_ref,
             string_literal,
             enum_value,
             list,
+            typed_value,  // IFCPARAMETERVALUE(0.), IFCBOOLEAN(.T.), etc.
             null,
             derived,
         )),

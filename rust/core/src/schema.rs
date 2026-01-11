@@ -64,9 +64,29 @@ pub enum IfcType {
     IfcDirection,
     IfcPolyline,
     IfcArbitraryClosedProfileDef,
+    IfcArbitraryProfileDefWithVoids,
     IfcRectangleProfileDef,
     IfcCircleProfileDef,
     IfcIShapeProfileDef,
+    IfcLShapeProfileDef,
+    IfcUShapeProfileDef,
+    IfcTShapeProfileDef,
+    IfcCShapeProfileDef,
+    IfcZShapeProfileDef,
+    IfcCircleHollowProfileDef,
+
+    // Curve types
+    IfcIndexedPolyCurve,
+    IfcCompositeCurve,
+    IfcCompositeCurveSegment,
+    IfcTrimmedCurve,
+    IfcCircle,
+    IfcEllipse,
+    IfcLine,
+
+    // Points
+    IfcCartesianPointList2D,
+    IfcCartesianPointList3D,
 
     // MEP
     IfcPipeSegment,
@@ -145,9 +165,29 @@ impl IfcType {
             "IFCDIRECTION" => Self::IfcDirection,
             "IFCPOLYLINE" => Self::IfcPolyline,
             "IFCARBITRARYCLOSEDPROFILEDEF" => Self::IfcArbitraryClosedProfileDef,
+            "IFCARBITRARYPROFILEDEFWITHVOIDS" => Self::IfcArbitraryProfileDefWithVoids,
             "IFCRECTANGLEPROFILEDEF" => Self::IfcRectangleProfileDef,
             "IFCCIRCLEPROFILEDEF" => Self::IfcCircleProfileDef,
             "IFCISHAPEPROFILEDEF" => Self::IfcIShapeProfileDef,
+            "IFCLSHAPEPROFILEDEF" => Self::IfcLShapeProfileDef,
+            "IFCUSHAPEPROFILEDEF" => Self::IfcUShapeProfileDef,
+            "IFCTSHAPEPROFILEDEF" => Self::IfcTShapeProfileDef,
+            "IFCCSHAPEPROFILEDEF" => Self::IfcCShapeProfileDef,
+            "IFCZSHAPEPROFILEDEF" => Self::IfcZShapeProfileDef,
+            "IFCCIRCLEHOLLOWPROFILEDEF" => Self::IfcCircleHollowProfileDef,
+
+            // Curve types
+            "IFCINDEXEDPOLYCURVE" => Self::IfcIndexedPolyCurve,
+            "IFCCOMPOSITECURVE" => Self::IfcCompositeCurve,
+            "IFCCOMPOSITECURVESEGMENT" => Self::IfcCompositeCurveSegment,
+            "IFCTRIMMEDCURVE" => Self::IfcTrimmedCurve,
+            "IFCCIRCLE" => Self::IfcCircle,
+            "IFCELLIPSE" => Self::IfcEllipse,
+            "IFCLINE" => Self::IfcLine,
+
+            // Points
+            "IFCCARTESIANPOINTLIST2D" => Self::IfcCartesianPointList2D,
+            "IFCCARTESIANPOINTLIST3D" => Self::IfcCartesianPointList3D,
 
             "IFCPIPESEGMENT" => Self::IfcPipeSegment,
             "IFCDUCTSEGMENT" => Self::IfcDuctSegment,
@@ -225,9 +265,29 @@ impl IfcType {
             Self::IfcDirection => "IFCDIRECTION",
             Self::IfcPolyline => "IFCPOLYLINE",
             Self::IfcArbitraryClosedProfileDef => "IFCARBITRARYCLOSEDPROFILEDEF",
+            Self::IfcArbitraryProfileDefWithVoids => "IFCARBITRARYPROFILEDEFWITHVOIDS",
             Self::IfcRectangleProfileDef => "IFCRECTANGLEPROFILEDEF",
             Self::IfcCircleProfileDef => "IFCCIRCLEPROFILEDEF",
             Self::IfcIShapeProfileDef => "IFCISHAPEPROFILEDEF",
+            Self::IfcLShapeProfileDef => "IFCLSHAPEPROFILEDEF",
+            Self::IfcUShapeProfileDef => "IFCUSHAPEPROFILEDEF",
+            Self::IfcTShapeProfileDef => "IFCTSHAPEPROFILEDEF",
+            Self::IfcCShapeProfileDef => "IFCCSHAPEPROFILEDEF",
+            Self::IfcZShapeProfileDef => "IFCZSHAPEPROFILEDEF",
+            Self::IfcCircleHollowProfileDef => "IFCCIRCLEHOLLOWPROFILEDEF",
+
+            // Curve types
+            Self::IfcIndexedPolyCurve => "IFCINDEXEDPOLYCURVE",
+            Self::IfcCompositeCurve => "IFCCOMPOSITECURVE",
+            Self::IfcCompositeCurveSegment => "IFCCOMPOSITECURVESEGMENT",
+            Self::IfcTrimmedCurve => "IFCTRIMMEDCURVE",
+            Self::IfcCircle => "IFCCIRCLE",
+            Self::IfcEllipse => "IFCELLIPSE",
+            Self::IfcLine => "IFCLINE",
+
+            // Points
+            Self::IfcCartesianPointList2D => "IFCCARTESIANPOINTLIST2D",
+            Self::IfcCartesianPointList3D => "IFCCARTESIANPOINTLIST3D",
 
             Self::IfcPipeSegment => "IFCPIPESEGMENT",
             Self::IfcDuctSegment => "IFCDUCTSEGMENT",

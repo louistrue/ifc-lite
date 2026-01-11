@@ -41,6 +41,13 @@ impl AttributeValue {
             Token::List(items) => {
                 AttributeValue::List(items.iter().map(Self::from_token).collect())
             }
+            Token::TypedValue(type_name, args) => {
+                // For typed values like IFCPARAMETERVALUE(0.), extract the inner value
+                // Store as a list with the type name first, followed by args
+                let mut values = vec![AttributeValue::String(type_name.to_string())];
+                values.extend(args.iter().map(Self::from_token));
+                AttributeValue::List(values)
+            }
             Token::Null => AttributeValue::Null,
             Token::Derived => AttributeValue::Derived,
         }
@@ -191,10 +198,17 @@ impl IfcSchema {
         // Profile types - Parametric
         profile_types.insert(IfcType::IfcRectangleProfileDef, ProfileCategory::Parametric);
         profile_types.insert(IfcType::IfcCircleProfileDef, ProfileCategory::Parametric);
+        profile_types.insert(IfcType::IfcCircleHollowProfileDef, ProfileCategory::Parametric);
         profile_types.insert(IfcType::IfcIShapeProfileDef, ProfileCategory::Parametric);
+        profile_types.insert(IfcType::IfcLShapeProfileDef, ProfileCategory::Parametric);
+        profile_types.insert(IfcType::IfcUShapeProfileDef, ProfileCategory::Parametric);
+        profile_types.insert(IfcType::IfcTShapeProfileDef, ProfileCategory::Parametric);
+        profile_types.insert(IfcType::IfcCShapeProfileDef, ProfileCategory::Parametric);
+        profile_types.insert(IfcType::IfcZShapeProfileDef, ProfileCategory::Parametric);
 
         // Profile types - Arbitrary
         profile_types.insert(IfcType::IfcArbitraryClosedProfileDef, ProfileCategory::Arbitrary);
+        profile_types.insert(IfcType::IfcArbitraryProfileDefWithVoids, ProfileCategory::Arbitrary);
 
         // Profile types - Composite
         profile_types.insert(IfcType::IfcCompositeProfileDef, ProfileCategory::Composite);
