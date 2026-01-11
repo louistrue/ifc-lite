@@ -1,0 +1,14 @@
+{
+  "name": "@ifc-lite/wasm-test",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Test and examples for IFC-Lite WASM integration",
+  "type": "module",
+  "scripts": {
+    "test": "node test-parser.js",
+    "benchmark": "node benchmark.js"
+  },
+  "dependencies": {
+    "@ifc-lite/wasm": "file:./pkg"
+  }
+}
