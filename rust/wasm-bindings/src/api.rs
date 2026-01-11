@@ -134,113 +134,58 @@ impl IfcAPI {
     pub fn parse_zero_copy(&self, content: String) -> ZeroCopyMesh {
         // Make synchronous for now - async spawn_local doesn't work reliably in Node.js
 
-        // DEBUG: Log entry
-        web_sys::console::log_1(&format!(
-            "[IFC-Lite] parseZeroCopy called with {} bytes",
-            content.len()
-        ).into());
-
         // Parse IFC file and generate geometry
         use ifc_lite_core::{EntityScanner, EntityDecoder};
         use ifc_lite_geometry::{GeometryRouter, Mesh, calculate_normals};
 
-        let mut combined_mesh = Mesh::new();
+        // Pre-allocate mesh with estimated capacity
+        // Average: ~125 vertices and ~60 triangles per element
+        let estimated_elements = content.len() / 10000; // Rough estimate
+        let estimated_vertices = estimated_elements * 125 * 3; // xyz per vertex
+        let estimated_indices = estimated_elements * 60 * 3; // 3 indices per triangle
 
-        // Create scanner and decoder
+        let mut combined_mesh = Mesh {
+            positions: Vec::with_capacity(estimated_vertices),
+            normals: Vec::new(),
+            indices: Vec::with_capacity(estimated_indices),
+        };
+
+        // Create scanner and decoder with index
         let mut scanner = EntityScanner::new(&content);
-        let mut decoder = EntityDecoder::new(&content);
+        let mut decoder = EntityDecoder::new_with_index(&content);
 
-        // Create geometry router
+        // Create geometry router ONCE (reuse for all elements)
         let router = GeometryRouter::new();
 
         // Process all building elements
         let mut processed_count = 0;
         let mut error_count = 0;
-        let mut building_elements_found = 0;
-        let mut error_types: rustc_hash::FxHashMap<String, usize> = rustc_hash::FxHashMap::default();
 
         while let Some((_id, type_name, start, end)) = scanner.next_entity() {
             // Check if this is a building element type
-            let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
-            if let Some(ifc_type) = ifc_type {
+            if let Some(ifc_type) = ifc_lite_core::IfcType::from_str(type_name) {
                 if router.schema().has_geometry(&ifc_type) {
-                    building_elements_found += 1;
-
-                    // Log first few elements for debugging
-                    if building_elements_found <= 3 {
-                        web_sys::console::log_1(&format!(
-                            "[IFC-Lite] Processing element #{}: {}",
-                            building_elements_found, type_name
-                        ).into());
-                    }
                     // Decode the entity
-                    match decoder.decode_at(start, end) {
-                        Ok(entity) => {
-                            // Process element into mesh
-                            match router.process_element(&entity, &mut decoder) {
-                                Ok(mesh) => {
-                                    if !mesh.is_empty() {
-                                        combined_mesh.merge(&mesh);
-                                        processed_count += 1;
-                                    }
-                                }
-                                Err(e) => {
-                                    error_count += 1;
-                                    // Track error by representation type
-                                    let error_msg = e.to_string();
-                                    if let Some(rep_type) = error_msg.split("representation type: ").nth(1) {
-                                        let rep_type = rep_type.split(',').next().unwrap_or("UNKNOWN").to_string();
-                                        *error_types.entry(rep_type).or_insert(0) += 1;
-                                    }
-                                    // Log errors for debugging (only first 10)
-                                    if error_count <= 10 {
-                                        web_sys::console::log_1(&format!(
-                                            "[IFC-Lite] Error #{} processing {} (entity #{}): {}",
-                                            error_count, type_name, entity.id, e
-                                        ).into());
-                                    }
-                                }
+                    if let Ok(entity) = decoder.decode_at(start, end) {
+                        // Process element into mesh
+                        if let Ok(mesh) = router.process_element(&entity, &mut decoder) {
+                            if !mesh.is_empty() {
+                                combined_mesh.merge(&mesh);
+                                processed_count += 1;
                             }
-                        }
-                        Err(e) => {
-                            // Failed to decode entity
-                            web_sys::console::log_1(&format!(
-                                "[IFC-Lite] Failed to decode {}: {}",
-                                type_name, e
-                            ).into());
+                        } else {
+                            error_count += 1;
                         }
                     }
                 }
             }
         }
 
-        // Log processing stats to console
+        // Single summary log at the end
         web_sys::console::log_1(&format!(
-            "[IFC-Lite] Stats: found={} processed={} errors={} vertices={} triangles={}",
-            building_elements_found, processed_count, error_count, combined_mesh.vertex_count(), combined_mesh.triangle_count()
+            "[IFC-Lite] Processed {} elements ({} errors) → {} vertices, {} triangles",
+            processed_count, error_count, combined_mesh.vertex_count(), combined_mesh.triangle_count()
         ).into());
-
-        // Log error types summary
-        if !error_types.is_empty() {
-            web_sys::console::log_1(&"[IFC-Lite] Error types:".into());
-            let mut sorted_errors: Vec<_> = error_types.iter().collect();
-            sorted_errors.sort_by(|a, b| b.1.cmp(a.1));
-            for (rep_type, count) in sorted_errors.iter().take(10) {
-                web_sys::console::log_1(&format!("  {} - {} occurrences", rep_type, count).into());
-            }
-        }
-
-        // Also log to make sure this runs
-        if building_elements_found == 0 {
-            web_sys::console::log_1(&"[IFC-Lite] WARNING: No building elements found!".into());
-        }
-
-        if error_count > 0 && processed_count == 0 {
-            web_sys::console::log_1(&format!(
-                "[IFC-Lite] WARNING: All {} building elements failed to process!",
-                error_count
-            ).into());
-        }
 
         // Calculate normals if not present
         if combined_mesh.normals.is_empty() && !combined_mesh.positions.is_empty() {

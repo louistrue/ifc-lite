@@ -13,6 +13,8 @@ pub struct EntityDecoder<'a> {
     content: &'a str,
     /// Cache of decoded entities (entity_id -> DecodedEntity)
     cache: FxHashMap<u32, DecodedEntity>,
+    /// Entity index (entity_id -> (start, end)) for fast lookups
+    index: Option<FxHashMap<u32, (usize, usize)>>,
 }
 
 impl<'a> EntityDecoder<'a> {
@@ -21,6 +23,27 @@ impl<'a> EntityDecoder<'a> {
         Self {
             content,
             cache: FxHashMap::default(),
+            index: None,
+        }
+    }
+
+    /// Create new decoder with pre-built index for fast lookups
+    /// This scans the file once upfront to build entity index
+    pub fn new_with_index(content: &'a str) -> Self {
+        use crate::parser::EntityScanner;
+
+        let mut index = FxHashMap::default();
+        let mut scanner = EntityScanner::new(content);
+
+        // Build index of all entities
+        while let Some((id, _type_name, start, end)) = scanner.next_entity() {
+            index.insert(id, (start, end));
+        }
+
+        Self {
+            content,
+            cache: FxHashMap::default(),
+            index: Some(index),
         }
     }
 
@@ -56,7 +79,15 @@ impl<'a> EntityDecoder<'a> {
             return Ok(entity.clone());
         }
 
-        // Scan to find the entity - search for "#ID=" to avoid matching references
+        // Use index if available (O(1) lookup)
+        if let Some(ref index) = self.index {
+            if let Some(&(start, end)) = index.get(&entity_id) {
+                return self.decode_at(start, end);
+            }
+            return Err(Error::parse(0, format!("Entity #{} not found in index", entity_id)));
+        }
+
+        // Fall back to linear scan (O(n) - slow!)
         let pattern = format!("#{}=", entity_id);
         let start = self
             .content
