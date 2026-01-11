@@ -435,6 +435,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
     // Track processed meshes for incremental updates
     const processedMeshIdsRef = useRef<Set<number>>(new Set());
     const lastGeometryLengthRef = useRef<number>(0);
+    const lastGeometryRef = useRef<MeshData[] | null>(null);
     const cameraFittedRef = useRef<boolean>(false);
 
     useEffect(() => {
@@ -461,32 +462,52 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         const currentLength = geometry.length;
         const lastLength = lastGeometryLengthRef.current;
         const isIncremental = currentLength > lastLength;
+        
+        // Check if geometry array reference changed (filtering scenario)
+        const geometryChanged = lastGeometryRef.current !== geometry;
+        const lastGeometry = lastGeometryRef.current;
 
-        console.log(`[Viewport] Geometry update check: current=${currentLength}, last=${lastLength}, incremental=${isIncremental}`);
+        console.log(`[Viewport] Geometry update check: current=${currentLength}, last=${lastLength}, incremental=${isIncremental}, geometryChanged=${geometryChanged}`);
 
-        if (isIncremental) {
+        // If geometry array reference changed, we need to rebuild (filtering scenario)
+        if (geometryChanged && lastGeometry !== null) {
+            console.log('[Viewport] Geometry array reference changed (filtering), clearing and rebuilding');
+            scene.clear();
+            processedMeshIdsRef.current.clear();
+            lastGeometryLengthRef.current = 0;
+            lastGeometryRef.current = geometry;
+        } else if (isIncremental) {
             // Incremental update: only add new meshes
             console.log(`[Viewport] Incremental update: adding ${currentLength - lastLength} new meshes (total: ${currentLength})`);
+            lastGeometryRef.current = geometry;
         } else if (currentLength === 0) {
             // Clear scene if geometry was cleared
             scene.clear();
             processedMeshIdsRef.current.clear();
             cameraFittedRef.current = false;
             lastGeometryLengthRef.current = 0;
+            lastGeometryRef.current = null;
             return;
-        } else if (currentLength === lastGeometryLengthRef.current) {
-            // Same length - might be a re-render, skip if already processed
+        } else if (currentLength === lastGeometryLengthRef.current && !geometryChanged) {
+            // Same length and same reference - might be a re-render, skip if already processed
             return;
         } else {
-            // Length decreased - this means a new file was loaded, clear and rebuild from scratch
-            console.log('[Viewport] Geometry length decreased, clearing and rebuilding from scratch');
+            // Length decreased or changed - this means a new file was loaded or filter changed, clear and rebuild from scratch
+            console.log('[Viewport] Geometry length changed, clearing and rebuilding from scratch');
             scene.clear();
             processedMeshIdsRef.current.clear();
             cameraFittedRef.current = false;
             lastGeometryLengthRef.current = 0; // Reset so we process all new meshes
+            lastGeometryRef.current = geometry;
+        }
+        
+        // Ensure lastGeometryRef is set if it wasn't set above
+        if (lastGeometryRef.current === null) {
+            lastGeometryRef.current = geometry;
         }
 
         // Process only new meshes (for incremental updates)
+        // If we cleared the scene (filtering or length change), process all meshes
         const startIndex = lastGeometryLengthRef.current;
         const meshesToAdd = geometry.slice(startIndex);
 
@@ -497,6 +518,8 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         // if large coordinates were detected. Use shifted bounds from coordinateInfo.
         for (const meshData of meshesToAdd) {
             // Skip if already processed (safety check)
+            // This check is important for incremental updates, but if we cleared the scene,
+            // processedMeshIdsRef will be empty, so all meshes will be processed
             if (processedMeshIdsRef.current.has(meshData.expressId)) {
                 continue;
             }
