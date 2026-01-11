@@ -20,6 +20,17 @@ pub enum IfcType {
     IfcCurtainWall,
     IfcPlate,
     IfcMember,
+    IfcFooting,
+    IfcPile,
+    IfcCovering,
+    IfcBuildingElementProxy,
+    IfcBuildingElementPart,
+    IfcElementAssembly,
+
+    // Reinforcing elements
+    IfcReinforcingBar,
+    IfcReinforcingMesh,
+    IfcTendon,
 
     // Openings
     IfcDoor,
@@ -57,6 +68,8 @@ pub enum IfcType {
     IfcShapeRepresentation,
     IfcProductDefinitionShape,
     IfcExtrudedAreaSolid,
+    IfcSweptDiskSolid,
+    IfcRevolvedAreaSolid,
     IfcAxis2Placement3D,
     IfcAxis2Placement2D,
     IfcLocalPlacement,
@@ -87,6 +100,10 @@ pub enum IfcType {
     // Points
     IfcCartesianPointList2D,
     IfcCartesianPointList3D,
+
+    // Mapped geometry
+    IfcMappedItem,
+    IfcRepresentationMap,
 
     // MEP
     IfcPipeSegment,
@@ -127,6 +144,16 @@ impl IfcType {
             "IFCCURTAINWALL" => Self::IfcCurtainWall,
             "IFCPLATE" => Self::IfcPlate,
             "IFCMEMBER" => Self::IfcMember,
+            "IFCFOOTING" => Self::IfcFooting,
+            "IFCPILE" => Self::IfcPile,
+            "IFCCOVERING" => Self::IfcCovering,
+            "IFCBUILDINGELEMENTPROXY" => Self::IfcBuildingElementProxy,
+            "IFCBUILDINGELEMENTPART" => Self::IfcBuildingElementPart,
+            "IFCELEMENTASSEMBLY" => Self::IfcElementAssembly,
+
+            "IFCREINFORCINGBAR" => Self::IfcReinforcingBar,
+            "IFCREINFORCINGMESH" => Self::IfcReinforcingMesh,
+            "IFCTENDON" => Self::IfcTendon,
 
             "IFCDOOR" => Self::IfcDoor,
             "IFCWINDOW" => Self::IfcWindow,
@@ -158,6 +185,8 @@ impl IfcType {
             "IFCSHAPEREPRESENTATION" => Self::IfcShapeRepresentation,
             "IFCPRODUCTDEFINITIONSHAPE" => Self::IfcProductDefinitionShape,
             "IFCEXTRUDEDAREASOLID" => Self::IfcExtrudedAreaSolid,
+            "IFCSWEPTDISKSOLID" => Self::IfcSweptDiskSolid,
+            "IFCREVOLVEDAREASOLID" => Self::IfcRevolvedAreaSolid,
             "IFCAXIS2PLACEMENT3D" => Self::IfcAxis2Placement3D,
             "IFCAXIS2PLACEMENT2D" => Self::IfcAxis2Placement2D,
             "IFCLOCALPLACEMENT" => Self::IfcLocalPlacement,
@@ -188,6 +217,9 @@ impl IfcType {
             // Points
             "IFCCARTESIANPOINTLIST2D" => Self::IfcCartesianPointList2D,
             "IFCCARTESIANPOINTLIST3D" => Self::IfcCartesianPointList3D,
+
+            "IFCMAPPEDITEM" => Self::IfcMappedItem,
+            "IFCREPRESENTATIONMAP" => Self::IfcRepresentationMap,
 
             "IFCPIPESEGMENT" => Self::IfcPipeSegment,
             "IFCDUCTSEGMENT" => Self::IfcDuctSegment,
@@ -227,6 +259,16 @@ impl IfcType {
             Self::IfcCurtainWall => "IFCCURTAINWALL",
             Self::IfcPlate => "IFCPLATE",
             Self::IfcMember => "IFCMEMBER",
+            Self::IfcFooting => "IFCFOOTING",
+            Self::IfcPile => "IFCPILE",
+            Self::IfcCovering => "IFCCOVERING",
+            Self::IfcBuildingElementProxy => "IFCBUILDINGELEMENTPROXY",
+            Self::IfcBuildingElementPart => "IFCBUILDINGELEMENTPART",
+            Self::IfcElementAssembly => "IFCELEMENTASSEMBLY",
+
+            Self::IfcReinforcingBar => "IFCREINFORCINGBAR",
+            Self::IfcReinforcingMesh => "IFCREINFORCINGMESH",
+            Self::IfcTendon => "IFCTENDON",
 
             Self::IfcDoor => "IFCDOOR",
             Self::IfcWindow => "IFCWINDOW",
@@ -258,6 +300,8 @@ impl IfcType {
             Self::IfcShapeRepresentation => "IFCSHAPEREPRESENTATION",
             Self::IfcProductDefinitionShape => "IFCPRODUCTDEFINITIONSHAPE",
             Self::IfcExtrudedAreaSolid => "IFCEXTRUDEDAREASOLID",
+            Self::IfcSweptDiskSolid => "IFCSWEPTDISKSOLID",
+            Self::IfcRevolvedAreaSolid => "IFCREVOLVEDAREASOLID",
             Self::IfcAxis2Placement3D => "IFCAXIS2PLACEMENT3D",
             Self::IfcAxis2Placement2D => "IFCAXIS2PLACEMENT2D",
             Self::IfcLocalPlacement => "IFCLOCALPLACEMENT",
@@ -288,6 +332,9 @@ impl IfcType {
             // Points
             Self::IfcCartesianPointList2D => "IFCCARTESIANPOINTLIST2D",
             Self::IfcCartesianPointList3D => "IFCCARTESIANPOINTLIST3D",
+
+            Self::IfcMappedItem => "IFCMAPPEDITEM",
+            Self::IfcRepresentationMap => "IFCREPRESENTATIONMAP",
 
             Self::IfcPipeSegment => "IFCPIPESEGMENT",
             Self::IfcDuctSegment => "IFCDUCTSEGMENT",
@@ -324,17 +371,38 @@ impl IfcType {
     pub fn is_building_element(&self) -> bool {
         matches!(
             self,
+            // Walls
             Self::IfcWall
                 | Self::IfcWallStandardCase
+                // Slabs & Floors
                 | Self::IfcSlab
+                | Self::IfcPlate
+                // Structural
                 | Self::IfcBeam
                 | Self::IfcColumn
+                | Self::IfcMember
+                | Self::IfcFooting
+                | Self::IfcPile
+                // Roofs & Stairs
                 | Self::IfcRoof
                 | Self::IfcStair
                 | Self::IfcRailing
+                // Facades
                 | Self::IfcCurtainWall
-                | Self::IfcPlate
-                | Self::IfcMember
+                // Openings
+                | Self::IfcDoor
+                | Self::IfcWindow
+                | Self::IfcOpeningElement
+                // Generic
+                | Self::IfcBuildingElementProxy
+                | Self::IfcBuildingElementPart
+                | Self::IfcElementAssembly
+                // Reinforcing
+                | Self::IfcReinforcingBar
+                | Self::IfcReinforcingMesh
+                | Self::IfcTendon
+                // Coverings
+                | Self::IfcCovering
         )
     }
 

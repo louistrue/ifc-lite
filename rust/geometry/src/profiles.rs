@@ -2,7 +2,7 @@
 //!
 //! Dynamic profile processing for parametric, arbitrary, and composite profiles.
 
-use crate::{Error, Point2, Result};
+use crate::{Error, Point2, Point3, Result};
 use crate::profile::Profile2D;
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcSchema, IfcType, ProfileCategory};
 use std::f64::consts::PI;
@@ -361,6 +361,112 @@ impl ProfileProcessor {
                 curve.ifc_type
             ))),
         }
+    }
+
+    /// Get 3D points from a curve (for swept disk solid, etc.)
+    pub fn get_curve_points(
+        &self,
+        curve: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<Vec<Point3<f64>>> {
+        match curve.ifc_type {
+            IfcType::IfcPolyline => self.process_polyline_3d(curve, decoder),
+            IfcType::IfcCompositeCurve => self.process_composite_curve_3d(curve, decoder),
+            IfcType::IfcTrimmedCurve => {
+                // For trimmed curve, get 2D points and convert to 3D
+                let points_2d = self.process_trimmed_curve(curve, decoder)?;
+                Ok(points_2d.into_iter().map(|p| Point3::new(p.x, p.y, 0.0)).collect())
+            }
+            _ => {
+                // Fallback: try 2D curve and convert to 3D
+                let points_2d = self.process_curve(curve, decoder)?;
+                Ok(points_2d.into_iter().map(|p| Point3::new(p.x, p.y, 0.0)).collect())
+            }
+        }
+    }
+
+    /// Process polyline into 3D points
+    fn process_polyline_3d(
+        &self,
+        curve: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<Vec<Point3<f64>>> {
+        // IfcPolyline: Points
+        let points_attr = curve.get(0).ok_or_else(|| {
+            Error::geometry("Polyline missing Points".to_string())
+        })?;
+
+        let points = decoder.resolve_ref_list(points_attr)?;
+        let mut result = Vec::with_capacity(points.len());
+
+        for point in points {
+            // IfcCartesianPoint: Coordinates
+            let coords_attr = point.get(0).ok_or_else(|| {
+                Error::geometry("CartesianPoint missing Coordinates".to_string())
+            })?;
+
+            let coords = coords_attr.as_list().ok_or_else(|| {
+                Error::geometry("Coordinates is not a list".to_string())
+            })?;
+
+            let x = coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0);
+            let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
+            let z = coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
+
+            result.push(Point3::new(x, y, z));
+        }
+
+        Ok(result)
+    }
+
+    /// Process composite curve into 3D points
+    fn process_composite_curve_3d(
+        &self,
+        curve: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<Vec<Point3<f64>>> {
+        // IfcCompositeCurve: Segments, SelfIntersect
+        let segments_attr = curve.get(0).ok_or_else(|| {
+            Error::geometry("CompositeCurve missing Segments".to_string())
+        })?;
+
+        let segments = decoder.resolve_ref_list(segments_attr)?;
+        let mut result = Vec::new();
+
+        for segment in segments {
+            // IfcCompositeCurveSegment: Transition, SameSense, ParentCurve
+            let parent_curve_attr = segment.get(2).ok_or_else(|| {
+                Error::geometry("CompositeCurveSegment missing ParentCurve".to_string())
+            })?;
+
+            let parent_curve = decoder.resolve_ref(parent_curve_attr)?.ok_or_else(|| {
+                Error::geometry("Failed to resolve ParentCurve".to_string())
+            })?;
+
+            // Get same_sense for direction
+            let same_sense = segment.get(1)
+                .and_then(|v| match v {
+                    ifc_lite_core::AttributeValue::Enum(e) => Some(e.as_str()),
+                    _ => None,
+                })
+                .map(|e| e == "T" || e == "TRUE")
+                .unwrap_or(true);
+
+            let mut segment_points = self.get_curve_points(&parent_curve, decoder)?;
+
+            if !same_sense {
+                segment_points.reverse();
+            }
+
+            // Skip first point if we already have points (avoid duplicates)
+            if !result.is_empty() && !segment_points.is_empty() {
+                result.extend(segment_points.into_iter().skip(1));
+            } else {
+                result.extend(segment_points);
+            }
+        }
+
+        Ok(result)
     }
 
     /// Process trimmed curve

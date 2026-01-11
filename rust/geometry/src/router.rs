@@ -3,7 +3,7 @@
 //! Routes IFC representation entities to appropriate processors based on type.
 
 use crate::{Mesh, Point3, Vector3, Result, Error};
-use crate::processors::{ExtrudedAreaSolidProcessor, TriangulatedFaceSetProcessor, MappedItemProcessor, FacetedBrepProcessor, BooleanClippingProcessor};
+use crate::processors::{ExtrudedAreaSolidProcessor, TriangulatedFaceSetProcessor, MappedItemProcessor, FacetedBrepProcessor, BooleanClippingProcessor, SweptDiskSolidProcessor};
 use ifc_lite_core::{
     DecodedEntity, EntityDecoder, GeometryCategory, IfcSchema, IfcType, ProfileCategory,
 };
@@ -48,6 +48,7 @@ impl GeometryRouter {
         router.register(Box::new(MappedItemProcessor::new()));
         router.register(Box::new(FacetedBrepProcessor::new()));
         router.register(Box::new(BooleanClippingProcessor::new()));
+        router.register(Box::new(SweptDiskSolidProcessor::new(schema_clone.clone())));
 
         router
     }
@@ -115,7 +116,7 @@ impl GeometryRouter {
                     // Only process solid geometry representations
                     if !matches!(
                         rep_type,
-                        "Body" | "SweptSolid" | "Brep" | "CSG" | "Clipping" | "SurfaceModel" | "Tessellation"
+                        "Body" | "SweptSolid" | "Brep" | "CSG" | "Clipping" | "SurfaceModel" | "Tessellation" | "MappedRepresentation" | "AdvancedSweptSolid"
                     ) {
                         continue; // Skip non-solid representations like 'Axis', 'Curve2D', etc.
                     }

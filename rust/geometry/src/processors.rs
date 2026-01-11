@@ -508,6 +508,165 @@ impl Default for MappedItemProcessor {
     }
 }
 
+/// SweptDiskSolid processor
+/// Handles IfcSweptDiskSolid - sweeps a circular profile along a curve
+pub struct SweptDiskSolidProcessor {
+    profile_processor: ProfileProcessor,
+}
+
+impl SweptDiskSolidProcessor {
+    pub fn new(schema: IfcSchema) -> Self {
+        Self {
+            profile_processor: ProfileProcessor::new(schema),
+        }
+    }
+}
+
+impl GeometryProcessor for SweptDiskSolidProcessor {
+    fn process(
+        &self,
+        entity: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+        _schema: &IfcSchema,
+    ) -> Result<Mesh> {
+        // IfcSweptDiskSolid attributes:
+        // 0: Directrix (IfcCurve) - the path to sweep along
+        // 1: Radius (IfcPositiveLengthMeasure) - outer radius
+        // 2: InnerRadius (optional) - inner radius for hollow tubes
+        // 3: StartParam (optional)
+        // 4: EndParam (optional)
+
+        let directrix_attr = entity
+            .get(0)
+            .ok_or_else(|| Error::geometry("SweptDiskSolid missing Directrix".to_string()))?;
+
+        let radius = entity
+            .get_float(1)
+            .ok_or_else(|| Error::geometry("SweptDiskSolid missing Radius".to_string()))?;
+
+        // Get inner radius if hollow
+        let inner_radius = entity.get_float(2);
+
+        // Resolve the directrix curve
+        let directrix = decoder
+            .resolve_ref(directrix_attr)?
+            .ok_or_else(|| Error::geometry("Failed to resolve Directrix".to_string()))?;
+
+        // Get points along the curve
+        let curve_points = self.profile_processor.get_curve_points(&directrix, decoder)?;
+
+        if curve_points.len() < 2 {
+            return Ok(Mesh::new()); // Not enough points
+        }
+
+        // Generate tube mesh by sweeping circle along curve
+        let segments = 12; // Number of segments around the circle
+        let mut positions = Vec::new();
+        let mut indices = Vec::new();
+
+        // For each point on the curve, create a ring of vertices
+        for i in 0..curve_points.len() {
+            let p = curve_points[i];
+
+            // Calculate tangent direction
+            let tangent = if i == 0 {
+                (curve_points[1] - curve_points[0]).normalize()
+            } else if i == curve_points.len() - 1 {
+                (curve_points[i] - curve_points[i - 1]).normalize()
+            } else {
+                ((curve_points[i + 1] - curve_points[i - 1]) / 2.0).normalize()
+            };
+
+            // Create perpendicular vectors using cross product
+            // First, find a vector not parallel to tangent
+            let up = if tangent.x.abs() < 0.9 {
+                Vector3::new(1.0, 0.0, 0.0)
+            } else {
+                Vector3::new(0.0, 1.0, 0.0)
+            };
+
+            let perp1 = tangent.cross(&up).normalize();
+            let perp2 = tangent.cross(&perp1).normalize();
+
+            // Create ring of vertices
+            for j in 0..segments {
+                let angle = 2.0 * std::f64::consts::PI * j as f64 / segments as f64;
+                let offset = perp1 * (radius * angle.cos()) + perp2 * (radius * angle.sin());
+                let vertex = p + offset;
+
+                positions.push(vertex.x as f32);
+                positions.push(vertex.y as f32);
+                positions.push(vertex.z as f32);
+            }
+
+            // Create triangles connecting this ring to the next
+            if i < curve_points.len() - 1 {
+                let base = (i * segments) as u32;
+                let next_base = ((i + 1) * segments) as u32;
+
+                for j in 0..segments {
+                    let j_next = (j + 1) % segments;
+
+                    // Two triangles per quad
+                    indices.push(base + j as u32);
+                    indices.push(next_base + j as u32);
+                    indices.push(next_base + j_next as u32);
+
+                    indices.push(base + j as u32);
+                    indices.push(next_base + j_next as u32);
+                    indices.push(base + j_next as u32);
+                }
+            }
+        }
+
+        // Add end caps
+        // Start cap
+        let center_idx = (positions.len() / 3) as u32;
+        let start = curve_points[0];
+        positions.push(start.x as f32);
+        positions.push(start.y as f32);
+        positions.push(start.z as f32);
+
+        for j in 0..segments {
+            let j_next = (j + 1) % segments;
+            indices.push(center_idx);
+            indices.push(j_next as u32);
+            indices.push(j as u32);
+        }
+
+        // End cap
+        let end_center_idx = (positions.len() / 3) as u32;
+        let end_base = ((curve_points.len() - 1) * segments) as u32;
+        let end = curve_points[curve_points.len() - 1];
+        positions.push(end.x as f32);
+        positions.push(end.y as f32);
+        positions.push(end.z as f32);
+
+        for j in 0..segments {
+            let j_next = (j + 1) % segments;
+            indices.push(end_center_idx);
+            indices.push(end_base + j as u32);
+            indices.push(end_base + j_next as u32);
+        }
+
+        Ok(Mesh {
+            positions,
+            normals: Vec::new(),
+            indices,
+        })
+    }
+
+    fn supported_types(&self) -> Vec<IfcType> {
+        vec![IfcType::IfcSweptDiskSolid]
+    }
+}
+
+impl Default for SweptDiskSolidProcessor {
+    fn default() -> Self {
+        Self::new(IfcSchema::new())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
