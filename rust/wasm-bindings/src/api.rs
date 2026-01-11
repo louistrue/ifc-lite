@@ -131,14 +131,48 @@ impl IfcAPI {
     /// gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
     /// ```
     #[wasm_bindgen(js_name = parseZeroCopy)]
-    pub fn parse_zero_copy(&self, _content: String) -> Promise {
+    pub fn parse_zero_copy(&self, content: String) -> Promise {
         let promise = Promise::new(&mut |resolve, _reject| {
+            let content = content.clone();
             spawn_local(async move {
-                // In a real implementation, we'd parse the IFC file
-                // and generate geometry, then wrap it in ZeroCopyMesh
-                let mesh = ZeroCopyMesh::new();
+                // Parse IFC file and generate geometry
+                use ifc_lite_core::{EntityScanner, EntityDecoder};
+                use ifc_lite_geometry::{GeometryRouter, Mesh, calculate_normals};
 
-                resolve.call1(&JsValue::NULL, &JsValue::from(mesh)).unwrap();
+                let mut combined_mesh = Mesh::new();
+
+                // Create scanner and decoder
+                let mut scanner = EntityScanner::new(&content);
+                let mut decoder = EntityDecoder::new(&content);
+
+                // Create geometry router
+                let router = GeometryRouter::new();
+
+                // Process all building elements
+                while let Some((_id, type_name, start, end)) = scanner.next_entity() {
+                    // Check if this is a building element type
+                    let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
+                    if let Some(ifc_type) = ifc_type {
+                        if router.schema().has_geometry(&ifc_type) {
+                            // Decode the entity
+                            if let Ok(entity) = decoder.decode_at(start, end) {
+                                // Process element into mesh
+                                if let Ok(mesh) = router.process_element(&entity, &mut decoder) {
+                                    combined_mesh.merge(&mesh);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Calculate normals if not present
+                if combined_mesh.normals.is_empty() && !combined_mesh.positions.is_empty() {
+                    calculate_normals(&mut combined_mesh);
+                }
+
+                let zero_copy_mesh = ZeroCopyMesh::from(combined_mesh);
+
+                resolve.call1(&JsValue::NULL, &JsValue::from(zero_copy_mesh)).unwrap();
             });
         });
 

@@ -1,0 +1,350 @@
+//! Geometry Processors - P0 implementations
+//!
+//! High-priority processors for common IFC geometry types.
+
+use crate::{
+    extrusion::extrude_profile, profiles::ProfileProcessor, triangulation::triangulate_polygon,
+    Error, Mesh, Point3, Result, Vector3,
+};
+use ifc_lite_core::{DecodedEntity, EntityDecoder, GeometryCategory, IfcSchema, IfcType};
+
+use super::router::GeometryProcessor;
+
+/// ExtrudedAreaSolid processor (P0)
+/// Handles IfcExtrudedAreaSolid - extrusion of 2D profiles
+pub struct ExtrudedAreaSolidProcessor {
+    profile_processor: ProfileProcessor,
+}
+
+impl ExtrudedAreaSolidProcessor {
+    /// Create new processor
+    pub fn new(schema: IfcSchema) -> Self {
+        Self {
+            profile_processor: ProfileProcessor::new(schema),
+        }
+    }
+}
+
+impl GeometryProcessor for ExtrudedAreaSolidProcessor {
+    fn process(
+        &self,
+        entity: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+        _schema: &IfcSchema,
+    ) -> Result<Mesh> {
+        // IfcExtrudedAreaSolid attributes:
+        // 0: SweptArea (IfcProfileDef)
+        // 1: Position (IfcAxis2Placement3D)
+        // 2: ExtrudedDirection (IfcDirection)
+        // 3: Depth (IfcPositiveLengthMeasure)
+
+        // Get profile
+        let profile_attr = entity
+            .get(0)
+            .ok_or_else(|| Error::geometry("ExtrudedAreaSolid missing SweptArea".to_string()))?;
+
+        let profile_entity = decoder
+            .resolve_ref(profile_attr)?
+            .ok_or_else(|| Error::geometry("Failed to resolve SweptArea".to_string()))?;
+
+        let profile = self
+            .profile_processor
+            .process(&profile_entity, decoder)?;
+
+        if profile.outer.is_empty() {
+            return Ok(Mesh::new());
+        }
+
+        // Get extrusion direction
+        let direction_attr = entity
+            .get(2)
+            .ok_or_else(|| {
+                Error::geometry("ExtrudedAreaSolid missing ExtrudedDirection".to_string())
+            })?;
+
+        let direction_entity = decoder
+            .resolve_ref(direction_attr)?
+            .ok_or_else(|| Error::geometry("Failed to resolve ExtrudedDirection".to_string()))?;
+
+        if direction_entity.ifc_type != IfcType::IfcDirection {
+            return Err(Error::geometry(format!(
+                "Expected IfcDirection, got {}",
+                direction_entity.ifc_type
+            )));
+        }
+
+        // Parse direction
+        let ratios_attr = direction_entity
+            .get(0)
+            .ok_or_else(|| Error::geometry("IfcDirection missing ratios".to_string()))?;
+
+        let ratios = ratios_attr
+            .as_list()
+            .ok_or_else(|| Error::geometry("Expected ratio list".to_string()))?;
+
+        use ifc_lite_core::AttributeValue;
+        let dir_x = ratios.get(0).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0);
+        let dir_y = ratios.get(1).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0);
+        let dir_z = ratios.get(2).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(1.0);
+
+        let direction = Vector3::new(dir_x, dir_y, dir_z).normalize();
+
+        // Get depth
+        let depth = entity
+            .get_float(3)
+            .ok_or_else(|| Error::geometry("ExtrudedAreaSolid missing Depth".to_string()))?;
+
+        // Create transformation matrix to align Z-axis with extrusion direction
+        // extrude_profile always extrudes along Z, so we need to rotate to match IFC direction
+        let transform = if (direction.z - 1.0).abs() < 0.001 {
+            // Already aligned with Z, no transformation needed
+            None
+        } else {
+            // Create rotation from Z-axis to extrusion direction
+            use nalgebra::{Matrix4, Rotation3, Unit};
+            let z_axis = Vector3::new(0.0, 0.0, 1.0);
+            let rotation = Rotation3::rotation_between(&z_axis, &direction)
+                .unwrap_or(Rotation3::identity());
+            Some(Matrix4::from(rotation))
+        };
+
+        // Extrude the profile
+        let mesh = extrude_profile(&profile, depth, transform)?;
+
+        Ok(mesh)
+    }
+
+    fn supported_types(&self) -> Vec<IfcType> {
+        vec![IfcType::IfcExtrudedAreaSolid]
+    }
+}
+
+/// TriangulatedFaceSet processor (P0)
+/// Handles IfcTriangulatedFaceSet - explicit triangle meshes
+pub struct TriangulatedFaceSetProcessor;
+
+impl TriangulatedFaceSetProcessor {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl GeometryProcessor for TriangulatedFaceSetProcessor {
+    fn process(
+        &self,
+        entity: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+        _schema: &IfcSchema,
+    ) -> Result<Mesh> {
+        // IfcTriangulatedFaceSet attributes:
+        // 0: Coordinates (IfcCartesianPointList3D)
+        // 1: Normals (optional)
+        // 2: Closed (optional)
+        // 3: CoordIndex (list of list of IfcPositiveInteger)
+
+        // Get coordinates
+        let coords_attr = entity
+            .get(0)
+            .ok_or_else(|| {
+                Error::geometry("TriangulatedFaceSet missing Coordinates".to_string())
+            })?;
+
+        let coords_entity = decoder
+            .resolve_ref(coords_attr)?
+            .ok_or_else(|| Error::geometry("Failed to resolve Coordinates".to_string()))?;
+
+        // IfcCartesianPointList3D has CoordList attribute
+        let coord_list_attr = coords_entity
+            .get(0)
+            .ok_or_else(|| Error::geometry("CartesianPointList3D missing CoordList".to_string()))?;
+
+        let coord_list = coord_list_attr
+            .as_list()
+            .ok_or_else(|| Error::geometry("Expected coordinate list".to_string()))?;
+
+        // Parse vertices
+        let mut positions = Vec::with_capacity(coord_list.len() * 3);
+        for coord_attr in coord_list {
+            let coord = coord_attr
+                .as_list()
+                .ok_or_else(|| Error::geometry("Expected coordinate triple".to_string()))?;
+
+            use ifc_lite_core::AttributeValue;
+            let x = coord.get(0).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0) as f32;
+            let y = coord.get(1).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0) as f32;
+            let z = coord.get(2).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0) as f32;
+
+            positions.push(x);
+            positions.push(y);
+            positions.push(z);
+        }
+
+        // Get face indices
+        let indices_attr = entity
+            .get(3)
+            .ok_or_else(|| Error::geometry("TriangulatedFaceSet missing CoordIndex".to_string()))?;
+
+        let face_list = indices_attr
+            .as_list()
+            .ok_or_else(|| Error::geometry("Expected face index list".to_string()))?;
+
+        let mut indices = Vec::with_capacity(face_list.len() * 3);
+        for face_attr in face_list {
+            let face = face_attr
+                .as_list()
+                .ok_or_else(|| Error::geometry("Expected face triple".to_string()))?;
+
+            // IFC indices are 1-based, convert to 0-based
+            use ifc_lite_core::AttributeValue;
+            let i0 = face.get(0).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(1.0) as u32 - 1;
+            let i1 = face.get(1).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(1.0) as u32 - 1;
+            let i2 = face.get(2).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(1.0) as u32 - 1;
+
+            indices.push(i0);
+            indices.push(i1);
+            indices.push(i2);
+        }
+
+        // Create mesh (normals will be computed later)
+        Ok(Mesh {
+            positions,
+            normals: Vec::new(),
+            indices,
+        })
+    }
+
+    fn supported_types(&self) -> Vec<IfcType> {
+        vec![IfcType::IfcTriangulatedFaceSet]
+    }
+}
+
+impl Default for TriangulatedFaceSetProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// MappedItem processor (P0)
+/// Handles IfcMappedItem - geometry instancing
+pub struct MappedItemProcessor;
+
+impl MappedItemProcessor {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl GeometryProcessor for MappedItemProcessor {
+    fn process(
+        &self,
+        entity: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+        schema: &IfcSchema,
+    ) -> Result<Mesh> {
+        // IfcMappedItem attributes:
+        // 0: MappingSource (IfcRepresentationMap)
+        // 1: MappingTarget (IfcCartesianTransformationOperator)
+
+        // Get mapping source
+        let source_attr = entity
+            .get(0)
+            .ok_or_else(|| Error::geometry("MappedItem missing MappingSource".to_string()))?;
+
+        let source_entity = decoder
+            .resolve_ref(source_attr)?
+            .ok_or_else(|| Error::geometry("Failed to resolve MappingSource".to_string()))?;
+
+        // IfcRepresentationMap has:
+        // 0: MappingOrigin (IfcAxis2Placement)
+        // 1: MappedRepresentation (IfcRepresentation)
+
+        let mapped_rep_attr = source_entity
+            .get(1)
+            .ok_or_else(|| {
+                Error::geometry("RepresentationMap missing MappedRepresentation".to_string())
+            })?;
+
+        let mapped_rep = decoder
+            .resolve_ref(mapped_rep_attr)?
+            .ok_or_else(|| Error::geometry("Failed to resolve MappedRepresentation".to_string()))?;
+
+        // Get representation items
+        let items_attr = mapped_rep
+            .get(3)
+            .ok_or_else(|| Error::geometry("Representation missing Items".to_string()))?;
+
+        let items = decoder.resolve_ref_list(items_attr)?;
+
+        // Process all items and merge (simplified - using router would be better)
+        let mut mesh = Mesh::new();
+        for item in items {
+            // For now, only handle basic types
+            if item.ifc_type == IfcType::IfcExtrudedAreaSolid {
+                let processor = ExtrudedAreaSolidProcessor::new(schema.clone());
+                let item_mesh = processor.process(&item, decoder, schema)?;
+                mesh.merge(&item_mesh);
+            } else if item.ifc_type == IfcType::IfcTriangulatedFaceSet {
+                let processor = TriangulatedFaceSetProcessor::new();
+                let item_mesh = processor.process(&item, decoder, schema)?;
+                mesh.merge(&item_mesh);
+            }
+        }
+
+        // TODO: Apply mapping transformation from MappingTarget
+
+        Ok(mesh)
+    }
+
+    fn supported_types(&self) -> Vec<IfcType> {
+        vec![IfcType::IfcMappedItem]
+    }
+}
+
+impl Default for MappedItemProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extruded_area_solid() {
+        let content = r#"
+#1=IFCRECTANGLEPROFILEDEF(.AREA.,$,$,100.0,200.0);
+#2=IFCDIRECTION((0.0,0.0,1.0));
+#3=IFCEXTRUDEDAREASOLID(#1,$,#2,300.0);
+"#;
+
+        let mut decoder = EntityDecoder::new(content);
+        let schema = IfcSchema::new();
+        let processor = ExtrudedAreaSolidProcessor::new(schema.clone());
+
+        let entity = decoder.decode_by_id(3).unwrap();
+        let mesh = processor.process(entity, &mut decoder, &schema).unwrap();
+
+        assert!(!mesh.is_empty());
+        assert!(mesh.positions.len() > 0);
+        assert!(mesh.indices.len() > 0);
+    }
+
+    #[test]
+    fn test_triangulated_face_set() {
+        let content = r#"
+#1=IFCCARTESIANPOINTLIST3D(((0.0,0.0,0.0),(100.0,0.0,0.0),(50.0,100.0,0.0)));
+#2=IFCTRIANGULATEDFACESET(#1,$,$,((1,2,3)),$);
+"#;
+
+        let mut decoder = EntityDecoder::new(content);
+        let schema = IfcSchema::new();
+        let processor = TriangulatedFaceSetProcessor::new();
+
+        let entity = decoder.decode_by_id(2).unwrap();
+        let mesh = processor.process(entity, &mut decoder, &schema).unwrap();
+
+        assert_eq!(mesh.positions.len(), 9); // 3 vertices * 3 coordinates
+        assert_eq!(mesh.indices.len(), 3); // 1 triangle
+    }
+}
