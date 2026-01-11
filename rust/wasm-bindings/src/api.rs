@@ -185,9 +185,12 @@ impl IfcAPI {
                                 }
                                 Err(e) => {
                                     error_count += 1;
-                                    // Panic on first error to see what's wrong
-                                    if error_count == 1 {
-                                        panic!("FIRST ERROR - Type: {}, Error: {}, Entity ID: {}", type_name, e, entity.id);
+                                    // Log errors for debugging (only first 5)
+                                    if error_count <= 5 {
+                                        web_sys::console::log_1(&format!(
+                                            "[IFC-Lite] Error processing {}: {}",
+                                            type_name, e
+                                        ).into());
                                     }
                                 }
                             }

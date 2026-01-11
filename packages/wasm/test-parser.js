@@ -6,14 +6,14 @@
  */
 
 import { readFileSync } from 'fs';
-import { initSync, IfcAPI } from './pkg/ifc_lite_wasm.js';
+import wasm_module from './pkg/ifc_lite_wasm.js';
 
 console.log('🦀 IFC-Lite WASM Parser Test\n');
 
 // Initialize WASM
 console.log('🔧 Initializing WASM module...');
 const wasmBuffer = readFileSync('./pkg/ifc_lite_wasm_bg.wasm');
-initSync(wasmBuffer);
+await wasm_module.init(wasmBuffer);
 console.log('✅ WASM initialized\n');
 
 // Load the IFC file
@@ -31,7 +31,7 @@ try {
 
 // Initialize the API
 console.log('🔧 Initializing IFC-Lite API...');
-const api = new IfcAPI();
+const api = new wasm_module.IfcAPI();
 console.log(`✅ API ready (version: ${api.version})\n`);
 
 // Test 1: Traditional parse (entity counting)

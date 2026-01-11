@@ -48,12 +48,36 @@ fn entity_ref(input: &str) -> IResult<&str, Token> {
 }
 
 /// Parse string literal: 'text' or "text"
+/// IFC uses '' to escape a single quote within a string
 fn string_literal(input: &str) -> IResult<&str, Token> {
+    // Helper to parse string content with escaped quotes
+    fn parse_string_content(input: &str, quote: char) -> IResult<&str, &str> {
+        let mut i = 0;
+        let bytes = input.as_bytes();
+
+        while i < bytes.len() {
+            if bytes[i] as char == quote {
+                // Check if it's an escaped quote (doubled)
+                if i + 1 < bytes.len() && bytes[i + 1] as char == quote {
+                    i += 2; // Skip both quotes
+                    continue;
+                } else {
+                    // End of string
+                    return Ok((&input[i..], &input[..i]));
+                }
+            }
+            i += 1;
+        }
+
+        // No closing quote found
+        Err(nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Char)))
+    }
+
     alt((
         map(
             delimited(
                 char('\''),
-                take_while(|c| c != '\''),
+                |i| parse_string_content(i, '\''),
                 char('\'')
             ),
             Token::String
@@ -61,7 +85,7 @@ fn string_literal(input: &str) -> IResult<&str, Token> {
         map(
             delimited(
                 char('"'),
-                take_while(|c| c != '"'),
+                |i| parse_string_content(i, '"'),
                 char('"')
             ),
             Token::String
@@ -82,7 +106,8 @@ fn integer(input: &str) -> IResult<&str, Token> {
     )(input)
 }
 
-/// Parse float: 3.14, -3.14, 1.5E-10
+/// Parse float: 3.14, -3.14, 1.5E-10, 0., 1.
+/// IFC allows floats like "0." without decimal digits
 fn float(input: &str) -> IResult<&str, Token> {
     map_res(
         recognize(
@@ -90,7 +115,7 @@ fn float(input: &str) -> IResult<&str, Token> {
                 opt(char('-')),
                 digit1,
                 char('.'),
-                digit1,
+                opt(digit1),  // Made optional to support "0." format
                 opt(tuple((
                     one_of("eE"),
                     opt(one_of("+-")),
@@ -385,6 +410,41 @@ mod tests {
         assert_eq!(id, 123);
         assert_eq!(ifc_type, IfcType::IfcWall);
         assert_eq!(args.len(), 8);
+    }
+
+    #[test]
+    fn test_parse_entity_with_nested_list() {
+        // First test: simple list (should work)
+        let simple = "(0.,0.,1.)";
+        println!("Testing simple list: {}", simple);
+        let simple_result = list(simple);
+        println!("Simple list result: {:?}", simple_result);
+
+        // Second test: nested in entity (what's failing)
+        let input = "#9=IFCDIRECTION((0.,0.,1.));";
+        println!("\nTesting full entity: {}", input);
+        let result = parse_entity(input);
+
+        if let Err(ref e) = result {
+            println!("Parse error: {:?}", e);
+
+            // Try parsing just the arguments part
+            println!("\nTrying to parse just arguments: ((0.,0.,1.))");
+            let args_input = "((0.,0.,1.))";
+            let args_result = list(args_input);
+            println!("Args list result: {:?}", args_result);
+        }
+
+        assert!(result.is_ok(), "Failed to parse: {:?}", result);
+        let (id, _ifc_type, args) = result.unwrap();
+        assert_eq!(id, 9);
+        assert_eq!(args.len(), 1);
+        // First arg should be a list containing 3 floats
+        if let Token::List(inner) = &args[0] {
+            assert_eq!(inner.len(), 3);
+        } else {
+            panic!("Expected Token::List, got {:?}", args[0]);
+        }
     }
 
     #[test]

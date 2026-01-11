@@ -28,7 +28,10 @@ impl<'a> EntityDecoder<'a> {
     /// Returns cached entity if already decoded
     pub fn decode_at(&mut self, start: usize, end: usize) -> Result<DecodedEntity> {
         let line = &self.content[start..end];
-        let (id, ifc_type, tokens) = parse_entity(line)?;
+        let (id, ifc_type, tokens) = parse_entity(line).map_err(|e| {
+            // Add debug info about what failed to parse
+            Error::parse(0, format!("Failed to parse entity: {:?}, input: {:?}", e, &line[..line.len().min(100)]))
+        })?;
 
         // Check cache first
         if let Some(entity) = self.cache.get(&id) {
@@ -53,8 +56,8 @@ impl<'a> EntityDecoder<'a> {
             return Ok(entity.clone());
         }
 
-        // Scan to find the entity
-        let pattern = format!("#{}", entity_id);
+        // Scan to find the entity - search for "#ID=" to avoid matching references
+        let pattern = format!("#{}=", entity_id);
         let start = self
             .content
             .find(&pattern)
