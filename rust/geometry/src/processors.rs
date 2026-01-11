@@ -477,19 +477,33 @@ impl GeometryProcessor for MappedItemProcessor {
 
         let items = decoder.resolve_ref_list(items_attr)?;
 
-        // Process all items and merge (simplified - using router would be better)
+        // Process all items and merge
         let mut mesh = Mesh::new();
         for item in items {
-            // For now, only handle basic types
-            if item.ifc_type == IfcType::IfcExtrudedAreaSolid {
-                let processor = ExtrudedAreaSolidProcessor::new(schema.clone());
-                let item_mesh = processor.process(&item, decoder, schema)?;
-                mesh.merge(&item_mesh);
-            } else if item.ifc_type == IfcType::IfcTriangulatedFaceSet {
-                let processor = TriangulatedFaceSetProcessor::new();
-                let item_mesh = processor.process(&item, decoder, schema)?;
-                mesh.merge(&item_mesh);
-            }
+            let item_mesh = match item.ifc_type {
+                IfcType::IfcExtrudedAreaSolid => {
+                    let processor = ExtrudedAreaSolidProcessor::new(schema.clone());
+                    processor.process(&item, decoder, schema)?
+                }
+                IfcType::IfcTriangulatedFaceSet => {
+                    let processor = TriangulatedFaceSetProcessor::new();
+                    processor.process(&item, decoder, schema)?
+                }
+                IfcType::IfcFacetedBrep => {
+                    let processor = FacetedBrepProcessor::new();
+                    processor.process(&item, decoder, schema)?
+                }
+                IfcType::IfcSweptDiskSolid => {
+                    let processor = SweptDiskSolidProcessor::new(schema.clone());
+                    processor.process(&item, decoder, schema)?
+                }
+                IfcType::IfcBooleanClippingResult => {
+                    let processor = BooleanClippingProcessor::new();
+                    processor.process(&item, decoder, schema)?
+                }
+                _ => continue, // Skip unsupported types
+            };
+            mesh.merge(&item_mesh);
         }
 
         // TODO: Apply mapping transformation from MappingTarget

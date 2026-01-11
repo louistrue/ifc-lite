@@ -70,6 +70,11 @@ pub enum IfcType {
     IfcExtrudedAreaSolid,
     IfcSweptDiskSolid,
     IfcRevolvedAreaSolid,
+    IfcFacetedBrep,
+    IfcTriangulatedFaceSet,
+    IfcPolygonalFaceSet,
+    IfcBooleanResult,
+    IfcBooleanClippingResult,
     IfcAxis2Placement3D,
     IfcAxis2Placement2D,
     IfcLocalPlacement,
@@ -87,6 +92,7 @@ pub enum IfcType {
     IfcCShapeProfileDef,
     IfcZShapeProfileDef,
     IfcCircleHollowProfileDef,
+    IfcCompositeProfileDef,
 
     // Curve types
     IfcIndexedPolyCurve,
@@ -187,6 +193,11 @@ impl IfcType {
             "IFCEXTRUDEDAREASOLID" => Self::IfcExtrudedAreaSolid,
             "IFCSWEPTDISKSOLID" => Self::IfcSweptDiskSolid,
             "IFCREVOLVEDAREASOLID" => Self::IfcRevolvedAreaSolid,
+            "IFCFACETEDBREP" => Self::IfcFacetedBrep,
+            "IFCTRIANGULATEDFACESET" => Self::IfcTriangulatedFaceSet,
+            "IFCPOLYGONALFACESET" => Self::IfcPolygonalFaceSet,
+            "IFCBOOLEANRESULT" => Self::IfcBooleanResult,
+            "IFCBOOLEANCLIPPINGRESULT" => Self::IfcBooleanClippingResult,
             "IFCAXIS2PLACEMENT3D" => Self::IfcAxis2Placement3D,
             "IFCAXIS2PLACEMENT2D" => Self::IfcAxis2Placement2D,
             "IFCLOCALPLACEMENT" => Self::IfcLocalPlacement,
@@ -204,6 +215,7 @@ impl IfcType {
             "IFCCSHAPEPROFILEDEF" => Self::IfcCShapeProfileDef,
             "IFCZSHAPEPROFILEDEF" => Self::IfcZShapeProfileDef,
             "IFCCIRCLEHOLLOWPROFILEDEF" => Self::IfcCircleHollowProfileDef,
+            "IFCCOMPOSITEPROFILEDEF" => Self::IfcCompositeProfileDef,
 
             // Curve types
             "IFCINDEXEDPOLYCURVE" => Self::IfcIndexedPolyCurve,
@@ -302,6 +314,11 @@ impl IfcType {
             Self::IfcExtrudedAreaSolid => "IFCEXTRUDEDAREASOLID",
             Self::IfcSweptDiskSolid => "IFCSWEPTDISKSOLID",
             Self::IfcRevolvedAreaSolid => "IFCREVOLVEDAREASOLID",
+            Self::IfcFacetedBrep => "IFCFACETEDBREP",
+            Self::IfcTriangulatedFaceSet => "IFCTRIANGULATEDFACESET",
+            Self::IfcPolygonalFaceSet => "IFCPOLYGONALFACESET",
+            Self::IfcBooleanResult => "IFCBOOLEANRESULT",
+            Self::IfcBooleanClippingResult => "IFCBOOLEANCLIPPINGRESULT",
             Self::IfcAxis2Placement3D => "IFCAXIS2PLACEMENT3D",
             Self::IfcAxis2Placement2D => "IFCAXIS2PLACEMENT2D",
             Self::IfcLocalPlacement => "IFCLOCALPLACEMENT",
@@ -319,6 +336,7 @@ impl IfcType {
             Self::IfcCShapeProfileDef => "IFCCSHAPEPROFILEDEF",
             Self::IfcZShapeProfileDef => "IFCZSHAPEPROFILEDEF",
             Self::IfcCircleHollowProfileDef => "IFCCIRCLEHOLLOWPROFILEDEF",
+            Self::IfcCompositeProfileDef => "IFCCOMPOSITEPROFILEDEF",
 
             // Curve types
             Self::IfcIndexedPolyCurve => "IFCINDEXEDPOLYCURVE",
@@ -418,6 +436,110 @@ impl IfcType {
                 | Self::IfcRelFillsElement
         )
     }
+}
+
+/// Check if a type name (string) represents an element with potential geometry
+/// This is the DYNAMIC approach - doesn't require enum variants for every type
+pub fn has_geometry_by_name(type_name: &str) -> bool {
+    // TYPE entities (IfcWallType, IfcColumnType, etc.) are templates, not actual geometry
+    // They define properties/geometry that instances reference via IfcMappedItem
+    if type_name.ends_with("TYPE") {
+        return false;
+    }
+
+    // IFC inheritance: IfcProduct -> IfcElement -> various subtypes
+    // All these can have geometry representations
+
+    // Building elements (IfcBuildingElement subtypes)
+    let building_elements = [
+        "IFCWALL", "IFCWALLSTANDARDCASE",
+        "IFCSLAB", "IFCSLABSTANDARDCASE", "IFCSLABELEMENTEDCASE",
+        "IFCBEAM", "IFCBEAMSTANDARDCASE",
+        "IFCCOLUMN", "IFCCOLUMNSTANDARDCASE",
+        "IFCROOF",
+        "IFCSTAIR", "IFCSTAIRFLIGHT",
+        "IFCRAMP", "IFCRAMPFLIGHT",
+        "IFCRAILING",
+        "IFCCURTAINWALL",
+        "IFCPLATE", "IFCPLATESTANDARDCASE",
+        "IFCMEMBER", "IFCMEMBERSTANDARDCASE",
+        "IFCFOOTING",
+        "IFCPILE",
+        "IFCCOVERING",
+        "IFCBUILDINGELEMENTPROXY",
+        "IFCBUILDINGELEMENTPART",
+        "IFCCHIMNEY",
+        "IFCSHADINGDEVICE",
+    ];
+
+    // Openings and features
+    let openings = [
+        "IFCDOOR", "IFCDOORSTANDARDCASE",
+        "IFCWINDOW", "IFCWINDOWSTANDARDCASE",
+        "IFCOPENINGELEMENT", "IFCOPENINGSTANDARDCASE",
+        "IFCVOIDINGFEATURE", "IFCSURFACEFEATURE", "IFCPROJECTIONELEMENT",
+    ];
+
+    // Element assemblies and components
+    let assemblies = [
+        "IFCELEMENTASSEMBLY",
+        "IFCREINFORCINGBAR",
+        "IFCREINFORCINGMESH",
+        "IFCREINFORCINGELEMENT",
+        "IFCTENDON",
+        "IFCTENDONANCHOR",
+        "IFCTENDONCONDUIT",
+        "IFCFASTENER",
+        "IFCMECHANICALFASTENER",
+        "IFCVIBRATIONISOLATOR",
+        "IFCDISCRETEACCESSORY",
+    ];
+
+    // MEP/Distribution elements
+    let mep = [
+        "IFCPIPESEGMENT", "IFCPIPEFITTING",
+        "IFCDUCTSEGMENT", "IFCDUCTFITTING",
+        "IFCCABLESEGMENT", "IFCCABLECARRIERSEGMENT",
+        "IFCFLOWSEGMENT", "IFCFLOWFITTING", "IFCFLOWTERMINAL", "IFCFLOWCONTROLLER",
+        "IFCFLOWMOVINGDEVICE", "IFCFLOWSTORAGEDEVICE", "IFCFLOWTREATMENTDEVICE",
+        "IFCENERGYCONVERSIONDEVICE", "IFCUNITARYEQUIPMENT",
+        "IFCAIRTERMINAL", "IFCAIRTERMINALBOX", "IFCAIRTOAIRHEATRECOVERY",
+        "IFCBOILER", "IFCBURNER", "IFCCHILLER", "IFCCOIL", "IFCCOMPRESSOR",
+        "IFCCONDENSER", "IFCCOOLEDBEAM", "IFCCOOLINGTOWER",
+        "IFCDAMPER", "IFCDUCTSILENCER", "IFCFAN", "IFCFILTER",
+        "IFCFIRESUPPRESSIONTERMINAL", "IFCFLOWMETER", "IFCHEATEXCHANGER",
+        "IFCHUMIDIFIER", "IFCINTERCEPTOR", "IFCJUNCTIONBOX",
+        "IFCLAMP", "IFCLIGHTFIXTURE", "IFCMEDICALDEVICE",
+        "IFCMOTORCONNECTION", "IFCOUTLET", "IFCPUMP",
+        "IFCSANITARYTERMINAL", "IFCSENSOR", "IFCSPACEHEATER",
+        "IFCSTACKTERMINAL", "IFCSWITCHINGDEVICE", "IFCTANK",
+        "IFCTRANSFORMER", "IFCTUBEBUNDLE", "IFCUNITARYCONTROLELEMENTS",
+        "IFCVALVE", "IFCWASTETERMINAL",
+        "IFCDISTRIBUTIONELEMENT", "IFCDISTRIBUTIONCONTROLELEMENT",
+        "IFCDISTRIBUTIONFLOWELEMENT", "IFCDISTRIBUTIONCHAMBERLEMENT",
+    ];
+
+    // Furniture and equipment
+    let furniture = [
+        "IFCFURNISHINGELEMENT",
+        "IFCFURNITURE",
+        "IFCSYSTEMFURNITUREELEMENT",
+    ];
+
+    // Geographic/Civil elements
+    let civil = [
+        "IFCGEOGRAPHICELEMENT",
+        "IFCTRANSPORTELEMENT",
+        "IFCVIRTUALELEMENT",
+    ];
+
+    // Check all categories
+    building_elements.contains(&type_name) ||
+    openings.contains(&type_name) ||
+    assemblies.contains(&type_name) ||
+    mep.contains(&type_name) ||
+    furniture.contains(&type_name) ||
+    civil.contains(&type_name)
 }
 
 impl fmt::Display for IfcType {

@@ -157,59 +157,65 @@ impl IfcAPI {
         let mut processed_count = 0;
         let mut error_count = 0;
         let mut building_elements_found = 0;
+        let mut empty_count = 0;
         let mut error_types: rustc_hash::FxHashMap<String, usize> = rustc_hash::FxHashMap::default();
+        let mut empty_types: rustc_hash::FxHashMap<String, usize> = rustc_hash::FxHashMap::default();
 
         while let Some((_id, type_name, start, end)) = scanner.next_entity() {
-            // Check if this is a building element type
-            let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
-            if let Some(ifc_type) = ifc_type {
-                if router.schema().has_geometry(&ifc_type) {
-                    building_elements_found += 1;
+            // Check if this is a building element type using dynamic string-based detection
+            // This doesn't require enum variants for every type!
+            if !ifc_lite_core::has_geometry_by_name(type_name) {
+                continue;
+            }
 
-                    // Log first few elements for debugging
-                    if building_elements_found <= 3 {
-                        web_sys::console::log_1(&format!(
-                            "[IFC-Lite] Processing element #{}: {}",
-                            building_elements_found, type_name
-                        ).into());
-                    }
-                    // Decode the entity
-                    match decoder.decode_at(start, end) {
-                        Ok(entity) => {
-                            // Process element into mesh
-                            match router.process_element(&entity, &mut decoder) {
-                                Ok(mesh) => {
-                                    if !mesh.is_empty() {
-                                        combined_mesh.merge(&mesh);
-                                        processed_count += 1;
-                                    }
-                                }
-                                Err(e) => {
-                                    error_count += 1;
-                                    // Track error by representation type
-                                    let error_msg = e.to_string();
-                                    if let Some(rep_type) = error_msg.split("representation type: ").nth(1) {
-                                        let rep_type = rep_type.split(',').next().unwrap_or("UNKNOWN").to_string();
-                                        *error_types.entry(rep_type).or_insert(0) += 1;
-                                    }
-                                    // Log errors for debugging (only first 10)
-                                    if error_count <= 10 {
-                                        web_sys::console::log_1(&format!(
-                                            "[IFC-Lite] Error #{} processing {} (entity #{}): {}",
-                                            error_count, type_name, entity.id, e
-                                        ).into());
-                                    }
-                                }
+            building_elements_found += 1;
+
+            // Log first few elements for debugging
+            if building_elements_found <= 3 {
+                web_sys::console::log_1(&format!(
+                    "[IFC-Lite] Processing element #{}: {}",
+                    building_elements_found, type_name
+                ).into());
+            }
+
+            // Decode the entity
+            match decoder.decode_at(start, end) {
+                Ok(entity) => {
+                    // Process element into mesh
+                    match router.process_element(&entity, &mut decoder) {
+                        Ok(mesh) => {
+                            if !mesh.is_empty() {
+                                combined_mesh.merge(&mesh);
+                                processed_count += 1;
+                            } else {
+                                empty_count += 1;
+                                *empty_types.entry(type_name.to_string()).or_insert(0) += 1;
                             }
                         }
                         Err(e) => {
-                            // Failed to decode entity
-                            web_sys::console::log_1(&format!(
-                                "[IFC-Lite] Failed to decode {}: {}",
-                                type_name, e
-                            ).into());
+                            error_count += 1;
+                            // Track error by representation type
+                            let error_msg = e.to_string();
+                            if let Some(rep_type) = error_msg.split("representation type: ").nth(1) {
+                                let rep_type = rep_type.split(',').next().unwrap_or("UNKNOWN").to_string();
+                                *error_types.entry(rep_type).or_insert(0) += 1;
+                            }
+                            // Log errors for debugging (only first 10)
+                            if error_count <= 10 {
+                                web_sys::console::log_1(&format!(
+                                    "[IFC-Lite] Error #{} processing {} (entity #{}): {}",
+                                    error_count, type_name, entity.id, e
+                                ).into());
+                            }
                         }
                     }
+                }
+                Err(e) => {
+                    // Failed to decode entity
+                    web_sys::console::log_1(&format!(
+                        "[IFC-Lite] Failed to decode {}: {}",
+                        type_name, e
+                    ).into());
                 }
             }
         }
@@ -227,6 +233,16 @@ impl IfcAPI {
             sorted_errors.sort_by(|a, b| b.1.cmp(a.1));
             for (rep_type, count) in sorted_errors.iter().take(10) {
                 web_sys::console::log_1(&format!("  {} - {} occurrences", rep_type, count).into());
+            }
+        }
+
+        // Log empty mesh types summary
+        if !empty_types.is_empty() {
+            web_sys::console::log_1(&format!("[IFC-Lite] Empty mesh types ({} total):", empty_count).into());
+            let mut sorted_empty: Vec<_> = empty_types.iter().collect();
+            sorted_empty.sort_by(|a, b| b.1.cmp(a.1));
+            for (elem_type, count) in sorted_empty.iter().take(15) {
+                web_sys::console::log_1(&format!("  {} - {} occurrences", elem_type, count).into());
             }
         }
 

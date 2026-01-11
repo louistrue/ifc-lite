@@ -260,31 +260,8 @@ impl Default for IfcSchema {
     }
 }
 
-// Add new IFC types for profiles and boolean operations
-impl IfcType {
-    /// Convenience constructors for geometry types
-    pub const IfcExtrudedAreaSolid: Self = Self::Unknown(400);
-    pub const IfcRevolvedAreaSolid: Self = Self::Unknown(401);
-    pub const IfcFacetedBrep: Self = Self::Unknown(402);
-    pub const IfcTriangulatedFaceSet: Self = Self::Unknown(403);
-    pub const IfcPolygonalFaceSet: Self = Self::Unknown(404);
-    pub const IfcBooleanResult: Self = Self::Unknown(405);
-    pub const IfcBooleanClippingResult: Self = Self::Unknown(406);
-    pub const IfcMappedItem: Self = Self::Unknown(407);
-
-    // Profile types
-    pub const IfcRectangleProfileDef: Self = Self::Unknown(500);
-    pub const IfcCircleProfileDef: Self = Self::Unknown(501);
-    pub const IfcIShapeProfileDef: Self = Self::Unknown(502);
-    pub const IfcArbitraryClosedProfileDef: Self = Self::Unknown(503);
-    pub const IfcCompositeProfileDef: Self = Self::Unknown(504);
-
-    // Placement types
-    pub const IfcAxis2Placement2D: Self = Self::Unknown(600);
-
-    // Curve types
-    pub const IfcPolyline: Self = Self::Unknown(700);
-}
+// Note: IFC types are now defined as proper enum variants in schema.rs
+// This avoids the issue where from_str() would return Unknown(hash) instead of matching the constant.
 
 #[cfg(test)]
 mod tests {
