@@ -8,14 +8,75 @@ use crate::schema::IfcType;
 use crate::schema_gen::{AttributeValue, DecodedEntity};
 use rustc_hash::FxHashMap;
 
+/// Pre-built entity index type
+pub type EntityIndex = FxHashMap<u32, (usize, usize)>;
+
+/// Build entity index from content - O(n) scan using SIMD-accelerated search
+/// Returns index mapping entity IDs to byte offsets
+pub fn build_entity_index(content: &str) -> EntityIndex {
+    let bytes = content.as_bytes();
+    let len = bytes.len();
+
+    // Pre-allocate with estimated capacity (roughly 1 entity per 50 bytes)
+    let estimated_entities = len / 50;
+    let mut index = FxHashMap::with_capacity_and_hasher(estimated_entities, Default::default());
+
+    let mut pos = 0;
+
+    while pos < len {
+        // Find next '#' using SIMD-accelerated search
+        let remaining = &bytes[pos..];
+        let hash_offset = match memchr::memchr(b'#', remaining) {
+            Some(offset) => offset,
+            None => break,
+        };
+
+        let start = pos + hash_offset;
+        pos = start + 1;
+
+        // Parse entity ID (inline for speed)
+        let id_start = pos;
+        while pos < len && bytes[pos].is_ascii_digit() {
+            pos += 1;
+        }
+
+        if pos > id_start && pos < len && bytes[pos] == b'=' {
+            // Fast integer parsing without allocation
+            let id = parse_u32_inline(bytes, id_start, pos);
+
+            // Find end of entity (;) using SIMD
+            let entity_content = &bytes[pos..];
+            if let Some(semicolon_offset) = memchr::memchr(b';', entity_content) {
+                pos += semicolon_offset + 1; // Include semicolon
+                index.insert(id, (start, pos));
+            } else {
+                break; // No semicolon found, malformed
+            }
+        }
+    }
+
+    index
+}
+
+/// Fast u32 parsing without string allocation
+#[inline]
+fn parse_u32_inline(bytes: &[u8], start: usize, end: usize) -> u32 {
+    let mut result: u32 = 0;
+    for i in start..end {
+        let digit = bytes[i].wrapping_sub(b'0');
+        result = result.wrapping_mul(10).wrapping_add(digit as u32);
+    }
+    result
+}
+
 /// Entity decoder for lazy parsing
 pub struct EntityDecoder<'a> {
     content: &'a str,
     /// Cache of decoded entities (entity_id -> DecodedEntity)
     cache: FxHashMap<u32, DecodedEntity>,
     /// Index of entity offsets (entity_id -> (start, end))
-    /// Built lazily on first decode_by_id call
-    entity_index: Option<FxHashMap<u32, (usize, usize)>>,
+    /// Can be pre-built or built lazily
+    entity_index: Option<EntityIndex>,
 }
 
 impl<'a> EntityDecoder<'a> {
@@ -28,62 +89,22 @@ impl<'a> EntityDecoder<'a> {
         }
     }
 
+    /// Create decoder with pre-built index (faster for repeated lookups)
+    pub fn with_index(content: &'a str, index: EntityIndex) -> Self {
+        Self {
+            content,
+            cache: FxHashMap::default(),
+            entity_index: Some(index),
+        }
+    }
+
     /// Build entity index for O(1) lookups
     /// This scans the file once and maps entity IDs to byte offsets
     fn build_index(&mut self) {
         if self.entity_index.is_some() {
             return; // Already built
         }
-
-        let mut index = FxHashMap::default();
-        let bytes = self.content.as_bytes();
-        let len = bytes.len();
-        let mut pos = 0;
-
-        while pos < len {
-            // Skip whitespace
-            while pos < len && (bytes[pos] == b' ' || bytes[pos] == b'\n' || bytes[pos] == b'\r' || bytes[pos] == b'\t') {
-                pos += 1;
-            }
-
-            if pos >= len {
-                break;
-            }
-
-            // Check for entity start (#)
-            if bytes[pos] == b'#' {
-                let start = pos;
-                pos += 1;
-
-                // Parse entity ID
-                let id_start = pos;
-                while pos < len && bytes[pos].is_ascii_digit() {
-                    pos += 1;
-                }
-
-                if pos > id_start && pos < len && bytes[pos] == b'=' {
-                    let id_str = &self.content[id_start..pos];
-                    if let Ok(id) = id_str.parse::<u32>() {
-                        // Find end of entity (;)
-                        while pos < len && bytes[pos] != b';' {
-                            pos += 1;
-                        }
-                        if pos < len {
-                            pos += 1; // Include semicolon
-                            index.insert(id, (start, pos));
-                        }
-                    }
-                }
-            } else {
-                // Skip to next line
-                while pos < len && bytes[pos] != b'\n' {
-                    pos += 1;
-                }
-                pos += 1;
-            }
-        }
-
-        self.entity_index = Some(index);
+        self.entity_index = Some(build_entity_index(self.content));
     }
 
     /// Decode entity at byte offset

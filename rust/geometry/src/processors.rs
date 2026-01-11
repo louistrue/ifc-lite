@@ -406,12 +406,30 @@ impl GeometryProcessor for BooleanClippingProcessor {
             .resolve_ref(first_operand_attr)?
             .ok_or_else(|| Error::geometry("Failed to resolve FirstOperand".to_string()))?;
 
-        // Process the first operand as a representation item
-        // We need access to the router to recursively process this
-        // For now, try to process it directly if it's a known type
-        use crate::router::GeometryRouter;
-        let router = GeometryRouter::new();
-        router.process_representation_item(&first_operand, decoder)
+        // Process first operand based on its type - avoid creating new router
+        match first_operand.ifc_type {
+            IfcType::IfcExtrudedAreaSolid => {
+                let processor = ExtrudedAreaSolidProcessor::new(schema.clone());
+                processor.process(&first_operand, decoder, schema)
+            }
+            IfcType::IfcFacetedBrep => {
+                let processor = FacetedBrepProcessor::new();
+                processor.process(&first_operand, decoder, schema)
+            }
+            IfcType::IfcTriangulatedFaceSet => {
+                let processor = TriangulatedFaceSetProcessor::new();
+                processor.process(&first_operand, decoder, schema)
+            }
+            IfcType::IfcSweptDiskSolid => {
+                let processor = SweptDiskSolidProcessor::new(schema.clone());
+                processor.process(&first_operand, decoder, schema)
+            }
+            IfcType::IfcBooleanClippingResult => {
+                // Recursive case - reuse self
+                self.process(&first_operand, decoder, schema)
+            }
+            _ => Ok(Mesh::new()), // Skip unsupported types
+        }
     }
 
     fn supported_types(&self) -> Vec<IfcType> {

@@ -161,12 +161,12 @@ pub fn create_circle(radius: f64, hole_radius: Option<f64>) -> Profile2D {
 /// Calculate adaptive number of segments for a circle
 /// Based on radius to maintain good visual quality
 pub fn calculate_circle_segments(radius: f64) -> usize {
-    // Adaptive segment calculation
+    // Adaptive segment calculation - optimized for performance
     // Smaller circles need fewer segments
-    let segments = (radius.sqrt() * 12.0).ceil() as usize;
+    let segments = (radius.sqrt() * 8.0).ceil() as usize;
 
-    // Clamp between 8 and 64 segments
-    segments.clamp(8, 64)
+    // Clamp between 8 and 32 segments (reduced for performance)
+    segments.clamp(8, 32)
 }
 
 #[cfg(test)]

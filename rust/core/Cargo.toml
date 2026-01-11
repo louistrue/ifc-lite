@@ -16,6 +16,9 @@ thiserror = "1.0"
 # Fast hashing
 rustc-hash = "1.1"
 
+# Fast byte searching
+memchr = "2.7"
+
 # Async streaming
 futures-core = "0.3"
 futures-util = "0.3"

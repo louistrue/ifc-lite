@@ -259,8 +259,10 @@ pub fn parse_entity(input: &str) -> Result<(u32, IfcType, Vec<Token>)> {
 
 /// Fast entity scanner - scans file without full parsing
 /// O(n) performance for finding entities by type
+/// Uses memchr for SIMD-accelerated byte searching
 pub struct EntityScanner<'a> {
     content: &'a str,
+    bytes: &'a [u8],
     position: usize,
 }
 
@@ -269,6 +271,7 @@ impl<'a> EntityScanner<'a> {
     pub fn new(content: &'a str) -> Self {
         Self {
             content,
+            bytes: content.as_bytes(),
             position: 0,
         }
     }
@@ -276,46 +279,68 @@ impl<'a> EntityScanner<'a> {
     /// Scan for the next entity
     /// Returns (entity_id, type_name, line_start, line_end)
     pub fn next_entity(&mut self) -> Option<(u32, &'a str, usize, usize)> {
-        let remaining = &self.content[self.position..];
+        let remaining = &self.bytes[self.position..];
 
-        // Find next '#' that starts an entity
-        let start_offset = remaining.find('#')?;
+        // Find next '#' that starts an entity using SIMD-accelerated search
+        let start_offset = memchr::memchr(b'#', remaining)?;
         let line_start = self.position + start_offset;
 
-        // Find the end of the line (semicolon)
-        let line_content = &self.content[line_start..];
-        let end_offset = line_content.find(';')?;
+        // Find the end of the line (semicolon) using SIMD
+        let line_content = &self.bytes[line_start..];
+        let end_offset = memchr::memchr(b';', line_content)?;
         let line_end = line_start + end_offset + 1;
 
-        // Parse entity ID
+        // Parse entity ID (inline for speed)
         let id_start = line_start + 1;
-        let id_end = self.content[id_start..]
-            .find(|c: char| !c.is_numeric())
-            .map(|i| id_start + i)
-            .unwrap_or(line_end);
+        let mut id_end = id_start;
+        while id_end < line_end && self.bytes[id_end].is_ascii_digit() {
+            id_end += 1;
+        }
 
-        let id = self.content[id_start..id_end].parse::<u32>().ok()?;
+        // Fast integer parsing without allocation
+        let id = self.parse_u32_fast(id_start, id_end)?;
 
-        // Parse entity type (after '=')
-        let eq_pos = self.content[id_end..line_end].find('=')?;
-        let type_start = id_end + eq_pos + 1;
+        // Find '=' after ID using SIMD
+        let eq_search = &self.bytes[id_end..line_end];
+        let eq_offset = memchr::memchr(b'=', eq_search)?;
+        let mut type_start = id_end + eq_offset + 1;
 
-        // Skip whitespace
-        let type_start = self.content[type_start..line_end]
-            .find(|c: char| !c.is_whitespace())
-            .map(|i| type_start + i)?;
+        // Skip whitespace (inline)
+        while type_start < line_end && self.bytes[type_start].is_ascii_whitespace() {
+            type_start += 1;
+        }
 
-        let type_end = self.content[type_start..line_end]
-            .find(|c: char| c == '(' || c.is_whitespace())
-            .map(|i| type_start + i)
-            .unwrap_or(line_end);
+        // Find end of type name (at '(' or whitespace)
+        let mut type_end = type_start;
+        while type_end < line_end {
+            let b = self.bytes[type_end];
+            if b == b'(' || b.is_ascii_whitespace() {
+                break;
+            }
+            type_end += 1;
+        }
 
-        let type_name = &self.content[type_start..type_end];
+        // Safe because IFC files are ASCII
+        let type_name = unsafe { std::str::from_utf8_unchecked(&self.bytes[type_start..type_end]) };
 
         // Move position past this entity
         self.position = line_end;
 
         Some((id, type_name, line_start, line_end))
+    }
+
+    /// Fast u32 parsing without string allocation
+    #[inline]
+    fn parse_u32_fast(&self, start: usize, end: usize) -> Option<u32> {
+        let mut result: u32 = 0;
+        for i in start..end {
+            let digit = self.bytes[i].wrapping_sub(b'0');
+            if digit > 9 {
+                return None;
+            }
+            result = result.wrapping_mul(10).wrapping_add(digit as u32);
+        }
+        Some(result)
     }
 
     /// Find all entities of a specific type

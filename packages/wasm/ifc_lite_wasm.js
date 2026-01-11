@@ -231,12 +231,12 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_165(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_165(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_103(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_103(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_232(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_232(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_141(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_141(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const IfcAPIFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -675,7 +675,7 @@ exports.__wbg_new_ff12d2b041fb48f1 = function(arg0, arg1) {
             const a = state0.a;
             state0.a = 0;
             try {
-                return __wasm_bindgen_func_elem_232(a, state0.b, arg0, arg1);
+                return __wasm_bindgen_func_elem_141(a, state0.b, arg0, arg1);
             } finally {
                 state0.a = a;
             }
@@ -752,7 +752,7 @@ exports.__wbindgen_cast_2241b6af4c4b2941 = function(arg0, arg1) {
 
 exports.__wbindgen_cast_7a9218f878f4eac5 = function(arg0, arg1) {
     // Cast intrinsic for `Closure(Closure { dtor_idx: 19, function: Function { arguments: [Externref], shim_idx: 20, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-    const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_159, __wasm_bindgen_func_elem_165);
+    const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_102, __wasm_bindgen_func_elem_103);
     return addHeapObject(ret);
 };
 

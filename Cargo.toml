@@ -14,7 +14,7 @@ license = "MIT"
 repository = "https://github.com/louistrue/ifc-lite"
 
 [profile.release]
-opt-level = 'z'           # Optimize for size
+opt-level = 3             # Optimize for speed
 lto = true                # Link-time optimization
 codegen-units = 1         # Better optimization (slower compile)
 strip = true              # Strip symbols
@@ -22,5 +22,5 @@ panic = 'abort'           # Smaller panic handler
 overflow-checks = false   # Remove overflow checks in release
 
 [profile.release.package."*"]
-opt-level = 'z'
+opt-level = 3
 strip = true

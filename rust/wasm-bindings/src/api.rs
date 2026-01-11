@@ -132,24 +132,28 @@ impl IfcAPI {
     /// ```
     #[wasm_bindgen(js_name = parseZeroCopy)]
     pub fn parse_zero_copy(&self, content: String) -> ZeroCopyMesh {
-        // Make synchronous for now - async spawn_local doesn't work reliably in Node.js
-
-        // Parse IFC file and generate geometry
-        use ifc_lite_core::{EntityScanner, EntityDecoder};
+        // Parse IFC file and generate geometry with optimized processing
+        use ifc_lite_core::{EntityScanner, EntityDecoder, build_entity_index};
         use ifc_lite_geometry::{GeometryRouter, Mesh, calculate_normals};
 
-        let mut combined_mesh = Mesh::new();
+        // Estimate mesh size based on file size (heuristic: ~100 vertices per KB of IFC data)
+        let estimated_vertices = content.len() / 10;
+        let estimated_indices = estimated_vertices * 2;
+        let mut combined_mesh = Mesh::with_capacity(estimated_vertices, estimated_indices);
 
-        // Create scanner and decoder
+        // Build entity index once upfront for O(1) lookups
+        let entity_index = build_entity_index(&content);
+
+        // Create scanner and decoder with pre-built index
         let mut scanner = EntityScanner::new(&content);
-        let mut decoder = EntityDecoder::new(&content);
+        let mut decoder = EntityDecoder::with_index(&content, entity_index);
 
-        // Create geometry router
+        // Create geometry router (reuses processor instances)
         let router = GeometryRouter::new();
 
         // Process all building elements
         while let Some((_id, type_name, start, end)) = scanner.next_entity() {
-            // Check if this is a building element type using dynamic string-based detection
+            // Check if this is a building element type
             if !ifc_lite_core::has_geometry_by_name(type_name) {
                 continue;
             }
