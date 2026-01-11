@@ -224,6 +224,155 @@ impl Default for TriangulatedFaceSetProcessor {
     }
 }
 
+/// FacetedBrep processor
+/// Handles IfcFacetedBrep - explicit mesh with faces
+pub struct FacetedBrepProcessor;
+
+impl FacetedBrepProcessor {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl GeometryProcessor for FacetedBrepProcessor {
+    fn process(
+        &self,
+        entity: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+        _schema: &IfcSchema,
+    ) -> Result<Mesh> {
+        // IfcFacetedBrep attributes:
+        // 0: Outer (IfcClosedShell)
+
+        // Get closed shell
+        let shell_attr = entity
+            .get(0)
+            .ok_or_else(|| Error::geometry("FacetedBrep missing Outer shell".to_string()))?;
+
+        let shell_entity = decoder
+            .resolve_ref(shell_attr)?
+            .ok_or_else(|| Error::geometry("Failed to resolve Outer shell".to_string()))?;
+
+        // IfcClosedShell has CfsFaces attribute - list of faces
+        let faces_attr = shell_entity
+            .get(0)
+            .ok_or_else(|| Error::geometry("ClosedShell missing CfsFaces".to_string()))?;
+
+        let face_refs = decoder.resolve_ref_list(faces_attr)?;
+
+        let mut positions = Vec::new();
+        let mut indices = Vec::new();
+
+        // Process each face
+        for face in face_refs {
+            // Try to get Bounds attribute (attribute 0)
+            // IfcFace has Bounds attribute (list of IfcFaceBound)
+            // Note: We can't check type name for Unknown types, so we just try to process
+            let bounds_attr = match face.get(0) {
+                Some(attr) => attr,
+                None => continue, // Skip if no bounds
+            };
+
+            let bounds = match decoder.resolve_ref_list(bounds_attr) {
+                Ok(b) => b,
+                Err(_) => continue, // Skip if can't resolve bounds
+            };
+
+            // Process outer bound (first bound should be outer)
+            for bound in bounds {
+                // IfcFaceBound/IfcFaceOuterBound attributes:
+                // 0: Bound (IfcLoop - typically IfcPolyLoop)
+                // 1: Orientation (boolean)
+
+                let loop_attr = bound
+                    .get(0)
+                    .ok_or_else(|| Error::geometry("FaceBound missing Bound".to_string()))?;
+
+                let loop_entity = decoder
+                    .resolve_ref(loop_attr)?
+                    .ok_or_else(|| Error::geometry("Failed to resolve loop".to_string()))?;
+
+                // Try to get Polygon attribute (attribute 0) - IfcPolyLoop has this
+                // Note: We can't check type name for Unknown types, so we just try to process
+                let polygon_attr = match loop_entity.get(0) {
+                    Some(attr) => attr,
+                    None => continue, // Skip if no polygon
+                };
+
+                let points = match decoder.resolve_ref_list(polygon_attr) {
+                    Ok(p) => p,
+                    Err(_) => continue, // Skip if can't resolve points
+                };
+
+                // Extract coordinates
+                let mut polygon_points = Vec::new();
+                for point in points {
+                    // Try to get coordinates (attribute 0) - IfcCartesianPoint has this
+                    let coords_attr = match point.get(0) {
+                        Some(attr) => attr,
+                        None => continue, // Skip if no coordinates
+                    };
+
+                    let coords = match coords_attr.as_list() {
+                        Some(list) => list,
+                        None => continue, // Skip if not a list
+                    };
+
+                    use ifc_lite_core::AttributeValue;
+                    let x = coords.get(0).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0);
+                    let y = coords.get(1).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0);
+                    let z = coords.get(2).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0);
+
+                    polygon_points.push(Point3::new(x, y, z));
+                }
+
+                if polygon_points.len() < 3 {
+                    continue; // Skip degenerate polygons
+                }
+
+                // Triangulate the polygon
+                // For now, use simple fan triangulation from first vertex
+                // TODO: Use proper ear clipping or Delaunay triangulation
+                let base_idx = (positions.len() / 3) as u32;
+
+                // Add all points to positions
+                for point in &polygon_points {
+                    positions.push(point.x as f32);
+                    positions.push(point.y as f32);
+                    positions.push(point.z as f32);
+                }
+
+                // Create triangle fan
+                for i in 1..polygon_points.len() - 1 {
+                    indices.push(base_idx);
+                    indices.push(base_idx + i as u32);
+                    indices.push(base_idx + i as u32 + 1);
+                }
+
+                // Only process outer bound for now
+                break;
+            }
+        }
+
+        Ok(Mesh {
+            positions,
+            normals: Vec::new(),
+            indices,
+        })
+    }
+
+    fn supported_types(&self) -> Vec<IfcType> {
+        // IfcFacetedBrep is an Unknown type, create it from string to get correct hash
+        vec![IfcType::from_str("IFCFACETEDBREP").unwrap()]
+    }
+}
+
+impl Default for FacetedBrepProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// MappedItem processor (P0)
 /// Handles IfcMappedItem - geometry instancing
 pub struct MappedItemProcessor;

@@ -157,6 +157,7 @@ impl IfcAPI {
         let mut processed_count = 0;
         let mut error_count = 0;
         let mut building_elements_found = 0;
+        let mut error_types: rustc_hash::FxHashMap<String, usize> = rustc_hash::FxHashMap::default();
 
         while let Some((_id, type_name, start, end)) = scanner.next_entity() {
             // Check if this is a building element type
@@ -185,11 +186,17 @@ impl IfcAPI {
                                 }
                                 Err(e) => {
                                     error_count += 1;
-                                    // Log errors for debugging (only first 5)
-                                    if error_count <= 5 {
+                                    // Track error by representation type
+                                    let error_msg = e.to_string();
+                                    if let Some(rep_type) = error_msg.split("representation type: ").nth(1) {
+                                        let rep_type = rep_type.split(',').next().unwrap_or("UNKNOWN").to_string();
+                                        *error_types.entry(rep_type).or_insert(0) += 1;
+                                    }
+                                    // Log errors for debugging (only first 10)
+                                    if error_count <= 10 {
                                         web_sys::console::log_1(&format!(
-                                            "[IFC-Lite] Error processing {}: {}",
-                                            type_name, e
+                                            "[IFC-Lite] Error #{} processing {} (entity #{}): {}",
+                                            error_count, type_name, entity.id, e
                                         ).into());
                                     }
                                 }
@@ -212,6 +219,16 @@ impl IfcAPI {
             "[IFC-Lite] Stats: found={} processed={} errors={} vertices={} triangles={}",
             building_elements_found, processed_count, error_count, combined_mesh.vertex_count(), combined_mesh.triangle_count()
         ).into());
+
+        // Log error types summary
+        if !error_types.is_empty() {
+            web_sys::console::log_1(&"[IFC-Lite] Error types:".into());
+            let mut sorted_errors: Vec<_> = error_types.iter().collect();
+            sorted_errors.sort_by(|a, b| b.1.cmp(a.1));
+            for (rep_type, count) in sorted_errors.iter().take(10) {
+                web_sys::console::log_1(&format!("  {} - {} occurrences", rep_type, count).into());
+            }
+        }
 
         // Also log to make sure this runs
         if building_elements_found == 0 {
@@ -243,6 +260,42 @@ impl IfcAPI {
     #[wasm_bindgen(getter)]
     pub fn version(&self) -> String {
         env!("CARGO_PKG_VERSION").to_string()
+    }
+
+    /// Debug: Test processing entity #953 (FacetedBrep wall)
+    #[wasm_bindgen(js_name = debugProcessEntity953)]
+    pub fn debug_process_entity_953(&self, content: String) -> String {
+        use ifc_lite_core::{EntityScanner, EntityDecoder};
+        use ifc_lite_geometry::GeometryRouter;
+
+        let router = GeometryRouter::new();
+        let mut scanner = EntityScanner::new(&content);
+        let mut decoder = EntityDecoder::new(&content);
+
+        // Find entity 953
+        while let Some((id, type_name, start, end)) = scanner.next_entity() {
+            if id == 953 {
+                match decoder.decode_at(start, end) {
+                    Ok(entity) => {
+                        match router.process_element(&entity, &mut decoder) {
+                            Ok(mesh) => {
+                                return format!(
+                                    "SUCCESS! Entity #953: {} vertices, {} triangles, empty={}",
+                                    mesh.vertex_count(), mesh.triangle_count(), mesh.is_empty()
+                                );
+                            }
+                            Err(e) => {
+                                return format!("ERROR processing entity #953: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        return format!("ERROR decoding entity #953: {}", e);
+                    }
+                }
+            }
+        }
+        "Entity #953 not found".to_string()
     }
 
     /// Debug: Test processing a single wall
