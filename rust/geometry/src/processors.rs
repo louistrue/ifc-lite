@@ -373,6 +373,59 @@ impl Default for FacetedBrepProcessor {
     }
 }
 
+/// BooleanClippingResult processor
+/// Handles IfcBooleanClippingResult - CSG operations
+/// For now, just processes the base geometry (FirstOperand)
+pub struct BooleanClippingProcessor;
+
+impl BooleanClippingProcessor {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl GeometryProcessor for BooleanClippingProcessor {
+    fn process(
+        &self,
+        entity: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+        schema: &IfcSchema,
+    ) -> Result<Mesh> {
+        // IfcBooleanClippingResult attributes:
+        // 0: Operator (DIFFERENCE, UNION, INTERSECTION)
+        // 1: FirstOperand (base geometry)
+        // 2: SecondOperand (clipping geometry)
+
+        // For now, just process the base geometry (FirstOperand)
+        // TODO: Implement actual CSG clipping
+        let first_operand_attr = entity
+            .get(1)
+            .ok_or_else(|| Error::geometry("BooleanClippingResult missing FirstOperand".to_string()))?;
+
+        let first_operand = decoder
+            .resolve_ref(first_operand_attr)?
+            .ok_or_else(|| Error::geometry("Failed to resolve FirstOperand".to_string()))?;
+
+        // Process the first operand as a representation item
+        // We need access to the router to recursively process this
+        // For now, try to process it directly if it's a known type
+        use crate::router::GeometryRouter;
+        let router = GeometryRouter::new();
+        router.process_representation_item(&first_operand, decoder)
+    }
+
+    fn supported_types(&self) -> Vec<IfcType> {
+        // IFCBOOLEANCLIPPINGRESULT is an Unknown type
+        vec![IfcType::from_str("IFCBOOLEANCLIPPINGRESULT").unwrap()]
+    }
+}
+
+impl Default for BooleanClippingProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// MappedItem processor (P0)
 /// Handles IfcMappedItem - geometry instancing
 pub struct MappedItemProcessor;
