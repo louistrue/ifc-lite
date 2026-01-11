@@ -9,7 +9,10 @@ import { getDefaultColor } from './default-materials.js';
 export class MeshCollector {
     private ifcApi: WebIFC.IfcAPI;
     private modelID: number;
-    private styleCache: Map<number, [number, number, number, number] | null> = new Map();
+    // Pre-built index: Map<geometryExpressID, [r, g, b, a]>
+    // Built once upfront for O(1) lookups
+    private styleIndex: Map<number, [number, number, number, number]> = new Map();
+    private styleIndexBuilt: boolean = false;
 
     constructor(ifcApi: WebIFC.IfcAPI, modelID: number) {
         this.ifcApi = ifcApi;
@@ -17,79 +20,92 @@ export class MeshCollector {
     }
 
     /**
-     * Extract color from IFC surface style relationships
-     * IfcStyledItem.Item references geometry representation IDs (not element IDs)
-     * Traverses: geometryExpressID → IfcStyledItem → IfcSurfaceStyle → IfcSurfaceStyleRendering → IfcColourRgb
+     * Build style index once - O(M) where M = IfcStyledItem count
+     * Pre-computes all geometry-to-color mappings for O(1) lookups later
      */
-    private extractIfcSurfaceStyleColor(geometryExpressID: number): [number, number, number, number] | null {
-        // Check cache first
-        if (this.styleCache.has(geometryExpressID)) {
-            return this.styleCache.get(geometryExpressID) || null;
+    private buildStyleIndex(): void {
+        if (this.styleIndexBuilt) {
+            return; // Already built
         }
 
         try {
-            // Step 1: Find IfcStyledItem where Item.value == geometryExpressID
+            // Get all IfcStyledItem entities
             // Type ID 3958052878 = IfcStyledItem
-            // Try numeric type ID first, fall back to string if needed
             let styledItemIds: { size(): number; get(index: number): number } | null = null;
 
             try {
                 styledItemIds = this.ifcApi.GetLineIDsWithType(this.modelID, 3958052878);
-                // Log first time only
-                if (!this.styleCache.size) {
-                    console.log(`[MeshCollector] Found ${styledItemIds.size()} IfcStyledItem entities`);
-                }
             } catch (e) {
                 // Try string type name as fallback
                 try {
                     styledItemIds = this.ifcApi.GetLineIDsWithType(this.modelID, 'IFCSTYLEDITEM');
                 } catch (e2) {
-                    // If both fail, return null
-                    this.styleCache.set(geometryExpressID, null);
-                    return null;
+                    console.warn('[MeshCollector] Could not find IfcStyledItem entities');
+                    this.styleIndexBuilt = true;
+                    return;
                 }
             }
 
-            if (styledItemIds && styledItemIds.size() > 0) {
-                for (let i = 0; i < styledItemIds.size(); i++) {
-                    const styledItemId = styledItemIds.get(i);
-                    try {
-                        const styledItem = this.ifcApi.GetLine(this.modelID, styledItemId) as any;
+            if (!styledItemIds || styledItemIds.size() === 0) {
+                this.styleIndexBuilt = true;
+                return;
+            }
 
-                        // Check if this styled item references our geometry expressID
-                        if (styledItem.Item && styledItem.Item.value === geometryExpressID) {
-                            // Step 2: Get Styles array (references to IfcSurfaceStyle or IfcPresentationStyleAssignment)
-                            if (styledItem.Styles && Array.isArray(styledItem.Styles)) {
-                                for (const styleRef of styledItem.Styles) {
-                                    if (styleRef && styleRef.value) {
-                                        const color = this.extractColorFromStyleAssignment(styleRef.value);
-                                        if (color) {
-                                            this.styleCache.set(geometryExpressID, color);
-                                            return color;
-                                        }
-                                    }
-                                }
-                            } else if (styledItem.Styles && styledItem.Styles.value) {
-                                const color = this.extractColorFromStyleAssignment(styledItem.Styles.value);
-                                if (color) {
-                                    this.styleCache.set(geometryExpressID, color);
-                                    return color;
+            console.log(`[MeshCollector] Building style index from ${styledItemIds.size()} IfcStyledItem entities`);
+
+            // Iterate through all styled items ONCE
+            for (let i = 0; i < styledItemIds.size(); i++) {
+                const styledItemId = styledItemIds.get(i);
+                try {
+                    const styledItem = this.ifcApi.GetLine(this.modelID, styledItemId) as any;
+
+                    // Get geometry reference from Item.value
+                    if (styledItem.Item && styledItem.Item.value) {
+                        const geometryExpressID = styledItem.Item.value;
+
+                        // Skip if we already have a color for this geometry (first match wins)
+                        if (this.styleIndex.has(geometryExpressID)) {
+                            continue;
+                        }
+
+                        // Extract color from Styles chain
+                        let color: [number, number, number, number] | null = null;
+
+                        if (styledItem.Styles && Array.isArray(styledItem.Styles)) {
+                            for (const styleRef of styledItem.Styles) {
+                                if (styleRef && styleRef.value) {
+                                    color = this.extractColorFromStyleAssignment(styleRef.value);
+                                    if (color) break; // Found color, stop searching
                                 }
                             }
+                        } else if (styledItem.Styles && styledItem.Styles.value) {
+                            color = this.extractColorFromStyleAssignment(styledItem.Styles.value);
                         }
-                    } catch (e) {
-                        // Continue searching
-                        continue;
+
+                        // Store in index if color found
+                        if (color) {
+                            this.styleIndex.set(geometryExpressID, color);
+                        }
                     }
+                } catch (e) {
+                    // Continue with next styled item
+                    continue;
                 }
             }
-        } catch (e) {
-            // If styled item lookup fails, return null
-        }
 
-        // Cache null result to avoid repeated lookups
-        this.styleCache.set(geometryExpressID, null);
-        return null;
+            console.log(`[MeshCollector] Style index built: ${this.styleIndex.size} geometry-to-color mappings`);
+            this.styleIndexBuilt = true;
+        } catch (e) {
+            console.warn('[MeshCollector] Error building style index:', e);
+            this.styleIndexBuilt = true; // Mark as built to avoid retrying
+        }
+    }
+
+    /**
+     * Get color from pre-built style index - O(1) lookup
+     */
+    private getStyleColor(geometryExpressID: number): [number, number, number, number] | null {
+        return this.styleIndex.get(geometryExpressID) || null;
     }
 
     /**
@@ -188,13 +204,24 @@ export class MeshCollector {
 
     /**
      * Collect all meshes from web-ifc
+     * Optimized: pre-allocates typed arrays to avoid .push() overhead
      */
     collectMeshes(): MeshData[] {
+        // Build style index ONCE before processing meshes - O(M) where M = IfcStyledItem count
+        this.buildStyleIndex();
+
         const meshes: MeshData[] = [];
         console.log('[MeshCollector] Loading all geometry for model:', this.modelID);
         const geometries = this.ifcApi.LoadAllGeometry(this.modelID);
         const geomCount = geometries.size();
         console.log('[MeshCollector] Found', geomCount, 'flat meshes');
+
+        // Cache WASM module reference once
+        const wasmModule = (this.ifcApi as any).wasmModule;
+        if (!wasmModule || !wasmModule.HEAPF32) {
+            console.warn('[MeshCollector] WASM module not accessible');
+            return meshes;
+        }
 
         let noGeometriesCount = 0;
         let failedGetGeometry = 0;
@@ -204,220 +231,209 @@ export class MeshCollector {
         for (let i = 0; i < geomCount; i++) {
             const flatMesh = geometries.get(i);
             const expressID = flatMesh.expressID;
+            const placedGeomCount = flatMesh.geometries ? flatMesh.geometries.size() : 0;
 
-            if (!flatMesh.geometries || flatMesh.geometries.size() === 0) {
+            if (placedGeomCount === 0) {
                 noGeometriesCount++;
                 continue;
             }
 
-            // Collect geometry from all placed geometries
-            const positions: number[] = [];
-            const normals: number[] = [];
-            const indices: number[] = [];
-            let indexOffset = 0;
+            // OPTIMIZATION: First pass - calculate total sizes for pre-allocation
+            let totalVertexCount = 0;
+            let totalIndexCount = 0;
+            const geometryInfos: Array<{
+                vertexData: Float32Array;
+                indexData: Uint32Array;
+                vertexCount: number;
+                transform: Float32Array | number[] | null;
+            }> = [];
+
             let meshColor: [number, number, number, number] | null = null;
             let ifcStyleColor: [number, number, number, number] | null = null;
 
-            for (let j = 0; j < flatMesh.geometries.size(); j++) {
+            // First pass: gather geometry info and calculate sizes
+            for (let j = 0; j < placedGeomCount; j++) {
                 const placed = flatMesh.geometries.get(j);
 
-                // Try to extract color from IFC surface style using geometry expressID
-                // IfcStyledItem.Item references the geometry representation, not the element
+                // Get color from pre-built style index - O(1) lookup
                 if (!ifcStyleColor && placed.geometryExpressID) {
-                    ifcStyleColor = this.extractIfcSurfaceStyleColor(placed.geometryExpressID);
+                    ifcStyleColor = this.getStyleColor(placed.geometryExpressID);
                 }
 
                 // Extract color from PlacedGeometry if available
                 if (placed.color && !meshColor) {
-                    // web-ifc provides color as {x, y, z, w} or similar structure
                     const color = placed.color as any;
-
-                    if (typeof color.x === 'number' && typeof color.y === 'number' &&
-                        typeof color.z === 'number' && typeof color.w === 'number') {
+                    if (typeof color.x === 'number') {
                         meshColor = [color.x, color.y, color.z, color.w];
                     } else if (Array.isArray(color) && color.length >= 4) {
                         meshColor = [color[0], color[1], color[2], color[3]];
                     }
                 }
+
                 try {
                     const meshGeom = this.ifcApi.GetGeometry(this.modelID, placed.geometryExpressID);
-                    // GetVertexDataSize() returns TOTAL FLOATS (not vertex count)
-                    // Format: [x,y,z,nx,ny,nz, x,y,z,nx,ny,nz, ...] = 6 floats per vertex
                     const totalFloats = meshGeom.GetVertexDataSize();
                     const indexSize = meshGeom.GetIndexDataSize();
-                    const vertexCount = totalFloats / 6; // Actual vertex count
 
                     if (totalFloats > 0 && indexSize > 0) {
-                        // GetVertexData() returns a pointer (number) to WASM heap memory
-                        // We need to read from the WASM heap using the pointer
+                        const vertexCount = totalFloats / 6;
                         const vertexPtr = meshGeom.GetVertexData();
                         const indexPtr = meshGeom.GetIndexData();
 
-                        // Access WASM heap memory
-                        // web-ifc exposes the WebAssembly module with HEAPF32/HEAPU32 views
-                        const wasmModule = (this.ifcApi as any).wasmModule;
+                        // Create views directly (faster than slice for read-only first pass)
+                        const vertexByteOffset = vertexPtr / 4;
+                        const indexByteOffset = indexPtr / 4;
 
-                        if (!wasmModule || !wasmModule.HEAPF32) {
-                            if (i < 3) console.warn('[MeshCollector] WASM module not accessible');
-                            noVertexData++;
-                            continue;
-                        }
-
-                        // Calculate byte offsets (pointers are byte offsets)
-                        // totalFloats is the total number of floats in the buffer
-                        const vertexByteOffset = vertexPtr / 4; // Float32 is 4 bytes
-                        const indexByteOffset = indexPtr / 4;   // Uint32 is 4 bytes
-
-                        // Create copies from WASM heap
+                        // Copy from WASM heap (required - WASM memory may be invalidated)
                         const vertexData = new Float32Array(
                             wasmModule.HEAPF32.buffer,
                             vertexByteOffset * 4,
                             totalFloats
-                        ).slice(); // slice() creates a copy
+                        ).slice();
 
                         const indexData = new Uint32Array(
                             wasmModule.HEAPU32.buffer,
                             indexByteOffset * 4,
                             indexSize
-                        ).slice(); // slice() creates a copy
+                        ).slice();
 
-                        if (vertexData && vertexData.length > 0) {
-                            // Get transformation matrix from placed geometry
-                            // flatTransformation is a 4x4 matrix in column-major order (16 elements)
-                            const transformRaw = placed.flatTransformation;
+                        // Keep transform as typed array if possible (avoid Array.from)
+                        const transform = placed.flatTransformation;
 
-                            // Convert to number array for easier access
-                            // Handle both Array and TypedArray (Float32Array, etc.)
-                            let m: number[] | null = null;
-                            if (transformRaw) {
-                                if (Array.isArray(transformRaw)) {
-                                    m = transformRaw;
-                                } else if (ArrayBuffer.isView(transformRaw)) {
-                                    // Cast to any to work around TypeScript's strict ArrayBufferView typing
-                                    const typedArray = transformRaw as any;
-                                    if (typedArray.length === 16) {
-                                        m = Array.from(typedArray);
-                                    }
-                                }
-                            }
+                        geometryInfos.push({
+                            vertexData,
+                            indexData,
+                            vertexCount,
+                            transform,
+                        });
 
-                            // Validate transformation matrix
-                            const hasValidTransform = m &&
-                                m.length === 16 &&
-                                Number.isFinite(m[0]) &&
-                                Number.isFinite(m[15]);
-
-                            // Extract positions and normals, applying transformation
-                            for (let k = 0; k < vertexCount; k++) {
-                                const base = k * 6;
-                                if (base + 5 < vertexData.length) {
-                                    // Local coordinates
-                                    const x = vertexData[base];
-                                    const y = vertexData[base + 1];
-                                    const z = vertexData[base + 2];
-                                    const nx = vertexData[base + 3];
-                                    const ny = vertexData[base + 4];
-                                    const nz = vertexData[base + 5];
-
-                                    if (hasValidTransform && m) {
-                                        // Transform position: worldPos = matrix * localPos
-                                        // Column-major matrix: m[0-3] = col0, m[4-7] = col1, m[8-11] = col2, m[12-15] = col3
-                                        const transformedX = m[0] * x + m[4] * y + m[8] * z + m[12];
-                                        const transformedY = m[1] * x + m[5] * y + m[9] * z + m[13];
-                                        const transformedZ = m[2] * x + m[6] * y + m[10] * z + m[14];
-
-                                        // web-ifc outputs Y-up coordinates, matching WebGL convention
-                                        positions.push(transformedX, transformedY, transformedZ);
-
-                                        // Transform normal (rotation only, using upper-left 3x3 of matrix)
-                                        const tnx = m[0] * nx + m[4] * ny + m[8] * nz;
-                                        const tny = m[1] * nx + m[5] * ny + m[9] * nz;
-                                        const tnz = m[2] * nx + m[6] * ny + m[10] * nz;
-
-                                        const finalNX = tnx;
-                                        const finalNY = tny;
-                                        const finalNZ = tnz;
-
-                                        // Renormalize (handles non-uniform scaling)
-                                        const len = Math.sqrt(finalNX * finalNX + finalNY * finalNY + finalNZ * finalNZ);
-                                        if (len > 1e-10) {
-                                            normals.push(finalNX / len, finalNY / len, finalNZ / len);
-                                        } else {
-                                            // Fallback if normal becomes zero (shouldn't happen)
-                                            normals.push(finalNX, finalNY, finalNZ);
-                                        }
-                                    } else {
-                                        // No transformation matrix - use raw coordinates
-                                        // web-ifc already outputs Y-up coordinates
-                                        positions.push(x, y, z);
-                                        normals.push(nx, ny, nz);
-                                    }
-                                }
-                            }
-
-                            // Extract indices with offset
-                            if (indexData && indexData.length > 0) {
-                                for (let k = 0; k < indexData.length; k++) {
-                                    indices.push(indexData[k] + indexOffset);
-                                }
-                                indexOffset += vertexCount;
-                            }
-                            successCount++;
-                        } else {
-                            noVertexData++;
-                        }
-                    } else {
-                        noVertexData++;
+                        totalVertexCount += vertexCount;
+                        totalIndexCount += indexSize;
                     }
                 } catch (e) {
                     failedGetGeometry++;
-                    // Only log first few errors to avoid spam
                     if (failedGetGeometry <= 3) {
                         console.warn(`[MeshCollector] Failed to get geometry for expressID ${placed.geometryExpressID}:`, e);
                     }
                 }
             }
 
-            if (positions.length > 0) {
-                // Priority order for color extraction:
-                // 1. IFC Surface Style (IfcStyledItem → IfcSurfaceStyle → IfcSurfaceStyleRendering → IfcColourRgb)
-                // 2. PlacedGeometry.color (from web-ifc's geometry extraction)
-                // 3. Default material based on entity type
-                // 4. Default gray
+            if (totalVertexCount === 0) {
+                noVertexData++;
+                continue;
+            }
 
-                let finalColor: [number, number, number, number] = [0.8, 0.8, 0.8, 1.0];
+            // OPTIMIZATION: Pre-allocate typed arrays with exact sizes
+            const positions = new Float32Array(totalVertexCount * 3);
+            const normals = new Float32Array(totalVertexCount * 3);
+            const indices = new Uint32Array(totalIndexCount);
 
-                // Use IFC surface style first (most accurate) - already extracted in loop above
-                if (ifcStyleColor) {
-                    finalColor = ifcStyleColor;
-                } else if (meshColor) {
-                    // Fall back to PlacedGeometry.color
-                    finalColor = meshColor;
-                } else {
-                    // Try default material based on entity type
-                    try {
-                        const entityType = this.ifcApi.GetLineType(this.modelID, expressID);
-                        // GetLineType can return string or number, convert to string for getDefaultColor
-                        const entityTypeStr = typeof entityType === 'string' ? entityType : null;
-                        finalColor = getDefaultColor(entityTypeStr);
-                    } catch (e) {
-                        // If GetLineType fails, use default gray
-                        finalColor = [0.8, 0.8, 0.8, 1.0];
+            let posOffset = 0;
+            let normOffset = 0;
+            let idxOffset = 0;
+            let vertexOffset = 0;
+
+            // Second pass: fill pre-allocated arrays
+            for (const info of geometryInfos) {
+                const { vertexData, indexData, vertexCount, transform } = info;
+
+                // Get transform values (avoid Array.from by accessing directly)
+                let m0 = 1, m1 = 0, m2 = 0;
+                let m4 = 0, m5 = 1, m6 = 0;
+                let m8 = 0, m9 = 0, m10 = 1;
+                let m12 = 0, m13 = 0, m14 = 0;
+                let hasTransform = false;
+
+                if (transform && (transform as any).length === 16) {
+                    const t = transform as any;
+                    // Check if it's a valid transform
+                    if (Number.isFinite(t[0]) && Number.isFinite(t[15])) {
+                        hasTransform = true;
+                        m0 = t[0]; m1 = t[1]; m2 = t[2];
+                        m4 = t[4]; m5 = t[5]; m6 = t[6];
+                        m8 = t[8]; m9 = t[9]; m10 = t[10];
+                        m12 = t[12]; m13 = t[13]; m14 = t[14];
                     }
                 }
 
-                meshes.push({
-                    expressId: expressID,
-                    positions: new Float32Array(positions),
-                    normals: new Float32Array(normals),
-                    indices: new Uint32Array(indices),
-                    color: finalColor,
-                });
+                // OPTIMIZATION: Unrolled loop with direct array access
+                for (let k = 0; k < vertexCount; k++) {
+                    const base = k * 6;
+                    const x = vertexData[base];
+                    const y = vertexData[base + 1];
+                    const z = vertexData[base + 2];
+                    const nx = vertexData[base + 3];
+                    const ny = vertexData[base + 4];
+                    const nz = vertexData[base + 5];
+
+                    if (hasTransform) {
+                        // Transform position
+                        positions[posOffset] = m0 * x + m4 * y + m8 * z + m12;
+                        positions[posOffset + 1] = m1 * x + m5 * y + m9 * z + m13;
+                        positions[posOffset + 2] = m2 * x + m6 * y + m10 * z + m14;
+
+                        // Transform normal
+                        const tnx = m0 * nx + m4 * ny + m8 * nz;
+                        const tny = m1 * nx + m5 * ny + m9 * nz;
+                        const tnz = m2 * nx + m6 * ny + m10 * nz;
+
+                        // Normalize
+                        const len = Math.sqrt(tnx * tnx + tny * tny + tnz * tnz);
+                        if (len > 1e-10) {
+                            normals[normOffset] = tnx / len;
+                            normals[normOffset + 1] = tny / len;
+                            normals[normOffset + 2] = tnz / len;
+                        } else {
+                            normals[normOffset] = tnx;
+                            normals[normOffset + 1] = tny;
+                            normals[normOffset + 2] = tnz;
+                        }
+                    } else {
+                        positions[posOffset] = x;
+                        positions[posOffset + 1] = y;
+                        positions[posOffset + 2] = z;
+                        normals[normOffset] = nx;
+                        normals[normOffset + 1] = ny;
+                        normals[normOffset + 2] = nz;
+                    }
+
+                    posOffset += 3;
+                    normOffset += 3;
+                }
+
+                // Copy indices with offset
+                for (let k = 0; k < indexData.length; k++) {
+                    indices[idxOffset++] = indexData[k] + vertexOffset;
+                }
+                vertexOffset += vertexCount;
+                successCount++;
             }
+
+            // Determine final color
+            let finalColor: [number, number, number, number] = [0.8, 0.8, 0.8, 1.0];
+            if (ifcStyleColor) {
+                finalColor = ifcStyleColor;
+            } else if (meshColor) {
+                finalColor = meshColor;
+            } else {
+                try {
+                    const entityType = this.ifcApi.GetLineType(this.modelID, expressID);
+                    const entityTypeStr = typeof entityType === 'string' ? entityType : null;
+                    finalColor = getDefaultColor(entityTypeStr);
+                } catch (e) {
+                    // Use default gray
+                }
+            }
+
+            meshes.push({
+                expressId: expressID,
+                positions,
+                normals,
+                indices,
+                color: finalColor,
+            });
         }
 
-        // Count color sources (styleCache is keyed by geometry expressID, not element expressID)
-        // Just count non-default colors as indication
         const nonDefaultColors = meshes.filter(m => m.color[0] !== 0.8 || m.color[1] !== 0.8 || m.color[2] !== 0.8).length;
 
         console.log('[MeshCollector] Stats:', {
@@ -428,7 +444,7 @@ export class MeshCollector {
             successfulGeoms: successCount,
             outputMeshes: meshes.length,
             meshesWithNonDefaultColor: nonDefaultColors,
-            styleCacheSize: this.styleCache.size,
+            styleIndexSize: this.styleIndex.size,
         });
 
         return meshes;

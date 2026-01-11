@@ -437,10 +437,13 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
 
     useEffect(() => {
         const renderer = rendererRef.current;
-        
+
         // Skip if geometry is already processed (avoid re-processing on rapid re-renders)
-        if (geometry === geometryProcessedRef.current && renderer?.getScene().getMeshes().length > 0) {
-            return;
+        if (geometry === geometryProcessedRef.current && renderer) {
+            const existingScene = renderer.getScene();
+            if (existingScene && existingScene.getMeshes().length > 0) {
+                return;
+            }
         }
 
         console.log('[Viewport] Geometry effect:', {
@@ -460,7 +463,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         }
 
         console.log('[Viewport] Processing geometry:', geometry.length, 'meshes');
-        
+
         // Mark geometry as processed
         geometryProcessedRef.current = geometry;
         const scene = renderer.getScene();
