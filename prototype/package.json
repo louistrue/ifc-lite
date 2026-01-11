@@ -9,12 +9,18 @@
     "preview": "vite preview",
     "debug-properties": "tsx src/debug-properties.ts",
     "debug-geometry": "tsx src/debug-geometry.ts",
-    "debug-colors": "tsx src/debug-colors.ts"
+    "debug-colors": "tsx src/debug-colors.ts",
+    "spikes": "node scripts/copy-wasm.mjs && tsx src/run-all-spikes.ts",
+    "spikes:file": "node scripts/copy-wasm.mjs && tsx src/run-all-spikes.ts"
   },
   "dependencies": {
     "web-ifc": "^0.0.57",
     "@ifc-lite/parser": "workspace:*",
-    "@ifc-lite/geometry": "workspace:*"
+    "@ifc-lite/geometry": "workspace:*",
+    "@ifc-lite/data": "workspace:*",
+    "@ifc-lite/query": "workspace:*",
+    "@ifc-lite/spatial": "workspace:*",
+    "@ifc-lite/export": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.21.0",

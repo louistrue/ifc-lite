@@ -19,6 +19,9 @@ export default defineConfig({
   build: {
     target: 'esnext',
   },
+  optimizeDeps: {
+    exclude: ['@duckdb/duckdb-wasm'], // Optional dependency, exclude from pre-bundling
+  },
   assetsInclude: ['**/*.wasm'],
   worker: {
     format: 'es',

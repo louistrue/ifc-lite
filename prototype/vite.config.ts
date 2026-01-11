@@ -11,7 +11,7 @@ export default defineConfig({
         target: 'esnext',
     },
     optimizeDeps: {
-        exclude: ['web-ifc'],
+        exclude: ['web-ifc', '@duckdb/duckdb-wasm'], // Optional dependencies
     },
     assetsInclude: ['**/*.wasm'],
 });

@@ -8,6 +8,7 @@ export { EntityExtractor } from './entity-extractor.js';
 export { PropertyExtractor } from './property-extractor.js';
 export { RelationshipExtractor } from './relationship-extractor.js';
 export { StyleExtractor } from './style-extractor.js';
+export { ColumnarParser, type IfcDataStore } from './columnar-parser.js';
 export * from './types.js';
 export * from './style-extractor.js';
 export { getAttributeNames, getAttributeNameAt, isKnownType } from './ifc-schema.js';
@@ -18,6 +19,7 @@ import { EntityIndexBuilder } from './entity-index.js';
 import { EntityExtractor } from './entity-extractor.js';
 import { PropertyExtractor } from './property-extractor.js';
 import { RelationshipExtractor } from './relationship-extractor.js';
+import { ColumnarParser, type IfcDataStore } from './columnar-parser.js';
 
 export interface ParseOptions {
   onProgress?: (progress: { phase: string; percent: number }) => void;
@@ -100,5 +102,63 @@ export class IfcParser {
       fileSize: buffer.byteLength,
       entityCount: entities.size,
     };
+  }
+  
+  /**
+   * Parse IFC file into columnar data store (new format)
+   */
+  async parseColumnar(buffer: ArrayBuffer, options: ParseOptions = {}): Promise<IfcDataStore> {
+    const uint8Buffer = new Uint8Array(buffer);
+
+    // Phase 1: Scan for entities
+    options.onProgress?.({ phase: 'scan', percent: 0 });
+    const tokenizer = new StepTokenizer(uint8Buffer);
+    const indexBuilder = new EntityIndexBuilder();
+
+    let scanned = 0;
+    const entityRefs: EntityRef[] = [];
+
+    for (const ref of tokenizer.scanEntities()) {
+      indexBuilder.addEntity({
+        expressId: ref.expressId,
+        type: ref.type,
+        byteOffset: ref.offset,
+        byteLength: ref.length,
+        lineNumber: ref.line,
+      });
+      entityRefs.push({
+        expressId: ref.expressId,
+        type: ref.type,
+        byteOffset: ref.offset,
+        byteLength: ref.length,
+        lineNumber: ref.line,
+      });
+      scanned++;
+    }
+
+    indexBuilder.build();
+    options.onProgress?.({ phase: 'scan', percent: 100 });
+
+    // Phase 2: Extract entities
+    options.onProgress?.({ phase: 'extract', percent: 0 });
+    const extractor = new EntityExtractor(uint8Buffer);
+    const entities = new Map<number, any>();
+
+    for (let i = 0; i < entityRefs.length; i++) {
+      const ref = entityRefs[i];
+      const entity = extractor.extractEntity(ref);
+      if (entity) {
+        entities.set(ref.expressId, entity);
+      }
+      if ((i + 1) % 1000 === 0) {
+        options.onProgress?.({ phase: 'extract', percent: ((i + 1) / entityRefs.length) * 100 });
+      }
+    }
+
+    options.onProgress?.({ phase: 'extract', percent: 100 });
+
+    // Phase 3: Build columnar structures
+    const columnarParser = new ColumnarParser();
+    return columnarParser.parse(buffer, entityRefs, entities, options);
   }
 }

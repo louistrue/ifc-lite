@@ -5,6 +5,8 @@
  */
 
 import * as WebIFC from 'web-ifc';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
 export interface TriangulationSpikeResult {
   passed: boolean;
@@ -18,17 +20,17 @@ export interface TriangulationSpikeResult {
 
 export async function runTriangulationSpike(file: File): Promise<TriangulationSpikeResult> {
   const targetCoverage = 80; // Target: 80%+
-  
+
   const ifcApi = new WebIFC.IfcAPI();
-  
-  // Set WASM path to public directory where files are served
-  // IMPORTANT: SetWasmPath expects a directory path where the wasm file is located
-  // The second parameter (true) indicates this is an absolute path
-  // This prevents the library from adding the origin URL again
-  ifcApi.SetWasmPath('/', true);
-  
+
+  // Set WASM path for Node.js environment
+  // In Node.js, we need to use file:// URLs or absolute paths
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const wasmPath = join(__dirname, '..', 'wasm') + '/';
+  ifcApi.SetWasmPath(wasmPath, true);
+
   console.log('[Spike 2] Initializing web-ifc (single-threaded)...');
-  
+
   try {
     // Init without custom handler - web-ifc will auto-detect single-threaded mode
     // (SharedArrayBuffer not available without COOP/COEP headers)
@@ -47,16 +49,16 @@ export async function runTriangulationSpike(file: File): Promise<TriangulationSp
       targetCoverage,
     };
   }
-  
+
   console.log('[Spike 2] Opening model...');
   const buffer = await file.arrayBuffer();
   console.log('[Spike 2] Buffer size:', buffer.byteLength, 'bytes');
-  
+
   let modelID: number;
   try {
     modelID = ifcApi.OpenModel(new Uint8Array(buffer));
     console.log('[Spike 2] Model opened, ID:', modelID);
-    
+
     // Check if model opened successfully (returns -1 on failure)
     if (modelID === -1) {
       console.error('[Spike 2] OpenModel returned -1 (failure)');
@@ -70,7 +72,7 @@ export async function runTriangulationSpike(file: File): Promise<TriangulationSp
         targetCoverage,
       };
     }
-    
+
     // Verify model schema
     try {
       const schema = ifcApi.GetModelSchema(modelID);
@@ -90,11 +92,11 @@ export async function runTriangulationSpike(file: File): Promise<TriangulationSp
       targetCoverage,
     };
   }
-  
+
   let successCount = 0;
   let failedCount = 0;
   const failedTypes = new Map<string, number>();
-  
+
   try {
     // Load all geometry
     console.log('[Spike 2] Loading all geometry...');
@@ -114,18 +116,18 @@ export async function runTriangulationSpike(file: File): Promise<TriangulationSp
         targetCoverage,
       };
     }
-    
+
     // Iterate using size() and get() - web-ifc returns a vector
     const geomCount = geometries.size();
     console.log('[Spike 2] Geometry count:', geomCount);
-    
+
     if (geomCount === 0) {
       console.warn('[Spike 2] No geometry found! Model may not have loaded correctly.');
     }
-    
+
     for (let i = 0; i < geomCount; i++) {
       const flatMesh = geometries.get(i);
-      
+
       // Check if any PlacedGeometry has vertex data
       let hasData = false;
       if (flatMesh.geometries && flatMesh.geometries.size() > 0) {
@@ -143,12 +145,12 @@ export async function runTriangulationSpike(file: File): Promise<TriangulationSp
           }
         }
       }
-      
+
       if (hasData) {
         successCount++;
       } else {
         failedCount++;
-        
+
         // Try to get entity type for failed geometry
         try {
           const expressID = flatMesh.expressID;
@@ -162,14 +164,14 @@ export async function runTriangulationSpike(file: File): Promise<TriangulationSp
         }
       }
     }
-    
+
     const totalCount = successCount + failedCount;
-    const coveragePercent = totalCount > 0 
-      ? (successCount / totalCount) * 100 
+    const coveragePercent = totalCount > 0
+      ? (successCount / totalCount) * 100
       : 0;
-    
+
     const passed = coveragePercent >= targetCoverage;
-    
+
     return {
       passed,
       coveragePercent,

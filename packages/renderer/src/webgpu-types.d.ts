@@ -378,7 +378,7 @@ type GPUTextureFormat = string;
 type GPULoadOp = 'load' | 'clear';
 type GPUStoreOp = 'store' | 'discard';
 type GPUColorWriteFlags = number;
-type GPUMapMode = 'read' | 'write';
+type GPUMapMode = number; // WebGPU uses numeric enums: READ = 1, WRITE = 2
 
 interface GPUAdapterDescriptor {
   powerPreference?: 'low-power' | 'high-performance';

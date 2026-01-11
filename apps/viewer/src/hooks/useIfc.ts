@@ -6,7 +6,7 @@ import { useMemo, useCallback, useRef } from 'react';
 import { useViewerStore } from '../store.js';
 import { IfcParser } from '@ifc-lite/parser';
 import { GeometryProcessor, GeometryQuality } from '@ifc-lite/geometry';
-import { EntityTable, PropertyTable, QueryInterface } from '@ifc-lite/query';
+import { IfcQuery } from '@ifc-lite/query';
 import { BufferBuilder } from '@ifc-lite/geometry';
 
 export function useIfc() {
@@ -14,19 +14,19 @@ export function useIfc() {
     loading,
     progress,
     error,
-    parseResult,
+    ifcDataStore,
     geometryResult,
     setLoading,
     setProgress,
     setError,
-    setParseResult,
+    setIfcDataStore,
     setGeometryResult,
     appendGeometryBatch,
     updateCoordinateInfo,
   } = useViewerStore();
 
-  // Track if we've already logged for this parseResult
-  const lastLoggedParseResultRef = useRef<typeof parseResult>(null);
+  // Track if we've already logged for this ifcDataStore
+  const lastLoggedDataStoreRef = useRef<typeof ifcDataStore>(null);
 
   const loadFile = useCallback(async (file: File) => {
     try {
@@ -38,9 +38,9 @@ export function useIfc() {
       const buffer = await file.arrayBuffer();
       setProgress({ phase: 'Parsing IFC', percent: 10 });
 
-      // Parse IFC
+      // Parse IFC using columnar parser
       const parser = new IfcParser();
-      const result = await parser.parse(buffer, {
+      const dataStore = await parser.parseColumnar(buffer, {
         onProgress: (prog) => {
           setProgress({
             phase: `Parsing: ${prog.phase}`,
@@ -49,7 +49,7 @@ export function useIfc() {
         },
       });
 
-      setParseResult(result);
+      setIfcDataStore(dataStore);
       setProgress({ phase: 'Triangulating geometry', percent: 50 });
 
       // Process geometry with streaming for progressive rendering
@@ -62,9 +62,9 @@ export function useIfc() {
 
       // Pass entity index for priority-based loading
       const entityIndexMap = new Map<number, any>();
-      if (result.entityIndex?.byId) {
-        for (const [id, entity] of result.entityIndex.byId) {
-          entityIndexMap.set(id, { type: entity.type });
+      if (dataStore.entityIndex?.byId) {
+        for (const [id, ref] of dataStore.entityIndex.byId) {
+          entityIndexMap.set(id, { type: ref.type });
         }
       }
 
@@ -123,58 +123,30 @@ export function useIfc() {
       setError(err instanceof Error ? err.message : 'Unknown error');
       setLoading(false);
     }
-  }, [setLoading, setError, setProgress, setParseResult, setGeometryResult]);
+  }, [setLoading, setError, setProgress, setIfcDataStore, setGeometryResult, appendGeometryBatch, updateCoordinateInfo]);
 
-  // Memoize queryInterface to prevent recreation on every render
-  const queryInterface = useMemo(() => {
-    if (!parseResult) return null;
-
-    const propertyTable = new PropertyTable();
-
-    // Only log once per parseResult
-    const shouldLog = lastLoggedParseResultRef.current !== parseResult;
+  // Memoize query to prevent recreation on every render
+  const query = useMemo(() => {
+    if (!ifcDataStore) return null;
+    
+    // Only log once per ifcDataStore
+    const shouldLog = lastLoggedDataStoreRef.current !== ifcDataStore;
     if (shouldLog) {
-      lastLoggedParseResultRef.current = parseResult;
-      console.log('[useIfc] Property sets count:', parseResult.propertySets.size);
+      lastLoggedDataStoreRef.current = ifcDataStore;
+      console.log('[useIfc] Entity count:', ifcDataStore.entityCount);
+      console.log('[useIfc] Properties available via columnar table');
     }
 
-    // Add property sets
-    for (const [id, pset] of parseResult.propertySets) {
-      propertyTable.addPropertySet(id, pset);
-    }
-
-    // Associate property sets with entities via relationships
-    let associationCount = 0;
-    for (const rel of parseResult.relationships) {
-      if (rel.type.toUpperCase() === 'IFCRELDEFINESBYPROPERTIES' && rel.relatingObject !== null) {
-        const propertySetId = rel.relatingObject;
-        for (const entityId of rel.relatedObjects) {
-          propertyTable.associatePropertySet(entityId, propertySetId);
-          associationCount++;
-        }
-      }
-    }
-
-    if (shouldLog) {
-      console.log('[useIfc] IfcRelDefinesByProperties count:', parseResult.relationships.filter(
-        rel => rel.type.toUpperCase() === 'IFCRELDEFINESBYPROPERTIES'
-      ).length);
-      console.log('[useIfc] Property associations created:', associationCount);
-    }
-
-    return new QueryInterface(
-      new EntityTable(parseResult.entities, parseResult.entityIndex),
-      propertyTable
-    );
-  }, [parseResult]);
+    return new IfcQuery(ifcDataStore);
+  }, [ifcDataStore]);
 
   return {
     loading,
     progress,
     error,
-    parseResult,
+    ifcDataStore,
     geometryResult,
-    queryInterface,
+    query,
     loadFile,
   };
 }

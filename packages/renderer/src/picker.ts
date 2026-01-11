@@ -9,9 +9,7 @@ export class Picker {
   private device: GPUDevice;
   private pipeline: GPURenderPipeline;
   private depthTexture: GPUTexture;
-  private depthTextureView: GPUTextureView;
   private colorTexture: GPUTexture;
-  private colorTextureView: GPUTextureView;
   private uniformBuffer: GPUBuffer;
   private expressIdBuffer: GPUBuffer;
   private bindGroup: GPUBindGroup;
@@ -26,14 +24,12 @@ export class Picker {
       format: 'r32uint',
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
     });
-    this.colorTextureView = this.colorTexture.createView();
 
     this.depthTexture = this.device.createTexture({
       size: { width, height },
       format: 'depth24plus',
       usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
-    this.depthTextureView = this.depthTexture.createView();
 
     // Create uniform buffer for viewProj matrix only (16 floats = 64 bytes)
     this.uniformBuffer = this.device.createBuffer({
@@ -153,29 +149,32 @@ export class Picker {
         format: 'r32uint',
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
       });
-      this.colorTextureView = this.colorTexture.createView();
 
       this.depthTexture = this.device.createTexture({
         size: { width, height },
         format: 'depth24plus',
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
       });
-      this.depthTextureView = this.depthTexture.createView();
     }
+    
+    // Recreate texture views each time to avoid reuse issues
+    // WebGPU texture views cannot be reused after being submitted
+    const colorView = this.colorTexture.createView();
+    const depthView = this.depthTexture.createView();
 
     // Render picker pass
     const encoder = this.device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
       colorAttachments: [
         {
-          view: this.colorTextureView,
+          view: colorView,
           loadOp: 'clear',
           clearValue: { r: 0, g: 0, b: 0, a: 0 },
           storeOp: 'store',
         },
       ],
       depthStencilAttachment: {
-        view: this.depthTextureView,
+        view: depthView,
         depthClearValue: 1.0,
         depthLoadOp: 'clear',
         depthStoreOp: 'store',
@@ -223,7 +222,7 @@ export class Picker {
     encoder.copyTextureToBuffer(
       {
         texture: this.colorTexture,
-        origin: { x: Math.floor(x), y: Math.floor(height - y - 1), z: 0 },
+        origin: { x: Math.floor(x), y: Math.floor(y), z: 0 },
       },
       {
         buffer: readBuffer,
@@ -234,8 +233,8 @@ export class Picker {
     );
 
     this.device.queue.submit([encoder.finish()]);
-    // GPUMapMode.READ = 1
-    await readBuffer.mapAsync('read' as GPUMapMode);
+    // GPUMapMode.READ = 1 (WebGPU spec)
+    await readBuffer.mapAsync(1); // GPUMapMode.READ
     const data = new Uint32Array(readBuffer.getMappedRange());
     const objectId = data[0];
     readBuffer.unmap();
