@@ -6,13 +6,13 @@
  */
 
 import { readFileSync } from 'fs';
-import { initSync, IfcAPI } from './pkg/ifc-lite.js';
+import { initSync, IfcAPI } from './pkg/ifc_lite_wasm.js';
 
 console.log('🦀 IFC-Lite WASM Parser Test\n');
 
 // Initialize WASM
 console.log('🔧 Initializing WASM module...');
-const wasmBuffer = readFileSync('./pkg/ifc-lite_bg.wasm');
+const wasmBuffer = readFileSync('./pkg/ifc_lite_wasm_bg.wasm');
 initSync(wasmBuffer);
 console.log('✅ WASM initialized\n');
 
@@ -107,7 +107,7 @@ console.log('─'.repeat(50));
 
 try {
     const zeroCopyStart = performance.now();
-    const mesh = await api.parseZeroCopy(ifcData);
+    const mesh = api.parseZeroCopy(ifcData); // Now synchronous
     const duration = performance.now() - zeroCopyStart;
 
     console.log(`✅ Zero-copy parse completed in ${duration.toFixed(2)}ms`);

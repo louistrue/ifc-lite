@@ -131,52 +131,97 @@ impl IfcAPI {
     /// gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
     /// ```
     #[wasm_bindgen(js_name = parseZeroCopy)]
-    pub fn parse_zero_copy(&self, content: String) -> Promise {
-        let promise = Promise::new(&mut |resolve, _reject| {
-            let content = content.clone();
-            spawn_local(async move {
-                // Parse IFC file and generate geometry
-                use ifc_lite_core::{EntityScanner, EntityDecoder};
-                use ifc_lite_geometry::{GeometryRouter, Mesh, calculate_normals};
+    pub fn parse_zero_copy(&self, content: String) -> ZeroCopyMesh {
+        // Make synchronous for now - async spawn_local doesn't work reliably in Node.js
 
-                let mut combined_mesh = Mesh::new();
+        // DEBUG: Log entry
+        web_sys::console::log_1(&format!(
+            "[IFC-Lite] parseZeroCopy called with {} bytes",
+            content.len()
+        ).into());
 
-                // Create scanner and decoder
-                let mut scanner = EntityScanner::new(&content);
-                let mut decoder = EntityDecoder::new(&content);
+        // Parse IFC file and generate geometry
+        use ifc_lite_core::{EntityScanner, EntityDecoder};
+        use ifc_lite_geometry::{GeometryRouter, Mesh, calculate_normals};
 
-                // Create geometry router
-                let router = GeometryRouter::new();
+        let mut combined_mesh = Mesh::new();
 
-                // Process all building elements
-                while let Some((_id, type_name, start, end)) = scanner.next_entity() {
-                    // Check if this is a building element type
-                    let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
-                    if let Some(ifc_type) = ifc_type {
-                        if router.schema().has_geometry(&ifc_type) {
-                            // Decode the entity
-                            if let Ok(entity) = decoder.decode_at(start, end) {
-                                // Process element into mesh
-                                if let Ok(mesh) = router.process_element(&entity, &mut decoder) {
+        // Create scanner and decoder
+        let mut scanner = EntityScanner::new(&content);
+        let mut decoder = EntityDecoder::new(&content);
+
+        // Create geometry router
+        let router = GeometryRouter::new();
+
+        // Process all building elements
+        let mut processed_count = 0;
+        let mut error_count = 0;
+        let mut building_elements_found = 0;
+
+        while let Some((_id, type_name, start, end)) = scanner.next_entity() {
+            // Check if this is a building element type
+            let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
+            if let Some(ifc_type) = ifc_type {
+                if router.schema().has_geometry(&ifc_type) {
+                    building_elements_found += 1;
+
+                    // Log first few elements for debugging
+                    if building_elements_found <= 3 {
+                        web_sys::console::log_1(&format!(
+                            "[IFC-Lite] Processing element #{}: {}",
+                            building_elements_found, type_name
+                        ).into());
+                    }
+                    // Decode the entity
+                    if let Ok(entity) = decoder.decode_at(start, end) {
+                        // Process element into mesh
+                        match router.process_element(&entity, &mut decoder) {
+                            Ok(mesh) => {
+                                if !mesh.is_empty() {
                                     combined_mesh.merge(&mesh);
+                                    processed_count += 1;
+                                }
+                            }
+                            Err(e) => {
+                                error_count += 1;
+                                // Log first few errors for debugging
+                                if error_count <= 10 {
+                                    web_sys::console::log_1(&format!(
+                                        "[IFC-Lite] ERROR #{} processing {}: {}",
+                                        error_count, type_name, e
+                                    ).into());
                                 }
                             }
                         }
                     }
                 }
+            }
+        }
 
-                // Calculate normals if not present
-                if combined_mesh.normals.is_empty() && !combined_mesh.positions.is_empty() {
-                    calculate_normals(&mut combined_mesh);
-                }
+        // Log processing stats to console
+        web_sys::console::log_1(&format!(
+            "[IFC-Lite] Stats: found={} processed={} errors={} vertices={} triangles={}",
+            building_elements_found, processed_count, error_count, combined_mesh.vertex_count(), combined_mesh.triangle_count()
+        ).into());
 
-                let zero_copy_mesh = ZeroCopyMesh::from(combined_mesh);
+        // Also log to make sure this runs
+        if building_elements_found == 0 {
+            web_sys::console::log_1(&"[IFC-Lite] WARNING: No building elements found!".into());
+        }
 
-                resolve.call1(&JsValue::NULL, &JsValue::from(zero_copy_mesh)).unwrap();
-            });
-        });
+        if error_count > 0 && processed_count == 0 {
+            web_sys::console::log_1(&format!(
+                "[IFC-Lite] WARNING: All {} building elements failed to process!",
+                error_count
+            ).into());
+        }
 
-        promise
+        // Calculate normals if not present
+        if combined_mesh.normals.is_empty() && !combined_mesh.positions.is_empty() {
+            calculate_normals(&mut combined_mesh);
+        }
+
+        ZeroCopyMesh::from(combined_mesh)
     }
 
     /// Get WASM memory for zero-copy access

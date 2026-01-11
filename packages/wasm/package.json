@@ -1,14 +1,19 @@
 {
-  "name": "@ifc-lite/wasm-test",
+  "name": "ifc-lite-wasm",
+  "collaborators": [
+    "IFC-Lite Contributors"
+  ],
   "version": "0.1.0",
-  "private": true,
-  "description": "Test and examples for IFC-Lite WASM integration",
-  "type": "module",
-  "scripts": {
-    "test": "node test-parser.js",
-    "benchmark": "node benchmark.js"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/louistrue/ifc-lite"
   },
-  "dependencies": {
-    "@ifc-lite/wasm": "file:./pkg"
-  }
+  "files": [
+    "ifc_lite_wasm_bg.wasm",
+    "ifc_lite_wasm.js",
+    "ifc_lite_wasm.d.ts"
+  ],
+  "main": "ifc_lite_wasm.js",
+  "types": "ifc_lite_wasm.d.ts"
 }

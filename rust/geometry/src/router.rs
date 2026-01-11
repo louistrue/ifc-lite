@@ -106,6 +106,19 @@ impl GeometryRouter {
                 continue;
             }
 
+            // TEMPORARILY DISABLED: Check RepresentationType filtering
+            // TODO: Re-enable after debugging
+            // if let Some(rep_type_attr) = shape_rep.get(2) {
+            //     if let Some(rep_type) = rep_type_attr.as_string() {
+            //         if !matches!(
+            //             rep_type,
+            //             "Body" | "SweptSolid" | "Brep" | "CSG" | "Clipping" | "SurfaceModel" | "Tessellation"
+            //         ) {
+            //             continue;
+            //         }
+            //     }
+            // }
+
             // Get items list (attribute 3)
             let items_attr = shape_rep.get(3).ok_or_else(|| {
                 Error::geometry("IfcShapeRepresentation missing Items".to_string())
