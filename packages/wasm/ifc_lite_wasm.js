@@ -231,12 +231,12 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_272(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_272(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_304(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_304(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_339(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_339(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_371(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_371(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const IfcAPIFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -318,6 +318,29 @@ class IfcAPI {
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.ifcapi_parseZeroCopy(this.__wbg_ptr, ptr0, len0);
         return ZeroCopyMesh.__wrap(ret);
+    }
+    /**
+     * Debug: Test processing entity #953 (FacetedBrep wall)
+     * @param {string} content
+     * @returns {string}
+     */
+    debugProcessEntity953(content) {
+        let deferred2_0;
+        let deferred2_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.ifcapi_debugProcessEntity953(retptr, this.__wbg_ptr, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred2_0 = r0;
+            deferred2_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export4(deferred2_0, deferred2_1, 1);
+        }
     }
     /**
      * Debug: Test processing a single wall
@@ -656,7 +679,7 @@ exports.__wbg_new_ff12d2b041fb48f1 = function(arg0, arg1) {
             const a = state0.a;
             state0.a = 0;
             try {
-                return __wasm_bindgen_func_elem_339(a, state0.b, arg0, arg1);
+                return __wasm_bindgen_func_elem_371(a, state0.b, arg0, arg1);
             } finally {
                 state0.a = a;
             }
@@ -731,9 +754,9 @@ exports.__wbindgen_cast_2241b6af4c4b2941 = function(arg0, arg1) {
     return addHeapObject(ret);
 };
 
-exports.__wbindgen_cast_7a9218f878f4eac5 = function(arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 19, function: Function { arguments: [Externref], shim_idx: 20, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-    const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_266, __wasm_bindgen_func_elem_272);
+exports.__wbindgen_cast_938f00f56b3ee1d1 = function(arg0, arg1) {
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 27, function: Function { arguments: [Externref], shim_idx: 28, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_298, __wasm_bindgen_func_elem_304);
     return addHeapObject(ret);
 };
 

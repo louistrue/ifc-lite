@@ -44,6 +44,10 @@ export class IfcAPI {
    */
   parseZeroCopy(content: string): ZeroCopyMesh;
   /**
+   * Debug: Test processing entity #953 (FacetedBrep wall)
+   */
+  debugProcessEntity953(content: string): string;
+  /**
    * Debug: Test processing a single wall
    */
   debugProcessFirstWall(content: string): string;

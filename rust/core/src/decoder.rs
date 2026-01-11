@@ -13,6 +13,9 @@ pub struct EntityDecoder<'a> {
     content: &'a str,
     /// Cache of decoded entities (entity_id -> DecodedEntity)
     cache: FxHashMap<u32, DecodedEntity>,
+    /// Index of entity offsets (entity_id -> (start, end))
+    /// Built lazily on first decode_by_id call
+    entity_index: Option<FxHashMap<u32, (usize, usize)>>,
 }
 
 impl<'a> EntityDecoder<'a> {
@@ -21,7 +24,66 @@ impl<'a> EntityDecoder<'a> {
         Self {
             content,
             cache: FxHashMap::default(),
+            entity_index: None,
         }
+    }
+
+    /// Build entity index for O(1) lookups
+    /// This scans the file once and maps entity IDs to byte offsets
+    fn build_index(&mut self) {
+        if self.entity_index.is_some() {
+            return; // Already built
+        }
+
+        let mut index = FxHashMap::default();
+        let bytes = self.content.as_bytes();
+        let len = bytes.len();
+        let mut pos = 0;
+
+        while pos < len {
+            // Skip whitespace
+            while pos < len && (bytes[pos] == b' ' || bytes[pos] == b'\n' || bytes[pos] == b'\r' || bytes[pos] == b'\t') {
+                pos += 1;
+            }
+
+            if pos >= len {
+                break;
+            }
+
+            // Check for entity start (#)
+            if bytes[pos] == b'#' {
+                let start = pos;
+                pos += 1;
+
+                // Parse entity ID
+                let id_start = pos;
+                while pos < len && bytes[pos].is_ascii_digit() {
+                    pos += 1;
+                }
+
+                if pos > id_start && pos < len && bytes[pos] == b'=' {
+                    let id_str = &self.content[id_start..pos];
+                    if let Ok(id) = id_str.parse::<u32>() {
+                        // Find end of entity (;)
+                        while pos < len && bytes[pos] != b';' {
+                            pos += 1;
+                        }
+                        if pos < len {
+                            pos += 1; // Include semicolon
+                            index.insert(id, (start, pos));
+                        }
+                    }
+                }
+            } else {
+                // Skip to next line
+                while pos < len && bytes[pos] != b'\n' {
+                    pos += 1;
+                }
+                pos += 1;
+            }
+        }
+
+        self.entity_index = Some(index);
     }
 
     /// Decode entity at byte offset
@@ -49,25 +111,21 @@ impl<'a> EntityDecoder<'a> {
         Ok(entity)
     }
 
-    /// Decode entity by ID (requires scanning to find offset)
+    /// Decode entity by ID - O(1) lookup using entity index
     pub fn decode_by_id(&mut self, entity_id: u32) -> Result<DecodedEntity> {
         // Check cache first
         if let Some(entity) = self.cache.get(&entity_id) {
             return Ok(entity.clone());
         }
 
-        // Scan to find the entity - search for "#ID=" to avoid matching references
-        let pattern = format!("#{}=", entity_id);
-        let start = self
-            .content
-            .find(&pattern)
-            .ok_or_else(|| Error::parse(0, format!("Entity #{} not found", entity_id)))?;
+        // Build index if not already built
+        self.build_index();
 
-        let end = self.content[start..]
-            .find(';')
-            .ok_or_else(|| Error::parse(start, "Entity end ';' not found".to_string()))?
-            + start
-            + 1;
+        // O(1) lookup in index
+        let (start, end) = self.entity_index
+            .as_ref()
+            .and_then(|idx| idx.get(&entity_id).copied())
+            .ok_or_else(|| Error::parse(0, format!("Entity #{} not found", entity_id)))?;
 
         self.decode_at(start, end)
     }
