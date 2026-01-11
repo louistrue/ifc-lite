@@ -173,25 +173,31 @@ impl IfcAPI {
                         ).into());
                     }
                     // Decode the entity
-                    if let Ok(entity) = decoder.decode_at(start, end) {
-                        // Process element into mesh
-                        match router.process_element(&entity, &mut decoder) {
-                            Ok(mesh) => {
-                                if !mesh.is_empty() {
-                                    combined_mesh.merge(&mesh);
-                                    processed_count += 1;
+                    match decoder.decode_at(start, end) {
+                        Ok(entity) => {
+                            // Process element into mesh
+                            match router.process_element(&entity, &mut decoder) {
+                                Ok(mesh) => {
+                                    if !mesh.is_empty() {
+                                        combined_mesh.merge(&mesh);
+                                        processed_count += 1;
+                                    }
+                                }
+                                Err(e) => {
+                                    error_count += 1;
+                                    // Panic on first error to see what's wrong
+                                    if error_count == 1 {
+                                        panic!("FIRST ERROR - Type: {}, Error: {}, Entity ID: {}", type_name, e, entity.id);
+                                    }
                                 }
                             }
-                            Err(e) => {
-                                error_count += 1;
-                                // Log first few errors for debugging
-                                if error_count <= 10 {
-                                    web_sys::console::log_1(&format!(
-                                        "[IFC-Lite] ERROR #{} processing {}: {}",
-                                        error_count, type_name, e
-                                    ).into());
-                                }
-                            }
+                        }
+                        Err(e) => {
+                            // Failed to decode entity
+                            web_sys::console::log_1(&format!(
+                                "[IFC-Lite] Failed to decode {}: {}",
+                                type_name, e
+                            ).into());
                         }
                     }
                 }
@@ -234,6 +240,52 @@ impl IfcAPI {
     #[wasm_bindgen(getter)]
     pub fn version(&self) -> String {
         env!("CARGO_PKG_VERSION").to_string()
+    }
+
+    /// Debug: Test processing a single wall
+    #[wasm_bindgen(js_name = debugProcessFirstWall)]
+    pub fn debug_process_first_wall(&self, content: String) -> String {
+        use ifc_lite_core::{EntityScanner, EntityDecoder};
+        use ifc_lite_geometry::GeometryRouter;
+
+        let router = GeometryRouter::new();
+        let mut scanner = EntityScanner::new(&content);
+        let mut decoder = EntityDecoder::new(&content);
+
+        // Find first wall
+        while let Some((id, type_name, start, end)) = scanner.next_entity() {
+            if type_name.contains("WALL") {
+                let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
+                if let Some(ifc_type) = ifc_type {
+                    if router.schema().has_geometry(&ifc_type) {
+                        // Try to decode and process
+                        match decoder.decode_at(start, end) {
+                            Ok(entity) => {
+                                match router.process_element(&entity, &mut decoder) {
+                                    Ok(mesh) => {
+                                        return format!(
+                                            "SUCCESS! Wall #{}: {} vertices, {} triangles",
+                                            id, mesh.vertex_count(), mesh.triangle_count()
+                                        );
+                                    }
+                                    Err(e) => {
+                                        return format!(
+                                            "ERROR processing wall #{} ({}): {}",
+                                            id, type_name, e
+                                        );
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                return format!("ERROR decoding wall #{}: {}", id, e);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        "No walls found".to_string()
     }
 }
 

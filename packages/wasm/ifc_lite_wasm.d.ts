@@ -44,6 +44,10 @@ export class IfcAPI {
    */
   parseZeroCopy(content: string): ZeroCopyMesh;
   /**
+   * Debug: Test processing a single wall
+   */
+  debugProcessFirstWall(content: string): string;
+  /**
    * Create and initialize the IFC API
    */
   constructor();
