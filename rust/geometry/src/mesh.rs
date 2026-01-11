@@ -51,14 +51,37 @@ impl Mesh {
     }
 
     /// Merge another mesh into this one
+    #[inline]
     pub fn merge(&mut self, other: &Mesh) {
         let vertex_offset = (self.positions.len() / 3) as u32;
 
         self.positions.extend_from_slice(&other.positions);
         self.normals.extend_from_slice(&other.normals);
 
-        for &index in &other.indices {
-            self.indices.push(index + vertex_offset);
+        // Vectorized index offset - more cache-friendly than loop
+        self.indices.extend(other.indices.iter().map(|&i| i + vertex_offset));
+    }
+
+    /// Batch merge multiple meshes at once (more efficient than individual merges)
+    #[inline]
+    pub fn merge_all(&mut self, meshes: &[Mesh]) {
+        // Calculate total size needed
+        let total_positions: usize = meshes.iter().map(|m| m.positions.len()).sum();
+        let total_indices: usize = meshes.iter().map(|m| m.indices.len()).sum();
+
+        // Reserve capacity upfront to avoid reallocations
+        self.positions.reserve(total_positions);
+        self.normals.reserve(total_positions);
+        self.indices.reserve(total_indices);
+
+        // Merge all meshes
+        for mesh in meshes {
+            if !mesh.is_empty() {
+                let vertex_offset = (self.positions.len() / 3) as u32;
+                self.positions.extend_from_slice(&mesh.positions);
+                self.normals.extend_from_slice(&mesh.normals);
+                self.indices.extend(mesh.indices.iter().map(|&i| i + vertex_offset));
+            }
         }
     }
 

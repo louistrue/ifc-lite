@@ -64,6 +64,7 @@ impl GeometryRouter {
     /// Process building element (IfcWall, IfcBeam, etc.) into mesh
     /// Follows the representation chain:
     /// Element → Representation → ShapeRepresentation → Items
+    #[inline]
     pub fn process_element(
         &self,
         element: &DecodedEntity,
@@ -144,6 +145,7 @@ impl GeometryRouter {
     }
 
     /// Process a single representation item (IfcExtrudedAreaSolid, etc.)
+    #[inline]
     pub fn process_representation_item(
         &self,
         item: &DecodedEntity,
@@ -283,6 +285,7 @@ impl GeometryRouter {
     }
 
     /// Parse IfcCartesianPoint
+    #[inline]
     fn parse_cartesian_point(
         &self,
         parent: &DecodedEntity,
@@ -330,6 +333,7 @@ impl GeometryRouter {
     }
 
     /// Parse IfcDirection
+    #[inline]
     fn parse_direction(&self, direction_entity: &DecodedEntity) -> Result<Vector3<f64>> {
         if direction_entity.ifc_type != IfcType::IfcDirection {
             return Err(Error::geometry(format!(

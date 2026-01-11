@@ -136,11 +136,6 @@ impl IfcAPI {
         use ifc_lite_core::{EntityScanner, EntityDecoder, build_entity_index};
         use ifc_lite_geometry::{GeometryRouter, Mesh, calculate_normals};
 
-        // Estimate mesh size based on file size (heuristic: ~100 vertices per KB of IFC data)
-        let estimated_vertices = content.len() / 10;
-        let estimated_indices = estimated_vertices * 2;
-        let mut combined_mesh = Mesh::with_capacity(estimated_vertices, estimated_indices);
-
         // Build entity index once upfront for O(1) lookups
         let entity_index = build_entity_index(&content);
 
@@ -150,6 +145,9 @@ impl IfcAPI {
 
         // Create geometry router (reuses processor instances)
         let router = GeometryRouter::new();
+
+        // Collect all meshes first (better for batch merge)
+        let mut meshes: Vec<Mesh> = Vec::with_capacity(2000);
 
         // Process all building elements
         while let Some((_id, type_name, start, end)) = scanner.next_entity() {
@@ -162,11 +160,15 @@ impl IfcAPI {
             if let Ok(entity) = decoder.decode_at(start, end) {
                 if let Ok(mesh) = router.process_element(&entity, &mut decoder) {
                     if !mesh.is_empty() {
-                        combined_mesh.merge(&mesh);
+                        meshes.push(mesh);
                     }
                 }
             }
         }
+
+        // Batch merge all meshes at once (more efficient)
+        let mut combined_mesh = Mesh::new();
+        combined_mesh.merge_all(&meshes);
 
         // Calculate normals if not present
         if combined_mesh.normals.is_empty() && !combined_mesh.positions.is_empty() {

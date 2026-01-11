@@ -109,6 +109,7 @@ impl<'a> EntityDecoder<'a> {
 
     /// Decode entity at byte offset
     /// Returns cached entity if already decoded
+    #[inline]
     pub fn decode_at(&mut self, start: usize, end: usize) -> Result<DecodedEntity> {
         let line = &self.content[start..end];
         let (id, ifc_type, tokens) = parse_entity(line).map_err(|e| {
@@ -133,6 +134,7 @@ impl<'a> EntityDecoder<'a> {
     }
 
     /// Decode entity by ID - O(1) lookup using entity index
+    #[inline]
     pub fn decode_by_id(&mut self, entity_id: u32) -> Result<DecodedEntity> {
         // Check cache first
         if let Some(entity) = self.cache.get(&entity_id) {
@@ -153,6 +155,7 @@ impl<'a> EntityDecoder<'a> {
 
     /// Resolve entity reference (follow #ID)
     /// Returns None for null/derived values
+    #[inline]
     pub fn resolve_ref(&mut self, attr: &AttributeValue) -> Result<Option<DecodedEntity>> {
         match attr.as_entity_ref() {
             Some(id) => Ok(Some(self.decode_by_id(id)?)),

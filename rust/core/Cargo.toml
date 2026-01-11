@@ -19,6 +19,9 @@ rustc-hash = "1.1"
 # Fast byte searching
 memchr = "2.7"
 
+# Fast float/integer parsing (10x faster than std)
+lexical-core = "1.0"
+
 # Async streaming
 futures-core = "0.3"
 futures-util = "0.3"
