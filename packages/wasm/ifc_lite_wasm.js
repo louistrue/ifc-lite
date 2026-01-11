@@ -231,12 +231,12 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_314(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_314(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_165(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_165(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_381(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_381(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_232(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_232(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const IfcAPIFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -658,10 +658,6 @@ exports.__wbg_error_7534b8e9a36f1ab4 = function(arg0, arg1) {
     }
 };
 
-exports.__wbg_log_1d990106d99dacb7 = function(arg0) {
-    console.log(getObject(arg0));
-};
-
 exports.__wbg_new_1ba21ce319a06297 = function() {
     const ret = new Object();
     return addHeapObject(ret);
@@ -679,7 +675,7 @@ exports.__wbg_new_ff12d2b041fb48f1 = function(arg0, arg1) {
             const a = state0.a;
             state0.a = 0;
             try {
-                return __wasm_bindgen_func_elem_381(a, state0.b, arg0, arg1);
+                return __wasm_bindgen_func_elem_232(a, state0.b, arg0, arg1);
             } finally {
                 state0.a = a;
             }
@@ -754,9 +750,9 @@ exports.__wbindgen_cast_2241b6af4c4b2941 = function(arg0, arg1) {
     return addHeapObject(ret);
 };
 
-exports.__wbindgen_cast_938f00f56b3ee1d1 = function(arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { dtor_idx: 27, function: Function { arguments: [Externref], shim_idx: 28, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-    const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_308, __wasm_bindgen_func_elem_314);
+exports.__wbindgen_cast_7a9218f878f4eac5 = function(arg0, arg1) {
+    // Cast intrinsic for `Closure(Closure { dtor_idx: 19, function: Function { arguments: [Externref], shim_idx: 20, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_159, __wasm_bindgen_func_elem_165);
     return addHeapObject(ret);
 };
 
