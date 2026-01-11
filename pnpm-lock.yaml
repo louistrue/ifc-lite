@@ -29,6 +29,9 @@ importers:
       '@ifc-lite/renderer':
         specifier: workspace:*
         version: link:../../packages/renderer
+      '@ifc-lite/spatial':
+        specifier: workspace:*
+        version: link:../../packages/spatial
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -111,6 +114,10 @@ importers:
         version: 5.9.3
 
   packages/spatial:
+    dependencies:
+      '@ifc-lite/geometry':
+        specifier: workspace:*
+        version: link:../geometry
     devDependencies:
       typescript:
         specifier: ^5.3.0

@@ -10,6 +10,7 @@ export default defineConfig({
       '@ifc-lite/geometry': path.resolve(__dirname, '../../packages/geometry/src'),
       '@ifc-lite/renderer': path.resolve(__dirname, '../../packages/renderer/src'),
       '@ifc-lite/query': path.resolve(__dirname, '../../packages/query/src'),
+      '@ifc-lite/spatial': path.resolve(__dirname, '../../packages/spatial/src'),
     },
   },
   server: {

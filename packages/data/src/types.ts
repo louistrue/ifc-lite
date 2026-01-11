@@ -120,6 +120,24 @@ export enum EntityFlags {
   IS_FILLING = 0b01000000,
 }
 
+export interface SpatialNode {
+  expressId: number;
+  type: IfcTypeEnum;
+  name: string;
+  elevation?: number;
+  children: SpatialNode[];
+  elements: number[];  // Direct contained elements
+}
+
+export interface SpatialHierarchy {
+  project: SpatialNode;
+  byStorey: Map<number, number[]>;    // storeyId -> element IDs
+  byBuilding: Map<number, number[]>;  // buildingId -> element IDs
+  bySite: Map<number, number[]>;      // siteId -> element IDs
+  bySpace: Map<number, number[]>;     // spaceId -> element IDs
+  storeyElevations: Map<number, number>;  // storeyId -> elevation (z)
+}
+
 // Type conversion helpers
 const TYPE_STRING_TO_ENUM = new Map<string, IfcTypeEnum>([
   ['IFCPROJECT', IfcTypeEnum.IfcProject],

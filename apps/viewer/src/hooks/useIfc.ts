@@ -5,9 +5,10 @@
 import { useMemo, useCallback, useRef } from 'react';
 import { useViewerStore } from '../store.js';
 import { IfcParser } from '@ifc-lite/parser';
-import { GeometryProcessor, GeometryQuality } from '@ifc-lite/geometry';
+import { GeometryProcessor, GeometryQuality, type MeshData } from '@ifc-lite/geometry';
 import { IfcQuery } from '@ifc-lite/query';
 import { BufferBuilder } from '@ifc-lite/geometry';
+import { buildSpatialIndex } from '@ifc-lite/spatial';
 
 export function useIfc() {
   const {
@@ -72,6 +73,7 @@ export function useIfc() {
       const bufferBuilder = new BufferBuilder();
       let estimatedTotal = 0;
       let totalMeshes = 0;
+      const allMeshes: MeshData[] = []; // Collect all meshes for BVH building
 
       // Clear existing geometry result
       setGeometryResult(null);
@@ -90,6 +92,9 @@ export function useIfc() {
               console.log('[useIfc] Model opened, ID:', event.modelID);
               break;
             case 'batch':
+              // Collect meshes for BVH building
+              allMeshes.push(...event.meshes);
+              
               // Convert MeshData[] to GPU-ready format and append
               console.log('[useIfc] Batch event:', event.meshes.length, 'meshes, total so far:', event.totalSoFar);
               const gpuMeshes = bufferBuilder.processMeshes(event.meshes).meshes;
@@ -108,6 +113,23 @@ export function useIfc() {
               console.log('[useIfc] Complete event, total meshes:', event.totalMeshes);
               // Use functional update to get current state (avoids stale closure)
               updateCoordinateInfo(event.coordinateInfo);
+              
+              // Build spatial index from all collected meshes
+              if (allMeshes.length > 0) {
+                setProgress({ phase: 'Building spatial index', percent: 95 });
+                console.log('[useIfc] Building BVH from', allMeshes.length, 'meshes');
+                try {
+                  const spatialIndex = buildSpatialIndex(allMeshes);
+                  // Attach spatial index to dataStore
+                  (dataStore as any).spatialIndex = spatialIndex;
+                  setIfcDataStore(dataStore); // Update store with spatial index
+                  console.log('[useIfc] Spatial index built successfully');
+                } catch (err) {
+                  console.warn('[useIfc] Failed to build spatial index:', err);
+                  // Continue without spatial index - it's optional
+                }
+              }
+              
               setProgress({ phase: 'Complete', percent: 100 });
               break;
           }

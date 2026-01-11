@@ -13,6 +13,7 @@
     "@ifc-lite/geometry": "workspace:*",
     "@ifc-lite/renderer": "workspace:*",
     "@ifc-lite/query": "workspace:*",
+    "@ifc-lite/spatial": "workspace:*",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "zustand": "^4.4.0"

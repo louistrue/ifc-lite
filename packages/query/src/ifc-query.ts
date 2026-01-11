@@ -3,10 +3,11 @@
  */
 
 import type { IfcDataStore } from '@ifc-lite/parser';
-import { IfcTypeEnumFromString } from '@ifc-lite/data';
+import { IfcTypeEnumFromString, type SpatialHierarchy } from '@ifc-lite/data';
 import { EntityQuery } from './entity-query.js';
 import { EntityNode } from './entity-node.js';
 import { DuckDBIntegration, type SQLResult } from './duckdb-integration.js';
+import type { AABB } from '@ifc-lite/spatial';
 
 export class IfcQuery {
   private store: IfcDataStore;
@@ -87,5 +88,56 @@ export class IfcQuery {
   
   entity(expressId: number): EntityNode {
     return new EntityNode(this.store, expressId);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // SPATIAL API - Geometry-based queries
+  // ═══════════════════════════════════════════════════════════════
+  
+  inBounds(aabb: AABB): EntityQuery {
+    if (!this.store.spatialIndex) {
+      throw new Error('Spatial index not available. Geometry must be processed first.');
+    }
+    const ids = this.store.spatialIndex.queryAABB(aabb);
+    return new EntityQuery(this.store, null, ids);
+  }
+  
+  onStorey(storeyId: number): EntityQuery {
+    if (!this.store.spatialHierarchy) {
+      throw new Error('Spatial hierarchy not available.');
+    }
+    const ids = this.store.spatialHierarchy.byStorey.get(storeyId) ?? [];
+    return new EntityQuery(this.store, null, ids);
+  }
+  
+  raycast(origin: [number, number, number], direction: [number, number, number]): number[] {
+    if (!this.store.spatialIndex) {
+      throw new Error('Spatial index not available. Geometry must be processed first.');
+    }
+    return this.store.spatialIndex.raycast(origin, direction);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // SPATIAL HIERARCHY ACCESS
+  // ═══════════════════════════════════════════════════════════════
+  
+  get hierarchy(): SpatialHierarchy | null {
+    return this.store.spatialHierarchy ?? null;
+  }
+  
+  get project(): EntityNode | null {
+    if (!this.store.spatialHierarchy) return null;
+    return this.entity(this.store.spatialHierarchy.project.expressId);
+  }
+  
+  get storeys(): EntityNode[] {
+    if (!this.store.spatialHierarchy) return [];
+    return [...this.store.spatialHierarchy.byStorey.keys()]
+      .sort((a, b) => {
+        const elevA = this.store.spatialHierarchy!.storeyElevations.get(a) ?? 0;
+        const elevB = this.store.spatialHierarchy!.storeyElevations.get(b) ?? 0;
+        return elevA - elevB;
+      })
+      .map(id => this.entity(id));
   }
 }

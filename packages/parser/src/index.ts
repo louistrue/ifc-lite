@@ -8,6 +8,7 @@ export { EntityExtractor } from './entity-extractor.js';
 export { PropertyExtractor } from './property-extractor.js';
 export { RelationshipExtractor } from './relationship-extractor.js';
 export { StyleExtractor } from './style-extractor.js';
+export { SpatialHierarchyBuilder } from './spatial-hierarchy-builder.js';
 export { ColumnarParser, type IfcDataStore } from './columnar-parser.js';
 export * from './types.js';
 export * from './style-extractor.js';

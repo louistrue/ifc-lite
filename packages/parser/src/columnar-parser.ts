@@ -5,6 +5,7 @@
 import type { EntityRef, IfcEntity } from './types.js';
 import { PropertyExtractor } from './property-extractor.js';
 import { RelationshipExtractor } from './relationship-extractor.js';
+import { SpatialHierarchyBuilder } from './spatial-hierarchy-builder.js';
 import {
     StringTable,
     EntityTableBuilder,
@@ -12,7 +13,25 @@ import {
     RelationshipGraphBuilder,
     RelationshipType,
     PropertyValueType,
+    IfcTypeEnum,
 } from '@ifc-lite/data';
+
+// Type alias for SpatialHierarchy (will be properly exported after data package rebuild)
+type SpatialHierarchy = {
+    project: {
+        expressId: number;
+        type: IfcTypeEnum;
+        name: string;
+        elevation?: number;
+        children: any[];
+        elements: number[];
+    };
+    byStorey: Map<number, number[]>;
+    byBuilding: Map<number, number[]>;
+    bySite: Map<number, number[]>;
+    bySpace: Map<number, number[]>;
+    storeyElevations: Map<number, number>;
+};
 
 export interface IfcDataStore {
     fileSize: number;
@@ -27,6 +46,10 @@ export interface IfcDataStore {
     entities: ReturnType<EntityTableBuilder['build']>;
     properties: ReturnType<PropertyTableBuilder['build']>;
     relationships: ReturnType<RelationshipGraphBuilder['build']>;
+
+    // Spatial structures (optional, built after parsing)
+    spatialHierarchy?: SpatialHierarchy;
+    spatialIndex?: any; // BVH from @ifc-lite/spatial (avoid circular dependency)
 }
 
 export class ColumnarParser {
@@ -196,6 +219,24 @@ export class ColumnarParser {
             typeList.push(ref.expressId);
         }
 
+        // === Build Spatial Hierarchy ===
+        options.onProgress?.({ phase: 'spatial-hierarchy', percent: 0 });
+        let spatialHierarchy: SpatialHierarchy | undefined;
+        try {
+            const hierarchyBuilder = new SpatialHierarchyBuilder();
+            spatialHierarchy = hierarchyBuilder.build(
+                entityTable,
+                relationshipGraph,
+                strings,
+                uint8Buffer,
+                entityIndex
+            );
+        } catch (error) {
+            console.warn('[ColumnarParser] Failed to build spatial hierarchy:', error);
+            // Continue without hierarchy - it's optional
+        }
+        options.onProgress?.({ phase: 'spatial-hierarchy', percent: 100 });
+
         return {
             fileSize: buffer.byteLength,
             schemaVersion,
@@ -207,6 +248,7 @@ export class ColumnarParser {
             entities: entityTable,
             properties: propertyTable,
             relationships: relationshipGraph,
+            spatialHierarchy,
         };
     }
 }
