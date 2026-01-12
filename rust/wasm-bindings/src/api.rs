@@ -6,7 +6,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 use js_sys::{Function, Promise};
 use ifc_lite_core::{EntityScanner, ParseEvent, StreamConfig};
-use crate::zero_copy::ZeroCopyMesh;
+use crate::zero_copy::{ZeroCopyMesh, MeshDataJs, MeshCollection};
 
 /// Main IFC-Lite API
 #[wasm_bindgen]
@@ -176,6 +176,68 @@ impl IfcAPI {
         }
 
         ZeroCopyMesh::from(combined_mesh)
+    }
+
+    /// Parse IFC file and return individual meshes with express IDs and colors
+    /// This matches the MeshData[] format expected by the viewer
+    ///
+    /// Example:
+    /// ```javascript
+    /// const api = new IfcAPI();
+    /// const collection = api.parseMeshes(ifcData);
+    /// for (let i = 0; i < collection.length; i++) {
+    ///   const mesh = collection.get(i);
+    ///   console.log('Express ID:', mesh.expressId);
+    ///   console.log('Positions:', mesh.positions);
+    ///   console.log('Color:', mesh.color);
+    /// }
+    /// ```
+    #[wasm_bindgen(js_name = parseMeshes)]
+    pub fn parse_meshes(&self, content: String) -> MeshCollection {
+        use ifc_lite_core::{EntityScanner, EntityDecoder, build_entity_index, IfcType};
+        use ifc_lite_geometry::{GeometryRouter, calculate_normals};
+
+        // Build entity index once upfront for O(1) lookups
+        let entity_index = build_entity_index(&content);
+
+        // Create scanner and decoder with pre-built index
+        let mut scanner = EntityScanner::new(&content);
+        let mut decoder = EntityDecoder::with_index(&content, entity_index);
+
+        // Create geometry router (reuses processor instances)
+        let router = GeometryRouter::new();
+
+        // Collect individual meshes with express IDs
+        let mut mesh_collection = MeshCollection::new();
+
+        // Process all building elements
+        while let Some((id, type_name, start, end)) = scanner.next_entity() {
+            // Check if this is a building element type
+            if !ifc_lite_core::has_geometry_by_name(type_name) {
+                continue;
+            }
+
+            // Decode and process the entity
+            if let Ok(entity) = decoder.decode_at(start, end) {
+                if let Ok(mut mesh) = router.process_element(&entity, &mut decoder) {
+                    if !mesh.is_empty() {
+                        // Calculate normals if not present
+                        if mesh.normals.is_empty() {
+                            calculate_normals(&mut mesh);
+                        }
+
+                        // Get default color based on IFC type
+                        let color = get_default_color_for_type(&entity.ifc_type);
+
+                        // Create mesh data with express ID and color
+                        let mesh_data = MeshDataJs::new(id, mesh, color);
+                        mesh_collection.add(mesh_data);
+                    }
+                }
+            }
+        }
+
+        mesh_collection
     }
 
     /// Get WASM memory for zero-copy access
@@ -358,6 +420,49 @@ fn parse_event_to_js(event: &ParseEvent) -> JsValue {
     }
 
     obj.into()
+}
+
+/// Get default color for IFC type (matches default-materials.ts)
+fn get_default_color_for_type(ifc_type: &ifc_lite_core::IfcType) -> [f32; 4] {
+    use ifc_lite_core::IfcType;
+
+    match ifc_type {
+        // Walls - light gray
+        IfcType::IfcWall | IfcType::IfcWallStandardCase => [0.85, 0.85, 0.85, 1.0],
+
+        // Slabs - darker gray
+        IfcType::IfcSlab => [0.7, 0.7, 0.7, 1.0],
+
+        // Roofs - brown-ish
+        IfcType::IfcRoof => [0.6, 0.5, 0.4, 1.0],
+
+        // Columns/Beams - steel gray
+        IfcType::IfcColumn | IfcType::IfcBeam | IfcType::IfcMember => [0.6, 0.65, 0.7, 1.0],
+
+        // Windows - light blue transparent
+        IfcType::IfcWindow => [0.6, 0.8, 1.0, 0.4],
+
+        // Doors - wood brown
+        IfcType::IfcDoor => [0.6, 0.45, 0.3, 1.0],
+
+        // Stairs
+        IfcType::IfcStair => [0.75, 0.75, 0.75, 1.0],
+
+        // Railings
+        IfcType::IfcRailing => [0.4, 0.4, 0.45, 1.0],
+
+        // Plates/Coverings
+        IfcType::IfcPlate | IfcType::IfcCovering => [0.8, 0.8, 0.8, 1.0],
+
+        // Curtain walls - glass blue
+        IfcType::IfcCurtainWall => [0.5, 0.7, 0.9, 0.5],
+
+        // Furniture - wood
+        IfcType::IfcFurnishingElement => [0.7, 0.55, 0.4, 1.0],
+
+        // Default gray
+        _ => [0.8, 0.8, 0.8, 1.0],
+    }
 }
 
 /// Convert entity counts map to JavaScript object

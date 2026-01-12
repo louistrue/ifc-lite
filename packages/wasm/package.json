@@ -1,5 +1,5 @@
 {
-  "name": "ifc-lite-wasm",
+  "name": "@ifc-lite/wasm",
   "collaborators": [
     "IFC-Lite Contributors"
   ],
@@ -10,10 +10,17 @@
     "url": "https://github.com/louistrue/ifc-lite"
   },
   "files": [
-    "ifc_lite_wasm_bg.wasm",
-    "ifc_lite_wasm.js",
-    "ifc_lite_wasm.d.ts"
+    "pkg/ifc_lite_wasm_bg.wasm",
+    "pkg/ifc_lite_wasm.js",
+    "pkg/ifc_lite_wasm.d.ts"
   ],
-  "main": "ifc_lite_wasm.js",
-  "types": "ifc_lite_wasm.d.ts"
+  "main": "pkg/ifc_lite_wasm.js",
+  "types": "pkg/ifc_lite_wasm.d.ts",
+  "exports": {
+    ".": {
+      "import": "./pkg/ifc_lite_wasm.js",
+      "types": "./pkg/ifc_lite_wasm.d.ts"
+    }
+  },
+  "type": "module"
 }

@@ -5,6 +5,136 @@
 use wasm_bindgen::prelude::*;
 use ifc_lite_geometry::Mesh;
 
+/// Individual mesh data with express ID and color (matches MeshData interface)
+#[wasm_bindgen]
+pub struct MeshDataJs {
+    express_id: u32,
+    positions: Vec<f32>,
+    normals: Vec<f32>,
+    indices: Vec<u32>,
+    color: [f32; 4], // RGBA
+}
+
+#[wasm_bindgen]
+impl MeshDataJs {
+    /// Get express ID
+    #[wasm_bindgen(getter, js_name = expressId)]
+    pub fn express_id(&self) -> u32 {
+        self.express_id
+    }
+
+    /// Get positions as Float32Array (copy to JS)
+    #[wasm_bindgen(getter)]
+    pub fn positions(&self) -> js_sys::Float32Array {
+        js_sys::Float32Array::from(&self.positions[..])
+    }
+
+    /// Get normals as Float32Array (copy to JS)
+    #[wasm_bindgen(getter)]
+    pub fn normals(&self) -> js_sys::Float32Array {
+        js_sys::Float32Array::from(&self.normals[..])
+    }
+
+    /// Get indices as Uint32Array (copy to JS)
+    #[wasm_bindgen(getter)]
+    pub fn indices(&self) -> js_sys::Uint32Array {
+        js_sys::Uint32Array::from(&self.indices[..])
+    }
+
+    /// Get color as [r, g, b, a] array
+    #[wasm_bindgen(getter)]
+    pub fn color(&self) -> Vec<f32> {
+        self.color.to_vec()
+    }
+
+    /// Get vertex count
+    #[wasm_bindgen(getter, js_name = vertexCount)]
+    pub fn vertex_count(&self) -> usize {
+        self.positions.len() / 3
+    }
+
+    /// Get triangle count
+    #[wasm_bindgen(getter, js_name = triangleCount)]
+    pub fn triangle_count(&self) -> usize {
+        self.indices.len() / 3
+    }
+}
+
+impl MeshDataJs {
+    /// Create new mesh data
+    pub fn new(express_id: u32, mesh: Mesh, color: [f32; 4]) -> Self {
+        Self {
+            express_id,
+            positions: mesh.positions,
+            normals: mesh.normals,
+            indices: mesh.indices,
+            color,
+        }
+    }
+}
+
+/// Collection of mesh data for returning multiple meshes
+#[wasm_bindgen]
+pub struct MeshCollection {
+    meshes: Vec<MeshDataJs>,
+}
+
+#[wasm_bindgen]
+impl MeshCollection {
+    /// Get number of meshes
+    #[wasm_bindgen(getter)]
+    pub fn length(&self) -> usize {
+        self.meshes.len()
+    }
+
+    /// Get mesh at index
+    #[wasm_bindgen]
+    pub fn get(&self, index: usize) -> Option<MeshDataJs> {
+        self.meshes.get(index).map(|m| MeshDataJs {
+            express_id: m.express_id,
+            positions: m.positions.clone(),
+            normals: m.normals.clone(),
+            indices: m.indices.clone(),
+            color: m.color,
+        })
+    }
+
+    /// Get total vertex count across all meshes
+    #[wasm_bindgen(getter, js_name = totalVertices)]
+    pub fn total_vertices(&self) -> usize {
+        self.meshes.iter().map(|m| m.positions.len() / 3).sum()
+    }
+
+    /// Get total triangle count across all meshes
+    #[wasm_bindgen(getter, js_name = totalTriangles)]
+    pub fn total_triangles(&self) -> usize {
+        self.meshes.iter().map(|m| m.indices.len() / 3).sum()
+    }
+}
+
+impl MeshCollection {
+    /// Create new empty collection
+    pub fn new() -> Self {
+        Self { meshes: Vec::new() }
+    }
+
+    /// Add a mesh to the collection
+    pub fn add(&mut self, mesh: MeshDataJs) {
+        self.meshes.push(mesh);
+    }
+
+    /// Create from vec of meshes
+    pub fn from_vec(meshes: Vec<MeshDataJs>) -> Self {
+        Self { meshes }
+    }
+}
+
+impl Default for MeshCollection {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Zero-copy mesh that exposes pointers to WASM memory
 #[wasm_bindgen]
 pub struct ZeroCopyMesh {
