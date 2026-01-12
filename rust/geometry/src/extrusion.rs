@@ -119,7 +119,7 @@ fn create_side_walls(
 }
 
 /// Apply transformation matrix to mesh
-fn apply_transform(mesh: &mut Mesh, transform: &Matrix4<f64>) {
+pub fn apply_transform(mesh: &mut Mesh, transform: &Matrix4<f64>) {
     // Transform positions
     for i in (0..mesh.positions.len()).step_by(3) {
         let point = Point3::new(

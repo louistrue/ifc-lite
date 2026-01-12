@@ -16,6 +16,21 @@ export class IfcLiteMeshCollector {
   }
 
   /**
+   * Convert IFC Z-up coordinates to WebGL Y-up coordinates
+   * IFC uses Z-up (Z points up), WebGL uses Y-up (Y points up)
+   * Transformation: swap Y and Z, then negate new Z to maintain right-handedness
+   */
+  private convertZUpToYUp(coords: Float32Array): void {
+    for (let i = 0; i < coords.length; i += 3) {
+      const y = coords[i + 1];
+      const z = coords[i + 2];
+      // Swap Y and Z: Z-up → Y-up
+      coords[i + 1] = z;      // New Y = old Z (vertical)
+      coords[i + 2] = -y;     // New Z = -old Y (depth, negated for right-hand rule)
+    }
+  }
+
+  /**
    * Collect all meshes from IFC-Lite
    * Much faster than web-ifc (~1.9x speedup)
    */
@@ -45,11 +60,20 @@ export class IfcLiteMeshCollector {
         colorArray[3],
       ];
 
+      // Capture arrays once (WASM creates new copies on each access)
+      const positions = mesh.positions;
+      const normals = mesh.normals;
+      const indices = mesh.indices;
+
+      // Convert IFC Z-up to WebGL Y-up (modify captured arrays)
+      this.convertZUpToYUp(positions);
+      this.convertZUpToYUp(normals);
+
       meshes.push({
         expressId: mesh.expressId,
-        positions: mesh.positions,
-        normals: mesh.normals,
-        indices: mesh.indices,
+        positions,
+        normals,
+        indices,
         color,
       });
 
@@ -89,7 +113,7 @@ export class IfcLiteMeshCollector {
   async *collectMeshesStreaming(batchSize: number = 100): AsyncGenerator<MeshData[]> {
     const totalStart = performance.now();
 
-    console.log('[IfcLiteMeshCollector] Parsing meshes for streaming...');
+    console.log('[IfcLiteMeshCollector] === STREAMING WITH Z-UP TO Y-UP CONVERSION ===');
     const parseStart = performance.now();
     const collection = this.ifcApi.parseMeshes(this.content);
     const parseTime = performance.now() - parseStart;
@@ -112,11 +136,20 @@ export class IfcLiteMeshCollector {
         colorArray[3],
       ];
 
+      // Capture arrays once (WASM creates new copies on each access)
+      const positions = mesh.positions;
+      const normals = mesh.normals;
+      const indices = mesh.indices;
+
+      // Convert IFC Z-up to WebGL Y-up (modify captured arrays)
+      this.convertZUpToYUp(positions);
+      this.convertZUpToYUp(normals);
+
       batch.push({
         expressId: mesh.expressId,
-        positions: mesh.positions,
-        normals: mesh.normals,
-        indices: mesh.indices,
+        positions,
+        normals,
+        indices,
         color,
       });
 

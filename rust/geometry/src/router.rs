@@ -199,28 +199,58 @@ impl GeometryRouter {
             None => return Ok(()),
         };
 
-        if placement.ifc_type != IfcType::IfcLocalPlacement {
-            return Ok(());
-        }
-
-        // Get RelativePlacement (attribute 1)
-        let relative_placement_attr = match placement.get(1) {
-            Some(attr) if !attr.is_null() => attr,
-            _ => return Ok(()),
-        };
-
-        let relative_placement = match decoder.resolve_ref(relative_placement_attr)? {
-            Some(p) => p,
-            None => return Ok(()),
-        };
-
-        // Parse IfcAxis2Placement3D
-        if relative_placement.ifc_type == IfcType::IfcAxis2Placement3D {
-            let transform = self.parse_axis2_placement_3d(&relative_placement, decoder)?;
-            self.transform_mesh(mesh, &transform);
-        }
-
+        // Recursively get combined transform from placement hierarchy
+        let transform = self.get_placement_transform(&placement, decoder)?;
+        self.transform_mesh(mesh, &transform);
         Ok(())
+    }
+
+    /// Recursively resolve placement hierarchy
+    fn get_placement_transform(
+        &self,
+        placement: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<Matrix4<f64>> {
+        if placement.ifc_type != IfcType::IfcLocalPlacement {
+            return Ok(Matrix4::identity());
+        }
+
+        // Get parent transform first (attribute 0: PlacementRelTo)
+        let parent_transform = if let Some(parent_attr) = placement.get(0) {
+            if !parent_attr.is_null() {
+                if let Some(parent) = decoder.resolve_ref(parent_attr)? {
+                    self.get_placement_transform(&parent, decoder)?
+                } else {
+                    Matrix4::identity()
+                }
+            } else {
+                Matrix4::identity()
+            }
+        } else {
+            Matrix4::identity()
+        };
+
+        // Get local transform (attribute 1: RelativePlacement)
+        let local_transform = if let Some(rel_attr) = placement.get(1) {
+            if !rel_attr.is_null() {
+                if let Some(rel) = decoder.resolve_ref(rel_attr)? {
+                    if rel.ifc_type == IfcType::IfcAxis2Placement3D {
+                        self.parse_axis2_placement_3d(&rel, decoder)?
+                    } else {
+                        Matrix4::identity()
+                    }
+                } else {
+                    Matrix4::identity()
+                }
+            } else {
+                Matrix4::identity()
+            }
+        } else {
+            Matrix4::identity()
+        };
+
+        // Compose: parent * local
+        Ok(parent_transform * local_transform)
     }
 
     /// Parse IfcAxis2Placement3D into transformation matrix

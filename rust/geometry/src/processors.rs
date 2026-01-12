@@ -3,10 +3,11 @@
 //! High-priority processors for common IFC geometry types.
 
 use crate::{
-    extrusion::extrude_profile, profiles::ProfileProcessor, triangulation::triangulate_polygon,
+    extrusion::{apply_transform, extrude_profile}, profiles::ProfileProcessor, triangulation::triangulate_polygon,
     Error, Mesh, Point3, Result, Vector3,
 };
 use ifc_lite_core::{DecodedEntity, EntityDecoder, GeometryCategory, IfcSchema, IfcType};
+use nalgebra::Matrix4;
 
 use super::router::GeometryProcessor;
 
@@ -96,26 +97,297 @@ impl GeometryProcessor for ExtrudedAreaSolidProcessor {
 
         // Create transformation matrix to align Z-axis with extrusion direction
         // extrude_profile always extrudes along Z, so we need to rotate to match IFC direction
+        // We preserve vertical orientation: profile Y should point "up" (world Z) when possible
         let transform = if (direction.z - 1.0).abs() < 0.001 {
             // Already aligned with Z, no transformation needed
             None
         } else {
-            // Create rotation from Z-axis to extrusion direction
-            use nalgebra::{Matrix4, Rotation3, Unit};
-            let z_axis = Vector3::new(0.0, 0.0, 1.0);
-            let rotation = Rotation3::rotation_between(&z_axis, &direction)
-                .unwrap_or(Rotation3::identity());
-            Some(Matrix4::from(rotation))
+            use nalgebra::Matrix4;
+            // Construct rotation preserving vertical orientation
+            let new_z = direction.normalize();
+            
+            // Choose up vector (world Z, unless direction is nearly vertical)
+            let up = if new_z.z.abs() > 0.9 {
+                Vector3::new(0.0, 1.0, 0.0)  // Use Y when nearly vertical
+            } else {
+                Vector3::new(0.0, 0.0, 1.0)  // Use Z otherwise
+            };
+            
+            let new_x = up.cross(&new_z).normalize();  // Profile X -> horizontal
+            let new_y = new_z.cross(&new_x).normalize(); // Profile Y -> vertical
+            
+            // Build transformation matrix
+            // Maps: local X -> new_x, local Y -> new_y, local Z -> new_z
+            let mut transform_mat = Matrix4::identity();
+            transform_mat[(0, 0)] = new_x.x;
+            transform_mat[(1, 0)] = new_x.y;
+            transform_mat[(2, 0)] = new_x.z;
+            transform_mat[(0, 1)] = new_y.x;
+            transform_mat[(1, 1)] = new_y.y;
+            transform_mat[(2, 1)] = new_y.z;
+            transform_mat[(0, 2)] = new_z.x;
+            transform_mat[(1, 2)] = new_z.y;
+            transform_mat[(2, 2)] = new_z.z;
+            
+            Some(transform_mat)
         };
 
         // Extrude the profile
-        let mesh = extrude_profile(&profile, depth, transform)?;
+        let mut mesh = extrude_profile(&profile, depth, transform)?;
+
+        // Apply Position transform (attribute 1: IfcAxis2Placement3D)
+        // DEBUG: Trace Position handling for ExtrudedAreaSolid
+        eprintln!("[DEBUG] ExtrudedAreaSolid #{}: Processing Position attribute", entity.id);
+        
+        match entity.get(1) {
+            Some(pos_attr) => {
+                eprintln!("[DEBUG]   Position attr found, is_null: {}", pos_attr.is_null());
+                if !pos_attr.is_null() {
+                    match decoder.resolve_ref(pos_attr)? {
+                        Some(pos_entity) => {
+                            eprintln!("[DEBUG]   Resolved to entity #{}, type: {}", pos_entity.id, pos_entity.ifc_type);
+                            if pos_entity.ifc_type == IfcType::IfcAxis2Placement3D {
+                                // Parse and apply the position transform
+                                let pos_transform = self.parse_axis2_placement_3d_debug(&pos_entity, decoder)?;
+                                eprintln!("[DEBUG]   Applying Position transform to mesh with {} vertices", mesh.positions.len() / 3);
+                                apply_transform(&mut mesh, &pos_transform);
+                                eprintln!("[DEBUG]   Position transform applied!");
+                            } else {
+                                eprintln!("[DEBUG]   SKIP: Not IfcAxis2Placement3D");
+                            }
+                        }
+                        None => {
+                            eprintln!("[DEBUG]   SKIP: resolve_ref returned None");
+                        }
+                    }
+                } else {
+                    eprintln!("[DEBUG]   SKIP: Position is null");
+                }
+            }
+            None => {
+                eprintln!("[DEBUG]   SKIP: No Position attribute at index 1");
+            }
+        }
 
         Ok(mesh)
     }
 
     fn supported_types(&self) -> Vec<IfcType> {
         vec![IfcType::IfcExtrudedAreaSolid]
+    }
+}
+
+impl ExtrudedAreaSolidProcessor {
+    /// Parse IfcAxis2Placement3D into transformation matrix (with debug logging)
+    fn parse_axis2_placement_3d_debug(
+        &self,
+        placement: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<Matrix4<f64>> {
+        eprintln!("[DEBUG]   Parsing IfcAxis2Placement3D #{}", placement.id);
+        
+        // IfcAxis2Placement3D: Location, Axis, RefDirection
+        let location = self.parse_cartesian_point(placement, decoder, 0)?;
+        eprintln!("[DEBUG]     Location: ({:.3}, {:.3}, {:.3})", location.x, location.y, location.z);
+
+        // Default axes if not specified
+        let z_axis = if let Some(axis_attr) = placement.get(1) {
+            if !axis_attr.is_null() {
+                if let Some(axis_entity) = decoder.resolve_ref(axis_attr)? {
+                    let dir = self.parse_direction(&axis_entity)?;
+                    eprintln!("[DEBUG]     Axis (Z): ({:.3}, {:.3}, {:.3}) from entity #{}", dir.x, dir.y, dir.z, axis_entity.id);
+                    dir
+                } else {
+                    eprintln!("[DEBUG]     Axis (Z): DEFAULT (0, 0, 1) - resolve returned None");
+                    Vector3::new(0.0, 0.0, 1.0)
+                }
+            } else {
+                eprintln!("[DEBUG]     Axis (Z): DEFAULT (0, 0, 1) - attr is null");
+                Vector3::new(0.0, 0.0, 1.0)
+            }
+        } else {
+            eprintln!("[DEBUG]     Axis (Z): DEFAULT (0, 0, 1) - no attr at index 1");
+            Vector3::new(0.0, 0.0, 1.0)
+        };
+
+        let x_axis = if let Some(ref_dir_attr) = placement.get(2) {
+            if !ref_dir_attr.is_null() {
+                if let Some(ref_dir_entity) = decoder.resolve_ref(ref_dir_attr)? {
+                    let dir = self.parse_direction(&ref_dir_entity)?;
+                    eprintln!("[DEBUG]     RefDir (X): ({:.3}, {:.3}, {:.3}) from entity #{}", dir.x, dir.y, dir.z, ref_dir_entity.id);
+                    dir
+                } else {
+                    eprintln!("[DEBUG]     RefDir (X): DEFAULT (1, 0, 0) - resolve returned None");
+                    Vector3::new(1.0, 0.0, 0.0)
+                }
+            } else {
+                eprintln!("[DEBUG]     RefDir (X): DEFAULT (1, 0, 0) - attr is null");
+                Vector3::new(1.0, 0.0, 0.0)
+            }
+        } else {
+            eprintln!("[DEBUG]     RefDir (X): DEFAULT (1, 0, 0) - no attr at index 2");
+            Vector3::new(1.0, 0.0, 0.0)
+        };
+
+        // Y axis is cross product of Z and X
+        let y_axis = z_axis.cross(&x_axis).normalize();
+        let x_axis_final = y_axis.cross(&z_axis).normalize();
+        let z_axis_final = z_axis.normalize();
+        
+        eprintln!("[DEBUG]     Computed axes:");
+        eprintln!("[DEBUG]       X: ({:.3}, {:.3}, {:.3})", x_axis_final.x, x_axis_final.y, x_axis_final.z);
+        eprintln!("[DEBUG]       Y: ({:.3}, {:.3}, {:.3})", y_axis.x, y_axis.y, y_axis.z);
+        eprintln!("[DEBUG]       Z: ({:.3}, {:.3}, {:.3})", z_axis_final.x, z_axis_final.y, z_axis_final.z);
+
+        // Build transformation matrix
+        let mut transform = Matrix4::identity();
+        transform[(0, 0)] = x_axis_final.x;
+        transform[(1, 0)] = x_axis_final.y;
+        transform[(2, 0)] = x_axis_final.z;
+        transform[(0, 1)] = y_axis.x;
+        transform[(1, 1)] = y_axis.y;
+        transform[(2, 1)] = y_axis.z;
+        transform[(0, 2)] = z_axis_final.x;
+        transform[(1, 2)] = z_axis_final.y;
+        transform[(2, 2)] = z_axis_final.z;
+        transform[(0, 3)] = location.x;
+        transform[(1, 3)] = location.y;
+        transform[(2, 3)] = location.z;
+
+        Ok(transform)
+    }
+
+    /// Parse IfcAxis2Placement3D into transformation matrix
+    fn parse_axis2_placement_3d(
+        &self,
+        placement: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<Matrix4<f64>> {
+        // IfcAxis2Placement3D: Location, Axis, RefDirection
+        let location = self.parse_cartesian_point(placement, decoder, 0)?;
+
+        // Default axes if not specified
+        let z_axis = if let Some(axis_attr) = placement.get(1) {
+            if !axis_attr.is_null() {
+                if let Some(axis_entity) = decoder.resolve_ref(axis_attr)? {
+                    self.parse_direction(&axis_entity)?
+                } else {
+                    Vector3::new(0.0, 0.0, 1.0)
+                }
+            } else {
+                Vector3::new(0.0, 0.0, 1.0)
+            }
+        } else {
+            Vector3::new(0.0, 0.0, 1.0)
+        };
+
+        let x_axis = if let Some(ref_dir_attr) = placement.get(2) {
+            if !ref_dir_attr.is_null() {
+                if let Some(ref_dir_entity) = decoder.resolve_ref(ref_dir_attr)? {
+                    self.parse_direction(&ref_dir_entity)?
+                } else {
+                    Vector3::new(1.0, 0.0, 0.0)
+                }
+            } else {
+                Vector3::new(1.0, 0.0, 0.0)
+            }
+        } else {
+            Vector3::new(1.0, 0.0, 0.0)
+        };
+
+        // Y axis is cross product of Z and X
+        let y_axis = z_axis.cross(&x_axis).normalize();
+        let x_axis = y_axis.cross(&z_axis).normalize();
+        let z_axis = z_axis.normalize();
+
+        // Build transformation matrix
+        let mut transform = Matrix4::identity();
+        transform[(0, 0)] = x_axis.x;
+        transform[(1, 0)] = x_axis.y;
+        transform[(2, 0)] = x_axis.z;
+        transform[(0, 1)] = y_axis.x;
+        transform[(1, 1)] = y_axis.y;
+        transform[(2, 1)] = y_axis.z;
+        transform[(0, 2)] = z_axis.x;
+        transform[(1, 2)] = z_axis.y;
+        transform[(2, 2)] = z_axis.z;
+        transform[(0, 3)] = location.x;
+        transform[(1, 3)] = location.y;
+        transform[(2, 3)] = location.z;
+
+        Ok(transform)
+    }
+
+    /// Parse IfcCartesianPoint
+    fn parse_cartesian_point(
+        &self,
+        parent: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+        attr_index: usize,
+    ) -> Result<Point3<f64>> {
+        let point_attr = parent
+            .get(attr_index)
+            .ok_or_else(|| Error::geometry("Missing cartesian point".to_string()))?;
+
+        let point_entity = decoder
+            .resolve_ref(point_attr)?
+            .ok_or_else(|| Error::geometry("Failed to resolve cartesian point".to_string()))?;
+
+        if point_entity.ifc_type != IfcType::IfcCartesianPoint {
+            return Err(Error::geometry(format!(
+                "Expected IfcCartesianPoint, got {}",
+                point_entity.ifc_type
+            )));
+        }
+
+        // Get coordinates list (attribute 0)
+        let coords_attr = point_entity
+            .get(0)
+            .ok_or_else(|| Error::geometry("IfcCartesianPoint missing coordinates".to_string()))?;
+
+        let coords = coords_attr
+            .as_list()
+            .ok_or_else(|| Error::geometry("Expected coordinate list".to_string()))?;
+
+        let x = coords
+            .get(0)
+            .and_then(|v| v.as_float())
+            .unwrap_or(0.0);
+        let y = coords
+            .get(1)
+            .and_then(|v| v.as_float())
+            .unwrap_or(0.0);
+        let z = coords
+            .get(2)
+            .and_then(|v| v.as_float())
+            .unwrap_or(0.0);
+
+        Ok(Point3::new(x, y, z))
+    }
+
+    /// Parse IfcDirection
+    fn parse_direction(&self, direction_entity: &DecodedEntity) -> Result<Vector3<f64>> {
+        if direction_entity.ifc_type != IfcType::IfcDirection {
+            return Err(Error::geometry(format!(
+                "Expected IfcDirection, got {}",
+                direction_entity.ifc_type
+            )));
+        }
+
+        // Get direction ratios (attribute 0)
+        let ratios_attr = direction_entity
+            .get(0)
+            .ok_or_else(|| Error::geometry("IfcDirection missing ratios".to_string()))?;
+
+        let ratios = ratios_attr
+            .as_list()
+            .ok_or_else(|| Error::geometry("Expected ratio list".to_string()))?;
+
+        let x = ratios.get(0).and_then(|v| v.as_float()).unwrap_or(0.0);
+        let y = ratios.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
+        let z = ratios.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
+
+        Ok(Vector3::new(x, y, z))
     }
 }
 

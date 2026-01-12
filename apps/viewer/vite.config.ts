@@ -11,6 +11,7 @@ export default defineConfig({
       '@ifc-lite/renderer': path.resolve(__dirname, '../../packages/renderer/src'),
       '@ifc-lite/query': path.resolve(__dirname, '../../packages/query/src'),
       '@ifc-lite/spatial': path.resolve(__dirname, '../../packages/spatial/src'),
+      '@ifc-lite/wasm': path.resolve(__dirname, '../../packages/wasm'),
     },
   },
   server: {
