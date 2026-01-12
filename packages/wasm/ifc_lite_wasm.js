@@ -250,12 +250,12 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_269(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_269(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_160(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_160(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_303(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_303(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_194(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_194(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const IfcAPIFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -406,30 +406,6 @@ export class IfcAPI {
             const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len0 = WASM_VECTOR_LEN;
             wasm.ifcapi_debugProcessFirstWall(retptr, this.__wbg_ptr, ptr0, len0);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            deferred2_0 = r0;
-            deferred2_1 = r1;
-            return getStringFromWasm0(r0, r1);
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export4(deferred2_0, deferred2_1, 1);
-        }
-    }
-    /**
-     * Debug: Trace Position transform for a specific ExtrudedAreaSolid
-     * @param {string} content
-     * @param {number} entity_id
-     * @returns {string}
-     */
-    debugExtrudedAreaSolid(content, entity_id) {
-        let deferred2_0;
-        let deferred2_1;
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
-            const len0 = WASM_VECTOR_LEN;
-            wasm.ifcapi_debugExtrudedAreaSolid(retptr, this.__wbg_ptr, ptr0, len0, entity_id);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             deferred2_0 = r0;
@@ -900,9 +876,6 @@ function __wbg_get_imports() {
             wasm.__wbindgen_export4(deferred0_0, deferred0_1, 1);
         }
     };
-    imports.wbg.__wbg_log_1d990106d99dacb7 = function(arg0) {
-        console.log(getObject(arg0));
-    };
     imports.wbg.__wbg_new_1ba21ce319a06297 = function() {
         const ret = new Object();
         return addHeapObject(ret);
@@ -918,7 +891,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wasm_bindgen_func_elem_303(a, state0.b, arg0, arg1);
+                    return __wasm_bindgen_func_elem_194(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -988,14 +961,14 @@ function __wbg_get_imports() {
         const ret = getStringFromWasm0(arg0, arg1);
         return addHeapObject(ret);
     };
+    imports.wbg.__wbindgen_cast_a2f2ccacb7ef777f = function(arg0, arg1) {
+        // Cast intrinsic for `Closure(Closure { dtor_idx: 31, function: Function { arguments: [Externref], shim_idx: 32, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_159, __wasm_bindgen_func_elem_160);
+        return addHeapObject(ret);
+    };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {
         // Cast intrinsic for `F64 -> Externref`.
         const ret = arg0;
-        return addHeapObject(ret);
-    };
-    imports.wbg.__wbindgen_cast_ff9305a84a3b238b = function(arg0, arg1) {
-        // Cast intrinsic for `Closure(Closure { dtor_idx: 36, function: Function { arguments: [Externref], shim_idx: 37, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_268, __wasm_bindgen_func_elem_269);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_object_clone_ref = function(arg0) {

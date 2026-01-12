@@ -136,36 +136,14 @@ impl GeometryProcessor for ExtrudedAreaSolidProcessor {
         let mut mesh = extrude_profile(&profile, depth, transform)?;
 
         // Apply Position transform (attribute 1: IfcAxis2Placement3D)
-        // DEBUG: Trace Position handling for ExtrudedAreaSolid
-        eprintln!("[DEBUG] ExtrudedAreaSolid #{}: Processing Position attribute", entity.id);
-        
-        match entity.get(1) {
-            Some(pos_attr) => {
-                eprintln!("[DEBUG]   Position attr found, is_null: {}", pos_attr.is_null());
-                if !pos_attr.is_null() {
-                    match decoder.resolve_ref(pos_attr)? {
-                        Some(pos_entity) => {
-                            eprintln!("[DEBUG]   Resolved to entity #{}, type: {}", pos_entity.id, pos_entity.ifc_type);
-                            if pos_entity.ifc_type == IfcType::IfcAxis2Placement3D {
-                                // Parse and apply the position transform
-                                let pos_transform = self.parse_axis2_placement_3d_debug(&pos_entity, decoder)?;
-                                eprintln!("[DEBUG]   Applying Position transform to mesh with {} vertices", mesh.positions.len() / 3);
-                                apply_transform(&mut mesh, &pos_transform);
-                                eprintln!("[DEBUG]   Position transform applied!");
-                            } else {
-                                eprintln!("[DEBUG]   SKIP: Not IfcAxis2Placement3D");
-                            }
-                        }
-                        None => {
-                            eprintln!("[DEBUG]   SKIP: resolve_ref returned None");
-                        }
+        if let Some(pos_attr) = entity.get(1) {
+            if !pos_attr.is_null() {
+                if let Some(pos_entity) = decoder.resolve_ref(pos_attr)? {
+                    if pos_entity.ifc_type == IfcType::IfcAxis2Placement3D {
+                        let pos_transform = self.parse_axis2_placement_3d(&pos_entity, decoder)?;
+                        apply_transform(&mut mesh, &pos_transform);
                     }
-                } else {
-                    eprintln!("[DEBUG]   SKIP: Position is null");
                 }
-            }
-            None => {
-                eprintln!("[DEBUG]   SKIP: No Position attribute at index 1");
             }
         }
 
@@ -178,85 +156,6 @@ impl GeometryProcessor for ExtrudedAreaSolidProcessor {
 }
 
 impl ExtrudedAreaSolidProcessor {
-    /// Parse IfcAxis2Placement3D into transformation matrix (with debug logging)
-    fn parse_axis2_placement_3d_debug(
-        &self,
-        placement: &DecodedEntity,
-        decoder: &mut EntityDecoder,
-    ) -> Result<Matrix4<f64>> {
-        eprintln!("[DEBUG]   Parsing IfcAxis2Placement3D #{}", placement.id);
-        
-        // IfcAxis2Placement3D: Location, Axis, RefDirection
-        let location = self.parse_cartesian_point(placement, decoder, 0)?;
-        eprintln!("[DEBUG]     Location: ({:.3}, {:.3}, {:.3})", location.x, location.y, location.z);
-
-        // Default axes if not specified
-        let z_axis = if let Some(axis_attr) = placement.get(1) {
-            if !axis_attr.is_null() {
-                if let Some(axis_entity) = decoder.resolve_ref(axis_attr)? {
-                    let dir = self.parse_direction(&axis_entity)?;
-                    eprintln!("[DEBUG]     Axis (Z): ({:.3}, {:.3}, {:.3}) from entity #{}", dir.x, dir.y, dir.z, axis_entity.id);
-                    dir
-                } else {
-                    eprintln!("[DEBUG]     Axis (Z): DEFAULT (0, 0, 1) - resolve returned None");
-                    Vector3::new(0.0, 0.0, 1.0)
-                }
-            } else {
-                eprintln!("[DEBUG]     Axis (Z): DEFAULT (0, 0, 1) - attr is null");
-                Vector3::new(0.0, 0.0, 1.0)
-            }
-        } else {
-            eprintln!("[DEBUG]     Axis (Z): DEFAULT (0, 0, 1) - no attr at index 1");
-            Vector3::new(0.0, 0.0, 1.0)
-        };
-
-        let x_axis = if let Some(ref_dir_attr) = placement.get(2) {
-            if !ref_dir_attr.is_null() {
-                if let Some(ref_dir_entity) = decoder.resolve_ref(ref_dir_attr)? {
-                    let dir = self.parse_direction(&ref_dir_entity)?;
-                    eprintln!("[DEBUG]     RefDir (X): ({:.3}, {:.3}, {:.3}) from entity #{}", dir.x, dir.y, dir.z, ref_dir_entity.id);
-                    dir
-                } else {
-                    eprintln!("[DEBUG]     RefDir (X): DEFAULT (1, 0, 0) - resolve returned None");
-                    Vector3::new(1.0, 0.0, 0.0)
-                }
-            } else {
-                eprintln!("[DEBUG]     RefDir (X): DEFAULT (1, 0, 0) - attr is null");
-                Vector3::new(1.0, 0.0, 0.0)
-            }
-        } else {
-            eprintln!("[DEBUG]     RefDir (X): DEFAULT (1, 0, 0) - no attr at index 2");
-            Vector3::new(1.0, 0.0, 0.0)
-        };
-
-        // Y axis is cross product of Z and X
-        let y_axis = z_axis.cross(&x_axis).normalize();
-        let x_axis_final = y_axis.cross(&z_axis).normalize();
-        let z_axis_final = z_axis.normalize();
-        
-        eprintln!("[DEBUG]     Computed axes:");
-        eprintln!("[DEBUG]       X: ({:.3}, {:.3}, {:.3})", x_axis_final.x, x_axis_final.y, x_axis_final.z);
-        eprintln!("[DEBUG]       Y: ({:.3}, {:.3}, {:.3})", y_axis.x, y_axis.y, y_axis.z);
-        eprintln!("[DEBUG]       Z: ({:.3}, {:.3}, {:.3})", z_axis_final.x, z_axis_final.y, z_axis_final.z);
-
-        // Build transformation matrix
-        let mut transform = Matrix4::identity();
-        transform[(0, 0)] = x_axis_final.x;
-        transform[(1, 0)] = x_axis_final.y;
-        transform[(2, 0)] = x_axis_final.z;
-        transform[(0, 1)] = y_axis.x;
-        transform[(1, 1)] = y_axis.y;
-        transform[(2, 1)] = y_axis.z;
-        transform[(0, 2)] = z_axis_final.x;
-        transform[(1, 2)] = z_axis_final.y;
-        transform[(2, 2)] = z_axis_final.z;
-        transform[(0, 3)] = location.x;
-        transform[(1, 3)] = location.y;
-        transform[(2, 3)] = location.z;
-
-        Ok(transform)
-    }
-
     /// Parse IfcAxis2Placement3D into transformation matrix
     fn parse_axis2_placement_3d(
         &self,
@@ -295,22 +194,39 @@ impl ExtrudedAreaSolidProcessor {
             Vector3::new(1.0, 0.0, 0.0)
         };
 
-        // Y axis is cross product of Z and X
-        let y_axis = z_axis.cross(&x_axis).normalize();
-        let x_axis = y_axis.cross(&z_axis).normalize();
-        let z_axis = z_axis.normalize();
+        // Normalize axes
+        let z_axis_final = z_axis.normalize();
+        let x_axis_normalized = x_axis.normalize();
+        
+        // Ensure X is orthogonal to Z (project X onto plane perpendicular to Z)
+        let dot_product = x_axis_normalized.dot(&z_axis_final);
+        let x_axis_orthogonal = x_axis_normalized - z_axis_final * dot_product;
+        let x_axis_final = if x_axis_orthogonal.norm() > 1e-6 {
+            x_axis_orthogonal.normalize()
+        } else {
+            // X and Z are parallel or nearly parallel - use a default perpendicular direction
+            if z_axis_final.z.abs() < 0.9 {
+                Vector3::new(0.0, 0.0, 1.0).cross(&z_axis_final).normalize()
+            } else {
+                Vector3::new(1.0, 0.0, 0.0).cross(&z_axis_final).normalize()
+            }
+        };
+        
+        // Y axis is cross product of Z and X (right-hand rule: Y = Z × X)
+        let y_axis = z_axis_final.cross(&x_axis_final).normalize();
 
         // Build transformation matrix
+        // Columns represent world-space directions of local axes
         let mut transform = Matrix4::identity();
-        transform[(0, 0)] = x_axis.x;
-        transform[(1, 0)] = x_axis.y;
-        transform[(2, 0)] = x_axis.z;
+        transform[(0, 0)] = x_axis_final.x;
+        transform[(1, 0)] = x_axis_final.y;
+        transform[(2, 0)] = x_axis_final.z;
         transform[(0, 1)] = y_axis.x;
         transform[(1, 1)] = y_axis.y;
         transform[(2, 1)] = y_axis.z;
-        transform[(0, 2)] = z_axis.x;
-        transform[(1, 2)] = z_axis.y;
-        transform[(2, 2)] = z_axis.z;
+        transform[(0, 2)] = z_axis_final.x;
+        transform[(1, 2)] = z_axis_final.y;
+        transform[(2, 2)] = z_axis_final.z;
         transform[(0, 3)] = location.x;
         transform[(1, 3)] = location.y;
         transform[(2, 3)] = location.z;

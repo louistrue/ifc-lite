@@ -194,47 +194,8 @@ impl IfcAPI {
     /// ```
     #[wasm_bindgen(js_name = parseMeshes)]
     pub fn parse_meshes(&self, content: String) -> MeshCollection {
-        use ifc_lite_core::{EntityScanner, EntityDecoder, build_entity_index, IfcType};
+        use ifc_lite_core::{EntityScanner, EntityDecoder, build_entity_index};
         use ifc_lite_geometry::{GeometryRouter, calculate_normals};
-        use web_sys::console;
-
-        // DEBUG: Log first few ExtrudedAreaSolid Position attributes
-        console::log_1(&"[DEBUG] === CHECKING EXTRUDED AREA SOLID POSITIONS ===".into());
-        {
-            let mut debug_scanner = EntityScanner::new(&content);
-            let mut debug_decoder = EntityDecoder::new(&content);
-            let mut count = 0;
-            while let Some((id, _type_name, start, end)) = debug_scanner.next_entity() {
-                if count >= 3 { break; } // Only check first 3
-                if let Ok(entity) = debug_decoder.decode_at(start, end) {
-                    if entity.ifc_type == IfcType::IfcExtrudedAreaSolid {
-                        let mut msg = format!("ExtrudedAreaSolid #{}: ", id);
-                        if let Some(pos_attr) = entity.get(1) {
-                            msg.push_str(&format!("Position={:?}, is_null={}", pos_attr, pos_attr.is_null()));
-                            if let Some(ref_id) = pos_attr.as_entity_ref() {
-                                msg.push_str(&format!(", ref=#{}", ref_id));
-                                if let Ok(pos_entity) = debug_decoder.decode_by_id(ref_id) {
-                                    msg.push_str(&format!(", type={}", pos_entity.ifc_type));
-                                    // Check Axis
-                                    if let Some(axis_attr) = pos_entity.get(1) {
-                                        if axis_attr.is_null() {
-                                            msg.push_str(", Axis=NULL(default)");
-                                        } else if let Some(axis_ref) = axis_attr.as_entity_ref() {
-                                            msg.push_str(&format!(", Axis=#{}", axis_ref));
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            msg.push_str("NO POSITION ATTR!");
-                        }
-                        console::log_1(&msg.into());
-                        count += 1;
-                    }
-                }
-            }
-        }
-        console::log_1(&"[DEBUG] === END POSITION CHECK ===".into());
 
         // Build entity index once upfront for O(1) lookups
         let entity_index = build_entity_index(&content);
@@ -267,34 +228,6 @@ impl IfcAPI {
             if let Ok(entity) = decoder.decode_at(start, end) {
                 if let Ok(mut mesh) = router.process_element(&entity, &mut decoder) {
                     if !mesh.is_empty() {
-                        // DEBUG: Check mesh bounds to verify transforms are applied
-                        if id == 527 || id == 543 {  // Wrong beam #527, correct beam #543
-                            let mut min_x = f32::MAX;
-                            let mut max_x = f32::MIN;
-                            let mut min_y = f32::MAX;
-                            let mut max_y = f32::MIN;
-                            let mut min_z = f32::MAX;
-                            let mut max_z = f32::MIN;
-                            for i in (0..mesh.positions.len()).step_by(3) {
-                                min_x = min_x.min(mesh.positions[i]);
-                                max_x = max_x.max(mesh.positions[i]);
-                                min_y = min_y.min(mesh.positions[i+1]);
-                                max_y = max_y.max(mesh.positions[i+1]);
-                                min_z = min_z.min(mesh.positions[i+2]);
-                                max_z = max_z.max(mesh.positions[i+2]);
-                            }
-                            let size_x = max_x - min_x;
-                            let size_y = max_y - min_y;
-                            let size_z = max_z - min_z;
-                            let msg = format!(
-                                "[DEBUG] Mesh for #{} ({}): vertices={}, bounds=({:.1},{:.1},{:.1})-({:.1},{:.1},{:.1}), size=({:.1},{:.1},{:.1})",
-                                id, entity.ifc_type, mesh.positions.len()/3,
-                                min_x, min_y, min_z, max_x, max_y, max_z,
-                                size_x, size_y, size_z
-                            );
-                            console::log_1(&msg.into());
-                        }
-                        
                         // Calculate normals if not present
                         if mesh.normals.is_empty() {
                             calculate_normals(&mut mesh);
@@ -410,112 +343,6 @@ impl IfcAPI {
         "No walls found".to_string()
     }
 
-    /// Debug: Trace Position transform for a specific ExtrudedAreaSolid
-    #[wasm_bindgen(js_name = debugExtrudedAreaSolid)]
-    pub fn debug_extruded_area_solid(&self, content: String, entity_id: u32) -> String {
-        use ifc_lite_core::{EntityScanner, EntityDecoder, IfcType};
-        use web_sys::console;
-        
-        let mut scanner = EntityScanner::new(&content);
-        let mut decoder = EntityDecoder::new(&content);
-        
-        // Find the entity
-        while let Some((id, _type_name, start, end)) = scanner.next_entity() {
-            if id == entity_id {
-                match decoder.decode_at(start, end) {
-                    Ok(entity) => {
-                        if entity.ifc_type != IfcType::IfcExtrudedAreaSolid {
-                            return format!("Entity #{} is {} not IfcExtrudedAreaSolid", id, entity.ifc_type);
-                        }
-                        
-                        let mut debug_info = format!("=== ExtrudedAreaSolid #{} ===\n", id);
-                        debug_info.push_str(&format!("Attributes count: {}\n", entity.attributes.len()));
-                        
-                        // Attribute 0: SweptArea
-                        if let Some(attr0) = entity.get(0) {
-                            debug_info.push_str(&format!("Attr 0 (SweptArea): {:?}\n", attr0));
-                        }
-                        
-                        // Attribute 1: Position - THE KEY ONE
-                        if let Some(attr1) = entity.get(1) {
-                            debug_info.push_str(&format!("Attr 1 (Position): {:?}, is_null: {}\n", attr1, attr1.is_null()));
-                            
-                            if !attr1.is_null() {
-                                if let Some(ref_id) = attr1.as_entity_ref() {
-                                    debug_info.push_str(&format!("  -> References entity #{}\n", ref_id));
-                                    
-                                    // Try to resolve the Position entity
-                                    match decoder.decode_by_id(ref_id) {
-                                        Ok(pos_entity) => {
-                                            debug_info.push_str(&format!("  -> Resolved to: {} #{}\n", pos_entity.ifc_type, pos_entity.id));
-                                            
-                                            if pos_entity.ifc_type == IfcType::IfcAxis2Placement3D {
-                                                // Location (attr 0)
-                                                if let Some(loc_attr) = pos_entity.get(0) {
-                                                    debug_info.push_str(&format!("     Location attr: {:?}\n", loc_attr));
-                                                }
-                                                // Axis (attr 1) - Z direction
-                                                if let Some(axis_attr) = pos_entity.get(1) {
-                                                    debug_info.push_str(&format!("     Axis attr: {:?}, is_null: {}\n", axis_attr, axis_attr.is_null()));
-                                                    if !axis_attr.is_null() {
-                                                        if let Some(axis_ref) = axis_attr.as_entity_ref() {
-                                                            if let Ok(axis_entity) = decoder.decode_by_id(axis_ref) {
-                                                                if let Some(ratios) = axis_entity.get(0) {
-                                                                    debug_info.push_str(&format!("       -> Direction #{}: {:?}\n", axis_ref, ratios));
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                // RefDirection (attr 2) - X direction
-                                                if let Some(ref_dir_attr) = pos_entity.get(2) {
-                                                    debug_info.push_str(&format!("     RefDir attr: {:?}, is_null: {}\n", ref_dir_attr, ref_dir_attr.is_null()));
-                                                    if !ref_dir_attr.is_null() {
-                                                        if let Some(ref_dir_ref) = ref_dir_attr.as_entity_ref() {
-                                                            if let Ok(ref_dir_entity) = decoder.decode_by_id(ref_dir_ref) {
-                                                                if let Some(ratios) = ref_dir_entity.get(0) {
-                                                                    debug_info.push_str(&format!("       -> Direction #{}: {:?}\n", ref_dir_ref, ratios));
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        Err(e) => {
-                                            debug_info.push_str(&format!("  -> ERROR resolving: {}\n", e));
-                                        }
-                                    }
-                                } else {
-                                    debug_info.push_str("  -> NOT an entity ref!\n");
-                                }
-                            }
-                        } else {
-                            debug_info.push_str("Attr 1 (Position): MISSING!\n");
-                        }
-                        
-                        // Attribute 2: ExtrudedDirection
-                        if let Some(attr2) = entity.get(2) {
-                            debug_info.push_str(&format!("Attr 2 (Direction): {:?}\n", attr2));
-                        }
-                        
-                        // Attribute 3: Depth
-                        if let Some(attr3) = entity.get(3) {
-                            debug_info.push_str(&format!("Attr 3 (Depth): {:?}\n", attr3));
-                        }
-                        
-                        console::log_1(&debug_info.clone().into());
-                        return debug_info;
-                    }
-                    Err(e) => {
-                        return format!("ERROR decoding entity #{}: {}", entity_id, e);
-                    }
-                }
-            }
-        }
-        
-        format!("Entity #{} not found", entity_id)
-    }
 }
 
 impl Default for IfcAPI {

@@ -69,10 +69,6 @@ export class IfcAPI {
    */
   debugProcessFirstWall(content: string): string;
   /**
-   * Debug: Trace Position transform for a specific ExtrudedAreaSolid
-   */
-  debugExtrudedAreaSolid(content: string, entity_id: number): string;
-  /**
    * Create and initialize the IFC API
    */
   constructor();
@@ -230,7 +226,6 @@ export interface InitOutput {
   readonly __wbg_meshcollection_free: (a: number, b: number) => void;
   readonly __wbg_meshdatajs_free: (a: number, b: number) => void;
   readonly __wbg_zerocopymesh_free: (a: number, b: number) => void;
-  readonly ifcapi_debugExtrudedAreaSolid: (a: number, b: number, c: number, d: number, e: number) => void;
   readonly ifcapi_debugProcessEntity953: (a: number, b: number, c: number, d: number) => void;
   readonly ifcapi_debugProcessFirstWall: (a: number, b: number, c: number, d: number) => void;
   readonly ifcapi_getMemory: (a: number) => number;
@@ -267,9 +262,9 @@ export interface InitOutput {
   readonly zerocopymesh_triangle_count: (a: number) => number;
   readonly zerocopymesh_vertex_count: (a: number) => number;
   readonly get_memory: () => number;
-  readonly __wasm_bindgen_func_elem_269: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_268: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_303: (a: number, b: number, c: number, d: number) => void;
+  readonly __wasm_bindgen_func_elem_160: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_159: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_194: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_export: (a: number, b: number) => number;
   readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_export3: (a: number) => void;
