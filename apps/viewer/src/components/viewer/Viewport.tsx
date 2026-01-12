@@ -23,6 +23,29 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   const activeTool = useViewerStore((state) => state.activeTool);
   const updateCameraRotationRealtime = useViewerStore((state) => state.updateCameraRotationRealtime);
   const setCameraCallbacks = useViewerStore((state) => state.setCameraCallbacks);
+  const theme = useViewerStore((state) => state.theme);
+
+  // Theme-aware clear color ref (updated when theme changes)
+  const clearColorRef = useRef<[number, number, number, number]>([0.1, 0.1, 0.1, 1]);
+
+  useEffect(() => {
+    // Update clear color when theme changes
+    if (theme === 'light') {
+      clearColorRef.current = [0.95, 0.95, 0.95, 1]; // Light gray/white for light mode
+    } else {
+      clearColorRef.current = [0.1, 0.1, 0.1, 1]; // Dark gray for dark mode
+    }
+    // Re-render with new clear color
+    const renderer = rendererRef.current;
+    if (renderer && isInitialized) {
+      renderer.render({
+        hiddenIds: hiddenEntitiesRef.current,
+        isolatedIds: isolatedEntitiesRef.current,
+        selectedId: selectedEntityIdRef.current,
+        clearColor: clearColorRef.current,
+      });
+    }
+  }, [theme, isInitialized]);
 
   // Animation frame ref
   const animationFrameRef = useRef<number | null>(null);
@@ -105,11 +128,13 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       // Register camera callbacks for ViewCube and other controls
       setCameraCallbacks({
         setPresetView: (view) => {
-          camera.setPresetView(view);
+          // Pass actual geometry bounds to avoid distance drift
+          camera.setPresetView(view, geometryBoundsRef.current);
           renderer.render({
             hiddenIds: hiddenEntitiesRef.current,
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
+            clearColor: clearColorRef.current,
           });
           // Update ViewCube rotation immediately
           updateCameraRotationRealtime(camera.getRotation());
@@ -128,6 +153,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             hiddenIds: hiddenEntitiesRef.current,
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
+            clearColor: clearColorRef.current,
           });
         },
         zoomOut: () => {
@@ -136,6 +162,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             hiddenIds: hiddenEntitiesRef.current,
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
+            clearColor: clearColorRef.current,
           });
         },
       });
@@ -154,6 +181,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             hiddenIds: hiddenEntitiesRef.current,
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
+            clearColor: clearColorRef.current,
           });
           // Update ViewCube during camera animation (e.g., preset view transitions)
           updateCameraRotationRealtime(camera.getRotation());
@@ -219,6 +247,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             hiddenIds: hiddenEntitiesRef.current,
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
+            clearColor: clearColorRef.current,
           });
           // Update ViewCube rotation in real-time during drag
           updateCameraRotationRealtime(camera.getRotation());
@@ -263,9 +292,9 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         const clickPos = { x, y };
 
         if (lastClickPosRef.current &&
-            timeSinceLastClick < 300 &&
-            Math.abs(clickPos.x - lastClickPosRef.current.x) < 5 &&
-            Math.abs(clickPos.y - lastClickPosRef.current.y) < 5) {
+          timeSinceLastClick < 300 &&
+          Math.abs(clickPos.x - lastClickPosRef.current.x) < 5 &&
+          Math.abs(clickPos.y - lastClickPosRef.current.y) < 5) {
           // Double-click
           const pickedId = await renderer.pick(x, y);
           if (pickedId) {
@@ -315,7 +344,12 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             x: touchState.touches[0].clientX,
             y: touchState.touches[0].clientY,
           };
-          renderer.render();
+          renderer.render({
+            hiddenIds: hiddenEntitiesRef.current,
+            isolatedIds: isolatedEntitiesRef.current,
+            selectedId: selectedEntityIdRef.current,
+            clearColor: clearColorRef.current,
+          });
         } else if (touchState.touches.length === 2) {
           const dx1 = touchState.touches[1].clientX - touchState.touches[0].clientX;
           const dy1 = touchState.touches[1].clientY - touchState.touches[0].clientY;
@@ -333,7 +367,12 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
 
           touchState.lastDistance = distance;
           touchState.lastCenter = { x: centerX, y: centerY };
-          renderer.render();
+          renderer.render({
+            hiddenIds: hiddenEntitiesRef.current,
+            isolatedIds: isolatedEntitiesRef.current,
+            selectedId: selectedEntityIdRef.current,
+            clearColor: clearColorRef.current,
+          });
         }
       });
 
@@ -350,7 +389,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
 
       const handleKeyDown = (e: KeyboardEvent) => {
         if (document.activeElement?.tagName === 'INPUT' ||
-            document.activeElement?.tagName === 'TEXTAREA') {
+          document.activeElement?.tagName === 'TEXTAREA') {
           return;
         }
 
@@ -358,11 +397,12 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
 
         // Preset views - set view and re-render
         const setViewAndRender = (view: 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right') => {
-          camera.setPresetView(view);
+          camera.setPresetView(view, geometryBoundsRef.current);
           renderer.render({
             hiddenIds: hiddenEntitiesRef.current,
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
+            clearColor: clearColorRef.current,
           });
           updateCameraRotationRealtime(camera.getRotation());
         };
@@ -421,7 +461,14 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           if (keyState['e']) { camera.zoom(zoomSpeed * 100, false); moved = true; }
         }
 
-        if (moved) renderer.render();
+        if (moved) {
+          renderer.render({
+            hiddenIds: hiddenEntitiesRef.current,
+            isolatedIds: isolatedEntitiesRef.current,
+            selectedId: selectedEntityIdRef.current,
+            clearColor: clearColorRef.current,
+          });
+        }
         requestAnimationFrame(keyboardMove);
       };
 
@@ -435,11 +482,21 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         const width = Math.max(1, Math.floor(rect.width));
         const height = Math.max(1, Math.floor(rect.height));
         renderer.resize(width, height);
-        renderer.render();
+        renderer.render({
+          hiddenIds: hiddenEntitiesRef.current,
+          isolatedIds: isolatedEntitiesRef.current,
+          selectedId: selectedEntityIdRef.current,
+          clearColor: clearColorRef.current,
+        });
       });
       resizeObserver.observe(canvas);
 
-      renderer.render();
+      renderer.render({
+        hiddenIds: hiddenEntitiesRef.current,
+        isolatedIds: isolatedEntitiesRef.current,
+        selectedId: selectedEntityIdRef.current,
+        clearColor: clearColorRef.current,
+      });
     });
 
     return () => {
@@ -459,9 +516,9 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       setIsInitialized(false);
       rendererRef.current = null;
     };
-  // Note: selectedEntityId is intentionally NOT in dependencies
-  // The click handler captures setSelectedEntityId via closure
-  // Adding selectedEntityId would destroy/recreate the renderer on every selection change
+    // Note: selectedEntityId is intentionally NOT in dependencies
+    // The click handler captures setSelectedEntityId via closure
+    // Adding selectedEntityId would destroy/recreate the renderer on every selection change
   }, [setSelectedEntityId]);
 
   // Track processed meshes for incremental updates
@@ -601,8 +658,9 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       hiddenIds: hiddenEntitiesRef.current,
       isolatedIds: isolatedEntitiesRef.current,
       selectedId: selectedEntityIdRef.current,
+      clearColor: clearColorRef.current,
     });
-  // Note: visibility states are NOT in dependencies - they use refs and trigger re-render via separate effect
+    // Note: visibility states are NOT in dependencies - they use refs and trigger re-render via separate effect
   }, [geometry, isInitialized, coordinateInfo]);
 
   // Re-render when visibility or selection changes (using refs updated above)
@@ -614,6 +672,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       hiddenIds: hiddenEntities,
       isolatedIds: isolatedEntities,
       selectedId: selectedEntityId,
+      clearColor: clearColorRef.current,
     });
   }, [hiddenEntities, isolatedEntities, selectedEntityId, isInitialized]);
 

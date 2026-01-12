@@ -19,10 +19,10 @@ export function ViewportOverlays() {
   const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
   const setOnCameraRotationChange = useViewerStore((s) => s.setOnCameraRotationChange);
   const { ifcDataStore, geometryResult } = useIfc();
-  
+
   // Local state for camera rotation - updated via callback, no global re-renders
   const [cameraRotation, setCameraRotation] = useState({ azimuth: 45, elevation: 25 });
-  
+
   // Register callback for real-time rotation updates
   useEffect(() => {
     setOnCameraRotationChange(setCameraRotation);
@@ -135,7 +135,7 @@ export function ViewportOverlays() {
       )}
 
       {/* ViewCube (top-right) */}
-      <div className="absolute top-4 right-4 p-2 bg-background/60 backdrop-blur-sm rounded-lg border shadow-sm">
+      <div className="absolute top-6 right-6">
         <ViewCube
           onViewChange={handleViewChange}
           rotationX={viewCubeRotationX}

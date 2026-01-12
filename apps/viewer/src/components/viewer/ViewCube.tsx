@@ -1,4 +1,4 @@
-import { useCallback, useState, useRef } from 'react';
+import { useState } from 'react';
 import { cn } from '@/lib/utils';
 
 interface ViewCubeProps {
@@ -16,147 +16,62 @@ const FACE_VIEWS: Record<string, { rx: number; ry: number }> = {
   left: { rx: 0, ry: 90 },
 };
 
+const FACES = [
+  { id: 'front', label: 'FRONT', transform: (h: number) => `translateZ(${h}px)` },
+  { id: 'back', label: 'BACK', transform: (h: number) => `translateZ(${-h}px) rotateY(180deg)` },
+  { id: 'top', label: 'TOP', transform: (h: number) => `translateY(${-h}px) rotateX(90deg)` },
+  { id: 'bottom', label: 'BTM', transform: (h: number) => `translateY(${h}px) rotateX(-90deg)` },
+  { id: 'right', label: 'RIGHT', transform: (h: number) => `translateX(${h}px) rotateY(90deg)` },
+  { id: 'left', label: 'LEFT', transform: (h: number) => `translateX(${-h}px) rotateY(-90deg)` },
+];
+
 export function ViewCube({ onViewChange, rotationX = -25, rotationY = 45 }: ViewCubeProps) {
   const [hovered, setHovered] = useState<string | null>(null);
-  const [isAnimating, setIsAnimating] = useState(false);
-  const cubeRef = useRef<HTMLDivElement>(null);
-
-  const handleFaceClick = useCallback((face: string) => {
-    setIsAnimating(true);
-    onViewChange?.(face);
-    setTimeout(() => setIsAnimating(false), 300);
-  }, [onViewChange]);
-
-  // Handle click based on mouse position relative to cube center
-  const handleCubeClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (!cubeRef.current) return;
-    
-    const rect = cubeRef.current.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width - 0.5;  // -0.5 to 0.5
-    const y = (e.clientY - rect.top) / rect.height - 0.5;  // -0.5 to 0.5
-    
-    // Determine which face was clicked based on position
-    // Top third = top, bottom third = front/bottom, left/right edges = left/right
-    const absX = Math.abs(x);
-    const absY = Math.abs(y);
-    
-    let face: string;
-    if (y < -0.25 && absY > absX) {
-      face = 'top';
-    } else if (y > 0.25 && absY > absX) {
-      face = 'front';
-    } else if (x < -0.25 && absX > absY) {
-      face = 'left';
-    } else if (x > 0.25 && absX > absY) {
-      face = 'right';
-    } else {
-      // Center area - use current dominant visible face
-      face = 'front';
-    }
-    
-    handleFaceClick(face);
-  }, [handleFaceClick]);
-
-  // Track mouse position for hover highlight
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (!cubeRef.current) return;
-    
-    const rect = cubeRef.current.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width - 0.5;
-    const y = (e.clientY - rect.top) / rect.height - 0.5;
-    
-    const absX = Math.abs(x);
-    const absY = Math.abs(y);
-    
-    let face: string | null = null;
-    if (y < -0.25 && absY > absX) {
-      face = 'top';
-    } else if (y > 0.25 && absY > absX) {
-      face = 'front';
-    } else if (x < -0.25 && absX > absY) {
-      face = 'left';
-    } else if (x > 0.25 && absX > absY) {
-      face = 'right';
-    }
-    
-    setHovered(face);
-  }, []);
-
-  const Face = ({
-    face,
-    label,
-    transform
-  }: {
-    face: string;
-    label: string;
-    transform: string
-  }) => (
-    <div
-      className={cn(
-        'absolute w-full h-full flex items-center justify-center text-[10px] font-bold transition-colors',
-        'bg-card/90 border border-border',
-        hovered === face ? 'bg-primary/20 border-primary' : ''
-      )}
-      style={{ 
-        transform, 
-        backfaceVisibility: 'hidden',
-        pointerEvents: 'none',  // Visual only, click handled by overlay
-      }}
-    >
-      {label}
-    </div>
-  );
 
   const size = 60;
   const half = size / 2;
 
+  const handleClick = (face: string) => {
+    console.log('[ViewCube] Clicked:', face);
+    onViewChange?.(face);
+  };
+
   return (
     <div
-      ref={cubeRef}
-      className="relative select-none cursor-pointer"
+      className="relative select-none"
       style={{
         width: size,
         height: size,
         perspective: 200,
       }}
-      onClick={handleCubeClick}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={() => setHovered(null)}
     >
       <div
-        className={cn(
-          'relative w-full h-full pointer-events-none',
-          isAnimating && 'transition-transform duration-300'
-        )}
+        className="relative w-full h-full"
         style={{
           transformStyle: 'preserve-3d',
           transform: `rotateX(${rotationX}deg) rotateY(${rotationY}deg)`,
         }}
       >
-        {/* Front */}
-        <Face face="front" label="FRONT" transform={`translateZ(${half}px)`} />
-
-        {/* Back */}
-        <Face face="back" label="BACK" transform={`translateZ(${-half}px) rotateY(180deg)`} />
-
-        {/* Top */}
-        <Face face="top" label="TOP" transform={`translateY(${-half}px) rotateX(90deg)`} />
-
-        {/* Bottom */}
-        <Face face="bottom" label="BTM" transform={`translateY(${half}px) rotateX(-90deg)`} />
-
-        {/* Right */}
-        <Face face="right" label="RIGHT" transform={`translateX(${half}px) rotateY(90deg)`} />
-
-        {/* Left */}
-        <Face face="left" label="LEFT" transform={`translateX(${-half}px) rotateY(-90deg)`} />
-      </div>
-
-      {/* Compass Ring */}
-      <div
-        className="absolute -bottom-4 left-1/2 -translate-x-1/2 flex gap-3 text-[9px] text-muted-foreground font-medium pointer-events-none"
-      >
-        <span>N</span>
+        {FACES.map(({ id, label, transform }) => (
+          <button
+            key={id}
+            type="button"
+            className={cn(
+              'absolute w-full h-full flex items-center justify-center text-[10px] font-bold transition-colors cursor-pointer',
+              'bg-card/95 border border-border/50',
+              hovered === id ? 'bg-primary/30 border-primary text-primary' : 'hover:bg-muted'
+            )}
+            style={{
+              transform: transform(half),
+              backfaceVisibility: 'hidden',
+            }}
+            onMouseEnter={() => setHovered(id)}
+            onMouseLeave={() => setHovered(null)}
+            onClick={() => handleClick(id)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
     </div>
   );

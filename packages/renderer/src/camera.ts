@@ -405,11 +405,11 @@ export class Camera {
       z: max.z - min.z,
     };
     const maxSize = Math.max(size.x, size.y, size.z);
-    
+
     // Calculate required distance based on FOV
     const fovFactor = Math.tan(this.camera.fov / 2);
     const distance = (maxSize / 2) / fovFactor * 1.5; // 1.5x for padding
-    
+
     // Keep current viewing direction
     const dir = {
       x: this.camera.position.x - this.camera.target.x,
@@ -417,7 +417,7 @@ export class Camera {
       z: this.camera.position.z - this.camera.target.z,
     };
     const currentDistance = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
-    
+
     // Normalize direction
     if (currentDistance > 1e-10) {
       dir.x /= currentDistance;
@@ -433,14 +433,14 @@ export class Camera {
       dir.y /= len;
       dir.z /= len;
     }
-    
+
     // New position: center + direction * distance
     const endPos = {
       x: center.x + dir.x * distance,
       y: center.y + dir.y * distance,
       z: center.z + dir.z * distance,
     };
-    
+
     return this.animateTo(endPos, center, duration);
   }
 
@@ -532,24 +532,30 @@ export class Camera {
   }
 
   /**
-   * Set preset view (Y-up coordinate system)
+   * Set preset view with explicit bounds (Y-up coordinate system)
    */
-  setPresetView(view: 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right'): void {
-    const bounds = this.getCurrentBounds();
-    if (!bounds) return;
+  setPresetView(
+    view: 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right',
+    bounds?: { min: Vec3; max: Vec3 }
+  ): void {
+    const useBounds = bounds || this.getCurrentBounds();
+    if (!useBounds) return;
 
     const center = {
-      x: (bounds.min.x + bounds.max.x) / 2,
-      y: (bounds.min.y + bounds.max.y) / 2,
-      z: (bounds.min.z + bounds.max.z) / 2,
+      x: (useBounds.min.x + useBounds.max.x) / 2,
+      y: (useBounds.min.y + useBounds.max.y) / 2,
+      z: (useBounds.min.z + useBounds.max.z) / 2,
     };
     const size = {
-      x: bounds.max.x - bounds.min.x,
-      y: bounds.max.y - bounds.min.y,
-      z: bounds.max.z - bounds.min.z,
+      x: useBounds.max.x - useBounds.min.x,
+      y: useBounds.max.y - useBounds.min.y,
+      z: useBounds.max.z - useBounds.min.z,
     };
     const maxSize = Math.max(size.x, size.y, size.z);
-    const distance = maxSize * 2.0;
+
+    // Calculate distance based on FOV for proper fit
+    const fovFactor = Math.tan(this.camera.fov / 2);
+    const distance = (maxSize / 2) / fovFactor * 1.5; // 1.5x for padding
 
     let endPos: Vec3;
     const endTarget = center;
