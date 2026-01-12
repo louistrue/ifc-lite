@@ -49,11 +49,19 @@ export function HierarchyPanel() {
   const selectedStorey = useViewerStore((s) => s.selectedStorey);
   const setSelectedStorey = useViewerStore((s) => s.setSelectedStorey);
   const hiddenEntities = useViewerStore((s) => s.hiddenEntities);
+  const hideEntities = useViewerStore((s) => s.hideEntities);
+  const showEntities = useViewerStore((s) => s.showEntities);
   const toggleEntityVisibility = useViewerStore((s) => s.toggleEntityVisibility);
   const isEntityVisible = useViewerStore((s) => s.isEntityVisible);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedNodes, setExpandedNodes] = useState<Set<number>>(new Set());
+
+  // Get storey elements mapping for visibility toggle
+  const storeyElementsMap = useMemo(() => {
+    if (!ifcDataStore?.spatialHierarchy) return new Map<number, number[]>();
+    return ifcDataStore.spatialHierarchy.byStorey;
+  }, [ifcDataStore]);
 
   // Build spatial tree data
   const treeData = useMemo((): TreeNode[] => {
@@ -68,7 +76,7 @@ export function HierarchyPanel() {
       name: hierarchy.project.name || 'Project',
       type: 'IfcProject',
       depth: 0,
-      hasChildren: hierarchy.byBuilding.size > 0,
+      hasChildren: hierarchy.byStorey.size > 0,
       isExpanded: true,
       isVisible: true,
     });
@@ -80,27 +88,45 @@ export function HierarchyPanel() {
         id,
         name: ifcDataStore.entities.getName(id) || `Storey #${id}`,
         elevation: hierarchy.storeyElevations.get(id) ?? 0,
-        elementCount: elements.length,
+        elements,
       }))
       .sort((a, b) => b.elevation - a.elevation);
 
     for (const storey of storeys) {
-      const isExpanded = expandedNodes.has(storey.id);
+      const isStoreyExpanded = expandedNodes.has(storey.id);
 
       nodes.push({
         id: storey.id,
         name: storey.name,
         type: 'IfcBuildingStorey',
         depth: 1,
-        hasChildren: storey.elementCount > 0,
-        isExpanded,
+        hasChildren: storey.elements.length > 0,
+        isExpanded: isStoreyExpanded,
         isVisible: true,
-        elementCount: storey.elementCount,
+        elementCount: storey.elements.length,
       });
+
+      // Add storey elements if expanded
+      if (isStoreyExpanded && storey.elements.length > 0) {
+        for (const elementId of storey.elements) {
+          const entityType = ifcDataStore.entities.getTypeName(elementId) || 'Unknown';
+          const entityName = ifcDataStore.entities.getName(elementId) || `${entityType} #${elementId}`;
+
+          nodes.push({
+            id: elementId,
+            name: entityName,
+            type: entityType,
+            depth: 2,
+            hasChildren: false,
+            isExpanded: false,
+            isVisible: isEntityVisible(elementId),
+          });
+        }
+      }
     }
 
     return nodes;
-  }, [ifcDataStore, expandedNodes]);
+  }, [ifcDataStore, expandedNodes, isEntityVisible, hiddenEntities]);
 
   // Filter nodes based on search
   const filteredNodes = useMemo(() => {
@@ -132,6 +158,35 @@ export function HierarchyPanel() {
       return next;
     });
   }, []);
+
+  // Toggle visibility for a node - if storey, toggle all elements
+  const handleVisibilityToggle = useCallback((node: TreeNode) => {
+    if (node.type === 'IfcBuildingStorey') {
+      const elements = storeyElementsMap.get(node.id) || [];
+      if (elements.length === 0) return;
+
+      // Check if all elements are visible
+      const allVisible = elements.every(id => isEntityVisible(id));
+
+      if (allVisible) {
+        // Hide all elements in storey
+        hideEntities(elements);
+      } else {
+        // Show all elements in storey
+        showEntities(elements);
+      }
+    } else {
+      // Single element toggle
+      toggleEntityVisibility(node.id);
+    }
+  }, [storeyElementsMap, isEntityVisible, hideEntities, showEntities, toggleEntityVisibility]);
+
+  // Check if storey is fully visible (all elements visible)
+  const isStoreyVisible = useCallback((storeyId: number) => {
+    const elements = storeyElementsMap.get(storeyId) || [];
+    if (elements.length === 0) return true;
+    return elements.every(id => isEntityVisible(id));
+  }, [storeyElementsMap, isEntityVisible]);
 
   const handleNodeClick = useCallback((node: TreeNode) => {
     if (node.type === 'IfcBuildingStorey') {
@@ -183,8 +238,11 @@ export function HierarchyPanel() {
             const isSelected = node.type === 'IfcBuildingStorey'
               ? selectedStorey === node.id
               : selectedEntityId === node.id;
-            const isVisible = isEntityVisible(node.id);
-            const isHidden = hiddenEntities.has(node.id);
+            // For storeys, check if all elements are visible
+            const nodeVisible = node.type === 'IfcBuildingStorey'
+              ? isStoreyVisible(node.id)
+              : isEntityVisible(node.id);
+            const nodeHidden = !nodeVisible;
 
             return (
               <div
@@ -202,7 +260,7 @@ export function HierarchyPanel() {
                   className={cn(
                     'flex items-center gap-1 px-2 py-1.5 cursor-pointer hover:bg-muted/50 border-l-2 border-transparent transition-colors group',
                     isSelected && 'bg-primary/10 border-l-primary',
-                    isHidden && 'opacity-50'
+                    nodeHidden && 'opacity-50'
                   )}
                   style={{ paddingLeft: `${node.depth * 16 + 8}px` }}
                   onClick={() => handleNodeClick(node)}
@@ -231,14 +289,14 @@ export function HierarchyPanel() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      toggleEntityVisibility(node.id);
+                      handleVisibilityToggle(node);
                     }}
                     className={cn(
                       'p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity',
-                      isHidden && 'opacity-100'
+                      nodeHidden && 'opacity-100'
                     )}
                   >
-                    {isVisible ? (
+                    {nodeVisible ? (
                       <Eye className="h-3 w-3 text-muted-foreground" />
                     ) : (
                       <EyeOff className="h-3 w-3 text-muted-foreground" />
@@ -251,7 +309,7 @@ export function HierarchyPanel() {
                   {/* Name */}
                   <span className={cn(
                     'flex-1 text-sm truncate',
-                    isHidden && 'line-through'
+                    nodeHidden && 'line-through'
                   )}>{node.name}</span>
 
                   {/* Element Count */}

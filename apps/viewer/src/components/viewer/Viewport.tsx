@@ -57,6 +57,12 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   // First-person mode state
   const firstPersonModeRef = useRef<boolean>(false);
 
+  // Geometry bounds for camera controls
+  const geometryBoundsRef = useRef<{ min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } }>({
+    min: { x: -100, y: -100, z: -100 },
+    max: { x: 100, y: 100, z: 100 },
+  });
+
   // Visibility state refs for animation loop
   const hiddenEntitiesRef = useRef<Set<number>>(hiddenEntities);
   const isolatedEntitiesRef = useRef<Set<number> | null>(isolatedEntities);
@@ -105,25 +111,32 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
           });
+          // Update ViewCube rotation immediately
+          setCameraRotation(camera.getRotation());
         },
         fitAll: () => {
-          const bounds = { min: { x: -100, y: -100, z: -100 }, max: { x: 100, y: 100, z: 100 } };
-          camera.zoomToFit(bounds.min, bounds.max, 500);
+          camera.zoomToFit(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 500);
         },
         zoomIn: () => {
           camera.zoom(-50, false);
-          renderer.render();
+          renderer.render({
+            hiddenIds: hiddenEntitiesRef.current,
+            isolatedIds: isolatedEntitiesRef.current,
+            selectedId: selectedEntityIdRef.current,
+          });
         },
         zoomOut: () => {
           camera.zoom(50, false);
-          renderer.render();
+          renderer.render({
+            hiddenIds: hiddenEntitiesRef.current,
+            isolatedIds: isolatedEntitiesRef.current,
+            selectedId: selectedEntityIdRef.current,
+          });
         },
       });
 
-      // Animation loop - camera rotation ref for ViewCube (avoid store updates during animation)
-      const cameraRotationRef = { current: camera.getRotation() };
-      let needsRotationUpdate = false;
-      
+      // Animation loop - update ViewCube in real-time
+      let lastRotationUpdate = 0;
       const animate = (currentTime: number) => {
         if (aborted) return;
 
@@ -137,12 +150,12 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
           });
-          cameraRotationRef.current = camera.getRotation();
-          needsRotationUpdate = true;
-        } else if (needsRotationUpdate) {
-          // Only update store when animation ends, not during
-          setCameraRotation(cameraRotationRef.current);
-          needsRotationUpdate = false;
+          // Update ViewCube during camera animation (e.g., preset view transitions)
+          setCameraRotation(camera.getRotation());
+        } else if (!mouseState.isDragging && currentTime - lastRotationUpdate > 100) {
+          // Update camera rotation for ViewCube when not dragging (throttled)
+          setCameraRotation(camera.getRotation());
+          lastRotationUpdate = currentTime;
         }
 
         animationFrameRef.current = requestAnimationFrame(animate);
@@ -202,8 +215,8 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
           });
-          // Track rotation for update on mouseup (avoid store updates during drag)
-          cameraRotationRef.current = camera.getRotation();
+          // Update ViewCube rotation in real-time during drag
+          setCameraRotation(camera.getRotation());
         }
       });
 
@@ -212,8 +225,6 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         mouseState.isPanning = false;
         const tool = activeToolRef.current;
         canvas.style.cursor = tool === 'pan' ? 'grab' : (tool === 'orbit' ? 'grab' : 'default');
-        // Update ViewCube rotation when drag ends
-        setCameraRotation(cameraRotationRef.current);
       });
 
       canvas.addEventListener('mouseleave', () => {
@@ -340,24 +351,32 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
 
         keyState[e.key.toLowerCase()] = true;
 
-        // Preset views
-        if (e.key === '1') camera.setPresetView('top');
-        if (e.key === '2') camera.setPresetView('bottom');
-        if (e.key === '3') camera.setPresetView('front');
-        if (e.key === '4') camera.setPresetView('back');
-        if (e.key === '5') camera.setPresetView('left');
-        if (e.key === '6') camera.setPresetView('right');
+        // Preset views - set view and re-render
+        const setViewAndRender = (view: 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right') => {
+          camera.setPresetView(view);
+          renderer.render({
+            hiddenIds: hiddenEntitiesRef.current,
+            isolatedIds: isolatedEntitiesRef.current,
+            selectedId: selectedEntityIdRef.current,
+          });
+          setCameraRotation(camera.getRotation());
+        };
 
-        // Frame selection
-        if ((e.key === 'f' || e.key === 'F') && selectedEntityId) {
-          const bounds = { min: { x: -10, y: -10, z: -10 }, max: { x: 10, y: 10, z: 10 } };
-          camera.zoomToFit(bounds.min, bounds.max, 500);
+        if (e.key === '1') setViewAndRender('top');
+        if (e.key === '2') setViewAndRender('bottom');
+        if (e.key === '3') setViewAndRender('front');
+        if (e.key === '4') setViewAndRender('back');
+        if (e.key === '5') setViewAndRender('left');
+        if (e.key === '6') setViewAndRender('right');
+
+        // Frame selection / Fit all
+        if (e.key === 'f' || e.key === 'F') {
+          camera.zoomToFit(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 500);
         }
 
         // Home view
         if (e.key === 'h' || e.key === 'H') {
-          const bounds = { min: { x: -100, y: -100, z: -100 }, max: { x: 100, y: 100, z: 100 } };
-          camera.zoomToFit(bounds.min, bounds.max, 500);
+          camera.zoomToFit(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 500);
         }
 
         // Toggle first-person mode
@@ -531,7 +550,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
 
     lastGeometryLengthRef.current = currentLength;
 
-    // Fit camera
+    // Fit camera and store bounds
     if (!cameraFittedRef.current && coordinateInfo?.shiftedBounds) {
       const shiftedBounds = coordinateInfo.shiftedBounds;
       const maxSize = Math.max(
@@ -541,6 +560,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       );
       if (maxSize > 0 && Number.isFinite(maxSize)) {
         renderer.getCamera().fitToBounds(shiftedBounds.min, shiftedBounds.max);
+        geometryBoundsRef.current = { min: { ...shiftedBounds.min }, max: { ...shiftedBounds.max } };
         cameraFittedRef.current = true;
       }
     } else if (!cameraFittedRef.current && geometry.length > 0) {
@@ -567,6 +587,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
 
       if (fallbackBounds.min.x !== Infinity) {
         renderer.getCamera().fitToBounds(fallbackBounds.min, fallbackBounds.max);
+        geometryBoundsRef.current = fallbackBounds;
         cameraFittedRef.current = true;
       }
     }
