@@ -95,29 +95,40 @@ impl GeometryProcessor for ExtrudedAreaSolidProcessor {
             .get_float(3)
             .ok_or_else(|| Error::geometry("ExtrudedAreaSolid missing Depth".to_string()))?;
 
-        // Create transformation matrix to align Z-axis with extrusion direction
-        // extrude_profile always extrudes along Z, so we need to rotate to match IFC direction
-        // We preserve vertical orientation: profile Y should point "up" (world Z) when possible
-        let transform = if (direction.z - 1.0).abs() < 0.001 {
-            // Already aligned with Z, no transformation needed
-            None
+        // ExtrudedDirection is in the local coordinate system defined by Position.
+        // Most IFC files use (0,0,1) or (0,0,-1) for vertical extrusions.
+        // We should NOT apply a separate rotation for the extrusion direction when it's
+        // aligned with Z, as Position will handle the full orientation.
+        // Only apply additional rotation when ExtrudedDirection has X or Y components
+        // (i.e., non-vertical extrusion in local space).
+        let transform = if direction.x.abs() < 0.001 && direction.y.abs() < 0.001 {
+            // ExtrudedDirection is along local Z axis - no additional rotation needed
+            // Position transform will handle the orientation
+            //
+            // However, if ExtrudedDirection is (0,0,-1), we need to offset the extrusion
+            // so it goes from Z=-depth to Z=0 instead of Z=0 to Z=+depth.
+            // This is because extrude_profile always extrudes in +Z, but IFC expects
+            // the solid to extend in the ExtrudedDirection from the profile plane.
+            if direction.z < 0.0 {
+                // Shift the extrusion down by depth so it extends in -Z from the profile plane
+                Some(Matrix4::new_translation(&Vector3::new(0.0, 0.0, -depth)))
+            } else {
+                None
+            }
         } else {
-            use nalgebra::Matrix4;
-            // Construct rotation preserving vertical orientation
+            // Non-Z-aligned extrusion: construct rotation to align with extrusion direction
             let new_z = direction.normalize();
-            
+
             // Choose up vector (world Z, unless direction is nearly vertical)
             let up = if new_z.z.abs() > 0.9 {
                 Vector3::new(0.0, 1.0, 0.0)  // Use Y when nearly vertical
             } else {
                 Vector3::new(0.0, 0.0, 1.0)  // Use Z otherwise
             };
-            
-            let new_x = up.cross(&new_z).normalize();  // Profile X -> horizontal
-            let new_y = new_z.cross(&new_x).normalize(); // Profile Y -> vertical
-            
-            // Build transformation matrix
-            // Maps: local X -> new_x, local Y -> new_y, local Z -> new_z
+
+            let new_x = up.cross(&new_z).normalize();
+            let new_y = new_z.cross(&new_x).normalize();
+
             let mut transform_mat = Matrix4::identity();
             transform_mat[(0, 0)] = new_x.x;
             transform_mat[(1, 0)] = new_x.y;
@@ -128,7 +139,7 @@ impl GeometryProcessor for ExtrudedAreaSolidProcessor {
             transform_mat[(0, 2)] = new_z.x;
             transform_mat[(1, 2)] = new_z.y;
             transform_mat[(2, 2)] = new_z.z;
-            
+
             Some(transform_mat)
         };
 

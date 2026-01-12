@@ -1024,10 +1024,11 @@ impl ProfileProcessor {
                 .ok_or_else(|| Error::geometry("Failed to resolve ParentCurve".to_string()))?;
 
             // Get SameSense (attribute 1) - whether to reverse the curve
+            // Note: IFC enum values like ".T." are parsed/stored as "T" without dots
             let same_sense = segment
                 .get(1)
                 .and_then(|v| match v {
-                    ifc_lite_core::AttributeValue::Enum(s) => Some(s == ".T."),
+                    ifc_lite_core::AttributeValue::Enum(s) => Some(s == "T" || s == "TRUE"),
                     _ => None,
                 })
                 .unwrap_or(true);
