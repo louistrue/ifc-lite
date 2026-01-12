@@ -1,7 +1,7 @@
 {
     "name": "ifc-lite",
     "version": "0.1.0",
-    "description": "High-performance browser-native IFC platform",
+    "description": "High-performance browser IFC parser & renderer",
     "private": true,
     "type": "module",
     "workspaces": [
