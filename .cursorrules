@@ -1,0 +1,42 @@
+# IFC-Lite Project Rules
+
+## License Headers
+
+All new source files MUST include the Mozilla Public License 2.0 header at the top.
+
+### TypeScript/JavaScript/CSS files (.ts, .tsx, .js, .css):
+```
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+```
+
+### Rust files (.rs):
+```
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+```
+
+## Code Style
+
+- Use TypeScript for all frontend/Node.js code
+- Use Rust for performance-critical WASM modules
+- Follow existing patterns in the codebase
+- Keep functions small and focused
+- Prefer explicit types over inference for public APIs
+
+## Project Structure
+
+- `rust/` - Rust/WASM core (parsing, geometry)
+- `packages/` - TypeScript packages
+- `apps/viewer/` - React viewer application
+- `docs/` - MkDocs documentation
+
+## Generated Files (Do Not Edit)
+
+- `packages/codegen/generated/`
+- `packages/parser/src/generated/`
+- `packages/wasm/ifc_lite_wasm.js`
+- `packages/wasm/ifc_lite_wasm.d.ts`
+- Any `dist/` folders

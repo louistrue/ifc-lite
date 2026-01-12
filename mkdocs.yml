@@ -1,0 +1,135 @@
+site_name: IFC-Lite Documentation
+site_url: https://louistrue.github.io/ifc-lite
+site_description: High-performance browser-native IFC platform documentation
+site_author: IFC-Lite Contributors
+repo_url: https://github.com/louistrue/ifc-lite
+repo_name: louistrue/ifc-lite
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  custom_dir: docs/overrides
+  logo: assets/logo.svg
+  favicon: assets/favicon.ico
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+  - mermaid2
+  - minify:
+      minify_html: true
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.magiclink:
+      repo_url_shorthand: true
+      user: louistrue
+      repo: ifc-lite
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/louistrue/ifc-lite
+    - icon: fontawesome/brands/npm
+      link: https://www.npmjs.com/org/ifc-lite
+  generator: false
+  version:
+    provider: mike
+
+extra_css:
+  - stylesheets/extra.css
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: guide/installation.md
+    - Quick Start: guide/quickstart.md
+    - Browser Requirements: guide/browser-requirements.md
+  - User Guide:
+    - Parsing IFC Files: guide/parsing.md
+    - Geometry Processing: guide/geometry.md
+    - Rendering: guide/rendering.md
+    - Querying Data: guide/querying.md
+    - Exporting Data: guide/exporting.md
+  - Architecture:
+    - Overview: architecture/overview.md
+    - Data Flow: architecture/data-flow.md
+    - Parsing Pipeline: architecture/parsing-pipeline.md
+    - Geometry Pipeline: architecture/geometry-pipeline.md
+    - Rendering Pipeline: architecture/rendering-pipeline.md
+  - API Reference:
+    - TypeScript API: api/typescript.md
+    - Rust API: api/rust.md
+    - WASM Bindings: api/wasm.md
+  - Tutorials:
+    - Building a Viewer: tutorials/building-viewer.md
+    - Custom Queries: tutorials/custom-queries.md
+    - Extending the Parser: tutorials/extending-parser.md
+  - Contributing:
+    - Development Setup: contributing/setup.md
+    - Testing: contributing/testing.md

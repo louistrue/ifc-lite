@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "outDir": "./dist",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@ifc-lite/parser": ["../../packages/parser/src"],
+      "@ifc-lite/geometry": ["../../packages/geometry/src"],
+      "@ifc-lite/renderer": ["../../packages/renderer/src"],
+      "@ifc-lite/query": ["../../packages/query/src"]
+    }
+  },
+  "include": ["src/**/*", "../../packages/renderer/src/webgpu-types.d.ts"]
+}

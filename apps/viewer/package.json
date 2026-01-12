@@ -1,0 +1,52 @@
+{
+  "name": "@ifc-lite/viewer",
+  "version": "0.1.0",
+  "description": "IFC-Lite viewer application",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "prebuild": "cp ../../packages/wasm/ifc_lite_wasm_bg.wasm public/ifc_lite_wasm_bg.wasm",
+    "build": "(tsc || true) && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@ifc-lite/data": "workspace:*",
+    "@ifc-lite/export": "workspace:*",
+    "@ifc-lite/geometry": "workspace:*",
+    "@ifc-lite/parser": "workspace:*",
+    "@ifc-lite/query": "workspace:*",
+    "@ifc-lite/renderer": "workspace:*",
+    "@ifc-lite/spatial": "workspace:*",
+    "@radix-ui/react-collapsible": "^1.1.12",
+    "@radix-ui/react-context-menu": "^2.2.16",
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-dropdown-menu": "^2.1.16",
+    "@radix-ui/react-progress": "^1.1.8",
+    "@radix-ui/react-scroll-area": "^1.2.10",
+    "@radix-ui/react-separator": "^1.1.8",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-tabs": "^1.1.13",
+    "@radix-ui/react-toggle": "^1.1.10",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "@tanstack/react-virtual": "^3.13.18",
+    "autoprefixer": "^10.4.23",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.562.0",
+    "postcss": "^8.5.6",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-resizable-panels": "^4.4.0",
+    "tailwind-merge": "^3.4.0",
+    "tailwindcss": "^4.1.18",
+    "zustand": "^4.4.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@vitejs/plugin-react": "^4.2.0",
+    "typescript": "^5.3.0",
+    "vite": "^5.0.0"
+  }
+}

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+*.log
+.DS_Store
+.env
+.env.local
+*.tsbuildinfo
+
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
