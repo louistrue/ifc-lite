@@ -7,6 +7,7 @@ import type { IfcEntity } from './types.js';
 export interface QuantitySet {
   expressId: number;
   name: string;
+  globalId?: string;
   methodOfMeasurement?: string;
   quantities: QuantityValue[];
 }
@@ -21,11 +22,23 @@ export interface QuantityValue {
 
 export type QuantityValueType = 'length' | 'area' | 'volume' | 'count' | 'weight' | 'time';
 
+// Map IFC type names to our quantity types
+const QUANTITY_TYPE_MAP: Record<string, QuantityValueType> = {
+  'IFCQUANTITYLENGTH': 'length',
+  'IFCQUANTITYAREA': 'area',
+  'IFCQUANTITYVOLUME': 'volume',
+  'IFCQUANTITYCOUNT': 'count',
+  'IFCQUANTITYWEIGHT': 'weight',
+  'IFCQUANTITYTIME': 'time',
+};
+
 export class QuantityExtractor {
   private entities: Map<number, IfcEntity>;
+  private debug: boolean;
 
-  constructor(entities: Map<number, IfcEntity>) {
+  constructor(entities: Map<number, IfcEntity>, debug: boolean = false) {
     this.entities = entities;
+    this.debug = debug;
   }
 
   /**
@@ -33,32 +46,70 @@ export class QuantityExtractor {
    */
   extractQuantitySets(): Map<number, QuantitySet> {
     const quantitySets = new Map<number, QuantitySet>();
+    let elementQuantityCount = 0;
+    let quantityValueCount = 0;
 
     for (const [id, entity] of this.entities) {
-      if (entity.type.toUpperCase() === 'IFCELEMENTQUANTITY') {
+      const typeUpper = entity.type.toUpperCase();
+
+      if (typeUpper === 'IFCELEMENTQUANTITY') {
+        elementQuantityCount++;
         const qset = this.extractQuantitySet(entity);
         if (qset) {
           quantitySets.set(id, qset);
+          quantityValueCount += qset.quantities.length;
+
+          if (this.debug && quantitySets.size <= 3) {
+            console.log(`[QuantityExtractor] Extracted QuantitySet #${id}:`, {
+              name: qset.name,
+              quantities: qset.quantities.length,
+              first: qset.quantities[0],
+            });
+          }
         }
       }
     }
+
+    console.log(`[QuantityExtractor] Found ${elementQuantityCount} IfcElementQuantity entities`);
+    console.log(`[QuantityExtractor] Extracted ${quantitySets.size} quantity sets with ${quantityValueCount} total quantities`);
 
     return quantitySets;
   }
 
   /**
    * Extract QuantitySet from IfcElementQuantity entity
+   *
+   * IFC Schema for IfcElementQuantity:
+   * - GlobalId (IfcGloballyUniqueId) [0]
+   * - OwnerHistory (IfcOwnerHistory) [1]
+   * - Name (IfcLabel) [2]
+   * - Description (IfcText) [3]
+   * - MethodOfMeasurement (IfcLabel) [4]
+   * - Quantities (SET [1:?] OF IfcPhysicalQuantity) [5]
    */
   private extractQuantitySet(entity: IfcEntity): QuantitySet | null {
     try {
-      // IfcElementQuantity structure:
-      // (GlobalId, OwnerHistory, Name, Description, MethodOfMeasurement, Quantities)
-      // Attributes: [0]=GlobalId, [1]=OwnerHistory, [2]=Name, [3]=Description, [4]=MethodOfMeasurement, [5]=Quantities
-      const name = this.getAttributeValue(entity, 2) as string;
-      if (!name) return null;
+      const attrs = entity.attributes;
 
-      const methodOfMeasurement = this.getAttributeValue(entity, 4) as string | undefined;
-      const quantitiesRefs = this.getAttributeValue(entity, 5);
+      if (attrs.length < 6) {
+        if (this.debug) {
+          console.warn(`[QuantityExtractor] IfcElementQuantity #${entity.expressId} has insufficient attributes: ${attrs.length}`);
+        }
+        return null;
+      }
+
+      const globalId = this.toString(attrs[0]);
+      const name = this.toString(attrs[2]);
+
+      if (!name) {
+        if (this.debug) {
+          console.warn(`[QuantityExtractor] IfcElementQuantity #${entity.expressId} has no name`);
+        }
+        return null;
+      }
+
+      const methodOfMeasurement = this.toString(attrs[4]) || undefined;
+      const quantitiesRefs = attrs[5];
       const quantities: QuantityValue[] = [];
 
       // Quantities is a list of references to IfcPhysicalQuantity subtypes
@@ -71,6 +122,8 @@ export class QuantityExtractor {
               if (quantity) {
                 quantities.push(quantity);
               }
+            } else if (this.debug) {
+              console.warn(`[QuantityExtractor] Referenced quantity #${quantRef} not found`);
             }
           }
         }
@@ -79,82 +132,114 @@ export class QuantityExtractor {
       return {
         expressId: entity.expressId,
         name,
+        globalId: globalId || undefined,
         methodOfMeasurement,
         quantities,
       };
     } catch (error) {
-      console.warn(`Failed to extract QuantitySet #${entity.expressId}:`, error);
+      console.warn(`[QuantityExtractor] Failed to extract QuantitySet #${entity.expressId}:`, error);
       return null;
     }
   }
 
   /**
    * Extract quantity from IfcPhysicalQuantity entity
+   *
+   * All IFC quantity types (IfcQuantityLength, IfcQuantityArea, etc.) have:
+   * - Name (IfcLabel) [0]
+   * - Description (IfcText) [1]
+   * - Unit (IfcNamedUnit) [2] - optional reference
+   * - *Value (IfcLengthMeasure/etc.) [3]
+   * - Formula (IfcLabel) [4] - optional (IFC4 only)
    */
   private extractQuantity(entity: IfcEntity): QuantityValue | null {
     try {
       const typeUpper = entity.type.toUpperCase();
+      const quantityType = QUANTITY_TYPE_MAP[typeUpper];
 
-      // All quantity types have: Name, Description, Unit (optional), then value
-      // IfcQuantityLength: (Name, Description, Unit, LengthValue, Formula)
-      // IfcQuantityArea: (Name, Description, Unit, AreaValue, Formula)
-      // IfcQuantityVolume: (Name, Description, Unit, VolumeValue, Formula)
-      // IfcQuantityCount: (Name, Description, Unit, CountValue, Formula)
-      // IfcQuantityWeight: (Name, Description, Unit, WeightValue, Formula)
-      // IfcQuantityTime: (Name, Description, Unit, TimeValue, Formula)
-
-      const name = this.getAttributeValue(entity, 0) as string;
-      if (!name) return null;
-
-      let type: QuantityValueType;
-      let valueIndex = 3; // Value is at index 3 for all quantity types
-      let formulaIndex = 4;
-
-      switch (typeUpper) {
-        case 'IFCQUANTITYLENGTH':
-          type = 'length';
-          break;
-        case 'IFCQUANTITYAREA':
-          type = 'area';
-          break;
-        case 'IFCQUANTITYVOLUME':
-          type = 'volume';
-          break;
-        case 'IFCQUANTITYCOUNT':
-          type = 'count';
-          break;
-        case 'IFCQUANTITYWEIGHT':
-          type = 'weight';
-          break;
-        case 'IFCQUANTITYTIME':
-          type = 'time';
-          break;
-        default:
-          // Unknown quantity type
-          return null;
+      if (!quantityType) {
+        // Not a recognized quantity type
+        return null;
       }
 
-      const value = this.getAttributeValue(entity, valueIndex);
-      if (typeof value !== 'number') return null;
+      const attrs = entity.attributes;
 
-      const formula = this.getAttributeValue(entity, formulaIndex) as string | undefined;
+      if (attrs.length < 4) {
+        if (this.debug) {
+          console.warn(`[QuantityExtractor] ${entity.type} #${entity.expressId} has insufficient attributes: ${attrs.length}`);
+        }
+        return null;
+      }
+
+      const name = this.toString(attrs[0]);
+      if (!name) {
+        if (this.debug) {
+          console.warn(`[QuantityExtractor] ${entity.type} #${entity.expressId} has no name`);
+        }
+        return null;
+      }
+
+      // Value is at index 3 for all quantity types
+      const value = attrs[3];
+      if (typeof value !== 'number') {
+        if (this.debug) {
+          console.warn(`[QuantityExtractor] ${entity.type} #${entity.expressId} has non-numeric value:`, value);
+        }
+        return null;
+      }
+
+      // Formula is optional (index 4, IFC4 only)
+      const formula = attrs.length > 4 ? this.toString(attrs[4]) || undefined : undefined;
 
       return {
         name,
-        type,
+        type: quantityType,
         value,
-        formula: formula || undefined,
+        formula,
       };
     } catch (error) {
-      console.warn(`Failed to extract quantity #${entity.expressId}:`, error);
+      console.warn(`[QuantityExtractor] Failed to extract quantity #${entity.expressId}:`, error);
       return null;
     }
   }
 
-  private getAttributeValue(entity: IfcEntity, index: number): any {
-    if (index < 0 || index >= entity.attributes.length) {
+  /**
+   * Safely convert a value to string
+   */
+  private toString(value: any): string | null {
+    if (value === null || value === undefined) {
       return null;
     }
-    return entity.attributes[index];
+    if (typeof value === 'string') {
+      return value;
+    }
+    return null;
+  }
+
+  /**
+   * Get count of IfcElementQuantity entities in the model
+   */
+  getElementQuantityCount(): number {
+    let count = 0;
+    for (const entity of this.entities.values()) {
+      if (entity.type.toUpperCase() === 'IFCELEMENTQUANTITY') {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Get count of individual quantity values (IfcQuantityLength, etc.)
+   */
+  getQuantityValueCount(): number {
+    let count = 0;
+    for (const entity of this.entities.values()) {
+      const typeUpper = entity.type.toUpperCase();
+      if (QUANTITY_TYPE_MAP[typeUpper]) {
+        count++;
+      }
+    }
+    return count;
   }
 }

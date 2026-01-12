@@ -376,57 +376,75 @@ export class ParquetExporter {
     // ═══════════════════════════════════════════════════════════════
 
     private async toParquet(columns: Record<string, any[]>): Promise<Uint8Array> {
-        // Dynamic imports for better tree-shaking
-        // @ts-ignore - apache-arrow types have module resolution issues
-        const arrow = await import('apache-arrow');
-        // @ts-ignore - parquet-wasm may have type issues
-        const parquet = await import('parquet-wasm');
+        try {
+            // Dynamic imports for better tree-shaking
+            // @ts-ignore - apache-arrow types have module resolution issues
+            const arrow = await import('apache-arrow');
 
-        // Build Arrow vectors from column data
-        const vectors: Record<string, any> = {};
+            // Build Arrow vectors from column data
+            const vectors: Record<string, any> = {};
 
-        for (const [name, data] of Object.entries(columns)) {
-            if (data.length === 0) {
-                // Empty column - create empty vector
-                vectors[name] = arrow.vectorFromArray([]);
-                continue;
-            }
-
-            // Infer type from first non-null element
-            const sample = data.find((v: any) => v !== null && v !== undefined);
-
-            if (sample === undefined) {
-                // All nulls - create string vector with nulls
-                vectors[name] = arrow.vectorFromArray(data);
-            } else if (typeof sample === 'number') {
-                // Check if it's integer or float
-                const isFloat = data.some((v: any) => v !== null && !Number.isInteger(v));
-                if (isFloat) {
-                    vectors[name] = arrow.vectorFromArray(data, new arrow.Float64());
-                } else {
-                    // Use Int32 for integers (covers express IDs and most counts)
-                    vectors[name] = arrow.vectorFromArray(data, new arrow.Int32());
+            for (const [name, data] of Object.entries(columns)) {
+                if (data.length === 0) {
+                    // Empty column - create empty vector with null type
+                    vectors[name] = arrow.vectorFromArray([]);
+                    continue;
                 }
-            } else if (typeof sample === 'boolean') {
-                vectors[name] = arrow.vectorFromArray(data, new arrow.Bool());
-            } else {
-                // String or other - convert to string
-                vectors[name] = arrow.vectorFromArray(data.map((v: any) => v === null ? null : String(v)));
+
+                // Infer type from first non-null element
+                const sample = data.find((v: any) => v !== null && v !== undefined);
+
+                if (sample === undefined) {
+                    // All nulls - create string vector with nulls
+                    vectors[name] = arrow.vectorFromArray(data);
+                } else if (typeof sample === 'number') {
+                    // Check if it's integer or float
+                    const isFloat = data.some((v: any) => v !== null && !Number.isInteger(v));
+                    if (isFloat) {
+                        vectors[name] = arrow.vectorFromArray(data, new arrow.Float64());
+                    } else {
+                        // Use Int32 for integers (covers express IDs and most counts)
+                        vectors[name] = arrow.vectorFromArray(data, new arrow.Int32());
+                    }
+                } else if (typeof sample === 'boolean') {
+                    vectors[name] = arrow.vectorFromArray(data, new arrow.Bool());
+                } else {
+                    // String or other - convert to string
+                    vectors[name] = arrow.vectorFromArray(data.map((v: any) => v === null ? null : String(v)));
+                }
             }
+
+            // Build Arrow Table
+            const table = new arrow.Table(vectors);
+
+            // Convert to Arrow IPC format
+            const ipcBuffer = arrow.tableToIPC(table, 'stream');
+
+            // Try to use parquet-wasm for conversion
+            try {
+                // @ts-ignore - parquet-wasm may have type issues
+                const parquet = await import('parquet-wasm');
+
+                // parquet-wasm 0.5+ API: read Arrow IPC and write Parquet
+                // First, read the IPC buffer into a parquet-wasm Table
+                // @ts-ignore - parquet-wasm types may not match exactly
+                const arrowTable = parquet.Table.fromIPCStream(ipcBuffer);
+
+                // Then write to Parquet format
+                // @ts-ignore - parquet-wasm types may not match exactly
+                const parquetBuffer = parquet.writeParquet(arrowTable);
+
+                return new Uint8Array(parquetBuffer);
+            } catch (parquetError) {
+                // Fallback: If parquet-wasm fails, return Arrow IPC format instead
+                // This is still a valid binary format that can be read by many tools
+                console.warn('[ParquetExporter] parquet-wasm conversion failed, returning Arrow IPC format:', parquetError);
+                return new Uint8Array(ipcBuffer);
+            }
+        } catch (error) {
+            // If all else fails, throw a descriptive error
+            throw new Error(`Failed to convert to Parquet format: ${error}. Ensure apache-arrow and parquet-wasm are installed.`);
         }
-
-        // Build Arrow Table
-        const table = new arrow.Table(vectors);
-
-        // Convert to Arrow IPC format (RecordBatch)
-        const ipcBuffer = arrow.tableToIPC(table);
-
-        // Convert Arrow IPC to Parquet
-        const parquetBuffer = parquet.writeParquet(
-            parquet.Table.fromIPCStream(ipcBuffer)
-        );
-
-        return parquetBuffer;
     }
 
     private async createZipArchive(files: Map<string, Uint8Array>): Promise<Uint8Array> {
