@@ -39,13 +39,14 @@ import { Progress } from '@/components/ui/progress';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { cn } from '@/lib/utils';
-import { GLTFExporter } from '@ifc-lite/export';
+import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
+import { FileSpreadsheet, FileJson } from 'lucide-react';
 
 type Tool = 'select' | 'pan' | 'orbit' | 'walk' | 'measure' | 'section';
 
 export function MainToolbar() {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { loadFile, loading, progress, geometryResult } = useIfc();
+  const { loadFile, loading, progress, geometryResult, ifcDataStore } = useIfc();
   const activeTool = useViewerStore((state) => state.activeTool);
   const setActiveTool = useViewerStore((state) => state.setActiveTool);
   const theme = useViewerStore((state) => state.theme);
@@ -106,6 +107,69 @@ export function MainToolbar() {
       console.error('Screenshot failed:', err);
     }
   }, []);
+
+  const handleExportCSV = useCallback((type: 'entities' | 'properties' | 'quantities') => {
+    if (!ifcDataStore) return;
+    try {
+      const exporter = new CSVExporter(ifcDataStore);
+      let csv: string;
+      let filename: string;
+
+      switch (type) {
+        case 'entities':
+          csv = exporter.exportEntities(undefined, { includeProperties: true, flattenProperties: true });
+          filename = 'entities.csv';
+          break;
+        case 'properties':
+          csv = exporter.exportProperties();
+          filename = 'properties.csv';
+          break;
+        case 'quantities':
+          csv = exporter.exportQuantities();
+          filename = 'quantities.csv';
+          break;
+      }
+
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('CSV export failed:', err);
+    }
+  }, [ifcDataStore]);
+
+  const handleExportJSON = useCallback(() => {
+    if (!ifcDataStore) return;
+    try {
+      // Export basic JSON structure of entities
+      const entities: Record<string, unknown>[] = [];
+      for (let i = 0; i < ifcDataStore.entities.count; i++) {
+        const id = ifcDataStore.entities.expressId[i];
+        entities.push({
+          expressId: id,
+          globalId: ifcDataStore.entities.getGlobalId(id),
+          name: ifcDataStore.entities.getName(id),
+          type: ifcDataStore.entities.getTypeName(id),
+          properties: ifcDataStore.properties.getForEntity(id),
+        });
+      }
+
+      const json = JSON.stringify({ entities }, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'model-data.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('JSON export failed:', err);
+    }
+  }, [ifcDataStore]);
 
   const ToolButton = ({
     tool,
@@ -203,7 +267,24 @@ export function MainToolbar() {
         <DropdownMenuContent>
           <DropdownMenuItem onClick={handleExportGLB}>
             <Download className="h-4 w-4 mr-2" />
-            Export GLB
+            Export GLB (3D Model)
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => handleExportCSV('entities')} disabled={!ifcDataStore}>
+            <FileSpreadsheet className="h-4 w-4 mr-2" />
+            Export Entities (CSV)
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleExportCSV('properties')} disabled={!ifcDataStore}>
+            <FileSpreadsheet className="h-4 w-4 mr-2" />
+            Export Properties (CSV)
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleExportCSV('quantities')} disabled={!ifcDataStore}>
+            <FileSpreadsheet className="h-4 w-4 mr-2" />
+            Export Quantities (CSV)
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleExportJSON} disabled={!ifcDataStore}>
+            <FileJson className="h-4 w-4 mr-2" />
+            Export JSON (All Data)
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleScreenshot}>

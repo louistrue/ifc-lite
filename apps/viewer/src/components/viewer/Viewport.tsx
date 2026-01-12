@@ -20,6 +20,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   const setSelectedEntityId = useViewerStore((state) => state.setSelectedEntityId);
   const hiddenEntities = useViewerStore((state) => state.hiddenEntities);
   const isolatedEntities = useViewerStore((state) => state.isolatedEntities);
+  const activeTool = useViewerStore((state) => state.activeTool);
 
   // Animation frame ref
   const animationFrameRef = useRef<number | null>(null);
@@ -58,11 +59,13 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   const hiddenEntitiesRef = useRef<Set<number>>(hiddenEntities);
   const isolatedEntitiesRef = useRef<Set<number> | null>(isolatedEntities);
   const selectedEntityIdRef = useRef<number | null>(selectedEntityId);
+  const activeToolRef = useRef<string>(activeTool);
 
   // Keep refs in sync
   useEffect(() => { hiddenEntitiesRef.current = hiddenEntities; }, [hiddenEntities]);
   useEffect(() => { isolatedEntitiesRef.current = isolatedEntities; }, [isolatedEntities]);
   useEffect(() => { selectedEntityIdRef.current = selectedEntityId; }, [selectedEntityId]);
+  useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -112,38 +115,66 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       lastFrameTimeRef.current = performance.now();
       animationFrameRef.current = requestAnimationFrame(animate);
 
-      // Mouse controls
+      // Mouse controls - respect active tool
       canvas.addEventListener('mousedown', (e) => {
         e.preventDefault();
         mouseState.isDragging = true;
-        mouseState.isPanning = e.button === 1 || e.button === 2 || e.shiftKey;
         mouseState.button = e.button;
         mouseState.lastX = e.clientX;
         mouseState.lastY = e.clientY;
-        canvas.style.cursor = mouseState.isPanning ? 'move' : 'grabbing';
+
+        // Determine action based on active tool and mouse button
+        const tool = activeToolRef.current;
+        if (tool === 'pan' || e.button === 1 || e.button === 2) {
+          mouseState.isPanning = true;
+          canvas.style.cursor = 'move';
+        } else if (tool === 'orbit') {
+          mouseState.isPanning = false;
+          canvas.style.cursor = 'grabbing';
+        } else if (tool === 'select') {
+          // Select tool: shift+drag = pan, normal drag = orbit
+          mouseState.isPanning = e.shiftKey;
+          canvas.style.cursor = e.shiftKey ? 'move' : 'grabbing';
+        } else {
+          // Default behavior
+          mouseState.isPanning = e.shiftKey;
+          canvas.style.cursor = e.shiftKey ? 'move' : 'grabbing';
+        }
       });
 
       canvas.addEventListener('mousemove', (e) => {
         if (mouseState.isDragging) {
           const dx = e.clientX - mouseState.lastX;
           const dy = e.clientY - mouseState.lastY;
+          const tool = activeToolRef.current;
 
-          if (mouseState.isPanning) {
+          if (mouseState.isPanning || tool === 'pan') {
             camera.pan(dx, dy, false);
+          } else if (tool === 'walk') {
+            // Walk mode: left/right rotates, up/down moves forward/backward
+            camera.orbit(dx * 0.5, 0, false); // Only horizontal rotation
+            if (Math.abs(dy) > 2) {
+              camera.zoom(dy * 2, false); // Forward/backward movement
+            }
           } else {
             camera.orbit(dx, dy, false);
           }
 
           mouseState.lastX = e.clientX;
           mouseState.lastY = e.clientY;
-          renderer.render();
+          renderer.render({
+            hiddenIds: hiddenEntitiesRef.current,
+            isolatedIds: isolatedEntitiesRef.current,
+            selectedId: selectedEntityIdRef.current,
+          });
         }
       });
 
       canvas.addEventListener('mouseup', () => {
         mouseState.isDragging = false;
         mouseState.isPanning = false;
-        canvas.style.cursor = 'default';
+        const tool = activeToolRef.current;
+        canvas.style.cursor = tool === 'pan' ? 'grab' : (tool === 'orbit' ? 'grab' : 'default');
       });
 
       canvas.addEventListener('mouseleave', () => {
