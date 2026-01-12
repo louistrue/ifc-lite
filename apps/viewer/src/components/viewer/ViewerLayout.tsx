@@ -20,7 +20,6 @@ export function ViewerLayout() {
             id="left-panel"
             defaultSize={20}
             minSize={10}
-            maxSize={40}
             collapsible
           >
             <div className="h-full w-full overflow-hidden">
@@ -44,7 +43,6 @@ export function ViewerLayout() {
             id="right-panel"
             defaultSize={20}
             minSize={10}
-            maxSize={40}
             collapsible
           >
             <div className="h-full w-full overflow-hidden">

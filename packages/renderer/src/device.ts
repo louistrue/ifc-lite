@@ -10,6 +10,8 @@ export class WebGPUDevice {
   private canvas: HTMLCanvasElement | null = null;
   private lastWidth: number = 0;
   private lastHeight: number = 0;
+  private contextConfigured: boolean = false;
+  private frameCount: number = 0;
 
   /**
    * Initialize WebGPU device and canvas context
@@ -33,12 +35,22 @@ export class WebGPUDevice {
       throw new Error('Failed to get WebGPU context');
     }
 
+    // Handle device lost - mark context as needing reconfiguration
+    // Use type assertion as 'lost' may not be in all WebGPU type definitions
+    const deviceWithLost = this.device as GPUDevice & { lost?: Promise<{ message: string }> };
+    if (deviceWithLost.lost) {
+      deviceWithLost.lost.then((info) => {
+        console.warn('[WebGPU] Device lost:', info.message);
+        this.contextConfigured = false;
+      });
+    }
+
     this.configureContext();
   }
 
   /**
    * Configure/reconfigure the canvas context
-   * Must be called after canvas resize
+   * Must be called after canvas resize or when context becomes invalid
    */
   configureContext(): void {
     if (!this.context || !this.device || !this.canvas) return;
@@ -46,19 +58,67 @@ export class WebGPUDevice {
     this.lastWidth = this.canvas.width;
     this.lastHeight = this.canvas.height;
 
-    this.context.configure({
-      device: this.device,
-      format: this.format,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT,
-    });
+    try {
+      this.context.configure({
+        device: this.device,
+        format: this.format,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        alphaMode: 'premultiplied',
+      });
+      this.contextConfigured = true;
+    } catch (e) {
+      console.warn('[WebGPU] Failed to configure context:', e);
+      this.contextConfigured = false;
+    }
   }
 
   /**
-   * Check if context needs reconfiguration (canvas resized)
+   * Check if context needs reconfiguration (canvas resized or context invalid)
    */
   needsReconfigure(): boolean {
     if (!this.canvas) return false;
+    if (!this.contextConfigured) return true;
     return this.canvas.width !== this.lastWidth || this.canvas.height !== this.lastHeight;
+  }
+
+  /**
+   * Mark context as needing reconfiguration (call after WebGPU errors)
+   */
+  invalidateContext(): void {
+    this.contextConfigured = false;
+  }
+
+  /**
+   * Ensure context is valid before rendering
+   * Returns true if context is ready, false if we need to skip this frame
+   */
+  ensureContext(): boolean {
+    if (!this.context || !this.device || !this.canvas) return false;
+    
+    // Always reconfigure if needed
+    if (this.needsReconfigure()) {
+      this.configureContext();
+    }
+    
+    return this.contextConfigured;
+  }
+
+  /**
+   * Get current frame's texture safely
+   * Returns null if texture is not available (context needs reconfiguration)
+   */
+  getCurrentTexture(): GPUTexture | null {
+    if (!this.context || !this.contextConfigured) return null;
+    
+    try {
+      const texture = this.context.getCurrentTexture();
+      this.frameCount++;
+      return texture;
+    } catch (e) {
+      // Context became invalid, mark for reconfiguration
+      this.contextConfigured = false;
+      return null;
+    }
   }
 
   getDevice(): GPUDevice {

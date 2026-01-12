@@ -150,14 +150,12 @@ export class Renderer {
         // Skip rendering if canvas is invalid
         if (this.canvas.width === 0 || this.canvas.height === 0) return;
 
-        // Always check if reconfigure is needed (handles HMR and other edge cases)
-        if (this.device.needsReconfigure()) {
-            this.device.configureContext();
+        // Ensure context is valid before rendering (handles HMR, focus changes, etc.)
+        if (!this.device.ensureContext()) {
+            return; // Skip this frame, context will be ready next frame
         }
 
-        const context = this.device.getContext();
         const device = this.device.getDevice();
-
         const viewProj = this.camera.getViewProjMatrix().m;
 
         // Ensure all meshes have GPU resources (in case they were added before pipeline was ready)
@@ -182,6 +180,12 @@ export class Renderer {
             this.pipeline.resize(this.canvas.width, this.canvas.height);
         }
 
+        // Get current texture safely - may return null if context needs reconfiguration
+        const currentTexture = this.device.getCurrentTexture();
+        if (!currentTexture) {
+            return; // Skip this frame, context will be reconfigured next frame
+        }
+
         try {
             const clearColor = options.clearColor
                 ? (Array.isArray(options.clearColor)
@@ -189,18 +193,7 @@ export class Renderer {
                     : options.clearColor)
                 : { r: 0.1, g: 0.1, b: 0.1, a: 1 };
 
-            // Get current texture and create view
-            // This can fail if canvas was resized and context invalidated
-            let currentTexture: GPUTexture;
-            let textureView: GPUTextureView;
-            try {
-                currentTexture = context.getCurrentTexture();
-                textureView = currentTexture.createView();
-            } catch {
-                // Context texture invalid, reconfigure and skip this frame
-                this.device.configureContext();
-                return;
-            }
+            const textureView = currentTexture.createView();
 
             // Separate meshes into opaque and transparent
             const opaqueMeshes: typeof meshes = [];
@@ -288,8 +281,13 @@ export class Renderer {
             pass.end();
             device.queue.submit([encoder.finish()]);
         } catch (error) {
-            // Silently handle WebGPU errors (e.g., device lost, invalid state)
-            console.warn('Render error:', error);
+            // Handle WebGPU errors (e.g., device lost, invalid state)
+            // Mark context as invalid so it gets reconfigured next frame
+            this.device.invalidateContext();
+            // Only log occasional errors to avoid spam
+            if (Math.random() < 0.01) {
+                console.warn('Render error (context will be reconfigured):', error);
+            }
         }
     }
 

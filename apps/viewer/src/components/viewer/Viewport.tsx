@@ -349,7 +349,10 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       setIsInitialized(false);
       rendererRef.current = null;
     };
-  }, [setSelectedEntityId, selectedEntityId]);
+  // Note: selectedEntityId is intentionally NOT in dependencies
+  // The click handler captures setSelectedEntityId via closure
+  // Adding selectedEntityId would destroy/recreate the renderer on every selection change
+  }, [setSelectedEntityId]);
 
   // Track processed meshes for incremental updates
   const processedMeshIdsRef = useRef<Set<number>>(new Set());
