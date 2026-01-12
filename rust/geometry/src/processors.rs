@@ -574,16 +574,14 @@ impl GeometryProcessor for FacetedBrepProcessor {
             // Calculate face normal from outer boundary
             let normal = calculate_polygon_normal(&outer_points);
 
-            // Project all points to 2D for triangulation
-            let (outer_2d, _, _, _) = project_to_2d(&outer_points, &normal);
+            // Project outer boundary to 2D and get the coordinate system
+            let (outer_2d, u_axis, v_axis, origin) = project_to_2d(&outer_points, &normal);
 
-            // Project holes to 2D using the same coordinate system
+            // Project holes to 2D using the SAME coordinate system as the outer boundary
+            use crate::triangulation::project_to_2d_with_basis;
             let holes_2d: Vec<Vec<nalgebra::Point2<f64>>> = hole_points
                 .iter()
-                .map(|hole| {
-                    let (hole_2d, _, _, _) = project_to_2d(hole, &normal);
-                    hole_2d
-                })
+                .map(|hole| project_to_2d_with_basis(hole, &u_axis, &v_axis, &origin))
                 .collect();
 
             // Triangulate with holes

@@ -110,6 +110,23 @@ pub fn project_to_2d(
     (points_2d, u_axis, v_axis, origin)
 }
 
+/// Project 3D points using an existing coordinate system
+/// This ensures multiple sets of points use the same 2D space
+pub fn project_to_2d_with_basis(
+    points_3d: &[Point3<f64>],
+    u_axis: &Vector3<f64>,
+    v_axis: &Vector3<f64>,
+    origin: &Point3<f64>,
+) -> Vec<Point2<f64>> {
+    points_3d
+        .iter()
+        .map(|p| {
+            let v = p - origin;
+            Point2::new(v.dot(u_axis), v.dot(v_axis))
+        })
+        .collect()
+}
+
 /// Calculate the normal of a polygon from its vertices
 pub fn calculate_polygon_normal(points: &[Point3<f64>]) -> Vector3<f64> {
     if points.len() < 3 {
