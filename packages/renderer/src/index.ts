@@ -175,6 +175,14 @@ export class Renderer {
           }
         }
 
+        // Visibility filtering
+        if (options.hiddenIds && options.hiddenIds.size > 0) {
+            meshes = meshes.filter(mesh => !options.hiddenIds!.has(mesh.expressId));
+        }
+        if (options.isolatedIds !== null && options.isolatedIds !== undefined) {
+            meshes = meshes.filter(mesh => options.isolatedIds!.has(mesh.expressId));
+        }
+
         // Resize depth texture if needed
         if (this.pipeline.needsResize(this.canvas.width, this.canvas.height)) {
             this.pipeline.resize(this.canvas.width, this.canvas.height);

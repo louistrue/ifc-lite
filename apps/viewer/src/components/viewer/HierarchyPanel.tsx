@@ -10,6 +10,8 @@ import {
   Square,
   Box,
   DoorOpen,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -46,6 +48,9 @@ export function HierarchyPanel() {
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
   const selectedStorey = useViewerStore((s) => s.selectedStorey);
   const setSelectedStorey = useViewerStore((s) => s.setSelectedStorey);
+  const hiddenEntities = useViewerStore((s) => s.hiddenEntities);
+  const toggleEntityVisibility = useViewerStore((s) => s.toggleEntityVisibility);
+  const isEntityVisible = useViewerStore((s) => s.isEntityVisible);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedNodes, setExpandedNodes] = useState<Set<number>>(new Set());
@@ -178,6 +183,8 @@ export function HierarchyPanel() {
             const isSelected = node.type === 'IfcBuildingStorey'
               ? selectedStorey === node.id
               : selectedEntityId === node.id;
+            const isVisible = isEntityVisible(node.id);
+            const isHidden = hiddenEntities.has(node.id);
 
             return (
               <div
@@ -193,8 +200,9 @@ export function HierarchyPanel() {
               >
                 <div
                   className={cn(
-                    'flex items-center gap-1 px-2 py-1.5 cursor-pointer hover:bg-muted/50 border-l-2 border-transparent transition-colors',
-                    isSelected && 'bg-primary/10 border-l-primary'
+                    'flex items-center gap-1 px-2 py-1.5 cursor-pointer hover:bg-muted/50 border-l-2 border-transparent transition-colors group',
+                    isSelected && 'bg-primary/10 border-l-primary',
+                    isHidden && 'opacity-50'
                   )}
                   style={{ paddingLeft: `${node.depth * 16 + 8}px` }}
                   onClick={() => handleNodeClick(node)}
@@ -219,11 +227,32 @@ export function HierarchyPanel() {
                     <div className="w-4.5" />
                   )}
 
+                  {/* Visibility Toggle */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleEntityVisibility(node.id);
+                    }}
+                    className={cn(
+                      'p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity',
+                      isHidden && 'opacity-100'
+                    )}
+                  >
+                    {isVisible ? (
+                      <Eye className="h-3 w-3 text-muted-foreground" />
+                    ) : (
+                      <EyeOff className="h-3 w-3 text-muted-foreground" />
+                    )}
+                  </button>
+
                   {/* Type Icon */}
                   <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
 
                   {/* Name */}
-                  <span className="flex-1 text-sm truncate">{node.name}</span>
+                  <span className={cn(
+                    'flex-1 text-sm truncate',
+                    isHidden && 'line-through'
+                  )}>{node.name}</span>
 
                   {/* Element Count */}
                   {node.elementCount !== undefined && (

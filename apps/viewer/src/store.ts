@@ -20,10 +20,15 @@ interface ViewerState {
   selectedEntityId: number | null;
   selectedStorey: number | null;
 
+  // Visibility
+  hiddenEntities: Set<number>;
+  isolatedEntities: Set<number> | null; // null = show all, Set = only show these
+
   // UI State
   leftPanelCollapsed: boolean;
   rightPanelCollapsed: boolean;
   activeTool: string;
+  theme: 'light' | 'dark';
 
   // Actions
   setLoading: (loading: boolean) => void;
@@ -38,9 +43,23 @@ interface ViewerState {
   setLeftPanelCollapsed: (collapsed: boolean) => void;
   setRightPanelCollapsed: (collapsed: boolean) => void;
   setActiveTool: (tool: string) => void;
+  setTheme: (theme: 'light' | 'dark') => void;
+  toggleTheme: () => void;
+
+  // Visibility actions
+  hideEntity: (id: number) => void;
+  hideEntities: (ids: number[]) => void;
+  showEntity: (id: number) => void;
+  showEntities: (ids: number[]) => void;
+  toggleEntityVisibility: (id: number) => void;
+  isolateEntity: (id: number) => void;
+  isolateEntities: (ids: number[]) => void;
+  clearIsolation: () => void;
+  showAll: () => void;
+  isEntityVisible: (id: number) => boolean;
 }
 
-export const useViewerStore = create<ViewerState>((set) => ({
+export const useViewerStore = create<ViewerState>((set, get) => ({
   loading: false,
   progress: null,
   error: null,
@@ -48,9 +67,12 @@ export const useViewerStore = create<ViewerState>((set) => ({
   geometryResult: null,
   selectedEntityId: null,
   selectedStorey: null,
+  hiddenEntities: new Set(),
+  isolatedEntities: null,
   leftPanelCollapsed: false,
   rightPanelCollapsed: false,
   activeTool: 'select',
+  theme: 'dark',
 
   setLoading: (loading) => set({ loading }),
   setProgress: (progress) => set({ progress }),
@@ -102,4 +124,54 @@ export const useViewerStore = create<ViewerState>((set) => ({
   setLeftPanelCollapsed: (leftPanelCollapsed) => set({ leftPanelCollapsed }),
   setRightPanelCollapsed: (rightPanelCollapsed) => set({ rightPanelCollapsed }),
   setActiveTool: (activeTool) => set({ activeTool }),
+  setTheme: (theme) => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    set({ theme });
+  },
+  toggleTheme: () => {
+    const newTheme = get().theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.classList.toggle('dark', newTheme === 'dark');
+    set({ theme: newTheme });
+  },
+
+  // Visibility actions
+  hideEntity: (id) => set((state) => {
+    const newHidden = new Set(state.hiddenEntities);
+    newHidden.add(id);
+    return { hiddenEntities: newHidden };
+  }),
+  hideEntities: (ids) => set((state) => {
+    const newHidden = new Set(state.hiddenEntities);
+    ids.forEach(id => newHidden.add(id));
+    return { hiddenEntities: newHidden };
+  }),
+  showEntity: (id) => set((state) => {
+    const newHidden = new Set(state.hiddenEntities);
+    newHidden.delete(id);
+    return { hiddenEntities: newHidden };
+  }),
+  showEntities: (ids) => set((state) => {
+    const newHidden = new Set(state.hiddenEntities);
+    ids.forEach(id => newHidden.delete(id));
+    return { hiddenEntities: newHidden };
+  }),
+  toggleEntityVisibility: (id) => set((state) => {
+    const newHidden = new Set(state.hiddenEntities);
+    if (newHidden.has(id)) {
+      newHidden.delete(id);
+    } else {
+      newHidden.add(id);
+    }
+    return { hiddenEntities: newHidden };
+  }),
+  isolateEntity: (id) => set({ isolatedEntities: new Set([id]) }),
+  isolateEntities: (ids) => set({ isolatedEntities: new Set(ids) }),
+  clearIsolation: () => set({ isolatedEntities: null }),
+  showAll: () => set({ hiddenEntities: new Set(), isolatedEntities: null }),
+  isEntityVisible: (id) => {
+    const state = get();
+    if (state.hiddenEntities.has(id)) return false;
+    if (state.isolatedEntities !== null && !state.isolatedEntities.has(id)) return false;
+    return true;
+  },
 }));

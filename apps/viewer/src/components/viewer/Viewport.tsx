@@ -18,6 +18,8 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   const [isInitialized, setIsInitialized] = useState(false);
   const selectedEntityId = useViewerStore((state) => state.selectedEntityId);
   const setSelectedEntityId = useViewerStore((state) => state.setSelectedEntityId);
+  const hiddenEntities = useViewerStore((state) => state.hiddenEntities);
+  const isolatedEntities = useViewerStore((state) => state.isolatedEntities);
 
   // Animation frame ref
   const animationFrameRef = useRef<number | null>(null);
@@ -51,6 +53,16 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
 
   // First-person mode state
   const firstPersonModeRef = useRef<boolean>(false);
+
+  // Visibility state refs for animation loop
+  const hiddenEntitiesRef = useRef<Set<number>>(hiddenEntities);
+  const isolatedEntitiesRef = useRef<Set<number> | null>(isolatedEntities);
+  const selectedEntityIdRef = useRef<number | null>(selectedEntityId);
+
+  // Keep refs in sync
+  useEffect(() => { hiddenEntitiesRef.current = hiddenEntities; }, [hiddenEntities]);
+  useEffect(() => { isolatedEntitiesRef.current = isolatedEntities; }, [isolatedEntities]);
+  useEffect(() => { selectedEntityIdRef.current = selectedEntityId; }, [selectedEntityId]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -88,7 +100,11 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
 
         const isAnimating = camera.update(deltaTime);
         if (isAnimating) {
-          renderer.render();
+          renderer.render({
+            hiddenIds: hiddenEntitiesRef.current,
+            isolatedIds: isolatedEntitiesRef.current,
+            selectedId: selectedEntityIdRef.current,
+          });
         }
 
         animationFrameRef.current = requestAnimationFrame(animate);
@@ -485,8 +501,24 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       }
     }
 
-    renderer.render();
-  }, [geometry, isInitialized, coordinateInfo]);
+    renderer.render({
+      hiddenIds: hiddenEntities,
+      isolatedIds: isolatedEntities,
+      selectedId: selectedEntityId,
+    });
+  }, [geometry, isInitialized, coordinateInfo, hiddenEntities, isolatedEntities, selectedEntityId]);
+
+  // Re-render when visibility changes
+  useEffect(() => {
+    const renderer = rendererRef.current;
+    if (!renderer || !isInitialized) return;
+
+    renderer.render({
+      hiddenIds: hiddenEntities,
+      isolatedIds: isolatedEntities,
+      selectedId: selectedEntityId,
+    });
+  }, [hiddenEntities, isolatedEntities, selectedEntityId, isInitialized]);
 
   return (
     <canvas

@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { MainToolbar } from './MainToolbar';
@@ -5,11 +6,27 @@ import { HierarchyPanel } from './HierarchyPanel';
 import { PropertiesPanel } from './PropertiesPanel';
 import { StatusBar } from './StatusBar';
 import { ViewportContainer } from './ViewportContainer';
+import { KeyboardShortcutsDialog, useKeyboardShortcutsDialog } from './KeyboardShortcutsDialog';
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { useViewerStore } from '@/store';
 
 export function ViewerLayout() {
+  // Initialize keyboard shortcuts
+  useKeyboardShortcuts();
+  const shortcutsDialog = useKeyboardShortcutsDialog();
+
+  // Initialize theme on mount
+  const theme = useViewerStore((s) => s.theme);
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+  }, [theme]);
+
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex flex-col h-screen w-screen overflow-hidden bg-background text-foreground">
+        {/* Keyboard Shortcuts Dialog */}
+        <KeyboardShortcutsDialog open={shortcutsDialog.open} onClose={shortcutsDialog.close} />
+
         {/* Main Toolbar */}
         <MainToolbar />
 

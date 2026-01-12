@@ -1,4 +1,4 @@
-import { useRef, useCallback, useState } from 'react';
+import { useRef, useCallback } from 'react';
 import {
   FolderOpen,
   Download,
@@ -23,6 +23,7 @@ import {
   Moon,
   HelpCircle,
   Loader2,
+  Camera,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -38,14 +39,21 @@ import { Progress } from '@/components/ui/progress';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { cn } from '@/lib/utils';
+import { GLTFExporter } from '@ifc-lite/export';
 
 type Tool = 'select' | 'pan' | 'orbit' | 'walk' | 'measure' | 'section';
 
 export function MainToolbar() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { loadFile, loading, progress, geometryResult } = useIfc();
-  const [activeTool, setActiveTool] = useState<Tool>('select');
-  const [darkMode, setDarkMode] = useState(false);
+  const activeTool = useViewerStore((state) => state.activeTool);
+  const setActiveTool = useViewerStore((state) => state.setActiveTool);
+  const theme = useViewerStore((state) => state.theme);
+  const toggleTheme = useViewerStore((state) => state.toggleTheme);
+  const selectedEntityId = useViewerStore((state) => state.selectedEntityId);
+  const isolateEntity = useViewerStore((state) => state.isolateEntity);
+  const hideEntity = useViewerStore((state) => state.hideEntity);
+  const showAll = useViewerStore((state) => state.showAll);
   const error = useViewerStore((state) => state.error);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -55,10 +63,49 @@ export function MainToolbar() {
     }
   }, [loadFile]);
 
-  const toggleDarkMode = useCallback(() => {
-    setDarkMode(!darkMode);
-    document.documentElement.classList.toggle('dark');
-  }, [darkMode]);
+  const handleIsolate = useCallback(() => {
+    if (selectedEntityId) {
+      isolateEntity(selectedEntityId);
+    }
+  }, [selectedEntityId, isolateEntity]);
+
+  const handleHide = useCallback(() => {
+    if (selectedEntityId) {
+      hideEntity(selectedEntityId);
+    }
+  }, [selectedEntityId, hideEntity]);
+
+  const handleExportGLB = useCallback(() => {
+    if (!geometryResult) return;
+    try {
+      const exporter = new GLTFExporter(geometryResult);
+      const glb = exporter.exportGLB({ includeMetadata: true });
+      // Create a new Uint8Array from the buffer to ensure correct typing
+      const blob = new Blob([new Uint8Array(glb)], { type: 'model/gltf-binary' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'model.glb';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed:', err);
+    }
+  }, [geometryResult]);
+
+  const handleScreenshot = useCallback(() => {
+    const canvas = document.querySelector('canvas');
+    if (!canvas) return;
+    try {
+      const dataUrl = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = 'screenshot.png';
+      a.click();
+    } catch (err) {
+      console.error('Screenshot failed:', err);
+    }
+  }, []);
 
   const ToolButton = ({
     tool,
@@ -154,10 +201,15 @@ export function MainToolbar() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
-          <DropdownMenuItem>Export GLB</DropdownMenuItem>
-          <DropdownMenuItem>Export BOS</DropdownMenuItem>
+          <DropdownMenuItem onClick={handleExportGLB}>
+            <Download className="h-4 w-4 mr-2" />
+            Export GLB
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>Screenshot</DropdownMenuItem>
+          <DropdownMenuItem onClick={handleScreenshot}>
+            <Camera className="h-4 w-4 mr-2" />
+            Screenshot
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -178,9 +230,9 @@ export function MainToolbar() {
       <Separator orientation="vertical" className="h-6 mx-1" />
 
       {/* Visibility */}
-      <ActionButton icon={Focus} label="Isolate Selection" onClick={() => {}} shortcut="I" />
-      <ActionButton icon={EyeOff} label="Hide Selection" onClick={() => {}} shortcut="H" />
-      <ActionButton icon={Eye} label="Show All" onClick={() => {}} shortcut="A" />
+      <ActionButton icon={Focus} label="Isolate Selection" onClick={handleIsolate} shortcut="I" disabled={!selectedEntityId} />
+      <ActionButton icon={EyeOff} label="Hide Selection" onClick={handleHide} shortcut="H" disabled={!selectedEntityId} />
+      <ActionButton icon={Eye} label="Show All" onClick={showAll} shortcut="A" />
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 
@@ -234,11 +286,11 @@ export function MainToolbar() {
       {/* Right Side Actions */}
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="ghost" size="icon-sm" onClick={toggleDarkMode}>
-            {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          <Button variant="ghost" size="icon-sm" onClick={toggleTheme}>
+            {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </Button>
         </TooltipTrigger>
-        <TooltipContent>Toggle Dark Mode</TooltipContent>
+        <TooltipContent>Toggle Theme</TooltipContent>
       </Tooltip>
 
       <Tooltip>

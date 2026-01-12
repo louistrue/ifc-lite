@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import {
   Home,
   ZoomIn,
@@ -9,16 +10,44 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
+import { ViewCube } from './ViewCube';
 
-export function ViewportOverlays() {
+interface ViewportOverlaysProps {
+  onViewChange?: (view: string) => void;
+  onFitAll?: () => void;
+  onZoomIn?: () => void;
+  onZoomOut?: () => void;
+  onResetView?: () => void;
+}
+
+export function ViewportOverlays({
+  onViewChange,
+  onFitAll,
+  onZoomIn,
+  onZoomOut,
+  onResetView,
+}: ViewportOverlaysProps) {
   const selectedStorey = useViewerStore((s) => s.selectedStorey);
+  const hiddenEntities = useViewerStore((s) => s.hiddenEntities);
+  const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
   const { ifcDataStore, geometryResult } = useIfc();
 
   const storeyName = selectedStorey && ifcDataStore
     ? ifcDataStore.entities.getName(selectedStorey) || `Storey #${selectedStorey}`
     : null;
 
-  const visibleCount = geometryResult?.meshes?.length ?? 0;
+  // Calculate visible count considering visibility filters
+  const totalCount = geometryResult?.meshes?.length ?? 0;
+  let visibleCount = totalCount;
+  if (isolatedEntities !== null) {
+    visibleCount = isolatedEntities.size;
+  } else if (hiddenEntities.size > 0) {
+    visibleCount = totalCount - hiddenEntities.size;
+  }
+
+  const handleViewChange = useCallback((view: string) => {
+    onViewChange?.(view);
+  }, [onViewChange]);
 
   return (
     <>
@@ -26,7 +55,7 @@ export function ViewportOverlays() {
       <div className="absolute bottom-4 right-4 flex flex-col gap-1 bg-background/80 backdrop-blur-sm rounded-lg border shadow-sm p-1">
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-sm">
+            <Button variant="ghost" size="icon-sm" onClick={onFitAll}>
               <Home className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
@@ -35,29 +64,29 @@ export function ViewportOverlays() {
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-sm">
+            <Button variant="ghost" size="icon-sm" onClick={onZoomIn}>
               <ZoomIn className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="left">Zoom In</TooltipContent>
+          <TooltipContent side="left">Zoom In (+)</TooltipContent>
         </Tooltip>
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-sm">
+            <Button variant="ghost" size="icon-sm" onClick={onZoomOut}>
               <ZoomOut className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="left">Zoom Out</TooltipContent>
+          <TooltipContent side="left">Zoom Out (-)</TooltipContent>
         </Tooltip>
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-sm">
+            <Button variant="ghost" size="icon-sm" onClick={onResetView}>
               <RotateCcw className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="left">Reset View</TooltipContent>
+          <TooltipContent side="left">Reset View (R)</TooltipContent>
         </Tooltip>
       </div>
 
@@ -79,16 +108,12 @@ export function ViewportOverlays() {
         </div>
       )}
 
-      {/* ViewCube Placeholder (top-right) */}
-      <div className="absolute top-4 right-4 w-20 h-20 bg-background/60 backdrop-blur-sm rounded-lg border shadow-sm flex items-center justify-center">
-        <div className="text-xs text-muted-foreground text-center">
-          ViewCube
-          <br />
-          <span className="text-[10px]">(Coming)</span>
-        </div>
+      {/* ViewCube (top-right) */}
+      <div className="absolute top-4 right-4 p-2 bg-background/60 backdrop-blur-sm rounded-lg border shadow-sm">
+        <ViewCube onViewChange={handleViewChange} />
       </div>
 
-      {/* Scale Bar Placeholder (bottom-left) */}
+      {/* Scale Bar (bottom-left) */}
       <div className="absolute bottom-4 left-4 flex flex-col items-start gap-1">
         <div className="h-1 w-24 bg-foreground/80 rounded-full" />
         <span className="text-xs text-foreground/80">~10m</span>
