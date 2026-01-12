@@ -120,6 +120,9 @@ importers:
       '@ifc-lite/data':
         specifier: workspace:*
         version: link:../data
+      '@ifc-lite/geometry':
+        specifier: workspace:*
+        version: link:../geometry
       '@ifc-lite/parser':
         specifier: workspace:*
         version: link:../parser
@@ -132,6 +135,10 @@ importers:
         version: 5.9.3
 
   packages/renderer:
+    dependencies:
+      '@ifc-lite/spatial':
+        specifier: workspace:*
+        version: link:../spatial
     devDependencies:
       typescript:
         specifier: ^5.3.0
