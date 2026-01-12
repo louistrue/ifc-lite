@@ -44,6 +44,13 @@ export interface Mesh {
   bounds?: { min: [number, number, number]; max: [number, number, number] };
 }
 
+// Section plane for clipping
+export interface SectionPlane {
+  axis: 'x' | 'y' | 'z';
+  position: number; // 0-100 percentage of model bounds
+  enabled: boolean;
+}
+
 export interface RenderOptions {
   clearColor?: [number, number, number, number];
   enableDepthTest?: boolean;
@@ -53,4 +60,7 @@ export interface RenderOptions {
   hiddenIds?: Set<number>;        // Meshes to hide
   isolatedIds?: Set<number> | null; // Only show these meshes (null = show all)
   selectedId?: number | null;     // Currently selected mesh (for highlighting)
+  selectedIds?: Set<number>;      // Multi-selection support
+  // Section plane clipping
+  sectionPlane?: SectionPlane;
 }

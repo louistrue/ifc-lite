@@ -61,6 +61,10 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       e.preventDefault();
       setActiveTool('section');
     }
+    if (key === 'b' && !ctrl && !shift) {
+      e.preventDefault();
+      setActiveTool('boxselect');
+    }
 
     // Visibility controls
     if (key === 'i' && !ctrl && !shift && selectedEntityId) {
@@ -129,6 +133,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
 // Export shortcut definitions for UI display
 export const KEYBOARD_SHORTCUTS = [
   { key: 'V', description: 'Select tool', category: 'Tools' },
+  { key: 'B', description: 'Box select tool', category: 'Tools' },
   { key: 'H', description: 'Pan tool', category: 'Tools' },
   { key: 'O', description: 'Orbit tool', category: 'Tools' },
   { key: 'C', description: 'Walk mode', category: 'Tools' },

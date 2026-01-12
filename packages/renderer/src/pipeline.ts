@@ -28,15 +28,16 @@ export class RenderPipeline {
         });
         this.depthTextureView = this.depthTexture.createView();
 
-        // Create uniform buffer for camera matrices and PBR material
-        // Layout: viewProj (64 bytes) + model (64 bytes) + baseColor (16 bytes) + metallicRoughness (8 bytes) + padding (8 bytes) = 160 bytes
+        // Create uniform buffer for camera matrices, PBR material, and section plane
+        // Layout: viewProj (64 bytes) + model (64 bytes) + baseColor (16 bytes) + metallicRoughness (8 bytes) +
+        //         sectionPlane (16 bytes: vec3 normal + float position) + flags (16 bytes: u32 isSelected + u32 sectionEnabled + padding) = 192 bytes
         // WebGPU requires uniform buffers to be aligned to 16 bytes
         this.uniformBuffer = this.device.createBuffer({
-            size: 160, // 10 * 16 bytes = properly aligned
+            size: 192, // 12 * 16 bytes = properly aligned
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
-        // Create shader module with PBR lighting
+        // Create shader module with PBR lighting, section plane clipping, and selection outline
         const shaderModule = this.device.createShaderModule({
             code: `
         struct Uniforms {
@@ -44,8 +45,9 @@ export class RenderPipeline {
           model: mat4x4<f32>,
           baseColor: vec4<f32>,
           metallicRoughness: vec2<f32>, // x = metallic, y = roughness
-          // Padding to ensure 16-byte alignment (vec2 needs 8 bytes, but struct must be 16-byte aligned)
-          _padding: vec2<f32>,
+          _padding1: vec2<f32>,
+          sectionPlane: vec4<f32>,      // xyz = plane normal, w = plane distance
+          flags: vec4<u32>,             // x = isSelected, y = sectionEnabled, z,w = reserved
         }
         @binding(0) @group(0) var<uniform> uniforms: Uniforms;
 
@@ -103,22 +105,44 @@ export class RenderPipeline {
 
         @fragment
         fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+          // Section plane clipping
+          if (uniforms.flags.y == 1u) {
+            let planeNormal = uniforms.sectionPlane.xyz;
+            let planeDistance = uniforms.sectionPlane.w;
+            let distToPlane = dot(input.worldPos, planeNormal) - planeDistance;
+            if (distToPlane > 0.0) {
+              discard;
+            }
+          }
+
           let N = normalize(input.normal);
           let L = normalize(vec3<f32>(0.5, 1.0, 0.3)); // Light direction
-          
+
           let NdotL = max(dot(N, L), 0.0);
-          
-          let baseColor = uniforms.baseColor.rgb;
-          
+
+          var baseColor = uniforms.baseColor.rgb;
+
           // Simple diffuse lighting with ambient
           let ambient = 0.3;
           let diffuse = NdotL * 0.7;
-          
+
           var color = baseColor * (ambient + diffuse);
-          
+
+          // Selection highlight - add glow/fresnel effect
+          if (uniforms.flags.x == 1u) {
+            // Calculate view direction for fresnel effect
+            let V = normalize(-input.worldPos); // Assuming camera at origin (simplified)
+            let NdotV = max(dot(N, V), 0.0);
+
+            // Fresnel-like edge highlight for selection
+            let fresnel = pow(1.0 - NdotV, 2.0);
+            let highlightColor = vec3<f32>(0.3, 0.6, 1.0); // Blue highlight
+            color = mix(color, highlightColor, fresnel * 0.5 + 0.2);
+          }
+
           // Gamma correction (IFC colors are typically in sRGB)
           color = pow(color, vec3<f32>(1.0 / 2.2));
-          
+
           return vec4<f32>(color, uniforms.baseColor.a);
         }
       `,
@@ -170,16 +194,21 @@ export class RenderPipeline {
     }
 
     /**
-     * Update uniform buffer with camera matrices and PBR material
+     * Update uniform buffer with camera matrices, PBR material, section plane, and selection state
      */
     updateUniforms(
         viewProj: Float32Array,
         model: Float32Array,
         color?: [number, number, number, number],
-        material?: { metallic?: number; roughness?: number }
+        material?: { metallic?: number; roughness?: number },
+        sectionPlane?: { normal: [number, number, number]; distance: number; enabled: boolean },
+        isSelected?: boolean
     ): void {
-        // Create buffer with proper alignment: 2 mat4 (16 floats each) + vec4 (4 floats) + vec2 (2 floats) + padding (2 floats) = 40 floats = 160 bytes
-        const buffer = new Float32Array(40); // 160 bytes / 4 bytes per float = 40 floats
+        // Create buffer with proper alignment:
+        // viewProj (16 floats) + model (16 floats) + baseColor (4 floats) + metallicRoughness (2 floats) + padding (2 floats)
+        // + sectionPlane (4 floats) + flags (4 u32) = 48 floats = 192 bytes
+        const buffer = new Float32Array(48);
+        const flagBuffer = new Uint32Array(buffer.buffer, 176, 4); // flags at byte 176
 
         // viewProj: mat4x4<f32> at offset 0 (16 floats)
         buffer.set(viewProj, 0);
@@ -201,7 +230,23 @@ export class RenderPipeline {
         buffer[36] = metallic;
         buffer[37] = roughness;
 
-        // Write the buffer (WebGPU will handle the padding)
+        // padding at offset 38-39 (2 floats)
+
+        // sectionPlane: vec4<f32> at offset 40 (4 floats - normal xyz + distance w)
+        if (sectionPlane) {
+            buffer[40] = sectionPlane.normal[0];
+            buffer[41] = sectionPlane.normal[1];
+            buffer[42] = sectionPlane.normal[2];
+            buffer[43] = sectionPlane.distance;
+        }
+
+        // flags: vec4<u32> at offset 44 (4 u32 - using flagBuffer view)
+        flagBuffer[0] = isSelected ? 1 : 0;           // isSelected
+        flagBuffer[1] = sectionPlane?.enabled ? 1 : 0; // sectionEnabled
+        flagBuffer[2] = 0;                             // reserved
+        flagBuffer[3] = 0;                             // reserved
+
+        // Write the buffer
         this.device.queue.writeBuffer(this.uniformBuffer, 0, buffer);
     }
 
@@ -247,6 +292,6 @@ export class RenderPipeline {
     }
 
     getUniformBufferSize(): number {
-        return 160; // 40 floats * 4 bytes
+        return 192; // 48 floats * 4 bytes
     }
 }

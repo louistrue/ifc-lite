@@ -40,9 +40,9 @@ import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { cn } from '@/lib/utils';
 import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
-import { FileSpreadsheet, FileJson } from 'lucide-react';
+import { FileSpreadsheet, FileJson, SquareDashedMousePointer } from 'lucide-react';
 
-type Tool = 'select' | 'pan' | 'orbit' | 'walk' | 'measure' | 'section';
+type Tool = 'select' | 'pan' | 'orbit' | 'walk' | 'measure' | 'section' | 'boxselect';
 
 export function MainToolbar() {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -299,6 +299,7 @@ export function MainToolbar() {
 
       {/* Navigation Tools */}
       <ToolButton tool="select" icon={MousePointer2} label="Select" shortcut="V" />
+      <ToolButton tool="boxselect" icon={SquareDashedMousePointer} label="Box Select" shortcut="B" />
       <ToolButton tool="pan" icon={Hand} label="Pan" shortcut="H" />
       <ToolButton tool="orbit" icon={Rotate3d} label="Orbit" shortcut="O" />
       <ToolButton tool="walk" icon={PersonStanding} label="Walk Mode" shortcut="C" />
