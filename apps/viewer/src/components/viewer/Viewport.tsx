@@ -120,8 +120,10 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         },
       });
 
-      // Animation loop
-      let lastRotationUpdate = 0;
+      // Animation loop - camera rotation ref for ViewCube (avoid store updates during animation)
+      const cameraRotationRef = { current: camera.getRotation() };
+      let needsRotationUpdate = false;
+      
       const animate = (currentTime: number) => {
         if (aborted) return;
 
@@ -135,13 +137,12 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
           });
-        }
-
-        // Update camera rotation for ViewCube (throttled to every 100ms)
-        if (currentTime - lastRotationUpdate > 100) {
-          const rotation = camera.getRotation();
-          setCameraRotation(rotation);
-          lastRotationUpdate = currentTime;
+          cameraRotationRef.current = camera.getRotation();
+          needsRotationUpdate = true;
+        } else if (needsRotationUpdate) {
+          // Only update store when animation ends, not during
+          setCameraRotation(cameraRotationRef.current);
+          needsRotationUpdate = false;
         }
 
         animationFrameRef.current = requestAnimationFrame(animate);
@@ -201,8 +202,8 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
           });
-          // Update ViewCube rotation immediately during drag
-          setCameraRotation(camera.getRotation());
+          // Track rotation for update on mouseup (avoid store updates during drag)
+          cameraRotationRef.current = camera.getRotation();
         }
       });
 
@@ -211,6 +212,8 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         mouseState.isPanning = false;
         const tool = activeToolRef.current;
         canvas.style.cursor = tool === 'pan' ? 'grab' : (tool === 'orbit' ? 'grab' : 'default');
+        // Update ViewCube rotation when drag ends
+        setCameraRotation(cameraRotationRef.current);
       });
 
       canvas.addEventListener('mouseleave', () => {
@@ -569,13 +572,14 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
     }
 
     renderer.render({
-      hiddenIds: hiddenEntities,
-      isolatedIds: isolatedEntities,
-      selectedId: selectedEntityId,
+      hiddenIds: hiddenEntitiesRef.current,
+      isolatedIds: isolatedEntitiesRef.current,
+      selectedId: selectedEntityIdRef.current,
     });
-  }, [geometry, isInitialized, coordinateInfo, hiddenEntities, isolatedEntities, selectedEntityId]);
+  // Note: visibility states are NOT in dependencies - they use refs and trigger re-render via separate effect
+  }, [geometry, isInitialized, coordinateInfo]);
 
-  // Re-render when visibility changes
+  // Re-render when visibility or selection changes (using refs updated above)
   useEffect(() => {
     const renderer = rendererRef.current;
     if (!renderer || !isInitialized) return;
