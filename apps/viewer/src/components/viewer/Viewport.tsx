@@ -226,14 +226,14 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         setPresetView: (view) => {
           // Pass actual geometry bounds to avoid distance drift
           camera.setPresetView(view, geometryBoundsRef.current);
+          // Initial render - animation loop will continue rendering during animation
           renderer.render({
             hiddenIds: hiddenEntitiesRef.current,
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
+            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
           });
-          // Update ViewCube rotation immediately
-          updateCameraRotationRealtime(camera.getRotation());
           calculateScale();
         },
         fitAll: () => {
@@ -272,10 +272,8 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           // Frame selection - zoom to fit selected element
           const selectedId = selectedEntityIdRef.current;
           const geom = geometryRef.current;
-          console.log('[Viewport] frameSelection called:', { selectedId, geometryCount: geom?.length });
           if (selectedId !== null && geom) {
             const bounds = getEntityBounds(geom, selectedId);
-            console.log('[Viewport] frameSelection bounds:', bounds);
             if (bounds) {
               camera.frameBounds(bounds.min, bounds.max, 300);
               calculateScale();
@@ -285,6 +283,19 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           } else {
             console.warn('[Viewport] frameSelection: No selection or geometry');
           }
+        },
+        orbit: (deltaX: number, deltaY: number) => {
+          // Orbit camera from ViewCube drag
+          camera.orbit(deltaX, deltaY, false);
+          renderer.render({
+            hiddenIds: hiddenEntitiesRef.current,
+            isolatedIds: isolatedEntitiesRef.current,
+            selectedId: selectedEntityIdRef.current,
+            clearColor: clearColorRef.current,
+            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+          });
+          updateCameraRotationRealtime(camera.getRotation());
+          calculateScale();
         },
       });
 
@@ -823,6 +834,12 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           calculateScale();
         }
 
+        // Fit all / Zoom extents (Z)
+        if (e.key === 'z' || e.key === 'Z') {
+          camera.zoomExtent(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 300);
+          calculateScale();
+        }
+
         // Toggle first-person mode
         if (e.key === 'c' || e.key === 'C') {
           firstPersonModeRef.current = !firstPersonModeRef.current;
@@ -940,27 +957,52 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
     const geometryChanged = lastGeometryRef.current !== geometry;
 
     if (geometryChanged && lastGeometryRef.current !== null) {
+      // New file loaded - reset camera and bounds
       scene.clear();
       processedMeshIdsRef.current.clear();
+      cameraFittedRef.current = false;
       lastGeometryLengthRef.current = 0;
       lastGeometryRef.current = geometry;
+      // Reset camera state (clear orbit pivot, stop inertia, cancel animations)
+      renderer.getCamera().reset();
+      // Reset geometry bounds to default
+      geometryBoundsRef.current = {
+        min: { x: -100, y: -100, z: -100 },
+        max: { x: 100, y: 100, z: 100 },
+      };
     } else if (currentLength > lastGeometryLengthRef.current) {
       lastGeometryRef.current = geometry;
     } else if (currentLength === 0) {
+      // Geometry cleared - reset camera and bounds
       scene.clear();
       processedMeshIdsRef.current.clear();
       cameraFittedRef.current = false;
       lastGeometryLengthRef.current = 0;
       lastGeometryRef.current = null;
+      // Reset camera state
+      renderer.getCamera().reset();
+      // Reset geometry bounds to default
+      geometryBoundsRef.current = {
+        min: { x: -100, y: -100, z: -100 },
+        max: { x: 100, y: 100, z: 100 },
+      };
       return;
     } else if (currentLength === lastGeometryLengthRef.current && !geometryChanged) {
       return;
     } else {
+      // Length changed or other scenario - reset camera and bounds
       scene.clear();
       processedMeshIdsRef.current.clear();
       cameraFittedRef.current = false;
       lastGeometryLengthRef.current = 0;
       lastGeometryRef.current = geometry;
+      // Reset camera state
+      renderer.getCamera().reset();
+      // Reset geometry bounds to default
+      geometryBoundsRef.current = {
+        min: { x: -100, y: -100, z: -100 },
+        max: { x: 100, y: 100, z: 100 },
+      };
     }
 
     if (lastGeometryRef.current === null) {

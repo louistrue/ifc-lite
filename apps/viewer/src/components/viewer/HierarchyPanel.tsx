@@ -263,7 +263,18 @@ export function HierarchyPanel() {
                     nodeHidden && 'opacity-50'
                   )}
                   style={{ paddingLeft: `${node.depth * 16 + 8}px` }}
-                  onClick={() => handleNodeClick(node)}
+                  onClick={(e) => {
+                    // Only handle click if not clicking on a button
+                    if ((e.target as HTMLElement).closest('button') === null) {
+                      handleNodeClick(node);
+                    }
+                  }}
+                  onMouseDown={(e) => {
+                    // Prevent text selection when clicking
+                    if ((e.target as HTMLElement).closest('button') === null) {
+                      e.preventDefault();
+                    }
+                  }}
                 >
                   {/* Expand/Collapse */}
                   {node.hasChildren ? (

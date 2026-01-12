@@ -30,7 +30,12 @@ export function useIfc() {
   const lastLoggedDataStoreRef = useRef<typeof ifcDataStore>(null);
 
   const loadFile = useCallback(async (file: File) => {
+    const { resetViewerState } = useViewerStore.getState();
+    
     try {
+      // Reset all viewer state before loading new file
+      resetViewerState();
+      
       setLoading(true);
       setError(null);
       setProgress({ phase: 'Loading file', percent: 0 });
@@ -79,24 +84,19 @@ export function useIfc() {
       setGeometryResult(null);
 
       try {
-        console.log('[useIfc] Starting streaming geometry processing...');
         for await (const event of geometryProcessor.processStreaming(new Uint8Array(buffer), entityIndexMap, 100)) {
-          console.log('[useIfc] Streaming event:', event.type);
           switch (event.type) {
             case 'start':
               estimatedTotal = event.totalEstimate;
-              console.log('[useIfc] Start event, estimated total:', estimatedTotal);
               break;
             case 'model-open':
               setProgress({ phase: 'Processing geometry', percent: 50 });
-              console.log('[useIfc] Model opened, ID:', event.modelID);
               break;
             case 'batch':
               // Collect meshes for BVH building
               allMeshes.push(...event.meshes);
               
               // Convert MeshData[] to GPU-ready format and append
-              console.log('[useIfc] Batch event:', event.meshes.length, 'meshes, total so far:', event.totalSoFar);
               const gpuMeshes = bufferBuilder.processMeshes(event.meshes).meshes;
               appendGeometryBatch(gpuMeshes, event.coordinateInfo);
               totalMeshes = event.totalSoFar;
@@ -110,20 +110,16 @@ export function useIfc() {
               break;
             case 'complete':
               // Update geometry result with final coordinate info
-              console.log('[useIfc] Complete event, total meshes:', event.totalMeshes);
-              // Use functional update to get current state (avoids stale closure)
               updateCoordinateInfo(event.coordinateInfo);
               
               // Build spatial index from all collected meshes
               if (allMeshes.length > 0) {
                 setProgress({ phase: 'Building spatial index', percent: 95 });
-                console.log('[useIfc] Building BVH from', allMeshes.length, 'meshes');
                 try {
                   const spatialIndex = buildSpatialIndex(allMeshes);
                   // Attach spatial index to dataStore
                   (dataStore as any).spatialIndex = spatialIndex;
                   setIfcDataStore(dataStore); // Update store with spatial index
-                  console.log('[useIfc] Spatial index built successfully');
                 } catch (err) {
                   console.warn('[useIfc] Failed to build spatial index:', err);
                   // Continue without spatial index - it's optional
@@ -134,7 +130,6 @@ export function useIfc() {
               break;
           }
         }
-        console.log('[useIfc] Streaming processing complete');
       } catch (err) {
         console.error('[useIfc] Error in streaming processing:', err);
         setError(err instanceof Error ? err.message : 'Unknown error during geometry processing');
@@ -152,12 +147,7 @@ export function useIfc() {
     if (!ifcDataStore) return null;
     
     // Only log once per ifcDataStore
-    const shouldLog = lastLoggedDataStoreRef.current !== ifcDataStore;
-    if (shouldLog) {
-      lastLoggedDataStoreRef.current = ifcDataStore;
-      console.log('[useIfc] Entity count:', ifcDataStore.entityCount);
-      console.log('[useIfc] Properties available via columnar table');
-    }
+    lastLoggedDataStoreRef.current = ifcDataStore;
 
     return new IfcQuery(ifcDataStore);
   }, [ifcDataStore]);

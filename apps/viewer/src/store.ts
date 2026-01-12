@@ -105,6 +105,7 @@ interface ViewerState {
     zoomIn?: () => void;
     zoomOut?: () => void;
     frameSelection?: () => void;  // Center view on selected element (F key)
+    orbit?: (deltaX: number, deltaY: number) => void;  // Orbit camera by delta
   };
   // Direct callback for real-time ViewCube updates (bypasses React state)
   onCameraRotationChange: ((rotation: { azimuth: number; elevation: number }) => void) | null;
@@ -183,6 +184,9 @@ interface ViewerState {
   toggleSectionPlane: () => void;
   flipSectionPlane: () => void;
   resetSectionPlane: () => void;
+
+  // Reset all viewer state (called when loading new file)
+  resetViewerState: () => void;
 }
 
 export const useViewerStore = create<ViewerState>((set, get) => ({
@@ -442,5 +446,22 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   })),
   resetSectionPlane: () => set({
     sectionPlane: { axis: 'y', position: 50, enabled: false },
+  }),
+
+  // Reset all viewer state when loading new file
+  resetViewerState: () => set({
+    selectedEntityId: null,
+    selectedEntityIds: new Set(),
+    selectedStorey: null,
+    hiddenEntities: new Set(),
+    isolatedEntities: null,
+    hoverState: { entityId: null, screenX: 0, screenY: 0 },
+    contextMenu: { isOpen: false, entityId: null, screenX: 0, screenY: 0 },
+    boxSelect: { isSelecting: false, startX: 0, startY: 0, currentX: 0, currentY: 0 },
+    measurements: [],
+    pendingMeasurePoint: null,
+    sectionPlane: { axis: 'y', position: 50, enabled: false },
+    cameraRotation: { azimuth: 45, elevation: 25 },
+    activeTool: 'select',
   }),
 }));

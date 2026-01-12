@@ -72,14 +72,6 @@ export class RelationshipExtractor {
         // RelatedObjects at 4, RelatingPropertyDefinition at 5
         relatedObjects = this.getAttributeValue(entity, 4);
         relatingObject = this.getAttributeValue(entity, 5);
-        
-        // Debug first few
-        if (entity.expressId < 1000) {
-          console.log('[RelExtract] IFCRELDEFINESBYPROPERTIES #' + entity.expressId, 
-            'attrs:', entity.attributes.length, 
-            'relatedObjs:', relatedObjects, 
-            'relatingObj:', relatingObject);
-        }
       } else if (entityTypeUpper === 'IFCRELCONTAINEDINSPATIALSTRUCTURE') {
         // RelatedElements at 4, RelatingStructure at 5
         relatedObjects = this.getAttributeValue(entity, 4);

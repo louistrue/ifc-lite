@@ -45,7 +45,11 @@ import { FileSpreadsheet, FileJson, SquareDashedMousePointer } from 'lucide-reac
 
 type Tool = 'select' | 'pan' | 'orbit' | 'walk' | 'measure' | 'section' | 'boxselect';
 
-export function MainToolbar() {
+interface MainToolbarProps {
+  onShowShortcuts?: () => void;
+}
+
+export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { loadFile, loading, progress, geometryResult, ifcDataStore } = useIfc();
   const activeTool = useViewerStore((state) => state.activeTool);
@@ -303,7 +307,7 @@ export function MainToolbar() {
       {/* Navigation Tools */}
       <ToolButton tool="select" icon={MousePointer2} label="Select" shortcut="V" />
       <ToolButton tool="boxselect" icon={SquareDashedMousePointer} label="Box Select" shortcut="B" />
-      <ToolButton tool="pan" icon={Hand} label="Pan" shortcut="H" />
+      <ToolButton tool="pan" icon={Hand} label="Pan" shortcut="P" />
       <ToolButton tool="orbit" icon={Rotate3d} label="Orbit" shortcut="O" />
       <ToolButton tool="walk" icon={PersonStanding} label="Walk Mode" shortcut="C" />
 
@@ -317,7 +321,7 @@ export function MainToolbar() {
 
       {/* Visibility */}
       <ActionButton icon={Focus} label="Isolate Selection" onClick={handleIsolate} shortcut="I" disabled={!selectedEntityId} />
-      <ActionButton icon={EyeOff} label="Hide Selection" onClick={handleHide} shortcut="H" disabled={!selectedEntityId} />
+      <ActionButton icon={EyeOff} label="Hide Selection" onClick={handleHide} shortcut="Del" disabled={!selectedEntityId} />
       <ActionButton icon={Eye} label="Show All" onClick={showAll} shortcut="A" />
 
       <Separator orientation="vertical" className="h-6 mx-1" />
@@ -343,22 +347,31 @@ export function MainToolbar() {
 
       {/* Camera */}
       <ActionButton icon={Home} label="Home (Isometric)" onClick={() => cameraCallbacks.home?.()} shortcut="H" />
-      <ActionButton icon={Maximize2} label="Fit All" onClick={() => cameraCallbacks.fitAll?.()} />
-      <ActionButton 
-        icon={Focus} 
-        label="Frame Selection" 
-        onClick={() => cameraCallbacks.frameSelection?.()} 
-        shortcut="F" 
-        disabled={!selectedEntityId} 
+      <ActionButton icon={Maximize2} label="Fit All" onClick={() => cameraCallbacks.fitAll?.()} shortcut="Z" />
+      <ActionButton
+        icon={Focus}
+        label="Frame Selection"
+        onClick={() => cameraCallbacks.frameSelection?.()}
+        shortcut="F"
+        disabled={!selectedEntityId}
       />
 
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon-sm">
-            <Grid3x3 className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-sm">
+                <Grid3x3 className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Preset Views (0-6)</TooltipContent>
+        </Tooltip>
         <DropdownMenuContent>
+          <DropdownMenuItem onClick={() => cameraCallbacks.home?.()}>
+            <Box className="h-4 w-4 mr-2" /> Isometric <span className="ml-auto text-xs opacity-60">0</span>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => cameraCallbacks.setPresetView?.('top')}>
             <ArrowUp className="h-4 w-4 mr-2" /> Top <span className="ml-auto text-xs opacity-60">1</span>
           </DropdownMenuItem>
@@ -371,9 +384,11 @@ export function MainToolbar() {
           <DropdownMenuItem onClick={() => cameraCallbacks.setPresetView?.('back')}>
             <ArrowLeft className="h-4 w-4 mr-2" /> Back <span className="ml-auto text-xs opacity-60">4</span>
           </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => cameraCallbacks.home?.()}>
-            <Box className="h-4 w-4 mr-2" /> Isometric <span className="ml-auto text-xs opacity-60">0</span>
+          <DropdownMenuItem onClick={() => cameraCallbacks.setPresetView?.('left')}>
+            <ArrowLeft className="h-4 w-4 mr-2" /> Left <span className="ml-auto text-xs opacity-60">5</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => cameraCallbacks.setPresetView?.('right')}>
+            <ArrowRight className="h-4 w-4 mr-2" /> Right <span className="ml-auto text-xs opacity-60">6</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -407,11 +422,15 @@ export function MainToolbar() {
 
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="ghost" size="icon-sm">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onShowShortcuts?.()}
+          >
             <HelpCircle className="h-4 w-4" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>Keyboard Shortcuts</TooltipContent>
+        <TooltipContent>Keyboard Shortcuts (?)</TooltipContent>
       </Tooltip>
     </div>
   );

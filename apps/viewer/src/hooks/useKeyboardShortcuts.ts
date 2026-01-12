@@ -41,7 +41,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       e.preventDefault();
       setActiveTool('select');
     }
-    if (key === 'h' && !ctrl && !shift && !selectedEntityId) {
+    if (key === 'p' && !ctrl && !shift) {
       e.preventDefault();
       setActiveTool('pan');
     }
@@ -71,7 +71,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       e.preventDefault();
       isolateEntity(selectedEntityId);
     }
-    if (key === 'h' && !ctrl && !shift && selectedEntityId) {
+    if ((key === 'delete' || key === 'backspace') && !ctrl && !shift && selectedEntityId) {
       e.preventDefault();
       hideEntity(selectedEntityId);
     }
@@ -80,11 +80,12 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       showAll();
     }
 
-    // Selection
+    // Selection - Escape clears selection and switches to select tool
     if (key === 'escape') {
       e.preventDefault();
       setSelectedEntityId(null);
       showAll();
+      setActiveTool('select');
     }
 
     // Theme toggle
@@ -93,23 +94,8 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       toggleTheme();
     }
 
-    // Help
-    if (key === '?' || (key === '/' && shift)) {
-      e.preventDefault();
-      // Could show a shortcuts modal here
-      console.log('Keyboard Shortcuts:');
-      console.log('V - Select tool');
-      console.log('H - Pan tool (or hide selection)');
-      console.log('O - Orbit tool');
-      console.log('C - Walk mode');
-      console.log('M - Measure tool');
-      console.log('X - Section tool');
-      console.log('I - Isolate selection');
-      console.log('A - Show all');
-      console.log('T - Toggle theme');
-      console.log('Escape - Clear selection');
-      console.log('1-6 - Preset views');
-    }
+    // Help - handled by KeyboardShortcutsDialog hook
+    // The dialog hook listens for '?' key globally
   }, [
     selectedEntityId,
     setSelectedEntityId,
@@ -134,16 +120,19 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
 export const KEYBOARD_SHORTCUTS = [
   { key: 'V', description: 'Select tool', category: 'Tools' },
   { key: 'B', description: 'Box select tool', category: 'Tools' },
-  { key: 'H', description: 'Pan tool', category: 'Tools' },
+  { key: 'P', description: 'Pan tool', category: 'Tools' },
   { key: 'O', description: 'Orbit tool', category: 'Tools' },
   { key: 'C', description: 'Walk mode', category: 'Tools' },
   { key: 'M', description: 'Measure tool', category: 'Tools' },
   { key: 'X', description: 'Section tool', category: 'Tools' },
   { key: 'I', description: 'Isolate selection', category: 'Visibility' },
-  { key: 'H', description: 'Hide selection', category: 'Visibility' },
+  { key: 'Del', description: 'Hide selection', category: 'Visibility' },
   { key: 'A', description: 'Show all', category: 'Visibility' },
+  { key: 'H', description: 'Home (Isometric view)', category: 'Camera' },
+  { key: 'Z', description: 'Fit all (zoom extents)', category: 'Camera' },
+  { key: 'F', description: 'Frame selection', category: 'Camera' },
+  { key: '0-6', description: 'Preset views', category: 'Camera' },
   { key: 'T', description: 'Toggle theme', category: 'UI' },
-  { key: 'Esc', description: 'Clear selection', category: 'Selection' },
-  { key: '1-6', description: 'Preset views', category: 'Camera' },
-  { key: 'F', description: 'Fit all', category: 'Camera' },
+  { key: 'Esc', description: 'Clear selection & switch to Select tool', category: 'Selection' },
+  { key: '?', description: 'Show keyboard shortcuts', category: 'Help' },
 ] as const;

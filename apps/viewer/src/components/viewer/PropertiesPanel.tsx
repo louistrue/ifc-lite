@@ -3,6 +3,7 @@ import {
   Copy,
   Focus,
   EyeOff,
+  Eye,
   Building2,
   Layers,
   FileText,
@@ -29,6 +30,9 @@ interface QuantitySet {
 
 export function PropertiesPanel() {
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
+  const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
+  const toggleEntityVisibility = useViewerStore((s) => s.toggleEntityVisibility);
+  const isEntityVisible = useViewerStore((s) => s.isEntityVisible);
   const { query, ifcDataStore } = useIfc();
 
   // Get spatial location info
@@ -100,7 +104,15 @@ export function PropertiesPanel() {
           <div className="flex gap-1 shrink-0">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon-xs">
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => {
+                    if (selectedEntityId && cameraCallbacks.frameSelection) {
+                      cameraCallbacks.frameSelection();
+                    }
+                  }}
+                >
                   <Focus className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
@@ -108,11 +120,25 @@ export function PropertiesPanel() {
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon-xs">
-                  <EyeOff className="h-3.5 w-3.5" />
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => {
+                    if (selectedEntityId) {
+                      toggleEntityVisibility(selectedEntityId);
+                    }
+                  }}
+                >
+                  {selectedEntityId && isEntityVisible(selectedEntityId) ? (
+                    <EyeOff className="h-3.5 w-3.5" />
+                  ) : (
+                    <Eye className="h-3.5 w-3.5" />
+                  )}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Hide</TooltipContent>
+              <TooltipContent>
+                {selectedEntityId && isEntityVisible(selectedEntityId) ? 'Hide' : 'Show'}
+              </TooltipContent>
             </Tooltip>
           </div>
         </div>
