@@ -343,7 +343,14 @@ export function MainToolbar() {
 
       {/* Camera */}
       <ActionButton icon={Home} label="Home (Isometric)" onClick={() => cameraCallbacks.home?.()} shortcut="H" />
-      <ActionButton icon={Maximize2} label="Zoom Extent" onClick={() => cameraCallbacks.fitAll?.()} shortcut="F" />
+      <ActionButton icon={Maximize2} label="Fit All" onClick={() => cameraCallbacks.fitAll?.()} />
+      <ActionButton 
+        icon={Focus} 
+        label="Frame Selection" 
+        onClick={() => cameraCallbacks.frameSelection?.()} 
+        shortcut="F" 
+        disabled={!selectedEntityId} 
+      />
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

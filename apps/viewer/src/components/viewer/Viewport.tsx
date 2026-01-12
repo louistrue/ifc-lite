@@ -75,6 +75,9 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
     lastX: 0,
     lastY: 0,
     button: 0,
+    startX: 0,  // Track start position for drag detection
+    startY: 0,
+    didDrag: false,  // True if mouse moved significantly during drag
   });
 
   // Touch state
@@ -111,6 +114,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   const pendingMeasurePointRef = useRef<MeasurePoint | null>(pendingMeasurePoint);
   const sectionPlaneRef = useRef(sectionPlane);
   const boxSelectRef = useRef(boxSelect);
+  const geometryRef = useRef<MeshData[] | null>(geometry);
 
   // Hover throttling
   const lastHoverCheckRef = useRef<number>(0);
@@ -125,6 +129,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   useEffect(() => { pendingMeasurePointRef.current = pendingMeasurePoint; }, [pendingMeasurePoint]);
   useEffect(() => { sectionPlaneRef.current = sectionPlane; }, [sectionPlane]);
   useEffect(() => { boxSelectRef.current = boxSelect; }, [boxSelect]);
+  useEffect(() => { geometryRef.current = geometry; }, [geometry]);
   useEffect(() => {
     hoverTooltipsEnabledRef.current = hoverTooltipsEnabled;
     if (!hoverTooltipsEnabled) {
@@ -159,6 +164,62 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       const camera = renderer.getCamera();
       const mouseState = mouseStateRef.current;
       const touchState = touchStateRef.current;
+
+      // Helper function to get entity bounds (min/max) - defined early for callbacks
+      function getEntityBounds(
+        geom: MeshData[] | null,
+        entityId: number
+      ): { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | null {
+        if (!geom) {
+          console.warn('[Viewport] getEntityBounds: geometry is null');
+          return null;
+        }
+        const mesh = geom.find(m => m.expressId === entityId);
+        if (!mesh) {
+          console.warn(`[Viewport] getEntityBounds: mesh not found for entityId ${entityId}`);
+          return null;
+        }
+        if (mesh.positions.length < 3) {
+          console.warn(`[Viewport] getEntityBounds: mesh has insufficient positions for entityId ${entityId}`);
+          return null;
+        }
+
+        let minX = Infinity, minY = Infinity, minZ = Infinity;
+        let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+        for (let i = 0; i < mesh.positions.length; i += 3) {
+          const x = mesh.positions[i];
+          const y = mesh.positions[i + 1];
+          const z = mesh.positions[i + 2];
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          minZ = Math.min(minZ, z);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
+          maxZ = Math.max(maxZ, z);
+        }
+
+        return {
+          min: { x: minX, y: minY, z: minZ },
+          max: { x: maxX, y: maxY, z: maxZ },
+        };
+      }
+
+      // Helper function to get entity center from geometry (uses bounding box center)
+      function getEntityCenter(
+        geom: MeshData[] | null,
+        entityId: number
+      ): { x: number; y: number; z: number } | null {
+        const bounds = getEntityBounds(geom, entityId);
+        if (bounds) {
+          return {
+            x: (bounds.min.x + bounds.max.x) / 2,
+            y: (bounds.min.y + bounds.max.y) / 2,
+            z: (bounds.min.z + bounds.max.z) / 2,
+          };
+        }
+        return null;
+      }
 
       // Register camera callbacks for ViewCube and other controls
       setCameraCallbacks({
@@ -207,18 +268,36 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           });
           calculateScale();
         },
+        frameSelection: () => {
+          // Frame selection - zoom to fit selected element
+          const selectedId = selectedEntityIdRef.current;
+          const geom = geometryRef.current;
+          console.log('[Viewport] frameSelection called:', { selectedId, geometryCount: geom?.length });
+          if (selectedId !== null && geom) {
+            const bounds = getEntityBounds(geom, selectedId);
+            console.log('[Viewport] frameSelection bounds:', bounds);
+            if (bounds) {
+              camera.frameBounds(bounds.min, bounds.max, 300);
+              calculateScale();
+            } else {
+              console.warn('[Viewport] frameSelection: Could not get bounds for selected element');
+            }
+          } else {
+            console.warn('[Viewport] frameSelection: No selection or geometry');
+          }
+        },
       });
 
       // Calculate scale bar value (world-space size for 96px scale bar)
       const calculateScale = () => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-        
+
         const viewportHeight = canvas.height;
         const distance = camera.getDistance();
         const fov = camera.getFOV();
         const scaleBarPixels = 96; // w-24 = 6rem = 96px
-        
+
         // Calculate world-space size: (screen pixels / viewport height) * (distance * tan(FOV/2) * 2)
         const worldSize = (scaleBarPixels / viewportHeight) * (distance * Math.tan(fov / 2) * 2);
         updateScaleRealtime(worldSize);
@@ -250,7 +329,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           updateCameraRotationRealtime(camera.getRotation());
           lastRotationUpdate = currentTime;
         }
-        
+
         // Update scale bar (throttled to every 100ms)
         if (currentTime - lastScaleUpdate > 100) {
           calculateScale();
@@ -269,6 +348,9 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         mouseState.button = e.button;
         mouseState.lastX = e.clientX;
         mouseState.lastY = e.clientY;
+        mouseState.startX = e.clientX;
+        mouseState.startY = e.clientY;
+        mouseState.didDrag = false;
 
         // Determine action based on active tool and mouse button
         const tool = activeToolRef.current;
@@ -281,35 +363,28 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         }
 
         const willOrbit = !(tool === 'pan' || e.button === 1 || e.button === 2 ||
-                           (tool === 'select' && e.shiftKey) ||
-                           (tool !== 'orbit' && tool !== 'select' && e.shiftKey));
+          (tool === 'select' && e.shiftKey) ||
+          (tool !== 'orbit' && tool !== 'select' && e.shiftKey));
 
-        // Set orbit pivot for better orbit UX (best practice from BIM viewers)
+        // Set orbit pivot to what user clicks on (standard CAD/BIM behavior)
+        // Simple and predictable: orbit around clicked geometry, or model center if empty space
         if (willOrbit && tool !== 'measure' && tool !== 'walk') {
           const rect = canvas.getBoundingClientRect();
           const x = e.clientX - rect.left;
           const y = e.clientY - rect.top;
 
-          // Priority 1: If an element is selected, orbit around its center
-          const currentSelectedId = selectedEntityIdRef.current;
-          if (currentSelectedId !== null) {
-            const center = getEntityCenter(geometry, currentSelectedId);
+          // Pick at cursor position - orbit around what user is clicking on
+          const pickedId = await renderer.pick(x, y);
+          if (pickedId !== null) {
+            const center = getEntityCenter(geometryRef.current, pickedId);
             if (center) {
               camera.setOrbitPivot(center);
+            } else {
+              camera.setOrbitPivot(null);
             }
           } else {
-            // Priority 2: Pick at cursor position - orbit around what user is pointing at
-            const pickedId = await renderer.pick(x, y);
-            if (pickedId !== null) {
-              const center = getEntityCenter(geometry, pickedId);
-              if (center) {
-                camera.setOrbitPivot(center);
-              }
-            } else {
-              // Priority 3: No geometry under cursor - use screen center at target depth
-              // This gives intuitive orbit behavior even when pointing at empty space
-              camera.setOrbitPivot(null); // Use default target
-            }
+            // No geometry under cursor - orbit around current target (model center)
+            camera.setOrbitPivot(null);
           }
         }
 
@@ -342,6 +417,13 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           const dx = e.clientX - mouseState.lastX;
           const dy = e.clientY - mouseState.lastY;
           const tool = activeToolRef.current;
+
+          // Check if this counts as a drag (moved more than 5px from start)
+          const totalDx = e.clientX - mouseState.startX;
+          const totalDy = e.clientY - mouseState.startY;
+          if (Math.abs(totalDx) > 5 || Math.abs(totalDy) > 5) {
+            mouseState.didDrag = true;
+          }
 
           // Handle box selection
           if (tool === 'boxselect' && mouseState.button === 0) {
@@ -395,7 +477,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         mouseState.isPanning = false;
         const tool = activeToolRef.current;
         canvas.style.cursor = tool === 'pan' ? 'grab' : (tool === 'orbit' ? 'grab' : 'default');
-        // Clear orbit pivot after orbit operation ends
+        // Clear orbit pivot after each orbit operation
         camera.setOrbitPivot(null);
       });
 
@@ -403,7 +485,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         mouseState.isDragging = false;
         mouseState.isPanning = false;
         camera.stopInertia();
-        camera.setOrbitPivot(null); // Clear orbit pivot when leaving canvas
+        camera.setOrbitPivot(null);
         canvas.style.cursor = 'default';
         clearHover();
       });
@@ -439,13 +521,23 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         const y = e.clientY - rect.top;
         const tool = activeToolRef.current;
 
+        // Skip selection if user was dragging (orbiting/panning)
+        if (mouseState.didDrag) {
+          return;
+        }
+
+        // Skip selection for orbit/pan tools - they don't select
+        if (tool === 'orbit' || tool === 'pan' || tool === 'walk') {
+          return;
+        }
+
         // Handle measure tool clicks
         if (tool === 'measure') {
           const pickedId = await renderer.pick(x, y);
           if (pickedId) {
             // Get 3D position from mesh vertices (simplified - uses center of clicked entity)
             // In a full implementation, you'd use ray-triangle intersection
-            const worldPos = getApproximateWorldPosition(geometry, pickedId, x, y, canvas.width, canvas.height);
+            const worldPos = getApproximateWorldPosition(geometryRef.current, pickedId, x, y, canvas.width, canvas.height);
             const measurePoint: MeasurePoint = {
               x: worldPos.x,
               y: worldPos.y,
@@ -469,7 +561,8 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         if (tool === 'boxselect') {
           // Get box selection coordinates (in screen space relative to viewport)
           const bs = boxSelectRef.current;
-          if (bs.isSelecting && geometry) {
+          const geom = geometryRef.current;
+          if (bs.isSelecting && geom) {
             const selectionRect = {
               left: Math.min(bs.startX, bs.currentX),
               right: Math.max(bs.startX, bs.currentX),
@@ -492,20 +585,28 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
               // Find all entities whose center projects into the selection box
               const selectedIds: number[] = [];
 
-              for (const mesh of geometry) {
-                // Calculate mesh center from positions
+              for (const mesh of geom) {
+                // Calculate mesh bounding box center
                 if (mesh.positions.length >= 3) {
-                  let sumX = 0, sumY = 0, sumZ = 0;
-                  const vertCount = mesh.positions.length / 3;
+                  let minX = Infinity, minY = Infinity, minZ = Infinity;
+                  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
                   for (let i = 0; i < mesh.positions.length; i += 3) {
-                    sumX += mesh.positions[i];
-                    sumY += mesh.positions[i + 1];
-                    sumZ += mesh.positions[i + 2];
+                    const x = mesh.positions[i];
+                    const y = mesh.positions[i + 1];
+                    const z = mesh.positions[i + 2];
+                    minX = Math.min(minX, x);
+                    minY = Math.min(minY, y);
+                    minZ = Math.min(minZ, z);
+                    maxX = Math.max(maxX, x);
+                    maxY = Math.max(maxY, y);
+                    maxZ = Math.max(maxZ, z);
                   }
+
                   const center = {
-                    x: sumX / vertCount,
-                    y: sumY / vertCount,
-                    z: sumZ / vertCount,
+                    x: (minX + maxX) / 2,
+                    y: (minY + maxY) / 2,
+                    z: (minZ + maxZ) / 2,
                   };
 
                   // Project center to screen space
@@ -514,7 +615,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
                   if (screenPos) {
                     // Check if screen position is within selection box
                     if (screenPos.x >= canvasLeft && screenPos.x <= canvasRight &&
-                        screenPos.y >= canvasTop && screenPos.y <= canvasBottom) {
+                      screenPos.y >= canvasTop && screenPos.y <= canvasBottom) {
                       selectedIds.push(mesh.expressId);
                     }
                   }
@@ -564,30 +665,6 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         }
       });
 
-      // Helper function to get entity center from geometry
-      function getEntityCenter(
-        geom: MeshData[] | null,
-        entityId: number
-      ): { x: number; y: number; z: number } | null {
-        if (geom) {
-          const mesh = geom.find(m => m.expressId === entityId);
-          if (mesh && mesh.positions.length >= 3) {
-            let sumX = 0, sumY = 0, sumZ = 0;
-            const vertCount = mesh.positions.length / 3;
-            for (let i = 0; i < mesh.positions.length; i += 3) {
-              sumX += mesh.positions[i];
-              sumY += mesh.positions[i + 1];
-              sumZ += mesh.positions[i + 2];
-            }
-            return {
-              x: sumX / vertCount,
-              y: sumY / vertCount,
-              z: sumZ / vertCount,
-            };
-          }
-        }
-        return null;
-      }
 
       // Helper function to get approximate world position (for measurement tool)
       function getApproximateWorldPosition(
@@ -612,27 +689,21 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             y: touchState.touches[0].clientY,
           };
 
-          // Set orbit pivot for single-finger orbit (same logic as mouse)
+          // Set orbit pivot to what user touches (same as mouse click behavior)
           const rect = canvas.getBoundingClientRect();
           const x = touchState.touches[0].clientX - rect.left;
           const y = touchState.touches[0].clientY - rect.top;
 
-          const currentSelectedId = selectedEntityIdRef.current;
-          if (currentSelectedId !== null) {
-            const center = getEntityCenter(geometry, currentSelectedId);
+          const pickedId = await renderer.pick(x, y);
+          if (pickedId !== null) {
+            const center = getEntityCenter(geometryRef.current, pickedId);
             if (center) {
               camera.setOrbitPivot(center);
-            }
-          } else {
-            const pickedId = await renderer.pick(x, y);
-            if (pickedId !== null) {
-              const center = getEntityCenter(geometry, pickedId);
-              if (center) {
-                camera.setOrbitPivot(center);
-              }
             } else {
               camera.setOrbitPivot(null);
             }
+          } else {
+            camera.setOrbitPivot(null);
           }
         } else if (touchState.touches.length === 2) {
           const dx = touchState.touches[1].clientX - touchState.touches[0].clientX;
@@ -695,7 +766,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         touchState.touches = Array.from(e.touches);
         if (touchState.touches.length === 0) {
           camera.stopInertia();
-          camera.setOrbitPivot(null); // Clear orbit pivot when touch ends
+          camera.setOrbitPivot(null);
         }
       });
 
@@ -730,13 +801,23 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         if (e.key === '5') setViewAndRender('left');
         if (e.key === '6') setViewAndRender('right');
 
-        // Frame selection / Fit all
+        // Frame selection (F) - zoom to fit selection, or fit all if nothing selected
         if (e.key === 'f' || e.key === 'F') {
-          camera.zoomToFit(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 500);
+          const selectedId = selectedEntityIdRef.current;
+          if (selectedId !== null) {
+            // Frame selection - zoom to fit selected element
+            const bounds = getEntityBounds(geometryRef.current, selectedId);
+            if (bounds) {
+              camera.frameBounds(bounds.min, bounds.max, 300);
+            }
+          } else {
+            // No selection - fit all
+            camera.zoomExtent(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 300);
+          }
           calculateScale();
         }
 
-        // Home view
+        // Home view (H) - reset to isometric
         if (e.key === 'h' || e.key === 'H') {
           camera.zoomToFit(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 500);
           calculateScale();

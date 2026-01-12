@@ -130,19 +130,7 @@ export class Camera {
     const newPosY = pivotPoint.y + distance * Math.cos(phiClamped);
     const newPosZ = pivotPoint.z + distance * Math.sin(phiClamped) * Math.cos(theta);
 
-    // If orbiting around a pivot (not the target), also move the target
-    // This keeps the target in front of the camera for subsequent operations
-    if (this.orbitPivot) {
-      const deltaPos = {
-        x: newPosX - this.camera.position.x,
-        y: newPosY - this.camera.position.y,
-        z: newPosZ - this.camera.position.z,
-      };
-      this.camera.target.x += deltaPos.x;
-      this.camera.target.y += deltaPos.y;
-      this.camera.target.z += deltaPos.z;
-    }
-
+    // Update camera position (orbits around pivot if set, otherwise around target)
     this.camera.position.x = newPosX;
     this.camera.position.y = newPosY;
     this.camera.position.z = newPosZ;
@@ -439,6 +427,104 @@ export class Camera {
    * Zoom to fit bounds WITHOUT changing view direction
    * Just centers on bounds and adjusts distance to fit
    */
+  /**
+   * Frame/center view on a point (keeps current distance and direction)
+   * Standard CAD "Frame Selection" behavior
+   */
+  async framePoint(point: Vec3, duration = 300): Promise<void> {
+    // Keep current viewing direction and distance
+    const dir = {
+      x: this.camera.position.x - this.camera.target.x,
+      y: this.camera.position.y - this.camera.target.y,
+      z: this.camera.position.z - this.camera.target.z,
+    };
+
+    // New position: point + current offset
+    const endPos = {
+      x: point.x + dir.x,
+      y: point.y + dir.y,
+      z: point.z + dir.z,
+    };
+
+    return this.animateTo(endPos, point, duration);
+  }
+
+  /**
+   * Frame selection - zoom to fit bounds while keeping current view direction
+   * This is what "Frame Selection" should do - zoom to fill screen
+   */
+  async frameBounds(min: Vec3, max: Vec3, duration = 300): Promise<void> {
+    const center = {
+      x: (min.x + max.x) / 2,
+      y: (min.y + max.y) / 2,
+      z: (min.z + max.z) / 2,
+    };
+    const size = {
+      x: max.x - min.x,
+      y: max.y - min.y,
+      z: max.z - min.z,
+    };
+    const maxSize = Math.max(size.x, size.y, size.z);
+
+    if (maxSize < 1e-6) {
+      // Very small or zero size - just center on it
+      return this.framePoint(center, duration);
+    }
+
+    // Calculate required distance based on FOV to fit bounds
+    const fovFactor = Math.tan(this.camera.fov / 2);
+    const distance = (maxSize / 2) / fovFactor * 1.2; // 1.2x padding for nice framing
+
+    // Get current viewing direction from view matrix (more reliable than position-target)
+    // View matrix forward is -Z axis in view space
+    const viewMatrix = this.viewMatrix.m;
+    // Extract forward direction from view matrix (negative Z column, normalized)
+    let dir = {
+      x: -viewMatrix[8],   // -m[2][0] (forward X)
+      y: -viewMatrix[9],   // -m[2][1] (forward Y)
+      z: -viewMatrix[10],  // -m[2][2] (forward Z)
+    };
+    const dirLen = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+
+    // Normalize direction
+    if (dirLen > 1e-6) {
+      dir.x /= dirLen;
+      dir.y /= dirLen;
+      dir.z /= dirLen;
+    } else {
+      // Fallback: use position-target if view matrix is invalid
+      dir = {
+        x: this.camera.position.x - this.camera.target.x,
+        y: this.camera.position.y - this.camera.target.y,
+        z: this.camera.position.z - this.camera.target.z,
+      };
+      const fallbackLen = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+      if (fallbackLen > 1e-6) {
+        dir.x /= fallbackLen;
+        dir.y /= fallbackLen;
+        dir.z /= fallbackLen;
+      } else {
+        // Last resort: southeast isometric
+        dir.x = 0.6;
+        dir.y = 0.5;
+        dir.z = 0.6;
+        const len = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+        dir.x /= len;
+        dir.y /= len;
+        dir.z /= len;
+      }
+    }
+
+    // New position: center + direction * distance
+    const endPos = {
+      x: center.x + dir.x * distance,
+      y: center.y + dir.y * distance,
+      z: center.z + dir.z * distance,
+    };
+
+    return this.animateTo(endPos, center, duration);
+  }
+
   async zoomExtent(min: Vec3, max: Vec3, duration = 300): Promise<void> {
     const center = {
       x: (min.x + max.x) / 2,

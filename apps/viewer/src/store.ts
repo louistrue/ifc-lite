@@ -104,6 +104,7 @@ interface ViewerState {
     home?: () => void;  // Reset to isometric view
     zoomIn?: () => void;
     zoomOut?: () => void;
+    frameSelection?: () => void;  // Center view on selected element (F key)
   };
   // Direct callback for real-time ViewCube updates (bypasses React state)
   onCameraRotationChange: ((rotation: { azimuth: number; elevation: number }) => void) | null;

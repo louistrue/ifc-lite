@@ -139,20 +139,12 @@ export function ViewportOverlays() {
         </Tooltip>
       </div>
 
-      {/* Context Info (bottom-center) */}
-      {(storeyName || visibleCount > 0) && (
+      {/* Context Info (bottom-center) - Storey name only */}
+      {storeyName && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-background/80 backdrop-blur-sm rounded-full border shadow-sm">
-          <div className="flex items-center gap-3 text-sm">
-            {storeyName && (
-              <>
-                <Layers className="h-4 w-4 text-primary" />
-                <span className="font-medium">{storeyName}</span>
-                <span className="text-muted-foreground">|</span>
-              </>
-            )}
-            <span className="text-muted-foreground">
-              {visibleCount.toLocaleString()} objects visible
-            </span>
+          <div className="flex items-center gap-2 text-sm">
+            <Layers className="h-4 w-4 text-primary" />
+            <span className="font-medium">{storeyName}</span>
           </div>
         </div>
       )}

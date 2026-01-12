@@ -59,12 +59,12 @@ export class WebGPUDevice {
     this.lastHeight = this.canvas.height;
 
     try {
-      this.context.configure({
-        device: this.device,
-        format: this.format,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    this.context.configure({
+      device: this.device,
+      format: this.format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
         alphaMode: 'premultiplied',
-      });
+    });
       this.contextConfigured = true;
     } catch (e) {
       console.warn('[WebGPU] Failed to configure context:', e);
