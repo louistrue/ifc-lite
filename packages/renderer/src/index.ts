@@ -132,13 +132,19 @@ export class Renderer {
         const width = Math.max(1, Math.floor(rect.width));
         const height = Math.max(1, Math.floor(rect.height));
 
+        // Skip rendering if canvas is too small
+        if (width < 10 || height < 10) return;
+
         // Update canvas pixel dimensions if needed
-        if (this.canvas.width !== width || this.canvas.height !== height) {
+        const dimensionsChanged = this.canvas.width !== width || this.canvas.height !== height;
+        if (dimensionsChanged) {
             this.canvas.width = width;
             this.canvas.height = height;
             this.camera.setAspect(width / height);
             // Force reconfigure when dimensions change
             this.device.configureContext();
+            // Also resize the depth texture immediately
+            this.pipeline.resize(width, height);
         }
 
         // Skip rendering if canvas is invalid
@@ -184,8 +190,17 @@ export class Renderer {
                 : { r: 0.1, g: 0.1, b: 0.1, a: 1 };
 
             // Get current texture and create view
-            const currentTexture = context.getCurrentTexture();
-            const textureView = currentTexture.createView();
+            // This can fail if canvas was resized and context invalidated
+            let currentTexture: GPUTexture;
+            let textureView: GPUTextureView;
+            try {
+                currentTexture = context.getCurrentTexture();
+                textureView = currentTexture.createView();
+            } catch {
+                // Context texture invalid, reconfigure and skip this frame
+                this.device.configureContext();
+                return;
+            }
 
             // Separate meshes into opaque and transparent
             const opaqueMeshes: typeof meshes = [];
