@@ -8,6 +8,7 @@ export { Camera } from './camera.js';
 export { Scene } from './scene.js';
 export { Picker } from './picker.js';
 export { MathUtils } from './math.js';
+export { SectionPlaneRenderer } from './section-plane.js';
 export * from './types.js';
 
 import { WebGPUDevice } from './device.js';
@@ -17,6 +18,7 @@ import { Scene } from './scene.js';
 import { Picker } from './picker.js';
 import { FrustumUtils } from '@ifc-lite/spatial';
 import type { RenderOptions, Mesh } from './types.js';
+import { SectionPlaneRenderer } from './section-plane.js';
 
 /**
  * Main renderer class
@@ -28,6 +30,8 @@ export class Renderer {
     private scene: Scene;
     private picker: Picker | null = null;
     private canvas: HTMLCanvasElement;
+    private sectionPlaneRenderer: SectionPlaneRenderer | null = null;
+    private modelBounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | null = null;
 
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
@@ -55,6 +59,7 @@ export class Renderer {
 
         this.pipeline = new RenderPipeline(this.device, width, height);
         this.picker = new Picker(this.device, width, height);
+        this.sectionPlaneRenderer = new SectionPlaneRenderer(this.device.getDevice(), this.device.getFormat());
         this.camera.setAspect(width / height);
     }
 
@@ -241,20 +246,37 @@ export class Renderer {
                 else if (options.sectionPlane.axis === 'y') normal[1] = 1;
                 else normal[2] = 1;
 
-                // Get model bounds for calculating plane position
-                let minVal = -100, maxVal = 100;
+                // Get model bounds for calculating plane position and visual
+                const boundsMin = { x: Infinity, y: Infinity, z: Infinity };
+                const boundsMax = { x: -Infinity, y: -Infinity, z: -Infinity };
+
                 if (meshes.length > 0) {
-                    minVal = Infinity;
-                    maxVal = -Infinity;
                     for (const mesh of meshes) {
                         if (mesh.bounds) {
-                            const axisIdx = options.sectionPlane.axis === 'x' ? 0 : options.sectionPlane.axis === 'y' ? 1 : 2;
-                            minVal = Math.min(minVal, mesh.bounds.min[axisIdx]);
-                            maxVal = Math.max(maxVal, mesh.bounds.max[axisIdx]);
+                            boundsMin.x = Math.min(boundsMin.x, mesh.bounds.min[0]);
+                            boundsMin.y = Math.min(boundsMin.y, mesh.bounds.min[1]);
+                            boundsMin.z = Math.min(boundsMin.z, mesh.bounds.min[2]);
+                            boundsMax.x = Math.max(boundsMax.x, mesh.bounds.max[0]);
+                            boundsMax.y = Math.max(boundsMax.y, mesh.bounds.max[1]);
+                            boundsMax.z = Math.max(boundsMax.z, mesh.bounds.max[2]);
                         }
                     }
-                    if (!Number.isFinite(minVal)) { minVal = -100; maxVal = 100; }
+                    if (!Number.isFinite(boundsMin.x)) {
+                        boundsMin.x = boundsMin.y = boundsMin.z = -100;
+                        boundsMax.x = boundsMax.y = boundsMax.z = 100;
+                    }
+                } else {
+                    boundsMin.x = boundsMin.y = boundsMin.z = -100;
+                    boundsMax.x = boundsMax.y = boundsMax.z = 100;
                 }
+
+                // Store bounds for section plane visual
+                this.modelBounds = { min: boundsMin, max: boundsMax };
+
+                // Get axis-specific range
+                const axisIdx = options.sectionPlane.axis === 'x' ? 'x' : options.sectionPlane.axis === 'y' ? 'y' : 'z';
+                const minVal = boundsMin[axisIdx];
+                const maxVal = boundsMax[axisIdx];
 
                 // Calculate plane distance from position percentage
                 const range = maxVal - minVal;
@@ -352,6 +374,22 @@ export class Renderer {
             }
 
             pass.end();
+
+            // Render section plane visual if enabled
+            if (sectionPlaneData?.enabled && this.sectionPlaneRenderer && this.modelBounds) {
+                this.sectionPlaneRenderer.render(
+                    encoder,
+                    textureView,
+                    this.pipeline.getDepthTextureView(),
+                    {
+                        axis: options.sectionPlane!.axis,
+                        position: options.sectionPlane!.position,
+                        bounds: this.modelBounds,
+                        viewProj,
+                    }
+                );
+            }
+
             device.queue.submit([encoder.finish()]);
         } catch (error) {
             // Handle WebGPU errors (e.g., device lost, invalid state)

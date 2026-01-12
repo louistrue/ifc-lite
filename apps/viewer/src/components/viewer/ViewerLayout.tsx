@@ -72,8 +72,6 @@ export function ViewerLayout() {
               minSize={10}
               collapsible
               collapsedSize={0}
-              onCollapse={() => setLeftPanelCollapsed(true)}
-              onExpand={() => setLeftPanelCollapsed(false)}
             >
               <div className="h-full w-full overflow-hidden">
                 <HierarchyPanel />
@@ -98,8 +96,6 @@ export function ViewerLayout() {
               minSize={10}
               collapsible
               collapsedSize={0}
-              onCollapse={() => setRightPanelCollapsed(true)}
-              onExpand={() => setRightPanelCollapsed(false)}
             >
               <div className="h-full w-full overflow-hidden">
                 <PropertiesPanel />

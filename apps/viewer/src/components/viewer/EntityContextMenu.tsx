@@ -9,7 +9,6 @@ import {
   Eye,
   Layers,
   Copy,
-  Download,
   Maximize2,
   Building2,
 } from 'lucide-react';

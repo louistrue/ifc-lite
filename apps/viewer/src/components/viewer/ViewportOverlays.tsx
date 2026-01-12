@@ -11,6 +11,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { ViewCube } from './ViewCube';
+import { AxisHelper } from './AxisHelper';
 
 export function ViewportOverlays() {
   const selectedStorey = useViewerStore((s) => s.selectedStorey);
@@ -138,6 +139,14 @@ export function ViewportOverlays() {
       <div className="absolute top-6 right-6">
         <ViewCube
           onViewChange={handleViewChange}
+          rotationX={viewCubeRotationX}
+          rotationY={viewCubeRotationY}
+        />
+      </div>
+
+      {/* Axis Helper (bottom-left, above scale bar) - IFC Z-up convention */}
+      <div className="absolute bottom-16 left-4">
+        <AxisHelper
           rotationX={viewCubeRotationX}
           rotationY={viewCubeRotationY}
         />

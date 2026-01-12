@@ -663,6 +663,47 @@ export class Camera {
     return { azimuth, elevation };
   }
 
+  /**
+   * Project a world position to screen coordinates
+   * @param worldPos - Position in world space
+   * @param canvasWidth - Canvas width in pixels
+   * @param canvasHeight - Canvas height in pixels
+   * @returns Screen coordinates { x, y } or null if behind camera
+   */
+  projectToScreen(worldPos: Vec3, canvasWidth: number, canvasHeight: number): { x: number; y: number } | null {
+    // Transform world position by view-projection matrix
+    const m = this.viewProjMatrix.m;
+
+    // Manual matrix-vector multiplication for vec4(worldPos, 1.0)
+    const clipX = m[0] * worldPos.x + m[4] * worldPos.y + m[8] * worldPos.z + m[12];
+    const clipY = m[1] * worldPos.x + m[5] * worldPos.y + m[9] * worldPos.z + m[13];
+    const clipZ = m[2] * worldPos.x + m[6] * worldPos.y + m[10] * worldPos.z + m[14];
+    const clipW = m[3] * worldPos.x + m[7] * worldPos.y + m[11] * worldPos.z + m[15];
+
+    // Check if behind camera
+    if (clipW <= 0) {
+      return null;
+    }
+
+    // Perspective divide to get NDC
+    const ndcX = clipX / clipW;
+    const ndcY = clipY / clipW;
+    const ndcZ = clipZ / clipW;
+
+    // Check if outside clip volume
+    if (ndcZ < -1 || ndcZ > 1) {
+      return null;
+    }
+
+    // Convert NDC to screen coordinates
+    // NDC: (-1,-1) = bottom-left, (1,1) = top-right
+    // Screen: (0,0) = top-left, (width, height) = bottom-right
+    const screenX = (ndcX + 1) * 0.5 * canvasWidth;
+    const screenY = (1 - ndcY) * 0.5 * canvasHeight; // Flip Y
+
+    return { x: screenX, y: screenY };
+  }
+
   private updateMatrices(): void {
     this.viewMatrix = MathUtils.lookAt(
       this.camera.position,
