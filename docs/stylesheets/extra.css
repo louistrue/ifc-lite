@@ -1,0 +1,126 @@
+/* IFC-Lite Documentation Custom Styles */
+
+/* Color scheme adjustments */
+:root {
+  --md-primary-fg-color: #4f46e5;
+  --md-primary-fg-color--light: #6366f1;
+  --md-primary-fg-color--dark: #4338ca;
+  --md-accent-fg-color: #3b82f6;
+}
+
+/* Header styling */
+.md-header {
+  background-color: var(--md-primary-fg-color);
+}
+
+/* Navigation tabs */
+.md-tabs {
+  background-color: var(--md-primary-fg-color--dark);
+}
+
+/* Code blocks */
+.highlight code {
+  font-size: 0.85em;
+}
+
+/* Admonitions */
+.admonition.tip {
+  border-color: #22c55e;
+}
+
+.admonition.tip > .admonition-title::before {
+  background-color: #22c55e;
+}
+
+.admonition.warning {
+  border-color: #f59e0b;
+}
+
+.admonition.warning > .admonition-title::before {
+  background-color: #f59e0b;
+}
+
+/* Mermaid diagrams */
+.mermaid {
+  text-align: center;
+  margin: 1rem 0;
+}
+
+/* Tables */
+.md-typeset table:not([class]) {
+  font-size: 0.85em;
+  border: 1px solid var(--md-typeset-table-color);
+}
+
+.md-typeset table:not([class]) th {
+  background-color: var(--md-primary-fg-color);
+  color: white;
+  font-weight: 600;
+}
+
+/* Status badges in tables */
+.md-typeset table td:has(.success) {
+  color: #22c55e;
+}
+
+/* Cards grid */
+.grid.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.grid.cards > * {
+  padding: 1rem;
+  border: 1px solid var(--md-typeset-table-color);
+  border-radius: 0.5rem;
+  transition: box-shadow 0.2s;
+}
+
+.grid.cards > *:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Hero section on home */
+.md-typeset h1 {
+  font-weight: 700;
+}
+
+/* Code tabs */
+.md-typeset .tabbed-labels > label {
+  font-weight: 500;
+}
+
+/* Custom icons */
+.lg.middle {
+  font-size: 2rem;
+  vertical-align: middle;
+  margin-right: 0.5rem;
+}
+
+/* Feature comparison checkmarks */
+.success {
+  color: #22c55e;
+}
+
+/* XY Chart styling */
+.md-typeset .mermaid .xychart-bar {
+  fill: var(--md-primary-fg-color);
+}
+
+/* Responsive adjustments */
+@media screen and (max-width: 76.1875em) {
+  .grid.cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Print styles */
+@media print {
+  .md-sidebar,
+  .md-header,
+  .md-tabs {
+    display: none;
+  }
+}
