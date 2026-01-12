@@ -110,14 +110,15 @@ export class ParquetExporter {
     }
 
     private async writeQuantities(): Promise<Uint8Array> {
-        // Quantities are not yet implemented in IfcDataStore - return empty table
+        const { quantities, strings } = this.store;
+
         return this.toParquet({
-            EntityId: [],
-            QsetName: [],
-            QuantityName: [],
-            QuantityType: [],
-            Value: [],
-            Formula: [],
+            EntityId: Array.from(quantities.entityId),
+            QsetName: mapTypedArray(quantities.qsetName, i => strings.get(i)),
+            QuantityName: mapTypedArray(quantities.quantityName, i => strings.get(i)),
+            QuantityType: mapTypedArray(quantities.quantityType, t => QuantityTypeToString(t)),
+            Value: Array.from(quantities.value),
+            Formula: mapTypedArray(quantities.formula, i => i > 0 ? strings.get(i) : null),
         });
     }
 
@@ -374,10 +375,58 @@ export class ParquetExporter {
     // UTILITIES
     // ═══════════════════════════════════════════════════════════════
 
-    private async toParquet(_columns: Record<string, any[]>): Promise<Uint8Array> {
-        // For now, return a placeholder that will be implemented with parquet-wasm
-        // This is a stub - actual implementation will use parquet-wasm library
-        throw new Error('Parquet encoding not yet implemented. Install parquet-wasm and apache-arrow dependencies.');
+    private async toParquet(columns: Record<string, any[]>): Promise<Uint8Array> {
+        // Dynamic imports for better tree-shaking
+        // @ts-ignore - apache-arrow types have module resolution issues
+        const arrow = await import('apache-arrow');
+        // @ts-ignore - parquet-wasm may have type issues
+        const parquet = await import('parquet-wasm');
+
+        // Build Arrow vectors from column data
+        const vectors: Record<string, any> = {};
+
+        for (const [name, data] of Object.entries(columns)) {
+            if (data.length === 0) {
+                // Empty column - create empty vector
+                vectors[name] = arrow.vectorFromArray([]);
+                continue;
+            }
+
+            // Infer type from first non-null element
+            const sample = data.find((v: any) => v !== null && v !== undefined);
+
+            if (sample === undefined) {
+                // All nulls - create string vector with nulls
+                vectors[name] = arrow.vectorFromArray(data);
+            } else if (typeof sample === 'number') {
+                // Check if it's integer or float
+                const isFloat = data.some((v: any) => v !== null && !Number.isInteger(v));
+                if (isFloat) {
+                    vectors[name] = arrow.vectorFromArray(data, new arrow.Float64());
+                } else {
+                    // Use Int32 for integers (covers express IDs and most counts)
+                    vectors[name] = arrow.vectorFromArray(data, new arrow.Int32());
+                }
+            } else if (typeof sample === 'boolean') {
+                vectors[name] = arrow.vectorFromArray(data, new arrow.Bool());
+            } else {
+                // String or other - convert to string
+                vectors[name] = arrow.vectorFromArray(data.map((v: any) => v === null ? null : String(v)));
+            }
+        }
+
+        // Build Arrow Table
+        const table = new arrow.Table(vectors);
+
+        // Convert to Arrow IPC format (RecordBatch)
+        const ipcBuffer = arrow.tableToIPC(table);
+
+        // Convert Arrow IPC to Parquet
+        const parquetBuffer = parquet.writeParquet(
+            parquet.Table.fromIPCStream(ipcBuffer)
+        );
+
+        return parquetBuffer;
     }
 
     private async createZipArchive(files: Map<string, Uint8Array>): Promise<Uint8Array> {

@@ -4,17 +4,20 @@
 
 import type { EntityRef, IfcEntity } from './types.js';
 import { PropertyExtractor } from './property-extractor.js';
+import { QuantityExtractor } from './quantity-extractor.js';
 import { RelationshipExtractor } from './relationship-extractor.js';
 import { SpatialHierarchyBuilder } from './spatial-hierarchy-builder.js';
 import {
     StringTable,
     EntityTableBuilder,
     PropertyTableBuilder,
+    QuantityTableBuilder,
     RelationshipGraphBuilder,
     RelationshipType,
     PropertyValueType,
+    QuantityType,
 } from '@ifc-lite/data';
-import type { SpatialHierarchy } from '@ifc-lite/data';
+import type { SpatialHierarchy, QuantityTable } from '@ifc-lite/data';
 
 // SpatialIndex interface - matches BVH from @ifc-lite/spatial
 // Defined here to avoid circular dependency
@@ -35,6 +38,7 @@ export interface IfcDataStore {
     strings: StringTable;
     entities: ReturnType<EntityTableBuilder['build']>;
     properties: ReturnType<PropertyTableBuilder['build']>;
+    quantities: QuantityTable;
     relationships: ReturnType<RelationshipGraphBuilder['build']>;
 
     // Spatial structures (optional, built after parsing)
@@ -153,6 +157,62 @@ export class ColumnarParser {
         const propertyTable = propertyTableBuilder.build();
         options.onProgress?.({ phase: 'properties', percent: 100 });
 
+        // === Build Quantity Table ===
+        options.onProgress?.({ phase: 'quantities', percent: 0 });
+        const quantityTableBuilder = new QuantityTableBuilder(strings);
+        const quantityExtractor = new QuantityExtractor(entities);
+        const quantitySets = quantityExtractor.extractQuantitySets();
+
+        // Build mapping: qsetId -> entityIds (similar to properties)
+        const qsetToEntities = new Map<number, number[]>();
+        for (const rel of relationships) {
+            if (rel.type.toUpperCase() === 'IFCRELDEFINESBYPROPERTIES') {
+                const qsetId = rel.relatingObject;
+                // Check if this is actually a quantity set (not a property set)
+                if (quantitySets.has(qsetId)) {
+                    for (const entityId of rel.relatedObjects) {
+                        let list = qsetToEntities.get(qsetId);
+                        if (!list) {
+                            list = [];
+                            qsetToEntities.set(qsetId, list);
+                        }
+                        list.push(entityId);
+                    }
+                }
+            }
+        }
+
+        // Map quantity type names to QuantityType enum
+        const quantityTypeMap: Record<string, QuantityType> = {
+            'length': QuantityType.Length,
+            'area': QuantityType.Area,
+            'volume': QuantityType.Volume,
+            'count': QuantityType.Count,
+            'weight': QuantityType.Weight,
+            'time': QuantityType.Time,
+        };
+
+        // Extract quantities into columnar format
+        for (const [qsetId, qset] of quantitySets) {
+            const entityIds = qsetToEntities.get(qsetId) || [];
+
+            for (const quantity of qset.quantities) {
+                for (const entityId of entityIds) {
+                    quantityTableBuilder.add({
+                        entityId,
+                        qsetName: qset.name,
+                        quantityName: quantity.name,
+                        quantityType: quantityTypeMap[quantity.type] ?? QuantityType.Length,
+                        value: quantity.value,
+                        formula: quantity.formula,
+                    });
+                }
+            }
+        }
+
+        const quantityTable = quantityTableBuilder.build();
+        options.onProgress?.({ phase: 'quantities', percent: 100 });
+
         // === Build Relationship Graph ===
         options.onProgress?.({ phase: 'relationships', percent: 0 });
 
@@ -237,6 +297,7 @@ export class ColumnarParser {
             strings,
             entities: entityTable,
             properties: propertyTable,
+            quantities: quantityTable,
             relationships: relationshipGraph,
             spatialHierarchy,
         };

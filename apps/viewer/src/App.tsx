@@ -9,7 +9,6 @@ import { PropertyPanel } from './components/PropertyPanel.js';
 import { SpatialPanel } from './components/SpatialPanel.js';
 import { useIfc } from './hooks/useIfc.js';
 import { useViewerStore } from './store.js';
-import type { MeshData } from '@ifc-lite/geometry';
 
 type RightPanelTab = 'properties' | 'spatial';
 
