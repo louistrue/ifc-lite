@@ -101,33 +101,13 @@ renderer.render();
 
 ## Architecture
 
-The system flows from IFC files through a streaming parser into unified data structures, then out to renderers and exports.
+IFC files flow through three layers:
 
-**IFC File** → **Streaming Parser (Rust/WASM)** → **Data Layer** → **Output**
+**Parser** (Rust/WASM) — Zero-copy STEP tokenizer, entity scanner, and geometry processor using nom, earcutr, and nalgebra.
 
-### Parser Pipeline
+**Data** (TypeScript) — Columnar TypedArrays for properties, CSR graph for relationships, GPU-ready geometry buffers.
 
-| Stage | Technology | Purpose |
-|-------|------------|---------|
-| STEP Tokenizer | nom-based | Zero-copy parsing |
-| Entity Scanner | Rust | Extract IFC entities |
-| Geometry Processor | earcutr + nalgebra | Triangulation & transforms |
-
-### Data Layer
-
-| Component | Format | Purpose |
-|-----------|--------|---------|
-| Columnar Tables | TypedArrays | Entity properties |
-| Relationship Graph | CSR | Spatial hierarchy |
-| Geometry Buffers | GPU-ready | Mesh data |
-
-### Output Layer
-
-| Target | Use Case |
-|--------|----------|
-| WebGPU Renderer | 3D visualization |
-| Analytics | Parquet export |
-| Export | glTF, JSON-LD, CSV |
+**Output** — WebGPU renderer, Parquet analytics, glTF/JSON-LD/CSV export.
 
 ## Project Structure
 
