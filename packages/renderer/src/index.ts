@@ -132,26 +132,30 @@ export class Renderer {
         const width = Math.max(1, Math.floor(rect.width));
         const height = Math.max(1, Math.floor(rect.height));
 
+        // Skip rendering if canvas is too small
+        if (width < 10 || height < 10) return;
+
         // Update canvas pixel dimensions if needed
-        if (this.canvas.width !== width || this.canvas.height !== height) {
+        const dimensionsChanged = this.canvas.width !== width || this.canvas.height !== height;
+        if (dimensionsChanged) {
             this.canvas.width = width;
             this.canvas.height = height;
             this.camera.setAspect(width / height);
             // Force reconfigure when dimensions change
             this.device.configureContext();
+            // Also resize the depth texture immediately
+            this.pipeline.resize(width, height);
         }
 
         // Skip rendering if canvas is invalid
         if (this.canvas.width === 0 || this.canvas.height === 0) return;
 
-        // Always check if reconfigure is needed (handles HMR and other edge cases)
-        if (this.device.needsReconfigure()) {
-            this.device.configureContext();
+        // Ensure context is valid before rendering (handles HMR, focus changes, etc.)
+        if (!this.device.ensureContext()) {
+            return; // Skip this frame, context will be ready next frame
         }
 
-        const context = this.device.getContext();
         const device = this.device.getDevice();
-
         const viewProj = this.camera.getViewProjMatrix().m;
 
         // Ensure all meshes have GPU resources (in case they were added before pipeline was ready)
@@ -171,9 +175,23 @@ export class Renderer {
           }
         }
 
+        // Visibility filtering
+        if (options.hiddenIds && options.hiddenIds.size > 0) {
+            meshes = meshes.filter(mesh => !options.hiddenIds!.has(mesh.expressId));
+        }
+        if (options.isolatedIds !== null && options.isolatedIds !== undefined) {
+            meshes = meshes.filter(mesh => options.isolatedIds!.has(mesh.expressId));
+        }
+
         // Resize depth texture if needed
         if (this.pipeline.needsResize(this.canvas.width, this.canvas.height)) {
             this.pipeline.resize(this.canvas.width, this.canvas.height);
+        }
+
+        // Get current texture safely - may return null if context needs reconfiguration
+        const currentTexture = this.device.getCurrentTexture();
+        if (!currentTexture) {
+            return; // Skip this frame, context will be reconfigured next frame
         }
 
         try {
@@ -183,8 +201,6 @@ export class Renderer {
                     : options.clearColor)
                 : { r: 0.1, g: 0.1, b: 0.1, a: 1 };
 
-            // Get current texture and create view
-            const currentTexture = context.getCurrentTexture();
             const textureView = currentTexture.createView();
 
             // Separate meshes into opaque and transparent
@@ -213,14 +229,32 @@ export class Renderer {
             // Write uniform data to each mesh's buffer BEFORE recording commands
             // This ensures each mesh has its own color data
             const allMeshes = [...opaqueMeshes, ...transparentMeshes];
+            const selectedId = options.selectedId;
+
             for (const mesh of allMeshes) {
                 if (mesh.uniformBuffer) {
                     const buffer = new Float32Array(40);
                     buffer.set(viewProj, 0);
                     buffer.set(mesh.transform.m, 16);
-                    buffer.set(mesh.color, 32);
-                    buffer[36] = mesh.material?.metallic ?? 0.0;
-                    buffer[37] = mesh.material?.roughness ?? 0.6;
+
+                    // Apply selection highlight effect
+                    if (selectedId !== undefined && selectedId !== null && mesh.expressId === selectedId) {
+                        // Highlight selected object with blue tint
+                        const highlightColor: [number, number, number, number] = [
+                            Math.min(1.0, mesh.color[0] * 0.5 + 0.2),
+                            Math.min(1.0, mesh.color[1] * 0.5 + 0.4),
+                            Math.min(1.0, mesh.color[2] * 0.5 + 0.9),
+                            mesh.color[3]
+                        ];
+                        buffer.set(highlightColor, 32);
+                        buffer[36] = 0.1; // Lower metallic for highlight
+                        buffer[37] = 0.3; // Lower roughness for highlight (shinier)
+                    } else {
+                        buffer.set(mesh.color, 32);
+                        buffer[36] = mesh.material?.metallic ?? 0.0;
+                        buffer[37] = mesh.material?.roughness ?? 0.6;
+                    }
+
                     device.queue.writeBuffer(mesh.uniformBuffer, 0, buffer);
                 }
             }
@@ -273,8 +307,13 @@ export class Renderer {
             pass.end();
             device.queue.submit([encoder.finish()]);
         } catch (error) {
-            // Silently handle WebGPU errors (e.g., device lost, invalid state)
-            console.warn('Render error:', error);
+            // Handle WebGPU errors (e.g., device lost, invalid state)
+            // Mark context as invalid so it gets reconfigured next frame
+            this.device.invalidateContext();
+            // Only log occasional errors to avoid spam
+            if (Math.random() < 0.01) {
+                console.warn('Render error (context will be reconfigured):', error);
+            }
         }
     }
 

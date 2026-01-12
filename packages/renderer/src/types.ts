@@ -49,4 +49,8 @@ export interface RenderOptions {
   enableDepthTest?: boolean;
   enableFrustumCulling?: boolean;
   spatialIndex?: import('@ifc-lite/spatial').SpatialIndex;
+  // Visibility filtering
+  hiddenIds?: Set<number>;        // Meshes to hide
+  isolatedIds?: Set<number> | null; // Only show these meshes (null = show all)
+  selectedId?: number | null;     // Currently selected mesh (for highlighting)
 }

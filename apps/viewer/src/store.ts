@@ -20,6 +20,28 @@ interface ViewerState {
   selectedEntityId: number | null;
   selectedStorey: number | null;
 
+  // Visibility
+  hiddenEntities: Set<number>;
+  isolatedEntities: Set<number> | null; // null = show all, Set = only show these
+
+  // UI State
+  leftPanelCollapsed: boolean;
+  rightPanelCollapsed: boolean;
+  activeTool: string;
+  theme: 'light' | 'dark';
+
+  // Camera state (for ViewCube sync)
+  cameraRotation: { azimuth: number; elevation: number };
+  cameraCallbacks: {
+    setPresetView?: (view: 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right') => void;
+    fitAll?: () => void;
+    home?: () => void;  // Reset to isometric view
+    zoomIn?: () => void;
+    zoomOut?: () => void;
+  };
+  // Direct callback for real-time ViewCube updates (bypasses React state)
+  onCameraRotationChange: ((rotation: { azimuth: number; elevation: number }) => void) | null;
+
   // Actions
   setLoading: (loading: boolean) => void;
   setProgress: (progress: { phase: string; percent: number } | null) => void;
@@ -30,9 +52,33 @@ interface ViewerState {
   updateCoordinateInfo: (coordinateInfo: CoordinateInfo) => void;
   setSelectedEntityId: (id: number | null) => void;
   setSelectedStorey: (id: number | null) => void;
+  setLeftPanelCollapsed: (collapsed: boolean) => void;
+  setRightPanelCollapsed: (collapsed: boolean) => void;
+  setActiveTool: (tool: string) => void;
+  setTheme: (theme: 'light' | 'dark') => void;
+  toggleTheme: () => void;
+
+  // Camera actions
+  setCameraRotation: (rotation: { azimuth: number; elevation: number }) => void;
+  setCameraCallbacks: (callbacks: ViewerState['cameraCallbacks']) => void;
+  setOnCameraRotationChange: (callback: ((rotation: { azimuth: number; elevation: number }) => void) | null) => void;
+  // Call this for real-time updates (uses callback if available, skips state)
+  updateCameraRotationRealtime: (rotation: { azimuth: number; elevation: number }) => void;
+
+  // Visibility actions
+  hideEntity: (id: number) => void;
+  hideEntities: (ids: number[]) => void;
+  showEntity: (id: number) => void;
+  showEntities: (ids: number[]) => void;
+  toggleEntityVisibility: (id: number) => void;
+  isolateEntity: (id: number) => void;
+  isolateEntities: (ids: number[]) => void;
+  clearIsolation: () => void;
+  showAll: () => void;
+  isEntityVisible: (id: number) => boolean;
 }
 
-export const useViewerStore = create<ViewerState>((set) => ({
+export const useViewerStore = create<ViewerState>((set, get) => ({
   loading: false,
   progress: null,
   error: null,
@@ -40,6 +86,15 @@ export const useViewerStore = create<ViewerState>((set) => ({
   geometryResult: null,
   selectedEntityId: null,
   selectedStorey: null,
+  hiddenEntities: new Set(),
+  isolatedEntities: null,
+  leftPanelCollapsed: false,
+  rightPanelCollapsed: false,
+  activeTool: 'select',
+  theme: 'dark',
+  cameraRotation: { azimuth: 45, elevation: 25 },
+  cameraCallbacks: {},
+  onCameraRotationChange: null,
 
   setLoading: (loading) => set({ loading }),
   setProgress: (progress) => set({ progress }),
@@ -47,13 +102,10 @@ export const useViewerStore = create<ViewerState>((set) => ({
   setIfcDataStore: (ifcDataStore) => set({ ifcDataStore }),
   setGeometryResult: (geometryResult) => set({ geometryResult }),
   appendGeometryBatch: (meshes, coordinateInfo) => set((state) => {
-    console.log('[Store] appendGeometryBatch called with', meshes.length, 'meshes', coordinateInfo ? 'with coordinateInfo' : 'without coordinateInfo');
     if (!state.geometryResult) {
-      // Initialize geometry result with first batch
-      console.log('[Store] Initializing geometry result with first batch');
       const totalTriangles = meshes.reduce((sum, m) => sum + (m.indices.length / 3), 0);
       const totalVertices = meshes.reduce((sum, m) => sum + (m.positions.length / 3), 0);
-      const result = {
+      return {
         geometryResult: {
           meshes,
           totalTriangles,
@@ -66,34 +118,22 @@ export const useViewerStore = create<ViewerState>((set) => ({
           },
         },
       };
-      console.log('[Store] Created initial geometry result:', result.geometryResult.meshes.length, 'meshes');
-      return result;
     }
-    // Append to existing geometry
-    console.log('[Store] Appending to existing geometry:', state.geometryResult.meshes.length, 'existing +', meshes.length, 'new');
-    const existingMeshes = state.geometryResult.meshes;
-    const allMeshes = [...existingMeshes, ...meshes];
+    const allMeshes = [...state.geometryResult.meshes, ...meshes];
     const totalTriangles = allMeshes.reduce((sum, m) => sum + (m.indices.length / 3), 0);
     const totalVertices = allMeshes.reduce((sum, m) => sum + (m.positions.length / 3), 0);
-    const result = {
+    return {
       geometryResult: {
         ...state.geometryResult,
         meshes: allMeshes,
         totalTriangles,
         totalVertices,
-        // Update coordinateInfo if provided (it accumulates bounds incrementally)
         coordinateInfo: coordinateInfo || state.geometryResult.coordinateInfo,
       },
     };
-    console.log('[Store] Updated geometry result:', result.geometryResult.meshes.length, 'total meshes');
-    return result;
   }),
   updateCoordinateInfo: (coordinateInfo) => set((state) => {
-    console.log('[Store] updateCoordinateInfo called');
-    if (!state.geometryResult) {
-      console.warn('[Store] updateCoordinateInfo called but no geometryResult');
-      return {};
-    }
+    if (!state.geometryResult) return {};
     return {
       geometryResult: {
         ...state.geometryResult,
@@ -103,4 +143,70 @@ export const useViewerStore = create<ViewerState>((set) => ({
   }),
   setSelectedEntityId: (selectedEntityId) => set({ selectedEntityId }),
   setSelectedStorey: (selectedStorey) => set({ selectedStorey }),
+  setLeftPanelCollapsed: (leftPanelCollapsed) => set({ leftPanelCollapsed }),
+  setRightPanelCollapsed: (rightPanelCollapsed) => set({ rightPanelCollapsed }),
+  setActiveTool: (activeTool) => set({ activeTool }),
+  setTheme: (theme) => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    set({ theme });
+  },
+  toggleTheme: () => {
+    const newTheme = get().theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.classList.toggle('dark', newTheme === 'dark');
+    set({ theme: newTheme });
+  },
+
+  // Camera actions
+  setCameraRotation: (cameraRotation) => set({ cameraRotation }),
+  setCameraCallbacks: (cameraCallbacks) => set({ cameraCallbacks }),
+  setOnCameraRotationChange: (onCameraRotationChange) => set({ onCameraRotationChange }),
+  updateCameraRotationRealtime: (rotation) => {
+    const callback = get().onCameraRotationChange;
+    if (callback) {
+      // Use direct callback - no React state update, no re-renders
+      callback(rotation);
+    }
+    // Don't update store state during real-time updates
+  },
+
+  // Visibility actions
+  hideEntity: (id) => set((state) => {
+    const newHidden = new Set(state.hiddenEntities);
+    newHidden.add(id);
+    return { hiddenEntities: newHidden };
+  }),
+  hideEntities: (ids) => set((state) => {
+    const newHidden = new Set(state.hiddenEntities);
+    ids.forEach(id => newHidden.add(id));
+    return { hiddenEntities: newHidden };
+  }),
+  showEntity: (id) => set((state) => {
+    const newHidden = new Set(state.hiddenEntities);
+    newHidden.delete(id);
+    return { hiddenEntities: newHidden };
+  }),
+  showEntities: (ids) => set((state) => {
+    const newHidden = new Set(state.hiddenEntities);
+    ids.forEach(id => newHidden.delete(id));
+    return { hiddenEntities: newHidden };
+  }),
+  toggleEntityVisibility: (id) => set((state) => {
+    const newHidden = new Set(state.hiddenEntities);
+    if (newHidden.has(id)) {
+      newHidden.delete(id);
+    } else {
+      newHidden.add(id);
+    }
+    return { hiddenEntities: newHidden };
+  }),
+  isolateEntity: (id) => set({ isolatedEntities: new Set([id]) }),
+  isolateEntities: (ids) => set({ isolatedEntities: new Set(ids) }),
+  clearIsolation: () => set({ isolatedEntities: null }),
+  showAll: () => set({ hiddenEntities: new Set(), isolatedEntities: null }),
+  isEntityVisible: (id) => {
+    const state = get();
+    if (state.hiddenEntities.has(id)) return false;
+    if (state.isolatedEntities !== null && !state.isolatedEntities.has(id)) return false;
+    return true;
+  },
 }));
