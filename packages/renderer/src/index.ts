@@ -229,14 +229,32 @@ export class Renderer {
             // Write uniform data to each mesh's buffer BEFORE recording commands
             // This ensures each mesh has its own color data
             const allMeshes = [...opaqueMeshes, ...transparentMeshes];
+            const selectedId = options.selectedId;
+
             for (const mesh of allMeshes) {
                 if (mesh.uniformBuffer) {
                     const buffer = new Float32Array(40);
                     buffer.set(viewProj, 0);
                     buffer.set(mesh.transform.m, 16);
-                    buffer.set(mesh.color, 32);
-                    buffer[36] = mesh.material?.metallic ?? 0.0;
-                    buffer[37] = mesh.material?.roughness ?? 0.6;
+
+                    // Apply selection highlight effect
+                    if (selectedId !== undefined && selectedId !== null && mesh.expressId === selectedId) {
+                        // Highlight selected object with blue tint
+                        const highlightColor: [number, number, number, number] = [
+                            Math.min(1.0, mesh.color[0] * 0.5 + 0.2),
+                            Math.min(1.0, mesh.color[1] * 0.5 + 0.4),
+                            Math.min(1.0, mesh.color[2] * 0.5 + 0.9),
+                            mesh.color[3]
+                        ];
+                        buffer.set(highlightColor, 32);
+                        buffer[36] = 0.1; // Lower metallic for highlight
+                        buffer[37] = 0.3; // Lower roughness for highlight (shinier)
+                    } else {
+                        buffer.set(mesh.color, 32);
+                        buffer[36] = mesh.material?.metallic ?? 0.0;
+                        buffer[37] = mesh.material?.roughness ?? 0.6;
+                    }
+
                     device.queue.writeBuffer(mesh.uniformBuffer, 0, buffer);
                 }
             }
