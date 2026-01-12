@@ -6,6 +6,53 @@ import { create } from 'zustand';
 import type { IfcDataStore } from '@ifc-lite/parser';
 import type { GeometryResult, CoordinateInfo } from '@ifc-lite/geometry';
 
+// Measurement types
+export interface MeasurePoint {
+  x: number;
+  y: number;
+  z: number;
+  screenX: number;
+  screenY: number;
+}
+
+export interface Measurement {
+  id: string;
+  start: MeasurePoint;
+  end: MeasurePoint;
+  distance: number;
+}
+
+// Section plane types
+export interface SectionPlane {
+  axis: 'x' | 'y' | 'z';
+  position: number; // 0-100 percentage of model bounds
+  enabled: boolean;
+}
+
+// Hover state
+export interface HoverState {
+  entityId: number | null;
+  screenX: number;
+  screenY: number;
+}
+
+// Context menu state
+export interface ContextMenuState {
+  isOpen: boolean;
+  entityId: number | null;
+  screenX: number;
+  screenY: number;
+}
+
+// Box selection state
+export interface BoxSelectState {
+  isSelecting: boolean;
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
+}
+
 interface ViewerState {
   // Loading state
   loading: boolean;
@@ -18,6 +65,7 @@ interface ViewerState {
 
   // Selection
   selectedEntityId: number | null;
+  selectedEntityIds: Set<number>; // Multi-selection support
   selectedStorey: number | null;
 
   // Visibility
@@ -29,6 +77,23 @@ interface ViewerState {
   rightPanelCollapsed: boolean;
   activeTool: string;
   theme: 'light' | 'dark';
+  isMobile: boolean;
+
+  // Hover state
+  hoverState: HoverState;
+
+  // Context menu state
+  contextMenu: ContextMenuState;
+
+  // Box selection state
+  boxSelect: BoxSelectState;
+
+  // Measurement state
+  measurements: Measurement[];
+  pendingMeasurePoint: MeasurePoint | null;
+
+  // Section plane state
+  sectionPlane: SectionPlane;
 
   // Camera state (for ViewCube sync)
   cameraRotation: { azimuth: number; elevation: number };
@@ -57,6 +122,7 @@ interface ViewerState {
   setActiveTool: (tool: string) => void;
   setTheme: (theme: 'light' | 'dark') => void;
   toggleTheme: () => void;
+  setIsMobile: (isMobile: boolean) => void;
 
   // Camera actions
   setCameraRotation: (rotation: { azimuth: number; elevation: number }) => void;
@@ -76,6 +142,40 @@ interface ViewerState {
   clearIsolation: () => void;
   showAll: () => void;
   isEntityVisible: (id: number) => boolean;
+
+  // Multi-selection actions
+  addToSelection: (id: number) => void;
+  removeFromSelection: (id: number) => void;
+  toggleSelection: (id: number) => void;
+  setSelectedEntityIds: (ids: number[]) => void;
+  clearSelection: () => void;
+
+  // Hover actions
+  setHoverState: (state: HoverState) => void;
+  clearHover: () => void;
+
+  // Context menu actions
+  openContextMenu: (entityId: number | null, screenX: number, screenY: number) => void;
+  closeContextMenu: () => void;
+
+  // Box selection actions
+  startBoxSelect: (startX: number, startY: number) => void;
+  updateBoxSelect: (currentX: number, currentY: number) => void;
+  endBoxSelect: () => void;
+  cancelBoxSelect: () => void;
+
+  // Measurement actions
+  addMeasurePoint: (point: MeasurePoint) => void;
+  completeMeasurement: (endPoint: MeasurePoint) => void;
+  deleteMeasurement: (id: string) => void;
+  clearMeasurements: () => void;
+
+  // Section plane actions
+  setSectionPlaneAxis: (axis: 'x' | 'y' | 'z') => void;
+  setSectionPlanePosition: (position: number) => void;
+  toggleSectionPlane: () => void;
+  flipSectionPlane: () => void;
+  resetSectionPlane: () => void;
 }
 
 export const useViewerStore = create<ViewerState>((set, get) => ({
@@ -85,6 +185,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   ifcDataStore: null,
   geometryResult: null,
   selectedEntityId: null,
+  selectedEntityIds: new Set(),
   selectedStorey: null,
   hiddenEntities: new Set(),
   isolatedEntities: null,
@@ -92,6 +193,13 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   rightPanelCollapsed: false,
   activeTool: 'select',
   theme: 'dark',
+  isMobile: false,
+  hoverState: { entityId: null, screenX: 0, screenY: 0 },
+  contextMenu: { isOpen: false, entityId: null, screenX: 0, screenY: 0 },
+  boxSelect: { isSelecting: false, startX: 0, startY: 0, currentX: 0, currentY: 0 },
+  measurements: [],
+  pendingMeasurePoint: null,
+  sectionPlane: { axis: 'y', position: 50, enabled: false },
   cameraRotation: { azimuth: 45, elevation: 25 },
   cameraCallbacks: {},
   onCameraRotationChange: null,
@@ -155,6 +263,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     document.documentElement.classList.toggle('dark', newTheme === 'dark');
     set({ theme: newTheme });
   },
+  setIsMobile: (isMobile) => set({ isMobile }),
 
   // Camera actions
   setCameraRotation: (cameraRotation) => set({ cameraRotation }),
@@ -209,4 +318,110 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     if (state.isolatedEntities !== null && !state.isolatedEntities.has(id)) return false;
     return true;
   },
+
+  // Multi-selection actions
+  addToSelection: (id) => set((state) => {
+    const newSelection = new Set(state.selectedEntityIds);
+    newSelection.add(id);
+    return { selectedEntityIds: newSelection, selectedEntityId: id };
+  }),
+  removeFromSelection: (id) => set((state) => {
+    const newSelection = new Set(state.selectedEntityIds);
+    newSelection.delete(id);
+    const remaining = Array.from(newSelection);
+    return {
+      selectedEntityIds: newSelection,
+      selectedEntityId: remaining.length > 0 ? remaining[remaining.length - 1] : null,
+    };
+  }),
+  toggleSelection: (id) => set((state) => {
+    const newSelection = new Set(state.selectedEntityIds);
+    if (newSelection.has(id)) {
+      newSelection.delete(id);
+    } else {
+      newSelection.add(id);
+    }
+    const remaining = Array.from(newSelection);
+    return {
+      selectedEntityIds: newSelection,
+      selectedEntityId: remaining.length > 0 ? remaining[remaining.length - 1] : null,
+    };
+  }),
+  setSelectedEntityIds: (ids) => set({
+    selectedEntityIds: new Set(ids),
+    selectedEntityId: ids.length > 0 ? ids[ids.length - 1] : null,
+  }),
+  clearSelection: () => set({
+    selectedEntityIds: new Set(),
+    selectedEntityId: null,
+  }),
+
+  // Hover actions
+  setHoverState: (hoverState) => set({ hoverState }),
+  clearHover: () => set({ hoverState: { entityId: null, screenX: 0, screenY: 0 } }),
+
+  // Context menu actions
+  openContextMenu: (entityId, screenX, screenY) => set({
+    contextMenu: { isOpen: true, entityId, screenX, screenY },
+  }),
+  closeContextMenu: () => set({
+    contextMenu: { isOpen: false, entityId: null, screenX: 0, screenY: 0 },
+  }),
+
+  // Box selection actions
+  startBoxSelect: (startX, startY) => set({
+    boxSelect: { isSelecting: true, startX, startY, currentX: startX, currentY: startY },
+  }),
+  updateBoxSelect: (currentX, currentY) => set((state) => ({
+    boxSelect: { ...state.boxSelect, currentX, currentY },
+  })),
+  endBoxSelect: () => set({
+    boxSelect: { isSelecting: false, startX: 0, startY: 0, currentX: 0, currentY: 0 },
+  }),
+  cancelBoxSelect: () => set({
+    boxSelect: { isSelecting: false, startX: 0, startY: 0, currentX: 0, currentY: 0 },
+  }),
+
+  // Measurement actions
+  addMeasurePoint: (point) => set({ pendingMeasurePoint: point }),
+  completeMeasurement: (endPoint) => set((state) => {
+    if (!state.pendingMeasurePoint) return {};
+    const start = state.pendingMeasurePoint;
+    const distance = Math.sqrt(
+      Math.pow(endPoint.x - start.x, 2) +
+      Math.pow(endPoint.y - start.y, 2) +
+      Math.pow(endPoint.z - start.z, 2)
+    );
+    const measurement: Measurement = {
+      id: `m-${Date.now()}`,
+      start,
+      end: endPoint,
+      distance,
+    };
+    return {
+      measurements: [...state.measurements, measurement],
+      pendingMeasurePoint: null,
+    };
+  }),
+  deleteMeasurement: (id) => set((state) => ({
+    measurements: state.measurements.filter((m) => m.id !== id),
+  })),
+  clearMeasurements: () => set({ measurements: [], pendingMeasurePoint: null }),
+
+  // Section plane actions
+  setSectionPlaneAxis: (axis) => set((state) => ({
+    sectionPlane: { ...state.sectionPlane, axis },
+  })),
+  setSectionPlanePosition: (position) => set((state) => ({
+    sectionPlane: { ...state.sectionPlane, position },
+  })),
+  toggleSectionPlane: () => set((state) => ({
+    sectionPlane: { ...state.sectionPlane, enabled: !state.sectionPlane.enabled },
+  })),
+  flipSectionPlane: () => set((state) => ({
+    sectionPlane: { ...state.sectionPlane, position: 100 - state.sectionPlane.position },
+  })),
+  resetSectionPlane: () => set({
+    sectionPlane: { axis: 'y', position: 50, enabled: false },
+  }),
 }));

@@ -2,10 +2,10 @@
  * 3D viewport component
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { Renderer, MathUtils } from '@ifc-lite/renderer';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
-import { useViewerStore } from '@/store';
+import { useViewerStore, type MeasurePoint } from '@/store';
 
 interface ViewportProps {
   geometry: MeshData[] | null;
@@ -24,6 +24,20 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   const updateCameraRotationRealtime = useViewerStore((state) => state.updateCameraRotationRealtime);
   const setCameraCallbacks = useViewerStore((state) => state.setCameraCallbacks);
   const theme = useViewerStore((state) => state.theme);
+
+  // New store subscriptions for enhanced features
+  const setHoverState = useViewerStore((state) => state.setHoverState);
+  const clearHover = useViewerStore((state) => state.clearHover);
+  const openContextMenu = useViewerStore((state) => state.openContextMenu);
+  const startBoxSelect = useViewerStore((state) => state.startBoxSelect);
+  const updateBoxSelect = useViewerStore((state) => state.updateBoxSelect);
+  const endBoxSelect = useViewerStore((state) => state.endBoxSelect);
+  const setSelectedEntityIds = useViewerStore((state) => state.setSelectedEntityIds);
+  const toggleSelection = useViewerStore((state) => state.toggleSelection);
+  const pendingMeasurePoint = useViewerStore((state) => state.pendingMeasurePoint);
+  const addMeasurePoint = useViewerStore((state) => state.addMeasurePoint);
+  const completeMeasurement = useViewerStore((state) => state.completeMeasurement);
+  const sectionPlane = useViewerStore((state) => state.sectionPlane);
 
   // Theme-aware clear color ref (updated when theme changes)
   const clearColorRef = useRef<[number, number, number, number]>([0.1, 0.1, 0.1, 1]);
@@ -91,12 +105,20 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   const isolatedEntitiesRef = useRef<Set<number> | null>(isolatedEntities);
   const selectedEntityIdRef = useRef<number | null>(selectedEntityId);
   const activeToolRef = useRef<string>(activeTool);
+  const pendingMeasurePointRef = useRef<MeasurePoint | null>(pendingMeasurePoint);
+  const sectionPlaneRef = useRef(sectionPlane);
+
+  // Hover throttling
+  const lastHoverCheckRef = useRef<number>(0);
+  const hoverThrottleMs = 50; // Check hover every 50ms
 
   // Keep refs in sync
   useEffect(() => { hiddenEntitiesRef.current = hiddenEntities; }, [hiddenEntities]);
   useEffect(() => { isolatedEntitiesRef.current = isolatedEntities; }, [isolatedEntities]);
   useEffect(() => { selectedEntityIdRef.current = selectedEntityId; }, [selectedEntityId]);
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
+  useEffect(() => { pendingMeasurePointRef.current = pendingMeasurePoint; }, [pendingMeasurePoint]);
+  useEffect(() => { sectionPlaneRef.current = sectionPlane; }, [sectionPlane]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -182,6 +204,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
+            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
           });
           // Update ViewCube during camera animation (e.g., preset view transitions)
           updateCameraRotationRealtime(camera.getRotation());
@@ -206,6 +229,14 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
 
         // Determine action based on active tool and mouse button
         const tool = activeToolRef.current;
+
+        // Box selection tool
+        if (tool === 'boxselect' && e.button === 0) {
+          startBoxSelect(e.clientX, e.clientY);
+          canvas.style.cursor = 'crosshair';
+          return;
+        }
+
         if (tool === 'pan' || e.button === 1 || e.button === 2) {
           mouseState.isPanning = true;
           canvas.style.cursor = 'move';
@@ -216,6 +247,9 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           // Select tool: shift+drag = pan, normal drag = orbit
           mouseState.isPanning = e.shiftKey;
           canvas.style.cursor = e.shiftKey ? 'move' : 'grabbing';
+        } else if (tool === 'measure') {
+          // Measure tool - cursor indicates measurement mode
+          canvas.style.cursor = 'crosshair';
         } else {
           // Default behavior
           mouseState.isPanning = e.shiftKey;
@@ -223,11 +257,21 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         }
       });
 
-      canvas.addEventListener('mousemove', (e) => {
+      canvas.addEventListener('mousemove', async (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
         if (mouseState.isDragging) {
           const dx = e.clientX - mouseState.lastX;
           const dy = e.clientY - mouseState.lastY;
           const tool = activeToolRef.current;
+
+          // Handle box selection
+          if (tool === 'boxselect' && mouseState.button === 0) {
+            updateBoxSelect(e.clientX, e.clientY);
+            return;
+          }
 
           if (mouseState.isPanning || tool === 'pan') {
             camera.pan(dx, dy, false);
@@ -248,9 +292,24 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
+            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
           });
           // Update ViewCube rotation in real-time during drag
           updateCameraRotationRealtime(camera.getRotation());
+          // Clear hover while dragging
+          clearHover();
+        } else {
+          // Hover detection (throttled)
+          const now = Date.now();
+          if (now - lastHoverCheckRef.current > hoverThrottleMs) {
+            lastHoverCheckRef.current = now;
+            const pickedId = await renderer.pick(x, y);
+            if (pickedId) {
+              setHoverState({ entityId: pickedId, screenX: e.clientX, screenY: e.clientY });
+            } else {
+              clearHover();
+            }
+          }
         }
       });
 
@@ -266,10 +325,16 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         mouseState.isPanning = false;
         camera.stopInertia();
         canvas.style.cursor = 'default';
+        clearHover();
       });
 
-      canvas.addEventListener('contextmenu', (e) => {
+      canvas.addEventListener('contextmenu', async (e) => {
         e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const pickedId = await renderer.pick(x, y);
+        openContextMenu(pickedId, e.clientX, e.clientY);
       });
 
       canvas.addEventListener('wheel', (e) => {
@@ -286,6 +351,40 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         const rect = canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
+        const tool = activeToolRef.current;
+
+        // Handle measure tool clicks
+        if (tool === 'measure') {
+          const pickedId = await renderer.pick(x, y);
+          if (pickedId) {
+            // Get 3D position from mesh vertices (simplified - uses center of clicked entity)
+            // In a full implementation, you'd use ray-triangle intersection
+            const worldPos = getApproximateWorldPosition(geometry, pickedId, x, y, canvas.width, canvas.height);
+            const measurePoint: MeasurePoint = {
+              x: worldPos.x,
+              y: worldPos.y,
+              z: worldPos.z,
+              screenX: e.clientX,
+              screenY: e.clientY,
+            };
+
+            if (pendingMeasurePointRef.current) {
+              // Complete the measurement
+              completeMeasurement(measurePoint);
+            } else {
+              // Start a new measurement
+              addMeasurePoint(measurePoint);
+            }
+          }
+          return;
+        }
+
+        // Handle box selection completion
+        if (tool === 'boxselect') {
+          endBoxSelect();
+          // TODO: Find all entities in the box and select them
+          return;
+        }
 
         const now = Date.now();
         const timeSinceLastClick = now - lastClickTimeRef.current;
@@ -295,7 +394,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           timeSinceLastClick < 300 &&
           Math.abs(clickPos.x - lastClickPosRef.current.x) < 5 &&
           Math.abs(clickPos.y - lastClickPosRef.current.y) < 5) {
-          // Double-click
+          // Double-click - isolate element
           const pickedId = await renderer.pick(x, y);
           if (pickedId) {
             setSelectedEntityId(pickedId);
@@ -305,11 +404,50 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         } else {
           // Single click
           const pickedId = await renderer.pick(x, y);
-          setSelectedEntityId(pickedId);
+
+          // Multi-selection with Ctrl/Cmd
+          if (e.ctrlKey || e.metaKey) {
+            if (pickedId) {
+              toggleSelection(pickedId);
+            }
+          } else {
+            setSelectedEntityId(pickedId);
+          }
+
           lastClickTimeRef.current = now;
           lastClickPosRef.current = clickPos;
         }
       });
+
+      // Helper function to get approximate world position
+      function getApproximateWorldPosition(
+        geom: MeshData[] | null,
+        entityId: number,
+        _screenX: number,
+        _screenY: number,
+        _canvasWidth: number,
+        _canvasHeight: number
+      ): { x: number; y: number; z: number } {
+        // Find the mesh for this entity and compute its center
+        if (geom) {
+          const mesh = geom.find(m => m.expressId === entityId);
+          if (mesh && mesh.positions.length >= 3) {
+            let sumX = 0, sumY = 0, sumZ = 0;
+            const vertCount = mesh.positions.length / 3;
+            for (let i = 0; i < mesh.positions.length; i += 3) {
+              sumX += mesh.positions[i];
+              sumY += mesh.positions[i + 1];
+              sumZ += mesh.positions[i + 2];
+            }
+            return {
+              x: sumX / vertCount,
+              y: sumY / vertCount,
+              z: sumZ / vertCount,
+            };
+          }
+        }
+        return { x: 0, y: 0, z: 0 };
+      }
 
       // Touch controls
       canvas.addEventListener('touchstart', (e) => {
@@ -663,7 +801,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
     // Note: visibility states are NOT in dependencies - they use refs and trigger re-render via separate effect
   }, [geometry, isInitialized, coordinateInfo]);
 
-  // Re-render when visibility or selection changes (using refs updated above)
+  // Re-render when visibility, selection, or section plane changes
   useEffect(() => {
     const renderer = rendererRef.current;
     if (!renderer || !isInitialized) return;
@@ -673,8 +811,9 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       isolatedIds: isolatedEntities,
       selectedId: selectedEntityId,
       clearColor: clearColorRef.current,
+      sectionPlane: sectionPlane.enabled ? sectionPlane : undefined,
     });
-  }, [hiddenEntities, isolatedEntities, selectedEntityId, isInitialized]);
+  }, [hiddenEntities, isolatedEntities, selectedEntityId, isInitialized, sectionPlane]);
 
   return (
     <canvas

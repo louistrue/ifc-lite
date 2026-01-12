@@ -2,25 +2,10 @@
  * Tool-specific overlays for measure and section tools
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback } from 'react';
 import { X, Trash2, Ruler, Slice } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useViewerStore } from '@/store';
-
-interface MeasurePoint {
-  x: number;
-  y: number;
-  z: number;
-  screenX: number;
-  screenY: number;
-}
-
-interface Measurement {
-  id: string;
-  start: MeasurePoint;
-  end: MeasurePoint;
-  distance: number;
-}
+import { useViewerStore, type Measurement } from '@/store';
 
 export function ToolOverlays() {
   const activeTool = useViewerStore((s) => s.activeTool);
@@ -37,22 +22,23 @@ export function ToolOverlays() {
 }
 
 function MeasureOverlay() {
-  const [measurements, setMeasurements] = useState<Measurement[]>([]);
-  const [isPlacingPoint, setIsPlacingPoint] = useState(false);
+  const measurements = useViewerStore((s) => s.measurements);
+  const pendingMeasurePoint = useViewerStore((s) => s.pendingMeasurePoint);
+  const deleteMeasurement = useViewerStore((s) => s.deleteMeasurement);
+  const clearMeasurements = useViewerStore((s) => s.clearMeasurements);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
 
   const handleClear = useCallback(() => {
-    setMeasurements([]);
-    setIsPlacingPoint(false);
-  }, []);
+    clearMeasurements();
+  }, [clearMeasurements]);
 
   const handleClose = useCallback(() => {
     setActiveTool('select');
   }, [setActiveTool]);
 
   const handleDeleteMeasurement = useCallback((id: string) => {
-    setMeasurements((prev) => prev.filter((m) => m.id !== id));
-  }, []);
+    deleteMeasurement(id);
+  }, [deleteMeasurement]);
 
   // Calculate total distance
   const totalDistance = measurements.reduce((sum, m) => sum + m.distance, 0);
@@ -60,7 +46,7 @@ function MeasureOverlay() {
   return (
     <>
       {/* Measure Tool Panel */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-background/95 backdrop-blur-sm rounded-lg border shadow-lg p-3 min-w-64">
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-background/95 backdrop-blur-sm rounded-lg border shadow-lg p-3 min-w-64 z-30">
         <div className="flex items-center justify-between gap-4 mb-3">
           <div className="flex items-center gap-2">
             <Ruler className="h-4 w-4 text-primary" />
@@ -83,21 +69,12 @@ function MeasureOverlay() {
         {measurements.length > 0 ? (
           <div className="space-y-2">
             {measurements.map((m, i) => (
-              <div
+              <MeasurementItem
                 key={m.id}
-                className="flex items-center justify-between bg-muted/50 rounded px-2 py-1 text-sm"
-              >
-                <span className="text-muted-foreground">#{i + 1}</span>
-                <span className="font-mono">{formatDistance(m.distance)}</span>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="h-5 w-5"
-                  onClick={() => handleDeleteMeasurement(m.id)}
-                >
-                  <X className="h-3 w-3" />
-                </Button>
-              </div>
+                measurement={m}
+                index={i}
+                onDelete={handleDeleteMeasurement}
+              />
             ))}
             {measurements.length > 1 && (
               <div className="flex items-center justify-between border-t pt-2 mt-2 text-sm font-medium">
@@ -114,25 +91,125 @@ function MeasureOverlay() {
       </div>
 
       {/* Instruction hint */}
-      <div className="absolute bottom-20 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground px-4 py-2 rounded-full text-sm shadow-lg">
-        {isPlacingPoint
+      <div className="absolute bottom-20 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground px-4 py-2 rounded-full text-sm shadow-lg z-30">
+        {pendingMeasurePoint
           ? 'Click to set end point'
           : 'Click on model to set start point'}
       </div>
+
+      {/* Render measurement lines and labels */}
+      <MeasurementOverlays measurements={measurements} pending={pendingMeasurePoint} />
+    </>
+  );
+}
+
+interface MeasurementItemProps {
+  measurement: Measurement;
+  index: number;
+  onDelete: (id: string) => void;
+}
+
+function MeasurementItem({ measurement, index, onDelete }: MeasurementItemProps) {
+  return (
+    <div className="flex items-center justify-between bg-muted/50 rounded px-2 py-1 text-sm">
+      <span className="text-muted-foreground">#{index + 1}</span>
+      <span className="font-mono">{formatDistance(measurement.distance)}</span>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="h-5 w-5"
+        onClick={() => onDelete(measurement.id)}
+      >
+        <X className="h-3 w-3" />
+      </Button>
+    </div>
+  );
+}
+
+interface MeasurementOverlaysProps {
+  measurements: Measurement[];
+  pending: { screenX: number; screenY: number } | null;
+}
+
+function MeasurementOverlays({ measurements, pending }: MeasurementOverlaysProps) {
+  return (
+    <>
+      {/* Completed measurements */}
+      {measurements.map((m) => (
+        <div key={m.id}>
+          {/* Line connecting start and end */}
+          <svg
+            className="absolute inset-0 pointer-events-none z-20"
+            style={{ overflow: 'visible' }}
+          >
+            <line
+              x1={m.start.screenX}
+              y1={m.start.screenY}
+              x2={m.end.screenX}
+              y2={m.end.screenY}
+              stroke="hsl(var(--primary))"
+              strokeWidth="2"
+              strokeDasharray="5,5"
+            />
+            <circle
+              cx={m.start.screenX}
+              cy={m.start.screenY}
+              r="4"
+              fill="hsl(var(--primary))"
+            />
+            <circle
+              cx={m.end.screenX}
+              cy={m.end.screenY}
+              r="4"
+              fill="hsl(var(--primary))"
+            />
+          </svg>
+
+          {/* Distance label at midpoint */}
+          <div
+            className="absolute pointer-events-none z-20 bg-primary text-primary-foreground px-2 py-0.5 rounded text-xs font-mono -translate-x-1/2 -translate-y-1/2"
+            style={{
+              left: (m.start.screenX + m.end.screenX) / 2,
+              top: (m.start.screenY + m.end.screenY) / 2,
+            }}
+          >
+            {formatDistance(m.distance)}
+          </div>
+        </div>
+      ))}
+
+      {/* Pending point */}
+      {pending && (
+        <svg
+          className="absolute inset-0 pointer-events-none z-20"
+          style={{ overflow: 'visible' }}
+        >
+          <circle
+            cx={pending.screenX}
+            cy={pending.screenY}
+            r="6"
+            fill="none"
+            stroke="hsl(var(--primary))"
+            strokeWidth="2"
+          />
+          <circle
+            cx={pending.screenX}
+            cy={pending.screenY}
+            r="3"
+            fill="hsl(var(--primary))"
+          />
+        </svg>
+      )}
     </>
   );
 }
 
 function SectionOverlay() {
-  const [sectionPlane, setSectionPlane] = useState<{
-    axis: 'x' | 'y' | 'z';
-    position: number;
-    enabled: boolean;
-  }>({
-    axis: 'y',
-    position: 50,
-    enabled: true,
-  });
+  const sectionPlane = useViewerStore((s) => s.sectionPlane);
+  const setSectionPlaneAxis = useViewerStore((s) => s.setSectionPlaneAxis);
+  const setSectionPlanePosition = useViewerStore((s) => s.setSectionPlanePosition);
+  const toggleSectionPlane = useViewerStore((s) => s.toggleSectionPlane);
+  const flipSectionPlane = useViewerStore((s) => s.flipSectionPlane);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
 
   const handleClose = useCallback(() => {
@@ -140,23 +217,15 @@ function SectionOverlay() {
   }, [setActiveTool]);
 
   const handleAxisChange = useCallback((axis: 'x' | 'y' | 'z') => {
-    setSectionPlane((prev) => ({ ...prev, axis }));
-  }, []);
+    setSectionPlaneAxis(axis);
+  }, [setSectionPlaneAxis]);
 
   const handlePositionChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setSectionPlane((prev) => ({ ...prev, position: Number(e.target.value) }));
-  }, []);
-
-  const handleToggle = useCallback(() => {
-    setSectionPlane((prev) => ({ ...prev, enabled: !prev.enabled }));
-  }, []);
-
-  const handleFlip = useCallback(() => {
-    setSectionPlane((prev) => ({ ...prev, position: 100 - prev.position }));
-  }, []);
+    setSectionPlanePosition(Number(e.target.value));
+  }, [setSectionPlanePosition]);
 
   return (
-    <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-background/95 backdrop-blur-sm rounded-lg border shadow-lg p-3 min-w-72">
+    <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-background/95 backdrop-blur-sm rounded-lg border shadow-lg p-3 min-w-72 z-30">
       <div className="flex items-center justify-between gap-4 mb-3">
         <div className="flex items-center gap-2">
           <Slice className="h-4 w-4 text-primary" />
@@ -208,11 +277,11 @@ function SectionOverlay() {
             variant={sectionPlane.enabled ? 'default' : 'outline'}
             size="sm"
             className="flex-1"
-            onClick={handleToggle}
+            onClick={toggleSectionPlane}
           >
             {sectionPlane.enabled ? 'Disable' : 'Enable'}
           </Button>
-          <Button variant="outline" size="sm" className="flex-1" onClick={handleFlip}>
+          <Button variant="outline" size="sm" className="flex-1" onClick={flipSectionPlane}>
             Flip
           </Button>
         </div>

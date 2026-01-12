@@ -230,30 +230,77 @@ export class Renderer {
             // This ensures each mesh has its own color data
             const allMeshes = [...opaqueMeshes, ...transparentMeshes];
             const selectedId = options.selectedId;
+            const selectedIds = options.selectedIds;
+
+            // Calculate section plane parameters if enabled
+            let sectionPlaneData: { normal: [number, number, number]; distance: number; enabled: boolean } | undefined;
+            if (options.sectionPlane?.enabled) {
+                // Calculate plane normal based on axis
+                const normal: [number, number, number] = [0, 0, 0];
+                if (options.sectionPlane.axis === 'x') normal[0] = 1;
+                else if (options.sectionPlane.axis === 'y') normal[1] = 1;
+                else normal[2] = 1;
+
+                // Get model bounds for calculating plane position
+                let minVal = -100, maxVal = 100;
+                if (meshes.length > 0) {
+                    minVal = Infinity;
+                    maxVal = -Infinity;
+                    for (const mesh of meshes) {
+                        if (mesh.bounds) {
+                            const axisIdx = options.sectionPlane.axis === 'x' ? 0 : options.sectionPlane.axis === 'y' ? 1 : 2;
+                            minVal = Math.min(minVal, mesh.bounds.min[axisIdx]);
+                            maxVal = Math.max(maxVal, mesh.bounds.max[axisIdx]);
+                        }
+                    }
+                    if (!Number.isFinite(minVal)) { minVal = -100; maxVal = 100; }
+                }
+
+                // Calculate plane distance from position percentage
+                const range = maxVal - minVal;
+                const distance = minVal + (options.sectionPlane.position / 100) * range;
+
+                sectionPlaneData = { normal, distance, enabled: true };
+            }
 
             for (const mesh of allMeshes) {
                 if (mesh.uniformBuffer) {
-                    const buffer = new Float32Array(40);
+                    // Extended buffer: 48 floats = 192 bytes
+                    const buffer = new Float32Array(48);
+                    const flagBuffer = new Uint32Array(buffer.buffer, 176, 4);
+
                     buffer.set(viewProj, 0);
                     buffer.set(mesh.transform.m, 16);
 
+                    // Check if mesh is selected (single or multi-selection)
+                    const isSelected = (selectedId !== undefined && selectedId !== null && mesh.expressId === selectedId)
+                        || (selectedIds !== undefined && selectedIds.has(mesh.expressId));
+
                     // Apply selection highlight effect
-                    if (selectedId !== undefined && selectedId !== null && mesh.expressId === selectedId) {
-                        // Highlight selected object with blue tint
-                        const highlightColor: [number, number, number, number] = [
-                            Math.min(1.0, mesh.color[0] * 0.5 + 0.2),
-                            Math.min(1.0, mesh.color[1] * 0.5 + 0.4),
-                            Math.min(1.0, mesh.color[2] * 0.5 + 0.9),
-                            mesh.color[3]
-                        ];
-                        buffer.set(highlightColor, 32);
-                        buffer[36] = 0.1; // Lower metallic for highlight
-                        buffer[37] = 0.3; // Lower roughness for highlight (shinier)
+                    if (isSelected) {
+                        // Use original color, shader will handle highlight
+                        buffer.set(mesh.color, 32);
+                        buffer[36] = mesh.material?.metallic ?? 0.0;
+                        buffer[37] = mesh.material?.roughness ?? 0.6;
                     } else {
                         buffer.set(mesh.color, 32);
                         buffer[36] = mesh.material?.metallic ?? 0.0;
                         buffer[37] = mesh.material?.roughness ?? 0.6;
                     }
+
+                    // Section plane data (offset 40-43)
+                    if (sectionPlaneData) {
+                        buffer[40] = sectionPlaneData.normal[0];
+                        buffer[41] = sectionPlaneData.normal[1];
+                        buffer[42] = sectionPlaneData.normal[2];
+                        buffer[43] = sectionPlaneData.distance;
+                    }
+
+                    // Flags (offset 44-47 as u32)
+                    flagBuffer[0] = isSelected ? 1 : 0;
+                    flagBuffer[1] = sectionPlaneData?.enabled ? 1 : 0;
+                    flagBuffer[2] = 0;
+                    flagBuffer[3] = 0;
 
                     device.queue.writeBuffer(mesh.uniformBuffer, 0, buffer);
                 }
