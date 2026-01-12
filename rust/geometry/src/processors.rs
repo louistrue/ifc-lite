@@ -425,11 +425,42 @@ impl Default for TriangulatedFaceSetProcessor {
 
 /// FacetedBrep processor
 /// Handles IfcFacetedBrep - explicit mesh with faces
+/// Supports faces with inner bounds (holes)
 pub struct FacetedBrepProcessor;
 
 impl FacetedBrepProcessor {
     pub fn new() -> Self {
         Self
+    }
+
+    /// Extract polygon points from a loop entity
+    fn extract_loop_points(
+        &self,
+        loop_entity: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Option<Vec<Point3<f64>>> {
+        // Try to get Polygon attribute (attribute 0) - IfcPolyLoop has this
+        let polygon_attr = loop_entity.get(0)?;
+        let points = decoder.resolve_ref_list(polygon_attr).ok()?;
+
+        let mut polygon_points = Vec::new();
+        for point in points {
+            let coords_attr = point.get(0)?;
+            let coords = coords_attr.as_list()?;
+
+            use ifc_lite_core::AttributeValue;
+            let x = coords.get(0).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0);
+            let y = coords.get(1).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0);
+            let z = coords.get(2).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0);
+
+            polygon_points.push(Point3::new(x, y, z));
+        }
+
+        if polygon_points.len() >= 3 {
+            Some(polygon_points)
+        } else {
+            None
+        }
     }
 }
 
@@ -440,6 +471,8 @@ impl GeometryProcessor for FacetedBrepProcessor {
         decoder: &mut EntityDecoder,
         _schema: &IfcSchema,
     ) -> Result<Mesh> {
+        use crate::triangulation::{triangulate_polygon_with_holes, calculate_polygon_normal, project_to_2d};
+
         // IfcFacetedBrep attributes:
         // 0: Outer (IfcClosedShell)
 
@@ -466,90 +499,132 @@ impl GeometryProcessor for FacetedBrepProcessor {
         for face in face_refs {
             // Try to get Bounds attribute (attribute 0)
             // IfcFace has Bounds attribute (list of IfcFaceBound)
-            // Note: We can't check type name for Unknown types, so we just try to process
             let bounds_attr = match face.get(0) {
                 Some(attr) => attr,
-                None => continue, // Skip if no bounds
+                None => continue,
             };
 
             let bounds = match decoder.resolve_ref_list(bounds_attr) {
                 Ok(b) => b,
-                Err(_) => continue, // Skip if can't resolve bounds
+                Err(_) => continue,
             };
 
-            // Process outer bound (first bound should be outer)
-            for bound in bounds {
-                // IfcFaceBound/IfcFaceOuterBound attributes:
-                // 0: Bound (IfcLoop - typically IfcPolyLoop)
-                // 1: Orientation (boolean)
+            // Separate outer bound from inner bounds (holes)
+            // IfcFaceOuterBound is type id for outer, IfcFaceBound for inner
+            let mut outer_bound_points: Option<Vec<Point3<f64>>> = None;
+            let mut hole_points: Vec<Vec<Point3<f64>>> = Vec::new();
 
-                let loop_attr = bound
-                    .get(0)
-                    .ok_or_else(|| Error::geometry("FaceBound missing Bound".to_string()))?;
-
-                let loop_entity = decoder
-                    .resolve_ref(loop_attr)?
-                    .ok_or_else(|| Error::geometry("Failed to resolve loop".to_string()))?;
-
-                // Try to get Polygon attribute (attribute 0) - IfcPolyLoop has this
-                // Note: We can't check type name for Unknown types, so we just try to process
-                let polygon_attr = match loop_entity.get(0) {
+            for bound in &bounds {
+                // Get the loop from the bound
+                let loop_attr = match bound.get(0) {
                     Some(attr) => attr,
-                    None => continue, // Skip if no polygon
+                    None => continue,
                 };
 
-                let points = match decoder.resolve_ref_list(polygon_attr) {
-                    Ok(p) => p,
-                    Err(_) => continue, // Skip if can't resolve points
+                let loop_entity = match decoder.resolve_ref(loop_attr) {
+                    Ok(Some(e)) => e,
+                    _ => continue,
                 };
 
-                // Extract coordinates
-                let mut polygon_points = Vec::new();
-                for point in points {
-                    // Try to get coordinates (attribute 0) - IfcCartesianPoint has this
-                    let coords_attr = match point.get(0) {
-                        Some(attr) => attr,
-                        None => continue, // Skip if no coordinates
-                    };
+                // Get orientation (attribute 1) - .T. = same sense, .F. = reverse
+                // Booleans in IFC are stored as Enum values like ".T." or ".F."
+                let orientation = bound.get(1)
+                    .and_then(|v| match v {
+                        ifc_lite_core::AttributeValue::Enum(e) => Some(e != ".F."),
+                        _ => Some(true), // Default to true
+                    })
+                    .unwrap_or(true);
 
-                    let coords = match coords_attr.as_list() {
-                        Some(list) => list,
-                        None => continue, // Skip if not a list
-                    };
+                let mut points = match self.extract_loop_points(&loop_entity, decoder) {
+                    Some(p) => p,
+                    None => continue,
+                };
 
-                    use ifc_lite_core::AttributeValue;
-                    let x = coords.get(0).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0);
-                    let y = coords.get(1).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0);
-                    let z = coords.get(2).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0);
-
-                    polygon_points.push(Point3::new(x, y, z));
+                // Reverse points if orientation is false
+                if !orientation {
+                    points.reverse();
                 }
 
-                if polygon_points.len() < 3 {
-                    continue; // Skip degenerate polygons
+                // Check if this is outer bound by IFC type
+                // IfcFaceOuterBound type name contains "OUTER"
+                let type_str = bound.ifc_type.as_str();
+                let is_outer = type_str.contains("OUTER") || type_str.contains("outer");
+
+                if is_outer || outer_bound_points.is_none() {
+                    // First bound or explicit outer bound
+                    if outer_bound_points.is_some() && is_outer {
+                        // Move existing outer to holes if we found the real outer
+                        if let Some(prev_outer) = outer_bound_points.take() {
+                            hole_points.push(prev_outer);
+                        }
+                    }
+                    outer_bound_points = Some(points);
+                } else {
+                    // Inner bound (hole)
+                    hole_points.push(points);
                 }
+            }
 
-                // Triangulate the polygon
-                // For now, use simple fan triangulation from first vertex
-                // TODO: Use proper ear clipping or Delaunay triangulation
-                let base_idx = (positions.len() / 3) as u32;
+            // Skip if no outer bound
+            let outer_points = match outer_bound_points {
+                Some(p) => p,
+                None => continue,
+            };
 
-                // Add all points to positions
-                for point in &polygon_points {
-                    positions.push(point.x as f32);
-                    positions.push(point.y as f32);
-                    positions.push(point.z as f32);
+            // Calculate face normal from outer boundary
+            let normal = calculate_polygon_normal(&outer_points);
+
+            // Project all points to 2D for triangulation
+            let (outer_2d, _, _, _) = project_to_2d(&outer_points, &normal);
+
+            // Project holes to 2D using the same coordinate system
+            let holes_2d: Vec<Vec<nalgebra::Point2<f64>>> = hole_points
+                .iter()
+                .map(|hole| {
+                    let (hole_2d, _, _, _) = project_to_2d(hole, &normal);
+                    hole_2d
+                })
+                .collect();
+
+            // Triangulate with holes
+            let tri_indices = match triangulate_polygon_with_holes(&outer_2d, &holes_2d) {
+                Ok(idx) => idx,
+                Err(_) => {
+                    // Fallback to simple triangulation without holes if it fails
+                    let base_idx = (positions.len() / 3) as u32;
+                    for point in &outer_points {
+                        positions.push(point.x as f32);
+                        positions.push(point.y as f32);
+                        positions.push(point.z as f32);
+                    }
+                    for i in 1..outer_points.len() - 1 {
+                        indices.push(base_idx);
+                        indices.push(base_idx + i as u32);
+                        indices.push(base_idx + i as u32 + 1);
+                    }
+                    continue;
                 }
+            };
 
-                // Create triangle fan
-                for i in 1..polygon_points.len() - 1 {
-                    indices.push(base_idx);
-                    indices.push(base_idx + i as u32);
-                    indices.push(base_idx + i as u32 + 1);
-                }
+            // Combine all 3D points (outer + holes) in the same order as 2D
+            let mut all_points_3d: Vec<Point3<f64>> = outer_points;
+            for hole in hole_points {
+                all_points_3d.extend(hole);
+            }
 
-                // Only process outer bound for now
-                break;
+            // Add vertices and triangles
+            let base_idx = (positions.len() / 3) as u32;
+
+            for point in &all_points_3d {
+                positions.push(point.x as f32);
+                positions.push(point.y as f32);
+                positions.push(point.z as f32);
+            }
+
+            for i in (0..tri_indices.len()).step_by(3) {
+                indices.push(base_idx + tri_indices[i] as u32);
+                indices.push(base_idx + tri_indices[i + 1] as u32);
+                indices.push(base_idx + tri_indices[i + 2] as u32);
             }
         }
 
@@ -915,7 +990,7 @@ mod tests {
         let processor = ExtrudedAreaSolidProcessor::new(schema.clone());
 
         let entity = decoder.decode_by_id(3).unwrap();
-        let mesh = processor.process(entity, &mut decoder, &schema).unwrap();
+        let mesh = processor.process(&entity, &mut decoder, &schema).unwrap();
 
         assert!(!mesh.is_empty());
         assert!(mesh.positions.len() > 0);
@@ -934,7 +1009,7 @@ mod tests {
         let processor = TriangulatedFaceSetProcessor::new();
 
         let entity = decoder.decode_by_id(2).unwrap();
-        let mesh = processor.process(entity, &mut decoder, &schema).unwrap();
+        let mesh = processor.process(&entity, &mut decoder, &schema).unwrap();
 
         assert_eq!(mesh.positions.len(), 9); // 3 vertices * 3 coordinates
         assert_eq!(mesh.indices.len(), 3); // 1 triangle
