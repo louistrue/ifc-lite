@@ -1,6 +1,6 @@
 {
   "name": "@ifc-lite/wasm",
-  "version": "0.9.0",
+  "version": "1.0.0",
   "description": "WebAssembly bindings for IFC-Lite",
   "type": "module",
   "main": "ifc_lite_wasm.js",
