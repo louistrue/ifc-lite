@@ -1,16 +1,15 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import {
   Home,
   ZoomIn,
   ZoomOut,
-  RotateCcw,
   Layers,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
-import { ViewCube } from './ViewCube';
+import { ViewCube, type ViewCubeRef } from './ViewCube';
 import { AxisHelper } from './AxisHelper';
 
 export function ViewportOverlays() {
@@ -22,14 +21,25 @@ export function ViewportOverlays() {
   const setOnScaleChange = useViewerStore((s) => s.setOnScaleChange);
   const { ifcDataStore, geometryResult } = useIfc();
 
-  // Local state for camera rotation - updated via callback, no global re-renders
-  const [cameraRotation, setCameraRotation] = useState({ azimuth: 45, elevation: 25 });
+  // Use refs for rotation to avoid re-renders - ViewCube updates itself directly
+  const cameraRotationRef = useRef({ azimuth: 45, elevation: 25 });
+  const viewCubeRef = useRef<ViewCubeRef | null>(null);
+
   // Local state for scale - updated via callback, no global re-renders
   const [scale, setScale] = useState(10);
 
-  // Register callback for real-time rotation updates
+  // Register callback for real-time rotation updates - updates ViewCube directly
   useEffect(() => {
-    setOnCameraRotationChange(setCameraRotation);
+    const handleRotationChange = (rotation: { azimuth: number; elevation: number }) => {
+      cameraRotationRef.current = rotation;
+      // Update ViewCube directly via ref (no React re-render)
+      if (viewCubeRef.current) {
+        const viewCubeRotationX = -rotation.elevation;
+        const viewCubeRotationY = -rotation.azimuth;
+        viewCubeRef.current.updateRotation(viewCubeRotationX, viewCubeRotationY);
+      }
+    };
+    setOnCameraRotationChange(handleRotationChange);
     return () => setOnCameraRotationChange(null);
   }, [setOnCameraRotationChange]);
 
@@ -52,11 +62,9 @@ export function ViewportOverlays() {
     visibleCount = totalCount - hiddenEntities.size;
   }
 
-  // Convert camera azimuth/elevation to ViewCube rotation
-  // ViewCube rotationX = elevation (positive = looking down)
-  // ViewCube rotationY = -azimuth (inverted)
-  const viewCubeRotationX = -cameraRotation.elevation;
-  const viewCubeRotationY = -cameraRotation.azimuth;
+  // Initial rotation values (ViewCube will update itself via ref)
+  const initialRotationX = -cameraRotationRef.current.elevation;
+  const initialRotationY = -cameraRotationRef.current.azimuth;
 
   const handleViewChange = useCallback((view: string) => {
     const viewMap: Record<string, 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right'> = {
@@ -71,6 +79,10 @@ export function ViewportOverlays() {
     if (mappedView && cameraCallbacks.setPresetView) {
       cameraCallbacks.setPresetView(mappedView);
     }
+  }, [cameraCallbacks]);
+
+  const handleHome = useCallback(() => {
+    cameraCallbacks.home?.();
   }, [cameraCallbacks]);
 
   const handleFitAll = useCallback(() => {
@@ -104,11 +116,11 @@ export function ViewportOverlays() {
       <div className="absolute bottom-4 right-4 flex flex-col gap-1 bg-background/80 backdrop-blur-sm rounded-lg border shadow-sm p-1">
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-sm" onClick={handleFitAll}>
+            <Button variant="ghost" size="icon-sm" onClick={handleHome}>
               <Home className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="left">Fit All (F)</TooltipContent>
+          <TooltipContent side="left">Home (H)</TooltipContent>
         </Tooltip>
 
         <Tooltip>
@@ -128,31 +140,14 @@ export function ViewportOverlays() {
           </TooltipTrigger>
           <TooltipContent side="left">Zoom Out (-)</TooltipContent>
         </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-sm" onClick={handleFitAll}>
-              <RotateCcw className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="left">Reset View (R)</TooltipContent>
-        </Tooltip>
       </div>
 
-      {/* Context Info (bottom-center) */}
-      {(storeyName || visibleCount > 0) && (
+      {/* Context Info (bottom-center) - Storey name only */}
+      {storeyName && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-background/80 backdrop-blur-sm rounded-full border shadow-sm">
-          <div className="flex items-center gap-3 text-sm">
-            {storeyName && (
-              <>
-                <Layers className="h-4 w-4 text-primary" />
-                <span className="font-medium">{storeyName}</span>
-                <span className="text-muted-foreground">|</span>
-              </>
-            )}
-            <span className="text-muted-foreground">
-              {visibleCount.toLocaleString()} objects visible
-            </span>
+          <div className="flex items-center gap-2 text-sm">
+            <Layers className="h-4 w-4 text-primary" />
+            <span className="font-medium">{storeyName}</span>
           </div>
         </div>
       )}
@@ -160,17 +155,19 @@ export function ViewportOverlays() {
       {/* ViewCube (top-right) */}
       <div className="absolute top-6 right-6">
         <ViewCube
+          ref={viewCubeRef}
           onViewChange={handleViewChange}
-          rotationX={viewCubeRotationX}
-          rotationY={viewCubeRotationY}
+          onDrag={(deltaX, deltaY) => cameraCallbacks.orbit?.(deltaX, deltaY)}
+          rotationX={initialRotationX}
+          rotationY={initialRotationY}
         />
       </div>
 
       {/* Axis Helper (bottom-left, above scale bar) - IFC Z-up convention */}
       <div className="absolute bottom-16 left-4">
         <AxisHelper
-          rotationX={viewCubeRotationX}
-          rotationY={viewCubeRotationY}
+          rotationX={initialRotationX}
+          rotationY={initialRotationY}
         />
       </div>
 

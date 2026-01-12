@@ -75,6 +75,9 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
     lastX: 0,
     lastY: 0,
     button: 0,
+    startX: 0,  // Track start position for drag detection
+    startY: 0,
+    didDrag: false,  // True if mouse moved significantly during drag
   });
 
   // Touch state
@@ -111,6 +114,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   const pendingMeasurePointRef = useRef<MeasurePoint | null>(pendingMeasurePoint);
   const sectionPlaneRef = useRef(sectionPlane);
   const boxSelectRef = useRef(boxSelect);
+  const geometryRef = useRef<MeshData[] | null>(geometry);
 
   // Hover throttling
   const lastHoverCheckRef = useRef<number>(0);
@@ -125,6 +129,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   useEffect(() => { pendingMeasurePointRef.current = pendingMeasurePoint; }, [pendingMeasurePoint]);
   useEffect(() => { sectionPlaneRef.current = sectionPlane; }, [sectionPlane]);
   useEffect(() => { boxSelectRef.current = boxSelect; }, [boxSelect]);
+  useEffect(() => { geometryRef.current = geometry; }, [geometry]);
   useEffect(() => {
     hoverTooltipsEnabledRef.current = hoverTooltipsEnabled;
     if (!hoverTooltipsEnabled) {
@@ -160,19 +165,75 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       const mouseState = mouseStateRef.current;
       const touchState = touchStateRef.current;
 
+      // Helper function to get entity bounds (min/max) - defined early for callbacks
+      function getEntityBounds(
+        geom: MeshData[] | null,
+        entityId: number
+      ): { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | null {
+        if (!geom) {
+          console.warn('[Viewport] getEntityBounds: geometry is null');
+          return null;
+        }
+        const mesh = geom.find(m => m.expressId === entityId);
+        if (!mesh) {
+          console.warn(`[Viewport] getEntityBounds: mesh not found for entityId ${entityId}`);
+          return null;
+        }
+        if (mesh.positions.length < 3) {
+          console.warn(`[Viewport] getEntityBounds: mesh has insufficient positions for entityId ${entityId}`);
+          return null;
+        }
+
+        let minX = Infinity, minY = Infinity, minZ = Infinity;
+        let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+        for (let i = 0; i < mesh.positions.length; i += 3) {
+          const x = mesh.positions[i];
+          const y = mesh.positions[i + 1];
+          const z = mesh.positions[i + 2];
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          minZ = Math.min(minZ, z);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
+          maxZ = Math.max(maxZ, z);
+        }
+
+        return {
+          min: { x: minX, y: minY, z: minZ },
+          max: { x: maxX, y: maxY, z: maxZ },
+        };
+      }
+
+      // Helper function to get entity center from geometry (uses bounding box center)
+      function getEntityCenter(
+        geom: MeshData[] | null,
+        entityId: number
+      ): { x: number; y: number; z: number } | null {
+        const bounds = getEntityBounds(geom, entityId);
+        if (bounds) {
+          return {
+            x: (bounds.min.x + bounds.max.x) / 2,
+            y: (bounds.min.y + bounds.max.y) / 2,
+            z: (bounds.min.z + bounds.max.z) / 2,
+          };
+        }
+        return null;
+      }
+
       // Register camera callbacks for ViewCube and other controls
       setCameraCallbacks({
         setPresetView: (view) => {
           // Pass actual geometry bounds to avoid distance drift
           camera.setPresetView(view, geometryBoundsRef.current);
+          // Initial render - animation loop will continue rendering during animation
           renderer.render({
             hiddenIds: hiddenEntitiesRef.current,
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
+            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
           });
-          // Update ViewCube rotation immediately
-          updateCameraRotationRealtime(camera.getRotation());
           calculateScale();
         },
         fitAll: () => {
@@ -207,18 +268,47 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           });
           calculateScale();
         },
+        frameSelection: () => {
+          // Frame selection - zoom to fit selected element
+          const selectedId = selectedEntityIdRef.current;
+          const geom = geometryRef.current;
+          if (selectedId !== null && geom) {
+            const bounds = getEntityBounds(geom, selectedId);
+            if (bounds) {
+              camera.frameBounds(bounds.min, bounds.max, 300);
+              calculateScale();
+            } else {
+              console.warn('[Viewport] frameSelection: Could not get bounds for selected element');
+            }
+          } else {
+            console.warn('[Viewport] frameSelection: No selection or geometry');
+          }
+        },
+        orbit: (deltaX: number, deltaY: number) => {
+          // Orbit camera from ViewCube drag
+          camera.orbit(deltaX, deltaY, false);
+          renderer.render({
+            hiddenIds: hiddenEntitiesRef.current,
+            isolatedIds: isolatedEntitiesRef.current,
+            selectedId: selectedEntityIdRef.current,
+            clearColor: clearColorRef.current,
+            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+          });
+          updateCameraRotationRealtime(camera.getRotation());
+          calculateScale();
+        },
       });
 
       // Calculate scale bar value (world-space size for 96px scale bar)
       const calculateScale = () => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-        
+
         const viewportHeight = canvas.height;
         const distance = camera.getDistance();
         const fov = camera.getFOV();
         const scaleBarPixels = 96; // w-24 = 6rem = 96px
-        
+
         // Calculate world-space size: (screen pixels / viewport height) * (distance * tan(FOV/2) * 2)
         const worldSize = (scaleBarPixels / viewportHeight) * (distance * Math.tan(fov / 2) * 2);
         updateScaleRealtime(worldSize);
@@ -250,7 +340,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           updateCameraRotationRealtime(camera.getRotation());
           lastRotationUpdate = currentTime;
         }
-        
+
         // Update scale bar (throttled to every 100ms)
         if (currentTime - lastScaleUpdate > 100) {
           calculateScale();
@@ -263,12 +353,15 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       animationFrameRef.current = requestAnimationFrame(animate);
 
       // Mouse controls - respect active tool
-      canvas.addEventListener('mousedown', (e) => {
+      canvas.addEventListener('mousedown', async (e) => {
         e.preventDefault();
         mouseState.isDragging = true;
         mouseState.button = e.button;
         mouseState.lastX = e.clientX;
         mouseState.lastY = e.clientY;
+        mouseState.startX = e.clientX;
+        mouseState.startY = e.clientY;
+        mouseState.didDrag = false;
 
         // Determine action based on active tool and mouse button
         const tool = activeToolRef.current;
@@ -278,6 +371,32 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           startBoxSelect(e.clientX, e.clientY);
           canvas.style.cursor = 'crosshair';
           return;
+        }
+
+        const willOrbit = !(tool === 'pan' || e.button === 1 || e.button === 2 ||
+          (tool === 'select' && e.shiftKey) ||
+          (tool !== 'orbit' && tool !== 'select' && e.shiftKey));
+
+        // Set orbit pivot to what user clicks on (standard CAD/BIM behavior)
+        // Simple and predictable: orbit around clicked geometry, or model center if empty space
+        if (willOrbit && tool !== 'measure' && tool !== 'walk') {
+          const rect = canvas.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+
+          // Pick at cursor position - orbit around what user is clicking on
+          const pickedId = await renderer.pick(x, y);
+          if (pickedId !== null) {
+            const center = getEntityCenter(geometryRef.current, pickedId);
+            if (center) {
+              camera.setOrbitPivot(center);
+            } else {
+              camera.setOrbitPivot(null);
+            }
+          } else {
+            // No geometry under cursor - orbit around current target (model center)
+            camera.setOrbitPivot(null);
+          }
         }
 
         if (tool === 'pan' || e.button === 1 || e.button === 2) {
@@ -309,6 +428,13 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           const dx = e.clientX - mouseState.lastX;
           const dy = e.clientY - mouseState.lastY;
           const tool = activeToolRef.current;
+
+          // Check if this counts as a drag (moved more than 5px from start)
+          const totalDx = e.clientX - mouseState.startX;
+          const totalDy = e.clientY - mouseState.startY;
+          if (Math.abs(totalDx) > 5 || Math.abs(totalDy) > 5) {
+            mouseState.didDrag = true;
+          }
 
           // Handle box selection
           if (tool === 'boxselect' && mouseState.button === 0) {
@@ -362,12 +488,15 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         mouseState.isPanning = false;
         const tool = activeToolRef.current;
         canvas.style.cursor = tool === 'pan' ? 'grab' : (tool === 'orbit' ? 'grab' : 'default');
+        // Clear orbit pivot after each orbit operation
+        camera.setOrbitPivot(null);
       });
 
       canvas.addEventListener('mouseleave', () => {
         mouseState.isDragging = false;
         mouseState.isPanning = false;
         camera.stopInertia();
+        camera.setOrbitPivot(null);
         canvas.style.cursor = 'default';
         clearHover();
       });
@@ -403,13 +532,23 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         const y = e.clientY - rect.top;
         const tool = activeToolRef.current;
 
+        // Skip selection if user was dragging (orbiting/panning)
+        if (mouseState.didDrag) {
+          return;
+        }
+
+        // Skip selection for orbit/pan tools - they don't select
+        if (tool === 'orbit' || tool === 'pan' || tool === 'walk') {
+          return;
+        }
+
         // Handle measure tool clicks
         if (tool === 'measure') {
           const pickedId = await renderer.pick(x, y);
           if (pickedId) {
             // Get 3D position from mesh vertices (simplified - uses center of clicked entity)
             // In a full implementation, you'd use ray-triangle intersection
-            const worldPos = getApproximateWorldPosition(geometry, pickedId, x, y, canvas.width, canvas.height);
+            const worldPos = getApproximateWorldPosition(geometryRef.current, pickedId, x, y, canvas.width, canvas.height);
             const measurePoint: MeasurePoint = {
               x: worldPos.x,
               y: worldPos.y,
@@ -433,7 +572,8 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         if (tool === 'boxselect') {
           // Get box selection coordinates (in screen space relative to viewport)
           const bs = boxSelectRef.current;
-          if (bs.isSelecting && geometry) {
+          const geom = geometryRef.current;
+          if (bs.isSelecting && geom) {
             const selectionRect = {
               left: Math.min(bs.startX, bs.currentX),
               right: Math.max(bs.startX, bs.currentX),
@@ -456,20 +596,28 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
               // Find all entities whose center projects into the selection box
               const selectedIds: number[] = [];
 
-              for (const mesh of geometry) {
-                // Calculate mesh center from positions
+              for (const mesh of geom) {
+                // Calculate mesh bounding box center
                 if (mesh.positions.length >= 3) {
-                  let sumX = 0, sumY = 0, sumZ = 0;
-                  const vertCount = mesh.positions.length / 3;
+                  let minX = Infinity, minY = Infinity, minZ = Infinity;
+                  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
                   for (let i = 0; i < mesh.positions.length; i += 3) {
-                    sumX += mesh.positions[i];
-                    sumY += mesh.positions[i + 1];
-                    sumZ += mesh.positions[i + 2];
+                    const x = mesh.positions[i];
+                    const y = mesh.positions[i + 1];
+                    const z = mesh.positions[i + 2];
+                    minX = Math.min(minX, x);
+                    minY = Math.min(minY, y);
+                    minZ = Math.min(minZ, z);
+                    maxX = Math.max(maxX, x);
+                    maxY = Math.max(maxY, y);
+                    maxZ = Math.max(maxZ, z);
                   }
+
                   const center = {
-                    x: sumX / vertCount,
-                    y: sumY / vertCount,
-                    z: sumZ / vertCount,
+                    x: (minX + maxX) / 2,
+                    y: (minY + maxY) / 2,
+                    z: (minZ + maxZ) / 2,
                   };
 
                   // Project center to screen space
@@ -478,7 +626,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
                   if (screenPos) {
                     // Check if screen position is within selection box
                     if (screenPos.x >= canvasLeft && screenPos.x <= canvasRight &&
-                        screenPos.y >= canvasTop && screenPos.y <= canvasBottom) {
+                      screenPos.y >= canvasTop && screenPos.y <= canvasBottom) {
                       selectedIds.push(mesh.expressId);
                     }
                   }
@@ -528,7 +676,8 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         }
       });
 
-      // Helper function to get approximate world position
+
+      // Helper function to get approximate world position (for measurement tool)
       function getApproximateWorldPosition(
         geom: MeshData[] | null,
         entityId: number,
@@ -537,29 +686,11 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         _canvasWidth: number,
         _canvasHeight: number
       ): { x: number; y: number; z: number } {
-        // Find the mesh for this entity and compute its center
-        if (geom) {
-          const mesh = geom.find(m => m.expressId === entityId);
-          if (mesh && mesh.positions.length >= 3) {
-            let sumX = 0, sumY = 0, sumZ = 0;
-            const vertCount = mesh.positions.length / 3;
-            for (let i = 0; i < mesh.positions.length; i += 3) {
-              sumX += mesh.positions[i];
-              sumY += mesh.positions[i + 1];
-              sumZ += mesh.positions[i + 2];
-            }
-            return {
-              x: sumX / vertCount,
-              y: sumY / vertCount,
-              z: sumZ / vertCount,
-            };
-          }
-        }
-        return { x: 0, y: 0, z: 0 };
+        return getEntityCenter(geom, entityId) || { x: 0, y: 0, z: 0 };
       }
 
       // Touch controls
-      canvas.addEventListener('touchstart', (e) => {
+      canvas.addEventListener('touchstart', async (e) => {
         e.preventDefault();
         touchState.touches = Array.from(e.touches);
 
@@ -568,6 +699,23 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             x: touchState.touches[0].clientX,
             y: touchState.touches[0].clientY,
           };
+
+          // Set orbit pivot to what user touches (same as mouse click behavior)
+          const rect = canvas.getBoundingClientRect();
+          const x = touchState.touches[0].clientX - rect.left;
+          const y = touchState.touches[0].clientY - rect.top;
+
+          const pickedId = await renderer.pick(x, y);
+          if (pickedId !== null) {
+            const center = getEntityCenter(geometryRef.current, pickedId);
+            if (center) {
+              camera.setOrbitPivot(center);
+            } else {
+              camera.setOrbitPivot(null);
+            }
+          } else {
+            camera.setOrbitPivot(null);
+          }
         } else if (touchState.touches.length === 2) {
           const dx = touchState.touches[1].clientX - touchState.touches[0].clientX;
           const dy = touchState.touches[1].clientY - touchState.touches[0].clientY;
@@ -629,6 +777,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         touchState.touches = Array.from(e.touches);
         if (touchState.touches.length === 0) {
           camera.stopInertia();
+          camera.setOrbitPivot(null);
         }
       });
 
@@ -663,15 +812,31 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         if (e.key === '5') setViewAndRender('left');
         if (e.key === '6') setViewAndRender('right');
 
-        // Frame selection / Fit all
+        // Frame selection (F) - zoom to fit selection, or fit all if nothing selected
         if (e.key === 'f' || e.key === 'F') {
+          const selectedId = selectedEntityIdRef.current;
+          if (selectedId !== null) {
+            // Frame selection - zoom to fit selected element
+            const bounds = getEntityBounds(geometryRef.current, selectedId);
+            if (bounds) {
+              camera.frameBounds(bounds.min, bounds.max, 300);
+            }
+          } else {
+            // No selection - fit all
+            camera.zoomExtent(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 300);
+          }
+          calculateScale();
+        }
+
+        // Home view (H) - reset to isometric
+        if (e.key === 'h' || e.key === 'H') {
           camera.zoomToFit(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 500);
           calculateScale();
         }
 
-        // Home view
-        if (e.key === 'h' || e.key === 'H') {
-          camera.zoomToFit(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 500);
+        // Fit all / Zoom extents (Z)
+        if (e.key === 'z' || e.key === 'Z') {
+          camera.zoomExtent(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 300);
           calculateScale();
         }
 
@@ -792,27 +957,52 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
     const geometryChanged = lastGeometryRef.current !== geometry;
 
     if (geometryChanged && lastGeometryRef.current !== null) {
+      // New file loaded - reset camera and bounds
       scene.clear();
       processedMeshIdsRef.current.clear();
+      cameraFittedRef.current = false;
       lastGeometryLengthRef.current = 0;
       lastGeometryRef.current = geometry;
+      // Reset camera state (clear orbit pivot, stop inertia, cancel animations)
+      renderer.getCamera().reset();
+      // Reset geometry bounds to default
+      geometryBoundsRef.current = {
+        min: { x: -100, y: -100, z: -100 },
+        max: { x: 100, y: 100, z: 100 },
+      };
     } else if (currentLength > lastGeometryLengthRef.current) {
       lastGeometryRef.current = geometry;
     } else if (currentLength === 0) {
+      // Geometry cleared - reset camera and bounds
       scene.clear();
       processedMeshIdsRef.current.clear();
       cameraFittedRef.current = false;
       lastGeometryLengthRef.current = 0;
       lastGeometryRef.current = null;
+      // Reset camera state
+      renderer.getCamera().reset();
+      // Reset geometry bounds to default
+      geometryBoundsRef.current = {
+        min: { x: -100, y: -100, z: -100 },
+        max: { x: 100, y: 100, z: 100 },
+      };
       return;
     } else if (currentLength === lastGeometryLengthRef.current && !geometryChanged) {
       return;
     } else {
+      // Length changed or other scenario - reset camera and bounds
       scene.clear();
       processedMeshIdsRef.current.clear();
       cameraFittedRef.current = false;
       lastGeometryLengthRef.current = 0;
       lastGeometryRef.current = geometry;
+      // Reset camera state
+      renderer.getCamera().reset();
+      // Reset geometry bounds to default
+      geometryBoundsRef.current = {
+        min: { x: -100, y: -100, z: -100 },
+        max: { x: 100, y: 100, z: 100 },
+      };
     }
 
     if (lastGeometryRef.current === null) {

@@ -60,7 +60,7 @@ export function ViewerLayout() {
         <BoxSelectionOverlay />
 
         {/* Main Toolbar */}
-        <MainToolbar />
+        <MainToolbar onShowShortcuts={shortcutsDialog.toggle} />
 
         {/* Main Content Area - Desktop Layout */}
         {!isMobile && (

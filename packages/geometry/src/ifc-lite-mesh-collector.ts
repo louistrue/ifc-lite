@@ -37,11 +37,9 @@ export class IfcLiteMeshCollector {
   collectMeshes(): MeshData[] {
     const totalStart = performance.now();
 
-    console.log('[IfcLiteMeshCollector] Parsing meshes...');
     const parseStart = performance.now();
     const collection = this.ifcApi.parseMeshes(this.content);
     const parseTime = performance.now() - parseStart;
-    console.log(`[IfcLiteMeshCollector] Parse time: ${parseTime.toFixed(2)}ms, found ${collection.length} meshes`);
 
     const meshes: MeshData[] = [];
     const conversionStart = performance.now();
@@ -89,20 +87,6 @@ export class IfcLiteMeshCollector {
     collection.free();
 
     const conversionTime = performance.now() - conversionStart;
-    const totalTime = performance.now() - totalStart;
-
-    console.log('[IfcLiteMeshCollector] Stats:', {
-      meshCount: meshes.length,
-      totalVertices,
-      totalTriangles,
-    });
-
-    console.log('[IfcLiteMeshCollector] Performance:', {
-      parseTime: `${parseTime.toFixed(2)}ms`,
-      conversionTime: `${conversionTime.toFixed(2)}ms`,
-      totalTime: `${totalTime.toFixed(2)}ms`,
-    });
-
     return meshes;
   }
 
@@ -113,11 +97,9 @@ export class IfcLiteMeshCollector {
   async *collectMeshesStreaming(batchSize: number = 100): AsyncGenerator<MeshData[]> {
     const totalStart = performance.now();
 
-    console.log('[IfcLiteMeshCollector] === STREAMING WITH Z-UP TO Y-UP CONVERSION ===');
     const parseStart = performance.now();
     const collection = this.ifcApi.parseMeshes(this.content);
     const parseTime = performance.now() - parseStart;
-    console.log(`[IfcLiteMeshCollector] Parse time: ${parseTime.toFixed(2)}ms, found ${collection.length} meshes`);
 
     let batch: MeshData[] = [];
     let processedCount = 0;
@@ -173,8 +155,5 @@ export class IfcLiteMeshCollector {
 
     // Free the collection
     collection.free();
-
-    const totalTime = performance.now() - totalStart;
-    console.log(`[IfcLiteMeshCollector] Streaming complete: ${totalTime.toFixed(2)}ms, total meshes: ${processedCount}`);
   }
 }

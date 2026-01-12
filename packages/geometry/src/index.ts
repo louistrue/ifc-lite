@@ -61,10 +61,7 @@ export class GeometryProcessor {
   async init(wasmPath: string = '/'): Promise<void> {
     this.wasmPath = wasmPath;
 
-    const bridgeInitStart = performance.now();
     await this.bridge.init(wasmPath);
-    const bridgeInitTime = performance.now() - bridgeInitStart;
-    console.log(`[GeometryProcessor] IFC-Lite init: ${bridgeInitTime.toFixed(2)}ms`);
 
     // Initialize worker pool if available (lazy - only when needed)
     // Don't initialize workers upfront to avoid overhead
@@ -98,11 +95,8 @@ export class GeometryProcessor {
           } catch (e) {
             workerUrl = './geometry.worker.ts';
           }
-          const poolInitStart = performance.now();
           this.workerPool = new WorkerPool(workerUrl, 1); // Use single worker for now
           await this.workerPool.init();
-          const poolInitTime = performance.now() - poolInitStart;
-          console.log(`[GeometryProcessor] Worker pool init: ${poolInitTime.toFixed(2)}ms`);
         } catch (error) {
           console.warn('[GeometryProcessor] Worker pool initialization failed, will use main thread:', error);
           this.workerPool = null;
@@ -110,46 +104,25 @@ export class GeometryProcessor {
       }
 
       if (this.workerPool?.isAvailable()) {
-        console.log('[Geometry] Using worker pool for mesh collection');
         try {
-          const workerStart = performance.now();
           meshes = await this.workerPool.submit<MeshData[]>('mesh-collection', {
             buffer: buffer.buffer,
             wasmPath: this.wasmPath,
           });
-          const workerTime = performance.now() - workerStart;
-          console.log(`[Geometry] Worker mesh collection: ${workerTime.toFixed(2)}ms, meshes: ${meshes.length}`);
         } catch (error) {
           console.warn('[Geometry] Worker pool failed, falling back to main thread:', error);
           meshes = await this.collectMeshesMainThread(buffer);
         }
       } else {
         // Fallback to main thread
-        console.log('[Geometry] Worker pool not available, using main thread');
         meshes = await this.collectMeshesMainThread(buffer);
       }
     } else {
       // Use main thread (faster for total time, but blocks UI)
-      console.log('[Geometry] Using main thread for mesh collection (workers disabled)');
       meshes = await this.collectMeshesMainThread(buffer);
     }
 
     const meshCollectionTime = performance.now() - meshCollectionStart;
-    console.log(`[Geometry] Total mesh collection: ${meshCollectionTime.toFixed(2)}ms`);
-    console.log(`[Geometry] Performance Summary:`, {
-      method: this.useWorkers ? 'worker' : 'main-thread',
-      meshCollectionTime: `${meshCollectionTime.toFixed(2)}ms`,
-      meshCount: meshes.length,
-    });
-
-    if (meshes.length > 0) {
-      console.log('[Geometry] First mesh:', {
-        expressId: meshes[0].expressId,
-        positions: meshes[0].positions.length,
-        normals: meshes[0].normals.length,
-        indices: meshes[0].indices.length,
-      });
-    }
 
     // Handle large coordinates by shifting to origin
     const coordinateInfo = this.coordinateHandler.processMeshes(meshes);
@@ -165,14 +138,6 @@ export class GeometryProcessor {
       coordinateInfo,
     };
 
-    console.log('[Geometry] Result:', {
-      meshCount: result.meshes.length,
-      totalTriangles: result.totalTriangles,
-      totalVertices: result.totalVertices,
-      isGeoReferenced: coordinateInfo.isGeoReferenced,
-      originShift: coordinateInfo.originShift,
-    });
-
     return result;
   }
 
@@ -180,19 +145,12 @@ export class GeometryProcessor {
    * Collect meshes on main thread using IFC-Lite
    */
   private async collectMeshesMainThread(buffer: Uint8Array, _entityIndex?: Map<number, any>): Promise<MeshData[]> {
-    const mainThreadStart = performance.now();
-    console.log('[Geometry] Processing IFC with IFC-Lite, buffer size:', buffer.length);
-
     // Convert buffer to string (IFC files are text)
     const decoder = new TextDecoder();
     const content = decoder.decode(buffer);
 
-    const collectStart = performance.now();
     const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
     const meshes = collector.collectMeshes();
-    const collectTime = performance.now() - collectStart;
-    const totalTime = performance.now() - mainThreadStart;
-    console.log(`[Geometry] IFC-Lite collect: ${collectTime.toFixed(2)}ms, total: ${totalTime.toFixed(2)}ms, meshes: ${meshes.length}`);
 
     return meshes;
   }
@@ -218,9 +176,6 @@ export class GeometryProcessor {
 
     yield { type: 'start', totalEstimate: buffer.length / 1000 };
 
-    const mainThreadStart = performance.now();
-    console.log('[Geometry] Processing IFC with IFC-Lite streaming, buffer size:', buffer.length);
-
     // Convert buffer to string (IFC files are text)
     const decoder = new TextDecoder();
     const content = decoder.decode(buffer);
@@ -242,9 +197,7 @@ export class GeometryProcessor {
       yield { type: 'batch', meshes: batch, totalSoFar: totalMeshes, coordinateInfo: coordinateInfo || undefined };
     }
 
-    const totalTime = performance.now() - mainThreadStart;
     const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
-    console.log(`[Geometry] Streaming complete: ${totalTime.toFixed(2)}ms, total meshes: ${totalMeshes}`);
 
     yield { type: 'complete', totalMeshes, coordinateInfo };
   }
