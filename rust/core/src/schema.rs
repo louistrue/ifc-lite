@@ -124,6 +124,14 @@ pub enum IfcType {
     IfcAnnotation,
     IfcGrid,
 
+    // Style and presentation types
+    IfcStyledItem,
+    IfcPresentationStyleAssignment,
+    IfcSurfaceStyle,
+    IfcSurfaceStyleRendering,
+    IfcSurfaceStyleShading,
+    IfcColourRgb,
+
     // Other common types
     IfcOwnerHistory,
     IfcPerson,
@@ -242,6 +250,14 @@ impl IfcType {
 
             "IFCANNOTATION" => Self::IfcAnnotation,
             "IFCGRID" => Self::IfcGrid,
+
+            // Style types
+            "IFCSTYLEDITEM" => Self::IfcStyledItem,
+            "IFCPRESENTATIONSTYLEASSIGNMENT" => Self::IfcPresentationStyleAssignment,
+            "IFCSURFACESTYLE" => Self::IfcSurfaceStyle,
+            "IFCSURFACESTYLERENDERING" => Self::IfcSurfaceStyleRendering,
+            "IFCSURFACESTYLESHADING" => Self::IfcSurfaceStyleShading,
+            "IFCCOLOURRGB" => Self::IfcColourRgb,
 
             "IFCOWNERHISTORY" => Self::IfcOwnerHistory,
             "IFCPERSON" => Self::IfcPerson,
@@ -363,6 +379,14 @@ impl IfcType {
 
             Self::IfcAnnotation => "IFCANNOTATION",
             Self::IfcGrid => "IFCGRID",
+
+            // Style types
+            Self::IfcStyledItem => "IFCSTYLEDITEM",
+            Self::IfcPresentationStyleAssignment => "IFCPRESENTATIONSTYLEASSIGNMENT",
+            Self::IfcSurfaceStyle => "IFCSURFACESTYLE",
+            Self::IfcSurfaceStyleRendering => "IFCSURFACESTYLERENDERING",
+            Self::IfcSurfaceStyleShading => "IFCSURFACESTYLESHADING",
+            Self::IfcColourRgb => "IFCCOLOURRGB",
 
             Self::IfcOwnerHistory => "IFCOWNERHISTORY",
             Self::IfcPerson => "IFCPERSON",

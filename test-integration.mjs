@@ -15,9 +15,9 @@ const wasmBuffer = readFileSync('./packages/wasm/pkg/ifc_lite_wasm_bg.wasm');
 initSync(wasmBuffer);
 console.log('✅ WASM initialized\n');
 
-// Load test file
-console.log('📁 Loading test IFC file...');
-const ifcData = readFileSync('./test.ifc', 'utf-8');
+// Load test file (with colors)
+console.log('📁 Loading test IFC file with colors...');
+const ifcData = readFileSync('./test-colors.ifc', 'utf-8');
 console.log(`   File size: ${ifcData.length} bytes`);
 console.log(`   Lines: ${ifcData.split('\n').length}\n`);
 
