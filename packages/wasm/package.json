@@ -1,0 +1,46 @@
+{
+  "name": "@ifc-lite/wasm",
+  "version": "0.5.0",
+  "description": "WebAssembly bindings for IFC-Lite",
+  "type": "module",
+  "main": "ifc_lite_wasm.js",
+  "types": "ifc_lite_wasm.d.ts",
+  "exports": {
+    ".": {
+      "types": "./ifc_lite_wasm.d.ts",
+      "import": "./ifc_lite_wasm.js"
+    }
+  },
+  "collaborators": [
+    "IFC-Lite Contributors"
+  ],
+  "license": "MPL-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/louistrue/ifc-lite.git",
+    "directory": "packages/wasm"
+  },
+  "files": [
+    "ifc_lite_wasm_bg.wasm",
+    "ifc_lite_wasm.js",
+    "ifc_lite_wasm.d.ts"
+  ],
+  "main": "ifc_lite_wasm.js",
+  "types": "ifc_lite_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ],
+  "author": "Louis True",
+  "homepage": "https://louistrue.github.io/ifc-lite/",
+  "bugs": "https://github.com/louistrue/ifc-lite/issues",
+  "keywords": [
+    "ifc",
+    "bim",
+    "wasm",
+    "webassembly",
+    "aec"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
