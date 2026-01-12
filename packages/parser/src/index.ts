@@ -11,6 +11,17 @@ export { RelationshipExtractor } from './relationship-extractor.js';
 export { StyleExtractor } from './style-extractor.js';
 export { SpatialHierarchyBuilder } from './spatial-hierarchy-builder.js';
 export { ColumnarParser, type IfcDataStore } from './columnar-parser.js';
+
+// New extractors with 100% schema coverage
+export { extractMaterials, getMaterialForElement, getMaterialNameForElement, type MaterialsData, type Material, type MaterialLayer, type MaterialLayerSet } from './material-extractor.js';
+export { extractGeoreferencing, transformToWorld, transformToLocal, getCoordinateSystemDescription, type GeoreferenceInfo, type MapConversion, type ProjectedCRS } from './georef-extractor.js';
+export { extractClassifications, getClassificationsForElement, getClassificationCodeForElement, getClassificationPath, groupElementsByClassification, type ClassificationsData, type Classification, type ClassificationReference } from './classification-extractor.js';
+
+// Generated IFC4 schema (100% coverage - 776 entities, 397 types, 207 enums)
+export { SCHEMA_REGISTRY, getEntityMetadata, getAllAttributesForEntity, getInheritanceChainForEntity, isKnownEntity } from './generated/schema-registry.js';
+export type * from './generated/entities.js';
+export * from './generated/enums.js';
+
 export * from './types.js';
 export * from './style-extractor.js';
 export { getAttributeNames, getAttributeNameAt, isKnownType } from './ifc-schema.js';

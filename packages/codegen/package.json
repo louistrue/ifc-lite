@@ -1,0 +1,27 @@
+{
+  "name": "@ifc-lite/codegen",
+  "version": "0.1.0",
+  "description": "TypeScript code generator from IFC EXPRESS schemas",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest",
+    "generate": "node dist/cli.js",
+    "generate:ifc4": "node dist/cli.js schemas/IFC4.exp -o generated/ifc4",
+    "generate:ifc4x3": "node dist/cli.js schemas/IFC4X3.exp -o generated/ifc4x3"
+  },
+  "keywords": ["ifc", "express", "codegen", "typescript"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^11.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.0.4"
+  }
+}
