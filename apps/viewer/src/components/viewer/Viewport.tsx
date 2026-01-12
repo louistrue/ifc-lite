@@ -263,7 +263,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       animationFrameRef.current = requestAnimationFrame(animate);
 
       // Mouse controls - respect active tool
-      canvas.addEventListener('mousedown', (e) => {
+      canvas.addEventListener('mousedown', async (e) => {
         e.preventDefault();
         mouseState.isDragging = true;
         mouseState.button = e.button;
@@ -278,6 +278,39 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           startBoxSelect(e.clientX, e.clientY);
           canvas.style.cursor = 'crosshair';
           return;
+        }
+
+        const willOrbit = !(tool === 'pan' || e.button === 1 || e.button === 2 ||
+                           (tool === 'select' && e.shiftKey) ||
+                           (tool !== 'orbit' && tool !== 'select' && e.shiftKey));
+
+        // Set orbit pivot for better orbit UX (best practice from BIM viewers)
+        if (willOrbit && tool !== 'measure' && tool !== 'walk') {
+          const rect = canvas.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+
+          // Priority 1: If an element is selected, orbit around its center
+          const currentSelectedId = selectedEntityIdRef.current;
+          if (currentSelectedId !== null) {
+            const center = getEntityCenter(geometry, currentSelectedId);
+            if (center) {
+              camera.setOrbitPivot(center);
+            }
+          } else {
+            // Priority 2: Pick at cursor position - orbit around what user is pointing at
+            const pickedId = await renderer.pick(x, y);
+            if (pickedId !== null) {
+              const center = getEntityCenter(geometry, pickedId);
+              if (center) {
+                camera.setOrbitPivot(center);
+              }
+            } else {
+              // Priority 3: No geometry under cursor - use screen center at target depth
+              // This gives intuitive orbit behavior even when pointing at empty space
+              camera.setOrbitPivot(null); // Use default target
+            }
+          }
         }
 
         if (tool === 'pan' || e.button === 1 || e.button === 2) {
@@ -362,12 +395,15 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         mouseState.isPanning = false;
         const tool = activeToolRef.current;
         canvas.style.cursor = tool === 'pan' ? 'grab' : (tool === 'orbit' ? 'grab' : 'default');
+        // Clear orbit pivot after orbit operation ends
+        camera.setOrbitPivot(null);
       });
 
       canvas.addEventListener('mouseleave', () => {
         mouseState.isDragging = false;
         mouseState.isPanning = false;
         camera.stopInertia();
+        camera.setOrbitPivot(null); // Clear orbit pivot when leaving canvas
         canvas.style.cursor = 'default';
         clearHover();
       });
@@ -528,16 +564,11 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         }
       });
 
-      // Helper function to get approximate world position
-      function getApproximateWorldPosition(
+      // Helper function to get entity center from geometry
+      function getEntityCenter(
         geom: MeshData[] | null,
-        entityId: number,
-        _screenX: number,
-        _screenY: number,
-        _canvasWidth: number,
-        _canvasHeight: number
-      ): { x: number; y: number; z: number } {
-        // Find the mesh for this entity and compute its center
+        entityId: number
+      ): { x: number; y: number; z: number } | null {
         if (geom) {
           const mesh = geom.find(m => m.expressId === entityId);
           if (mesh && mesh.positions.length >= 3) {
@@ -555,11 +586,23 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             };
           }
         }
-        return { x: 0, y: 0, z: 0 };
+        return null;
+      }
+
+      // Helper function to get approximate world position (for measurement tool)
+      function getApproximateWorldPosition(
+        geom: MeshData[] | null,
+        entityId: number,
+        _screenX: number,
+        _screenY: number,
+        _canvasWidth: number,
+        _canvasHeight: number
+      ): { x: number; y: number; z: number } {
+        return getEntityCenter(geom, entityId) || { x: 0, y: 0, z: 0 };
       }
 
       // Touch controls
-      canvas.addEventListener('touchstart', (e) => {
+      canvas.addEventListener('touchstart', async (e) => {
         e.preventDefault();
         touchState.touches = Array.from(e.touches);
 
@@ -568,6 +611,29 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             x: touchState.touches[0].clientX,
             y: touchState.touches[0].clientY,
           };
+
+          // Set orbit pivot for single-finger orbit (same logic as mouse)
+          const rect = canvas.getBoundingClientRect();
+          const x = touchState.touches[0].clientX - rect.left;
+          const y = touchState.touches[0].clientY - rect.top;
+
+          const currentSelectedId = selectedEntityIdRef.current;
+          if (currentSelectedId !== null) {
+            const center = getEntityCenter(geometry, currentSelectedId);
+            if (center) {
+              camera.setOrbitPivot(center);
+            }
+          } else {
+            const pickedId = await renderer.pick(x, y);
+            if (pickedId !== null) {
+              const center = getEntityCenter(geometry, pickedId);
+              if (center) {
+                camera.setOrbitPivot(center);
+              }
+            } else {
+              camera.setOrbitPivot(null);
+            }
+          }
         } else if (touchState.touches.length === 2) {
           const dx = touchState.touches[1].clientX - touchState.touches[0].clientX;
           const dy = touchState.touches[1].clientY - touchState.touches[0].clientY;
@@ -629,6 +695,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         touchState.touches = Array.from(e.touches);
         if (touchState.touches.length === 0) {
           camera.stopInertia();
+          camera.setOrbitPivot(null); // Clear orbit pivot when touch ends
         }
       });
 

@@ -29,6 +29,9 @@ export class Camera {
   private isFirstPersonMode = false;
   private firstPersonSpeed = 0.1;
 
+  // Dynamic orbit pivot (for orbiting around selected element or cursor point)
+  private orbitPivot: Vec3 | null = null;
+
   constructor() {
     // Geometry is converted from IFC Z-up to WebGL Y-up during import
     this.camera = {
@@ -71,17 +74,43 @@ export class Camera {
   }
 
   /**
-   * Orbit around target (Y-up coordinate system)
+   * Set temporary orbit pivot (for orbiting around selected element or cursor point)
+   * When set, orbit() will rotate around this point instead of the camera target
+   */
+  setOrbitPivot(pivot: Vec3 | null): void {
+    this.orbitPivot = pivot ? { ...pivot } : null;
+  }
+
+  /**
+   * Get current orbit pivot (returns temporary pivot if set, otherwise target)
+   */
+  getOrbitPivot(): Vec3 {
+    return this.orbitPivot ? { ...this.orbitPivot } : { ...this.camera.target };
+  }
+
+  /**
+   * Check if a temporary orbit pivot is set
+   */
+  hasOrbitPivot(): boolean {
+    return this.orbitPivot !== null;
+  }
+
+  /**
+   * Orbit around target or pivot (Y-up coordinate system)
+   * If an orbit pivot is set, orbits around that point and moves target along
    */
   orbit(deltaX: number, deltaY: number, addVelocity = false): void {
     // Invert controls: mouse movement direction = model rotation direction
     const dx = -deltaX * 0.01;
     const dy = -deltaY * 0.01;
 
+    // Use orbit pivot if set, otherwise use target
+    const pivotPoint = this.orbitPivot || this.camera.target;
+
     const dir = {
-      x: this.camera.position.x - this.camera.target.x,
-      y: this.camera.position.y - this.camera.target.y,
-      z: this.camera.position.z - this.camera.target.z,
+      x: this.camera.position.x - pivotPoint.x,
+      y: this.camera.position.y - pivotPoint.y,
+      z: this.camera.position.z - pivotPoint.z,
     };
 
     const distance = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
@@ -96,10 +125,27 @@ export class Camera {
     // Clamp phi to prevent gimbal lock and going below ground
     const phiClamped = Math.max(0.1, Math.min(Math.PI - 0.1, phi));
 
-    // Calculate new position
-    this.camera.position.x = this.camera.target.x + distance * Math.sin(phiClamped) * Math.sin(theta);
-    this.camera.position.y = this.camera.target.y + distance * Math.cos(phiClamped);
-    this.camera.position.z = this.camera.target.z + distance * Math.sin(phiClamped) * Math.cos(theta);
+    // Calculate new camera position around pivot
+    const newPosX = pivotPoint.x + distance * Math.sin(phiClamped) * Math.sin(theta);
+    const newPosY = pivotPoint.y + distance * Math.cos(phiClamped);
+    const newPosZ = pivotPoint.z + distance * Math.sin(phiClamped) * Math.cos(theta);
+
+    // If orbiting around a pivot (not the target), also move the target
+    // This keeps the target in front of the camera for subsequent operations
+    if (this.orbitPivot) {
+      const deltaPos = {
+        x: newPosX - this.camera.position.x,
+        y: newPosY - this.camera.position.y,
+        z: newPosZ - this.camera.position.z,
+      };
+      this.camera.target.x += deltaPos.x;
+      this.camera.target.y += deltaPos.y;
+      this.camera.target.z += deltaPos.z;
+    }
+
+    this.camera.position.x = newPosX;
+    this.camera.position.y = newPosY;
+    this.camera.position.z = newPosZ;
 
     if (addVelocity) {
       // Store original delta (not inverted) since orbit() will invert it
