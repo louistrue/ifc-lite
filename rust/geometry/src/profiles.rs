@@ -39,9 +39,10 @@ impl ProfileProcessor {
     fn process_parametric(
         &self,
         profile: &DecodedEntity,
-        _decoder: &mut EntityDecoder,
+        decoder: &mut EntityDecoder,
     ) -> Result<Profile2D> {
-        match profile.ifc_type {
+        // First create the base profile shape
+        let mut base_profile = match profile.ifc_type {
             IfcType::IfcRectangleProfileDef => self.process_rectangle(profile),
             IfcType::IfcCircleProfileDef => self.process_circle(profile),
             IfcType::IfcCircleHollowProfileDef => self.process_circle_hollow(profile),
@@ -55,7 +56,107 @@ impl ProfileProcessor {
                 "Unsupported parametric profile: {}",
                 profile.ifc_type
             ))),
+        }?;
+        
+        // Apply Profile Position transform (attribute 2: IfcAxis2Placement2D)
+        if let Some(pos_attr) = profile.get(2) {
+            if !pos_attr.is_null() {
+                if let Some(pos_entity) = decoder.resolve_ref(pos_attr)? {
+                    if pos_entity.ifc_type == IfcType::IfcAxis2Placement2D {
+                        self.apply_profile_position(&mut base_profile, &pos_entity, decoder)?;
+                    }
+                }
+            }
         }
+        
+        Ok(base_profile)
+    }
+    
+    /// Apply IfcAxis2Placement2D transform to profile points
+    /// IfcAxis2Placement2D: Location, RefDirection
+    fn apply_profile_position(
+        &self,
+        profile: &mut Profile2D,
+        placement: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<()> {
+        // Get Location (attribute 0) - IfcCartesianPoint
+        let (loc_x, loc_y) = if let Some(loc_attr) = placement.get(0) {
+            if !loc_attr.is_null() {
+                if let Some(loc_entity) = decoder.resolve_ref(loc_attr)? {
+                    let coords = loc_entity.get(0)
+                        .and_then(|v| v.as_list())
+                        .ok_or_else(|| Error::geometry("Missing point coordinates".to_string()))?;
+                    let x = coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0);
+                    let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
+                    (x, y)
+                } else {
+                    (0.0, 0.0)
+                }
+            } else {
+                (0.0, 0.0)
+            }
+        } else {
+            (0.0, 0.0)
+        };
+        
+        // Get RefDirection (attribute 1) - IfcDirection (optional, default is (1,0))
+        let (dir_x, dir_y) = if let Some(dir_attr) = placement.get(1) {
+            if !dir_attr.is_null() {
+                if let Some(dir_entity) = decoder.resolve_ref(dir_attr)? {
+                    let ratios = dir_entity.get(0)
+                        .and_then(|v| v.as_list())
+                        .ok_or_else(|| Error::geometry("Missing direction ratios".to_string()))?;
+                    let x = ratios.get(0).and_then(|v| v.as_float()).unwrap_or(1.0);
+                    let y = ratios.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
+                    // Normalize
+                    let len = (x * x + y * y).sqrt();
+                    if len > 1e-10 {
+                        (x / len, y / len)
+                    } else {
+                        (1.0, 0.0)
+                    }
+                } else {
+                    (1.0, 0.0)
+                }
+            } else {
+                (1.0, 0.0)
+            }
+        } else {
+            (1.0, 0.0)
+        };
+        
+        // Skip transform if it's identity (location at origin, direction is (1,0))
+        if loc_x.abs() < 1e-10 && loc_y.abs() < 1e-10 && 
+           (dir_x - 1.0).abs() < 1e-10 && dir_y.abs() < 1e-10 {
+            return Ok(());
+        }
+        
+        // RefDirection is the local X axis direction
+        // Local Y axis is perpendicular: (-dir_y, dir_x)
+        let x_axis = (dir_x, dir_y);
+        let y_axis = (-dir_y, dir_x);
+        
+        // Transform all outer points
+        for point in &mut profile.outer {
+            let old_x = point.x;
+            let old_y = point.y;
+            // Rotation then translation: p' = R * p + t
+            point.x = old_x * x_axis.0 + old_y * y_axis.0 + loc_x;
+            point.y = old_x * x_axis.1 + old_y * y_axis.1 + loc_y;
+        }
+        
+        // Transform all hole points
+        for hole in &mut profile.holes {
+            for point in hole {
+                let old_x = point.x;
+                let old_y = point.y;
+                point.x = old_x * x_axis.0 + old_y * y_axis.0 + loc_x;
+                point.y = old_x * x_axis.1 + old_y * y_axis.1 + loc_y;
+            }
+        }
+        
+        Ok(())
     }
 
     /// Process rectangle profile
