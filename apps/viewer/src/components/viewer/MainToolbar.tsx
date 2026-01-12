@@ -24,6 +24,7 @@ import {
   HelpCircle,
   Loader2,
   Camera,
+  Info,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -57,6 +58,8 @@ export function MainToolbar() {
   const showAll = useViewerStore((state) => state.showAll);
   const error = useViewerStore((state) => state.error);
   const cameraCallbacks = useViewerStore((state) => state.cameraCallbacks);
+  const hoverTooltipsEnabled = useViewerStore((state) => state.hoverTooltipsEnabled);
+  const toggleHoverTooltips = useViewerStore((state) => state.toggleHoverTooltips);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -316,6 +319,25 @@ export function MainToolbar() {
       <ActionButton icon={Focus} label="Isolate Selection" onClick={handleIsolate} shortcut="I" disabled={!selectedEntityId} />
       <ActionButton icon={EyeOff} label="Hide Selection" onClick={handleHide} shortcut="H" disabled={!selectedEntityId} />
       <ActionButton icon={Eye} label="Show All" onClick={showAll} shortcut="A" />
+
+      <Separator orientation="vertical" className="h-6 mx-1" />
+
+      {/* Display Options */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={hoverTooltipsEnabled ? 'default' : 'ghost'}
+            size="icon-sm"
+            onClick={toggleHoverTooltips}
+            className={cn(hoverTooltipsEnabled && 'bg-primary text-primary-foreground')}
+          >
+            <Info className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          {hoverTooltipsEnabled ? 'Disable' : 'Enable'} Hover Tooltips
+        </TooltipContent>
+      </Tooltip>
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 

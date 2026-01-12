@@ -2,7 +2,7 @@
  * 3D viewport component
  */
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Renderer, MathUtils } from '@ifc-lite/renderer';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 import { useViewerStore, type MeasurePoint } from '@/store';
@@ -22,16 +22,19 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   const isolatedEntities = useViewerStore((state) => state.isolatedEntities);
   const activeTool = useViewerStore((state) => state.activeTool);
   const updateCameraRotationRealtime = useViewerStore((state) => state.updateCameraRotationRealtime);
+  const updateScaleRealtime = useViewerStore((state) => state.updateScaleRealtime);
   const setCameraCallbacks = useViewerStore((state) => state.setCameraCallbacks);
   const theme = useViewerStore((state) => state.theme);
 
   // New store subscriptions for enhanced features
   const setHoverState = useViewerStore((state) => state.setHoverState);
   const clearHover = useViewerStore((state) => state.clearHover);
+  const hoverTooltipsEnabled = useViewerStore((state) => state.hoverTooltipsEnabled);
   const openContextMenu = useViewerStore((state) => state.openContextMenu);
   const startBoxSelect = useViewerStore((state) => state.startBoxSelect);
   const updateBoxSelect = useViewerStore((state) => state.updateBoxSelect);
   const endBoxSelect = useViewerStore((state) => state.endBoxSelect);
+  const boxSelect = useViewerStore((state) => state.boxSelect);
   const setSelectedEntityIds = useViewerStore((state) => state.setSelectedEntityIds);
   const toggleSelection = useViewerStore((state) => state.toggleSelection);
   const pendingMeasurePoint = useViewerStore((state) => state.pendingMeasurePoint);
@@ -107,10 +110,12 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   const activeToolRef = useRef<string>(activeTool);
   const pendingMeasurePointRef = useRef<MeasurePoint | null>(pendingMeasurePoint);
   const sectionPlaneRef = useRef(sectionPlane);
+  const boxSelectRef = useRef(boxSelect);
 
   // Hover throttling
   const lastHoverCheckRef = useRef<number>(0);
   const hoverThrottleMs = 50; // Check hover every 50ms
+  const hoverTooltipsEnabledRef = useRef(hoverTooltipsEnabled);
 
   // Keep refs in sync
   useEffect(() => { hiddenEntitiesRef.current = hiddenEntities; }, [hiddenEntities]);
@@ -119,6 +124,14 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
   useEffect(() => { pendingMeasurePointRef.current = pendingMeasurePoint; }, [pendingMeasurePoint]);
   useEffect(() => { sectionPlaneRef.current = sectionPlane; }, [sectionPlane]);
+  useEffect(() => { boxSelectRef.current = boxSelect; }, [boxSelect]);
+  useEffect(() => {
+    hoverTooltipsEnabledRef.current = hoverTooltipsEnabled;
+    if (!hoverTooltipsEnabled) {
+      // Clear hover state when disabled
+      clearHover();
+    }
+  }, [hoverTooltipsEnabled, clearHover]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -160,14 +173,17 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           });
           // Update ViewCube rotation immediately
           updateCameraRotationRealtime(camera.getRotation());
+          calculateScale();
         },
         fitAll: () => {
           // Zoom to fit without changing view direction
           camera.zoomExtent(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 300);
+          calculateScale();
         },
         home: () => {
           // Reset to isometric view
           camera.zoomToFit(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 500);
+          calculateScale();
         },
         zoomIn: () => {
           camera.zoom(-50, false);
@@ -176,7 +192,9 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
+            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
           });
+          calculateScale();
         },
         zoomOut: () => {
           camera.zoom(50, false);
@@ -185,12 +203,30 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
+            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
           });
+          calculateScale();
         },
       });
 
+      // Calculate scale bar value (world-space size for 96px scale bar)
+      const calculateScale = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        
+        const viewportHeight = canvas.height;
+        const distance = camera.getDistance();
+        const fov = camera.getFOV();
+        const scaleBarPixels = 96; // w-24 = 6rem = 96px
+        
+        // Calculate world-space size: (screen pixels / viewport height) * (distance * tan(FOV/2) * 2)
+        const worldSize = (scaleBarPixels / viewportHeight) * (distance * Math.tan(fov / 2) * 2);
+        updateScaleRealtime(worldSize);
+      };
+
       // Animation loop - update ViewCube in real-time
       let lastRotationUpdate = 0;
+      let lastScaleUpdate = 0;
       const animate = (currentTime: number) => {
         if (aborted) return;
 
@@ -208,10 +244,17 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           });
           // Update ViewCube during camera animation (e.g., preset view transitions)
           updateCameraRotationRealtime(camera.getRotation());
+          calculateScale();
         } else if (!mouseState.isDragging && currentTime - lastRotationUpdate > 100) {
           // Update camera rotation for ViewCube when not dragging (throttled)
           updateCameraRotationRealtime(camera.getRotation());
           lastRotationUpdate = currentTime;
+        }
+        
+        // Update scale bar (throttled to every 100ms)
+        if (currentTime - lastScaleUpdate > 100) {
+          calculateScale();
+          lastScaleUpdate = currentTime;
         }
 
         animationFrameRef.current = requestAnimationFrame(animate);
@@ -296,10 +339,11 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           });
           // Update ViewCube rotation in real-time during drag
           updateCameraRotationRealtime(camera.getRotation());
+          calculateScale();
           // Clear hover while dragging
           clearHover();
-        } else {
-          // Hover detection (throttled)
+        } else if (hoverTooltipsEnabledRef.current) {
+          // Hover detection (throttled) - only if tooltips are enabled
           const now = Date.now();
           if (now - lastHoverCheckRef.current > hoverThrottleMs) {
             lastHoverCheckRef.current = now;
@@ -343,7 +387,13 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
         camera.zoom(e.deltaY, false, mouseX, mouseY, canvas.width, canvas.height);
-        renderer.render();
+        renderer.render({
+          hiddenIds: hiddenEntitiesRef.current,
+          isolatedIds: isolatedEntitiesRef.current,
+          selectedId: selectedEntityIdRef.current,
+          clearColor: clearColorRef.current,
+          sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+        });
       });
 
       // Click handling
@@ -381,8 +431,67 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
 
         // Handle box selection completion
         if (tool === 'boxselect') {
+          // Get box selection coordinates (in screen space relative to viewport)
+          const bs = boxSelectRef.current;
+          if (bs.isSelecting && geometry) {
+            const selectionRect = {
+              left: Math.min(bs.startX, bs.currentX),
+              right: Math.max(bs.startX, bs.currentX),
+              top: Math.min(bs.startY, bs.currentY),
+              bottom: Math.max(bs.startY, bs.currentY),
+            };
+
+            // Check if selection is large enough
+            const selectionWidth = selectionRect.right - selectionRect.left;
+            const selectionHeight = selectionRect.bottom - selectionRect.top;
+
+            if (selectionWidth > 5 && selectionHeight > 5) {
+              // Convert selection rect from viewport to canvas coordinates
+              const canvasRect = canvas.getBoundingClientRect();
+              const canvasLeft = selectionRect.left - canvasRect.left;
+              const canvasRight = selectionRect.right - canvasRect.left;
+              const canvasTop = selectionRect.top - canvasRect.top;
+              const canvasBottom = selectionRect.bottom - canvasRect.top;
+
+              // Find all entities whose center projects into the selection box
+              const selectedIds: number[] = [];
+
+              for (const mesh of geometry) {
+                // Calculate mesh center from positions
+                if (mesh.positions.length >= 3) {
+                  let sumX = 0, sumY = 0, sumZ = 0;
+                  const vertCount = mesh.positions.length / 3;
+                  for (let i = 0; i < mesh.positions.length; i += 3) {
+                    sumX += mesh.positions[i];
+                    sumY += mesh.positions[i + 1];
+                    sumZ += mesh.positions[i + 2];
+                  }
+                  const center = {
+                    x: sumX / vertCount,
+                    y: sumY / vertCount,
+                    z: sumZ / vertCount,
+                  };
+
+                  // Project center to screen space
+                  const screenPos = camera.projectToScreen(center, canvas.width, canvas.height);
+
+                  if (screenPos) {
+                    // Check if screen position is within selection box
+                    if (screenPos.x >= canvasLeft && screenPos.x <= canvasRight &&
+                        screenPos.y >= canvasTop && screenPos.y <= canvasBottom) {
+                      selectedIds.push(mesh.expressId);
+                    }
+                  }
+                }
+              }
+
+              // Select all found entities
+              if (selectedIds.length > 0) {
+                setSelectedEntityIds(selectedIds);
+              }
+            }
+          }
           endBoxSelect();
-          // TODO: Find all entities in the box and select them
           return;
         }
 
@@ -510,6 +619,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
+            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
           });
         }
       });
@@ -543,6 +653,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             clearColor: clearColorRef.current,
           });
           updateCameraRotationRealtime(camera.getRotation());
+          calculateScale();
         };
 
         if (e.key === '1') setViewAndRender('top');
@@ -555,11 +666,13 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         // Frame selection / Fit all
         if (e.key === 'f' || e.key === 'F') {
           camera.zoomToFit(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 500);
+          calculateScale();
         }
 
         // Home view
         if (e.key === 'h' || e.key === 'H') {
           camera.zoomToFit(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 500);
+          calculateScale();
         }
 
         // Toggle first-person mode
@@ -605,6 +718,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
+            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
           });
         }
         requestAnimationFrame(keyboardMove);
@@ -801,6 +915,9 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
     // Note: visibility states are NOT in dependencies - they use refs and trigger re-render via separate effect
   }, [geometry, isInitialized, coordinateInfo]);
 
+  // Get selectedEntityIds from store for multi-selection
+  const selectedEntityIds = useViewerStore((state) => state.selectedEntityIds);
+
   // Re-render when visibility, selection, or section plane changes
   useEffect(() => {
     const renderer = rendererRef.current;
@@ -810,10 +927,11 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       hiddenIds: hiddenEntities,
       isolatedIds: isolatedEntities,
       selectedId: selectedEntityId,
+      selectedIds: selectedEntityIds,
       clearColor: clearColorRef.current,
       sectionPlane: sectionPlane.enabled ? sectionPlane : undefined,
     });
-  }, [hiddenEntities, isolatedEntities, selectedEntityId, isInitialized, sectionPlane]);
+  }, [hiddenEntities, isolatedEntities, selectedEntityId, selectedEntityIds, isInitialized, sectionPlane]);
 
   return (
     <canvas

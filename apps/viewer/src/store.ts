@@ -78,6 +78,7 @@ interface ViewerState {
   activeTool: string;
   theme: 'light' | 'dark';
   isMobile: boolean;
+  hoverTooltipsEnabled: boolean;
 
   // Hover state
   hoverState: HoverState;
@@ -106,6 +107,8 @@ interface ViewerState {
   };
   // Direct callback for real-time ViewCube updates (bypasses React state)
   onCameraRotationChange: ((rotation: { azimuth: number; elevation: number }) => void) | null;
+  // Direct callback for real-time scale bar updates (bypasses React state)
+  onScaleChange: ((scale: number) => void) | null;
 
   // Actions
   setLoading: (loading: boolean) => void;
@@ -123,6 +126,7 @@ interface ViewerState {
   setTheme: (theme: 'light' | 'dark') => void;
   toggleTheme: () => void;
   setIsMobile: (isMobile: boolean) => void;
+  toggleHoverTooltips: () => void;
 
   // Camera actions
   setCameraRotation: (rotation: { azimuth: number; elevation: number }) => void;
@@ -130,6 +134,8 @@ interface ViewerState {
   setOnCameraRotationChange: (callback: ((rotation: { azimuth: number; elevation: number }) => void) | null) => void;
   // Call this for real-time updates (uses callback if available, skips state)
   updateCameraRotationRealtime: (rotation: { azimuth: number; elevation: number }) => void;
+  setOnScaleChange: (callback: ((scale: number) => void) | null) => void;
+  updateScaleRealtime: (scale: number) => void;
 
   // Visibility actions
   hideEntity: (id: number) => void;
@@ -194,6 +200,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   activeTool: 'select',
   theme: 'dark',
   isMobile: false,
+  hoverTooltipsEnabled: false,
   hoverState: { entityId: null, screenX: 0, screenY: 0 },
   contextMenu: { isOpen: false, entityId: null, screenX: 0, screenY: 0 },
   boxSelect: { isSelecting: false, startX: 0, startY: 0, currentX: 0, currentY: 0 },
@@ -203,6 +210,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   cameraRotation: { azimuth: 45, elevation: 25 },
   cameraCallbacks: {},
   onCameraRotationChange: null,
+  onScaleChange: null,
 
   setLoading: (loading) => set({ loading }),
   setProgress: (progress) => set({ progress }),
@@ -264,6 +272,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     set({ theme: newTheme });
   },
   setIsMobile: (isMobile) => set({ isMobile }),
+  toggleHoverTooltips: () => set((state) => ({ hoverTooltipsEnabled: !state.hoverTooltipsEnabled })),
 
   // Camera actions
   setCameraRotation: (cameraRotation) => set({ cameraRotation }),
@@ -274,6 +283,15 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     if (callback) {
       // Use direct callback - no React state update, no re-renders
       callback(rotation);
+    }
+    // Don't update store state during real-time updates
+  },
+  setOnScaleChange: (onScaleChange) => set({ onScaleChange }),
+  updateScaleRealtime: (scale) => {
+    const callback = get().onScaleChange;
+    if (callback) {
+      // Use direct callback - no React state update, no re-renders
+      callback(scale);
     }
     // Don't update store state during real-time updates
   },
