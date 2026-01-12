@@ -575,6 +575,33 @@ export class Camera {
     return { ...this.camera.position };
   }
 
+  getTarget(): Vec3 {
+    return { ...this.camera.target };
+  }
+
+  /**
+   * Get current camera rotation angles in degrees
+   * Returns { azimuth, elevation } where:
+   * - azimuth: horizontal rotation (0-360), 0 = front
+   * - elevation: vertical rotation (-90 to 90), 0 = horizon
+   */
+  getRotation(): { azimuth: number; elevation: number } {
+    const dir = {
+      x: this.camera.position.x - this.camera.target.x,
+      y: this.camera.position.y - this.camera.target.y,
+      z: this.camera.position.z - this.camera.target.z,
+    };
+    const distance = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+
+    // Azimuth: angle around Y axis (0 = +Z direction, 90 = +X)
+    const azimuth = (Math.atan2(dir.x, dir.z) * 180 / Math.PI + 360) % 360;
+
+    // Elevation: angle from horizontal plane
+    const elevation = Math.asin(Math.max(-1, Math.min(1, dir.y / distance))) * 180 / Math.PI;
+
+    return { azimuth, elevation };
+  }
+
   private updateMatrices(): void {
     this.viewMatrix = MathUtils.lookAt(
       this.camera.position,

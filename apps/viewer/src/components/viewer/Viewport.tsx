@@ -21,6 +21,8 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   const hiddenEntities = useViewerStore((state) => state.hiddenEntities);
   const isolatedEntities = useViewerStore((state) => state.isolatedEntities);
   const activeTool = useViewerStore((state) => state.activeTool);
+  const setCameraRotation = useViewerStore((state) => state.setCameraRotation);
+  const setCameraCallbacks = useViewerStore((state) => state.setCameraCallbacks);
 
   // Animation frame ref
   const animationFrameRef = useRef<number | null>(null);
@@ -94,7 +96,32 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       const mouseState = mouseStateRef.current;
       const touchState = touchStateRef.current;
 
+      // Register camera callbacks for ViewCube and other controls
+      setCameraCallbacks({
+        setPresetView: (view) => {
+          camera.setPresetView(view);
+          renderer.render({
+            hiddenIds: hiddenEntitiesRef.current,
+            isolatedIds: isolatedEntitiesRef.current,
+            selectedId: selectedEntityIdRef.current,
+          });
+        },
+        fitAll: () => {
+          const bounds = { min: { x: -100, y: -100, z: -100 }, max: { x: 100, y: 100, z: 100 } };
+          camera.zoomToFit(bounds.min, bounds.max, 500);
+        },
+        zoomIn: () => {
+          camera.zoom(-50, false);
+          renderer.render();
+        },
+        zoomOut: () => {
+          camera.zoom(50, false);
+          renderer.render();
+        },
+      });
+
       // Animation loop
+      let lastRotationUpdate = 0;
       const animate = (currentTime: number) => {
         if (aborted) return;
 
@@ -108,6 +135,13 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
           });
+        }
+
+        // Update camera rotation for ViewCube (throttled to every 100ms)
+        if (currentTime - lastRotationUpdate > 100) {
+          const rotation = camera.getRotation();
+          setCameraRotation(rotation);
+          lastRotationUpdate = currentTime;
         }
 
         animationFrameRef.current = requestAnimationFrame(animate);
@@ -167,6 +201,8 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
           });
+          // Update ViewCube rotation immediately during drag
+          setCameraRotation(camera.getRotation());
         }
       });
 

@@ -12,24 +12,12 @@ import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { ViewCube } from './ViewCube';
 
-interface ViewportOverlaysProps {
-  onViewChange?: (view: string) => void;
-  onFitAll?: () => void;
-  onZoomIn?: () => void;
-  onZoomOut?: () => void;
-  onResetView?: () => void;
-}
-
-export function ViewportOverlays({
-  onViewChange,
-  onFitAll,
-  onZoomIn,
-  onZoomOut,
-  onResetView,
-}: ViewportOverlaysProps) {
+export function ViewportOverlays() {
   const selectedStorey = useViewerStore((s) => s.selectedStorey);
   const hiddenEntities = useViewerStore((s) => s.hiddenEntities);
   const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
+  const cameraRotation = useViewerStore((s) => s.cameraRotation);
+  const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
   const { ifcDataStore, geometryResult } = useIfc();
 
   const storeyName = selectedStorey && ifcDataStore
@@ -45,9 +33,38 @@ export function ViewportOverlays({
     visibleCount = totalCount - hiddenEntities.size;
   }
 
+  // Convert camera azimuth/elevation to ViewCube rotation
+  // ViewCube rotationX = elevation (positive = looking down)
+  // ViewCube rotationY = -azimuth (inverted)
+  const viewCubeRotationX = -cameraRotation.elevation;
+  const viewCubeRotationY = -cameraRotation.azimuth;
+
   const handleViewChange = useCallback((view: string) => {
-    onViewChange?.(view);
-  }, [onViewChange]);
+    const viewMap: Record<string, 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right'> = {
+      top: 'top',
+      bottom: 'bottom',
+      front: 'front',
+      back: 'back',
+      left: 'left',
+      right: 'right',
+    };
+    const mappedView = viewMap[view];
+    if (mappedView && cameraCallbacks.setPresetView) {
+      cameraCallbacks.setPresetView(mappedView);
+    }
+  }, [cameraCallbacks]);
+
+  const handleFitAll = useCallback(() => {
+    cameraCallbacks.fitAll?.();
+  }, [cameraCallbacks]);
+
+  const handleZoomIn = useCallback(() => {
+    cameraCallbacks.zoomIn?.();
+  }, [cameraCallbacks]);
+
+  const handleZoomOut = useCallback(() => {
+    cameraCallbacks.zoomOut?.();
+  }, [cameraCallbacks]);
 
   return (
     <>
@@ -55,7 +72,7 @@ export function ViewportOverlays({
       <div className="absolute bottom-4 right-4 flex flex-col gap-1 bg-background/80 backdrop-blur-sm rounded-lg border shadow-sm p-1">
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-sm" onClick={onFitAll}>
+            <Button variant="ghost" size="icon-sm" onClick={handleFitAll}>
               <Home className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
@@ -64,7 +81,7 @@ export function ViewportOverlays({
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-sm" onClick={onZoomIn}>
+            <Button variant="ghost" size="icon-sm" onClick={handleZoomIn}>
               <ZoomIn className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
@@ -73,7 +90,7 @@ export function ViewportOverlays({
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-sm" onClick={onZoomOut}>
+            <Button variant="ghost" size="icon-sm" onClick={handleZoomOut}>
               <ZoomOut className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
@@ -82,7 +99,7 @@ export function ViewportOverlays({
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-sm" onClick={onResetView}>
+            <Button variant="ghost" size="icon-sm" onClick={handleFitAll}>
               <RotateCcw className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
@@ -110,7 +127,11 @@ export function ViewportOverlays({
 
       {/* ViewCube (top-right) */}
       <div className="absolute top-4 right-4 p-2 bg-background/60 backdrop-blur-sm rounded-lg border shadow-sm">
-        <ViewCube onViewChange={handleViewChange} />
+        <ViewCube
+          onViewChange={handleViewChange}
+          rotationX={viewCubeRotationX}
+          rotationY={viewCubeRotationY}
+        />
       </div>
 
       {/* Scale Bar (bottom-left) */}

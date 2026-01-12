@@ -30,6 +30,15 @@ interface ViewerState {
   activeTool: string;
   theme: 'light' | 'dark';
 
+  // Camera state (for ViewCube sync)
+  cameraRotation: { azimuth: number; elevation: number };
+  cameraCallbacks: {
+    setPresetView?: (view: 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right') => void;
+    fitAll?: () => void;
+    zoomIn?: () => void;
+    zoomOut?: () => void;
+  };
+
   // Actions
   setLoading: (loading: boolean) => void;
   setProgress: (progress: { phase: string; percent: number } | null) => void;
@@ -45,6 +54,10 @@ interface ViewerState {
   setActiveTool: (tool: string) => void;
   setTheme: (theme: 'light' | 'dark') => void;
   toggleTheme: () => void;
+
+  // Camera actions
+  setCameraRotation: (rotation: { azimuth: number; elevation: number }) => void;
+  setCameraCallbacks: (callbacks: ViewerState['cameraCallbacks']) => void;
 
   // Visibility actions
   hideEntity: (id: number) => void;
@@ -73,6 +86,8 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   rightPanelCollapsed: false,
   activeTool: 'select',
   theme: 'dark',
+  cameraRotation: { azimuth: 45, elevation: 25 },
+  cameraCallbacks: {},
 
   setLoading: (loading) => set({ loading }),
   setProgress: (progress) => set({ progress }),
@@ -133,6 +148,10 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     document.documentElement.classList.toggle('dark', newTheme === 'dark');
     set({ theme: newTheme });
   },
+
+  // Camera actions
+  setCameraRotation: (cameraRotation) => set({ cameraRotation }),
+  setCameraCallbacks: (cameraCallbacks) => set({ cameraCallbacks }),
 
   // Visibility actions
   hideEntity: (id) => set((state) => {

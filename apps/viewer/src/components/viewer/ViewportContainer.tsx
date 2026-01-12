@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Viewport } from './Viewport';
 import { ViewportOverlays } from './ViewportOverlays';
+import { ToolOverlays } from './ToolOverlays';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 
@@ -38,6 +39,7 @@ export function ViewportContainer() {
         coordinateInfo={geometryResult?.coordinateInfo}
       />
       <ViewportOverlays />
+      <ToolOverlays />
     </div>
   );
 }

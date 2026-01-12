@@ -18,9 +18,13 @@ const FACE_VIEWS: Record<string, { rx: number; ry: number }> = {
 
 export function ViewCube({ onViewChange, rotationX = -25, rotationY = 45 }: ViewCubeProps) {
   const [hovered, setHovered] = useState<string | null>(null);
+  const [isAnimating, setIsAnimating] = useState(false);
 
   const handleFaceClick = useCallback((face: string) => {
+    setIsAnimating(true);
     onViewChange?.(face);
+    // Remove animation class after transition
+    setTimeout(() => setIsAnimating(false), 300);
   }, [onViewChange]);
 
   const Face = ({
@@ -60,7 +64,10 @@ export function ViewCube({ onViewChange, rotationX = -25, rotationY = 45 }: View
       }}
     >
       <div
-        className="relative w-full h-full transition-transform duration-300"
+        className={cn(
+          'relative w-full h-full',
+          isAnimating && 'transition-transform duration-300'
+        )}
         style={{
           transformStyle: 'preserve-3d',
           transform: `rotateX(${rotationX}deg) rotateY(${rotationY}deg)`,
