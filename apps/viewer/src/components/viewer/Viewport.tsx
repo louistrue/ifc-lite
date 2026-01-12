@@ -22,12 +22,14 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   const isolatedEntities = useViewerStore((state) => state.isolatedEntities);
   const activeTool = useViewerStore((state) => state.activeTool);
   const updateCameraRotationRealtime = useViewerStore((state) => state.updateCameraRotationRealtime);
+  const updateScaleRealtime = useViewerStore((state) => state.updateScaleRealtime);
   const setCameraCallbacks = useViewerStore((state) => state.setCameraCallbacks);
   const theme = useViewerStore((state) => state.theme);
 
   // New store subscriptions for enhanced features
   const setHoverState = useViewerStore((state) => state.setHoverState);
   const clearHover = useViewerStore((state) => state.clearHover);
+  const hoverTooltipsEnabled = useViewerStore((state) => state.hoverTooltipsEnabled);
   const openContextMenu = useViewerStore((state) => state.openContextMenu);
   const startBoxSelect = useViewerStore((state) => state.startBoxSelect);
   const updateBoxSelect = useViewerStore((state) => state.updateBoxSelect);
@@ -113,6 +115,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   // Hover throttling
   const lastHoverCheckRef = useRef<number>(0);
   const hoverThrottleMs = 50; // Check hover every 50ms
+  const hoverTooltipsEnabledRef = useRef(hoverTooltipsEnabled);
 
   // Keep refs in sync
   useEffect(() => { hiddenEntitiesRef.current = hiddenEntities; }, [hiddenEntities]);
@@ -122,6 +125,13 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   useEffect(() => { pendingMeasurePointRef.current = pendingMeasurePoint; }, [pendingMeasurePoint]);
   useEffect(() => { sectionPlaneRef.current = sectionPlane; }, [sectionPlane]);
   useEffect(() => { boxSelectRef.current = boxSelect; }, [boxSelect]);
+  useEffect(() => {
+    hoverTooltipsEnabledRef.current = hoverTooltipsEnabled;
+    if (!hoverTooltipsEnabled) {
+      // Clear hover state when disabled
+      clearHover();
+    }
+  }, [hoverTooltipsEnabled, clearHover]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -163,14 +173,17 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           });
           // Update ViewCube rotation immediately
           updateCameraRotationRealtime(camera.getRotation());
+          calculateScale();
         },
         fitAll: () => {
           // Zoom to fit without changing view direction
           camera.zoomExtent(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 300);
+          calculateScale();
         },
         home: () => {
           // Reset to isometric view
           camera.zoomToFit(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 500);
+          calculateScale();
         },
         zoomIn: () => {
           camera.zoom(-50, false);
@@ -179,7 +192,9 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
+            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
           });
+          calculateScale();
         },
         zoomOut: () => {
           camera.zoom(50, false);
@@ -188,12 +203,30 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
+            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
           });
+          calculateScale();
         },
       });
 
+      // Calculate scale bar value (world-space size for 96px scale bar)
+      const calculateScale = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        
+        const viewportHeight = canvas.height;
+        const distance = camera.getDistance();
+        const fov = camera.getFOV();
+        const scaleBarPixels = 96; // w-24 = 6rem = 96px
+        
+        // Calculate world-space size: (screen pixels / viewport height) * (distance * tan(FOV/2) * 2)
+        const worldSize = (scaleBarPixels / viewportHeight) * (distance * Math.tan(fov / 2) * 2);
+        updateScaleRealtime(worldSize);
+      };
+
       // Animation loop - update ViewCube in real-time
       let lastRotationUpdate = 0;
+      let lastScaleUpdate = 0;
       const animate = (currentTime: number) => {
         if (aborted) return;
 
@@ -211,10 +244,17 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           });
           // Update ViewCube during camera animation (e.g., preset view transitions)
           updateCameraRotationRealtime(camera.getRotation());
+          calculateScale();
         } else if (!mouseState.isDragging && currentTime - lastRotationUpdate > 100) {
           // Update camera rotation for ViewCube when not dragging (throttled)
           updateCameraRotationRealtime(camera.getRotation());
           lastRotationUpdate = currentTime;
+        }
+        
+        // Update scale bar (throttled to every 100ms)
+        if (currentTime - lastScaleUpdate > 100) {
+          calculateScale();
+          lastScaleUpdate = currentTime;
         }
 
         animationFrameRef.current = requestAnimationFrame(animate);
@@ -299,10 +339,11 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           });
           // Update ViewCube rotation in real-time during drag
           updateCameraRotationRealtime(camera.getRotation());
+          calculateScale();
           // Clear hover while dragging
           clearHover();
-        } else {
-          // Hover detection (throttled)
+        } else if (hoverTooltipsEnabledRef.current) {
+          // Hover detection (throttled) - only if tooltips are enabled
           const now = Date.now();
           if (now - lastHoverCheckRef.current > hoverThrottleMs) {
             lastHoverCheckRef.current = now;
@@ -346,7 +387,13 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
         camera.zoom(e.deltaY, false, mouseX, mouseY, canvas.width, canvas.height);
-        renderer.render();
+        renderer.render({
+          hiddenIds: hiddenEntitiesRef.current,
+          isolatedIds: isolatedEntitiesRef.current,
+          selectedId: selectedEntityIdRef.current,
+          clearColor: clearColorRef.current,
+          sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+        });
       });
 
       // Click handling
@@ -572,6 +619,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
+            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
           });
         }
       });
@@ -605,6 +653,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             clearColor: clearColorRef.current,
           });
           updateCameraRotationRealtime(camera.getRotation());
+          calculateScale();
         };
 
         if (e.key === '1') setViewAndRender('top');
@@ -617,11 +666,13 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         // Frame selection / Fit all
         if (e.key === 'f' || e.key === 'F') {
           camera.zoomToFit(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 500);
+          calculateScale();
         }
 
         // Home view
         if (e.key === 'h' || e.key === 'H') {
           camera.zoomToFit(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 500);
+          calculateScale();
         }
 
         // Toggle first-person mode
@@ -667,6 +718,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
+            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
           });
         }
         requestAnimationFrame(keyboardMove);

@@ -31,6 +31,7 @@ const TYPE_ICONS: Record<string, string> = {
 
 export function HoverTooltip() {
   const hoverState = useViewerStore((s) => s.hoverState);
+  const hoverTooltipsEnabled = useViewerStore((s) => s.hoverTooltipsEnabled);
   const { ifcDataStore } = useIfc();
 
   const entityInfo = useMemo(() => {
@@ -44,7 +45,7 @@ export function HoverTooltip() {
     return { name, type };
   }, [hoverState.entityId, ifcDataStore]);
 
-  if (!hoverState.entityId || !entityInfo) {
+  if (!hoverTooltipsEnabled || !hoverState.entityId || !entityInfo) {
     return null;
   }
 

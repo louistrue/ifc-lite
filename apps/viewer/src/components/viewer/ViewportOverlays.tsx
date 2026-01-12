@@ -19,16 +19,25 @@ export function ViewportOverlays() {
   const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
   const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
   const setOnCameraRotationChange = useViewerStore((s) => s.setOnCameraRotationChange);
+  const setOnScaleChange = useViewerStore((s) => s.setOnScaleChange);
   const { ifcDataStore, geometryResult } = useIfc();
 
   // Local state for camera rotation - updated via callback, no global re-renders
   const [cameraRotation, setCameraRotation] = useState({ azimuth: 45, elevation: 25 });
+  // Local state for scale - updated via callback, no global re-renders
+  const [scale, setScale] = useState(10);
 
   // Register callback for real-time rotation updates
   useEffect(() => {
     setOnCameraRotationChange(setCameraRotation);
     return () => setOnCameraRotationChange(null);
   }, [setOnCameraRotationChange]);
+
+  // Register callback for real-time scale updates
+  useEffect(() => {
+    setOnScaleChange(setScale);
+    return () => setOnScaleChange(null);
+  }, [setOnScaleChange]);
 
   const storeyName = selectedStorey && ifcDataStore
     ? ifcDataStore.entities.getName(selectedStorey) || `Storey #${selectedStorey}`
@@ -75,6 +84,19 @@ export function ViewportOverlays() {
   const handleZoomOut = useCallback(() => {
     cameraCallbacks.zoomOut?.();
   }, [cameraCallbacks]);
+
+  // Format scale value for display
+  const formatScale = (worldSize: number): string => {
+    if (worldSize >= 1000) {
+      return `${(worldSize / 1000).toFixed(1)}km`;
+    } else if (worldSize >= 1) {
+      return `${worldSize.toFixed(1)}m`;
+    } else if (worldSize >= 0.1) {
+      return `${(worldSize * 100).toFixed(0)}cm`;
+    } else {
+      return `${(worldSize * 1000).toFixed(0)}mm`;
+    }
+  };
 
   return (
     <>
@@ -155,7 +177,7 @@ export function ViewportOverlays() {
       {/* Scale Bar (bottom-left) */}
       <div className="absolute bottom-4 left-4 flex flex-col items-start gap-1">
         <div className="h-1 w-24 bg-foreground/80 rounded-full" />
-        <span className="text-xs text-foreground/80">~10m</span>
+        <span className="text-xs text-foreground/80">{formatScale(scale)}</span>
       </div>
     </>
   );

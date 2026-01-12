@@ -641,6 +641,25 @@ export class Camera {
   }
 
   /**
+   * Get camera FOV in radians
+   */
+  getFOV(): number {
+    return this.camera.fov;
+  }
+
+  /**
+   * Get distance from camera position to target
+   */
+  getDistance(): number {
+    const dir = {
+      x: this.camera.position.x - this.camera.target.x,
+      y: this.camera.position.y - this.camera.target.y,
+      z: this.camera.position.z - this.camera.target.z,
+    };
+    return Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+  }
+
+  /**
    * Get current camera rotation angles in degrees
    * Returns { azimuth, elevation } where:
    * - azimuth: horizontal rotation (0-360), 0 = front
