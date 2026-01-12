@@ -20,6 +20,11 @@ interface ViewerState {
   selectedEntityId: number | null;
   selectedStorey: number | null;
 
+  // UI State
+  leftPanelCollapsed: boolean;
+  rightPanelCollapsed: boolean;
+  activeTool: string;
+
   // Actions
   setLoading: (loading: boolean) => void;
   setProgress: (progress: { phase: string; percent: number } | null) => void;
@@ -30,6 +35,9 @@ interface ViewerState {
   updateCoordinateInfo: (coordinateInfo: CoordinateInfo) => void;
   setSelectedEntityId: (id: number | null) => void;
   setSelectedStorey: (id: number | null) => void;
+  setLeftPanelCollapsed: (collapsed: boolean) => void;
+  setRightPanelCollapsed: (collapsed: boolean) => void;
+  setActiveTool: (tool: string) => void;
 }
 
 export const useViewerStore = create<ViewerState>((set) => ({
@@ -40,6 +48,9 @@ export const useViewerStore = create<ViewerState>((set) => ({
   geometryResult: null,
   selectedEntityId: null,
   selectedStorey: null,
+  leftPanelCollapsed: false,
+  rightPanelCollapsed: false,
+  activeTool: 'select',
 
   setLoading: (loading) => set({ loading }),
   setProgress: (progress) => set({ progress }),
@@ -47,13 +58,10 @@ export const useViewerStore = create<ViewerState>((set) => ({
   setIfcDataStore: (ifcDataStore) => set({ ifcDataStore }),
   setGeometryResult: (geometryResult) => set({ geometryResult }),
   appendGeometryBatch: (meshes, coordinateInfo) => set((state) => {
-    console.log('[Store] appendGeometryBatch called with', meshes.length, 'meshes', coordinateInfo ? 'with coordinateInfo' : 'without coordinateInfo');
     if (!state.geometryResult) {
-      // Initialize geometry result with first batch
-      console.log('[Store] Initializing geometry result with first batch');
       const totalTriangles = meshes.reduce((sum, m) => sum + (m.indices.length / 3), 0);
       const totalVertices = meshes.reduce((sum, m) => sum + (m.positions.length / 3), 0);
-      const result = {
+      return {
         geometryResult: {
           meshes,
           totalTriangles,
@@ -66,34 +74,22 @@ export const useViewerStore = create<ViewerState>((set) => ({
           },
         },
       };
-      console.log('[Store] Created initial geometry result:', result.geometryResult.meshes.length, 'meshes');
-      return result;
     }
-    // Append to existing geometry
-    console.log('[Store] Appending to existing geometry:', state.geometryResult.meshes.length, 'existing +', meshes.length, 'new');
-    const existingMeshes = state.geometryResult.meshes;
-    const allMeshes = [...existingMeshes, ...meshes];
+    const allMeshes = [...state.geometryResult.meshes, ...meshes];
     const totalTriangles = allMeshes.reduce((sum, m) => sum + (m.indices.length / 3), 0);
     const totalVertices = allMeshes.reduce((sum, m) => sum + (m.positions.length / 3), 0);
-    const result = {
+    return {
       geometryResult: {
         ...state.geometryResult,
         meshes: allMeshes,
         totalTriangles,
         totalVertices,
-        // Update coordinateInfo if provided (it accumulates bounds incrementally)
         coordinateInfo: coordinateInfo || state.geometryResult.coordinateInfo,
       },
     };
-    console.log('[Store] Updated geometry result:', result.geometryResult.meshes.length, 'total meshes');
-    return result;
   }),
   updateCoordinateInfo: (coordinateInfo) => set((state) => {
-    console.log('[Store] updateCoordinateInfo called');
-    if (!state.geometryResult) {
-      console.warn('[Store] updateCoordinateInfo called but no geometryResult');
-      return {};
-    }
+    if (!state.geometryResult) return {};
     return {
       geometryResult: {
         ...state.geometryResult,
@@ -103,4 +99,7 @@ export const useViewerStore = create<ViewerState>((set) => ({
   }),
   setSelectedEntityId: (selectedEntityId) => set({ selectedEntityId }),
   setSelectedStorey: (selectedStorey) => set({ selectedStorey }),
+  setLeftPanelCollapsed: (leftPanelCollapsed) => set({ leftPanelCollapsed }),
+  setRightPanelCollapsed: (rightPanelCollapsed) => set({ rightPanelCollapsed }),
+  setActiveTool: (activeTool) => set({ activeTool }),
 }));

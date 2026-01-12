@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
+      '@': path.resolve(__dirname, './src'),
       '@ifc-lite/parser': path.resolve(__dirname, '../../packages/parser/src'),
       '@ifc-lite/geometry': path.resolve(__dirname, '../../packages/geometry/src'),
       '@ifc-lite/renderer': path.resolve(__dirname, '../../packages/renderer/src'),
