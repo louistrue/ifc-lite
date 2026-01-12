@@ -97,9 +97,9 @@ importers:
 
   packages/geometry:
     dependencies:
-      web-ifc:
-        specifier: ^0.0.57
-        version: 0.0.57
+      '@ifc-lite/wasm':
+        specifier: workspace:*
+        version: link:../wasm
     devDependencies:
       typescript:
         specifier: ^5.3.0
@@ -146,6 +146,8 @@ importers:
       typescript:
         specifier: ^5.3.0
         version: 5.9.3
+
+  packages/wasm: {}
 
 packages:
 
@@ -864,9 +866,6 @@ packages:
       terser:
         optional: true
 
-  web-ifc@0.0.57:
-    resolution: {integrity: sha512-ozzfxiCNT4+VqIhm93QdTozOmkMSPRZzf1RoRMMQIQLqoidYdExnAmY1OLoq1emnbvHPqFNQJ5HnQoqxvYZeFA==}
-
   wordwrapjs@5.1.1:
     resolution: {integrity: sha512-0yweIbkINJodk27gX9LBGMzyQdBDan3s/dEAiwBOj+Mf0PPyWL6/rikalkv8EeD0E8jm4o5RXEOrFTP3NXbhJg==}
     engines: {node: '>=12.17'}
@@ -1524,8 +1523,6 @@ snapshots:
     optionalDependencies:
       '@types/node': 20.19.28
       fsevents: 2.3.3
-
-  web-ifc@0.0.57: {}
 
   wordwrapjs@5.1.1: {}
 

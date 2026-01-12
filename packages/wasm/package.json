@@ -1,0 +1,23 @@
+{
+  "name": "ifc-lite-wasm",
+  "type": "module",
+  "collaborators": [
+    "IFC-Lite Contributors"
+  ],
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/louistrue/ifc-lite"
+  },
+  "files": [
+    "ifc_lite_wasm_bg.wasm",
+    "ifc_lite_wasm.js",
+    "ifc_lite_wasm.d.ts"
+  ],
+  "main": "ifc_lite_wasm.js",
+  "types": "ifc_lite_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

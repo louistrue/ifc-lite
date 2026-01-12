@@ -55,6 +55,12 @@ export function PropertyPanel() {
     };
   }, [selectedEntityId, ifcDataStore]);
 
+  // Get quantities for the selected entity
+  const quantities = useMemo(() => {
+    if (!selectedEntityId || !ifcDataStore?.quantities) return [];
+    return ifcDataStore.quantities.getForEntity(selectedEntityId);
+  }, [selectedEntityId, ifcDataStore]);
+
   if (!selectedEntityId || !query) {
     return (
       <div style={{ padding: '1rem', color: '#666' }}>
@@ -134,6 +140,48 @@ export function PropertyPanel() {
           </div>
         ))
       )}
+
+      {/* Quantity Sets */}
+      {quantities.length > 0 && (
+        <>
+          <h4 style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>Quantity Sets</h4>
+          {quantities.map((qset) => (
+            <div key={qset.name} style={{ marginBottom: '1rem' }}>
+              <h5 style={{ margin: '0.5rem 0 0.25rem', color: '#1565c0' }}>{qset.name}</h5>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+                <tbody>
+                  {qset.quantities.map((quant) => (
+                    <tr key={quant.name} style={{ borderBottom: '1px solid #e3f2fd' }}>
+                      <td style={{ padding: '0.25rem', fontWeight: 'bold', color: '#555' }}>
+                        {quant.name}
+                      </td>
+                      <td style={{ padding: '0.25rem', textAlign: 'right' }}>
+                        {formatQuantityValue(quant.value, quant.type)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   );
+}
+
+// Helper to format quantity values with units
+function formatQuantityValue(value: number, type: number): string {
+  const formatted = value.toLocaleString(undefined, { maximumFractionDigits: 3 });
+
+  // QuantityType enum values: 0=Length, 1=Area, 2=Volume, 3=Count, 4=Weight, 5=Time
+  switch (type) {
+    case 0: return `${formatted} m`;      // Length
+    case 1: return `${formatted} m²`;     // Area
+    case 2: return `${formatted} m³`;     // Volume
+    case 3: return formatted;              // Count
+    case 4: return `${formatted} kg`;     // Weight
+    case 5: return `${formatted} s`;      // Time
+    default: return formatted;
+  }
 }

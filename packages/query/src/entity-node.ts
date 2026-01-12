@@ -118,11 +118,19 @@ export class EntityNode {
   properties(): ReturnType<typeof this.store.properties.getForEntity> {
     return this.store.properties.getForEntity(this.expressId);
   }
-  
+
   property(psetName: string, propName: string): ReturnType<typeof this.store.properties.getPropertyValue> {
     return this.store.properties.getPropertyValue(this.expressId, psetName, propName);
   }
-  
+
+  quantities(): ReturnType<typeof this.store.quantities.getForEntity> {
+    return this.store.quantities.getForEntity(this.expressId);
+  }
+
+  quantity(qsetName: string, quantityName: string): number | null {
+    return this.store.quantities.getQuantityValue(this.expressId, qsetName, quantityName);
+  }
+
   private getRelated(relType: RelationshipType, direction: 'forward' | 'inverse'): EntityNode[] {
     const targets = this.store.relationships.getRelated(this.expressId, relType, direction);
     return targets.map(id => new EntityNode(this.store, id));

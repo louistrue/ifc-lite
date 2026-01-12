@@ -1,0 +1,50 @@
+[package]
+name = "ifc-lite-wasm"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Core packages
+ifc-lite-core = { path = "../core" }
+ifc-lite-geometry = { path = "../geometry" }
+
+# WASM bindings
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "console",
+    "Performance",
+    "Window"
+] }
+
+# Async support
+wasm-bindgen-futures = "0.4"
+futures-util = "0.3"
+
+# Error handling
+thiserror = "1.0"
+
+# Fast hashing
+rustc-hash = "1.1"
+
+# Serialization for JS interop
+serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+
+# Optional: console logging
+console_error_panic_hook = { version = "0.1", optional = true }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[features]
+default = ["console_error_panic_hook"]
