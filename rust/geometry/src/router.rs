@@ -454,7 +454,7 @@ mod tests {
         let router = GeometryRouter::new();
 
         let wall = decoder.decode_by_id(2).unwrap();
-        let point = router.parse_cartesian_point(wall, &mut decoder, 6).unwrap();
+        let point = router.parse_cartesian_point(&wall, &mut decoder, 6).unwrap();
 
         assert_eq!(point.x, 100.0);
         assert_eq!(point.y, 200.0);
@@ -471,7 +471,7 @@ mod tests {
         let router = GeometryRouter::new();
 
         let direction = decoder.decode_by_id(1).unwrap();
-        let vec = router.parse_direction(direction).unwrap();
+        let vec = router.parse_direction(&direction).unwrap();
 
         assert_eq!(vec.x, 1.0);
         assert_eq!(vec.y, 0.0);

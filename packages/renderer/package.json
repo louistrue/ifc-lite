@@ -15,6 +15,9 @@
     "build": "tsc",
     "dev": "tsc --watch"
   },
+  "dependencies": {
+    "@ifc-lite/spatial": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.3.0"
   }

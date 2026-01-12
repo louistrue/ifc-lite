@@ -12,7 +12,7 @@ export interface LODConfig {
    * Objects smaller than this will be culled
    */
   minScreenSize?: number;
-  
+
   /**
    * Distance thresholds for LOD levels (in world units)
    * [near, mid, far] - objects beyond far threshold are culled
@@ -43,8 +43,8 @@ export class LODGenerator {
   calculateScreenSize(
     meshBounds: { min: Vec3; max: Vec3 },
     cameraPosition: Vec3,
-    viewProjMatrix: Float32Array,
-    viewportWidth: number,
+    _viewProjMatrix: Float32Array,
+    _viewportWidth: number,
     viewportHeight: number
   ): number {
     // Calculate center of bounds

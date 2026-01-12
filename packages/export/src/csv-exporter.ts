@@ -31,9 +31,10 @@ export class CSVExporter {
     // Build header row
     const headers: string[] = ['expressId', 'globalId', 'name', 'type'];
     
+    // Collect all unique property set names and property names (if flattening properties)
+    const psetProps = new Map<string, Set<string>>();
+    
     if (includeProperties && flattenProperties) {
-      // Collect all unique property set names and property names
-      const psetProps = new Map<string, Set<string>>();
       const allEntityIds = entityIds ?? this.getAllEntityIds();
       
       for (const id of allEntityIds) {

@@ -11,17 +11,15 @@ import { EntityNode } from './entity-node.js';
 export class QueryResultEntity {
   private store: IfcDataStore;
   readonly expressId: number;
-  private includeFlags?: { geometry?: boolean; properties?: boolean; quantities?: boolean };
   
   // Cached data (loaded eagerly when includeFlags are set)
   private _properties?: PropertySet[];
   private _quantities?: QuantitySet[];
   private _geometry?: MeshData | null;
   
-  constructor(store: IfcDataStore, expressId: number, includeFlags?: { geometry?: boolean; properties?: boolean; quantities?: boolean }) {
+  constructor(store: IfcDataStore, expressId: number, _includeFlags?: { geometry?: boolean; properties?: boolean; quantities?: boolean }) {
     this.store = store;
     this.expressId = expressId;
-    this.includeFlags = includeFlags;
   }
   
   get globalId(): string {
