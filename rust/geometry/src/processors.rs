@@ -104,9 +104,18 @@ impl GeometryProcessor for ExtrudedAreaSolidProcessor {
         let transform = if direction.x.abs() < 0.001 && direction.y.abs() < 0.001 {
             // ExtrudedDirection is along local Z axis - no additional rotation needed
             // Position transform will handle the orientation
-            None
+            //
+            // However, if ExtrudedDirection is (0,0,-1), we need to offset the extrusion
+            // so it goes from Z=-depth to Z=0 instead of Z=0 to Z=+depth.
+            // This is because extrude_profile always extrudes in +Z, but IFC expects
+            // the solid to extend in the ExtrudedDirection from the profile plane.
+            if direction.z < 0.0 {
+                // Shift the extrusion down by depth so it extends in -Z from the profile plane
+                Some(Matrix4::new_translation(&Vector3::new(0.0, 0.0, -depth)))
+            } else {
+                None
+            }
         } else {
-            use nalgebra::Matrix4;
             // Non-Z-aligned extrusion: construct rotation to align with extrusion direction
             let new_z = direction.normalize();
 
