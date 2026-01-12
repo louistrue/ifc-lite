@@ -56,6 +56,7 @@ export function MainToolbar() {
   const hideEntity = useViewerStore((state) => state.hideEntity);
   const showAll = useViewerStore((state) => state.showAll);
   const error = useViewerStore((state) => state.error);
+  const cameraCallbacks = useViewerStore((state) => state.cameraCallbacks);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -318,8 +319,8 @@ export function MainToolbar() {
       <Separator orientation="vertical" className="h-6 mx-1" />
 
       {/* Camera */}
-      <ActionButton icon={Home} label="Fit All" onClick={() => {}} shortcut="F" />
-      <ActionButton icon={Maximize2} label="Zoom to Selection" onClick={() => {}} shortcut="Z" />
+      <ActionButton icon={Home} label="Home (Isometric)" onClick={() => cameraCallbacks.home?.()} shortcut="H" />
+      <ActionButton icon={Maximize2} label="Zoom Extent" onClick={() => cameraCallbacks.fitAll?.()} shortcut="F" />
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -328,20 +329,20 @@ export function MainToolbar() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
-          <DropdownMenuItem>
+          <DropdownMenuItem onClick={() => cameraCallbacks.setPresetView?.('top')}>
             <ArrowUp className="h-4 w-4 mr-2" /> Top <span className="ml-auto text-xs opacity-60">1</span>
           </DropdownMenuItem>
-          <DropdownMenuItem>
+          <DropdownMenuItem onClick={() => cameraCallbacks.setPresetView?.('bottom')}>
             <ArrowDown className="h-4 w-4 mr-2" /> Bottom <span className="ml-auto text-xs opacity-60">2</span>
           </DropdownMenuItem>
-          <DropdownMenuItem>
+          <DropdownMenuItem onClick={() => cameraCallbacks.setPresetView?.('front')}>
             <ArrowRight className="h-4 w-4 mr-2" /> Front <span className="ml-auto text-xs opacity-60">3</span>
           </DropdownMenuItem>
-          <DropdownMenuItem>
+          <DropdownMenuItem onClick={() => cameraCallbacks.setPresetView?.('back')}>
             <ArrowLeft className="h-4 w-4 mr-2" /> Back <span className="ml-auto text-xs opacity-60">4</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>
+          <DropdownMenuItem onClick={() => cameraCallbacks.home?.()}>
             <Box className="h-4 w-4 mr-2" /> Isometric <span className="ml-auto text-xs opacity-60">0</span>
           </DropdownMenuItem>
         </DropdownMenuContent>

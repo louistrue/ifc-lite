@@ -21,7 +21,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   const hiddenEntities = useViewerStore((state) => state.hiddenEntities);
   const isolatedEntities = useViewerStore((state) => state.isolatedEntities);
   const activeTool = useViewerStore((state) => state.activeTool);
-  const setCameraRotation = useViewerStore((state) => state.setCameraRotation);
+  const updateCameraRotationRealtime = useViewerStore((state) => state.updateCameraRotationRealtime);
   const setCameraCallbacks = useViewerStore((state) => state.setCameraCallbacks);
 
   // Animation frame ref
@@ -112,9 +112,14 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             selectedId: selectedEntityIdRef.current,
           });
           // Update ViewCube rotation immediately
-          setCameraRotation(camera.getRotation());
+          updateCameraRotationRealtime(camera.getRotation());
         },
         fitAll: () => {
+          // Zoom to fit without changing view direction
+          camera.zoomExtent(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 300);
+        },
+        home: () => {
+          // Reset to isometric view
           camera.zoomToFit(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 500);
         },
         zoomIn: () => {
@@ -151,10 +156,10 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             selectedId: selectedEntityIdRef.current,
           });
           // Update ViewCube during camera animation (e.g., preset view transitions)
-          setCameraRotation(camera.getRotation());
+          updateCameraRotationRealtime(camera.getRotation());
         } else if (!mouseState.isDragging && currentTime - lastRotationUpdate > 100) {
           // Update camera rotation for ViewCube when not dragging (throttled)
-          setCameraRotation(camera.getRotation());
+          updateCameraRotationRealtime(camera.getRotation());
           lastRotationUpdate = currentTime;
         }
 
@@ -216,7 +221,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             selectedId: selectedEntityIdRef.current,
           });
           // Update ViewCube rotation in real-time during drag
-          setCameraRotation(camera.getRotation());
+          updateCameraRotationRealtime(camera.getRotation());
         }
       });
 
@@ -359,7 +364,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
           });
-          setCameraRotation(camera.getRotation());
+          updateCameraRotationRealtime(camera.getRotation());
         };
 
         if (e.key === '1') setViewAndRender('top');

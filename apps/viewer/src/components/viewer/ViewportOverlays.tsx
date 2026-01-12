@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Home,
   ZoomIn,
@@ -16,9 +16,18 @@ export function ViewportOverlays() {
   const selectedStorey = useViewerStore((s) => s.selectedStorey);
   const hiddenEntities = useViewerStore((s) => s.hiddenEntities);
   const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
-  const cameraRotation = useViewerStore((s) => s.cameraRotation);
   const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
+  const setOnCameraRotationChange = useViewerStore((s) => s.setOnCameraRotationChange);
   const { ifcDataStore, geometryResult } = useIfc();
+  
+  // Local state for camera rotation - updated via callback, no global re-renders
+  const [cameraRotation, setCameraRotation] = useState({ azimuth: 45, elevation: 25 });
+  
+  // Register callback for real-time rotation updates
+  useEffect(() => {
+    setOnCameraRotationChange(setCameraRotation);
+    return () => setOnCameraRotationChange(null);
+  }, [setOnCameraRotationChange]);
 
   const storeyName = selectedStorey && ifcDataStore
     ? ifcDataStore.entities.getName(selectedStorey) || `Storey #${selectedStorey}`

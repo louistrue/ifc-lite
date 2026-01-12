@@ -390,6 +390,61 @@ export class Camera {
   }
 
   /**
+   * Zoom to fit bounds WITHOUT changing view direction
+   * Just centers on bounds and adjusts distance to fit
+   */
+  async zoomExtent(min: Vec3, max: Vec3, duration = 300): Promise<void> {
+    const center = {
+      x: (min.x + max.x) / 2,
+      y: (min.y + max.y) / 2,
+      z: (min.z + max.z) / 2,
+    };
+    const size = {
+      x: max.x - min.x,
+      y: max.y - min.y,
+      z: max.z - min.z,
+    };
+    const maxSize = Math.max(size.x, size.y, size.z);
+    
+    // Calculate required distance based on FOV
+    const fovFactor = Math.tan(this.camera.fov / 2);
+    const distance = (maxSize / 2) / fovFactor * 1.5; // 1.5x for padding
+    
+    // Keep current viewing direction
+    const dir = {
+      x: this.camera.position.x - this.camera.target.x,
+      y: this.camera.position.y - this.camera.target.y,
+      z: this.camera.position.z - this.camera.target.z,
+    };
+    const currentDistance = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+    
+    // Normalize direction
+    if (currentDistance > 1e-10) {
+      dir.x /= currentDistance;
+      dir.y /= currentDistance;
+      dir.z /= currentDistance;
+    } else {
+      // Fallback direction
+      dir.x = 0.6;
+      dir.y = 0.5;
+      dir.z = 0.6;
+      const len = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+      dir.x /= len;
+      dir.y /= len;
+      dir.z /= len;
+    }
+    
+    // New position: center + direction * distance
+    const endPos = {
+      x: center.x + dir.x * distance,
+      y: center.y + dir.y * distance,
+      z: center.z + dir.z * distance,
+    };
+    
+    return this.animateTo(endPos, center, duration);
+  }
+
+  /**
    * Animate camera to position and target
    */
   async animateTo(endPos: Vec3, endTarget: Vec3, duration = 500): Promise<void> {

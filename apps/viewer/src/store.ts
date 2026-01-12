@@ -35,9 +35,12 @@ interface ViewerState {
   cameraCallbacks: {
     setPresetView?: (view: 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right') => void;
     fitAll?: () => void;
+    home?: () => void;  // Reset to isometric view
     zoomIn?: () => void;
     zoomOut?: () => void;
   };
+  // Direct callback for real-time ViewCube updates (bypasses React state)
+  onCameraRotationChange: ((rotation: { azimuth: number; elevation: number }) => void) | null;
 
   // Actions
   setLoading: (loading: boolean) => void;
@@ -58,6 +61,9 @@ interface ViewerState {
   // Camera actions
   setCameraRotation: (rotation: { azimuth: number; elevation: number }) => void;
   setCameraCallbacks: (callbacks: ViewerState['cameraCallbacks']) => void;
+  setOnCameraRotationChange: (callback: ((rotation: { azimuth: number; elevation: number }) => void) | null) => void;
+  // Call this for real-time updates (uses callback if available, skips state)
+  updateCameraRotationRealtime: (rotation: { azimuth: number; elevation: number }) => void;
 
   // Visibility actions
   hideEntity: (id: number) => void;
@@ -88,6 +94,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   theme: 'dark',
   cameraRotation: { azimuth: 45, elevation: 25 },
   cameraCallbacks: {},
+  onCameraRotationChange: null,
 
   setLoading: (loading) => set({ loading }),
   setProgress: (progress) => set({ progress }),
@@ -152,6 +159,15 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   // Camera actions
   setCameraRotation: (cameraRotation) => set({ cameraRotation }),
   setCameraCallbacks: (cameraCallbacks) => set({ cameraCallbacks }),
+  setOnCameraRotationChange: (onCameraRotationChange) => set({ onCameraRotationChange }),
+  updateCameraRotationRealtime: (rotation) => {
+    const callback = get().onCameraRotationChange;
+    if (callback) {
+      // Use direct callback - no React state update, no re-renders
+      callback(rotation);
+    }
+    // Don't update store state during real-time updates
+  },
 
   // Visibility actions
   hideEntity: (id) => set((state) => {
