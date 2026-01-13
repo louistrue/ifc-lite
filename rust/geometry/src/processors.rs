@@ -863,8 +863,7 @@ impl GeometryProcessor for FacetedBrepProcessor {
     }
 
     fn supported_types(&self) -> Vec<IfcType> {
-        // IfcFacetedBrep is an Unknown type, create it from string to get correct hash
-        vec![IfcType::from_str("IFCFACETEDBREP").unwrap()]
+        vec![IfcType::IfcFacetedBrep]
     }
 }
 

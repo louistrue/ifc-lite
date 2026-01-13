@@ -33,33 +33,31 @@ fn main() {
 
                 // Check if this type has geometry
                 let ifc_type = IfcType::from_str(type_name);
-                if let Some(ifc_type) = ifc_type {
-                    println!("Has geometry: {}", router.schema().has_geometry(&ifc_type));
+                println!("Has geometry: {}", router.schema().has_geometry(&ifc_type));
 
-                    // Try to decode and process
-                    if let Ok(entity) = decoder.decode_at(start, end) {
-                        match router.process_element(&entity, &mut decoder) {
-                            Ok(mesh) => {
-                                let vertices = mesh.vertex_count();
-                                let triangles = mesh.triangle_count();
-                                println!("✅ SUCCESS!");
-                                println!("   Vertices: {}", vertices);
-                                println!("   Triangles: {}", triangles);
+                // Try to decode and process
+                if let Ok(entity) = decoder.decode_at(start, end) {
+                    match router.process_element(&entity, &mut decoder) {
+                        Ok(mesh) => {
+                            let vertices = mesh.vertex_count();
+                            let triangles = mesh.triangle_count();
+                            println!("✅ SUCCESS!");
+                            println!("   Vertices: {}", vertices);
+                            println!("   Triangles: {}", triangles);
 
-                                if vertices > 0 {
-                                    processed_count += 1;
-                                    total_vertices += vertices;
-                                    total_triangles += triangles;
-                                }
-                            }
-                            Err(e) => {
-                                println!("❌ ERROR: {}", e);
-                                error_count += 1;
+                            if vertices > 0 {
+                                processed_count += 1;
+                                total_vertices += vertices;
+                                total_triangles += triangles;
                             }
                         }
-                    } else {
-                        println!("❌ Failed to decode entity");
+                        Err(e) => {
+                            println!("❌ ERROR: {}", e);
+                            error_count += 1;
+                        }
                     }
+                } else {
+                    println!("❌ Failed to decode entity");
                 }
             }
         }

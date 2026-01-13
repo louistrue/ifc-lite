@@ -458,9 +458,8 @@ impl IfcAPI {
         let mut entity_types: Vec<(u32, IfcType)> = Vec::new();
 
         while let Some((id, type_name, _, _)) = scanner.next_entity() {
-            if let Some(ifc_type) = IfcType::from_str(type_name) {
-                entity_types.push((id, ifc_type));
-            }
+            let ifc_type = IfcType::from_str(type_name);
+            entity_types.push((id, ifc_type));
         }
 
         // Extract georeferencing
@@ -601,29 +600,27 @@ impl IfcAPI {
         while let Some((id, type_name, start, end)) = scanner.next_entity() {
             if type_name.contains("WALL") {
                 let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
-                if let Some(ifc_type) = ifc_type {
-                    if router.schema().has_geometry(&ifc_type) {
-                        // Try to decode and process
-                        match decoder.decode_at(start, end) {
-                            Ok(entity) => {
-                                match router.process_element(&entity, &mut decoder) {
-                                    Ok(mesh) => {
-                                        return format!(
-                                            "SUCCESS! Wall #{}: {} vertices, {} triangles",
-                                            id, mesh.vertex_count(), mesh.triangle_count()
-                                        );
-                                    }
-                                    Err(e) => {
-                                        return format!(
-                                            "ERROR processing wall #{} ({}): {}",
-                                            id, type_name, e
-                                        );
-                                    }
+                if router.schema().has_geometry(&ifc_type) {
+                    // Try to decode and process
+                    match decoder.decode_at(start, end) {
+                        Ok(entity) => {
+                            match router.process_element(&entity, &mut decoder) {
+                                Ok(mesh) => {
+                                    return format!(
+                                        "SUCCESS! Wall #{}: {} vertices, {} triangles",
+                                        id, mesh.vertex_count(), mesh.triangle_count()
+                                    );
+                                }
+                                Err(e) => {
+                                    return format!(
+                                        "ERROR processing wall #{} ({}): {}",
+                                        id, type_name, e
+                                    );
                                 }
                             }
-                            Err(e) => {
-                                return format!("ERROR decoding wall #{}: {}", id, e);
-                            }
+                        }
+                        Err(e) => {
+                            return format!("ERROR decoding wall #{}: {}", id, e);
                         }
                     }
                 }

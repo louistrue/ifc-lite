@@ -30,59 +30,57 @@ fn main() {
 
                 // Check if this type has geometry
                 let ifc_type = IfcType::from_str(type_name);
-                if let Some(ifc_type) = ifc_type {
-                    println!("Type: {:?}", ifc_type);
-                    println!("Is building element: {}", ifc_type.is_building_element());
-                    println!("Has geometry (schema): {}", router.schema().has_geometry(&ifc_type));
+                println!("Type: {:?}", ifc_type);
+                println!("Is building element: {}", ifc_type.is_building_element());
+                println!("Has geometry (schema): {}", router.schema().has_geometry(&ifc_type));
 
-                    // Try to decode
-                    if let Ok(entity) = decoder.decode_at(start, end) {
-                        println!("✅ Decoded successfully");
-                        println!("   Attributes: {}", entity.attributes.len());
+                // Try to decode
+                if let Ok(entity) = decoder.decode_at(start, end) {
+                    println!("✅ Decoded successfully");
+                    println!("   Attributes: {}", entity.attributes.len());
 
-                        // Check representation attribute (index 6)
-                        if let Some(rep_attr) = entity.get(6) {
-                            if !rep_attr.is_null() {
-                                println!("   Has representation attribute");
+                    // Check representation attribute (index 6)
+                    if let Some(rep_attr) = entity.get(6) {
+                        if !rep_attr.is_null() {
+                            println!("   Has representation attribute");
 
-                                // Try to resolve it
-                                if let Ok(Some(rep_entity)) = decoder.resolve_ref(rep_attr) {
-                                    println!("   Representation type: {:?}", rep_entity.ifc_type);
+                            // Try to resolve it
+                            if let Ok(Some(rep_entity)) = decoder.resolve_ref(rep_attr) {
+                                println!("   Representation type: {:?}", rep_entity.ifc_type);
 
-                                    // Get representations list
-                                    if let Some(reps_attr) = rep_entity.get(2) {
-                                        if let Ok(reps) = decoder.resolve_ref_list(reps_attr) {
-                                            println!("   Found {} representations", reps.len());
+                                // Get representations list
+                                if let Some(reps_attr) = rep_entity.get(2) {
+                                    if let Ok(reps) = decoder.resolve_ref_list(reps_attr) {
+                                        println!("   Found {} representations", reps.len());
 
-                                            for (i, shape_rep) in reps.iter().enumerate() {
-                                                println!("     Rep {}: {:?}", i, shape_rep.ifc_type);
+                                        for (i, shape_rep) in reps.iter().enumerate() {
+                                            println!("     Rep {}: {:?}", i, shape_rep.ifc_type);
 
-                                                // Get RepresentationType (attribute 2)
-                                                if let Some(rep_type_attr) = shape_rep.get(2) {
-                                                    if let Some(rep_type) = rep_type_attr.as_string() {
-                                                        println!("       RepresentationType: {}", rep_type);
-                                                    }
+                                            // Get RepresentationType (attribute 2)
+                                            if let Some(rep_type_attr) = shape_rep.get(2) {
+                                                if let Some(rep_type) = rep_type_attr.as_string() {
+                                                    println!("       RepresentationType: {}", rep_type);
                                                 }
+                                            }
 
-                                                // Get items
-                                                if let Some(items_attr) = shape_rep.get(3) {
-                                                    if let Ok(items) = decoder.resolve_ref_list(items_attr) {
-                                                        println!("       Items: {}", items.len());
-                                                        for item in &items {
-                                                            println!("         - {:?}", item.ifc_type);
+                                            // Get items
+                                            if let Some(items_attr) = shape_rep.get(3) {
+                                                if let Ok(items) = decoder.resolve_ref_list(items_attr) {
+                                                    println!("       Items: {}", items.len());
+                                                    for item in &items {
+                                                        println!("         - {:?}", item.ifc_type);
+                                                    }
+
+                                                    // Try to process with geometry router
+                                                    println!("       Trying to process geometry...");
+                                                    match router.process_element(&entity, &mut decoder) {
+                                                        Ok(mesh) => {
+                                                            println!("       ✅ Mesh generated!");
+                                                            println!("          Vertices: {}", mesh.vertex_count());
+                                                            println!("          Triangles: {}", mesh.triangle_count());
                                                         }
-
-                                                        // Try to process with geometry router
-                                                        println!("       Trying to process geometry...");
-                                                        match router.process_element(&entity, &mut decoder) {
-                                                            Ok(mesh) => {
-                                                                println!("       ✅ Mesh generated!");
-                                                                println!("          Vertices: {}", mesh.vertex_count());
-                                                                println!("          Triangles: {}", mesh.triangle_count());
-                                                            }
-                                                            Err(e) => {
-                                                                println!("       ❌ Error: {}", e);
-                                                            }
+                                                        Err(e) => {
+                                                            println!("       ❌ Error: {}", e);
                                                         }
                                                     }
                                                 }
@@ -90,17 +88,17 @@ fn main() {
                                         }
                                     }
                                 }
-                            } else {
-                                println!("   Representation attribute is NULL");
                             }
                         } else {
-                            println!("   No representation attribute");
+                            println!("   Representation attribute is NULL");
                         }
-
-                        processed_count += 1;
                     } else {
-                        println!("❌ Failed to decode entity");
+                        println!("   No representation attribute");
                     }
+
+                    processed_count += 1;
+                } else {
+                    println!("❌ Failed to decode entity");
                 }
             }
         }

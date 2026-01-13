@@ -154,7 +154,7 @@ impl<'a> ParserState<'a> {
         // Scan for next entity
         if let Some((id, type_name, start, _end)) = self.scanner.next_entity() {
             // Parse entity type
-            let ifc_type = IfcType::from_str(type_name)?;
+            let ifc_type = IfcType::from_str(type_name);
 
             // Check if we should skip this type
             if self.config.skip_types.contains(&ifc_type) {

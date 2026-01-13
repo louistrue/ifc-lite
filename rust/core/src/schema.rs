@@ -177,10 +177,11 @@ pub enum IfcType {
 }
 
 impl IfcType {
-    /// Parse IFC type from string
-    pub fn from_str(s: &str) -> Option<Self> {
+    /// Parse IFC type from string.
+    /// Returns the matching variant or `Unknown(hash)` for unrecognized types.
+    pub fn from_str(s: &str) -> Self {
         // Fast path: check common types first
-        let t = match s {
+        match s {
             "IFCWALL" => Self::IfcWall,
             "IFCWALLSTANDARDCASE" => Self::IfcWallStandardCase,
             "IFCSLAB" => Self::IfcSlab,
@@ -333,8 +334,7 @@ impl IfcType {
                 let hash = simple_hash(s);
                 Self::Unknown(hash)
             }
-        };
-        Some(t)
+        }
     }
 
     /// Get string representation
@@ -712,9 +712,9 @@ mod tests {
 
     #[test]
     fn test_from_str() {
-        assert_eq!(IfcType::from_str("IFCWALL"), Some(IfcType::IfcWall));
-        assert_eq!(IfcType::from_str("IFCDOOR"), Some(IfcType::IfcDoor));
-        assert_eq!(IfcType::from_str("IFCPROJECT"), Some(IfcType::IfcProject));
+        assert_eq!(IfcType::from_str("IFCWALL"), IfcType::IfcWall);
+        assert_eq!(IfcType::from_str("IFCDOOR"), IfcType::IfcDoor);
+        assert_eq!(IfcType::from_str("IFCPROJECT"), IfcType::IfcProject);
     }
 
     #[test]
@@ -739,7 +739,7 @@ mod tests {
 
     #[test]
     fn test_unknown_type() {
-        let unknown = IfcType::from_str("IFCCUSTOMTYPE").unwrap();
+        let unknown = IfcType::from_str("IFCCUSTOMTYPE");
         assert!(matches!(unknown, IfcType::Unknown(_)));
     }
 }

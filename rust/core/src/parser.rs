@@ -265,8 +265,7 @@ pub fn parse_entity(input: &str) -> Result<(u32, IfcType, Vec<Token>)> {
 
     match result {
         Ok((_, (id, type_str, args))) => {
-            let ifc_type = IfcType::from_str(type_str)
-                .ok_or_else(|| Error::InvalidIfcType(type_str.to_string()))?;
+            let ifc_type = IfcType::from_str(type_str);
             Ok((id, ifc_type, args))
         }
         Err(e) => Err(Error::parse(0, format!("Failed to parse entity: {}", e))),
