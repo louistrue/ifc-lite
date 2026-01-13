@@ -59,7 +59,16 @@ impl Mesh {
     /// Merge another mesh into this one
     #[inline]
     pub fn merge(&mut self, other: &Mesh) {
+        if other.is_empty() {
+            return;
+        }
+
         let vertex_offset = (self.positions.len() / 3) as u32;
+
+        // Pre-allocate for the incoming data
+        self.positions.reserve(other.positions.len());
+        self.normals.reserve(other.normals.len());
+        self.indices.reserve(other.indices.len());
 
         self.positions.extend_from_slice(&other.positions);
         self.normals.extend_from_slice(&other.normals);
@@ -92,16 +101,19 @@ impl Mesh {
     }
 
     /// Get vertex count
+    #[inline]
     pub fn vertex_count(&self) -> usize {
         self.positions.len() / 3
     }
 
     /// Get triangle count
+    #[inline]
     pub fn triangle_count(&self) -> usize {
         self.indices.len() / 3
     }
 
     /// Check if mesh is empty
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.positions.is_empty()
     }

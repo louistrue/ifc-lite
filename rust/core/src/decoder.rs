@@ -17,6 +17,7 @@ pub type EntityIndex = FxHashMap<u32, (usize, usize)>;
 
 /// Build entity index from content - O(n) scan using SIMD-accelerated search
 /// Returns index mapping entity IDs to byte offsets
+#[inline]
 pub fn build_entity_index(content: &str) -> EntityIndex {
     let bytes = content.as_bytes();
     let len = bytes.len();

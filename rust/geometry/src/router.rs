@@ -223,7 +223,7 @@ impl GeometryRouter {
             let cache = self.mapped_item_cache.borrow();
             if let Some(cached_mesh) = cache.get(&source_id) {
                 // Clone the cached mesh and apply transformation
-                let mut mesh = cached_mesh.as_ref().clone();
+                let mesh = cached_mesh.as_ref().clone();
                 // TODO: Apply MappingTarget transformation
                 return Ok(mesh);
             }
