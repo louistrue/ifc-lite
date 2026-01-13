@@ -547,8 +547,88 @@ impl FacetedBrepProcessor {
     }
 
     /// Triangulate a single face (can be called in parallel)
+    /// Optimized with fast paths for simple faces
     #[inline]
     fn triangulate_face(face: &FaceData) -> FaceResult {
+        let n = face.outer_points.len();
+
+        // FAST PATH: Triangle without holes - no triangulation needed
+        if n == 3 && face.hole_points.is_empty() {
+            let mut positions = Vec::with_capacity(9);
+            for point in &face.outer_points {
+                positions.push(point.x as f32);
+                positions.push(point.y as f32);
+                positions.push(point.z as f32);
+            }
+            return FaceResult {
+                positions,
+                indices: vec![0, 1, 2],
+            };
+        }
+
+        // FAST PATH: Quad without holes - simple fan
+        if n == 4 && face.hole_points.is_empty() {
+            let mut positions = Vec::with_capacity(12);
+            for point in &face.outer_points {
+                positions.push(point.x as f32);
+                positions.push(point.y as f32);
+                positions.push(point.z as f32);
+            }
+            return FaceResult {
+                positions,
+                indices: vec![0, 1, 2, 0, 2, 3],
+            };
+        }
+
+        // FAST PATH: Simple convex polygon without holes
+        if face.hole_points.is_empty() && n <= 8 {
+            // Check if convex by testing cross products in 3D
+            let mut is_convex = true;
+            if n > 4 {
+                use crate::triangulation::calculate_polygon_normal;
+                let normal = calculate_polygon_normal(&face.outer_points);
+                let mut sign = 0i8;
+
+                for i in 0..n {
+                    let p0 = &face.outer_points[i];
+                    let p1 = &face.outer_points[(i + 1) % n];
+                    let p2 = &face.outer_points[(i + 2) % n];
+
+                    let v1 = p1 - p0;
+                    let v2 = p2 - p1;
+                    let cross = v1.cross(&v2);
+                    let dot = cross.dot(&normal);
+
+                    if dot.abs() > 1e-10 {
+                        let current_sign = if dot > 0.0 { 1i8 } else { -1i8 };
+                        if sign == 0 {
+                            sign = current_sign;
+                        } else if sign != current_sign {
+                            is_convex = false;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if is_convex {
+                let mut positions = Vec::with_capacity(n * 3);
+                for point in &face.outer_points {
+                    positions.push(point.x as f32);
+                    positions.push(point.y as f32);
+                    positions.push(point.z as f32);
+                }
+                let mut indices = Vec::with_capacity((n - 2) * 3);
+                for i in 1..n - 1 {
+                    indices.push(0);
+                    indices.push(i as u32);
+                    indices.push(i as u32 + 1);
+                }
+                return FaceResult { positions, indices };
+            }
+        }
+
+        // SLOW PATH: Complex polygon or polygon with holes
         use crate::triangulation::{triangulate_polygon_with_holes, calculate_polygon_normal, project_to_2d, project_to_2d_with_basis};
 
         let mut positions = Vec::new();

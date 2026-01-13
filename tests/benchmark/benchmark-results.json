@@ -1,5 +1,5 @@
 {
-  "date": "2026-01-13T16:45:49.245Z",
+  "date": "2026-01-13T16:53:51.574Z",
   "config": {
     "warmupRuns": 1,
     "benchmarkRuns": 3
@@ -9,1763 +9,434 @@
       "file": "tessellation-with-individual-colors.ifc",
       "category": "buildingsmart",
       "sizeMB": 0,
-      "totalEntities": 32,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 0,
-        "tessellation": 1,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
       "ifcLite": {
-        "time": 0.22193500000001146,
-        "minTime": 0.174225999999976,
-        "vertices": 8.666666666666666,
+        "time": 0.2112003333333329,
+        "minTime": 0.18742199999996956,
+        "vertices": 8,
         "triangles": 12,
-        "throughput": 11.142350248682176
+        "throughput": 11.708681816039169
       },
       "webIfc": {
-        "parseTime": 0.9440883333333355,
-        "geoTime": 4.7880359999999955,
-        "time": 5.732124333333331,
-        "minTime": 0.4053800000000365,
+        "parseTime": 0.8150316666666791,
+        "geoTime": 7.389617666666671,
+        "time": 8.20464933333335,
+        "minTime": 0.6444000000000187,
         "vertices": 36,
         "triangles": 12,
         "elements": 1,
-        "throughput": 0.43140681510712875
+        "throughput": 0.30139953604046793
       },
-      "speedup": 25.827942115182534
+      "speedup": 38.84771015197277
     },
     {
       "file": "column-straight-rectangle-tessellation.ifc",
       "category": "buildingsmart",
       "sizeMB": 0,
-      "totalEntities": 26,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 0,
-        "tessellation": 2,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
       "ifcLite": {
-        "time": 0.3124116666666623,
-        "minTime": 0.3004479999999603,
-        "vertices": 24.666666666666668,
+        "time": 0.278423666666716,
+        "minTime": 0.27298900000005233,
+        "vertices": 24,
         "triangles": 12,
-        "throughput": 14.023739434305291
+        "throughput": 15.73565876069995
       },
       "webIfc": {
-        "parseTime": 0.14472200000002053,
-        "geoTime": 0.5577263333333539,
-        "time": 0.7024483333333744,
-        "minTime": 0.570602000000008,
+        "parseTime": 0.12480599999999716,
+        "geoTime": 0.5436980000000252,
+        "time": 0.6685040000000224,
+        "minTime": 0.4450080000001435,
         "vertices": 36,
         "triangles": 12,
         "elements": 1,
-        "throughput": 6.237013601811839
+        "throughput": 6.553707695945223
       },
-      "speedup": 2.248470234253045
+      "speedup": 2.4010315215058493
     },
     {
       "file": "tessellated-item.ifc",
       "category": "buildingsmart",
       "sizeMB": 0,
-      "totalEntities": 29,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 0,
-        "tessellation": 1,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
       "ifcLite": {
-        "time": 0.2818463333333436,
-        "minTime": 0.23689899999999398,
-        "vertices": 8.666666666666666,
+        "time": 0.26609300000003105,
+        "minTime": 0.24734300000000076,
+        "vertices": 8,
         "triangles": 12,
-        "throughput": 17.59168803921255
+        "throughput": 18.63315747124319
       },
       "webIfc": {
-        "parseTime": 0.13140000000002297,
-        "geoTime": 0.30951800000000657,
-        "time": 0.44091800000002956,
-        "minTime": 0.3983970000000454,
+        "parseTime": 0.13665566666664594,
+        "geoTime": 0.3532236666666222,
+        "time": 0.48987933333326816,
+        "minTime": 0.4507579999999507,
         "vertices": 36,
         "triangles": 12,
         "elements": 1,
-        "throughput": 11.245067724601313
+        "throughput": 10.121171549041506
       },
-      "speedup": 1.5643914710025684
+      "speedup": 1.8410079683915435
     },
     {
       "file": "basin-tessellation.ifc",
       "category": "buildingsmart",
       "sizeMB": 0.01,
-      "totalEntities": 44,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 0,
-        "tessellation": 1,
-        "mappedItem": 1,
-        "booleanResult": 0,
-        "other": 0
-      },
       "ifcLite": {
-        "time": 0.9009443333333328,
-        "minTime": 0.7970100000000002,
-        "vertices": 220.66666666666666,
+        "time": 0.6677819999999883,
+        "minTime": 0.3911789999999655,
+        "vertices": 220,
         "triangles": 234,
-        "throughput": 12.840996612433205
+        "throughput": 17.3245507251235
       },
       "webIfc": {
-        "parseTime": 0.3362896666666491,
-        "geoTime": 0.9330489999999827,
-        "time": 1.2693386666666318,
-        "minTime": 0.7205639999999676,
+        "parseTime": 0.2549693333333683,
+        "geoTime": 1.3531946666666574,
+        "time": 1.6081640000000257,
+        "minTime": 0.6422440000000051,
         "vertices": 702,
         "triangles": 234,
         "elements": 1,
-        "throughput": 9.114213122259363
+        "throughput": 7.193932417542014
       },
-      "speedup": 1.4088979970275255
+      "speedup": 2.408217052870628
     },
     {
       "file": "wall-with-opening-and-window.ifc",
       "category": "buildingsmart",
       "sizeMB": 0.01,
-      "totalEntities": 127,
-      "geoTypes": {
-        "extrusion": 3,
-        "brep": 0,
-        "tessellation": 0,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
       "ifcLite": {
-        "time": 0.1715379999999982,
-        "minTime": 0.11874599999998736,
+        "time": 0.13015166666665814,
+        "minTime": 0.11685099999999693,
         "vertices": 0,
         "triangles": 0,
-        "throughput": 69.44991524062891
+        "throughput": 91.53397621145322
       },
       "webIfc": {
-        "parseTime": 0.23612200000000408,
-        "geoTime": 6.552776666666678,
-        "time": 6.788898666666682,
-        "minTime": 1.10074800000001,
+        "parseTime": 0.3484410000000177,
+        "geoTime": 5.8677273333333915,
+        "time": 6.2161683333334095,
+        "minTime": 1.1806589999999915,
         "vertices": 130,
         "triangles": 44,
         "elements": 2,
-        "throughput": 1.754820648456703
+        "throughput": 1.9165020832308106
       },
-      "speedup": 39.57664579665587
-    },
-    {
-      "file": "Sample_entities.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 0.03,
-      "totalEntities": 466,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 6,
-        "tessellation": 0,
-        "mappedItem": 2,
-        "booleanResult": 0,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 0.9515873333333312,
-        "minTime": 0.27087000000000216,
-        "vertices": 0,
-        "triangles": 0,
-        "throughput": 28.823075275463044
-      },
-      "webIfc": {
-        "parseTime": 0.4198856666666681,
-        "geoTime": 1.0952573333333362,
-        "time": 1.5151430000000043,
-        "minTime": 0.9151460000000498,
-        "vertices": 332,
-        "triangles": 168,
-        "elements": 2,
-        "throughput": 18.102366139594526
-      },
-      "speedup": 1.5922269527197095
-    },
-    {
-      "file": "ISSUE_044_test_IFCCOMPOSITEPROFILEDEF.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 0.03,
-      "totalEntities": 435,
-      "geoTypes": {
-        "extrusion": 7,
-        "brep": 0,
-        "tessellation": 0,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 0.6863136666666682,
-        "minTime": 0.6539599999999837,
-        "vertices": 288,
-        "triangles": 140,
-        "throughput": 41.23798499518182
-      },
-      "webIfc": {
-        "parseTime": 0.44919266666664726,
-        "geoTime": 0.7542856666666656,
-        "time": 1.203478333333313,
-        "minTime": 0.9450239999999894,
-        "vertices": 340,
-        "triangles": 128,
-        "elements": 7,
-        "throughput": 23.516993953350852
-      },
-      "speedup": 1.7535398051716544
-    },
-    {
-      "file": "IfcOpenHouse_IFC4.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 0.11,
-      "totalEntities": 2885,
-      "geoTypes": {
-        "extrusion": 21,
-        "brep": 0,
-        "tessellation": 0,
-        "mappedItem": 24,
-        "booleanResult": 2,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 2.4096269999999627,
-        "minTime": 2.1426889999999617,
-        "vertices": 1482,
-        "triangles": 662,
-        "throughput": 44.82725657267252
-      },
-      "webIfc": {
-        "parseTime": 1.3674246666666552,
-        "geoTime": 9.78017699999998,
-        "time": 11.147601666666636,
-        "minTime": 9.786213999999916,
-        "vertices": 3218,
-        "triangles": 1098,
-        "elements": 35,
-        "throughput": 9.68970465606319
-      },
-      "speedup": 4.62627687466434
-    },
-    {
-      "file": "Building-Hvac.ifc",
-      "category": "buildingSMART-PCERT-Sample-Scene",
-      "sizeMB": 0.17,
-      "totalEntities": 156,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 0,
-        "tessellation": 5,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 3.1097829999999553,
-        "minTime": 3.0435730000000376,
-        "vertices": 1723.3333333333333,
-        "triangles": 1064,
-        "throughput": 55.11671517425767
-      },
-      "webIfc": {
-        "parseTime": 2.1240406666666636,
-        "geoTime": 1.4348173333333232,
-        "time": 3.5588579999999865,
-        "minTime": 2.9945169999998598,
-        "vertices": 3183,
-        "triangles": 1061,
-        "elements": 5,
-        "throughput": 48.161804675754624
-      },
-      "speedup": 1.1444071821088602
+      "speedup": 47.760958369085934
     },
     {
       "file": "Building-Hvac.ifc",
       "category": "buildingsmart",
       "sizeMB": 0.17,
-      "totalEntities": 156,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 0,
-        "tessellation": 5,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
       "ifcLite": {
-        "time": 3.336413666666658,
-        "minTime": 2.9929329999999936,
-        "vertices": 1723.3333333333333,
+        "time": 3.5952250000000654,
+        "minTime": 2.496208000000024,
+        "vertices": 1723,
         "triangles": 1064,
-        "throughput": 51.37283352396446
+        "throughput": 47.674630618318176
       },
       "webIfc": {
-        "parseTime": 1.6822230000000218,
-        "geoTime": 1.2878043333333455,
-        "time": 2.970027333333367,
-        "minTime": 2.7826709999999366,
+        "parseTime": 1.57046433333331,
+        "geoTime": 1.4232030000000198,
+        "time": 2.9936673333333297,
+        "minTime": 2.8180260000000317,
         "vertices": 3183,
         "triangles": 1061,
         "elements": 5,
-        "throughput": 57.71025133037299
+        "throughput": 57.25453257824003
       },
-      "speedup": 0.8901855795059909
-    },
-    {
-      "file": "Building-Architecture.ifc",
-      "category": "buildingSMART-PCERT-Sample-Scene",
-      "sizeMB": 0.22,
-      "totalEntities": 444,
-      "geoTypes": {
-        "extrusion": 2,
-        "brep": 0,
-        "tessellation": 12,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 3.166334999999966,
-        "minTime": 2.9925719999999956,
-        "vertices": 1843.3333333333333,
-        "triangles": 1106,
-        "throughput": 67.95942450256418
-      },
-      "webIfc": {
-        "parseTime": 2.0252676666666503,
-        "geoTime": 1.6218353333333273,
-        "time": 3.6471029999999773,
-        "minTime": 3.459024999999883,
-        "vertices": 3390,
-        "triangles": 1130,
-        "elements": 12,
-        "throughput": 59.00088491669293
-      },
-      "speedup": 1.1518373766515597
+      "speedup": 0.8326787150549062
     },
     {
       "file": "Building-Architecture.ifc",
       "category": "buildingsmart",
       "sizeMB": 0.22,
-      "totalEntities": 444,
-      "geoTypes": {
-        "extrusion": 2,
-        "brep": 0,
-        "tessellation": 12,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
       "ifcLite": {
-        "time": 3.1160593333333204,
-        "minTime": 3.0430109999999786,
-        "vertices": 1843.3333333333333,
+        "time": 2.980843666666677,
+        "minTime": 2.9436540000000377,
+        "vertices": 1843,
         "triangles": 1106,
-        "throughput": 69.0559072737998
+        "throughput": 72.18838974636715
       },
       "webIfc": {
-        "parseTime": 2.028839666666689,
-        "geoTime": 1.6810696666666445,
-        "time": 3.7099093333333335,
-        "minTime": 3.265389999999911,
+        "parseTime": 2.035709666666662,
+        "geoTime": 1.7562756666666246,
+        "time": 3.7919853333332867,
+        "minTime": 3.5489979999998695,
         "vertices": 3390,
         "triangles": 1130,
         "elements": 12,
-        "throughput": 58.0020386074999
+        "throughput": 56.746607770545225
       },
-      "speedup": 1.1905772440362226
-    },
-    {
-      "file": "Infra-Rail.ifc",
-      "category": "buildingSMART-PCERT-Sample-Scene",
-      "sizeMB": 0.23,
-      "totalEntities": 728,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 0,
-        "tessellation": 6,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 4.574868666666627,
-        "minTime": 4.388941999999929,
-        "vertices": 3768.6666666666665,
-        "triangles": 2120,
-        "throughput": 51.02522945643227
-      },
-      "webIfc": {
-        "parseTime": 2.2758473333332936,
-        "geoTime": 4.361520666666706,
-        "time": 6.637368,
-        "minTime": 6.125701000000049,
-        "vertices": 6336,
-        "triangles": 2112,
-        "elements": 73,
-        "throughput": 35.16962197209904
-      },
-      "speedup": 1.450832468341909
+      "speedup": 1.272118150890371
     },
     {
       "file": "Infra-Rail.ifc",
       "category": "buildingsmart",
       "sizeMB": 0.23,
-      "totalEntities": 728,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 0,
-        "tessellation": 6,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
       "ifcLite": {
-        "time": 4.7186556666666775,
-        "minTime": 4.519713000000024,
-        "vertices": 3768.6666666666665,
+        "time": 4.960374666666705,
+        "minTime": 4.618758000000071,
+        "vertices": 3768,
         "triangles": 2120,
-        "throughput": 49.470387317879414
+        "throughput": 47.0596959173995
       },
       "webIfc": {
-        "parseTime": 2.410933666666665,
-        "geoTime": 4.198036999999999,
-        "time": 6.608970666666664,
-        "minTime": 6.473150999999916,
+        "parseTime": 2.389098666666617,
+        "geoTime": 4.875539333333374,
+        "time": 7.264637999999991,
+        "minTime": 6.793419999999969,
         "vertices": 6336,
         "triangles": 2112,
         "elements": 73,
-        "throughput": 35.320738315130534
+        "throughput": 32.13287757073475
       },
-      "speedup": 1.4006045648453367
-    },
-    {
-      "file": "ISSUE_171_IfcSurfaceCurveSweptAreaSolid.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 0.24,
-      "totalEntities": 4327,
-      "geoTypes": {
-        "extrusion": 38,
-        "brep": 0,
-        "tessellation": 23,
-        "mappedItem": 16,
-        "booleanResult": 1,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 3.3648970000000418,
-        "minTime": 3.3365360000000237,
-        "vertices": 1122,
-        "triangles": 526,
-        "throughput": 71.78539062462762
-      },
-      "webIfc": {
-        "parseTime": 2.709348666666642,
-        "geoTime": 20.878395333333327,
-        "time": 23.58774399999997,
-        "minTime": 20.243826999999897,
-        "vertices": 14758,
-        "triangles": 6290,
-        "elements": 60,
-        "throughput": 10.240506491703528
-      },
-      "speedup": 7.0099453267067835
-    },
-    {
-      "file": "Building-Structural.ifc",
-      "category": "buildingSMART-PCERT-Sample-Scene",
-      "sizeMB": 0.28,
-      "totalEntities": 407,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 0,
-        "tessellation": 17,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 4.102824999999977,
-        "minTime": 3.9709329999999454,
-        "vertices": 2503.3333333333335,
-        "triangles": 1548,
-        "throughput": 68.9519902064435
-      },
-      "webIfc": {
-        "parseTime": 2.5707630000000186,
-        "geoTime": 1.8824156666667022,
-        "time": 4.453178666666721,
-        "minTime": 4.254232000000002,
-        "vertices": 4626,
-        "triangles": 1542,
-        "elements": 16,
-        "throughput": 63.52719493074008
-      },
-      "speedup": 1.0853932757713882
+      "speedup": 1.4645341306207653
     },
     {
       "file": "Building-Structural.ifc",
       "category": "buildingsmart",
       "sizeMB": 0.28,
-      "totalEntities": 407,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 0,
-        "tessellation": 17,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
       "ifcLite": {
-        "time": 4.409057666666665,
-        "minTime": 4.154144999999971,
-        "vertices": 2503.3333333333335,
+        "time": 3.9603343333333214,
+        "minTime": 3.7494709999999714,
+        "vertices": 2503,
         "triangles": 1548,
-        "throughput": 64.16290522973053
+        "throughput": 71.43284516098957
       },
       "webIfc": {
-        "parseTime": 2.549614333333352,
-        "geoTime": 2.0013199999999642,
-        "time": 4.550934333333316,
-        "minTime": 4.298136999999997,
+        "parseTime": 2.7176043333333078,
+        "geoTime": 2.243514333333337,
+        "time": 4.9611186666666445,
+        "minTime": 4.599766999999929,
         "vertices": 4626,
         "triangles": 1542,
         "elements": 16,
-        "throughput": 62.162608488253525
+        "throughput": 57.02301602247866
       },
-      "speedup": 1.0321784556684905
-    },
-    {
-      "file": "KIT-Simple-Road-Test-Web-IFC4x3_RC2.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 0.37,
-      "totalEntities": 6512,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 66,
-        "tessellation": 0,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 2.4228656666666666,
-        "minTime": 2.41356200000007,
-        "vertices": 0,
-        "triangles": 0,
-        "throughput": 152.78410467658372
-      },
-      "webIfc": {
-        "parseTime": 3.441466666666694,
-        "geoTime": 3.791720000000017,
-        "time": 7.233186666666711,
-        "minTime": 7.003440000000069,
-        "vertices": 4934,
-        "triangles": 3026,
-        "elements": 66,
-        "throughput": 51.17735497401309
-      },
-      "speedup": 2.985384937423293
-    },
-    {
-      "file": "example.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 0.39,
-      "totalEntities": 6488,
-      "geoTypes": {
-        "extrusion": 97,
-        "brep": 2,
-        "tessellation": 0,
-        "mappedItem": 46,
-        "booleanResult": 1,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 15.530022333333326,
-        "minTime": 15.200867000000017,
-        "vertices": 35934,
-        "triangles": 22354,
-        "throughput": 25.407677224767873
-      },
-      "webIfc": {
-        "parseTime": 4.303937666666684,
-        "geoTime": 9.693887999999978,
-        "time": 13.997825666666662,
-        "minTime": 13.246291000000042,
-        "vertices": 30258,
-        "triangles": 14660,
-        "elements": 115,
-        "throughput": 28.188791897758527
-      },
-      "speedup": 0.9013396997261242
-    },
-    {
-      "file": "Infra-Road.ifc",
-      "category": "buildingSMART-PCERT-Sample-Scene",
-      "sizeMB": 0.42,
-      "totalEntities": 1186,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 0,
-        "tessellation": 38,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 5.4113236666667035,
-        "minTime": 5.224500999999918,
-        "vertices": 3315.3333333333335,
-        "triangles": 2008,
-        "throughput": 77.35896303723916
-      },
-      "webIfc": {
-        "parseTime": 3.9160289999999045,
-        "geoTime": 3.9361713333332773,
-        "time": 7.852200333333181,
-        "minTime": 7.72588299999984,
-        "vertices": 8040,
-        "triangles": 2680,
-        "elements": 65,
-        "throughput": 53.311730437538316
-      },
-      "speedup": 1.451068318404621
+      "speedup": 1.2527019814741212
     },
     {
       "file": "Infra-Road.ifc",
       "category": "buildingsmart",
       "sizeMB": 0.42,
-      "totalEntities": 1186,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 0,
-        "tessellation": 38,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
       "ifcLite": {
-        "time": 5.600514333333194,
-        "minTime": 5.440161999999873,
-        "vertices": 3315.3333333333335,
+        "time": 5.395244666666675,
+        "minTime": 5.330337999999983,
+        "vertices": 3315,
         "triangles": 2008,
-        "throughput": 74.74570416161494
+        "throughput": 77.58950953578127
       },
       "webIfc": {
-        "parseTime": 3.7938513333333503,
-        "geoTime": 3.7887790000000527,
-        "time": 7.5826303333334035,
-        "minTime": 7.441754000000174,
+        "parseTime": 3.8179456666667497,
+        "geoTime": 4.673849000000018,
+        "time": 8.491794666666769,
+        "minTime": 8.001821000000064,
         "vertices": 8040,
         "triangles": 2680,
         "elements": 65,
-        "throughput": 55.207015126659854
+        "throughput": 49.29633887114738
       },
-      "speedup": 1.3539167801433938
+      "speedup": 1.5739406072038666
     },
     {
       "file": "02_BIMcollab_Example_STR_random_C_ebkp.ifc",
       "category": "ifc",
       "sizeMB": 0.44,
-      "totalEntities": 7958,
-      "geoTypes": {
-        "extrusion": 213,
-        "brep": 56,
-        "tessellation": 0,
-        "mappedItem": 15,
-        "booleanResult": 1,
-        "other": 0
-      },
       "ifcLite": {
-        "time": 11.241225333333281,
-        "minTime": 11.056131999999934,
+        "time": 11.647178666666681,
+        "minTime": 10.732320000000072,
         "vertices": 12762,
         "triangles": 7010,
-        "throughput": 38.87894706671737
+        "throughput": 37.52385167323839
       },
       "webIfc": {
-        "parseTime": 4.567022000000027,
-        "geoTime": 84.71936833333332,
-        "time": 89.28639033333334,
-        "minTime": 86.42799000000014,
+        "parseTime": 5.110463666666685,
+        "geoTime": 93.62684566666667,
+        "time": 98.73730933333336,
+        "minTime": 90.96651900000006,
         "vertices": 17787,
         "triangles": 6327,
         "elements": 241,
-        "throughput": 4.8948893898395625
+        "throughput": 4.426361297979604
       },
-      "speedup": 7.942763149545183
-    },
-    {
-      "file": "Infra-Plumbing.ifc",
-      "category": "buildingSMART-PCERT-Sample-Scene",
-      "sizeMB": 0.5,
-      "totalEntities": 440,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 0,
-        "tessellation": 35,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 9.81889833333336,
-        "minTime": 9.010193000000072,
-        "vertices": 10532.666666666666,
-        "triangles": 6792,
-        "throughput": 50.966110840779756
-      },
-      "webIfc": {
-        "parseTime": 4.382326666666738,
-        "geoTime": 5.940038999999994,
-        "time": 10.322365666666732,
-        "minTime": 10.202264000000014,
-        "vertices": 20376,
-        "triangles": 6792,
-        "elements": 27,
-        "throughput": 48.48026866622458
-      },
-      "speedup": 1.0512753382550253
+      "speedup": 8.477358522533173
     },
     {
       "file": "Infra-Plumbing.ifc",
       "category": "buildingsmart",
       "sizeMB": 0.5,
-      "totalEntities": 440,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 0,
-        "tessellation": 35,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
       "ifcLite": {
-        "time": 9.31876699999998,
-        "minTime": 9.111559999999827,
-        "vertices": 10532.666666666666,
+        "time": 9.163791333333316,
+        "minTime": 8.766714000000093,
+        "vertices": 10532,
         "triangles": 6792,
-        "throughput": 53.701424318369234
+        "throughput": 54.609608903980195
       },
       "webIfc": {
-        "parseTime": 4.2061136666667,
-        "geoTime": 5.967785333333343,
-        "time": 10.173899000000043,
-        "minTime": 9.892103000000134,
+        "parseTime": 4.369452000000062,
+        "geoTime": 6.035012666666641,
+        "time": 10.404464666666703,
+        "minTime": 10.131826000000046,
         "vertices": 20376,
         "triangles": 6792,
         "elements": 27,
-        "throughput": 49.187736264239845
+        "throughput": 48.09772312402303
       },
-      "speedup": 1.091764500604003
-    },
-    {
-      "file": "house_3x3_fixed.ifc",
-      "category": "generated",
-      "sizeMB": 0.64,
-      "totalEntities": 15037,
-      "geoTypes": {
-        "extrusion": 349,
-        "brep": 0,
-        "tessellation": 0,
-        "mappedItem": 216,
-        "booleanResult": 34,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 15.667596333333298,
-        "minTime": 15.198118999999906,
-        "vertices": 13338,
-        "triangles": 5958,
-        "throughput": 40.807879391843954
-      },
-      "webIfc": {
-        "parseTime": 7.684350999999954,
-        "geoTime": 28.539076666666613,
-        "time": 36.223427666666566,
-        "minTime": 34.53535799999986,
-        "vertices": 13634,
-        "triangles": 4778,
-        "elements": 307,
-        "throughput": 17.650493691934994
-      },
-      "speedup": 2.3119964859957554
-    },
-    {
-      "file": "tested_sample_project.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 0.68,
-      "totalEntities": 14119,
-      "geoTypes": {
-        "extrusion": 34,
-        "brep": 21,
-        "tessellation": 0,
-        "mappedItem": 88,
-        "booleanResult": 0,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 24.851097333333353,
-        "minTime": 23.179875999999922,
-        "vertices": 193392,
-        "triangles": 75956,
-        "throughput": 27.250779005490816
-      },
-      "webIfc": {
-        "parseTime": 6.717501333333227,
-        "geoTime": 70.5928183333333,
-        "time": 77.31031966666653,
-        "minTime": 74.3562579999998,
-        "vertices": 194224,
-        "triangles": 76072,
-        "elements": 93,
-        "throughput": 8.759655430148209
-      },
-      "speedup": 3.110941888387697
-    },
-    {
-      "file": "Building-Landscaping.ifc",
-      "category": "buildingSMART-PCERT-Sample-Scene",
-      "sizeMB": 1.4,
-      "totalEntities": 158,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 0,
-        "tessellation": 7,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 15.755712666666568,
-        "minTime": 15.411122999999861,
-        "vertices": 11910.666666666666,
-        "triangles": 4824,
-        "throughput": 88.8352083738775
-      },
-      "webIfc": {
-        "parseTime": 11.232309333333282,
-        "geoTime": 5.0869009999999735,
-        "time": 16.319210333333256,
-        "minTime": 15.789448999999877,
-        "vertices": 14469,
-        "triangles": 4823,
-        "elements": 6,
-        "throughput": 85.76775402933235
-      },
-      "speedup": 1.0357646574666755
+      "speedup": 1.1353886495451324
     },
     {
       "file": "Building-Landscaping.ifc",
       "category": "buildingsmart",
       "sizeMB": 1.4,
-      "totalEntities": 158,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 0,
-        "tessellation": 7,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
       "ifcLite": {
-        "time": 16.297772000000048,
-        "minTime": 16.189104000000043,
-        "vertices": 11910.666666666666,
+        "time": 16.485471333333255,
+        "minTime": 15.964696000000004,
+        "vertices": 11910,
         "triangles": 4824,
-        "throughput": 85.88057421727716
+        "throughput": 84.90276010441875
       },
       "webIfc": {
-        "parseTime": 11.002504000000044,
-        "geoTime": 5.927481333333314,
-        "time": 16.92998533333336,
-        "minTime": 15.835880000000088,
+        "parseTime": 10.705879000000019,
+        "geoTime": 4.879685333333252,
+        "time": 15.58556433333327,
+        "minTime": 15.379805999999917,
         "vertices": 14469,
         "triangles": 4823,
         "elements": 6,
-        "throughput": 82.6735517051204
+        "throughput": 89.80502649036393
       },
-      "speedup": 1.0387913963536433
-    },
-    {
-      "file": "Infra-Bridge.ifc",
-      "category": "buildingSMART-PCERT-Sample-Scene",
-      "sizeMB": 1.8,
-      "totalEntities": 953,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 0,
-        "tessellation": 54,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 25.527708000000075,
-        "minTime": 25.146197999999913,
-        "vertices": 20704,
-        "triangles": 13292,
-        "throughput": 70.58100021907272
-      },
-      "webIfc": {
-        "parseTime": 14.258911999999933,
-        "geoTime": 14.167005666666682,
-        "time": 28.425917666666614,
-        "minTime": 25.923150999999507,
-        "vertices": 39876,
-        "triangles": 13292,
-        "elements": 48,
-        "throughput": 63.38480203414013
-      },
-      "speedup": 1.1135319185986665
+      "speedup": 0.9454121158076693
     },
     {
       "file": "Infra-Bridge.ifc",
       "category": "buildingsmart",
       "sizeMB": 1.8,
-      "totalEntities": 953,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 0,
-        "tessellation": 54,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
       "ifcLite": {
-        "time": 25.595759333333415,
-        "minTime": 25.221565000000282,
+        "time": 24.105072000000064,
+        "minTime": 23.697669000000133,
         "vertices": 20704,
         "triangles": 13292,
-        "throughput": 70.39334682265039
+        "throughput": 74.74655806630342
       },
       "webIfc": {
-        "parseTime": 14.239891333333162,
-        "geoTime": 13.478621666666792,
-        "time": 27.71851299999995,
-        "minTime": 25.441821999999775,
+        "parseTime": 14.21906100000001,
+        "geoTime": 11.516909666666683,
+        "time": 25.735970666666695,
+        "minTime": 24.87853700000005,
         "vertices": 39876,
         "triangles": 13292,
         "elements": 48,
-        "throughput": 65.00244670197253
+        "throughput": 70.00983904112422
       },
-      "speedup": 1.0829338031750466
-    },
-    {
-      "file": "duplex.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 2.27,
-      "totalEntities": 38898,
-      "geoTypes": {
-        "extrusion": 421,
-        "brep": 0,
-        "tessellation": 0,
-        "mappedItem": 167,
-        "booleanResult": 7,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 24.296464000000014,
-        "minTime": 23.72618599999987,
-        "vertices": 22842,
-        "triangles": 13400,
-        "throughput": 93.44868152626208
-      },
-      "webIfc": {
-        "parseTime": 22.42077699999997,
-        "geoTime": 53.764539999999975,
-        "time": 76.18531699999994,
-        "minTime": 73.82065300000022,
-        "vertices": 61478,
-        "triangles": 26774,
-        "elements": 216,
-        "throughput": 29.80196993274038
-      },
-      "speedup": 3.135654513348111
-    },
-    {
-      "file": "AC20-FZK-Haus.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 2.41,
-      "totalEntities": 44249,
-      "geoTypes": {
-        "extrusion": 51,
-        "brep": 140,
-        "tessellation": 0,
-        "mappedItem": 56,
-        "booleanResult": 6,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 54.96825000000005,
-        "minTime": 45.883640000000014,
-        "vertices": 37698,
-        "triangles": 22140,
-        "throughput": 43.83439753076204
-      },
-      "webIfc": {
-        "parseTime": 23.91232666666656,
-        "geoTime": 133.6721910000001,
-        "time": 157.58451766666667,
-        "minTime": 157.31828300000052,
-        "vertices": 39816,
-        "triangles": 21650,
-        "elements": 83,
-        "throughput": 15.290208440191114
-      },
-      "speedup": 2.8668279900973115
-    },
-    {
-      "file": "ISSUE_005_haus.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 2.41,
-      "totalEntities": 44249,
-      "geoTypes": {
-        "extrusion": 51,
-        "brep": 140,
-        "tessellation": 0,
-        "mappedItem": 56,
-        "booleanResult": 6,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 48.64822200000041,
-        "minTime": 47.493508000000475,
-        "vertices": 37698,
-        "triangles": 22140,
-        "throughput": 49.529047990084656
-      },
-      "webIfc": {
-        "parseTime": 23.18154133333307,
-        "geoTime": 133.66438233333338,
-        "time": 156.84592366666644,
-        "minTime": 154.01379999999972,
-        "vertices": 39816,
-        "triangles": 21650,
-        "elements": 83,
-        "throughput": 15.362210669823035
-      },
-      "speedup": 3.22408337280374
-    },
-    {
-      "file": "Infra-Landscaping.ifc",
-      "category": "buildingSMART-PCERT-Sample-Scene",
-      "sizeMB": 2.94,
-      "totalEntities": 1488,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 0,
-        "tessellation": 38,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 46.42998833333392,
-        "minTime": 45.89597500000036,
-        "vertices": 51307.666666666664,
-        "triangles": 20855,
-        "throughput": 63.40756798754386
-      },
-      "webIfc": {
-        "parseTime": 24.480377666667057,
-        "geoTime": 23.398020333333687,
-        "time": 47.87839800000074,
-        "minTime": 45.145346000000245,
-        "vertices": 62559,
-        "triangles": 20853,
-        "elements": 101,
-        "throughput": 61.48937234505408
-      },
-      "speedup": 1.0311955638728205
+      "speedup": 1.0676579048038781
     },
     {
       "file": "Infra-Landscaping.ifc",
       "category": "buildingsmart",
       "sizeMB": 2.94,
-      "totalEntities": 1488,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 0,
-        "tessellation": 38,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
       "ifcLite": {
-        "time": 47.426974666666865,
-        "minTime": 46.61026000000038,
-        "vertices": 51307.666666666664,
+        "time": 42.368586999999934,
+        "minTime": 42.18145699999991,
+        "vertices": 51307,
         "triangles": 20855,
-        "throughput": 62.074645549252814
+        "throughput": 69.48574050644508
       },
       "webIfc": {
-        "parseTime": 23.568735666666726,
-        "geoTime": 23.374085999999807,
-        "time": 46.94282166666653,
-        "minTime": 45.86083299999973,
+        "parseTime": 28.915434333333376,
+        "geoTime": 25.14705466666669,
+        "time": 54.06248900000007,
+        "minTime": 44.83474800000022,
         "vertices": 62559,
         "triangles": 20853,
         "elements": 101,
-        "throughput": 62.71486326091988
+        "throughput": 54.45573624822813
       },
-      "speedup": 0.9897916111368451
-    },
-    {
-      "file": "ISSUE_021_Mini Project.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 3.15,
-      "totalEntities": 49044,
-      "geoTypes": {
-        "extrusion": 381,
-        "brep": 76,
-        "tessellation": 0,
-        "mappedItem": 0,
-        "booleanResult": 316,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 135.500643,
-        "minTime": 133.82078600000023,
-        "vertices": 328768,
-        "triangles": 205625,
-        "throughput": 23.273688369690667
-      },
-      "webIfc": {
-        "parseTime": 30.21623433333328,
-        "geoTime": 622.4721453333335,
-        "time": 652.6883796666668,
-        "minTime": 651.4805660000002,
-        "vertices": 537512,
-        "triangles": 262844,
-        "elements": 2636,
-        "throughput": 4.831708112660555
-      },
-      "speedup": 4.816865552930747
-    },
-    {
-      "file": "Office_A_20110811.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 3.85,
-      "totalEntities": 62930,
-      "geoTypes": {
-        "extrusion": 884,
-        "brep": 0,
-        "tessellation": 0,
-        "mappedItem": 393,
-        "booleanResult": 4,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 43.1378250000001,
-        "minTime": 42.258412000000135,
-        "vertices": 58098,
-        "triangles": 32766,
-        "throughput": 89.23448149827604
-      },
-      "webIfc": {
-        "parseTime": 35.1249066666666,
-        "geoTime": 146.49432799999946,
-        "time": 181.61923466666605,
-        "minTime": 176.7797819999996,
-        "vertices": 119601,
-        "triangles": 49985,
-        "elements": 803,
-        "throughput": 21.19478949409363
-      },
-      "speedup": 4.210208434631687
-    },
-    {
-      "file": "ISSUE_126_model.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 4.23,
-      "totalEntities": 88876,
-      "geoTypes": {
-        "extrusion": 235,
-        "brep": 590,
-        "tessellation": 0,
-        "mappedItem": 50,
-        "booleanResult": 1,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 68.62967233333256,
-        "minTime": 67.02812999999878,
-        "vertices": 41556,
-        "triangles": 23914,
-        "throughput": 61.69296220011982
-      },
-      "webIfc": {
-        "parseTime": 44.79194800000005,
-        "geoTime": 86.32008466666593,
-        "time": 131.11203266666598,
-        "minTime": 129.59420899999895,
-        "vertices": 93210,
-        "triangles": 49857,
-        "elements": 257,
-        "throughput": 32.29274762165549
-      },
-      "speedup": 1.9104277815848834
-    },
-    {
-      "file": "ISSUE_034_HouseZ.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 4.84,
-      "totalEntities": 81806,
-      "geoTypes": {
-        "extrusion": 121,
-        "brep": 614,
-        "tessellation": 0,
-        "mappedItem": 246,
-        "booleanResult": 0,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 87.85873966666684,
-        "minTime": 86.48139900000024,
-        "vertices": 276119,
-        "triangles": 241778,
-        "throughput": 55.06324864809392
-      },
-      "webIfc": {
-        "parseTime": 46.532420999999886,
-        "geoTime": 141.94646033333325,
-        "time": 188.47888133333313,
-        "minTime": 186.35178900000028,
-        "vertices": 278865,
-        "triangles": 243115,
-        "elements": 228,
-        "throughput": 25.667531523693572
-      },
-      "speedup": 2.14524909016924
-    },
-    {
-      "file": "ISSUE_102_M3D-CON.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 5.99,
-      "totalEntities": 123282,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 47,
-        "tessellation": 0,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 315.8007676666675,
-        "minTime": 311.2984120000001,
-        "vertices": 428392,
-        "triangles": 204964,
-        "throughput": 18.954070910812273
-      },
-      "webIfc": {
-        "parseTime": 54.98744999999993,
-        "geoTime": 157.73127466666543,
-        "time": 212.71872466666537,
-        "minTime": 210.26420699999835,
-        "vertices": 428392,
-        "triangles": 204964,
-        "elements": 138,
-        "throughput": 28.139084386777423
-      },
-      "speedup": 0.6735852044894115
+      "speedup": 1.2760040593282036
     },
     {
       "file": "01_Snowdon_Towers_Sample_Structural(1).ifc",
       "category": "ifc",
       "sizeMB": 8.31,
-      "totalEntities": 147142,
-      "geoTypes": {
-        "extrusion": 807,
-        "brep": 1358,
-        "tessellation": 0,
-        "mappedItem": 1073,
-        "booleanResult": 36,
-        "other": 0
-      },
       "ifcLite": {
-        "time": 230.9648093333332,
-        "minTime": 224.31304199999977,
+        "time": 208.36816133333346,
+        "minTime": 201.3874020000003,
         "vertices": 919694,
         "triangles": 671250,
-        "throughput": 35.983386143494045
+        "throughput": 39.885632558347474
       },
       "webIfc": {
-        "parseTime": 81.04606799999965,
-        "geoTime": 573.8396879999995,
-        "time": 654.8857559999991,
-        "minTime": 634.7111129999976,
+        "parseTime": 85.19395300000026,
+        "geoTime": 594.2385400000002,
+        "time": 679.4324930000005,
+        "minTime": 644.4113120000011,
         "vertices": 1324269,
         "triangles": 620141,
         "elements": 1370,
-        "throughput": 12.690604191122178
+        "throughput": 12.232114309257502
       },
-      "speedup": 2.8354352244841525
-    },
-    {
-      "file": "ISSUE_159_kleine_Wohnung_R22.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 9.55,
-      "totalEntities": 189788,
-      "geoTypes": {
-        "extrusion": 357,
-        "brep": 775,
-        "tessellation": 0,
-        "mappedItem": 150,
-        "booleanResult": 91,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 81.05585866666661,
-        "minTime": 79.3029749999987,
-        "vertices": 8772,
-        "triangles": 4488,
-        "throughput": 117.7703239281209
-      },
-      "webIfc": {
-        "parseTime": 102.15758866666754,
-        "geoTime": 624.0705613333326,
-        "time": 726.2281500000001,
-        "minTime": 720.2562820000021,
-        "vertices": 425943,
-        "triangles": 183130,
-        "elements": 425,
-        "throughput": 13.144594755030234
-      },
-      "speedup": 8.95960097081365
-    },
-    {
-      "file": "C20-Institute-Var-2.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 10.29,
-      "totalEntities": 147712,
-      "geoTypes": {
-        "extrusion": 698,
-        "brep": 194,
-        "tessellation": 0,
-        "mappedItem": 548,
-        "booleanResult": 43,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 97.15957666666752,
-        "minTime": 95.42704299999968,
-        "vertices": 71072,
-        "triangles": 40864,
-        "throughput": 105.87553663724283
-      },
-      "webIfc": {
-        "parseTime": 114.10837566666548,
-        "geoTime": 495.7080416666674,
-        "time": 609.8164173333329,
-        "minTime": 593.3776489999982,
-        "vertices": 87440,
-        "triangles": 43772,
-        "elements": 702,
-        "throughput": 16.86871987476825
-      },
-      "speedup": 6.276441687528907
-    },
-    {
-      "file": "ISSUE_129_N1540_17_EXE_MOD_448200_02_09_11SMC_IGC_V17.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 11.47,
-      "totalEntities": 202661,
-      "geoTypes": {
-        "extrusion": 1100,
-        "brep": 290,
-        "tessellation": 0,
-        "mappedItem": 281,
-        "booleanResult": 181,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 250.61863366666753,
-        "minTime": 247.1967160000022,
-        "vertices": 178868,
-        "triangles": 85000,
-        "throughput": 45.780132832659255
-      },
-      "webIfc": {
-        "parseTime": 112.99051999999938,
-        "geoTime": 481.17248033333334,
-        "time": 594.1630003333328,
-        "minTime": 584.0588920000009,
-        "vertices": 225081,
-        "triangles": 95973,
-        "elements": 959,
-        "throughput": 19.310112432384575
-      },
-      "speedup": 2.370785410647448
-    },
-    {
-      "file": "dental_clinic.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 12.4,
-      "totalEntities": 209259,
-      "geoTypes": {
-        "extrusion": 2602,
-        "brep": 0,
-        "tessellation": 0,
-        "mappedItem": 1656,
-        "booleanResult": 30,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 139.30753900000005,
-        "minTime": 136.38184600000022,
-        "vertices": 137550,
-        "triangles": 76238,
-        "throughput": 89.01759896472889
-      },
-      "webIfc": {
-        "parseTime": 108.22762599999866,
-        "geoTime": 350.0277273333316,
-        "time": 458.2553533333303,
-        "minTime": 455.03442099999666,
-        "vertices": 422695,
-        "triangles": 174379,
-        "elements": 2586,
-        "throughput": 27.060944404167387
-      },
-      "speedup": 3.2895229979859892
-    },
-    {
-      "file": "FM_ARC_DigitalHub.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 13.41,
-      "totalEntities": 266483,
-      "geoTypes": {
-        "extrusion": 1242,
-        "brep": 1314,
-        "tessellation": 0,
-        "mappedItem": 465,
-        "booleanResult": 16,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 126.75082300000092,
-        "minTime": 125.107215,
-        "vertices": 36468,
-        "triangles": 18754,
-        "throughput": 105.75900356060566
-      },
-      "webIfc": {
-        "parseTime": 151.19927333333302,
-        "geoTime": 751.7495013333331,
-        "time": 902.9487746666662,
-        "minTime": 867.7038529999991,
-        "vertices": 776944,
-        "triangles": 304231,
-        "elements": 705,
-        "throughput": 14.845848532122346
-      },
-      "speedup": 7.123809954801316
-    },
-    {
-      "file": "ifcbridge-model01.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 14.47,
-      "totalEntities": 296968,
-      "geoTypes": {
-        "extrusion": 229,
-        "brep": 2517,
-        "tessellation": 0,
-        "mappedItem": 156,
-        "booleanResult": 0,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 462.8756413333346,
-        "minTime": 434.15335100000084,
-        "vertices": 258729,
-        "triangles": 108321,
-        "throughput": 31.25851529242777
-      },
-      "webIfc": {
-        "parseTime": 140.03839266666787,
-        "geoTime": 156.69055966666807,
-        "time": 296.72895233333594,
-        "minTime": 289.45295100000294,
-        "vertices": 263691,
-        "triangles": 109521,
-        "elements": 165,
-        "throughput": 48.761016406840376
-      },
-      "speedup": 0.6410554495341222
+      "speedup": 3.260730855675641
     },
     {
       "file": "01_BIMcollab_Example_ARC.ifc",
       "category": "ifc",
       "sizeMB": 17.39,
-      "totalEntities": 357115,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 2849,
-        "tessellation": 0,
-        "mappedItem": 733,
-        "booleanResult": 0,
-        "other": 0
-      },
       "ifcLite": {
-        "time": 408.9982823333339,
-        "minTime": 402.73985900000116,
+        "time": 380.3037276666664,
+        "minTime": 374.20805199999995,
         "vertices": 502156,
-        "triangles": 278399,
-        "throughput": 42.50781882597195
+        "triangles": 278439,
+        "throughput": 45.715105114082554
       },
       "webIfc": {
-        "parseTime": 164.73408466666783,
-        "geoTime": 342.6765890000024,
-        "time": 507.4106736666703,
-        "minTime": 490.8954750000048,
+        "parseTime": 167.16429633333337,
+        "geoTime": 333.5650600000002,
+        "time": 500.72935633333356,
+        "minTime": 492.6903000000002,
         "vertices": 668298,
         "triangles": 368587,
         "elements": 1350,
-        "throughput": 34.26341972652333
+        "throughput": 34.72060238861957
       },
-      "speedup": 1.2406181042421351
-    },
-    {
-      "file": "ISSUE_102_M3D-CON-CD.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 25.63,
-      "totalEntities": 503608,
-      "geoTypes": {
-        "extrusion": 0,
-        "brep": 764,
-        "tessellation": 0,
-        "mappedItem": 0,
-        "booleanResult": 0,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 2854.944834333333,
-        "minTime": 2839.4354909999965,
-        "vertices": 4720598,
-        "triangles": 2288290,
-        "throughput": 8.97601480738341
-      },
-      "webIfc": {
-        "parseTime": 239.2336766666655,
-        "geoTime": 1786.585431666664,
-        "time": 2025.8191083333295,
-        "minTime": 1967.8308979999929,
-        "vertices": 4720178,
-        "triangles": 2288860,
-        "elements": 1616,
-        "throughput": 12.64971141886487
-      },
-      "speedup": 0.7095825754567986
-    },
-    {
-      "file": "S_Office_Integrated Design Archi.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 29.62,
-      "totalEntities": 551442,
-      "geoTypes": {
-        "extrusion": 2384,
-        "brep": 4271,
-        "tessellation": 0,
-        "mappedItem": 1067,
-        "booleanResult": 1376,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 583.6993103333347,
-        "minTime": 569.7646779999995,
-        "vertices": 1457160,
-        "triangles": 822564,
-        "throughput": 50.74396258641504
-      },
-      "webIfc": {
-        "parseTime": 320.57451133333234,
-        "geoTime": 4347.168649000004,
-        "time": 4667.743160333336,
-        "minTime": 4661.647756999999,
-        "vertices": 2180808,
-        "triangles": 1168412,
-        "elements": 3422,
-        "throughput": 6.345511084880644
-      },
-      "speedup": 7.996828294465032
-    },
-    {
-      "file": "advanced_model.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 33.67,
-      "totalEntities": 594374,
-      "geoTypes": {
-        "extrusion": 2799,
-        "brep": 1319,
-        "tessellation": 0,
-        "mappedItem": 4750,
-        "booleanResult": 24,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 841.3044076666653,
-        "minTime": 829.3607980000088,
-        "vertices": 1476190,
-        "triangles": 816245,
-        "throughput": 40.02615429558627
-      },
-      "webIfc": {
-        "parseTime": 353.7962533333339,
-        "geoTime": 1427.2415710000012,
-        "time": 1781.037824333335,
-        "minTime": 1767.2928870000032,
-        "vertices": 3064494,
-        "triangles": 1265355,
-        "elements": 6401,
-        "throughput": 18.907054960176055
-      },
-      "speedup": 2.1169957129702848
-    },
-    {
-      "file": "schependomlaan.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 47,
-      "totalEntities": 714485,
-      "geoTypes": {
-        "extrusion": 711,
-        "brep": 4202,
-        "tessellation": 0,
-        "mappedItem": 899,
-        "booleanResult": 16,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 675.3580813333343,
-        "minTime": 654.4612239999988,
-        "vertices": 395297,
-        "triangles": 236054,
-        "throughput": 69.59821146829948
-      },
-      "webIfc": {
-        "parseTime": 495.84994266666763,
-        "geoTime": 426.9182276666688,
-        "time": 922.7681703333365,
-        "minTime": 903.0332100000087,
-        "vertices": 441435,
-        "triangles": 261501,
-        "elements": 3569,
-        "throughput": 50.93772853530806
-      },
-      "speedup": 1.3663391256258453
-    },
-    {
-      "file": "ISSUE_068_ARK_NUS_skolebygg.ifc",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 53.75,
-      "totalEntities": 945194,
-      "geoTypes": {
-        "extrusion": 6561,
-        "brep": 730,
-        "tessellation": 0,
-        "mappedItem": 4340,
-        "booleanResult": 450,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 1379.2090653333337,
-        "minTime": 1363.5584380000073,
-        "vertices": 3304104,
-        "triangles": 1560033,
-        "throughput": 38.97056817304659
-      },
-      "webIfc": {
-        "parseTime": 587.3622213333389,
-        "geoTime": 1805.2018333333351,
-        "time": 2392.564054666674,
-        "minTime": 2320.4723240000167,
-        "vertices": 3327198,
-        "triangles": 1282758,
-        "elements": 4459,
-        "throughput": 22.46483675144265
-      },
-      "speedup": 1.7347363172155688
-    },
-    {
-      "file": "ISSUE_098_R8_F1_MAB_AR_M3_XX_XXX_MO_7000.IFC",
-      "category": "ara3d-format-shootout",
-      "sizeMB": 68.42,
-      "totalEntities": 1139622,
-      "geoTypes": {
-        "extrusion": 8977,
-        "brep": 6273,
-        "tessellation": 0,
-        "mappedItem": 4387,
-        "booleanResult": 854,
-        "other": 0
-      },
-      "ifcLite": {
-        "time": 1755.4160553333302,
-        "minTime": 1734.4820869999967,
-        "vertices": 3250682,
-        "triangles": 1577303,
-        "throughput": 38.97627370846024
-      },
-      "webIfc": {
-        "parseTime": 737.5072463333345,
-        "geoTime": 4639.855610333335,
-        "time": 5377.362856666669,
-        "minTime": 5326.169739999998,
-        "vertices": 3505984,
-        "triangles": 1554360,
-        "elements": 11124,
-        "throughput": 12.723630238207418
-      },
-      "speedup": 3.063298208039677
+      "speedup": 1.3166564508992122
     }
   ],
   "qualitativeResults": [
     {
       "file": "tessellation-with-individual-colors.ifc",
-      "vertexRatio": 0.24074074074074073,
+      "vertexRatio": 0.2222222222222222,
       "triangleRatio": 1,
-      "vertexDiff": -27.333333333333336,
+      "vertexDiff": -28,
       "triangleDiff": 0,
-      "hasGeometry": true
+      "hasGeometry": true,
+      "ifcLiteOnly": false,
+      "webIfcOnly": false
     },
     {
       "file": "column-straight-rectangle-tessellation.ifc",
-      "vertexRatio": 0.6851851851851852,
+      "vertexRatio": 0.6666666666666666,
       "triangleRatio": 1,
-      "vertexDiff": -11.333333333333332,
+      "vertexDiff": -12,
       "triangleDiff": 0,
-      "hasGeometry": true
+      "hasGeometry": true,
+      "ifcLiteOnly": false,
+      "webIfcOnly": false
     },
     {
       "file": "tessellated-item.ifc",
-      "vertexRatio": 0.24074074074074073,
+      "vertexRatio": 0.2222222222222222,
       "triangleRatio": 1,
-      "vertexDiff": -27.333333333333336,
+      "vertexDiff": -28,
       "triangleDiff": 0,
-      "hasGeometry": true
+      "hasGeometry": true,
+      "ifcLiteOnly": false,
+      "webIfcOnly": false
     },
     {
       "file": "basin-tessellation.ifc",
-      "vertexRatio": 0.3143399810066477,
+      "vertexRatio": 0.31339031339031337,
       "triangleRatio": 1,
-      "vertexDiff": -481.33333333333337,
+      "vertexDiff": -482,
       "triangleDiff": 0,
-      "hasGeometry": true
+      "hasGeometry": true,
+      "ifcLiteOnly": false,
+      "webIfcOnly": false
     },
     {
       "file": "wall-with-opening-and-window.ifc",
@@ -1773,135 +444,59 @@
       "triangleRatio": 0,
       "vertexDiff": -130,
       "triangleDiff": -44,
-      "hasGeometry": false
-    },
-    {
-      "file": "Sample_entities.ifc",
-      "vertexRatio": 0,
-      "triangleRatio": 0,
-      "vertexDiff": -332,
-      "triangleDiff": -168,
-      "hasGeometry": false
-    },
-    {
-      "file": "ISSUE_044_test_IFCCOMPOSITEPROFILEDEF.ifc",
-      "vertexRatio": 0.8470588235294118,
-      "triangleRatio": 1.09375,
-      "vertexDiff": -52,
-      "triangleDiff": 12,
-      "hasGeometry": true
-    },
-    {
-      "file": "IfcOpenHouse_IFC4.ifc",
-      "vertexRatio": 0.4605344934742076,
-      "triangleRatio": 0.6029143897996357,
-      "vertexDiff": -1736,
-      "triangleDiff": -436,
-      "hasGeometry": true
+      "hasGeometry": false,
+      "ifcLiteOnly": false,
+      "webIfcOnly": true
     },
     {
       "file": "Building-Hvac.ifc",
-      "vertexRatio": 0.5414179495235103,
+      "vertexRatio": 0.5413132265158656,
       "triangleRatio": 1.002827521206409,
-      "vertexDiff": -1459.6666666666667,
+      "vertexDiff": -1460,
       "triangleDiff": 3,
-      "hasGeometry": true
-    },
-    {
-      "file": "Building-Hvac.ifc",
-      "vertexRatio": 0.5414179495235103,
-      "triangleRatio": 1.002827521206409,
-      "vertexDiff": -1459.6666666666667,
-      "triangleDiff": 3,
-      "hasGeometry": true
+      "hasGeometry": true,
+      "ifcLiteOnly": false,
+      "webIfcOnly": false
     },
     {
       "file": "Building-Architecture.ifc",
-      "vertexRatio": 0.543756145526057,
+      "vertexRatio": 0.5436578171091445,
       "triangleRatio": 0.9787610619469026,
-      "vertexDiff": -1546.6666666666667,
+      "vertexDiff": -1547,
       "triangleDiff": -24,
-      "hasGeometry": true
-    },
-    {
-      "file": "Building-Architecture.ifc",
-      "vertexRatio": 0.543756145526057,
-      "triangleRatio": 0.9787610619469026,
-      "vertexDiff": -1546.6666666666667,
-      "triangleDiff": -24,
-      "hasGeometry": true
+      "hasGeometry": true,
+      "ifcLiteOnly": false,
+      "webIfcOnly": false
     },
     {
       "file": "Infra-Rail.ifc",
-      "vertexRatio": 0.5948021885521886,
+      "vertexRatio": 0.5946969696969697,
       "triangleRatio": 1.003787878787879,
-      "vertexDiff": -2567.3333333333335,
+      "vertexDiff": -2568,
       "triangleDiff": 8,
-      "hasGeometry": true
-    },
-    {
-      "file": "Infra-Rail.ifc",
-      "vertexRatio": 0.5948021885521886,
-      "triangleRatio": 1.003787878787879,
-      "vertexDiff": -2567.3333333333335,
-      "triangleDiff": 8,
-      "hasGeometry": true
-    },
-    {
-      "file": "ISSUE_171_IfcSurfaceCurveSweptAreaSolid.ifc",
-      "vertexRatio": 0.07602656186475132,
-      "triangleRatio": 0.08362480127186009,
-      "vertexDiff": -13636,
-      "triangleDiff": -5764,
-      "hasGeometry": true
+      "hasGeometry": true,
+      "ifcLiteOnly": false,
+      "webIfcOnly": false
     },
     {
       "file": "Building-Structural.ifc",
-      "vertexRatio": 0.5411442570975645,
+      "vertexRatio": 0.5410722006052745,
       "triangleRatio": 1.0038910505836576,
-      "vertexDiff": -2122.6666666666665,
+      "vertexDiff": -2123,
       "triangleDiff": 6,
-      "hasGeometry": true
-    },
-    {
-      "file": "Building-Structural.ifc",
-      "vertexRatio": 0.5411442570975645,
-      "triangleRatio": 1.0038910505836576,
-      "vertexDiff": -2122.6666666666665,
-      "triangleDiff": 6,
-      "hasGeometry": true
-    },
-    {
-      "file": "KIT-Simple-Road-Test-Web-IFC4x3_RC2.ifc",
-      "vertexRatio": 0,
-      "triangleRatio": 0,
-      "vertexDiff": -4934,
-      "triangleDiff": -3026,
-      "hasGeometry": false
-    },
-    {
-      "file": "example.ifc",
-      "vertexRatio": 1.1875867539163196,
-      "triangleRatio": 1.5248294679399728,
-      "vertexDiff": 5676,
-      "triangleDiff": 7694,
-      "hasGeometry": true
+      "hasGeometry": true,
+      "ifcLiteOnly": false,
+      "webIfcOnly": false
     },
     {
       "file": "Infra-Road.ifc",
-      "vertexRatio": 0.4123548922056385,
+      "vertexRatio": 0.4123134328358209,
       "triangleRatio": 0.7492537313432835,
-      "vertexDiff": -4724.666666666666,
+      "vertexDiff": -4725,
       "triangleDiff": -672,
-      "hasGeometry": true
-    },
-    {
-      "file": "Infra-Road.ifc",
-      "vertexRatio": 0.4123548922056385,
-      "triangleRatio": 0.7492537313432835,
-      "vertexDiff": -4724.666666666666,
-      "triangleDiff": -672,
-      "hasGeometry": true
+      "hasGeometry": true,
+      "ifcLiteOnly": false,
+      "webIfcOnly": false
     },
     {
       "file": "02_BIMcollab_Example_STR_random_C_ebkp.ifc",
@@ -1909,55 +504,29 @@
       "triangleRatio": 1.1079500553184765,
       "vertexDiff": -5025,
       "triangleDiff": 683,
-      "hasGeometry": true
+      "hasGeometry": true,
+      "ifcLiteOnly": false,
+      "webIfcOnly": false
     },
     {
       "file": "Infra-Plumbing.ifc",
-      "vertexRatio": 0.5169153252192121,
+      "vertexRatio": 0.5168826069886141,
       "triangleRatio": 1,
-      "vertexDiff": -9843.333333333334,
+      "vertexDiff": -9844,
       "triangleDiff": 0,
-      "hasGeometry": true
-    },
-    {
-      "file": "Infra-Plumbing.ifc",
-      "vertexRatio": 0.5169153252192121,
-      "triangleRatio": 1,
-      "vertexDiff": -9843.333333333334,
-      "triangleDiff": 0,
-      "hasGeometry": true
-    },
-    {
-      "file": "house_3x3_fixed.ifc",
-      "vertexRatio": 0.9782895701921667,
-      "triangleRatio": 1.246965257429887,
-      "vertexDiff": -296,
-      "triangleDiff": 1180,
-      "hasGeometry": true
-    },
-    {
-      "file": "tested_sample_project.ifc",
-      "vertexRatio": 0.9957162863497817,
-      "triangleRatio": 0.9984751288253234,
-      "vertexDiff": -832,
-      "triangleDiff": -116,
-      "hasGeometry": true
+      "hasGeometry": true,
+      "ifcLiteOnly": false,
+      "webIfcOnly": false
     },
     {
       "file": "Building-Landscaping.ifc",
-      "vertexRatio": 0.823185200543691,
+      "vertexRatio": 0.8231391250259175,
       "triangleRatio": 1.0002073398299813,
-      "vertexDiff": -2558.333333333334,
+      "vertexDiff": -2559,
       "triangleDiff": 1,
-      "hasGeometry": true
-    },
-    {
-      "file": "Building-Landscaping.ifc",
-      "vertexRatio": 0.823185200543691,
-      "triangleRatio": 1.0002073398299813,
-      "vertexDiff": -2558.333333333334,
-      "triangleDiff": 1,
-      "hasGeometry": true
+      "hasGeometry": true,
+      "ifcLiteOnly": false,
+      "webIfcOnly": false
     },
     {
       "file": "Infra-Bridge.ifc",
@@ -1965,95 +534,19 @@
       "triangleRatio": 1,
       "vertexDiff": -19172,
       "triangleDiff": 0,
-      "hasGeometry": true
-    },
-    {
-      "file": "Infra-Bridge.ifc",
-      "vertexRatio": 0.5192095496037717,
-      "triangleRatio": 1,
-      "vertexDiff": -19172,
-      "triangleDiff": 0,
-      "hasGeometry": true
-    },
-    {
-      "file": "duplex.ifc",
-      "vertexRatio": 0.3715475454634178,
-      "triangleRatio": 0.5004855456786435,
-      "vertexDiff": -38636,
-      "triangleDiff": -13374,
-      "hasGeometry": true
-    },
-    {
-      "file": "AC20-FZK-Haus.ifc",
-      "vertexRatio": 0.9468053044002411,
-      "triangleRatio": 1.0226327944572748,
-      "vertexDiff": -2118,
-      "triangleDiff": 490,
-      "hasGeometry": true
-    },
-    {
-      "file": "ISSUE_005_haus.ifc",
-      "vertexRatio": 0.9468053044002411,
-      "triangleRatio": 1.0226327944572748,
-      "vertexDiff": -2118,
-      "triangleDiff": 490,
-      "hasGeometry": true
+      "hasGeometry": true,
+      "ifcLiteOnly": false,
+      "webIfcOnly": false
     },
     {
       "file": "Infra-Landscaping.ifc",
-      "vertexRatio": 0.8201484465331393,
+      "vertexRatio": 0.8201377899263096,
       "triangleRatio": 1.0000959094614683,
-      "vertexDiff": -11251.333333333336,
+      "vertexDiff": -11252,
       "triangleDiff": 2,
-      "hasGeometry": true
-    },
-    {
-      "file": "Infra-Landscaping.ifc",
-      "vertexRatio": 0.8201484465331393,
-      "triangleRatio": 1.0000959094614683,
-      "vertexDiff": -11251.333333333336,
-      "triangleDiff": 2,
-      "hasGeometry": true
-    },
-    {
-      "file": "ISSUE_021_Mini Project.ifc",
-      "vertexRatio": 0.6116477399574335,
-      "triangleRatio": 0.7823081371459877,
-      "vertexDiff": -208744,
-      "triangleDiff": -57219,
-      "hasGeometry": true
-    },
-    {
-      "file": "Office_A_20110811.ifc",
-      "vertexRatio": 0.4857651691875486,
-      "triangleRatio": 0.6555166549964989,
-      "vertexDiff": -61503,
-      "triangleDiff": -17219,
-      "hasGeometry": true
-    },
-    {
-      "file": "ISSUE_126_model.ifc",
-      "vertexRatio": 0.4458319922755069,
-      "triangleRatio": 0.47965180415989733,
-      "vertexDiff": -51654,
-      "triangleDiff": -25943,
-      "hasGeometry": true
-    },
-    {
-      "file": "ISSUE_034_HouseZ.ifc",
-      "vertexRatio": 0.9901529413874097,
-      "triangleRatio": 0.9945005450095634,
-      "vertexDiff": -2746,
-      "triangleDiff": -1337,
-      "hasGeometry": true
-    },
-    {
-      "file": "ISSUE_102_M3D-CON.ifc",
-      "vertexRatio": 1,
-      "triangleRatio": 1,
-      "vertexDiff": 0,
-      "triangleDiff": 0,
-      "hasGeometry": true
+      "hasGeometry": true,
+      "ifcLiteOnly": false,
+      "webIfcOnly": false
     },
     {
       "file": "01_Snowdon_Towers_Sample_Structural(1).ifc",
@@ -2061,116 +554,26 @@
       "triangleRatio": 1.082415128172464,
       "vertexDiff": -404575,
       "triangleDiff": 51109,
-      "hasGeometry": true
-    },
-    {
-      "file": "ISSUE_159_kleine_Wohnung_R22.ifc",
-      "vertexRatio": 0.02059430487177862,
-      "triangleRatio": 0.02450718069131218,
-      "vertexDiff": -417171,
-      "triangleDiff": -178642,
-      "hasGeometry": true
-    },
-    {
-      "file": "C20-Institute-Var-2.ifc",
-      "vertexRatio": 0.8128087831655992,
-      "triangleRatio": 0.9335648359681988,
-      "vertexDiff": -16368,
-      "triangleDiff": -2908,
-      "hasGeometry": true
-    },
-    {
-      "file": "ISSUE_129_N1540_17_EXE_MOD_448200_02_09_11SMC_IGC_V17.ifc",
-      "vertexRatio": 0.7946828030797801,
-      "triangleRatio": 0.8856657601617122,
-      "vertexDiff": -46213,
-      "triangleDiff": -10973,
-      "hasGeometry": true
-    },
-    {
-      "file": "dental_clinic.ifc",
-      "vertexRatio": 0.3254119400513373,
-      "triangleRatio": 0.4371971395638236,
-      "vertexDiff": -285145,
-      "triangleDiff": -98141,
-      "hasGeometry": true
-    },
-    {
-      "file": "FM_ARC_DigitalHub.ifc",
-      "vertexRatio": 0.04693774583496365,
-      "triangleRatio": 0.0616439481841101,
-      "vertexDiff": -740476,
-      "triangleDiff": -285477,
-      "hasGeometry": true
-    },
-    {
-      "file": "ifcbridge-model01.ifc",
-      "vertexRatio": 0.9811825204500723,
-      "triangleRatio": 0.9890431971950585,
-      "vertexDiff": -4962,
-      "triangleDiff": -1200,
-      "hasGeometry": true
+      "hasGeometry": true,
+      "ifcLiteOnly": false,
+      "webIfcOnly": false
     },
     {
       "file": "01_BIMcollab_Example_ARC.ifc",
       "vertexRatio": 0.7513953356137532,
-      "triangleRatio": 0.755314213469276,
+      "triangleRatio": 0.7554227360161916,
       "vertexDiff": -166142,
-      "triangleDiff": -90188,
-      "hasGeometry": true
-    },
-    {
-      "file": "ISSUE_102_M3D-CON-CD.ifc",
-      "vertexRatio": 1.0000889796952572,
-      "triangleRatio": 0.9997509677306606,
-      "vertexDiff": 420,
-      "triangleDiff": -570,
-      "hasGeometry": true
-    },
-    {
-      "file": "S_Office_Integrated Design Archi.ifc",
-      "vertexRatio": 0.6681743647308704,
-      "triangleRatio": 0.7040016706435743,
-      "vertexDiff": -723648,
-      "triangleDiff": -345848,
-      "hasGeometry": true
-    },
-    {
-      "file": "advanced_model.ifc",
-      "vertexRatio": 0.4817075836989728,
-      "triangleRatio": 0.6450719363340722,
-      "vertexDiff": -1588304,
-      "triangleDiff": -449110,
-      "hasGeometry": true
-    },
-    {
-      "file": "schependomlaan.ifc",
-      "vertexRatio": 0.8954817810096617,
-      "triangleRatio": 0.9026887086473857,
-      "vertexDiff": -46138,
-      "triangleDiff": -25447,
-      "hasGeometry": true
-    },
-    {
-      "file": "ISSUE_068_ARK_NUS_skolebygg.ifc",
-      "vertexRatio": 0.993059024440385,
-      "triangleRatio": 1.2161553465267805,
-      "vertexDiff": -23094,
-      "triangleDiff": 277275,
-      "hasGeometry": true
-    },
-    {
-      "file": "ISSUE_098_R8_F1_MAB_AR_M3_XX_XXX_MO_7000.IFC",
-      "vertexRatio": 0.9271810709917672,
-      "triangleRatio": 1.0147604158624772,
-      "vertexDiff": -255302,
-      "triangleDiff": 22943,
-      "hasGeometry": true
+      "triangleDiff": -90148,
+      "hasGeometry": true,
+      "ifcLiteOnly": false,
+      "webIfcOnly": false
     }
   ],
   "summary": {
-    "totalFiles": 54,
-    "successfulFiles": 54,
-    "avgSpeedup": 3.6324956433938635
+    "totalFiles": 17,
+    "successfulFiles": 17,
+    "avgSpeedup": 6.890241600450804,
+    "totalIfcLiteTime": 714.8876623333333,
+    "totalWebIfcTime": 1429.3782163333342
   }
 }

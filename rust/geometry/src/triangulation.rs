@@ -8,18 +8,78 @@
 
 use crate::{Error, Result, Point2, Point3, Vector3};
 
+/// Check if a polygon is convex (all cross products have same sign)
+#[inline]
+fn is_convex(points: &[Point2<f64>]) -> bool {
+    if points.len() < 3 {
+        return false;
+    }
+
+    let n = points.len();
+    let mut sign = 0i8;
+
+    for i in 0..n {
+        let p0 = &points[i];
+        let p1 = &points[(i + 1) % n];
+        let p2 = &points[(i + 2) % n];
+
+        // Cross product of edges
+        let cross = (p1.x - p0.x) * (p2.y - p1.y) - (p1.y - p0.y) * (p2.x - p1.x);
+
+        if cross.abs() > 1e-10 {
+            let current_sign = if cross > 0.0 { 1i8 } else { -1i8 };
+            if sign == 0 {
+                sign = current_sign;
+            } else if sign != current_sign {
+                return false; // Sign changed - not convex
+            }
+        }
+    }
+
+    true
+}
+
+/// Simple fan triangulation for convex polygons
+#[inline]
+fn fan_triangulate(n: usize) -> Vec<usize> {
+    let mut indices = Vec::with_capacity((n - 2) * 3);
+    for i in 1..n - 1 {
+        indices.push(0);
+        indices.push(i);
+        indices.push(i + 1);
+    }
+    indices
+}
+
 /// Triangulate a simple polygon (no holes)
 /// Returns triangle indices into the input points
 #[inline]
 pub fn triangulate_polygon(points: &[Point2<f64>]) -> Result<Vec<usize>> {
-    if points.len() < 3 {
+    let n = points.len();
+
+    if n < 3 {
         return Err(Error::TriangulationError(
             "Need at least 3 points to triangulate".to_string(),
         ));
     }
 
+    // FAST PATH: Triangle - no triangulation needed
+    if n == 3 {
+        return Ok(vec![0, 1, 2]);
+    }
+
+    // FAST PATH: Quad - simple fan
+    if n == 4 {
+        return Ok(vec![0, 1, 2, 0, 2, 3]);
+    }
+
+    // FAST PATH: Convex polygon - use fan triangulation
+    if n <= 8 && is_convex(points) {
+        return Ok(fan_triangulate(n));
+    }
+
     // Flatten points for earcutr
-    let mut vertices = Vec::with_capacity(points.len() * 2);
+    let mut vertices = Vec::with_capacity(n * 2);
     for p in points {
         vertices.push(p.x);
         vertices.push(p.y);
@@ -45,8 +105,16 @@ pub fn triangulate_polygon_with_holes(
         ));
     }
 
+    // FAST PATH: No holes - use optimized simple triangulation
+    // Filter out empty or invalid holes
+    let valid_holes: Vec<&Vec<Point2<f64>>> = holes.iter().filter(|h| h.len() >= 3).collect();
+
+    if valid_holes.is_empty() {
+        return triangulate_polygon(outer);
+    }
+
     // Flatten vertices for earcutr
-    let total_points: usize = outer.len() + holes.iter().map(|h| h.len()).sum::<usize>();
+    let total_points: usize = outer.len() + valid_holes.iter().map(|h| h.len()).sum::<usize>();
     let mut vertices = Vec::with_capacity(total_points * 2);
 
     // Add outer boundary
@@ -56,14 +124,12 @@ pub fn triangulate_polygon_with_holes(
     }
 
     // Add holes and track their start indices
-    let mut hole_indices = Vec::with_capacity(holes.len());
-    for hole in holes {
-        if hole.len() >= 3 {
-            hole_indices.push(vertices.len() / 2);
-            for p in hole {
-                vertices.push(p.x);
-                vertices.push(p.y);
-            }
+    let mut hole_indices = Vec::with_capacity(valid_holes.len());
+    for hole in valid_holes {
+        hole_indices.push(vertices.len() / 2);
+        for p in hole {
+            vertices.push(p.x);
+            vertices.push(p.y);
         }
     }
 
@@ -136,18 +202,43 @@ pub fn project_to_2d_with_basis(
 }
 
 /// Calculate the normal of a polygon from its vertices
+/// Optimized for triangles and quads using simple cross product
 #[inline]
 pub fn calculate_polygon_normal(points: &[Point3<f64>]) -> Vector3<f64> {
-    if points.len() < 3 {
+    let n = points.len();
+
+    if n < 3 {
         return Vector3::new(0.0, 0.0, 1.0);
     }
 
-    // Use Newell's method for robust normal calculation
-    let mut normal = Vector3::zeros();
+    // FAST PATH: Triangle or quad - use simple cross product
+    if n <= 4 {
+        let v1 = points[1] - points[0];
+        let v2 = points[2] - points[0];
+        let normal = v1.cross(&v2);
+        let len = normal.norm();
+        if len > 1e-10 {
+            return normal / len;
+        }
+        // Fallback for degenerate triangles
+        if n == 4 {
+            // Try different edges for quad
+            let v3 = points[3] - points[0];
+            let normal = v2.cross(&v3);
+            let len = normal.norm();
+            if len > 1e-10 {
+                return normal / len;
+            }
+        }
+        return Vector3::new(0.0, 0.0, 1.0);
+    }
 
-    for i in 0..points.len() {
+    // Use Newell's method for robust normal calculation on complex polygons
+    let mut normal = Vector3::<f64>::zeros();
+
+    for i in 0..n {
         let current = &points[i];
-        let next = &points[(i + 1) % points.len()];
+        let next = &points[(i + 1) % n];
 
         normal.x += (current.y - next.y) * (current.z + next.z);
         normal.y += (current.z - next.z) * (current.x + next.x);

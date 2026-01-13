@@ -30,11 +30,11 @@ console.log('');
 
 // Initialize IFC-Lite
 console.log('Loading IFC-Lite...');
-const wasmPath = join(__dirname, '../../packages/wasm/ifc_lite_wasm_bg.wasm');
+const wasmPath = join(__dirname, '../../packages/wasm/pkg/ifc-lite_bg.wasm');
 const wasmBuffer = readFileSync(wasmPath);
 
-const ifcLiteModule = await import('../../packages/wasm/ifc_lite_wasm.js');
-ifcLiteModule.initSync(wasmBuffer);
+const ifcLiteModule = await import('../../packages/wasm/pkg/ifc-lite.js');
+await ifcLiteModule.default(wasmBuffer);
 const { IfcAPI: IfcLiteAPI } = ifcLiteModule;
 console.log('✓ IFC-Lite loaded and initialized');
 

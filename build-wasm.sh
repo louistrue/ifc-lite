@@ -17,6 +17,7 @@ if command -v wasm-opt &> /dev/null; then
   wasm-opt -Oz \
     --enable-bulk-memory \
     --enable-simd \
+    --enable-nontrapping-float-to-int \
     packages/wasm/pkg/ifc-lite_bg.wasm \
     -o packages/wasm/pkg/ifc-lite_bg.wasm
   echo "✅ Optimized with wasm-opt"
