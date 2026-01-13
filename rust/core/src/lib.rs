@@ -82,4 +82,8 @@ pub use streaming::{ParseEvent, StreamConfig, parse_stream};
 pub use decoder::{EntityDecoder, EntityIndex, build_entity_index};
 pub use schema_gen::{AttributeValue, DecodedEntity, IfcSchema, GeometryCategory, ProfileCategory};
 pub use georef::{GeoReference, GeoRefExtractor, RtcOffset};
-pub use fast_parse::{parse_coordinates_direct, parse_indices_direct, should_use_fast_path};
+pub use fast_parse::{
+    parse_coordinates_direct, parse_indices_direct, should_use_fast_path,
+    extract_entity_type_name, extract_first_entity_ref, extract_entity_refs_from_list,
+    extract_face_indices_from_entity, process_triangulated_faceset_direct, FastMeshData
+};

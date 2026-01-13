@@ -227,6 +227,127 @@ pub fn should_use_fast_path(type_name: &str) -> bool {
     )
 }
 
+/// Extract entity type name from raw bytes
+///
+/// From `#77=IFCTRIANGULATEDFACESET(...)` extracts `IFCTRIANGULATEDFACESET`
+#[inline]
+pub fn extract_entity_type_name(bytes: &[u8]) -> Option<&str> {
+    // Find '=' position
+    let eq_pos = bytes.iter().position(|&b| b == b'=')?;
+    // Find '(' position after '='
+    let paren_pos = bytes[eq_pos..].iter().position(|&b| b == b'(')?;
+    let type_start = eq_pos + 1;
+    let type_end = eq_pos + paren_pos;
+
+    if type_end <= type_start {
+        return None;
+    }
+
+    std::str::from_utf8(&bytes[type_start..type_end]).ok()
+}
+
+/// Extract the first entity reference from an entity's first attribute
+///
+/// From `#77=IFCTRIANGULATEDFACESET(#78,...)` extracts `78`
+#[inline]
+pub fn extract_first_entity_ref(bytes: &[u8]) -> Option<u32> {
+    // Find opening paren
+    let paren_pos = bytes.iter().position(|&b| b == b'(')?;
+    let content = &bytes[paren_pos + 1..];
+
+    // Find '#' which marks entity reference
+    let hash_pos = content.iter().position(|&b| b == b'#')?;
+    let id_start = hash_pos + 1;
+
+    // Parse the ID number
+    let mut id: u32 = 0;
+    let mut i = id_start;
+    while i < content.len() && content[i].is_ascii_digit() {
+        id = id.wrapping_mul(10).wrapping_add((content[i] - b'0') as u32);
+        i += 1;
+    }
+
+    if i > id_start {
+        Some(id)
+    } else {
+        None
+    }
+}
+
+/// Mesh data for fast path processing (avoiding full Mesh struct dependency)
+#[derive(Debug, Clone)]
+pub struct FastMeshData {
+    pub positions: Vec<f32>,
+    pub indices: Vec<u32>,
+}
+
+/// Process IfcTriangulatedFaceSet directly from raw bytes
+///
+/// This completely bypasses the Token/AttributeValue pipeline for
+/// maximum performance on tessellation geometry.
+///
+/// # Arguments
+/// * `faceset_bytes` - Raw bytes of the IfcTriangulatedFaceSet entity
+/// * `get_entity_bytes` - Function to retrieve raw bytes for a given entity ID
+///
+/// # Returns
+/// FastMeshData with positions and indices, or None if parsing fails
+#[inline]
+pub fn process_triangulated_faceset_direct<F>(
+    faceset_bytes: &[u8],
+    get_entity_bytes: F,
+) -> Option<FastMeshData>
+where
+    F: Fn(u32) -> Option<Vec<u8>>,
+{
+    // Extract coordinate entity reference from first attribute
+    let coord_entity_id = extract_first_entity_ref(faceset_bytes)?;
+
+    // Get raw bytes of coordinate list entity
+    let coord_bytes = get_entity_bytes(coord_entity_id)?;
+
+    // Parse coordinates directly
+    let positions = parse_coordinates_direct(&coord_bytes);
+
+    // Extract and parse indices from attribute 3 (CoordIndex)
+    let indices = extract_face_indices_from_entity(faceset_bytes)?;
+
+    Some(FastMeshData { positions, indices })
+}
+
+/// Extract entity IDs from a list attribute without full parsing
+///
+/// From `(#1,#2,#3)` extracts `[1, 2, 3]`
+#[inline]
+pub fn extract_entity_refs_from_list(bytes: &[u8]) -> Vec<u32> {
+    let mut ids = Vec::with_capacity(16);
+    let mut i = 0;
+    let len = bytes.len();
+
+    while i < len {
+        // Find next '#'
+        while i < len && bytes[i] != b'#' {
+            i += 1;
+        }
+        if i >= len {
+            break;
+        }
+        i += 1; // Skip '#'
+
+        // Parse ID
+        let mut id: u32 = 0;
+        while i < len && bytes[i].is_ascii_digit() {
+            id = id.wrapping_mul(10).wrapping_add((bytes[i] - b'0') as u32);
+            i += 1;
+        }
+        if id > 0 {
+            ids.push(id);
+        }
+    }
+
+    ids
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
