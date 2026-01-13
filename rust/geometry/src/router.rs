@@ -392,37 +392,35 @@ impl GeometryRouter {
         Ok(Vector3::new(x, y, z))
     }
 
-    /// Transform mesh by matrix
+    /// Transform mesh by matrix - optimized with chunk-based iteration
+    #[inline]
     fn transform_mesh(&self, mesh: &mut Mesh, transform: &Matrix4<f64>) {
-        for i in (0..mesh.positions.len()).step_by(3) {
+        // Use chunks for better cache locality and less indexing overhead
+        mesh.positions.chunks_exact_mut(3).for_each(|chunk| {
             let point = Point3::new(
-                mesh.positions[i] as f64,
-                mesh.positions[i + 1] as f64,
-                mesh.positions[i + 2] as f64,
+                chunk[0] as f64,
+                chunk[1] as f64,
+                chunk[2] as f64,
             );
-
             let transformed = transform.transform_point(&point);
+            chunk[0] = transformed.x as f32;
+            chunk[1] = transformed.y as f32;
+            chunk[2] = transformed.z as f32;
+        });
 
-            mesh.positions[i] = transformed.x as f32;
-            mesh.positions[i + 1] = transformed.y as f32;
-            mesh.positions[i + 2] = transformed.z as f32;
-        }
-
-        // Transform normals (without translation)
+        // Transform normals (without translation) - optimized chunk iteration
         let rotation = transform.fixed_view::<3, 3>(0, 0);
-        for i in (0..mesh.normals.len()).step_by(3) {
+        mesh.normals.chunks_exact_mut(3).for_each(|chunk| {
             let normal = Vector3::new(
-                mesh.normals[i] as f64,
-                mesh.normals[i + 1] as f64,
-                mesh.normals[i + 2] as f64,
+                chunk[0] as f64,
+                chunk[1] as f64,
+                chunk[2] as f64,
             );
-
             let transformed = (rotation * normal).normalize();
-
-            mesh.normals[i] = transformed.x as f32;
-            mesh.normals[i + 1] = transformed.y as f32;
-            mesh.normals[i + 2] = transformed.z as f32;
-        }
+            chunk[0] = transformed.x as f32;
+            chunk[1] = transformed.y as f32;
+            chunk[2] = transformed.z as f32;
+        });
     }
 
     /// Get schema reference

@@ -770,14 +770,27 @@ export function get_memory() {
 }
 
 /**
- * Initialize the WASM module
+ * Initialize the WASM module.
+ *
+ * This function is called automatically when the WASM module is loaded.
+ * It sets up panic hooks for better error messages in the browser console.
  */
 export function init() {
     wasm.init();
 }
 
 /**
- * Get the version of IFC-Lite
+ * Get the version of IFC-Lite.
+ *
+ * # Returns
+ *
+ * Version string (e.g., "0.1.0")
+ *
+ * # Example
+ *
+ * ```javascript
+ * console.log(`IFC-Lite version: ${version()}`);
+ * ```
  * @returns {string}
  */
 export function version() {

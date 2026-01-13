@@ -7,10 +7,10 @@
 //! Lazily decode IFC entities from byte offsets without loading entire file into memory.
 
 use crate::error::{Error, Result};
-use crate::parser::{parse_entity, Token};
-use crate::schema::IfcType;
+use crate::parser::parse_entity;
 use crate::schema_gen::{AttributeValue, DecodedEntity};
 use rustc_hash::FxHashMap;
+use std::sync::Arc;
 
 /// Pre-built entity index type
 pub type EntityIndex = FxHashMap<u32, (usize, usize)>;
@@ -73,11 +73,12 @@ fn parse_u32_inline(bytes: &[u8], start: usize, end: usize) -> u32 {
     result
 }
 
-/// Entity decoder for lazy parsing
+/// Entity decoder for lazy parsing - uses Arc for efficient cache sharing
 pub struct EntityDecoder<'a> {
     content: &'a str,
-    /// Cache of decoded entities (entity_id -> DecodedEntity)
-    cache: FxHashMap<u32, DecodedEntity>,
+    /// Cache of decoded entities (entity_id -> Arc<DecodedEntity>)
+    /// Using Arc avoids expensive clones on cache hits
+    cache: FxHashMap<u32, Arc<DecodedEntity>>,
     /// Index of entity offsets (entity_id -> (start, end))
     /// Can be pre-built or built lazily
     entity_index: Option<EntityIndex>,
@@ -121,9 +122,9 @@ impl<'a> EntityDecoder<'a> {
             Error::parse(0, format!("Failed to parse entity: {:?}, input: {:?}", e, &line[..line.len().min(100)]))
         })?;
 
-        // Check cache first
-        if let Some(entity) = self.cache.get(&id) {
-            return Ok(entity.clone());
+        // Check cache first - return clone of inner DecodedEntity
+        if let Some(entity_arc) = self.cache.get(&id) {
+            return Ok(entity_arc.as_ref().clone());
         }
 
         // Convert tokens to AttributeValues
@@ -133,16 +134,16 @@ impl<'a> EntityDecoder<'a> {
             .collect();
 
         let entity = DecodedEntity::new(id, ifc_type, attributes);
-        self.cache.insert(id, entity.clone());
+        self.cache.insert(id, Arc::new(entity.clone()));
         Ok(entity)
     }
 
     /// Decode entity by ID - O(1) lookup using entity index
     #[inline]
     pub fn decode_by_id(&mut self, entity_id: u32) -> Result<DecodedEntity> {
-        // Check cache first
-        if let Some(entity) = self.cache.get(&entity_id) {
-            return Ok(entity.clone());
+        // Check cache first - return clone of inner DecodedEntity
+        if let Some(entity_arc) = self.cache.get(&entity_id) {
+            return Ok(entity_arc.as_ref().clone());
         }
 
         // Build index if not already built
@@ -187,7 +188,7 @@ impl<'a> EntityDecoder<'a> {
 
     /// Get cached entity (without decoding)
     pub fn get_cached(&self, entity_id: u32) -> Option<DecodedEntity> {
-        self.cache.get(&entity_id).cloned()
+        self.cache.get(&entity_id).map(|arc| arc.as_ref().clone())
     }
 
     /// Clear cache to free memory

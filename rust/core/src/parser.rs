@@ -8,10 +8,10 @@
 
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take_while, take_while1},
+    bytes::complete::{take_while, take_while1},
     character::complete::{char, digit1, one_of},
     combinator::{map, map_res, opt, recognize},
-    multi::{many0, separated_list0},
+    multi::separated_list0,
     sequence::{delimited, pair, preceded, tuple},
     IResult,
 };
@@ -55,24 +55,24 @@ fn entity_ref(input: &str) -> IResult<&str, Token> {
 
 /// Parse string literal: 'text' or "text"
 /// IFC uses '' to escape a single quote within a string
+/// Uses memchr for SIMD-accelerated quote searching
 fn string_literal(input: &str) -> IResult<&str, Token> {
-    // Helper to parse string content with escaped quotes
-    fn parse_string_content(input: &str, quote: char) -> IResult<&str, &str> {
-        let mut i = 0;
+    // Helper to parse string content with escaped quotes - SIMD optimized
+    #[inline]
+    fn parse_string_content(input: &str, quote_byte: u8) -> IResult<&str, &str> {
         let bytes = input.as_bytes();
+        let mut pos = 0;
 
-        while i < bytes.len() {
-            if bytes[i] as char == quote {
-                // Check if it's an escaped quote (doubled)
-                if i + 1 < bytes.len() && bytes[i + 1] as char == quote {
-                    i += 2; // Skip both quotes
-                    continue;
-                } else {
-                    // End of string
-                    return Ok((&input[i..], &input[..i]));
-                }
+        // Use memchr for SIMD-accelerated searching
+        while let Some(found) = memchr::memchr(quote_byte, &bytes[pos..]) {
+            let idx = pos + found;
+            // Check if it's an escaped quote (doubled)
+            if idx + 1 < bytes.len() && bytes[idx + 1] == quote_byte {
+                pos = idx + 2; // Skip escaped quote pair
+                continue;
             }
-            i += 1;
+            // End of string found
+            return Ok((&input[idx..], &input[..idx]));
         }
 
         // No closing quote found
@@ -83,7 +83,7 @@ fn string_literal(input: &str) -> IResult<&str, Token> {
         map(
             delimited(
                 char('\''),
-                |i| parse_string_content(i, '\''),
+                |i| parse_string_content(i, b'\''),
                 char('\'')
             ),
             Token::String
@@ -91,7 +91,7 @@ fn string_literal(input: &str) -> IResult<&str, Token> {
         map(
             delimited(
                 char('"'),
-                |i| parse_string_content(i, '"'),
+                |i| parse_string_content(i, b'"'),
                 char('"')
             ),
             Token::String
@@ -192,19 +192,23 @@ fn ws(input: &str) -> IResult<&str, ()> {
 }
 
 /// Parse a token with optional surrounding whitespace
+/// Optimized ordering: test cheapest patterns first (single-char markers)
 fn token(input: &str) -> IResult<&str, Token> {
     delimited(
         ws,
         alt((
-            float,        // Try float before integer (float includes '.')
+            // Single-char markers first (O(1) check)
+            null,         // $
+            derived,      // *
+            entity_ref,   // # + digits
+            // Then by complexity
+            enum_value,   // .XXX.
+            string_literal, // 'xxx'
+            list,         // (...)
+            // Numbers: float before integer since float includes '.'
+            float,
             integer,
-            entity_ref,
-            string_literal,
-            enum_value,
-            list,
-            typed_value,  // IFCPARAMETERVALUE(0.), IFCBOOLEAN(.T.), etc.
-            null,
-            derived,
+            typed_value,  // IFCPARAMETERVALUE(0.) - most expensive, last
         )),
         ws
     )(input)
