@@ -74,6 +74,7 @@ pub mod decoder;
 pub mod schema_gen;
 pub mod georef;
 pub mod fast_parse;
+pub mod generated;
 
 pub use error::{Error, Result};
 pub use parser::{Token, EntityScanner, parse_entity};

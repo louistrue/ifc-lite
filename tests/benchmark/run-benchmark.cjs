@@ -350,8 +350,9 @@ async function runBenchmark() {
 
       // Qualitative check: geometry output comparison
       if (!ifcLiteResult.error && !webIfcResult.error) {
-        const vertexRatio = ifcLiteResult.vertices / webIfcResult.vertices;
-        const triangleRatio = ifcLiteResult.triangles / webIfcResult.triangles;
+        // Guard against division by zero
+        const vertexRatio = webIfcResult.vertices > 0 ? ifcLiteResult.vertices / webIfcResult.vertices : null;
+        const triangleRatio = webIfcResult.triangles > 0 ? ifcLiteResult.triangles / webIfcResult.triangles : null;
 
         qualitativeResults.push({
           file: file.name,
@@ -403,8 +404,9 @@ async function runBenchmark() {
     }
 
     // Overall statistics
-    const avgSpeedup = successfulResults.reduce((a, r) => a + (r.speedup || 0), 0) / successfulResults.length;
-    const medianSpeedup = successfulResults.map(r => r.speedup).filter(Boolean).sort((a, b) => a - b)[Math.floor(successfulResults.length / 2)];
+    const speedups = successfulResults.map(r => r.speedup).filter(Boolean).sort((a, b) => a - b);
+    const avgSpeedup = speedups.length > 0 ? speedups.reduce((a, b) => a + b, 0) / speedups.length : null;
+    const medianSpeedup = speedups.length > 0 ? speedups[Math.floor(speedups.length / 2)] : null;
     const totalIfcLiteTime = successfulResults.reduce((a, r) => a + r.ifcLite.time, 0);
     const totalWebIfcTime = successfulResults.reduce((a, r) => a + r.webIfc.time, 0);
 
@@ -506,7 +508,7 @@ async function runBenchmark() {
     summary: {
       totalFiles: results.length,
       successfulFiles: successfulResults.length,
-      avgSpeedup: successfulResults.length > 0 ? successfulResults.reduce((a, r) => a + (r.speedup || 0), 0) / successfulResults.length : null,
+      avgSpeedup: speedups.length > 0 ? speedups.reduce((a, b) => a + b, 0) / speedups.length : null,
     }
   }, null, 2));
   console.log(`\nDetailed results saved to: ${outputPath}`);

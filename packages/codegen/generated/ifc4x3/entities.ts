@@ -1,7 +1,3 @@
-/* This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
-
 /**
  * IFC Entity Interfaces
  * Generated from EXPRESS schema: IFC4X3_DEV_923b0514
@@ -767,7 +763,7 @@ export interface IfcBoundedSurface extends IfcSurface {
 export interface IfcBSplineSurface extends IfcBoundedSurface {
   UDegree: IfcInteger;
   VDegree: IfcInteger;
-  ControlPointsList: LIST [2:?] OF IfcCartesianPoint[];
+  ControlPointsList: IfcCartesianPoint[][];
   SurfaceForm: IfcBSplineSurfaceForm;
   UClosed: IfcLogical;
   VClosed: IfcLogical;
@@ -1361,7 +1357,7 @@ export interface IfcCartesianPointList extends IfcGeometricRepresentationItem {
  * @extends IfcCartesianPointList
  */
 export interface IfcCartesianPointList2D extends IfcCartesianPointList {
-  CoordList: number[];
+  CoordList: IfcLengthMeasure[][];
   TagList?: IfcLabel[];
 }
 
@@ -1370,7 +1366,7 @@ export interface IfcCartesianPointList2D extends IfcCartesianPointList {
  * @extends IfcCartesianPointList
  */
 export interface IfcCartesianPointList3D extends IfcCartesianPointList {
-  CoordList: number[];
+  CoordList: IfcLengthMeasure[][];
   TagList?: IfcLabel[];
 }
 
@@ -1618,7 +1614,7 @@ export interface IfcColourRgb extends IfcColourSpecification {
  * @extends IfcPresentationItem
  */
 export interface IfcColourRgbList extends IfcPresentationItem {
-  ColourList: number[];
+  ColourList: IfcNormalisedRatioMeasure[][];
 }
 
 /**
@@ -3657,7 +3653,7 @@ export interface IfcIndexedPolygonalTextureMap extends IfcIndexedTextureMap {
  * @extends IfcIndexedTextureMap
  */
 export interface IfcIndexedTriangleTextureMap extends IfcIndexedTextureMap {
-  TexCoordIndex?: LIST [3:3] OF IfcPositiveInteger[];
+  TexCoordIndex?: IfcPositiveInteger[][];
 }
 
 /**
@@ -5248,7 +5244,7 @@ export interface IfcRationalBSplineCurveWithKnots extends IfcBSplineCurveWithKno
  * @extends IfcBSplineSurfaceWithKnots
  */
 export interface IfcRationalBSplineSurfaceWithKnots extends IfcBSplineSurfaceWithKnots {
-  WeightsData: LIST [2:?] OF IfcReal[];
+  WeightsData: IfcReal[][];
 }
 
 /**
@@ -7323,7 +7319,7 @@ export interface IfcTextureVertex extends IfcPresentationItem {
  * @extends IfcPresentationItem
  */
 export interface IfcTextureVertexList extends IfcPresentationItem {
-  TexCoordsList: LIST [2:2] OF IfcParameterValue[];
+  TexCoordsList: IfcParameterValue[][];
 }
 
 /**
@@ -7448,9 +7444,9 @@ export interface IfcTrapeziumProfileDef extends IfcParameterizedProfileDef {
  * @extends IfcTessellatedFaceSet
  */
 export interface IfcTriangulatedFaceSet extends IfcTessellatedFaceSet {
-  Normals?: LIST [3:3] OF IfcParameterValue[];
+  Normals?: IfcParameterValue[][];
   Closed?: IfcBoolean;
-  CoordIndex: LIST [3:3] OF IfcPositiveInteger[];
+  CoordIndex: IfcPositiveInteger[][];
   PnIndex?: IfcPositiveInteger[];
 }
 

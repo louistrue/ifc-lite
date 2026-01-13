@@ -3,29 +3,61 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 /**
- * High-level generator functions
+ * High-level Code Generator
+ *
+ * Orchestrates code generation from EXPRESS schemas to:
+ * - TypeScript interfaces and types
+ * - TypeScript type IDs (CRC32)
+ * - TypeScript serialization helpers
+ * - Rust types and type IDs
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { parseExpressSchema } from './express-parser.js';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { join, isAbsolute } from 'node:path';
+import { parseExpressSchema, type ExpressSchema } from './express-parser.js';
 import { generateTypeScript, type GeneratedCode } from './typescript-generator.js';
+import { generateTypeIds } from './type-ids-generator.js';
+import { generateSerializers } from './serialization-generator.js';
+import { generateRust, type RustGeneratedCode } from './rust-generator.js';
+import { findCollisions } from './crc32.js';
+
+export interface FullGeneratedCode extends GeneratedCode {
+  typeIds: string;
+  serializers: string;
+}
+
+export interface GeneratorOptions {
+  /** Generate Rust output */
+  rust?: boolean;
+  /** Rust output directory (relative to outputDir or absolute) */
+  rustDir?: string;
+  /** Skip type ID collision check */
+  skipCollisionCheck?: boolean;
+}
 
 /**
- * Generate TypeScript code from an EXPRESS schema file
+ * Generate all code from an EXPRESS schema file
  */
-export function generateFromFile(schemaPath: string, outputDir: string): GeneratedCode {
+export function generateFromFile(
+  schemaPath: string,
+  outputDir: string,
+  options: GeneratorOptions = {}
+): FullGeneratedCode {
   // Read schema file
   const content = readFileSync(schemaPath, 'utf-8');
 
   // Generate code
-  return generateFromSchema(content, outputDir);
+  return generateFromSchema(content, outputDir, options);
 }
 
 /**
- * Generate TypeScript code from EXPRESS schema content
+ * Generate all code from EXPRESS schema content
  */
-export function generateFromSchema(schemaContent: string, outputDir: string): GeneratedCode {
+export function generateFromSchema(
+  schemaContent: string,
+  outputDir: string,
+  options: GeneratorOptions = {}
+): FullGeneratedCode {
   console.log('📖 Parsing EXPRESS schema...');
   const schema = parseExpressSchema(schemaContent);
 
@@ -35,35 +67,62 @@ export function generateFromSchema(schemaContent: string, outputDir: string): Ge
   console.log(`  - ${schema.enums.length} enums`);
   console.log(`  - ${schema.selects.length} selects`);
 
-  console.log('\n🔨 Generating TypeScript code...');
-  const code = generateTypeScript(schema);
+  // Check for CRC32 collisions
+  if (!options.skipCollisionCheck) {
+    console.log('\n🔍 Checking for CRC32 collisions...');
+    const entityNames = schema.entities.map((e) => e.name);
+    const collisions = findCollisions(entityNames);
+    if (collisions.size > 0) {
+      console.warn('⚠️  CRC32 collisions detected:');
+      for (const [hash, names] of collisions) {
+        console.warn(`   ${hash}: ${names.join(', ')}`);
+      }
+    } else {
+      console.log('  ✓ No collisions');
+    }
+  }
 
-  console.log('💾 Writing generated files...');
+  console.log('\n🔨 Generating TypeScript code...');
+  const tsCode = generateTypeScript(schema);
+  const typeIds = generateTypeIds(schema);
+  const serializers = generateSerializers(schema);
+
+  console.log('💾 Writing TypeScript files...');
 
   // Create output directory
   mkdirSync(outputDir, { recursive: true });
 
-  // Write files
-  writeFileSync(`${outputDir}/entities.ts`, code.entities);
+  // Write TypeScript files
+  writeFileSync(`${outputDir}/entities.ts`, tsCode.entities);
   console.log(`  ✓ ${outputDir}/entities.ts`);
 
-  writeFileSync(`${outputDir}/types.ts`, code.types);
+  writeFileSync(`${outputDir}/types.ts`, tsCode.types);
   console.log(`  ✓ ${outputDir}/types.ts`);
 
-  writeFileSync(`${outputDir}/enums.ts`, code.enums);
+  writeFileSync(`${outputDir}/enums.ts`, tsCode.enums);
   console.log(`  ✓ ${outputDir}/enums.ts`);
 
-  writeFileSync(`${outputDir}/selects.ts`, code.selects);
+  writeFileSync(`${outputDir}/selects.ts`, tsCode.selects);
   console.log(`  ✓ ${outputDir}/selects.ts`);
 
-  writeFileSync(`${outputDir}/schema-registry.ts`, code.schemaRegistry);
+  writeFileSync(`${outputDir}/schema-registry.ts`, tsCode.schemaRegistry);
   console.log(`  ✓ ${outputDir}/schema-registry.ts`);
 
+  writeFileSync(`${outputDir}/type-ids.ts`, typeIds);
+  console.log(`  ✓ ${outputDir}/type-ids.ts`);
+
+  writeFileSync(`${outputDir}/serializers.ts`, serializers);
+  console.log(`  ✓ ${outputDir}/serializers.ts`);
+
   // Write index file
-  const indexContent = `/**
- * Generated IFC Schema
+  const indexContent = `/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+/**
+ * Generated IFC Schema: ${schema.name}
  *
- * DO NOT EDIT - This file is auto-generated
+ * DO NOT EDIT - This file is auto-generated by @ifc-lite/codegen
  */
 
 export * from './entities.js';
@@ -71,11 +130,144 @@ export * from './types.js';
 export * from './enums.js';
 export * from './selects.js';
 export * from './schema-registry.js';
+export * from './type-ids.js';
+export * from './serializers.js';
 `;
   writeFileSync(`${outputDir}/index.ts`, indexContent);
   console.log(`  ✓ ${outputDir}/index.ts`);
 
+  // Generate Rust code if requested
+  if (options.rust) {
+    console.log('\n🦀 Generating Rust code...');
+    const rustCode = generateRust(schema);
+    // Use absolute path directly, or join relative path with outputDir
+    const rustDir = options.rustDir
+      ? isAbsolute(options.rustDir)
+        ? options.rustDir
+        : join(outputDir, options.rustDir)
+      : join(outputDir, 'rust');
+
+    mkdirSync(rustDir, { recursive: true });
+
+    writeFileSync(`${rustDir}/type_ids.rs`, rustCode.typeIds);
+    console.log(`  ✓ ${rustDir}/type_ids.rs`);
+
+    writeFileSync(`${rustDir}/schema.rs`, rustCode.schema);
+    console.log(`  ✓ ${rustDir}/schema.rs`);
+
+    writeFileSync(`${rustDir}/geometry_categories.rs`, rustCode.geometryCategories);
+    console.log(`  ✓ ${rustDir}/geometry_categories.rs`);
+
+    // Write mod.rs
+    const modContent = `// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+//! Auto-generated IFC Schema Types
+//!
+//! Generated from EXPRESS schema: ${schema.name}
+//!
+//! DO NOT EDIT - This file is auto-generated by @ifc-lite/codegen
+
+mod type_ids;
+mod schema;
+mod geometry_categories;
+
+pub use type_ids::*;
+pub use schema::*;
+pub use geometry_categories::*;
+`;
+    writeFileSync(`${rustDir}/mod.rs`, modContent);
+    console.log(`  ✓ ${rustDir}/mod.rs`);
+  }
+
+  // Write test-compile file
+  const testCompileContent = `/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+/**
+ * Type-check test file
+ * This file is used to verify the generated types compile correctly.
+ *
+ * DO NOT EDIT - This file is auto-generated
+ */
+
+import type { IfcWall, IfcProject, IfcExtrudedAreaSolid } from './entities.js';
+import { TYPE_IDS, getTypeId, getTypeName } from './type-ids.js';
+import { SCHEMA_REGISTRY, getEntityMetadata } from './schema-registry.js';
+import { toStepLine, serializeValue, ref, enumVal, type StepEntity } from './serializers.js';
+
+// Test type IDs
+const wallId: number = TYPE_IDS.IfcWall;
+const projectId: number = TYPE_IDS.IfcProject;
+
+// Test ID lookup
+const wallIdFromName = getTypeId('IfcWall');
+const nameFromId = getTypeName(wallId);
+
+// Test schema registry
+const wallMeta = getEntityMetadata('IfcWall');
+const wallAttrs = wallMeta?.allAttributes;
+
+// Test serialization
+const testEntity: StepEntity = {
+  expressId: 1,
+  type: 'IfcProject',
+  GlobalId: '0YvctVUKr0kugbFTf53O9L',
+  OwnerHistory: ref(2),
+  Name: 'Test Project',
+  Description: null,
+  ObjectType: null,
+  LongName: null,
+  Phase: null,
+  RepresentationContexts: [ref(3)],
+  UnitsInContext: ref(4),
+};
+
+const stepLine = toStepLine(testEntity);
+
+console.log('✓ All types compile correctly');
+console.log('  Wall ID:', wallId);
+console.log('  Project ID:', projectId);
+console.log('  STEP line:', stepLine);
+`;
+  writeFileSync(`${outputDir}/test-compile.ts`, testCompileContent);
+  console.log(`  ✓ ${outputDir}/test-compile.ts`);
+
   console.log('\n✨ Code generation complete!');
 
-  return code;
+  return {
+    ...tsCode,
+    typeIds,
+    serializers,
+  };
+}
+
+/**
+ * Generate code for both IFC4 and IFC4X3 schemas
+ */
+export function generateAll(
+  schemasDir: string,
+  outputBaseDir: string,
+  options: GeneratorOptions = {}
+): void {
+  const schemas = [
+    { name: 'IFC4', file: 'IFC4_ADD2_TC1.exp', dir: 'ifc4' },
+    { name: 'IFC4X3', file: 'IFC4X3_ADD2.exp', dir: 'ifc4x3' },
+  ];
+
+  for (const schema of schemas) {
+    const schemaPath = join(schemasDir, schema.file);
+    if (existsSync(schemaPath)) {
+      console.log(`\n${'='.repeat(60)}`);
+      console.log(`Processing ${schema.name}...`);
+      console.log(`${'='.repeat(60)}\n`);
+
+      const outputDir = join(outputBaseDir, schema.dir);
+      generateFromFile(schemaPath, outputDir, options);
+    } else {
+      console.warn(`⚠️  Schema file not found: ${schemaPath}`);
+    }
+  }
 }

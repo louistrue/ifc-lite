@@ -360,8 +360,8 @@ if (successfulResults.length > 0) {
   }
 
   // Overall statistics
-  const avgSpeedup = successfulResults.reduce((a, r) => a + (r.speedup || 0), 0) / successfulResults.length;
   const speedups = successfulResults.map(r => r.speedup).filter(Boolean).sort((a, b) => a - b);
+  const avgSpeedup = speedups.length > 0 ? speedups.reduce((a, b) => a + b, 0) / speedups.length : null;
   const medianSpeedup = speedups[Math.floor(speedups.length / 2)];
   const totalIfcLiteTime = successfulResults.reduce((a, r) => a + r.ifcLite.time, 0);
   const totalWebIfcTime = successfulResults.reduce((a, r) => a + r.webIfc.time, 0);
@@ -489,7 +489,7 @@ writeFileSync(outputPath, JSON.stringify({
   summary: {
     totalFiles: results.length,
     successfulFiles: successfulResults.length,
-    avgSpeedup: successfulResults.length > 0 ? successfulResults.reduce((a, r) => a + (r.speedup || 0), 0) / successfulResults.length : null,
+    avgSpeedup: speedups.length > 0 ? speedups.reduce((a, b) => a + b, 0) / speedups.length : null,
     totalIfcLiteTime: successfulResults.reduce((a, r) => a + r.ifcLite.time, 0),
     totalWebIfcTime: successfulResults.reduce((a, r) => a + r.webIfc.time, 0),
   }

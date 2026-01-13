@@ -13,7 +13,7 @@ use crate::schema::IfcType;
 use crate::schema_gen::DecodedEntity;
 
 /// Georeferencing information extracted from IFC model
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct GeoReference {
     /// CRS name (e.g., "EPSG:32632")
     pub crs_name: Option<String>,
@@ -37,9 +37,8 @@ pub struct GeoReference {
     pub scale: f64,
 }
 
-impl GeoReference {
-    /// Create new georeferencing info with defaults
-    pub fn new() -> Self {
+impl Default for GeoReference {
+    fn default() -> Self {
         Self {
             crs_name: None,
             geodetic_datum: None,
@@ -52,6 +51,13 @@ impl GeoReference {
             x_axis_ordinate: 0.0, // No rotation (sin(0) = 0)
             scale: 1.0,
         }
+    }
+}
+
+impl GeoReference {
+    /// Create new georeferencing info with defaults
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Check if georeferencing is present
@@ -88,7 +94,8 @@ impl GeoReference {
     pub fn map_to_local(&self, e: f64, n: f64, h: f64) -> (f64, f64, f64) {
         let cos_r = self.x_axis_abscissa;
         let sin_r = self.x_axis_ordinate;
-        let inv_scale = 1.0 / self.scale;
+        // Guard against division by zero
+        let inv_scale = if self.scale.abs() < f64::EPSILON { 1.0 } else { 1.0 / self.scale };
 
         let dx = e - self.eastings;
         let dy = n - self.northings;

@@ -5,9 +5,17 @@
 /**
  * @ifc-lite/codegen
  *
- * TypeScript code generator from IFC EXPRESS schemas
+ * IFC Code Generator - TypeScript and Rust from EXPRESS schemas
+ *
+ * Features:
+ * - TypeScript interfaces from EXPRESS entities
+ * - CRC32 type IDs for fast O(1) lookup
+ * - Serialization support for IFC writing
+ * - Rust type generation
+ * - Schema metadata registry
  */
 
+// Core parser
 export {
   parseExpressSchema,
   getAllAttributes,
@@ -22,10 +30,28 @@ export {
   type InverseAttribute,
 } from './express-parser.js';
 
+// TypeScript generation
 export {
   generateTypeScript,
   writeGeneratedFiles,
   type GeneratedCode,
 } from './typescript-generator.js';
 
-export { generateFromFile, generateFromSchema } from './generator.js';
+// Type IDs (CRC32)
+export { generateTypeIds } from './type-ids-generator.js';
+export { crc32, generateTypeIds as generateTypeIdMap, findCollisions } from './crc32.js';
+
+// Serialization
+export { generateSerializers } from './serialization-generator.js';
+
+// Rust generation
+export { generateRust, type RustGeneratedCode } from './rust-generator.js';
+
+// High-level generator
+export {
+  generateFromFile,
+  generateFromSchema,
+  generateAll,
+  type FullGeneratedCode,
+  type GeneratorOptions,
+} from './generator.js';

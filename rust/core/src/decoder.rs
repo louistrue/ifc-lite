@@ -423,6 +423,7 @@ fn parse_next_float(bytes: &[u8], offset: &mut usize) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::IfcType;
 
     #[test]
     fn test_decode_entity() {
