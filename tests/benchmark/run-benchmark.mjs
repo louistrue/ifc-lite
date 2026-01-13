@@ -30,11 +30,13 @@ console.log('');
 
 // Initialize IFC-Lite
 console.log('Loading IFC-Lite...');
-const wasmPath = join(__dirname, '../../packages/wasm/pkg/ifc-lite_bg.wasm');
+const wasmPath = join(__dirname, '../../packages/wasm/ifc_lite_wasm_bg.wasm');
 const wasmBuffer = readFileSync(wasmPath);
 
-const ifcLiteModule = await import('../../packages/wasm/pkg/ifc-lite.js');
-await ifcLiteModule.default(wasmBuffer);
+// Dynamic import for the CommonJS module
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const ifcLiteModule = require('../../packages/wasm/ifc_lite_wasm.js');
 const { IfcAPI: IfcLiteAPI } = ifcLiteModule;
 console.log('✓ IFC-Lite loaded and initialized');
 
@@ -79,6 +81,9 @@ console.log('✓ web-ifc initialized\n');
 function collectTestFiles() {
   const testDirs = [
     join(__dirname, '../ifc'),
+    join(__dirname, '../ifc/ara3d-format-shootout'),
+    join(__dirname, '../ifc/buildingSMART-PCERT-Sample-Scene'),
+    join(__dirname, '../ifc/generated'),
     join(__dirname, 'models/buildingsmart'),
     join(__dirname, 'models/ara3d'),
     join(__dirname, 'models/ifcopenshell'),
@@ -481,6 +486,7 @@ console.log('═'.repeat(80));
 
 // Save detailed results to JSON
 const outputPath = join(__dirname, 'benchmark-results.json');
+const allSpeedups = successfulResults.map(r => r.speedup).filter(Boolean).sort((a, b) => a - b);
 writeFileSync(outputPath, JSON.stringify({
   date: new Date().toISOString(),
   config: { warmupRuns: WARMUP_RUNS, benchmarkRuns: BENCHMARK_RUNS },
@@ -489,7 +495,8 @@ writeFileSync(outputPath, JSON.stringify({
   summary: {
     totalFiles: results.length,
     successfulFiles: successfulResults.length,
-    avgSpeedup: speedups.length > 0 ? speedups.reduce((a, b) => a + b, 0) / speedups.length : null,
+    avgSpeedup: allSpeedups.length > 0 ? allSpeedups.reduce((a, b) => a + b, 0) / allSpeedups.length : null,
+    medianSpeedup: allSpeedups.length > 0 ? allSpeedups[Math.floor(allSpeedups.length / 2)] : null,
     totalIfcLiteTime: successfulResults.reduce((a, r) => a + r.ifcLite.time, 0),
     totalWebIfcTime: successfulResults.reduce((a, r) => a + r.webIfc.time, 0),
   }
