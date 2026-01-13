@@ -23,6 +23,9 @@ earcutr = "0.4"
 # Error handling
 thiserror = "1.0"
 
+# Fast hashing
+rustc-hash = "1.1"
+
 # Optional: CSG operations
 # manifold3d = { version = "0.1", optional = true }
 

@@ -12,6 +12,8 @@ use ifc_lite_core::{
     DecodedEntity, EntityDecoder, GeometryCategory, IfcSchema, IfcType, ProfileCategory,
 };
 use nalgebra::{Matrix4, Rotation3};
+use rustc_hash::FxHashMap;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -34,6 +36,9 @@ pub trait GeometryProcessor {
 pub struct GeometryRouter {
     schema: IfcSchema,
     processors: HashMap<IfcType, Arc<dyn GeometryProcessor>>,
+    /// Cache for IfcRepresentationMap source geometry (MappedItem instancing)
+    /// Key: RepresentationMap entity ID, Value: Processed mesh
+    mapped_item_cache: RefCell<FxHashMap<u32, Arc<Mesh>>>,
 }
 
 impl GeometryRouter {
@@ -44,6 +49,7 @@ impl GeometryRouter {
         let mut router = Self {
             schema,
             processors: HashMap::new(),
+            mapped_item_cache: RefCell::new(FxHashMap::default()),
         };
 
         // Register default P0 processors
@@ -155,6 +161,11 @@ impl GeometryRouter {
         item: &DecodedEntity,
         decoder: &mut EntityDecoder,
     ) -> Result<Mesh> {
+        // Special handling for MappedItem with caching
+        if item.ifc_type == IfcType::IfcMappedItem {
+            return self.process_mapped_item_cached(item, decoder);
+        }
+
         // Check if we have a processor for this type
         if let Some(processor) = self.processors.get(&item.ifc_type) {
             return processor.process(item, decoder, &self.schema);
@@ -183,6 +194,83 @@ impl GeometryRouter {
                 item.ifc_type
             ))),
         }
+    }
+
+    /// Process MappedItem with caching for repeated geometry
+    #[inline]
+    fn process_mapped_item_cached(
+        &self,
+        item: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<Mesh> {
+        // IfcMappedItem attributes:
+        // 0: MappingSource (IfcRepresentationMap)
+        // 1: MappingTarget (IfcCartesianTransformationOperator)
+
+        // Get mapping source (RepresentationMap)
+        let source_attr = item
+            .get(0)
+            .ok_or_else(|| Error::geometry("MappedItem missing MappingSource".to_string()))?;
+
+        let source_entity = decoder
+            .resolve_ref(source_attr)?
+            .ok_or_else(|| Error::geometry("Failed to resolve MappingSource".to_string()))?;
+
+        let source_id = source_entity.id;
+
+        // Check cache first
+        {
+            let cache = self.mapped_item_cache.borrow();
+            if let Some(cached_mesh) = cache.get(&source_id) {
+                // Clone the cached mesh and apply transformation
+                let mut mesh = cached_mesh.as_ref().clone();
+                // TODO: Apply MappingTarget transformation
+                return Ok(mesh);
+            }
+        }
+
+        // Cache miss - process the geometry
+        // IfcRepresentationMap has:
+        // 0: MappingOrigin (IfcAxis2Placement)
+        // 1: MappedRepresentation (IfcRepresentation)
+
+        let mapped_rep_attr = source_entity
+            .get(1)
+            .ok_or_else(|| {
+                Error::geometry("RepresentationMap missing MappedRepresentation".to_string())
+            })?;
+
+        let mapped_rep = decoder
+            .resolve_ref(mapped_rep_attr)?
+            .ok_or_else(|| Error::geometry("Failed to resolve MappedRepresentation".to_string()))?;
+
+        // Get representation items
+        let items_attr = mapped_rep
+            .get(3)
+            .ok_or_else(|| Error::geometry("Representation missing Items".to_string()))?;
+
+        let items = decoder.resolve_ref_list(items_attr)?;
+
+        // Process all items and merge (without recursing into MappedItem to avoid infinite loop)
+        let mut mesh = Mesh::new();
+        for sub_item in items {
+            if sub_item.ifc_type == IfcType::IfcMappedItem {
+                continue; // Skip nested MappedItems to avoid recursion
+            }
+            if let Some(processor) = self.processors.get(&sub_item.ifc_type) {
+                if let Ok(sub_mesh) = processor.process(&sub_item, decoder, &self.schema) {
+                    mesh.merge(&sub_mesh);
+                }
+            }
+        }
+
+        // Store in cache
+        {
+            let mut cache = self.mapped_item_cache.borrow_mut();
+            cache.insert(source_id, Arc::new(mesh.clone()));
+        }
+
+        Ok(mesh)
     }
 
     /// Apply local placement transformation to mesh

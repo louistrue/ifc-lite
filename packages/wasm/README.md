@@ -1,402 +1,245 @@
-# @ifc-lite/wasm
+<p align="center">
+  <img src="docs/assets/logo.svg" alt="IFC-Lite Logo" width="120" height="120">
+</p>
 
-**Modern IFC Parser built with Rust + WebAssembly**
+<h1 align="center">IFC-Lite</h1>
 
-A high-performance, lightweight alternative to web-ifc built from the ground up with Rust and compiled to WebAssembly. Features zero-copy memory access, streaming parsing, and exceptional Developer Experience.
+<p align="center">
+  <strong>High-performance browser-native IFC platform</strong>
+</p>
 
-## 📦 Bundle Size
+<p align="center">
+  <a href="https://github.com/louistrue/ifc-lite/actions"><img src="https://img.shields.io/github/actions/workflow/status/louistrue/ifc-lite/ci.yml?branch=main&style=flat-square&logo=github" alt="Build Status"></a>
+  <a href="https://github.com/louistrue/ifc-lite/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MPL--2.0-blue?style=flat-square" alt="License"></a>
+  <a href="https://www.npmjs.com/package/@ifc-lite/parser"><img src="https://img.shields.io/npm/v/@ifc-lite/parser?style=flat-square&logo=npm&label=parser" alt="npm parser"></a>
+  <a href="https://crates.io/crates/ifc-lite-core"><img src="https://img.shields.io/crates/v/ifc-lite-core?style=flat-square&logo=rust&label=core" alt="crates.io"></a>
+</p>
 
-- **WASM**: 60 KB (gzipped: ~20 KB)
-- **JS Glue**: 26 KB (gzipped: ~8 KB)
-- **Total**: ~86 KB vs 8+ MB for web-ifc (**93% smaller!**)
+<p align="center">
+  <a href="#features">Features</a> &bull;
+  <a href="#quick-start">Quick Start</a> &bull;
+  <a href="#documentation">Documentation</a> &bull;
+  <a href="#architecture">Architecture</a> &bull;
+  <a href="#performance">Performance</a> &bull;
+  <a href="#contributing">Contributing</a>
+</p>
 
-## ⚡ Performance
+---
 
-- **8-10x faster** geometry processing than JavaScript
-- **100x faster** queries with columnar data structures
-- **Zero-copy** memory access for direct GPU upload
-- **Streaming** parser for progressive rendering
+## Overview
 
-## 🚀 Quick Start
+**IFC-Lite** is a next-generation IFC (Industry Foundation Classes) platform built with **Rust + WebAssembly** for parsing, geometry processing, and **WebGPU** for 3D visualization. It's designed to be a **95x smaller** and significantly faster alternative to existing web-based IFC solutions.
+
+<p align="center">
+  <strong>~86 KB total</strong> &nbsp;•&nbsp; <strong>1.9x faster</strong> &nbsp;•&nbsp; <strong>100% IFC4 schema</strong>
+</p>
+
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| **STEP/IFC Parsing** | Zero-copy tokenization at ~1,259 MB/s with full IFC4 schema support (776 entities) |
+| **Streaming Pipeline** | Progressive geometry processing - first triangles render in 300-500ms |
+| **WebGPU Rendering** | Modern GPU-accelerated 3D visualization with depth testing and frustum culling |
+| **Columnar Storage** | Memory-efficient TypedArray storage with 30% string deduplication |
+| **Zero-Copy GPU** | Direct WASM memory binding to GPU buffers |
+
+## Quick Start
+
+### Prerequisites
+
+- **Node.js** 18.0+ with **pnpm** 8.0+
+- **Rust** toolchain with wasm32-unknown-unknown target
+- Modern browser with **WebGPU** support (Chrome 113+, Edge 113+, Firefox 127+, Safari 18+)
+
+### Installation
 
 ```bash
-npm install @ifc-lite/wasm
+# Clone the repository
+git clone https://github.com/louistrue/ifc-lite.git
+cd ifc-lite
+
+# Install dependencies
+pnpm install
+
+# Build all packages
+pnpm build
+
+# Run the viewer
+cd apps/viewer
+pnpm dev
 ```
 
 ### Basic Usage
 
-```javascript
-import { IfcAPI } from '@ifc-lite/wasm';
-
-// Initialize
-const api = new IfcAPI();
+```typescript
+import { IfcParser } from '@ifc-lite/parser';
+import { Renderer } from '@ifc-lite/renderer';
 
 // Parse IFC file
-const result = await api.parse(ifcData);
-console.log('Entities:', result.entityCount);
-console.log('Types:', result.entityTypes);
+const parser = new IfcParser();
+const result = await parser.parse(ifcArrayBuffer);
+
+// Access entities
+const walls = result.entities.filter(e => e.type === 'IFCWALL');
+console.log(`Found ${walls.length} walls`);
+
+// Render geometry
+const renderer = new Renderer(canvas);
+await renderer.loadGeometry(result.geometry);
+renderer.render();
 ```
 
-## 📚 API Documentation
+## Documentation
 
-### IfcAPI Class
+| Resource | Description |
+|----------|-------------|
+| [**User Guide**](https://louistrue.github.io/ifc-lite/) | Complete guide with tutorials and examples |
+| [**API Reference**](https://louistrue.github.io/ifc-lite/api/) | Rustdoc API documentation |
+| [**Architecture**](docs/architecture.md) | System design and data flow |
+| [**Contributing**](CONTRIBUTING.md) | How to contribute to the project |
 
-The main entry point for IFC parsing operations.
+## Architecture
 
-#### Constructor
+IFC files flow through three layers:
 
-```typescript
-const api = new IfcAPI();
+**Parser** (Rust/WASM) — Zero-copy STEP tokenizer, entity scanner, and geometry processor using nom, earcutr, and nalgebra.
+
+**Data** (TypeScript) — Columnar TypedArrays for properties, CSR graph for relationships, GPU-ready geometry buffers.
+
+**Output** — WebGPU renderer, Parquet analytics, glTF/JSON-LD/CSV export.
+
+## Project Structure
+
+```
+ifc-lite/
+├── rust/                      # Rust/WASM backend
+│   ├── core/                  # IFC/STEP parsing (~2,000 LOC)
+│   ├── geometry/              # Geometry processing (~2,500 LOC)
+│   └── wasm-bindings/         # JavaScript API (~800 LOC)
+│
+├── packages/                  # TypeScript packages
+│   ├── parser/                # High-level IFC parser
+│   ├── geometry/              # Geometry bridge (WASM)
+│   ├── renderer/              # WebGPU rendering
+│   ├── query/                 # Query system
+│   ├── data/                  # Columnar data structures
+│   ├── spatial/               # Spatial indexing
+│   ├── export/                # Export formats
+│   └── codegen/               # Schema generator
+│
+├── apps/
+│   └── viewer/                # React web application
+│
+├── docs/                      # Documentation (MkDocs)
+└── plan/                      # Technical specifications
 ```
 
-Creates and initializes a new IFC API instance. Automatically sets up panic hooks for better error messages in development.
+## Performance
 
-#### Properties
+### Bundle Size Comparison
 
-- `version: string` - Returns the IFC-Lite version
-- `is_ready: boolean` - Check if API is initialized
+| Library | Size | Gzipped |
+|---------|------|---------|
+| **IFC-Lite** | **~86 KB** | **~28 KB** |
+| Traditional WASM | 8+ MB | N/A |
+| **Reduction** | **93%** | - |
 
-### Parsing Methods
+### Parse Performance
 
-#### parse() - Traditional Async/Await
+| Model Size | IFC-Lite | Notes |
+|------------|----------|-------|
+| 10 MB | ~800ms | Small models |
+| 50 MB | ~2.7s | Typical models |
+| 100+ MB | ~5s+ | Complex geometry |
 
-Best for: **Simple use cases, entity counting, type analysis**
+### Geometry Processing
 
-```javascript
-const result = await api.parse(ifcData);
-// Returns: { entityCount: number, entityTypes: Record<string, number> }
+- **1.9x faster** mesh extraction than traditional solutions
+- Streaming pipeline with batched processing (100 meshes/batch)
+- First triangles visible in **300-500ms**
+
+## Browser Requirements
+
+| Browser | Minimum Version | WebGPU |
+|---------|----------------|--------|
+| Chrome | 113+ | ✅ |
+| Edge | 113+ | ✅ |
+| Firefox | 127+ | ✅ |
+| Safari | 18+ | ✅ |
+
+## Development
+
+```bash
+# Watch mode for all packages
+pnpm -r dev
+
+# Build specific package
+cd packages/parser && pnpm build
+
+# Run tests
+pnpm test
+
+# Build Rust/WASM
+cd rust && cargo build --release --target wasm32-unknown-unknown
+
+# Generate Rustdoc
+cd rust && cargo doc --no-deps --open
+
+# Build documentation site
+cd docs && mkdocs serve
 ```
 
-**Use when:**
-- You need quick entity statistics
-- File is small-to-medium size
-- You don't need progressive feedback
+## Packages
 
-**Example:**
-```javascript
-const result = await api.parse(ifcData);
+| Package | Description | Status |
+|---------|-------------|--------|
+| `@ifc-lite/parser` | STEP tokenizer & entity extraction | ✅ Stable |
+| `@ifc-lite/geometry` | Geometry processing bridge | ✅ Stable |
+| `@ifc-lite/renderer` | WebGPU rendering pipeline | ✅ Stable |
+| `@ifc-lite/query` | Fluent & SQL query system | 🚧 Beta |
+| `@ifc-lite/data` | Columnar data structures | ✅ Stable |
+| `@ifc-lite/spatial` | Spatial indexing & culling | 🚧 Beta |
+| `@ifc-lite/export` | Export (glTF, Parquet, etc.) | 🚧 Beta |
 
-console.log(`Total entities: ${result.entityCount}`);
+## Rust Crates
 
-// Show distribution
-for (const [type, count] of Object.entries(result.entityTypes)) {
-  console.log(`${type}: ${count}`);
-}
+| Crate | Description | Status |
+|-------|-------------|--------|
+| `ifc-lite-core` | STEP/IFC parsing | ✅ Stable |
+| `ifc-lite-geometry` | Mesh triangulation | ✅ Stable |
+| `ifc-lite-wasm` | WASM bindings | ✅ Stable |
+
+## Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+
+```bash
+# Fork and clone
+git clone https://github.com/YOUR_USERNAME/ifc-lite.git
+
+# Create a branch
+git checkout -b feature/my-feature
+
+# Make changes and test
+pnpm test
+
+# Submit a pull request
 ```
 
-#### parseStreaming() - Progressive with Events
+## License
 
-Best for: **Large files, progress bars, real-time feedback**
+This project is licensed under the [Mozilla Public License 2.0](LICENSE).
 
-```javascript
-await api.parseStreaming(ifcData, (event) => {
-  switch(event.type) {
-    case 'started':
-      console.log(`Parsing ${event.fileSize} bytes`);
-      break;
-    case 'progress':
-      updateProgressBar(event.percent);
-      break;
-    case 'entityScanned':
-      console.log(`Found ${event.ifcType} #${event.id}`);
-      break;
-    case 'completed':
-      console.log(`Done in ${event.durationMs}ms`);
-      break;
-  }
-});
-```
+## Acknowledgments
 
-**Event Types:**
+- Built with [nom](https://github.com/rust-bakery/nom) for parsing
+- [earcutr](https://github.com/nickel-org/earcutr) for polygon triangulation
+- [nalgebra](https://nalgebra.org/) for linear algebra
+- [wasm-bindgen](https://rustwasm.github.io/wasm-bindgen/) for Rust/JS interop
 
-```typescript
-type ParseEvent =
-  | { type: 'started'; fileSize: number; timestamp: number }
-  | { type: 'entityScanned'; id: number; ifcType: string; position: number }
-  | { type: 'geometryReady'; id: number; vertexCount: number; triangleCount: number }
-  | { type: 'progress'; phase: string; percent: number; entitiesProcessed: number; totalEntities: number }
-  | { type: 'completed'; durationMs: number; entityCount: number; triangleCount: number }
-  | { type: 'error'; message: string; position?: number };
-```
+---
 
-**Use when:**
-- File is large (>5 MB)
-- You need to show progress
-- You want to start rendering before parsing completes
-
-**Example: Progressive Rendering**
-```javascript
-const viewer = new IFCViewer();
-
-await api.parseStreaming(ifcData, (event) => {
-  if (event.type === 'geometryReady') {
-    // Render geometry as soon as it's ready
-    viewer.addMesh(event.id, /* ... */);
-  }
-
-  if (event.type === 'progress') {
-    document.getElementById('progress').value = event.percent;
-  }
-});
-```
-
-#### parseZeroCopy() - Maximum Performance
-
-Best for: **3D rendering, WebGL/WebGPU, maximum performance**
-
-```javascript
-const mesh = await api.parseZeroCopy(ifcData);
-const memory = await api.getMemory();
-
-// Create TypedArray views (NO COPYING!)
-const positions = new Float32Array(
-  memory.buffer,
-  mesh.positions_ptr,
-  mesh.positions_len
-);
-
-const indices = new Uint32Array(
-  memory.buffer,
-  mesh.indices_ptr,
-  mesh.indices_len
-);
-
-// Upload directly to GPU
-gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
-gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
-```
-
-**ZeroCopyMesh Properties:**
-
-```typescript
-interface ZeroCopyMesh {
-  // Pointers to WASM memory
-  positions_ptr: number;   // Float32Array pointer
-  normals_ptr: number;     // Float32Array pointer
-  indices_ptr: number;     // Uint32Array pointer
-
-  // Array lengths
-  positions_len: number;   // Number of f32 elements
-  normals_len: number;     // Number of f32 elements
-  indices_len: number;     // Number of u32 elements
-
-  // Metadata
-  vertex_count: number;
-  triangle_count: number;
-  is_empty: boolean;
-
-  // Bounding box
-  bounds_min(): [number, number, number];
-  bounds_max(): [number, number, number];
-}
-```
-
-**Use when:**
-- You're rendering with WebGL/WebGPU
-- Performance is critical
-- You want zero-copy memory access
-
-**Example: Three.js Integration**
-```javascript
-import * as THREE from 'three';
-
-const mesh = await api.parseZeroCopy(ifcData);
-const memory = await api.getMemory();
-
-// Create Three.js geometry
-const geometry = new THREE.BufferGeometry();
-
-// Zero-copy attribute creation
-const positions = new Float32Array(
-  memory.buffer,
-  mesh.positions_ptr,
-  mesh.positions_len
-);
-geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-
-const normals = new Float32Array(
-  memory.buffer,
-  mesh.normals_ptr,
-  mesh.normals_len
-);
-geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
-
-const indices = new Uint32Array(
-  memory.buffer,
-  mesh.indices_ptr,
-  mesh.indices_len
-);
-geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-
-// Create mesh and add to scene
-const material = new THREE.MeshStandardMaterial({ color: 0x888888 });
-const threeMesh = new THREE.Mesh(geometry, material);
-scene.add(threeMesh);
-```
-
-## 🎯 Choosing the Right Method
-
-| Method | Use Case | Performance | Memory | Complexity |
-|--------|----------|-------------|--------|------------|
-| `parse()` | Entity counting, stats | Fast | Low | ⭐ Simple |
-| `parseStreaming()` | Large files, progress | Fast | Low | ⭐⭐ Moderate |
-| `parseZeroCopy()` | 3D rendering, GPU | **Fastest** | **Lowest** | ⭐⭐⭐ Advanced |
-
-## 💡 Best Practices
-
-### 1. Use Streaming for Large Files
-
-```javascript
-const FILE_SIZE_THRESHOLD = 5 * 1024 * 1024; // 5 MB
-
-if (fileSize > FILE_SIZE_THRESHOLD) {
-  // Use streaming for large files
-  await api.parseStreaming(ifcData, handleEvent);
-} else {
-  // Use simple parse for small files
-  const result = await api.parse(ifcData);
-}
-```
-
-### 2. Leverage Zero-Copy for Rendering
-
-```javascript
-// ❌ Don't copy data unnecessarily
-const positions = mesh.positions.slice(); // COPYING!
-
-// ✅ Use direct memory access
-const positions = new Float32Array(
-  memory.buffer,
-  mesh.positions_ptr,
-  mesh.positions_len
-); // NO COPYING!
-```
-
-### 3. Handle Errors Gracefully
-
-```javascript
-try {
-  const result = await api.parse(ifcData);
-  // ... handle result
-} catch (error) {
-  if (error.message.includes('Invalid entity reference')) {
-    // Handle corrupted IFC file
-    showError('This IFC file appears to be corrupted');
-  } else {
-    // Generic error handling
-    showError('Failed to parse IFC file');
-  }
-}
-```
-
-### 4. Show Progress for Better UX
-
-```javascript
-let lastUpdate = 0;
-
-await api.parseStreaming(ifcData, (event) => {
-  if (event.type === 'progress') {
-    // Throttle UI updates to avoid jank
-    const now = Date.now();
-    if (now - lastUpdate > 100) { // Update every 100ms
-      updateProgressBar(event.percent);
-      lastUpdate = now;
-    }
-  }
-});
-```
-
-## 🔧 Advanced Features
-
-### CSG Operations (Coming Soon)
-
-```javascript
-// Boolean operations with clipping planes
-const plane = { point: [0, 0, 0], normal: [0, 0, 1] };
-const clipped = await api.clipMesh(mesh, plane);
-```
-
-### Custom Entity Filtering
-
-```javascript
-const config = {
-  skipTypes: ['IFCOWNERHISTORY', 'IFCPERSON'],
-  onlyTypes: ['IFCWALL', 'IFCSLAB', 'IFCBEAM'],
-  progressInterval: 100, // Report progress every 100 entities
-};
-
-await api.parseStreaming(ifcData, handleEvent, config);
-```
-
-## 📊 Benchmarks
-
-Tested with Snowdon Towers sample (8.3 MB IFC file):
-
-| Operation | IFC-Lite | web-ifc | Improvement |
-|-----------|----------|---------|-------------|
-| Bundle size | 86 KB | 8.2 MB | **95x smaller** |
-| Initial parse | 850 ms | 1200 ms | **1.4x faster** |
-| Entity queries | <1 ms | 100 ms | **100x faster** |
-| Memory usage | 45 MB | 120 MB | **2.7x less** |
-
-## 🐛 Troubleshooting
-
-### "Failed to instantiate WASM module"
-
-Make sure your bundler is configured to handle WASM files:
-
-**Vite:**
-```javascript
-// vite.config.js
-export default {
-  optimizeDeps: {
-    exclude: ['@ifc-lite/wasm']
-  }
-}
-```
-
-**Webpack:**
-```javascript
-// webpack.config.js
-module.exports = {
-  experiments: {
-    asyncWebAssembly: true
-  }
-}
-```
-
-### "Memory access out of bounds"
-
-This usually means the WASM memory has been deallocated. Make sure to:
-1. Keep a reference to the API instance
-2. Don't access meshes after they've been freed
-3. Create TypedArray views before the next parse operation
-
-## 🚀 Migration from web-ifc
-
-```javascript
-// Before (web-ifc)
-const ifcApi = new IfcAPI();
-await ifcApi.Init();
-const modelID = ifcApi.OpenModel(buffer);
-const walls = ifcApi.GetLineIDsWithType(modelID, IFCWALL);
-
-// After (IFC-Lite)
-const api = new IfcAPI();
-const result = await api.parse(buffer);
-// Walls are already counted in result.entityTypes.IFCWALL
-```
-
-## 📄 License
-
-MIT
-
-## 🤝 Contributing
-
-Contributions welcome! See the main repository for details.
-
-## 🔗 Links
-
-- [Documentation](https://github.com/louistrue/ifc-lite)
-- [Examples](./examples/)
-- [Benchmarks](./benchmarks/)
+<p align="center">
+  Made with ❤️ for the AEC industry
+</p>
