@@ -42,8 +42,8 @@ async function initIfcApi(wasmPath: string = '/'): Promise<IfcAPI> {
 
   // Initialize WASM module
   const wasmUrl = wasmPath.endsWith('/')
-    ? `${wasmPath}ifc_lite_wasm_bg.wasm`
-    : `${wasmPath}/ifc_lite_wasm_bg.wasm`;
+    ? `${wasmPath}ifc-lite_bg.wasm`
+    : `${wasmPath}/ifc-lite_bg.wasm`;
 
   await init(wasmUrl);
   ifcApi = new IfcAPI();

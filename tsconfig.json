@@ -16,7 +16,12 @@
     "forceConsistentCasingInFileNames": true,
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@ifc-lite/wasm": ["packages/wasm/pkg/ifc-lite.d.ts"],
+      "@ifc-lite/wasm/*": ["packages/wasm/pkg/*"]
+    }
   },
   "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }

@@ -22,8 +22,8 @@ export class IfcLiteBridge {
 
     // Initialize WASM module
     const wasmUrl = wasmPath.endsWith('/')
-      ? `${wasmPath}ifc_lite_wasm_bg.wasm`
-      : `${wasmPath}/ifc_lite_wasm_bg.wasm`;
+      ? `${wasmPath}ifc-lite_bg.wasm`
+      : `${wasmPath}/ifc-lite_bg.wasm`;
 
     await init(wasmUrl);
     this.ifcApi = new IfcAPI();
