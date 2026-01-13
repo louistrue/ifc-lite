@@ -12,7 +12,7 @@ const path = require('path');
 // Configuration
 const WARMUP_RUNS = 1;
 const BENCHMARK_RUNS = 3;
-const SKIP_LARGE_FILES_THRESHOLD = 50 * 1024 * 1024; // 50MB
+const SKIP_LARGE_FILES_THRESHOLD = 100 * 1024 * 1024; // 100MB (include large models)
 
 // Load libraries
 let IfcLiteAPI, WebIFC;

@@ -1,5 +1,5 @@
 {
-  "date": "2026-01-13T14:59:45.606Z",
+  "date": "2026-01-13T15:12:22.727Z",
   "config": {
     "warmupRuns": 1,
     "benchmarkRuns": 3
@@ -19,23 +19,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 0.21671600000001945,
-        "minTime": 0.1922230000000127,
+        "time": 0.20810299999999415,
+        "minTime": 0.17526099999997768,
         "vertices": 8,
         "triangles": 12,
-        "throughput": 11.410682655831522
+        "throughput": 11.88294980101909
       },
       "webIfc": {
-        "parseTime": 1.0250006666666611,
-        "geoTime": 5.879688666666652,
-        "time": 6.904689333333313,
-        "minTime": 0.6035459999999944,
+        "parseTime": 0.39655699999997296,
+        "geoTime": 5.014596999999999,
+        "time": 5.411153999999972,
+        "minTime": 0.6786920000000123,
         "vertices": 36,
         "triangles": 12,
         "elements": 1,
-        "throughput": 0.35814464388763423
+        "throughput": 0.45699632692793796
       },
-      "speedup": 31.860542522622666
+      "speedup": 26.002287328871397
     },
     {
       "file": "column-straight-rectangle-tessellation.ifc",
@@ -51,23 +51,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 0.2908603333333417,
-        "minTime": 0.28188800000003766,
+        "time": 0.37186700000000883,
+        "minTime": 0.29415699999998424,
         "vertices": 24,
         "triangles": 12,
-        "throughput": 15.0628301884989
+        "throughput": 11.781577310087231
       },
       "webIfc": {
-        "parseTime": 0.11429366666665904,
-        "geoTime": 0.3945090000000088,
-        "time": 0.5088026666666678,
-        "minTime": 0.4094910000000027,
+        "parseTime": 0.1276763333333406,
+        "geoTime": 0.47258966666665475,
+        "time": 0.6002659999999953,
+        "minTime": 0.30912499999999454,
         "vertices": 36,
         "triangles": 12,
         "elements": 1,
-        "throughput": 8.61076424436383
+        "throughput": 7.2987305787273415
       },
-      "speedup": 1.7493023570304185
+      "speedup": 1.6141953978169106
     },
     {
       "file": "tessellated-item.ifc",
@@ -83,23 +83,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 0.257363666666663,
-        "minTime": 0.22894700000000512,
+        "time": 0.091812333333318,
+        "minTime": 0.08559799999994766,
         "vertices": 8,
         "triangles": 12,
-        "throughput": 19.265162154446166
+        "throughput": 54.00312344743359
       },
       "webIfc": {
-        "parseTime": 0.15964100000000295,
-        "geoTime": 0.4029036666666646,
-        "time": 0.5625446666666676,
-        "minTime": 0.5191969999999628,
+        "parseTime": 0.13075500000002194,
+        "geoTime": 0.16253066666664986,
+        "time": 0.2932856666666718,
+        "minTime": 0.23720700000001216,
         "vertices": 36,
         "triangles": 12,
         "elements": 1,
-        "throughput": 8.813793934578383
+        "throughput": 16.905540687848163
       },
-      "speedup": 2.1857967519373065
+      "speedup": 3.194403801958932
     },
     {
       "file": "basin-tessellation.ifc",
@@ -115,23 +115,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 1.0879540000000059,
-        "minTime": 0.935543999999993,
+        "time": 0.677927666666657,
+        "minTime": 0.5462300000000369,
         "vertices": 220,
         "triangles": 234,
-        "throughput": 10.63374290854591
+        "throughput": 17.065276579149863
       },
       "webIfc": {
-        "parseTime": 0.2690263333333481,
-        "geoTime": 1.1604346666666554,
-        "time": 1.4294610000000034,
-        "minTime": 0.6396240000000262,
+        "parseTime": 0.2441016666666845,
+        "geoTime": 0.44238599999999906,
+        "time": 0.6864876666666836,
+        "minTime": 0.6068160000000375,
         "vertices": 702,
         "triangles": 234,
         "elements": 1,
-        "throughput": 8.093276509344564
+        "throughput": 16.852485039533025
       },
-      "speedup": 1.3138983817330472
+      "speedup": 1.0126267158296043
     },
     {
       "file": "wall-with-opening-and-window.ifc",
@@ -147,23 +147,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 0.12367966666668433,
-        "minTime": 0.11694300000004887,
+        "time": 0.16739100000000917,
+        "minTime": 0.15475900000001275,
         "vertices": 0,
         "triangles": 0,
-        "throughput": 96.3238330246565
+        "throughput": 71.17049041194701
       },
       "webIfc": {
-        "parseTime": 0.22973966666666001,
-        "geoTime": 6.354475666666683,
-        "time": 6.584215333333343,
-        "minTime": 1.12480800000003,
+        "parseTime": 0.23677100000001397,
+        "geoTime": 6.662647333333325,
+        "time": 6.899418333333339,
+        "minTime": 1.0872549999999706,
         "vertices": 130,
         "triangles": 44,
         "elements": 2,
-        "throughput": 1.809372712984406
+        "throughput": 1.7267107145815237
       },
-      "speedup": 53.236037182067676
+      "speedup": 41.21737926969169
     },
     {
       "file": "Sample_entities.ifc",
@@ -179,23 +179,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 0.26040600000000796,
-        "minTime": 0.25323600000001534,
+        "time": 0.26206833333331286,
+        "minTime": 0.2590109999999868,
         "vertices": 0,
         "triangles": 0,
-        "throughput": 105.32657980170546
+        "throughput": 104.65847968346384
       },
       "webIfc": {
-        "parseTime": 0.4117783333333212,
-        "geoTime": 1.0643339999999928,
-        "time": 1.476112333333314,
-        "minTime": 0.9663999999999646,
+        "parseTime": 0.41085266666668,
+        "geoTime": 1.1317896666666531,
+        "time": 1.5426423333333332,
+        "minTime": 0.9175740000000587,
         "vertices": 332,
         "triangles": 168,
         "elements": 2,
-        "throughput": 18.581020373908384
+        "throughput": 17.779671118306588
       },
-      "speedup": 5.668503541904829
+      "speedup": 5.886412576872903
     },
     {
       "file": "ISSUE_044_test_IFCCOMPOSITEPROFILEDEF.ifc",
@@ -211,23 +211,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 0.6004403333333244,
-        "minTime": 0.5559440000000109,
+        "time": 0.5935396666666483,
+        "minTime": 0.548546999999985,
         "vertices": 288,
         "triangles": 140,
-        "throughput": 47.1357287590419
+        "throughput": 47.6837425996058
       },
       "webIfc": {
-        "parseTime": 0.4661950000000085,
-        "geoTime": 0.8148193333333325,
-        "time": 1.281014333333341,
-        "minTime": 1.0999540000000252,
+        "parseTime": 0.4344213333333376,
+        "geoTime": 0.6712883333333176,
+        "time": 1.1057096666666553,
+        "minTime": 0.9004820000000109,
         "vertices": 340,
         "triangles": 128,
         "elements": 7,
-        "throughput": 22.09358002602738
+        "throughput": 25.596405223904682
       },
-      "speedup": 2.1334581676447897
+      "speedup": 1.8629077865619028
     },
     {
       "file": "IfcOpenHouse_IFC4.ifc",
@@ -243,23 +243,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 2.138383666666679,
-        "minTime": 2.080841000000021,
+        "time": 2.5169370000000035,
+        "minTime": 2.0978700000000003,
         "vertices": 1482,
         "triangles": 662,
-        "throughput": 50.51337113036164
+        "throughput": 42.91603952480231
       },
       "webIfc": {
-        "parseTime": 2.033256333333346,
-        "geoTime": 8.954165333333359,
-        "time": 10.987421666666705,
-        "minTime": 9.66064300000005,
+        "parseTime": 1.530471000000034,
+        "geoTime": 8.894166666666687,
+        "time": 10.42463766666672,
+        "minTime": 9.62746200000015,
         "vertices": 3218,
         "triangles": 1098,
         "elements": 35,
-        "throughput": 9.830965903596471
+        "throughput": 10.361699967647503
       },
-      "speedup": 5.138190044162628
+      "speedup": 4.141795232326715
     },
     {
       "file": "Building-Hvac.ifc",
@@ -275,23 +275,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 3.7658873333333154,
-        "minTime": 3.5760999999999967,
+        "time": 3.877487333333306,
+        "minTime": 3.573861999999963,
         "vertices": 1720,
         "triangles": 1064,
-        "throughput": 45.5141135921964
+        "throughput": 44.20414797780916
       },
       "webIfc": {
-        "parseTime": 1.7301129999999603,
-        "geoTime": 1.4081813333333457,
-        "time": 3.138294333333306,
-        "minTime": 3.0585740000000214,
+        "parseTime": 2.2305646666666994,
+        "geoTime": 1.455192666666676,
+        "time": 3.6857573333333753,
+        "minTime": 3.1316920000000437,
         "vertices": 3183,
         "triangles": 1061,
         "elements": 5,
-        "throughput": 54.61598105831403
+        "throughput": 46.50361061880656
       },
-      "speedup": 0.8333479086203821
+      "speedup": 0.950553029960485
     },
     {
       "file": "Building-Hvac.ifc",
@@ -307,23 +307,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 3.6851786666666535,
-        "minTime": 3.5419689999999946,
+        "time": 3.5769396666666657,
+        "minTime": 3.3912149999999883,
         "vertices": 1720,
         "triangles": 1064,
-        "throughput": 46.51091286702337
+        "throughput": 47.91834356671549
       },
       "webIfc": {
-        "parseTime": 2.553295333333305,
-        "geoTime": 1.3004979999999478,
-        "time": 3.8537933333332526,
-        "minTime": 2.901175999999964,
+        "parseTime": 2.265190666666664,
+        "geoTime": 1.331768666666676,
+        "time": 3.59695933333334,
+        "minTime": 3.053743000000054,
         "vertices": 3183,
         "triangles": 1061,
         "elements": 5,
-        "throughput": 44.47592515722596
+        "throughput": 47.65164350799234
       },
-      "speedup": 1.045754814601463
+      "speedup": 1.0055968700991065
     },
     {
       "file": "Building-Architecture.ifc",
@@ -339,23 +339,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 4.058228666666612,
-        "minTime": 3.9747069999999667,
+        "time": 3.987801333333323,
+        "minTime": 3.897907000000032,
         "vertices": 1836,
         "triangles": 1106,
-        "throughput": 53.02370123935692
+        "throughput": 53.960136525271096
       },
       "webIfc": {
-        "parseTime": 2.1215890000000095,
-        "geoTime": 1.828514666666668,
-        "time": 3.950103666666678,
-        "minTime": 3.7535620000001018,
+        "parseTime": 2.1090129999999667,
+        "geoTime": 1.6601650000000063,
+        "time": 3.769177999999973,
+        "minTime": 3.5845219999999927,
         "vertices": 3390,
         "triangles": 1130,
         "elements": 12,
-        "throughput": 54.47510307087897
+        "throughput": 57.089982055059686
       },
-      "speedup": 0.9733566023797404
+      "speedup": 0.9451769747138815
     },
     {
       "file": "Building-Architecture.ifc",
@@ -371,23 +371,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 3.9813056666666853,
-        "minTime": 3.931758000000059,
+        "time": 3.881476333333353,
+        "minTime": 3.8013180000000375,
         "vertices": 1836,
         "triangles": 1106,
-        "throughput": 54.048174744262674
+        "throughput": 55.43826263588961
       },
       "webIfc": {
-        "parseTime": 2.096809333333302,
-        "geoTime": 1.6564973333333153,
-        "time": 3.7533066666666173,
-        "minTime": 3.593354999999974,
+        "parseTime": 2.142234333333325,
+        "geoTime": 1.7388080000000248,
+        "time": 3.88104233333335,
+        "minTime": 3.730854000000022,
         "vertices": 3390,
         "triangles": 1130,
         "elements": 12,
-        "throughput": 57.33139428583694
+        "throughput": 55.44446205447814
       },
-      "speedup": 0.9427326060621318
+      "speedup": 0.9998881868745982
     },
     {
       "file": "Infra-Rail.ifc",
@@ -403,23 +403,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 5.452673666666669,
-        "minTime": 5.188796000000025,
+        "time": 5.250055333333307,
+        "minTime": 5.189767999999958,
         "vertices": 3720,
         "triangles": 2120,
-        "throughput": 42.81087365941887
+        "throughput": 44.46309774443803
       },
       "webIfc": {
-        "parseTime": 2.43143333333334,
-        "geoTime": 4.104504666666685,
-        "time": 6.535938000000025,
-        "minTime": 5.992284000000041,
+        "parseTime": 2.484585333333333,
+        "geoTime": 4.049513000000009,
+        "time": 6.534098333333342,
+        "minTime": 5.826302999999939,
         "vertices": 6336,
         "triangles": 2112,
         "elements": 73,
-        "throughput": 35.7154127609084
+        "throughput": 35.72546838771278
       },
-      "speedup": 1.198666635774588
+      "speedup": 1.244577041283255
     },
     {
       "file": "Infra-Rail.ifc",
@@ -435,23 +435,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 5.511829999999994,
-        "minTime": 5.287143000000015,
+        "time": 5.617050999999985,
+        "minTime": 5.102551999999946,
         "vertices": 3720,
         "triangles": 2120,
-        "throughput": 42.35140115890862
+        "throughput": 41.55805661186051
       },
       "webIfc": {
-        "parseTime": 2.267385666666693,
-        "geoTime": 4.424011999999986,
-        "time": 6.6913976666666795,
-        "minTime": 6.621128999999996,
+        "parseTime": 2.2773723333333464,
+        "geoTime": 4.2458540000000085,
+        "time": 6.523226333333355,
+        "minTime": 5.9773609999999735,
         "vertices": 6336,
         "triangles": 2112,
         "elements": 73,
-        "throughput": 34.88564498453909
+        "throughput": 35.7850105946612
       },
-      "speedup": 1.214006539872726
+      "speedup": 1.1613258155094857
     },
     {
       "file": "ISSUE_171_IfcSurfaceCurveSweptAreaSolid.ifc",
@@ -467,23 +467,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 3.0285696666666886,
-        "minTime": 2.9550290000000814,
+        "time": 2.9720896666666476,
+        "minTime": 2.8923469999999725,
         "vertices": 1122,
         "triangles": 526,
-        "throughput": 79.75726898912531
+        "throughput": 81.27293340633022
       },
       "webIfc": {
-        "parseTime": 2.9658566666666197,
-        "geoTime": 21.347908,
-        "time": 24.31376466666662,
-        "minTime": 21.126253999999903,
+        "parseTime": 2.9271143333333307,
+        "geoTime": 22.58386233333336,
+        "time": 25.510976666666693,
+        "minTime": 22.196069999999963,
         "vertices": 14758,
         "triangles": 6290,
         "elements": 60,
-        "throughput": 9.934720059530658
+        "throughput": 9.468490709423005
       },
-      "speedup": 8.028134513222836
+      "speedup": 8.583515145180183
     },
     {
       "file": "Building-Structural.ifc",
@@ -499,23 +499,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 5.347797666666641,
-        "minTime": 5.282985999999937,
+        "time": 5.275370333333323,
+        "minTime": 5.122662999999989,
         "vertices": 2492,
         "triangles": 1548,
-        "throughput": 52.8998976498459
+        "throughput": 53.6261781341134
       },
       "webIfc": {
-        "parseTime": 2.688876666666715,
-        "geoTime": 1.963747666666677,
-        "time": 4.652624333333392,
-        "minTime": 4.4862070000001495,
+        "parseTime": 2.671747666666647,
+        "geoTime": 1.960203333333311,
+        "time": 4.631950999999958,
+        "minTime": 4.452749999999924,
         "vertices": 4626,
         "triangles": 1542,
         "elements": 16,
-        "throughput": 60.8039525546793
+        "throughput": 61.07533288213813
       },
-      "speedup": 0.8700075476553023
+      "speedup": 0.8780333336471544
     },
     {
       "file": "Building-Structural.ifc",
@@ -531,23 +531,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 5.503660000000006,
-        "minTime": 5.459730000000036,
+        "time": 5.472362333333346,
+        "minTime": 5.408339000000069,
         "vertices": 2492,
         "triangles": 1548,
-        "throughput": 51.40178521542931
+        "throughput": 51.69576354539926
       },
       "webIfc": {
-        "parseTime": 2.752569666666659,
-        "geoTime": 2.163437333333377,
-        "time": 4.916007000000036,
-        "minTime": 4.572577000000024,
+        "parseTime": 2.662544999999985,
+        "geoTime": 2.091218333333321,
+        "time": 4.753763333333306,
+        "minTime": 4.452068999999938,
         "vertices": 4626,
         "triangles": 1542,
         "elements": 16,
-        "throughput": 57.546286898848585
+        "throughput": 59.51031411998879
       },
-      "speedup": 0.8932250538732462
+      "speedup": 0.8686857784209759
     },
     {
       "file": "KIT-Simple-Road-Test-Web-IFC4x3_RC2.ifc",
@@ -563,23 +563,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 2.4705150000000153,
-        "minTime": 2.395783999999935,
+        "time": 2.2736223333333783,
+        "minTime": 2.261971000000017,
         "vertices": 0,
         "triangles": 0,
-        "throughput": 149.8373260770724
+        "throughput": 162.81303900220902
       },
       "webIfc": {
-        "parseTime": 3.868420333333347,
-        "geoTime": 4.349593000000027,
-        "time": 8.218013333333374,
-        "minTime": 7.821627000000035,
+        "parseTime": 3.800710666666646,
+        "geoTime": 4.090161000000005,
+        "time": 7.8908716666666505,
+        "minTime": 7.635089999999991,
         "vertices": 4934,
         "triangles": 3026,
         "elements": 66,
-        "throughput": 45.04438562198718
+        "throughput": 46.91184665909975
       },
-      "speedup": 3.32643733526545
+      "speedup": 3.4706167119223235
     },
     {
       "file": "example.ifc",
@@ -595,23 +595,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 83.39036733333334,
-        "minTime": 82.92645199999993,
+        "time": 82.74058466666672,
+        "minTime": 81.90564300000005,
         "vertices": 59958,
         "triangles": 36504,
-        "throughput": 4.731743094037729
+        "throughput": 4.768902665220502
       },
       "webIfc": {
-        "parseTime": 4.7149260000000295,
-        "geoTime": 9.69627700000001,
-        "time": 14.41120300000004,
-        "minTime": 13.362132000000202,
+        "parseTime": 5.5276973333332835,
+        "geoTime": 9.044257000000016,
+        "time": 14.571954333333299,
+        "minTime": 12.91505200000006,
         "vertices": 30258,
         "triangles": 14660,
         "elements": 115,
-        "throughput": 27.38021209879345
+        "throughput": 27.07816574995469
       },
-      "speedup": 0.17281615923808863
+      "speedup": 0.17611616345278047
     },
     {
       "file": "Infra-Road.ifc",
@@ -627,23 +627,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 6.545633333333323,
-        "minTime": 6.159851000000117,
+        "time": 6.653690666666686,
+        "minTime": 6.354125999999951,
         "vertices": 3280,
         "triangles": 2008,
-        "throughput": 63.953228999313694
+        "throughput": 62.91461513372715
       },
       "webIfc": {
-        "parseTime": 4.163955666666728,
-        "geoTime": 4.164509333333323,
-        "time": 8.328465000000051,
-        "minTime": 8.287647000000106,
+        "parseTime": 4.126116000000063,
+        "geoTime": 4.117965666666653,
+        "time": 8.244081666666716,
+        "minTime": 8.023259000000053,
         "vertices": 8040,
         "triangles": 2680,
         "elements": 65,
-        "throughput": 50.263090198758654
+        "throughput": 50.777564371395066
       },
-      "speedup": 1.272369620459451
+      "speedup": 1.239023886091893
     },
     {
       "file": "Infra-Road.ifc",
@@ -659,23 +659,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 6.22554999999996,
-        "minTime": 6.204813000000058,
+        "time": 6.16017333333328,
+        "minTime": 6.091881999999941,
         "vertices": 3280,
         "triangles": 2008,
-        "throughput": 67.24135016379432
+        "throughput": 67.954968936839
       },
       "webIfc": {
-        "parseTime": 4.008574999999989,
-        "geoTime": 3.919243333333346,
-        "time": 7.9278183333333345,
-        "minTime": 7.782583000000159,
+        "parseTime": 3.917059666666622,
+        "geoTime": 3.7909833333333913,
+        "time": 7.708043000000013,
+        "minTime": 7.622637000000168,
         "vertices": 8040,
         "triangles": 2680,
         "elements": 65,
-        "throughput": 52.803226551256785
+        "throughput": 54.30877688567725
       },
-      "speedup": 1.2734326016710789
+      "speedup": 1.2512704729087838
     },
     {
       "file": "02_BIMcollab_Example_STR_random_C_ebkp.ifc",
@@ -691,23 +691,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 11.097572666666641,
-        "minTime": 10.759520000000066,
+        "time": 12.34362933333326,
+        "minTime": 11.299591999999848,
         "vertices": 12954,
         "triangles": 7138,
-        "throughput": 39.38221607797609
+        "throughput": 35.40668574026982
       },
       "webIfc": {
-        "parseTime": 5.448123666666636,
-        "geoTime": 82.89361999999998,
-        "time": 88.34174366666662,
-        "minTime": 84.47534700000006,
+        "parseTime": 5.055335666666679,
+        "geoTime": 82.63021866666661,
+        "time": 87.68555433333329,
+        "minTime": 85.81129199999987,
         "vertices": 17787,
         "triangles": 6327,
         "elements": 241,
-        "throughput": 4.947230907607895
+        "throughput": 4.984253199087839
       },
-      "speedup": 7.960456427738956
+      "speedup": 7.103709287230742
     },
     {
       "file": "Infra-Plumbing.ifc",
@@ -723,23 +723,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 10.48140966666665,
-        "minTime": 10.190890999999965,
+        "time": 10.313343000000032,
+        "minTime": 10.04628300000013,
         "vertices": 10492,
         "triangles": 6792,
-        "throughput": 47.744633279863514
+        "throughput": 48.522681810448276
       },
       "webIfc": {
-        "parseTime": 4.674713999999919,
-        "geoTime": 6.385545999999977,
-        "time": 11.060259999999897,
-        "minTime": 10.892197000000124,
+        "parseTime": 4.648936999999933,
+        "geoTime": 6.3903763333333545,
+        "time": 11.039313333333286,
+        "minTime": 10.927228999999897,
         "vertices": 20376,
         "triangles": 6792,
         "elements": 27,
-        "throughput": 45.24586770935044
+        "throughput": 45.33171997935419
       },
-      "speedup": 1.0552263819220926
+      "speedup": 1.0703913690578557
     },
     {
       "file": "Infra-Plumbing.ifc",
@@ -755,23 +755,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 10.444737000000032,
-        "minTime": 10.236546999999973,
+        "time": 10.739922666666644,
+        "minTime": 10.361644999999953,
         "vertices": 10492,
         "triangles": 6792,
-        "throughput": 47.912270150125764
+        "throughput": 46.595406347216716
       },
       "webIfc": {
-        "parseTime": 4.6070849999999455,
-        "geoTime": 6.6595270000000255,
-        "time": 11.26661199999997,
-        "minTime": 10.832121000000143,
+        "parseTime": 4.841017000000117,
+        "geoTime": 6.496966000000005,
+        "time": 11.337983000000122,
+        "minTime": 10.731564000000162,
         "vertices": 20376,
         "triangles": 6792,
         "elements": 27,
-        "throughput": 44.41717357365435
+        "throughput": 44.13757374578972
       },
-      "speedup": 1.0786879554746027
+      "speedup": 1.0556857206420742
     },
     {
       "file": "house_3x3_fixed.ifc",
@@ -787,23 +787,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 16.52559400000011,
-        "minTime": 15.826880000000074,
+        "time": 17.683465333333288,
+        "minTime": 14.903960999999981,
         "vertices": 13338,
         "triangles": 5958,
-        "throughput": 38.689161886148085
+        "throughput": 36.155887405483085
       },
       "webIfc": {
-        "parseTime": 8.249470333333193,
-        "geoTime": 26.15707399999989,
-        "time": 34.40654433333309,
-        "minTime": 32.774558999999954,
+        "parseTime": 10.10256166666674,
+        "geoTime": 27.40325233333336,
+        "time": 37.5058140000001,
+        "minTime": 33.375698000000284,
         "vertices": 13634,
         "triangles": 4778,
         "elements": 307,
-        "throughput": 18.582551486036564
+        "throughput": 17.046993874889903
       },
-      "speedup": 2.0820155894748993
+      "speedup": 2.1209538567817776
     },
     {
       "file": "tested_sample_project.ifc",
@@ -819,23 +819,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 26.63878833333335,
-        "minTime": 25.32493199999999,
+        "time": 26.591557333333338,
+        "minTime": 24.29114999999956,
         "vertices": 193392,
         "triangles": 75956,
-        "throughput": 25.42201818643562
+        "throughput": 25.46717189164786
       },
       "webIfc": {
-        "parseTime": 7.328984999999951,
-        "geoTime": 77.64407766666666,
-        "time": 84.9730626666666,
-        "minTime": 79.84445000000005,
+        "parseTime": 7.40943566666662,
+        "geoTime": 73.7772760000001,
+        "time": 81.18671166666672,
+        "minTime": 78.35707300000013,
         "vertices": 194224,
         "triangles": 76072,
         "elements": 93,
-        "throughput": 7.969722877133241
+        "throughput": 8.34141139075911
       },
-      "speedup": 3.189824612268084
+      "speedup": 3.0531010519228476
     },
     {
       "file": "Building-Landscaping.ifc",
@@ -851,23 +851,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 21.205469666666733,
-        "minTime": 20.36527100000012,
+        "time": 20.695420333333306,
+        "minTime": 20.204857000000175,
         "vertices": 11906,
         "triangles": 4824,
-        "throughput": 66.00476385686567
+        "throughput": 67.63148538557995
       },
       "webIfc": {
-        "parseTime": 11.906844333333387,
-        "geoTime": 6.178876333333392,
-        "time": 18.08572066666678,
-        "minTime": 16.816383000000314,
+        "parseTime": 12.296808333333198,
+        "geoTime": 6.634189999999914,
+        "time": 18.93099833333311,
+        "minTime": 16.58246899999949,
         "vertices": 14469,
         "triangles": 4823,
         "elements": 6,
-        "throughput": 77.39044761439551
+        "throughput": 73.93492900782651
       },
-      "speedup": 0.8528799857282132
+      "speedup": 0.9147433600486814
     },
     {
       "file": "Building-Landscaping.ifc",
@@ -883,23 +883,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 22.195931333333192,
-        "minTime": 21.61582899999985,
+        "time": 20.778508000000027,
+        "minTime": 20.59641300000021,
         "vertices": 11906,
         "triangles": 4824,
-        "throughput": 63.059395742511356
+        "throughput": 67.36104525995148
       },
       "webIfc": {
-        "parseTime": 12.010980333333313,
-        "geoTime": 8.604923666666613,
-        "time": 20.615903999999926,
-        "minTime": 17.270768999999746,
+        "parseTime": 11.807951333333373,
+        "geoTime": 5.837656000000152,
+        "time": 17.645607333333523,
+        "minTime": 16.771137000000635,
         "vertices": 14469,
         "triangles": 4823,
         "elements": 6,
-        "throughput": 67.89234262161246
+        "throughput": 79.32070522606651
       },
-      "speedup": 0.9288145512073905
+      "speedup": 0.849223983422366
     },
     {
       "file": "Infra-Bridge.ifc",
@@ -915,23 +915,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 32.057245000000115,
-        "minTime": 30.609545000000253,
+        "time": 31.42472600000004,
+        "minTime": 30.763512999999875,
         "vertices": 20652,
         "triangles": 13292,
-        "throughput": 56.20480374843263
+        "throughput": 57.336097821200646
       },
       "webIfc": {
-        "parseTime": 15.442295333333277,
-        "geoTime": 14.611604666666457,
-        "time": 30.053899999999736,
-        "minTime": 27.140745000000152,
+        "parseTime": 15.160943666666602,
+        "geoTime": 13.713049000000106,
+        "time": 28.87399266666671,
+        "minTime": 27.04038700000001,
         "vertices": 39876,
         "triangles": 13292,
         "elements": 48,
-        "throughput": 59.951326248521674
+        "throughput": 62.40117827627165
       },
-      "speedup": 0.9375072623988626
+      "speedup": 0.9188303715573104
     },
     {
       "file": "Infra-Bridge.ifc",
@@ -947,23 +947,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 31.062433666666795,
-        "minTime": 30.30853100000013,
+        "time": 33.01537599999983,
+        "minTime": 30.400431000000026,
         "vertices": 20652,
         "triangles": 13292,
-        "throughput": 58.00482934709383
+        "throughput": 54.57369814417497
       },
       "webIfc": {
-        "parseTime": 16.259149333333273,
-        "geoTime": 15.555017999999867,
-        "time": 31.81416733333314,
-        "minTime": 30.693779999999606,
+        "parseTime": 15.59103633333325,
+        "geoTime": 14.014678000000004,
+        "time": 29.605714333333253,
+        "minTime": 28.208882000000358,
         "vertices": 39876,
         "triangles": 13292,
         "elements": 48,
-        "throughput": 56.634239238838504
+        "throughput": 60.85889851040698
       },
-      "speedup": 1.0242007331020244
+      "speedup": 0.8967250390646286
     },
     {
       "file": "duplex.ifc",
@@ -979,23 +979,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 25.18209199999986,
-        "minTime": 24.95342699999992,
+        "time": 23.59523733333329,
+        "minTime": 22.798330999999962,
         "vertices": 29718,
         "triangles": 17984,
-        "throughput": 90.16218853264081
+        "throughput": 96.2258821335426
       },
       "webIfc": {
-        "parseTime": 24.772986333333392,
-        "geoTime": 52.93836399999994,
-        "time": 77.71135033333334,
-        "minTime": 75.06535399999984,
+        "parseTime": 24.44527866666658,
+        "geoTime": 54.49950400000004,
+        "time": 78.94478266666661,
+        "minTime": 75.77617000000009,
         "vertices": 61478,
         "triangles": 26774,
         "elements": 216,
-        "throughput": 29.21674268702549
+        "throughput": 28.760260651258587
       },
-      "speedup": 3.0859767462263967
+      "speedup": 3.3457931171194586
     },
     {
       "file": "AC20-FZK-Haus.ifc",
@@ -1011,23 +1011,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 61.245154000000035,
-        "minTime": 60.1253270000002,
+        "time": 56.88229799999999,
+        "minTime": 55.06145599999991,
         "vertices": 37698,
         "triangles": 22140,
-        "throughput": 39.34189016930729
+        "throughput": 42.3594019016305
       },
       "webIfc": {
-        "parseTime": 27.08545166666636,
-        "geoTime": 138.99532400000012,
-        "time": 166.08077566666648,
-        "minTime": 165.36627799999997,
+        "parseTime": 27.16842999999987,
+        "geoTime": 139.82331999999982,
+        "time": 166.99174999999968,
+        "minTime": 166.4224079999999,
         "vertices": 39816,
         "triangles": 21650,
         "elements": 83,
-        "throughput": 14.508001377030629
+        "throughput": 14.42885724636287
       },
-      "speedup": 2.711737416264255
+      "speedup": 2.935741977231646
     },
     {
       "file": "ISSUE_005_haus.ifc",
@@ -1043,23 +1043,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 57.679107999999964,
-        "minTime": 57.19200000000001,
+        "time": 61.63114899999982,
+        "minTime": 59.50799899999947,
         "vertices": 37698,
         "triangles": 22140,
-        "throughput": 41.77422650278007
+        "throughput": 39.09549247686944
       },
       "webIfc": {
-        "parseTime": 25.995852333333158,
-        "geoTime": 139.9949806666667,
-        "time": 165.99083299999984,
-        "minTime": 163.42272199999934,
+        "parseTime": 25.465065000000322,
+        "geoTime": 140.11686800000007,
+        "time": 165.5819330000004,
+        "minTime": 164.33198600000105,
         "vertices": 39816,
         "triangles": 21650,
         "elements": 83,
-        "throughput": 14.515862584232679
+        "throughput": 14.551709105064662
       },
-      "speedup": 2.8778328714792183
+      "speedup": 2.6866598414383103
     },
     {
       "file": "Infra-Landscaping.ifc",
@@ -1075,23 +1075,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 54.936989333333564,
-        "minTime": 52.51105800000005,
+        "time": 68.00044200000018,
+        "minTime": 55.060427000000345,
         "vertices": 51235,
         "triangles": 20855,
-        "throughput": 53.58889661833779
+        "throughput": 43.294022146307974
       },
       "webIfc": {
-        "parseTime": 25.0397076666668,
-        "geoTime": 25.583385333333656,
-        "time": 50.62309300000045,
-        "minTime": 48.87686500000018,
+        "parseTime": 25.225425333333686,
+        "geoTime": 24.826605666666183,
+        "time": 50.05203099999987,
+        "minTime": 47.86913800000002,
         "vertices": 62559,
         "triangles": 20853,
         "elements": 101,
-        "throughput": 58.15552680486576
+        "throughput": 58.819044563980746
       },
-      "speedup": 0.921475559806194
+      "speedup": 0.7360544950575431
     },
     {
       "file": "Infra-Landscaping.ifc",
@@ -1107,23 +1107,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 53.45596966666653,
-        "minTime": 51.55579399999988,
+        "time": 55.02905800000008,
+        "minTime": 52.43758100000014,
         "vertices": 51235,
         "triangles": 20855,
-        "throughput": 55.07359908097472
+        "throughput": 53.49923747389487
       },
       "webIfc": {
-        "parseTime": 25.970197999999982,
-        "geoTime": 25.73110000000027,
-        "time": 51.70129800000025,
-        "minTime": 49.366518000000724,
+        "parseTime": 25.443834000000304,
+        "geoTime": 25.766123000000032,
+        "time": 51.20995700000034,
+        "minTime": 47.898064000000886,
         "vertices": 62559,
         "triangles": 20853,
         "elements": 101,
-        "throughput": 56.94272205519336
+        "throughput": 57.48906686070287
       },
-      "speedup": 0.9671753841973529
+      "speedup": 0.9305984667228042
     },
     {
       "file": "ISSUE_021_Mini Project.ifc",
@@ -1139,23 +1139,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 143.5198826666665,
-        "minTime": 139.96250799999962,
+        "time": 142.80057900000034,
+        "minTime": 138.83372400000007,
         "vertices": 343168,
         "triangles": 215225,
-        "throughput": 21.973260293133958
+        "throughput": 22.08394224420266
       },
       "webIfc": {
-        "parseTime": 34.614531999999905,
-        "geoTime": 622.4058000000001,
-        "time": 657.020332,
-        "minTime": 653.1301540000004,
+        "parseTime": 33.923809999999925,
+        "geoTime": 629.6629973333329,
+        "time": 663.5868073333328,
+        "minTime": 658.609903999999,
         "vertices": 537512,
         "triangles": 262844,
         "elements": 2636,
-        "throughput": 4.799851063170305
+        "throughput": 4.752354483579405
       },
-      "speedup": 4.577904606610981
+      "speedup": 4.646947596293228
     },
     {
       "file": "Office_A_20110811.ifc",
@@ -1171,23 +1171,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 41.02737800000008,
-        "minTime": 39.861925999999585,
+        "time": 39.70750633333288,
+        "minTime": 38.693405999998504,
         "vertices": 58566,
         "triangles": 33078,
-        "throughput": 93.82470034615352
+        "throughput": 96.94341957724441
       },
       "webIfc": {
-        "parseTime": 40.09203866666758,
-        "geoTime": 149.36075433333403,
-        "time": 189.4527930000016,
-        "minTime": 187.76788300000044,
+        "parseTime": 39.32697499999995,
+        "geoTime": 152.076418333334,
+        "time": 191.40339333333395,
+        "minTime": 183.55751400000008,
         "vertices": 119601,
         "triangles": 49985,
         "elements": 803,
-        "throughput": 20.318420150387258
+        "throughput": 20.111354244041962
       },
-      "speedup": 4.617716321038143
+      "speedup": 4.8203327533730915
     },
     {
       "file": "ISSUE_126_model.ifc",
@@ -1203,23 +1203,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 80.54482266666734,
-        "minTime": 79.46399100000053,
+        "time": 80.5168856666666,
+        "minTime": 77.65582399999948,
         "vertices": 41820,
         "triangles": 24090,
-        "throughput": 52.56660379760298
+        "throughput": 52.5848428688012
       },
       "webIfc": {
-        "parseTime": 48.15059499999976,
-        "geoTime": 86.76813833333411,
-        "time": 134.91873333333388,
-        "minTime": 132.13018399999964,
+        "parseTime": 50.7715026666671,
+        "geoTime": 91.7621413333333,
+        "time": 142.5336440000004,
+        "minTime": 138.05818800000088,
         "vertices": 93210,
         "triangles": 49857,
         "elements": 257,
-        "throughput": 31.38161526173196
+        "throughput": 29.705041295842282
       },
-      "speedup": 1.6750764216303704
+      "speedup": 1.7702329495216467
     },
     {
       "file": "ISSUE_034_HouseZ.ifc",
@@ -1235,23 +1235,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 146.10782066666675,
-        "minTime": 144.51516699999956,
+        "time": 143.10733533333405,
+        "minTime": 141.256311000001,
         "vertices": 276119,
         "triangles": 241778,
-        "throughput": 33.111079243395544
+        "throughput": 33.80530856021718
       },
       "webIfc": {
-        "parseTime": 53.95156233333304,
-        "geoTime": 155.5612763333344,
-        "time": 209.51283866666745,
-        "minTime": 205.00193800000125,
+        "parseTime": 54.50250266666626,
+        "geoTime": 160.046104666666,
+        "time": 214.54860733333226,
+        "minTime": 210.8995730000006,
         "vertices": 278865,
         "triangles": 243115,
         "elements": 228,
-        "throughput": 23.090650000073232
+        "throughput": 22.54867877402544
       },
-      "speedup": 1.4339604663918308
+      "speedup": 1.4992146058313012
     },
     {
       "file": "ISSUE_102_M3D-CON.ifc",
@@ -1267,23 +1267,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 358.0831426666664,
-        "minTime": 347.55923600000096,
+        "time": 359.5433526666663,
+        "minTime": 353.9265579999992,
         "vertices": 428392,
         "triangles": 204964,
-        "throughput": 16.715978583820032
+        "throughput": 16.64809013891668
       },
       "webIfc": {
-        "parseTime": 71.75163800000034,
-        "geoTime": 202.63338233333343,
-        "time": 274.3850203333338,
-        "minTime": 241.25816799999848,
+        "parseTime": 64.9162446666669,
+        "geoTime": 197.5271886666675,
+        "time": 262.4434333333344,
+        "minTime": 236.8145940000013,
         "vertices": 428392,
         "triangles": 204964,
         "elements": 138,
-        "throughput": 21.81500337289292
+        "throughput": 22.80762017177395
       },
-      "speedup": 0.7662606463123962
+      "speedup": 0.7299354344527306
     },
     {
       "file": "01_Snowdon_Towers_Sample_Structural(1).ifc",
@@ -1299,23 +1299,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 283.0111643333336,
-        "minTime": 274.72905100000025,
+        "time": 300.57086133333297,
+        "minTime": 297.33066900000085,
         "vertices": 1079192,
         "triangles": 975130,
-        "throughput": 29.36596490593262
+        "throughput": 27.65037130656196
       },
       "webIfc": {
-        "parseTime": 92.16385399999915,
-        "geoTime": 620.791364,
-        "time": 712.9552179999991,
-        "minTime": 700.9546809999993,
+        "parseTime": 93.95779999999952,
+        "geoTime": 623.2097003333334,
+        "time": 717.167500333333,
+        "minTime": 695.346117000001,
         "vertices": 1324269,
         "triangles": 620141,
         "elements": 1370,
-        "throughput": 11.656967660765215
+        "throughput": 11.588500477136757
       },
-      "speedup": 2.519177007307997
+      "speedup": 2.386018049627221
     },
     {
       "file": "ISSUE_159_kleine_Wohnung_R22.ifc",
@@ -1331,23 +1331,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 86.1138846666666,
-        "minTime": 82.90609799999947,
+        "time": 75.01958033333237,
+        "minTime": 74.08990099999937,
         "vertices": 8772,
         "triangles": 4488,
-        "throughput": 110.85291028730487
+        "throughput": 127.24644271575441
       },
       "webIfc": {
-        "parseTime": 126.79978499999925,
-        "geoTime": 690.3644593333338,
-        "time": 817.164244333333,
-        "minTime": 791.1750189999984,
+        "parseTime": 112.7810996666667,
+        "geoTime": 672.5591086666658,
+        "time": 785.3402083333325,
+        "minTime": 778.8813169999958,
         "vertices": 425943,
         "triangles": 183130,
         "elements": 425,
-        "throughput": 11.681831158965116
+        "throughput": 12.155209462283874
       },
-      "speedup": 9.489343646456645
+      "speedup": 10.468469762745308
     },
     {
       "file": "C20-Institute-Var-2.ifc",
@@ -1363,23 +1363,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 92.15232866666823,
-        "minTime": 90.97314200000255,
+        "time": 91.87270200000178,
+        "minTime": 89.031635000003,
         "vertices": 71072,
         "triangles": 40864,
-        "throughput": 111.62845766209635
+        "throughput": 111.9682135726297
       },
       "webIfc": {
-        "parseTime": 117.76357899999978,
-        "geoTime": 476.6627623333322,
-        "time": 594.426341333332,
-        "minTime": 589.3424039999991,
+        "parseTime": 119.0046599999999,
+        "geoTime": 476.0598833333315,
+        "time": 595.0645433333315,
+        "minTime": 587.6920579999969,
         "vertices": 87440,
         "triangles": 43772,
         "elements": 702,
-        "throughput": 17.305461759916017
+        "throughput": 17.28690178952318
       },
-      "speedup": 6.450475532566089
+      "speedup": 6.477054994347722
     },
     {
       "file": "ISSUE_129_N1540_17_EXE_MOD_448200_02_09_11SMC_IGC_V17.ifc",
@@ -1395,23 +1395,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 314.0511363333341,
-        "minTime": 304.56542099999933,
+        "time": 324.27866833333366,
+        "minTime": 314.7519710000015,
         "vertices": 237956,
         "triangles": 124336,
-        "throughput": 36.53339540036494
+        "throughput": 35.381156579210696
       },
       "webIfc": {
-        "parseTime": 126.84561499999836,
-        "geoTime": 474.40795499999996,
-        "time": 601.2535699999983,
-        "minTime": 592.5793679999988,
+        "parseTime": 130.6162326666672,
+        "geoTime": 483.76864066666775,
+        "time": 614.384873333335,
+        "minTime": 610.8872210000009,
         "vertices": 225081,
         "triangles": 95973,
         "elements": 959,
-        "throughput": 19.082388715961624
+        "throughput": 18.67453910014274
       },
-      "speedup": 1.914508500175676
+      "speedup": 1.894620070111409
     },
     {
       "file": "dental_clinic.ifc",
@@ -1427,23 +1427,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 148.23117766666715,
-        "minTime": 137.27161200000046,
+        "time": 149.2808180000005,
+        "minTime": 148.32552600000054,
         "vertices": 195624,
         "triangles": 114916,
-        "throughput": 83.65866637956229
+        "throughput": 83.07043601184776
       },
       "webIfc": {
-        "parseTime": 128.332828666668,
-        "geoTime": 355.9634930000005,
-        "time": 484.2963216666685,
-        "minTime": 474.6135910000048,
+        "parseTime": 127.34836266666632,
+        "geoTime": 356.0249813333333,
+        "time": 483.37334399999963,
+        "minTime": 469.0904999999984,
         "vertices": 422695,
         "triangles": 174379,
         "elements": 2586,
-        "throughput": 25.605857580724244
+        "throughput": 25.654750708523434
       },
-      "speedup": 3.2671690887845695
+      "speedup": 3.2380137681185404
     },
     {
       "file": "FM_ARC_DigitalHub.ifc",
@@ -1459,23 +1459,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 123.91016600000148,
-        "minTime": 122.33960000000297,
+        "time": 116.4342696666669,
+        "minTime": 114.24926899999991,
         "vertices": 37164,
         "triangles": 19218,
-        "throughput": 108.18354275279266
+        "throughput": 115.12968457949134
       },
       "webIfc": {
-        "parseTime": 164.51751166666872,
-        "geoTime": 779.3623799999999,
-        "time": 943.8798916666686,
-        "minTime": 910.5250550000019,
+        "parseTime": 161.1544449999989,
+        "geoTime": 762.680577333335,
+        "time": 923.8350223333339,
+        "minTime": 908.1921360000015,
         "vertices": 776944,
         "triangles": 304231,
         "elements": 705,
-        "throughput": 14.202061998901858
+        "throughput": 14.510210607852503
       },
-      "speedup": 7.617453209340849
+      "speedup": 7.93439100857616
     },
     {
       "file": "ifcbridge-model01.ifc",
@@ -1491,23 +1491,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 596.4834990000018,
-        "minTime": 580.9886419999966,
+        "time": 636.0809599999993,
+        "minTime": 615.2851569999984,
         "vertices": 258729,
         "triangles": 108321,
-        "throughput": 24.256840863774354
+        "throughput": 22.746798321255152
       },
       "webIfc": {
-        "parseTime": 159.98159500000233,
-        "geoTime": 246.53065766666745,
-        "time": 406.5122526666698,
-        "minTime": 403.9844060000032,
+        "parseTime": 163.49419600000206,
+        "geoTime": 240.3964500000002,
+        "time": 403.8906460000022,
+        "minTime": 401.9650410000031,
         "vertices": 263691,
         "triangles": 109521,
         "elements": 165,
-        "throughput": 35.59254418088702
+        "throughput": 35.8235711978095
       },
-      "speedup": 0.6815146661193198
+      "speedup": 0.6349673569855049
     },
     {
       "file": "01_BIMcollab_Example_ARC.ifc",
@@ -1523,23 +1523,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 610.122130000001,
-        "minTime": 599.3075679999965,
+        "time": 620.6855763333346,
+        "minTime": 607.1686860000045,
         "vertices": 502156,
         "triangles": 278399,
-        "throughput": 28.49531926592968
+        "throughput": 28.010357495760886
       },
       "webIfc": {
-        "parseTime": 186.86212033333382,
-        "geoTime": 390.5157133333317,
-        "time": 577.3778336666655,
-        "minTime": 561.9042009999903,
+        "parseTime": 184.9590676666679,
+        "geoTime": 389.58886133333726,
+        "time": 574.5479290000052,
+        "minTime": 568.2030120000054,
         "vertices": 668298,
         "triangles": 368587,
         "elements": 1350,
-        "throughput": 30.11134801478408
+        "throughput": 30.259659826498
       },
-      "speedup": 0.9463315708064295
+      "speedup": 0.9256666352617939
     },
     {
       "file": "ISSUE_102_M3D-CON-CD.ifc",
@@ -1555,23 +1555,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 3383.862126999998,
-        "minTime": 3152.990238999999,
+        "time": 3328.4076806666685,
+        "minTime": 3229.634890000001,
         "vertices": 4720598,
         "triangles": 2288290,
-        "throughput": 7.573011590149454
+        "throughput": 7.699185185784081
       },
       "webIfc": {
-        "parseTime": 277.323811000002,
-        "geoTime": 1984.2599896666652,
-        "time": 2261.5838006666672,
-        "minTime": 2253.6760520000025,
+        "parseTime": 271.71922766666586,
+        "geoTime": 1960.9396266666638,
+        "time": 2232.6588543333296,
+        "minTime": 2193.576067999995,
         "vertices": 4720178,
         "triangles": 2288860,
         "elements": 1616,
-        "throughput": 11.331009312891593
+        "throughput": 11.47780685683424
       },
-      "speedup": 0.6683439560440071
+      "speedup": 0.6707888782080133
     },
     {
       "file": "S_Office_Integrated Design Archi.ifc",
@@ -1587,23 +1587,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 703.3928569999989,
-        "minTime": 697.9374300000054,
+        "time": 714.7293716666682,
+        "minTime": 710.2180360000057,
         "vertices": 1464072,
         "triangles": 827172,
-        "throughput": 42.10906561035925
+        "throughput": 41.441162402773976
       },
       "webIfc": {
-        "parseTime": 363.89199933332566,
-        "geoTime": 4457.491792666668,
-        "time": 4821.383791999993,
-        "minTime": 4789.087024999986,
+        "parseTime": 370.4743716666708,
+        "geoTime": 4487.871104999994,
+        "time": 4858.345476666665,
+        "minTime": 4825.266973000005,
         "vertices": 2180808,
         "triangles": 1168412,
         "elements": 3422,
-        "throughput": 6.143301849236199
+        "throughput": 6.096564377219401
       },
-      "speedup": 6.8544679463527745
+      "speedup": 6.79746162570254
     },
     {
       "file": "advanced_model.ifc",
@@ -1619,23 +1619,23 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 1152.9753130000074,
-        "minTime": 1139.9253810000082,
+        "time": 1128.369536000003,
+        "minTime": 1114.980402000001,
         "vertices": 1485142,
         "triangles": 822225,
-        "throughput": 29.20633221816653
+        "throughput": 29.843219757771504
       },
       "webIfc": {
-        "parseTime": 449.9817776666605,
-        "geoTime": 1623.1305720000043,
-        "time": 2073.112349666665,
-        "minTime": 1992.4412870000087,
+        "parseTime": 409.15731900000054,
+        "geoTime": 1613.7086900000043,
+        "time": 2022.8660090000049,
+        "minTime": 1979.8640100000048,
         "vertices": 3064494,
         "triangles": 1265355,
         "elements": 6401,
-        "throughput": 16.243297202989126
+        "throughput": 16.64676744826487
       },
-      "speedup": 1.7980544130407168
+      "speedup": 1.7927336253431068
     },
     {
       "file": "schependomlaan.ifc",
@@ -1651,23 +1651,87 @@
         "other": 0
       },
       "ifcLite": {
-        "time": 848.7881436666745,
-        "minTime": 828.4684300000081,
+        "time": 806.1304343333322,
+        "minTime": 802.7698710000113,
         "vertices": 406337,
         "triangles": 243414,
-        "throughput": 55.377440074046454
+        "throughput": 58.30782781490486
       },
       "webIfc": {
-        "parseTime": 577.2166009999977,
-        "geoTime": 501.31004799999937,
-        "time": 1078.5266489999972,
-        "minTime": 1056.1465390000085,
+        "parseTime": 558.2630790000015,
+        "geoTime": 502.56771333333745,
+        "time": 1060.830792333339,
+        "minTime": 1008.2030140000134,
         "vertices": 441435,
         "triangles": 261501,
         "elements": 3569,
-        "throughput": 43.58141229523066
+        "throughput": 44.30839951211812
       },
-      "speedup": 1.2706664873296614
+      "speedup": 1.315954276320858
+    },
+    {
+      "file": "ISSUE_068_ARK_NUS_skolebygg.ifc",
+      "category": "ara3d-format-shootout",
+      "sizeMB": 53.75,
+      "totalEntities": 945194,
+      "geoTypes": {
+        "extrusion": 6561,
+        "brep": 730,
+        "tessellation": 0,
+        "mappedItem": 4340,
+        "booleanResult": 450,
+        "other": 0
+      },
+      "ifcLite": {
+        "time": 1781.9362580000015,
+        "minTime": 1748.9267050000053,
+        "vertices": 3350622,
+        "triangles": 1591043,
+        "throughput": 30.163009851868953
+      },
+      "webIfc": {
+        "parseTime": 718.4368060000028,
+        "geoTime": 1946.2571053333377,
+        "time": 2664.6939113333406,
+        "minTime": 2643.6223870000103,
+        "vertices": 3327198,
+        "triangles": 1282758,
+        "elements": 4459,
+        "throughput": 20.17063223541582
+      },
+      "speedup": 1.4953923853169266
+    },
+    {
+      "file": "ISSUE_098_R8_F1_MAB_AR_M3_XX_XXX_MO_7000.IFC",
+      "category": "ara3d-format-shootout",
+      "sizeMB": 68.42,
+      "totalEntities": 1139622,
+      "geoTypes": {
+        "extrusion": 8977,
+        "brep": 6273,
+        "tessellation": 0,
+        "mappedItem": 4387,
+        "booleanResult": 854,
+        "other": 0
+      },
+      "ifcLite": {
+        "time": 2336.049190666667,
+        "minTime": 2327.1271540000016,
+        "vertices": 3273230,
+        "triangles": 1592331,
+        "throughput": 29.28858558212626
+      },
+      "webIfc": {
+        "parseTime": 879.1008060000022,
+        "geoTime": 4647.9478196666605,
+        "time": 5527.048625666663,
+        "minTime": 5477.557637999969,
+        "vertices": 3505984,
+        "triangles": 1554360,
+        "elements": 11124,
+        "throughput": 12.37904373179724
+      },
+      "speedup": 2.3659812677529026
     }
   ],
   "qualitativeResults": [
@@ -2086,11 +2150,27 @@
       "vertexDiff": -35098,
       "triangleDiff": -18087,
       "hasGeometry": true
+    },
+    {
+      "file": "ISSUE_068_ARK_NUS_skolebygg.ifc",
+      "vertexRatio": 1.0070401581150266,
+      "triangleRatio": 1.2403298205896982,
+      "vertexDiff": 23424,
+      "triangleDiff": 308285,
+      "hasGeometry": true
+    },
+    {
+      "file": "ISSUE_098_R8_F1_MAB_AR_M3_XX_XXX_MO_7000.IFC",
+      "vertexRatio": 0.933612361037586,
+      "triangleRatio": 1.0244287037751871,
+      "vertexDiff": -232754,
+      "triangleDiff": 37971,
+      "hasGeometry": true
     }
   ],
   "summary": {
-    "totalFiles": 52,
-    "successfulFiles": 52,
-    "avgSpeedup": 4.068312554834555
+    "totalFiles": 54,
+    "successfulFiles": 54,
+    "avgSpeedup": 3.670162527799687
   }
 }
