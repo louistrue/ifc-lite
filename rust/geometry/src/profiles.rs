@@ -665,7 +665,10 @@ impl ProfileProcessor {
         let start_angle = trim1.unwrap_or(0.0).to_radians();
         let end_angle = trim2.unwrap_or(360.0).to_radians();
 
-        let num_segments = 32;
+        // Calculate arc angle and adaptive segment count
+        // Use ~8 segments per 90° (quarter circle), minimum 2
+        let arc_angle = (end_angle - start_angle).abs();
+        let num_segments = ((arc_angle / std::f64::consts::FRAC_PI_2 * 8.0).ceil() as usize).max(2);
         let mut points = Vec::with_capacity(num_segments + 1);
 
         let angle_range = if sense {
@@ -909,8 +912,14 @@ impl ProfileProcessor {
                     let p3 = all_points.get(idx_values[2]).copied();
 
                     if let (Some(start), Some(mid), Some(end)) = (p1, p2, p3) {
-                        // Approximate arc with line segments
-                        let arc_points = self.approximate_arc_3pt(start, mid, end, 16);
+                        // Approximate arc with adaptive segment count based on arc size
+                        // Calculate approximate arc angle from chord length vs radius
+                        let chord_len = ((end.x - start.x).powi(2) + (end.y - start.y).powi(2)).sqrt();
+                        let mid_chord = ((mid.x - (start.x + end.x) / 2.0).powi(2) + (mid.y - (start.y + end.y) / 2.0).powi(2)).sqrt();
+                        // Estimate arc angle: larger mid deviation = larger arc
+                        let arc_estimate = if chord_len > 1e-10 { (mid_chord / chord_len).abs().min(1.0).acos() * 2.0 } else { 0.5 };
+                        let num_segments = ((arc_estimate / std::f64::consts::FRAC_PI_2 * 8.0).ceil() as usize).max(4).min(16);
+                        let arc_points = self.approximate_arc_3pt(start, mid, end, num_segments);
                         for pt in arc_points {
                             if result_points.last() != Some(&pt) {
                                 result_points.push(pt);

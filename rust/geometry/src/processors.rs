@@ -477,9 +477,22 @@ impl Default for TriangulatedFaceSetProcessor {
     }
 }
 
+/// Face data extracted from IFC for parallel triangulation
+struct FaceData {
+    outer_points: Vec<Point3<f64>>,
+    hole_points: Vec<Vec<Point3<f64>>>,
+}
+
+/// Triangulated face result
+struct FaceResult {
+    positions: Vec<f32>,
+    indices: Vec<u32>,
+}
+
 /// FacetedBrep processor
 /// Handles IfcFacetedBrep - explicit mesh with faces
 /// Supports faces with inner bounds (holes)
+/// Uses parallel triangulation for large BREPs
 pub struct FacetedBrepProcessor;
 
 impl FacetedBrepProcessor {
@@ -532,6 +545,68 @@ impl FacetedBrepProcessor {
             None
         }
     }
+
+    /// Triangulate a single face (can be called in parallel)
+    #[inline]
+    fn triangulate_face(face: &FaceData) -> FaceResult {
+        use crate::triangulation::{triangulate_polygon_with_holes, calculate_polygon_normal, project_to_2d, project_to_2d_with_basis};
+
+        let mut positions = Vec::new();
+        let mut indices = Vec::new();
+
+        // Calculate face normal from outer boundary
+        let normal = calculate_polygon_normal(&face.outer_points);
+
+        // Project outer boundary to 2D and get the coordinate system
+        let (outer_2d, u_axis, v_axis, origin) = project_to_2d(&face.outer_points, &normal);
+
+        // Project holes to 2D using the SAME coordinate system as the outer boundary
+        let holes_2d: Vec<Vec<nalgebra::Point2<f64>>> = face.hole_points
+            .iter()
+            .map(|hole| project_to_2d_with_basis(hole, &u_axis, &v_axis, &origin))
+            .collect();
+
+        // Triangulate with holes
+        let tri_indices = match triangulate_polygon_with_holes(&outer_2d, &holes_2d) {
+            Ok(idx) => idx,
+            Err(_) => {
+                // Fallback to simple fan triangulation without holes
+                for point in &face.outer_points {
+                    positions.push(point.x as f32);
+                    positions.push(point.y as f32);
+                    positions.push(point.z as f32);
+                }
+                for i in 1..face.outer_points.len() - 1 {
+                    indices.push(0);
+                    indices.push(i as u32);
+                    indices.push(i as u32 + 1);
+                }
+                return FaceResult { positions, indices };
+            }
+        };
+
+        // Combine all 3D points (outer + holes) in the same order as 2D
+        let mut all_points_3d: Vec<&Point3<f64>> = face.outer_points.iter().collect();
+        for hole in &face.hole_points {
+            all_points_3d.extend(hole.iter());
+        }
+
+        // Add vertices
+        for point in &all_points_3d {
+            positions.push(point.x as f32);
+            positions.push(point.y as f32);
+            positions.push(point.z as f32);
+        }
+
+        // Add triangle indices
+        for i in (0..tri_indices.len()).step_by(3) {
+            indices.push(tri_indices[i] as u32);
+            indices.push(tri_indices[i + 1] as u32);
+            indices.push(tri_indices[i + 2] as u32);
+        }
+
+        FaceResult { positions, indices }
+    }
 }
 
 impl GeometryProcessor for FacetedBrepProcessor {
@@ -541,7 +616,7 @@ impl GeometryProcessor for FacetedBrepProcessor {
         decoder: &mut EntityDecoder,
         _schema: &IfcSchema,
     ) -> Result<Mesh> {
-        use crate::triangulation::{triangulate_polygon_with_holes, calculate_polygon_normal, project_to_2d};
+        use rayon::prelude::*;
 
         // IfcFacetedBrep attributes:
         // 0: Outer (IfcClosedShell)
@@ -562,13 +637,11 @@ impl GeometryProcessor for FacetedBrepProcessor {
 
         let face_refs = decoder.resolve_ref_list(faces_attr)?;
 
-        let mut positions = Vec::new();
-        let mut indices = Vec::new();
+        // PHASE 1: Sequential - Extract all face data from IFC entities
+        let mut face_data_list: Vec<FaceData> = Vec::with_capacity(face_refs.len());
 
-        // Process each face
         for face in face_refs {
             // Try to get Bounds attribute (attribute 0)
-            // IfcFace has Bounds attribute (list of IfcFaceBound)
             let bounds_attr = match face.get(0) {
                 Some(attr) => attr,
                 None => continue,
@@ -580,12 +653,10 @@ impl GeometryProcessor for FacetedBrepProcessor {
             };
 
             // Separate outer bound from inner bounds (holes)
-            // IfcFaceOuterBound is type id for outer, IfcFaceBound for inner
             let mut outer_bound_points: Option<Vec<Point3<f64>>> = None;
             let mut hole_points: Vec<Vec<Point3<f64>>> = Vec::new();
 
             for bound in &bounds {
-                // Get the loop from the bound
                 let loop_attr = match bound.get(0) {
                     Some(attr) => attr,
                     None => continue,
@@ -596,12 +667,11 @@ impl GeometryProcessor for FacetedBrepProcessor {
                     _ => continue,
                 };
 
-                // Get orientation (attribute 1) - .T. = same sense, .F. = reverse
-                // Booleans in IFC are stored as Enum values like ".T." or ".F."
+                // Get orientation
                 let orientation = bound.get(1)
                     .and_then(|v| match v {
                         ifc_lite_core::AttributeValue::Enum(e) => Some(e != ".F."),
-                        _ => Some(true), // Default to true
+                        _ => Some(true),
                     })
                     .unwrap_or(true);
 
@@ -610,89 +680,62 @@ impl GeometryProcessor for FacetedBrepProcessor {
                     None => continue,
                 };
 
-                // Reverse points if orientation is false
                 if !orientation {
                     points.reverse();
                 }
 
-                // Check if this is outer bound by IFC type
-                // IfcFaceOuterBound type name contains "OUTER"
                 let type_str = bound.ifc_type.as_str();
                 let is_outer = type_str.contains("OUTER") || type_str.contains("outer");
 
                 if is_outer || outer_bound_points.is_none() {
-                    // First bound or explicit outer bound
                     if outer_bound_points.is_some() && is_outer {
-                        // Move existing outer to holes if we found the real outer
                         if let Some(prev_outer) = outer_bound_points.take() {
                             hole_points.push(prev_outer);
                         }
                     }
                     outer_bound_points = Some(points);
                 } else {
-                    // Inner bound (hole)
                     hole_points.push(points);
                 }
             }
 
-            // Skip if no outer bound
-            let outer_points = match outer_bound_points {
-                Some(p) => p,
-                None => continue,
-            };
+            if let Some(outer_points) = outer_bound_points {
+                face_data_list.push(FaceData {
+                    outer_points,
+                    hole_points,
+                });
+            }
+        }
 
-            // Calculate face normal from outer boundary
-            let normal = calculate_polygon_normal(&outer_points);
-
-            // Project outer boundary to 2D and get the coordinate system
-            let (outer_2d, u_axis, v_axis, origin) = project_to_2d(&outer_points, &normal);
-
-            // Project holes to 2D using the SAME coordinate system as the outer boundary
-            use crate::triangulation::project_to_2d_with_basis;
-            let holes_2d: Vec<Vec<nalgebra::Point2<f64>>> = hole_points
+        // PHASE 2: Parallel - Triangulate all faces concurrently
+        // Use parallel iterator for large BREPs (>16 faces), sequential for small ones
+        let face_results: Vec<FaceResult> = if face_data_list.len() > 16 {
+            face_data_list
+                .par_iter()
+                .map(Self::triangulate_face)
+                .collect()
+        } else {
+            face_data_list
                 .iter()
-                .map(|hole| project_to_2d_with_basis(hole, &u_axis, &v_axis, &origin))
-                .collect();
+                .map(Self::triangulate_face)
+                .collect()
+        };
 
-            // Triangulate with holes
-            let tri_indices = match triangulate_polygon_with_holes(&outer_2d, &holes_2d) {
-                Ok(idx) => idx,
-                Err(_) => {
-                    // Fallback to simple triangulation without holes if it fails
-                    let base_idx = (positions.len() / 3) as u32;
-                    for point in &outer_points {
-                        positions.push(point.x as f32);
-                        positions.push(point.y as f32);
-                        positions.push(point.z as f32);
-                    }
-                    for i in 1..outer_points.len() - 1 {
-                        indices.push(base_idx);
-                        indices.push(base_idx + i as u32);
-                        indices.push(base_idx + i as u32 + 1);
-                    }
-                    continue;
-                }
-            };
+        // PHASE 3: Sequential - Merge all face results into final mesh
+        // Pre-calculate total sizes for efficient allocation
+        let total_positions: usize = face_results.iter().map(|r| r.positions.len()).sum();
+        let total_indices: usize = face_results.iter().map(|r| r.indices.len()).sum();
 
-            // Combine all 3D points (outer + holes) in the same order as 2D
-            let mut all_points_3d: Vec<Point3<f64>> = outer_points;
-            for hole in hole_points {
-                all_points_3d.extend(hole);
-            }
+        let mut positions = Vec::with_capacity(total_positions);
+        let mut indices = Vec::with_capacity(total_indices);
 
-            // Add vertices and triangles
+        for result in face_results {
             let base_idx = (positions.len() / 3) as u32;
+            positions.extend(result.positions);
 
-            for point in &all_points_3d {
-                positions.push(point.x as f32);
-                positions.push(point.y as f32);
-                positions.push(point.z as f32);
-            }
-
-            for i in (0..tri_indices.len()).step_by(3) {
-                indices.push(base_idx + tri_indices[i] as u32);
-                indices.push(base_idx + tri_indices[i + 1] as u32);
-                indices.push(base_idx + tri_indices[i + 2] as u32);
+            // Offset indices by base
+            for idx in result.indices {
+                indices.push(base_idx + idx);
             }
         }
 
