@@ -244,6 +244,7 @@ fn add_triangle_to_mesh(mesh: &mut Mesh, triangle: &Triangle) {
 }
 
 /// Calculate smooth normals for a mesh
+#[inline]
 pub fn calculate_normals(mesh: &mut Mesh) {
     let vertex_count = mesh.vertex_count();
     if vertex_count == 0 {

@@ -122,7 +122,13 @@ impl MeshCollection {
         Self { meshes: Vec::new() }
     }
 
+    /// Create new collection with capacity hint
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self { meshes: Vec::with_capacity(capacity) }
+    }
+
     /// Add a mesh to the collection
+    #[inline]
     pub fn add(&mut self, mesh: MeshDataJs) {
         self.meshes.push(mesh);
     }

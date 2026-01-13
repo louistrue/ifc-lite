@@ -10,6 +10,7 @@ use crate::{Error, Result, Point2, Point3, Vector3};
 
 /// Triangulate a simple polygon (no holes)
 /// Returns triangle indices into the input points
+#[inline]
 pub fn triangulate_polygon(points: &[Point2<f64>]) -> Result<Vec<usize>> {
     if points.len() < 3 {
         return Err(Error::TriangulationError(
@@ -33,6 +34,7 @@ pub fn triangulate_polygon(points: &[Point2<f64>]) -> Result<Vec<usize>> {
 
 /// Triangulate a polygon with holes
 /// Returns triangle indices into the combined vertex array (outer + all holes)
+#[inline]
 pub fn triangulate_polygon_with_holes(
     outer: &[Point2<f64>],
     holes: &[Vec<Point2<f64>>],
@@ -74,6 +76,7 @@ pub fn triangulate_polygon_with_holes(
 
 /// Project 3D points onto a 2D plane defined by a normal
 /// Returns 2D points and the coordinate system (u_axis, v_axis, origin)
+#[inline]
 pub fn project_to_2d(
     points_3d: &[Point3<f64>],
     normal: &Vector3<f64>,
@@ -116,6 +119,7 @@ pub fn project_to_2d(
 
 /// Project 3D points using an existing coordinate system
 /// This ensures multiple sets of points use the same 2D space
+#[inline]
 pub fn project_to_2d_with_basis(
     points_3d: &[Point3<f64>],
     u_axis: &Vector3<f64>,
@@ -132,6 +136,7 @@ pub fn project_to_2d_with_basis(
 }
 
 /// Calculate the normal of a polygon from its vertices
+#[inline]
 pub fn calculate_polygon_normal(points: &[Point3<f64>]) -> Vector3<f64> {
     if points.len() < 3 {
         return Vector3::new(0.0, 0.0, 1.0);

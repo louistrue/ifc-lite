@@ -218,8 +218,9 @@ impl IfcAPI {
         // Create geometry router (reuses processor instances)
         let router = GeometryRouter::new();
 
-        // Collect individual meshes with express IDs
-        let mut mesh_collection = MeshCollection::new();
+        // Estimate capacity: typical IFC files have ~5-10% building elements
+        let estimated_elements = content.len() / 500;
+        let mut mesh_collection = MeshCollection::with_capacity(estimated_elements);
 
         // Process all building elements
         while let Some((id, type_name, start, end)) = scanner.next_entity() {

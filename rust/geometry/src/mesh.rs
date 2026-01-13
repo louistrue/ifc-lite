@@ -104,7 +104,8 @@ impl Mesh {
         self.positions.is_empty()
     }
 
-    /// Calculate bounds (min, max)
+    /// Calculate bounds (min, max) - optimized with chunk iteration
+    #[inline]
     pub fn bounds(&self) -> (Point3<f32>, Point3<f32>) {
         if self.is_empty() {
             return (Point3::origin(), Point3::origin());
@@ -113,21 +114,26 @@ impl Mesh {
         let mut min = Point3::new(f32::MAX, f32::MAX, f32::MAX);
         let mut max = Point3::new(f32::MIN, f32::MIN, f32::MIN);
 
-        for i in (0..self.positions.len()).step_by(3) {
-            let x = self.positions[i];
-            let y = self.positions[i + 1];
-            let z = self.positions[i + 2];
-
+        // Use chunks for better cache locality
+        self.positions.chunks_exact(3).for_each(|chunk| {
+            let (x, y, z) = (chunk[0], chunk[1], chunk[2]);
             min.x = min.x.min(x);
             min.y = min.y.min(y);
             min.z = min.z.min(z);
-
             max.x = max.x.max(x);
             max.y = max.y.max(y);
             max.z = max.z.max(z);
-        }
+        });
 
         (min, max)
+    }
+
+    /// Clear the mesh
+    #[inline]
+    pub fn clear(&mut self) {
+        self.positions.clear();
+        self.normals.clear();
+        self.indices.clear();
     }
 }
 

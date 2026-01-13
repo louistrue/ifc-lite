@@ -10,6 +10,7 @@ use crate::profile::{Profile2D, Triangulation};
 use crate::error::{Error, Result};
 
 /// Extrude a 2D profile along the Z axis
+#[inline]
 pub fn extrude_profile(
     profile: &Profile2D,
     depth: f64,
@@ -52,6 +53,7 @@ pub fn extrude_profile(
 }
 
 /// Create a cap mesh (top or bottom) from triangulation
+#[inline]
 fn create_cap_mesh(
     triangulation: &Triangulation,
     z: f64,
@@ -84,6 +86,7 @@ fn create_cap_mesh(
 }
 
 /// Create side walls for a profile boundary
+#[inline]
 fn create_side_walls(
     boundary: &[nalgebra::Point2<f64>],
     depth: f64,
@@ -123,21 +126,16 @@ fn create_side_walls(
 }
 
 /// Apply transformation matrix to mesh
+#[inline]
 pub fn apply_transform(mesh: &mut Mesh, transform: &Matrix4<f64>) {
-    // Transform positions
-    for i in (0..mesh.positions.len()).step_by(3) {
-        let point = Point3::new(
-            mesh.positions[i] as f64,
-            mesh.positions[i + 1] as f64,
-            mesh.positions[i + 2] as f64,
-        );
-
+    // Transform positions using chunk-based iteration for cache locality
+    mesh.positions.chunks_exact_mut(3).for_each(|chunk| {
+        let point = Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
         let transformed = transform.transform_point(&point);
-
-        mesh.positions[i] = transformed.x as f32;
-        mesh.positions[i + 1] = transformed.y as f32;
-        mesh.positions[i + 2] = transformed.z as f32;
-    }
+        chunk[0] = transformed.x as f32;
+        chunk[1] = transformed.y as f32;
+        chunk[2] = transformed.z as f32;
+    });
 
     // Transform normals (use inverse transpose for correct normal transformation)
     let normal_matrix = transform
@@ -145,19 +143,13 @@ pub fn apply_transform(mesh: &mut Mesh, transform: &Matrix4<f64>) {
         .unwrap_or(*transform)
         .transpose();
 
-    for i in (0..mesh.normals.len()).step_by(3) {
-        let normal = Vector3::new(
-            mesh.normals[i] as f64,
-            mesh.normals[i + 1] as f64,
-            mesh.normals[i + 2] as f64,
-        );
-
+    mesh.normals.chunks_exact_mut(3).for_each(|chunk| {
+        let normal = Vector3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
         let transformed = (normal_matrix * normal.to_homogeneous()).xyz().normalize();
-
-        mesh.normals[i] = transformed.x as f32;
-        mesh.normals[i + 1] = transformed.y as f32;
-        mesh.normals[i + 2] = transformed.z as f32;
-    }
+        chunk[0] = transformed.x as f32;
+        chunk[1] = transformed.y as f32;
+        chunk[2] = transformed.z as f32;
+    });
 }
 
 #[cfg(test)]
