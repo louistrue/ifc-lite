@@ -546,6 +546,34 @@ impl FacetedBrepProcessor {
         }
     }
 
+    /// Extract polygon points using fast path from loop entity ID
+    /// Bypasses full entity decoding for ~2x speedup on BREP-heavy files
+    #[inline]
+    fn extract_loop_points_fast(
+        &self,
+        loop_entity_id: u32,
+        decoder: &mut EntityDecoder,
+    ) -> Option<Vec<Point3<f64>>> {
+        // Get point IDs directly from raw bytes
+        let point_ids = decoder.get_polyloop_point_ids_fast(loop_entity_id)?;
+
+        // Pre-allocate with known size
+        let mut polygon_points = Vec::with_capacity(point_ids.len());
+
+        for point_id in point_ids {
+            // Use fast path to extract coordinates directly from raw bytes
+            if let Some((x, y, z)) = decoder.get_cartesian_point_fast(point_id) {
+                polygon_points.push(Point3::new(x, y, z));
+            }
+        }
+
+        if polygon_points.len() >= 3 {
+            Some(polygon_points)
+        } else {
+            None
+        }
+    }
+
     /// Triangulate a single face (can be called in parallel)
     /// Optimized with fast paths for simple faces
     #[inline]
@@ -701,50 +729,44 @@ impl GeometryProcessor for FacetedBrepProcessor {
         // IfcFacetedBrep attributes:
         // 0: Outer (IfcClosedShell)
 
-        // Get closed shell
+        // Get closed shell ID
         let shell_attr = entity
             .get(0)
             .ok_or_else(|| Error::geometry("FacetedBrep missing Outer shell".to_string()))?;
 
-        let shell_entity = decoder
-            .resolve_ref(shell_attr)?
-            .ok_or_else(|| Error::geometry("Failed to resolve Outer shell".to_string()))?;
+        let shell_id = shell_attr
+            .as_entity_ref()
+            .ok_or_else(|| Error::geometry("Expected entity ref for Outer shell".to_string()))?;
 
-        // IfcClosedShell has CfsFaces attribute - list of faces
-        let faces_attr = shell_entity
-            .get(0)
-            .ok_or_else(|| Error::geometry("ClosedShell missing CfsFaces".to_string()))?;
-
-        let face_refs = decoder.resolve_ref_list(faces_attr)?;
+        // FAST PATH: Get face IDs directly from ClosedShell raw bytes
+        let face_ids = decoder
+            .get_entity_ref_list_fast(shell_id)
+            .ok_or_else(|| Error::geometry("Failed to get faces from ClosedShell".to_string()))?;
 
         // PHASE 1: Sequential - Extract all face data from IFC entities
-        let mut face_data_list: Vec<FaceData> = Vec::with_capacity(face_refs.len());
+        let mut face_data_list: Vec<FaceData> = Vec::with_capacity(face_ids.len());
 
-        for face in face_refs {
-            // Try to get Bounds attribute (attribute 0)
-            let bounds_attr = match face.get(0) {
-                Some(attr) => attr,
+        for face_id in face_ids {
+            // FAST PATH: Get bound IDs directly from Face raw bytes
+            let bound_ids = match decoder.get_entity_ref_list_fast(face_id) {
+                Some(ids) => ids,
                 None => continue,
-            };
-
-            let bounds = match decoder.resolve_ref_list(bounds_attr) {
-                Ok(b) => b,
-                Err(_) => continue,
             };
 
             // Separate outer bound from inner bounds (holes)
             let mut outer_bound_points: Option<Vec<Point3<f64>>> = None;
             let mut hole_points: Vec<Vec<Point3<f64>>> = Vec::new();
 
-            for bound in &bounds {
+            for bound_id in bound_ids {
+                // Get bound entity to check type and get loop ref
+                let bound = match decoder.decode_by_id(bound_id) {
+                    Ok(b) => b,
+                    Err(_) => continue,
+                };
+
                 let loop_attr = match bound.get(0) {
                     Some(attr) => attr,
                     None => continue,
-                };
-
-                let loop_entity = match decoder.resolve_ref(loop_attr) {
-                    Ok(Some(e)) => e,
-                    _ => continue,
                 };
 
                 // Get orientation
@@ -755,7 +777,21 @@ impl GeometryProcessor for FacetedBrepProcessor {
                     })
                     .unwrap_or(true);
 
-                let mut points = match self.extract_loop_points(&loop_entity, decoder) {
+                // FAST PATH: Try to get loop points directly from entity ID
+                let mut points = if let Some(loop_id) = loop_attr.as_entity_ref() {
+                    self.extract_loop_points_fast(loop_id, decoder)
+                } else {
+                    None
+                };
+
+                // FALLBACK: Use standard path if fast path fails
+                if points.is_none() {
+                    if let Ok(Some(loop_entity)) = decoder.resolve_ref(loop_attr) {
+                        points = self.extract_loop_points(&loop_entity, decoder);
+                    }
+                }
+
+                let mut points = match points {
                     Some(p) => p,
                     None => continue,
                 };

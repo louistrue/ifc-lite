@@ -219,6 +219,138 @@ impl<'a> EntityDecoder<'a> {
         Some(&self.content[start..end])
     }
 
+    /// Fast extraction of entity reference IDs from a list attribute in raw bytes
+    /// Useful for getting face list from ClosedShell, bounds from Face, etc.
+    /// Returns list of entity IDs
+    #[inline]
+    pub fn get_entity_ref_list_fast(&mut self, entity_id: u32) -> Option<Vec<u32>> {
+        let bytes = self.get_raw_bytes(entity_id)?;
+
+        // Pattern: IFCTYPE((#id1,#id2,...)); or IFCTYPE((#id1,#id2,...),other);
+        let mut i = 0;
+        let len = bytes.len();
+
+        // Skip to first '(' after '='
+        while i < len && bytes[i] != b'(' {
+            i += 1;
+        }
+        if i >= len {
+            return None;
+        }
+        i += 1; // Skip first '('
+
+        // Skip to second '(' for the list
+        while i < len && bytes[i] != b'(' {
+            i += 1;
+        }
+        if i >= len {
+            return None;
+        }
+        i += 1; // Skip second '('
+
+        // Parse entity IDs
+        let mut ids = Vec::with_capacity(32);
+
+        while i < len {
+            // Skip whitespace and commas
+            while i < len && (bytes[i] == b' ' || bytes[i] == b',' || bytes[i] == b'\n' || bytes[i] == b'\r') {
+                i += 1;
+            }
+
+            if i >= len || bytes[i] == b')' {
+                break;
+            }
+
+            // Expect '#' followed by number
+            if bytes[i] == b'#' {
+                i += 1;
+                let start = i;
+                while i < len && bytes[i].is_ascii_digit() {
+                    i += 1;
+                }
+                if i > start {
+                    if let Some(id) = std::str::from_utf8(&bytes[start..i]).ok().and_then(|s| s.parse::<u32>().ok()) {
+                        ids.push(id);
+                    }
+                }
+            } else {
+                i += 1; // Skip unknown character
+            }
+        }
+
+        if ids.is_empty() {
+            None
+        } else {
+            Some(ids)
+        }
+    }
+
+    /// Fast extraction of PolyLoop point IDs directly from raw bytes
+    /// Bypasses full entity decoding for BREP optimization
+    /// Returns list of entity IDs for CartesianPoints
+    #[inline]
+    pub fn get_polyloop_point_ids_fast(&mut self, entity_id: u32) -> Option<Vec<u32>> {
+        let bytes = self.get_raw_bytes(entity_id)?;
+
+        // IFCPOLYLOOP((#id1,#id2,#id3,...));
+        let mut i = 0;
+        let len = bytes.len();
+
+        // Skip to first '(' after '='
+        while i < len && bytes[i] != b'(' {
+            i += 1;
+        }
+        if i >= len {
+            return None;
+        }
+        i += 1; // Skip first '('
+
+        // Skip to second '(' for the point list
+        while i < len && bytes[i] != b'(' {
+            i += 1;
+        }
+        if i >= len {
+            return None;
+        }
+        i += 1; // Skip second '('
+
+        // Parse point IDs
+        let mut point_ids = Vec::with_capacity(8); // Most faces have 3-8 vertices
+
+        while i < len {
+            // Skip whitespace and commas
+            while i < len && (bytes[i] == b' ' || bytes[i] == b',' || bytes[i] == b'\n' || bytes[i] == b'\r') {
+                i += 1;
+            }
+
+            if i >= len || bytes[i] == b')' {
+                break;
+            }
+
+            // Expect '#' followed by number
+            if bytes[i] == b'#' {
+                i += 1;
+                let start = i;
+                while i < len && bytes[i].is_ascii_digit() {
+                    i += 1;
+                }
+                if i > start {
+                    if let Some(id) = std::str::from_utf8(&bytes[start..i]).ok().and_then(|s| s.parse::<u32>().ok()) {
+                        point_ids.push(id);
+                    }
+                }
+            } else {
+                i += 1; // Skip unknown character
+            }
+        }
+
+        if point_ids.is_empty() {
+            None
+        } else {
+            Some(point_ids)
+        }
+    }
+
     /// Fast extraction of CartesianPoint coordinates directly from raw bytes
     /// Bypasses full entity decoding for ~3x speedup on BREP-heavy files
     /// Returns (x, y, z) as f64 tuple
