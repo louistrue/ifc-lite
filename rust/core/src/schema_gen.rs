@@ -58,6 +58,7 @@ impl AttributeValue {
     }
 
     /// Get as entity reference
+    #[inline]
     pub fn as_entity_ref(&self) -> Option<u32> {
         match self {
             AttributeValue::EntityRef(id) => Some(*id),
@@ -66,6 +67,7 @@ impl AttributeValue {
     }
 
     /// Get as string
+    #[inline]
     pub fn as_string(&self) -> Option<&str> {
         match self {
             AttributeValue::String(s) => Some(s),
@@ -74,6 +76,7 @@ impl AttributeValue {
     }
 
     /// Get as float
+    #[inline]
     pub fn as_float(&self) -> Option<f64> {
         match self {
             AttributeValue::Float(f) => Some(*f),
@@ -82,7 +85,18 @@ impl AttributeValue {
         }
     }
 
+    /// Get as integer (more efficient than as_float for indices)
+    #[inline]
+    pub fn as_int(&self) -> Option<i64> {
+        match self {
+            AttributeValue::Integer(i) => Some(*i),
+            AttributeValue::Float(f) => Some(*f as i64),
+            _ => None,
+        }
+    }
+
     /// Get as list
+    #[inline]
     pub fn as_list(&self) -> Option<&[AttributeValue]> {
         match self {
             AttributeValue::List(items) => Some(items),
@@ -91,6 +105,7 @@ impl AttributeValue {
     }
 
     /// Check if null/derived
+    #[inline]
     pub fn is_null(&self) -> bool {
         matches!(self, AttributeValue::Null | AttributeValue::Derived)
     }

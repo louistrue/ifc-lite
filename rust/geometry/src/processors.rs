@@ -336,6 +336,7 @@ impl TriangulatedFaceSetProcessor {
 }
 
 impl GeometryProcessor for TriangulatedFaceSetProcessor {
+    #[inline]
     fn process(
         &self,
         entity: &DecodedEntity,
@@ -368,17 +369,16 @@ impl GeometryProcessor for TriangulatedFaceSetProcessor {
             .as_list()
             .ok_or_else(|| Error::geometry("Expected coordinate list".to_string()))?;
 
-        // Parse vertices
+        // Parse vertices - optimized with pre-allocated capacity
         let mut positions = Vec::with_capacity(coord_list.len() * 3);
         for coord_attr in coord_list {
             let coord = coord_attr
                 .as_list()
                 .ok_or_else(|| Error::geometry("Expected coordinate triple".to_string()))?;
 
-            use ifc_lite_core::AttributeValue;
-            let x = coord.get(0).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0) as f32;
-            let y = coord.get(1).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0) as f32;
-            let z = coord.get(2).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0) as f32;
+            let x = coord.get(0).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+            let y = coord.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+            let z = coord.get(2).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
 
             positions.push(x);
             positions.push(y);
@@ -394,17 +394,17 @@ impl GeometryProcessor for TriangulatedFaceSetProcessor {
             .as_list()
             .ok_or_else(|| Error::geometry("Expected face index list".to_string()))?;
 
+        // Parse indices - use as_int() for efficiency, IFC indices are 1-based
         let mut indices = Vec::with_capacity(face_list.len() * 3);
         for face_attr in face_list {
             let face = face_attr
                 .as_list()
                 .ok_or_else(|| Error::geometry("Expected face triple".to_string()))?;
 
-            // IFC indices are 1-based, convert to 0-based
-            use ifc_lite_core::AttributeValue;
-            let i0 = face.get(0).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(1.0) as u32 - 1;
-            let i1 = face.get(1).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(1.0) as u32 - 1;
-            let i2 = face.get(2).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(1.0) as u32 - 1;
+            // Use as_int() for faster integer parsing
+            let i0 = (face.get(0).and_then(|v| v.as_int()).unwrap_or(1) - 1) as u32;
+            let i1 = (face.get(1).and_then(|v| v.as_int()).unwrap_or(1) - 1) as u32;
+            let i2 = (face.get(2).and_then(|v| v.as_int()).unwrap_or(1) - 1) as u32;
 
             indices.push(i0);
             indices.push(i1);
