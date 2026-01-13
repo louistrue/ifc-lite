@@ -91,6 +91,11 @@ function getArrayF32FromWasm0(ptr, len) {
     return getFloat32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
 }
 
+function getArrayF64FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getFloat64ArrayMemory0().subarray(ptr / 8, ptr / 8 + len);
+}
+
 function getArrayU32FromWasm0(ptr, len) {
     ptr = ptr >>> 0;
     return getUint32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
@@ -110,6 +115,14 @@ function getFloat32ArrayMemory0() {
         cachedFloat32ArrayMemory0 = new Float32Array(wasm.memory.buffer);
     }
     return cachedFloat32ArrayMemory0;
+}
+
+let cachedFloat64ArrayMemory0 = null;
+function getFloat64ArrayMemory0() {
+    if (cachedFloat64ArrayMemory0 === null || cachedFloat64ArrayMemory0.byteLength === 0) {
+        cachedFloat64ArrayMemory0 = new Float64Array(wasm.memory.buffer);
+    }
+    return cachedFloat64ArrayMemory0;
 }
 
 function getStringFromWasm0(ptr, len) {
@@ -244,13 +257,17 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_173(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_173(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_223(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_223(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_211(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_211(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_261(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_261(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
+
+const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_georeferencejs_free(ptr >>> 0, 1));
 
 const IfcAPIFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
@@ -260,13 +277,221 @@ const MeshCollectionFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_meshcollection_free(ptr >>> 0, 1));
 
+const MeshCollectionWithRtcFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_meshcollectionwithrtc_free(ptr >>> 0, 1));
+
 const MeshDataJsFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_meshdatajs_free(ptr >>> 0, 1));
 
+const RtcOffsetJsFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_rtcoffsetjs_free(ptr >>> 0, 1));
+
 const ZeroCopyMeshFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_zerocopymesh_free(ptr >>> 0, 1));
+
+/**
+ * Georeferencing information exposed to JavaScript
+ */
+class GeoReferenceJs {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(GeoReferenceJs.prototype);
+        obj.__wbg_ptr = ptr;
+        GeoReferenceJsFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        GeoReferenceJsFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_georeferencejs_free(ptr, 0);
+    }
+    /**
+     * Transform local coordinates to map coordinates
+     * @param {number} x
+     * @param {number} y
+     * @param {number} z
+     * @returns {Float64Array}
+     */
+    localToMap(x, y, z) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.georeferencejs_localToMap(retptr, this.__wbg_ptr, x, y, z);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayF64FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export4(r0, r1 * 8, 8);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Transform map coordinates to local coordinates
+     * @param {number} e
+     * @param {number} n
+     * @param {number} h
+     * @returns {Float64Array}
+     */
+    mapToLocal(e, n, h) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.georeferencejs_mapToLocal(retptr, this.__wbg_ptr, e, n, h);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayF64FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export4(r0, r1 * 8, 8);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Get CRS name
+     * @returns {string | undefined}
+     */
+    get crsName() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.georeferencejs_crsName(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            let v1;
+            if (r0 !== 0) {
+                v1 = getStringFromWasm0(r0, r1).slice();
+                wasm.__wbindgen_export4(r0, r1 * 1, 1);
+            }
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Get rotation angle in radians
+     * @returns {number}
+     */
+    get rotation() {
+        const ret = wasm.georeferencejs_rotation(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Get 4x4 transformation matrix (column-major for WebGL)
+     * @returns {Float64Array}
+     */
+    toMatrix() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.georeferencejs_toMatrix(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayF64FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export4(r0, r1 * 8, 8);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Eastings (X offset)
+     * @returns {number}
+     */
+    get eastings() {
+        const ret = wasm.__wbg_get_georeferencejs_eastings(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Eastings (X offset)
+     * @param {number} arg0
+     */
+    set eastings(arg0) {
+        wasm.__wbg_set_georeferencejs_eastings(this.__wbg_ptr, arg0);
+    }
+    /**
+     * Northings (Y offset)
+     * @returns {number}
+     */
+    get northings() {
+        const ret = wasm.__wbg_get_georeferencejs_northings(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Northings (Y offset)
+     * @param {number} arg0
+     */
+    set northings(arg0) {
+        wasm.__wbg_set_georeferencejs_northings(this.__wbg_ptr, arg0);
+    }
+    /**
+     * Orthogonal height (Z offset)
+     * @returns {number}
+     */
+    get orthogonal_height() {
+        const ret = wasm.__wbg_get_georeferencejs_orthogonal_height(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Orthogonal height (Z offset)
+     * @param {number} arg0
+     */
+    set orthogonal_height(arg0) {
+        wasm.__wbg_set_georeferencejs_orthogonal_height(this.__wbg_ptr, arg0);
+    }
+    /**
+     * X-axis abscissa (cos of rotation)
+     * @returns {number}
+     */
+    get x_axis_abscissa() {
+        const ret = wasm.__wbg_get_georeferencejs_x_axis_abscissa(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * X-axis abscissa (cos of rotation)
+     * @param {number} arg0
+     */
+    set x_axis_abscissa(arg0) {
+        wasm.__wbg_set_georeferencejs_x_axis_abscissa(this.__wbg_ptr, arg0);
+    }
+    /**
+     * X-axis ordinate (sin of rotation)
+     * @returns {number}
+     */
+    get x_axis_ordinate() {
+        const ret = wasm.__wbg_get_georeferencejs_x_axis_ordinate(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * X-axis ordinate (sin of rotation)
+     * @param {number} arg0
+     */
+    set x_axis_ordinate(arg0) {
+        wasm.__wbg_set_georeferencejs_x_axis_ordinate(this.__wbg_ptr, arg0);
+    }
+    /**
+     * Scale factor
+     * @returns {number}
+     */
+    get scale() {
+        const ret = wasm.__wbg_get_georeferencejs_scale(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Scale factor
+     * @param {number} arg0
+     */
+    set scale(arg0) {
+        wasm.__wbg_set_georeferencejs_scale(this.__wbg_ptr, arg0);
+    }
+}
+if (Symbol.dispose) GeoReferenceJs.prototype[Symbol.dispose] = GeoReferenceJs.prototype.free;
+exports.GeoReferenceJs = GeoReferenceJs;
 
 /**
  * Main IFC-Lite API
@@ -363,6 +588,53 @@ class IfcAPI {
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.ifcapi_parseZeroCopy(this.__wbg_ptr, ptr0, len0);
         return ZeroCopyMesh.__wrap(ret);
+    }
+    /**
+     * Extract georeferencing information from IFC content
+     * Returns null if no georeferencing is present
+     *
+     * Example:
+     * ```javascript
+     * const api = new IfcAPI();
+     * const georef = api.getGeoReference(ifcData);
+     * if (georef) {
+     *   console.log('CRS:', georef.crsName);
+     *   const [e, n, h] = georef.localToMap(10, 20, 5);
+     * }
+     * ```
+     * @param {string} content
+     * @returns {GeoReferenceJs | undefined}
+     */
+    getGeoReference(content) {
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.ifcapi_getGeoReference(this.__wbg_ptr, ptr0, len0);
+        return ret === 0 ? undefined : GeoReferenceJs.__wrap(ret);
+    }
+    /**
+     * Parse IFC file and return mesh with RTC offset for large coordinates
+     * This handles georeferenced models by shifting to centroid
+     *
+     * Example:
+     * ```javascript
+     * const api = new IfcAPI();
+     * const result = api.parseMeshesWithRtc(ifcData);
+     * const rtcOffset = result.rtcOffset;
+     * const meshes = result.meshes;
+     *
+     * // Convert local coords back to world:
+     * if (rtcOffset.isSignificant()) {
+     *   const [wx, wy, wz] = rtcOffset.toWorld(localX, localY, localZ);
+     * }
+     * ```
+     * @param {string} content
+     * @returns {MeshCollectionWithRtc}
+     */
+    parseMeshesWithRtc(content) {
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.ifcapi_parseMeshesWithRtc(this.__wbg_ptr, ptr0, len0);
+        return MeshCollectionWithRtc.__wrap(ret);
     }
     /**
      * Debug: Test processing entity #953 (FacetedBrep wall)
@@ -528,6 +800,64 @@ if (Symbol.dispose) MeshCollection.prototype[Symbol.dispose] = MeshCollection.pr
 exports.MeshCollection = MeshCollection;
 
 /**
+ * Mesh collection with RTC offset for large coordinates
+ */
+class MeshCollectionWithRtc {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(MeshCollectionWithRtc.prototype);
+        obj.__wbg_ptr = ptr;
+        MeshCollectionWithRtcFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        MeshCollectionWithRtcFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_meshcollectionwithrtc_free(ptr, 0);
+    }
+    /**
+     * Get the RTC offset
+     * @returns {RtcOffsetJs}
+     */
+    get rtcOffset() {
+        const ret = wasm.meshcollectionwithrtc_rtcOffset(this.__wbg_ptr);
+        return RtcOffsetJs.__wrap(ret);
+    }
+    /**
+     * Get mesh at index
+     * @param {number} index
+     * @returns {MeshDataJs | undefined}
+     */
+    get(index) {
+        const ret = wasm.meshcollectionwithrtc_get(this.__wbg_ptr, index);
+        return ret === 0 ? undefined : MeshDataJs.__wrap(ret);
+    }
+    /**
+     * Get number of meshes
+     * @returns {number}
+     */
+    get length() {
+        const ret = wasm.meshcollectionwithrtc_length(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Get the mesh collection
+     * @returns {MeshCollection}
+     */
+    get meshes() {
+        const ret = wasm.meshcollectionwithrtc_meshes(this.__wbg_ptr);
+        return MeshCollection.__wrap(ret);
+    }
+}
+if (Symbol.dispose) MeshCollectionWithRtc.prototype[Symbol.dispose] = MeshCollectionWithRtc.prototype.free;
+exports.MeshCollectionWithRtc = MeshCollectionWithRtc;
+
+/**
  * Individual mesh data with express ID and color (matches MeshData interface)
  */
 class MeshDataJs {
@@ -616,6 +946,104 @@ class MeshDataJs {
 }
 if (Symbol.dispose) MeshDataJs.prototype[Symbol.dispose] = MeshDataJs.prototype.free;
 exports.MeshDataJs = MeshDataJs;
+
+/**
+ * RTC offset information exposed to JavaScript
+ */
+class RtcOffsetJs {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(RtcOffsetJs.prototype);
+        obj.__wbg_ptr = ptr;
+        RtcOffsetJsFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        RtcOffsetJsFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_rtcoffsetjs_free(ptr, 0);
+    }
+    /**
+     * Check if offset is significant (>10km)
+     * @returns {boolean}
+     */
+    isSignificant() {
+        const ret = wasm.rtcoffsetjs_isSignificant(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * Convert local coordinates to world coordinates
+     * @param {number} x
+     * @param {number} y
+     * @param {number} z
+     * @returns {Float64Array}
+     */
+    toWorld(x, y, z) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.rtcoffsetjs_toWorld(retptr, this.__wbg_ptr, x, y, z);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayF64FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export4(r0, r1 * 8, 8);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * X offset (subtracted from positions)
+     * @returns {number}
+     */
+    get x() {
+        const ret = wasm.__wbg_get_georeferencejs_eastings(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * X offset (subtracted from positions)
+     * @param {number} arg0
+     */
+    set x(arg0) {
+        wasm.__wbg_set_georeferencejs_eastings(this.__wbg_ptr, arg0);
+    }
+    /**
+     * Y offset
+     * @returns {number}
+     */
+    get y() {
+        const ret = wasm.__wbg_get_georeferencejs_northings(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Y offset
+     * @param {number} arg0
+     */
+    set y(arg0) {
+        wasm.__wbg_set_georeferencejs_northings(this.__wbg_ptr, arg0);
+    }
+    /**
+     * Z offset
+     * @returns {number}
+     */
+    get z() {
+        const ret = wasm.__wbg_get_georeferencejs_orthogonal_height(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Z offset
+     * @param {number} arg0
+     */
+    set z(arg0) {
+        wasm.__wbg_set_georeferencejs_orthogonal_height(this.__wbg_ptr, arg0);
+    }
+}
+if (Symbol.dispose) RtcOffsetJs.prototype[Symbol.dispose] = RtcOffsetJs.prototype.free;
+exports.RtcOffsetJs = RtcOffsetJs;
 
 /**
  * Zero-copy mesh that exposes pointers to WASM memory
@@ -881,7 +1309,7 @@ exports.__wbg_new_ff12d2b041fb48f1 = function(arg0, arg1) {
             const a = state0.a;
             state0.a = 0;
             try {
-                return __wasm_bindgen_func_elem_211(a, state0.b, arg0, arg1);
+                return __wasm_bindgen_func_elem_261(a, state0.b, arg0, arg1);
             } finally {
                 state0.a = a;
             }
@@ -968,7 +1396,7 @@ exports.__wbindgen_cast_2241b6af4c4b2941 = function(arg0, arg1) {
 
 exports.__wbindgen_cast_d0bf45cb1ecae16f = function(arg0, arg1) {
     // Cast intrinsic for `Closure(Closure { dtor_idx: 33, function: Function { arguments: [Externref], shim_idx: 34, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-    const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_172, __wasm_bindgen_func_elem_173);
+    const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_222, __wasm_bindgen_func_elem_223);
     return addHeapObject(ret);
 };
 

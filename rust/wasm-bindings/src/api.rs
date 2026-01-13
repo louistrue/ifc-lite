@@ -9,8 +9,175 @@
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 use js_sys::{Function, Promise};
-use ifc_lite_core::{EntityScanner, ParseEvent, StreamConfig};
+use ifc_lite_core::{EntityScanner, ParseEvent, StreamConfig, GeoReference, RtcOffset};
 use crate::zero_copy::{ZeroCopyMesh, MeshDataJs, MeshCollection};
+
+/// Georeferencing information exposed to JavaScript
+#[wasm_bindgen]
+#[derive(Debug, Clone)]
+pub struct GeoReferenceJs {
+    /// CRS name (e.g., "EPSG:32632")
+    #[wasm_bindgen(skip)]
+    pub crs_name: Option<String>,
+    /// Eastings (X offset)
+    pub eastings: f64,
+    /// Northings (Y offset)
+    pub northings: f64,
+    /// Orthogonal height (Z offset)
+    pub orthogonal_height: f64,
+    /// X-axis abscissa (cos of rotation)
+    pub x_axis_abscissa: f64,
+    /// X-axis ordinate (sin of rotation)
+    pub x_axis_ordinate: f64,
+    /// Scale factor
+    pub scale: f64,
+}
+
+#[wasm_bindgen]
+impl GeoReferenceJs {
+    /// Get CRS name
+    #[wasm_bindgen(getter, js_name = crsName)]
+    pub fn crs_name(&self) -> Option<String> {
+        self.crs_name.clone()
+    }
+
+    /// Get rotation angle in radians
+    #[wasm_bindgen(getter)]
+    pub fn rotation(&self) -> f64 {
+        self.x_axis_ordinate.atan2(self.x_axis_abscissa)
+    }
+
+    /// Transform local coordinates to map coordinates
+    #[wasm_bindgen(js_name = localToMap)]
+    pub fn local_to_map(&self, x: f64, y: f64, z: f64) -> Vec<f64> {
+        let cos_r = self.x_axis_abscissa;
+        let sin_r = self.x_axis_ordinate;
+        let s = self.scale;
+
+        let e = s * (cos_r * x - sin_r * y) + self.eastings;
+        let n = s * (sin_r * x + cos_r * y) + self.northings;
+        let h = z + self.orthogonal_height;
+
+        vec![e, n, h]
+    }
+
+    /// Transform map coordinates to local coordinates
+    #[wasm_bindgen(js_name = mapToLocal)]
+    pub fn map_to_local(&self, e: f64, n: f64, h: f64) -> Vec<f64> {
+        let cos_r = self.x_axis_abscissa;
+        let sin_r = self.x_axis_ordinate;
+        let inv_scale = 1.0 / self.scale;
+
+        let dx = e - self.eastings;
+        let dy = n - self.northings;
+
+        let x = inv_scale * (cos_r * dx + sin_r * dy);
+        let y = inv_scale * (-sin_r * dx + cos_r * dy);
+        let z = h - self.orthogonal_height;
+
+        vec![x, y, z]
+    }
+
+    /// Get 4x4 transformation matrix (column-major for WebGL)
+    #[wasm_bindgen(js_name = toMatrix)]
+    pub fn to_matrix(&self) -> Vec<f64> {
+        let cos_r = self.x_axis_abscissa;
+        let sin_r = self.x_axis_ordinate;
+        let s = self.scale;
+
+        vec![
+            s * cos_r,  s * sin_r,  0.0, 0.0,
+            -s * sin_r, s * cos_r,  0.0, 0.0,
+            0.0,        0.0,        1.0, 0.0,
+            self.eastings, self.northings, self.orthogonal_height, 1.0,
+        ]
+    }
+}
+
+impl From<GeoReference> for GeoReferenceJs {
+    fn from(geo: GeoReference) -> Self {
+        Self {
+            crs_name: geo.crs_name,
+            eastings: geo.eastings,
+            northings: geo.northings,
+            orthogonal_height: geo.orthogonal_height,
+            x_axis_abscissa: geo.x_axis_abscissa,
+            x_axis_ordinate: geo.x_axis_ordinate,
+            scale: geo.scale,
+        }
+    }
+}
+
+/// RTC offset information exposed to JavaScript
+#[wasm_bindgen]
+#[derive(Debug, Clone, Default)]
+pub struct RtcOffsetJs {
+    /// X offset (subtracted from positions)
+    pub x: f64,
+    /// Y offset
+    pub y: f64,
+    /// Z offset
+    pub z: f64,
+}
+
+#[wasm_bindgen]
+impl RtcOffsetJs {
+    /// Check if offset is significant (>10km)
+    #[wasm_bindgen(js_name = isSignificant)]
+    pub fn is_significant(&self) -> bool {
+        const THRESHOLD: f64 = 10000.0;
+        self.x.abs() > THRESHOLD || self.y.abs() > THRESHOLD || self.z.abs() > THRESHOLD
+    }
+
+    /// Convert local coordinates to world coordinates
+    #[wasm_bindgen(js_name = toWorld)]
+    pub fn to_world(&self, x: f64, y: f64, z: f64) -> Vec<f64> {
+        vec![x + self.x, y + self.y, z + self.z]
+    }
+}
+
+impl From<RtcOffset> for RtcOffsetJs {
+    fn from(offset: RtcOffset) -> Self {
+        Self {
+            x: offset.x,
+            y: offset.y,
+            z: offset.z,
+        }
+    }
+}
+
+/// Mesh collection with RTC offset for large coordinates
+#[wasm_bindgen]
+pub struct MeshCollectionWithRtc {
+    meshes: MeshCollection,
+    rtc_offset: RtcOffsetJs,
+}
+
+#[wasm_bindgen]
+impl MeshCollectionWithRtc {
+    /// Get the mesh collection
+    #[wasm_bindgen(getter)]
+    pub fn meshes(&self) -> MeshCollection {
+        self.meshes.clone()
+    }
+
+    /// Get the RTC offset
+    #[wasm_bindgen(getter, js_name = rtcOffset)]
+    pub fn rtc_offset(&self) -> RtcOffsetJs {
+        self.rtc_offset.clone()
+    }
+
+    /// Get number of meshes
+    #[wasm_bindgen(getter)]
+    pub fn length(&self) -> usize {
+        self.meshes.len()
+    }
+
+    /// Get mesh at index
+    pub fn get(&self, index: usize) -> Option<MeshDataJs> {
+        self.meshes.get(index)
+    }
+}
 
 /// Main IFC-Lite API
 #[wasm_bindgen]
@@ -264,6 +431,124 @@ impl IfcAPI {
     #[wasm_bindgen(getter)]
     pub fn version(&self) -> String {
         env!("CARGO_PKG_VERSION").to_string()
+    }
+
+    /// Extract georeferencing information from IFC content
+    /// Returns null if no georeferencing is present
+    ///
+    /// Example:
+    /// ```javascript
+    /// const api = new IfcAPI();
+    /// const georef = api.getGeoReference(ifcData);
+    /// if (georef) {
+    ///   console.log('CRS:', georef.crsName);
+    ///   const [e, n, h] = georef.localToMap(10, 20, 5);
+    /// }
+    /// ```
+    #[wasm_bindgen(js_name = getGeoReference)]
+    pub fn get_geo_reference(&self, content: String) -> Option<GeoReferenceJs> {
+        use ifc_lite_core::{EntityScanner, EntityDecoder, build_entity_index, IfcType, GeoRefExtractor};
+
+        // Build entity index and decoder
+        let entity_index = build_entity_index(&content);
+        let mut decoder = EntityDecoder::with_index(&content, entity_index);
+
+        // Collect entity types
+        let mut scanner = EntityScanner::new(&content);
+        let mut entity_types: Vec<(u32, IfcType)> = Vec::new();
+
+        while let Some((id, type_name, _, _)) = scanner.next_entity() {
+            if let Some(ifc_type) = IfcType::from_str(type_name) {
+                entity_types.push((id, ifc_type));
+            }
+        }
+
+        // Extract georeferencing
+        match GeoRefExtractor::extract(&mut decoder, &entity_types) {
+            Ok(Some(georef)) => Some(GeoReferenceJs::from(georef)),
+            _ => None,
+        }
+    }
+
+    /// Parse IFC file and return mesh with RTC offset for large coordinates
+    /// This handles georeferenced models by shifting to centroid
+    ///
+    /// Example:
+    /// ```javascript
+    /// const api = new IfcAPI();
+    /// const result = api.parseMeshesWithRtc(ifcData);
+    /// const rtcOffset = result.rtcOffset;
+    /// const meshes = result.meshes;
+    ///
+    /// // Convert local coords back to world:
+    /// if (rtcOffset.isSignificant()) {
+    ///   const [wx, wy, wz] = rtcOffset.toWorld(localX, localY, localZ);
+    /// }
+    /// ```
+    #[wasm_bindgen(js_name = parseMeshesWithRtc)]
+    pub fn parse_meshes_with_rtc(&self, content: String) -> MeshCollectionWithRtc {
+        use ifc_lite_core::{EntityScanner, EntityDecoder, build_entity_index, RtcOffset};
+        use ifc_lite_geometry::{GeometryRouter, calculate_normals};
+
+        // Build entity index once upfront
+        let entity_index = build_entity_index(&content);
+        let mut scanner = EntityScanner::new(&content);
+        let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+
+        // Build style indices
+        let geometry_styles = build_geometry_style_index(&content, &mut decoder);
+        let style_index = build_element_style_index(&content, &geometry_styles, &mut decoder);
+
+        // Reset scanner
+        scanner = EntityScanner::new(&content);
+
+        let router = GeometryRouter::new();
+        let estimated_elements = content.len() / 500;
+        let mut mesh_collection = MeshCollection::with_capacity(estimated_elements);
+
+        // Collect all positions to calculate RTC offset
+        let mut all_positions: Vec<f32> = Vec::with_capacity(100000);
+
+        // Process all building elements
+        while let Some((id, type_name, start, end)) = scanner.next_entity() {
+            if !ifc_lite_core::has_geometry_by_name(type_name) {
+                continue;
+            }
+
+            if let Ok(entity) = decoder.decode_at(start, end) {
+                if let Ok(mut mesh) = router.process_element(&entity, &mut decoder) {
+                    if !mesh.is_empty() {
+                        if mesh.normals.is_empty() {
+                            calculate_normals(&mut mesh);
+                        }
+
+                        // Collect positions for RTC calculation
+                        all_positions.extend_from_slice(&mesh.positions);
+
+                        let color = style_index.get(&id)
+                            .copied()
+                            .unwrap_or_else(|| get_default_color_for_type(&entity.ifc_type));
+
+                        let mesh_data = MeshDataJs::new(id, mesh, color);
+                        mesh_collection.add(mesh_data);
+                    }
+                }
+            }
+        }
+
+        // Calculate RTC offset from all positions
+        let rtc_offset = RtcOffset::from_positions(&all_positions);
+        let rtc_offset_js = RtcOffsetJs::from(rtc_offset.clone());
+
+        // Apply RTC offset if significant
+        if rtc_offset.is_significant() {
+            mesh_collection.apply_rtc_offset(rtc_offset.x, rtc_offset.y, rtc_offset.z);
+        }
+
+        MeshCollectionWithRtc {
+            meshes: mesh_collection,
+            rtc_offset: rtc_offset_js,
+        }
     }
 
     /// Debug: Test processing entity #953 (FacetedBrep wall)

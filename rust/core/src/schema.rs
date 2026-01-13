@@ -149,6 +149,11 @@ pub enum IfcType {
     IfcOrganization,
     IfcApplication,
 
+    // Georeferencing (IFC4)
+    IfcMapConversion,
+    IfcProjectedCRS,
+    IfcGeometricRepresentationContext,
+
     // Fallback for unknown types
     Unknown(u16), // Store hash for unknown types
 }
@@ -281,6 +286,11 @@ impl IfcType {
             "IFCPERSON" => Self::IfcPerson,
             "IFCORGANIZATION" => Self::IfcOrganization,
             "IFCAPPLICATION" => Self::IfcApplication,
+
+            // Georeferencing
+            "IFCMAPCONVERSION" => Self::IfcMapConversion,
+            "IFCPROJECTEDCRS" => Self::IfcProjectedCRS,
+            "IFCGEOMETRICREPRESENTATIONCONTEXT" => Self::IfcGeometricRepresentationContext,
 
             _ => {
                 // Unknown type - store a hash
@@ -417,6 +427,11 @@ impl IfcType {
             Self::IfcPerson => "IFCPERSON",
             Self::IfcOrganization => "IFCORGANIZATION",
             Self::IfcApplication => "IFCAPPLICATION",
+
+            // Georeferencing
+            Self::IfcMapConversion => "IFCMAPCONVERSION",
+            Self::IfcProjectedCRS => "IFCPROJECTEDCRS",
+            Self::IfcGeometricRepresentationContext => "IFCGEOMETRICREPRESENTATIONCONTEXT",
 
             Self::Unknown(_) => "UNKNOWN",
         }

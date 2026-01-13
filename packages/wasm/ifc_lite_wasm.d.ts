@@ -1,6 +1,56 @@
 /* tslint:disable */
 /* eslint-disable */
 
+export class GeoReferenceJs {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  /**
+   * Transform local coordinates to map coordinates
+   */
+  localToMap(x: number, y: number, z: number): Float64Array;
+  /**
+   * Transform map coordinates to local coordinates
+   */
+  mapToLocal(e: number, n: number, h: number): Float64Array;
+  /**
+   * Get 4x4 transformation matrix (column-major for WebGL)
+   */
+  toMatrix(): Float64Array;
+  /**
+   * Get CRS name
+   */
+  readonly crsName: string | undefined;
+  /**
+   * Get rotation angle in radians
+   */
+  readonly rotation: number;
+  /**
+   * Eastings (X offset)
+   */
+  eastings: number;
+  /**
+   * Northings (Y offset)
+   */
+  northings: number;
+  /**
+   * Orthogonal height (Z offset)
+   */
+  orthogonal_height: number;
+  /**
+   * X-axis abscissa (cos of rotation)
+   */
+  x_axis_abscissa: number;
+  /**
+   * X-axis ordinate (sin of rotation)
+   */
+  x_axis_ordinate: number;
+  /**
+   * Scale factor
+   */
+  scale: number;
+}
+
 export class IfcAPI {
   free(): void;
   [Symbol.dispose](): void;
@@ -61,6 +111,39 @@ export class IfcAPI {
    */
   parseZeroCopy(content: string): ZeroCopyMesh;
   /**
+   * Extract georeferencing information from IFC content
+   * Returns null if no georeferencing is present
+   *
+   * Example:
+   * ```javascript
+   * const api = new IfcAPI();
+   * const georef = api.getGeoReference(ifcData);
+   * if (georef) {
+   *   console.log('CRS:', georef.crsName);
+   *   const [e, n, h] = georef.localToMap(10, 20, 5);
+   * }
+   * ```
+   */
+  getGeoReference(content: string): GeoReferenceJs | undefined;
+  /**
+   * Parse IFC file and return mesh with RTC offset for large coordinates
+   * This handles georeferenced models by shifting to centroid
+   *
+   * Example:
+   * ```javascript
+   * const api = new IfcAPI();
+   * const result = api.parseMeshesWithRtc(ifcData);
+   * const rtcOffset = result.rtcOffset;
+   * const meshes = result.meshes;
+   *
+   * // Convert local coords back to world:
+   * if (rtcOffset.isSignificant()) {
+   *   const [wx, wy, wz] = rtcOffset.toWorld(localX, localY, localZ);
+   * }
+   * ```
+   */
+  parseMeshesWithRtc(content: string): MeshCollectionWithRtc;
+  /**
    * Debug: Test processing entity #953 (FacetedBrep wall)
    */
   debugProcessEntity953(content: string): string;
@@ -115,6 +198,28 @@ export class MeshCollection {
   readonly length: number;
 }
 
+export class MeshCollectionWithRtc {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  /**
+   * Get mesh at index
+   */
+  get(index: number): MeshDataJs | undefined;
+  /**
+   * Get the RTC offset
+   */
+  readonly rtcOffset: RtcOffsetJs;
+  /**
+   * Get number of meshes
+   */
+  readonly length: number;
+  /**
+   * Get the mesh collection
+   */
+  readonly meshes: MeshCollection;
+}
+
 export class MeshDataJs {
   private constructor();
   free(): void;
@@ -147,6 +252,32 @@ export class MeshDataJs {
    * Get positions as Float32Array (copy to JS)
    */
   readonly positions: Float32Array;
+}
+
+export class RtcOffsetJs {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  /**
+   * Check if offset is significant (>10km)
+   */
+  isSignificant(): boolean;
+  /**
+   * Convert local coordinates to world coordinates
+   */
+  toWorld(x: number, y: number, z: number): Float64Array;
+  /**
+   * X offset (subtracted from positions)
+   */
+  x: number;
+  /**
+   * Y offset
+   */
+  y: number;
+  /**
+   * Z offset
+   */
+  z: number;
 }
 
 export class ZeroCopyMesh {

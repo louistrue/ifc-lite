@@ -17,9 +17,6 @@
   ],
   "main": "ifc_lite_wasm.js",
   "types": "ifc_lite_wasm.d.ts",
-  "sideEffects": [
-    "./snippets/*"
-  ],
   "keywords": [
     "ifc",
     "bim",

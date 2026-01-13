@@ -137,6 +137,36 @@ impl MeshCollection {
     pub fn from_vec(meshes: Vec<MeshDataJs>) -> Self {
         Self { meshes }
     }
+
+    /// Get number of meshes (internal)
+    pub fn len(&self) -> usize {
+        self.meshes.len()
+    }
+
+    /// Apply RTC offset to all meshes (shift coordinates)
+    pub fn apply_rtc_offset(&mut self, x: f64, y: f64, z: f64) {
+        for mesh in &mut self.meshes {
+            for chunk in mesh.positions.chunks_exact_mut(3) {
+                chunk[0] = (chunk[0] as f64 - x) as f32;
+                chunk[1] = (chunk[1] as f64 - y) as f32;
+                chunk[2] = (chunk[2] as f64 - z) as f32;
+            }
+        }
+    }
+}
+
+impl Clone for MeshCollection {
+    fn clone(&self) -> Self {
+        Self {
+            meshes: self.meshes.iter().map(|m| MeshDataJs {
+                express_id: m.express_id,
+                positions: m.positions.clone(),
+                normals: m.normals.clone(),
+                indices: m.indices.clone(),
+                color: m.color,
+            }).collect(),
+        }
+    }
 }
 
 impl Default for MeshCollection {

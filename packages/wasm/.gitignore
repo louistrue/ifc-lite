@@ -1,5 +1,1 @@
-# Ignore dev/test files
-snippets/
-benchmark.js
-debug-*.js
-test-*.js
+*

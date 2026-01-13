@@ -109,6 +109,86 @@ impl AttributeValue {
     pub fn is_null(&self) -> bool {
         matches!(self, AttributeValue::Null | AttributeValue::Derived)
     }
+
+    /// Batch parse 3D coordinates from a list of coordinate triples
+    /// Returns flattened f32 array: [x0, y0, z0, x1, y1, z1, ...]
+    /// Optimized for large coordinate lists
+    #[inline]
+    pub fn parse_coordinate_list_3d(coord_list: &[AttributeValue]) -> Vec<f32> {
+        let mut result = Vec::with_capacity(coord_list.len() * 3);
+
+        for coord_attr in coord_list {
+            if let Some(coord) = coord_attr.as_list() {
+                // Fast path: extract x, y, z directly
+                let x = coord.get(0).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+                let y = coord.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+                let z = coord.get(2).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+
+                result.push(x);
+                result.push(y);
+                result.push(z);
+            }
+        }
+
+        result
+    }
+
+    /// Batch parse 2D coordinates from a list of coordinate pairs
+    /// Returns flattened f32 array: [x0, y0, x1, y1, ...]
+    #[inline]
+    pub fn parse_coordinate_list_2d(coord_list: &[AttributeValue]) -> Vec<f32> {
+        let mut result = Vec::with_capacity(coord_list.len() * 2);
+
+        for coord_attr in coord_list {
+            if let Some(coord) = coord_attr.as_list() {
+                let x = coord.get(0).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+                let y = coord.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+
+                result.push(x);
+                result.push(y);
+            }
+        }
+
+        result
+    }
+
+    /// Batch parse triangle indices from a list of index triples
+    /// Converts from 1-based IFC indices to 0-based indices
+    /// Returns flattened u32 array: [i0, i1, i2, ...]
+    #[inline]
+    pub fn parse_index_list(face_list: &[AttributeValue]) -> Vec<u32> {
+        let mut result = Vec::with_capacity(face_list.len() * 3);
+
+        for face_attr in face_list {
+            if let Some(face) = face_attr.as_list() {
+                // Use as_int for faster parsing, convert from 1-based to 0-based
+                let i0 = (face.get(0).and_then(|v| v.as_int()).unwrap_or(1) - 1) as u32;
+                let i1 = (face.get(1).and_then(|v| v.as_int()).unwrap_or(1) - 1) as u32;
+                let i2 = (face.get(2).and_then(|v| v.as_int()).unwrap_or(1) - 1) as u32;
+
+                result.push(i0);
+                result.push(i1);
+                result.push(i2);
+            }
+        }
+
+        result
+    }
+
+    /// Batch parse coordinate list with f64 precision
+    /// Returns Vec of (x, y, z) tuples
+    #[inline]
+    pub fn parse_coordinate_list_3d_f64(coord_list: &[AttributeValue]) -> Vec<(f64, f64, f64)> {
+        coord_list.iter()
+            .filter_map(|coord_attr| {
+                let coord = coord_attr.as_list()?;
+                let x = coord.get(0).and_then(|v| v.as_float()).unwrap_or(0.0);
+                let y = coord.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
+                let z = coord.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
+                Some((x, y, z))
+            })
+            .collect()
+    }
 }
 
 /// Decoded IFC entity with attributes
