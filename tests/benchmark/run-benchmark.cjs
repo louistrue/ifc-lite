@@ -61,10 +61,13 @@ async function loadLibraries() {
   }
 }
 
-// Collect all IFC test files
+// Collect all IFC test files (recursively searches subdirectories)
 function collectTestFiles() {
   const testDirs = [
     path.join(__dirname, '../ifc'),
+    path.join(__dirname, '../ifc/ara3d-format-shootout'),
+    path.join(__dirname, '../ifc/buildingSMART-PCERT-Sample-Scene'),
+    path.join(__dirname, '../ifc/generated'),
     path.join(__dirname, 'models/buildingsmart'),
     path.join(__dirname, 'models/ara3d'),
   ];
@@ -76,7 +79,7 @@ function collectTestFiles() {
 
     const entries = fs.readdirSync(dir);
     for (const entry of entries) {
-      if (!entry.endsWith('.ifc')) continue;
+      if (!entry.endsWith('.ifc') && !entry.endsWith('.IFC')) continue;
 
       const filePath = path.join(dir, entry);
       const stats = fs.statSync(filePath);
