@@ -488,6 +488,7 @@ impl FacetedBrepProcessor {
     }
 
     /// Extract polygon points from a loop entity
+    /// Uses fast path for CartesianPoint extraction to avoid decode overhead
     #[inline]
     fn extract_loop_points(
         &self,
@@ -496,19 +497,33 @@ impl FacetedBrepProcessor {
     ) -> Option<Vec<Point3<f64>>> {
         // Try to get Polygon attribute (attribute 0) - IfcPolyLoop has this
         let polygon_attr = loop_entity.get(0)?;
-        let points = decoder.resolve_ref_list(polygon_attr).ok()?;
 
-        let mut polygon_points = Vec::new();
-        for point in points {
-            let coords_attr = point.get(0)?;
-            let coords = coords_attr.as_list()?;
+        // Get the list of point references directly
+        let point_refs = polygon_attr.as_list()?;
 
-            use ifc_lite_core::AttributeValue;
-            let x = coords.get(0).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0);
-            let y = coords.get(1).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0);
-            let z = coords.get(2).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0);
+        // Pre-allocate with known size
+        let mut polygon_points = Vec::with_capacity(point_refs.len());
 
-            polygon_points.push(Point3::new(x, y, z));
+        for point_ref in point_refs {
+            if let Some(point_id) = point_ref.as_entity_ref() {
+                // Use fast path to extract coordinates directly from raw bytes
+                if let Some((x, y, z)) = decoder.get_cartesian_point_fast(point_id) {
+                    polygon_points.push(Point3::new(x, y, z));
+                } else {
+                    // Fallback to standard path if fast extraction fails
+                    if let Ok(point) = decoder.decode_by_id(point_id) {
+                        if let Some(coords_attr) = point.get(0) {
+                            if let Some(coords) = coords_attr.as_list() {
+                                use ifc_lite_core::AttributeValue;
+                                let x = coords.get(0).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0);
+                                let y = coords.get(1).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0);
+                                let z = coords.get(2).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0);
+                                polygon_points.push(Point3::new(x, y, z));
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         if polygon_points.len() >= 3 {
