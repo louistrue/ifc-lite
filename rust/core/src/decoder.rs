@@ -201,6 +201,23 @@ impl<'a> EntityDecoder<'a> {
     pub fn cache_size(&self) -> usize {
         self.cache.len()
     }
+
+    /// Get raw bytes for an entity (for direct/fast parsing)
+    /// Returns the full entity line including type and attributes
+    #[inline]
+    pub fn get_raw_bytes(&mut self, entity_id: u32) -> Option<&'a [u8]> {
+        self.build_index();
+        let (start, end) = self.entity_index.as_ref()?.get(&entity_id).copied()?;
+        Some(self.content[start..end].as_bytes())
+    }
+
+    /// Get raw content string for an entity
+    #[inline]
+    pub fn get_raw_content(&mut self, entity_id: u32) -> Option<&'a str> {
+        self.build_index();
+        let (start, end) = self.entity_index.as_ref()?.get(&entity_id).copied()?;
+        Some(&self.content[start..end])
+    }
 }
 
 #[cfg(test)]

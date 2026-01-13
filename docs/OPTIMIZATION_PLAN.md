@@ -2,16 +2,174 @@
 
 ## Executive Summary
 
-Based on comprehensive analysis of the codebase and benchmark results, this document outlines a structured plan to make IFC-Lite significantly faster. The optimizations are organized into three phases with expected cumulative improvements of **60-80%**.
+Based on comprehensive analysis of the codebase and benchmark results, this document outlines a structured plan to make IFC-Lite significantly faster. The optimizations are organized into four phases with expected cumulative improvements of **60-80%**.
 
-**Current Benchmark Results:**
-- Overall speedup vs web-ifc: 1.09x (9% faster)
-- Median speedup: 1.13x
-- Wins: IFC-Lite 10, web-ifc 7
+**Current Benchmark Results (as of 2026-01-13):**
+- Overall speedup vs web-ifc: 1.43x (43% faster)
+- Average speedup: 6.70x
+- Median speedup: 1.28x
+- **BUT: 8 files where web-ifc is FASTER than IFC-Lite!**
+
+**Files Where We Are SLOWER:**
+| File | Speedup | Issue |
+|------|---------|-------|
+| Infra-Landscaping.ifc | 0.75x | 38 tessellation |
+| Building-Hvac.ifc | 0.74x | 5 tessellation |
+| Building-Structural.ifc | 0.85x | 17 tessellation |
+| Building-Landscaping.ifc | 0.86x | 7 tessellation |
+| Infra-Bridge.ifc | 0.89x | 54 tessellation |
+| 01_BIMcollab_Example_ARC.ifc | 0.94x | 2849 brep |
+| Building-Architecture.ifc | 0.97x | 12 tessellation |
+| Infra-Plumbing.ifc | 0.99x | 35 tessellation |
 
 **Target After Optimizations:**
 - Overall speedup vs web-ifc: **2.5-3.5x**
-- Consistent wins on all file types
+- **ALL files must show speedup > 1.0**
+
+---
+
+## Phase 0: Critical Tessellation Fix (HIGHEST PRIORITY)
+
+### Root Cause Analysis
+
+**The Problem:** 7 of 8 slow files are dominated by tessellation geometry (IfcTriangulatedFaceSet).
+
+**Current data flow for coordinate lists:**
+```
+Text → Token::Float → Token::List → AttributeValue::Float → AttributeValue::List → Vec<f32>
+       (alloc #1)     (alloc #2)    (alloc #3)              (alloc #4)            (final)
+```
+
+For a 1000-point IfcCartesianPointList3D:
+- 3000 Token::Float allocations
+- 1000 Token::List allocations (each with Vec)
+- 3000 AttributeValue::Float conversions
+- 1000 AttributeValue::List conversions
+- **~7000 total allocations vs 1 needed**
+
+**Ideal data flow:**
+```
+Text → Vec<f32>  (single allocation, direct parsing)
+```
+
+### 0.1 Direct Float Array Parser
+
+**File:** `rust/core/src/fast_parse.rs` (NEW)
+**Impact:** 3-5x speedup on tessellation files
+**Effort:** High but critical
+
+Create specialized parser that bypasses Token/AttributeValue entirely:
+
+```rust
+/// Direct coordinate parsing - no intermediate allocations
+pub fn parse_coordinate_list_direct(bytes: &[u8]) -> Vec<f32> {
+    let mut result = Vec::with_capacity(estimate_float_count(bytes));
+    let mut pos = 0;
+
+    while pos < bytes.len() {
+        // Skip to next number
+        while pos < bytes.len() && !is_digit_or_sign(bytes[pos]) {
+            pos += 1;
+        }
+        if pos >= bytes.len() { break; }
+
+        // Parse float directly using fast-float
+        let (value, consumed) = fast_float::parse_partial::<f32, _>(&bytes[pos..])
+            .unwrap_or((0.0, 0));
+        result.push(value);
+        pos += consumed;
+    }
+
+    result
+}
+
+/// Direct index parsing
+pub fn parse_index_list_direct(bytes: &[u8]) -> Vec<u32> {
+    // Similar approach, parse integers directly
+    // Convert 1-based to 0-based inline
+}
+```
+
+### 0.2 Fast-Float Integration
+
+**File:** `rust/core/Cargo.toml`
+**Impact:** 2-3x faster float parsing
+**Effort:** Low
+
+Replace lexical_core with fast-float:
+
+```toml
+[dependencies]
+fast-float = "0.2"
+```
+
+```rust
+// In parser.rs, replace:
+lexical_core::parse::<f64>(s.as_bytes())
+
+// With:
+fast_float::parse::<f64, _>(s)
+```
+
+### 0.3 Zero-Copy TriangulatedFaceSetProcessor
+
+**File:** `rust/geometry/src/processors.rs`
+**Impact:** 2-3x for tessellation
+**Effort:** Medium
+
+```rust
+impl GeometryProcessor for TriangulatedFaceSetProcessor {
+    fn process(&self, entity: &DecodedEntity, decoder: &mut EntityDecoder, _schema: &IfcSchema) -> Result<Mesh> {
+        // FAST PATH: If we can detect this is coordinate data, parse directly
+        if let Some(raw_coords) = decoder.get_raw_entity_bytes(coord_entity_id) {
+            let positions = parse_coordinate_list_direct(raw_coords);
+            let indices = parse_index_list_direct(raw_indices);
+            return Ok(Mesh { positions, normals: vec![], indices });
+        }
+
+        // Fallback to existing path
+        // ...
+    }
+}
+```
+
+### 0.4 Raw Byte Access in EntityDecoder
+
+**File:** `rust/core/src/decoder.rs`
+**Impact:** Enables fast path
+**Effort:** Low
+
+```rust
+impl<'a> EntityDecoder<'a> {
+    /// Get raw bytes for an entity (for direct parsing)
+    pub fn get_raw_bytes(&self, entity_id: u32) -> Option<&'a [u8]> {
+        let (start, end) = self.entity_index.as_ref()?.get(&entity_id)?;
+        Some(self.content[*start..*end].as_bytes())
+    }
+
+    /// Find argument bytes by index (e.g., get bytes of attribute 0)
+    pub fn get_argument_bytes(&self, entity_id: u32, arg_index: usize) -> Option<&'a [u8]> {
+        let bytes = self.get_raw_bytes(entity_id)?;
+        // Parse to find argument boundaries without full tokenization
+        find_argument_bytes(bytes, arg_index)
+    }
+}
+```
+
+### Expected Results After Phase 0
+
+| File | Before | After |
+|------|--------|-------|
+| Infra-Landscaping.ifc | 0.75x | >2.0x |
+| Building-Hvac.ifc | 0.74x | >2.0x |
+| Building-Structural.ifc | 0.85x | >2.0x |
+| Building-Landscaping.ifc | 0.86x | >2.0x |
+| Infra-Bridge.ifc | 0.89x | >2.0x |
+| 01_BIMcollab_Example_ARC.ifc | 0.94x | >1.5x |
+| Building-Architecture.ifc | 0.97x | >2.0x |
+| Infra-Plumbing.ifc | 0.99x | >2.0x |
+
+---
 
 ---
 

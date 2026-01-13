@@ -73,6 +73,7 @@ pub mod streaming;
 pub mod decoder;
 pub mod schema_gen;
 pub mod georef;
+pub mod fast_parse;
 
 pub use error::{Error, Result};
 pub use parser::{Token, EntityScanner, parse_entity};
@@ -81,3 +82,4 @@ pub use streaming::{ParseEvent, StreamConfig, parse_stream};
 pub use decoder::{EntityDecoder, EntityIndex, build_entity_index};
 pub use schema_gen::{AttributeValue, DecodedEntity, IfcSchema, GeometryCategory, ProfileCategory};
 pub use georef::{GeoReference, GeoRefExtractor, RtcOffset};
+pub use fast_parse::{parse_coordinates_direct, parse_indices_direct, should_use_fast_path};
