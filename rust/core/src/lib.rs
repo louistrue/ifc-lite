@@ -72,6 +72,7 @@ pub mod error;
 pub mod streaming;
 pub mod decoder;
 pub mod schema_gen;
+pub mod generated;
 
 pub use error::{Error, Result};
 pub use parser::{Token, EntityScanner, parse_entity};
@@ -79,3 +80,13 @@ pub use schema::{IfcType, has_geometry_by_name};
 pub use streaming::{ParseEvent, StreamConfig, parse_stream};
 pub use decoder::{EntityDecoder, EntityIndex, build_entity_index};
 pub use schema_gen::{AttributeValue, DecodedEntity, IfcSchema, GeometryCategory, ProfileCategory};
+
+/// Auto-generated types from EXPRESS schema (IFC4X3)
+///
+/// These types are complete, covering all 876 entities in the schema.
+/// Use `gen::IfcType` for full schema coverage or the root `IfcType`
+/// for backward compatibility with the manually curated subset.
+pub mod gen {
+    pub use super::generated::{IfcType, GeometryCategory, ProfileCategory};
+    pub use super::generated::*;
+}
