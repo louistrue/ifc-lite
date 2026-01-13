@@ -88,4 +88,4 @@ pub use csg::{Plane, Triangle, ClippingProcessor, calculate_normals};
 pub use triangulation::triangulate_polygon;
 pub use router::{GeometryRouter, GeometryProcessor};
 pub use profiles::ProfileProcessor;
-pub use processors::{ExtrudedAreaSolidProcessor, TriangulatedFaceSetProcessor, MappedItemProcessor, FacetedBrepProcessor, BooleanClippingProcessor, SweptDiskSolidProcessor, RevolvedAreaSolidProcessor};
+pub use processors::{ExtrudedAreaSolidProcessor, TriangulatedFaceSetProcessor, MappedItemProcessor, FacetedBrepProcessor, BooleanClippingProcessor, SweptDiskSolidProcessor, RevolvedAreaSolidProcessor, AdvancedBrepProcessor};

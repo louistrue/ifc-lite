@@ -82,6 +82,10 @@ pub enum IfcType {
     IfcSweptDiskSolid,
     IfcRevolvedAreaSolid,
     IfcFacetedBrep,
+    IfcAdvancedBrep,
+    IfcAdvancedBrepWithVoids,
+    IfcAdvancedFace,
+    IfcBSplineSurfaceWithKnots,
     IfcTriangulatedFaceSet,
     IfcPolygonalFaceSet,
     IfcBooleanResult,
@@ -239,6 +243,10 @@ impl IfcType {
             "IFCSWEPTDISKSOLID" => Self::IfcSweptDiskSolid,
             "IFCREVOLVEDAREASOLID" => Self::IfcRevolvedAreaSolid,
             "IFCFACETEDBREP" => Self::IfcFacetedBrep,
+            "IFCADVANCEDBREP" => Self::IfcAdvancedBrep,
+            "IFCADVANCEDBREPWITHVOIDS" => Self::IfcAdvancedBrepWithVoids,
+            "IFCADVANCEDFACE" => Self::IfcAdvancedFace,
+            "IFCBSPLINESURFACEWITHKNOTS" => Self::IfcBSplineSurfaceWithKnots,
             "IFCTRIANGULATEDFACESET" => Self::IfcTriangulatedFaceSet,
             "IFCPOLYGONALFACESET" => Self::IfcPolygonalFaceSet,
             "IFCBOOLEANRESULT" => Self::IfcBooleanResult,
@@ -394,6 +402,10 @@ impl IfcType {
             Self::IfcSweptDiskSolid => "IFCSWEPTDISKSOLID",
             Self::IfcRevolvedAreaSolid => "IFCREVOLVEDAREASOLID",
             Self::IfcFacetedBrep => "IFCFACETEDBREP",
+            Self::IfcAdvancedBrep => "IFCADVANCEDBREP",
+            Self::IfcAdvancedBrepWithVoids => "IFCADVANCEDBREPWITHVOIDS",
+            Self::IfcAdvancedFace => "IFCADVANCEDFACE",
+            Self::IfcBSplineSurfaceWithKnots => "IFCBSPLINESURFACEWITHKNOTS",
             Self::IfcTriangulatedFaceSet => "IFCTRIANGULATEDFACESET",
             Self::IfcPolygonalFaceSet => "IFCPOLYGONALFACESET",
             Self::IfcBooleanResult => "IFCBOOLEANRESULT",
@@ -639,6 +651,27 @@ pub fn has_geometry_by_name(type_name: &str) -> bool {
         "IFCVIRTUALELEMENT",
     ];
 
+    // IFC4x3 Infrastructure elements
+    let infrastructure = [
+        "IFCROAD", "IFCROADPART",
+        "IFCRAILWAY", "IFCRAILWAYPART",
+        "IFCBRIDGE", "IFCBRIDGEPART",
+        "IFCFACILITY", "IFCFACILITYPART",
+        "IFCPAVEMENT", "IFCKERB", "IFCCOURSE",
+        "IFCEARTHWORKSCUT", "IFCEARTHWORKSFILL", "IFCEARTHWORKSELEMENT",
+        "IFCALIGNMENT", "IFCLINEARPOSITIONINGELEMENT",
+        "IFCREFERENT", "IFCSECTIONEDSPINE",
+        "IFCNAVIGATIONELEMENT", "IFCSIGN", "IFCSIGNAL",
+    ];
+
+    // IFC2X3 legacy elements (deprecated in IFC4 but still used)
+    let legacy = [
+        "IFCELECTRICDISTRIBUTIONPOINT",
+        "IFCGASTERMINAL",
+        "IFCELECTRICALELEMENT",
+        "IFCEQUIPMENTELEMENT",
+    ];
+
     // Generic placeholders that can contain geometry
     let generic = [
         "IFCPROXY",
@@ -653,6 +686,8 @@ pub fn has_geometry_by_name(type_name: &str) -> bool {
     mep.contains(&type_name) ||
     furniture.contains(&type_name) ||
     civil.contains(&type_name) ||
+    infrastructure.contains(&type_name) ||
+    legacy.contains(&type_name) ||
     generic.contains(&type_name)
 }
 

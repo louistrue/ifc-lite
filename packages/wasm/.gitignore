@@ -1,8 +1,1 @@
-# Generated/temp files
-benchmark.js
-debug-*.js
-test-*.js
-
-# Build artifacts (keep tracked files like package.json, README.md, .d.ts)
-*.wasm
-!ifc_lite_wasm_bg.wasm
+*

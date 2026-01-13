@@ -1585,9 +1585,516 @@ impl Default for RevolvedAreaSolidProcessor {
     }
 }
 
+/// AdvancedBrep processor
+/// Handles IfcAdvancedBrep and IfcAdvancedBrepWithVoids - NURBS/B-spline surfaces
+/// Supports planar faces and B-spline surface tessellation
+pub struct AdvancedBrepProcessor;
+
+impl AdvancedBrepProcessor {
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Evaluate a B-spline basis function (Cox-de Boor recursion)
+    #[inline]
+    fn bspline_basis(i: usize, p: usize, u: f64, knots: &[f64]) -> f64 {
+        if p == 0 {
+            if knots[i] <= u && u < knots[i + 1] {
+                1.0
+            } else {
+                0.0
+            }
+        } else {
+            let left = {
+                let denom = knots[i + p] - knots[i];
+                if denom.abs() < 1e-10 {
+                    0.0
+                } else {
+                    (u - knots[i]) / denom * Self::bspline_basis(i, p - 1, u, knots)
+                }
+            };
+            let right = {
+                let denom = knots[i + p + 1] - knots[i + 1];
+                if denom.abs() < 1e-10 {
+                    0.0
+                } else {
+                    (knots[i + p + 1] - u) / denom * Self::bspline_basis(i + 1, p - 1, u, knots)
+                }
+            };
+            left + right
+        }
+    }
+
+    /// Evaluate a B-spline surface at parameter (u, v)
+    fn evaluate_bspline_surface(
+        u: f64,
+        v: f64,
+        u_degree: usize,
+        v_degree: usize,
+        control_points: &[Vec<Point3<f64>>],
+        u_knots: &[f64],
+        v_knots: &[f64],
+    ) -> Point3<f64> {
+        let n_u = control_points.len();
+        let n_v = if n_u > 0 { control_points[0].len() } else { 0 };
+
+        let mut result = Point3::new(0.0, 0.0, 0.0);
+
+        for i in 0..n_u {
+            let n_i = Self::bspline_basis(i, u_degree, u, u_knots);
+            for j in 0..n_v {
+                let n_j = Self::bspline_basis(j, v_degree, v, v_knots);
+                let weight = n_i * n_j;
+                if weight.abs() > 1e-10 {
+                    let cp = &control_points[i][j];
+                    result.x += weight * cp.x;
+                    result.y += weight * cp.y;
+                    result.z += weight * cp.z;
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Tessellate a B-spline surface into triangles
+    fn tessellate_bspline_surface(
+        u_degree: usize,
+        v_degree: usize,
+        control_points: &[Vec<Point3<f64>>],
+        u_knots: &[f64],
+        v_knots: &[f64],
+        u_segments: usize,
+        v_segments: usize,
+    ) -> (Vec<f32>, Vec<u32>) {
+        let mut positions = Vec::new();
+        let mut indices = Vec::new();
+
+        // Get parameter domain
+        let u_min = u_knots[u_degree];
+        let u_max = u_knots[u_knots.len() - u_degree - 1];
+        let v_min = v_knots[v_degree];
+        let v_max = v_knots[v_knots.len() - v_degree - 1];
+
+        // Evaluate surface on a grid
+        for i in 0..=u_segments {
+            let u = u_min + (u_max - u_min) * (i as f64 / u_segments as f64);
+            // Clamp u to slightly inside the domain to avoid edge issues
+            let u = u.min(u_max - 1e-6).max(u_min);
+
+            for j in 0..=v_segments {
+                let v = v_min + (v_max - v_min) * (j as f64 / v_segments as f64);
+                let v = v.min(v_max - 1e-6).max(v_min);
+
+                let point = Self::evaluate_bspline_surface(
+                    u, v, u_degree, v_degree, control_points, u_knots, v_knots,
+                );
+
+                positions.push(point.x as f32);
+                positions.push(point.y as f32);
+                positions.push(point.z as f32);
+
+                // Create triangles
+                if i < u_segments && j < v_segments {
+                    let base = (i * (v_segments + 1) + j) as u32;
+                    let next_u = base + (v_segments + 1) as u32;
+
+                    // Two triangles per quad
+                    indices.push(base);
+                    indices.push(base + 1);
+                    indices.push(next_u + 1);
+
+                    indices.push(base);
+                    indices.push(next_u + 1);
+                    indices.push(next_u);
+                }
+            }
+        }
+
+        (positions, indices)
+    }
+
+    /// Parse control points from B-spline surface entity
+    fn parse_control_points(
+        &self,
+        bspline: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<Vec<Vec<Point3<f64>>>> {
+        // Attribute 2: ControlPointsList (LIST of LIST of IfcCartesianPoint)
+        let cp_list_attr = bspline.get(2).ok_or_else(|| {
+            Error::geometry("BSplineSurface missing ControlPointsList".to_string())
+        })?;
+
+        let rows = cp_list_attr.as_list().ok_or_else(|| {
+            Error::geometry("Expected control point list".to_string())
+        })?;
+
+        let mut result = Vec::with_capacity(rows.len());
+
+        for row in rows {
+            let cols = row.as_list().ok_or_else(|| {
+                Error::geometry("Expected control point row".to_string())
+            })?;
+
+            let mut row_points = Vec::with_capacity(cols.len());
+            for col in cols {
+                if let Some(point_id) = col.as_entity_ref() {
+                    let point = decoder.decode_by_id(point_id)?;
+                    let coords = point.get(0).and_then(|v| v.as_list()).ok_or_else(|| {
+                        Error::geometry("CartesianPoint missing coordinates".to_string())
+                    })?;
+
+                    let x = coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0);
+                    let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
+                    let z = coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
+
+                    row_points.push(Point3::new(x, y, z));
+                }
+            }
+            result.push(row_points);
+        }
+
+        Ok(result)
+    }
+
+    /// Expand knot vector based on multiplicities
+    fn expand_knots(knot_values: &[f64], multiplicities: &[i64]) -> Vec<f64> {
+        let mut expanded = Vec::new();
+        for (knot, &mult) in knot_values.iter().zip(multiplicities.iter()) {
+            for _ in 0..mult {
+                expanded.push(*knot);
+            }
+        }
+        expanded
+    }
+
+    /// Parse knot vectors from B-spline surface entity
+    fn parse_knot_vectors(
+        &self,
+        bspline: &DecodedEntity,
+    ) -> Result<(Vec<f64>, Vec<f64>)> {
+        // IFCBSPLINESURFACEWITHKNOTS attributes:
+        // 0: UDegree
+        // 1: VDegree
+        // 2: ControlPointsList (already parsed)
+        // 3: SurfaceForm
+        // 4: UClosed
+        // 5: VClosed
+        // 6: SelfIntersect
+        // 7: UMultiplicities (LIST of INTEGER)
+        // 8: VMultiplicities (LIST of INTEGER)
+        // 9: UKnots (LIST of REAL)
+        // 10: VKnots (LIST of REAL)
+        // 11: KnotSpec
+
+        // Get U multiplicities
+        let u_mult_attr = bspline.get(7).ok_or_else(|| {
+            Error::geometry("BSplineSurface missing UMultiplicities".to_string())
+        })?;
+        let u_mults: Vec<i64> = u_mult_attr
+            .as_list()
+            .ok_or_else(|| Error::geometry("Expected U multiplicities list".to_string()))?
+            .iter()
+            .filter_map(|v| v.as_int())
+            .collect();
+
+        // Get V multiplicities
+        let v_mult_attr = bspline.get(8).ok_or_else(|| {
+            Error::geometry("BSplineSurface missing VMultiplicities".to_string())
+        })?;
+        let v_mults: Vec<i64> = v_mult_attr
+            .as_list()
+            .ok_or_else(|| Error::geometry("Expected V multiplicities list".to_string()))?
+            .iter()
+            .filter_map(|v| v.as_int())
+            .collect();
+
+        // Get U knots
+        let u_knots_attr = bspline.get(9).ok_or_else(|| {
+            Error::geometry("BSplineSurface missing UKnots".to_string())
+        })?;
+        let u_knot_values: Vec<f64> = u_knots_attr
+            .as_list()
+            .ok_or_else(|| Error::geometry("Expected U knots list".to_string()))?
+            .iter()
+            .filter_map(|v| v.as_float())
+            .collect();
+
+        // Get V knots
+        let v_knots_attr = bspline.get(10).ok_or_else(|| {
+            Error::geometry("BSplineSurface missing VKnots".to_string())
+        })?;
+        let v_knot_values: Vec<f64> = v_knots_attr
+            .as_list()
+            .ok_or_else(|| Error::geometry("Expected V knots list".to_string()))?
+            .iter()
+            .filter_map(|v| v.as_float())
+            .collect();
+
+        // Expand knot vectors with multiplicities
+        let u_knots = Self::expand_knots(&u_knot_values, &u_mults);
+        let v_knots = Self::expand_knots(&v_knot_values, &v_mults);
+
+        Ok((u_knots, v_knots))
+    }
+
+    /// Process a planar face (IfcPlane surface)
+    fn process_planar_face(
+        &self,
+        face: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<(Vec<f32>, Vec<u32>)> {
+        // Get bounds from face (attribute 0)
+        let bounds_attr = face.get(0).ok_or_else(|| {
+            Error::geometry("AdvancedFace missing Bounds".to_string())
+        })?;
+
+        let bounds = bounds_attr.as_list().ok_or_else(|| {
+            Error::geometry("Expected bounds list".to_string())
+        })?;
+
+        let mut positions = Vec::new();
+        let mut indices = Vec::new();
+
+        for bound in bounds {
+            if let Some(bound_id) = bound.as_entity_ref() {
+                let bound_entity = decoder.decode_by_id(bound_id)?;
+
+                // Get the loop (attribute 0: Bound)
+                let loop_attr = bound_entity.get(0).ok_or_else(|| {
+                    Error::geometry("FaceBound missing Bound".to_string())
+                })?;
+
+                let loop_entity = decoder.resolve_ref(loop_attr)?.ok_or_else(|| {
+                    Error::geometry("Failed to resolve loop".to_string())
+                })?;
+
+                // Get oriented edges from edge loop
+                if loop_entity.ifc_type.as_str().eq_ignore_ascii_case("IFCEDGELOOP") {
+                    let edges_attr = loop_entity.get(0).ok_or_else(|| {
+                        Error::geometry("EdgeLoop missing EdgeList".to_string())
+                    })?;
+
+                    let edges = edges_attr.as_list().ok_or_else(|| {
+                        Error::geometry("Expected edge list".to_string())
+                    })?;
+
+                    let mut polygon_points = Vec::new();
+
+                    for edge_ref in edges {
+                        if let Some(edge_id) = edge_ref.as_entity_ref() {
+                            let oriented_edge = decoder.decode_by_id(edge_id)?;
+
+                            // IfcOrientedEdge: EdgeStart, EdgeEnd, EdgeElement, Orientation
+                            // We need EdgeStart vertex
+                            let start_attr = oriented_edge.get(0).ok_or_else(|| {
+                                Error::geometry("OrientedEdge missing EdgeStart".to_string())
+                            })?;
+
+                            if let Some(vertex) = decoder.resolve_ref(start_attr)? {
+                                // IfcVertexPoint has VertexGeometry (IfcCartesianPoint)
+                                let point_attr = vertex.get(0).ok_or_else(|| {
+                                    Error::geometry("VertexPoint missing geometry".to_string())
+                                })?;
+
+                                if let Some(point) = decoder.resolve_ref(point_attr)? {
+                                    let coords = point.get(0).and_then(|v| v.as_list()).ok_or_else(|| {
+                                        Error::geometry("CartesianPoint missing coords".to_string())
+                                    })?;
+
+                                    let x = coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0);
+                                    let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
+                                    let z = coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
+
+                                    polygon_points.push(Point3::new(x, y, z));
+                                }
+                            }
+                        }
+                    }
+
+                    // Triangulate the polygon
+                    if polygon_points.len() >= 3 {
+                        let base_idx = (positions.len() / 3) as u32;
+
+                        for point in &polygon_points {
+                            positions.push(point.x as f32);
+                            positions.push(point.y as f32);
+                            positions.push(point.z as f32);
+                        }
+
+                        // Fan triangulation for simple convex polygons
+                        for i in 1..polygon_points.len() - 1 {
+                            indices.push(base_idx);
+                            indices.push(base_idx + i as u32);
+                            indices.push(base_idx + i as u32 + 1);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok((positions, indices))
+    }
+
+    /// Process a B-spline surface face
+    fn process_bspline_face(
+        &self,
+        bspline: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<(Vec<f32>, Vec<u32>)> {
+        // Get degrees
+        let u_degree = bspline.get_float(0).unwrap_or(3.0) as usize;
+        let v_degree = bspline.get_float(1).unwrap_or(1.0) as usize;
+
+        // Parse control points
+        let control_points = self.parse_control_points(bspline, decoder)?;
+
+        // Parse knot vectors
+        let (u_knots, v_knots) = self.parse_knot_vectors(bspline)?;
+
+        // Determine tessellation resolution based on surface complexity
+        let u_segments = (control_points.len() * 3).max(8).min(24);
+        let v_segments = if !control_points.is_empty() {
+            (control_points[0].len() * 3).max(4).min(24)
+        } else {
+            4
+        };
+
+        // Tessellate the surface
+        let (positions, indices) = Self::tessellate_bspline_surface(
+            u_degree,
+            v_degree,
+            &control_points,
+            &u_knots,
+            &v_knots,
+            u_segments,
+            v_segments,
+        );
+
+        Ok((positions, indices))
+    }
+}
+
+impl GeometryProcessor for AdvancedBrepProcessor {
+    fn process(
+        &self,
+        entity: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+        _schema: &IfcSchema,
+    ) -> Result<Mesh> {
+        // IfcAdvancedBrep attributes:
+        // 0: Outer (IfcClosedShell)
+
+        // Get the outer shell
+        let shell_attr = entity.get(0).ok_or_else(|| {
+            Error::geometry("AdvancedBrep missing Outer shell".to_string())
+        })?;
+
+        let shell = decoder.resolve_ref(shell_attr)?.ok_or_else(|| {
+            Error::geometry("Failed to resolve Outer shell".to_string())
+        })?;
+
+        // Get faces from the shell (IfcClosedShell.CfsFaces)
+        let faces_attr = shell.get(0).ok_or_else(|| {
+            Error::geometry("ClosedShell missing CfsFaces".to_string())
+        })?;
+
+        let faces = faces_attr.as_list().ok_or_else(|| {
+            Error::geometry("Expected face list".to_string())
+        })?;
+
+        let mut all_positions = Vec::new();
+        let mut all_indices = Vec::new();
+
+        for face_ref in faces {
+            if let Some(face_id) = face_ref.as_entity_ref() {
+                let face = decoder.decode_by_id(face_id)?;
+
+                // IfcAdvancedFace has:
+                // 0: Bounds (list of FaceBound)
+                // 1: FaceSurface (IfcSurface - Plane, BSplineSurface, etc.)
+                // 2: SameSense (boolean)
+
+                let surface_attr = face.get(1).ok_or_else(|| {
+                    Error::geometry("AdvancedFace missing FaceSurface".to_string())
+                })?;
+
+                let surface = decoder.resolve_ref(surface_attr)?.ok_or_else(|| {
+                    Error::geometry("Failed to resolve FaceSurface".to_string())
+                })?;
+
+                let surface_type = surface.ifc_type.as_str().to_uppercase();
+                let (positions, indices) = if surface_type == "IFCPLANE" {
+                    // Planar face - extract boundary vertices
+                    self.process_planar_face(&face, decoder)?
+                } else if surface_type == "IFCBSPLINESURFACEWITHKNOTS"
+                       || surface_type == "IFCRATIONALBSPLINESURFACEWITHKNOTS" {
+                    // B-spline surface - tessellate
+                    self.process_bspline_face(&surface, decoder)?
+                } else {
+                    // Unsupported surface type - skip
+                    continue;
+                };
+
+                // Merge into combined mesh
+                let base_idx = (all_positions.len() / 3) as u32;
+                all_positions.extend(positions);
+                for idx in indices {
+                    all_indices.push(base_idx + idx);
+                }
+            }
+        }
+
+        Ok(Mesh {
+            positions: all_positions,
+            normals: Vec::new(),
+            indices: all_indices,
+        })
+    }
+
+    fn supported_types(&self) -> Vec<IfcType> {
+        vec![
+            IfcType::IfcAdvancedBrep,
+            IfcType::IfcAdvancedBrepWithVoids,
+        ]
+    }
+}
+
+impl Default for AdvancedBrepProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_advanced_brep_file() {
+        use crate::router::GeometryRouter;
+
+        // Read the actual advanced_brep.ifc file
+        let content = std::fs::read_to_string(
+            "../../tests/benchmark/models/ifcopenshell/advanced_brep.ifc"
+        ).expect("Failed to read test file");
+
+        let entity_index = ifc_lite_core::build_entity_index(&content);
+        let mut decoder = EntityDecoder::with_index(&content, entity_index);
+        let router = GeometryRouter::new();
+
+        // Process IFCBUILDINGELEMENTPROXY #181 which contains the AdvancedBrep geometry
+        let element = decoder.decode_by_id(181).expect("Failed to decode element");
+        assert_eq!(element.ifc_type, IfcType::IfcBuildingElementProxy);
+
+        let mesh = router.process_element(&element, &mut decoder)
+            .expect("Failed to process advanced brep");
+
+        // Should produce geometry (B-spline surfaces tessellated)
+        assert!(!mesh.is_empty(), "AdvancedBrep should produce geometry");
+        assert!(mesh.positions.len() >= 3 * 100, "Should have significant geometry");
+        assert!(mesh.indices.len() >= 3 * 100, "Should have many triangles");
+    }
 
     #[test]
     fn test_extruded_area_solid() {
