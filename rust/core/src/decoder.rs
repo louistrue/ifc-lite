@@ -275,9 +275,12 @@ impl<'a> EntityDecoder<'a> {
                     i += 1;
                 }
                 if i > start {
-                    if let Some(id) = std::str::from_utf8(&bytes[start..i]).ok().and_then(|s| s.parse::<u32>().ok()) {
-                        ids.push(id);
+                    // Fast integer parsing directly from ASCII digits
+                    let mut id = 0u32;
+                    for &b in &bytes[start..i] {
+                        id = id * 10 + (b - b'0') as u32;
                     }
+                    ids.push(id);
                 }
             } else {
                 i += 1; // Skip unknown character
@@ -341,9 +344,12 @@ impl<'a> EntityDecoder<'a> {
                     i += 1;
                 }
                 if i > start {
-                    if let Some(id) = std::str::from_utf8(&bytes[start..i]).ok().and_then(|s| s.parse::<u32>().ok()) {
-                        point_ids.push(id);
+                    // Fast integer parsing directly from ASCII digits
+                    let mut id = 0u32;
+                    for &b in &bytes[start..i] {
+                        id = id * 10 + (b - b'0') as u32;
                     }
+                    point_ids.push(id);
                 }
             } else {
                 i += 1; // Skip unknown character
@@ -392,6 +398,86 @@ impl<'a> EntityDecoder<'a> {
         let z = parse_next_float(&bytes[i..], &mut i).unwrap_or(0.0);
 
         Some((x, y, z))
+    }
+
+    /// Fast extraction of FaceBound info directly from raw bytes
+    /// Returns (loop_id, orientation, is_outer_bound)
+    /// Bypasses full entity decoding for BREP optimization
+    #[inline]
+    pub fn get_face_bound_fast(&mut self, entity_id: u32) -> Option<(u32, bool, bool)> {
+        let bytes = self.get_raw_bytes(entity_id)?;
+        let len = bytes.len();
+
+        // Find '=' to locate start of type name, and '(' for end
+        let mut eq_pos = 0;
+        while eq_pos < len && bytes[eq_pos] != b'=' {
+            eq_pos += 1;
+        }
+        if eq_pos >= len {
+            return None;
+        }
+
+        // Check if this is an outer bound - just scan the type name part
+        // IFCFACEOUTERBOUND vs IFCFACEBOUND
+        // The type name is between '=' and '('
+        let mut is_outer = false;
+        let mut i = eq_pos + 1;
+        while i < len && bytes[i] != b'(' {
+            if bytes[i] == b'O' {
+                is_outer = true;
+            }
+            i += 1;
+        }
+        if i >= len {
+            return None;
+        }
+
+        i += 1; // Skip first '('
+
+        // Skip whitespace
+        while i < len && (bytes[i] == b' ' || bytes[i] == b'\n' || bytes[i] == b'\r') {
+            i += 1;
+        }
+
+        // Expect '#' for loop entity ref
+        if i >= len || bytes[i] != b'#' {
+            return None;
+        }
+        i += 1;
+
+        // Parse loop ID
+        let start = i;
+        while i < len && bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i <= start {
+            return None;
+        }
+        let mut loop_id = 0u32;
+        for &b in &bytes[start..i] {
+            loop_id = loop_id * 10 + (b - b'0') as u32;
+        }
+
+        // Find orientation after comma - default to true (.T.)
+        // Skip to comma
+        while i < len && bytes[i] != b',' {
+            i += 1;
+        }
+        i += 1; // Skip comma
+
+        // Skip whitespace
+        while i < len && (bytes[i] == b' ' || bytes[i] == b'\n' || bytes[i] == b'\r') {
+            i += 1;
+        }
+
+        // Check for .F. (false) or .T. (true)
+        let orientation = if i + 2 < len && bytes[i] == b'.' && bytes[i + 2] == b'.' {
+            bytes[i + 1] != b'F'
+        } else {
+            true // Default to true
+        };
+
+        Some((loop_id, orientation, is_outer))
     }
 }
 

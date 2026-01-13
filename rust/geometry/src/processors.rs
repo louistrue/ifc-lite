@@ -758,7 +758,7 @@ impl GeometryProcessor for FacetedBrepProcessor {
             let mut hole_points: Vec<Vec<Point3<f64>>> = Vec::new();
 
             for bound_id in bound_ids {
-                // Get bound entity to check type and get loop ref
+                // Get bound entity to check type and get loop ref (uses cache)
                 let bound = match decoder.decode_by_id(bound_id) {
                     Ok(b) => b,
                     Err(_) => continue,
@@ -777,31 +777,25 @@ impl GeometryProcessor for FacetedBrepProcessor {
                     })
                     .unwrap_or(true);
 
-                // FAST PATH: Try to get loop points directly from entity ID
+                // FAST PATH: Get loop points directly from entity ID
                 let mut points = if let Some(loop_id) = loop_attr.as_entity_ref() {
-                    self.extract_loop_points_fast(loop_id, decoder)
-                } else {
-                    None
-                };
-
-                // FALLBACK: Use standard path if fast path fails
-                if points.is_none() {
-                    if let Ok(Some(loop_entity)) = decoder.resolve_ref(loop_attr) {
-                        points = self.extract_loop_points(&loop_entity, decoder);
+                    match self.extract_loop_points_fast(loop_id, decoder) {
+                        Some(p) => p,
+                        None => continue,
                     }
-                }
-
-                let mut points = match points {
-                    Some(p) => p,
-                    None => continue,
+                } else {
+                    continue
                 };
 
                 if !orientation {
                     points.reverse();
                 }
 
-                let type_str = bound.ifc_type.as_str();
-                let is_outer = type_str.contains("OUTER") || type_str.contains("outer");
+                let is_outer = match bound.ifc_type {
+                    IfcType::IfcFaceOuterBound => true,
+                    IfcType::IfcFaceBound => false,
+                    _ => bound.ifc_type.as_str().contains("OUTER"),
+                };
 
                 if is_outer || outer_bound_points.is_none() {
                     if outer_bound_points.is_some() && is_outer {
@@ -824,18 +818,11 @@ impl GeometryProcessor for FacetedBrepProcessor {
         }
 
         // PHASE 2: Parallel - Triangulate all faces concurrently
-        // Use parallel iterator for large BREPs (>16 faces), sequential for small ones
-        let face_results: Vec<FaceResult> = if face_data_list.len() > 16 {
-            face_data_list
-                .par_iter()
-                .map(Self::triangulate_face)
-                .collect()
-        } else {
-            face_data_list
-                .iter()
-                .map(Self::triangulate_face)
-                .collect()
-        };
+        // Always use parallel for faces (rayon handles small workloads efficiently)
+        let face_results: Vec<FaceResult> = face_data_list
+            .par_iter()
+            .map(Self::triangulate_face)
+            .collect();
 
         // PHASE 3: Sequential - Merge all face results into final mesh
         // Pre-calculate total sizes for efficient allocation
