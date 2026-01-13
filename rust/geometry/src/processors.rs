@@ -874,14 +874,157 @@ impl Default for FacetedBrepProcessor {
     }
 }
 
-/// BooleanClippingResult processor
-/// Handles IfcBooleanClippingResult - CSG operations
-/// For now, just processes the base geometry (FirstOperand)
-pub struct BooleanClippingProcessor;
+/// BooleanResult processor
+/// Handles IfcBooleanResult and IfcBooleanClippingResult - CSG operations
+/// Supports half-space clipping for DIFFERENCE operations
+pub struct BooleanClippingProcessor {
+    schema: IfcSchema,
+}
 
 impl BooleanClippingProcessor {
     pub fn new() -> Self {
-        Self
+        Self {
+            schema: IfcSchema::new(),
+        }
+    }
+
+    /// Process a solid operand recursively
+    fn process_operand(
+        &self,
+        operand: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<Mesh> {
+        match operand.ifc_type {
+            IfcType::IfcExtrudedAreaSolid => {
+                let processor = ExtrudedAreaSolidProcessor::new(self.schema.clone());
+                processor.process(operand, decoder, &self.schema)
+            }
+            IfcType::IfcFacetedBrep => {
+                let processor = FacetedBrepProcessor::new();
+                processor.process(operand, decoder, &self.schema)
+            }
+            IfcType::IfcTriangulatedFaceSet => {
+                let processor = TriangulatedFaceSetProcessor::new();
+                processor.process(operand, decoder, &self.schema)
+            }
+            IfcType::IfcSweptDiskSolid => {
+                let processor = SweptDiskSolidProcessor::new(self.schema.clone());
+                processor.process(operand, decoder, &self.schema)
+            }
+            IfcType::IfcRevolvedAreaSolid => {
+                let processor = RevolvedAreaSolidProcessor::new(self.schema.clone());
+                processor.process(operand, decoder, &self.schema)
+            }
+            IfcType::IfcBooleanResult | IfcType::IfcBooleanClippingResult => {
+                // Recursive case
+                self.process(operand, decoder, &self.schema)
+            }
+            _ => Ok(Mesh::new()),
+        }
+    }
+
+    /// Parse IfcHalfSpaceSolid to get clipping plane
+    /// Returns (plane_point, plane_normal, agreement_flag)
+    fn parse_half_space_solid(
+        &self,
+        half_space: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<(Point3<f64>, Vector3<f64>, bool)> {
+        // IfcHalfSpaceSolid attributes:
+        // 0: BaseSurface (IfcSurface - usually IfcPlane)
+        // 1: AgreementFlag (boolean - true means material is on positive side)
+
+        let surface_attr = half_space.get(0)
+            .ok_or_else(|| Error::geometry("HalfSpaceSolid missing BaseSurface".to_string()))?;
+
+        let surface = decoder.resolve_ref(surface_attr)?
+            .ok_or_else(|| Error::geometry("Failed to resolve BaseSurface".to_string()))?;
+
+        // Get agreement flag - defaults to true
+        let agreement = half_space.get(1)
+            .and_then(|v| match v {
+                ifc_lite_core::AttributeValue::Enum(e) => Some(e != ".F."),
+                _ => Some(true),
+            })
+            .unwrap_or(true);
+
+        // Parse IfcPlane
+        if surface.ifc_type != IfcType::IfcPlane {
+            return Err(Error::geometry(format!(
+                "Expected IfcPlane for HalfSpaceSolid, got {}",
+                surface.ifc_type
+            )));
+        }
+
+        // IfcPlane has one attribute: Position (IfcAxis2Placement3D)
+        let position_attr = surface.get(0)
+            .ok_or_else(|| Error::geometry("IfcPlane missing Position".to_string()))?;
+
+        let position = decoder.resolve_ref(position_attr)?
+            .ok_or_else(|| Error::geometry("Failed to resolve Plane position".to_string()))?;
+
+        // Parse IfcAxis2Placement3D
+        // Location (Point), Axis (Direction - Z), RefDirection (Direction - X)
+        let location = {
+            let loc_attr = position.get(0)
+                .ok_or_else(|| Error::geometry("Axis2Placement3D missing Location".to_string()))?;
+            let loc = decoder.resolve_ref(loc_attr)?
+                .ok_or_else(|| Error::geometry("Failed to resolve plane location".to_string()))?;
+            let coords = loc.get(0).and_then(|v| v.as_list())
+                .ok_or_else(|| Error::geometry("Location missing coordinates".to_string()))?;
+            Point3::new(
+                coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0),
+                coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0),
+                coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0),
+            )
+        };
+
+        let normal = {
+            if let Some(axis_attr) = position.get(1) {
+                if !axis_attr.is_null() {
+                    let axis = decoder.resolve_ref(axis_attr)?
+                        .ok_or_else(|| Error::geometry("Failed to resolve plane axis".to_string()))?;
+                    let coords = axis.get(0).and_then(|v| v.as_list())
+                        .ok_or_else(|| Error::geometry("Axis missing direction ratios".to_string()))?;
+                    Vector3::new(
+                        coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0),
+                        coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0),
+                        coords.get(2).and_then(|v| v.as_float()).unwrap_or(1.0),
+                    ).normalize()
+                } else {
+                    Vector3::new(0.0, 0.0, 1.0)
+                }
+            } else {
+                Vector3::new(0.0, 0.0, 1.0)
+            }
+        };
+
+        Ok((location, normal, agreement))
+    }
+
+    /// Apply half-space clipping to mesh
+    fn clip_mesh_with_half_space(
+        &self,
+        mesh: &Mesh,
+        plane_point: Point3<f64>,
+        plane_normal: Vector3<f64>,
+        agreement: bool,
+    ) -> Result<Mesh> {
+        use crate::csg::{ClippingProcessor, Plane};
+
+        // For DIFFERENCE operation with HalfSpaceSolid:
+        // - AgreementFlag=.T. means keep material on positive side of plane
+        // - AgreementFlag=.F. means keep material on negative side of plane
+        // But we're SUBTRACTING the half-space, so we invert
+        let clip_normal = if agreement {
+            -plane_normal  // Subtract positive side = keep negative side
+        } else {
+            plane_normal   // Subtract negative side = keep positive side
+        };
+
+        let plane = Plane::new(plane_point, clip_normal);
+        let processor = ClippingProcessor::new();
+        processor.clip_mesh(mesh, &plane)
     }
 }
 
@@ -890,52 +1033,66 @@ impl GeometryProcessor for BooleanClippingProcessor {
         &self,
         entity: &DecodedEntity,
         decoder: &mut EntityDecoder,
-        schema: &IfcSchema,
+        _schema: &IfcSchema,
     ) -> Result<Mesh> {
-        // IfcBooleanClippingResult attributes:
-        // 0: Operator (DIFFERENCE, UNION, INTERSECTION)
+        // IfcBooleanResult attributes:
+        // 0: Operator (.DIFFERENCE., .UNION., .INTERSECTION.)
         // 1: FirstOperand (base geometry)
         // 2: SecondOperand (clipping geometry)
 
-        // For now, just process the base geometry (FirstOperand)
-        // TODO: Implement actual CSG clipping
-        let first_operand_attr = entity
-            .get(1)
-            .ok_or_else(|| Error::geometry("BooleanClippingResult missing FirstOperand".to_string()))?;
+        // Get operator
+        let operator = entity.get(0)
+            .and_then(|v| match v {
+                ifc_lite_core::AttributeValue::Enum(e) => Some(e.as_str()),
+                _ => None,
+            })
+            .unwrap_or(".DIFFERENCE.");
 
-        let first_operand = decoder
-            .resolve_ref(first_operand_attr)?
+        // Get first operand (base geometry)
+        let first_operand_attr = entity.get(1)
+            .ok_or_else(|| Error::geometry("BooleanResult missing FirstOperand".to_string()))?;
+
+        let first_operand = decoder.resolve_ref(first_operand_attr)?
             .ok_or_else(|| Error::geometry("Failed to resolve FirstOperand".to_string()))?;
 
-        // Process first operand based on its type - avoid creating new router
-        match first_operand.ifc_type {
-            IfcType::IfcExtrudedAreaSolid => {
-                let processor = ExtrudedAreaSolidProcessor::new(schema.clone());
-                processor.process(&first_operand, decoder, schema)
-            }
-            IfcType::IfcFacetedBrep => {
-                let processor = FacetedBrepProcessor::new();
-                processor.process(&first_operand, decoder, schema)
-            }
-            IfcType::IfcTriangulatedFaceSet => {
-                let processor = TriangulatedFaceSetProcessor::new();
-                processor.process(&first_operand, decoder, schema)
-            }
-            IfcType::IfcSweptDiskSolid => {
-                let processor = SweptDiskSolidProcessor::new(schema.clone());
-                processor.process(&first_operand, decoder, schema)
-            }
-            IfcType::IfcBooleanClippingResult => {
-                // Recursive case - reuse self
-                self.process(&first_operand, decoder, schema)
-            }
-            _ => Ok(Mesh::new()), // Skip unsupported types
+        // Process first operand to get base mesh
+        let mut mesh = self.process_operand(&first_operand, decoder)?;
+
+        if mesh.is_empty() {
+            return Ok(mesh);
         }
+
+        // Get second operand
+        let second_operand_attr = entity.get(2)
+            .ok_or_else(|| Error::geometry("BooleanResult missing SecondOperand".to_string()))?;
+
+        let second_operand = decoder.resolve_ref(second_operand_attr)?
+            .ok_or_else(|| Error::geometry("Failed to resolve SecondOperand".to_string()))?;
+
+        // Handle DIFFERENCE operation
+        if operator == ".DIFFERENCE." {
+            // Check if second operand is a half-space solid (can clip efficiently)
+            if second_operand.ifc_type == IfcType::IfcHalfSpaceSolid
+                || second_operand.ifc_type == IfcType::IfcPolygonalBoundedHalfSpace {
+                let (plane_point, plane_normal, agreement) =
+                    self.parse_half_space_solid(&second_operand, decoder)?;
+                return self.clip_mesh_with_half_space(&mesh, plane_point, plane_normal, agreement);
+            }
+
+            // For solid-solid difference, we can't do proper CSG without a full boolean library
+            // Just return the first operand for now - this gives approximate geometry
+        }
+
+        // For UNION and INTERSECTION, and solid-solid DIFFERENCE,
+        // just return the first operand for now
+        Ok(mesh)
     }
 
     fn supported_types(&self) -> Vec<IfcType> {
-        // IFCBOOLEANCLIPPINGRESULT is an Unknown type
-        vec![IfcType::from_str("IFCBOOLEANCLIPPINGRESULT").unwrap()]
+        vec![
+            IfcType::IfcBooleanResult,
+            IfcType::IfcBooleanClippingResult,
+        ]
     }
 }
 
@@ -1016,8 +1173,12 @@ impl GeometryProcessor for MappedItemProcessor {
                     let processor = SweptDiskSolidProcessor::new(schema.clone());
                     processor.process(&item, decoder, schema)?
                 }
-                IfcType::IfcBooleanClippingResult => {
+                IfcType::IfcBooleanClippingResult | IfcType::IfcBooleanResult => {
                     let processor = BooleanClippingProcessor::new();
+                    processor.process(&item, decoder, schema)?
+                }
+                IfcType::IfcRevolvedAreaSolid => {
+                    let processor = RevolvedAreaSolidProcessor::new(schema.clone());
                     processor.process(&item, decoder, schema)?
                 }
                 _ => continue, // Skip unsupported types
@@ -1464,5 +1625,131 @@ mod tests {
 
         assert_eq!(mesh.positions.len(), 9); // 3 vertices * 3 coordinates
         assert_eq!(mesh.indices.len(), 3); // 1 triangle
+    }
+
+    #[test]
+    fn test_boolean_result_with_half_space() {
+        // Simplified version of the 764--column.ifc structure
+        let content = r#"
+#1=IFCRECTANGLEPROFILEDEF(.AREA.,$,$,100.0,200.0);
+#2=IFCDIRECTION((0.0,0.0,1.0));
+#3=IFCEXTRUDEDAREASOLID(#1,$,#2,300.0);
+#4=IFCCARTESIANPOINT((0.0,0.0,150.0));
+#5=IFCDIRECTION((0.0,0.0,1.0));
+#6=IFCAXIS2PLACEMENT3D(#4,#5,$);
+#7=IFCPLANE(#6);
+#8=IFCHALFSPACESOLID(#7,.T.);
+#9=IFCBOOLEANRESULT(.DIFFERENCE.,#3,#8);
+"#;
+
+        let mut decoder = EntityDecoder::new(content);
+        let schema = IfcSchema::new();
+        let processor = BooleanClippingProcessor::new();
+
+        // First verify the entity types are parsed correctly
+        let bool_result = decoder.decode_by_id(9).unwrap();
+        println!("BooleanResult type: {:?}", bool_result.ifc_type);
+        assert_eq!(bool_result.ifc_type, IfcType::IfcBooleanResult);
+
+        let half_space = decoder.decode_by_id(8).unwrap();
+        println!("HalfSpaceSolid type: {:?}", half_space.ifc_type);
+        assert_eq!(half_space.ifc_type, IfcType::IfcHalfSpaceSolid);
+
+        // Now process the boolean result
+        let mesh = processor.process(&bool_result, &mut decoder, &schema).unwrap();
+        println!("Mesh vertices: {}", mesh.positions.len() / 3);
+        println!("Mesh triangles: {}", mesh.indices.len() / 3);
+
+        // The mesh should have geometry (base extrusion clipped)
+        assert!(!mesh.is_empty(), "BooleanResult should produce geometry");
+        assert!(mesh.positions.len() > 0);
+    }
+
+    #[test]
+    fn test_764_column_file() {
+        use crate::router::GeometryRouter;
+
+        // Read the actual 764 column file
+        let content = std::fs::read_to_string(
+            "../../tests/benchmark/models/ifcopenshell/764--column--no-materials-or-surface-styles-found--augmented.ifc"
+        ).expect("Failed to read test file");
+
+        let entity_index = ifc_lite_core::build_entity_index(&content);
+        let mut decoder = EntityDecoder::with_index(&content, entity_index);
+        let router = GeometryRouter::new();
+
+        // Decode IFCCOLUMN #8930
+        let column = decoder.decode_by_id(8930).expect("Failed to decode column");
+        println!("Column type: {:?}", column.ifc_type);
+        assert_eq!(column.ifc_type, IfcType::IfcColumn);
+
+        // Check representation attribute
+        let rep_attr = column.get(6).expect("Column missing representation attribute");
+        println!("Representation attr: {:?}", rep_attr);
+
+        // Try process_element
+        match router.process_element(&column, &mut decoder) {
+            Ok(mesh) => {
+                println!("Mesh vertices: {}", mesh.positions.len() / 3);
+                println!("Mesh triangles: {}", mesh.indices.len() / 3);
+                assert!(!mesh.is_empty(), "Column should produce geometry");
+            }
+            Err(e) => {
+                panic!("Failed to process column: {:?}", e);
+            }
+        }
+    }
+
+    #[test]
+    fn test_wall_with_opening_file() {
+        use crate::router::GeometryRouter;
+
+        // Read the wall-with-opening file
+        let content = std::fs::read_to_string(
+            "../../tests/benchmark/models/buildingsmart/wall-with-opening-and-window.ifc"
+        ).expect("Failed to read test file");
+
+        let entity_index = ifc_lite_core::build_entity_index(&content);
+        let mut decoder = EntityDecoder::with_index(&content, entity_index);
+        let router = GeometryRouter::new();
+
+        // Decode IFCWALL #45
+        let wall = match decoder.decode_by_id(45) {
+            Ok(w) => w,
+            Err(e) => panic!("Failed to decode wall: {:?}", e),
+        };
+        println!("Wall type: {:?}", wall.ifc_type);
+        assert_eq!(wall.ifc_type, IfcType::IfcWall);
+
+        // Check representation attribute (should be at index 6)
+        let rep_attr = wall.get(6).expect("Wall missing representation attribute");
+        println!("Representation attr: {:?}", rep_attr);
+
+        // Try process_element
+        match router.process_element(&wall, &mut decoder) {
+            Ok(mesh) => {
+                println!("Wall mesh vertices: {}", mesh.positions.len() / 3);
+                println!("Wall mesh triangles: {}", mesh.indices.len() / 3);
+                assert!(!mesh.is_empty(), "Wall should produce geometry");
+            }
+            Err(e) => {
+                panic!("Failed to process wall: {:?}", e);
+            }
+        }
+
+        // Also test window
+        let window = decoder.decode_by_id(102).expect("Failed to decode window");
+        println!("Window type: {:?}", window.ifc_type);
+        assert_eq!(window.ifc_type, IfcType::IfcWindow);
+
+        match router.process_element(&window, &mut decoder) {
+            Ok(mesh) => {
+                println!("Window mesh vertices: {}", mesh.positions.len() / 3);
+                println!("Window mesh triangles: {}", mesh.indices.len() / 3);
+            }
+            Err(e) => {
+                println!("Window error (might be expected): {:?}", e);
+            }
+        }
     }
 }

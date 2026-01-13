@@ -1,37 +1,27 @@
 {
-  "name": "@ifc-lite/wasm",
+  "name": "ifc-lite-wasm",
+  "collaborators": [
+    "IFC-Lite Contributors"
+  ],
+  "description": "WebAssembly bindings for IFC-Lite",
   "version": "1.0.0",
-  "description": "WebAssembly bindings for IFC-Lite - optimized geometry processing",
-  "type": "module",
   "license": "MPL-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/louistrue/ifc-lite",
-    "directory": "packages/wasm"
-  },
-  "main": "./pkg/ifc-lite.js",
-  "types": "./pkg/ifc-lite.d.ts",
-  "exports": {
-    ".": {
-      "import": "./pkg/ifc-lite.js",
-      "types": "./pkg/ifc-lite.d.ts"
-    }
+    "url": "https://github.com/louistrue/ifc-lite"
   },
   "files": [
-    "pkg/ifc-lite_bg.wasm",
-    "pkg/ifc-lite.js",
-    "pkg/ifc-lite.d.ts",
-    "pkg/ifc-lite_bg.wasm.d.ts"
+    "ifc_lite_wasm_bg.wasm",
+    "ifc_lite_wasm.js",
+    "ifc_lite_wasm.d.ts"
   ],
+  "main": "ifc_lite_wasm.js",
+  "types": "ifc_lite_wasm.d.ts",
   "keywords": [
     "ifc",
     "bim",
     "wasm",
     "webassembly",
-    "aec",
-    "geometry"
-  ],
-  "publishConfig": {
-    "access": "public"
-  }
+    "aec"
+  ]
 }

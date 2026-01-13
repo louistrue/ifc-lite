@@ -103,6 +103,7 @@ pub enum IfcType {
     IfcCShapeProfileDef,
     IfcZShapeProfileDef,
     IfcCircleHollowProfileDef,
+    IfcRectangleHollowProfileDef,
     IfcCompositeProfileDef,
 
     // Curve types
@@ -161,6 +162,11 @@ pub enum IfcType {
     IfcMapConversion,
     IfcProjectedCRS,
     IfcGeometricRepresentationContext,
+
+    // CSG types
+    IfcHalfSpaceSolid,
+    IfcPolygonalBoundedHalfSpace,
+    IfcPlane,
 
     // Fallback for unknown types
     Unknown(u16), // Store hash for unknown types
@@ -254,6 +260,7 @@ impl IfcType {
             "IFCCSHAPEPROFILEDEF" => Self::IfcCShapeProfileDef,
             "IFCZSHAPEPROFILEDEF" => Self::IfcZShapeProfileDef,
             "IFCCIRCLEHOLLOWPROFILEDEF" => Self::IfcCircleHollowProfileDef,
+            "IFCRECTANGLEHOLLOWPROFILEDEF" => Self::IfcRectangleHollowProfileDef,
             "IFCCOMPOSITEPROFILEDEF" => Self::IfcCompositeProfileDef,
 
             // Curve types
@@ -299,6 +306,11 @@ impl IfcType {
             "IFCMAPCONVERSION" => Self::IfcMapConversion,
             "IFCPROJECTEDCRS" => Self::IfcProjectedCRS,
             "IFCGEOMETRICREPRESENTATIONCONTEXT" => Self::IfcGeometricRepresentationContext,
+
+            // CSG types
+            "IFCHALFSPACESOLID" => Self::IfcHalfSpaceSolid,
+            "IFCPOLYGONALBOUNDEDHALFSPACE" => Self::IfcPolygonalBoundedHalfSpace,
+            "IFCPLANE" => Self::IfcPlane,
 
             // Generic products
             "IFCPROXY" => Self::IfcProxy,
@@ -403,6 +415,7 @@ impl IfcType {
             Self::IfcCShapeProfileDef => "IFCCSHAPEPROFILEDEF",
             Self::IfcZShapeProfileDef => "IFCZSHAPEPROFILEDEF",
             Self::IfcCircleHollowProfileDef => "IFCCIRCLEHOLLOWPROFILEDEF",
+            Self::IfcRectangleHollowProfileDef => "IFCRECTANGLEHOLLOWPROFILEDEF",
             Self::IfcCompositeProfileDef => "IFCCOMPOSITEPROFILEDEF",
 
             // Curve types
@@ -448,6 +461,11 @@ impl IfcType {
             Self::IfcMapConversion => "IFCMAPCONVERSION",
             Self::IfcProjectedCRS => "IFCPROJECTEDCRS",
             Self::IfcGeometricRepresentationContext => "IFCGEOMETRICREPRESENTATIONCONTEXT",
+
+            // CSG types
+            Self::IfcHalfSpaceSolid => "IFCHALFSPACESOLID",
+            Self::IfcPolygonalBoundedHalfSpace => "IFCPOLYGONALBOUNDEDHALFSPACE",
+            Self::IfcPlane => "IFCPLANE",
 
             // Generic products
             Self::IfcProxy => "IFCPROXY",

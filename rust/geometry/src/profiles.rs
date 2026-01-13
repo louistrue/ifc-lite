@@ -52,6 +52,7 @@ impl ProfileProcessor {
             IfcType::IfcRectangleProfileDef => self.process_rectangle(profile),
             IfcType::IfcCircleProfileDef => self.process_circle(profile),
             IfcType::IfcCircleHollowProfileDef => self.process_circle_hollow(profile),
+            IfcType::IfcRectangleHollowProfileDef => self.process_rectangle_hollow(profile),
             IfcType::IfcIShapeProfileDef => self.process_i_shape(profile),
             IfcType::IfcLShapeProfileDef => self.process_l_shape(profile),
             IfcType::IfcUShapeProfileDef => self.process_u_shape(profile),
@@ -284,6 +285,45 @@ impl ProfileProcessor {
             let angle = (i as f64) * 2.0 * PI / (segments as f64);
             inner_points.push(Point2::new(inner_radius * angle.cos(), inner_radius * angle.sin()));
         }
+
+        let mut result = Profile2D::new(outer_points);
+        result.add_hole(inner_points);
+        Ok(result)
+    }
+
+    /// Process rectangle hollow profile (rectangular tube)
+    /// IfcRectangleHollowProfileDef: ProfileType, ProfileName, Position, XDim, YDim, WallThickness, InnerFilletRadius, OuterFilletRadius
+    fn process_rectangle_hollow(&self, profile: &DecodedEntity) -> Result<Profile2D> {
+        let x_dim = profile
+            .get_float(3)
+            .ok_or_else(|| Error::geometry("RectangleHollow missing XDim".to_string()))?;
+        let y_dim = profile
+            .get_float(4)
+            .ok_or_else(|| Error::geometry("RectangleHollow missing YDim".to_string()))?;
+        let wall_thickness = profile
+            .get_float(5)
+            .ok_or_else(|| Error::geometry("RectangleHollow missing WallThickness".to_string()))?;
+
+        let half_x = x_dim / 2.0;
+        let half_y = y_dim / 2.0;
+        let inner_half_x = half_x - wall_thickness;
+        let inner_half_y = half_y - wall_thickness;
+
+        // Outer rectangle (counter-clockwise)
+        let outer_points = vec![
+            Point2::new(-half_x, -half_y),
+            Point2::new(half_x, -half_y),
+            Point2::new(half_x, half_y),
+            Point2::new(-half_x, half_y),
+        ];
+
+        // Inner rectangle (clockwise for hole - reversed order)
+        let inner_points = vec![
+            Point2::new(-inner_half_x, -inner_half_y),
+            Point2::new(-inner_half_x, inner_half_y),
+            Point2::new(inner_half_x, inner_half_y),
+            Point2::new(inner_half_x, -inner_half_y),
+        ];
 
         let mut result = Profile2D::new(outer_points);
         result.add_hole(inner_points);

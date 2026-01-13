@@ -44,10 +44,16 @@ pub fn build_entity_index(content: &str) -> EntityIndex {
         while pos < len && bytes[pos].is_ascii_digit() {
             pos += 1;
         }
+        let id_end = pos;
 
-        if pos > id_start && pos < len && bytes[pos] == b'=' {
+        // Skip whitespace before '=' (handles both `#45=` and `#45 = ` formats)
+        while pos < len && bytes[pos].is_ascii_whitespace() {
+            pos += 1;
+        }
+
+        if id_end > id_start && pos < len && bytes[pos] == b'=' {
             // Fast integer parsing without allocation
-            let id = parse_u32_inline(bytes, id_start, pos);
+            let id = parse_u32_inline(bytes, id_start, id_end);
 
             // Find end of entity (;) using SIMD
             let entity_content = &bytes[pos..];
