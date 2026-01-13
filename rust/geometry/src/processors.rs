@@ -851,7 +851,9 @@ impl GeometryProcessor for MappedItemProcessor {
             mesh.merge(&item_mesh);
         }
 
-        // TODO: Apply mapping transformation from MappingTarget
+        // Note: MappingTarget transformation is applied by the router's process_mapped_item_cached
+        // when MappedItem is encountered through process_representation_item. This processor
+        // is a fallback that doesn't have access to the router's transformation logic.
 
         Ok(mesh)
     }

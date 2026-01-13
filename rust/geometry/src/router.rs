@@ -115,6 +115,26 @@ impl GeometryRouter {
         // Process all representations and merge meshes
         let mut combined_mesh = Mesh::new();
 
+        // First pass: check if we have any direct geometry representations
+        // This prevents duplication when both direct and MappedRepresentation exist
+        let has_direct_geometry = representations.iter().any(|rep| {
+            if rep.ifc_type != IfcType::IfcShapeRepresentation {
+                return false;
+            }
+            if let Some(rep_type_attr) = rep.get(2) {
+                if let Some(rep_type) = rep_type_attr.as_string() {
+                    matches!(
+                        rep_type,
+                        "Body" | "SweptSolid" | "Brep" | "CSG" | "Clipping" | "SurfaceModel" | "Tessellation" | "AdvancedSweptSolid"
+                    )
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        });
+
         for shape_rep in representations {
             if shape_rep.ifc_type != IfcType::IfcShapeRepresentation {
                 continue;
@@ -124,6 +144,12 @@ impl GeometryRouter {
             // Skip 'Axis', 'Curve2D', 'FootPrint', etc. - only process 'Body', 'SweptSolid', 'Brep', etc.
             if let Some(rep_type_attr) = shape_rep.get(2) {
                 if let Some(rep_type) = rep_type_attr.as_string() {
+                    // Skip MappedRepresentation if we already have direct geometry
+                    // This prevents duplication when an element has both direct and mapped representations
+                    if rep_type == "MappedRepresentation" && has_direct_geometry {
+                        continue;
+                    }
+
                     // Only process solid geometry representations
                     if !matches!(
                         rep_type,
@@ -218,13 +244,30 @@ impl GeometryRouter {
 
         let source_id = source_entity.id;
 
+        // Get MappingTarget transformation (attribute 1: CartesianTransformationOperator)
+        let mapping_transform = if let Some(target_attr) = item.get(1) {
+            if !target_attr.is_null() {
+                if let Some(target_entity) = decoder.resolve_ref(target_attr)? {
+                    Some(self.parse_cartesian_transformation_operator(&target_entity, decoder)?)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         // Check cache first
         {
             let cache = self.mapped_item_cache.borrow();
             if let Some(cached_mesh) = cache.get(&source_id) {
-                // Clone the cached mesh and apply transformation
-                let mesh = cached_mesh.as_ref().clone();
-                // TODO: Apply MappingTarget transformation
+                // Clone the cached mesh and apply MappingTarget transformation
+                let mut mesh = cached_mesh.as_ref().clone();
+                if let Some(transform) = &mapping_transform {
+                    self.transform_mesh(&mut mesh, transform);
+                }
                 return Ok(mesh);
             }
         }
@@ -264,10 +307,15 @@ impl GeometryRouter {
             }
         }
 
-        // Store in cache
+        // Store in cache (before transformation, so cached mesh is in source coordinates)
         {
             let mut cache = self.mapped_item_cache.borrow_mut();
             cache.insert(source_id, Arc::new(mesh.clone()));
+        }
+
+        // Apply MappingTarget transformation to this instance
+        if let Some(transform) = &mapping_transform {
+            self.transform_mesh(&mut mesh, transform);
         }
 
         Ok(mesh)
@@ -478,6 +526,104 @@ impl GeometryRouter {
         let z = ratios.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
 
         Ok(Vector3::new(x, y, z))
+    }
+
+    /// Parse IfcCartesianTransformationOperator (2D or 3D)
+    /// Used for MappedItem MappingTarget transformation
+    #[inline]
+    fn parse_cartesian_transformation_operator(
+        &self,
+        entity: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<Matrix4<f64>> {
+        // IfcCartesianTransformationOperator3D has:
+        // 0: Axis1 (IfcDirection) - X axis direction (optional)
+        // 1: Axis2 (IfcDirection) - Y axis direction (optional)
+        // 2: LocalOrigin (IfcCartesianPoint) - translation
+        // 3: Scale (IfcReal) - uniform scale (optional, defaults to 1.0)
+        // 4: Axis3 (IfcDirection) - Z axis direction (optional, for 3D only)
+
+        // Get LocalOrigin (attribute 2)
+        let origin = if let Some(origin_attr) = entity.get(2) {
+            if !origin_attr.is_null() {
+                if let Some(origin_entity) = decoder.resolve_ref(origin_attr)? {
+                    if origin_entity.ifc_type == IfcType::IfcCartesianPoint {
+                        let coords_attr = origin_entity.get(0);
+                        if let Some(coords) = coords_attr.and_then(|a| a.as_list()) {
+                            Point3::new(
+                                coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0),
+                                coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0),
+                                coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0),
+                            )
+                        } else {
+                            Point3::origin()
+                        }
+                    } else {
+                        Point3::origin()
+                    }
+                } else {
+                    Point3::origin()
+                }
+            } else {
+                Point3::origin()
+            }
+        } else {
+            Point3::origin()
+        };
+
+        // Get Scale (attribute 3)
+        let scale = entity.get_float(3).unwrap_or(1.0);
+
+        // Get Axis1 (X axis, attribute 0)
+        let x_axis = if let Some(axis1_attr) = entity.get(0) {
+            if !axis1_attr.is_null() {
+                if let Some(axis1_entity) = decoder.resolve_ref(axis1_attr)? {
+                    self.parse_direction(&axis1_entity)?.normalize()
+                } else {
+                    Vector3::new(1.0, 0.0, 0.0)
+                }
+            } else {
+                Vector3::new(1.0, 0.0, 0.0)
+            }
+        } else {
+            Vector3::new(1.0, 0.0, 0.0)
+        };
+
+        // Get Axis3 (Z axis, attribute 4 for 3D)
+        let z_axis = if let Some(axis3_attr) = entity.get(4) {
+            if !axis3_attr.is_null() {
+                if let Some(axis3_entity) = decoder.resolve_ref(axis3_attr)? {
+                    self.parse_direction(&axis3_entity)?.normalize()
+                } else {
+                    Vector3::new(0.0, 0.0, 1.0)
+                }
+            } else {
+                Vector3::new(0.0, 0.0, 1.0)
+            }
+        } else {
+            Vector3::new(0.0, 0.0, 1.0)
+        };
+
+        // Derive Y axis from Z and X (right-hand coordinate system)
+        let y_axis = z_axis.cross(&x_axis).normalize();
+        let x_axis = y_axis.cross(&z_axis).normalize();
+
+        // Build transformation matrix with scale
+        let mut transform = Matrix4::identity();
+        transform[(0, 0)] = x_axis.x * scale;
+        transform[(1, 0)] = x_axis.y * scale;
+        transform[(2, 0)] = x_axis.z * scale;
+        transform[(0, 1)] = y_axis.x * scale;
+        transform[(1, 1)] = y_axis.y * scale;
+        transform[(2, 1)] = y_axis.z * scale;
+        transform[(0, 2)] = z_axis.x * scale;
+        transform[(1, 2)] = z_axis.y * scale;
+        transform[(2, 2)] = z_axis.z * scale;
+        transform[(0, 3)] = origin.x;
+        transform[(1, 3)] = origin.y;
+        transform[(2, 3)] = origin.z;
+
+        Ok(transform)
     }
 
     /// Transform mesh by matrix - optimized with chunk-based iteration
