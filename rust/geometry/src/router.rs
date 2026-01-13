@@ -7,7 +7,7 @@
 //! Routes IFC representation entities to appropriate processors based on type.
 
 use crate::{Mesh, Point3, Vector3, Result, Error};
-use crate::processors::{ExtrudedAreaSolidProcessor, TriangulatedFaceSetProcessor, MappedItemProcessor, FacetedBrepProcessor, BooleanClippingProcessor, SweptDiskSolidProcessor};
+use crate::processors::{ExtrudedAreaSolidProcessor, TriangulatedFaceSetProcessor, MappedItemProcessor, FacetedBrepProcessor, BooleanClippingProcessor, SweptDiskSolidProcessor, RevolvedAreaSolidProcessor};
 use ifc_lite_core::{
     DecodedEntity, EntityDecoder, GeometryCategory, IfcSchema, IfcType, ProfileCategory,
 };
@@ -59,6 +59,7 @@ impl GeometryRouter {
         router.register(Box::new(FacetedBrepProcessor::new()));
         router.register(Box::new(BooleanClippingProcessor::new()));
         router.register(Box::new(SweptDiskSolidProcessor::new(schema_clone.clone())));
+        router.register(Box::new(RevolvedAreaSolidProcessor::new(schema_clone.clone())));
 
         router
     }

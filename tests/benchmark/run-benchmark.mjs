@@ -81,6 +81,7 @@ function collectTestFiles() {
     join(__dirname, '../ifc'),
     join(__dirname, 'models/buildingsmart'),
     join(__dirname, 'models/ara3d'),
+    join(__dirname, 'models/ifcopenshell'),
   ];
 
   const files = [];

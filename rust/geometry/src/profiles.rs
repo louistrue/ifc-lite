@@ -6,7 +6,7 @@
 //!
 //! Dynamic profile processing for parametric, arbitrary, and composite profiles.
 
-use crate::{Error, Point2, Point3, Result};
+use crate::{Error, Point2, Point3, Result, Vector3};
 use crate::profile::Profile2D;
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcSchema, IfcType, ProfileCategory};
 use std::f64::consts::PI;
@@ -483,6 +483,7 @@ impl ProfileProcessor {
         match curve.ifc_type {
             IfcType::IfcPolyline => self.process_polyline_3d(curve, decoder),
             IfcType::IfcCompositeCurve => self.process_composite_curve_3d(curve, decoder),
+            IfcType::IfcCircle => self.process_circle_3d(curve, decoder),
             IfcType::IfcTrimmedCurve => {
                 // For trimmed curve, get 2D points and convert to 3D
                 let points_2d = self.process_trimmed_curve(curve, decoder)?;
@@ -494,6 +495,138 @@ impl ProfileProcessor {
                 Ok(points_2d.into_iter().map(|p| Point3::new(p.x, p.y, 0.0)).collect())
             }
         }
+    }
+
+    /// Process circle curve in 3D space (for swept disk solid, etc.)
+    fn process_circle_3d(
+        &self,
+        curve: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<Vec<Point3<f64>>> {
+        // IfcCircle: Position (IfcAxis2Placement2D or 3D), Radius
+        let position_attr = curve.get(0).ok_or_else(|| {
+            Error::geometry("Circle missing Position".to_string())
+        })?;
+
+        let radius = curve.get_float(1).ok_or_else(|| {
+            Error::geometry("Circle missing Radius".to_string())
+        })?;
+
+        let position = decoder.resolve_ref(position_attr)?.ok_or_else(|| {
+            Error::geometry("Failed to resolve circle position".to_string())
+        })?;
+
+        // Get center and orientation from Axis2Placement3D
+        let (center, x_axis, y_axis) = if position.ifc_type == IfcType::IfcAxis2Placement3D {
+            // IfcAxis2Placement3D: Location, Axis (Z), RefDirection (X)
+            let loc_attr = position.get(0).ok_or_else(|| {
+                Error::geometry("Axis2Placement3D missing Location".to_string())
+            })?;
+            let loc = decoder.resolve_ref(loc_attr)?.ok_or_else(|| {
+                Error::geometry("Failed to resolve location".to_string())
+            })?;
+            let coords = loc.get(0).and_then(|v| v.as_list()).ok_or_else(|| {
+                Error::geometry("Location missing coordinates".to_string())
+            })?;
+            let center = Point3::new(
+                coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0),
+                coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0),
+                coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0),
+            );
+
+            // Get Z axis (Axis attribute)
+            let z_axis = if let Some(axis_attr) = position.get(1) {
+                if !axis_attr.is_null() {
+                    let axis = decoder.resolve_ref(axis_attr)?;
+                    if let Some(axis) = axis {
+                        let coords = axis.get(0).and_then(|v| v.as_list());
+                        if let Some(coords) = coords {
+                            Vector3::new(
+                                coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0),
+                                coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0),
+                                coords.get(2).and_then(|v| v.as_float()).unwrap_or(1.0),
+                            ).normalize()
+                        } else {
+                            Vector3::new(0.0, 0.0, 1.0)
+                        }
+                    } else {
+                        Vector3::new(0.0, 0.0, 1.0)
+                    }
+                } else {
+                    Vector3::new(0.0, 0.0, 1.0)
+                }
+            } else {
+                Vector3::new(0.0, 0.0, 1.0)
+            };
+
+            // Get X axis (RefDirection attribute)
+            let x_axis = if let Some(ref_attr) = position.get(2) {
+                if !ref_attr.is_null() {
+                    let ref_dir = decoder.resolve_ref(ref_attr)?;
+                    if let Some(ref_dir) = ref_dir {
+                        let coords = ref_dir.get(0).and_then(|v| v.as_list());
+                        if let Some(coords) = coords {
+                            Vector3::new(
+                                coords.get(0).and_then(|v| v.as_float()).unwrap_or(1.0),
+                                coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0),
+                                coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0),
+                            ).normalize()
+                        } else {
+                            Vector3::new(1.0, 0.0, 0.0)
+                        }
+                    } else {
+                        Vector3::new(1.0, 0.0, 0.0)
+                    }
+                } else {
+                    Vector3::new(1.0, 0.0, 0.0)
+                }
+            } else {
+                Vector3::new(1.0, 0.0, 0.0)
+            };
+
+            // Y axis = Z cross X
+            let y_axis = z_axis.cross(&x_axis).normalize();
+
+            (center, x_axis, y_axis)
+        } else {
+            // 2D placement - use XY plane
+            let loc_attr = position.get(0);
+            let (cx, cy) = if let Some(attr) = loc_attr {
+                let loc = decoder.resolve_ref(attr)?;
+                if let Some(loc) = loc {
+                    let coords = loc.get(0).and_then(|v| v.as_list());
+                    if let Some(coords) = coords {
+                        (
+                            coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0),
+                            coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0),
+                        )
+                    } else {
+                        (0.0, 0.0)
+                    }
+                } else {
+                    (0.0, 0.0)
+                }
+            } else {
+                (0.0, 0.0)
+            };
+            (
+                Point3::new(cx, cy, 0.0),
+                Vector3::new(1.0, 0.0, 0.0),
+                Vector3::new(0.0, 1.0, 0.0),
+            )
+        };
+
+        // Generate circle points in 3D (32 segments for full circle)
+        let segments = 32usize;
+        let mut points = Vec::with_capacity(segments + 1);
+
+        for i in 0..=segments {
+            let angle = 2.0 * std::f64::consts::PI * i as f64 / segments as f64;
+            let p = center + x_axis * (radius * angle.cos()) + y_axis * (radius * angle.sin());
+            points.push(p);
+        }
+
+        Ok(points)
     }
 
     /// Process polyline into 3D points

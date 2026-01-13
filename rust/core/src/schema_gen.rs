@@ -349,6 +349,12 @@ impl IfcSchema {
                 | IfcType::IfcDuctSegment
                 | IfcType::IfcPipeSegment
                 | IfcType::IfcCableSegment
+                | IfcType::IfcProxy // Generic placeholder that can contain geometry
+                | IfcType::IfcProduct // Base type for all products
+                | IfcType::IfcDistributionElement
+                | IfcType::IfcFlowSegment
+                | IfcType::IfcFlowFitting
+                | IfcType::IfcFlowTerminal
         )
     }
 }

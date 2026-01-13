@@ -131,6 +131,14 @@ pub enum IfcType {
     IfcFurnishingElement,
     IfcFurniture,
 
+    // Generic products
+    IfcProxy,
+    IfcProduct,
+    IfcDistributionElement,
+    IfcFlowSegment,
+    IfcFlowFitting,
+    IfcFlowTerminal,
+
     // Annotations
     IfcAnnotation,
     IfcGrid,
@@ -292,6 +300,14 @@ impl IfcType {
             "IFCPROJECTEDCRS" => Self::IfcProjectedCRS,
             "IFCGEOMETRICREPRESENTATIONCONTEXT" => Self::IfcGeometricRepresentationContext,
 
+            // Generic products
+            "IFCPROXY" => Self::IfcProxy,
+            "IFCPRODUCT" => Self::IfcProduct,
+            "IFCDISTRIBUTIONELEMENT" => Self::IfcDistributionElement,
+            "IFCFLOWSEGMENT" => Self::IfcFlowSegment,
+            "IFCFLOWFITTING" => Self::IfcFlowFitting,
+            "IFCFLOWTERMINAL" => Self::IfcFlowTerminal,
+
             _ => {
                 // Unknown type - store a hash
                 let hash = simple_hash(s);
@@ -432,6 +448,14 @@ impl IfcType {
             Self::IfcMapConversion => "IFCMAPCONVERSION",
             Self::IfcProjectedCRS => "IFCPROJECTEDCRS",
             Self::IfcGeometricRepresentationContext => "IFCGEOMETRICREPRESENTATIONCONTEXT",
+
+            // Generic products
+            Self::IfcProxy => "IFCPROXY",
+            Self::IfcProduct => "IFCPRODUCT",
+            Self::IfcDistributionElement => "IFCDISTRIBUTIONELEMENT",
+            Self::IfcFlowSegment => "IFCFLOWSEGMENT",
+            Self::IfcFlowFitting => "IFCFLOWFITTING",
+            Self::IfcFlowTerminal => "IFCFLOWTERMINAL",
 
             Self::Unknown(_) => "UNKNOWN",
         }
@@ -597,13 +621,21 @@ pub fn has_geometry_by_name(type_name: &str) -> bool {
         "IFCVIRTUALELEMENT",
     ];
 
+    // Generic placeholders that can contain geometry
+    let generic = [
+        "IFCPROXY",
+        "IFCPRODUCT",
+        "IFCANNOTATION",
+    ];
+
     // Check all categories
     building_elements.contains(&type_name) ||
     openings.contains(&type_name) ||
     assemblies.contains(&type_name) ||
     mep.contains(&type_name) ||
     furniture.contains(&type_name) ||
-    civil.contains(&type_name)
+    civil.contains(&type_name) ||
+    generic.contains(&type_name)
 }
 
 impl fmt::Display for IfcType {
