@@ -112,6 +112,7 @@ impl ProfileType {
 }
 
 /// Create a rectangular profile
+#[inline]
 pub fn create_rectangle(width: f64, height: f64) -> Profile2D {
     let half_w = width / 2.0;
     let half_h = height / 2.0;
@@ -164,6 +165,7 @@ pub fn create_circle(radius: f64, hole_radius: Option<f64>) -> Profile2D {
 
 /// Calculate adaptive number of segments for a circle
 /// Based on radius to maintain good visual quality
+#[inline]
 pub fn calculate_circle_segments(radius: f64) -> usize {
     // Adaptive segment calculation - optimized for performance
     // Smaller circles need fewer segments

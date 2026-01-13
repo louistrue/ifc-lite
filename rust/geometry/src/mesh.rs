@@ -37,6 +37,7 @@ impl Mesh {
     }
 
     /// Add a vertex with normal
+    #[inline]
     pub fn add_vertex(&mut self, position: Point3<f64>, normal: Vector3<f64>) {
         self.positions.push(position.x as f32);
         self.positions.push(position.y as f32);
@@ -48,6 +49,7 @@ impl Mesh {
     }
 
     /// Add a triangle
+    #[inline]
     pub fn add_triangle(&mut self, i0: u32, i1: u32, i2: u32) {
         self.indices.push(i0);
         self.indices.push(i1);

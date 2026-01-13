@@ -1,6 +1,5 @@
 {
   "name": "ifc-lite-wasm",
-  "type": "module",
   "collaborators": [
     "IFC-Lite Contributors"
   ],

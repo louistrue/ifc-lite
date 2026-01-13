@@ -23,6 +23,7 @@ impl ProfileProcessor {
     }
 
     /// Process any IFC profile definition
+    #[inline]
     pub fn process(
         &self,
         profile: &DecodedEntity,
@@ -40,6 +41,7 @@ impl ProfileProcessor {
     }
 
     /// Process parametric profiles (rectangle, circle, I-shape, etc.)
+    #[inline]
     fn process_parametric(
         &self,
         profile: &DecodedEntity,
@@ -165,6 +167,7 @@ impl ProfileProcessor {
 
     /// Process rectangle profile
     /// IfcRectangleProfileDef: ProfileType, ProfileName, Position, XDim, YDim
+    #[inline]
     fn process_rectangle(&self, profile: &DecodedEntity) -> Result<Profile2D> {
         // Get dimensions (attributes 3 and 4)
         let x_dim = profile
@@ -190,6 +193,7 @@ impl ProfileProcessor {
 
     /// Process circle profile
     /// IfcCircleProfileDef: ProfileType, ProfileName, Position, Radius
+    #[inline]
     fn process_circle(&self, profile: &DecodedEntity) -> Result<Profile2D> {
         // Get radius (attribute 3)
         let radius = profile
@@ -449,6 +453,7 @@ impl ProfileProcessor {
     }
 
     /// Process any supported curve type into 2D points
+    #[inline]
     fn process_curve(
         &self,
         curve: &DecodedEntity,
@@ -469,6 +474,7 @@ impl ProfileProcessor {
     }
 
     /// Get 3D points from a curve (for swept disk solid, etc.)
+    #[inline]
     pub fn get_curve_points(
         &self,
         curve: &DecodedEntity,
@@ -797,6 +803,7 @@ impl ProfileProcessor {
 
     /// Process polyline into 2D points
     /// IfcPolyline: Points (list of IfcCartesianPoint)
+    #[inline]
     fn process_polyline(
         &self,
         polyline: &DecodedEntity,

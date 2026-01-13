@@ -172,6 +172,7 @@ impl GeometryProcessor for ExtrudedAreaSolidProcessor {
 
 impl ExtrudedAreaSolidProcessor {
     /// Parse IfcAxis2Placement3D into transformation matrix
+    #[inline]
     fn parse_axis2_placement_3d(
         &self,
         placement: &DecodedEntity,
@@ -250,6 +251,7 @@ impl ExtrudedAreaSolidProcessor {
     }
 
     /// Parse IfcCartesianPoint
+    #[inline]
     fn parse_cartesian_point(
         &self,
         parent: &DecodedEntity,
@@ -297,6 +299,7 @@ impl ExtrudedAreaSolidProcessor {
     }
 
     /// Parse IfcDirection
+    #[inline]
     fn parse_direction(&self, direction_entity: &DecodedEntity) -> Result<Vector3<f64>> {
         if direction_entity.ifc_type != IfcType::IfcDirection {
             return Err(Error::geometry(format!(
@@ -438,6 +441,7 @@ impl FacetedBrepProcessor {
     }
 
     /// Extract polygon points from a loop entity
+    #[inline]
     fn extract_loop_points(
         &self,
         loop_entity: &DecodedEntity,
