@@ -1,0 +1,592 @@
+/* tslint:disable */
+/* eslint-disable */
+
+export class GeoReferenceJs {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  /**
+   * Transform local coordinates to map coordinates
+   */
+  localToMap(x: number, y: number, z: number): Float64Array;
+  /**
+   * Transform map coordinates to local coordinates
+   */
+  mapToLocal(e: number, n: number, h: number): Float64Array;
+  /**
+   * Get 4x4 transformation matrix (column-major for WebGL)
+   */
+  toMatrix(): Float64Array;
+  /**
+   * Get CRS name
+   */
+  readonly crsName: string | undefined;
+  /**
+   * Get rotation angle in radians
+   */
+  readonly rotation: number;
+  /**
+   * Eastings (X offset)
+   */
+  eastings: number;
+  /**
+   * Northings (Y offset)
+   */
+  northings: number;
+  /**
+   * Orthogonal height (Z offset)
+   */
+  orthogonal_height: number;
+  /**
+   * X-axis abscissa (cos of rotation)
+   */
+  x_axis_abscissa: number;
+  /**
+   * X-axis ordinate (sin of rotation)
+   */
+  x_axis_ordinate: number;
+  /**
+   * Scale factor
+   */
+  scale: number;
+}
+
+export class IfcAPI {
+  free(): void;
+  [Symbol.dispose](): void;
+  /**
+   * Get WASM memory for zero-copy access
+   */
+  getMemory(): any;
+  /**
+   * Parse IFC file and return individual meshes with express IDs and colors
+   * This matches the MeshData[] format expected by the viewer
+   *
+   * Example:
+   * ```javascript
+   * const api = new IfcAPI();
+   * const collection = api.parseMeshes(ifcData);
+   * for (let i = 0; i < collection.length; i++) {
+   *   const mesh = collection.get(i);
+   *   console.log('Express ID:', mesh.expressId);
+   *   console.log('Positions:', mesh.positions);
+   *   console.log('Color:', mesh.color);
+   * }
+   * ```
+   */
+  parseMeshes(content: string): MeshCollection;
+  /**
+   * Parse IFC file with streaming events
+   * Calls the callback function for each parse event
+   *
+   * Example:
+   * ```javascript
+   * const api = new IfcAPI();
+   * await api.parseStreaming(ifcData, (event) => {
+   *   console.log('Event:', event);
+   * });
+   * ```
+   */
+  parseStreaming(content: string, callback: Function): Promise<any>;
+  /**
+   * Parse IFC file with zero-copy mesh data
+   * Maximum performance - returns mesh with direct memory access
+   *
+   * Example:
+   * ```javascript
+   * const api = new IfcAPI();
+   * const mesh = await api.parseZeroCopy(ifcData);
+   *
+   * // Create TypedArray views (NO COPYING!)
+   * const memory = await api.getMemory();
+   * const positions = new Float32Array(
+   *   memory.buffer,
+   *   mesh.positions_ptr,
+   *   mesh.positions_len
+   * );
+   *
+   * // Upload directly to GPU
+   * gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+   * ```
+   */
+  parseZeroCopy(content: string): ZeroCopyMesh;
+  /**
+   * Extract georeferencing information from IFC content
+   * Returns null if no georeferencing is present
+   *
+   * Example:
+   * ```javascript
+   * const api = new IfcAPI();
+   * const georef = api.getGeoReference(ifcData);
+   * if (georef) {
+   *   console.log('CRS:', georef.crsName);
+   *   const [e, n, h] = georef.localToMap(10, 20, 5);
+   * }
+   * ```
+   */
+  getGeoReference(content: string): GeoReferenceJs | undefined;
+  /**
+   * Parse IFC file with streaming mesh batches for progressive rendering
+   * Calls the callback with batches of meshes, yielding to browser between batches
+   *
+   * Example:
+   * ```javascript
+   * const api = new IfcAPI();
+   * await api.parseMeshesAsync(ifcData, {
+   *   batchSize: 100,
+   *   onBatch: (meshes, progress) => {
+   *     // Add meshes to scene
+   *     for (const mesh of meshes) {
+   *       scene.add(createThreeMesh(mesh));
+   *     }
+   *     console.log(`Progress: ${progress.percent}%`);
+   *   },
+   *   onComplete: (stats) => {
+   *     console.log(`Done! ${stats.totalMeshes} meshes`);
+   *   }
+   * });
+   * ```
+   */
+  parseMeshesAsync(content: string, options: any): Promise<any>;
+  /**
+   * Parse IFC file and return mesh with RTC offset for large coordinates
+   * This handles georeferenced models by shifting to centroid
+   *
+   * Example:
+   * ```javascript
+   * const api = new IfcAPI();
+   * const result = api.parseMeshesWithRtc(ifcData);
+   * const rtcOffset = result.rtcOffset;
+   * const meshes = result.meshes;
+   *
+   * // Convert local coords back to world:
+   * if (rtcOffset.isSignificant()) {
+   *   const [wx, wy, wz] = rtcOffset.toWorld(localX, localY, localZ);
+   * }
+   * ```
+   */
+  parseMeshesWithRtc(content: string): MeshCollectionWithRtc;
+  /**
+   * Parse IFC file and return instanced geometry grouped by geometry hash
+   * This reduces draw calls by grouping identical geometries with different transforms
+   *
+   * Example:
+   * ```javascript
+   * const api = new IfcAPI();
+   * const collection = api.parseMeshesInstanced(ifcData);
+   * for (let i = 0; i < collection.length; i++) {
+   *   const geometry = collection.get(i);
+   *   console.log('Geometry ID:', geometry.geometryId);
+   *   console.log('Instances:', geometry.instanceCount);
+   *   for (let j = 0; j < geometry.instanceCount; j++) {
+   *     const inst = geometry.getInstance(j);
+   *     console.log('  Express ID:', inst.expressId);
+   *     console.log('  Transform:', inst.transform);
+   *   }
+   * }
+   * ```
+   */
+  parseMeshesInstanced(content: string): InstancedMeshCollection;
+  /**
+   * Debug: Test processing entity #953 (FacetedBrep wall)
+   */
+  debugProcessEntity953(content: string): string;
+  /**
+   * Debug: Test processing a single wall
+   */
+  debugProcessFirstWall(content: string): string;
+  /**
+   * Parse IFC file with streaming instanced geometry batches for progressive rendering
+   * Groups identical geometries and yields batches of InstancedGeometry
+   * Uses fast-first-frame streaming: simple geometry (walls, slabs) first
+   *
+   * Example:
+   * ```javascript
+   * const api = new IfcAPI();
+   * await api.parseMeshesInstancedAsync(ifcData, {
+   *   batchSize: 25,  // Number of unique geometries per batch
+   *   onBatch: (geometries, progress) => {
+   *     for (const geom of geometries) {
+   *       renderer.addInstancedGeometry(geom);
+   *     }
+   *   },
+   *   onComplete: (stats) => {
+   *     console.log(`Done! ${stats.totalGeometries} unique geometries, ${stats.totalInstances} instances`);
+   *   }
+   * });
+   * ```
+   */
+  parseMeshesInstancedAsync(content: string, options: any): Promise<any>;
+  /**
+   * Create and initialize the IFC API
+   */
+  constructor();
+  /**
+   * Parse IFC file (traditional - waits for completion)
+   *
+   * Example:
+   * ```javascript
+   * const api = new IfcAPI();
+   * const result = await api.parse(ifcData);
+   * console.log('Entities:', result.entityCount);
+   * ```
+   */
+  parse(content: string): Promise<any>;
+  /**
+   * Get version string
+   */
+  readonly version: string;
+  /**
+   * Check if API is initialized
+   */
+  readonly is_ready: boolean;
+}
+
+export class InstanceData {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  readonly expressId: number;
+  readonly color: Float32Array;
+  readonly transform: Float32Array;
+}
+
+export class InstancedGeometry {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  get_instance(index: number): InstanceData | undefined;
+  readonly geometryId: bigint;
+  readonly instance_count: number;
+  readonly indices: Uint32Array;
+  readonly normals: Float32Array;
+  readonly positions: Float32Array;
+}
+
+export class InstancedMeshCollection {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  get(index: number): InstancedGeometry | undefined;
+  readonly totalInstances: number;
+  readonly totalGeometries: number;
+  readonly length: number;
+}
+
+export class MeshCollection {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  /**
+   * Get mesh at index
+   */
+  get(index: number): MeshDataJs | undefined;
+  /**
+   * Get total vertex count across all meshes
+   */
+  readonly totalVertices: number;
+  /**
+   * Get total triangle count across all meshes
+   */
+  readonly totalTriangles: number;
+  /**
+   * Get number of meshes
+   */
+  readonly length: number;
+}
+
+export class MeshCollectionWithRtc {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  /**
+   * Get mesh at index
+   */
+  get(index: number): MeshDataJs | undefined;
+  /**
+   * Get the RTC offset
+   */
+  readonly rtcOffset: RtcOffsetJs;
+  /**
+   * Get number of meshes
+   */
+  readonly length: number;
+  /**
+   * Get the mesh collection
+   */
+  readonly meshes: MeshCollection;
+}
+
+export class MeshDataJs {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  /**
+   * Get express ID
+   */
+  readonly expressId: number;
+  /**
+   * Get vertex count
+   */
+  readonly vertexCount: number;
+  /**
+   * Get triangle count
+   */
+  readonly triangleCount: number;
+  /**
+   * Get color as [r, g, b, a] array
+   */
+  readonly color: Float32Array;
+  /**
+   * Get indices as Uint32Array (copy to JS)
+   */
+  readonly indices: Uint32Array;
+  /**
+   * Get normals as Float32Array (copy to JS)
+   */
+  readonly normals: Float32Array;
+  /**
+   * Get positions as Float32Array (copy to JS)
+   */
+  readonly positions: Float32Array;
+}
+
+export class RtcOffsetJs {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  /**
+   * Check if offset is significant (>10km)
+   */
+  isSignificant(): boolean;
+  /**
+   * Convert local coordinates to world coordinates
+   */
+  toWorld(x: number, y: number, z: number): Float64Array;
+  /**
+   * X offset (subtracted from positions)
+   */
+  x: number;
+  /**
+   * Y offset
+   */
+  y: number;
+  /**
+   * Z offset
+   */
+  z: number;
+}
+
+export class ZeroCopyMesh {
+  free(): void;
+  [Symbol.dispose](): void;
+  /**
+   * Get bounding box maximum point
+   */
+  bounds_max(): Float32Array;
+  /**
+   * Get bounding box minimum point
+   */
+  bounds_min(): Float32Array;
+  /**
+   * Create a new zero-copy mesh from a Mesh
+   */
+  constructor();
+  /**
+   * Get length of indices array
+   */
+  readonly indices_len: number;
+  /**
+   * Get pointer to indices array
+   */
+  readonly indices_ptr: number;
+  /**
+   * Get length of normals array
+   */
+  readonly normals_len: number;
+  /**
+   * Get pointer to normals array
+   */
+  readonly normals_ptr: number;
+  /**
+   * Get vertex count
+   */
+  readonly vertex_count: number;
+  /**
+   * Get length of positions array (in f32 elements, not bytes)
+   */
+  readonly positions_len: number;
+  /**
+   * Get pointer to positions array
+   * JavaScript can create Float32Array view: new Float32Array(memory.buffer, ptr, length)
+   */
+  readonly positions_ptr: number;
+  /**
+   * Get triangle count
+   */
+  readonly triangle_count: number;
+  /**
+   * Check if mesh is empty
+   */
+  readonly is_empty: boolean;
+}
+
+/**
+ * Get WASM memory to allow JavaScript to create TypedArray views
+ */
+export function get_memory(): any;
+
+/**
+ * Initialize the WASM module.
+ *
+ * This function is called automatically when the WASM module is loaded.
+ * It sets up panic hooks for better error messages in the browser console.
+ */
+export function init(): void;
+
+/**
+ * Get the version of IFC-Lite.
+ *
+ * # Returns
+ *
+ * Version string (e.g., "0.1.0")
+ *
+ * # Example
+ *
+ * ```javascript
+ * console.log(`IFC-Lite version: ${version()}`);
+ * ```
+ */
+export function version(): string;
+
+export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
+
+export interface InitOutput {
+  readonly memory: WebAssembly.Memory;
+  readonly __wbg_georeferencejs_free: (a: number, b: number) => void;
+  readonly __wbg_get_georeferencejs_eastings: (a: number) => number;
+  readonly __wbg_get_georeferencejs_northings: (a: number) => number;
+  readonly __wbg_get_georeferencejs_orthogonal_height: (a: number) => number;
+  readonly __wbg_get_georeferencejs_scale: (a: number) => number;
+  readonly __wbg_get_georeferencejs_x_axis_abscissa: (a: number) => number;
+  readonly __wbg_get_georeferencejs_x_axis_ordinate: (a: number) => number;
+  readonly __wbg_ifcapi_free: (a: number, b: number) => void;
+  readonly __wbg_instancedata_free: (a: number, b: number) => void;
+  readonly __wbg_instancedgeometry_free: (a: number, b: number) => void;
+  readonly __wbg_instancedmeshcollection_free: (a: number, b: number) => void;
+  readonly __wbg_meshcollection_free: (a: number, b: number) => void;
+  readonly __wbg_meshcollectionwithrtc_free: (a: number, b: number) => void;
+  readonly __wbg_meshdatajs_free: (a: number, b: number) => void;
+  readonly __wbg_rtcoffsetjs_free: (a: number, b: number) => void;
+  readonly __wbg_set_georeferencejs_eastings: (a: number, b: number) => void;
+  readonly __wbg_set_georeferencejs_northings: (a: number, b: number) => void;
+  readonly __wbg_set_georeferencejs_orthogonal_height: (a: number, b: number) => void;
+  readonly __wbg_set_georeferencejs_scale: (a: number, b: number) => void;
+  readonly __wbg_set_georeferencejs_x_axis_abscissa: (a: number, b: number) => void;
+  readonly __wbg_set_georeferencejs_x_axis_ordinate: (a: number, b: number) => void;
+  readonly __wbg_zerocopymesh_free: (a: number, b: number) => void;
+  readonly georeferencejs_crsName: (a: number, b: number) => void;
+  readonly georeferencejs_localToMap: (a: number, b: number, c: number, d: number, e: number) => void;
+  readonly georeferencejs_mapToLocal: (a: number, b: number, c: number, d: number, e: number) => void;
+  readonly georeferencejs_rotation: (a: number) => number;
+  readonly georeferencejs_toMatrix: (a: number, b: number) => void;
+  readonly ifcapi_debugProcessEntity953: (a: number, b: number, c: number, d: number) => void;
+  readonly ifcapi_debugProcessFirstWall: (a: number, b: number, c: number, d: number) => void;
+  readonly ifcapi_getGeoReference: (a: number, b: number, c: number) => number;
+  readonly ifcapi_getMemory: (a: number) => number;
+  readonly ifcapi_is_ready: (a: number) => number;
+  readonly ifcapi_new: () => number;
+  readonly ifcapi_parse: (a: number, b: number, c: number) => number;
+  readonly ifcapi_parseMeshes: (a: number, b: number, c: number) => number;
+  readonly ifcapi_parseMeshesAsync: (a: number, b: number, c: number, d: number) => number;
+  readonly ifcapi_parseMeshesInstanced: (a: number, b: number, c: number) => number;
+  readonly ifcapi_parseMeshesInstancedAsync: (a: number, b: number, c: number, d: number) => number;
+  readonly ifcapi_parseMeshesWithRtc: (a: number, b: number, c: number) => number;
+  readonly ifcapi_parseStreaming: (a: number, b: number, c: number, d: number) => number;
+  readonly ifcapi_parseZeroCopy: (a: number, b: number, c: number) => number;
+  readonly ifcapi_version: (a: number, b: number) => void;
+  readonly instancedata_color: (a: number, b: number) => void;
+  readonly instancedata_expressId: (a: number) => number;
+  readonly instancedata_transform: (a: number) => number;
+  readonly instancedgeometry_geometryId: (a: number) => bigint;
+  readonly instancedgeometry_get_instance: (a: number, b: number) => number;
+  readonly instancedgeometry_indices: (a: number) => number;
+  readonly instancedgeometry_instance_count: (a: number) => number;
+  readonly instancedgeometry_normals: (a: number) => number;
+  readonly instancedgeometry_positions: (a: number) => number;
+  readonly instancedmeshcollection_get: (a: number, b: number) => number;
+  readonly instancedmeshcollection_length: (a: number) => number;
+  readonly instancedmeshcollection_totalInstances: (a: number) => number;
+  readonly meshcollection_get: (a: number, b: number) => number;
+  readonly meshcollection_totalTriangles: (a: number) => number;
+  readonly meshcollection_totalVertices: (a: number) => number;
+  readonly meshcollectionwithrtc_get: (a: number, b: number) => number;
+  readonly meshcollectionwithrtc_length: (a: number) => number;
+  readonly meshcollectionwithrtc_meshes: (a: number) => number;
+  readonly meshcollectionwithrtc_rtcOffset: (a: number) => number;
+  readonly meshdatajs_color: (a: number, b: number) => void;
+  readonly meshdatajs_expressId: (a: number) => number;
+  readonly meshdatajs_indices: (a: number) => number;
+  readonly meshdatajs_normals: (a: number) => number;
+  readonly meshdatajs_positions: (a: number) => number;
+  readonly meshdatajs_triangleCount: (a: number) => number;
+  readonly meshdatajs_vertexCount: (a: number) => number;
+  readonly rtcoffsetjs_isSignificant: (a: number) => number;
+  readonly rtcoffsetjs_toWorld: (a: number, b: number, c: number, d: number, e: number) => void;
+  readonly version: (a: number) => void;
+  readonly zerocopymesh_bounds_max: (a: number, b: number) => void;
+  readonly zerocopymesh_bounds_min: (a: number, b: number) => void;
+  readonly zerocopymesh_indices_len: (a: number) => number;
+  readonly zerocopymesh_indices_ptr: (a: number) => number;
+  readonly zerocopymesh_is_empty: (a: number) => number;
+  readonly zerocopymesh_new: () => number;
+  readonly zerocopymesh_normals_len: (a: number) => number;
+  readonly zerocopymesh_normals_ptr: (a: number) => number;
+  readonly zerocopymesh_positions_len: (a: number) => number;
+  readonly zerocopymesh_positions_ptr: (a: number) => number;
+  readonly init: () => void;
+  readonly instancedmeshcollection_totalGeometries: (a: number) => number;
+  readonly meshcollection_length: (a: number) => number;
+  readonly __wbg_set_rtcoffsetjs_x: (a: number, b: number) => void;
+  readonly __wbg_set_rtcoffsetjs_y: (a: number, b: number) => void;
+  readonly __wbg_set_rtcoffsetjs_z: (a: number, b: number) => void;
+  readonly zerocopymesh_triangle_count: (a: number) => number;
+  readonly zerocopymesh_vertex_count: (a: number) => number;
+  readonly get_memory: () => number;
+  readonly __wbg_get_rtcoffsetjs_x: (a: number) => number;
+  readonly __wbg_get_rtcoffsetjs_y: (a: number) => number;
+  readonly __wbg_get_rtcoffsetjs_z: (a: number) => number;
+  readonly __wasm_bindgen_func_elem_295: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_294: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_306: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_305: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_340: (a: number, b: number, c: number, d: number) => void;
+  readonly __wbindgen_export: (a: number, b: number) => number;
+  readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
+  readonly __wbindgen_export3: (a: number) => void;
+  readonly __wbindgen_export4: (a: number, b: number, c: number) => void;
+  readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
+  readonly __wbindgen_start: () => void;
+}
+
+export type SyncInitInput = BufferSource | WebAssembly.Module;
+
+/**
+* Instantiates the given `module`, which can either be bytes or
+* a precompiled `WebAssembly.Module`.
+*
+* @param {{ module: SyncInitInput }} module - Passing `SyncInitInput` directly is deprecated.
+*
+* @returns {InitOutput}
+*/
+export function initSync(module: { module: SyncInitInput } | SyncInitInput): InitOutput;
+
+/**
+* If `module_or_path` is {RequestInfo} or {URL}, makes a request and
+* for everything else, calls `WebAssembly.instantiate` directly.
+*
+* @param {{ module_or_path: InitInput | Promise<InitInput> }} module_or_path - Passing `InitInput` directly is deprecated.
+*
+* @returns {Promise<InitOutput>}
+*/
+export default function __wbg_init (module_or_path?: { module_or_path: InitInput | Promise<InitInput> } | InitInput | Promise<InitInput>): Promise<InitOutput>;
