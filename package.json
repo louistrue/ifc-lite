@@ -1,6 +1,6 @@
 {
   "name": "ifc-lite",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "description": "High-performance browser IFC parser & renderer",
   "private": true,
   "type": "module",
@@ -15,12 +15,19 @@
     "lint": "pnpm -r lint",
     "docs:serve": "python3 -m mkdocs serve",
     "docs:build": "python3 -m mkdocs build",
+    "changeset": "changeset",
+    "version": "changeset version && node scripts/sync-versions.js",
+    "release": "pnpm build && pnpm release:npm && pnpm release:crates",
+    "release:npm": "changeset publish",
+    "release:crates": "cargo publish -p ifc-lite-core --allow-dirty || true && sleep 30 && cargo publish -p ifc-lite-geometry --allow-dirty || true && sleep 30 && cargo publish -p ifc-lite-wasm --allow-dirty || true",
     "publish:npm": "pnpm -r publish --access public",
     "publish:dry": "pnpm -r publish --access public --dry-run",
     "test:benchmark": "playwright test tests/benchmark/benchmark.spec.ts",
     "test:benchmark:headed": "playwright test tests/benchmark/benchmark.spec.ts --headed"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^0.5.2",
+    "@changesets/cli": "^2.29.8",
     "@playwright/test": "^1.40.0",
     "@types/node": "^20.0.0",
     "tsx": "^4.21.0",

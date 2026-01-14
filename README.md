@@ -143,7 +143,7 @@ renderer.render();
 | [**User Guide**](https://louistrue.github.io/ifc-lite/) | Complete guide with tutorials and examples |
 | [**API Reference**](https://louistrue.github.io/ifc-lite/api/) | Rustdoc API documentation |
 | [**Architecture**](docs/architecture.md) | System design and data flow |
-| [**Contributing**](CONTRIBUTING.md) | How to contribute to the project |
+| [**Release Process**](RELEASE.md) | Automated versioning and publishing workflow |
 
 ## Architecture
 
@@ -228,6 +228,9 @@ pnpm dev          # Start viewer in dev mode
 pnpm build        # Build all packages
 pnpm test         # Run tests
 
+# Add a changeset when making changes
+pnpm changeset    # Describe your changes (required for releases)
+
 # Rust/WASM development (optional - WASM is pre-built)
 cd rust && cargo build --release --target wasm32-unknown-unknown
 bash build-wasm.sh  # Rebuild WASM after Rust changes
@@ -257,7 +260,7 @@ bash build-wasm.sh  # Rebuild WASM after Rust changes
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+We welcome contributions! Please see our [Release Process Guide](RELEASE.md) for details on versioning and publishing.
 
 ```bash
 # Fork and clone
@@ -269,7 +272,10 @@ git checkout -b feature/my-feature
 # Make changes and test
 pnpm test
 
-# Submit a pull request
+# Add a changeset to describe your changes
+pnpm changeset
+
+# Submit a pull request (include the changeset file)
 ```
 
 ## License

@@ -1,0 +1,159 @@
+# Release Process
+
+This project uses [Changesets](https://github.com/changesets/changesets) for automated version management and publishing to npm and crates.io.
+
+## How It Works
+
+The release process is **fully automated** via GitHub Actions. All you need to do is:
+
+1. Add changesets to your PRs
+2. Merge the automated "Version Packages" PR when ready to release
+
+## Developer Workflow
+
+### Adding Changes (Required for PRs)
+
+When you make changes that should be included in the next release, add a changeset:
+
+```bash
+pnpm changeset
+```
+
+This will prompt you to:
+1. **Select packages** that changed (usually all linked packages will update together)
+2. **Choose bump type**: `patch` (bug fix), `minor` (feature), or `major` (breaking change)
+3. **Write a description** of the changes (will appear in CHANGELOG.md)
+
+This creates a markdown file in `.changeset/` that describes the change.
+
+**Example changeset:**
+```markdown
+---
+"@ifc-lite/parser": minor
+"@ifc-lite/renderer": minor
+---
+
+Add support for IFC4X3 entities
+```
+
+### What Happens Next (Automatic)
+
+1. **When PR is merged to main**:
+   - GitHub Actions runs
+   - Changesets bot creates/updates a "Version Packages" PR
+   - This PR includes:
+     - Version bumps in all `package.json` and `Cargo.toml` files
+     - Updated `CHANGELOG.md` with all accumulated changes
+     - Synced versions between npm and Rust
+
+2. **When "Version Packages" PR is merged**:
+   - Packages are automatically built
+   - npm packages are published to npm registry
+   - Rust crates are published to crates.io
+   - GitHub Release is created with version tag
+
+## Release Workflow Diagram
+
+```
+PR with changeset → Merge to main → "Version Packages" PR created
+                                            ↓
+                                    Review & Merge
+                                            ↓
+                         Build → Publish npm → Publish Rust → Create GitHub Release
+```
+
+## Manual Release (Emergency Only)
+
+If you need to manually release:
+
+```bash
+# 1. Add changeset if you haven't
+pnpm changeset
+
+# 2. Bump versions
+pnpm version
+
+# 3. Commit changes
+git add .
+git commit -m "chore: version packages"
+
+# 4. Build and publish
+pnpm release
+```
+
+## Version Synchronization
+
+All packages (npm and Rust) are kept at the **same version** via:
+
+- **Linked packages**: All `@ifc-lite/*` packages bump together
+- **Automatic sync**: `scripts/sync-versions.js` syncs Cargo.toml after npm version bumps
+
+## Secrets Required
+
+The GitHub Actions workflow needs these secrets:
+
+- `NPM_TOKEN`: npm access token with publish permissions
+- `CARGO_TOKEN`: crates.io API token
+- `GITHUB_TOKEN`: Automatically provided by GitHub Actions
+
+## FAQ
+
+### Q: Do I need to update version numbers manually?
+**A:** No! Changesets handles all version bumps automatically.
+
+### Q: When do packages get published?
+**A:** Only when the "Version Packages" PR is merged to main.
+
+### Q: Can I see what will be released before publishing?
+**A:** Yes! Review the "Version Packages" PR to see all version bumps and CHANGELOG entries.
+
+### Q: What if I forget to add a changeset?
+**A:** The "Version Packages" PR won't include your changes. Add a changeset and push to main - the bot will update the PR.
+
+### Q: Can I release a single package?
+**A:** No. All packages are linked and release together with the same version for consistency.
+
+### Q: What if publishing fails?
+**A:** The workflow has built-in retry logic. Rust crates publish with 30s delays between each. If a version is already published, it's skipped safely.
+
+## Best Practices
+
+1. **Add changesets in feature PRs**: Include the changeset file in your PR for review
+2. **Clear descriptions**: Write good changeset descriptions - they become your CHANGELOG
+3. **Appropriate bump types**:
+   - `patch`: Bug fixes, docs, tests
+   - `minor`: New features (backwards compatible)
+   - `major`: Breaking changes
+4. **Batch releases**: Don't merge "Version Packages" PR immediately - let multiple changes accumulate
+5. **Review before release**: Always review the "Version Packages" PR before merging
+
+## Troubleshooting
+
+### Changesets bot isn't creating a PR
+- Check that changesets exist in `.changeset/` (not just README.md and config.json)
+- Verify GitHub Actions has write permissions
+- Check workflow logs in Actions tab
+
+### Publishing fails
+- Check that secrets are configured correctly
+- Verify npm token has publish access to `@ifc-lite/*` scope
+- For Rust: ensure crates.io token is valid
+- Check if versions already exist on registries
+
+### Versions out of sync
+- Run `pnpm version` locally to sync
+- Commit the changes and push
+
+## Migration Notes
+
+This project migrated from manual versioning to Changesets. The old workflow:
+- ❌ Manual version bumps in multiple files
+- ❌ Manual git tags
+- ❌ Publishing on every push to main
+- ❌ Error-prone and easy to forget steps
+
+The new workflow:
+- ✅ Automated version bumps
+- ✅ Single source of truth (changesets)
+- ✅ Publishing only on explicit merge
+- ✅ Clear audit trail via "Version Packages" PR
