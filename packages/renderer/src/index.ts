@@ -24,6 +24,7 @@ import { FrustumUtils } from '@ifc-lite/spatial';
 import type { RenderOptions, Mesh, InstancedMesh } from './types.js';
 import { SectionPlaneRenderer } from './section-plane.js';
 import type { InstancedGeometry } from '@ifc-lite/geometry';
+import { deduplicateMeshes } from '@ifc-lite/geometry';
 
 /**
  * Main renderer class
@@ -137,11 +138,14 @@ export class Renderer {
         device.queue.writeBuffer(indexBuffer, 0, geometry.indices);
 
         // Create instance buffer: each instance is 80 bytes (20 floats: 16 for transform + 4 for color)
-        const instanceData = new Float32Array(geometry.instances.length * 20);
+        const instanceCount = geometry.instance_count;
+        const instanceData = new Float32Array(instanceCount * 20);
         const expressIdToInstanceIndex = new Map<number, number>();
 
-        for (let i = 0; i < geometry.instances.length; i++) {
-            const instance = geometry.instances[i];
+        for (let i = 0; i < instanceCount; i++) {
+            const instance = geometry.get_instance(i);
+            if (!instance) continue;
+            
             const baseIdx = i * 20;
 
             // Copy transform (16 floats)
@@ -168,11 +172,130 @@ export class Renderer {
             indexBuffer,
             indexCount: geometry.indices.length,
             instanceBuffer,
-            instanceCount: geometry.instances.length,
+            instanceCount: instanceCount,
             expressIdToInstanceIndex,
         };
 
         this.scene.addInstancedMesh(instancedMesh);
+    }
+
+    /**
+     * Convert MeshData array to instanced meshes for optimized rendering
+     * Groups identical geometries and creates GPU instanced draw calls
+     * Call this in background after initial streaming completes
+     */
+    convertToInstanced(meshDataArray: import('@ifc-lite/geometry').MeshData[]): void {
+        if (!this.instancedPipeline || !this.device.isInitialized()) {
+            console.warn('[Renderer] Cannot convert to instanced: renderer not initialized');
+            return;
+        }
+
+        // Use deduplication function to group identical geometries
+        const instancedData = deduplicateMeshes(meshDataArray);
+
+        const device = this.device.getDevice();
+        let totalInstances = 0;
+
+        for (const group of instancedData) {
+            // Create vertex buffer (interleaved positions + normals)
+            const vertexCount = group.positions.length / 3;
+            const vertexData = new Float32Array(vertexCount * 6);
+            for (let i = 0; i < vertexCount; i++) {
+                vertexData[i * 6 + 0] = group.positions[i * 3 + 0];
+                vertexData[i * 6 + 1] = group.positions[i * 3 + 1];
+                vertexData[i * 6 + 2] = group.positions[i * 3 + 2];
+                vertexData[i * 6 + 3] = group.normals[i * 3 + 0];
+                vertexData[i * 6 + 4] = group.normals[i * 3 + 1];
+                vertexData[i * 6 + 5] = group.normals[i * 3 + 2];
+            }
+
+            const vertexBuffer = device.createBuffer({
+                size: vertexData.byteLength,
+                usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+            });
+            device.queue.writeBuffer(vertexBuffer, 0, vertexData);
+
+            // Create index buffer
+            const indexBuffer = device.createBuffer({
+                size: group.indices.byteLength,
+                usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+            });
+            device.queue.writeBuffer(indexBuffer, 0, group.indices);
+
+            // Create instance buffer: each instance is 80 bytes (20 floats: 16 for transform + 4 for color)
+            const instanceCount = group.instances.length;
+            const instanceData = new Float32Array(instanceCount * 20);
+            const expressIdToInstanceIndex = new Map<number, number>();
+
+            // Identity matrix for now (instances use same geometry, different colors)
+            const identityTransform = new Float32Array([
+                1, 0, 0, 0,
+                0, 1, 0, 0,
+                0, 0, 1, 0,
+                0, 0, 0, 1,
+            ]);
+
+            for (let i = 0; i < instanceCount; i++) {
+                const instance = group.instances[i];
+                const baseIdx = i * 20;
+
+                // Copy identity transform (16 floats)
+                instanceData.set(identityTransform, baseIdx);
+
+                // Copy color (4 floats)
+                instanceData[baseIdx + 16] = instance.color[0];
+                instanceData[baseIdx + 17] = instance.color[1];
+                instanceData[baseIdx + 18] = instance.color[2];
+                instanceData[baseIdx + 19] = instance.color[3];
+
+                expressIdToInstanceIndex.set(instance.expressId, i);
+            }
+
+            const instanceBuffer = device.createBuffer({
+                size: instanceData.byteLength,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            });
+            device.queue.writeBuffer(instanceBuffer, 0, instanceData);
+
+            // Convert hash string to number for geometryId
+            const geometryId = this.hashStringToNumber(group.geometryHash);
+
+            const instancedMesh: InstancedMesh = {
+                geometryId,
+                vertexBuffer,
+                indexBuffer,
+                indexCount: group.indices.length,
+                instanceBuffer,
+                instanceCount: instanceCount,
+                expressIdToInstanceIndex,
+            };
+
+            this.scene.addInstancedMesh(instancedMesh);
+            totalInstances += instanceCount;
+        }
+
+        // Clear regular meshes after conversion to avoid double rendering
+        const regularMeshCount = this.scene.getMeshes().length;
+        this.scene.clearRegularMeshes();
+
+        console.log(
+            `[Renderer] Converted ${meshDataArray.length} meshes to ${instancedData.length} instanced geometries ` +
+            `(${totalInstances} total instances, ${(totalInstances / instancedData.length).toFixed(1)}x deduplication). ` +
+            `Cleared ${regularMeshCount} regular meshes.`
+        );
+    }
+
+    /**
+     * Hash string to number for geometryId
+     */
+    private hashStringToNumber(str: string): number {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32-bit integer
+        }
+        return Math.abs(hash);
     }
 
     /**

@@ -35,11 +35,11 @@ export function useIfc() {
 
   const loadFile = useCallback(async (file: File) => {
     const { resetViewerState } = useViewerStore.getState();
-    
+
     try {
       // Reset all viewer state before loading new file
       resetViewerState();
-      
+
       setLoading(true);
       setError(null);
       setProgress({ phase: 'Loading file', percent: 0 });
@@ -78,8 +78,7 @@ export function useIfc() {
         }
       }
 
-      // Use streaming processing for progressive rendering
-      const bufferBuilder = new BufferBuilder();
+      // Use adaptive processing: sync for small files, streaming for large files
       let estimatedTotal = 0;
       let totalMeshes = 0;
       const allMeshes: MeshData[] = []; // Collect all meshes for BVH building
@@ -88,100 +87,102 @@ export function useIfc() {
       setGeometryResult(null);
 
       // Timing instrumentation
-      const streamingStart = performance.now();
+      const processingStart = performance.now();
       let batchCount = 0;
-      let lastBatchTime = streamingStart;
+      let lastBatchTime = processingStart;
       let totalWaitTime = 0; // Time waiting for WASM to yield batches
       let totalProcessTime = 0; // Time processing batches in JS
 
       try {
-        console.log('[useIfc] Starting streaming processing...');
-        console.time('[useIfc] total-streaming');
-        
-        for await (const event of geometryProcessor.processStreaming(new Uint8Array(buffer), entityIndexMap, 100)) {
+        const fileSizeMB = buffer.byteLength / (1024 * 1024);
+        console.log(`[useIfc] Starting adaptive processing (file size: ${fileSizeMB.toFixed(2)}MB)...`);
+        console.time('[useIfc] total-processing');
+
+        for await (const event of geometryProcessor.processAdaptive(new Uint8Array(buffer), {
+          sizeThreshold: 2 * 1024 * 1024, // 2MB threshold
+          batchSize: 25,
+          entityIndex: entityIndexMap,
+        })) {
           const eventReceived = performance.now();
           const waitTime = eventReceived - lastBatchTime;
-          
+
           switch (event.type) {
             case 'start':
               estimatedTotal = event.totalEstimate;
-              console.log(`[useIfc] Stream started, estimated: ${estimatedTotal}`);
+              console.log(`[useIfc] Processing started, estimated: ${estimatedTotal}`);
               break;
             case 'model-open':
               setProgress({ phase: 'Processing geometry', percent: 50 });
-              console.log(`[useIfc] Model opened at ${(eventReceived - streamingStart).toFixed(0)}ms`);
+              console.log(`[useIfc] Model opened at ${(eventReceived - processingStart).toFixed(0)}ms`);
               break;
             case 'batch': {
               batchCount++;
               totalWaitTime += waitTime;
-              
+
               const processStart = performance.now();
-              
+
               // Collect meshes for BVH building
               allMeshes.push(...event.meshes);
-              
-              // Convert MeshData[] to GPU-ready format and append
-              const gpuMeshes = bufferBuilder.processMeshes(event.meshes).meshes;
-              appendGeometryBatch(gpuMeshes, event.coordinateInfo);
+
+              // Append mesh batch to store (triggers React re-render)
+              appendGeometryBatch(event.meshes, event.coordinateInfo);
               totalMeshes = event.totalSoFar;
 
               // Update progress (50-95% for geometry processing)
-              const progressPercent = 50 + Math.min(45, (totalMeshes / Math.max(estimatedTotal, totalMeshes)) * 45);
+              const progressPercent = 50 + Math.min(45, (totalMeshes / Math.max(estimatedTotal / 10, totalMeshes)) * 45);
               setProgress({
                 phase: `Rendering geometry (${totalMeshes} meshes)`,
                 percent: progressPercent
               });
-              
+
               const processTime = performance.now() - processStart;
               totalProcessTime += processTime;
-              
+
               // Log batch timing (first 5, then every 10th)
               if (batchCount <= 5 || batchCount % 10 === 0) {
                 console.log(
                   `[useIfc] Batch #${batchCount}: ${event.meshes.length} meshes, ` +
                   `wait: ${waitTime.toFixed(0)}ms, process: ${processTime.toFixed(0)}ms, ` +
-                  `total: ${totalMeshes} meshes at ${(eventReceived - streamingStart).toFixed(0)}ms`
+                  `total: ${totalMeshes} meshes at ${(eventReceived - processingStart).toFixed(0)}ms`
                 );
               }
               break;
             }
             case 'complete':
               console.log(
-                `[useIfc] Streaming complete: ${batchCount} batches, ${event.totalMeshes} meshes\n` +
+                `[useIfc] Processing complete: ${batchCount} batches, ${event.totalMeshes} meshes\n` +
                 `  Total wait (WASM): ${totalWaitTime.toFixed(0)}ms\n` +
                 `  Total process (JS): ${totalProcessTime.toFixed(0)}ms\n` +
                 `  First batch at: ${batchCount > 0 ? '(see Batch #1 above)' : 'N/A'}`
               );
-              console.timeEnd('[useIfc] total-streaming');
-              
+              console.timeEnd('[useIfc] total-processing');
+
               // Update geometry result with final coordinate info
               updateCoordinateInfo(event.coordinateInfo);
-              
-              // Build spatial index from all collected meshes
+
+              // Build spatial index from meshes
               if (allMeshes.length > 0) {
                 setProgress({ phase: 'Building spatial index', percent: 95 });
                 console.time('[useIfc] spatial-index');
                 try {
                   const spatialIndex = buildSpatialIndex(allMeshes);
-                  // Attach spatial index to dataStore
                   (dataStore as any).spatialIndex = spatialIndex;
-                  setIfcDataStore(dataStore); // Update store with spatial index
+                  setIfcDataStore(dataStore);
                   console.timeEnd('[useIfc] spatial-index');
                 } catch (err) {
                   console.timeEnd('[useIfc] spatial-index');
                   console.warn('[useIfc] Failed to build spatial index:', err);
-                  // Continue without spatial index - it's optional
                 }
               }
-              
+
               setProgress({ phase: 'Complete', percent: 100 });
               break;
           }
-          
+
           lastBatchTime = performance.now();
         }
       } catch (err) {
-        console.error('[useIfc] Error in streaming processing:', err);
+        console.error('[useIfc] Error in processing:', err);
         setError(err instanceof Error ? err.message : 'Unknown error during geometry processing');
       }
 
@@ -195,7 +196,7 @@ export function useIfc() {
   // Memoize query to prevent recreation on every render
   const query = useMemo(() => {
     if (!ifcDataStore) return null;
-    
+
     // Only log once per ifcDataStore
     lastLoggedDataStoreRef.current = ifcDataStore;
 

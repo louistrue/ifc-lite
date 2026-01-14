@@ -362,14 +362,31 @@ export class InstancedRenderPipeline {
           @location(3) @interpolate(flat) instanceId: u32,
         }
 
+        // Z-up to Y-up conversion matrix (IFC uses Z-up, WebGPU/viewer uses Y-up)
+        // This swaps Y and Z, negating the new Z to maintain right-handedness
+        const zToYUp = mat4x4<f32>(
+          vec4<f32>(1.0, 0.0, 0.0, 0.0),
+          vec4<f32>(0.0, 0.0, -1.0, 0.0),
+          vec4<f32>(0.0, 1.0, 0.0, 0.0),
+          vec4<f32>(0.0, 0.0, 0.0, 1.0)
+        );
+
         @vertex
         fn vs_main(input: VertexInput, @builtin(instance_index) instanceIndex: u32) -> VertexOutput {
           var output: VertexOutput;
           let inst = instances[instanceIndex];
-          let worldPos = inst.transform * vec4<f32>(input.position, 1.0);
+          
+          // Transform to world space (still in Z-up coordinates)
+          let worldPosZUp = inst.transform * vec4<f32>(input.position, 1.0);
+          let normalZUp = (inst.transform * vec4<f32>(input.normal, 0.0)).xyz;
+          
+          // Convert from Z-up to Y-up for the viewer
+          let worldPos = zToYUp * worldPosZUp;
+          let normalYUp = (zToYUp * vec4<f32>(normalZUp, 0.0)).xyz;
+          
           output.position = uniforms.viewProj * worldPos;
           output.worldPos = worldPos.xyz;
-          output.normal = normalize((inst.transform * vec4<f32>(input.normal, 0.0)).xyz);
+          output.normal = normalize(normalYUp);
           output.color = inst.color;
           output.instanceId = instanceIndex;
           return output;

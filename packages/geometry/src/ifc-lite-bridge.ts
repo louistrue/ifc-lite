@@ -23,10 +23,21 @@ export interface StreamingStats {
   totalTriangles: number;
 }
 
+export interface InstancedStreamingStats {
+  totalGeometries: number;
+  totalInstances: number;
+}
+
 export interface ParseMeshesAsyncOptions {
   batchSize?: number;
   onBatch?: (meshes: MeshDataJs[], progress: StreamingProgress) => void;
   onComplete?: (stats: StreamingStats) => void;
+}
+
+export interface ParseMeshesInstancedAsyncOptions {
+  batchSize?: number;
+  onBatch?: (geometries: InstancedGeometry[], progress: StreamingProgress) => void;
+  onComplete?: (stats: InstancedStreamingStats) => void;
 }
 
 export class IfcLiteBridge {
@@ -80,6 +91,20 @@ export class IfcLiteBridge {
       throw new Error('IFC-Lite not initialized. Call init() first.');
     }
     return this.ifcApi.parseMeshesAsync(content, options);
+  }
+
+  /**
+   * Parse IFC content with streaming instanced geometry (non-blocking)
+   * Groups identical geometries and yields batches progressively
+   * Simple geometry (walls, slabs, beams) processed first
+   * Reduces draw calls significantly for buildings with repeated elements
+   */
+  async parseMeshesInstancedAsync(content: string, options: ParseMeshesInstancedAsyncOptions = {}): Promise<void> {
+    if (!this.ifcApi) {
+      throw new Error('IFC-Lite not initialized. Call init() first.');
+    }
+    // @ts-expect-error - parseMeshesInstancedAsync will be available after WASM rebuild
+    return this.ifcApi.parseMeshesInstancedAsync(content, options);
   }
 
   /**

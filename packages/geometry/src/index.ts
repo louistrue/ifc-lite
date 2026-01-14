@@ -17,11 +17,11 @@ export { CoordinateHandler } from './coordinate-handler.js';
 export { WorkerPool } from './worker-pool.js';
 export { GeometryQuality } from './progressive-loader.js';
 export { LODGenerator, type LODConfig, type LODMesh } from './lod.js';
-export { 
-  deduplicateMeshes, 
+export {
+  deduplicateMeshes,
   getDeduplicationStats,
   type InstancedMeshData,
-  type DeduplicationStats 
+  type DeduplicationStats
 } from './geometry-deduplicator.js';
 export * from './types.js';
 export * from './default-materials.js';
@@ -47,6 +47,12 @@ export type StreamingGeometryEvent =
   | { type: 'model-open'; modelID: number }
   | { type: 'batch'; meshes: MeshData[]; totalSoFar: number; coordinateInfo?: import('./types.js').CoordinateInfo }
   | { type: 'complete'; totalMeshes: number; coordinateInfo: import('./types.js').CoordinateInfo };
+
+export type StreamingInstancedGeometryEvent =
+  | { type: 'start'; totalEstimate: number }
+  | { type: 'model-open'; modelID: number }
+  | { type: 'batch'; geometries: import('@ifc-lite/wasm').InstancedGeometry[]; totalSoFar: number; coordinateInfo?: import('./types.js').CoordinateInfo }
+  | { type: 'complete'; totalGeometries: number; totalInstances: number; coordinateInfo: import('./types.js').CoordinateInfo };
 
 export class GeometryProcessor {
   private bridge: IfcLiteBridge;
@@ -172,7 +178,7 @@ export class GeometryProcessor {
   async *processStreaming(
     buffer: Uint8Array,
     _entityIndex?: Map<number, any>,
-    batchSize: number = 100
+    batchSize: number = 25  // Reduced from 100 for faster first frame
   ): AsyncGenerator<StreamingGeometryEvent> {
     if (!this.bridge.isInitialized()) {
       await this.init();
@@ -207,6 +213,146 @@ export class GeometryProcessor {
     const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
 
     yield { type: 'complete', totalMeshes, coordinateInfo };
+  }
+
+  /**
+   * Process IFC file with streaming instanced geometry output for progressive rendering
+   * Groups identical geometries by hash (before transformation) for GPU instancing
+   * @param buffer IFC file buffer
+   * @param batchSize Number of unique geometries per batch (default: 25)
+   */
+  async *processInstancedStreaming(
+    buffer: Uint8Array,
+    batchSize: number = 25
+  ): AsyncGenerator<StreamingInstancedGeometryEvent> {
+    if (!this.bridge.isInitialized()) {
+      await this.init();
+    }
+
+    // Reset coordinate handler for new file
+    this.coordinateHandler.reset();
+
+    yield { type: 'start', totalEstimate: buffer.length / 1000 };
+
+    // Convert buffer to string (IFC files are text)
+    const decoder = new TextDecoder();
+    const content = decoder.decode(buffer);
+
+    // Use a placeholder model ID (IFC-Lite doesn't use model IDs)
+    yield { type: 'model-open', modelID: 0 };
+
+    const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
+    let totalGeometries = 0;
+    let totalInstances = 0;
+
+    for await (const batch of collector.collectInstancedGeometryStreaming(batchSize)) {
+      // For instanced geometry, we need to extract mesh data from instances for coordinate handling
+      // Convert InstancedGeometry to MeshData[] for coordinate handler
+      const meshDataBatch: MeshData[] = [];
+      for (const geom of batch) {
+        const positions = geom.positions;
+        const normals = geom.normals;
+        const indices = geom.indices;
+
+        // Create a mesh data entry for each instance (for coordinate bounds calculation)
+        // We'll use the first instance's color as representative
+        if (geom.instance_count > 0) {
+          const firstInstance = geom.get_instance(0);
+          if (firstInstance) {
+            const color = firstInstance.color;
+            meshDataBatch.push({
+              expressId: firstInstance.expressId,
+              positions,
+              normals,
+              indices,
+              color: [color[0], color[1], color[2], color[3]],
+            });
+          }
+        }
+      }
+
+      // Process coordinate shifts incrementally
+      if (meshDataBatch.length > 0) {
+        this.coordinateHandler.processMeshesIncremental(meshDataBatch);
+      }
+
+      totalGeometries += batch.length;
+      totalInstances += batch.reduce((sum, g) => sum + g.instance_count, 0);
+
+      // Get current coordinate info for this batch
+      const coordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
+
+      yield {
+        type: 'batch',
+        geometries: batch,
+        totalSoFar: totalGeometries,
+        coordinateInfo: coordinateInfo || undefined
+      };
+    }
+
+    const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
+
+    yield { type: 'complete', totalGeometries, totalInstances, coordinateInfo };
+  }
+
+  /**
+   * Adaptive processing: Choose sync or streaming based on file size
+   * Small files (< threshold): Load all at once for instant display
+   * Large files (>= threshold): Stream for fast first frame
+   * @param buffer IFC file buffer
+   * @param options Configuration options
+   * @param options.sizeThreshold File size threshold in bytes (default: 2MB)
+   * @param options.batchSize Number of meshes per batch for streaming (default: 25)
+   * @param options.entityIndex Optional entity index for priority-based loading
+   */
+  async *processAdaptive(
+    buffer: Uint8Array,
+    options: {
+      sizeThreshold?: number;
+      batchSize?: number;
+      entityIndex?: Map<number, any>;
+    } = {}
+  ): AsyncGenerator<StreamingGeometryEvent> {
+    const sizeThreshold = options.sizeThreshold ?? 2 * 1024 * 1024; // Default 2MB
+    const batchSize = options.batchSize ?? 25;
+
+    if (!this.bridge.isInitialized()) {
+      await this.init();
+    }
+
+    // Reset coordinate handler for new file
+    this.coordinateHandler.reset();
+
+    yield { type: 'start', totalEstimate: buffer.length / 1000 };
+
+    // Convert buffer to string (IFC files are text)
+    const decoder = new TextDecoder();
+    const content = decoder.decode(buffer);
+
+    yield { type: 'model-open', modelID: 0 };
+
+    // Small files: Load all at once (sync)
+    if (buffer.length < sizeThreshold) {
+      const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
+      const allMeshes = collector.collectMeshes();
+
+      // Process coordinate shifts
+      this.coordinateHandler.processMeshesIncremental(allMeshes);
+      const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
+
+      // Emit as single batch for immediate rendering
+      yield {
+        type: 'batch',
+        meshes: allMeshes,
+        totalSoFar: allMeshes.length,
+        coordinateInfo: coordinateInfo || undefined,
+      };
+
+      yield { type: 'complete', totalMeshes: allMeshes.length, coordinateInfo };
+    } else {
+      // Large files: Stream for fast first frame
+      yield* this.processStreaming(buffer, options.entityIndex, batchSize);
+    }
   }
 
   /**

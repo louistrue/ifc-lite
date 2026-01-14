@@ -9,7 +9,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Renderer, MathUtils } from '@ifc-lite/renderer';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
-import { deduplicateMeshes, getDeduplicationStats, type InstancedMeshData } from '@ifc-lite/geometry';
 import { useViewerStore, type MeasurePoint } from '@/store';
 
 interface ViewportProps {
@@ -1027,30 +1026,19 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
     }
 
     if (newMeshes.length > 0) {
-      // Deduplicate meshes to reduce GPU resources and draw calls
-      const instanced = deduplicateMeshes(newMeshes);
-      
-      // Log deduplication stats periodically
-      if (currentLength > 0 && currentLength % 1000 < 100) {
-        const stats = getDeduplicationStats(instanced);
-        console.log(`[Viewport] Deduplication: ${stats.inputMeshes} meshes → ${stats.uniqueGeometries} unique (${stats.deduplicationRatio.toFixed(1)}x reduction)`);
-      }
-
-      // Upload deduplicated instanced geometry to GPU
-      for (const instancedMesh of instanced) {
-        // For now, upload as individual meshes but use the first instance's color
-        // TODO: Implement proper GPU instancing with per-instance colors
-        const vertexCount = instancedMesh.positions.length / 3;
+      // Upload meshes directly (fallback path - Rust-side instancing is preferred)
+      for (const meshData of newMeshes) {
+        const vertexCount = meshData.positions.length / 3;
         const interleaved = new Float32Array(vertexCount * 6);
         for (let i = 0; i < vertexCount; i++) {
           const base = i * 6;
           const posBase = i * 3;
-          interleaved[base] = instancedMesh.positions[posBase];
-          interleaved[base + 1] = instancedMesh.positions[posBase + 1];
-          interleaved[base + 2] = instancedMesh.positions[posBase + 2];
-          interleaved[base + 3] = instancedMesh.normals[posBase];
-          interleaved[base + 4] = instancedMesh.normals[posBase + 1];
-          interleaved[base + 5] = instancedMesh.normals[posBase + 2];
+          interleaved[base] = meshData.positions[posBase];
+          interleaved[base + 1] = meshData.positions[posBase + 1];
+          interleaved[base + 2] = meshData.positions[posBase + 2];
+          interleaved[base + 3] = meshData.normals[posBase];
+          interleaved[base + 4] = meshData.normals[posBase + 1];
+          interleaved[base + 5] = meshData.normals[posBase + 2];
         }
 
         const vertexBuffer = device.createBuffer({
@@ -1060,23 +1048,19 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         device.queue.writeBuffer(vertexBuffer, 0, interleaved);
 
         const indexBuffer = device.createBuffer({
-          size: instancedMesh.indices.byteLength,
+          size: meshData.indices.byteLength,
           usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
         });
-        device.queue.writeBuffer(indexBuffer, 0, instancedMesh.indices);
+        device.queue.writeBuffer(indexBuffer, 0, meshData.indices);
 
-        // Add each instance as a separate mesh (for now - maintains selection capability)
-        // The key optimization is we only create GPU buffers once per unique geometry
-        for (const instance of instancedMesh.instances) {
-          scene.addMesh({
-            expressId: instance.expressId,
-            vertexBuffer, // Shared buffer!
-            indexBuffer,  // Shared buffer!
-            indexCount: instancedMesh.indices.length,
-            transform: MathUtils.identity(),
-            color: instance.color,
-          });
-        }
+        scene.addMesh({
+          expressId: meshData.expressId,
+          vertexBuffer,
+          indexBuffer,
+          indexCount: meshData.indices.length,
+          transform: MathUtils.identity(),
+          color: meshData.color,
+        });
       }
     }
 
@@ -1124,14 +1108,14 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       }
     }
 
-    renderer.render({
-      hiddenIds: hiddenEntitiesRef.current,
-      isolatedIds: isolatedEntitiesRef.current,
-      selectedId: selectedEntityIdRef.current,
-      clearColor: clearColorRef.current,
-    });
-    // Note: visibility states are NOT in dependencies - they use refs and trigger re-render via separate effect
-  }, [geometry, isInitialized, coordinateInfo]);
+    // Note: Background instancing conversion removed
+    // Regular MeshData meshes are rendered directly with their correct positions
+    // Instancing conversion would require preserving actual mesh transforms, which is complex
+    // For now, we render regular meshes directly (fast enough for most cases)
+
+    // Render after adding meshes
+    renderer.render();
+  }, [geometry, coordinateInfo, isInitialized]);
 
   // Get selectedEntityIds from store for multi-selection
   const selectedEntityIds = useViewerStore((state) => state.selectedEntityIds);

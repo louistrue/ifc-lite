@@ -7,7 +7,7 @@
  * Replaces mesh-collector.ts - uses native Rust geometry processing (1.9x faster)
  */
 
-import type { IfcAPI, MeshDataJs } from '@ifc-lite/wasm';
+import type { IfcAPI, MeshDataJs, InstancedGeometry } from '@ifc-lite/wasm';
 import type { MeshData } from './types.js';
 
 export interface StreamingProgress {
@@ -121,9 +121,9 @@ export class IfcLiteMeshCollector {
   /**
    * Collect meshes incrementally, yielding batches for progressive rendering
    * Uses fast-first-frame streaming: simple geometry (walls, slabs) first
-   * @param batchSize Number of meshes per batch (default: 100)
+   * @param batchSize Number of meshes per batch (default: 25 for faster first frame)
    */
-  async *collectMeshesStreaming(batchSize: number = 100): AsyncGenerator<MeshData[]> {
+  async *collectMeshesStreaming(batchSize: number = 25): AsyncGenerator<MeshData[]> {
     // Queue to hold batches produced by async callback
     const batchQueue: MeshData[][] = [];
     let resolveWaiting: (() => void) | null = null;
@@ -176,6 +176,67 @@ export class IfcLiteMeshCollector {
         }
       },
       onComplete: (_stats: { totalMeshes: number; totalVertices: number; totalTriangles: number }) => {
+        isComplete = true;
+        // Wake up the generator if it's waiting
+        if (resolveWaiting) {
+          resolveWaiting();
+          resolveWaiting = null;
+        }
+      },
+    });
+
+    // Yield batches as they become available
+    while (true) {
+      // Yield any queued batches
+      while (batchQueue.length > 0) {
+        yield batchQueue.shift()!;
+      }
+
+      // Check if we're done
+      if (isComplete && batchQueue.length === 0) {
+        break;
+      }
+
+      // Wait for more batches
+      await new Promise<void>((resolve) => {
+        resolveWaiting = resolve;
+      });
+    }
+
+    // Ensure processing is complete
+    await processingPromise;
+  }
+
+  /**
+   * Collect instanced geometry incrementally, yielding batches for progressive rendering
+   * Groups identical geometries by hash (before transformation) for GPU instancing
+   * Uses fast-first-frame streaming: simple geometry (walls, slabs) first
+   * @param batchSize Number of unique geometries per batch (default: 25)
+   */
+  async *collectInstancedGeometryStreaming(batchSize: number = 25): AsyncGenerator<InstancedGeometry[]> {
+    // Queue to hold batches produced by async callback
+    const batchQueue: InstancedGeometry[][] = [];
+    let resolveWaiting: (() => void) | null = null;
+    let isComplete = false;
+
+    // Start async processing
+    const processingPromise = this.ifcApi.parseMeshesInstancedAsync(this.content, {
+      batchSize,
+      onBatch: (geometries: InstancedGeometry[], _progress: StreamingProgress) => {
+        // NOTE: Do NOT convert Z-up to Y-up here for instanced geometry!
+        // Instance transforms position geometry in world space.
+        // If we convert local positions but not transforms, geometry breaks.
+        // The viewer handles coordinate system in the camera/shader.
+        // Add batch directly to queue without modification
+        batchQueue.push(geometries);
+
+        // Wake up the generator if it's waiting
+        if (resolveWaiting) {
+          resolveWaiting();
+          resolveWaiting = null;
+        }
+      },
+      onComplete: (_stats: { totalGeometries: number; totalInstances: number }) => {
         isComplete = true;
         // Wake up the generator if it's waiting
         if (resolveWaiting) {

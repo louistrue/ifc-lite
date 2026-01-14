@@ -41,6 +41,21 @@ export class Scene {
   }
 
   /**
+   * Clear regular meshes only (used when converting to instanced rendering)
+   */
+  clearRegularMeshes(): void {
+    for (const mesh of this.meshes) {
+      mesh.vertexBuffer.destroy();
+      mesh.indexBuffer.destroy();
+      // Destroy per-mesh uniform buffer if it exists
+      if (mesh.uniformBuffer) {
+        mesh.uniformBuffer.destroy();
+      }
+    }
+    this.meshes = [];
+  }
+
+  /**
    * Clear scene
    */
   clear(): void {

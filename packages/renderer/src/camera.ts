@@ -51,7 +51,7 @@ export class Camera {
       fov: Math.PI / 4,
       aspect: 1,
       near: 0.1,
-      far: 10000,
+      far: 100000, // Increased default far plane for large models
     };
     this.viewMatrix = MathUtils.identity();
     this.projMatrix = MathUtils.identity();
@@ -356,7 +356,9 @@ export class Camera {
     };
 
     // Adjust far plane for large models
-    this.camera.far = Math.max(10000, distance * 20);
+    // Use a much larger multiplier to ensure we can see the entire model
+    // distance = maxSize * 2.0, so far = maxSize * 100 gives plenty of room
+    this.camera.far = Math.max(100000, distance * 50);
     this.camera.near = Math.max(0.01, distance * 0.0001);
 
     this.updateMatrices();

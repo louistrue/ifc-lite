@@ -20,6 +20,13 @@ export default defineConfig({
   server: {
     port: 3000,
     open: true,
+    hmr: {
+      overlay: true,
+    },
+    watch: {
+      usePolling: false,
+      ignored: ['**/node_modules/**', '**/dist/**', '**/target/**', '**/pkg/**'],
+    },
   },
   build: {
     target: 'esnext',

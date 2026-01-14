@@ -13,7 +13,7 @@ export function ViewportContainer() {
   const { geometryResult, ifcDataStore } = useIfc();
   const selectedStorey = useViewerStore((s) => s.selectedStorey);
 
-  // Filter geometry based on selected storey
+  // Filter geometry based on selected storey (for non-instanced fallback)
   const filteredGeometry = useMemo(() => {
     if (!geometryResult?.meshes || !ifcDataStore?.spatialHierarchy) {
       return geometryResult?.meshes || null;

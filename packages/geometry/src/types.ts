@@ -38,7 +38,8 @@ export interface InstancedGeometry {
   positions: Float32Array; // [x,y,z, x,y,z, ...]
   normals: Float32Array; // [nx,ny,nz, ...]
   indices: Uint32Array; // Triangle indices
-  instances: InstanceData[]; // Array of instances with transforms and colors
+  instance_count: number; // WASM getter - number of instances
+  get_instance(index: number): InstanceData | null; // WASM method - get instance at index
 }
 
 /**
