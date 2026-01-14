@@ -152,13 +152,26 @@ function fixTsConfig(targetDir: string) {
 function fixViteConfig(targetDir: string) {
   const viteConfigPath = join(targetDir, 'vite.config.ts');
 
-  // Write standalone vite config - packages resolve from node_modules
+  // Write standalone vite config with WASM support
   const viteConfig = `import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: 'wasm-mime-type',
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          if (req.url?.endsWith('.wasm')) {
+            res.setHeader('Content-Type', 'application/wasm');
+          }
+          next();
+        });
+      },
+    },
+  ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -167,12 +180,15 @@ export default defineConfig({
   server: {
     port: 3000,
     open: true,
+    fs: {
+      allow: ['..'],
+    },
   },
   build: {
     target: 'esnext',
   },
   optimizeDeps: {
-    exclude: ['@duckdb/duckdb-wasm'],
+    exclude: ['@duckdb/duckdb-wasm', '@ifc-lite/wasm'],
   },
   assetsInclude: ['**/*.wasm'],
 });

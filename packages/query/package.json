@@ -1,6 +1,6 @@
 {
   "name": "@ifc-lite/query",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "description": "Query system for IFC-Lite",
   "type": "module",
   "main": "./dist/index.js",
@@ -16,10 +16,10 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@ifc-lite/parser": "workspace:*",
-    "@ifc-lite/data": "workspace:*",
-    "@ifc-lite/spatial": "workspace:*",
-    "@ifc-lite/geometry": "workspace:*"
+    "@ifc-lite/parser": "^1.1.7",
+    "@ifc-lite/data": "^1.1.7",
+    "@ifc-lite/spatial": "^1.1.7",
+    "@ifc-lite/geometry": "^1.1.7"
   },
   "devDependencies": {
     "typescript": "^5.3.0"

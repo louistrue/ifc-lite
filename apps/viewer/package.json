@@ -1,6 +1,6 @@
 {
   "name": "@ifc-lite/viewer",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "description": "IFC-Lite viewer application",
   "type": "module",
   "scripts": {
@@ -9,14 +9,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@ifc-lite/cache": "workspace:*",
-    "@ifc-lite/data": "workspace:*",
-    "@ifc-lite/export": "workspace:*",
-    "@ifc-lite/geometry": "workspace:*",
-    "@ifc-lite/parser": "workspace:*",
-    "@ifc-lite/query": "workspace:*",
-    "@ifc-lite/renderer": "workspace:*",
-    "@ifc-lite/spatial": "workspace:*",
+    "@ifc-lite/cache": "^1.1.7",
+    "@ifc-lite/data": "^1.1.7",
+    "@ifc-lite/export": "^1.1.7",
+    "@ifc-lite/geometry": "^1.1.7",
+    "@ifc-lite/parser": "^1.1.7",
+    "@ifc-lite/query": "^1.1.7",
+    "@ifc-lite/renderer": "^1.1.7",
+    "@ifc-lite/spatial": "^1.1.7",
     "@radix-ui/react-collapsible": "^1.1.12",
     "@radix-ui/react-context-menu": "^2.2.16",
     "@radix-ui/react-dialog": "^1.1.15",

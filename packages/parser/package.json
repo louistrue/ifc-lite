@@ -1,6 +1,6 @@
 {
   "name": "@ifc-lite/parser",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "description": "IFC/STEP parser for IFC-Lite",
   "type": "module",
   "main": "./dist/index.js",
@@ -16,7 +16,7 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@ifc-lite/data": "workspace:*"
+    "@ifc-lite/data": "^1.1.7"
   },
   "devDependencies": {
     "typescript": "^5.3.0"

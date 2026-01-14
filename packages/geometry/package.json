@@ -1,6 +1,6 @@
 {
   "name": "@ifc-lite/geometry",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "description": "Geometry processing bridge for IFC-Lite - 1.9x faster than web-ifc",
   "type": "module",
   "main": "./dist/index.js",
@@ -16,7 +16,7 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@ifc-lite/wasm": "workspace:*"
+    "@ifc-lite/wasm": "^1.1.7"
   },
   "devDependencies": {
     "typescript": "^5.3.0"
