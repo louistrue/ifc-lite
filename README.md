@@ -46,7 +46,65 @@
 
 ## Quick Start
 
-### One Command Setup
+### Option 1: Create a New Project (Recommended)
+
+Get started instantly without cloning the repo:
+
+```bash
+npx create-ifc-lite my-ifc-app
+cd my-ifc-app
+npm install && npm run parse
+```
+
+Or create a React viewer:
+
+```bash
+npx create-ifc-lite my-viewer --template react
+cd my-viewer
+npm install && npm run dev
+```
+
+### Option 2: Install Packages Directly
+
+Add IFC-Lite to your existing project:
+
+```bash
+npm install @ifc-lite/parser
+```
+
+```typescript
+import { IfcParser } from '@ifc-lite/parser';
+
+const parser = new IfcParser();
+const result = parser.parse(ifcBuffer);
+
+console.log(`Found ${result.entities.length} entities`);
+```
+
+For full 3D rendering, add geometry and renderer packages:
+
+```bash
+npm install @ifc-lite/parser @ifc-lite/geometry @ifc-lite/renderer
+```
+
+### Option 3: Rust/Cargo
+
+For Rust projects:
+
+```bash
+cargo add ifc-lite-core
+```
+
+```rust
+use ifc_lite_core::parse_ifc;
+
+let result = parse_ifc(&ifc_bytes)?;
+println!("Parsed {} entities", result.entities.len());
+```
+
+### Option 4: Clone the Repo (Contributors)
+
+For contributing or running the full demo app:
 
 ```bash
 git clone https://github.com/louistrue/ifc-lite.git
@@ -54,17 +112,9 @@ cd ifc-lite
 pnpm install && pnpm dev
 ```
 
-That's it! Open http://localhost:5173 and load an IFC file.
+Open http://localhost:5173 and load an IFC file.
 
 > **Note:** Requires Node.js 18+ and pnpm 8+. No Rust toolchain needed - WASM is pre-built.
-
-### Sample IFC Files
-
-Test models are included in `tests/benchmark/models/` from buildingSMART, IFC.js, and ara3d:
-```bash
-# Try a sample model
-open tests/benchmark/models/buildingsmart/Duplex_A_20110907.ifc
-```
 
 ### Basic Usage
 
@@ -74,13 +124,13 @@ import { Renderer } from '@ifc-lite/renderer';
 
 // Parse IFC file
 const parser = new IfcParser();
-const result = await parser.parse(ifcArrayBuffer);
+const result = parser.parse(ifcArrayBuffer);
 
 // Access entities
 const walls = result.entities.filter(e => e.type === 'IFCWALL');
 console.log(`Found ${walls.length} walls`);
 
-// Render geometry
+// Render geometry (requires @ifc-lite/renderer)
 const renderer = new Renderer(canvas);
 await renderer.loadGeometry(result.geometry);
 renderer.render();
@@ -165,9 +215,15 @@ ifc-lite/
 | Firefox | 127+ | ✅ |
 | Safari | 18+ | ✅ |
 
-## Development
+## Development (Contributors)
+
+For contributing to IFC-Lite itself:
 
 ```bash
+git clone https://github.com/louistrue/ifc-lite.git
+cd ifc-lite
+pnpm install
+
 pnpm dev          # Start viewer in dev mode
 pnpm build        # Build all packages
 pnpm test         # Run tests
@@ -181,6 +237,7 @@ bash build-wasm.sh  # Rebuild WASM after Rust changes
 
 | Package | Description | Status |
 |---------|-------------|--------|
+| `create-ifc-lite` | Project scaffolding CLI | ✅ Stable |
 | `@ifc-lite/parser` | STEP tokenizer & entity extraction | ✅ Stable |
 | `@ifc-lite/geometry` | Geometry processing bridge | ✅ Stable |
 | `@ifc-lite/renderer` | WebGPU rendering pipeline | ✅ Stable |

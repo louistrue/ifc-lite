@@ -165,6 +165,8 @@ importers:
         specifier: ^1.0.4
         version: 1.6.1(@types/node@20.19.28)(lightningcss@1.30.2)
 
+  packages/create-ifc-lite: {}
+
   packages/data:
     devDependencies:
       typescript:

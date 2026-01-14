@@ -1,0 +1,38 @@
+{
+  "name": "create-ifc-lite",
+  "version": "1.0.0",
+  "description": "Create IFC-Lite projects with one command",
+  "type": "module",
+  "bin": {
+    "create-ifc-lite": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "files": [
+    "dist",
+    "templates"
+  ],
+  "keywords": [
+    "ifc",
+    "bim",
+    "create",
+    "scaffold",
+    "starter"
+  ],
+  "author": "Louis True",
+  "license": "MPL-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/louistrue/ifc-lite.git",
+    "directory": "packages/create-ifc-lite"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
