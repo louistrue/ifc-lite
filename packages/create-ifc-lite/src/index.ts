@@ -17,6 +17,15 @@ type TemplateType = keyof typeof TEMPLATES;
 const REPO_URL = 'https://github.com/louistrue/ifc-lite';
 const VIEWER_PATH = 'apps/viewer';
 
+function getLatestVersion(): string {
+  try {
+    const result = execSync('npm view @ifc-lite/parser version', { stdio: 'pipe' });
+    return `^${result.toString().trim()}`;
+  } catch {
+    return '^1.0.0'; // fallback
+  }
+}
+
 function printUsage() {
   console.log(`
   create-ifc-lite - Create IFC-Lite projects instantly
@@ -95,19 +104,14 @@ function fixPackageJson(targetDir: string, projectName: string) {
   // Update name
   pkg.name = projectName;
 
-  // Replace workspace:* with npm versions
+  // Replace workspace:* with latest npm version
+  const latestVersion = getLatestVersion();
   const deps = pkg.dependencies || {};
   for (const [name, version] of Object.entries(deps)) {
     if (version === 'workspace:*' && name.startsWith('@ifc-lite/')) {
-      deps[name] = '^1.1.0';
+      deps[name] = latestVersion;
     }
   }
-
-  // Remove internal dependencies that aren't published
-  delete deps['@ifc-lite/cache'];
-  delete deps['@ifc-lite/export'];
-  delete deps['@ifc-lite/query'];
-  delete deps['@ifc-lite/spatial'];
 
   // Remove git directory if present
   const gitDir = join(targetDir, '.git');
@@ -181,17 +185,19 @@ async function main() {
 }
 
 function createBasicTemplate(targetDir: string, projectName: string) {
+  const latestVersion = getLatestVersion();
+
   // package.json
   writeFileSync(join(targetDir, 'package.json'), JSON.stringify({
     name: projectName,
-    version: '1.1.3',
+    version: '1.0.0',
     type: 'module',
     scripts: {
       parse: 'npx tsx src/index.ts',
       build: 'tsc',
     },
     dependencies: {
-      '@ifc-lite/parser': '^1.1.3',
+      '@ifc-lite/parser': latestVersion,
     },
     devDependencies: {
       typescript: '^5.3.0',
