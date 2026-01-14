@@ -131,14 +131,14 @@ function createBasicTemplate(targetDir: string, projectName: string) {
   // package.json
   writeFileSync(join(targetDir, 'package.json'), JSON.stringify({
     name: projectName,
-    version: '1.0.0',
+    version: '1.1.0',
     type: 'module',
     scripts: {
       parse: 'npx tsx src/index.ts',
       build: 'tsc',
     },
     dependencies: {
-      '@ifc-lite/parser': '^1.0.0',
+      '@ifc-lite/parser': '^1.1.0',
     },
     devDependencies: {
       typescript: '^5.3.0',
@@ -221,7 +221,7 @@ function createReactTemplate(targetDir: string, projectName: string) {
   // package.json
   writeFileSync(join(targetDir, 'package.json'), JSON.stringify({
     name: projectName,
-    version: '1.0.0',
+    version: '1.1.0',
     type: 'module',
     scripts: {
       dev: 'vite',
@@ -229,9 +229,9 @@ function createReactTemplate(targetDir: string, projectName: string) {
       preview: 'vite preview',
     },
     dependencies: {
-      '@ifc-lite/parser': '^1.0.0',
-      '@ifc-lite/geometry': '^1.0.0',
-      '@ifc-lite/renderer': '^1.0.0',
+      '@ifc-lite/parser': '^1.1.0',
+      '@ifc-lite/geometry': '^1.1.0',
+      '@ifc-lite/renderer': '^1.1.0',
       react: '^18.2.0',
       'react-dom': '^18.2.0',
     },
