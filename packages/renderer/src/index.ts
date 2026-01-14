@@ -169,6 +169,9 @@ export class Renderer {
         });
         device.queue.writeBuffer(instanceBuffer, 0, instanceData);
 
+        // Create and cache bind group to avoid per-frame allocation
+        const bindGroup = this.instancedPipeline.createInstanceBindGroup(instanceBuffer);
+
         const instancedMesh: InstancedMesh = {
             geometryId: Number(geometry.geometryId),
             vertexBuffer,
@@ -177,6 +180,7 @@ export class Renderer {
             instanceBuffer,
             instanceCount: instanceCount,
             expressIdToInstanceIndex,
+            bindGroup,
         };
 
         this.scene.addInstancedMesh(instancedMesh);
@@ -260,6 +264,9 @@ export class Renderer {
             });
             device.queue.writeBuffer(instanceBuffer, 0, instanceData);
 
+            // Create and cache bind group to avoid per-frame allocation
+            const bindGroup = this.instancedPipeline.createInstanceBindGroup(instanceBuffer);
+
             // Convert hash string to number for geometryId
             const geometryId = this.hashStringToNumber(group.geometryHash);
 
@@ -271,6 +278,7 @@ export class Renderer {
                 instanceBuffer,
                 instanceCount: instanceCount,
                 expressIdToInstanceIndex,
+                bindGroup,
             };
 
             this.scene.addInstancedMesh(instancedMesh);
@@ -787,8 +795,10 @@ export class Renderer {
                     pass.setPipeline(this.instancedPipeline.getPipeline());
 
                     for (const instancedMesh of instancedMeshes) {
-                        // Create bind group with instance buffer
-                        const bindGroup = this.instancedPipeline.createInstanceBindGroup(instancedMesh.instanceBuffer);
+                        // Use cached bind group (created at mesh upload time)
+                        // Falls back to creating one if missing (shouldn't happen in normal flow)
+                        const bindGroup = instancedMesh.bindGroup ??
+                            this.instancedPipeline.createInstanceBindGroup(instancedMesh.instanceBuffer);
                         pass.setBindGroup(0, bindGroup);
                         pass.setVertexBuffer(0, instancedMesh.vertexBuffer);
                         pass.setIndexBuffer(instancedMesh.indexBuffer, 'uint32');
@@ -856,16 +866,16 @@ export class Renderer {
                     }
                 }
 
+                // Track existing expressIds to avoid duplicates (using Set for O(1) lookup)
+                const existingExpressIds = new Set(meshes.map(m => m.expressId));
+
                 // Create picking meshes lazily from stored MeshData
                 for (const expressId of expressIds) {
-                    if (this.scene.hasMeshData(expressId)) {
+                    if (!existingExpressIds.has(expressId) && this.scene.hasMeshData(expressId)) {
                         const meshData = this.scene.getMeshData(expressId);
                         if (meshData) {
-                            // Check if mesh already exists (might have been created for selection highlighting)
-                            const existingMesh = meshes.find(m => m.expressId === expressId);
-                            if (!existingMesh) {
-                                this.createMeshFromData(meshData);
-                            }
+                            this.createMeshFromData(meshData);
+                            existingExpressIds.add(expressId); // Track newly created mesh
                         }
                     }
                 }

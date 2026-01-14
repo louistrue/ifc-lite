@@ -61,6 +61,8 @@ export interface InstancedMesh {
   instanceCount: number;
   // Map expressId to instance index for picking
   expressIdToInstanceIndex: Map<number, number>;
+  // Cached bind group for instanced rendering (avoids per-frame allocation)
+  bindGroup?: GPUBindGroup;
   // Bounding box for frustum culling (optional)
   bounds?: { min: [number, number, number]; max: [number, number, number] };
 }

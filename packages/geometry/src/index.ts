@@ -323,16 +323,15 @@ export class GeometryProcessor {
     // Reset coordinate handler for new file
     this.coordinateHandler.reset();
 
-    yield { type: 'start', totalEstimate: buffer.length / 1000 };
-
-    // Convert buffer to string (IFC files are text)
-    const decoder = new TextDecoder();
-    const content = decoder.decode(buffer);
-
-    yield { type: 'model-open', modelID: 0 };
-
     // Small files: Load all at once (sync)
     if (buffer.length < sizeThreshold) {
+      yield { type: 'start', totalEstimate: buffer.length / 1000 };
+
+      // Convert buffer to string (IFC files are text)
+      const decoder = new TextDecoder();
+      const content = decoder.decode(buffer);
+
+      yield { type: 'model-open', modelID: 0 };
       const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
       const allMeshes = collector.collectMeshes();
 
@@ -351,6 +350,7 @@ export class GeometryProcessor {
       yield { type: 'complete', totalMeshes: allMeshes.length, coordinateInfo };
     } else {
       // Large files: Stream for fast first frame
+      // processStreaming will emit its own start and model-open events
       yield* this.processStreaming(buffer, options.entityIndex, batchSize);
     }
   }

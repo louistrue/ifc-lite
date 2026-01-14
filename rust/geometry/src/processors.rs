@@ -21,6 +21,7 @@ use super::router::GeometryProcessor;
 /// `#77=IFCTRIANGULATEDFACESET(#78,$,$,((1,2,3),(2,1,4),...),$);`
 ///
 /// Returns the byte slice containing just the index list data.
+/// Performs structural validation to reject malformed input.
 #[inline]
 fn extract_coord_index_bytes(bytes: &[u8]) -> Option<&[u8]> {
     // Find opening paren after = sign
@@ -33,9 +34,33 @@ fn extract_coord_index_bytes(bytes: &[u8]) -> Option<&[u8]> {
     let mut attr_count = 0;
     let mut attr_start = args_start;
     let mut i = args_start;
+    let mut in_string = false;
 
     while i < bytes.len() && depth > 0 {
-        match bytes[i] {
+        let b = bytes[i];
+        
+        // Handle string literals - skip content inside quotes
+        if b == b'\'' {
+            in_string = !in_string;
+            i += 1;
+            continue;
+        }
+        if in_string {
+            i += 1;
+            continue;
+        }
+        
+        // Skip comments (/* ... */)
+        if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            i += 2;
+            continue;
+        }
+        
+        match b {
             b'(' => {
                 if depth == 1 && attr_count == 3 {
                     // Found start of 4th attribute (CoordIndex)
@@ -46,12 +71,21 @@ fn extract_coord_index_bytes(bytes: &[u8]) -> Option<&[u8]> {
             b')' => {
                 depth -= 1;
                 if depth == 1 && attr_count == 3 {
-                    // Found end of CoordIndex
-                    return Some(&bytes[attr_start..i + 1]);
+                    // Found end of CoordIndex - validate before returning
+                    let candidate = &bytes[attr_start..i + 1];
+                    if validate_coord_index_structure(candidate) {
+                        return Some(candidate);
+                    }
+                    // Invalid structure, continue searching or return None
+                    return None;
                 }
             }
             b',' if depth == 1 => {
                 attr_count += 1;
+            }
+            b'$' if depth == 1 && attr_count == 3 => {
+                // CoordIndex is $ (null), skip it
+                return None;
             }
             _ => {}
         }
@@ -59,6 +93,53 @@ fn extract_coord_index_bytes(bytes: &[u8]) -> Option<&[u8]> {
     }
 
     None
+}
+
+/// Validate that a byte slice has valid CoordIndex structure:
+/// - Must start with '(' and end with ')'
+/// - Must contain comma-separated parenthesized integer lists
+/// - Allowed tokens: digits, commas, parentheses, whitespace
+/// - Rejected: '$', unbalanced parens, quotes, comment markers
+#[inline]
+fn validate_coord_index_structure(bytes: &[u8]) -> bool {
+    if bytes.is_empty() {
+        return false;
+    }
+    
+    // Must start with '(' and end with ')'
+    let first = bytes.first().copied();
+    let last = bytes.last().copied();
+    if first != Some(b'(') || last != Some(b')') {
+        return false;
+    }
+    
+    // Check structure: only allow digits, commas, parens, whitespace
+    let mut depth = 0;
+    for &b in bytes {
+        match b {
+            b'(' => depth += 1,
+            b')' => {
+                if depth == 0 {
+                    return false; // Unbalanced
+                }
+                depth -= 1;
+            }
+            b'0'..=b'9' | b',' | b' ' | b'\t' | b'\n' | b'\r' | b'-' => {}
+            b'$' | b'\'' | b'"' | b'/' | b'*' | b'#' => {
+                // Invalid characters for CoordIndex
+                return false;
+            }
+            _ => {
+                // Allow other whitespace-like chars, reject letters
+                if b.is_ascii_alphabetic() {
+                    return false;
+                }
+            }
+        }
+    }
+    
+    // Must have balanced parens
+    depth == 0
 }
 
 /// ExtrudedAreaSolid processor (P0)
@@ -770,7 +851,8 @@ impl FacetedBrepProcessor {
 
                     let orientation = bound.get(1)
                         .and_then(|v| match v {
-                            ifc_lite_core::AttributeValue::Enum(e) => Some(e != ".F."),
+                            // Parser strips dots, so enum value is "T" or "F", not ".T." or ".F."
+                            ifc_lite_core::AttributeValue::Enum(e) => Some(e != "F" && e != ".F."),
                             _ => Some(true),
                         })
                         .unwrap_or(true);
@@ -917,7 +999,8 @@ impl GeometryProcessor for FacetedBrepProcessor {
                 // Get orientation
                 let orientation = bound.get(1)
                     .and_then(|v| match v {
-                        ifc_lite_core::AttributeValue::Enum(e) => Some(e != ".F."),
+                        // Parser strips dots, so enum value is "T" or "F", not ".T." or ".F."
+                        ifc_lite_core::AttributeValue::Enum(e) => Some(e != "F" && e != ".F."),
                         _ => Some(true),
                     })
                     .unwrap_or(true);
@@ -1074,7 +1157,8 @@ impl BooleanClippingProcessor {
         // Get agreement flag - defaults to true
         let agreement = half_space.get(1)
             .and_then(|v| match v {
-                ifc_lite_core::AttributeValue::Enum(e) => Some(e != ".F."),
+                // Parser strips dots, so enum value is "T" or "F", not ".T." or ".F."
+                ifc_lite_core::AttributeValue::Enum(e) => Some(e != "F" && e != ".F."),
                 _ => Some(true),
             })
             .unwrap_or(true);
