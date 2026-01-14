@@ -48,6 +48,9 @@ pub struct GeometryRouter {
     /// Buildings with repeated floors have 99% identical geometry
     /// Key: Hash of mesh content, Value: Processed mesh
     geometry_hash_cache: RefCell<FxHashMap<u64, Arc<Mesh>>>,
+    /// Unit scale factor (e.g., 0.001 for millimeters -> meters)
+    /// Applied to all mesh positions after processing
+    unit_scale: f64,
 }
 
 impl GeometryRouter {
@@ -61,6 +64,7 @@ impl GeometryRouter {
             mapped_item_cache: RefCell::new(FxHashMap::default()),
             faceted_brep_cache: RefCell::new(FxHashMap::default()),
             geometry_hash_cache: RefCell::new(FxHashMap::default()),
+            unit_scale: 1.0, // Default to base meters
         };
 
         // Register default P0 processors
@@ -74,6 +78,33 @@ impl GeometryRouter {
         router.register(Box::new(AdvancedBrepProcessor::new()));
 
         router
+    }
+
+    /// Create router and extract unit scale from IFC file
+    /// Automatically finds IFCPROJECT and extracts length unit conversion
+    pub fn with_units(decoder: &mut EntityDecoder) -> Self {
+        let mut router = Self::new();
+
+        // Find IFCPROJECT entity by scanning first 100 entities
+        // (IFCPROJECT is typically one of the first entities)
+        for id in 1..=100 {
+            if let Ok(entity) = decoder.decode_by_id(id) {
+                if entity.ifc_type.as_str() == "IFCPROJECT" {
+                    // Extract unit scale
+                    if let Ok(scale) = ifc_lite_core::extract_length_unit_scale(decoder, id) {
+                        router.unit_scale = scale;
+                    }
+                    break;
+                }
+            }
+        }
+
+        router
+    }
+
+    /// Get the current unit scale factor
+    pub fn unit_scale(&self) -> f64 {
+        self.unit_scale
     }
 
     /// Register a geometry processor
@@ -415,7 +446,16 @@ impl GeometryRouter {
 
         // Check if we have a processor for this type
         if let Some(processor) = self.processors.get(&item.ifc_type) {
-            let mesh = processor.process(item, decoder, &self.schema)?;
+            let mut mesh = processor.process(item, decoder, &self.schema)?;
+
+            // Apply unit scaling to all vertices (e.g., 0.001 for mm -> m)
+            if self.unit_scale != 1.0 {
+                let scale = self.unit_scale as f32;
+                for position in mesh.positions.iter_mut() {
+                    *position *= scale;
+                }
+            }
+
             // Deduplicate by hash - buildings with repeated floors have identical geometry
             if !mesh.positions.is_empty() {
                 let cached = self.get_or_cache_by_hash(mesh);
@@ -528,7 +568,14 @@ impl GeometryRouter {
                 continue; // Skip nested MappedItems to avoid recursion
             }
             if let Some(processor) = self.processors.get(&sub_item.ifc_type) {
-                if let Ok(sub_mesh) = processor.process(&sub_item, decoder, &self.schema) {
+                if let Ok(mut sub_mesh) = processor.process(&sub_item, decoder, &self.schema) {
+                    // Apply unit scaling to all vertices (e.g., 0.001 for mm -> m)
+                    if self.unit_scale != 1.0 {
+                        let scale = self.unit_scale as f32;
+                        for position in sub_mesh.positions.iter_mut() {
+                            *position *= scale;
+                        }
+                    }
                     mesh.merge(&sub_mesh);
                 }
             }
