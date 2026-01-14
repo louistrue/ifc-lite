@@ -9,7 +9,7 @@
 
 use crate::decoder::EntityDecoder;
 use crate::error::Result;
-use crate::schema::IfcType;
+use crate::generated::IfcType;
 use crate::schema_gen::DecodedEntity;
 
 /// Georeferencing information extracted from IFC model

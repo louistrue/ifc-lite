@@ -17,7 +17,7 @@ use nom::{
 };
 
 use crate::error::{Error, Result};
-use crate::schema::IfcType;
+use crate::generated::IfcType;
 
 /// STEP/IFC Token
 #[derive(Debug, Clone, PartialEq)]

@@ -16,8 +16,8 @@ mod geometry_categories;
 // Re-export type IDs (these are just constants, no conflict)
 pub use type_ids::*;
 
-// Re-export the full generated IfcType as FullIfcType to avoid conflict
-pub use schema::IfcType as FullIfcType;
+// Re-export the generated IfcType directly (this is now the canonical schema)
+pub use schema::{IfcType, has_geometry_by_name};
 
-// Re-export geometry categories (no conflict as main code uses schema_gen)
-pub use geometry_categories::{GeometryCategory as FullGeometryCategory, ProfileCategory as FullProfileCategory};
+// Re-export geometry categories
+pub use geometry_categories::{GeometryCategory, ProfileCategory};

@@ -7,7 +7,7 @@
 //! Generated from IFC4 EXPRESS schema for maintainability.
 //! All types are handled generically through enum dispatch.
 
-use crate::schema::IfcType;
+use crate::generated::{IfcType, GeometryCategory, ProfileCategory};
 use crate::parser::Token;
 use crate::error::{Error, Result};
 use std::collections::HashMap;
@@ -244,34 +244,6 @@ pub struct IfcSchema {
     pub profile_types: HashMap<IfcType, ProfileCategory>,
 }
 
-/// Geometry representation category
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GeometryCategory {
-    /// Swept solids (extrusion, revolution)
-    SweptSolid,
-    /// Boolean operations
-    Boolean,
-    /// Explicit meshes (Brep, triangulated)
-    ExplicitMesh,
-    /// Instanced geometry
-    MappedItem,
-    /// Other/unsupported
-    Other,
-}
-
-/// Profile category
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProfileCategory {
-    /// Parametric profiles (rectangle, circle, I-shape, etc.)
-    Parametric,
-    /// Arbitrary profiles (polyline-based)
-    Arbitrary,
-    /// Composite profiles
-    Composite,
-    /// Other
-    Other,
-}
-
 impl IfcSchema {
     /// Create schema with geometry type mappings
     pub fn new() -> Self {
@@ -350,7 +322,6 @@ impl IfcSchema {
                 | IfcType::IfcDuctSegment
                 | IfcType::IfcPipeSegment
                 | IfcType::IfcCableSegment
-                | IfcType::IfcProxy // Generic placeholder that can contain geometry
                 | IfcType::IfcProduct // Base type for all products
                 | IfcType::IfcDistributionElement
                 | IfcType::IfcFlowSegment

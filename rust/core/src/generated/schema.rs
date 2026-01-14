@@ -6456,6 +6456,36 @@ impl fmt::Display for IfcType {
     }
 }
 
+// ===== MANUALLY ADDED HELPER FUNCTION =====
+
+/// Check if a type name (string) represents an element with potential geometry
+/// This is a dynamic approach that doesn't require enum variants for every type
+pub fn has_geometry_by_name(type_name: &str) -> bool {
+    // TYPE entities (IfcWallType, IfcColumnType, etc.) are templates, not actual geometry
+    if type_name.ends_with("TYPE") {
+        return false;
+    }
+
+    // All building elements, MEP elements, furnishings, and other physical elements
+    // can have geometry representations. This includes subtypes of IfcProduct.
+    type_name.starts_with("IFC") && !type_name.ends_with("TYPE")
+        && (
+            type_name.contains("WALL") || type_name.contains("SLAB") ||
+            type_name.contains("BEAM") || type_name.contains("COLUMN") ||
+            type_name.contains("DOOR") || type_name.contains("WINDOW") ||
+            type_name.contains("ROOF") || type_name.contains("STAIR") ||
+            type_name.contains("RAILING") || type_name.contains("COVERING") ||
+            type_name.contains("CURTAIN") || type_name.contains("PLATE") ||
+            type_name.contains("MEMBER") || type_name.contains("FOOTING") ||
+            type_name.contains("PILE") || type_name.contains("PROXY") ||
+            type_name.contains("FURNISHING") || type_name.contains("FURNITURE") ||
+            type_name.contains("EQUIPMENT") || type_name.contains("PIPE") ||
+            type_name.contains("DUCT") || type_name.contains("CABLE") ||
+            type_name.contains("TRANSPORT") || type_name.contains("FLOW") ||
+            type_name.contains("DISTRIBUTION") || type_name.contains("ELEMENT")
+        )
+}
+
 /// CRC32 hash function for unknown types
 fn crc32_hash(s: &str) -> u32 {
     const TABLE: [u32; 256] = [

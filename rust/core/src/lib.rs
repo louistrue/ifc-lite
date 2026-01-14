@@ -67,7 +67,6 @@
 //! - `serde`: Enable serialization support for parsed data
 
 pub mod parser;
-pub mod schema;
 pub mod error;
 pub mod streaming;
 pub mod decoder;
@@ -78,10 +77,10 @@ pub mod generated;
 
 pub use error::{Error, Result};
 pub use parser::{Token, EntityScanner, parse_entity};
-pub use schema::{IfcType, has_geometry_by_name};
+pub use generated::{IfcType, has_geometry_by_name, GeometryCategory, ProfileCategory};
 pub use streaming::{ParseEvent, StreamConfig, parse_stream};
 pub use decoder::{EntityDecoder, EntityIndex, build_entity_index};
-pub use schema_gen::{AttributeValue, DecodedEntity, IfcSchema, GeometryCategory, ProfileCategory};
+pub use schema_gen::{AttributeValue, DecodedEntity, IfcSchema};
 pub use georef::{GeoReference, GeoRefExtractor, RtcOffset};
 pub use fast_parse::{
     parse_coordinates_direct, parse_indices_direct, should_use_fast_path,

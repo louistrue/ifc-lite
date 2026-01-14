@@ -1709,7 +1709,7 @@ fn extract_color_from_style_assignment(
     let style = decoder.decode_by_id(style_id).ok()?;
 
     match style.ifc_type {
-        IfcType::IfcPresentationStyleAssignment => {
+        IfcType::IfcPresentationStyle => {
             // IfcPresentationStyleAssignment: Styles (list)
             let styles_attr = style.get(0)?;
             if let Some(list) = styles_attr.as_list() {

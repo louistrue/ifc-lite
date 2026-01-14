@@ -8,7 +8,7 @@
 
 use crate::error::{Error, Result};
 use crate::parser::EntityScanner;
-use crate::schema::IfcType;
+use crate::generated::IfcType;
 use futures_core::Stream;
 use futures_util::stream;
 use std::pin::Pin;
