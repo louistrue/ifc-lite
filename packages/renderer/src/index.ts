@@ -436,6 +436,46 @@ export class Renderer {
         this.ensureMeshResources();
 
         let meshes = this.scene.getMeshes();
+        
+        // Check if visibility filtering is active
+        const hasHiddenFilter = options.hiddenIds && options.hiddenIds.size > 0;
+        const hasIsolatedFilter = options.isolatedIds !== null && options.isolatedIds !== undefined;
+        const hasVisibilityFiltering = hasHiddenFilter || hasIsolatedFilter;
+        
+        // When using batched rendering with visibility filtering, we need individual meshes
+        // Create them lazily from stored MeshData for visible elements only
+        const batchedMeshes = this.scene.getBatchedMeshes();
+        if (hasVisibilityFiltering && batchedMeshes.length > 0 && meshes.length === 0) {
+            // Collect all expressIds from batched meshes
+            const allExpressIds = new Set<number>();
+            for (const batch of batchedMeshes) {
+                for (const expressId of batch.expressIds) {
+                    allExpressIds.add(expressId);
+                }
+            }
+            
+            // Filter to get visible expressIds
+            const visibleExpressIds: number[] = [];
+            for (const expressId of allExpressIds) {
+                const isHidden = options.hiddenIds?.has(expressId) ?? false;
+                const isIsolated = !hasIsolatedFilter || options.isolatedIds!.has(expressId);
+                if (!isHidden && isIsolated) {
+                    visibleExpressIds.push(expressId);
+                }
+            }
+            
+            // Create individual meshes for visible elements only
+            const existingMeshIds = new Set(meshes.map(m => m.expressId));
+            for (const expressId of visibleExpressIds) {
+                if (!existingMeshIds.has(expressId) && this.scene.hasMeshData(expressId)) {
+                    const meshData = this.scene.getMeshData(expressId)!;
+                    this.createMeshFromData(meshData);
+                }
+            }
+            
+            // Get updated meshes list
+            meshes = this.scene.getMeshes();
+        }
 
         // Frustum culling (if enabled and spatial index available)
         if (options.enableFrustumCulling && options.spatialIndex) {
@@ -622,10 +662,13 @@ export class Renderer {
             pass.setPipeline(this.pipeline.getPipeline());
 
             // Check if we have batched meshes (preferred for performance)
-            const batchedMeshes = this.scene.getBatchedMeshes();
-            if (batchedMeshes.length > 0) {
+            // When visibility filtering is active, we need to render individual meshes instead of batches
+            // because batches merge geometry by color and can't be partially rendered
+            const allBatchedMeshes = this.scene.getBatchedMeshes();
+            
+            if (allBatchedMeshes.length > 0 && !hasVisibilityFiltering) {
                 // Separate batches into selected and non-selected
-                const nonSelectedBatches: typeof batchedMeshes = [];
+                const nonSelectedBatches: typeof allBatchedMeshes = [];
                 const selectedExpressIds = new Set<number>();
                 if (selectedId !== undefined && selectedId !== null) {
                     selectedExpressIds.add(selectedId);
@@ -638,7 +681,7 @@ export class Renderer {
 
                 // Render ALL batches normally (non-selected meshes will render normally)
                 // Selected meshes will be rendered individually on top with highlight
-                for (const batch of batchedMeshes) {
+                for (const batch of allBatchedMeshes) {
                     if (!batch.bindGroup || !batch.uniformBuffer) continue;
 
                     // Update uniform buffer for this batch
