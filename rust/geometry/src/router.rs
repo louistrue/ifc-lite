@@ -353,36 +353,93 @@ impl GeometryRouter {
             return Ok(mesh);
         }
         
-        // Get opening geometries and subtract using fast box approximation
+        // Get opening geometries and subtract using CSG
         use crate::csg::ClippingProcessor;
         let clipper = ClippingProcessor::new();
         
+        // Get host bounding box for edge detection
+        let (host_min, host_max) = mesh.bounds();
+        
+        // Find host's "thickness" direction (smallest dimension)
+        let host_size_x = host_max.x - host_min.x;
+        let host_size_y = host_max.y - host_min.y;
+        let host_size_z = host_max.z - host_min.z;
+        
+        let thickness_axis = if host_size_x <= host_size_y && host_size_x <= host_size_z {
+            0 // X is thickness (wall in YZ plane)
+        } else if host_size_y <= host_size_x && host_size_y <= host_size_z {
+            1 // Y is thickness (wall in XZ plane)
+        } else {
+            2 // Z is thickness (slab in XY plane)
+        };
+        
+        let padding = 0.01; // 1cm tolerance
+        
+        // STEP 1: Collect all valid openings into a combined mesh
+        // This avoids CSG issues with adjacent openings creating new edges
+        let mut combined_openings = Mesh::new();
+        let mut has_edge_openings = false;
+        
         for &opening_id in opening_ids {
-            // Get opening entity
             let opening_entity = match decoder.decode_by_id(opening_id) {
                 Ok(e) => e,
-                Err(_) => continue, // Skip if opening not found
+                Err(_) => continue,
             };
             
-            // Get opening geometry
             let opening_mesh = match self.process_element(&opening_entity, decoder) {
                 Ok(m) => m,
-                Err(_) => continue, // Skip if opening has no geometry
+                Err(_) => continue,
             };
             
             if opening_mesh.is_empty() {
                 continue;
             }
             
-            // Subtract opening mesh from host mesh using mesh-based subtraction
-            // This is more accurate than bounding box subtraction
-            match clipper.subtract_mesh(&mesh, &opening_mesh) {
-                Ok(subtracted) => mesh = subtracted,
-                Err(_) => continue, // Skip if subtraction fails
+            // Check if opening is at planar edge
+            let (open_min, open_max) = opening_mesh.bounds();
+            
+            let is_at_planar_edge = match thickness_axis {
+                0 => {
+                    open_min.y < host_min.y + padding || open_max.y > host_max.y - padding ||
+                    open_min.z < host_min.z + padding || open_max.z > host_max.z - padding
+                },
+                1 => {
+                    open_min.x < host_min.x + padding || open_max.x > host_max.x - padding ||
+                    open_min.z < host_min.z + padding || open_max.z > host_max.z - padding
+                },
+                _ => {
+                    open_min.x < host_min.x + padding || open_max.x > host_max.x - padding ||
+                    open_min.y < host_min.y + padding || open_max.y > host_max.y - padding
+                }
+            };
+            
+            if is_at_planar_edge {
+                has_edge_openings = true;
+                continue; // Skip edge openings
             }
             
-            if mesh.is_empty() {
-                break; // Early exit if mesh is completely removed
+            // Add to combined openings mesh
+            combined_openings.merge(&opening_mesh);
+        }
+        
+        // STEP 2: Do a single CSG subtraction with all openings combined
+        // This handles adjacent openings correctly
+        if !combined_openings.is_empty() {
+            let original_tri_count = mesh.triangle_count();
+            match clipper.subtract_mesh(&mesh, &combined_openings) {
+                Ok(subtracted) => {
+                    let new_tri_count = subtracted.triangle_count();
+                    // More lenient check for multiple openings
+                    let min_expected = if has_edge_openings {
+                        original_tri_count / 4 // Allow more removal if some were skipped
+                    } else {
+                        original_tri_count / 3
+                    };
+                    if new_tri_count > 0 && new_tri_count >= min_expected {
+                        mesh = subtracted;
+                    }
+                },
+                Err(_) => {} // Keep original mesh if CSG fails
             }
         }
         

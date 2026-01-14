@@ -6,10 +6,10 @@
 //!
 //! Fast triangle clipping and boolean operations.
 
-use nalgebra::{Point2, Point3, Vector3};
+use nalgebra::{Point3, Vector3};
 use crate::mesh::Mesh;
-use crate::error::{Error, Result};
-use crate::triangulation::{triangulate_polygon_with_holes, project_to_2d, project_to_2d_with_basis, calculate_polygon_normal};
+use crate::error::Result;
+use crate::triangulation::calculate_polygon_normal;
 use rustc_hash::FxHashMap;
 
 /// Plane definition for clipping
@@ -344,13 +344,111 @@ impl ClippingProcessor {
         Some((profile_points, normal))
     }
 
-    /// Subtract opening mesh from host mesh
-    /// NOTE: Proper CSG boolean subtraction requires mesh-mesh intersection which is complex.
-    /// Bounding box approaches don't work because openings extend through walls.
-    /// For now, openings are rendered as separate geometry (toggle "Show Openings" in viewer).
-    pub fn subtract_mesh(&self, host_mesh: &Mesh, _opening_mesh: &Mesh) -> Result<Mesh> {
-        // Return host mesh unchanged - openings shown as separate geometry
-        Ok(host_mesh.clone())
+    /// Convert our Mesh format to csgrs Mesh format
+    fn mesh_to_csgrs(mesh: &Mesh) -> Result<csgrs::mesh::Mesh<()>> {
+        use csgrs::mesh::{Mesh as CSGMesh, polygon::Polygon, vertex::Vertex};
+        use std::sync::OnceLock;
+        use csgrs::float_types::parry3d::bounding_volume::Aabb;
+
+        if mesh.is_empty() {
+            return Ok(CSGMesh {
+                polygons: Vec::new(),
+                bounding_box: OnceLock::new(),
+                metadata: None,
+            });
+        }
+
+        let mut polygons = Vec::new();
+
+        // Process each triangle
+        for i in (0..mesh.indices.len()).step_by(3) {
+            let i0 = mesh.indices[i] as usize;
+            let i1 = mesh.indices[i + 1] as usize;
+            let i2 = mesh.indices[i + 2] as usize;
+
+            // Get triangle vertices
+            let v0 = Point3::new(
+                mesh.positions[i0 * 3] as f64,
+                mesh.positions[i0 * 3 + 1] as f64,
+                mesh.positions[i0 * 3 + 2] as f64,
+            );
+            let v1 = Point3::new(
+                mesh.positions[i1 * 3] as f64,
+                mesh.positions[i1 * 3 + 1] as f64,
+                mesh.positions[i1 * 3 + 2] as f64,
+            );
+            let v2 = Point3::new(
+                mesh.positions[i2 * 3] as f64,
+                mesh.positions[i2 * 3 + 1] as f64,
+                mesh.positions[i2 * 3 + 2] as f64,
+            );
+
+            // Calculate face normal from triangle edges
+            let edge1 = v1 - v0;
+            let edge2 = v2 - v0;
+            let face_normal = edge1.cross(&edge2).normalize();
+
+            // Create csgrs vertices (use face normal for all vertices)
+            let vertices = vec![
+                Vertex::new(v0, face_normal),
+                Vertex::new(v1, face_normal),
+                Vertex::new(v2, face_normal),
+            ];
+
+            polygons.push(Polygon::new(vertices, None));
+        }
+
+        Ok(CSGMesh::from_polygons(&polygons, None))
+    }
+
+    /// Convert csgrs Mesh format back to our Mesh format
+    fn csgrs_to_mesh(csg_mesh: &csgrs::mesh::Mesh<()>) -> Result<Mesh> {
+        let mut mesh = Mesh::new();
+
+        for polygon in &csg_mesh.polygons {
+            let vertices = &polygon.vertices;
+            if vertices.len() < 3 {
+                continue;
+            }
+
+            // Triangulate polygon using fan triangulation
+            let base_idx = mesh.vertex_count();
+            let v0 = &vertices[0];
+            mesh.add_vertex(v0.pos, v0.normal);
+
+            for i in 1..vertices.len() - 1 {
+                let vi = &vertices[i];
+                let v_next = &vertices[i + 1];
+                
+                mesh.add_vertex(vi.pos, vi.normal);
+                mesh.add_vertex(v_next.pos, v_next.normal);
+
+                let tri_idx = base_idx + (i - 1) * 2;
+                mesh.add_triangle(base_idx as u32, (tri_idx + 1) as u32, (tri_idx + 2) as u32);
+            }
+        }
+
+        Ok(mesh)
+    }
+
+    /// Subtract opening mesh from host mesh using csgrs CSG boolean operations
+    pub fn subtract_mesh(&self, host_mesh: &Mesh, opening_mesh: &Mesh) -> Result<Mesh> {
+        use csgrs::traits::CSG;
+
+        // Fast path: if opening is empty, return host unchanged
+        if opening_mesh.is_empty() {
+            return Ok(host_mesh.clone());
+        }
+
+        // Convert meshes to csgrs format
+        let host_csg = Self::mesh_to_csgrs(host_mesh)?;
+        let opening_csg = Self::mesh_to_csgrs(opening_mesh)?;
+
+        // Perform CSG difference (host - opening)
+        let result_csg = host_csg.difference(&opening_csg);
+
+        // Convert back to our Mesh format
+        Self::csgrs_to_mesh(&result_csg)
     }
 
     /// Clip mesh using bounding box (6 planes) - DEPRECATED: use subtract_box() instead

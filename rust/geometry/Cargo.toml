@@ -29,8 +29,8 @@ rustc-hash = "1.1"
 # Parallel processing
 rayon = "1.10"
 
-# Optional: CSG operations
-# manifold3d = { version = "0.1", optional = true }
+# CSG operations for opening subtraction
+csgrs = { version = "0.20", default-features = false, features = ["earcut", "f64"] }
 
 [dev-dependencies]
 approx = "0.5"
