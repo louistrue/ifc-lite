@@ -307,13 +307,25 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
 
   // Visibility actions
   hideEntity: (id) => set((state) => {
+    // Toggle hide: if already hidden, show it; otherwise hide it
     const newHidden = new Set(state.hiddenEntities);
-    newHidden.add(id);
+    if (newHidden.has(id)) {
+      newHidden.delete(id);
+    } else {
+      newHidden.add(id);
+    }
     return { hiddenEntities: newHidden };
   }),
   hideEntities: (ids) => set((state) => {
+    // Toggle hide for each entity: if already hidden, show it; otherwise hide it
     const newHidden = new Set(state.hiddenEntities);
-    ids.forEach(id => newHidden.add(id));
+    ids.forEach(id => {
+      if (newHidden.has(id)) {
+        newHidden.delete(id);
+      } else {
+        newHidden.add(id);
+      }
+    });
     return { hiddenEntities: newHidden };
   }),
   showEntity: (id) => set((state) => {
@@ -335,8 +347,47 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     }
     return { hiddenEntities: newHidden };
   }),
-  isolateEntity: (id) => set({ isolatedEntities: new Set([id]) }),
-  isolateEntities: (ids) => set({ isolatedEntities: new Set(ids) }),
+  isolateEntity: (id) => set((state) => {
+    // Toggle isolate: if this entity is already the only isolated one, clear isolation
+    // Otherwise, isolate it (and unhide it for good UX)
+    const isAlreadyIsolated = state.isolatedEntities !== null && 
+      state.isolatedEntities.size === 1 && 
+      state.isolatedEntities.has(id);
+    
+    if (isAlreadyIsolated) {
+      // Toggle off: clear isolation
+      return { isolatedEntities: null };
+    } else {
+      // Toggle on: isolate this entity (and unhide it)
+      const newHidden = new Set(state.hiddenEntities);
+      newHidden.delete(id);
+      return { 
+        isolatedEntities: new Set([id]),
+        hiddenEntities: newHidden,
+      };
+    }
+  }),
+  isolateEntities: (ids) => set((state) => {
+    // Toggle isolate: if these exact entities are already isolated, clear isolation
+    // Otherwise, isolate them (and unhide them for good UX)
+    const idsSet = new Set(ids);
+    const isAlreadyIsolated = state.isolatedEntities !== null &&
+      state.isolatedEntities.size === idsSet.size &&
+      ids.every(id => state.isolatedEntities!.has(id));
+    
+    if (isAlreadyIsolated) {
+      // Toggle off: clear isolation
+      return { isolatedEntities: null };
+    } else {
+      // Toggle on: isolate these entities (and unhide them)
+      const newHidden = new Set(state.hiddenEntities);
+      ids.forEach(id => newHidden.delete(id));
+      return { 
+        isolatedEntities: idsSet,
+        hiddenEntities: newHidden,
+      };
+    }
+  }),
   clearIsolation: () => set({ isolatedEntities: null }),
   showAll: () => set({ hiddenEntities: new Set(), isolatedEntities: null }),
   isEntityVisible: (id) => {

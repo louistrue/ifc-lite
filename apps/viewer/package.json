@@ -5,11 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "cp ../../packages/wasm/pkg/ifc-lite_bg.wasm public/ifc-lite_bg.wasm",
     "build": "(tsc || true) && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@ifc-lite/cache": "workspace:*",
     "@ifc-lite/data": "workspace:*",
     "@ifc-lite/export": "workspace:*",
     "@ifc-lite/geometry": "workspace:*",

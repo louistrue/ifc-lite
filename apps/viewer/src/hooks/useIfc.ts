@@ -4,6 +4,7 @@
 
 /**
  * Hook for loading and processing IFC files
+ * Includes binary cache support for fast subsequent loads
  */
 
 import { useMemo, useCallback, useRef } from 'react';
@@ -13,6 +14,17 @@ import { GeometryProcessor, GeometryQuality, type MeshData } from '@ifc-lite/geo
 import { IfcQuery } from '@ifc-lite/query';
 import { BufferBuilder } from '@ifc-lite/geometry';
 import { buildSpatialIndex } from '@ifc-lite/spatial';
+import {
+  BinaryCacheWriter,
+  BinaryCacheReader,
+  xxhash64Hex,
+  type IfcDataStore as CacheDataStore,
+  type GeometryData,
+} from '@ifc-lite/cache';
+import { getCached, setCached } from '../services/ifc-cache.js';
+
+// Minimum file size to cache (10MB) - smaller files parse quickly anyway
+const CACHE_SIZE_THRESHOLD = 10 * 1024 * 1024;
 
 export function useIfc() {
   const {
@@ -33,6 +45,125 @@ export function useIfc() {
   // Track if we've already logged for this ifcDataStore
   const lastLoggedDataStoreRef = useRef<typeof ifcDataStore>(null);
 
+  /**
+   * Load from binary cache (INSTANT path)
+   * Key optimizations:
+   * 1. Single setGeometryResult call instead of batched appendGeometryBatch
+   * 2. Build spatial index in requestIdleCallback (non-blocking)
+   */
+  const loadFromCache = useCallback(async (
+    cacheBuffer: ArrayBuffer,
+    fileName: string
+  ): Promise<boolean> => {
+    try {
+      console.time('[useIfc] cache-load');
+      setProgress({ phase: 'Loading from cache', percent: 10 });
+
+      // IMPORTANT: Reset geometry first so Viewport detects this as a new file
+      // This ensures camera fitting and bounds are properly reset
+      setGeometryResult(null);
+
+      const reader = new BinaryCacheReader();
+      const result = await reader.read(cacheBuffer);
+
+      // Convert cache data store to viewer data store format
+      const dataStore = result.dataStore as any;
+
+      if (result.geometry) {
+        const { meshes, coordinateInfo, totalVertices, totalTriangles } = result.geometry;
+
+        // INSTANT: Set ALL geometry in ONE state update (no batching!)
+        setGeometryResult({
+          meshes,
+          totalVertices,
+          totalTriangles,
+          coordinateInfo,
+        });
+
+        // Set data store
+        setIfcDataStore(dataStore);
+
+        // Build spatial index in background (non-blocking)
+        if (meshes.length > 0) {
+          // Use requestIdleCallback for non-blocking BVH build
+          const buildIndex = () => {
+            console.time('[useIfc] spatial-index-background');
+            try {
+              const spatialIndex = buildSpatialIndex(meshes);
+              dataStore.spatialIndex = spatialIndex;
+              // Update store with spatial index (doesn't affect rendering)
+              setIfcDataStore({ ...dataStore });
+              console.timeEnd('[useIfc] spatial-index-background');
+            } catch (err) {
+              console.warn('[useIfc] Failed to build spatial index:', err);
+            }
+          };
+
+          // Schedule for idle time, or fallback to setTimeout
+          if ('requestIdleCallback' in window) {
+            (window as any).requestIdleCallback(buildIndex, { timeout: 1000 });
+          } else {
+            setTimeout(buildIndex, 100);
+          }
+        }
+      } else {
+        setIfcDataStore(dataStore);
+      }
+
+      setProgress({ phase: 'Complete (from cache)', percent: 100 });
+      console.timeEnd('[useIfc] cache-load');
+      console.log(`[useIfc] INSTANT load: ${fileName} from cache (${result.geometry?.meshes.length || 0} meshes)`);
+
+      return true;
+    } catch (err) {
+      console.error('[useIfc] Failed to load from cache:', err);
+      return false;
+    }
+  }, [setProgress, setIfcDataStore, setGeometryResult]);
+
+  /**
+   * Save to binary cache (background operation)
+   */
+  const saveToCache = useCallback(async (
+    cacheKey: string,
+    dataStore: any,
+    geometry: GeometryData,
+    sourceBuffer: ArrayBuffer,
+    fileName: string
+  ): Promise<void> => {
+    try {
+      console.time('[useIfc] cache-write');
+
+      const writer = new BinaryCacheWriter();
+
+      // Adapt dataStore to cache format
+      const cacheDataStore: CacheDataStore = {
+        schema: dataStore.schemaVersion === 'IFC4' ? 1 : dataStore.schemaVersion === 'IFC4X3' ? 2 : 0,
+        entityCount: dataStore.entityCount || dataStore.entities?.count || 0,
+        strings: dataStore.strings,
+        entities: dataStore.entities,
+        properties: dataStore.properties,
+        quantities: dataStore.quantities,
+        relationships: dataStore.relationships,
+        spatialHierarchy: dataStore.spatialHierarchy,
+      };
+
+      const cacheBuffer = await writer.write(
+        cacheDataStore,
+        geometry,
+        sourceBuffer,
+        { includeGeometry: true }
+      );
+
+      await setCached(cacheKey, cacheBuffer, fileName, sourceBuffer.byteLength);
+
+      console.timeEnd('[useIfc] cache-write');
+      console.log(`[useIfc] Cached ${fileName} (${(cacheBuffer.byteLength / 1024 / 1024).toFixed(2)}MB cache)`);
+    } catch (err) {
+      console.warn('[useIfc] Failed to cache model:', err);
+    }
+  }, []);
+
   const loadFile = useCallback(async (file: File) => {
     const { resetViewerState } = useViewerStore.getState();
 
@@ -46,6 +177,28 @@ export function useIfc() {
 
       // Read file
       const buffer = await file.arrayBuffer();
+      const fileSizeMB = buffer.byteLength / (1024 * 1024);
+
+      // Compute cache key (hash of file content)
+      setProgress({ phase: 'Checking cache', percent: 5 });
+      const cacheKey = xxhash64Hex(buffer);
+      console.log(`[useIfc] File: ${file.name}, size: ${fileSizeMB.toFixed(2)}MB, hash: ${cacheKey}`);
+
+      // Try to load from cache first (only for files above threshold)
+      if (buffer.byteLength >= CACHE_SIZE_THRESHOLD) {
+        const cachedBuffer = await getCached(cacheKey);
+        if (cachedBuffer) {
+          const success = await loadFromCache(cachedBuffer, file.name);
+          if (success) {
+            setLoading(false);
+            return;
+          }
+          // Cache load failed, fall through to normal parsing
+          console.log('[useIfc] Cache load failed, falling back to parsing');
+        }
+      }
+
+      // Cache miss or small file - parse normally
       setProgress({ phase: 'Parsing IFC', percent: 10 });
 
       // Parse IFC using columnar parser
@@ -82,6 +235,7 @@ export function useIfc() {
       let estimatedTotal = 0;
       let totalMeshes = 0;
       const allMeshes: MeshData[] = []; // Collect all meshes for BVH building
+      let finalCoordinateInfo: any = null;
 
       // Clear existing geometry result
       setGeometryResult(null);
@@ -94,7 +248,6 @@ export function useIfc() {
       let totalProcessTime = 0; // Time processing batches in JS
 
       try {
-        const fileSizeMB = buffer.byteLength / (1024 * 1024);
         console.log(`[useIfc] Starting adaptive processing (file size: ${fileSizeMB.toFixed(2)}MB)...`);
         console.time('[useIfc] total-processing');
 
@@ -123,6 +276,7 @@ export function useIfc() {
 
               // Collect meshes for BVH building
               allMeshes.push(...event.meshes);
+              finalCoordinateInfo = event.coordinateInfo;
 
               // Append mesh batch to store (triggers React re-render)
               appendGeometryBatch(event.meshes, event.coordinateInfo);
@@ -157,6 +311,8 @@ export function useIfc() {
               );
               console.timeEnd('[useIfc] total-processing');
 
+              finalCoordinateInfo = event.coordinateInfo;
+
               // Update geometry result with final coordinate info
               updateCoordinateInfo(event.coordinateInfo);
 
@@ -176,6 +332,18 @@ export function useIfc() {
               }
 
               setProgress({ phase: 'Complete', percent: 100 });
+
+              // Cache the result in the background (for files above threshold)
+              if (buffer.byteLength >= CACHE_SIZE_THRESHOLD && allMeshes.length > 0 && finalCoordinateInfo) {
+                // Don't await - let it run in background
+                const geometryData: GeometryData = {
+                  meshes: allMeshes,
+                  totalVertices: allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0),
+                  totalTriangles: allMeshes.reduce((sum, m) => sum + m.indices.length / 3, 0),
+                  coordinateInfo: finalCoordinateInfo,
+                };
+                saveToCache(cacheKey, dataStore, geometryData, buffer, file.name);
+              }
               break;
           }
 
@@ -191,7 +359,7 @@ export function useIfc() {
       setError(err instanceof Error ? err.message : 'Unknown error');
       setLoading(false);
     }
-  }, [setLoading, setError, setProgress, setIfcDataStore, setGeometryResult, appendGeometryBatch, updateCoordinateInfo]);
+  }, [setLoading, setError, setProgress, setIfcDataStore, setGeometryResult, appendGeometryBatch, updateCoordinateInfo, loadFromCache, saveToCache]);
 
   // Memoize query to prevent recreation on every render
   const query = useMemo(() => {
