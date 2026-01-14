@@ -247,9 +247,9 @@ mod tests {
 
     #[test]
     fn test_circle_segments() {
-        assert_eq!(calculate_circle_segments(1.0), 12);
-        assert_eq!(calculate_circle_segments(4.0), 24);
-        assert!(calculate_circle_segments(100.0) <= 64); // Max clamp
+        assert_eq!(calculate_circle_segments(1.0), 8);   // sqrt(1)*8=8, clamped to min 8
+        assert_eq!(calculate_circle_segments(4.0), 16);  // sqrt(4)*8=16
+        assert!(calculate_circle_segments(100.0) <= 32); // Max clamp at 32
         assert!(calculate_circle_segments(0.1) >= 8);    // Min clamp
     }
 }
