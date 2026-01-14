@@ -27,8 +27,17 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
       - run: pnpm install
       - run: pnpm build
-      - run: pnpm -r publish --access public --no-git-checks
+      - name: Publish packages (skip if already published)
         if: ${{ github.event_name != 'workflow_dispatch' || !inputs.dry_run }}
+        run: |
+          pnpm -r exec -- sh -c '
+            if npm view "$npm_package_name@$npm_package_version" version >/dev/null 2>&1; then
+              echo "Skipping $npm_package_name@$npm_package_version (already published)"
+            else
+              echo "Publishing $npm_package_name@$npm_package_version"
+              npm publish --access public --no-git-checks
+            fi
+          '
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -37,15 +46,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo publish -p ifc-lite-core
+      - name: Publish ifc-lite-core (skip if already published)
         if: ${{ github.event_name != 'workflow_dispatch' || !inputs.dry_run }}
+        run: |
+          VERSION=$(grep '^version =' Cargo.toml | cut -d'"' -f2)
+          if cargo search ifc-lite-core --limit 1 2>/dev/null | grep -q "^ifc-lite-core = \"$VERSION\""; then
+            echo "Skipping ifc-lite-core@$VERSION (already published)"
+          else
+            cargo publish -p ifc-lite-core
+          fi
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
-      - run: cargo publish -p ifc-lite-geometry
+      - name: Publish ifc-lite-geometry (skip if already published)
         if: ${{ github.event_name != 'workflow_dispatch' || !inputs.dry_run }}
+        run: |
+          VERSION=$(grep '^version =' Cargo.toml | cut -d'"' -f2)
+          if cargo search ifc-lite-geometry --limit 1 2>/dev/null | grep -q "^ifc-lite-geometry = \"$VERSION\""; then
+            echo "Skipping ifc-lite-geometry@$VERSION (already published)"
+          else
+            cargo publish -p ifc-lite-geometry
+          fi
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
-      - run: cargo publish -p ifc-lite-wasm
+      - name: Publish ifc-lite-wasm (skip if already published)
         if: ${{ github.event_name != 'workflow_dispatch' || !inputs.dry_run }}
+        run: |
+          VERSION=$(grep '^version =' Cargo.toml | cut -d'"' -f2)
+          if cargo search ifc-lite-wasm --limit 1 2>/dev/null | grep -q "^ifc-lite-wasm = \"$VERSION\""; then
+            echo "Skipping ifc-lite-wasm@$VERSION (already published)"
+          else
+            cargo publish -p ifc-lite-wasm
+          fi
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
