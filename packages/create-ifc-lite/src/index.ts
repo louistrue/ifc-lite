@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
-import { existsSync, mkdirSync, writeFileSync, readdirSync, readFileSync, statSync, copyFileSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { execSync, spawn } from 'child_process';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -12,6 +13,9 @@ const TEMPLATES = {
 } as const;
 
 type TemplateType = keyof typeof TEMPLATES;
+
+const REPO_URL = 'https://github.com/louistrue/ifc-lite';
+const VIEWER_PATH = 'apps/viewer';
 
 function printUsage() {
   console.log(`
@@ -30,30 +34,88 @@ function printUsage() {
 
   Templates:
     basic   Minimal TypeScript project for parsing IFC files
-    react   React + Vite project with WebGPU viewer
+    react   Full-featured React + Vite viewer with WebGPU rendering
 `);
 }
 
-function copyDir(src: string, dest: string) {
-  mkdirSync(dest, { recursive: true });
-  for (const file of readdirSync(src)) {
-    const srcPath = join(src, file);
-    const destPath = join(dest, file);
-    if (statSync(srcPath).isDirectory()) {
-      copyDir(srcPath, destPath);
-    } else {
-      copyFileSync(srcPath, destPath);
-    }
+function runCommand(cmd: string, cwd?: string): boolean {
+  try {
+    execSync(cmd, { cwd, stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
   }
 }
 
-function replaceInFile(filePath: string, replacements: Record<string, string>) {
-  if (!existsSync(filePath)) return;
-  let content = readFileSync(filePath, 'utf-8');
-  for (const [key, value] of Object.entries(replacements)) {
-    content = content.replaceAll(key, value);
+async function downloadViewer(targetDir: string, projectName: string): Promise<boolean> {
+  // Try degit first (fastest)
+  if (runCommand('npx --version')) {
+    console.log('  Downloading viewer template...');
+    try {
+      execSync(`npx degit ${REPO_URL}/${VIEWER_PATH} "${targetDir}"`, {
+        stdio: 'pipe',
+        timeout: 60000
+      });
+      return true;
+    } catch {
+      // degit failed, try git sparse checkout
+    }
   }
-  writeFileSync(filePath, content);
+
+  // Fallback: git sparse checkout
+  if (runCommand('git --version')) {
+    console.log('  Downloading via git...');
+    const tempDir = join(dirname(targetDir), `.temp-${Date.now()}`);
+    try {
+      execSync(`git clone --filter=blob:none --sparse "${REPO_URL}.git" "${tempDir}"`, {
+        stdio: 'pipe',
+        timeout: 120000
+      });
+      execSync(`git sparse-checkout set ${VIEWER_PATH}`, { cwd: tempDir, stdio: 'pipe' });
+
+      // Move viewer to target
+      const viewerSrc = join(tempDir, VIEWER_PATH);
+      execSync(`mv "${viewerSrc}" "${targetDir}"`, { stdio: 'pipe' });
+      rmSync(tempDir, { recursive: true, force: true });
+      return true;
+    } catch {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+
+  return false;
+}
+
+function fixPackageJson(targetDir: string, projectName: string) {
+  const pkgPath = join(targetDir, 'package.json');
+  if (!existsSync(pkgPath)) return;
+
+  let pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+
+  // Update name
+  pkg.name = projectName;
+
+  // Replace workspace:* with npm versions
+  const deps = pkg.dependencies || {};
+  for (const [name, version] of Object.entries(deps)) {
+    if (version === 'workspace:*' && name.startsWith('@ifc-lite/')) {
+      deps[name] = '^1.1.0';
+    }
+  }
+
+  // Remove internal dependencies that aren't published
+  delete deps['@ifc-lite/cache'];
+  delete deps['@ifc-lite/export'];
+  delete deps['@ifc-lite/query'];
+  delete deps['@ifc-lite/spatial'];
+
+  // Remove git directory if present
+  const gitDir = join(targetDir, '.git');
+  if (existsSync(gitDir)) {
+    rmSync(gitDir, { recursive: true, force: true });
+  }
+
+  writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
 }
 
 async function main() {
@@ -92,20 +154,19 @@ async function main() {
 
   console.log(`\n  Creating IFC-Lite project in ${targetDir}...\n`);
 
-  // Find templates directory (works in dev and published)
-  let templatesDir = join(__dirname, '..', 'templates', template);
-  if (!existsSync(templatesDir)) {
-    templatesDir = join(__dirname, 'templates', template);
-  }
-  if (!existsSync(templatesDir)) {
-    // Fallback: create inline
-    mkdirSync(targetDir, { recursive: true });
-    createInlineTemplate(targetDir, projectName, template);
+  if (template === 'react') {
+    // Download the actual viewer from GitHub
+    const success = await downloadViewer(targetDir, projectName);
+    if (success) {
+      fixPackageJson(targetDir, projectName);
+    } else {
+      console.error('  Failed to download viewer. Creating minimal fallback...');
+      mkdirSync(targetDir, { recursive: true });
+      createBasicTemplate(targetDir, projectName);
+    }
   } else {
-    copyDir(templatesDir, targetDir);
-    replaceInFile(join(targetDir, 'package.json'), {
-      '{{PROJECT_NAME}}': projectName,
-    });
+    mkdirSync(targetDir, { recursive: true });
+    createBasicTemplate(targetDir, projectName);
   }
 
   console.log(`  Done! Next steps:\n`);
@@ -114,24 +175,16 @@ async function main() {
   if (template === 'react') {
     console.log(`    npm run dev`);
   } else {
-    console.log(`    npm run parse`);
+    console.log(`    npm run parse ./your-model.ifc`);
   }
   console.log();
-}
-
-function createInlineTemplate(targetDir: string, projectName: string, template: TemplateType) {
-  if (template === 'basic') {
-    createBasicTemplate(targetDir, projectName);
-  } else {
-    createReactTemplate(targetDir, projectName);
-  }
 }
 
 function createBasicTemplate(targetDir: string, projectName: string) {
   // package.json
   writeFileSync(join(targetDir, 'package.json'), JSON.stringify({
     name: projectName,
-    version: '1.1.0',
+    version: '1.0.0',
     type: 'module',
     scripts: {
       parse: 'npx tsx src/index.ts',
@@ -180,22 +233,22 @@ const buffer = readFileSync(ifcPath);
 const parser = new IfcParser();
 
 console.log('Parsing IFC file...');
-const result = parser.parse(buffer);
+parser.parse(buffer).then(result => {
+  console.log('\\nFile parsed successfully!');
+  console.log(\`  Entities: \${result.entityCount}\`);
 
-console.log('\\nFile parsed successfully!');
-console.log(\`  Entities: \${result.entities.length}\`);
+  // Count by type
+  const typeCounts = new Map<string, number>();
+  for (const [id, entity] of result.entities) {
+    typeCounts.set(entity.type, (typeCounts.get(entity.type) || 0) + 1);
+  }
 
-// Count by type
-const typeCounts = new Map<string, number>();
-for (const entity of result.entities) {
-  typeCounts.set(entity.type, (typeCounts.get(entity.type) || 0) + 1);
-}
-
-console.log('\\nEntity types:');
-const sorted = [...typeCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
-for (const [type, count] of sorted) {
-  console.log(\`  \${type}: \${count}\`);
-}
+  console.log('\\nTop entity types:');
+  const sorted = [...typeCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+  for (const [type, count] of sorted) {
+    console.log(\`  \${type}: \${count}\`);
+  }
+});
 `);
 
   // README
@@ -209,199 +262,6 @@ IFC parser project using [IFC-Lite](https://github.com/louistrue/ifc-lite).
 npm install
 npm run parse ./your-model.ifc
 \`\`\`
-
-## Learn More
-
-- [IFC-Lite Documentation](https://louistrue.github.io/ifc-lite/)
-- [API Reference](https://louistrue.github.io/ifc-lite/api/)
-`);
-}
-
-function createReactTemplate(targetDir: string, projectName: string) {
-  // package.json
-  writeFileSync(join(targetDir, 'package.json'), JSON.stringify({
-    name: projectName,
-    version: '1.1.0',
-    type: 'module',
-    scripts: {
-      dev: 'vite',
-      build: 'tsc && vite build',
-      preview: 'vite preview',
-    },
-    dependencies: {
-      '@ifc-lite/parser': '^1.1.0',
-      '@ifc-lite/geometry': '^1.1.0',
-      '@ifc-lite/renderer': '^1.1.0',
-      react: '^18.2.0',
-      'react-dom': '^18.2.0',
-    },
-    devDependencies: {
-      '@types/react': '^18.2.0',
-      '@types/react-dom': '^18.2.0',
-      '@vitejs/plugin-react': '^4.2.0',
-      typescript: '^5.3.0',
-      vite: '^5.0.0',
-    },
-  }, null, 2));
-
-  // tsconfig.json
-  writeFileSync(join(targetDir, 'tsconfig.json'), JSON.stringify({
-    compilerOptions: {
-      target: 'ES2022',
-      lib: ['ES2022', 'DOM', 'DOM.Iterable'],
-      module: 'ESNext',
-      moduleResolution: 'bundler',
-      jsx: 'react-jsx',
-      strict: true,
-      esModuleInterop: true,
-      skipLibCheck: true,
-    },
-    include: ['src'],
-  }, null, 2));
-
-  // vite.config.ts
-  writeFileSync(join(targetDir, 'vite.config.ts'), `import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-
-export default defineConfig({
-  plugins: [react()],
-});
-`);
-
-  // index.html
-  writeFileSync(join(targetDir, 'index.html'), `<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>${projectName}</title>
-    <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { font-family: system-ui, sans-serif; }
-    </style>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
-`);
-
-  // src/main.tsx
-  mkdirSync(join(targetDir, 'src'));
-  writeFileSync(join(targetDir, 'src', 'main.tsx'), `import React from 'react';
-import ReactDOM from 'react-dom/client';
-import App from './App';
-
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
-`);
-
-  // src/App.tsx
-  writeFileSync(join(targetDir, 'src', 'App.tsx'), `import { useState, useRef, useCallback } from 'react';
-import { IfcParser } from '@ifc-lite/parser';
-
-export default function App() {
-  const [status, setStatus] = useState<string>('Drop an IFC file to get started');
-  const [entities, setEntities] = useState<Array<{ type: string; count: number }>>([]);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  const handleFile = useCallback(async (file: File) => {
-    setStatus(\`Parsing \${file.name}...\`);
-
-    const buffer = await file.arrayBuffer();
-    const parser = new IfcParser();
-    const result = parser.parse(new Uint8Array(buffer));
-
-    // Count entities by type
-    const counts = new Map<string, number>();
-    for (const entity of result.entities) {
-      counts.set(entity.type, (counts.get(entity.type) || 0) + 1);
-    }
-
-    const sorted = [...counts.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 15)
-      .map(([type, count]) => ({ type, count }));
-
-    setEntities(sorted);
-    setStatus(\`Parsed \${result.entities.length} entities from \${file.name}\`);
-  }, []);
-
-  const onDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (file?.name.endsWith('.ifc')) {
-      handleFile(file);
-    }
-  }, [handleFile]);
-
-  return (
-    <div style={{ padding: 24 }}>
-      <h1>IFC-Lite Viewer</h1>
-
-      <div
-        onDrop={onDrop}
-        onDragOver={(e) => e.preventDefault()}
-        style={{
-          margin: '24px 0',
-          padding: 48,
-          border: '2px dashed #ccc',
-          borderRadius: 8,
-          textAlign: 'center',
-          cursor: 'pointer',
-        }}
-      >
-        <p>{status}</p>
-        <p style={{ fontSize: 14, color: '#666', marginTop: 8 }}>
-          Drag & drop .ifc file here
-        </p>
-      </div>
-
-      {entities.length > 0 && (
-        <div>
-          <h2>Entity Types</h2>
-          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 16 }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid #ddd' }}>Type</th>
-                <th style={{ textAlign: 'right', padding: 8, borderBottom: '1px solid #ddd' }}>Count</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entities.map(({ type, count }) => (
-                <tr key={type}>
-                  <td style={{ padding: 8, borderBottom: '1px solid #eee' }}>{type}</td>
-                  <td style={{ padding: 8, borderBottom: '1px solid #eee', textAlign: 'right' }}>{count}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      <canvas ref={canvasRef} style={{ display: 'none' }} />
-    </div>
-  );
-}
-`);
-
-  // README
-  writeFileSync(join(targetDir, 'README.md'), `# ${projectName}
-
-IFC viewer using [IFC-Lite](https://github.com/louistrue/ifc-lite).
-
-## Quick Start
-
-\`\`\`bash
-npm install
-npm run dev
-\`\`\`
-
-Open http://localhost:5173 and drop an IFC file.
 
 ## Learn More
 
