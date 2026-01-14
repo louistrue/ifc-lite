@@ -16,10 +16,10 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@ifc-lite/parser": "workspace:*",
-    "@ifc-lite/data": "workspace:*",
-    "@ifc-lite/spatial": "workspace:*",
-    "@ifc-lite/geometry": "workspace:*"
+    "@ifc-lite/parser": "workspace:^",
+    "@ifc-lite/data": "workspace:^",
+    "@ifc-lite/spatial": "workspace:^",
+    "@ifc-lite/geometry": "workspace:^"
   },
   "devDependencies": {
     "typescript": "^5.3.0"

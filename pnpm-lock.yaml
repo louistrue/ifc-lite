@@ -24,29 +24,32 @@ importers:
   apps/viewer:
     dependencies:
       '@ifc-lite/cache':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../packages/cache
       '@ifc-lite/data':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../packages/data
       '@ifc-lite/export':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../packages/export
       '@ifc-lite/geometry':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../packages/geometry
       '@ifc-lite/parser':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../packages/parser
       '@ifc-lite/query':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../packages/query
       '@ifc-lite/renderer':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../packages/renderer
       '@ifc-lite/spatial':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../packages/spatial
+      '@ifc-lite/wasm':
+        specifier: workspace:^
+        version: link:../../packages/wasm
       '@radix-ui/react-collapsible':
         specifier: ^1.1.12
         version: 1.1.12(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -139,10 +142,10 @@ importers:
   packages/cache:
     dependencies:
       '@ifc-lite/data':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../data
       '@ifc-lite/geometry':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../geometry
     devDependencies:
       typescript:
@@ -176,13 +179,13 @@ importers:
   packages/export:
     dependencies:
       '@ifc-lite/data':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../data
       '@ifc-lite/geometry':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../geometry
       '@ifc-lite/parser':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../parser
       apache-arrow:
         specifier: ^14.0.0
@@ -201,7 +204,7 @@ importers:
   packages/geometry:
     dependencies:
       '@ifc-lite/wasm':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../wasm
     devDependencies:
       typescript:
@@ -211,7 +214,7 @@ importers:
   packages/parser:
     dependencies:
       '@ifc-lite/data':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../data
     devDependencies:
       typescript:
@@ -221,16 +224,16 @@ importers:
   packages/query:
     dependencies:
       '@ifc-lite/data':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../data
       '@ifc-lite/geometry':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../geometry
       '@ifc-lite/parser':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../parser
       '@ifc-lite/spatial':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../spatial
     devDependencies:
       typescript:
@@ -240,13 +243,13 @@ importers:
   packages/renderer:
     dependencies:
       '@ifc-lite/geometry':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../geometry
       '@ifc-lite/spatial':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../spatial
       '@ifc-lite/wasm':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../wasm
     devDependencies:
       typescript:
@@ -256,7 +259,7 @@ importers:
   packages/spatial:
     dependencies:
       '@ifc-lite/geometry':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../geometry
     devDependencies:
       typescript:

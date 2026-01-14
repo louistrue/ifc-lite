@@ -16,9 +16,9 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@ifc-lite/geometry": "workspace:*",
-    "@ifc-lite/data": "workspace:*",
-    "@ifc-lite/parser": "workspace:*",
+    "@ifc-lite/geometry": "workspace:^",
+    "@ifc-lite/data": "workspace:^",
+    "@ifc-lite/parser": "workspace:^",
     "parquet-wasm": "^0.5.0",
     "apache-arrow": "^14.0.0",
     "jszip": "^3.10.0"

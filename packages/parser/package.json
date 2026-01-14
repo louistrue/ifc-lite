@@ -16,7 +16,7 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@ifc-lite/data": "workspace:*"
+    "@ifc-lite/data": "workspace:^"
   },
   "devDependencies": {
     "typescript": "^5.3.0"

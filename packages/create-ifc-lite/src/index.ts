@@ -104,11 +104,11 @@ function fixPackageJson(targetDir: string, projectName: string) {
   // Update name
   pkg.name = projectName;
 
-  // Replace workspace:* with latest npm version
+  // Replace workspace protocol with latest npm version
   const latestVersion = getLatestVersion();
   const deps = pkg.dependencies || {};
   for (const [name, version] of Object.entries(deps)) {
-    if (version === 'workspace:*' && name.startsWith('@ifc-lite/')) {
+    if (typeof version === 'string' && version.startsWith('workspace:') && name.startsWith('@ifc-lite/')) {
       deps[name] = latestVersion;
     }
   }

@@ -16,9 +16,9 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@ifc-lite/spatial": "workspace:*",
-    "@ifc-lite/geometry": "workspace:*",
-    "@ifc-lite/wasm": "workspace:*"
+    "@ifc-lite/spatial": "workspace:^",
+    "@ifc-lite/geometry": "workspace:^",
+    "@ifc-lite/wasm": "workspace:^"
   },
   "devDependencies": {
     "typescript": "^5.3.0"
