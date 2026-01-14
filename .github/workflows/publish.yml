@@ -49,13 +49,16 @@ jobs:
         if: ${{ (github.ref == 'refs/heads/main' || github.event_name == 'release' || (startsWith(github.ref, 'refs/tags/') && steps.verify_tag.outputs.tag_on_main == 'true')) && (github.event_name != 'workflow_dispatch' || !inputs.dry_run) }}
         run: |
           pnpm -r exec -- sh -c '
+            set +e
             if npm view "$npm_package_name@$npm_package_version" version >/dev/null 2>&1; then
               echo "Skipping $npm_package_name@$npm_package_version (already published)"
+              exit 0
             else
               echo "Publishing $npm_package_name@$npm_package_version"
               npm publish --access public --no-git-checks
+              exit $?
             fi
-          '
+          ' || true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
