@@ -1,6 +1,6 @@
 {
   "name": "@ifc-lite/spatial",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Spatial indexing for IFC-Lite",
   "type": "module",
   "main": "./dist/index.js",

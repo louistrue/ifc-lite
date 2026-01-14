@@ -184,14 +184,14 @@ function createBasicTemplate(targetDir: string, projectName: string) {
   // package.json
   writeFileSync(join(targetDir, 'package.json'), JSON.stringify({
     name: projectName,
-    version: '1.0.0',
+    version: '1.1.1',
     type: 'module',
     scripts: {
       parse: 'npx tsx src/index.ts',
       build: 'tsc',
     },
     dependencies: {
-      '@ifc-lite/parser': '^1.1.0',
+      '@ifc-lite/parser': '^1.1.1',
     },
     devDependencies: {
       typescript: '^5.3.0',
