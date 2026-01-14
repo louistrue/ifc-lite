@@ -34,11 +34,32 @@ function openDatabase(): Promise<IDBDatabase> {
 
     request.onerror = () => {
       console.error('[IFC Cache] Failed to open database:', request.error);
+      dbPromise = null; // Reset so we can retry
       reject(request.error);
     };
 
     request.onsuccess = () => {
-      resolve(request.result);
+      const db = request.result;
+      
+      // Verify the object store exists (handles corrupted DB state)
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        console.warn('[IFC Cache] Object store missing, recreating database...');
+        db.close();
+        dbPromise = null;
+        
+        // Delete and recreate the database
+        const deleteRequest = indexedDB.deleteDatabase(DB_NAME);
+        deleteRequest.onsuccess = () => {
+          // Retry opening after deletion
+          openDatabase().then(resolve).catch(reject);
+        };
+        deleteRequest.onerror = () => {
+          reject(new Error('Failed to recreate database'));
+        };
+        return;
+      }
+      
+      resolve(db);
     };
 
     request.onupgradeneeded = (event) => {
