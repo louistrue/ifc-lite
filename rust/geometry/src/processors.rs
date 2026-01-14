@@ -519,24 +519,21 @@ impl FacetedBrepProcessor {
         let mut polygon_points = Vec::with_capacity(point_refs.len());
 
         for point_ref in point_refs {
-            if let Some(point_id) = point_ref.as_entity_ref() {
-                // Use fast path to extract coordinates directly from raw bytes
-                if let Some((x, y, z)) = decoder.get_cartesian_point_fast(point_id) {
-                    polygon_points.push(Point3::new(x, y, z));
-                } else {
-                    // Fallback to standard path if fast extraction fails
-                    if let Ok(point) = decoder.decode_by_id(point_id) {
-                        if let Some(coords_attr) = point.get(0) {
-                            if let Some(coords) = coords_attr.as_list() {
-                                use ifc_lite_core::AttributeValue;
-                                let x = coords.get(0).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0);
-                                let y = coords.get(1).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0);
-                                let z = coords.get(2).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0);
-                                polygon_points.push(Point3::new(x, y, z));
-                            }
-                        }
-                    }
-                }
+            let point_id = point_ref.as_entity_ref()?;
+            
+            // Try fast path first
+            if let Some((x, y, z)) = decoder.get_cartesian_point_fast(point_id) {
+                polygon_points.push(Point3::new(x, y, z));
+            } else {
+                // Fallback to standard path if fast extraction fails
+                let point = decoder.decode_by_id(point_id).ok()?;
+                let coords_attr = point.get(0)?;
+                let coords = coords_attr.as_list()?;
+                use ifc_lite_core::AttributeValue;
+                let x = coords.get(0).and_then(|v: &AttributeValue| v.as_float())?;
+                let y = coords.get(1).and_then(|v: &AttributeValue| v.as_float())?;
+                let z = coords.get(2).and_then(|v: &AttributeValue| v.as_float())?;
+                polygon_points.push(Point3::new(x, y, z));
             }
         }
 
@@ -563,9 +560,9 @@ impl FacetedBrepProcessor {
 
         for point_id in point_ids {
             // Use fast path to extract coordinates directly from raw bytes
-            if let Some((x, y, z)) = decoder.get_cartesian_point_fast(point_id) {
-                polygon_points.push(Point3::new(x, y, z));
-            }
+            // Return None if ANY point fails - ensures complete polygon or nothing
+            let (x, y, z) = decoder.get_cartesian_point_fast(point_id)?;
+            polygon_points.push(Point3::new(x, y, z));
         }
 
         if polygon_points.len() >= 3 {
