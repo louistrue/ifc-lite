@@ -371,19 +371,33 @@ impl IfcAPI {
         // Build entity index once upfront for O(1) lookups
         let entity_index = build_entity_index(&content);
 
-        // Create scanner and decoder with pre-built index
-        let mut scanner = EntityScanner::new(&content);
+        // Create decoder with pre-built index
         let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
 
         // Build style index: first map geometry IDs to colors, then map element IDs to colors
         let geometry_styles = build_geometry_style_index(&content, &mut decoder);
         let style_index = build_element_style_index(&content, &geometry_styles, &mut decoder);
 
-        // Reset scanner for second pass
-        scanner = EntityScanner::new(&content);
+        // OPTIMIZATION: Collect all FacetedBrep IDs for batch processing
+        let mut scanner = EntityScanner::new(&content);
+        let mut faceted_brep_ids: Vec<u32> = Vec::new();
+        while let Some((id, type_name, _, _)) = scanner.next_entity() {
+            if type_name == "IFCFACETEDBREP" {
+                faceted_brep_ids.push(id);
+            }
+        }
 
         // Create geometry router (reuses processor instances)
         let router = GeometryRouter::new();
+
+        // Batch preprocess FacetedBrep entities for maximum parallelism
+        // This triangulates ALL faces from ALL BREPs in one parallel batch
+        if !faceted_brep_ids.is_empty() {
+            router.preprocess_faceted_breps(&faceted_brep_ids, &mut decoder);
+        }
+
+        // Reset scanner for main processing pass
+        scanner = EntityScanner::new(&content);
 
         // Estimate capacity: typical IFC files have ~5-10% building elements
         let estimated_elements = content.len() / 500;
@@ -491,17 +505,31 @@ impl IfcAPI {
 
         // Build entity index once upfront
         let entity_index = build_entity_index(&content);
-        let mut scanner = EntityScanner::new(&content);
         let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
 
         // Build style indices
         let geometry_styles = build_geometry_style_index(&content, &mut decoder);
         let style_index = build_element_style_index(&content, &geometry_styles, &mut decoder);
 
-        // Reset scanner
-        scanner = EntityScanner::new(&content);
+        // OPTIMIZATION: Collect all FacetedBrep IDs for batch processing
+        let mut scanner = EntityScanner::new(&content);
+        let mut faceted_brep_ids: Vec<u32> = Vec::new();
+        while let Some((id, type_name, _, _)) = scanner.next_entity() {
+            if type_name == "IFCFACETEDBREP" {
+                faceted_brep_ids.push(id);
+            }
+        }
 
         let router = GeometryRouter::new();
+
+        // Batch preprocess FacetedBrep entities for maximum parallelism
+        if !faceted_brep_ids.is_empty() {
+            router.preprocess_faceted_breps(&faceted_brep_ids, &mut decoder);
+        }
+
+        // Reset scanner for main processing pass
+        scanner = EntityScanner::new(&content);
+
         let estimated_elements = content.len() / 500;
         let mut mesh_collection = MeshCollection::with_capacity(estimated_elements);
 

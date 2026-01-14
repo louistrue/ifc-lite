@@ -715,6 +715,153 @@ impl FacetedBrepProcessor {
 
         FaceResult { positions, indices }
     }
+
+    /// Batch process multiple FacetedBrep entities for maximum parallelism
+    /// Extracts all face data sequentially, then triangulates ALL faces in one parallel batch
+    /// Returns Vec of (brep_index, Mesh) pairs
+    pub fn process_batch(
+        &self,
+        brep_ids: &[u32],
+        decoder: &mut EntityDecoder,
+    ) -> Vec<(usize, Mesh)> {
+        use rayon::prelude::*;
+
+        // PHASE 1: Sequential - Extract all face data from all BREPs
+        // Each entry: (brep_index, face_data)
+        let mut all_faces: Vec<(usize, FaceData)> = Vec::with_capacity(brep_ids.len() * 10);
+
+        for (brep_idx, &brep_id) in brep_ids.iter().enumerate() {
+            // Decode the BREP entity
+            let brep_entity = match decoder.decode_by_id(brep_id) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+
+            // Get closed shell ID
+            let shell_id = match brep_entity.get(0).and_then(|a| a.as_entity_ref()) {
+                Some(id) => id,
+                None => continue,
+            };
+
+            // Get face IDs from shell
+            let face_ids = match decoder.get_entity_ref_list_fast(shell_id) {
+                Some(ids) => ids,
+                None => continue,
+            };
+
+            // Extract face data for each face
+            for face_id in face_ids {
+                let bound_ids = match decoder.get_entity_ref_list_fast(face_id) {
+                    Some(ids) => ids,
+                    None => continue,
+                };
+
+                let mut outer_bound_points: Option<Vec<Point3<f64>>> = None;
+                let mut hole_points: Vec<Vec<Point3<f64>>> = Vec::new();
+
+                for bound_id in bound_ids {
+                    let bound = match decoder.decode_by_id(bound_id) {
+                        Ok(b) => b,
+                        Err(_) => continue,
+                    };
+
+                    let loop_attr = match bound.get(0) {
+                        Some(attr) => attr,
+                        None => continue,
+                    };
+
+                    let orientation = bound.get(1)
+                        .and_then(|v| match v {
+                            ifc_lite_core::AttributeValue::Enum(e) => Some(e != ".F."),
+                            _ => Some(true),
+                        })
+                        .unwrap_or(true);
+
+                    let mut points = if let Some(loop_id) = loop_attr.as_entity_ref() {
+                        match self.extract_loop_points_fast(loop_id, decoder) {
+                            Some(p) => p,
+                            None => continue,
+                        }
+                    } else {
+                        continue
+                    };
+
+                    if !orientation {
+                        points.reverse();
+                    }
+
+                    let is_outer = match bound.ifc_type {
+                        IfcType::IfcFaceOuterBound => true,
+                        IfcType::IfcFaceBound => false,
+                        _ => bound.ifc_type.as_str().contains("OUTER"),
+                    };
+
+                    if is_outer || outer_bound_points.is_none() {
+                        if outer_bound_points.is_some() && is_outer {
+                            if let Some(prev_outer) = outer_bound_points.take() {
+                                hole_points.push(prev_outer);
+                            }
+                        }
+                        outer_bound_points = Some(points);
+                    } else {
+                        hole_points.push(points);
+                    }
+                }
+
+                if let Some(outer_points) = outer_bound_points {
+                    all_faces.push((brep_idx, FaceData {
+                        outer_points,
+                        hole_points,
+                    }));
+                }
+            }
+        }
+
+        // PHASE 2: Parallel - Triangulate ALL faces from ALL BREPs in one batch
+        let face_results: Vec<(usize, FaceResult)> = all_faces
+            .par_iter()
+            .map(|(brep_idx, face)| (*brep_idx, Self::triangulate_face(face)))
+            .collect();
+
+        // PHASE 3: Group results back by BREP index
+        // First, count faces per BREP to pre-allocate
+        let mut face_counts = vec![0usize; brep_ids.len()];
+        for (brep_idx, _) in &face_results {
+            face_counts[*brep_idx] += 1;
+        }
+
+        // Initialize mesh builders for each BREP
+        let mut mesh_builders: Vec<(Vec<f32>, Vec<u32>)> = face_counts
+            .iter()
+            .map(|&count| {
+                (Vec::with_capacity(count * 100), Vec::with_capacity(count * 50))
+            })
+            .collect();
+
+        // Merge face results into their respective meshes
+        for (brep_idx, result) in face_results {
+            let (positions, indices) = &mut mesh_builders[brep_idx];
+            let base_idx = (positions.len() / 3) as u32;
+            positions.extend(result.positions);
+            for idx in result.indices {
+                indices.push(base_idx + idx);
+            }
+        }
+
+        // Convert to final meshes
+        mesh_builders
+            .into_iter()
+            .enumerate()
+            .filter(|(_, (positions, _))| !positions.is_empty())
+            .map(|(brep_idx, (positions, indices))| {
+                (brep_idx, Mesh {
+                    positions,
+                    normals: Vec::new(),
+                    indices,
+                })
+            })
+            .collect()
+    }
 }
 
 impl GeometryProcessor for FacetedBrepProcessor {

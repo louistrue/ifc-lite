@@ -39,6 +39,10 @@ pub struct GeometryRouter {
     /// Cache for IfcRepresentationMap source geometry (MappedItem instancing)
     /// Key: RepresentationMap entity ID, Value: Processed mesh
     mapped_item_cache: RefCell<FxHashMap<u32, Arc<Mesh>>>,
+    /// Cache for FacetedBrep geometry (batch processed)
+    /// Key: FacetedBrep entity ID, Value: Processed mesh
+    /// Uses Box to avoid copying large meshes, entries are taken (removed) when used
+    faceted_brep_cache: RefCell<FxHashMap<u32, Mesh>>,
 }
 
 impl GeometryRouter {
@@ -50,6 +54,7 @@ impl GeometryRouter {
             schema,
             processors: HashMap::new(),
             mapped_item_cache: RefCell::new(FxHashMap::default()),
+            faceted_brep_cache: RefCell::new(FxHashMap::default()),
         };
 
         // Register default P0 processors
@@ -71,6 +76,34 @@ impl GeometryRouter {
         for ifc_type in processor_arc.supported_types() {
             self.processors.insert(ifc_type, Arc::clone(&processor_arc));
         }
+    }
+
+    /// Batch preprocess FacetedBrep entities for maximum parallelism
+    /// Call this before processing elements to enable batch triangulation
+    /// across all FacetedBrep entities instead of per-entity parallelism
+    pub fn preprocess_faceted_breps(&self, brep_ids: &[u32], decoder: &mut EntityDecoder) {
+        if brep_ids.is_empty() {
+            return;
+        }
+
+        // Use batch processing for parallel triangulation
+        let processor = FacetedBrepProcessor::new();
+        let results = processor.process_batch(brep_ids, decoder);
+
+        // Store results in cache (preallocate to avoid rehashing)
+        let mut cache = self.faceted_brep_cache.borrow_mut();
+        cache.reserve(results.len());
+        for (brep_idx, mesh) in results {
+            let brep_id = brep_ids[brep_idx];
+            cache.insert(brep_id, mesh);
+        }
+    }
+
+    /// Take FacetedBrep from cache (removes entry since each BREP is only used once)
+    /// Returns owned Mesh directly - no cloning needed
+    #[inline]
+    pub fn take_cached_faceted_brep(&self, brep_id: u32) -> Option<Mesh> {
+        self.faceted_brep_cache.borrow_mut().remove(&brep_id)
     }
 
     /// Process building element (IfcWall, IfcBeam, etc.) into mesh
@@ -192,6 +225,13 @@ impl GeometryRouter {
         // Special handling for MappedItem with caching
         if item.ifc_type == IfcType::IfcMappedItem {
             return self.process_mapped_item_cached(item, decoder);
+        }
+
+        // Check FacetedBrep cache first (from batch preprocessing)
+        if item.ifc_type == IfcType::IfcFacetedBrep {
+            if let Some(mesh) = self.take_cached_faceted_brep(item.id) {
+                return Ok(mesh);
+            }
         }
 
         // Check if we have a processor for this type
