@@ -78,10 +78,10 @@ pub mod units;
 
 pub use error::{Error, Result};
 pub use parser::{Token, EntityScanner, parse_entity};
-pub use generated::{IfcType, has_geometry_by_name, GeometryCategory, ProfileCategory};
+pub use generated::{IfcType, has_geometry_by_name};
 pub use streaming::{ParseEvent, StreamConfig, parse_stream};
 pub use decoder::{EntityDecoder, EntityIndex, build_entity_index};
-pub use schema_gen::{AttributeValue, DecodedEntity, IfcSchema};
+pub use schema_gen::{AttributeValue, DecodedEntity, IfcSchema, GeometryCategory, ProfileCategory};
 pub use georef::{GeoReference, GeoRefExtractor, RtcOffset};
 pub use fast_parse::{
     parse_coordinates_direct, parse_indices_direct, should_use_fast_path,

@@ -9,7 +9,7 @@
 use crate::{Mesh, Point3, Vector3, Result, Error};
 use crate::processors::{ExtrudedAreaSolidProcessor, TriangulatedFaceSetProcessor, MappedItemProcessor, FacetedBrepProcessor, BooleanClippingProcessor, SweptDiskSolidProcessor, RevolvedAreaSolidProcessor, AdvancedBrepProcessor};
 use ifc_lite_core::{
-    DecodedEntity, EntityDecoder, GeometryCategory, IfcSchema, IfcType, ProfileCategory,
+    DecodedEntity, EntityDecoder, IfcSchema, IfcType, GeometryCategory,
 };
 use nalgebra::{Matrix4, Rotation3};
 use rustc_hash::FxHashMap;
@@ -106,6 +106,29 @@ impl GeometryRouter {
     /// Get the current unit scale factor
     pub fn unit_scale(&self) -> f64 {
         self.unit_scale
+    }
+
+    /// Scale mesh positions from file units to meters
+    /// Only applies scaling if unit_scale != 1.0
+    #[inline]
+    fn scale_mesh(&self, mesh: &mut Mesh) {
+        if self.unit_scale != 1.0 {
+            let scale = self.unit_scale as f32;
+            for pos in mesh.positions.iter_mut() {
+                *pos *= scale;
+            }
+        }
+    }
+
+    /// Scale the translation component of a transform matrix from file units to meters
+    /// The rotation/scale part stays unchanged, only translation (column 3) is scaled
+    #[inline]
+    fn scale_transform(&self, transform: &mut Matrix4<f64>) {
+        if self.unit_scale != 1.0 {
+            transform[(0, 3)] *= self.unit_scale;
+            transform[(1, 3)] *= self.unit_scale;
+            transform[(2, 3)] *= self.unit_scale;
+        }
     }
 
     /// Register a geometry processor
@@ -304,6 +327,68 @@ impl GeometryRouter {
         Ok(combined_mesh)
     }
 
+    /// Process element with void subtraction (openings)
+    /// Uses fast box subtraction with bitflag classification for O(n) performance
+    #[inline]
+    pub fn process_element_with_voids(
+        &self,
+        element: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+        void_index: &rustc_hash::FxHashMap<u32, Vec<u32>>,
+    ) -> Result<Mesh> {
+        // Get base geometry
+        let mut mesh = self.process_element(element, decoder)?;
+        
+        if mesh.is_empty() {
+            return Ok(mesh);
+        }
+        
+        // Check if this element has any openings
+        let opening_ids = match void_index.get(&element.id) {
+            Some(ids) => ids,
+            None => return Ok(mesh), // No openings, return base mesh
+        };
+        
+        if opening_ids.is_empty() {
+            return Ok(mesh);
+        }
+        
+        // Get opening geometries and subtract using fast box approximation
+        use crate::csg::ClippingProcessor;
+        let clipper = ClippingProcessor::new();
+        
+        for &opening_id in opening_ids {
+            // Get opening entity
+            let opening_entity = match decoder.decode_by_id(opening_id) {
+                Ok(e) => e,
+                Err(_) => continue, // Skip if opening not found
+            };
+            
+            // Get opening geometry
+            let opening_mesh = match self.process_element(&opening_entity, decoder) {
+                Ok(m) => m,
+                Err(_) => continue, // Skip if opening has no geometry
+            };
+            
+            if opening_mesh.is_empty() {
+                continue;
+            }
+            
+            // Subtract opening mesh from host mesh using mesh-based subtraction
+            // This is more accurate than bounding box subtraction
+            match clipper.subtract_mesh(&mesh, &opening_mesh) {
+                Ok(subtracted) => mesh = subtracted,
+                Err(_) => continue, // Skip if subtraction fails
+            }
+            
+            if mesh.is_empty() {
+                break; // Early exit if mesh is completely removed
+            }
+        }
+        
+        Ok(mesh)
+    }
+
     /// Process building element and return geometry + transform separately
     /// Used for instanced rendering - geometry is returned untransformed, transform is separate
     #[inline]
@@ -438,8 +523,8 @@ impl GeometryRouter {
 
         // Check FacetedBrep cache first (from batch preprocessing)
         if item.ifc_type == IfcType::IfcFacetedBrep {
-            if let Some(mesh) = self.take_cached_faceted_brep(item.id) {
-                // FacetedBrep meshes are already processed, deduplicate by hash
+            if let Some(mut mesh) = self.take_cached_faceted_brep(item.id) {
+                self.scale_mesh(&mut mesh);
                 let cached = self.get_or_cache_by_hash(mesh);
                 return Ok((*cached).clone());
             }
@@ -448,14 +533,7 @@ impl GeometryRouter {
         // Check if we have a processor for this type
         if let Some(processor) = self.processors.get(&item.ifc_type) {
             let mut mesh = processor.process(item, decoder, &self.schema)?;
-
-            // Apply unit scaling to all vertices (e.g., 0.001 for mm -> m)
-            if self.unit_scale != 1.0 {
-                let scale = self.unit_scale as f32;
-                for position in mesh.positions.iter_mut() {
-                    *position *= scale;
-                }
-            }
+            self.scale_mesh(&mut mesh);
 
             // Deduplicate by hash - buildings with repeated floors have identical geometry
             if !mesh.positions.is_empty() {
@@ -531,10 +609,10 @@ impl GeometryRouter {
         {
             let cache = self.mapped_item_cache.borrow();
             if let Some(cached_mesh) = cache.get(&source_id) {
-                // Clone the cached mesh and apply MappingTarget transformation
                 let mut mesh = cached_mesh.as_ref().clone();
-                if let Some(transform) = &mapping_transform {
-                    self.transform_mesh(&mut mesh, transform);
+                if let Some(mut transform) = mapping_transform.clone() {
+                    self.scale_transform(&mut transform);
+                    self.transform_mesh(&mut mesh, &transform);
                 }
                 return Ok(mesh);
             }
@@ -570,13 +648,7 @@ impl GeometryRouter {
             }
             if let Some(processor) = self.processors.get(&sub_item.ifc_type) {
                 if let Ok(mut sub_mesh) = processor.process(&sub_item, decoder, &self.schema) {
-                    // Apply unit scaling to all vertices (e.g., 0.001 for mm -> m)
-                    if self.unit_scale != 1.0 {
-                        let scale = self.unit_scale as f32;
-                        for position in sub_mesh.positions.iter_mut() {
-                            *position *= scale;
-                        }
-                    }
+                    self.scale_mesh(&mut sub_mesh);
                     mesh.merge(&sub_mesh);
                 }
             }
@@ -589,8 +661,9 @@ impl GeometryRouter {
         }
 
         // Apply MappingTarget transformation to this instance
-        if let Some(transform) = &mapping_transform {
-            self.transform_mesh(&mut mesh, transform);
+        if let Some(mut transform) = mapping_transform {
+            self.scale_transform(&mut transform);
+            self.transform_mesh(&mut mesh, &transform);
         }
 
         Ok(mesh)
@@ -603,7 +676,6 @@ impl GeometryRouter {
         decoder: &mut EntityDecoder,
         mesh: &mut Mesh,
     ) -> Result<()> {
-        // Get ObjectPlacement (attribute 5)
         let placement_attr = match element.get(5) {
             Some(attr) if !attr.is_null() => attr,
             _ => return Ok(()), // No placement
@@ -614,8 +686,8 @@ impl GeometryRouter {
             None => return Ok(()),
         };
 
-        // Recursively get combined transform from placement hierarchy
-        let transform = self.get_placement_transform(&placement, decoder)?;
+        let mut transform = self.get_placement_transform(&placement, decoder)?;
+        self.scale_transform(&mut transform);
         self.transform_mesh(mesh, &transform);
         Ok(())
     }

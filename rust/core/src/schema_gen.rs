@@ -7,10 +7,30 @@
 //! Generated from IFC4 EXPRESS schema for maintainability.
 //! All types are handled generically through enum dispatch.
 
-use crate::generated::{IfcType, GeometryCategory, ProfileCategory};
+use crate::generated::IfcType;
 use crate::parser::Token;
 use crate::error::{Error, Result};
 use std::collections::HashMap;
+
+/// Geometry representation categories (internal use only)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GeometryCategory {
+    SweptSolid,
+    Boolean,
+    ExplicitMesh,
+    MappedItem,
+    Surface,
+    Curve,
+    Other,
+}
+
+/// Profile definition categories (internal use only)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ProfileCategory {
+    Parametric,
+    Arbitrary,
+    Composite,
+}
 
 /// IFC entity attribute value
 #[derive(Debug, Clone)]
@@ -71,6 +91,15 @@ impl AttributeValue {
     pub fn as_string(&self) -> Option<&str> {
         match self {
             AttributeValue::String(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// Get as enum value (strips the dots from .ENUM.)
+    #[inline]
+    pub fn as_enum(&self) -> Option<&str> {
+        match self {
+            AttributeValue::Enum(s) => Some(s),
             _ => None,
         }
     }
@@ -314,7 +343,18 @@ impl IfcSchema {
     /// Check if type has geometry
     pub fn has_geometry(&self, ifc_type: &IfcType) -> bool {
         // Building elements, furnishing, etc.
-        ifc_type.is_building_element() ||
+        let name = ifc_type.name();
+        (matches!(
+            ifc_type,
+            IfcType::IfcWall | IfcType::IfcWallStandardCase | IfcType::IfcSlab |
+            IfcType::IfcBeam | IfcType::IfcColumn | IfcType::IfcRoof |
+            IfcType::IfcStair | IfcType::IfcRamp | IfcType::IfcRailing |
+            IfcType::IfcPlate | IfcType::IfcMember | IfcType::IfcFooting |
+            IfcType::IfcPile | IfcType::IfcCovering | IfcType::IfcCurtainWall |
+            IfcType::IfcDoor | IfcType::IfcWindow | IfcType::IfcChimney |
+            IfcType::IfcShadingDevice | IfcType::IfcBuildingElementProxy |
+            IfcType::IfcBuildingElementPart
+        ) || name.contains("Reinforc")) ||
         matches!(
             ifc_type,
             IfcType::IfcFurnishingElement

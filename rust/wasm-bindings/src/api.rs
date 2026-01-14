@@ -383,11 +383,21 @@ impl IfcAPI {
         let style_index = build_element_style_index(&content, &geometry_styles, &mut decoder);
 
         // OPTIMIZATION: Collect all FacetedBrep IDs for batch processing
+        // Also build void relationship index (host → openings)
         let mut scanner = EntityScanner::new(&content);
         let mut faceted_brep_ids: Vec<u32> = Vec::new();
-        while let Some((id, type_name, _, _)) = scanner.next_entity() {
+        let mut void_index: rustc_hash::FxHashMap<u32, Vec<u32>> = rustc_hash::FxHashMap::default();
+        
+        while let Some((id, type_name, start, end)) = scanner.next_entity() {
             if type_name == "IFCFACETEDBREP" {
                 faceted_brep_ids.push(id);
+            } else if type_name == "IFCRELVOIDSELEMENT" {
+                // IfcRelVoidsElement: Attr 4 = RelatingBuildingElement, Attr 5 = RelatedOpeningElement
+                if let Ok(entity) = decoder.decode_at(start, end) {
+                    if let (Some(host_id), Some(opening_id)) = (entity.get_ref(4), entity.get_ref(5)) {
+                        void_index.entry(host_id).or_insert_with(Vec::new).push(opening_id);
+                    }
+                }
             }
         }
 
@@ -416,7 +426,13 @@ impl IfcAPI {
 
             // Decode and process the entity
             if let Ok(entity) = decoder.decode_at(start, end) {
-                if let Ok(mut mesh) = router.process_element(&entity, &mut decoder) {
+                // Check if entity actually has representation (attribute index 2 for IfcProduct)
+                let has_representation = entity.get(2).map(|a| !a.is_null()).unwrap_or(false);
+                if !has_representation {
+                    continue;
+                }
+
+                if let Ok(mut mesh) = router.process_element_with_voids(&entity, &mut decoder, &void_index) {
                     if !mesh.is_empty() {
                         // Calculate normals if not present
                         if mesh.normals.is_empty() {
@@ -428,8 +444,9 @@ impl IfcAPI {
                             .copied()
                             .unwrap_or_else(|| get_default_color_for_type(&entity.ifc_type));
 
-                        // Create mesh data with express ID and color
-                        let mesh_data = MeshDataJs::new(id, mesh, color);
+                        // Create mesh data with express ID, IFC type, and color
+                        let ifc_type_name = entity.ifc_type.name().to_string();
+                        let mesh_data = MeshDataJs::new(id, ifc_type_name, mesh, color);
                         mesh_collection.add(mesh_data);
                     }
                 }
@@ -1057,19 +1074,24 @@ impl IfcAPI {
                                "IFCCOVERING" | "IFCFOOTING" | "IFCRAILING" | "IFCSTAIR" |
                                "IFCSTAIRFLIGHT" | "IFCRAMP" | "IFCRAMPFLIGHT") {
                         if let Ok(entity) = decoder.decode_at(start, end) {
-                            if let Ok(mut mesh) = router.process_element(&entity, &mut decoder) {
-                                if !mesh.is_empty() {
-                                    if mesh.normals.is_empty() {
-                                        calculate_normals(&mut mesh);
+                            // Check if entity actually has representation
+                            let has_representation = entity.get(2).map(|a| !a.is_null()).unwrap_or(false);
+                            if has_representation {
+                                if let Ok(mut mesh) = router.process_element(&entity, &mut decoder) {
+                                    if !mesh.is_empty() {
+                                        if mesh.normals.is_empty() {
+                                            calculate_normals(&mut mesh);
+                                        }
+
+                                        let color = get_default_color_for_type(&ifc_type);
+                                        total_vertices += mesh.positions.len() / 3;
+                                        total_triangles += mesh.indices.len() / 3;
+
+                                        let ifc_type_name = ifc_type.name().to_string();
+                                        let mesh_data = MeshDataJs::new(id, ifc_type_name, mesh, color);
+                                        batch_meshes.push(mesh_data);
+                                        processed += 1;
                                     }
-
-                                    let color = get_default_color_for_type(&ifc_type);
-                                    total_vertices += mesh.positions.len() / 3;
-                                    total_triangles += mesh.indices.len() / 3;
-
-                                    let mesh_data = MeshDataJs::new(id, mesh, color);
-                                    batch_meshes.push(mesh_data);
-                                    processed += 1;
                                 }
                             }
                         }
@@ -1149,7 +1171,8 @@ impl IfcAPI {
                                 total_vertices += mesh.positions.len() / 3;
                                 total_triangles += mesh.indices.len() / 3;
 
-                                let mesh_data = MeshDataJs::new(id, mesh, color);
+                                let ifc_type_name = ifc_type.name().to_string();
+                                let mesh_data = MeshDataJs::new(id, ifc_type_name, mesh, color);
                                 batch_meshes.push(mesh_data);
                             }
                         }
@@ -1321,6 +1344,12 @@ impl IfcAPI {
             }
 
             if let Ok(entity) = decoder.decode_at(start, end) {
+                // Check if entity actually has representation (attribute index 2 for IfcProduct)
+                let has_representation = entity.get(2).map(|a| !a.is_null()).unwrap_or(false);
+                if !has_representation {
+                    continue;
+                }
+
                 if let Ok(mut mesh) = router.process_element(&entity, &mut decoder) {
                     if !mesh.is_empty() {
                         if mesh.normals.is_empty() {
@@ -1334,7 +1363,8 @@ impl IfcAPI {
                             .copied()
                             .unwrap_or_else(|| get_default_color_for_type(&entity.ifc_type));
 
-                        let mesh_data = MeshDataJs::new(id, mesh, color);
+                        let ifc_type_name = entity.ifc_type.name().to_string();
+                        let mesh_data = MeshDataJs::new(id, ifc_type_name, mesh, color);
                         mesh_collection.add(mesh_data);
                     }
                 }

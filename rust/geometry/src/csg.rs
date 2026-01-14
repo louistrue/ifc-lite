@@ -6,9 +6,11 @@
 //!
 //! Fast triangle clipping and boolean operations.
 
-use nalgebra::{Point3, Vector3};
+use nalgebra::{Point2, Point3, Vector3};
 use crate::mesh::Mesh;
 use crate::error::{Error, Result};
+use crate::triangulation::{triangulate_polygon_with_holes, project_to_2d, project_to_2d_with_basis, calculate_polygon_normal};
+use rustc_hash::FxHashMap;
 
 /// Plane definition for clipping
 #[derive(Debug, Clone, Copy)]
@@ -168,6 +170,194 @@ impl ClippingProcessor {
 
             _ => unreachable!(),
         }
+    }
+
+    /// Fast box subtraction - removes everything inside the box from the mesh
+    /// Uses bitflag classification for O(n) performance with fast paths
+    pub fn subtract_box(&self, mesh: &Mesh, min: Point3<f64>, max: Point3<f64>) -> Result<Mesh> {
+        let mut result = Mesh::with_capacity(mesh.vertex_count(), mesh.indices.len());
+        
+        // Process each triangle
+        for i in (0..mesh.indices.len()).step_by(3) {
+            let i0 = mesh.indices[i] as usize;
+            let i1 = mesh.indices[i + 1] as usize;
+            let i2 = mesh.indices[i + 2] as usize;
+
+            // Get triangle vertices
+            let v0 = Point3::new(
+                mesh.positions[i0 * 3] as f64,
+                mesh.positions[i0 * 3 + 1] as f64,
+                mesh.positions[i0 * 3 + 2] as f64,
+            );
+            let v1 = Point3::new(
+                mesh.positions[i1 * 3] as f64,
+                mesh.positions[i1 * 3 + 1] as f64,
+                mesh.positions[i1 * 3 + 2] as f64,
+            );
+            let v2 = Point3::new(
+                mesh.positions[i2 * 3] as f64,
+                mesh.positions[i2 * 3 + 1] as f64,
+                mesh.positions[i2 * 3 + 2] as f64,
+            );
+
+            // Classify each vertex: 6 bits (one per box face)
+            // Bit 0: outside_min_x (x < min.x)
+            // Bit 1: outside_max_x (x > max.x)
+            // Bit 2: outside_min_y (y < min.y)
+            // Bit 3: outside_max_y (y > max.y)
+            // Bit 4: outside_min_z (z < min.z)
+            // Bit 5: outside_max_z (z > max.z)
+            let classify = |v: &Point3<f64>| -> u8 {
+                let mut flags = 0u8;
+                if v.x < min.x { flags |= 1 << 0; }
+                if v.x > max.x { flags |= 1 << 1; }
+                if v.y < min.y { flags |= 1 << 2; }
+                if v.y > max.y { flags |= 1 << 3; }
+                if v.z < min.z { flags |= 1 << 4; }
+                if v.z > max.z { flags |= 1 << 5; }
+                flags
+            };
+
+            let flags0 = classify(&v0);
+            let flags1 = classify(&v1);
+            let flags2 = classify(&v2);
+
+            // Fast path 1: All vertices inside box (no outside flags) → DISCARD
+            if flags0 == 0 && flags1 == 0 && flags2 == 0 {
+                continue; // Triangle is fully inside opening, discard it
+            }
+
+            // Fast path 2: All vertices share at least one common outside flag → KEEP
+            // If all vertices are outside the same face, triangle is fully outside
+            let common_outside = flags0 & flags1 & flags2;
+            if common_outside != 0 {
+                // Triangle is fully outside box, keep it
+                // Use add_triangle_to_mesh to properly compute normals
+                let triangle = Triangle::new(v0, v1, v2);
+                add_triangle_to_mesh(&mut result, &triangle);
+                continue;
+            }
+
+            // Slow path: Triangle intersects box boundary → clip against all 6 box planes
+            // Create 6 clipping planes (keep everything OUTSIDE the box)
+            let planes = [
+                Plane::new(min, Vector3::new(1.0, 0.0, 0.0)),   // Left: keep x >= min.x
+                Plane::new(max, Vector3::new(-1.0, 0.0, 0.0)),  // Right: keep x <= max.x
+                Plane::new(min, Vector3::new(0.0, 1.0, 0.0)),   // Bottom: keep y >= min.y
+                Plane::new(max, Vector3::new(0.0, -1.0, 0.0)),  // Top: keep y <= max.y
+                Plane::new(min, Vector3::new(0.0, 0.0, 1.0)),   // Front: keep z >= min.z
+                Plane::new(max, Vector3::new(0.0, 0.0, -1.0)), // Back: keep z <= max.z
+            ];
+
+            // Start with single triangle, collect all clipped triangles
+            let mut triangles_to_clip = vec![Triangle::new(v0, v1, v2)];
+            
+            // Clip against each plane sequentially
+            for plane in &planes {
+                let mut next_triangles = Vec::new();
+                for triangle in triangles_to_clip {
+                    match self.clip_triangle(&triangle, plane) {
+                        ClipResult::AllFront(tri) => {
+                            next_triangles.push(tri);
+                        }
+                        ClipResult::AllBehind => {
+                            // Triangle completely removed, discard
+                        }
+                        ClipResult::Split(split_tris) => {
+                            next_triangles.extend(split_tris);
+                        }
+                    }
+                }
+                triangles_to_clip = next_triangles;
+                if triangles_to_clip.is_empty() {
+                    break; // All triangles removed
+                }
+            }
+
+            // Add all surviving triangles
+            for triangle in triangles_to_clip {
+                add_triangle_to_mesh(&mut result, &triangle);
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Extract opening profile from mesh (find largest face)
+    /// Returns profile points and normal
+    fn extract_opening_profile(&self, opening_mesh: &Mesh) -> Option<(Vec<Point3<f64>>, Vector3<f64>)> {
+        if opening_mesh.is_empty() {
+            return None;
+        }
+
+        // Group triangles by normal to find faces
+        let mut face_groups: FxHashMap<u64, Vec<Vec<Point3<f64>>>> = FxHashMap::default();
+        let normal_epsilon = 0.01; // Tolerance for normal comparison
+
+        for i in (0..opening_mesh.indices.len()).step_by(3) {
+            let i0 = opening_mesh.indices[i] as usize;
+            let i1 = opening_mesh.indices[i + 1] as usize;
+            let i2 = opening_mesh.indices[i + 2] as usize;
+
+            let v0 = Point3::new(
+                opening_mesh.positions[i0 * 3] as f64,
+                opening_mesh.positions[i0 * 3 + 1] as f64,
+                opening_mesh.positions[i0 * 3 + 2] as f64,
+            );
+            let v1 = Point3::new(
+                opening_mesh.positions[i1 * 3] as f64,
+                opening_mesh.positions[i1 * 3 + 1] as f64,
+                opening_mesh.positions[i1 * 3 + 2] as f64,
+            );
+            let v2 = Point3::new(
+                opening_mesh.positions[i2 * 3] as f64,
+                opening_mesh.positions[i2 * 3 + 1] as f64,
+                opening_mesh.positions[i2 * 3 + 2] as f64,
+            );
+
+            let edge1 = v1 - v0;
+            let edge2 = v2 - v0;
+            let normal = edge1.cross(&edge2).normalize();
+
+            // Quantize normal for grouping (round to nearest 0.01)
+            let nx = (normal.x / normal_epsilon).round() as i32;
+            let ny = (normal.y / normal_epsilon).round() as i32;
+            let nz = (normal.z / normal_epsilon).round() as i32;
+            let key = ((nx as u64) << 32) | ((ny as u32 as u64) << 16) | (nz as u32 as u64);
+
+            face_groups.entry(key).or_default().push(vec![v0, v1, v2]);
+        }
+
+        // Find largest face group (most triangles = largest face)
+        let largest_face = face_groups.iter()
+            .max_by_key(|(_, triangles)| triangles.len())?;
+
+        // Extract boundary of largest face (simplified: use all vertices)
+        let mut profile_points = Vec::new();
+        for triangle in largest_face.1 {
+            profile_points.extend(triangle);
+        }
+
+        // Calculate average normal for this face
+        let normal = calculate_polygon_normal(&profile_points);
+
+        Some((profile_points, normal))
+    }
+
+    /// Subtract opening mesh from host mesh
+    /// NOTE: Proper CSG boolean subtraction requires mesh-mesh intersection which is complex.
+    /// Bounding box approaches don't work because openings extend through walls.
+    /// For now, openings are rendered as separate geometry (toggle "Show Openings" in viewer).
+    pub fn subtract_mesh(&self, host_mesh: &Mesh, _opening_mesh: &Mesh) -> Result<Mesh> {
+        // Return host mesh unchanged - openings shown as separate geometry
+        Ok(host_mesh.clone())
+    }
+
+    /// Clip mesh using bounding box (6 planes) - DEPRECATED: use subtract_box() instead
+    /// Subtracts everything inside the box from the mesh
+    #[deprecated(note = "Use subtract_box() for better performance")]
+    pub fn clip_mesh_with_box(&self, mesh: &Mesh, min: Point3<f64>, max: Point3<f64>) -> Result<Mesh> {
+        self.subtract_box(mesh, min, max)
     }
 
     /// Clip an entire mesh against a plane

@@ -13,6 +13,7 @@ use ifc_lite_geometry::Mesh;
 #[wasm_bindgen]
 pub struct MeshDataJs {
     express_id: u32,
+    ifc_type: String, // IFC type name (e.g., "IfcWall", "IfcSpace")
     positions: Vec<f32>,
     normals: Vec<f32>,
     indices: Vec<u32>,
@@ -25,6 +26,12 @@ impl MeshDataJs {
     #[wasm_bindgen(getter, js_name = expressId)]
     pub fn express_id(&self) -> u32 {
         self.express_id
+    }
+
+    /// Get IFC type name (e.g., "IfcWall", "IfcSpace")
+    #[wasm_bindgen(getter, js_name = ifcType)]
+    pub fn ifc_type(&self) -> String {
+        self.ifc_type.clone()
     }
 
     /// Get positions as Float32Array (copy to JS)
@@ -66,9 +73,10 @@ impl MeshDataJs {
 
 impl MeshDataJs {
     /// Create new mesh data
-    pub fn new(express_id: u32, mesh: Mesh, color: [f32; 4]) -> Self {
+    pub fn new(express_id: u32, ifc_type: String, mesh: Mesh, color: [f32; 4]) -> Self {
         Self {
             express_id,
+            ifc_type,
             positions: mesh.positions,
             normals: mesh.normals,
             indices: mesh.indices,
@@ -96,6 +104,7 @@ impl MeshCollection {
     pub fn get(&self, index: usize) -> Option<MeshDataJs> {
         self.meshes.get(index).map(|m| MeshDataJs {
             express_id: m.express_id,
+            ifc_type: m.ifc_type.clone(),
             positions: m.positions.clone(),
             normals: m.normals.clone(),
             indices: m.indices.clone(),
@@ -160,6 +169,7 @@ impl Clone for MeshCollection {
         Self {
             meshes: self.meshes.iter().map(|m| MeshDataJs {
                 express_id: m.express_id,
+                ifc_type: m.ifc_type.clone(),
                 positions: m.positions.clone(),
                 normals: m.normals.clone(),
                 indices: m.indices.clone(),

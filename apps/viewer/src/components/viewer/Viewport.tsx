@@ -133,7 +133,9 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   useEffect(() => { pendingMeasurePointRef.current = pendingMeasurePoint; }, [pendingMeasurePoint]);
   useEffect(() => { sectionPlaneRef.current = sectionPlane; }, [sectionPlane]);
   useEffect(() => { boxSelectRef.current = boxSelect; }, [boxSelect]);
-  useEffect(() => { geometryRef.current = geometry; }, [geometry]);
+  useEffect(() => {
+    geometryRef.current = geometry;
+  }, [geometry]);
   useEffect(() => {
     hoverTooltipsEnabledRef.current = hoverTooltipsEnabled;
     if (!hoverTooltipsEnabled) {
@@ -1085,8 +1087,12 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       lastGeometryRef.current = geometry;
     }
 
-    const startIndex = lastGeometryLengthRef.current;
-    const meshesToAdd = geometry.slice(startIndex);
+    // FIX: When not streaming (type visibility toggle), new meshes can be ANYWHERE in the array,
+    // not just at the end. During streaming, new meshes ARE appended, so slice is safe.
+    // After streaming completes, filter changes can insert meshes at any position.
+    const meshesToAdd = isStreaming
+      ? geometry.slice(lastGeometryLengthRef.current)  // Streaming: new meshes at end
+      : geometry;  // Post-streaming: scan entire array for unprocessed meshes
 
     // Filter out already processed meshes
     const newMeshes: MeshData[] = [];

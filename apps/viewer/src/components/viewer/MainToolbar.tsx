@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useMemo } from 'react';
 import {
   FolderOpen,
   Download,
@@ -29,6 +29,9 @@ import {
   Loader2,
   Camera,
   Info,
+  Layers,
+  SquareX,
+  Building2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -37,6 +40,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuCheckboxItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -68,6 +72,21 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const cameraCallbacks = useViewerStore((state) => state.cameraCallbacks);
   const hoverTooltipsEnabled = useViewerStore((state) => state.hoverTooltipsEnabled);
   const toggleHoverTooltips = useViewerStore((state) => state.toggleHoverTooltips);
+  const typeVisibility = useViewerStore((state) => state.typeVisibility);
+  const toggleTypeVisibility = useViewerStore((state) => state.toggleTypeVisibility);
+
+  // Check which type geometries exist
+  const typeGeometryExists = useMemo(() => {
+    if (!geometryResult?.meshes) {
+      return { spaces: false, openings: false, site: false };
+    }
+    const meshes = geometryResult.meshes;
+    return {
+      spaces: meshes.some(m => m.ifcType === 'IfcSpace'),
+      openings: meshes.some(m => m.ifcType === 'IfcOpeningElement'),
+      site: meshes.some(m => m.ifcType === 'IfcSite'),
+    };
+  }, [geometryResult]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -327,6 +346,48 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       <ActionButton icon={Focus} label="Isolate Selection" onClick={handleIsolate} shortcut="I" disabled={!selectedEntityId} />
       <ActionButton icon={EyeOff} label="Hide Selection" onClick={handleHide} shortcut="Del" disabled={!selectedEntityId} />
       <ActionButton icon={Eye} label="Show All" onClick={showAll} shortcut="A" />
+
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-sm" disabled={!geometryResult}>
+                <Layers className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Type Visibility</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent>
+          {typeGeometryExists.spaces && (
+            <DropdownMenuCheckboxItem
+              checked={typeVisibility.spaces}
+              onCheckedChange={() => toggleTypeVisibility('spaces')}
+            >
+              <Box className="h-4 w-4 mr-2" style={{ color: '#33d9ff' }} />
+              Show Spaces
+            </DropdownMenuCheckboxItem>
+          )}
+          {typeGeometryExists.openings && (
+            <DropdownMenuCheckboxItem
+              checked={typeVisibility.openings}
+              onCheckedChange={() => toggleTypeVisibility('openings')}
+            >
+              <SquareX className="h-4 w-4 mr-2" style={{ color: '#ff6b4a' }} />
+              Show Openings
+            </DropdownMenuCheckboxItem>
+          )}
+          {typeGeometryExists.site && (
+            <DropdownMenuCheckboxItem
+              checked={typeVisibility.site}
+              onCheckedChange={() => toggleTypeVisibility('site')}
+            >
+              <Building2 className="h-4 w-4 mr-2" style={{ color: '#66cc4d' }} />
+              Show Site
+            </DropdownMenuCheckboxItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 

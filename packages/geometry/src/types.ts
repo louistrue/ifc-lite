@@ -8,6 +8,7 @@
 
 export interface MeshData {
   expressId: number;
+  ifcType: string;          // IFC type name (e.g., "IfcWall", "IfcSpace")
   positions: Float32Array;  // [x,y,z, x,y,z, ...]
   normals: Float32Array;    // [nx,ny,nz, ...]
   indices: Uint32Array;     // Triangle indices

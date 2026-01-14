@@ -155,9 +155,6 @@ export * from './serializers.js';
     writeFileSync(`${rustDir}/schema.rs`, rustCode.schema);
     console.log(`  ✓ ${rustDir}/schema.rs`);
 
-    writeFileSync(`${rustDir}/geometry_categories.rs`, rustCode.geometryCategories);
-    console.log(`  ✓ ${rustDir}/geometry_categories.rs`);
-
     // Write mod.rs
     const modContent = `// This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -171,11 +168,9 @@ export * from './serializers.js';
 
 mod type_ids;
 mod schema;
-mod geometry_categories;
 
 pub use type_ids::*;
 pub use schema::*;
-pub use geometry_categories::*;
 `;
     writeFileSync(`${rustDir}/mod.rs`, modContent);
     console.log(`  ✓ ${rustDir}/mod.rs`);

@@ -75,6 +75,13 @@ interface ViewerState {
   // Visibility
   hiddenEntities: Set<number>;
   isolatedEntities: Set<number> | null; // null = show all, Set = only show these
+  
+  // Type-based visibility (for spatial elements)
+  typeVisibility: {
+    spaces: boolean;    // IfcSpace - off by default
+    openings: boolean;  // IfcOpeningElement - off by default
+    site: boolean;      // IfcSite - on by default (when has geometry)
+  };
 
   // UI State
   leftPanelCollapsed: boolean;
@@ -154,6 +161,9 @@ interface ViewerState {
   clearIsolation: () => void;
   showAll: () => void;
   isEntityVisible: (id: number) => boolean;
+  
+  // Type visibility actions
+  toggleTypeVisibility: (type: 'spaces' | 'openings' | 'site') => void;
 
   // Multi-selection actions
   addToSelection: (id: number) => void;
@@ -204,6 +214,11 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   selectedStorey: null,
   hiddenEntities: new Set(),
   isolatedEntities: null,
+  typeVisibility: {
+    spaces: false,    // Off by default
+    openings: false, // Off by default
+    site: true,      // On by default (when has geometry)
+  },
   leftPanelCollapsed: false,
   rightPanelCollapsed: false,
   activeTool: 'select',
@@ -397,6 +412,14 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     return true;
   },
 
+  // Type visibility actions
+  toggleTypeVisibility: (type) => set((state) => ({
+    typeVisibility: {
+      ...state.typeVisibility,
+      [type]: !state.typeVisibility[type],
+    },
+  })),
+
   // Multi-selection actions
   addToSelection: (id) => set((state) => {
     const newSelection = new Set(state.selectedEntityIds);
@@ -510,6 +533,11 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     selectedStorey: null,
     hiddenEntities: new Set(),
     isolatedEntities: null,
+    typeVisibility: {
+      spaces: false,
+      openings: false,
+      site: true,
+    },
     hoverState: { entityId: null, screenX: 0, screenY: 0 },
     contextMenu: { isOpen: false, entityId: null, screenX: 0, screenY: 0 },
     boxSelect: { isSelecting: false, startX: 0, startY: 0, currentX: 0, currentY: 0 },

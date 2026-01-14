@@ -346,6 +346,10 @@ export class MeshDataJs {
    */
   readonly normals: Float32Array;
   /**
+   * Get IFC type name (e.g., "IfcWall", "IfcSpace")
+   */
+  readonly ifcType: string;
+  /**
    * Get positions as Float32Array (copy to JS)
    */
   readonly positions: Float32Array;
@@ -518,6 +522,7 @@ export interface InitOutput {
   readonly instancedmeshcollection_length: (a: number) => number;
   readonly instancedmeshcollection_totalInstances: (a: number) => number;
   readonly meshcollection_get: (a: number, b: number) => number;
+  readonly meshcollection_length: (a: number) => number;
   readonly meshcollection_totalTriangles: (a: number) => number;
   readonly meshcollection_totalVertices: (a: number) => number;
   readonly meshcollectionwithrtc_get: (a: number, b: number) => number;
@@ -526,6 +531,7 @@ export interface InitOutput {
   readonly meshcollectionwithrtc_rtcOffset: (a: number) => number;
   readonly meshdatajs_color: (a: number, b: number) => void;
   readonly meshdatajs_expressId: (a: number) => number;
+  readonly meshdatajs_ifcType: (a: number, b: number) => void;
   readonly meshdatajs_indices: (a: number) => number;
   readonly meshdatajs_normals: (a: number) => number;
   readonly meshdatajs_positions: (a: number) => number;
@@ -544,23 +550,22 @@ export interface InitOutput {
   readonly zerocopymesh_normals_ptr: (a: number) => number;
   readonly zerocopymesh_positions_len: (a: number) => number;
   readonly zerocopymesh_positions_ptr: (a: number) => number;
+  readonly zerocopymesh_triangle_count: (a: number) => number;
+  readonly zerocopymesh_vertex_count: (a: number) => number;
   readonly init: () => void;
   readonly instancedmeshcollection_totalGeometries: (a: number) => number;
-  readonly meshcollection_length: (a: number) => number;
   readonly __wbg_set_rtcoffsetjs_x: (a: number, b: number) => void;
   readonly __wbg_set_rtcoffsetjs_y: (a: number, b: number) => void;
   readonly __wbg_set_rtcoffsetjs_z: (a: number, b: number) => void;
-  readonly zerocopymesh_triangle_count: (a: number) => number;
-  readonly zerocopymesh_vertex_count: (a: number) => number;
   readonly get_memory: () => number;
   readonly __wbg_get_rtcoffsetjs_x: (a: number) => number;
   readonly __wbg_get_rtcoffsetjs_y: (a: number) => number;
   readonly __wbg_get_rtcoffsetjs_z: (a: number) => number;
-  readonly __wasm_bindgen_func_elem_295: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_294: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_306: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_305: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_340: (a: number, b: number, c: number, d: number) => void;
+  readonly __wasm_bindgen_func_elem_312: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_311: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_301: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_300: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_346: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_export: (a: number, b: number) => number;
   readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_export3: (a: number) => void;

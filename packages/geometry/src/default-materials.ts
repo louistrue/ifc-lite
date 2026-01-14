@@ -51,9 +51,21 @@ export const DEFAULT_MATERIALS: Record<string, MaterialColor> = {
     roughness: 0.6,
   },
   'IfcOpeningElement': {
-    baseColor: [0.5, 0.5, 0.5, 0.5], // Gray (generic opening)
+    baseColor: [1.0, 0.4, 0.3, 0.3], // Coral, 30% opacity
     metallic: 0.0,
     roughness: 0.5,
+  },
+  
+  // Spatial elements
+  'IfcSpace': {
+    baseColor: [0.2, 0.8, 0.9, 0.25], // Cyan, 25% opacity
+    metallic: 0.0,
+    roughness: 0.6,
+  },
+  'IfcSite': {
+    baseColor: [0.4, 0.6, 0.3, 1.0], // Muted green, solid
+    metallic: 0.0,
+    roughness: 0.8,
   },
   
   // Roof and stairs

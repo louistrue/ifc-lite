@@ -97,6 +97,7 @@ export class IfcLiteMeshCollector {
 
       meshes.push({
         expressId: mesh.expressId,
+        ifcType: mesh.ifcType,
         positions,
         normals,
         indices,
@@ -156,6 +157,7 @@ export class IfcLiteMeshCollector {
 
           convertedBatch.push({
             expressId: mesh.expressId,
+            ifcType: mesh.ifcType,
             positions,
             normals,
             indices,

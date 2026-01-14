@@ -19,7 +19,6 @@ import { getInheritanceChain } from './express-parser.js';
 export interface RustGeneratedCode {
   typeIds: string;
   schema: string;
-  geometryCategories: string;
 }
 
 /**
@@ -29,7 +28,6 @@ export function generateRust(schema: ExpressSchema): RustGeneratedCode {
   return {
     typeIds: generateTypeIdConstants(schema),
     schema: generateIfcTypeEnum(schema),
-    geometryCategories: generateGeometryCategories(schema),
   };
 }
 
@@ -289,8 +287,9 @@ fn crc32_hash(s: &str) -> u32 {
 
 /**
  * Generate geometry category classification
+ * REMOVED: No longer generating geometry categories (unused code)
  */
-function generateGeometryCategories(schema: ExpressSchema): string {
+function _generateGeometryCategories_removed(schema: ExpressSchema): string {
   let code = `// This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.

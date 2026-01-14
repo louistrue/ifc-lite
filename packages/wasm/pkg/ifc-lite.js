@@ -263,16 +263,16 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_295(arg0, arg1) {
-    wasm.__wasm_bindgen_func_elem_295(arg0, arg1);
+function __wasm_bindgen_func_elem_312(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_312(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_306(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_306(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_301(arg0, arg1) {
+    wasm.__wasm_bindgen_func_elem_301(arg0, arg1);
 }
 
-function __wasm_bindgen_func_elem_340(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_340(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_346(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_346(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -1075,7 +1075,7 @@ export class MeshCollection {
      * @returns {number}
      */
     get length() {
-        const ret = wasm.instancedmeshcollection_length(this.__wbg_ptr);
+        const ret = wasm.meshcollection_length(this.__wbg_ptr);
         return ret >>> 0;
     }
 }
@@ -1215,6 +1215,26 @@ export class MeshDataJs {
     get normals() {
         const ret = wasm.meshdatajs_normals(this.__wbg_ptr);
         return takeObject(ret);
+    }
+    /**
+     * Get IFC type name (e.g., "IfcWall", "IfcSpace")
+     * @returns {string}
+     */
+    get ifcType() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.meshdatajs_ifcType(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export4(deferred1_0, deferred1_1, 1);
+        }
     }
     /**
      * Get positions as Float32Array (copy to JS)
@@ -1416,7 +1436,7 @@ export class ZeroCopyMesh {
      * @returns {number}
      */
     get vertex_count() {
-        const ret = wasm.meshdatajs_vertexCount(this.__wbg_ptr);
+        const ret = wasm.zerocopymesh_vertex_count(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -1441,7 +1461,7 @@ export class ZeroCopyMesh {
      * @returns {number}
      */
     get triangle_count() {
-        const ret = wasm.meshdatajs_triangleCount(this.__wbg_ptr);
+        const ret = wasm.zerocopymesh_triangle_count(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -1642,7 +1662,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wasm_bindgen_func_elem_340(a, state0.b, arg0, arg1);
+                    return __wasm_bindgen_func_elem_346(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -1720,19 +1740,19 @@ function __wbg_get_imports() {
         const ret = getStringFromWasm0(arg0, arg1);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_cast_6da2ad44da782ca3 = function(arg0, arg1) {
-        // Cast intrinsic for `Closure(Closure { dtor_idx: 43, function: Function { arguments: [], shim_idx: 44, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_294, __wasm_bindgen_func_elem_295);
-        return addHeapObject(ret);
-    };
-    imports.wbg.__wbindgen_cast_cfd578dc132ebaa8 = function(arg0, arg1) {
-        // Cast intrinsic for `Closure(Closure { dtor_idx: 49, function: Function { arguments: [Externref], shim_idx: 50, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_305, __wasm_bindgen_func_elem_306);
+    imports.wbg.__wbindgen_cast_7044511bef3023a2 = function(arg0, arg1) {
+        // Cast intrinsic for `Closure(Closure { dtor_idx: 50, function: Function { arguments: [Externref], shim_idx: 51, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_311, __wasm_bindgen_func_elem_312);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {
         // Cast intrinsic for `F64 -> Externref`.
         const ret = arg0;
+        return addHeapObject(ret);
+    };
+    imports.wbg.__wbindgen_cast_f5edc6344c6146a4 = function(arg0, arg1) {
+        // Cast intrinsic for `Closure(Closure { dtor_idx: 44, function: Function { arguments: [], shim_idx: 45, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_300, __wasm_bindgen_func_elem_301);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_object_clone_ref = function(arg0) {

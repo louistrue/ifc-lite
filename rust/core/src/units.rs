@@ -121,8 +121,8 @@ pub fn extract_length_unit_scale(decoder: &mut EntityDecoder, project_id: u32) -
             None => continue,
         };
 
-        // Enums are stored as Enum(String), extract via as_string()
-        let unit_type = match unit_type_attr.as_string() {
+        // Enums are stored as Enum(String), extract via as_enum()
+        let unit_type = match unit_type_attr.as_enum() {
             Some(type_str) => type_str,
             None => continue,
         };
@@ -142,8 +142,8 @@ pub fn extract_length_unit_scale(decoder: &mut EntityDecoder, project_id: u32) -
             return Ok(1.0); // Null means no prefix = base meters
         }
 
-        // Enums are stored as Enum(String), extract via as_string()
-        let prefix = match prefix_attr.as_string() {
+        // Enums are stored as Enum(String), extract via as_enum()
+        let prefix = match prefix_attr.as_enum() {
             Some(prefix_str) => prefix_str,
             None => return Ok(1.0), // Can't read prefix, assume meters
         };
@@ -168,5 +168,59 @@ mod tests {
         assert_eq!(get_si_prefix_multiplier("KILO"), 1000.0);
         assert_eq!(get_si_prefix_multiplier(""), 1.0);
         assert_eq!(get_si_prefix_multiplier("UNKNOWN"), 1.0);
+    }
+
+    #[test]
+    fn test_extract_unit_from_real_file() {
+        // Test with a minimal IFC snippet that has millimeter units
+        let ifc_content = r#"ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('Test'),'2;1');
+FILE_NAME('test.ifc','2024-01-01',(''),(''),'','','');
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+#1=IFCPROJECT('guid',$,'Test',$,$,$,$,(#2),#3);
+#2=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-5,#4,$);
+#3=IFCUNITASSIGNMENT((#5));
+#4=IFCAXIS2PLACEMENT3D(#6,$,$);
+#5=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);
+#6=IFCCARTESIANPOINT((0.,0.,0.));
+ENDSEC;
+END-ISO-10303-21;
+"#;
+        
+        let mut decoder = EntityDecoder::new(ifc_content);
+        let scale = extract_length_unit_scale(&mut decoder, 1).unwrap();
+        
+        // Should be 0.001 for millimeters
+        assert!((scale - 0.001).abs() < 0.0001, "Expected 0.001 for MILLI, got {}", scale);
+    }
+
+    #[test]
+    fn test_extract_unit_meters() {
+        // Test with meters (no prefix)
+        let ifc_content = r#"ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('Test'),'2;1');
+FILE_NAME('test.ifc','2024-01-01',(''),(''),'','','');
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+#1=IFCPROJECT('guid',$,'Test',$,$,$,$,(#2),#3);
+#2=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-5,#4,$);
+#3=IFCUNITASSIGNMENT((#5));
+#4=IFCAXIS2PLACEMENT3D(#6,$,$);
+#5=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);
+#6=IFCCARTESIANPOINT((0.,0.,0.));
+ENDSEC;
+END-ISO-10303-21;
+"#;
+        
+        let mut decoder = EntityDecoder::new(ifc_content);
+        let scale = extract_length_unit_scale(&mut decoder, 1).unwrap();
+        
+        // Should be 1.0 for meters (no prefix)
+        assert!((scale - 1.0).abs() < 0.0001, "Expected 1.0 for meters, got {}", scale);
     }
 }

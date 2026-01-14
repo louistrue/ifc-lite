@@ -11,13 +11,9 @@
 
 mod type_ids;
 mod schema;
-mod geometry_categories;
 
 // Re-export type IDs (these are just constants, no conflict)
 pub use type_ids::*;
 
 // Re-export the generated IfcType directly (this is now the canonical schema)
 pub use schema::{IfcType, has_geometry_by_name};
-
-// Re-export geometry categories
-pub use geometry_categories::{GeometryCategory, ProfileCategory};
