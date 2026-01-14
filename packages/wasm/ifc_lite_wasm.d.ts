@@ -126,6 +126,29 @@ export class IfcAPI {
    */
   getGeoReference(content: string): GeoReferenceJs | undefined;
   /**
+   * Parse IFC file with streaming mesh batches for progressive rendering
+   * Calls the callback with batches of meshes, yielding to browser between batches
+   *
+   * Example:
+   * ```javascript
+   * const api = new IfcAPI();
+   * await api.parseMeshesAsync(ifcData, {
+   *   batchSize: 100,
+   *   onBatch: (meshes, progress) => {
+   *     // Add meshes to scene
+   *     for (const mesh of meshes) {
+   *       scene.add(createThreeMesh(mesh));
+   *     }
+   *     console.log(`Progress: ${progress.percent}%`);
+   *   },
+   *   onComplete: (stats) => {
+   *     console.log(`Done! ${stats.totalMeshes} meshes`);
+   *   }
+   * });
+   * ```
+   */
+  parseMeshesAsync(content: string, options: any): Promise<any>;
+  /**
    * Parse IFC file and return mesh with RTC offset for large coordinates
    * This handles georeferenced models by shifting to centroid
    *
@@ -361,3 +384,117 @@ export function init(): void;
  * ```
  */
 export function version(): string;
+
+export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
+
+export interface InitOutput {
+  readonly memory: WebAssembly.Memory;
+  readonly __wbg_georeferencejs_free: (a: number, b: number) => void;
+  readonly __wbg_get_georeferencejs_eastings: (a: number) => number;
+  readonly __wbg_get_georeferencejs_northings: (a: number) => number;
+  readonly __wbg_get_georeferencejs_orthogonal_height: (a: number) => number;
+  readonly __wbg_get_georeferencejs_scale: (a: number) => number;
+  readonly __wbg_get_georeferencejs_x_axis_abscissa: (a: number) => number;
+  readonly __wbg_get_georeferencejs_x_axis_ordinate: (a: number) => number;
+  readonly __wbg_ifcapi_free: (a: number, b: number) => void;
+  readonly __wbg_meshcollection_free: (a: number, b: number) => void;
+  readonly __wbg_meshcollectionwithrtc_free: (a: number, b: number) => void;
+  readonly __wbg_meshdatajs_free: (a: number, b: number) => void;
+  readonly __wbg_rtcoffsetjs_free: (a: number, b: number) => void;
+  readonly __wbg_set_georeferencejs_eastings: (a: number, b: number) => void;
+  readonly __wbg_set_georeferencejs_northings: (a: number, b: number) => void;
+  readonly __wbg_set_georeferencejs_orthogonal_height: (a: number, b: number) => void;
+  readonly __wbg_set_georeferencejs_scale: (a: number, b: number) => void;
+  readonly __wbg_set_georeferencejs_x_axis_abscissa: (a: number, b: number) => void;
+  readonly __wbg_set_georeferencejs_x_axis_ordinate: (a: number, b: number) => void;
+  readonly __wbg_zerocopymesh_free: (a: number, b: number) => void;
+  readonly georeferencejs_crsName: (a: number, b: number) => void;
+  readonly georeferencejs_localToMap: (a: number, b: number, c: number, d: number, e: number) => void;
+  readonly georeferencejs_mapToLocal: (a: number, b: number, c: number, d: number, e: number) => void;
+  readonly georeferencejs_rotation: (a: number) => number;
+  readonly georeferencejs_toMatrix: (a: number, b: number) => void;
+  readonly ifcapi_debugProcessEntity953: (a: number, b: number, c: number, d: number) => void;
+  readonly ifcapi_debugProcessFirstWall: (a: number, b: number, c: number, d: number) => void;
+  readonly ifcapi_getGeoReference: (a: number, b: number, c: number) => number;
+  readonly ifcapi_getMemory: (a: number) => number;
+  readonly ifcapi_is_ready: (a: number) => number;
+  readonly ifcapi_new: () => number;
+  readonly ifcapi_parse: (a: number, b: number, c: number) => number;
+  readonly ifcapi_parseMeshes: (a: number, b: number, c: number) => number;
+  readonly ifcapi_parseMeshesAsync: (a: number, b: number, c: number, d: number) => number;
+  readonly ifcapi_parseMeshesWithRtc: (a: number, b: number, c: number) => number;
+  readonly ifcapi_parseStreaming: (a: number, b: number, c: number, d: number) => number;
+  readonly ifcapi_parseZeroCopy: (a: number, b: number, c: number) => number;
+  readonly ifcapi_version: (a: number, b: number) => void;
+  readonly meshcollection_get: (a: number, b: number) => number;
+  readonly meshcollection_length: (a: number) => number;
+  readonly meshcollection_totalTriangles: (a: number) => number;
+  readonly meshcollection_totalVertices: (a: number) => number;
+  readonly meshcollectionwithrtc_get: (a: number, b: number) => number;
+  readonly meshcollectionwithrtc_length: (a: number) => number;
+  readonly meshcollectionwithrtc_meshes: (a: number) => number;
+  readonly meshcollectionwithrtc_rtcOffset: (a: number) => number;
+  readonly meshdatajs_color: (a: number, b: number) => void;
+  readonly meshdatajs_expressId: (a: number) => number;
+  readonly meshdatajs_indices: (a: number) => number;
+  readonly meshdatajs_normals: (a: number) => number;
+  readonly meshdatajs_positions: (a: number) => number;
+  readonly meshdatajs_triangleCount: (a: number) => number;
+  readonly meshdatajs_vertexCount: (a: number) => number;
+  readonly rtcoffsetjs_isSignificant: (a: number) => number;
+  readonly rtcoffsetjs_toWorld: (a: number, b: number, c: number, d: number, e: number) => void;
+  readonly version: (a: number) => void;
+  readonly zerocopymesh_bounds_max: (a: number, b: number) => void;
+  readonly zerocopymesh_bounds_min: (a: number, b: number) => void;
+  readonly zerocopymesh_indices_len: (a: number) => number;
+  readonly zerocopymesh_indices_ptr: (a: number) => number;
+  readonly zerocopymesh_is_empty: (a: number) => number;
+  readonly zerocopymesh_new: () => number;
+  readonly zerocopymesh_normals_len: (a: number) => number;
+  readonly zerocopymesh_normals_ptr: (a: number) => number;
+  readonly zerocopymesh_positions_len: (a: number) => number;
+  readonly zerocopymesh_positions_ptr: (a: number) => number;
+  readonly init: () => void;
+  readonly __wbg_set_rtcoffsetjs_x: (a: number, b: number) => void;
+  readonly __wbg_set_rtcoffsetjs_y: (a: number, b: number) => void;
+  readonly __wbg_set_rtcoffsetjs_z: (a: number, b: number) => void;
+  readonly zerocopymesh_triangle_count: (a: number) => number;
+  readonly zerocopymesh_vertex_count: (a: number) => number;
+  readonly get_memory: () => number;
+  readonly __wbg_get_rtcoffsetjs_x: (a: number) => number;
+  readonly __wbg_get_rtcoffsetjs_y: (a: number) => number;
+  readonly __wbg_get_rtcoffsetjs_z: (a: number) => number;
+  readonly __wasm_bindgen_func_elem_258: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_257: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_247: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_246: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_296: (a: number, b: number, c: number, d: number) => void;
+  readonly __wbindgen_export: (a: number, b: number) => number;
+  readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
+  readonly __wbindgen_export3: (a: number) => void;
+  readonly __wbindgen_export4: (a: number, b: number, c: number) => void;
+  readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
+  readonly __wbindgen_start: () => void;
+}
+
+export type SyncInitInput = BufferSource | WebAssembly.Module;
+
+/**
+* Instantiates the given `module`, which can either be bytes or
+* a precompiled `WebAssembly.Module`.
+*
+* @param {{ module: SyncInitInput }} module - Passing `SyncInitInput` directly is deprecated.
+*
+* @returns {InitOutput}
+*/
+export function initSync(module: { module: SyncInitInput } | SyncInitInput): InitOutput;
+
+/**
+* If `module_or_path` is {RequestInfo} or {URL}, makes a request and
+* for everything else, calls `WebAssembly.instantiate` directly.
+*
+* @param {{ module_or_path: InitInput | Promise<InitInput> }} module_or_path - Passing `InitInput` directly is deprecated.
+*
+* @returns {Promise<InitOutput>}
+*/
+export default function __wbg_init (module_or_path?: { module_or_path: InitInput | Promise<InitInput> } | InitInput | Promise<InitInput>): Promise<InitOutput>;

@@ -7,8 +7,27 @@
  * Replaces web-ifc-bridge.ts with native IFC-Lite implementation (1.9x faster)
  */
 
-import init, { IfcAPI, MeshCollection } from '@ifc-lite/wasm';
-export type { MeshCollection };
+import init, { IfcAPI, MeshCollection, MeshDataJs } from '@ifc-lite/wasm';
+export type { MeshCollection, MeshDataJs };
+
+export interface StreamingProgress {
+  percent: number;
+  processed: number;
+  total: number;
+  phase: 'simple' | 'simple_complete' | 'complex';
+}
+
+export interface StreamingStats {
+  totalMeshes: number;
+  totalVertices: number;
+  totalTriangles: number;
+}
+
+export interface ParseMeshesAsyncOptions {
+  batchSize?: number;
+  onBatch?: (meshes: MeshDataJs[], progress: StreamingProgress) => void;
+  onComplete?: (stats: StreamingStats) => void;
+}
 
 export class IfcLiteBridge {
   private ifcApi: IfcAPI | null = null;
@@ -31,7 +50,7 @@ export class IfcLiteBridge {
   }
 
   /**
-   * Parse IFC content and return mesh collection
+   * Parse IFC content and return mesh collection (blocking)
    * Returns individual meshes with express IDs and colors
    */
   parseMeshes(content: string): MeshCollection {
@@ -39,6 +58,18 @@ export class IfcLiteBridge {
       throw new Error('IFC-Lite not initialized. Call init() first.');
     }
     return this.ifcApi.parseMeshes(content);
+  }
+
+  /**
+   * Parse IFC content with streaming (non-blocking)
+   * Yields batches progressively for fast first frame
+   * Simple geometry (walls, slabs, beams) processed first
+   */
+  async parseMeshesAsync(content: string, options: ParseMeshesAsyncOptions = {}): Promise<void> {
+    if (!this.ifcApi) {
+      throw new Error('IFC-Lite not initialized. Call init() first.');
+    }
+    return this.ifcApi.parseMeshesAsync(content, options);
   }
 
   /**
