@@ -23,7 +23,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Check if tag exists on main
-        id: check_tag
+        id: verify_tag
         run: |
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             TAG_NAME=${GITHUB_REF#refs/tags/}
@@ -66,7 +66,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Check if tag exists on main
-        id: check_tag
+        id: verify_tag
         run: |
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             TAG_NAME=${GITHUB_REF#refs/tags/}
