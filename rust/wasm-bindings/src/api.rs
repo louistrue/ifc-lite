@@ -319,7 +319,7 @@ impl IfcAPI {
         let mut decoder = EntityDecoder::with_index(&content, entity_index);
 
         // Create geometry router (reuses processor instances)
-        let router = GeometryRouter::with_units(&mut decoder);
+        let router = GeometryRouter::with_units(&content, &mut decoder);
 
         // Collect all meshes first (better for batch merge)
         let mut meshes: Vec<Mesh> = Vec::with_capacity(2000);
@@ -392,7 +392,7 @@ impl IfcAPI {
         }
 
         // Create geometry router (reuses processor instances)
-        let router = GeometryRouter::with_units(&mut decoder);
+        let router = GeometryRouter::with_units(&content, &mut decoder);
 
         // Batch preprocess FacetedBrep entities for maximum parallelism
         // This triangulates ALL faces from ALL BREPs in one parallel batch
@@ -485,7 +485,7 @@ impl IfcAPI {
         }
 
         // Create geometry router (reuses processor instances)
-        let router = GeometryRouter::with_units(&mut decoder);
+        let router = GeometryRouter::with_units(&content, &mut decoder);
 
         // Batch preprocess FacetedBrep entities for maximum parallelism
         if !faceted_brep_ids.is_empty() {
@@ -647,7 +647,7 @@ impl IfcAPI {
                 }
 
                 // Create geometry router
-                let router = GeometryRouter::with_units(&mut decoder);
+                let router = GeometryRouter::with_units(&content, &mut decoder);
 
                 // Batch preprocess FacetedBreps
                 if !faceted_brep_ids.is_empty() {
@@ -1023,7 +1023,7 @@ impl IfcAPI {
                 let mut decoder = EntityDecoder::new(&content);
 
                 // Create geometry router
-                let router = GeometryRouter::with_units(&mut decoder);
+                let router = GeometryRouter::with_units(&content, &mut decoder);
 
                 // Process counters
                 let mut processed = 0;
@@ -1298,7 +1298,7 @@ impl IfcAPI {
             }
         }
 
-        let router = GeometryRouter::with_units(&mut decoder);
+        let router = GeometryRouter::with_units(&content, &mut decoder);
 
         // Batch preprocess FacetedBrep entities for maximum parallelism
         if !faceted_brep_ids.is_empty() {
@@ -1364,7 +1364,7 @@ impl IfcAPI {
 
         let mut scanner = EntityScanner::new(&content);
         let mut decoder = EntityDecoder::new(&content);
-        let router = GeometryRouter::with_units(&mut decoder);
+        let router = GeometryRouter::with_units(&content, &mut decoder);
 
         // Find entity 953
         while let Some((id, type_name, start, end)) = scanner.next_entity() {
@@ -1400,7 +1400,7 @@ impl IfcAPI {
 
         let mut scanner = EntityScanner::new(&content);
         let mut decoder = EntityDecoder::new(&content);
-        let router = GeometryRouter::with_units(&mut decoder);
+        let router = GeometryRouter::with_units(&content, &mut decoder);
 
         // Find first wall
         while let Some((id, type_name, start, end)) = scanner.next_entity() {

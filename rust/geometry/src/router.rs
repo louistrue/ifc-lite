@@ -82,20 +82,21 @@ impl GeometryRouter {
 
     /// Create router and extract unit scale from IFC file
     /// Automatically finds IFCPROJECT and extracts length unit conversion
-    pub fn with_units(decoder: &mut EntityDecoder) -> Self {
+    pub fn with_units(content: &str, decoder: &mut EntityDecoder) -> Self {
         let mut router = Self::new();
 
-        // Find IFCPROJECT entity by scanning first 100 entities
-        // (IFCPROJECT is typically one of the first entities)
-        for id in 1..=100 {
-            if let Ok(entity) = decoder.decode_by_id(id) {
-                if entity.ifc_type.as_str() == "IFCPROJECT" {
-                    // Extract unit scale
-                    if let Ok(scale) = ifc_lite_core::extract_length_unit_scale(decoder, id) {
-                        router.unit_scale = scale;
-                    }
-                    break;
+        // Use EntityScanner to efficiently find IFCPROJECT
+        use ifc_lite_core::EntityScanner;
+        let mut scanner = EntityScanner::new(content);
+
+        // Scan through file to find IFCPROJECT
+        while let Some((id, type_name, _, _)) = scanner.next_entity() {
+            if type_name == "IFCPROJECT" {
+                // Extract unit scale from IFCPROJECT
+                if let Ok(scale) = ifc_lite_core::extract_length_unit_scale(decoder, id) {
+                    router.unit_scale = scale;
                 }
+                break;
             }
         }
 
