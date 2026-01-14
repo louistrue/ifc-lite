@@ -86,5 +86,6 @@ pub use georef::{GeoReference, GeoRefExtractor, RtcOffset};
 pub use fast_parse::{
     parse_coordinates_direct, parse_indices_direct, should_use_fast_path,
     extract_entity_type_name, extract_first_entity_ref, extract_entity_refs_from_list,
-    extract_face_indices_from_entity, process_triangulated_faceset_direct, FastMeshData
+    extract_face_indices_from_entity, extract_coordinate_list_from_entity,
+    process_triangulated_faceset_direct, FastMeshData
 };

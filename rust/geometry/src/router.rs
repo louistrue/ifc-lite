@@ -15,6 +15,7 @@ use nalgebra::{Matrix4, Rotation3};
 use rustc_hash::FxHashMap;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 /// Geometry processor trait
@@ -43,6 +44,10 @@ pub struct GeometryRouter {
     /// Key: FacetedBrep entity ID, Value: Processed mesh
     /// Uses Box to avoid copying large meshes, entries are taken (removed) when used
     faceted_brep_cache: RefCell<FxHashMap<u32, Mesh>>,
+    /// Cache for geometry deduplication by content hash
+    /// Buildings with repeated floors have 99% identical geometry
+    /// Key: Hash of mesh content, Value: Processed mesh
+    geometry_hash_cache: RefCell<FxHashMap<u64, Arc<Mesh>>>,
 }
 
 impl GeometryRouter {
@@ -55,6 +60,7 @@ impl GeometryRouter {
             processors: HashMap::new(),
             mapped_item_cache: RefCell::new(FxHashMap::default()),
             faceted_brep_cache: RefCell::new(FxHashMap::default()),
+            geometry_hash_cache: RefCell::new(FxHashMap::default()),
         };
 
         // Register default P0 processors
@@ -104,6 +110,54 @@ impl GeometryRouter {
     #[inline]
     pub fn take_cached_faceted_brep(&self, brep_id: u32) -> Option<Mesh> {
         self.faceted_brep_cache.borrow_mut().remove(&brep_id)
+    }
+
+    /// Compute hash of mesh geometry for deduplication
+    /// Uses FxHasher for speed - we don't need cryptographic hashing
+    #[inline]
+    fn compute_mesh_hash(mesh: &Mesh) -> u64 {
+        use rustc_hash::FxHasher;
+        let mut hasher = FxHasher::default();
+
+        // Hash vertex count and index count first for fast rejection
+        mesh.positions.len().hash(&mut hasher);
+        mesh.indices.len().hash(&mut hasher);
+
+        // Hash position data (the main differentiator)
+        // Convert f32 to bits for reliable hashing
+        for pos in &mesh.positions {
+            pos.to_bits().hash(&mut hasher);
+        }
+
+        // Hash indices
+        for idx in &mesh.indices {
+            idx.hash(&mut hasher);
+        }
+
+        hasher.finish()
+    }
+
+    /// Try to get cached mesh by hash, or cache the provided mesh
+    /// Returns Arc<Mesh> - either from cache or newly cached
+    #[inline]
+    fn get_or_cache_by_hash(&self, mesh: Mesh) -> Arc<Mesh> {
+        let hash = Self::compute_mesh_hash(&mesh);
+
+        // Check cache first
+        {
+            let cache = self.geometry_hash_cache.borrow();
+            if let Some(cached) = cache.get(&hash) {
+                return Arc::clone(cached);
+            }
+        }
+
+        // Cache miss - store and return
+        let arc_mesh = Arc::new(mesh);
+        {
+            let mut cache = self.geometry_hash_cache.borrow_mut();
+            cache.insert(hash, Arc::clone(&arc_mesh));
+        }
+        arc_mesh
     }
 
     /// Process building element (IfcWall, IfcBeam, etc.) into mesh
@@ -216,6 +270,7 @@ impl GeometryRouter {
     }
 
     /// Process a single representation item (IfcExtrudedAreaSolid, etc.)
+    /// Uses hash-based caching for geometry deduplication across repeated floors
     #[inline]
     pub fn process_representation_item(
         &self,
@@ -230,13 +285,21 @@ impl GeometryRouter {
         // Check FacetedBrep cache first (from batch preprocessing)
         if item.ifc_type == IfcType::IfcFacetedBrep {
             if let Some(mesh) = self.take_cached_faceted_brep(item.id) {
-                return Ok(mesh);
+                // FacetedBrep meshes are already processed, deduplicate by hash
+                let cached = self.get_or_cache_by_hash(mesh);
+                return Ok((*cached).clone());
             }
         }
 
         // Check if we have a processor for this type
         if let Some(processor) = self.processors.get(&item.ifc_type) {
-            return processor.process(item, decoder, &self.schema);
+            let mesh = processor.process(item, decoder, &self.schema)?;
+            // Deduplicate by hash - buildings with repeated floors have identical geometry
+            if !mesh.positions.is_empty() {
+                let cached = self.get_or_cache_by_hash(mesh);
+                return Ok((*cached).clone());
+            }
+            return Ok(mesh);
         }
 
         // Check category for fallback handling
@@ -718,7 +781,8 @@ mod tests {
     #[test]
     fn test_router_creation() {
         let router = GeometryRouter::new();
-        assert!(router.processors.is_empty());
+        // Router registers default processors on creation
+        assert!(!router.processors.is_empty());
     }
 
     #[test]

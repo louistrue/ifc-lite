@@ -498,9 +498,15 @@ impl IfcAPI {
                 // SINGLE PASS: Process elements as we find them
                 let mut scanner = EntityScanner::new(&content);
                 let mut deferred_complex: Vec<(u32, usize, usize, ifc_lite_core::IfcType)> = Vec::new();
+                let mut faceted_brep_ids: Vec<u32> = Vec::new();  // Collect for batch preprocessing
 
                 // First pass - process simple geometry immediately, defer complex
                 while let Some((id, type_name, start, end)) = scanner.next_entity() {
+                    // Track FacetedBrep IDs for batch preprocessing
+                    if type_name == "IFCFACETEDBREP" {
+                        faceted_brep_ids.push(id);
+                    }
+
                     if !ifc_lite_core::has_geometry_by_name(type_name) {
                         continue;
                     }
@@ -578,6 +584,12 @@ impl IfcAPI {
                 }
 
                 let total_elements = processed + deferred_complex.len();
+
+                // CRITICAL: Batch preprocess FacetedBreps BEFORE complex phase
+                // This triangulates ALL faces in parallel - massive speedup for repeated geometry
+                if !faceted_brep_ids.is_empty() {
+                    router.preprocess_faceted_breps(&faceted_brep_ids, &mut decoder);
+                }
 
                 // Process deferred complex geometry
                 // Build style index now (deferred from start)

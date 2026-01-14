@@ -408,11 +408,12 @@ impl GeometryProcessor for TriangulatedFaceSetProcessor {
 
         // FAST PATH: Try direct parsing of raw bytes (3-5x faster)
         // This bypasses Token/AttributeValue allocations entirely
-        use ifc_lite_core::{parse_coordinates_direct, parse_indices_direct};
+        use ifc_lite_core::{extract_coordinate_list_from_entity, parse_indices_direct};
 
         let positions = if let Some(raw_bytes) = decoder.get_raw_bytes(coord_entity_id) {
             // Fast path: parse coordinates directly from raw bytes
-            parse_coordinates_direct(raw_bytes)
+            // Use extract_coordinate_list_from_entity to skip entity header (#N=IFCTYPE...)
+            extract_coordinate_list_from_entity(raw_bytes).unwrap_or_default()
         } else {
             // Fallback path: use standard decoding
             let coords_entity = decoder

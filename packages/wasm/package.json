@@ -1,5 +1,5 @@
 {
-  "name": "@ifc-lite/wasm",
+  "name": "ifc-lite-wasm",
   "type": "module",
   "collaborators": [
     "IFC-Lite Contributors"
@@ -12,20 +12,15 @@
     "url": "https://github.com/louistrue/ifc-lite"
   },
   "files": [
-    "pkg/ifc-lite_bg.wasm",
-    "pkg/ifc-lite.js",
-    "pkg/ifc-lite.d.ts"
+    "ifc_lite_wasm_bg.wasm",
+    "ifc_lite_wasm.js",
+    "ifc_lite_wasm.d.ts"
   ],
-  "main": "./pkg/ifc-lite.js",
-  "module": "./pkg/ifc-lite.js",
-  "types": "./pkg/ifc-lite.d.ts",
-  "exports": {
-    ".": {
-      "import": "./pkg/ifc-lite.js",
-      "types": "./pkg/ifc-lite.d.ts"
-    }
-  },
-  "sideEffects": false,
+  "main": "ifc_lite_wasm.js",
+  "types": "ifc_lite_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ],
   "keywords": [
     "ifc",
     "bim",
