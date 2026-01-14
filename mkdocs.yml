@@ -80,7 +80,6 @@ markdown_extensions:
       user: louistrue
       repo: ifc-lite
       normalize_issue_symbols: true
-      normalize_commit_symbols: true
   - pymdownx.mark
   - pymdownx.smartsymbols
   - pymdownx.superfences:
