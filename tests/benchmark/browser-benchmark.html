@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IFC-Lite vs web-ifc Browser Benchmark</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+            background: #1a1a2e;
+            color: #eee;
+            padding: 20px;
+        }
+        h1 { color: #4ecdc4; margin-bottom: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .controls {
+            background: #16213e;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .controls label { display: block; margin-bottom: 10px; }
+        .controls input[type="file"] { margin-bottom: 15px; }
+        button {
+            background: #4ecdc4;
+            color: #1a1a2e;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        button:hover { background: #3dbdb5; }
+        button:disabled { background: #666; cursor: not-allowed; }
+        .benchmark-area {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .viewer-container {
+            background: #16213e;
+            border-radius: 8px;
+            padding: 15px;
+        }
+        .viewer-container h3 {
+            margin-bottom: 10px;
+            color: #4ecdc4;
+        }
+        canvas {
+            width: 100%;
+            height: 400px;
+            background: #0f0f23;
+            border-radius: 4px;
+        }
+        .stats {
+            margin-top: 10px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .stats .metric {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+            border-bottom: 1px solid #2a2a4a;
+        }
+        .stats .value { color: #4ecdc4; font-weight: bold; }
+        .results {
+            background: #16213e;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        .results h2 { color: #4ecdc4; margin-bottom: 15px; }
+        .comparison {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            text-align: center;
+        }
+        .comparison .card {
+            background: #1a1a2e;
+            padding: 15px;
+            border-radius: 6px;
+        }
+        .comparison .card h4 { color: #888; margin-bottom: 5px; }
+        .comparison .card .value { font-size: 24px; color: #4ecdc4; }
+        .winner { background: #1e4d2b !important; }
+        .loser { background: #4d1e1e !important; }
+        #log {
+            background: #0f0f23;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        #log .info { color: #4ecdc4; }
+        #log .warn { color: #f39c12; }
+        #log .error { color: #e74c3c; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>IFC-Lite vs web-ifc Full Browser Benchmark</h1>
+        <p style="margin-bottom: 20px; color: #888;">
+            Measures real-world performance including: File Loading → Parsing → WebGL Upload → Rendering
+        </p>
+
+        <div class="controls">
+            <label>
+                <strong>Select IFC File:</strong>
+                <input type="file" id="fileInput" accept=".ifc">
+            </label>
+            <div style="margin-top: 10px;">
+                <button id="runBenchmark" disabled>Run Full Benchmark</button>
+                <button id="runIfcLite" disabled>Run IFC-Lite Only</button>
+                <button id="runWebIfc" disabled>Run web-ifc Only</button>
+            </div>
+            <div style="margin-top: 10px;">
+                <label>
+                    <input type="checkbox" id="includeRender" checked> Include render loop (100 frames)
+                </label>
+                <label style="margin-left: 20px;">
+                    <input type="checkbox" id="rotateCamera" checked> Rotate camera during render
+                </label>
+            </div>
+        </div>
+
+        <div class="benchmark-area">
+            <div class="viewer-container">
+                <h3>IFC-Lite</h3>
+                <canvas id="canvasIfcLite"></canvas>
+                <div class="stats" id="statsIfcLite">
+                    <div class="metric"><span>Status:</span><span class="value">Ready</span></div>
+                </div>
+            </div>
+            <div class="viewer-container">
+                <h3>web-ifc</h3>
+                <canvas id="canvasWebIfc"></canvas>
+                <div class="stats" id="statsWebIfc">
+                    <div class="metric"><span>Status:</span><span class="value">Ready</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="results" id="results" style="display: none;">
+            <h2>Benchmark Results</h2>
+            <div class="comparison" id="comparison"></div>
+        </div>
+
+        <div id="log"></div>
+    </div>
+
+    <script type="module">
+        import init, { IfcAPI } from '../../rust/wasm-bindings/pkg/ifc_lite_wasm.js';
+
+        // Logging
+        function log(msg, type = 'info') {
+            const logEl = document.getElementById('log');
+            const line = document.createElement('div');
+            line.className = type;
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            logEl.appendChild(line);
+            logEl.scrollTop = logEl.scrollHeight;
+            console.log(msg);
+        }
+
+        // Simple WebGL renderer
+        class SimpleRenderer {
+            constructor(canvas) {
+                this.canvas = canvas;
+                this.gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+                if (!this.gl) throw new Error('WebGL not supported');
+
+                this.meshes = [];
+                this.rotation = 0;
+                this.initShaders();
+            }
+
+            initShaders() {
+                const gl = this.gl;
+
+                const vsSource = `
+                    attribute vec3 aPosition;
+                    attribute vec3 aNormal;
+                    uniform mat4 uModelView;
+                    uniform mat4 uProjection;
+                    varying vec3 vNormal;
+                    varying vec3 vPosition;
+                    void main() {
+                        vPosition = (uModelView * vec4(aPosition, 1.0)).xyz;
+                        vNormal = mat3(uModelView) * aNormal;
+                        gl_Position = uProjection * vec4(vPosition, 1.0);
+                    }
+                `;
+
+                const fsSource = `
+                    precision mediump float;
+                    varying vec3 vNormal;
+                    varying vec3 vPosition;
+                    void main() {
+                        vec3 normal = normalize(vNormal);
+                        vec3 lightDir = normalize(vec3(1.0, 1.0, 1.0));
+                        float diff = max(dot(normal, lightDir), 0.0);
+                        vec3 color = vec3(0.7, 0.7, 0.8);
+                        gl_FragColor = vec4(color * (0.3 + 0.7 * diff), 1.0);
+                    }
+                `;
+
+                const vs = gl.createShader(gl.VERTEX_SHADER);
+                gl.shaderSource(vs, vsSource);
+                gl.compileShader(vs);
+
+                const fs = gl.createShader(gl.FRAGMENT_SHADER);
+                gl.shaderSource(fs, fsSource);
+                gl.compileShader(fs);
+
+                this.program = gl.createProgram();
+                gl.attachShader(this.program, vs);
+                gl.attachShader(this.program, fs);
+                gl.linkProgram(this.program);
+                gl.useProgram(this.program);
+
+                this.aPosition = gl.getAttribLocation(this.program, 'aPosition');
+                this.aNormal = gl.getAttribLocation(this.program, 'aNormal');
+                this.uModelView = gl.getUniformLocation(this.program, 'uModelView');
+                this.uProjection = gl.getUniformLocation(this.program, 'uProjection');
+
+                gl.enable(gl.DEPTH_TEST);
+                gl.enable(gl.CULL_FACE);
+            }
+
+            uploadMesh(positions, normals, indices) {
+                const gl = this.gl;
+
+                const posBuffer = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+
+                const normBuffer = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, normBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, normals, gl.STATIC_DRAW);
+
+                const idxBuffer = gl.createBuffer();
+                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuffer);
+                gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+
+                this.meshes.push({
+                    posBuffer,
+                    normBuffer,
+                    idxBuffer,
+                    count: indices.length
+                });
+            }
+
+            clear() {
+                const gl = this.gl;
+                for (const mesh of this.meshes) {
+                    gl.deleteBuffer(mesh.posBuffer);
+                    gl.deleteBuffer(mesh.normBuffer);
+                    gl.deleteBuffer(mesh.idxBuffer);
+                }
+                this.meshes = [];
+            }
+
+            render(rotate = true) {
+                const gl = this.gl;
+                const width = this.canvas.clientWidth;
+                const height = this.canvas.clientHeight;
+
+                this.canvas.width = width;
+                this.canvas.height = height;
+                gl.viewport(0, 0, width, height);
+
+                gl.clearColor(0.06, 0.06, 0.14, 1.0);
+                gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+                if (this.meshes.length === 0) return;
+
+                // Simple perspective projection
+                const fov = 45 * Math.PI / 180;
+                const aspect = width / height;
+                const near = 0.1;
+                const far = 10000;
+                const f = 1.0 / Math.tan(fov / 2);
+                const projection = new Float32Array([
+                    f / aspect, 0, 0, 0,
+                    0, f, 0, 0,
+                    0, 0, (far + near) / (near - far), -1,
+                    0, 0, (2 * far * near) / (near - far), 0
+                ]);
+
+                // Camera orbit
+                if (rotate) this.rotation += 0.02;
+                const distance = this.boundingRadius * 2.5 || 100;
+                const camX = Math.sin(this.rotation) * distance;
+                const camZ = Math.cos(this.rotation) * distance;
+                const camY = distance * 0.5;
+
+                const cx = this.center?.[0] || 0;
+                const cy = this.center?.[1] || 0;
+                const cz = this.center?.[2] || 0;
+
+                // Simple look-at matrix
+                const eye = [camX + cx, camY + cy, camZ + cz];
+                const target = [cx, cy, cz];
+                const up = [0, 1, 0];
+
+                const zAxis = normalize([eye[0] - target[0], eye[1] - target[1], eye[2] - target[2]]);
+                const xAxis = normalize(cross(up, zAxis));
+                const yAxis = cross(zAxis, xAxis);
+
+                const modelView = new Float32Array([
+                    xAxis[0], yAxis[0], zAxis[0], 0,
+                    xAxis[1], yAxis[1], zAxis[1], 0,
+                    xAxis[2], yAxis[2], zAxis[2], 0,
+                    -dot(xAxis, eye), -dot(yAxis, eye), -dot(zAxis, eye), 1
+                ]);
+
+                gl.useProgram(this.program);
+                gl.uniformMatrix4fv(this.uProjection, false, projection);
+                gl.uniformMatrix4fv(this.uModelView, false, modelView);
+
+                for (const mesh of this.meshes) {
+                    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.posBuffer);
+                    gl.enableVertexAttribArray(this.aPosition);
+                    gl.vertexAttribPointer(this.aPosition, 3, gl.FLOAT, false, 0, 0);
+
+                    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.normBuffer);
+                    gl.enableVertexAttribArray(this.aNormal);
+                    gl.vertexAttribPointer(this.aNormal, 3, gl.FLOAT, false, 0, 0);
+
+                    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.idxBuffer);
+                    gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_INT, 0);
+                }
+            }
+
+            computeBounds(positions) {
+                let minX = Infinity, minY = Infinity, minZ = Infinity;
+                let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+                for (let i = 0; i < positions.length; i += 3) {
+                    minX = Math.min(minX, positions[i]);
+                    minY = Math.min(minY, positions[i + 1]);
+                    minZ = Math.min(minZ, positions[i + 2]);
+                    maxX = Math.max(maxX, positions[i]);
+                    maxY = Math.max(maxY, positions[i + 1]);
+                    maxZ = Math.max(maxZ, positions[i + 2]);
+                }
+
+                this.center = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
+                this.boundingRadius = Math.sqrt(
+                    Math.pow(maxX - minX, 2) +
+                    Math.pow(maxY - minY, 2) +
+                    Math.pow(maxZ - minZ, 2)
+                ) / 2;
+            }
+        }
+
+        // Math helpers
+        function normalize(v) {
+            const len = Math.sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
+            return [v[0]/len, v[1]/len, v[2]/len];
+        }
+        function cross(a, b) {
+            return [a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]];
+        }
+        function dot(a, b) {
+            return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+        }
+
+        // Stats display
+        function updateStats(id, stats) {
+            const el = document.getElementById(id);
+            el.innerHTML = Object.entries(stats).map(([k, v]) =>
+                `<div class="metric"><span>${k}:</span><span class="value">${v}</span></div>`
+            ).join('');
+        }
+
+        // Global state
+        let ifcLiteApi = null;
+        let webIfcApi = null;
+        let fileContent = null;
+        let fileBuffer = null;
+
+        // Initialize APIs
+        async function initApis() {
+            log('Initializing IFC-Lite...');
+            await init();
+            ifcLiteApi = new IfcAPI();
+            log('IFC-Lite ready');
+
+            log('Initializing web-ifc...');
+            const WebIFC = await import('https://unpkg.com/web-ifc@0.0.66/web-ifc-api.js');
+            webIfcApi = new WebIFC.IfcAPI();
+            await webIfcApi.Init();
+            log('web-ifc ready');
+        }
+
+        // Benchmark IFC-Lite
+        async function benchmarkIfcLite(renderer, includeRender, rotateCamera) {
+            const results = { library: 'IFC-Lite' };
+            renderer.clear();
+
+            // Parse
+            const parseStart = performance.now();
+            const meshes = ifcLiteApi.parseMeshes(fileContent);
+            results.parseTime = performance.now() - parseStart;
+
+            // Collect stats
+            let totalVerts = 0, totalTris = 0;
+            const allPositions = [];
+
+            // Upload to WebGL
+            const uploadStart = performance.now();
+            for (let i = 0; i < meshes.length; i++) {
+                const mesh = meshes.get(i);
+                const positions = new Float32Array(mesh.positions);
+                const normals = new Float32Array(mesh.normals);
+                const indices = new Uint32Array(mesh.indices);
+
+                if (positions.length > 0) {
+                    renderer.uploadMesh(positions, normals, indices);
+                    allPositions.push(...positions);
+                    totalVerts += positions.length / 3;
+                    totalTris += indices.length / 3;
+                }
+            }
+            results.uploadTime = performance.now() - uploadStart;
+
+            renderer.computeBounds(allPositions);
+            results.vertices = totalVerts;
+            results.triangles = totalTris;
+
+            // Render loop
+            if (includeRender) {
+                const renderStart = performance.now();
+                const frameCount = 100;
+                for (let i = 0; i < frameCount; i++) {
+                    renderer.render(rotateCamera);
+                }
+                results.renderTime = performance.now() - renderStart;
+                results.avgFrameTime = results.renderTime / frameCount;
+                results.fps = 1000 / results.avgFrameTime;
+            } else {
+                renderer.render(false);
+                results.renderTime = 0;
+            }
+
+            results.totalTime = results.parseTime + results.uploadTime + results.renderTime;
+            return results;
+        }
+
+        // Benchmark web-ifc
+        async function benchmarkWebIfc(renderer, includeRender, rotateCamera) {
+            const results = { library: 'web-ifc' };
+            renderer.clear();
+
+            // Parse
+            const parseStart = performance.now();
+            const modelId = webIfcApi.OpenModel(new Uint8Array(fileBuffer));
+            const geometry = webIfcApi.LoadAllGeometry(modelId);
+            results.parseTime = performance.now() - parseStart;
+
+            // Collect stats
+            let totalVerts = 0, totalTris = 0;
+            const allPositions = [];
+
+            // Upload to WebGL
+            const uploadStart = performance.now();
+            for (let i = 0; i < geometry.size(); i++) {
+                const mesh = geometry.get(i);
+                const placedGeometry = mesh.geometries;
+
+                for (let j = 0; j < placedGeometry.size(); j++) {
+                    const placed = placedGeometry.get(j);
+                    const geom = webIfcApi.GetGeometry(modelId, placed.geometryExpressID);
+
+                    const verts = webIfcApi.GetVertexArray(geom.GetVertexData(), geom.GetVertexDataSize());
+                    const idx = webIfcApi.GetIndexArray(geom.GetIndexData(), geom.GetIndexDataSize());
+
+                    // web-ifc returns interleaved [x,y,z,nx,ny,nz] per vertex
+                    const vertCount = verts.length / 6;
+                    const positions = new Float32Array(vertCount * 3);
+                    const normals = new Float32Array(vertCount * 3);
+
+                    for (let v = 0; v < vertCount; v++) {
+                        positions[v * 3] = verts[v * 6];
+                        positions[v * 3 + 1] = verts[v * 6 + 1];
+                        positions[v * 3 + 2] = verts[v * 6 + 2];
+                        normals[v * 3] = verts[v * 6 + 3];
+                        normals[v * 3 + 1] = verts[v * 6 + 4];
+                        normals[v * 3 + 2] = verts[v * 6 + 5];
+                    }
+
+                    if (positions.length > 0) {
+                        renderer.uploadMesh(positions, normals, new Uint32Array(idx));
+                        allPositions.push(...positions);
+                        totalVerts += vertCount;
+                        totalTris += idx.length / 3;
+                    }
+
+                    geom.delete();
+                }
+            }
+            results.uploadTime = performance.now() - uploadStart;
+
+            webIfcApi.CloseModel(modelId);
+            renderer.computeBounds(allPositions);
+            results.vertices = totalVerts;
+            results.triangles = totalTris;
+
+            // Render loop
+            if (includeRender) {
+                const renderStart = performance.now();
+                const frameCount = 100;
+                for (let i = 0; i < frameCount; i++) {
+                    renderer.render(rotateCamera);
+                }
+                results.renderTime = performance.now() - renderStart;
+                results.avgFrameTime = results.renderTime / frameCount;
+                results.fps = 1000 / results.avgFrameTime;
+            } else {
+                renderer.render(false);
+                results.renderTime = 0;
+            }
+
+            results.totalTime = results.parseTime + results.uploadTime + results.renderTime;
+            return results;
+        }
+
+        // Show results
+        function showResults(ifcLite, webIfc) {
+            const resultsEl = document.getElementById('results');
+            const compEl = document.getElementById('comparison');
+            resultsEl.style.display = 'block';
+
+            const metrics = [
+                { key: 'parseTime', label: 'Parse Time', unit: 'ms', lowerBetter: true },
+                { key: 'uploadTime', label: 'Upload Time', unit: 'ms', lowerBetter: true },
+                { key: 'renderTime', label: 'Render Time (100 frames)', unit: 'ms', lowerBetter: true },
+                { key: 'totalTime', label: 'Total Time', unit: 'ms', lowerBetter: true },
+                { key: 'fps', label: 'Avg FPS', unit: '', lowerBetter: false },
+                { key: 'vertices', label: 'Vertices', unit: '', lowerBetter: false },
+                { key: 'triangles', label: 'Triangles', unit: '', lowerBetter: false },
+            ];
+
+            let html = '';
+            for (const m of metrics) {
+                const ifcVal = ifcLite[m.key] || 0;
+                const webVal = webIfc[m.key] || 0;
+
+                let ifcWins, webWins;
+                if (m.lowerBetter) {
+                    ifcWins = ifcVal < webVal;
+                    webWins = webVal < ifcVal;
+                } else {
+                    ifcWins = ifcVal > webVal;
+                    webWins = webVal > ifcVal;
+                }
+
+                const speedup = m.lowerBetter ? (webVal / ifcVal) : (ifcVal / webVal);
+
+                html += `
+                    <div class="card ${ifcWins ? 'winner' : (webWins ? 'loser' : '')}">
+                        <h4>${m.label}</h4>
+                        <div class="value">${typeof ifcVal === 'number' ? ifcVal.toFixed(1) : ifcVal}${m.unit}</div>
+                        <div style="font-size: 12px; color: #888;">IFC-Lite</div>
+                    </div>
+                    <div class="card">
+                        <h4>Speedup</h4>
+                        <div class="value" style="color: ${ifcWins ? '#4ecdc4' : '#e74c3c'}">${speedup.toFixed(2)}x</div>
+                        <div style="font-size: 12px; color: #888;">${ifcWins ? 'IFC-Lite faster' : 'web-ifc faster'}</div>
+                    </div>
+                    <div class="card ${webWins ? 'winner' : (ifcWins ? 'loser' : '')}">
+                        <h4>${m.label}</h4>
+                        <div class="value">${typeof webVal === 'number' ? webVal.toFixed(1) : webVal}${m.unit}</div>
+                        <div style="font-size: 12px; color: #888;">web-ifc</div>
+                    </div>
+                `;
+            }
+            compEl.innerHTML = html;
+        }
+
+        // Main
+        async function main() {
+            const rendererIfcLite = new SimpleRenderer(document.getElementById('canvasIfcLite'));
+            const rendererWebIfc = new SimpleRenderer(document.getElementById('canvasWebIfc'));
+
+            await initApis();
+
+            document.getElementById('fileInput').addEventListener('change', async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                log(`Loading ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)...`);
+                fileContent = await file.text();
+                fileBuffer = await file.arrayBuffer();
+                log('File loaded');
+
+                document.getElementById('runBenchmark').disabled = false;
+                document.getElementById('runIfcLite').disabled = false;
+                document.getElementById('runWebIfc').disabled = false;
+            });
+
+            document.getElementById('runBenchmark').addEventListener('click', async () => {
+                const includeRender = document.getElementById('includeRender').checked;
+                const rotateCamera = document.getElementById('rotateCamera').checked;
+
+                log('Starting full benchmark...');
+
+                log('Benchmarking IFC-Lite...');
+                const ifcLiteResults = await benchmarkIfcLite(rendererIfcLite, includeRender, rotateCamera);
+                updateStats('statsIfcLite', {
+                    'Parse': ifcLiteResults.parseTime.toFixed(1) + 'ms',
+                    'Upload': ifcLiteResults.uploadTime.toFixed(1) + 'ms',
+                    'Render': ifcLiteResults.renderTime.toFixed(1) + 'ms',
+                    'Total': ifcLiteResults.totalTime.toFixed(1) + 'ms',
+                    'Vertices': ifcLiteResults.vertices.toLocaleString(),
+                    'Triangles': ifcLiteResults.triangles.toLocaleString(),
+                    'FPS': ifcLiteResults.fps?.toFixed(1) || 'N/A'
+                });
+                log(`IFC-Lite: ${ifcLiteResults.totalTime.toFixed(1)}ms total`);
+
+                log('Benchmarking web-ifc...');
+                const webIfcResults = await benchmarkWebIfc(rendererWebIfc, includeRender, rotateCamera);
+                updateStats('statsWebIfc', {
+                    'Parse': webIfcResults.parseTime.toFixed(1) + 'ms',
+                    'Upload': webIfcResults.uploadTime.toFixed(1) + 'ms',
+                    'Render': webIfcResults.renderTime.toFixed(1) + 'ms',
+                    'Total': webIfcResults.totalTime.toFixed(1) + 'ms',
+                    'Vertices': webIfcResults.vertices.toLocaleString(),
+                    'Triangles': webIfcResults.triangles.toLocaleString(),
+                    'FPS': webIfcResults.fps?.toFixed(1) || 'N/A'
+                });
+                log(`web-ifc: ${webIfcResults.totalTime.toFixed(1)}ms total`);
+
+                showResults(ifcLiteResults, webIfcResults);
+
+                const speedup = webIfcResults.totalTime / ifcLiteResults.totalTime;
+                log(`Overall speedup: ${speedup.toFixed(2)}x ${speedup > 1 ? '(IFC-Lite faster)' : '(web-ifc faster)'}`,
+                    speedup > 1 ? 'info' : 'warn');
+            });
+
+            document.getElementById('runIfcLite').addEventListener('click', async () => {
+                const includeRender = document.getElementById('includeRender').checked;
+                const rotateCamera = document.getElementById('rotateCamera').checked;
+                log('Benchmarking IFC-Lite only...');
+                const results = await benchmarkIfcLite(rendererIfcLite, includeRender, rotateCamera);
+                updateStats('statsIfcLite', {
+                    'Parse': results.parseTime.toFixed(1) + 'ms',
+                    'Upload': results.uploadTime.toFixed(1) + 'ms',
+                    'Render': results.renderTime.toFixed(1) + 'ms',
+                    'Total': results.totalTime.toFixed(1) + 'ms',
+                    'Vertices': results.vertices.toLocaleString(),
+                    'Triangles': results.triangles.toLocaleString(),
+                    'FPS': results.fps?.toFixed(1) || 'N/A'
+                });
+                log(`IFC-Lite complete: ${results.totalTime.toFixed(1)}ms`);
+            });
+
+            document.getElementById('runWebIfc').addEventListener('click', async () => {
+                const includeRender = document.getElementById('includeRender').checked;
+                const rotateCamera = document.getElementById('rotateCamera').checked;
+                log('Benchmarking web-ifc only...');
+                const results = await benchmarkWebIfc(rendererWebIfc, includeRender, rotateCamera);
+                updateStats('statsWebIfc', {
+                    'Parse': results.parseTime.toFixed(1) + 'ms',
+                    'Upload': results.uploadTime.toFixed(1) + 'ms',
+                    'Render': results.renderTime.toFixed(1) + 'ms',
+                    'Total': results.totalTime.toFixed(1) + 'ms',
+                    'Vertices': results.vertices.toLocaleString(),
+                    'Triangles': results.triangles.toLocaleString(),
+                    'FPS': results.fps?.toFixed(1) || 'N/A'
+                });
+                log(`web-ifc complete: ${results.totalTime.toFixed(1)}ms`);
+            });
+
+            // Initial render
+            rendererIfcLite.render(false);
+            rendererWebIfc.render(false);
+        }
+
+        main().catch(console.error);
+    </script>
+</body>
+</html>
