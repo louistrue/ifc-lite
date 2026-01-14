@@ -1,0 +1,5 @@
+# Keep generated WASM bindings in git
+# Only ignore build artifacts that can be regenerated
+*.swp
+*.swo
+*~

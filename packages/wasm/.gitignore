@@ -1,1 +1,8 @@
-*
+# Ignore test and debug files
+debug-test.js
+debug-test2.js
+benchmark.js
+test-parser.js
+
+# Keep pkg/ folder tracked (WASM bindings)
+# Don't ignore pkg/**
