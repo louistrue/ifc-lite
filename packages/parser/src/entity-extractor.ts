@@ -8,6 +8,8 @@
 
 import type { IfcEntity, EntityRef } from './types.js';
 
+export type { IfcEntity };
+
 export class EntityExtractor {
   private buffer: Uint8Array;
 

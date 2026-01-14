@@ -9,6 +9,30 @@
  * DO NOT EDIT - This file is auto-generated
  */
 
+import type {
+  IfcLabel,
+  IfcText,
+  IfcBoolean,
+  IfcGloballyUniqueId,
+  IfcDate,
+  IfcDateTime,
+  IfcDuration,
+} from './types.js';
+import type {
+  IfcVoidingFeatureTypeEnum,
+  IfcWallTypeEnum,
+  IfcWasteTerminalTypeEnum,
+  IfcWindowTypeEnum,
+  IfcWindowTypePartitioningEnum,
+  IfcWindowPanelOperationEnum,
+  IfcWindowPanelPositionEnum,
+  IfcWindowStyleConstructionEnum,
+  IfcWindowStyleOperationEnum,
+  IfcWorkCalendarTypeEnum,
+  IfcWorkPlanTypeEnum,
+  IfcWorkScheduleTypeEnum,
+} from './enums.js';
+
 /**
  * IfcRoot
  * @abstract
