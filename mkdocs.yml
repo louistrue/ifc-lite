@@ -5,6 +5,7 @@ site_author: IFC-Lite Contributors
 repo_url: https://github.com/louistrue/ifc-lite
 repo_name: louistrue/ifc-lite
 edit_uri: edit/main/docs/
+use_directory_urls: true
 
 theme:
   name: material

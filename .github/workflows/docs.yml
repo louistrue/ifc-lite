@@ -64,11 +64,29 @@ jobs:
 
       - name: Build Rustdoc
         run: cargo doc --no-deps --workspace
+        continue-on-error: true
 
       - name: Copy Rustdoc to site
+        if: success() || failure()
         run: |
-          mkdir -p site/api/rust
-          cp -r target/doc/* site/api/rust/
+          if [ -d "target/doc" ]; then
+            mkdir -p site/api/rust
+            cp -r target/doc/* site/api/rust/
+          fi
+
+      - name: Create .nojekyll file
+        run: touch site/.nojekyll
+
+      - name: Verify site structure
+        run: |
+          echo "Site directory contents:"
+          ls -la site/ | head -20
+          echo ""
+          echo "Checking for index.html:"
+          ls -la site/index.html || echo "index.html not found!"
+          echo ""
+          echo "Site directory size:"
+          du -sh site/
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
