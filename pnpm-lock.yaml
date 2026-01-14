@@ -23,6 +23,9 @@ importers:
 
   apps/viewer:
     dependencies:
+      '@ifc-lite/cache':
+        specifier: workspace:*
+        version: link:../../packages/cache
       '@ifc-lite/data':
         specifier: workspace:*
         version: link:../../packages/data

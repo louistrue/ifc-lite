@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@ifc-lite/cache": "workspace:*",
     "@ifc-lite/data": "workspace:*",
     "@ifc-lite/export": "workspace:*",
     "@ifc-lite/geometry": "workspace:*",
