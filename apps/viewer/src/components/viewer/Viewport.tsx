@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Renderer, MathUtils } from '@ifc-lite/renderer';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
+import { deduplicateMeshes, getDeduplicationStats, type InstancedMeshData } from '@ifc-lite/geometry';
 import { useViewerStore, type MeasurePoint } from '@/store';
 
 interface ViewportProps {
@@ -1016,44 +1017,67 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
     const startIndex = lastGeometryLengthRef.current;
     const meshesToAdd = geometry.slice(startIndex);
 
+    // Filter out already processed meshes
+    const newMeshes: MeshData[] = [];
     for (const meshData of meshesToAdd) {
-      if (processedMeshIdsRef.current.has(meshData.expressId)) continue;
+      if (!processedMeshIdsRef.current.has(meshData.expressId)) {
+        newMeshes.push(meshData);
+        processedMeshIdsRef.current.add(meshData.expressId);
+      }
+    }
 
-      const vertexCount = meshData.positions.length / 3;
-      const interleaved = new Float32Array(vertexCount * 6);
-      for (let i = 0; i < vertexCount; i++) {
-        const base = i * 6;
-        const posBase = i * 3;
-        interleaved[base] = meshData.positions[posBase];
-        interleaved[base + 1] = meshData.positions[posBase + 1];
-        interleaved[base + 2] = meshData.positions[posBase + 2];
-        interleaved[base + 3] = meshData.normals[posBase];
-        interleaved[base + 4] = meshData.normals[posBase + 1];
-        interleaved[base + 5] = meshData.normals[posBase + 2];
+    if (newMeshes.length > 0) {
+      // Deduplicate meshes to reduce GPU resources and draw calls
+      const instanced = deduplicateMeshes(newMeshes);
+      
+      // Log deduplication stats periodically
+      if (currentLength > 0 && currentLength % 1000 < 100) {
+        const stats = getDeduplicationStats(instanced);
+        console.log(`[Viewport] Deduplication: ${stats.inputMeshes} meshes → ${stats.uniqueGeometries} unique (${stats.deduplicationRatio.toFixed(1)}x reduction)`);
       }
 
-      const vertexBuffer = device.createBuffer({
-        size: interleaved.byteLength,
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-      });
-      device.queue.writeBuffer(vertexBuffer, 0, interleaved);
+      // Upload deduplicated instanced geometry to GPU
+      for (const instancedMesh of instanced) {
+        // For now, upload as individual meshes but use the first instance's color
+        // TODO: Implement proper GPU instancing with per-instance colors
+        const vertexCount = instancedMesh.positions.length / 3;
+        const interleaved = new Float32Array(vertexCount * 6);
+        for (let i = 0; i < vertexCount; i++) {
+          const base = i * 6;
+          const posBase = i * 3;
+          interleaved[base] = instancedMesh.positions[posBase];
+          interleaved[base + 1] = instancedMesh.positions[posBase + 1];
+          interleaved[base + 2] = instancedMesh.positions[posBase + 2];
+          interleaved[base + 3] = instancedMesh.normals[posBase];
+          interleaved[base + 4] = instancedMesh.normals[posBase + 1];
+          interleaved[base + 5] = instancedMesh.normals[posBase + 2];
+        }
 
-      const indexBuffer = device.createBuffer({
-        size: meshData.indices.byteLength,
-        usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-      });
-      device.queue.writeBuffer(indexBuffer, 0, meshData.indices);
+        const vertexBuffer = device.createBuffer({
+          size: interleaved.byteLength,
+          usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        });
+        device.queue.writeBuffer(vertexBuffer, 0, interleaved);
 
-      scene.addMesh({
-        expressId: meshData.expressId,
-        vertexBuffer,
-        indexBuffer,
-        indexCount: meshData.indices.length,
-        transform: MathUtils.identity(),
-        color: meshData.color,
-      });
+        const indexBuffer = device.createBuffer({
+          size: instancedMesh.indices.byteLength,
+          usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+        });
+        device.queue.writeBuffer(indexBuffer, 0, instancedMesh.indices);
 
-      processedMeshIdsRef.current.add(meshData.expressId);
+        // Add each instance as a separate mesh (for now - maintains selection capability)
+        // The key optimization is we only create GPU buffers once per unique geometry
+        for (const instance of instancedMesh.instances) {
+          scene.addMesh({
+            expressId: instance.expressId,
+            vertexBuffer, // Shared buffer!
+            indexBuffer,  // Shared buffer!
+            indexCount: instancedMesh.indices.length,
+            transform: MathUtils.identity(),
+            color: instance.color,
+          });
+        }
+      }
     }
 
     lastGeometryLengthRef.current = currentLength;

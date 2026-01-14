@@ -17,6 +17,12 @@ export { CoordinateHandler } from './coordinate-handler.js';
 export { WorkerPool } from './worker-pool.js';
 export { GeometryQuality } from './progressive-loader.js';
 export { LODGenerator, type LODConfig, type LODMesh } from './lod.js';
+export { 
+  deduplicateMeshes, 
+  getDeduplicationStats,
+  type InstancedMeshData,
+  type DeduplicationStats 
+} from './geometry-deduplicator.js';
 export * from './types.js';
 export * from './default-materials.js';
 
