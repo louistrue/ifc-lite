@@ -6,10 +6,11 @@
  * Scene graph and mesh management
  */
 
-import type { Mesh } from './types.js';
+import type { Mesh, InstancedMesh } from './types.js';
 
 export class Scene {
   private meshes: Mesh[] = [];
+  private instancedMeshes: InstancedMesh[] = [];
 
   /**
    * Add mesh to scene
@@ -19,10 +20,24 @@ export class Scene {
   }
 
   /**
+   * Add instanced mesh to scene
+   */
+  addInstancedMesh(mesh: InstancedMesh): void {
+    this.instancedMeshes.push(mesh);
+  }
+
+  /**
    * Get all meshes
    */
   getMeshes(): Mesh[] {
     return this.meshes;
+  }
+
+  /**
+   * Get all instanced meshes
+   */
+  getInstancedMeshes(): InstancedMesh[] {
+    return this.instancedMeshes;
   }
 
   /**
@@ -37,7 +52,13 @@ export class Scene {
         mesh.uniformBuffer.destroy();
       }
     }
+    for (const mesh of this.instancedMeshes) {
+      mesh.vertexBuffer.destroy();
+      mesh.indexBuffer.destroy();
+      mesh.instanceBuffer.destroy();
+    }
     this.meshes = [];
+    this.instancedMeshes = [];
   }
 
   /**

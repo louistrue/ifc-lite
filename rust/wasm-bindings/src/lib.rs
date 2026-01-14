@@ -68,7 +68,7 @@ mod zero_copy;
 mod api;
 
 pub use utils::set_panic_hook as init_panic_hook;
-pub use zero_copy::{ZeroCopyMesh, MeshDataJs, MeshCollection, get_memory};
+pub use zero_copy::{ZeroCopyMesh, MeshDataJs, MeshCollection, InstancedGeometry, InstanceData, InstancedMeshCollection, get_memory};
 pub use api::IfcAPI;
 
 /// Initialize the WASM module.

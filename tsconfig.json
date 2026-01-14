@@ -19,8 +19,8 @@
     "sourceMap": true,
     "baseUrl": ".",
     "paths": {
-      "@ifc-lite/wasm": ["packages/wasm/ifc_lite_wasm.d.ts"],
-      "@ifc-lite/wasm/*": ["packages/wasm/*"]
+      "@ifc-lite/wasm": ["packages/wasm/pkg/ifc-lite.d.ts"],
+      "@ifc-lite/wasm/*": ["packages/wasm/pkg/*"]
     }
   },
   "exclude": ["node_modules", "dist", "**/*.test.ts"]

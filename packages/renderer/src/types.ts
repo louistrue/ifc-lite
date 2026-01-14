@@ -48,6 +48,23 @@ export interface Mesh {
   bounds?: { min: [number, number, number]; max: [number, number, number] };
 }
 
+/**
+ * Instanced geometry for GPU instancing
+ * Groups identical geometries with different transforms
+ */
+export interface InstancedMesh {
+  geometryId: number;
+  vertexBuffer: GPUBuffer;
+  indexBuffer: GPUBuffer;
+  indexCount: number;
+  instanceBuffer: GPUBuffer; // Storage buffer with instance data
+  instanceCount: number;
+  // Map expressId to instance index for picking
+  expressIdToInstanceIndex: Map<number, number>;
+  // Bounding box for frustum culling (optional)
+  bounds?: { min: [number, number, number]; max: [number, number, number] };
+}
+
 // Section plane for clipping
 export interface SectionPlane {
   axis: 'x' | 'y' | 'z';

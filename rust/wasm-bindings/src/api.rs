@@ -10,7 +10,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 use js_sys::{Function, Promise};
 use ifc_lite_core::{EntityScanner, ParseEvent, StreamConfig, GeoReference, RtcOffset};
-use crate::zero_copy::{ZeroCopyMesh, MeshDataJs, MeshCollection};
+use crate::zero_copy::{ZeroCopyMesh, MeshDataJs, MeshCollection, InstancedMeshCollection, InstancedGeometry, InstanceData};
 
 /// Georeferencing information exposed to JavaScript
 #[wasm_bindgen]
@@ -433,6 +433,150 @@ impl IfcAPI {
         }
 
         mesh_collection
+    }
+
+    /// Parse IFC file and return instanced geometry grouped by geometry hash
+    /// This reduces draw calls by grouping identical geometries with different transforms
+    ///
+    /// Example:
+    /// ```javascript
+    /// const api = new IfcAPI();
+    /// const collection = api.parseMeshesInstanced(ifcData);
+    /// for (let i = 0; i < collection.length; i++) {
+    ///   const geometry = collection.get(i);
+    ///   console.log('Geometry ID:', geometry.geometryId);
+    ///   console.log('Instances:', geometry.instanceCount);
+    ///   for (let j = 0; j < geometry.instanceCount; j++) {
+    ///     const inst = geometry.getInstance(j);
+    ///     console.log('  Express ID:', inst.expressId);
+    ///     console.log('  Transform:', inst.transform);
+    ///   }
+    /// }
+    /// ```
+    #[wasm_bindgen(js_name = parseMeshesInstanced)]
+    pub fn parse_meshes_instanced(&self, content: String) -> InstancedMeshCollection {
+        use ifc_lite_core::{EntityScanner, EntityDecoder, build_entity_index};
+        use ifc_lite_geometry::{GeometryRouter, calculate_normals, Mesh};
+        use rustc_hash::FxHashMap;
+        use std::hash::{Hash, Hasher};
+        use rustc_hash::FxHasher;
+
+        // Build entity index once upfront for O(1) lookups
+        let entity_index = build_entity_index(&content);
+
+        // Create decoder with pre-built index
+        let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+
+        // Build style index: first map geometry IDs to colors, then map element IDs to colors
+        let geometry_styles = build_geometry_style_index(&content, &mut decoder);
+        let style_index = build_element_style_index(&content, &geometry_styles, &mut decoder);
+
+        // OPTIMIZATION: Collect all FacetedBrep IDs for batch processing
+        let mut scanner = EntityScanner::new(&content);
+        let mut faceted_brep_ids: Vec<u32> = Vec::new();
+        while let Some((id, type_name, _, _)) = scanner.next_entity() {
+            if type_name == "IFCFACETEDBREP" {
+                faceted_brep_ids.push(id);
+            }
+        }
+
+        // Create geometry router (reuses processor instances)
+        let router = GeometryRouter::new();
+
+        // Batch preprocess FacetedBrep entities for maximum parallelism
+        if !faceted_brep_ids.is_empty() {
+            router.preprocess_faceted_breps(&faceted_brep_ids, &mut decoder);
+        }
+
+        // Reset scanner for main processing pass
+        scanner = EntityScanner::new(&content);
+
+        // Group meshes by geometry hash
+        // Key: geometry hash, Value: (base mesh, Vec<(express_id, transform, color)>)
+        // Note: transform is returned as Matrix4<f64> from process_element_with_transform
+        let mut geometry_groups: FxHashMap<u64, (Mesh, Vec<(u32, [f64; 16], [f32; 4])>)> = FxHashMap::default();
+
+        // Process all building elements
+        while let Some((id, type_name, start, end)) = scanner.next_entity() {
+            // Check if this is a building element type
+            if !ifc_lite_core::has_geometry_by_name(type_name) {
+                continue;
+            }
+
+            // Decode and process the entity
+            if let Ok(entity) = decoder.decode_at(start, end) {
+                if let Ok((mut mesh, transform)) = router.process_element_with_transform(&entity, &mut decoder) {
+                    if !mesh.is_empty() {
+                        // Calculate normals if not present
+                        if mesh.normals.is_empty() {
+                            calculate_normals(&mut mesh);
+                        }
+
+                        // Compute geometry hash (same as router does)
+                        let mut hasher = FxHasher::default();
+                        mesh.positions.len().hash(&mut hasher);
+                        mesh.indices.len().hash(&mut hasher);
+                        for pos in &mesh.positions {
+                            pos.to_bits().hash(&mut hasher);
+                        }
+                        for idx in &mesh.indices {
+                            idx.hash(&mut hasher);
+                        }
+                        let geometry_hash = hasher.finish();
+
+                        // Try to get color from style index, otherwise use default
+                        let color = style_index.get(&id)
+                            .copied()
+                            .unwrap_or_else(|| get_default_color_for_type(&entity.ifc_type));
+
+                        // Convert Matrix4<f64> to [f64; 16] array (column-major)
+                        let mut transform_array = [0.0; 16];
+                        for row in 0..4 {
+                            for col in 0..4 {
+                                transform_array[row * 4 + col] = transform[(row, col)];
+                            }
+                        }
+
+                        // Add to group - only store mesh once per hash
+                        let entry = geometry_groups.entry(geometry_hash);
+                        match entry {
+                            std::collections::hash_map::Entry::Occupied(mut o) => {
+                                // Geometry already exists, just add instance
+                                o.get_mut().1.push((id, transform_array, color));
+                            }
+                            std::collections::hash_map::Entry::Vacant(v) => {
+                                // First instance of this geometry
+                                v.insert((mesh, vec![(id, transform_array, color)]));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Convert groups to InstancedGeometry
+        let mut collection = InstancedMeshCollection::new();
+        for (geometry_id, (mesh, instances)) in geometry_groups {
+            let mut instanced_geom = InstancedGeometry::new(
+                geometry_id,
+                mesh.positions,
+                mesh.normals,
+                mesh.indices,
+            );
+
+            // Convert transforms from [f64; 16] to Vec<f32>
+            for (express_id, transform_array, color) in instances {
+                let mut transform_f32 = Vec::with_capacity(16);
+                for val in transform_array.iter() {
+                    transform_f32.push(*val as f32);
+                }
+                instanced_geom.add_instance(InstanceData::new(express_id, transform_f32, color));
+            }
+
+            collection.add(instanced_geom);
+        }
+
+        collection
     }
 
     /// Parse IFC file with streaming mesh batches for progressive rendering

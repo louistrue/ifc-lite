@@ -14,7 +14,7 @@ export default defineConfig({
       '@ifc-lite/spatial': path.resolve(__dirname, '../../packages/spatial/src'),
       '@ifc-lite/data': path.resolve(__dirname, '../../packages/data/src'),
       '@ifc-lite/export': path.resolve(__dirname, '../../packages/export/src'),
-      '@ifc-lite/wasm': path.resolve(__dirname, '../../packages/wasm'),
+      '@ifc-lite/wasm': path.resolve(__dirname, '../../packages/wasm/pkg/ifc-lite.js'),
     },
   },
   server: {
@@ -38,6 +38,10 @@ export default defineConfig({
         resolveId(id) {
           if (id.startsWith('@ifc-lite/')) {
             const packageName = id.split('/')[1];
+            // WASM package doesn't have src folder - use pkg
+            if (packageName === 'wasm') {
+              return path.resolve(__dirname, `../../packages/wasm/pkg/ifc-lite.js`);
+            }
             return path.resolve(__dirname, `../../packages/${packageName}/src`);
           }
         },

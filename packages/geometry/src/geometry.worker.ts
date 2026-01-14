@@ -31,8 +31,9 @@ let ifcApiInitialized: boolean = false;
 
 /**
  * Initialize IFC-Lite API in worker context
+ * The WASM binary is automatically resolved from the same location as the JS module
  */
-async function initIfcApi(wasmPath: string = '/'): Promise<IfcAPI> {
+async function initIfcApi(): Promise<IfcAPI> {
   if (ifcApi && ifcApiInitialized) {
     return ifcApi;
   }
@@ -40,12 +41,8 @@ async function initIfcApi(wasmPath: string = '/'): Promise<IfcAPI> {
   const initStart = performance.now();
   console.log('[Worker] Initializing IFC-Lite...');
 
-  // Initialize WASM module
-  const wasmUrl = wasmPath.endsWith('/')
-    ? `${wasmPath}ifc-lite_bg.wasm`
-    : `${wasmPath}/ifc-lite_bg.wasm`;
-
-  await init(wasmUrl);
+  // Initialize WASM module - wasm-bindgen automatically resolves the WASM URL
+  await init();
   ifcApi = new IfcAPI();
   ifcApiInitialized = true;
 
@@ -60,11 +57,11 @@ async function initIfcApi(wasmPath: string = '/'): Promise<IfcAPI> {
  */
 async function handleMeshCollection(data: { buffer: ArrayBuffer; wasmPath?: string }): Promise<MeshData[]> {
   const taskStart = performance.now();
-  const { buffer, wasmPath = '/' } = data;
+  const { buffer } = data;
 
   // Initialize IFC-Lite if needed
   const apiInitStart = performance.now();
-  const api = await initIfcApi(wasmPath);
+  const api = await initIfcApi();
   const apiInitTime = performance.now() - apiInitStart;
   if (apiInitTime > 10) {
     console.log(`[Worker] IFC-Lite init took ${apiInitTime.toFixed(2)}ms`);

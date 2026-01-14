@@ -47,7 +47,6 @@ export class GeometryProcessor {
   private bufferBuilder: BufferBuilder;
   private coordinateHandler: CoordinateHandler;
   private workerPool: WorkerPool | null = null;
-  private wasmPath: string = '/';
   private useWorkers: boolean = false;
 
   constructor(options: GeometryProcessorOptions = {}) {
@@ -61,11 +60,10 @@ export class GeometryProcessor {
 
   /**
    * Initialize IFC-Lite WASM and worker pool
+   * WASM is automatically resolved from the package location - no path needed
    */
-  async init(wasmPath: string = '/'): Promise<void> {
-    this.wasmPath = wasmPath;
-
-    await this.bridge.init(wasmPath);
+  async init(_wasmPath?: string): Promise<void> {
+    await this.bridge.init();
 
     // Initialize worker pool if available (lazy - only when needed)
     // Don't initialize workers upfront to avoid overhead
@@ -111,7 +109,6 @@ export class GeometryProcessor {
         try {
           meshes = await this.workerPool.submit<MeshData[]>('mesh-collection', {
             buffer: buffer.buffer,
-            wasmPath: this.wasmPath,
           });
         } catch (error) {
           console.warn('[Geometry] Worker pool failed, falling back to main thread:', error);

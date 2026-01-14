@@ -273,6 +273,162 @@ impl Default for ZeroCopyMesh {
     }
 }
 
+/// Instance data for instanced rendering
+#[wasm_bindgen]
+pub struct InstanceData {
+    express_id: u32,
+    transform: Vec<f32>, // 16 floats (4x4 matrix)
+    color: [f32; 4],      // RGBA
+}
+
+#[wasm_bindgen]
+impl InstanceData {
+    #[wasm_bindgen(getter, js_name = expressId)]
+    pub fn express_id(&self) -> u32 {
+        self.express_id
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn transform(&self) -> js_sys::Float32Array {
+        js_sys::Float32Array::from(&self.transform[..])
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn color(&self) -> Vec<f32> {
+        self.color.to_vec()
+    }
+}
+
+impl InstanceData {
+    pub fn new(express_id: u32, transform: Vec<f32>, color: [f32; 4]) -> Self {
+        Self {
+            express_id,
+            transform,
+            color,
+        }
+    }
+}
+
+/// Instanced geometry - one geometry definition with multiple instances
+#[wasm_bindgen]
+pub struct InstancedGeometry {
+    geometry_id: u64,
+    positions: Vec<f32>,
+    normals: Vec<f32>,
+    indices: Vec<u32>,
+    instances: Vec<InstanceData>,
+}
+
+#[wasm_bindgen]
+impl InstancedGeometry {
+    #[wasm_bindgen(getter, js_name = geometryId)]
+    pub fn geometry_id(&self) -> u64 {
+        self.geometry_id
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn positions(&self) -> js_sys::Float32Array {
+        js_sys::Float32Array::from(&self.positions[..])
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn normals(&self) -> js_sys::Float32Array {
+        js_sys::Float32Array::from(&self.normals[..])
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn indices(&self) -> js_sys::Uint32Array {
+        js_sys::Uint32Array::from(&self.indices[..])
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn instance_count(&self) -> usize {
+        self.instances.len()
+    }
+
+    #[wasm_bindgen]
+    pub fn get_instance(&self, index: usize) -> Option<InstanceData> {
+        self.instances.get(index).map(|inst| InstanceData {
+            express_id: inst.express_id,
+            transform: inst.transform.clone(),
+            color: inst.color,
+        })
+    }
+}
+
+impl InstancedGeometry {
+    pub fn new(geometry_id: u64, positions: Vec<f32>, normals: Vec<f32>, indices: Vec<u32>) -> Self {
+        Self {
+            geometry_id,
+            positions,
+            normals,
+            indices,
+            instances: Vec::new(),
+        }
+    }
+
+    pub fn add_instance(&mut self, instance: InstanceData) {
+        self.instances.push(instance);
+    }
+}
+
+/// Collection of instanced geometries
+#[wasm_bindgen]
+pub struct InstancedMeshCollection {
+    geometries: Vec<InstancedGeometry>,
+}
+
+#[wasm_bindgen]
+impl InstancedMeshCollection {
+    #[wasm_bindgen(getter)]
+    pub fn length(&self) -> usize {
+        self.geometries.len()
+    }
+
+    #[wasm_bindgen]
+    pub fn get(&self, index: usize) -> Option<InstancedGeometry> {
+        self.geometries.get(index).map(|g| InstancedGeometry {
+            geometry_id: g.geometry_id,
+            positions: g.positions.clone(),
+            normals: g.normals.clone(),
+            indices: g.indices.clone(),
+            instances: g.instances.iter().map(|inst| InstanceData {
+                express_id: inst.express_id,
+                transform: inst.transform.clone(),
+                color: inst.color,
+            }).collect(),
+        })
+    }
+
+    #[wasm_bindgen(getter, js_name = totalGeometries)]
+    pub fn total_geometries(&self) -> usize {
+        self.geometries.len()
+    }
+
+    #[wasm_bindgen(getter, js_name = totalInstances)]
+    pub fn total_instances(&self) -> usize {
+        self.geometries.iter().map(|g| g.instances.len()).sum()
+    }
+}
+
+impl InstancedMeshCollection {
+    pub fn new() -> Self {
+        Self {
+            geometries: Vec::new(),
+        }
+    }
+
+    pub fn add(&mut self, geometry: InstancedGeometry) {
+        self.geometries.push(geometry);
+    }
+}
+
+impl Default for InstancedMeshCollection {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Get WASM memory to allow JavaScript to create TypedArray views
 #[wasm_bindgen]
 pub fn get_memory() -> JsValue {

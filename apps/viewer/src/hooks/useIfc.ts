@@ -87,16 +87,36 @@ export function useIfc() {
       // Clear existing geometry result
       setGeometryResult(null);
 
+      // Timing instrumentation
+      const streamingStart = performance.now();
+      let batchCount = 0;
+      let lastBatchTime = streamingStart;
+      let totalWaitTime = 0; // Time waiting for WASM to yield batches
+      let totalProcessTime = 0; // Time processing batches in JS
+
       try {
+        console.log('[useIfc] Starting streaming processing...');
+        console.time('[useIfc] total-streaming');
+        
         for await (const event of geometryProcessor.processStreaming(new Uint8Array(buffer), entityIndexMap, 100)) {
+          const eventReceived = performance.now();
+          const waitTime = eventReceived - lastBatchTime;
+          
           switch (event.type) {
             case 'start':
               estimatedTotal = event.totalEstimate;
+              console.log(`[useIfc] Stream started, estimated: ${estimatedTotal}`);
               break;
             case 'model-open':
               setProgress({ phase: 'Processing geometry', percent: 50 });
+              console.log(`[useIfc] Model opened at ${(eventReceived - streamingStart).toFixed(0)}ms`);
               break;
-            case 'batch':
+            case 'batch': {
+              batchCount++;
+              totalWaitTime += waitTime;
+              
+              const processStart = performance.now();
+              
               // Collect meshes for BVH building
               allMeshes.push(...event.meshes);
               
@@ -111,20 +131,44 @@ export function useIfc() {
                 phase: `Rendering geometry (${totalMeshes} meshes)`,
                 percent: progressPercent
               });
+              
+              const processTime = performance.now() - processStart;
+              totalProcessTime += processTime;
+              
+              // Log batch timing (first 5, then every 10th)
+              if (batchCount <= 5 || batchCount % 10 === 0) {
+                console.log(
+                  `[useIfc] Batch #${batchCount}: ${event.meshes.length} meshes, ` +
+                  `wait: ${waitTime.toFixed(0)}ms, process: ${processTime.toFixed(0)}ms, ` +
+                  `total: ${totalMeshes} meshes at ${(eventReceived - streamingStart).toFixed(0)}ms`
+                );
+              }
               break;
+            }
             case 'complete':
+              console.log(
+                `[useIfc] Streaming complete: ${batchCount} batches, ${event.totalMeshes} meshes\n` +
+                `  Total wait (WASM): ${totalWaitTime.toFixed(0)}ms\n` +
+                `  Total process (JS): ${totalProcessTime.toFixed(0)}ms\n` +
+                `  First batch at: ${batchCount > 0 ? '(see Batch #1 above)' : 'N/A'}`
+              );
+              console.timeEnd('[useIfc] total-streaming');
+              
               // Update geometry result with final coordinate info
               updateCoordinateInfo(event.coordinateInfo);
               
               // Build spatial index from all collected meshes
               if (allMeshes.length > 0) {
                 setProgress({ phase: 'Building spatial index', percent: 95 });
+                console.time('[useIfc] spatial-index');
                 try {
                   const spatialIndex = buildSpatialIndex(allMeshes);
                   // Attach spatial index to dataStore
                   (dataStore as any).spatialIndex = spatialIndex;
                   setIfcDataStore(dataStore); // Update store with spatial index
+                  console.timeEnd('[useIfc] spatial-index');
                 } catch (err) {
+                  console.timeEnd('[useIfc] spatial-index');
                   console.warn('[useIfc] Failed to build spatial index:', err);
                   // Continue without spatial index - it's optional
                 }
@@ -133,6 +177,8 @@ export function useIfc() {
               setProgress({ phase: 'Complete', percent: 100 });
               break;
           }
+          
+          lastBatchTime = performance.now();
         }
       } catch (err) {
         console.error('[useIfc] Error in streaming processing:', err);

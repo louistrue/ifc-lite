@@ -7,6 +7,7 @@
  */
 
 import { WebGPUDevice } from './device.js';
+import type { InstancedMesh } from './types.js';
 
 export class RenderPipeline {
     private device: GPUDevice;
@@ -297,5 +298,239 @@ export class RenderPipeline {
 
     getUniformBufferSize(): number {
         return 192; // 48 floats * 4 bytes
+    }
+}
+
+/**
+ * Instanced render pipeline for GPU instancing
+ * Uses storage buffers for instance transforms and colors
+ */
+export class InstancedRenderPipeline {
+    private device: GPUDevice;
+    private pipeline: GPURenderPipeline;
+    private depthTexture: GPUTexture;
+    private depthTextureView: GPUTextureView;
+    private uniformBuffer: GPUBuffer;
+    private currentHeight: number;
+
+    constructor(device: WebGPUDevice, width: number = 1, height: number = 1) {
+        this.currentHeight = height;
+        this.device = device.getDevice();
+        const format = device.getFormat();
+
+        // Create depth texture
+        this.depthTexture = this.device.createTexture({
+            size: { width, height },
+            format: 'depth24plus',
+            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+        this.depthTextureView = this.depthTexture.createView();
+
+        // Create uniform buffer for camera matrices and section plane
+        // Layout: viewProj (64 bytes) + sectionPlane (16 bytes) + flags (16 bytes) = 96 bytes
+        this.uniformBuffer = this.device.createBuffer({
+            size: 96, // 6 * 16 bytes = properly aligned
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+
+        const shaderModule = this.device.createShaderModule({
+            code: `
+        // Instance data structure: transform (16 floats) + color (4 floats) = 20 floats = 80 bytes
+        struct Instance {
+          transform: mat4x4<f32>,
+          color: vec4<f32>,
+        }
+
+        struct Uniforms {
+          viewProj: mat4x4<f32>,
+          sectionPlane: vec4<f32>,      // xyz = plane normal, w = plane distance
+          flags: vec4<u32>,             // x = sectionEnabled, y,z,w = reserved
+        }
+        @binding(0) @group(0) var<uniform> uniforms: Uniforms;
+        @binding(1) @group(0) var<storage, read> instances: array<Instance>;
+
+        struct VertexInput {
+          @location(0) position: vec3<f32>,
+          @location(1) normal: vec3<f32>,
+        }
+
+        struct VertexOutput {
+          @builtin(position) position: vec4<f32>,
+          @location(0) worldPos: vec3<f32>,
+          @location(1) normal: vec3<f32>,
+          @location(2) color: vec4<f32>,
+          @location(3) @interpolate(flat) instanceId: u32,
+        }
+
+        @vertex
+        fn vs_main(input: VertexInput, @builtin(instance_index) instanceIndex: u32) -> VertexOutput {
+          var output: VertexOutput;
+          let inst = instances[instanceIndex];
+          let worldPos = inst.transform * vec4<f32>(input.position, 1.0);
+          output.position = uniforms.viewProj * worldPos;
+          output.worldPos = worldPos.xyz;
+          output.normal = normalize((inst.transform * vec4<f32>(input.normal, 0.0)).xyz);
+          output.color = inst.color;
+          output.instanceId = instanceIndex;
+          return output;
+        }
+
+        @fragment
+        fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+          // Section plane clipping
+          if (uniforms.flags.x == 1u) {
+            let planeNormal = uniforms.sectionPlane.xyz;
+            let planeDistance = uniforms.sectionPlane.w;
+            let distToPlane = dot(input.worldPos, planeNormal) - planeDistance;
+            if (distToPlane > 0.0) {
+              discard;
+            }
+          }
+
+          let N = normalize(input.normal);
+          let L = normalize(vec3<f32>(0.5, 1.0, 0.3)); // Light direction
+
+          let NdotL = max(dot(N, L), 0.0);
+
+          var baseColor = input.color.rgb;
+
+          // Simple diffuse lighting with ambient
+          let ambient = 0.3;
+          let diffuse = NdotL * 0.7;
+
+          var color = baseColor * (ambient + diffuse);
+
+          // Gamma correction (IFC colors are typically in sRGB)
+          color = pow(color, vec3<f32>(1.0 / 2.2));
+
+          return vec4<f32>(color, input.color.a);
+        }
+      `,
+        });
+
+        // Create render pipeline
+        this.pipeline = this.device.createRenderPipeline({
+            layout: 'auto',
+            vertex: {
+                module: shaderModule,
+                entryPoint: 'vs_main',
+                buffers: [
+                    {
+                        arrayStride: 24, // 6 floats * 4 bytes
+                        attributes: [
+                            { shaderLocation: 0, offset: 0, format: 'float32x3' }, // position
+                            { shaderLocation: 1, offset: 12, format: 'float32x3' }, // normal
+                        ],
+                    },
+                ],
+            },
+            fragment: {
+                module: shaderModule,
+                entryPoint: 'fs_main',
+                targets: [{ format }],
+            },
+            primitive: {
+                topology: 'triangle-list',
+                cullMode: 'none',
+            },
+            depthStencil: {
+                format: 'depth24plus',
+                depthWriteEnabled: true,
+                depthCompare: 'less',
+            },
+        });
+        // Note: bind groups are created per-instanced-mesh via createInstanceBindGroup()
+        // since each mesh has its own instance buffer
+    }
+
+    /**
+     * Update uniform buffer with camera matrices and section plane
+     */
+    updateUniforms(viewProj: Float32Array, sectionPlane?: { normal: [number, number, number]; distance: number; enabled: boolean }): void {
+        const buffer = new Float32Array(24); // 6 * 4 floats
+        const flagBuffer = new Uint32Array(buffer.buffer, 80, 4);
+
+        buffer.set(viewProj, 0);
+
+        if (sectionPlane?.enabled) {
+            buffer[16] = sectionPlane.normal[0];
+            buffer[17] = sectionPlane.normal[1];
+            buffer[18] = sectionPlane.normal[2];
+            buffer[19] = sectionPlane.distance;
+            flagBuffer[0] = 1;
+        } else {
+            buffer[16] = 0;
+            buffer[17] = 0;
+            buffer[18] = 0;
+            buffer[19] = 0;
+            flagBuffer[0] = 0;
+        }
+
+        this.device.queue.writeBuffer(this.uniformBuffer, 0, buffer);
+    }
+
+    /**
+     * Resize depth texture
+     */
+    resize(width: number, height: number): void {
+        if (this.currentHeight === height && this.depthTexture.width === width) {
+            return;
+        }
+
+        this.currentHeight = height;
+        this.depthTexture.destroy();
+        this.depthTexture = this.device.createTexture({
+            size: { width, height },
+            format: 'depth24plus',
+            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+        this.depthTextureView = this.depthTexture.createView();
+    }
+
+    /**
+     * Check if resize is needed
+     */
+    needsResize(width: number, height: number): boolean {
+        return this.depthTexture.width !== width || this.depthTexture.height !== height;
+    }
+
+    /**
+     * Get render pipeline
+     */
+    getPipeline(): GPURenderPipeline {
+        return this.pipeline;
+    }
+
+    /**
+     * Get depth texture view
+     */
+    getDepthTextureView(): GPUTextureView {
+        return this.depthTextureView;
+    }
+
+    /**
+     * Get bind group layout for instance buffer binding
+     */
+    getBindGroupLayout(): GPUBindGroupLayout {
+        return this.pipeline.getBindGroupLayout(0);
+    }
+
+    /**
+     * Create bind group with instance buffer
+     */
+    createInstanceBindGroup(instanceBuffer: GPUBuffer): GPUBindGroup {
+        return this.device.createBindGroup({
+            layout: this.pipeline.getBindGroupLayout(0),
+            entries: [
+                {
+                    binding: 0,
+                    resource: { buffer: this.uniformBuffer },
+                },
+                {
+                    binding: 1,
+                    resource: { buffer: instanceBuffer },
+                },
+            ],
+        });
     }
 }
