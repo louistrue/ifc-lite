@@ -99,15 +99,9 @@ function fixPackageJson(targetDir: string, projectName: string) {
   const deps = pkg.dependencies || {};
   for (const [name, version] of Object.entries(deps)) {
     if (version === 'workspace:*' && name.startsWith('@ifc-lite/')) {
-      deps[name] = '^1.1.0';
+      deps[name] = '^1.1.3';
     }
   }
-
-  // Remove internal dependencies that aren't published
-  delete deps['@ifc-lite/cache'];
-  delete deps['@ifc-lite/export'];
-  delete deps['@ifc-lite/query'];
-  delete deps['@ifc-lite/spatial'];
 
   // Remove git directory if present
   const gitDir = join(targetDir, '.git');
