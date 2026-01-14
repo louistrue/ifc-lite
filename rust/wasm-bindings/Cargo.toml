@@ -33,6 +33,7 @@ web-sys = { version = "0.3", features = [
 # Async support
 wasm-bindgen-futures = "0.4"
 futures-util = "0.3"
+gloo-timers = { version = "0.3", features = ["futures"] }
 
 # Error handling
 thiserror = "1.0"

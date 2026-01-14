@@ -435,6 +435,229 @@ impl IfcAPI {
         mesh_collection
     }
 
+    /// Parse IFC file with streaming mesh batches for progressive rendering
+    /// Calls the callback with batches of meshes, yielding to browser between batches
+    ///
+    /// Example:
+    /// ```javascript
+    /// const api = new IfcAPI();
+    /// await api.parseMeshesAsync(ifcData, {
+    ///   batchSize: 100,
+    ///   onBatch: (meshes, progress) => {
+    ///     // Add meshes to scene
+    ///     for (const mesh of meshes) {
+    ///       scene.add(createThreeMesh(mesh));
+    ///     }
+    ///     console.log(`Progress: ${progress.percent}%`);
+    ///   },
+    ///   onComplete: (stats) => {
+    ///     console.log(`Done! ${stats.totalMeshes} meshes`);
+    ///   }
+    /// });
+    /// ```
+    #[wasm_bindgen(js_name = parseMeshesAsync)]
+    pub fn parse_meshes_async(&self, content: String, options: JsValue) -> Promise {
+        use ifc_lite_core::{EntityScanner, EntityDecoder, build_entity_index};
+        use ifc_lite_geometry::{GeometryRouter, calculate_normals};
+
+        let promise = Promise::new(&mut |resolve, _reject| {
+            let content = content.clone();
+            let options = options.clone();
+
+            spawn_local(async move {
+                // Parse options
+                let batch_size: usize = js_sys::Reflect::get(&options, &"batchSize".into())
+                    .ok()
+                    .and_then(|v| v.as_f64())
+                    .map(|v| v as usize)
+                    .unwrap_or(100);
+
+                let on_batch = js_sys::Reflect::get(&options, &"onBatch".into())
+                    .ok()
+                    .and_then(|v| v.dyn_into::<Function>().ok());
+
+                let on_complete = js_sys::Reflect::get(&options, &"onComplete".into())
+                    .ok()
+                    .and_then(|v| v.dyn_into::<Function>().ok());
+
+                // FAST FIRST FRAME: Build minimal index only
+                let entity_index = build_entity_index(&content);
+                let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+
+                // Collect elements in TWO passes - simple geometry first, complex later
+                let mut scanner = EntityScanner::new(&content);
+                let mut simple_elements: Vec<(u32, usize, usize, ifc_lite_core::IfcType)> = Vec::new();
+                let mut complex_elements: Vec<(u32, usize, usize, ifc_lite_core::IfcType)> = Vec::new();
+                let mut faceted_brep_ids: Vec<u32> = Vec::new();
+
+                while let Some((id, type_name, start, end)) = scanner.next_entity() {
+                    if type_name == "IFCFACETEDBREP" {
+                        faceted_brep_ids.push(id);
+                    }
+                    if ifc_lite_core::has_geometry_by_name(type_name) {
+                        let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
+                        // Simple geometry: walls, slabs, beams (usually extrusions)
+                        // Complex geometry: anything with FacetedBrep
+                        if matches!(type_name, "IFCWALL" | "IFCWALLSTANDARDCASE" | "IFCSLAB" |
+                                   "IFCBEAM" | "IFCCOLUMN" | "IFCPLATE" | "IFCROOF" |
+                                   "IFCCOVERING" | "IFCFOOTING" | "IFCRAILING") {
+                            simple_elements.push((id, start, end, ifc_type));
+                        } else {
+                            complex_elements.push((id, start, end, ifc_type));
+                        }
+                    }
+                }
+
+                let total_elements = simple_elements.len() + complex_elements.len();
+
+                // Create geometry router
+                let router = GeometryRouter::new();
+
+                // Process counters
+                let mut processed = 0;
+                let mut total_meshes = 0;
+                let mut total_vertices = 0;
+                let mut total_triangles = 0;
+                let mut batch_meshes: Vec<MeshDataJs> = Vec::with_capacity(batch_size);
+
+                // PHASE 1: Process SIMPLE elements first (fast first frame)
+                // No style lookup, use default colors for speed
+                for (id, start, end, ifc_type) in simple_elements {
+                    if let Ok(entity) = decoder.decode_at(start, end) {
+                        if let Ok(mut mesh) = router.process_element(&entity, &mut decoder) {
+                            if !mesh.is_empty() {
+                                if mesh.normals.is_empty() {
+                                    calculate_normals(&mut mesh);
+                                }
+
+                                let color = get_default_color_for_type(&ifc_type);
+                                total_vertices += mesh.positions.len() / 3;
+                                total_triangles += mesh.indices.len() / 3;
+
+                                let mesh_data = MeshDataJs::new(id, mesh, color);
+                                batch_meshes.push(mesh_data);
+                            }
+                        }
+                    }
+
+                    processed += 1;
+
+                    // Yield batch when full
+                    if batch_meshes.len() >= batch_size {
+                        if let Some(ref callback) = on_batch {
+                            let js_meshes = js_sys::Array::new();
+                            for mesh in batch_meshes.drain(..) {
+                                js_meshes.push(&mesh.into());
+                            }
+
+                            let progress = js_sys::Object::new();
+                            let percent = (processed as f64 / total_elements as f64 * 100.0) as u32;
+                            js_sys::Reflect::set(&progress, &"percent".into(), &percent.into()).unwrap();
+                            js_sys::Reflect::set(&progress, &"processed".into(), &(processed as f64).into()).unwrap();
+                            js_sys::Reflect::set(&progress, &"total".into(), &(total_elements as f64).into()).unwrap();
+                            js_sys::Reflect::set(&progress, &"phase".into(), &"simple".into()).unwrap();
+
+                            let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
+                            total_meshes += js_meshes.length() as usize;
+                        }
+
+                        gloo_timers::future::TimeoutFuture::new(0).await;
+                    }
+                }
+
+                // Flush remaining simple elements
+                if !batch_meshes.is_empty() {
+                    if let Some(ref callback) = on_batch {
+                        let js_meshes = js_sys::Array::new();
+                        for mesh in batch_meshes.drain(..) {
+                            js_meshes.push(&mesh.into());
+                        }
+
+                        let progress = js_sys::Object::new();
+                        let percent = (processed as f64 / total_elements as f64 * 100.0) as u32;
+                        js_sys::Reflect::set(&progress, &"percent".into(), &percent.into()).unwrap();
+                        js_sys::Reflect::set(&progress, &"phase".into(), &"simple_complete".into()).unwrap();
+
+                        let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
+                        total_meshes += js_meshes.length() as usize;
+                    }
+
+                    gloo_timers::future::TimeoutFuture::new(0).await;
+                }
+
+                // PHASE 2: Preprocess FacetedBreps (while simple geometry is visible)
+                if !faceted_brep_ids.is_empty() {
+                    router.preprocess_faceted_breps(&faceted_brep_ids, &mut decoder);
+                }
+
+                // PHASE 3: Build style index (deferred) and process complex elements
+                let geometry_styles = build_geometry_style_index(&content, &mut decoder);
+                let style_index = build_element_style_index(&content, &geometry_styles, &mut decoder);
+
+                for (id, start, end, ifc_type) in complex_elements {
+                    if let Ok(entity) = decoder.decode_at(start, end) {
+                        if let Ok(mut mesh) = router.process_element(&entity, &mut decoder) {
+                            if !mesh.is_empty() {
+                                if mesh.normals.is_empty() {
+                                    calculate_normals(&mut mesh);
+                                }
+
+                                let color = style_index.get(&id)
+                                    .copied()
+                                    .unwrap_or_else(|| get_default_color_for_type(&ifc_type));
+
+                                total_vertices += mesh.positions.len() / 3;
+                                total_triangles += mesh.indices.len() / 3;
+
+                                let mesh_data = MeshDataJs::new(id, mesh, color);
+                                batch_meshes.push(mesh_data);
+                            }
+                        }
+                    }
+
+                    processed += 1;
+
+                    // Yield batch when full or at end
+                    if batch_meshes.len() >= batch_size || processed == total_elements {
+                        if !batch_meshes.is_empty() {
+                            if let Some(ref callback) = on_batch {
+                                let js_meshes = js_sys::Array::new();
+                                for mesh in batch_meshes.drain(..) {
+                                    js_meshes.push(&mesh.into());
+                                }
+
+                                let progress = js_sys::Object::new();
+                                let percent = (processed as f64 / total_elements as f64 * 100.0) as u32;
+                                js_sys::Reflect::set(&progress, &"percent".into(), &percent.into()).unwrap();
+                                js_sys::Reflect::set(&progress, &"processed".into(), &(processed as f64).into()).unwrap();
+                                js_sys::Reflect::set(&progress, &"total".into(), &(total_elements as f64).into()).unwrap();
+                                js_sys::Reflect::set(&progress, &"phase".into(), &"complex".into()).unwrap();
+
+                                let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
+                                total_meshes += js_meshes.length() as usize;
+                            }
+
+                            gloo_timers::future::TimeoutFuture::new(0).await;
+                        }
+                    }
+                }
+
+                // Call completion callback
+                if let Some(ref callback) = on_complete {
+                    let stats = js_sys::Object::new();
+                    js_sys::Reflect::set(&stats, &"totalMeshes".into(), &(total_meshes as f64).into()).unwrap();
+                    js_sys::Reflect::set(&stats, &"totalVertices".into(), &(total_vertices as f64).into()).unwrap();
+                    js_sys::Reflect::set(&stats, &"totalTriangles".into(), &(total_triangles as f64).into()).unwrap();
+                    let _ = callback.call1(&JsValue::NULL, &stats);
+                }
+
+                resolve.call0(&JsValue::NULL).unwrap();
+            });
+        });
+
+        promise
+    }
+
     /// Get WASM memory for zero-copy access
     #[wasm_bindgen(js_name = getMemory)]
     pub fn get_memory(&self) -> JsValue {
