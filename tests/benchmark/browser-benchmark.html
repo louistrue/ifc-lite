@@ -1,27 +1,50 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>IFC-Lite vs web-ifc Browser Benchmark</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
             background: #1a1a2e;
             color: #eee;
             padding: 20px;
         }
-        h1 { color: #4ecdc4; margin-bottom: 20px; }
-        .container { max-width: 1400px; margin: 0 auto; }
+
+        h1 {
+            color: #4ecdc4;
+            margin-bottom: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
         .controls {
             background: #16213e;
             padding: 20px;
             border-radius: 8px;
             margin-bottom: 20px;
         }
-        .controls label { display: block; margin-bottom: 10px; }
-        .controls input[type="file"] { margin-bottom: 15px; }
+
+        .controls label {
+            display: block;
+            margin-bottom: 10px;
+        }
+
+        .controls input[type="file"] {
+            margin-bottom: 15px;
+        }
+
         button {
             background: #4ecdc4;
             color: #1a1a2e;
@@ -33,62 +56,101 @@
             font-weight: bold;
             margin-right: 10px;
         }
-        button:hover { background: #3dbdb5; }
-        button:disabled { background: #666; cursor: not-allowed; }
+
+        button:hover {
+            background: #3dbdb5;
+        }
+
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+
         .benchmark-area {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 20px;
         }
+
         .viewer-container {
             background: #16213e;
             border-radius: 8px;
             padding: 15px;
         }
+
         .viewer-container h3 {
             margin-bottom: 10px;
             color: #4ecdc4;
         }
+
         canvas {
             width: 100%;
             height: 400px;
             background: #0f0f23;
             border-radius: 4px;
         }
+
         .stats {
             margin-top: 10px;
             font-size: 14px;
             line-height: 1.6;
         }
+
         .stats .metric {
             display: flex;
             justify-content: space-between;
             padding: 4px 0;
             border-bottom: 1px solid #2a2a4a;
         }
-        .stats .value { color: #4ecdc4; font-weight: bold; }
+
+        .stats .value {
+            color: #4ecdc4;
+            font-weight: bold;
+        }
+
         .results {
             background: #16213e;
             padding: 20px;
             border-radius: 8px;
             margin-top: 20px;
         }
-        .results h2 { color: #4ecdc4; margin-bottom: 15px; }
+
+        .results h2 {
+            color: #4ecdc4;
+            margin-bottom: 15px;
+        }
+
         .comparison {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             gap: 15px;
             text-align: center;
         }
+
         .comparison .card {
             background: #1a1a2e;
             padding: 15px;
             border-radius: 6px;
         }
-        .comparison .card h4 { color: #888; margin-bottom: 5px; }
-        .comparison .card .value { font-size: 24px; color: #4ecdc4; }
-        .winner { background: #1e4d2b !important; }
-        .loser { background: #4d1e1e !important; }
+
+        .comparison .card h4 {
+            color: #888;
+            margin-bottom: 5px;
+        }
+
+        .comparison .card .value {
+            font-size: 24px;
+            color: #4ecdc4;
+        }
+
+        .winner {
+            background: #1e4d2b !important;
+        }
+
+        .loser {
+            background: #4d1e1e !important;
+        }
+
         #log {
             background: #0f0f23;
             padding: 15px;
@@ -99,11 +161,21 @@
             font-family: monospace;
             font-size: 12px;
         }
-        #log .info { color: #4ecdc4; }
-        #log .warn { color: #f39c12; }
-        #log .error { color: #e74c3c; }
+
+        #log .info {
+            color: #4ecdc4;
+        }
+
+        #log .warn {
+            color: #f39c12;
+        }
+
+        #log .error {
+            color: #e74c3c;
+        }
     </style>
 </head>
+
 <body>
     <div class="container">
         <h1>IFC-Lite vs web-ifc Full Browser Benchmark</h1>
@@ -114,12 +186,12 @@
         <div class="controls">
             <label>
                 <strong>Select IFC File:</strong>
-                <input type="file" id="fileInput" accept=".ifc">
+                <input type="file" id="fileInput" accept=".ifc" data-testid="file-input">
             </label>
             <div style="margin-top: 10px;">
-                <button id="runBenchmark" disabled>Run Full Benchmark</button>
-                <button id="runIfcLite" disabled>Run IFC-Lite Only</button>
-                <button id="runWebIfc" disabled>Run web-ifc Only</button>
+                <button id="runBenchmark" disabled data-testid="run-benchmark">Run Full Benchmark</button>
+                <button id="runIfcLite" disabled data-testid="run-ifc-lite">Run IFC-Lite Only</button>
+                <button id="runWebIfc" disabled data-testid="run-web-ifc">Run web-ifc Only</button>
             </div>
             <div style="margin-top: 10px;">
                 <label>
@@ -135,29 +207,30 @@
             <div class="viewer-container">
                 <h3>IFC-Lite</h3>
                 <canvas id="canvasIfcLite"></canvas>
-                <div class="stats" id="statsIfcLite">
+                <div class="stats" id="statsIfcLite" data-testid="stats-ifc-lite">
                     <div class="metric"><span>Status:</span><span class="value">Ready</span></div>
                 </div>
             </div>
             <div class="viewer-container">
                 <h3>web-ifc</h3>
                 <canvas id="canvasWebIfc"></canvas>
-                <div class="stats" id="statsWebIfc">
+                <div class="stats" id="statsWebIfc" data-testid="stats-web-ifc">
                     <div class="metric"><span>Status:</span><span class="value">Ready</span></div>
                 </div>
             </div>
         </div>
 
-        <div class="results" id="results" style="display: none;">
+        <div class="results" id="results" style="display: none;" data-testid="benchmark-results">
             <h2>Benchmark Results</h2>
             <div class="comparison" id="comparison"></div>
+            <div id="benchmark-complete" data-testid="benchmark-complete" style="display: none;"></div>
         </div>
 
         <div id="log"></div>
     </div>
 
     <script type="module">
-        import init, { IfcAPI } from '../../rust/wasm-bindings/pkg/ifc_lite_wasm.js';
+        import init, { IfcAPI } from '../../packages/wasm/pkg/ifc-lite.js';
 
         // Logging
         function log(msg, type = 'info') {
@@ -232,7 +305,8 @@
                 this.uProjection = gl.getUniformLocation(this.program, 'uProjection');
 
                 gl.enable(gl.DEPTH_TEST);
-                gl.enable(gl.CULL_FACE);
+                // Disable backface culling for models with mixed normals
+                gl.disable(gl.CULL_FACE);
             }
 
             uploadMesh(positions, normals, indices) {
@@ -286,7 +360,7 @@
                 const fov = 45 * Math.PI / 180;
                 const aspect = width / height;
                 const near = 0.1;
-                const far = 10000;
+                const far = this.boundingRadius * 10 || 100000;
                 const f = 1.0 / Math.tan(fov / 2);
                 const projection = new Float32Array([
                     f / aspect, 0, 0, 0,
@@ -364,22 +438,55 @@
 
         // Math helpers
         function normalize(v) {
-            const len = Math.sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
-            return [v[0]/len, v[1]/len, v[2]/len];
+            const len = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+            return [v[0] / len, v[1] / len, v[2] / len];
         }
         function cross(a, b) {
-            return [a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]];
+            return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
         }
         function dot(a, b) {
-            return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+            return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        }
+        // Transform helpers for web-ifc geometry placement
+        function transformPoint(x, y, z, m) {
+            return [
+                m[0] * x + m[4] * y + m[8] * z + m[12],
+                m[1] * x + m[5] * y + m[9] * z + m[13],
+                m[2] * x + m[6] * y + m[10] * z + m[14]
+            ];
+        }
+        function transformNormal(nx, ny, nz, m) {
+            // Normals use only rotation (3x3), no translation
+            return [
+                m[0] * nx + m[4] * ny + m[8] * nz,
+                m[1] * nx + m[5] * ny + m[9] * nz,
+                m[2] * nx + m[6] * ny + m[10] * nz
+            ];
+        }
+        // Convert IFC Z-up to WebGL Y-up
+        function convertZUpToYUp(positions, normals) {
+            for (let i = 0; i < positions.length; i += 3) {
+                const y = positions[i + 1];
+                const z = positions[i + 2];
+                positions[i + 1] = z;   // New Y = old Z
+                positions[i + 2] = -y;  // New Z = -old Y
+            }
+            for (let i = 0; i < normals.length; i += 3) {
+                const ny = normals[i + 1];
+                const nz = normals[i + 2];
+                normals[i + 1] = nz;
+                normals[i + 2] = -ny;
+            }
         }
 
         // Stats display
         function updateStats(id, stats) {
             const el = document.getElementById(id);
             el.innerHTML = Object.entries(stats).map(([k, v]) =>
-                `<div class="metric"><span>${k}:</span><span class="value">${v}</span></div>`
+                `<div class="metric" data-metric="${k.toLowerCase()}"><span>${k}:</span><span class="value">${v}</span></div>`
             ).join('');
+            // Store raw stats data for Playwright extraction
+            el.setAttribute('data-stats', JSON.stringify(stats));
         }
 
         // Global state
@@ -398,6 +505,8 @@
             log('Initializing web-ifc...');
             const WebIFC = await import('https://unpkg.com/web-ifc@0.0.66/web-ifc-api.js');
             webIfcApi = new WebIFC.IfcAPI();
+            // Set the path where web-ifc.wasm is located
+            webIfcApi.SetWasmPath('/apps/viewer/public/', true);
             await webIfcApi.Init();
             log('web-ifc ready');
         }
@@ -423,6 +532,9 @@
                 const positions = new Float32Array(mesh.positions);
                 const normals = new Float32Array(mesh.normals);
                 const indices = new Uint32Array(mesh.indices);
+
+                // Convert IFC Z-up to WebGL Y-up
+                convertZUpToYUp(positions, normals);
 
                 if (positions.length > 0) {
                     renderer.uploadMesh(positions, normals, indices);
@@ -489,13 +601,22 @@
                     const positions = new Float32Array(vertCount * 3);
                     const normals = new Float32Array(vertCount * 3);
 
+                    // Apply transformation matrix to position geometry correctly
+                    const matrix = placed.flatTransformation;
+
                     for (let v = 0; v < vertCount; v++) {
-                        positions[v * 3] = verts[v * 6];
-                        positions[v * 3 + 1] = verts[v * 6 + 1];
-                        positions[v * 3 + 2] = verts[v * 6 + 2];
-                        normals[v * 3] = verts[v * 6 + 3];
-                        normals[v * 3 + 1] = verts[v * 6 + 4];
-                        normals[v * 3 + 2] = verts[v * 6 + 5];
+                        const x = verts[v * 6], y = verts[v * 6 + 1], z = verts[v * 6 + 2];
+                        const nx = verts[v * 6 + 3], ny = verts[v * 6 + 4], nz = verts[v * 6 + 5];
+
+                        const [tx, ty, tz] = transformPoint(x, y, z, matrix);
+                        const [tnx, tny, tnz] = transformNormal(nx, ny, nz, matrix);
+
+                        positions[v * 3] = tx;
+                        positions[v * 3 + 1] = ty;
+                        positions[v * 3 + 2] = tz;
+                        normals[v * 3] = tnx;
+                        normals[v * 3 + 1] = tny;
+                        normals[v * 3 + 2] = tnz;
                     }
 
                     if (positions.length > 0) {
@@ -585,6 +706,18 @@
                 `;
             }
             compEl.innerHTML = html;
+
+            // Mark benchmark as complete for Playwright and store results
+            const completeMarker = document.getElementById('benchmark-complete');
+            if (completeMarker) {
+                completeMarker.style.display = 'block';
+                completeMarker.setAttribute('data-complete', 'true');
+                completeMarker.setAttribute('data-results', JSON.stringify({
+                    ifcLite,
+                    webIfc,
+                    speedup: webIfc.totalTime / ifcLite.totalTime
+                }));
+            }
         }
 
         // Main
@@ -681,12 +814,27 @@
                 log(`web-ifc complete: ${results.totalTime.toFixed(1)}ms`);
             });
 
-            // Initial render
-            rendererIfcLite.render(false);
-            rendererWebIfc.render(false);
+            // Continuous animation loop to keep models visible
+            let animating = true;
+            function animate() {
+                if (animating) {
+                    const rotateCamera = document.getElementById('rotateCamera').checked;
+                    if (rendererIfcLite.meshes.length > 0) {
+                        rendererIfcLite.render(rotateCamera);
+                    }
+                    if (rendererWebIfc.meshes.length > 0) {
+                        rendererWebIfc.render(rotateCamera);
+                    }
+                    requestAnimationFrame(animate);
+                }
+            }
+
+            // Start animation loop
+            animate();
         }
 
         main().catch(console.error);
     </script>
 </body>
+
 </html>

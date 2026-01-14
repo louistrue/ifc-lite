@@ -16,9 +16,12 @@
         "docs:serve": "python3 -m mkdocs serve",
         "docs:build": "python3 -m mkdocs build",
         "publish:npm": "pnpm -r publish --access public",
-        "publish:dry": "pnpm -r publish --access public --dry-run"
+        "publish:dry": "pnpm -r publish --access public --dry-run",
+        "test:benchmark": "playwright test tests/benchmark/benchmark.spec.ts",
+        "test:benchmark:headed": "playwright test tests/benchmark/benchmark.spec.ts --headed"
     },
     "devDependencies": {
+        "@playwright/test": "^1.40.0",
         "@types/node": "^20.0.0",
         "tsx": "^4.21.0",
         "typescript": "^5.3.0"
