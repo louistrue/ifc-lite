@@ -103,7 +103,6 @@ export class IfcLiteBridge {
     if (!this.ifcApi) {
       throw new Error('IFC-Lite not initialized. Call init() first.');
     }
-    // @ts-expect-error - parseMeshesInstancedAsync will be available after WASM rebuild
     return this.ifcApi.parseMeshesInstancedAsync(content, options);
   }
 

@@ -65,6 +65,23 @@ export interface InstancedMesh {
   bounds?: { min: [number, number, number]; max: [number, number, number] };
 }
 
+/**
+ * Batched mesh - groups multiple meshes with same color into single draw call
+ * Reduces draw calls from N meshes to ~100-500 batches
+ */
+export interface BatchedMesh {
+  colorKey: string;  // Color hash for grouping
+  vertexBuffer: GPUBuffer;
+  indexBuffer: GPUBuffer;
+  indexCount: number;
+  color: [number, number, number, number];
+  expressIds: number[];  // For picking - all expressIds in this batch
+  bindGroup?: GPUBindGroup;
+  uniformBuffer?: GPUBuffer;
+  // Bounding box for frustum culling (optional)
+  bounds?: { min: [number, number, number]; max: [number, number, number] };
+}
+
 // Section plane for clipping
 export interface SectionPlane {
   axis: 'x' | 'y' | 'z';
@@ -84,4 +101,6 @@ export interface RenderOptions {
   selectedIds?: Set<number>;      // Multi-selection support
   // Section plane clipping
   sectionPlane?: SectionPlane;
+  // Streaming state
+  isStreaming?: boolean;          // If true, skip expensive operations like picker
 }

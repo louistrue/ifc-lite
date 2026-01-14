@@ -12,10 +12,12 @@ import type { InstancedMesh } from './types.js';
 export class RenderPipeline {
     private device: GPUDevice;
     private pipeline: GPURenderPipeline;
+    private selectionPipeline: GPURenderPipeline;  // Pipeline for selected meshes (renders on top)
     private depthTexture: GPUTexture;
     private depthTextureView: GPUTextureView;
     private uniformBuffer: GPUBuffer;
     private bindGroup: GPUBindGroup;
+    private bindGroupLayout: GPUBindGroupLayout;  // Explicit layout shared between pipelines
     private currentWidth: number;
     private currentHeight: number;
 
@@ -40,6 +42,17 @@ export class RenderPipeline {
         this.uniformBuffer = this.device.createBuffer({
             size: 192, // 12 * 16 bytes = properly aligned
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+
+        // Create explicit bind group layout (shared between main and selection pipelines)
+        this.bindGroupLayout = this.device.createBindGroupLayout({
+            entries: [
+                {
+                    binding: 0,
+                    visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+                    buffer: { type: 'uniform' },
+                },
+            ],
         });
 
         // Create shader module with PBR lighting, section plane clipping, and selection outline
@@ -153,9 +166,14 @@ export class RenderPipeline {
       `,
         });
 
-        // Create render pipeline
+        // Create explicit pipeline layout (shared between main and selection pipelines)
+        const pipelineLayout = this.device.createPipelineLayout({
+            bindGroupLayouts: [this.bindGroupLayout],
+        });
+
+        // Create render pipeline with explicit layout
         this.pipeline = this.device.createRenderPipeline({
-            layout: 'auto',
+            layout: pipelineLayout,
             vertex: {
                 module: shaderModule,
                 entryPoint: 'vs_main',
@@ -185,10 +203,45 @@ export class RenderPipeline {
             },
         });
 
-        // Create bind group using the pipeline's auto-generated layout
-        // IMPORTANT: Must use getBindGroupLayout() when pipeline uses layout: 'auto'
+        // Create selection pipeline with less-equal depth compare to render selected meshes on top
+        // This allows selected meshes to overdraw at the same depth as batched meshes
+        // IMPORTANT: Use explicit layout to share bind groups with main pipeline
+        this.selectionPipeline = this.device.createRenderPipeline({
+            layout: pipelineLayout,
+            vertex: {
+                module: shaderModule,
+                entryPoint: 'vs_main',
+                buffers: [
+                    {
+                        arrayStride: 24,
+                        attributes: [
+                            { shaderLocation: 0, offset: 0, format: 'float32x3' },
+                            { shaderLocation: 1, offset: 12, format: 'float32x3' },
+                        ],
+                    },
+                ],
+            },
+            fragment: {
+                module: shaderModule,
+                entryPoint: 'fs_main',
+                targets: [{ format }],
+            },
+            primitive: {
+                topology: 'triangle-list',
+                cullMode: 'none',
+            },
+            depthStencil: {
+                format: 'depth24plus',
+                depthWriteEnabled: true,
+                depthCompare: 'less-equal',  // Allow overdraw at same depth
+                depthBias: -1,               // Small bias to ensure selection renders in front
+                depthBiasSlopeScale: -1,
+            },
+        });
+
+        // Create bind group using the explicit bind group layout
         this.bindGroup = this.device.createBindGroup({
-            layout: this.pipeline.getBindGroupLayout(0),
+            layout: this.bindGroupLayout,
             entries: [
                 {
                     binding: 0,
@@ -284,6 +337,10 @@ export class RenderPipeline {
         return this.pipeline;
     }
 
+    getSelectionPipeline(): GPURenderPipeline {
+        return this.selectionPipeline;
+    }
+
     getDepthTextureView(): GPUTextureView {
         return this.depthTextureView;
     }
@@ -293,7 +350,7 @@ export class RenderPipeline {
     }
 
     getBindGroupLayout(): GPUBindGroupLayout {
-        return this.pipeline.getBindGroupLayout(0);
+        return this.bindGroupLayout;
     }
 
     getUniformBufferSize(): number {

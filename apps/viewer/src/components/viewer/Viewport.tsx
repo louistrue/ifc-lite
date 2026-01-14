@@ -389,7 +389,9 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           const y = e.clientY - rect.top;
 
           // Pick at cursor position - orbit around what user is clicking on
-          const pickedId = await renderer.pick(x, y);
+          const currentProgress = useViewerStore.getState().progress;
+          const currentIsStreaming = currentProgress !== null && currentProgress.percent < 100;
+          const pickedId = await renderer.pick(x, y, { isStreaming: currentIsStreaming });
           if (pickedId !== null) {
             const center = getEntityCenter(geometryRef.current, pickedId);
             if (center) {
@@ -477,7 +479,9 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           const now = Date.now();
           if (now - lastHoverCheckRef.current > hoverThrottleMs) {
             lastHoverCheckRef.current = now;
-            const pickedId = await renderer.pick(x, y);
+            const currentProgress = useViewerStore.getState().progress;
+            const currentIsStreaming = currentProgress !== null && currentProgress.percent < 100;
+            const pickedId = await renderer.pick(x, y, { isStreaming: currentIsStreaming });
             if (pickedId) {
               setHoverState({ entityId: pickedId, screenX: e.clientX, screenY: e.clientY });
             } else {
@@ -548,7 +552,9 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
 
         // Handle measure tool clicks
         if (tool === 'measure') {
-          const pickedId = await renderer.pick(x, y);
+          const currentProgress = useViewerStore.getState().progress;
+          const currentIsStreaming = currentProgress !== null && currentProgress.percent < 100;
+          const pickedId = await renderer.pick(x, y, { isStreaming: currentIsStreaming });
           if (pickedId) {
             // Get 3D position from mesh vertices (simplified - uses center of clicked entity)
             // In a full implementation, you'd use ray-triangle intersection
@@ -656,7 +662,9 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           Math.abs(clickPos.x - lastClickPosRef.current.x) < 5 &&
           Math.abs(clickPos.y - lastClickPosRef.current.y) < 5) {
           // Double-click - isolate element
-          const pickedId = await renderer.pick(x, y);
+          const currentProgress = useViewerStore.getState().progress;
+          const currentIsStreaming = currentProgress !== null && currentProgress.percent < 100;
+          const pickedId = await renderer.pick(x, y, { isStreaming: currentIsStreaming });
           if (pickedId) {
             setSelectedEntityId(pickedId);
           }
@@ -664,7 +672,10 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           lastClickPosRef.current = null;
         } else {
           // Single click
-          const pickedId = await renderer.pick(x, y);
+          // Get current progress state (not from closure)
+          const currentProgress = useViewerStore.getState().progress;
+          const currentIsStreaming = currentProgress !== null && currentProgress.percent < 100;
+          const pickedId = await renderer.pick(x, y, { isStreaming: currentIsStreaming });
 
           // Multi-selection with Ctrl/Cmd
           if (e.ctrlKey || e.metaKey) {
@@ -709,7 +720,9 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           const x = touchState.touches[0].clientX - rect.left;
           const y = touchState.touches[0].clientY - rect.top;
 
-          const pickedId = await renderer.pick(x, y);
+          const currentProgress = useViewerStore.getState().progress;
+          const currentIsStreaming = currentProgress !== null && currentProgress.percent < 100;
+          const pickedId = await renderer.pick(x, y, { isStreaming: currentIsStreaming });
           if (pickedId !== null) {
             const center = getEntityCenter(geometryRef.current, pickedId);
             if (center) {
@@ -948,6 +961,12 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   const lastGeometryRef = useRef<MeshData[] | null>(null);
   const cameraFittedRef = useRef<boolean>(false);
 
+  // Render throttling during streaming
+  const lastRenderTimeRef = useRef<number>(0);
+  const RENDER_THROTTLE_MS = 200; // Render at most every 200ms during streaming
+  const progress = useViewerStore((state) => state.progress);
+  const isStreaming = progress !== null && progress.percent < 100;
+
   useEffect(() => {
     const renderer = rendererRef.current;
 
@@ -958,25 +977,16 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
 
     const scene = renderer.getScene();
     const currentLength = geometry.length;
-    const geometryChanged = lastGeometryRef.current !== geometry;
+    const lastLength = lastGeometryLengthRef.current;
 
-    if (geometryChanged && lastGeometryRef.current !== null) {
-      // New file loaded - reset camera and bounds
-      scene.clear();
-      processedMeshIdsRef.current.clear();
-      cameraFittedRef.current = false;
-      lastGeometryLengthRef.current = 0;
-      lastGeometryRef.current = geometry;
-      // Reset camera state (clear orbit pivot, stop inertia, cancel animations)
-      renderer.getCamera().reset();
-      // Reset geometry bounds to default
-      geometryBoundsRef.current = {
-        min: { x: -100, y: -100, z: -100 },
-        max: { x: 100, y: 100, z: 100 },
-      };
-    } else if (currentLength > lastGeometryLengthRef.current) {
-      lastGeometryRef.current = geometry;
-    } else if (currentLength === 0) {
+    // Use length-based detection instead of reference comparison
+    // React creates new array references on every appendGeometryBatch call,
+    // so reference comparison would always trigger scene.clear()
+    const isIncremental = currentLength > lastLength && lastLength > 0;
+    const isNewFile = currentLength > 0 && lastLength === 0 && lastGeometryRef.current !== null;
+    const isCleared = currentLength === 0;
+
+    if (isCleared) {
       // Geometry cleared - reset camera and bounds
       scene.clear();
       processedMeshIdsRef.current.clear();
@@ -991,10 +1001,22 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         max: { x: 100, y: 100, z: 100 },
       };
       return;
-    } else if (currentLength === lastGeometryLengthRef.current && !geometryChanged) {
-      return;
-    } else {
-      // Length changed or other scenario - reset camera and bounds
+    } else if (isNewFile) {
+      // New file loaded - reset camera and bounds
+      scene.clear();
+      processedMeshIdsRef.current.clear();
+      cameraFittedRef.current = false;
+      lastGeometryLengthRef.current = 0;
+      lastGeometryRef.current = geometry;
+      // Reset camera state (clear orbit pivot, stop inertia, cancel animations)
+      renderer.getCamera().reset();
+      // Reset geometry bounds to default
+      geometryBoundsRef.current = {
+        min: { x: -100, y: -100, z: -100 },
+        max: { x: 100, y: 100, z: 100 },
+      };
+    } else if (!isIncremental && currentLength !== lastLength) {
+      // Length decreased (shouldn't happen during streaming) - reset
       scene.clear();
       processedMeshIdsRef.current.clear();
       cameraFittedRef.current = false;
@@ -1007,9 +1029,15 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         min: { x: -100, y: -100, z: -100 },
         max: { x: 100, y: 100, z: 100 },
       };
+    } else if (currentLength === lastLength) {
+      // No change - skip processing
+      return;
     }
 
-    if (lastGeometryRef.current === null) {
+    // For incremental batches: update reference and continue to add new meshes
+    if (isIncremental) {
+      lastGeometryRef.current = geometry;
+    } else if (lastGeometryRef.current === null) {
       lastGeometryRef.current = geometry;
     }
 
@@ -1026,48 +1054,83 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
     }
 
     if (newMeshes.length > 0) {
-      // Upload meshes directly (fallback path - Rust-side instancing is preferred)
-      for (const meshData of newMeshes) {
-        const vertexCount = meshData.positions.length / 3;
-        const interleaved = new Float32Array(vertexCount * 6);
-        for (let i = 0; i < vertexCount; i++) {
-          const base = i * 6;
-          const posBase = i * 3;
-          interleaved[base] = meshData.positions[posBase];
-          interleaved[base + 1] = meshData.positions[posBase + 1];
-          interleaved[base + 2] = meshData.positions[posBase + 2];
-          interleaved[base + 3] = meshData.normals[posBase];
-          interleaved[base + 4] = meshData.normals[posBase + 1];
-          interleaved[base + 5] = meshData.normals[posBase + 2];
+      // Batch meshes by color for efficient rendering (reduces draw calls from N to ~100-500)
+      // This dramatically improves performance for large models (50K+ meshes)
+      const pipeline = renderer.getPipeline();
+      if (pipeline) {
+        // Use batched rendering - groups meshes by color into single draw calls
+        (scene as any).appendToBatches(newMeshes, device, pipeline);
+
+        // Store mesh data for on-demand selection rendering
+        // We DON'T create GPU buffers here during streaming - that's 2x the overhead!
+        // Instead, store MeshData references and create buffers lazily when selected
+        for (const meshData of newMeshes) {
+          // Store minimal mesh data for picker and lazy selection buffer creation
+          scene.addMeshData(meshData);
         }
+      } else {
+        // Fallback: add individual meshes if pipeline not ready
+        for (const meshData of newMeshes) {
+          const vertexCount = meshData.positions.length / 3;
+          const interleaved = new Float32Array(vertexCount * 6);
+          for (let i = 0; i < vertexCount; i++) {
+            const base = i * 6;
+            const posBase = i * 3;
+            interleaved[base] = meshData.positions[posBase];
+            interleaved[base + 1] = meshData.positions[posBase + 1];
+            interleaved[base + 2] = meshData.positions[posBase + 2];
+            interleaved[base + 3] = meshData.normals[posBase];
+            interleaved[base + 4] = meshData.normals[posBase + 1];
+            interleaved[base + 5] = meshData.normals[posBase + 2];
+          }
 
-        const vertexBuffer = device.createBuffer({
-          size: interleaved.byteLength,
-          usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-        });
-        device.queue.writeBuffer(vertexBuffer, 0, interleaved);
+          const vertexBuffer = device.createBuffer({
+            size: interleaved.byteLength,
+            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+          });
+          device.queue.writeBuffer(vertexBuffer, 0, interleaved);
 
-        const indexBuffer = device.createBuffer({
-          size: meshData.indices.byteLength,
-          usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-        });
-        device.queue.writeBuffer(indexBuffer, 0, meshData.indices);
+          const indexBuffer = device.createBuffer({
+            size: meshData.indices.byteLength,
+            usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+          });
+          device.queue.writeBuffer(indexBuffer, 0, meshData.indices);
 
-        scene.addMesh({
-          expressId: meshData.expressId,
-          vertexBuffer,
-          indexBuffer,
-          indexCount: meshData.indices.length,
-          transform: MathUtils.identity(),
-          color: meshData.color,
-        });
+          scene.addMesh({
+            expressId: meshData.expressId,
+            vertexBuffer,
+            indexBuffer,
+            indexCount: meshData.indices.length,
+            transform: MathUtils.identity(),
+            color: meshData.color,
+          });
+        }
       }
     }
 
     lastGeometryLengthRef.current = currentLength;
 
     // Fit camera and store bounds
+    // Wait for valid coordinateInfo before fitting (especially important for large models)
     if (!cameraFittedRef.current && coordinateInfo?.shiftedBounds) {
+      const shiftedBounds = coordinateInfo.shiftedBounds;
+      const maxSize = Math.max(
+        shiftedBounds.max.x - shiftedBounds.min.x,
+        shiftedBounds.max.y - shiftedBounds.min.y,
+        shiftedBounds.max.z - shiftedBounds.min.z
+      );
+      // Only fit if bounds are valid and non-zero
+      // For large models, wait until we have enough geometry (at least 1000 meshes) OR streaming is complete
+      // This prevents fitting to incomplete bounds during early streaming
+      // Streaming completion ensures we have final, accurate bounds
+      const hasEnoughGeometry = geometry.length >= 1000 || !isStreaming;
+      if (maxSize > 0 && Number.isFinite(maxSize) && hasEnoughGeometry) {
+        renderer.getCamera().fitToBounds(shiftedBounds.min, shiftedBounds.max);
+        geometryBoundsRef.current = { min: { ...shiftedBounds.min }, max: { ...shiftedBounds.max } };
+        cameraFittedRef.current = true;
+      }
+    } else if (!cameraFittedRef.current && !isStreaming && coordinateInfo?.shiftedBounds) {
+      // Retry camera fitting when streaming completes (coordinateInfo might have been updated)
       const shiftedBounds = coordinateInfo.shiftedBounds;
       const maxSize = Math.max(
         shiftedBounds.max.x - shiftedBounds.min.x,
@@ -1079,7 +1142,9 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         geometryBoundsRef.current = { min: { ...shiftedBounds.min }, max: { ...shiftedBounds.max } };
         cameraFittedRef.current = true;
       }
-    } else if (!cameraFittedRef.current && geometry.length > 0) {
+    } else if (!cameraFittedRef.current && geometry.length > 0 && !isStreaming) {
+      // Fallback: calculate bounds from geometry array (only when streaming is complete)
+      // This ensures we have complete bounds before fitting camera
       const fallbackBounds = {
         min: { x: Infinity, y: Infinity, z: Infinity },
         max: { x: -Infinity, y: -Infinity, z: -Infinity },
@@ -1101,7 +1166,13 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         }
       }
 
-      if (fallbackBounds.min.x !== Infinity) {
+      const maxSize = Math.max(
+        fallbackBounds.max.x - fallbackBounds.min.x,
+        fallbackBounds.max.y - fallbackBounds.min.y,
+        fallbackBounds.max.z - fallbackBounds.min.z
+      );
+
+      if (fallbackBounds.min.x !== Infinity && maxSize > 0 && Number.isFinite(maxSize)) {
         renderer.getCamera().fitToBounds(fallbackBounds.min, fallbackBounds.max);
         geometryBoundsRef.current = fallbackBounds;
         cameraFittedRef.current = true;
@@ -1113,9 +1184,31 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
     // Instancing conversion would require preserving actual mesh transforms, which is complex
     // For now, we render regular meshes directly (fast enough for most cases)
 
-    // Render after adding meshes
-    renderer.render();
-  }, [geometry, coordinateInfo, isInitialized]);
+    // Render throttling: During streaming, only render every RENDER_THROTTLE_MS
+    // This prevents rendering 28K+ meshes from blocking WASM batch processing
+    const now = Date.now();
+    const timeSinceLastRender = now - lastRenderTimeRef.current;
+    const shouldRender = !isStreaming || timeSinceLastRender >= RENDER_THROTTLE_MS;
+
+    if (shouldRender) {
+      renderer.render();
+      lastRenderTimeRef.current = now;
+    }
+  }, [geometry, coordinateInfo, isInitialized, isStreaming]);
+
+  // Force render when streaming completes (progress goes from <100% to 100% or null)
+  const prevIsStreamingRef = useRef(isStreaming);
+  useEffect(() => {
+    const renderer = rendererRef.current;
+    if (!renderer || !isInitialized) return;
+
+    // If streaming just completed (was streaming, now not), force immediate render
+    if (prevIsStreamingRef.current && !isStreaming) {
+      renderer.render();
+      lastRenderTimeRef.current = Date.now();
+    }
+    prevIsStreamingRef.current = isStreaming;
+  }, [isStreaming, isInitialized]);
 
   // Get selectedEntityIds from store for multi-selection
   const selectedEntityIds = useViewerStore((state) => state.selectedEntityIds);

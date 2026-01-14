@@ -65,6 +65,7 @@ interface GPUDevice extends EventTarget {
   readonly queue: GPUQueue;
   createShaderModule(descriptor: GPUShaderModuleDescriptor): GPUShaderModule;
   createRenderPipeline(descriptor: GPURenderPipelineDescriptor): GPURenderPipeline;
+  createPipelineLayout(descriptor: GPUPipelineLayoutDescriptor): GPUPipelineLayout;
   createCommandEncoder(descriptor?: GPUCommandEncoderDescriptor): GPUCommandEncoder;
   createBuffer(descriptor: GPUBufferDescriptor): GPUBuffer;
   createTexture(descriptor: GPUTextureDescriptor): GPUTexture;
@@ -340,6 +341,11 @@ type GPUStorageTextureAccess = 'write-only' | 'read-only' | 'read-write';
 
 interface GPUPipelineLayout {
   readonly label?: string;
+}
+
+interface GPUPipelineLayoutDescriptor {
+  bindGroupLayouts: GPUBindGroupLayout[];
+  label?: string;
 }
 
 interface GPUQuerySet {

@@ -2,7 +2,11 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "allowJs": false,
@@ -19,9 +23,29 @@
     "sourceMap": true,
     "baseUrl": ".",
     "paths": {
-      "@ifc-lite/wasm": ["packages/wasm/pkg/ifc-lite.d.ts"],
-      "@ifc-lite/wasm/*": ["packages/wasm/pkg/*"]
+      "@ifc-lite/wasm": [
+        "packages/wasm/pkg/ifc-lite.d.ts"
+      ],
+      "@ifc-lite/wasm/*": [
+        "packages/wasm/pkg/*"
+      ],
+      "@ifc-lite/geometry": [
+        "packages/geometry/dist/index.d.ts"
+      ],
+      "@ifc-lite/geometry/*": [
+        "packages/geometry/dist/*"
+      ],
+      "@ifc-lite/spatial": [
+        "packages/spatial/dist/index.d.ts"
+      ],
+      "@ifc-lite/spatial/*": [
+        "packages/spatial/dist/*"
+      ]
     }
   },
-  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts"
+  ]
 }

@@ -17,7 +17,7 @@ export class Picker {
   private uniformBuffer: GPUBuffer;
   private expressIdBuffer: GPUBuffer;
   private bindGroup: GPUBindGroup;
-  private maxMeshes: number = 10000;
+  private maxMeshes: number = 100000; // Support up to 100K meshes (was 10K)
 
   constructor(device: WebGPUDevice, width: number = 1, height: number = 1) {
     this.device = device.getDevice();
@@ -185,6 +185,11 @@ export class Picker {
       },
     });
 
+    // Resize buffer if needed (safety net for very large models)
+    if (meshes.length > this.maxMeshes) {
+      this.resizeExpressIdBuffer(meshes.length);
+    }
+
     // Upload viewProj matrix to uniform buffer (once for all meshes)
     this.device.queue.writeBuffer(this.uniformBuffer, 0, viewProj);
 
@@ -252,5 +257,37 @@ export class Picker {
   updateUniforms(viewProj: Float32Array): void {
     // Update viewProj matrix only
     this.device.queue.writeBuffer(this.uniformBuffer, 0, viewProj);
+  }
+
+  /**
+   * Resize expressId buffer to accommodate more meshes
+   */
+  private resizeExpressIdBuffer(newSize: number): void {
+    // Destroy old buffer
+    this.expressIdBuffer.destroy();
+
+    // Increase maxMeshes with 50% headroom for future growth
+    this.maxMeshes = Math.ceil(newSize * 1.5);
+
+    // Create new buffer
+    this.expressIdBuffer = this.device.createBuffer({
+      size: this.maxMeshes * 4, // 4 bytes per u32
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
+    // Recreate bind group with new buffer
+    this.bindGroup = this.device.createBindGroup({
+      layout: this.pipeline.getBindGroupLayout(0),
+      entries: [
+        {
+          binding: 0,
+          resource: { buffer: this.uniformBuffer },
+        },
+        {
+          binding: 1,
+          resource: { buffer: this.expressIdBuffer },
+        },
+      ],
+    });
   }
 }
