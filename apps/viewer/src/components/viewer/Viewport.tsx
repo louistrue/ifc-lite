@@ -960,6 +960,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   const lastGeometryLengthRef = useRef<number>(0);
   const lastGeometryRef = useRef<MeshData[] | null>(null);
   const cameraFittedRef = useRef<boolean>(false);
+  const finalBoundsRefittedRef = useRef<boolean>(false); // Track if we've refitted after streaming
 
   // Render throttling during streaming
   const lastRenderTimeRef = useRef<number>(0);
@@ -991,6 +992,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       scene.clear();
       processedMeshIdsRef.current.clear();
       cameraFittedRef.current = false;
+      finalBoundsRefittedRef.current = false;
       lastGeometryLengthRef.current = 0;
       lastGeometryRef.current = null;
       // Reset camera state
@@ -1006,6 +1008,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       scene.clear();
       processedMeshIdsRef.current.clear();
       cameraFittedRef.current = false;
+      finalBoundsRefittedRef.current = false;
       lastGeometryLengthRef.current = 0;
       lastGeometryRef.current = geometry;
       // Reset camera state (clear orbit pivot, stop inertia, cancel animations)
@@ -1020,6 +1023,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       scene.clear();
       processedMeshIdsRef.current.clear();
       cameraFittedRef.current = false;
+      finalBoundsRefittedRef.current = false;
       lastGeometryLengthRef.current = 0;
       lastGeometryRef.current = geometry;
       // Reset camera state
@@ -1030,7 +1034,47 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         max: { x: 100, y: 100, z: 100 },
       };
     } else if (currentLength === lastLength) {
-      // No change - skip processing
+      // No geometry change - but check if we need to update bounds when streaming completes
+      if (cameraFittedRef.current && !isStreaming && !finalBoundsRefittedRef.current && coordinateInfo?.shiftedBounds) {
+        const shiftedBounds = coordinateInfo.shiftedBounds;
+        const newMaxSize = Math.max(
+          shiftedBounds.max.x - shiftedBounds.min.x,
+          shiftedBounds.max.y - shiftedBounds.min.y,
+          shiftedBounds.max.z - shiftedBounds.min.z
+        );
+
+        if (newMaxSize > 0 && Number.isFinite(newMaxSize)) {
+          // Only refit camera for LARGE models (>1000 meshes) where geometry streamed in multiple batches
+          // Small models complete in one batch, so their initial camera fit is already correct
+          const isLargeModel = geometry.length > 1000;
+
+          if (isLargeModel) {
+            const oldBounds = geometryBoundsRef.current;
+            const oldMaxSize = Math.max(
+              oldBounds.max.x - oldBounds.min.x,
+              oldBounds.max.y - oldBounds.min.y,
+              oldBounds.max.z - oldBounds.min.z
+            );
+
+            // Refit camera if bounds expanded significantly (>10% larger)
+            // This handles skyscrapers where upper floors arrive in later batches
+            const boundsExpanded = newMaxSize > oldMaxSize * 1.1;
+
+            if (boundsExpanded) {
+              console.log('[Viewport] Refitting camera after streaming complete - bounds expanded:', {
+                oldMaxSize: oldMaxSize.toFixed(1),
+                newMaxSize: newMaxSize.toFixed(1),
+                expansion: ((newMaxSize / oldMaxSize - 1) * 100).toFixed(0) + '%'
+              });
+              renderer.getCamera().fitToBounds(shiftedBounds.min, shiftedBounds.max);
+            }
+          }
+
+          // Always update bounds for accurate zoom-to-fit, home view, etc.
+          geometryBoundsRef.current = { min: { ...shiftedBounds.min }, max: { ...shiftedBounds.max } };
+          finalBoundsRefittedRef.current = true;
+        }
+      }
       return;
     }
 
@@ -1111,7 +1155,8 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
     lastGeometryLengthRef.current = currentLength;
 
     // Fit camera and store bounds
-    // Wait for valid coordinateInfo before fitting (especially important for large models)
+    // IMPORTANT: Fit camera immediately when we have valid bounds to avoid starting inside model
+    // The default camera position (50, 50, 100) is inside most models that are shifted to origin
     if (!cameraFittedRef.current && coordinateInfo?.shiftedBounds) {
       const shiftedBounds = coordinateInfo.shiftedBounds;
       const maxSize = Math.max(
@@ -1119,24 +1164,10 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         shiftedBounds.max.y - shiftedBounds.min.y,
         shiftedBounds.max.z - shiftedBounds.min.z
       );
-      // Only fit if bounds are valid and non-zero
-      // For large models, wait until we have enough geometry (at least 1000 meshes) OR streaming is complete
-      // This prevents fitting to incomplete bounds during early streaming
-      // Streaming completion ensures we have final, accurate bounds
-      const hasEnoughGeometry = geometry.length >= 1000 || !isStreaming;
-      if (maxSize > 0 && Number.isFinite(maxSize) && hasEnoughGeometry) {
-        renderer.getCamera().fitToBounds(shiftedBounds.min, shiftedBounds.max);
-        geometryBoundsRef.current = { min: { ...shiftedBounds.min }, max: { ...shiftedBounds.max } };
-        cameraFittedRef.current = true;
-      }
-    } else if (!cameraFittedRef.current && !isStreaming && coordinateInfo?.shiftedBounds) {
-      // Retry camera fitting when streaming completes (coordinateInfo might have been updated)
-      const shiftedBounds = coordinateInfo.shiftedBounds;
-      const maxSize = Math.max(
-        shiftedBounds.max.x - shiftedBounds.min.x,
-        shiftedBounds.max.y - shiftedBounds.min.y,
-        shiftedBounds.max.z - shiftedBounds.min.z
-      );
+      // Fit camera immediately when we have valid bounds
+      // For streaming: the first batch already has complete bounds from coordinate handler
+      // (bounds are calculated from ALL geometry before streaming starts)
+      // Waiting for streaming to complete causes the camera to start inside the model
       if (maxSize > 0 && Number.isFinite(maxSize)) {
         renderer.getCamera().fitToBounds(shiftedBounds.min, shiftedBounds.max);
         geometryBoundsRef.current = { min: { ...shiftedBounds.min }, max: { ...shiftedBounds.max } };
