@@ -59,6 +59,10 @@ export function useIfc() {
       console.time('[useIfc] cache-load');
       setProgress({ phase: 'Loading from cache', percent: 10 });
 
+      // IMPORTANT: Reset geometry first so Viewport detects this as a new file
+      // This ensures camera fitting and bounds are properly reset
+      setGeometryResult(null);
+
       const reader = new BinaryCacheReader();
       const result = await reader.read(cacheBuffer);
 
