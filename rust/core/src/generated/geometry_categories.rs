@@ -151,12 +151,12 @@ impl IfcType {
         matches!(
             self,
             Self::IfcProject
-            | Self::IfcSite
-            | Self::IfcBuilding
-            | Self::IfcBuildingStorey
-            | Self::IfcSpace
-            | Self::IfcFacility
-            | Self::IfcFacilityPart
+                | Self::IfcSite
+                | Self::IfcBuilding
+                | Self::IfcBuildingStorey
+                | Self::IfcSpace
+                | Self::IfcFacility
+                | Self::IfcFacilityPart
         )
     }
 
@@ -183,14 +183,27 @@ impl IfcType {
         let name = self.name();
         matches!(
             *self,
-            Self::IfcWall | Self::IfcWallStandardCase | Self::IfcSlab |
-            Self::IfcBeam | Self::IfcColumn | Self::IfcRoof |
-            Self::IfcStair | Self::IfcRamp | Self::IfcRailing |
-            Self::IfcPlate | Self::IfcMember | Self::IfcFooting |
-            Self::IfcPile | Self::IfcCovering | Self::IfcCurtainWall |
-            Self::IfcDoor | Self::IfcWindow | Self::IfcChimney |
-            Self::IfcShadingDevice | Self::IfcBuildingElementProxy |
-            Self::IfcBuildingElementPart
+            Self::IfcWall
+                | Self::IfcWallStandardCase
+                | Self::IfcSlab
+                | Self::IfcBeam
+                | Self::IfcColumn
+                | Self::IfcRoof
+                | Self::IfcStair
+                | Self::IfcRamp
+                | Self::IfcRailing
+                | Self::IfcPlate
+                | Self::IfcMember
+                | Self::IfcFooting
+                | Self::IfcPile
+                | Self::IfcCovering
+                | Self::IfcCurtainWall
+                | Self::IfcDoor
+                | Self::IfcWindow
+                | Self::IfcChimney
+                | Self::IfcShadingDevice
+                | Self::IfcBuildingElementProxy
+                | Self::IfcBuildingElementPart
         ) || name.contains("Reinforc")
     }
 }

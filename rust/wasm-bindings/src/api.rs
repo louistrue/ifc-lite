@@ -6,11 +6,14 @@
 //!
 //! Modern async/await API for parsing IFC files.
 
+use crate::zero_copy::{
+    InstanceData, InstancedGeometry, InstancedMeshCollection, MeshCollection, MeshDataJs,
+    ZeroCopyMesh,
+};
+use ifc_lite_core::{EntityScanner, GeoReference, ParseEvent, RtcOffset, StreamConfig};
+use js_sys::{Function, Promise};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
-use js_sys::{Function, Promise};
-use ifc_lite_core::{EntityScanner, ParseEvent, StreamConfig, GeoReference, RtcOffset};
-use crate::zero_copy::{ZeroCopyMesh, MeshDataJs, MeshCollection, InstancedMeshCollection, InstancedGeometry, InstanceData};
 
 /// Georeferencing information exposed to JavaScript
 #[wasm_bindgen]
@@ -90,10 +93,22 @@ impl GeoReferenceJs {
         let s = self.scale;
 
         vec![
-            s * cos_r,  s * sin_r,  0.0, 0.0,
-            -s * sin_r, s * cos_r,  0.0, 0.0,
-            0.0,        0.0,        1.0, 0.0,
-            self.eastings, self.northings, self.orthogonal_height, 1.0,
+            s * cos_r,
+            s * sin_r,
+            0.0,
+            0.0,
+            -s * sin_r,
+            s * cos_r,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            self.eastings,
+            self.northings,
+            self.orthogonal_height,
+            1.0,
         ]
     }
 }
@@ -197,9 +212,7 @@ impl IfcAPI {
         #[cfg(feature = "console_error_panic_hook")]
         console_error_panic_hook::set_once();
 
-        Self {
-            initialized: true,
-        }
+        Self { initialized: true }
     }
 
     /// Check if API is initialized
@@ -308,8 +321,8 @@ impl IfcAPI {
     #[wasm_bindgen(js_name = parseZeroCopy)]
     pub fn parse_zero_copy(&self, content: String) -> ZeroCopyMesh {
         // Parse IFC file and generate geometry with optimized processing
-        use ifc_lite_core::{EntityScanner, EntityDecoder, build_entity_index};
-        use ifc_lite_geometry::{GeometryRouter, Mesh, calculate_normals};
+        use ifc_lite_core::{build_entity_index, EntityDecoder, EntityScanner};
+        use ifc_lite_geometry::{calculate_normals, GeometryRouter, Mesh};
 
         // Build entity index once upfront for O(1) lookups
         let entity_index = build_entity_index(&content);
@@ -369,8 +382,8 @@ impl IfcAPI {
     /// ```
     #[wasm_bindgen(js_name = parseMeshes)]
     pub fn parse_meshes(&self, content: String) -> MeshCollection {
-        use ifc_lite_core::{EntityScanner, EntityDecoder, build_entity_index};
-        use ifc_lite_geometry::{GeometryRouter, calculate_normals};
+        use ifc_lite_core::{build_entity_index, EntityDecoder, EntityScanner};
+        use ifc_lite_geometry::{calculate_normals, GeometryRouter};
 
         // Build entity index once upfront for O(1) lookups
         let entity_index = build_entity_index(&content);
@@ -424,7 +437,8 @@ impl IfcAPI {
                         }
 
                         // Try to get color from style index, otherwise use default
-                        let color = style_index.get(&id)
+                        let color = style_index
+                            .get(&id)
                             .copied()
                             .unwrap_or_else(|| get_default_color_for_type(&entity.ifc_type));
 
@@ -458,12 +472,13 @@ impl IfcAPI {
     /// }
     /// ```
     #[wasm_bindgen(js_name = parseMeshesInstanced)]
+    #[allow(clippy::type_complexity)]
     pub fn parse_meshes_instanced(&self, content: String) -> InstancedMeshCollection {
-        use ifc_lite_core::{EntityScanner, EntityDecoder, build_entity_index};
-        use ifc_lite_geometry::{GeometryRouter, calculate_normals, Mesh};
+        use ifc_lite_core::{build_entity_index, EntityDecoder, EntityScanner};
+        use ifc_lite_geometry::{calculate_normals, GeometryRouter, Mesh};
         use rustc_hash::FxHashMap;
-        use std::hash::{Hash, Hasher};
         use rustc_hash::FxHasher;
+        use std::hash::{Hash, Hasher};
 
         // Build entity index once upfront for O(1) lookups
         let entity_index = build_entity_index(&content);
@@ -498,7 +513,8 @@ impl IfcAPI {
         // Group meshes by geometry hash
         // Key: geometry hash, Value: (base mesh, Vec<(express_id, transform, color)>)
         // Note: transform is returned as Matrix4<f64> from process_element_with_transform
-        let mut geometry_groups: FxHashMap<u64, (Mesh, Vec<(u32, [f64; 16], [f32; 4])>)> = FxHashMap::default();
+        let mut geometry_groups: FxHashMap<u64, (Mesh, Vec<(u32, [f64; 16], [f32; 4])>)> =
+            FxHashMap::default();
 
         // Process all building elements
         while let Some((id, type_name, start, end)) = scanner.next_entity() {
@@ -509,7 +525,9 @@ impl IfcAPI {
 
             // Decode and process the entity
             if let Ok(entity) = decoder.decode_at(start, end) {
-                if let Ok((mut mesh, transform)) = router.process_element_with_transform(&entity, &mut decoder) {
+                if let Ok((mut mesh, transform)) =
+                    router.process_element_with_transform(&entity, &mut decoder)
+                {
                     if !mesh.is_empty() {
                         // Calculate normals if not present
                         if mesh.normals.is_empty() {
@@ -529,7 +547,8 @@ impl IfcAPI {
                         let geometry_hash = hasher.finish();
 
                         // Try to get color from style index, otherwise use default
-                        let color = style_index.get(&id)
+                        let color = style_index
+                            .get(&id)
                             .copied()
                             .unwrap_or_else(|| get_default_color_for_type(&entity.ifc_type));
 
@@ -561,12 +580,8 @@ impl IfcAPI {
         // Convert groups to InstancedGeometry
         let mut collection = InstancedMeshCollection::new();
         for (geometry_id, (mesh, instances)) in geometry_groups {
-            let mut instanced_geom = InstancedGeometry::new(
-                geometry_id,
-                mesh.positions,
-                mesh.normals,
-                mesh.indices,
-            );
+            let mut instanced_geom =
+                InstancedGeometry::new(geometry_id, mesh.positions, mesh.normals, mesh.indices);
 
             // Convert transforms from [f64; 16] to Vec<f32>
             for (express_id, transform_array, color) in instances {
@@ -603,9 +618,10 @@ impl IfcAPI {
     /// });
     /// ```
     #[wasm_bindgen(js_name = parseMeshesInstancedAsync)]
+    #[allow(clippy::type_complexity)]
     pub fn parse_meshes_instanced_async(&self, content: String, options: JsValue) -> Promise {
-        use ifc_lite_core::{EntityScanner, EntityDecoder, build_entity_index};
-        use ifc_lite_geometry::{GeometryRouter, calculate_normals, Mesh};
+        use ifc_lite_core::{build_entity_index, EntityDecoder, EntityScanner};
+        use ifc_lite_geometry::{calculate_normals, GeometryRouter, Mesh};
         use rustc_hash::{FxHashMap, FxHasher};
         use std::hash::{Hash, Hasher};
 
@@ -619,7 +635,7 @@ impl IfcAPI {
                     .ok()
                     .and_then(|v| v.as_f64())
                     .map(|v| v as usize)
-                    .unwrap_or(25);  // Batch size = number of unique geometries per batch
+                    .unwrap_or(25); // Batch size = number of unique geometries per batch
 
                 let on_batch = js_sys::Reflect::get(&options, &"onBatch".into())
                     .ok()
@@ -635,7 +651,8 @@ impl IfcAPI {
 
                 // Build style index
                 let geometry_styles = build_geometry_style_index(&content, &mut decoder);
-                let style_index = build_element_style_index(&content, &geometry_styles, &mut decoder);
+                let style_index =
+                    build_element_style_index(&content, &geometry_styles, &mut decoder);
 
                 // Collect FacetedBrep IDs for batch preprocessing
                 let mut scanner = EntityScanner::new(&content);
@@ -659,11 +676,13 @@ impl IfcAPI {
 
                 // Group meshes by geometry hash (accumulated across batches)
                 // Key: geometry hash, Value: (base mesh, Vec<(express_id, transform, color)>)
-                let mut geometry_groups: FxHashMap<u64, (Mesh, Vec<(u32, [f64; 16], [f32; 4])>)> = FxHashMap::default();
+                let mut geometry_groups: FxHashMap<u64, (Mesh, Vec<(u32, [f64; 16], [f32; 4])>)> =
+                    FxHashMap::default();
                 let mut processed = 0;
                 let mut total_geometries = 0;
                 let mut total_instances = 0;
-                let mut deferred_complex: Vec<(u32, usize, usize, ifc_lite_core::IfcType)> = Vec::new();
+                let mut deferred_complex: Vec<(u32, usize, usize, ifc_lite_core::IfcType)> =
+                    Vec::new();
 
                 // First pass - process simple geometry immediately
                 while let Some((id, type_name, start, end)) = scanner.next_entity() {
@@ -674,12 +693,27 @@ impl IfcAPI {
                     let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
 
                     // Simple geometry: process immediately
-                    if matches!(type_name, "IFCWALL" | "IFCWALLSTANDARDCASE" | "IFCSLAB" |
-                               "IFCBEAM" | "IFCCOLUMN" | "IFCPLATE" | "IFCROOF" |
-                               "IFCCOVERING" | "IFCFOOTING" | "IFCRAILING" | "IFCSTAIR" |
-                               "IFCSTAIRFLIGHT" | "IFCRAMP" | "IFCRAMPFLIGHT") {
+                    if matches!(
+                        type_name,
+                        "IFCWALL"
+                            | "IFCWALLSTANDARDCASE"
+                            | "IFCSLAB"
+                            | "IFCBEAM"
+                            | "IFCCOLUMN"
+                            | "IFCPLATE"
+                            | "IFCROOF"
+                            | "IFCCOVERING"
+                            | "IFCFOOTING"
+                            | "IFCRAILING"
+                            | "IFCSTAIR"
+                            | "IFCSTAIRFLIGHT"
+                            | "IFCRAMP"
+                            | "IFCRAMPFLIGHT"
+                    ) {
                         if let Ok(entity) = decoder.decode_at(start, end) {
-                            if let Ok((mut mesh, transform)) = router.process_element_with_transform(&entity, &mut decoder) {
+                            if let Ok((mut mesh, transform)) =
+                                router.process_element_with_transform(&entity, &mut decoder)
+                            {
                                 if !mesh.is_empty() {
                                     if mesh.normals.is_empty() {
                                         calculate_normals(&mut mesh);
@@ -698,7 +732,8 @@ impl IfcAPI {
                                     let geometry_hash = hasher.finish();
 
                                     // Get color
-                                    let color = style_index.get(&id)
+                                    let color = style_index
+                                        .get(&id)
                                         .copied()
                                         .unwrap_or_else(|| get_default_color_for_type(&ifc_type));
 
@@ -747,7 +782,11 @@ impl IfcAPI {
                                     for val in transform_array.iter() {
                                         transform_f32.push(*val as f32);
                                     }
-                                    instanced_geom.add_instance(InstanceData::new(*express_id, transform_f32, *color));
+                                    instanced_geom.add_instance(InstanceData::new(
+                                        *express_id,
+                                        transform_f32,
+                                        *color,
+                                    ));
                                 }
 
                                 batch_geometries.push(instanced_geom);
@@ -767,9 +806,16 @@ impl IfcAPI {
                                 }
 
                                 let progress = js_sys::Object::new();
-                                js_sys::Reflect::set(&progress, &"percent".into(), &0u32.into()).unwrap();
-                                js_sys::Reflect::set(&progress, &"processed".into(), &(processed as f64).into()).unwrap();
-                                js_sys::Reflect::set(&progress, &"phase".into(), &"simple".into()).unwrap();
+                                js_sys::Reflect::set(&progress, &"percent".into(), &0u32.into())
+                                    .unwrap();
+                                js_sys::Reflect::set(
+                                    &progress,
+                                    &"processed".into(),
+                                    &(processed as f64).into(),
+                                )
+                                .unwrap();
+                                js_sys::Reflect::set(&progress, &"phase".into(), &"simple".into())
+                                    .unwrap();
 
                                 let _ = callback.call2(&JsValue::NULL, &js_geometries, &progress);
                             }
@@ -799,7 +845,11 @@ impl IfcAPI {
                             for val in transform_array.iter() {
                                 transform_f32.push(*val as f32);
                             }
-                            instanced_geom.add_instance(InstanceData::new(express_id, transform_f32, color));
+                            instanced_geom.add_instance(InstanceData::new(
+                                express_id,
+                                transform_f32,
+                                color,
+                            ));
                         }
 
                         batch_geometries.push(instanced_geom);
@@ -812,7 +862,8 @@ impl IfcAPI {
                         }
 
                         let progress = js_sys::Object::new();
-                        js_sys::Reflect::set(&progress, &"phase".into(), &"simple_complete".into()).unwrap();
+                        js_sys::Reflect::set(&progress, &"phase".into(), &"simple_complete".into())
+                            .unwrap();
 
                         let _ = callback.call2(&JsValue::NULL, &js_geometries, &progress);
                     }
@@ -824,7 +875,9 @@ impl IfcAPI {
                 let total_elements = processed + deferred_complex.len();
                 for (id, start, end, ifc_type) in deferred_complex {
                     if let Ok(entity) = decoder.decode_at(start, end) {
-                        if let Ok((mut mesh, transform)) = router.process_element_with_transform(&entity, &mut decoder) {
+                        if let Ok((mut mesh, transform)) =
+                            router.process_element_with_transform(&entity, &mut decoder)
+                        {
                             if !mesh.is_empty() {
                                 if mesh.normals.is_empty() {
                                     calculate_normals(&mut mesh);
@@ -843,7 +896,8 @@ impl IfcAPI {
                                 let geometry_hash = hasher.finish();
 
                                 // Get color
-                                let color = style_index.get(&id)
+                                let color = style_index
+                                    .get(&id)
                                     .copied()
                                     .unwrap_or_else(|| get_default_color_for_type(&ifc_type));
 
@@ -891,7 +945,11 @@ impl IfcAPI {
                                 for val in transform_array.iter() {
                                     transform_f32.push(*val as f32);
                                 }
-                                instanced_geom.add_instance(InstanceData::new(*express_id, transform_f32, *color));
+                                instanced_geom.add_instance(InstanceData::new(
+                                    *express_id,
+                                    transform_f32,
+                                    *color,
+                                ));
                             }
 
                             batch_geometries.push(instanced_geom);
@@ -910,10 +968,22 @@ impl IfcAPI {
 
                             let progress = js_sys::Object::new();
                             let percent = (processed as f64 / total_elements as f64 * 100.0) as u32;
-                            js_sys::Reflect::set(&progress, &"percent".into(), &percent.into()).unwrap();
-                            js_sys::Reflect::set(&progress, &"processed".into(), &(processed as f64).into()).unwrap();
-                            js_sys::Reflect::set(&progress, &"total".into(), &(total_elements as f64).into()).unwrap();
-                            js_sys::Reflect::set(&progress, &"phase".into(), &"complex".into()).unwrap();
+                            js_sys::Reflect::set(&progress, &"percent".into(), &percent.into())
+                                .unwrap();
+                            js_sys::Reflect::set(
+                                &progress,
+                                &"processed".into(),
+                                &(processed as f64).into(),
+                            )
+                            .unwrap();
+                            js_sys::Reflect::set(
+                                &progress,
+                                &"total".into(),
+                                &(total_elements as f64).into(),
+                            )
+                            .unwrap();
+                            js_sys::Reflect::set(&progress, &"phase".into(), &"complex".into())
+                                .unwrap();
 
                             let _ = callback.call2(&JsValue::NULL, &js_geometries, &progress);
                         }
@@ -938,7 +1008,11 @@ impl IfcAPI {
                             for val in transform_array.iter() {
                                 transform_f32.push(*val as f32);
                             }
-                            instanced_geom.add_instance(InstanceData::new(express_id, transform_f32, color));
+                            instanced_geom.add_instance(InstanceData::new(
+                                express_id,
+                                transform_f32,
+                                color,
+                            ));
                         }
 
                         batch_geometries.push(instanced_geom);
@@ -952,7 +1026,8 @@ impl IfcAPI {
 
                         let progress = js_sys::Object::new();
                         js_sys::Reflect::set(&progress, &"percent".into(), &100u32.into()).unwrap();
-                        js_sys::Reflect::set(&progress, &"phase".into(), &"complete".into()).unwrap();
+                        js_sys::Reflect::set(&progress, &"phase".into(), &"complete".into())
+                            .unwrap();
 
                         let _ = callback.call2(&JsValue::NULL, &js_geometries, &progress);
                     }
@@ -961,8 +1036,18 @@ impl IfcAPI {
                 // Call completion callback
                 if let Some(ref callback) = on_complete {
                     let stats = js_sys::Object::new();
-                    js_sys::Reflect::set(&stats, &"totalGeometries".into(), &(total_geometries as f64).into()).unwrap();
-                    js_sys::Reflect::set(&stats, &"totalInstances".into(), &(total_instances as f64).into()).unwrap();
+                    js_sys::Reflect::set(
+                        &stats,
+                        &"totalGeometries".into(),
+                        &(total_geometries as f64).into(),
+                    )
+                    .unwrap();
+                    js_sys::Reflect::set(
+                        &stats,
+                        &"totalInstances".into(),
+                        &(total_instances as f64).into(),
+                    )
+                    .unwrap();
                     let _ = callback.call1(&JsValue::NULL, &stats);
                 }
 
@@ -995,8 +1080,8 @@ impl IfcAPI {
     /// ```
     #[wasm_bindgen(js_name = parseMeshesAsync)]
     pub fn parse_meshes_async(&self, content: String, options: JsValue) -> Promise {
-        use ifc_lite_core::{EntityScanner, EntityDecoder, build_entity_index};
-        use ifc_lite_geometry::{GeometryRouter, calculate_normals};
+        use ifc_lite_core::{EntityDecoder, EntityScanner};
+        use ifc_lite_geometry::{calculate_normals, GeometryRouter};
 
         let promise = Promise::new(&mut |resolve, _reject| {
             let content = content.clone();
@@ -1008,7 +1093,7 @@ impl IfcAPI {
                     .ok()
                     .and_then(|v| v.as_f64())
                     .map(|v| v as usize)
-                    .unwrap_or(25);  // Reduced from 50 for faster first frame
+                    .unwrap_or(25); // Reduced from 50 for faster first frame
 
                 let on_batch = js_sys::Reflect::get(&options, &"onBatch".into())
                     .ok()
@@ -1031,12 +1116,12 @@ impl IfcAPI {
                 let mut total_vertices = 0;
                 let mut total_triangles = 0;
                 let mut batch_meshes: Vec<MeshDataJs> = Vec::with_capacity(batch_size);
-                let mut elements_since_yield = 0;
 
                 // SINGLE PASS: Process elements as we find them
                 let mut scanner = EntityScanner::new(&content);
-                let mut deferred_complex: Vec<(u32, usize, usize, ifc_lite_core::IfcType)> = Vec::new();
-                let mut faceted_brep_ids: Vec<u32> = Vec::new();  // Collect for batch preprocessing
+                let mut deferred_complex: Vec<(u32, usize, usize, ifc_lite_core::IfcType)> =
+                    Vec::new();
+                let mut faceted_brep_ids: Vec<u32> = Vec::new(); // Collect for batch preprocessing
 
                 // First pass - process simple geometry immediately, defer complex
                 while let Some((id, type_name, start, end)) = scanner.next_entity() {
@@ -1052,10 +1137,23 @@ impl IfcAPI {
                     let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
 
                     // Simple geometry: process immediately
-                    if matches!(type_name, "IFCWALL" | "IFCWALLSTANDARDCASE" | "IFCSLAB" |
-                               "IFCBEAM" | "IFCCOLUMN" | "IFCPLATE" | "IFCROOF" |
-                               "IFCCOVERING" | "IFCFOOTING" | "IFCRAILING" | "IFCSTAIR" |
-                               "IFCSTAIRFLIGHT" | "IFCRAMP" | "IFCRAMPFLIGHT") {
+                    if matches!(
+                        type_name,
+                        "IFCWALL"
+                            | "IFCWALLSTANDARDCASE"
+                            | "IFCSLAB"
+                            | "IFCBEAM"
+                            | "IFCCOLUMN"
+                            | "IFCPLATE"
+                            | "IFCROOF"
+                            | "IFCCOVERING"
+                            | "IFCFOOTING"
+                            | "IFCRAILING"
+                            | "IFCSTAIR"
+                            | "IFCSTAIRFLIGHT"
+                            | "IFCRAMP"
+                            | "IFCRAMPFLIGHT"
+                    ) {
                         if let Ok(entity) = decoder.decode_at(start, end) {
                             if let Ok(mut mesh) = router.process_element(&entity, &mut decoder) {
                                 if !mesh.is_empty() {
@@ -1074,8 +1172,6 @@ impl IfcAPI {
                             }
                         }
 
-                        elements_since_yield += 1;
-
                         // Yield batch frequently for responsive UI
                         if batch_meshes.len() >= batch_size {
                             if let Some(ref callback) = on_batch {
@@ -1085,9 +1181,16 @@ impl IfcAPI {
                                 }
 
                                 let progress = js_sys::Object::new();
-                                js_sys::Reflect::set(&progress, &"percent".into(), &0u32.into()).unwrap();
-                                js_sys::Reflect::set(&progress, &"processed".into(), &(processed as f64).into()).unwrap();
-                                js_sys::Reflect::set(&progress, &"phase".into(), &"simple".into()).unwrap();
+                                js_sys::Reflect::set(&progress, &"percent".into(), &0u32.into())
+                                    .unwrap();
+                                js_sys::Reflect::set(
+                                    &progress,
+                                    &"processed".into(),
+                                    &(processed as f64).into(),
+                                )
+                                .unwrap();
+                                js_sys::Reflect::set(&progress, &"phase".into(), &"simple".into())
+                                    .unwrap();
 
                                 let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
                                 total_meshes += js_meshes.length() as usize;
@@ -1095,7 +1198,6 @@ impl IfcAPI {
 
                             // Yield to browser
                             gloo_timers::future::TimeoutFuture::new(0).await;
-                            elements_since_yield = 0;
                         }
                     } else {
                         // Defer complex geometry
@@ -1112,7 +1214,8 @@ impl IfcAPI {
                         }
 
                         let progress = js_sys::Object::new();
-                        js_sys::Reflect::set(&progress, &"phase".into(), &"simple_complete".into()).unwrap();
+                        js_sys::Reflect::set(&progress, &"phase".into(), &"simple_complete".into())
+                            .unwrap();
 
                         let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
                         total_meshes += js_meshes.length() as usize;
@@ -1132,7 +1235,8 @@ impl IfcAPI {
                 // Process deferred complex geometry
                 // Build style index now (deferred from start)
                 let geometry_styles = build_geometry_style_index(&content, &mut decoder);
-                let style_index = build_element_style_index(&content, &geometry_styles, &mut decoder);
+                let style_index =
+                    build_element_style_index(&content, &geometry_styles, &mut decoder);
 
                 for (id, start, end, ifc_type) in deferred_complex {
                     if let Ok(entity) = decoder.decode_at(start, end) {
@@ -1142,7 +1246,8 @@ impl IfcAPI {
                                     calculate_normals(&mut mesh);
                                 }
 
-                                let color = style_index.get(&id)
+                                let color = style_index
+                                    .get(&id)
                                     .copied()
                                     .unwrap_or_else(|| get_default_color_for_type(&ifc_type));
 
@@ -1167,10 +1272,22 @@ impl IfcAPI {
 
                             let progress = js_sys::Object::new();
                             let percent = (processed as f64 / total_elements as f64 * 100.0) as u32;
-                            js_sys::Reflect::set(&progress, &"percent".into(), &percent.into()).unwrap();
-                            js_sys::Reflect::set(&progress, &"processed".into(), &(processed as f64).into()).unwrap();
-                            js_sys::Reflect::set(&progress, &"total".into(), &(total_elements as f64).into()).unwrap();
-                            js_sys::Reflect::set(&progress, &"phase".into(), &"complex".into()).unwrap();
+                            js_sys::Reflect::set(&progress, &"percent".into(), &percent.into())
+                                .unwrap();
+                            js_sys::Reflect::set(
+                                &progress,
+                                &"processed".into(),
+                                &(processed as f64).into(),
+                            )
+                            .unwrap();
+                            js_sys::Reflect::set(
+                                &progress,
+                                &"total".into(),
+                                &(total_elements as f64).into(),
+                            )
+                            .unwrap();
+                            js_sys::Reflect::set(&progress, &"phase".into(), &"complex".into())
+                                .unwrap();
 
                             let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
                             total_meshes += js_meshes.length() as usize;
@@ -1190,7 +1307,8 @@ impl IfcAPI {
 
                         let progress = js_sys::Object::new();
                         js_sys::Reflect::set(&progress, &"percent".into(), &100u32.into()).unwrap();
-                        js_sys::Reflect::set(&progress, &"phase".into(), &"complete".into()).unwrap();
+                        js_sys::Reflect::set(&progress, &"phase".into(), &"complete".into())
+                            .unwrap();
 
                         let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
                         total_meshes += js_meshes.length() as usize;
@@ -1200,9 +1318,24 @@ impl IfcAPI {
                 // Call completion callback
                 if let Some(ref callback) = on_complete {
                     let stats = js_sys::Object::new();
-                    js_sys::Reflect::set(&stats, &"totalMeshes".into(), &(total_meshes as f64).into()).unwrap();
-                    js_sys::Reflect::set(&stats, &"totalVertices".into(), &(total_vertices as f64).into()).unwrap();
-                    js_sys::Reflect::set(&stats, &"totalTriangles".into(), &(total_triangles as f64).into()).unwrap();
+                    js_sys::Reflect::set(
+                        &stats,
+                        &"totalMeshes".into(),
+                        &(total_meshes as f64).into(),
+                    )
+                    .unwrap();
+                    js_sys::Reflect::set(
+                        &stats,
+                        &"totalVertices".into(),
+                        &(total_vertices as f64).into(),
+                    )
+                    .unwrap();
+                    js_sys::Reflect::set(
+                        &stats,
+                        &"totalTriangles".into(),
+                        &(total_triangles as f64).into(),
+                    )
+                    .unwrap();
                     let _ = callback.call1(&JsValue::NULL, &stats);
                 }
 
@@ -1239,7 +1372,9 @@ impl IfcAPI {
     /// ```
     #[wasm_bindgen(js_name = getGeoReference)]
     pub fn get_geo_reference(&self, content: String) -> Option<GeoReferenceJs> {
-        use ifc_lite_core::{EntityScanner, EntityDecoder, build_entity_index, IfcType, GeoRefExtractor};
+        use ifc_lite_core::{
+            build_entity_index, EntityDecoder, EntityScanner, GeoRefExtractor, IfcType,
+        };
 
         // Build entity index and decoder
         let entity_index = build_entity_index(&content);
@@ -1278,8 +1413,8 @@ impl IfcAPI {
     /// ```
     #[wasm_bindgen(js_name = parseMeshesWithRtc)]
     pub fn parse_meshes_with_rtc(&self, content: String) -> MeshCollectionWithRtc {
-        use ifc_lite_core::{EntityScanner, EntityDecoder, build_entity_index, RtcOffset};
-        use ifc_lite_geometry::{GeometryRouter, calculate_normals};
+        use ifc_lite_core::{build_entity_index, EntityDecoder, EntityScanner, RtcOffset};
+        use ifc_lite_geometry::{calculate_normals, GeometryRouter};
 
         // Build entity index once upfront
         let entity_index = build_entity_index(&content);
@@ -1330,7 +1465,8 @@ impl IfcAPI {
                         // Collect positions for RTC calculation
                         all_positions.extend_from_slice(&mesh.positions);
 
-                        let color = style_index.get(&id)
+                        let color = style_index
+                            .get(&id)
                             .copied()
                             .unwrap_or_else(|| get_default_color_for_type(&entity.ifc_type));
 
@@ -1359,7 +1495,7 @@ impl IfcAPI {
     /// Debug: Test processing entity #953 (FacetedBrep wall)
     #[wasm_bindgen(js_name = debugProcessEntity953)]
     pub fn debug_process_entity_953(&self, content: String) -> String {
-        use ifc_lite_core::{EntityScanner, EntityDecoder};
+        use ifc_lite_core::{EntityDecoder, EntityScanner};
         use ifc_lite_geometry::GeometryRouter;
 
         let router = GeometryRouter::new();
@@ -1367,22 +1503,22 @@ impl IfcAPI {
         let mut decoder = EntityDecoder::new(&content);
 
         // Find entity 953
-        while let Some((id, type_name, start, end)) = scanner.next_entity() {
+        while let Some((id, _type_name, start, end)) = scanner.next_entity() {
             if id == 953 {
                 match decoder.decode_at(start, end) {
-                    Ok(entity) => {
-                        match router.process_element(&entity, &mut decoder) {
-                            Ok(mesh) => {
-                                return format!(
-                                    "SUCCESS! Entity #953: {} vertices, {} triangles, empty={}",
-                                    mesh.vertex_count(), mesh.triangle_count(), mesh.is_empty()
-                                );
-                            }
-                            Err(e) => {
-                                return format!("ERROR processing entity #953: {}", e);
-                            }
+                    Ok(entity) => match router.process_element(&entity, &mut decoder) {
+                        Ok(mesh) => {
+                            return format!(
+                                "SUCCESS! Entity #953: {} vertices, {} triangles, empty={}",
+                                mesh.vertex_count(),
+                                mesh.triangle_count(),
+                                mesh.is_empty()
+                            );
                         }
-                    }
+                        Err(e) => {
+                            return format!("ERROR processing entity #953: {}", e);
+                        }
+                    },
                     Err(e) => {
                         return format!("ERROR decoding entity #953: {}", e);
                     }
@@ -1395,7 +1531,7 @@ impl IfcAPI {
     /// Debug: Test processing a single wall
     #[wasm_bindgen(js_name = debugProcessFirstWall)]
     pub fn debug_process_first_wall(&self, content: String) -> String {
-        use ifc_lite_core::{EntityScanner, EntityDecoder};
+        use ifc_lite_core::{EntityDecoder, EntityScanner};
         use ifc_lite_geometry::GeometryRouter;
 
         let router = GeometryRouter::new();
@@ -1409,22 +1545,22 @@ impl IfcAPI {
                 if router.schema().has_geometry(&ifc_type) {
                     // Try to decode and process
                     match decoder.decode_at(start, end) {
-                        Ok(entity) => {
-                            match router.process_element(&entity, &mut decoder) {
-                                Ok(mesh) => {
-                                    return format!(
-                                        "SUCCESS! Wall #{}: {} vertices, {} triangles",
-                                        id, mesh.vertex_count(), mesh.triangle_count()
-                                    );
-                                }
-                                Err(e) => {
-                                    return format!(
-                                        "ERROR processing wall #{} ({}): {}",
-                                        id, type_name, e
-                                    );
-                                }
+                        Ok(entity) => match router.process_element(&entity, &mut decoder) {
+                            Ok(mesh) => {
+                                return format!(
+                                    "SUCCESS! Wall #{}: {} vertices, {} triangles",
+                                    id,
+                                    mesh.vertex_count(),
+                                    mesh.triangle_count()
+                                );
                             }
-                        }
+                            Err(e) => {
+                                return format!(
+                                    "ERROR processing wall #{} ({}): {}",
+                                    id, type_name, e
+                                );
+                            }
+                        },
                         Err(e) => {
                             return format!("ERROR decoding wall #{}: {}", id, e);
                         }
@@ -1435,7 +1571,6 @@ impl IfcAPI {
 
         "No walls found".to_string()
     }
-
 }
 
 impl Default for IfcAPI {
@@ -1476,8 +1611,12 @@ fn parse_event_to_js(event: &ParseEvent) -> JsValue {
             js_sys::Reflect::set(&obj, &"id".into(), &(*id as f64).into()).unwrap();
             js_sys::Reflect::set(&obj, &"vertexCount".into(), &(*vertex_count as f64).into())
                 .unwrap();
-            js_sys::Reflect::set(&obj, &"triangleCount".into(), &(*triangle_count as f64).into())
-                .unwrap();
+            js_sys::Reflect::set(
+                &obj,
+                &"triangleCount".into(),
+                &(*triangle_count as f64).into(),
+            )
+            .unwrap();
         }
         ParseEvent::Progress {
             phase,
@@ -1510,8 +1649,12 @@ fn parse_event_to_js(event: &ParseEvent) -> JsValue {
             js_sys::Reflect::set(&obj, &"durationMs".into(), &(*duration_ms).into()).unwrap();
             js_sys::Reflect::set(&obj, &"entityCount".into(), &(*entity_count as f64).into())
                 .unwrap();
-            js_sys::Reflect::set(&obj, &"triangleCount".into(), &(*triangle_count as f64).into())
-                .unwrap();
+            js_sys::Reflect::set(
+                &obj,
+                &"triangleCount".into(),
+                &(*triangle_count as f64).into(),
+            )
+            .unwrap();
         }
         ParseEvent::Error { message, position } => {
             js_sys::Reflect::set(&obj, &"type".into(), &"error".into()).unwrap();
@@ -1681,8 +1824,6 @@ fn extract_color_from_styles(
     styles_attr: &ifc_lite_core::AttributeValue,
     decoder: &mut ifc_lite_core::EntityDecoder,
 ) -> Option<[f32; 4]> {
-    use ifc_lite_core::IfcType;
-
     // Styles can be a list or a single reference
     if let Some(list) = styles_attr.as_list() {
         for item in list {

@@ -11,10 +11,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("Parse error at position {position}: {message}")]
-    ParseError {
-        position: usize,
-        message: String,
-    },
+    ParseError { position: usize, message: String },
 
     #[error("Invalid entity reference: #{0}")]
     InvalidEntityRef(u32),
@@ -44,7 +41,11 @@ impl Error {
         }
     }
 
-    pub fn unexpected(position: usize, expected: impl Into<String>, got: impl Into<String>) -> Self {
+    pub fn unexpected(
+        position: usize,
+        expected: impl Into<String>,
+        got: impl Into<String>,
+    ) -> Self {
         Self::UnexpectedToken {
             position,
             expected: expected.into(),

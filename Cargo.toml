@@ -1,9 +1,5 @@
 [workspace]
-members = [
-    "rust/core",
-    "rust/geometry",
-    "rust/wasm-bindings"
-]
+members = ["rust/core", "rust/geometry", "rust/wasm-bindings"]
 resolver = "2"
 
 [workspace.package]
@@ -14,12 +10,12 @@ license = "MPL-2.0"
 repository = "https://github.com/louistrue/ifc-lite"
 
 [profile.release]
-opt-level = 3             # Optimize for speed
-lto = true                # Link-time optimization
-codegen-units = 1         # Better optimization (slower compile)
-strip = true              # Strip symbols
-panic = 'abort'           # Smaller panic handler
-overflow-checks = false   # Remove overflow checks in release
+opt-level = 3           # Optimize for speed
+lto = true              # Link-time optimization
+codegen-units = 1       # Better optimization (slower compile)
+strip = true            # Strip symbols
+panic = 'abort'         # Smaller panic handler
+overflow-checks = false # Remove overflow checks in release
 
 [profile.release.package."*"]
 opt-level = 3

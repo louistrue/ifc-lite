@@ -6,7 +6,7 @@
 //!
 //! Wrapper around earcutr for 2D polygon triangulation.
 
-use crate::{Error, Result, Point2, Point3, Vector3};
+use crate::{Error, Point2, Point3, Result, Vector3};
 
 /// Check if a polygon is convex (all cross products have same sign)
 #[inline]
@@ -148,7 +148,12 @@ pub fn project_to_2d(
     normal: &Vector3<f64>,
 ) -> (Vec<Point2<f64>>, Vector3<f64>, Vector3<f64>, Point3<f64>) {
     if points_3d.is_empty() {
-        return (Vec::new(), Vector3::zeros(), Vector3::zeros(), Point3::origin());
+        return (
+            Vec::new(),
+            Vector3::zeros(),
+            Vector3::zeros(),
+            Point3::origin(),
+        );
     }
 
     // Use first point as origin
@@ -288,10 +293,7 @@ mod tests {
 
     #[test]
     fn test_triangulate_insufficient_points() {
-        let points = vec![
-            Point2::new(0.0, 0.0),
-            Point2::new(1.0, 0.0),
-        ];
+        let points = vec![Point2::new(0.0, 0.0), Point2::new(1.0, 0.0)];
 
         let result = triangulate_polygon(&points);
         assert!(result.is_err());

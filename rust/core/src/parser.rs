@@ -43,20 +43,17 @@ pub enum Token<'a> {
 }
 
 /// Parse entity reference: #123
-fn entity_ref(input: &str) -> IResult<&str, Token> {
+fn entity_ref(input: &str) -> IResult<&str, Token<'_>> {
     map(
-        preceded(
-            char('#'),
-            map_res(digit1, |s: &str| s.parse::<u32>())
-        ),
-        Token::EntityRef
+        preceded(char('#'), map_res(digit1, |s: &str| s.parse::<u32>())),
+        Token::EntityRef,
     )(input)
 }
 
 /// Parse string literal: 'text' or "text"
 /// IFC uses '' to escape a single quote within a string
 /// Uses memchr for SIMD-accelerated quote searching
-fn string_literal(input: &str) -> IResult<&str, Token> {
+fn string_literal(input: &str) -> IResult<&str, Token<'_>> {
     // Helper to parse string content with escaped quotes - SIMD optimized
     #[inline]
     fn parse_string_content(input: &str, quote_byte: u8) -> IResult<&str, &str> {
@@ -76,25 +73,20 @@ fn string_literal(input: &str) -> IResult<&str, Token> {
         }
 
         // No closing quote found
-        Err(nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Char)))
+        Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Char,
+        )))
     }
 
     alt((
         map(
-            delimited(
-                char('\''),
-                |i| parse_string_content(i, b'\''),
-                char('\'')
-            ),
-            Token::String
+            delimited(char('\''), |i| parse_string_content(i, b'\''), char('\'')),
+            Token::String,
         ),
         map(
-            delimited(
-                char('"'),
-                |i| parse_string_content(i, b'"'),
-                char('"')
-            ),
-            Token::String
+            delimited(char('"'), |i| parse_string_content(i, b'"'), char('"')),
+            Token::String,
         ),
     ))(input)
 }
@@ -102,69 +94,59 @@ fn string_literal(input: &str) -> IResult<&str, Token> {
 /// Parse integer: 42, -42
 /// Uses lexical-core for 10x faster parsing
 #[inline]
-fn integer(input: &str) -> IResult<&str, Token> {
-    map_res(
-        recognize(
-            tuple((
-                opt(char('-')),
-                digit1,
-            ))
-        ),
-        |s: &str| lexical_core::parse::<i64>(s.as_bytes())
+fn integer(input: &str) -> IResult<&str, Token<'_>> {
+    map_res(recognize(tuple((opt(char('-')), digit1))), |s: &str| {
+        lexical_core::parse::<i64>(s.as_bytes())
             .map(Token::Integer)
             .map_err(|_| "parse error")
-    )(input)
+    })(input)
 }
 
 /// Parse float: 3.14, -3.14, 1.5E-10, 0., 1.
 /// IFC allows floats like "0." without decimal digits
 /// Uses lexical-core for 10x faster parsing
 #[inline]
-fn float(input: &str) -> IResult<&str, Token> {
+fn float(input: &str) -> IResult<&str, Token<'_>> {
     map_res(
-        recognize(
-            tuple((
-                opt(char('-')),
-                digit1,
-                char('.'),
-                opt(digit1),  // Made optional to support "0." format
-                opt(tuple((
-                    one_of("eE"),
-                    opt(one_of("+-")),
-                    digit1,
-                ))),
-            ))
-        ),
-        |s: &str| lexical_core::parse::<f64>(s.as_bytes())
-            .map(Token::Float)
-            .map_err(|_| "parse error")
+        recognize(tuple((
+            opt(char('-')),
+            digit1,
+            char('.'),
+            opt(digit1), // Made optional to support "0." format
+            opt(tuple((one_of("eE"), opt(one_of("+-")), digit1))),
+        ))),
+        |s: &str| {
+            lexical_core::parse::<f64>(s.as_bytes())
+                .map(Token::Float)
+                .map_err(|_| "parse error")
+        },
     )(input)
 }
 
 /// Parse enum: .TRUE., .FALSE., .UNKNOWN., .ELEMENT.
-fn enum_value(input: &str) -> IResult<&str, Token> {
+fn enum_value(input: &str) -> IResult<&str, Token<'_>> {
     map(
         delimited(
             char('.'),
             take_while1(|c: char| c.is_alphanumeric() || c == '_'),
-            char('.')
+            char('.'),
         ),
-        Token::Enum
+        Token::Enum,
     )(input)
 }
 
 /// Parse null: $
-fn null(input: &str) -> IResult<&str, Token> {
+fn null(input: &str) -> IResult<&str, Token<'_>> {
     map(char('$'), |_| Token::Null)(input)
 }
 
 /// Parse derived: *
-fn derived(input: &str) -> IResult<&str, Token> {
+fn derived(input: &str) -> IResult<&str, Token<'_>> {
     map(char('*'), |_| Token::Derived)(input)
 }
 
 /// Parse typed value: IFCPARAMETERVALUE(0.), IFCBOOLEAN(.T.)
-fn typed_value(input: &str) -> IResult<&str, Token> {
+fn typed_value(input: &str) -> IResult<&str, Token<'_>> {
     map(
         pair(
             // Type name (all caps with optional numbers/underscores)
@@ -172,75 +154,63 @@ fn typed_value(input: &str) -> IResult<&str, Token> {
             // Arguments
             delimited(
                 char('('),
-                separated_list0(
-                    delimited(ws, char(','), ws),
-                    token
-                ),
-                char(')')
-            )
+                separated_list0(delimited(ws, char(','), ws), token),
+                char(')'),
+            ),
         ),
-        |(type_name, args)| Token::TypedValue(type_name, args)
+        |(type_name, args)| Token::TypedValue(type_name, args),
     )(input)
 }
 
 /// Skip whitespace
 fn ws(input: &str) -> IResult<&str, ()> {
-    map(
-        take_while(|c: char| c.is_whitespace()),
-        |_| ()
-    )(input)
+    map(take_while(|c: char| c.is_whitespace()), |_| ())(input)
 }
 
 /// Parse a token with optional surrounding whitespace
 /// Optimized ordering: test cheapest patterns first (single-char markers)
-fn token(input: &str) -> IResult<&str, Token> {
+fn token(input: &str) -> IResult<&str, Token<'_>> {
     delimited(
         ws,
         alt((
             // Single-char markers first (O(1) check)
-            null,         // $
-            derived,      // *
-            entity_ref,   // # + digits
+            null,       // $
+            derived,    // *
+            entity_ref, // # + digits
             // Then by complexity
-            enum_value,   // .XXX.
+            enum_value,     // .XXX.
             string_literal, // 'xxx'
-            list,         // (...)
+            list,           // (...)
             // Numbers: float before integer since float includes '.'
             float,
             integer,
-            typed_value,  // IFCPARAMETERVALUE(0.) - most expensive, last
+            typed_value, // IFCPARAMETERVALUE(0.) - most expensive, last
         )),
-        ws
+        ws,
     )(input)
 }
 
 /// Parse list: (1, 2, 3) or nested lists
-fn list(input: &str) -> IResult<&str, Token> {
+fn list(input: &str) -> IResult<&str, Token<'_>> {
     map(
         delimited(
             char('('),
-            separated_list0(
-                delimited(ws, char(','), ws),
-                token
-            ),
-            char(')')
+            separated_list0(delimited(ws, char(','), ws), token),
+            char(')'),
         ),
-        Token::List
+        Token::List,
     )(input)
 }
 
 /// Parse a complete entity line
 /// Example: #123=IFCWALL('guid','owner',$,$,'name',$,$,$);
-pub fn parse_entity(input: &str) -> Result<(u32, IfcType, Vec<Token>)> {
+pub fn parse_entity(input: &str) -> Result<(u32, IfcType, Vec<Token<'_>>)> {
     let result: IResult<&str, (u32, &str, Vec<Token>)> = tuple((
         // Entity ID: #123
         delimited(
             ws,
-            preceded(
-                char('#'),
-                map_res(digit1, |s: &str| s.parse::<u32>())
-            ),
-            ws
+            preceded(char('#'), map_res(digit1, |s: &str| s.parse::<u32>())),
+            ws,
         ),
         // Equals sign
         preceded(
@@ -249,17 +219,14 @@ pub fn parse_entity(input: &str) -> Result<(u32, IfcType, Vec<Token>)> {
             delimited(
                 ws,
                 take_while1(|c: char| c.is_alphanumeric() || c == '_'),
-                ws
-            )
+                ws,
+            ),
         ),
         // Arguments: ('guid', 'owner', ...)
         delimited(
             char('('),
-            separated_list0(
-                delimited(ws, char(','), ws),
-                token
-            ),
-            tuple((char(')'), ws, char(';')))
+            separated_list0(delimited(ws, char(','), ws), token),
+            tuple((char(')'), ws, char(';'))),
         ),
     ))(input);
 
@@ -276,6 +243,7 @@ pub fn parse_entity(input: &str) -> Result<(u32, IfcType, Vec<Token>)> {
 /// O(n) performance for finding entities by type
 /// Uses memchr for SIMD-accelerated byte searching
 pub struct EntityScanner<'a> {
+    #[allow(dead_code)]
     content: &'a str,
     bytes: &'a [u8],
     position: usize,
@@ -402,7 +370,10 @@ mod tests {
     #[test]
     fn test_string_literal() {
         assert_eq!(string_literal("'hello'"), Ok(("", Token::String("hello"))));
-        assert_eq!(string_literal("'with spaces'"), Ok(("", Token::String("with spaces"))));
+        assert_eq!(
+            string_literal("'with spaces'"),
+            Ok(("", Token::String("with spaces")))
+        );
     }
 
     #[test]
@@ -413,6 +384,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn test_float() {
         assert_eq!(float("3.14"), Ok(("", Token::Float(3.14))));
         assert_eq!(float("-3.14"), Ok(("", Token::Float(-3.14))));

@@ -95,7 +95,11 @@ impl GeoReference {
         let cos_r = self.x_axis_abscissa;
         let sin_r = self.x_axis_ordinate;
         // Guard against division by zero
-        let inv_scale = if self.scale.abs() < f64::EPSILON { 1.0 } else { 1.0 / self.scale };
+        let inv_scale = if self.scale.abs() < f64::EPSILON {
+            1.0
+        } else {
+            1.0 / self.scale
+        };
 
         let dx = e - self.eastings;
         let dy = n - self.northings;
@@ -116,10 +120,22 @@ impl GeoReference {
 
         // Column-major 4x4 matrix
         [
-            s * cos_r,  s * sin_r,  0.0, 0.0,
-            -s * sin_r, s * cos_r,  0.0, 0.0,
-            0.0,        0.0,        1.0, 0.0,
-            self.eastings, self.northings, self.orthogonal_height, 1.0,
+            s * cos_r,
+            s * sin_r,
+            0.0,
+            0.0,
+            -s * sin_r,
+            s * cos_r,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            self.eastings,
+            self.northings,
+            self.orthogonal_height,
+            1.0,
         ]
     }
 }
@@ -129,7 +145,10 @@ pub struct GeoRefExtractor;
 
 impl GeoRefExtractor {
     /// Extract georeferencing from decoder
-    pub fn extract(decoder: &mut EntityDecoder, entity_types: &[(u32, IfcType)]) -> Result<Option<GeoReference>> {
+    pub fn extract(
+        decoder: &mut EntityDecoder,
+        entity_types: &[(u32, IfcType)],
+    ) -> Result<Option<GeoReference>> {
         // Find IfcMapConversion and IfcProjectedCRS entities
         let mut map_conversion_id: Option<u32> = None;
         let mut projected_crs_id: Option<u32> = None;
@@ -403,9 +422,15 @@ mod tests {
     #[test]
     fn test_rtc_offset() {
         let positions = vec![
-            500000.0f32, 5000000.0, 0.0,
-            500010.0, 5000010.0, 10.0,
-            500020.0, 5000020.0, 20.0,
+            500000.0f32,
+            5000000.0,
+            0.0,
+            500010.0,
+            5000010.0,
+            10.0,
+            500020.0,
+            5000020.0,
+            20.0,
         ];
 
         let offset = RtcOffset::from_positions(&positions);
@@ -416,10 +441,7 @@ mod tests {
 
     #[test]
     fn test_rtc_apply() {
-        let mut positions = vec![
-            500000.0f32, 5000000.0, 0.0,
-            500010.0, 5000010.0, 10.0,
-        ];
+        let mut positions = vec![500000.0f32, 5000000.0, 0.0, 500010.0, 5000010.0, 10.0];
 
         let offset = RtcOffset {
             x: 500000.0,

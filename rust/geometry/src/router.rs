@@ -6,12 +6,14 @@
 //!
 //! Routes IFC representation entities to appropriate processors based on type.
 
-use crate::{Mesh, Point3, Vector3, Result, Error};
-use crate::processors::{ExtrudedAreaSolidProcessor, TriangulatedFaceSetProcessor, MappedItemProcessor, FacetedBrepProcessor, BooleanClippingProcessor, SweptDiskSolidProcessor, RevolvedAreaSolidProcessor, AdvancedBrepProcessor};
-use ifc_lite_core::{
-    DecodedEntity, EntityDecoder, GeometryCategory, IfcSchema, IfcType, ProfileCategory,
+use crate::processors::{
+    AdvancedBrepProcessor, BooleanClippingProcessor, ExtrudedAreaSolidProcessor,
+    FacetedBrepProcessor, MappedItemProcessor, RevolvedAreaSolidProcessor, SweptDiskSolidProcessor,
+    TriangulatedFaceSetProcessor,
 };
-use nalgebra::{Matrix4, Rotation3};
+use crate::{Error, Mesh, Point3, Result, Vector3};
+use ifc_lite_core::{DecodedEntity, EntityDecoder, GeometryCategory, IfcSchema, IfcType};
+use nalgebra::Matrix4;
 use rustc_hash::FxHashMap;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -64,13 +66,17 @@ impl GeometryRouter {
         };
 
         // Register default P0 processors
-        router.register(Box::new(ExtrudedAreaSolidProcessor::new(schema_clone.clone())));
+        router.register(Box::new(ExtrudedAreaSolidProcessor::new(
+            schema_clone.clone(),
+        )));
         router.register(Box::new(TriangulatedFaceSetProcessor::new()));
         router.register(Box::new(MappedItemProcessor::new()));
         router.register(Box::new(FacetedBrepProcessor::new()));
         router.register(Box::new(BooleanClippingProcessor::new()));
         router.register(Box::new(SweptDiskSolidProcessor::new(schema_clone.clone())));
-        router.register(Box::new(RevolvedAreaSolidProcessor::new(schema_clone.clone())));
+        router.register(Box::new(RevolvedAreaSolidProcessor::new(
+            schema_clone.clone(),
+        )));
         router.register(Box::new(AdvancedBrepProcessor::new()));
 
         router
@@ -138,8 +144,8 @@ impl GeometryRouter {
     }
 
     /// Try to get cached mesh by hash, or cache the provided mesh
-    /// Returns Arc<Mesh> - either from cache or newly cached
-    /// 
+    /// Returns `Arc<Mesh>` - either from cache or newly cached
+    ///
     /// Note: Uses hash-only lookup without full equality check for performance.
     /// FxHasher's 64-bit output makes collisions extremely rare (~1 in 2^64).
     #[inline]
@@ -217,7 +223,15 @@ impl GeometryRouter {
                 if let Some(rep_type) = rep_type_attr.as_string() {
                     matches!(
                         rep_type,
-                        "Body" | "SweptSolid" | "Brep" | "CSG" | "Clipping" | "SurfaceModel" | "Tessellation" | "AdvancedSweptSolid" | "AdvancedBrep"
+                        "Body"
+                            | "SweptSolid"
+                            | "Brep"
+                            | "CSG"
+                            | "Clipping"
+                            | "SurfaceModel"
+                            | "Tessellation"
+                            | "AdvancedSweptSolid"
+                            | "AdvancedBrep"
                     )
                 } else {
                     false
@@ -245,7 +259,16 @@ impl GeometryRouter {
                     // Only process solid geometry representations
                     if !matches!(
                         rep_type,
-                        "Body" | "SweptSolid" | "Brep" | "CSG" | "Clipping" | "SurfaceModel" | "Tessellation" | "MappedRepresentation" | "AdvancedSweptSolid" | "AdvancedBrep"
+                        "Body"
+                            | "SweptSolid"
+                            | "Brep"
+                            | "CSG"
+                            | "Clipping"
+                            | "SurfaceModel"
+                            | "Tessellation"
+                            | "MappedRepresentation"
+                            | "AdvancedSweptSolid"
+                            | "AdvancedBrep"
                     ) {
                         continue; // Skip non-solid representations like 'Axis', 'Curve2D', etc.
                     }
@@ -322,7 +345,15 @@ impl GeometryRouter {
                 if let Some(rep_type) = rep_type_attr.as_string() {
                     matches!(
                         rep_type,
-                        "Body" | "SweptSolid" | "Brep" | "CSG" | "Clipping" | "SurfaceModel" | "Tessellation" | "AdvancedSweptSolid" | "AdvancedBrep"
+                        "Body"
+                            | "SweptSolid"
+                            | "Brep"
+                            | "CSG"
+                            | "Clipping"
+                            | "SurfaceModel"
+                            | "Tessellation"
+                            | "AdvancedSweptSolid"
+                            | "AdvancedBrep"
                     )
                 } else {
                     false
@@ -345,7 +376,16 @@ impl GeometryRouter {
 
                     if !matches!(
                         rep_type,
-                        "Body" | "SweptSolid" | "Brep" | "CSG" | "Clipping" | "SurfaceModel" | "Tessellation" | "MappedRepresentation" | "AdvancedSweptSolid" | "AdvancedBrep"
+                        "Body"
+                            | "SweptSolid"
+                            | "Brep"
+                            | "CSG"
+                            | "Clipping"
+                            | "SurfaceModel"
+                            | "Tessellation"
+                            | "MappedRepresentation"
+                            | "AdvancedSweptSolid"
+                            | "AdvancedBrep"
                     ) {
                         continue;
                     }
@@ -504,11 +544,9 @@ impl GeometryRouter {
         // 0: MappingOrigin (IfcAxis2Placement)
         // 1: MappedRepresentation (IfcRepresentation)
 
-        let mapped_rep_attr = source_entity
-            .get(1)
-            .ok_or_else(|| {
-                Error::geometry("RepresentationMap missing MappedRepresentation".to_string())
-            })?;
+        let mapped_rep_attr = source_entity.get(1).ok_or_else(|| {
+            Error::geometry("RepresentationMap missing MappedRepresentation".to_string())
+        })?;
 
         let mapped_rep = decoder
             .resolve_ref(mapped_rep_attr)?
@@ -713,18 +751,9 @@ impl GeometryRouter {
             .as_list()
             .ok_or_else(|| Error::geometry("Expected coordinate list".to_string()))?;
 
-        let x = coords
-            .get(0)
-            .and_then(|v| v.as_float())
-            .unwrap_or(0.0);
-        let y = coords
-            .get(1)
-            .and_then(|v| v.as_float())
-            .unwrap_or(0.0);
-        let z = coords
-            .get(2)
-            .and_then(|v| v.as_float())
-            .unwrap_or(0.0);
+        let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0);
+        let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
+        let z = coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
 
         Ok(Point3::new(x, y, z))
     }
@@ -748,7 +777,7 @@ impl GeometryRouter {
             .as_list()
             .ok_or_else(|| Error::geometry("Expected ratio list".to_string()))?;
 
-        let x = ratios.get(0).and_then(|v| v.as_float()).unwrap_or(0.0);
+        let x = ratios.first().and_then(|v| v.as_float()).unwrap_or(0.0);
         let y = ratios.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
         let z = ratios.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
 
@@ -778,7 +807,7 @@ impl GeometryRouter {
                         let coords_attr = origin_entity.get(0);
                         if let Some(coords) = coords_attr.and_then(|a| a.as_list()) {
                             Point3::new(
-                                coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0),
+                                coords.first().and_then(|v| v.as_float()).unwrap_or(0.0),
                                 coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0),
                                 coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0),
                             )
@@ -858,11 +887,7 @@ impl GeometryRouter {
     fn transform_mesh(&self, mesh: &mut Mesh, transform: &Matrix4<f64>) {
         // Use chunks for better cache locality and less indexing overhead
         mesh.positions.chunks_exact_mut(3).for_each(|chunk| {
-            let point = Point3::new(
-                chunk[0] as f64,
-                chunk[1] as f64,
-                chunk[2] as f64,
-            );
+            let point = Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
             let transformed = transform.transform_point(&point);
             chunk[0] = transformed.x as f32;
             chunk[1] = transformed.y as f32;
@@ -872,11 +897,7 @@ impl GeometryRouter {
         // Transform normals (without translation) - optimized chunk iteration
         let rotation = transform.fixed_view::<3, 3>(0, 0);
         mesh.normals.chunks_exact_mut(3).for_each(|chunk| {
-            let normal = Vector3::new(
-                chunk[0] as f64,
-                chunk[1] as f64,
-                chunk[2] as f64,
-            );
+            let normal = Vector3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
             let transformed = (rotation * normal).normalize();
             chunk[0] = transformed.x as f32;
             chunk[1] = transformed.y as f32;
@@ -918,7 +939,9 @@ mod tests {
         let router = GeometryRouter::new();
 
         let wall = decoder.decode_by_id(2).unwrap();
-        let point = router.parse_cartesian_point(&wall, &mut decoder, 6).unwrap();
+        let point = router
+            .parse_cartesian_point(&wall, &mut decoder, 6)
+            .unwrap();
 
         assert_eq!(point.x, 100.0);
         assert_eq!(point.y, 200.0);

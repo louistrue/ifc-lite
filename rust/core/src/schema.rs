@@ -181,6 +181,7 @@ pub enum IfcType {
 impl IfcType {
     /// Parse IFC type from string.
     /// Returns the matching variant or `Unknown(hash)` for unrecognized types.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         // Fast path: check common types first
         match s {
@@ -576,17 +577,26 @@ pub fn has_geometry_by_name(type_name: &str) -> bool {
 
     // Building elements (IfcBuildingElement subtypes)
     let building_elements = [
-        "IFCWALL", "IFCWALLSTANDARDCASE",
-        "IFCSLAB", "IFCSLABSTANDARDCASE", "IFCSLABELEMENTEDCASE",
-        "IFCBEAM", "IFCBEAMSTANDARDCASE",
-        "IFCCOLUMN", "IFCCOLUMNSTANDARDCASE",
+        "IFCWALL",
+        "IFCWALLSTANDARDCASE",
+        "IFCSLAB",
+        "IFCSLABSTANDARDCASE",
+        "IFCSLABELEMENTEDCASE",
+        "IFCBEAM",
+        "IFCBEAMSTANDARDCASE",
+        "IFCCOLUMN",
+        "IFCCOLUMNSTANDARDCASE",
         "IFCROOF",
-        "IFCSTAIR", "IFCSTAIRFLIGHT",
-        "IFCRAMP", "IFCRAMPFLIGHT",
+        "IFCSTAIR",
+        "IFCSTAIRFLIGHT",
+        "IFCRAMP",
+        "IFCRAMPFLIGHT",
         "IFCRAILING",
         "IFCCURTAINWALL",
-        "IFCPLATE", "IFCPLATESTANDARDCASE",
-        "IFCMEMBER", "IFCMEMBERSTANDARDCASE",
+        "IFCPLATE",
+        "IFCPLATESTANDARDCASE",
+        "IFCMEMBER",
+        "IFCMEMBERSTANDARDCASE",
         "IFCFOOTING",
         "IFCPILE",
         "IFCCOVERING",
@@ -598,10 +608,15 @@ pub fn has_geometry_by_name(type_name: &str) -> bool {
 
     // Openings and features
     let openings = [
-        "IFCDOOR", "IFCDOORSTANDARDCASE",
-        "IFCWINDOW", "IFCWINDOWSTANDARDCASE",
-        "IFCOPENINGELEMENT", "IFCOPENINGSTANDARDCASE",
-        "IFCVOIDINGFEATURE", "IFCSURFACEFEATURE", "IFCPROJECTIONELEMENT",
+        "IFCDOOR",
+        "IFCDOORSTANDARDCASE",
+        "IFCWINDOW",
+        "IFCWINDOWSTANDARDCASE",
+        "IFCOPENINGELEMENT",
+        "IFCOPENINGSTANDARDCASE",
+        "IFCVOIDINGFEATURE",
+        "IFCSURFACEFEATURE",
+        "IFCPROJECTIONELEMENT",
     ];
 
     // Element assemblies and components
@@ -621,26 +636,63 @@ pub fn has_geometry_by_name(type_name: &str) -> bool {
 
     // MEP/Distribution elements
     let mep = [
-        "IFCPIPESEGMENT", "IFCPIPEFITTING",
-        "IFCDUCTSEGMENT", "IFCDUCTFITTING",
-        "IFCCABLESEGMENT", "IFCCABLECARRIERSEGMENT",
-        "IFCFLOWSEGMENT", "IFCFLOWFITTING", "IFCFLOWTERMINAL", "IFCFLOWCONTROLLER",
-        "IFCFLOWMOVINGDEVICE", "IFCFLOWSTORAGEDEVICE", "IFCFLOWTREATMENTDEVICE",
-        "IFCENERGYCONVERSIONDEVICE", "IFCUNITARYEQUIPMENT",
-        "IFCAIRTERMINAL", "IFCAIRTERMINALBOX", "IFCAIRTOAIRHEATRECOVERY",
-        "IFCBOILER", "IFCBURNER", "IFCCHILLER", "IFCCOIL", "IFCCOMPRESSOR",
-        "IFCCONDENSER", "IFCCOOLEDBEAM", "IFCCOOLINGTOWER",
-        "IFCDAMPER", "IFCDUCTSILENCER", "IFCFAN", "IFCFILTER",
-        "IFCFIRESUPPRESSIONTERMINAL", "IFCFLOWMETER", "IFCHEATEXCHANGER",
-        "IFCHUMIDIFIER", "IFCINTERCEPTOR", "IFCJUNCTIONBOX",
-        "IFCLAMP", "IFCLIGHTFIXTURE", "IFCMEDICALDEVICE",
-        "IFCMOTORCONNECTION", "IFCOUTLET", "IFCPUMP",
-        "IFCSANITARYTERMINAL", "IFCSENSOR", "IFCSPACEHEATER",
-        "IFCSTACKTERMINAL", "IFCSWITCHINGDEVICE", "IFCTANK",
-        "IFCTRANSFORMER", "IFCTUBEBUNDLE", "IFCUNITARYCONTROLELEMENTS",
-        "IFCVALVE", "IFCWASTETERMINAL",
-        "IFCDISTRIBUTIONELEMENT", "IFCDISTRIBUTIONCONTROLELEMENT",
-        "IFCDISTRIBUTIONFLOWELEMENT", "IFCDISTRIBUTIONCHAMBERLEMENT",
+        "IFCPIPESEGMENT",
+        "IFCPIPEFITTING",
+        "IFCDUCTSEGMENT",
+        "IFCDUCTFITTING",
+        "IFCCABLESEGMENT",
+        "IFCCABLECARRIERSEGMENT",
+        "IFCFLOWSEGMENT",
+        "IFCFLOWFITTING",
+        "IFCFLOWTERMINAL",
+        "IFCFLOWCONTROLLER",
+        "IFCFLOWMOVINGDEVICE",
+        "IFCFLOWSTORAGEDEVICE",
+        "IFCFLOWTREATMENTDEVICE",
+        "IFCENERGYCONVERSIONDEVICE",
+        "IFCUNITARYEQUIPMENT",
+        "IFCAIRTERMINAL",
+        "IFCAIRTERMINALBOX",
+        "IFCAIRTOAIRHEATRECOVERY",
+        "IFCBOILER",
+        "IFCBURNER",
+        "IFCCHILLER",
+        "IFCCOIL",
+        "IFCCOMPRESSOR",
+        "IFCCONDENSER",
+        "IFCCOOLEDBEAM",
+        "IFCCOOLINGTOWER",
+        "IFCDAMPER",
+        "IFCDUCTSILENCER",
+        "IFCFAN",
+        "IFCFILTER",
+        "IFCFIRESUPPRESSIONTERMINAL",
+        "IFCFLOWMETER",
+        "IFCHEATEXCHANGER",
+        "IFCHUMIDIFIER",
+        "IFCINTERCEPTOR",
+        "IFCJUNCTIONBOX",
+        "IFCLAMP",
+        "IFCLIGHTFIXTURE",
+        "IFCMEDICALDEVICE",
+        "IFCMOTORCONNECTION",
+        "IFCOUTLET",
+        "IFCPUMP",
+        "IFCSANITARYTERMINAL",
+        "IFCSENSOR",
+        "IFCSPACEHEATER",
+        "IFCSTACKTERMINAL",
+        "IFCSWITCHINGDEVICE",
+        "IFCTANK",
+        "IFCTRANSFORMER",
+        "IFCTUBEBUNDLE",
+        "IFCUNITARYCONTROLELEMENTS",
+        "IFCVALVE",
+        "IFCWASTETERMINAL",
+        "IFCDISTRIBUTIONELEMENT",
+        "IFCDISTRIBUTIONCONTROLELEMENT",
+        "IFCDISTRIBUTIONFLOWELEMENT",
+        "IFCDISTRIBUTIONCHAMBERLEMENT",
     ];
 
     // Furniture and equipment
@@ -659,15 +711,27 @@ pub fn has_geometry_by_name(type_name: &str) -> bool {
 
     // IFC4x3 Infrastructure elements
     let infrastructure = [
-        "IFCROAD", "IFCROADPART",
-        "IFCRAILWAY", "IFCRAILWAYPART",
-        "IFCBRIDGE", "IFCBRIDGEPART",
-        "IFCFACILITY", "IFCFACILITYPART",
-        "IFCPAVEMENT", "IFCKERB", "IFCCOURSE",
-        "IFCEARTHWORKSCUT", "IFCEARTHWORKSFILL", "IFCEARTHWORKSELEMENT",
-        "IFCALIGNMENT", "IFCLINEARPOSITIONINGELEMENT",
-        "IFCREFERENT", "IFCSECTIONEDSPINE",
-        "IFCNAVIGATIONELEMENT", "IFCSIGN", "IFCSIGNAL",
+        "IFCROAD",
+        "IFCROADPART",
+        "IFCRAILWAY",
+        "IFCRAILWAYPART",
+        "IFCBRIDGE",
+        "IFCBRIDGEPART",
+        "IFCFACILITY",
+        "IFCFACILITYPART",
+        "IFCPAVEMENT",
+        "IFCKERB",
+        "IFCCOURSE",
+        "IFCEARTHWORKSCUT",
+        "IFCEARTHWORKSFILL",
+        "IFCEARTHWORKSELEMENT",
+        "IFCALIGNMENT",
+        "IFCLINEARPOSITIONINGELEMENT",
+        "IFCREFERENT",
+        "IFCSECTIONEDSPINE",
+        "IFCNAVIGATIONELEMENT",
+        "IFCSIGN",
+        "IFCSIGNAL",
     ];
 
     // IFC2X3 legacy elements (deprecated in IFC4 but still used)
@@ -679,22 +743,18 @@ pub fn has_geometry_by_name(type_name: &str) -> bool {
     ];
 
     // Generic placeholders that can contain geometry
-    let generic = [
-        "IFCPROXY",
-        "IFCPRODUCT",
-        "IFCANNOTATION",
-    ];
+    let generic = ["IFCPROXY", "IFCPRODUCT", "IFCANNOTATION"];
 
     // Check all categories
-    building_elements.contains(&type_name) ||
-    openings.contains(&type_name) ||
-    assemblies.contains(&type_name) ||
-    mep.contains(&type_name) ||
-    furniture.contains(&type_name) ||
-    civil.contains(&type_name) ||
-    infrastructure.contains(&type_name) ||
-    legacy.contains(&type_name) ||
-    generic.contains(&type_name)
+    building_elements.contains(&type_name)
+        || openings.contains(&type_name)
+        || assemblies.contains(&type_name)
+        || mep.contains(&type_name)
+        || furniture.contains(&type_name)
+        || civil.contains(&type_name)
+        || infrastructure.contains(&type_name)
+        || legacy.contains(&type_name)
+        || generic.contains(&type_name)
 }
 
 impl fmt::Display for IfcType {

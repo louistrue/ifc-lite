@@ -6,9 +6,9 @@
 //!
 //! Fast triangle clipping and boolean operations.
 
-use nalgebra::{Point3, Vector3};
+use crate::error::Result;
 use crate::mesh::Mesh;
-use crate::error::{Error, Result};
+use nalgebra::{Point3, Vector3};
 
 /// Plane definition for clipping
 #[derive(Debug, Clone, Copy)]
@@ -89,9 +89,7 @@ pub struct ClippingProcessor {
 impl ClippingProcessor {
     /// Create a new clipping processor
     pub fn new() -> Self {
-        Self {
-            epsilon: 1e-6,
-        }
+        Self { epsilon: 1e-6 }
     }
 
     /// Clip a triangle against a plane
@@ -104,9 +102,15 @@ impl ClippingProcessor {
 
         // Count vertices in front of plane
         let mut front_count = 0;
-        if d0 >= -self.epsilon { front_count += 1; }
-        if d1 >= -self.epsilon { front_count += 1; }
-        if d2 >= -self.epsilon { front_count += 1; }
+        if d0 >= -self.epsilon {
+            front_count += 1;
+        }
+        if d1 >= -self.epsilon {
+            front_count += 1;
+        }
+        if d2 >= -self.epsilon {
+            front_count += 1;
+        }
 
         match front_count {
             // All vertices behind - discard triangle
@@ -126,9 +130,27 @@ impl ClippingProcessor {
                 };
 
                 // Interpolate to find intersection points
-                let d_front = if d0 >= -self.epsilon { d0 } else if d1 >= -self.epsilon { d1 } else { d2 };
-                let d_back1 = if d0 >= -self.epsilon { d1 } else if d1 >= -self.epsilon { d2 } else { d0 };
-                let d_back2 = if d0 >= -self.epsilon { d2 } else if d1 >= -self.epsilon { d0 } else { d1 };
+                let d_front = if d0 >= -self.epsilon {
+                    d0
+                } else if d1 >= -self.epsilon {
+                    d1
+                } else {
+                    d2
+                };
+                let d_back1 = if d0 >= -self.epsilon {
+                    d1
+                } else if d1 >= -self.epsilon {
+                    d2
+                } else {
+                    d0
+                };
+                let d_back2 = if d0 >= -self.epsilon {
+                    d2
+                } else if d1 >= -self.epsilon {
+                    d0
+                } else {
+                    d1
+                };
 
                 let t1 = d_front / (d_front - d_back1);
                 let t2 = d_front / (d_front - d_back2);
@@ -150,9 +172,27 @@ impl ClippingProcessor {
                 };
 
                 // Interpolate to find intersection points
-                let d_back = if d0 < -self.epsilon { d0 } else if d1 < -self.epsilon { d1 } else { d2 };
-                let d_front1 = if d0 < -self.epsilon { d1 } else if d1 < -self.epsilon { d2 } else { d0 };
-                let d_front2 = if d0 < -self.epsilon { d2 } else if d1 < -self.epsilon { d0 } else { d1 };
+                let d_back = if d0 < -self.epsilon {
+                    d0
+                } else if d1 < -self.epsilon {
+                    d1
+                } else {
+                    d2
+                };
+                let d_front1 = if d0 < -self.epsilon {
+                    d1
+                } else if d1 < -self.epsilon {
+                    d2
+                } else {
+                    d0
+                };
+                let d_front2 = if d0 < -self.epsilon {
+                    d2
+                } else if d1 < -self.epsilon {
+                    d0
+                } else {
+                    d1
+                };
 
                 let t1 = d_front1 / (d_front1 - d_back);
                 let t2 = d_front2 / (d_front2 - d_back);
@@ -306,10 +346,7 @@ mod tests {
 
     #[test]
     fn test_plane_signed_distance() {
-        let plane = Plane::new(
-            Point3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 1.0),
-        );
+        let plane = Plane::new(Point3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 1.0));
 
         assert_eq!(plane.signed_distance(&Point3::new(0.0, 0.0, 5.0)), 5.0);
         assert_eq!(plane.signed_distance(&Point3::new(0.0, 0.0, -5.0)), -5.0);
@@ -324,10 +361,7 @@ mod tests {
             Point3::new(1.0, 0.0, 1.0),
             Point3::new(0.5, 1.0, 1.0),
         );
-        let plane = Plane::new(
-            Point3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 1.0),
-        );
+        let plane = Plane::new(Point3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 1.0));
 
         match processor.clip_triangle(&triangle, &plane) {
             ClipResult::AllFront(_) => {}
@@ -343,10 +377,7 @@ mod tests {
             Point3::new(1.0, 0.0, -1.0),
             Point3::new(0.5, 1.0, -1.0),
         );
-        let plane = Plane::new(
-            Point3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 1.0),
-        );
+        let plane = Plane::new(Point3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 1.0));
 
         match processor.clip_triangle(&triangle, &plane) {
             ClipResult::AllBehind => {}
@@ -362,10 +393,7 @@ mod tests {
             Point3::new(1.0, 0.0, -1.0), // Behind
             Point3::new(0.5, 1.0, -1.0), // Behind
         );
-        let plane = Plane::new(
-            Point3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 1.0),
-        );
+        let plane = Plane::new(Point3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 1.0));
 
         match processor.clip_triangle(&triangle, &plane) {
             ClipResult::Split(triangles) => {
@@ -383,10 +411,7 @@ mod tests {
             Point3::new(1.0, 0.0, 1.0),  // Front
             Point3::new(0.5, 1.0, -1.0), // Behind
         );
-        let plane = Plane::new(
-            Point3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 1.0),
-        );
+        let plane = Plane::new(Point3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 1.0));
 
         match processor.clip_triangle(&triangle, &plane) {
             ClipResult::Split(triangles) => {

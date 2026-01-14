@@ -63,13 +63,16 @@ use wasm_bindgen::prelude::*;
 #[cfg(feature = "console_error_panic_hook")]
 pub use console_error_panic_hook::set_once as set_panic_hook;
 
+mod api;
 mod utils;
 mod zero_copy;
-mod api;
 
-pub use utils::set_panic_hook as init_panic_hook;
-pub use zero_copy::{ZeroCopyMesh, MeshDataJs, MeshCollection, InstancedGeometry, InstanceData, InstancedMeshCollection, get_memory};
 pub use api::IfcAPI;
+pub use utils::set_panic_hook as init_panic_hook;
+pub use zero_copy::{
+    get_memory, InstanceData, InstancedGeometry, InstancedMeshCollection, MeshCollection,
+    MeshDataJs, ZeroCopyMesh,
+};
 
 /// Initialize the WASM module.
 ///

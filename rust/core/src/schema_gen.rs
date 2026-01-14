@@ -7,9 +7,8 @@
 //! Generated from IFC4 EXPRESS schema for maintainability.
 //! All types are handled generically through enum dispatch.
 
-use crate::schema::IfcType;
 use crate::parser::Token;
-use crate::error::{Error, Result};
+use crate::schema::IfcType;
 use std::collections::HashMap;
 
 /// IFC entity attribute value
@@ -120,9 +119,18 @@ impl AttributeValue {
         for coord_attr in coord_list {
             if let Some(coord) = coord_attr.as_list() {
                 // Fast path: extract x, y, z directly
-                let x = coord.get(0).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
-                let y = coord.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
-                let z = coord.get(2).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+                let x = coord
+                    .first()
+                    .and_then(AttributeValue::as_float)
+                    .unwrap_or(0.0) as f32;
+                let y = coord
+                    .get(1)
+                    .and_then(AttributeValue::as_float)
+                    .unwrap_or(0.0) as f32;
+                let z = coord
+                    .get(2)
+                    .and_then(AttributeValue::as_float)
+                    .unwrap_or(0.0) as f32;
 
                 result.push(x);
                 result.push(y);
@@ -141,8 +149,14 @@ impl AttributeValue {
 
         for coord_attr in coord_list {
             if let Some(coord) = coord_attr.as_list() {
-                let x = coord.get(0).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
-                let y = coord.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+                let x = coord
+                    .first()
+                    .and_then(AttributeValue::as_float)
+                    .unwrap_or(0.0) as f32;
+                let y = coord
+                    .get(1)
+                    .and_then(AttributeValue::as_float)
+                    .unwrap_or(0.0) as f32;
 
                 result.push(x);
                 result.push(y);
@@ -162,9 +176,9 @@ impl AttributeValue {
         for face_attr in face_list {
             if let Some(face) = face_attr.as_list() {
                 // Use as_int for faster parsing, convert from 1-based to 0-based
-                let i0 = (face.get(0).and_then(|v| v.as_int()).unwrap_or(1) - 1) as u32;
-                let i1 = (face.get(1).and_then(|v| v.as_int()).unwrap_or(1) - 1) as u32;
-                let i2 = (face.get(2).and_then(|v| v.as_int()).unwrap_or(1) - 1) as u32;
+                let i0 = (face.first().and_then(AttributeValue::as_int).unwrap_or(1) - 1) as u32;
+                let i1 = (face.get(1).and_then(AttributeValue::as_int).unwrap_or(1) - 1) as u32;
+                let i2 = (face.get(2).and_then(AttributeValue::as_int).unwrap_or(1) - 1) as u32;
 
                 result.push(i0);
                 result.push(i1);
@@ -179,12 +193,22 @@ impl AttributeValue {
     /// Returns Vec of (x, y, z) tuples
     #[inline]
     pub fn parse_coordinate_list_3d_f64(coord_list: &[AttributeValue]) -> Vec<(f64, f64, f64)> {
-        coord_list.iter()
+        coord_list
+            .iter()
             .filter_map(|coord_attr| {
                 let coord = coord_attr.as_list()?;
-                let x = coord.get(0).and_then(|v| v.as_float()).unwrap_or(0.0);
-                let y = coord.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
-                let z = coord.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
+                let x = coord
+                    .first()
+                    .and_then(AttributeValue::as_float)
+                    .unwrap_or(0.0);
+                let y = coord
+                    .get(1)
+                    .and_then(AttributeValue::as_float)
+                    .unwrap_or(0.0);
+                let z = coord
+                    .get(2)
+                    .and_then(AttributeValue::as_float)
+                    .unwrap_or(0.0);
                 Some((x, y, z))
             })
             .collect()
@@ -288,7 +312,10 @@ impl IfcSchema {
 
         // Explicit meshes (P0)
         geometry_types.insert(IfcType::IfcFacetedBrep, GeometryCategory::ExplicitMesh);
-        geometry_types.insert(IfcType::IfcTriangulatedFaceSet, GeometryCategory::ExplicitMesh);
+        geometry_types.insert(
+            IfcType::IfcTriangulatedFaceSet,
+            GeometryCategory::ExplicitMesh,
+        );
         geometry_types.insert(IfcType::IfcPolygonalFaceSet, GeometryCategory::ExplicitMesh);
 
         // Instancing (P0)
@@ -297,8 +324,14 @@ impl IfcSchema {
         // Profile types - Parametric
         profile_types.insert(IfcType::IfcRectangleProfileDef, ProfileCategory::Parametric);
         profile_types.insert(IfcType::IfcCircleProfileDef, ProfileCategory::Parametric);
-        profile_types.insert(IfcType::IfcCircleHollowProfileDef, ProfileCategory::Parametric);
-        profile_types.insert(IfcType::IfcRectangleHollowProfileDef, ProfileCategory::Parametric);
+        profile_types.insert(
+            IfcType::IfcCircleHollowProfileDef,
+            ProfileCategory::Parametric,
+        );
+        profile_types.insert(
+            IfcType::IfcRectangleHollowProfileDef,
+            ProfileCategory::Parametric,
+        );
         profile_types.insert(IfcType::IfcIShapeProfileDef, ProfileCategory::Parametric);
         profile_types.insert(IfcType::IfcLShapeProfileDef, ProfileCategory::Parametric);
         profile_types.insert(IfcType::IfcUShapeProfileDef, ProfileCategory::Parametric);
@@ -307,8 +340,14 @@ impl IfcSchema {
         profile_types.insert(IfcType::IfcZShapeProfileDef, ProfileCategory::Parametric);
 
         // Profile types - Arbitrary
-        profile_types.insert(IfcType::IfcArbitraryClosedProfileDef, ProfileCategory::Arbitrary);
-        profile_types.insert(IfcType::IfcArbitraryProfileDefWithVoids, ProfileCategory::Arbitrary);
+        profile_types.insert(
+            IfcType::IfcArbitraryClosedProfileDef,
+            ProfileCategory::Arbitrary,
+        );
+        profile_types.insert(
+            IfcType::IfcArbitraryProfileDefWithVoids,
+            ProfileCategory::Arbitrary,
+        );
 
         // Profile types - Composite
         profile_types.insert(IfcType::IfcCompositeProfileDef, ProfileCategory::Composite);
@@ -342,10 +381,10 @@ impl IfcSchema {
     /// Check if type has geometry
     pub fn has_geometry(&self, ifc_type: &IfcType) -> bool {
         // Building elements, furnishing, etc.
-        ifc_type.is_building_element() ||
-        matches!(
-            ifc_type,
-            IfcType::IfcFurnishingElement
+        ifc_type.is_building_element()
+            || matches!(
+                ifc_type,
+                IfcType::IfcFurnishingElement
                 | IfcType::IfcFurniture
                 | IfcType::IfcDuctSegment
                 | IfcType::IfcPipeSegment
@@ -356,7 +395,7 @@ impl IfcSchema {
                 | IfcType::IfcFlowSegment
                 | IfcType::IfcFlowFitting
                 | IfcType::IfcFlowTerminal
-        )
+            )
     }
 }
 

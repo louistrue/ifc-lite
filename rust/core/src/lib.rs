@@ -66,26 +66,25 @@
 //!
 //! - `serde`: Enable serialization support for parsed data
 
-pub mod parser;
-pub mod schema;
-pub mod error;
-pub mod streaming;
 pub mod decoder;
-pub mod schema_gen;
-pub mod georef;
+pub mod error;
 pub mod fast_parse;
 pub mod generated;
+pub mod georef;
+pub mod parser;
+pub mod schema;
+pub mod schema_gen;
+pub mod streaming;
 
+pub use decoder::{build_entity_index, EntityDecoder, EntityIndex};
 pub use error::{Error, Result};
-pub use parser::{Token, EntityScanner, parse_entity};
-pub use schema::{IfcType, has_geometry_by_name};
-pub use streaming::{ParseEvent, StreamConfig, parse_stream};
-pub use decoder::{EntityDecoder, EntityIndex, build_entity_index};
-pub use schema_gen::{AttributeValue, DecodedEntity, IfcSchema, GeometryCategory, ProfileCategory};
-pub use georef::{GeoReference, GeoRefExtractor, RtcOffset};
 pub use fast_parse::{
-    parse_coordinates_direct, parse_indices_direct, should_use_fast_path,
-    extract_entity_type_name, extract_first_entity_ref, extract_entity_refs_from_list,
-    extract_face_indices_from_entity, extract_coordinate_list_from_entity,
-    process_triangulated_faceset_direct, FastMeshData
+    extract_coordinate_list_from_entity, extract_entity_refs_from_list, extract_entity_type_name,
+    extract_face_indices_from_entity, extract_first_entity_ref, parse_coordinates_direct,
+    parse_indices_direct, process_triangulated_faceset_direct, should_use_fast_path, FastMeshData,
 };
+pub use georef::{GeoRefExtractor, GeoReference, RtcOffset};
+pub use parser::{parse_entity, EntityScanner, Token};
+pub use schema::{has_geometry_by_name, IfcType};
+pub use schema_gen::{AttributeValue, DecodedEntity, GeometryCategory, IfcSchema, ProfileCategory};
+pub use streaming::{parse_stream, ParseEvent, StreamConfig};

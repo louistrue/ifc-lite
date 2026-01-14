@@ -73,8 +73,8 @@ pub fn build_entity_index(content: &str) -> EntityIndex {
 #[inline]
 fn parse_u32_inline(bytes: &[u8], start: usize, end: usize) -> u32 {
     let mut result: u32 = 0;
-    for i in start..end {
-        let digit = bytes[i].wrapping_sub(b'0');
+    for &byte in &bytes[start..end] {
+        let digit = byte.wrapping_sub(b'0');
         result = result.wrapping_mul(10).wrapping_add(digit as u32);
     }
     result
@@ -83,7 +83,7 @@ fn parse_u32_inline(bytes: &[u8], start: usize, end: usize) -> u32 {
 /// Entity decoder for lazy parsing - uses Arc for efficient cache sharing
 pub struct EntityDecoder<'a> {
     content: &'a str,
-    /// Cache of decoded entities (entity_id -> Arc<DecodedEntity>)
+    /// Cache of decoded entities (entity_id -> `Arc<DecodedEntity>`)
     /// Using Arc avoids expensive clones on cache hits
     cache: FxHashMap<u32, Arc<DecodedEntity>>,
     /// Index of entity offsets (entity_id -> (start, end))
@@ -126,7 +126,14 @@ impl<'a> EntityDecoder<'a> {
         let line = &self.content[start..end];
         let (id, ifc_type, tokens) = parse_entity(line).map_err(|e| {
             // Add debug info about what failed to parse
-            Error::parse(0, format!("Failed to parse entity: {:?}, input: {:?}", e, &line[..line.len().min(100)]))
+            Error::parse(
+                0,
+                format!(
+                    "Failed to parse entity: {:?}, input: {:?}",
+                    e,
+                    &line[..line.len().min(100)]
+                ),
+            )
         })?;
 
         // Check cache first - return clone of inner DecodedEntity
@@ -157,7 +164,8 @@ impl<'a> EntityDecoder<'a> {
         self.build_index();
 
         // O(1) lookup in index
-        let (start, end) = self.entity_index
+        let (start, end) = self
+            .entity_index
             .as_ref()
             .and_then(|idx| idx.get(&entity_id).copied())
             .ok_or_else(|| Error::parse(0, format!("Entity #{} not found", entity_id)))?;
@@ -176,10 +184,7 @@ impl<'a> EntityDecoder<'a> {
     }
 
     /// Resolve list of entity references
-    pub fn resolve_ref_list(
-        &mut self,
-        attr: &AttributeValue,
-    ) -> Result<Vec<DecodedEntity>> {
+    pub fn resolve_ref_list(&mut self, attr: &AttributeValue) -> Result<Vec<DecodedEntity>> {
         let list = attr
             .as_list()
             .ok_or_else(|| Error::parse(0, "Expected list".to_string()))?;
@@ -214,7 +219,7 @@ impl<'a> EntityDecoder<'a> {
     pub fn get_raw_bytes(&mut self, entity_id: u32) -> Option<&'a [u8]> {
         self.build_index();
         let (start, end) = self.entity_index.as_ref()?.get(&entity_id).copied()?;
-        Some(self.content[start..end].as_bytes())
+        Some(&self.content.as_bytes()[start..end])
     }
 
     /// Get raw content string for an entity
@@ -259,7 +264,9 @@ impl<'a> EntityDecoder<'a> {
 
         while i < len {
             // Skip whitespace and commas
-            while i < len && (bytes[i] == b' ' || bytes[i] == b',' || bytes[i] == b'\n' || bytes[i] == b'\r') {
+            while i < len
+                && (bytes[i] == b' ' || bytes[i] == b',' || bytes[i] == b'\n' || bytes[i] == b'\r')
+            {
                 i += 1;
             }
 
@@ -328,7 +335,9 @@ impl<'a> EntityDecoder<'a> {
 
         while i < len {
             // Skip whitespace and commas
-            while i < len && (bytes[i] == b' ' || bytes[i] == b',' || bytes[i] == b'\n' || bytes[i] == b'\r') {
+            while i < len
+                && (bytes[i] == b' ' || bytes[i] == b',' || bytes[i] == b'\n' || bytes[i] == b'\r')
+            {
                 i += 1;
             }
 
@@ -378,14 +387,18 @@ impl<'a> EntityDecoder<'a> {
         while i < len && bytes[i] != b'(' {
             i += 1;
         }
-        if i >= len { return None; }
+        if i >= len {
+            return None;
+        }
         i += 1; // Skip first '('
 
         // Skip to second '(' for the coordinate list
         while i < len && bytes[i] != b'(' {
             i += 1;
         }
-        if i >= len { return None; }
+        if i >= len {
+            return None;
+        }
         i += 1; // Skip second '('
 
         // Parse x coordinate
@@ -488,7 +501,9 @@ fn parse_next_float(bytes: &[u8], offset: &mut usize) -> Option<f64> {
     let mut i = 0;
 
     // Skip whitespace and commas
-    while i < len && (bytes[i] == b' ' || bytes[i] == b',' || bytes[i] == b'\n' || bytes[i] == b'\r') {
+    while i < len
+        && (bytes[i] == b' ' || bytes[i] == b',' || bytes[i] == b'\n' || bytes[i] == b'\r')
+    {
         i += 1;
     }
 

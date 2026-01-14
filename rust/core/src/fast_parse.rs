@@ -30,7 +30,7 @@ fn estimate_int_count(bytes: &[u8]) -> usize {
     bytes.len() / 4
 }
 
-/// Parse coordinate list directly from raw bytes to Vec<f32>
+/// Parse coordinate list directly from raw bytes to `Vec<f32>`
 ///
 /// This parses IFC coordinate data like:
 /// `((0.,0.,150.),(0.,40.,140.),...)`
@@ -72,7 +72,7 @@ pub fn parse_coordinates_direct(bytes: &[u8]) -> Vec<f32> {
     result
 }
 
-/// Parse coordinate list directly from raw bytes to Vec<f64>
+/// Parse coordinate list directly from raw bytes to `Vec<f64>`
 ///
 /// Same as parse_coordinates_direct but with f64 precision.
 #[inline]
@@ -103,7 +103,7 @@ pub fn parse_coordinates_direct_f64(bytes: &[u8]) -> Vec<f64> {
     result
 }
 
-/// Parse index list directly from raw bytes to Vec<u32>
+/// Parse index list directly from raw bytes to `Vec<u32>`
 ///
 /// This parses IFC face index data like:
 /// `((1,2,3),(2,1,4),...)`
@@ -131,7 +131,9 @@ pub fn parse_indices_direct(bytes: &[u8]) -> Vec<u32> {
         // Parse integer inline (avoiding any allocation)
         let mut value: u32 = 0;
         while pos < len && bytes[pos].is_ascii_digit() {
-            value = value.wrapping_mul(10).wrapping_add((bytes[pos] - b'0') as u32);
+            value = value
+                .wrapping_mul(10)
+                .wrapping_add((bytes[pos] - b'0') as u32);
             pos += 1;
         }
 
@@ -188,7 +190,11 @@ pub fn extract_face_indices_from_entity(bytes: &[u8]) -> Option<Vec<u32>> {
             }
             b')' => {
                 paren_depth -= 1;
-                if paren_depth == 1 && comma_count == 3 && attr_start.is_some() && attr_end.is_none() {
+                if paren_depth == 1
+                    && comma_count == 3
+                    && attr_start.is_some()
+                    && attr_end.is_none()
+                {
                     attr_end = Some(i + 1);
                 }
             }
@@ -389,7 +395,7 @@ mod tests {
         assert_eq!(coords.len(), 3);
         assert!((coords[0] - 1.5e-10).abs() < 1e-15);
         assert!((coords[1] - 2.0e5).abs() < 1.0);
-        assert!((coords[2] - (-3.14)).abs() < 0.001);
+        assert!((coords[2] - (-std::f32::consts::PI)).abs() < 0.01);
     }
 
     #[test]
