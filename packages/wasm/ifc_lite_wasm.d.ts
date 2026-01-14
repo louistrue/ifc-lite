@@ -464,10 +464,10 @@ export interface InitOutput {
   readonly __wbg_get_rtcoffsetjs_x: (a: number) => number;
   readonly __wbg_get_rtcoffsetjs_y: (a: number) => number;
   readonly __wbg_get_rtcoffsetjs_z: (a: number) => number;
-  readonly __wasm_bindgen_func_elem_258: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_257: (a: number, b: number) => void;
   readonly __wasm_bindgen_func_elem_247: (a: number, b: number) => void;
   readonly __wasm_bindgen_func_elem_246: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_258: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_257: (a: number, b: number) => void;
   readonly __wasm_bindgen_func_elem_296: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_export: (a: number, b: number) => number;
   readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;

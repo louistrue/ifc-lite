@@ -470,7 +470,7 @@ impl IfcAPI {
                     .ok()
                     .and_then(|v| v.as_f64())
                     .map(|v| v as usize)
-                    .unwrap_or(100);
+                    .unwrap_or(50);
 
                 let on_batch = js_sys::Reflect::get(&options, &"onBatch".into())
                     .ok()
@@ -480,35 +480,10 @@ impl IfcAPI {
                     .ok()
                     .and_then(|v| v.dyn_into::<Function>().ok());
 
-                // FAST FIRST FRAME: Build minimal index only
+                // TRULY STREAMING: Build index in background while processing
+                // Start with empty index, build incrementally
                 let entity_index = build_entity_index(&content);
-                let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
-
-                // Collect elements in TWO passes - simple geometry first, complex later
-                let mut scanner = EntityScanner::new(&content);
-                let mut simple_elements: Vec<(u32, usize, usize, ifc_lite_core::IfcType)> = Vec::new();
-                let mut complex_elements: Vec<(u32, usize, usize, ifc_lite_core::IfcType)> = Vec::new();
-                let mut faceted_brep_ids: Vec<u32> = Vec::new();
-
-                while let Some((id, type_name, start, end)) = scanner.next_entity() {
-                    if type_name == "IFCFACETEDBREP" {
-                        faceted_brep_ids.push(id);
-                    }
-                    if ifc_lite_core::has_geometry_by_name(type_name) {
-                        let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
-                        // Simple geometry: walls, slabs, beams (usually extrusions)
-                        // Complex geometry: anything with FacetedBrep
-                        if matches!(type_name, "IFCWALL" | "IFCWALLSTANDARDCASE" | "IFCSLAB" |
-                                   "IFCBEAM" | "IFCCOLUMN" | "IFCPLATE" | "IFCROOF" |
-                                   "IFCCOVERING" | "IFCFOOTING" | "IFCRAILING") {
-                            simple_elements.push((id, start, end, ifc_type));
-                        } else {
-                            complex_elements.push((id, start, end, ifc_type));
-                        }
-                    }
-                }
-
-                let total_elements = simple_elements.len() + complex_elements.len();
+                let mut decoder = EntityDecoder::with_index(&content, entity_index);
 
                 // Create geometry router
                 let router = GeometryRouter::new();
@@ -519,49 +494,69 @@ impl IfcAPI {
                 let mut total_vertices = 0;
                 let mut total_triangles = 0;
                 let mut batch_meshes: Vec<MeshDataJs> = Vec::with_capacity(batch_size);
+                let mut elements_since_yield = 0;
 
-                // PHASE 1: Process SIMPLE elements first (fast first frame)
-                // No style lookup, use default colors for speed
-                for (id, start, end, ifc_type) in simple_elements {
-                    if let Ok(entity) = decoder.decode_at(start, end) {
-                        if let Ok(mut mesh) = router.process_element(&entity, &mut decoder) {
-                            if !mesh.is_empty() {
-                                if mesh.normals.is_empty() {
-                                    calculate_normals(&mut mesh);
-                                }
+                // SINGLE PASS: Process elements as we find them
+                let mut scanner = EntityScanner::new(&content);
+                let mut deferred_complex: Vec<(u32, usize, usize, ifc_lite_core::IfcType)> = Vec::new();
 
-                                let color = get_default_color_for_type(&ifc_type);
-                                total_vertices += mesh.positions.len() / 3;
-                                total_triangles += mesh.indices.len() / 3;
-
-                                let mesh_data = MeshDataJs::new(id, mesh, color);
-                                batch_meshes.push(mesh_data);
-                            }
-                        }
+                // First pass - process simple geometry immediately, defer complex
+                while let Some((id, type_name, start, end)) = scanner.next_entity() {
+                    if !ifc_lite_core::has_geometry_by_name(type_name) {
+                        continue;
                     }
 
-                    processed += 1;
+                    let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
 
-                    // Yield batch when full
-                    if batch_meshes.len() >= batch_size {
-                        if let Some(ref callback) = on_batch {
-                            let js_meshes = js_sys::Array::new();
-                            for mesh in batch_meshes.drain(..) {
-                                js_meshes.push(&mesh.into());
+                    // Simple geometry: process immediately
+                    if matches!(type_name, "IFCWALL" | "IFCWALLSTANDARDCASE" | "IFCSLAB" |
+                               "IFCBEAM" | "IFCCOLUMN" | "IFCPLATE" | "IFCROOF" |
+                               "IFCCOVERING" | "IFCFOOTING" | "IFCRAILING" | "IFCSTAIR" |
+                               "IFCSTAIRFLIGHT" | "IFCRAMP" | "IFCRAMPFLIGHT") {
+                        if let Ok(entity) = decoder.decode_at(start, end) {
+                            if let Ok(mut mesh) = router.process_element(&entity, &mut decoder) {
+                                if !mesh.is_empty() {
+                                    if mesh.normals.is_empty() {
+                                        calculate_normals(&mut mesh);
+                                    }
+
+                                    let color = get_default_color_for_type(&ifc_type);
+                                    total_vertices += mesh.positions.len() / 3;
+                                    total_triangles += mesh.indices.len() / 3;
+
+                                    let mesh_data = MeshDataJs::new(id, mesh, color);
+                                    batch_meshes.push(mesh_data);
+                                    processed += 1;
+                                }
                             }
-
-                            let progress = js_sys::Object::new();
-                            let percent = (processed as f64 / total_elements as f64 * 100.0) as u32;
-                            js_sys::Reflect::set(&progress, &"percent".into(), &percent.into()).unwrap();
-                            js_sys::Reflect::set(&progress, &"processed".into(), &(processed as f64).into()).unwrap();
-                            js_sys::Reflect::set(&progress, &"total".into(), &(total_elements as f64).into()).unwrap();
-                            js_sys::Reflect::set(&progress, &"phase".into(), &"simple".into()).unwrap();
-
-                            let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
-                            total_meshes += js_meshes.length() as usize;
                         }
 
-                        gloo_timers::future::TimeoutFuture::new(0).await;
+                        elements_since_yield += 1;
+
+                        // Yield batch frequently for responsive UI
+                        if batch_meshes.len() >= batch_size {
+                            if let Some(ref callback) = on_batch {
+                                let js_meshes = js_sys::Array::new();
+                                for mesh in batch_meshes.drain(..) {
+                                    js_meshes.push(&mesh.into());
+                                }
+
+                                let progress = js_sys::Object::new();
+                                js_sys::Reflect::set(&progress, &"percent".into(), &0u32.into()).unwrap();
+                                js_sys::Reflect::set(&progress, &"processed".into(), &(processed as f64).into()).unwrap();
+                                js_sys::Reflect::set(&progress, &"phase".into(), &"simple".into()).unwrap();
+
+                                let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
+                                total_meshes += js_meshes.length() as usize;
+                            }
+
+                            // Yield to browser
+                            gloo_timers::future::TimeoutFuture::new(0).await;
+                            elements_since_yield = 0;
+                        }
+                    } else {
+                        // Defer complex geometry
+                        deferred_complex.push((id, start, end, ifc_type));
                     }
                 }
 
@@ -574,8 +569,6 @@ impl IfcAPI {
                         }
 
                         let progress = js_sys::Object::new();
-                        let percent = (processed as f64 / total_elements as f64 * 100.0) as u32;
-                        js_sys::Reflect::set(&progress, &"percent".into(), &percent.into()).unwrap();
                         js_sys::Reflect::set(&progress, &"phase".into(), &"simple_complete".into()).unwrap();
 
                         let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
@@ -585,16 +578,14 @@ impl IfcAPI {
                     gloo_timers::future::TimeoutFuture::new(0).await;
                 }
 
-                // PHASE 2: Preprocess FacetedBreps (while simple geometry is visible)
-                if !faceted_brep_ids.is_empty() {
-                    router.preprocess_faceted_breps(&faceted_brep_ids, &mut decoder);
-                }
+                let total_elements = processed + deferred_complex.len();
 
-                // PHASE 3: Build style index (deferred) and process complex elements
+                // Process deferred complex geometry
+                // Build style index now (deferred from start)
                 let geometry_styles = build_geometry_style_index(&content, &mut decoder);
                 let style_index = build_element_style_index(&content, &geometry_styles, &mut decoder);
 
-                for (id, start, end, ifc_type) in complex_elements {
+                for (id, start, end, ifc_type) in deferred_complex {
                     if let Ok(entity) = decoder.decode_at(start, end) {
                         if let Ok(mut mesh) = router.process_element(&entity, &mut decoder) {
                             if !mesh.is_empty() {
@@ -617,28 +608,43 @@ impl IfcAPI {
 
                     processed += 1;
 
-                    // Yield batch when full or at end
-                    if batch_meshes.len() >= batch_size || processed == total_elements {
-                        if !batch_meshes.is_empty() {
-                            if let Some(ref callback) = on_batch {
-                                let js_meshes = js_sys::Array::new();
-                                for mesh in batch_meshes.drain(..) {
-                                    js_meshes.push(&mesh.into());
-                                }
-
-                                let progress = js_sys::Object::new();
-                                let percent = (processed as f64 / total_elements as f64 * 100.0) as u32;
-                                js_sys::Reflect::set(&progress, &"percent".into(), &percent.into()).unwrap();
-                                js_sys::Reflect::set(&progress, &"processed".into(), &(processed as f64).into()).unwrap();
-                                js_sys::Reflect::set(&progress, &"total".into(), &(total_elements as f64).into()).unwrap();
-                                js_sys::Reflect::set(&progress, &"phase".into(), &"complex".into()).unwrap();
-
-                                let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
-                                total_meshes += js_meshes.length() as usize;
+                    // Yield batch
+                    if batch_meshes.len() >= batch_size {
+                        if let Some(ref callback) = on_batch {
+                            let js_meshes = js_sys::Array::new();
+                            for mesh in batch_meshes.drain(..) {
+                                js_meshes.push(&mesh.into());
                             }
 
-                            gloo_timers::future::TimeoutFuture::new(0).await;
+                            let progress = js_sys::Object::new();
+                            let percent = (processed as f64 / total_elements as f64 * 100.0) as u32;
+                            js_sys::Reflect::set(&progress, &"percent".into(), &percent.into()).unwrap();
+                            js_sys::Reflect::set(&progress, &"processed".into(), &(processed as f64).into()).unwrap();
+                            js_sys::Reflect::set(&progress, &"total".into(), &(total_elements as f64).into()).unwrap();
+                            js_sys::Reflect::set(&progress, &"phase".into(), &"complex".into()).unwrap();
+
+                            let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
+                            total_meshes += js_meshes.length() as usize;
                         }
+
+                        gloo_timers::future::TimeoutFuture::new(0).await;
+                    }
+                }
+
+                // Final flush
+                if !batch_meshes.is_empty() {
+                    if let Some(ref callback) = on_batch {
+                        let js_meshes = js_sys::Array::new();
+                        for mesh in batch_meshes.drain(..) {
+                            js_meshes.push(&mesh.into());
+                        }
+
+                        let progress = js_sys::Object::new();
+                        js_sys::Reflect::set(&progress, &"percent".into(), &100u32.into()).unwrap();
+                        js_sys::Reflect::set(&progress, &"phase".into(), &"complete".into()).unwrap();
+
+                        let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
+                        total_meshes += js_meshes.length() as usize;
                     }
                 }
 
