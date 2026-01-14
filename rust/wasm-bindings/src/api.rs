@@ -480,10 +480,9 @@ impl IfcAPI {
                     .ok()
                     .and_then(|v| v.dyn_into::<Function>().ok());
 
-                // TRULY STREAMING: Build index in background while processing
-                // Start with empty index, build incrementally
-                let entity_index = build_entity_index(&content);
-                let mut decoder = EntityDecoder::with_index(&content, entity_index);
+                // LAZY INDEXING: Don't build full index upfront
+                // Index will be built on first reference resolution
+                let mut decoder = EntityDecoder::new(&content);
 
                 // Create geometry router
                 let router = GeometryRouter::new();
