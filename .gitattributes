@@ -12,10 +12,5 @@ pnpm-lock.yaml linguist-generated=true
 Cargo.lock linguist-generated=true
 # Binary files
 *.wasm binary linguist-generated=true
-# Large IFC files use LFS
-tests/ifc/**/*.ifc filter=lfs diff=lfs merge=lfs -text lockable
-tests/benchmark/models/ara3d/*.ifc filter=lfs diff=lfs merge=lfs -text lockable
-tests/ifc/generated/*.ifc filter=lfs diff=lfs merge=lfs -text lockable
-# Small test IFC files don't need LFS
-tests/benchmark/models/buildingsmart/*.ifc -filter -diff -merge text
-tests/benchmark/models/ifcopenshell/*.ifc -filter -diff -merge text
+# IFC files - treat as binary (committed before LFS, kept as regular files)
+*.ifc binary
