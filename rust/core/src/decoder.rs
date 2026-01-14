@@ -278,7 +278,7 @@ impl<'a> EntityDecoder<'a> {
                     // Fast integer parsing directly from ASCII digits
                     let mut id = 0u32;
                     for &b in &bytes[start..i] {
-                        id = id * 10 + (b - b'0') as u32;
+                        id = id.wrapping_mul(10).wrapping_add((b - b'0') as u32);
                     }
                     ids.push(id);
                 }
@@ -347,7 +347,7 @@ impl<'a> EntityDecoder<'a> {
                     // Fast integer parsing directly from ASCII digits
                     let mut id = 0u32;
                     for &b in &bytes[start..i] {
-                        id = id * 10 + (b - b'0') as u32;
+                        id = id.wrapping_mul(10).wrapping_add((b - b'0') as u32);
                     }
                     point_ids.push(id);
                 }
@@ -455,7 +455,7 @@ impl<'a> EntityDecoder<'a> {
         }
         let mut loop_id = 0u32;
         for &b in &bytes[start..i] {
-            loop_id = loop_id * 10 + (b - b'0') as u32;
+            loop_id = loop_id.wrapping_mul(10).wrapping_add((b - b'0') as u32);
         }
 
         // Find orientation after comma - default to true (.T.)

@@ -139,6 +139,9 @@ impl GeometryRouter {
 
     /// Try to get cached mesh by hash, or cache the provided mesh
     /// Returns Arc<Mesh> - either from cache or newly cached
+    /// 
+    /// Note: Uses hash-only lookup without full equality check for performance.
+    /// FxHasher's 64-bit output makes collisions extremely rare (~1 in 2^64).
     #[inline]
     fn get_or_cache_by_hash(&self, mesh: Mesh) -> Arc<Mesh> {
         let hash = Self::compute_mesh_hash(&mesh);

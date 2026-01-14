@@ -538,7 +538,9 @@
 
                 if (positions.length > 0) {
                     renderer.uploadMesh(positions, normals, indices);
-                    allPositions.push(...positions);
+                    for (let i = 0; i < positions.length; i++) {
+                        allPositions.push(positions[i]);
+                    }
                     totalVerts += positions.length / 3;
                     totalTris += indices.length / 3;
                 }
@@ -621,7 +623,9 @@
 
                     if (positions.length > 0) {
                         renderer.uploadMesh(positions, normals, new Uint32Array(idx));
-                        allPositions.push(...positions);
+                        for (let i = 0; i < positions.length; i++) {
+                            allPositions.push(positions[i]);
+                        }
                         totalVerts += vertCount;
                         totalTris += idx.length / 3;
                     }
@@ -685,7 +689,8 @@
                     webWins = webVal > ifcVal;
                 }
 
-                const speedup = m.lowerBetter ? (webVal / ifcVal) : (ifcVal / webVal);
+                const denominator = m.lowerBetter ? ifcVal : webVal;
+                const speedup = denominator > 0 ? (m.lowerBetter ? webVal / ifcVal : ifcVal / webVal) : null;
 
                 html += `
                     <div class="card ${ifcWins ? 'winner' : (webWins ? 'loser' : '')}">
@@ -695,8 +700,8 @@
                     </div>
                     <div class="card">
                         <h4>Speedup</h4>
-                        <div class="value" style="color: ${ifcWins ? '#4ecdc4' : '#e74c3c'}">${speedup.toFixed(2)}x</div>
-                        <div style="font-size: 12px; color: #888;">${ifcWins ? 'IFC-Lite faster' : 'web-ifc faster'}</div>
+                        <div class="value" style="color: ${ifcWins ? '#4ecdc4' : '#e74c3c'}">${speedup !== null ? speedup.toFixed(2) + 'x' : 'N/A'}</div>
+                        <div style="font-size: 12px; color: #888;">${speedup !== null ? (ifcWins ? 'IFC-Lite faster' : 'web-ifc faster') : 'Cannot calculate'}</div>
                     </div>
                     <div class="card ${webWins ? 'winner' : (ifcWins ? 'loser' : '')}">
                         <h4>${m.label}</h4>

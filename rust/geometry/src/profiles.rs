@@ -306,6 +306,15 @@ impl ProfileProcessor {
 
         let half_x = x_dim / 2.0;
         let half_y = y_dim / 2.0;
+
+        // Validate wall thickness
+        if wall_thickness >= half_x || wall_thickness >= half_y {
+            return Err(Error::geometry(format!(
+                "RectangleHollow WallThickness {} exceeds half dimensions ({}, {})",
+                wall_thickness, half_x, half_y
+            )));
+        }
+
         let inner_half_x = half_x - wall_thickness;
         let inner_half_y = half_y - wall_thickness;
 

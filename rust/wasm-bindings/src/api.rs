@@ -66,7 +66,11 @@ impl GeoReferenceJs {
     pub fn map_to_local(&self, e: f64, n: f64, h: f64) -> Vec<f64> {
         let cos_r = self.x_axis_abscissa;
         let sin_r = self.x_axis_ordinate;
-        let inv_scale = 1.0 / self.scale;
+        let inv_scale = if self.scale.abs() < f64::EPSILON {
+            1.0
+        } else {
+            1.0 / self.scale
+        };
 
         let dx = e - self.eastings;
         let dy = n - self.northings;

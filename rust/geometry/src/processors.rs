@@ -1212,10 +1212,16 @@ impl GeometryProcessor for BooleanClippingProcessor {
 
             // For solid-solid difference, we can't do proper CSG without a full boolean library
             // Just return the first operand for now - this gives approximate geometry
+            #[cfg(debug_assertions)]
+            eprintln!("[WARN] CSG operation {} not fully supported, returning first operand only", operator);
         }
 
         // For UNION and INTERSECTION, and solid-solid DIFFERENCE,
         // just return the first operand for now
+        #[cfg(debug_assertions)]
+        if operator != ".DIFFERENCE." {
+            eprintln!("[WARN] CSG operation {} not fully supported, returning first operand only", operator);
+        }
         Ok(mesh)
     }
 
@@ -2053,6 +2059,8 @@ impl AdvancedBrepProcessor {
                             positions.push(point.z as f32);
                         }
 
+                        // TODO: Fan triangulation assumes convex polygons. For non-convex faces,
+                        // consider using triangulate_polygon_with_holes from FacetedBrepProcessor.
                         // Fan triangulation for simple convex polygons
                         for i in 1..polygon_points.len() - 1 {
                             indices.push(base_idx);
