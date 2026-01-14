@@ -122,6 +122,71 @@ function fixPackageJson(targetDir: string, projectName: string) {
   writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
 }
 
+function fixTsConfig(targetDir: string) {
+  const tsconfigPath = join(targetDir, 'tsconfig.json');
+
+  // Write standalone tsconfig without monorepo references
+  const tsconfig = {
+    compilerOptions: {
+      target: 'ES2022',
+      lib: ['ES2022', 'DOM', 'DOM.Iterable'],
+      module: 'ESNext',
+      moduleResolution: 'bundler',
+      jsx: 'react-jsx',
+      strict: true,
+      esModuleInterop: true,
+      skipLibCheck: true,
+      noEmit: true,
+      baseUrl: '.',
+      paths: {
+        '@/*': ['./src/*']
+      }
+    },
+    include: ['src/**/*'],
+    exclude: ['node_modules']
+  };
+
+  writeFileSync(tsconfigPath, JSON.stringify(tsconfig, null, 2));
+}
+
+function fixViteConfig(targetDir: string) {
+  const viteConfigPath = join(targetDir, 'vite.config.ts');
+
+  // Write standalone vite config - packages resolve from node_modules
+  const viteConfig = `import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import path from 'path';
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+  server: {
+    port: 3000,
+    open: true,
+  },
+  build: {
+    target: 'esnext',
+  },
+  optimizeDeps: {
+    exclude: ['@duckdb/duckdb-wasm'],
+  },
+  assetsInclude: ['**/*.wasm'],
+});
+`;
+
+  writeFileSync(viteConfigPath, viteConfig);
+}
+
+function fixViewerTemplate(targetDir: string, projectName: string) {
+  fixPackageJson(targetDir, projectName);
+  fixTsConfig(targetDir);
+  fixViteConfig(targetDir);
+}
+
 async function main() {
   const args = process.argv.slice(2);
 
@@ -162,7 +227,7 @@ async function main() {
     // Download the actual viewer from GitHub
     const success = await downloadViewer(targetDir, projectName);
     if (success) {
-      fixPackageJson(targetDir, projectName);
+      fixViewerTemplate(targetDir, projectName);
     } else {
       console.error('  Failed to download viewer. Creating minimal fallback...');
       mkdirSync(targetDir, { recursive: true });
