@@ -46,7 +46,10 @@ export function useIfc() {
   const lastLoggedDataStoreRef = useRef<typeof ifcDataStore>(null);
 
   /**
-   * Load from binary cache (fast path)
+   * Load from binary cache (INSTANT path)
+   * Key optimizations:
+   * 1. Single setGeometryResult call instead of batched appendGeometryBatch
+   * 2. Build spatial index in requestIdleCallback (non-blocking)
    */
   const loadFromCache = useCallback(async (
     cacheBuffer: ArrayBuffer,
@@ -54,65 +57,65 @@ export function useIfc() {
   ): Promise<boolean> => {
     try {
       console.time('[useIfc] cache-load');
-      setProgress({ phase: 'Loading from cache', percent: 20 });
+      setProgress({ phase: 'Loading from cache', percent: 10 });
 
       const reader = new BinaryCacheReader();
       const result = await reader.read(cacheBuffer);
 
-      setProgress({ phase: 'Restoring data', percent: 50 });
-
       // Convert cache data store to viewer data store format
-      // The cache stores a simplified version, we need to adapt it
       const dataStore = result.dataStore as any;
-      setIfcDataStore(dataStore);
 
       if (result.geometry) {
-        setProgress({ phase: 'Loading geometry', percent: 70 });
-
-        // Load all meshes at once from cache
         const { meshes, coordinateInfo, totalVertices, totalTriangles } = result.geometry;
 
-        // Append all meshes in batches for smooth rendering
-        const batchSize = 100;
-        for (let i = 0; i < meshes.length; i += batchSize) {
-          const batch = meshes.slice(i, i + batchSize);
-          appendGeometryBatch(batch, coordinateInfo);
+        // INSTANT: Set ALL geometry in ONE state update (no batching!)
+        setGeometryResult({
+          meshes,
+          totalVertices,
+          totalTriangles,
+          coordinateInfo,
+        });
 
-          const percent = 70 + (i / meshes.length) * 25;
-          setProgress({
-            phase: `Loading geometry (${Math.min(i + batchSize, meshes.length)}/${meshes.length} meshes)`,
-            percent,
-          });
+        // Set data store
+        setIfcDataStore(dataStore);
 
-          // Yield to allow rendering
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        }
-
-        updateCoordinateInfo(coordinateInfo);
-
-        // Build spatial index
-        setProgress({ phase: 'Building spatial index', percent: 95 });
+        // Build spatial index in background (non-blocking)
         if (meshes.length > 0) {
-          try {
-            const spatialIndex = buildSpatialIndex(meshes);
-            dataStore.spatialIndex = spatialIndex;
-            setIfcDataStore(dataStore);
-          } catch (err) {
-            console.warn('[useIfc] Failed to build spatial index:', err);
+          // Use requestIdleCallback for non-blocking BVH build
+          const buildIndex = () => {
+            console.time('[useIfc] spatial-index-background');
+            try {
+              const spatialIndex = buildSpatialIndex(meshes);
+              dataStore.spatialIndex = spatialIndex;
+              // Update store with spatial index (doesn't affect rendering)
+              setIfcDataStore({ ...dataStore });
+              console.timeEnd('[useIfc] spatial-index-background');
+            } catch (err) {
+              console.warn('[useIfc] Failed to build spatial index:', err);
+            }
+          };
+
+          // Schedule for idle time, or fallback to setTimeout
+          if ('requestIdleCallback' in window) {
+            (window as any).requestIdleCallback(buildIndex, { timeout: 1000 });
+          } else {
+            setTimeout(buildIndex, 100);
           }
         }
+      } else {
+        setIfcDataStore(dataStore);
       }
 
       setProgress({ phase: 'Complete (from cache)', percent: 100 });
       console.timeEnd('[useIfc] cache-load');
-      console.log(`[useIfc] Loaded ${fileName} from cache`);
+      console.log(`[useIfc] INSTANT load: ${fileName} from cache (${result.geometry?.meshes.length || 0} meshes)`);
 
       return true;
     } catch (err) {
       console.error('[useIfc] Failed to load from cache:', err);
       return false;
     }
-  }, [setProgress, setIfcDataStore, appendGeometryBatch, updateCoordinateInfo]);
+  }, [setProgress, setIfcDataStore, setGeometryResult]);
 
   /**
    * Save to binary cache (background operation)
