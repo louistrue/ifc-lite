@@ -97,22 +97,30 @@ jobs:
       - name: Publish ifc-lite-geometry (skip if already published)
         if: ${{ (github.ref == 'refs/heads/main' || github.event_name == 'release' || (startsWith(github.ref, 'refs/tags/') && steps.verify_tag.outputs.tag_on_main == 'true')) && (github.event_name != 'workflow_dispatch' || !inputs.dry_run) }}
         run: |
+          set +e
           VERSION=$(grep '^version =' Cargo.toml | cut -d'"' -f2)
           if cargo search ifc-lite-geometry --limit 1 2>/dev/null | grep -q "^ifc-lite-geometry = \"$VERSION\""; then
             echo "Skipping ifc-lite-geometry@$VERSION (already published)"
+            exit 0
           else
+            echo "Publishing ifc-lite-geometry@$VERSION"
             cargo publish -p ifc-lite-geometry
+            exit $?
           fi
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
       - name: Publish ifc-lite-wasm (skip if already published)
         if: ${{ (github.ref == 'refs/heads/main' || github.event_name == 'release' || (startsWith(github.ref, 'refs/tags/') && steps.verify_tag.outputs.tag_on_main == 'true')) && (github.event_name != 'workflow_dispatch' || !inputs.dry_run) }}
         run: |
+          set +e
           VERSION=$(grep '^version =' Cargo.toml | cut -d'"' -f2)
           if cargo search ifc-lite-wasm --limit 1 2>/dev/null | grep -q "^ifc-lite-wasm = \"$VERSION\""; then
             echo "Skipping ifc-lite-wasm@$VERSION (already published)"
+            exit 0
           else
+            echo "Publishing ifc-lite-wasm@$VERSION"
             cargo publish -p ifc-lite-wasm
+            exit $?
           fi
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
