@@ -46,28 +46,24 @@
 
 ## Quick Start
 
-### Prerequisites
-
-- **Node.js** 18.0+ with **pnpm** 8.0+
-- **Rust** toolchain with wasm32-unknown-unknown target
-- Modern browser with **WebGPU** support (Chrome 113+, Edge 113+, Firefox 127+, Safari 18+)
-
-### Installation
+### One Command Setup
 
 ```bash
-# Clone the repository
 git clone https://github.com/louistrue/ifc-lite.git
 cd ifc-lite
+pnpm install && pnpm dev
+```
 
-# Install dependencies
-pnpm install
+That's it! Open http://localhost:5173 and load an IFC file.
 
-# Build all packages
-pnpm build
+> **Note:** Requires Node.js 18+ and pnpm 8+. No Rust toolchain needed - WASM is pre-built.
 
-# Run the viewer
-cd apps/viewer
-pnpm dev
+### Sample IFC Files
+
+Test models are included in `tests/benchmark/models/` from buildingSMART, IFC.js, and ara3d:
+```bash
+# Try a sample model
+open tests/benchmark/models/buildingsmart/Duplex_A_20110907.ifc
 ```
 
 ### Basic Usage
@@ -122,6 +118,7 @@ ifc-lite/
 │   ├── parser/                # High-level IFC parser
 │   ├── geometry/              # Geometry bridge (WASM)
 │   ├── renderer/              # WebGPU rendering
+│   ├── cache/                 # Binary cache format
 │   ├── query/                 # Query system
 │   ├── data/                  # Columnar data structures
 │   ├── spatial/               # Spatial indexing
@@ -171,23 +168,13 @@ ifc-lite/
 ## Development
 
 ```bash
-# Watch mode for all packages
-pnpm -r dev
+pnpm dev          # Start viewer in dev mode
+pnpm build        # Build all packages
+pnpm test         # Run tests
 
-# Build specific package
-cd packages/parser && pnpm build
-
-# Run tests
-pnpm test
-
-# Build Rust/WASM
+# Rust/WASM development (optional - WASM is pre-built)
 cd rust && cargo build --release --target wasm32-unknown-unknown
-
-# Generate Rustdoc
-cd rust && cargo doc --no-deps --open
-
-# Build documentation site
-cd docs && mkdocs serve
+bash build-wasm.sh  # Rebuild WASM after Rust changes
 ```
 
 ## Packages
@@ -197,6 +184,7 @@ cd docs && mkdocs serve
 | `@ifc-lite/parser` | STEP tokenizer & entity extraction | ✅ Stable |
 | `@ifc-lite/geometry` | Geometry processing bridge | ✅ Stable |
 | `@ifc-lite/renderer` | WebGPU rendering pipeline | ✅ Stable |
+| `@ifc-lite/cache` | Binary cache for instant loading | ✅ Stable |
 | `@ifc-lite/query` | Fluent & SQL query system | 🚧 Beta |
 | `@ifc-lite/data` | Columnar data structures | ✅ Stable |
 | `@ifc-lite/spatial` | Spatial indexing & culling | 🚧 Beta |

@@ -5,7 +5,6 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "cp ../../packages/wasm/pkg/ifc-lite_bg.wasm public/ifc-lite_bg.wasm",
     "build": "(tsc || true) && vite build",
     "preview": "vite preview"
   },
