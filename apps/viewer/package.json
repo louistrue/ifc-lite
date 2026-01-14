@@ -1,6 +1,6 @@
 {
   "name": "@ifc-lite/viewer",
-  "version": "1.1.4",
+  "version": "1.1.6",
   "description": "IFC-Lite viewer application",
   "type": "module",
   "scripts": {

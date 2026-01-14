@@ -1,6 +1,6 @@
 {
   "name": "@ifc-lite/data",
-  "version": "1.1.4",
+  "version": "1.1.6",
   "description": "Columnar data structures for IFC-Lite",
   "type": "module",
   "main": "./dist/index.js",

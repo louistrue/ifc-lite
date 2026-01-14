@@ -12,7 +12,7 @@ readme = "../../README.md"
 
 [dependencies]
 # Core IFC parsing
-ifc-lite-core = { version = "1.1.4", path = "../core" }
+ifc-lite-core = { version = "1.1.6", path = "../core" }
 
 # Math library
 nalgebra = { version = "0.33", default-features = false, features = ["std"] }
