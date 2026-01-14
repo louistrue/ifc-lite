@@ -75,6 +75,7 @@ pub mod schema_gen;
 pub mod georef;
 pub mod fast_parse;
 pub mod generated;
+pub mod units;
 
 pub use error::{Error, Result};
 pub use parser::{Token, EntityScanner, parse_entity};
@@ -89,3 +90,4 @@ pub use fast_parse::{
     extract_face_indices_from_entity, extract_coordinate_list_from_entity,
     process_triangulated_faceset_direct, FastMeshData
 };
+pub use units::{extract_length_unit_scale, get_si_prefix_multiplier};

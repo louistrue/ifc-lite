@@ -113,16 +113,21 @@ impl AttributeValue {
     /// Batch parse 3D coordinates from a list of coordinate triples
     /// Returns flattened f32 array: [x0, y0, z0, x1, y1, z1, ...]
     /// Optimized for large coordinate lists
+    ///
+    /// # Arguments
+    /// * `coord_list` - List of coordinate triples
+    /// * `scale` - Scale factor to apply (e.g., 0.001 for millimeters to meters)
     #[inline]
-    pub fn parse_coordinate_list_3d(coord_list: &[AttributeValue]) -> Vec<f32> {
+    pub fn parse_coordinate_list_3d(coord_list: &[AttributeValue], scale: f64) -> Vec<f32> {
         let mut result = Vec::with_capacity(coord_list.len() * 3);
+        let scale_f32 = scale as f32;
 
         for coord_attr in coord_list {
             if let Some(coord) = coord_attr.as_list() {
-                // Fast path: extract x, y, z directly
-                let x = coord.get(0).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
-                let y = coord.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
-                let z = coord.get(2).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+                // Fast path: extract x, y, z directly and apply scale
+                let x = (coord.get(0).and_then(|v| v.as_float()).unwrap_or(0.0) as f32) * scale_f32;
+                let y = (coord.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32) * scale_f32;
+                let z = (coord.get(2).and_then(|v| v.as_float()).unwrap_or(0.0) as f32) * scale_f32;
 
                 result.push(x);
                 result.push(y);
@@ -135,14 +140,19 @@ impl AttributeValue {
 
     /// Batch parse 2D coordinates from a list of coordinate pairs
     /// Returns flattened f32 array: [x0, y0, x1, y1, ...]
+    ///
+    /// # Arguments
+    /// * `coord_list` - List of coordinate pairs
+    /// * `scale` - Scale factor to apply (e.g., 0.001 for millimeters to meters)
     #[inline]
-    pub fn parse_coordinate_list_2d(coord_list: &[AttributeValue]) -> Vec<f32> {
+    pub fn parse_coordinate_list_2d(coord_list: &[AttributeValue], scale: f64) -> Vec<f32> {
         let mut result = Vec::with_capacity(coord_list.len() * 2);
+        let scale_f32 = scale as f32;
 
         for coord_attr in coord_list {
             if let Some(coord) = coord_attr.as_list() {
-                let x = coord.get(0).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
-                let y = coord.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+                let x = (coord.get(0).and_then(|v| v.as_float()).unwrap_or(0.0) as f32) * scale_f32;
+                let y = (coord.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32) * scale_f32;
 
                 result.push(x);
                 result.push(y);
@@ -177,14 +187,18 @@ impl AttributeValue {
 
     /// Batch parse coordinate list with f64 precision
     /// Returns Vec of (x, y, z) tuples
+    ///
+    /// # Arguments
+    /// * `coord_list` - List of coordinate triples
+    /// * `scale` - Scale factor to apply (e.g., 0.001 for millimeters to meters)
     #[inline]
-    pub fn parse_coordinate_list_3d_f64(coord_list: &[AttributeValue]) -> Vec<(f64, f64, f64)> {
+    pub fn parse_coordinate_list_3d_f64(coord_list: &[AttributeValue], scale: f64) -> Vec<(f64, f64, f64)> {
         coord_list.iter()
             .filter_map(|coord_attr| {
                 let coord = coord_attr.as_list()?;
-                let x = coord.get(0).and_then(|v| v.as_float()).unwrap_or(0.0);
-                let y = coord.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
-                let z = coord.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
+                let x = coord.get(0).and_then(|v| v.as_float()).unwrap_or(0.0) * scale;
+                let y = coord.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) * scale;
+                let z = coord.get(2).and_then(|v| v.as_float()).unwrap_or(0.0) * scale;
                 Some((x, y, z))
             })
             .collect()

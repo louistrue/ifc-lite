@@ -22,11 +22,18 @@ use std::sync::Arc;
 /// Each processor handles one type of IFC representation
 pub trait GeometryProcessor {
     /// Process entity into mesh
+    ///
+    /// # Arguments
+    /// * `entity` - The IFC entity to process
+    /// * `decoder` - Entity decoder for resolving references
+    /// * `schema` - IFC schema information
+    /// * `unit_scale` - Unit scale factor (e.g., 0.001 for millimeters to meters)
     fn process(
         &self,
         entity: &DecodedEntity,
         decoder: &mut EntityDecoder,
         schema: &IfcSchema,
+        unit_scale: f64,
     ) -> Result<Mesh>;
 
     /// Get supported IFC types
@@ -48,6 +55,9 @@ pub struct GeometryRouter {
     /// Buildings with repeated floors have 99% identical geometry
     /// Key: Hash of mesh content, Value: Processed mesh
     geometry_hash_cache: RefCell<FxHashMap<u64, Arc<Mesh>>>,
+    /// Unit scale factor for coordinate conversion (e.g., 0.001 for millimeters -> meters)
+    /// Extracted from IFCSIUNIT in IFCPROJECT → IFCUNITASSIGNMENT
+    unit_scale: f64,
 }
 
 impl GeometryRouter {
@@ -61,6 +71,7 @@ impl GeometryRouter {
             mapped_item_cache: RefCell::new(FxHashMap::default()),
             faceted_brep_cache: RefCell::new(FxHashMap::default()),
             geometry_hash_cache: RefCell::new(FxHashMap::default()),
+            unit_scale: 1.0, // Default to base meters
         };
 
         // Register default P0 processors
@@ -74,6 +85,41 @@ impl GeometryRouter {
         router.register(Box::new(AdvancedBrepProcessor::new()));
 
         router
+    }
+
+    /// Create router and extract unit scale from IFC file
+    /// Automatically finds IFCPROJECT and extracts length unit conversion
+    pub fn with_units(decoder: &mut EntityDecoder) -> Self {
+        let mut router = Self::new();
+
+        // Find IFCPROJECT entity by scanning
+        if let Some(project_id) = Self::find_project(decoder) {
+            // Extract unit scale
+            if let Ok(scale) = ifc_lite_core::extract_length_unit_scale(decoder, project_id) {
+                router.unit_scale = scale;
+            }
+        }
+
+        router
+    }
+
+    /// Find IFCPROJECT entity ID in the file
+    fn find_project(decoder: &mut EntityDecoder) -> Option<u32> {
+        // Try to decode entities until we find IFCPROJECT
+        // In practice, IFCPROJECT is typically one of the first entities (often #1 or #2)
+        for id in 1..=100 {
+            if let Ok(entity) = decoder.decode_by_id(id) {
+                if entity.ifc_type == IfcType::IfcProject {
+                    return Some(id);
+                }
+            }
+        }
+        None
+    }
+
+    /// Get the current unit scale factor
+    pub fn unit_scale(&self) -> f64 {
+        self.unit_scale
     }
 
     /// Register a geometry processor
@@ -415,7 +461,7 @@ impl GeometryRouter {
 
         // Check if we have a processor for this type
         if let Some(processor) = self.processors.get(&item.ifc_type) {
-            let mesh = processor.process(item, decoder, &self.schema)?;
+            let mesh = processor.process(item, decoder, &self.schema, self.unit_scale)?;
             // Deduplicate by hash - buildings with repeated floors have identical geometry
             if !mesh.positions.is_empty() {
                 let cached = self.get_or_cache_by_hash(mesh);
@@ -528,7 +574,7 @@ impl GeometryRouter {
                 continue; // Skip nested MappedItems to avoid recursion
             }
             if let Some(processor) = self.processors.get(&sub_item.ifc_type) {
-                if let Ok(sub_mesh) = processor.process(&sub_item, decoder, &self.schema) {
+                if let Ok(sub_mesh) = processor.process(&sub_item, decoder, &self.schema, self.unit_scale) {
                     mesh.merge(&sub_mesh);
                 }
             }
@@ -713,18 +759,20 @@ impl GeometryRouter {
             .as_list()
             .ok_or_else(|| Error::geometry("Expected coordinate list".to_string()))?;
 
+        // Apply unit scale to coordinates
+        let scale = self.unit_scale;
         let x = coords
             .get(0)
             .and_then(|v| v.as_float())
-            .unwrap_or(0.0);
+            .unwrap_or(0.0) * scale;
         let y = coords
             .get(1)
             .and_then(|v| v.as_float())
-            .unwrap_or(0.0);
+            .unwrap_or(0.0) * scale;
         let z = coords
             .get(2)
             .and_then(|v| v.as_float())
-            .unwrap_or(0.0);
+            .unwrap_or(0.0) * scale;
 
         Ok(Point3::new(x, y, z))
     }

@@ -163,6 +163,7 @@ impl GeometryProcessor for ExtrudedAreaSolidProcessor {
         entity: &DecodedEntity,
         decoder: &mut EntityDecoder,
         _schema: &IfcSchema,
+        _unit_scale: f64,
     ) -> Result<Mesh> {
         // IfcExtrudedAreaSolid attributes:
         // 0: SweptArea (IfcProfileDef)
@@ -469,6 +470,7 @@ impl GeometryProcessor for TriangulatedFaceSetProcessor {
         entity: &DecodedEntity,
         decoder: &mut EntityDecoder,
         _schema: &IfcSchema,
+        unit_scale: f64,
     ) -> Result<Mesh> {
         // IfcTriangulatedFaceSet attributes:
         // 0: Coordinates (IfcCartesianPointList3D)
@@ -509,7 +511,7 @@ impl GeometryProcessor for TriangulatedFaceSetProcessor {
                 .ok_or_else(|| Error::geometry("Expected coordinate list".to_string()))?;
 
             use ifc_lite_core::AttributeValue;
-            AttributeValue::parse_coordinate_list_3d(coord_list)
+            AttributeValue::parse_coordinate_list_3d(coord_list, unit_scale)
         };
 
         // Get face indices - try fast path first
@@ -950,6 +952,7 @@ impl GeometryProcessor for FacetedBrepProcessor {
         entity: &DecodedEntity,
         decoder: &mut EntityDecoder,
         _schema: &IfcSchema,
+        _unit_scale: f64,
     ) -> Result<Mesh> {
         use rayon::prelude::*;
 
@@ -1107,31 +1110,32 @@ impl BooleanClippingProcessor {
         &self,
         operand: &DecodedEntity,
         decoder: &mut EntityDecoder,
+        unit_scale: f64,
     ) -> Result<Mesh> {
         match operand.ifc_type {
             IfcType::IfcExtrudedAreaSolid => {
                 let processor = ExtrudedAreaSolidProcessor::new(self.schema.clone());
-                processor.process(operand, decoder, &self.schema)
+                processor.process(operand, decoder, &self.schema, unit_scale)
             }
             IfcType::IfcFacetedBrep => {
                 let processor = FacetedBrepProcessor::new();
-                processor.process(operand, decoder, &self.schema)
+                processor.process(operand, decoder, &self.schema, unit_scale)
             }
             IfcType::IfcTriangulatedFaceSet => {
                 let processor = TriangulatedFaceSetProcessor::new();
-                processor.process(operand, decoder, &self.schema)
+                processor.process(operand, decoder, &self.schema, unit_scale)
             }
             IfcType::IfcSweptDiskSolid => {
                 let processor = SweptDiskSolidProcessor::new(self.schema.clone());
-                processor.process(operand, decoder, &self.schema)
+                processor.process(operand, decoder, &self.schema, unit_scale)
             }
             IfcType::IfcRevolvedAreaSolid => {
                 let processor = RevolvedAreaSolidProcessor::new(self.schema.clone());
-                processor.process(operand, decoder, &self.schema)
+                processor.process(operand, decoder, &self.schema, unit_scale)
             }
             IfcType::IfcBooleanResult | IfcType::IfcBooleanClippingResult => {
                 // Recursive case
-                self.process(operand, decoder, &self.schema)
+                self.process(operand, decoder, &self.schema, unit_scale)
             }
             _ => Ok(Mesh::new()),
         }
@@ -1249,6 +1253,7 @@ impl GeometryProcessor for BooleanClippingProcessor {
         entity: &DecodedEntity,
         decoder: &mut EntityDecoder,
         _schema: &IfcSchema,
+        unit_scale: f64,
     ) -> Result<Mesh> {
         // IfcBooleanResult attributes:
         // 0: Operator (.DIFFERENCE., .UNION., .INTERSECTION.)
@@ -1271,7 +1276,7 @@ impl GeometryProcessor for BooleanClippingProcessor {
             .ok_or_else(|| Error::geometry("Failed to resolve FirstOperand".to_string()))?;
 
         // Process first operand to get base mesh
-        let mut mesh = self.process_operand(&first_operand, decoder)?;
+        let mut mesh = self.process_operand(&first_operand, decoder, unit_scale)?;
 
         if mesh.is_empty() {
             return Ok(mesh);
@@ -1339,6 +1344,7 @@ impl GeometryProcessor for MappedItemProcessor {
         entity: &DecodedEntity,
         decoder: &mut EntityDecoder,
         schema: &IfcSchema,
+        unit_scale: f64,
     ) -> Result<Mesh> {
         // IfcMappedItem attributes:
         // 0: MappingSource (IfcRepresentationMap)
@@ -1380,27 +1386,27 @@ impl GeometryProcessor for MappedItemProcessor {
             let item_mesh = match item.ifc_type {
                 IfcType::IfcExtrudedAreaSolid => {
                     let processor = ExtrudedAreaSolidProcessor::new(schema.clone());
-                    processor.process(&item, decoder, schema)?
+                    processor.process(&item, decoder, schema, unit_scale)?
                 }
                 IfcType::IfcTriangulatedFaceSet => {
                     let processor = TriangulatedFaceSetProcessor::new();
-                    processor.process(&item, decoder, schema)?
+                    processor.process(&item, decoder, schema, unit_scale)?
                 }
                 IfcType::IfcFacetedBrep => {
                     let processor = FacetedBrepProcessor::new();
-                    processor.process(&item, decoder, schema)?
+                    processor.process(&item, decoder, schema, unit_scale)?
                 }
                 IfcType::IfcSweptDiskSolid => {
                     let processor = SweptDiskSolidProcessor::new(schema.clone());
-                    processor.process(&item, decoder, schema)?
+                    processor.process(&item, decoder, schema, unit_scale)?
                 }
                 IfcType::IfcBooleanClippingResult | IfcType::IfcBooleanResult => {
                     let processor = BooleanClippingProcessor::new();
-                    processor.process(&item, decoder, schema)?
+                    processor.process(&item, decoder, schema, unit_scale)?
                 }
                 IfcType::IfcRevolvedAreaSolid => {
                     let processor = RevolvedAreaSolidProcessor::new(schema.clone());
-                    processor.process(&item, decoder, schema)?
+                    processor.process(&item, decoder, schema, unit_scale)?
                 }
                 _ => continue, // Skip unsupported types
             };
@@ -1445,6 +1451,7 @@ impl GeometryProcessor for SweptDiskSolidProcessor {
         entity: &DecodedEntity,
         decoder: &mut EntityDecoder,
         _schema: &IfcSchema,
+        _unit_scale: f64,
     ) -> Result<Mesh> {
         // IfcSweptDiskSolid attributes:
         // 0: Directrix (IfcCurve) - the path to sweep along
@@ -1604,6 +1611,7 @@ impl GeometryProcessor for RevolvedAreaSolidProcessor {
         entity: &DecodedEntity,
         decoder: &mut EntityDecoder,
         _schema: &IfcSchema,
+        _unit_scale: f64,
     ) -> Result<Mesh> {
         // IfcRevolvedAreaSolid attributes:
         // 0: SweptArea (IfcProfileDef) - the 2D profile to revolve
@@ -2204,6 +2212,7 @@ impl GeometryProcessor for AdvancedBrepProcessor {
         entity: &DecodedEntity,
         decoder: &mut EntityDecoder,
         _schema: &IfcSchema,
+        _unit_scale: f64,
     ) -> Result<Mesh> {
         // IfcAdvancedBrep attributes:
         // 0: Outer (IfcClosedShell)
