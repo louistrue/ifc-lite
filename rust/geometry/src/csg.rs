@@ -620,6 +620,151 @@ impl ClippingProcessor {
         Self::csgrs_to_mesh(&result_csg)
     }
 
+    /// Union two meshes together using csgrs CSG boolean operations
+    pub fn union_mesh(&self, mesh_a: &Mesh, mesh_b: &Mesh) -> Result<Mesh> {
+        use csgrs::traits::CSG;
+
+        // Fast paths
+        if mesh_a.is_empty() {
+            return Ok(mesh_b.clone());
+        }
+        if mesh_b.is_empty() {
+            return Ok(mesh_a.clone());
+        }
+
+        // Convert meshes to csgrs format
+        let csg_a = Self::mesh_to_csgrs(mesh_a)?;
+        let csg_b = Self::mesh_to_csgrs(mesh_b)?;
+
+        // Perform CSG union
+        let result_csg = csg_a.union(&csg_b);
+
+        // Convert back to our Mesh format
+        Self::csgrs_to_mesh(&result_csg)
+    }
+
+    /// Union multiple meshes together
+    ///
+    /// More efficient than calling union_mesh repeatedly as it can
+    /// batch the operations.
+    pub fn union_meshes(&self, meshes: &[Mesh]) -> Result<Mesh> {
+        if meshes.is_empty() {
+            return Ok(Mesh::new());
+        }
+
+        if meshes.len() == 1 {
+            return Ok(meshes[0].clone());
+        }
+
+        // Start with first non-empty mesh
+        let mut result = Mesh::new();
+        let mut found_first = false;
+
+        for mesh in meshes {
+            if mesh.is_empty() {
+                continue;
+            }
+
+            if !found_first {
+                result = mesh.clone();
+                found_first = true;
+                continue;
+            }
+
+            result = self.union_mesh(&result, mesh)?;
+        }
+
+        Ok(result)
+    }
+
+    /// Subtract multiple meshes efficiently
+    ///
+    /// When void count exceeds threshold, unions all voids first
+    /// then performs a single subtraction. This is much more efficient
+    /// for elements with many openings (e.g., floors with many penetrations).
+    ///
+    /// # Arguments
+    /// * `host` - The host mesh to subtract from
+    /// * `voids` - List of void meshes to subtract
+    ///
+    /// # Returns
+    /// The host mesh with all voids subtracted
+    pub fn subtract_meshes_batched(&self, host: &Mesh, voids: &[Mesh]) -> Result<Mesh> {
+        // Filter out empty meshes
+        let non_empty_voids: Vec<&Mesh> = voids.iter().filter(|m| !m.is_empty()).collect();
+
+        if non_empty_voids.is_empty() {
+            return Ok(host.clone());
+        }
+
+        if non_empty_voids.len() == 1 {
+            return self.subtract_mesh(host, non_empty_voids[0]);
+        }
+
+        // Threshold for batching: if more than 10 voids, union them first
+        const BATCH_THRESHOLD: usize = 10;
+
+        if non_empty_voids.len() > BATCH_THRESHOLD {
+            // Union all voids into a single mesh first
+            let void_refs: Vec<Mesh> = non_empty_voids.iter().map(|m| (*m).clone()).collect();
+            let combined = self.union_meshes(&void_refs)?;
+
+            // Single subtraction
+            self.subtract_mesh(host, &combined)
+        } else {
+            // Sequential subtraction for small counts
+            let mut result = host.clone();
+
+            for void in non_empty_voids {
+                result = self.subtract_mesh(&result, void)?;
+            }
+
+            Ok(result)
+        }
+    }
+
+    /// Subtract meshes with fallback on failure
+    ///
+    /// Attempts batched subtraction, but if it fails, returns the host mesh
+    /// unchanged rather than propagating the error. This provides graceful
+    /// degradation for problematic void geometries.
+    pub fn subtract_meshes_with_fallback(&self, host: &Mesh, voids: &[Mesh]) -> Mesh {
+        match self.subtract_meshes_batched(host, voids) {
+            Ok(result) => {
+                // Validate result
+                if result.is_empty() || !self.validate_mesh(&result) {
+                    host.clone()
+                } else {
+                    result
+                }
+            }
+            Err(_) => host.clone(),
+        }
+    }
+
+    /// Validate mesh for common issues
+    fn validate_mesh(&self, mesh: &Mesh) -> bool {
+        // Check for NaN/Inf in positions
+        if mesh.positions.iter().any(|v| !v.is_finite()) {
+            return false;
+        }
+
+        // Check for NaN/Inf in normals
+        if mesh.normals.iter().any(|v| !v.is_finite()) {
+            return false;
+        }
+
+        // Check for valid triangle indices
+        let vertex_count = mesh.vertex_count();
+        for idx in &mesh.indices {
+            if *idx as usize >= vertex_count {
+                return false;
+            }
+        }
+
+        true
+    }
+
     /// Clip mesh using bounding box (6 planes) - DEPRECATED: use subtract_box() instead
     /// Subtracts everything inside the box from the mesh
     #[deprecated(note = "Use subtract_box() for better performance")]

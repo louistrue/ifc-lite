@@ -67,6 +67,7 @@
 //! - **Complex Breps**: ~200 entities/sec
 //! - **Boolean operations**: ~20 entities/sec
 
+pub mod bool2d;
 pub mod csg;
 pub mod error;
 pub mod extrusion;
@@ -76,20 +77,31 @@ pub mod profile;
 pub mod profiles;
 pub mod router;
 pub mod triangulation;
+pub mod void_analysis;
+pub mod void_index;
 
 // Re-export nalgebra types for convenience
 pub use nalgebra::{Point2, Point3, Vector2, Vector3};
 
+pub use bool2d::{
+    compute_signed_area, ensure_ccw, ensure_cw, is_valid_contour, point_in_contour,
+    subtract_2d, subtract_multiple_2d, union_contours,
+};
 pub use csg::{calculate_normals, ClippingProcessor, Plane, Triangle};
 pub use error::{Error, Result};
-pub use extrusion::extrude_profile;
+pub use extrusion::{extrude_profile, extrude_profile_with_voids};
 pub use mesh::Mesh;
 pub use processors::{
     AdvancedBrepProcessor, BooleanClippingProcessor, ExtrudedAreaSolidProcessor,
     FacetedBrepProcessor, MappedItemProcessor, RevolvedAreaSolidProcessor, SweptDiskSolidProcessor,
     TriangulatedFaceSetProcessor,
 };
-pub use profile::{Profile2D, ProfileType};
+pub use profile::{Profile2D, Profile2DWithVoids, ProfileType, VoidInfo};
 pub use profiles::ProfileProcessor;
 pub use router::{GeometryProcessor, GeometryRouter};
 pub use triangulation::triangulate_polygon;
+pub use void_analysis::{
+    classify_voids_batch, extract_coplanar_voids, extract_nonplanar_voids, VoidAnalyzer,
+    VoidClassification,
+};
+pub use void_index::{VoidIndex, VoidStatistics};

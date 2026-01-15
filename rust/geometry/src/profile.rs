@@ -88,6 +88,113 @@ pub struct Triangulation {
     pub indices: Vec<usize>,
 }
 
+/// Void metadata for depth-aware extrusion
+///
+/// Tracks information about a void that has been projected to the 2D profile plane,
+/// including its depth range for generating internal caps when the void doesn't
+/// extend through the full extrusion depth.
+#[derive(Debug, Clone)]
+pub struct VoidInfo {
+    /// Hole contour in 2D profile space (clockwise winding for holes)
+    pub contour: Vec<Point2<f64>>,
+    /// Start depth in extrusion space (0.0 = bottom cap)
+    pub depth_start: f64,
+    /// End depth in extrusion space (extrusion_depth = top cap)
+    pub depth_end: f64,
+    /// Whether void extends full depth (no internal caps needed)
+    pub is_through: bool,
+}
+
+impl VoidInfo {
+    /// Create a new void info
+    pub fn new(contour: Vec<Point2<f64>>, depth_start: f64, depth_end: f64, is_through: bool) -> Self {
+        Self {
+            contour,
+            depth_start,
+            depth_end,
+            is_through,
+        }
+    }
+
+    /// Create a through void (extends full depth)
+    pub fn through(contour: Vec<Point2<f64>>, depth: f64) -> Self {
+        Self {
+            contour,
+            depth_start: 0.0,
+            depth_end: depth,
+            is_through: true,
+        }
+    }
+}
+
+/// Profile with void tracking for depth-aware extrusion
+///
+/// Extends Profile2D with metadata about voids that have been classified as
+/// coplanar and can be handled at the profile level. This allows for:
+/// - Through voids: Added as holes before single extrusion
+/// - Partial-depth voids: Generate internal caps at depth boundaries
+#[derive(Debug, Clone)]
+pub struct Profile2DWithVoids {
+    /// Base profile (outer boundary + any existing holes)
+    pub profile: Profile2D,
+    /// Void metadata for depth-aware extrusion
+    pub voids: Vec<VoidInfo>,
+}
+
+impl Profile2DWithVoids {
+    /// Create a new profile with voids
+    pub fn new(profile: Profile2D, voids: Vec<VoidInfo>) -> Self {
+        Self { profile, voids }
+    }
+
+    /// Create from a base profile with no voids
+    pub fn from_profile(profile: Profile2D) -> Self {
+        Self {
+            profile,
+            voids: Vec::new(),
+        }
+    }
+
+    /// Add a void to the profile
+    pub fn add_void(&mut self, void: VoidInfo) {
+        self.voids.push(void);
+    }
+
+    /// Get all through voids (can be added as simple holes)
+    pub fn through_voids(&self) -> impl Iterator<Item = &VoidInfo> {
+        self.voids.iter().filter(|v| v.is_through)
+    }
+
+    /// Get all partial-depth voids (need internal caps)
+    pub fn partial_voids(&self) -> impl Iterator<Item = &VoidInfo> {
+        self.voids.iter().filter(|v| !v.is_through)
+    }
+
+    /// Check if there are any voids
+    pub fn has_voids(&self) -> bool {
+        !self.voids.is_empty()
+    }
+
+    /// Get number of voids
+    pub fn void_count(&self) -> usize {
+        self.voids.len()
+    }
+
+    /// Create a profile with through-voids merged as holes
+    ///
+    /// Returns a Profile2D where all through-voids have been added as holes,
+    /// suitable for single-pass extrusion.
+    pub fn profile_with_through_holes(&self) -> Profile2D {
+        let mut profile = self.profile.clone();
+
+        for void in self.through_voids() {
+            profile.add_hole(void.contour.clone());
+        }
+
+        profile
+    }
+}
+
 /// Common profile types
 #[derive(Debug, Clone)]
 pub enum ProfileType {

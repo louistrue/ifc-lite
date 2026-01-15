@@ -222,7 +222,7 @@ pub fn extract_length_unit_scale(decoder: &mut EntityDecoder, project_id: u32) -
             // The value could be stored as Real, Integer, or in nested form
             let conversion_value = if let Some(val) = value_attr.as_float() {
                 val
-            } else if let Some(val) = value_attr.as_integer() {
+            } else if let Some(val) = value_attr.as_int() {
                 val as f64
             } else {
                 // Default to 1.0 if we can't extract the value

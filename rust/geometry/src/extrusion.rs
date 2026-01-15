@@ -6,8 +6,8 @@
 
 use crate::error::{Error, Result};
 use crate::mesh::Mesh;
-use crate::profile::{Profile2D, Triangulation};
-use nalgebra::{Matrix4, Point3, Vector3};
+use crate::profile::{Profile2D, Profile2DWithVoids, Triangulation, VoidInfo};
+use nalgebra::{Matrix4, Point2, Point3, Vector3};
 
 /// Extrude a 2D profile along the Z axis
 #[inline]
@@ -58,6 +58,171 @@ pub fn extrude_profile(
     }
 
     Ok(mesh)
+}
+
+/// Extrude a 2D profile with void awareness
+///
+/// This function handles both through-voids and partial-depth voids:
+/// - Through voids: Added as holes to the profile before extrusion
+/// - Partial-depth voids: Generate internal caps at depth boundaries
+///
+/// # Arguments
+/// * `profile_with_voids` - Profile with classified void information
+/// * `depth` - Total extrusion depth
+/// * `transform` - Optional transformation matrix
+///
+/// # Returns
+/// The extruded mesh with voids properly handled
+#[inline]
+pub fn extrude_profile_with_voids(
+    profile_with_voids: &Profile2DWithVoids,
+    depth: f64,
+    transform: Option<Matrix4<f64>>,
+) -> Result<Mesh> {
+    if depth <= 0.0 {
+        return Err(Error::InvalidExtrusion(
+            "Depth must be positive".to_string(),
+        ));
+    }
+
+    // Create profile with through-voids as holes
+    let profile_with_holes = profile_with_voids.profile_with_through_holes();
+
+    // Triangulate the combined profile
+    let triangulation = profile_with_holes.triangulate()?;
+
+    // Estimate capacity
+    let partial_void_count = profile_with_voids.partial_voids().count();
+
+    let vertex_count = triangulation.points.len() * 2;
+    let side_vertex_count = profile_with_holes.outer.len() * 2
+        + profile_with_holes.holes.iter().map(|h| h.len() * 2).sum::<usize>();
+    let partial_void_vertices = partial_void_count * 100; // Estimate
+    let total_vertices = vertex_count + side_vertex_count + partial_void_vertices;
+
+    let mut mesh = Mesh::with_capacity(
+        total_vertices,
+        triangulation.indices.len() * 2 + profile_with_holes.outer.len() * 6,
+    );
+
+    // Create top and bottom caps (with through-void holes included)
+    create_cap_mesh(&triangulation, 0.0, Vector3::new(0.0, 0.0, -1.0), &mut mesh);
+    create_cap_mesh(
+        &triangulation,
+        depth,
+        Vector3::new(0.0, 0.0, 1.0),
+        &mut mesh,
+    );
+
+    // Create side walls for outer boundary
+    create_side_walls(&profile_with_holes.outer, depth, &mut mesh);
+
+    // Create side walls for holes (including through-voids)
+    for hole in &profile_with_holes.holes {
+        create_side_walls(hole, depth, &mut mesh);
+    }
+
+    // Handle partial-depth voids
+    for void in profile_with_voids.partial_voids() {
+        create_partial_void_geometry(void, depth, &mut mesh)?;
+    }
+
+    // Apply transformation if provided
+    if let Some(mat) = transform {
+        apply_transform(&mut mesh, &mat);
+    }
+
+    Ok(mesh)
+}
+
+/// Create geometry for a partial-depth void
+///
+/// Generates:
+/// - Internal cap at void start depth (if not at bottom)
+/// - Internal cap at void end depth (if not at top)
+/// - Side walls for the void opening
+fn create_partial_void_geometry(void: &VoidInfo, total_depth: f64, mesh: &mut Mesh) -> Result<()> {
+    if void.contour.len() < 3 {
+        return Ok(());
+    }
+
+    let epsilon = 0.001;
+
+    // Create triangulation for void contour
+    let void_profile = Profile2D::new(void.contour.clone());
+    let void_triangulation = match void_profile.triangulate() {
+        Ok(t) => t,
+        Err(_) => return Ok(()), // Skip if triangulation fails
+    };
+
+    // Create internal cap at void start (if not at bottom)
+    if void.depth_start > epsilon {
+        create_cap_mesh(
+            &void_triangulation,
+            void.depth_start,
+            Vector3::new(0.0, 0.0, -1.0), // Facing down into the void
+            mesh,
+        );
+    }
+
+    // Create internal cap at void end (if not at top)
+    if void.depth_end < total_depth - epsilon {
+        create_cap_mesh(
+            &void_triangulation,
+            void.depth_end,
+            Vector3::new(0.0, 0.0, 1.0), // Facing up into the void
+            mesh,
+        );
+    }
+
+    // Create side walls for the void (from depth_start to depth_end)
+    let void_depth = void.depth_end - void.depth_start;
+    if void_depth > epsilon {
+        create_void_side_walls(&void.contour, void.depth_start, void.depth_end, mesh);
+    }
+
+    Ok(())
+}
+
+/// Create side walls for a void opening between two depths
+fn create_void_side_walls(
+    contour: &[Point2<f64>],
+    z_start: f64,
+    z_end: f64,
+    mesh: &mut Mesh,
+) {
+    let base_index = mesh.vertex_count() as u32;
+
+    for i in 0..contour.len() {
+        let j = (i + 1) % contour.len();
+
+        let p0 = &contour[i];
+        let p1 = &contour[j];
+
+        // Calculate normal for this edge (pointing inward for voids)
+        let edge = Vector3::new(p1.x - p0.x, p1.y - p0.y, 0.0);
+        // Reverse normal direction for holes (pointing inward)
+        let normal = Vector3::new(edge.y, -edge.x, 0.0).normalize();
+
+        // Bottom vertices (at z_start)
+        let v0_bottom = Point3::new(p0.x, p0.y, z_start);
+        let v1_bottom = Point3::new(p1.x, p1.y, z_start);
+
+        // Top vertices (at z_end)
+        let v0_top = Point3::new(p0.x, p0.y, z_end);
+        let v1_top = Point3::new(p1.x, p1.y, z_end);
+
+        // Add 4 vertices for this quad
+        let idx = base_index + (i * 4) as u32;
+        mesh.add_vertex(v0_bottom, normal);
+        mesh.add_vertex(v1_bottom, normal);
+        mesh.add_vertex(v1_top, normal);
+        mesh.add_vertex(v0_top, normal);
+
+        // Add 2 triangles for the quad (reversed winding for inward-facing)
+        mesh.add_triangle(idx, idx + 2, idx + 1);
+        mesh.add_triangle(idx, idx + 3, idx + 2);
+    }
 }
 
 /// Create a cap mesh (top or bottom) from triangulation
