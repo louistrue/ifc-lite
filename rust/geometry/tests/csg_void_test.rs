@@ -9,20 +9,21 @@ use std::fs;
 use std::path::PathBuf;
 
 fn get_test_file_path() -> PathBuf {
-    // Try multiple possible paths
-    let paths = [
-        "../../tests/ifc/02_BIMcollab_Example_STR_random_C_ebkp.ifc",
-        "../tests/ifc/02_BIMcollab_Example_STR_random_C_ebkp.ifc",
-        "tests/ifc/02_BIMcollab_Example_STR_random_C_ebkp.ifc",
-    ];
+    // Use CARGO_MANIFEST_DIR for deterministic path resolution
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let test_file = PathBuf::from(manifest_dir)
+        .join("tests")
+        .join("ifc")
+        .join("02_BIMcollab_Example_STR_random_C_ebkp.ifc");
 
-    for path in &paths {
-        if std::path::Path::new(path).exists() {
-            return PathBuf::from(path);
-        }
+    if !test_file.exists() {
+        panic!(
+            "Test IFC file not found at: {}. Ensure the test file exists in the geometry/tests/ifc directory.",
+            test_file.display()
+        );
     }
 
-    panic!("Could not find test IFC file");
+    test_file
 }
 
 fn analyze_mesh(mesh: &Mesh, name: &str) {
@@ -359,29 +360,84 @@ fn test_void_subtraction_working_element() {
     let element_id = good_element_id.expect("No other element with voids found");
     println!("Testing known-good element #{}", element_id);
 
-    match process_element_with_diagnostics(
+    // Process with voids
+    let mesh_with_voids = process_element_with_diagnostics(
         &router,
         &mut decoder,
         &content,
         &void_index,
         element_id,
-        "Known-Good Element",
-    ) {
-        Ok(mesh) => {
-            println!(
-                "\n\nFinal mesh: {} triangles, {} vertices",
-                mesh.triangle_count(),
-                mesh.vertex_count()
-            );
-            assert!(!mesh.is_empty(), "Mesh should not be empty");
-        }
-        Err(e) => {
-            panic!("Test failed: {}", e);
-        }
-    }
+        "With Voids",
+    )
+    .expect("Failed to process element with voids");
+
+    // Process without voids (empty void index)
+    let empty_void_index: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
+    let mut decoder_no_voids = EntityDecoder::new(&content);
+    let mesh_without_voids = process_element_with_diagnostics(
+        &router,
+        &mut decoder_no_voids,
+        &content,
+        &empty_void_index,
+        element_id,
+        "Without Voids",
+    )
+    .expect("Failed to process element without voids");
+
+    println!(
+        "\n\n=== Void Subtraction Comparison for Element #{} ===",
+        element_id
+    );
+    println!(
+        "  With voids: {} triangles, {} vertices",
+        mesh_with_voids.triangle_count(),
+        mesh_with_voids.vertex_count()
+    );
+    println!(
+        "  Without voids: {} triangles, {} vertices",
+        mesh_without_voids.triangle_count(),
+        mesh_without_voids.vertex_count()
+    );
+
+    // Basic assertions
+    assert!(!mesh_with_voids.is_empty(), "Mesh with voids should not be empty");
+    assert!(
+        !mesh_without_voids.is_empty(),
+        "Mesh without voids should not be empty"
+    );
+
+    // Stronger assertion: the mesh with voids should have different geometry
+    // than the mesh without voids (either fewer triangles or different bounding volume)
+    let (with_min, with_max) = mesh_with_voids.bounds();
+    let (without_min, without_max) = mesh_without_voids.bounds();
+
+    let with_volume =
+        (with_max.x - with_min.x) * (with_max.y - with_min.y) * (with_max.z - with_min.z);
+    let without_volume = (without_max.x - without_min.x)
+        * (without_max.y - without_min.y)
+        * (without_max.z - without_min.z);
+
+    println!("  With voids volume: {:.4}", with_volume);
+    println!("  Without voids volume: {:.4}", without_volume);
+
+    // The mesh with voids should have different triangle count or bounding volume
+    // Note: Due to CSG operations, the mesh with voids might actually have MORE triangles
+    // (because cuts create new triangles), but it should still be different
+    let triangles_differ = mesh_with_voids.triangle_count() != mesh_without_voids.triangle_count();
+    let volume_differs = (with_volume - without_volume).abs() > 1e-6;
+
+    assert!(
+        triangles_differ || volume_differs,
+        "Opening subtraction should change the mesh geometry: triangles {} vs {}, volume {:.4} vs {:.4}",
+        mesh_with_voids.triangle_count(),
+        mesh_without_voids.triangle_count(),
+        with_volume,
+        without_volume
+    );
 }
 
 #[test]
+#[ignore] // Diagnostic-only test with heavy IO/processing - no assertions
 fn compare_void_geometries() {
     let file_path = get_test_file_path();
     let content = fs::read_to_string(&file_path).expect("Failed to read IFC file");

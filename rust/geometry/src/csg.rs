@@ -88,6 +88,49 @@ pub struct ClippingProcessor {
     pub epsilon: f64,
 }
 
+/// Create a box mesh from AABB min/max bounds
+/// Returns a mesh with 12 triangles (2 per face, 6 faces)
+fn aabb_to_mesh(min: Point3<f64>, max: Point3<f64>) -> Mesh {
+    let mut mesh = Mesh::with_capacity(8, 36);
+
+    // Define the 8 vertices of the box
+    let v0 = Point3::new(min.x, min.y, min.z); // 0: front-bottom-left
+    let v1 = Point3::new(max.x, min.y, min.z); // 1: front-bottom-right
+    let v2 = Point3::new(max.x, max.y, min.z); // 2: front-top-right
+    let v3 = Point3::new(min.x, max.y, min.z); // 3: front-top-left
+    let v4 = Point3::new(min.x, min.y, max.z); // 4: back-bottom-left
+    let v5 = Point3::new(max.x, min.y, max.z); // 5: back-bottom-right
+    let v6 = Point3::new(max.x, max.y, max.z); // 6: back-top-right
+    let v7 = Point3::new(min.x, max.y, max.z); // 7: back-top-left
+
+    // Add triangles for each face (counter-clockwise winding when viewed from outside)
+    // Front face (z = min.z) - normal points toward -Z
+    add_triangle_to_mesh(&mut mesh, &Triangle::new(v0, v2, v1));
+    add_triangle_to_mesh(&mut mesh, &Triangle::new(v0, v3, v2));
+
+    // Back face (z = max.z) - normal points toward +Z
+    add_triangle_to_mesh(&mut mesh, &Triangle::new(v4, v5, v6));
+    add_triangle_to_mesh(&mut mesh, &Triangle::new(v4, v6, v7));
+
+    // Left face (x = min.x) - normal points toward -X
+    add_triangle_to_mesh(&mut mesh, &Triangle::new(v0, v4, v7));
+    add_triangle_to_mesh(&mut mesh, &Triangle::new(v0, v7, v3));
+
+    // Right face (x = max.x) - normal points toward +X
+    add_triangle_to_mesh(&mut mesh, &Triangle::new(v1, v2, v6));
+    add_triangle_to_mesh(&mut mesh, &Triangle::new(v1, v6, v5));
+
+    // Bottom face (y = min.y) - normal points toward -Y
+    add_triangle_to_mesh(&mut mesh, &Triangle::new(v0, v1, v5));
+    add_triangle_to_mesh(&mut mesh, &Triangle::new(v0, v5, v4));
+
+    // Top face (y = max.y) - normal points toward +Y
+    add_triangle_to_mesh(&mut mesh, &Triangle::new(v3, v7, v6));
+    add_triangle_to_mesh(&mut mesh, &Triangle::new(v3, v6, v2));
+
+    mesh
+}
+
 impl ClippingProcessor {
     /// Create a new clipping processor
     pub fn new() -> Self {
@@ -212,131 +255,24 @@ impl ClippingProcessor {
         }
     }
 
-    /// Fast box subtraction - removes everything inside the box from the mesh
-    /// Uses bitflag classification for O(n) performance with fast paths
+    /// Box subtraction - removes everything inside the box from the mesh
+    /// Uses proper CSG difference operation via subtract_mesh
     pub fn subtract_box(&self, mesh: &Mesh, min: Point3<f64>, max: Point3<f64>) -> Result<Mesh> {
-        let mut result = Mesh::with_capacity(mesh.vertex_count(), mesh.indices.len());
-
-        // Process each triangle
-        for i in (0..mesh.indices.len()).step_by(3) {
-            let i0 = mesh.indices[i] as usize;
-            let i1 = mesh.indices[i + 1] as usize;
-            let i2 = mesh.indices[i + 2] as usize;
-
-            // Get triangle vertices
-            let v0 = Point3::new(
-                mesh.positions[i0 * 3] as f64,
-                mesh.positions[i0 * 3 + 1] as f64,
-                mesh.positions[i0 * 3 + 2] as f64,
-            );
-            let v1 = Point3::new(
-                mesh.positions[i1 * 3] as f64,
-                mesh.positions[i1 * 3 + 1] as f64,
-                mesh.positions[i1 * 3 + 2] as f64,
-            );
-            let v2 = Point3::new(
-                mesh.positions[i2 * 3] as f64,
-                mesh.positions[i2 * 3 + 1] as f64,
-                mesh.positions[i2 * 3 + 2] as f64,
-            );
-
-            // Classify each vertex: 6 bits (one per box face)
-            // Bit 0: outside_min_x (x < min.x)
-            // Bit 1: outside_max_x (x > max.x)
-            // Bit 2: outside_min_y (y < min.y)
-            // Bit 3: outside_max_y (y > max.y)
-            // Bit 4: outside_min_z (z < min.z)
-            // Bit 5: outside_max_z (z > max.z)
-            let classify = |v: &Point3<f64>| -> u8 {
-                let mut flags = 0u8;
-                if v.x < min.x {
-                    flags |= 1 << 0;
-                }
-                if v.x > max.x {
-                    flags |= 1 << 1;
-                }
-                if v.y < min.y {
-                    flags |= 1 << 2;
-                }
-                if v.y > max.y {
-                    flags |= 1 << 3;
-                }
-                if v.z < min.z {
-                    flags |= 1 << 4;
-                }
-                if v.z > max.z {
-                    flags |= 1 << 5;
-                }
-                flags
-            };
-
-            let flags0 = classify(&v0);
-            let flags1 = classify(&v1);
-            let flags2 = classify(&v2);
-
-            // Fast path 1: All vertices inside box (no outside flags) → DISCARD
-            if flags0 == 0 && flags1 == 0 && flags2 == 0 {
-                continue; // Triangle is fully inside opening, discard it
-            }
-
-            // Fast path 2: All vertices share at least one common outside flag → KEEP
-            // If all vertices are outside the same face, triangle is fully outside
-            let common_outside = flags0 & flags1 & flags2;
-            if common_outside != 0 {
-                // Triangle is fully outside box, keep it
-                // Use add_triangle_to_mesh to properly compute normals
-                let triangle = Triangle::new(v0, v1, v2);
-                add_triangle_to_mesh(&mut result, &triangle);
-                continue;
-            }
-
-            // Slow path: Triangle intersects box boundary → clip against all 6 box planes
-            // Create 6 clipping planes (keep everything OUTSIDE the box)
-            let planes = [
-                Plane::new(min, Vector3::new(1.0, 0.0, 0.0)), // Left: keep x >= min.x
-                Plane::new(max, Vector3::new(-1.0, 0.0, 0.0)), // Right: keep x <= max.x
-                Plane::new(min, Vector3::new(0.0, 1.0, 0.0)), // Bottom: keep y >= min.y
-                Plane::new(max, Vector3::new(0.0, -1.0, 0.0)), // Top: keep y <= max.y
-                Plane::new(min, Vector3::new(0.0, 0.0, 1.0)), // Front: keep z >= min.z
-                Plane::new(max, Vector3::new(0.0, 0.0, -1.0)), // Back: keep z <= max.z
-            ];
-
-            // Start with single triangle, collect all clipped triangles
-            let mut triangles_to_clip = vec![Triangle::new(v0, v1, v2)];
-
-            // Clip against each plane sequentially
-            for plane in &planes {
-                let mut next_triangles = Vec::new();
-                for triangle in triangles_to_clip {
-                    match self.clip_triangle(&triangle, plane) {
-                        ClipResult::AllFront(tri) => {
-                            next_triangles.push(tri);
-                        }
-                        ClipResult::AllBehind => {
-                            // Triangle completely removed, discard
-                        }
-                        ClipResult::Split(split_tris) => {
-                            next_triangles.extend(split_tris);
-                        }
-                    }
-                }
-                triangles_to_clip = next_triangles;
-                if triangles_to_clip.is_empty() {
-                    break; // All triangles removed
-                }
-            }
-
-            // Add all surviving triangles
-            for triangle in triangles_to_clip {
-                add_triangle_to_mesh(&mut result, &triangle);
-            }
+        // Fast path: if mesh is empty, return empty mesh
+        if mesh.is_empty() {
+            return Ok(Mesh::new());
         }
 
-        Ok(result)
+        // Create a box mesh from the AABB bounds
+        let box_mesh = aabb_to_mesh(min, max);
+
+        // Use the CSG difference operation (mesh - box)
+        self.subtract_mesh(mesh, &box_mesh)
     }
 
     /// Extract opening profile from mesh (find largest face)
-    /// Returns profile points and normal
+    /// Returns profile points as an ordered contour and the face normal
+    /// Uses boundary extraction via edge counting to produce stable results
     #[allow(dead_code)]
     fn extract_opening_profile(
         &self,
@@ -347,7 +283,8 @@ impl ClippingProcessor {
         }
 
         // Group triangles by normal to find faces
-        let mut face_groups: FxHashMap<u64, Vec<Vec<Point3<f64>>>> = FxHashMap::default();
+        let mut face_groups: FxHashMap<u64, Vec<(Point3<f64>, Point3<f64>, Point3<f64>)>> =
+            FxHashMap::default();
         let normal_epsilon = 0.01; // Tolerance for normal comparison
 
         for i in (0..opening_mesh.indices.len()).step_by(3) {
@@ -373,7 +310,11 @@ impl ClippingProcessor {
 
             let edge1 = v1 - v0;
             let edge2 = v2 - v0;
-            let normal = edge1.cross(&edge2).normalize();
+            // Use try_normalize to handle degenerate triangles
+            let normal = match edge1.cross(&edge2).try_normalize(1e-10) {
+                Some(n) => n,
+                None => continue, // Skip degenerate triangles
+            };
 
             // Quantize normal for grouping (round to nearest 0.01)
             let nx = (normal.x / normal_epsilon).round() as i32;
@@ -381,7 +322,7 @@ impl ClippingProcessor {
             let nz = (normal.z / normal_epsilon).round() as i32;
             let key = ((nx as u64) << 32) | ((ny as u32 as u64) << 16) | (nz as u32 as u64);
 
-            face_groups.entry(key).or_default().push(vec![v0, v1, v2]);
+            face_groups.entry(key).or_default().push((v0, v1, v2));
         }
 
         // Find largest face group (most triangles = largest face)
@@ -389,16 +330,134 @@ impl ClippingProcessor {
             .iter()
             .max_by_key(|(_, triangles)| triangles.len())?;
 
-        // Extract boundary of largest face (simplified: use all vertices)
-        let mut profile_points = Vec::new();
-        for triangle in largest_face.1 {
-            profile_points.extend(triangle);
+        let triangles = largest_face.1;
+        if triangles.is_empty() {
+            return None;
         }
 
-        // Calculate average normal for this face
-        let normal = calculate_polygon_normal(&profile_points);
+        // Build edge count map to find boundary edges
+        // An edge is a boundary if it appears exactly once (not shared between triangles)
+        // Use quantized vertex positions as keys
+        let quantize = |p: &Point3<f64>| -> (i64, i64, i64) {
+            let scale = 1e6; // Quantize to micrometer precision
+            (
+                (p.x * scale).round() as i64,
+                (p.y * scale).round() as i64,
+                (p.z * scale).round() as i64,
+            )
+        };
 
-        Some((profile_points, normal))
+        // Edge key: ordered pair of quantized vertices (smaller first for consistency)
+        let make_edge_key =
+            |a: (i64, i64, i64), b: (i64, i64, i64)| -> ((i64, i64, i64), (i64, i64, i64)) {
+                if a < b {
+                    (a, b)
+                } else {
+                    (b, a)
+                }
+            };
+
+        // Count edges and store original vertices
+        let mut edge_count: FxHashMap<
+            ((i64, i64, i64), (i64, i64, i64)),
+            (usize, Point3<f64>, Point3<f64>),
+        > = FxHashMap::default();
+
+        for (v0, v1, v2) in triangles {
+            let q0 = quantize(v0);
+            let q1 = quantize(v1);
+            let q2 = quantize(v2);
+
+            // Three edges per triangle
+            for (qa, qb, pa, pb) in [
+                (q0, q1, *v0, *v1),
+                (q1, q2, *v1, *v2),
+                (q2, q0, *v2, *v0),
+            ] {
+                let key = make_edge_key(qa, qb);
+                edge_count
+                    .entry(key)
+                    .and_modify(|(count, _, _)| *count += 1)
+                    .or_insert((1, pa, pb));
+            }
+        }
+
+        // Collect boundary edges (count == 1)
+        let mut boundary_edges: Vec<(Point3<f64>, Point3<f64>)> = Vec::new();
+        for (_, (count, pa, pb)) in &edge_count {
+            if *count == 1 {
+                boundary_edges.push((*pa, *pb));
+            }
+        }
+
+        if boundary_edges.is_empty() {
+            // No boundary found (closed surface with no edges) - fall back to using centroid
+            return None;
+        }
+
+        // Build vertex adjacency map for boundary traversal
+        let mut adjacency: FxHashMap<(i64, i64, i64), Vec<(i64, i64, i64, Point3<f64>)>> =
+            FxHashMap::default();
+        for (pa, pb) in &boundary_edges {
+            let qa = quantize(pa);
+            let qb = quantize(pb);
+            adjacency.entry(qa).or_default().push((qb.0, qb.1, qb.2, *pb));
+            adjacency.entry(qb).or_default().push((qa.0, qa.1, qa.2, *pa));
+        }
+
+        // Build ordered contour by walking the boundary
+        let mut contour: Vec<Point3<f64>> = Vec::new();
+        let mut visited: FxHashMap<(i64, i64, i64), bool> = FxHashMap::default();
+
+        // Start from first boundary edge
+        if let Some((start_p, _)) = boundary_edges.first() {
+            let start_q = quantize(start_p);
+            contour.push(*start_p);
+            visited.insert(start_q, true);
+
+            let mut current_q = start_q;
+
+            // Walk around the boundary
+            loop {
+                let neighbors = match adjacency.get(&current_q) {
+                    Some(n) => n,
+                    None => break,
+                };
+
+                // Find unvisited neighbor
+                let mut found_next = false;
+                for (nqx, nqy, nqz, np) in neighbors {
+                    let nq = (*nqx, *nqy, *nqz);
+                    if !visited.get(&nq).unwrap_or(&false) {
+                        contour.push(*np);
+                        visited.insert(nq, true);
+                        current_q = nq;
+                        found_next = true;
+                        break;
+                    }
+                }
+
+                if !found_next {
+                    break; // Closed loop or no more unvisited neighbors
+                }
+            }
+        }
+
+        if contour.len() < 3 {
+            // Not enough points for a valid polygon
+            return None;
+        }
+
+        // Calculate normal from the ordered contour
+        let normal = calculate_polygon_normal(&contour);
+
+        // Normalize the result
+        let normalized_normal = match normal.try_normalize(1e-10) {
+            Some(n) => n,
+            None => return None, // Degenerate polygon
+        };
+
+        Some((contour, normalized_normal))
     }
 
     /// Convert our Mesh format to csgrs Mesh format
@@ -440,9 +499,13 @@ impl ClippingProcessor {
             );
 
             // Calculate face normal from triangle edges
+            // Use try_normalize to handle degenerate (zero-area/collinear) triangles
             let edge1 = v1 - v0;
             let edge2 = v2 - v0;
-            let face_normal = edge1.cross(&edge2).normalize();
+            let face_normal = match edge1.cross(&edge2).try_normalize(1e-10) {
+                Some(n) => n,
+                None => continue, // Skip degenerate triangles to avoid NaN propagation
+            };
 
             // Create csgrs vertices (use face normal for all vertices)
             let vertices = vec![
@@ -474,11 +537,25 @@ impl ClippingProcessor {
                 .collect();
 
             // Get the CSG polygon's intended normal (from first vertex)
-            let csg_normal = Vector3::new(
+            // Validate and normalize to avoid NaN propagation in project_to_2d
+            let raw_normal = Vector3::new(
                 vertices[0].normal[0],
                 vertices[0].normal[1],
                 vertices[0].normal[2],
             );
+
+            // Try to normalize the CSG normal; if it fails (zero or NaN), compute from points
+            let csg_normal = match raw_normal.try_normalize(1e-10) {
+                Some(n) if n.x.is_finite() && n.y.is_finite() && n.z.is_finite() => n,
+                _ => {
+                    // Fall back to computing normal from polygon points
+                    let computed = calculate_polygon_normal(&points_3d);
+                    match computed.try_normalize(1e-10) {
+                        Some(n) => n,
+                        None => continue, // Skip degenerate polygon
+                    }
+                }
+            };
 
             // FAST PATH: Triangle - no triangulation needed
             if points_3d.len() == 3 {

@@ -112,7 +112,7 @@ cd ifc-lite
 pnpm install && pnpm dev
 ```
 
-Open http://localhost:5173 and load an IFC file.
+Open <http://localhost:5173> and load an IFC file.
 
 > **Note:** Requires Node.js 18+ and pnpm 8+. No Rust toolchain needed - WASM is pre-built.
 
