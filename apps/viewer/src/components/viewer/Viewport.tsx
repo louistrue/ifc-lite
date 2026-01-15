@@ -616,24 +616,32 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
               const canvasBottom = selectionRect.bottom - canvasRect.top;
 
               // Find all entities whose center projects into the selection box
+              // Respects visibility filtering (hidden entities and isolation mode)
               const selectedIds: number[] = [];
+              const hiddenIds = hiddenEntitiesRef.current;
+              const isolatedIds = isolatedEntitiesRef.current;
 
               for (const mesh of geom) {
+                // Skip hidden entities
+                if (hiddenIds.has(mesh.expressId)) continue;
+                // Skip non-isolated entities when isolation is active
+                if (isolatedIds !== null && !isolatedIds.has(mesh.expressId)) continue;
+
                 // Calculate mesh bounding box center
                 if (mesh.positions.length >= 3) {
                   let minX = Infinity, minY = Infinity, minZ = Infinity;
                   let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
 
                   for (let i = 0; i < mesh.positions.length; i += 3) {
-                    const x = mesh.positions[i];
-                    const y = mesh.positions[i + 1];
-                    const z = mesh.positions[i + 2];
-                    minX = Math.min(minX, x);
-                    minY = Math.min(minY, y);
-                    minZ = Math.min(minZ, z);
-                    maxX = Math.max(maxX, x);
-                    maxY = Math.max(maxY, y);
-                    maxZ = Math.max(maxZ, z);
+                    const px = mesh.positions[i];
+                    const py = mesh.positions[i + 1];
+                    const pz = mesh.positions[i + 2];
+                    minX = Math.min(minX, px);
+                    minY = Math.min(minY, py);
+                    minZ = Math.min(minZ, pz);
+                    maxX = Math.max(maxX, px);
+                    maxY = Math.max(maxY, py);
+                    maxZ = Math.max(maxZ, pz);
                   }
 
                   const center = {
