@@ -378,7 +378,6 @@ impl GeometryRouter {
         // STEP 1: Collect all valid openings into a combined mesh
         // This avoids CSG issues with adjacent openings creating new edges
         let mut combined_openings = Mesh::new();
-        let mut has_edge_openings = false;
         
         for &opening_id in opening_ids {
             let opening_entity = match decoder.decode_by_id(opening_id) {
@@ -395,47 +394,66 @@ impl GeometryRouter {
                 continue;
             }
             
-            // Check if opening is at planar edge
-            let (open_min, open_max) = opening_mesh.bounds();
+            // Extend opening slightly in thickness direction to avoid coplanar faces
+            // This ensures CSG works reliably even when opening bounds match host bounds
+            let extend = 0.01; // 1cm extension on each side
             
-            let is_at_planar_edge = match thickness_axis {
-                0 => {
-                    open_min.y < host_min.y + padding || open_max.y > host_max.y - padding ||
-                    open_min.z < host_min.z + padding || open_max.z > host_max.z - padding
-                },
-                1 => {
-                    open_min.x < host_min.x + padding || open_max.x > host_max.x - padding ||
-                    open_min.z < host_min.z + padding || open_max.z > host_max.z - padding
-                },
-                _ => {
-                    open_min.x < host_min.x + padding || open_max.x > host_max.x - padding ||
-                    open_min.y < host_min.y + padding || open_max.y > host_max.y - padding
-                }
+            let mut extended_mesh = opening_mesh;
+            let (open_min, open_max) = extended_mesh.bounds();
+            
+            // Check if opening needs extension in thickness direction
+            let needs_extension = match thickness_axis {
+                0 => (open_min.x - host_min.x).abs() < padding || (open_max.x - host_max.x).abs() < padding,
+                1 => (open_min.y - host_min.y).abs() < padding || (open_max.y - host_max.y).abs() < padding,
+                _ => (open_min.z - host_min.z).abs() < padding || (open_max.z - host_max.z).abs() < padding,
             };
             
-            if is_at_planar_edge {
-                has_edge_openings = true;
-                continue; // Skip edge openings
+            if needs_extension {
+                // Scale mesh slightly in thickness direction from its center
+                let center = [
+                    (open_min.x + open_max.x) / 2.0,
+                    (open_min.y + open_max.y) / 2.0,
+                    (open_min.z + open_max.z) / 2.0,
+                ];
+                let size = [
+                    open_max.x - open_min.x,
+                    open_max.y - open_min.y,
+                    open_max.z - open_min.z,
+                ];
+                
+                // Calculate scale factor to add 'extend' on each side
+                let scale = match thickness_axis {
+                    0 => [(size[0] + 2.0 * extend) / size[0].max(0.001), 1.0, 1.0],
+                    1 => [1.0, (size[1] + 2.0 * extend) / size[1].max(0.001), 1.0],
+                    _ => [1.0, 1.0, (size[2] + 2.0 * extend) / size[2].max(0.001)],
+                };
+                
+                // Apply scaling from center
+                for i in 0..(extended_mesh.positions.len() / 3) {
+                    let px = extended_mesh.positions[i * 3];
+                    let py = extended_mesh.positions[i * 3 + 1];
+                    let pz = extended_mesh.positions[i * 3 + 2];
+                    
+                    extended_mesh.positions[i * 3] = center[0] + (px - center[0]) * scale[0];
+                    extended_mesh.positions[i * 3 + 1] = center[1] + (py - center[1]) * scale[1];
+                    extended_mesh.positions[i * 3 + 2] = center[2] + (pz - center[2]) * scale[2];
+                }
             }
             
             // Add to combined openings mesh
-            combined_openings.merge(&opening_mesh);
+            combined_openings.merge(&extended_mesh);
         }
         
         // STEP 2: Do a single CSG subtraction with all openings combined
         // This handles adjacent openings correctly
         if !combined_openings.is_empty() {
-            let original_tri_count = mesh.triangle_count();
             match clipper.subtract_mesh(&mesh, &combined_openings) {
                 Ok(subtracted) => {
-                    let new_tri_count = subtracted.triangle_count();
-                    // More lenient check for multiple openings
-                    let min_expected = if has_edge_openings {
-                        original_tri_count / 4 // Allow more removal if some were skipped
-                    } else {
-                        original_tri_count / 3
-                    };
-                    if new_tri_count > 0 && new_tri_count >= min_expected {
+                    // Basic sanity check: result must have triangles and valid geometry
+                    let has_valid_positions = subtracted.positions.iter().all(|&v| v.is_finite());
+                    let has_triangles = subtracted.triangle_count() > 0;
+                    
+                    if has_triangles && has_valid_positions {
                         mesh = subtracted;
                     }
                 },

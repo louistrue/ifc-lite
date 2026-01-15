@@ -122,7 +122,7 @@ export class BinaryCacheReader {
       const geometrySection = sectionMap.get(SectionType.Geometry);
       if (geometrySection) {
         reader.position = geometrySection.offset;
-        result.geometry = readGeometry(reader);
+        result.geometry = readGeometry(reader, header.version);
       }
     }
 

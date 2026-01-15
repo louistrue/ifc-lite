@@ -973,7 +973,29 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   useEffect(() => {
     const renderer = rendererRef.current;
 
-    if (!renderer || !geometry || !isInitialized) return;
+    // Handle geometry cleared/null - reset refs so next load is treated as new file
+    if (!geometry) {
+      if (lastGeometryLengthRef.current > 0 || lastGeometryRef.current !== null) {
+        // Geometry was cleared - reset tracking refs
+        lastGeometryLengthRef.current = 0;
+        lastGeometryRef.current = null;
+        processedMeshIdsRef.current.clear();
+        cameraFittedRef.current = false;
+        finalBoundsRefittedRef.current = false;
+        // Clear scene if renderer is ready
+        if (renderer && isInitialized) {
+          renderer.getScene().clear();
+          renderer.getCamera().reset();
+          geometryBoundsRef.current = {
+            min: { x: -100, y: -100, z: -100 },
+            max: { x: 100, y: 100, z: 100 },
+          };
+        }
+      }
+      return;
+    }
+
+    if (!renderer || !isInitialized) return;
 
     const device = renderer.getGPUDevice();
     if (!device) return;
@@ -986,7 +1008,7 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
     // React creates new array references on every appendGeometryBatch call,
     // so reference comparison would always trigger scene.clear()
     const isIncremental = currentLength > lastLength && lastLength > 0;
-    const isNewFile = currentLength > 0 && lastLength === 0 && lastGeometryRef.current !== null;
+    const isNewFile = currentLength > 0 && lastLength === 0;
     const isCleared = currentLength === 0;
 
     if (isCleared) {

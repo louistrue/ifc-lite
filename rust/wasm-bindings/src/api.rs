@@ -433,6 +433,13 @@ impl IfcAPI {
                 }
 
                 if let Ok(mut mesh) = router.process_element_with_voids(&entity, &mut decoder, &void_index) {
+                    // #region agent log [Hypothesis - CSG validation debugging]
+                    if id == 276 {
+                        web_sys::console::log_1(&format!("[DEBUG] element_276_final: tris={}, positions={}, normals={}", 
+                            mesh.triangle_count(), mesh.positions.len()/3, mesh.normals.len()/3).into());
+                    }
+                    // #endregion
+                    
                     if !mesh.is_empty() {
                         // Calculate normals if not present
                         if mesh.normals.is_empty() {

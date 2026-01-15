@@ -55,6 +55,10 @@ export function writeGeometry(
     writer.writeFloat32(mesh.color[2]);
     writer.writeFloat32(mesh.color[3]);
 
+    // Write ifcType (as string length + UTF-8 bytes)
+    const ifcType = mesh.ifcType || '';
+    writer.writeString(ifcType);
+
     // Write geometry arrays
     writer.writeTypedArray(mesh.positions);
     writer.writeTypedArray(mesh.normals);
@@ -90,7 +94,7 @@ function writeAABB(writer: BufferWriter, aabb: AABB): void {
 /**
  * Read geometry data from buffer
  */
-export function readGeometry(reader: BufferReader): {
+export function readGeometry(reader: BufferReader, version: number = 2): {
   meshes: MeshData[];
   totalVertices: number;
   totalTriangles: number;
@@ -116,6 +120,12 @@ export function readGeometry(reader: BufferReader): {
       reader.readFloat32(),
     ];
 
+    // Read ifcType (only in version 2+)
+    let ifcType: string | undefined = undefined;
+    if (version >= 2) {
+      ifcType = reader.readString() || undefined;
+    }
+
     const positions = reader.readFloat32Array(vertexCount * 3);
     const normals = reader.readFloat32Array(vertexCount * 3);
     const indices = reader.readUint32Array(indexCount);
@@ -126,6 +136,7 @@ export function readGeometry(reader: BufferReader): {
       normals,
       indices,
       color,
+      ifcType,
     });
   }
 

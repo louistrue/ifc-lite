@@ -11,10 +11,17 @@ import type { InstancedMesh } from './types.js';
 
 export class RenderPipeline {
     private device: GPUDevice;
+    private webgpuDevice: WebGPUDevice;
     private pipeline: GPURenderPipeline;
     private selectionPipeline: GPURenderPipeline;  // Pipeline for selected meshes (renders on top)
+    private transparentPipeline: GPURenderPipeline;  // Pipeline for transparent meshes with alpha blending
     private depthTexture: GPUTexture;
     private depthTextureView: GPUTextureView;
+    private depthFormat: GPUTextureFormat = 'depth24plus';
+    private colorFormat: GPUTextureFormat;
+    private multisampleTexture: GPUTexture | null = null;
+    private multisampleTextureView: GPUTextureView | null = null;
+    private sampleCount: number = 4;  // MSAA sample count
     private uniformBuffer: GPUBuffer;
     private bindGroup: GPUBindGroup;
     private bindGroupLayout: GPUBindGroupLayout;  // Explicit layout shared between pipelines
@@ -24,16 +31,34 @@ export class RenderPipeline {
     constructor(device: WebGPUDevice, width: number = 1, height: number = 1) {
         this.currentWidth = width;
         this.currentHeight = height;
+        this.webgpuDevice = device;
         this.device = device.getDevice();
-        const format = device.getFormat();
+        this.colorFormat = device.getFormat();
 
-        // Create depth texture
+        // Check MSAA support and adjust sample count
+        // 4x MSAA provides good anti-aliasing for thin geometry
+        const maxSampleCount = (this.device as any).limits?.maxSampleCount ?? 4;
+        this.sampleCount = Math.min(4, maxSampleCount);
+
+        // Create depth texture with MSAA support
         this.depthTexture = this.device.createTexture({
             size: { width, height },
             format: 'depth24plus',
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
+            sampleCount: this.sampleCount > 1 ? this.sampleCount : 1,
         });
         this.depthTextureView = this.depthTexture.createView();
+
+        // Create multisample color texture for MSAA
+        if (this.sampleCount > 1) {
+            this.multisampleTexture = this.device.createTexture({
+                size: { width, height },
+                format: this.colorFormat,
+                usage: GPUTextureUsage.RENDER_ATTACHMENT,
+                sampleCount: this.sampleCount,
+            });
+            this.multisampleTextureView = this.multisampleTexture.createView();
+        }
 
         // Create uniform buffer for camera matrices, PBR material, and section plane
         // Layout: viewProj (64 bytes) + model (64 bytes) + baseColor (16 bytes) + metallicRoughness (8 bytes) +
@@ -79,6 +104,7 @@ export class RenderPipeline {
           @location(0) worldPos: vec3<f32>,
           @location(1) normal: vec3<f32>,
           @location(2) @interpolate(flat) objectId: u32,
+          @location(3) viewPos: vec3<f32>,  // For edge detection
         }
 
         @vertex
@@ -89,6 +115,8 @@ export class RenderPipeline {
           output.worldPos = worldPos.xyz;
           output.normal = normalize((uniforms.model * vec4<f32>(input.normal, 0.0)).xyz);
           output.objectId = instanceIndex;
+          // Store view-space position for edge detection
+          output.viewPos = (uniforms.viewProj * worldPos).xyz;
           return output;
         }
 
@@ -134,34 +162,123 @@ export class RenderPipeline {
           }
 
           let N = normalize(input.normal);
-          let L = normalize(vec3<f32>(0.5, 1.0, 0.3)); // Light direction
+          
+          // Enhanced lighting with multiple sources
+          let sunLight = normalize(vec3<f32>(0.5, 1.0, 0.3));  // Main directional light
+          let fillLight = normalize(vec3<f32>(-0.5, 0.3, -0.3));  // Fill light
+          let rimLight = normalize(vec3<f32>(0.0, 0.2, -1.0));  // Rim light for edge definition
 
-          let NdotL = max(dot(N, L), 0.0);
+          // Hemisphere ambient - reduced for less washed-out look
+          let skyColor = vec3<f32>(0.3, 0.35, 0.4);  // Darker sky
+          let groundColor = vec3<f32>(0.15, 0.1, 0.08);  // Darker ground
+          let hemisphereFactor = N.y * 0.5 + 0.5;
+          let ambient = mix(groundColor, skyColor, hemisphereFactor) * 0.25;
+
+          // Main sun light - reduced intensity, tighter wrap for more contrast
+          let NdotL = max(dot(N, sunLight), 0.0);
+          let wrap = 0.3;  // Tighter wrap for more contrast
+          let diffuseSun = max((NdotL + wrap) / (1.0 + wrap), 0.0) * 0.55;
+
+          // Fill light - reduced
+          let NdotFill = max(dot(N, fillLight), 0.0);
+          let diffuseFill = NdotFill * 0.15;
+
+          // Rim light for edge definition
+          let NdotRim = max(dot(N, rimLight), 0.0);
+          let rim = pow(NdotRim, 4.0) * 0.15;
 
           var baseColor = uniforms.baseColor.rgb;
+          
+          // Detect if the color is close to white/gray (low saturation)
+          let baseGray = dot(baseColor, vec3<f32>(0.299, 0.587, 0.114));
+          let baseSaturation = length(baseColor - vec3<f32>(baseGray)) / max(baseGray, 0.001);
+          let isWhiteish = 1.0 - smoothstep(0.0, 0.3, baseSaturation);
+          
+          // Darken whites/grays more to reduce washed-out appearance
+          baseColor = mix(baseColor, baseColor * 0.7, isWhiteish * 0.4);
 
-          // Simple diffuse lighting with ambient
-          let ambient = 0.3;
-          let diffuse = NdotL * 0.7;
-
-          var color = baseColor * (ambient + diffuse);
+          // Combine all lighting
+          var color = baseColor * (ambient + diffuseSun + diffuseFill + rim);
 
           // Selection highlight - add glow/fresnel effect
           if (uniforms.flags.x == 1u) {
-            // Calculate view direction for fresnel effect
-            let V = normalize(-input.worldPos); // Assuming camera at origin (simplified)
+            let V = normalize(-input.worldPos);
             let NdotV = max(dot(N, V), 0.0);
-
-            // Fresnel-like edge highlight for selection
             let fresnel = pow(1.0 - NdotV, 2.0);
-            let highlightColor = vec3<f32>(0.3, 0.6, 1.0); // Blue highlight
+            let highlightColor = vec3<f32>(0.3, 0.6, 1.0);
             color = mix(color, highlightColor, fresnel * 0.5 + 0.2);
           }
 
-          // Gamma correction (IFC colors are typically in sRGB)
+          // Beautiful fresnel effect for transparent materials (glass)
+          var finalAlpha = uniforms.baseColor.a;
+          if (finalAlpha < 0.99) {
+            // Calculate view direction for fresnel
+            let V = normalize(-input.worldPos);
+            let NdotV = max(dot(N, V), 0.0);
+            
+            // Enhanced fresnel effect - stronger at edges (grazing angles)
+            // Using Schlick's approximation for realistic glass reflection
+            let fresnelPower = 1.5; // Higher = softer edge reflections
+            let fresnel = pow(1.0 - NdotV, fresnelPower);
+            
+            // Glass reflection tint (sky/environment reflection at edges)
+            let reflectionTint = vec3<f32>(0.92, 0.96, 1.0);  // Cool sky reflection
+            let reflectionStrength = fresnel * 0.6;  // Strong edge reflections
+            
+            // Mix in reflection tint at edges
+            color = mix(color, color * reflectionTint, reflectionStrength);
+            
+            // Add realistic glass shine - brighter at edges where light reflects
+            let glassShine = fresnel * 0.12;
+            color += glassShine;
+            
+            // Slight desaturation at edges (glass reflects environment, not just color)
+            let edgeDesaturation = fresnel * 0.25;
+            let gray = dot(color, vec3<f32>(0.299, 0.587, 0.114));
+            color = mix(color, vec3<f32>(gray), edgeDesaturation);
+            
+            // Make glass more transparent (reduce opacity by 30%)
+            finalAlpha = finalAlpha * 0.7;
+          }
+
+          // Exposure adjustment - darken overall
+          color *= 0.85;
+
+          // Contrast enhancement
+          color = (color - 0.5) * 1.15 + 0.5;
+          color = max(color, vec3<f32>(0.0));
+
+          // Saturation boost - stronger for colored surfaces, less for whites
+          let gray = dot(color, vec3<f32>(0.299, 0.587, 0.114));
+          let satBoost = mix(1.4, 1.1, isWhiteish);  // More saturation for colored surfaces
+          color = mix(vec3<f32>(gray), color, satBoost);
+
+          // ACES filmic tone mapping
+          let a = 2.51;
+          let b = 0.03;
+          let c = 2.43;
+          let d = 0.59;
+          let e = 0.14;
+          color = clamp((color * (a * color + b)) / (color * (c * color + d) + e), vec3<f32>(0.0), vec3<f32>(1.0));
+
+          // Subtle edge enhancement using screen-space derivatives
+          let depthGradient = length(vec2<f32>(
+            dpdx(input.viewPos.z),
+            dpdy(input.viewPos.z)
+          ));
+          let normalGradient = length(vec2<f32>(
+            length(dpdx(input.normal)),
+            length(dpdy(input.normal))
+          ));
+          
+          let edgeFactor = smoothstep(0.0, 0.1, depthGradient * 10.0 + normalGradient * 5.0);
+          let edgeDarken = mix(1.0, 0.92, edgeFactor * 0.4);  // Slightly stronger edge darkening
+          color *= edgeDarken;
+
+          // Gamma correction
           color = pow(color, vec3<f32>(1.0 / 2.2));
 
-          return vec4<f32>(color, uniforms.baseColor.a);
+          return vec4<f32>(color, finalAlpha);
         }
       `,
         });
@@ -171,8 +288,8 @@ export class RenderPipeline {
             bindGroupLayouts: [this.bindGroupLayout],
         });
 
-        // Create render pipeline with explicit layout
-        this.pipeline = this.device.createRenderPipeline({
+        // Create render pipeline descriptor
+        const pipelineDescriptor: GPURenderPipelineDescriptor = {
             layout: pipelineLayout,
             vertex: {
                 module: shaderModule,
@@ -190,23 +307,30 @@ export class RenderPipeline {
             fragment: {
                 module: shaderModule,
                 entryPoint: 'fs_main',
-                targets: [{ format }],
+                targets: [{ format: this.colorFormat }],
             },
             primitive: {
                 topology: 'triangle-list',
                 cullMode: 'none', // Disable culling to debug - IFC winding order varies
             },
             depthStencil: {
-                format: 'depth24plus',
+                format: this.depthFormat,
                 depthWriteEnabled: true,
-                depthCompare: 'less',
+                depthCompare: 'greater',  // Reverse-Z: greater instead of less
             },
-        });
+        };
 
-        // Create selection pipeline with less-equal depth compare to render selected meshes on top
-        // This allows selected meshes to overdraw at the same depth as batched meshes
-        // IMPORTANT: Use explicit layout to share bind groups with main pipeline
-        this.selectionPipeline = this.device.createRenderPipeline({
+        // Add multisample only if sampleCount > 1
+        if (this.sampleCount > 1) {
+            pipelineDescriptor.multisample = {
+                count: this.sampleCount,
+            };
+        }
+
+        this.pipeline = this.device.createRenderPipeline(pipelineDescriptor);
+
+        // Create selection pipeline descriptor
+        const selectionPipelineDescriptor: GPURenderPipelineDescriptor = {
             layout: pipelineLayout,
             vertex: {
                 module: shaderModule,
@@ -224,20 +348,82 @@ export class RenderPipeline {
             fragment: {
                 module: shaderModule,
                 entryPoint: 'fs_main',
-                targets: [{ format }],
+                targets: [{ format: this.colorFormat }],
             },
             primitive: {
                 topology: 'triangle-list',
                 cullMode: 'none',
             },
             depthStencil: {
-                format: 'depth24plus',
-                depthWriteEnabled: true,
-                depthCompare: 'less-equal',  // Allow overdraw at same depth
-                depthBias: -1,               // Small bias to ensure selection renders in front
-                depthBiasSlopeScale: -1,
+                format: this.depthFormat,
+                depthWriteEnabled: false,  // Don't overwrite depth - selected objects render on top of existing depth
+                depthCompare: 'greater-equal',  // Allow rendering at same depth, but still respect objects in front
+                depthBias: 0,
+                depthBiasSlopeScale: 0,
             },
-        });
+        };
+
+        // Add multisample only if sampleCount > 1
+        if (this.sampleCount > 1) {
+            selectionPipelineDescriptor.multisample = {
+                count: this.sampleCount,
+            };
+        }
+
+        this.selectionPipeline = this.device.createRenderPipeline(selectionPipelineDescriptor);
+
+        // Create transparent pipeline descriptor (same shader, but with alpha blending)
+        const transparentPipelineDescriptor: GPURenderPipelineDescriptor = {
+            layout: pipelineLayout,
+            vertex: {
+                module: shaderModule,
+                entryPoint: 'vs_main',
+                buffers: [
+                    {
+                        arrayStride: 24,
+                        attributes: [
+                            { shaderLocation: 0, offset: 0, format: 'float32x3' },
+                            { shaderLocation: 1, offset: 12, format: 'float32x3' },
+                        ],
+                    },
+                ],
+            },
+            fragment: {
+                module: shaderModule,
+                entryPoint: 'fs_main',
+                targets: [{
+                    format: this.colorFormat,
+                    blend: {
+                        color: {
+                            srcFactor: 'src-alpha',
+                            dstFactor: 'one-minus-src-alpha',
+                        },
+                        alpha: {
+                            srcFactor: 'one',
+                            dstFactor: 'one-minus-src-alpha',
+                        },
+                    },
+                }],
+            },
+            primitive: {
+                topology: 'triangle-list',
+                cullMode: 'none',
+            },
+            depthStencil: {
+                format: this.depthFormat,
+                depthWriteEnabled: false,  // Don't write depth for transparent objects
+                depthCompare: 'greater',   // Still test depth to respect opaque objects
+            },
+        };
+
+        // Add multisample only if sampleCount > 1
+        if (this.sampleCount > 1) {
+            transparentPipelineDescriptor.multisample = {
+                count: this.sampleCount,
+            };
+        }
+
+        this.transparentPipeline = this.device.createRenderPipeline(transparentPipelineDescriptor);
 
         // Create bind group using the explicit bind group layout
         this.bindGroup = this.device.createBindGroup({
@@ -327,10 +513,28 @@ export class RenderPipeline {
         this.depthTexture.destroy();
         this.depthTexture = this.device.createTexture({
             size: { width, height },
-            format: 'depth24plus',
+            format: this.depthFormat,
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
+            sampleCount: this.sampleCount > 1 ? this.sampleCount : 1,
         });
         this.depthTextureView = this.depthTexture.createView();
+
+        // Recreate multisample texture
+        if (this.multisampleTexture) {
+            this.multisampleTexture.destroy();
+        }
+        if (this.sampleCount > 1) {
+            this.multisampleTexture = this.device.createTexture({
+                size: { width, height },
+                format: this.colorFormat,
+                usage: GPUTextureUsage.RENDER_ATTACHMENT,
+                sampleCount: this.sampleCount,
+            });
+            this.multisampleTextureView = this.multisampleTexture.createView();
+        } else {
+            this.multisampleTexture = null;
+            this.multisampleTextureView = null;
+        }
     }
 
     getPipeline(): GPURenderPipeline {
@@ -341,8 +545,26 @@ export class RenderPipeline {
         return this.selectionPipeline;
     }
 
+    getTransparentPipeline(): GPURenderPipeline {
+        return this.transparentPipeline;
+    }
+
     getDepthTextureView(): GPUTextureView {
         return this.depthTextureView;
+    }
+
+    /**
+     * Get multisample texture view (for MSAA rendering)
+     */
+    getMultisampleTextureView(): GPUTextureView | null {
+        return this.multisampleTextureView;
+    }
+
+    /**
+     * Get sample count
+     */
+    getSampleCount(): number {
+        return this.sampleCount;
     }
 
     getBindGroup(): GPUBindGroup {
@@ -368,12 +590,13 @@ export class InstancedRenderPipeline {
     private depthTexture: GPUTexture;
     private depthTextureView: GPUTextureView;
     private uniformBuffer: GPUBuffer;
+    private colorFormat: GPUTextureFormat;
     private currentHeight: number;
 
     constructor(device: WebGPUDevice, width: number = 1, height: number = 1) {
         this.currentHeight = height;
         this.device = device.getDevice();
-        const format = device.getFormat();
+        this.colorFormat = device.getFormat();
 
         // Create depth texture
         this.depthTexture = this.device.createTexture({
@@ -417,6 +640,7 @@ export class InstancedRenderPipeline {
           @location(1) normal: vec3<f32>,
           @location(2) color: vec4<f32>,
           @location(3) @interpolate(flat) instanceId: u32,
+          @location(4) viewPos: vec3<f32>,  // For edge detection
         }
 
         // Z-up to Y-up conversion matrix (IFC uses Z-up, WebGPU/viewer uses Y-up)
@@ -446,6 +670,8 @@ export class InstancedRenderPipeline {
           output.normal = normalize(normalYUp);
           output.color = inst.color;
           output.instanceId = instanceIndex;
+          // Store view-space position for edge detection
+          output.viewPos = (uniforms.viewProj * worldPos).xyz;
           return output;
         }
 
@@ -462,22 +688,114 @@ export class InstancedRenderPipeline {
           }
 
           let N = normalize(input.normal);
-          let L = normalize(vec3<f32>(0.5, 1.0, 0.3)); // Light direction
+          
+          // Enhanced lighting with multiple sources
+          let sunLight = normalize(vec3<f32>(0.5, 1.0, 0.3));  // Main directional light
+          let fillLight = normalize(vec3<f32>(-0.5, 0.3, -0.3));  // Fill light
+          let rimLight = normalize(vec3<f32>(0.0, 0.2, -1.0));  // Rim light for edge definition
 
-          let NdotL = max(dot(N, L), 0.0);
+          // Hemisphere ambient - reduced for less washed-out look
+          let skyColor = vec3<f32>(0.3, 0.35, 0.4);  // Darker sky
+          let groundColor = vec3<f32>(0.15, 0.1, 0.08);  // Darker ground
+          let hemisphereFactor = N.y * 0.5 + 0.5;
+          let ambient = mix(groundColor, skyColor, hemisphereFactor) * 0.25;
+
+          // Main sun light - reduced intensity, tighter wrap for more contrast
+          let NdotL = max(dot(N, sunLight), 0.0);
+          let wrap = 0.3;  // Tighter wrap for more contrast
+          let diffuseSun = max((NdotL + wrap) / (1.0 + wrap), 0.0) * 0.55;
+
+          // Fill light - reduced
+          let NdotFill = max(dot(N, fillLight), 0.0);
+          let diffuseFill = NdotFill * 0.15;
+
+          // Rim light for edge definition
+          let NdotRim = max(dot(N, rimLight), 0.0);
+          let rim = pow(NdotRim, 4.0) * 0.15;
 
           var baseColor = input.color.rgb;
+          
+          // Detect if the color is close to white/gray (low saturation)
+          let baseGray = dot(baseColor, vec3<f32>(0.299, 0.587, 0.114));
+          let baseSaturation = length(baseColor - vec3<f32>(baseGray)) / max(baseGray, 0.001);
+          let isWhiteish = 1.0 - smoothstep(0.0, 0.3, baseSaturation);
+          
+          // Darken whites/grays more to reduce washed-out appearance
+          baseColor = mix(baseColor, baseColor * 0.7, isWhiteish * 0.4);
 
-          // Simple diffuse lighting with ambient
-          let ambient = 0.3;
-          let diffuse = NdotL * 0.7;
+          // Combine all lighting
+          var color = baseColor * (ambient + diffuseSun + diffuseFill + rim);
 
-          var color = baseColor * (ambient + diffuse);
+          // Beautiful fresnel effect for transparent materials (glass)
+          var finalAlpha = input.color.a;
+          if (finalAlpha < 0.99) {
+            // Calculate view direction for fresnel
+            let V = normalize(-input.worldPos);
+            let NdotV = max(dot(N, V), 0.0);
+            
+            // Enhanced fresnel effect - stronger at edges (grazing angles)
+            // Using Schlick's approximation for realistic glass reflection
+            let fresnelPower = 1.5; // Higher = softer edge reflections
+            let fresnel = pow(1.0 - NdotV, fresnelPower);
+            
+            // Glass reflection tint (sky/environment reflection at edges)
+            let reflectionTint = vec3<f32>(0.92, 0.96, 1.0);  // Cool sky reflection
+            let reflectionStrength = fresnel * 0.6;  // Strong edge reflections
+            
+            // Mix in reflection tint at edges
+            color = mix(color, color * reflectionTint, reflectionStrength);
+            
+            // Add realistic glass shine - brighter at edges where light reflects
+            let glassShine = fresnel * 0.12;
+            color += glassShine;
+            
+            // Slight desaturation at edges (glass reflects environment, not just color)
+            let edgeDesaturation = fresnel * 0.25;
+            let gray = dot(color, vec3<f32>(0.299, 0.587, 0.114));
+            color = mix(color, vec3<f32>(gray), edgeDesaturation);
+            
+            // Make glass more transparent (reduce opacity by 30%)
+            finalAlpha = finalAlpha * 0.7;
+          }
 
-          // Gamma correction (IFC colors are typically in sRGB)
+          // Exposure adjustment - darken overall
+          color *= 0.85;
+
+          // Contrast enhancement
+          color = (color - 0.5) * 1.15 + 0.5;
+          color = max(color, vec3<f32>(0.0));
+
+          // Saturation boost - stronger for colored surfaces, less for whites
+          let gray = dot(color, vec3<f32>(0.299, 0.587, 0.114));
+          let satBoost = mix(1.4, 1.1, isWhiteish);  // More saturation for colored surfaces
+          color = mix(vec3<f32>(gray), color, satBoost);
+
+          // ACES filmic tone mapping
+          let a = 2.51;
+          let b = 0.03;
+          let c = 2.43;
+          let d = 0.59;
+          let e = 0.14;
+          color = clamp((color * (a * color + b)) / (color * (c * color + d) + e), vec3<f32>(0.0), vec3<f32>(1.0));
+
+          // Subtle edge enhancement using screen-space derivatives
+          let depthGradient = length(vec2<f32>(
+            dpdx(input.viewPos.z),
+            dpdy(input.viewPos.z)
+          ));
+          let normalGradient = length(vec2<f32>(
+            length(dpdx(input.normal)),
+            length(dpdy(input.normal))
+          ));
+          
+          let edgeFactor = smoothstep(0.0, 0.1, depthGradient * 10.0 + normalGradient * 5.0);
+          let edgeDarken = mix(1.0, 0.92, edgeFactor * 0.4);  // Slightly stronger edge darkening
+          color *= edgeDarken;
+
+          // Gamma correction
           color = pow(color, vec3<f32>(1.0 / 2.2));
 
-          return vec4<f32>(color, input.color.a);
+          return vec4<f32>(color, finalAlpha);
         }
       `,
         });
@@ -501,16 +819,16 @@ export class InstancedRenderPipeline {
             fragment: {
                 module: shaderModule,
                 entryPoint: 'fs_main',
-                targets: [{ format }],
+                targets: [{ format: this.colorFormat }],
             },
             primitive: {
                 topology: 'triangle-list',
                 cullMode: 'none',
             },
             depthStencil: {
-                format: 'depth24plus',
+                format: 'depth24plus',  // Will be updated if reverse-Z is enabled
                 depthWriteEnabled: true,
-                depthCompare: 'less',
+                depthCompare: 'greater',  // Reverse-Z: greater instead of less
             },
         });
         // Note: bind groups are created per-instanced-mesh via createInstanceBindGroup()
@@ -555,7 +873,7 @@ export class InstancedRenderPipeline {
         this.depthTexture.destroy();
         this.depthTexture = this.device.createTexture({
             size: { width, height },
-            format: 'depth24plus',
+            format: 'depth24plus',  // Default format for instanced pipeline
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
         });
         this.depthTextureView = this.depthTexture.createView();

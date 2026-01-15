@@ -111,7 +111,7 @@ export class Picker {
       depthStencil: {
         format: 'depth24plus',
         depthWriteEnabled: true,
-        depthCompare: 'less',
+        depthCompare: 'greater',  // Reverse-Z: greater instead of less
       },
     });
 
@@ -179,7 +179,7 @@ export class Picker {
       ],
       depthStencilAttachment: {
         view: depthView,
-        depthClearValue: 1.0,
+        depthClearValue: 0.0,  // Reverse-Z: clear to 0.0 (far plane)
         depthLoadOp: 'clear',
         depthStoreOp: 'store',
       },

@@ -642,18 +642,26 @@ export class Renderer {
 
             // Now record draw commands
             const encoder = device.createCommandEncoder();
+            
+            // Set up MSAA rendering if enabled
+            const msaaView = this.pipeline.getMultisampleTextureView();
+            const useMSAA = msaaView !== null && this.pipeline.getSampleCount() > 1;
+            
             const pass = encoder.beginRenderPass({
                 colorAttachments: [
                     {
-                        view: textureView,
+                        // If MSAA enabled: render to multisample texture, resolve to swap chain
+                        // If MSAA disabled: render directly to swap chain
+                        view: useMSAA ? msaaView : textureView,
+                        resolveTarget: useMSAA ? textureView : undefined,
                         loadOp: 'clear',
                         clearValue: clearColor,
-                        storeOp: 'store',
+                        storeOp: useMSAA ? 'discard' : 'store',  // Discard MSAA buffer after resolve
                     },
                 ],
                 depthStencilAttachment: {
                     view: this.pipeline.getDepthTextureView(),
-                    depthClearValue: 1.0,
+                    depthClearValue: 0.0,  // Reverse-Z: clear to 0.0 (far plane)
                     depthLoadOp: 'clear',
                     depthStoreOp: 'store',
                 },
@@ -667,8 +675,19 @@ export class Renderer {
             const allBatchedMeshes = this.scene.getBatchedMeshes();
             
             if (allBatchedMeshes.length > 0 && !hasVisibilityFiltering) {
-                // Separate batches into selected and non-selected
-                const nonSelectedBatches: typeof allBatchedMeshes = [];
+                // Separate batches into opaque and transparent
+                const opaqueBatches: typeof allBatchedMeshes = [];
+                const transparentBatches: typeof allBatchedMeshes = [];
+                
+                for (const batch of allBatchedMeshes) {
+                    const alpha = batch.color[3];
+                    if (alpha < 0.99) {
+                        transparentBatches.push(batch);
+                    } else {
+                        opaqueBatches.push(batch);
+                    }
+                }
+                
                 const selectedExpressIds = new Set<number>();
                 if (selectedId !== undefined && selectedId !== null) {
                     selectedExpressIds.add(selectedId);
@@ -679,10 +698,9 @@ export class Renderer {
                     }
                 }
 
-                // Render ALL batches normally (non-selected meshes will render normally)
-                // Selected meshes will be rendered individually on top with highlight
-                for (const batch of allBatchedMeshes) {
-                    if (!batch.bindGroup || !batch.uniformBuffer) continue;
+                // Helper function to render a batch
+                const renderBatch = (batch: typeof allBatchedMeshes[0]) => {
+                    if (!batch.bindGroup || !batch.uniformBuffer) return;
 
                     // Update uniform buffer for this batch
                     const buffer = new Float32Array(48);
@@ -722,6 +740,12 @@ export class Renderer {
                     pass.setVertexBuffer(0, batch.vertexBuffer);
                     pass.setIndexBuffer(batch.indexBuffer, 'uint32');
                     pass.drawIndexed(batch.indexCount);
+                };
+
+                // Render opaque batches first with opaque pipeline
+                pass.setPipeline(this.pipeline.getPipeline());
+                for (const batch of opaqueBatches) {
+                    renderBatch(batch);
                 }
 
                 // Render selected meshes individually for proper highlighting
@@ -800,6 +824,54 @@ export class Renderer {
                     pass.setIndexBuffer(mesh.indexBuffer, 'uint32');
                     pass.drawIndexed(mesh.indexCount, 1, 0, 0, 0);
                 }
+
+                // Render transparent BATCHED meshes with transparent pipeline (after opaque batches and selections)
+                if (transparentBatches.length > 0) {
+                    pass.setPipeline(this.pipeline.getTransparentPipeline());
+                    for (const batch of transparentBatches) {
+                        renderBatch(batch);
+                    }
+                }
+
+                // Render transparent individual meshes with transparent pipeline
+                if (transparentMeshes.length > 0) {
+                    pass.setPipeline(this.pipeline.getTransparentPipeline());
+                    for (const mesh of transparentMeshes) {
+                        if (!mesh.bindGroup || !mesh.uniformBuffer) {
+                            continue;
+                        }
+
+                        const buffer = new Float32Array(48);
+                        const flagBuffer = new Uint32Array(buffer.buffer, 176, 4);
+
+                        buffer.set(viewProj, 0);
+                        buffer.set(mesh.transform.m, 16);
+                        buffer.set(mesh.color, 32);
+                        buffer[36] = mesh.material?.metallic ?? 0.0;
+                        buffer[37] = mesh.material?.roughness ?? 0.6;
+
+                        // Section plane data
+                        if (sectionPlaneData) {
+                            buffer[40] = sectionPlaneData.normal[0];
+                            buffer[41] = sectionPlaneData.normal[1];
+                            buffer[42] = sectionPlaneData.normal[2];
+                            buffer[43] = sectionPlaneData.distance;
+                        }
+
+                        // Flags (not selected, transparent)
+                        flagBuffer[0] = 0;
+                        flagBuffer[1] = sectionPlaneData?.enabled ? 1 : 0;
+                        flagBuffer[2] = 0;
+                        flagBuffer[3] = 0;
+
+                        device.queue.writeBuffer(mesh.uniformBuffer, 0, buffer);
+
+                        pass.setBindGroup(0, mesh.bindGroup);
+                        pass.setVertexBuffer(0, mesh.vertexBuffer);
+                        pass.setIndexBuffer(mesh.indexBuffer, 'uint32');
+                        pass.drawIndexed(mesh.indexCount, 1, 0, 0, 0);
+                    }
+                }
             } else {
                 // Fallback: render individual meshes (slower but works)
                 // Render opaque meshes with per-mesh bind groups
@@ -814,16 +886,19 @@ export class Renderer {
                     pass.drawIndexed(mesh.indexCount, 1, 0, 0, 0);
                 }
 
-                // Render transparent meshes with per-mesh bind groups
-                for (const mesh of transparentMeshes) {
-                    if (mesh.bindGroup) {
-                        pass.setBindGroup(0, mesh.bindGroup);
-                    } else {
-                        pass.setBindGroup(0, this.pipeline.getBindGroup());
+                // Render transparent meshes with transparent pipeline (alpha blending)
+                if (transparentMeshes.length > 0) {
+                    pass.setPipeline(this.pipeline.getTransparentPipeline());
+                    for (const mesh of transparentMeshes) {
+                        if (mesh.bindGroup) {
+                            pass.setBindGroup(0, mesh.bindGroup);
+                        } else {
+                            pass.setBindGroup(0, this.pipeline.getBindGroup());
+                        }
+                        pass.setVertexBuffer(0, mesh.vertexBuffer);
+                        pass.setIndexBuffer(mesh.indexBuffer, 'uint32');
+                        pass.drawIndexed(mesh.indexCount, 1, 0, 0, 0);
                     }
-                    pass.setVertexBuffer(0, mesh.vertexBuffer);
-                    pass.setIndexBuffer(mesh.indexBuffer, 'uint32');
-                    pass.drawIndexed(mesh.indexCount, 1, 0, 0, 0);
                 }
             }
 

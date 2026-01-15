@@ -6,10 +6,10 @@
 //!
 //! Fast triangle clipping and boolean operations.
 
-use nalgebra::{Point3, Vector3};
+use nalgebra::{Point2, Point3, Vector3};
 use crate::mesh::Mesh;
 use crate::error::Result;
-use crate::triangulation::calculate_polygon_normal;
+use crate::triangulation::{calculate_polygon_normal, project_to_2d, triangulate_polygon};
 use rustc_hash::FxHashMap;
 
 /// Plane definition for clipping
@@ -411,20 +411,52 @@ impl ClippingProcessor {
                 continue;
             }
 
-            // Triangulate polygon using fan triangulation
+            // Extract 3D positions
+            let points_3d: Vec<Point3<f64>> = vertices
+                .iter()
+                .map(|v| Point3::new(v.pos[0], v.pos[1], v.pos[2]))
+                .collect();
+
+            // Get the CSG polygon's intended normal (from first vertex)
+            let csg_normal = Vector3::new(
+                vertices[0].normal[0],
+                vertices[0].normal[1],
+                vertices[0].normal[2],
+            );
+
+            // FAST PATH: Triangle - no triangulation needed
+            if points_3d.len() == 3 {
+                let base_idx = mesh.vertex_count();
+                for v in vertices {
+                    mesh.add_vertex(v.pos, v.normal);
+                }
+                mesh.add_triangle(base_idx as u32, (base_idx + 1) as u32, (base_idx + 2) as u32);
+                continue;
+            }
+
+            // Project 3D polygon to 2D using CSG normal (preserves winding intent)
+            let (points_2d, _, _, _) = project_to_2d(&points_3d, &csg_normal);
+
+            // Triangulate (handles convex AND concave polygons)
+            let indices = match triangulate_polygon(&points_2d) {
+                Ok(idx) => idx,
+                Err(_) => continue, // Skip degenerate polygons
+            };
+
+            // Add vertices and create triangles (winding is correct from projection)
             let base_idx = mesh.vertex_count();
-            let v0 = &vertices[0];
-            mesh.add_vertex(v0.pos, v0.normal);
+            for v in vertices {
+                mesh.add_vertex(v.pos, v.normal);
+            }
 
-            for i in 1..vertices.len() - 1 {
-                let vi = &vertices[i];
-                let v_next = &vertices[i + 1];
-                
-                mesh.add_vertex(vi.pos, vi.normal);
-                mesh.add_vertex(v_next.pos, v_next.normal);
-
-                let tri_idx = base_idx + (i - 1) * 2;
-                mesh.add_triangle(base_idx as u32, (tri_idx + 1) as u32, (tri_idx + 2) as u32);
+            for tri in indices.chunks(3) {
+                if tri.len() == 3 {
+                    mesh.add_triangle(
+                        (base_idx + tri[0]) as u32,
+                        (base_idx + tri[1]) as u32,
+                        (base_idx + tri[2]) as u32,
+                    );
+                }
             }
         }
 

@@ -35,6 +35,25 @@ export class MathUtils {
     }
 
     /**
+     * Create reverse-Z perspective projection matrix
+     * Reverse-Z distributes depth precision more evenly, eliminating Z-fighting
+     * at far distances. Depth range: near=1.0, far=0.0 (inverted)
+     */
+    static perspectiveReverseZ(fov: number, aspect: number, near: number, far: number): Mat4 {
+        const f = 1.0 / Math.tan(fov / 2);
+        // For reverse-Z: near and far are swapped conceptually
+        // We use infinite far plane approximation: far = infinity
+        // This gives maximum precision across the entire range
+        const m = new Float32Array(16);
+        m[0] = f / aspect;
+        m[5] = f;
+        m[10] = 0.0;  // Reverse-Z: maps to 0.0 at far plane
+        m[11] = -1;
+        m[14] = near;  // Reverse-Z: maps to 1.0 at near plane
+        return { m };
+    }
+
+    /**
      * Create look-at view matrix
      */
     static lookAt(eye: Vec3, target: Vec3, up: Vec3): Mat4 {

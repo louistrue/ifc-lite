@@ -355,11 +355,21 @@ export class Camera {
       z: center.z + distance * 0.6,   // Front
     };
 
-    // Adjust far plane for large models
-    // Use a much larger multiplier to ensure we can see the entire model
-    // distance = maxSize * 2.0, so far = maxSize * 100 gives plenty of room
-    this.camera.far = Math.max(100000, distance * 50);
-    this.camera.near = Math.max(0.01, distance * 0.0001);
+    // Dynamic near/far plane calculation to prevent Z-fighting
+    // Keep near/far ratio under 10000:1 for better depth precision
+    const optimalNear = Math.max(0.01, distance * 0.001);  // 0.1% of distance
+    const optimalFar = distance * 10;  // 10x distance for safety margin
+    
+    // Ensure ratio is reasonable (max 10000:1)
+    const maxRatio = 10000;
+    if (optimalFar / optimalNear > maxRatio) {
+      // Adjust far plane to maintain ratio
+      this.camera.far = optimalNear * maxRatio;
+    } else {
+      this.camera.far = optimalFar;
+    }
+    
+    this.camera.near = optimalNear;
 
     this.updateMatrices();
   }
@@ -607,6 +617,9 @@ export class Camera {
     // Calculate required distance based on FOV
     const fovFactor = Math.tan(this.camera.fov / 2);
     const distance = (maxSize / 2) / fovFactor * 1.5; // 1.5x for padding
+    
+    // Update near/far planes dynamically
+    this.updateNearFarPlanes(distance);
 
     // Keep current viewing direction
     const dir = {
@@ -1037,13 +1050,33 @@ export class Camera {
     return { x: screenX, y: screenY };
   }
 
+  /**
+   * Update near/far planes dynamically based on camera distance
+   * Keeps ratio under 10000:1 to prevent Z-fighting
+   */
+  private updateNearFarPlanes(distance: number): void {
+    const optimalNear = Math.max(0.01, distance * 0.001);  // 0.1% of distance
+    const optimalFar = distance * 10;  // 10x distance for safety margin
+    
+    // Ensure ratio is reasonable (max 10000:1)
+    const maxRatio = 10000;
+    if (optimalFar / optimalNear > maxRatio) {
+      this.camera.far = optimalNear * maxRatio;
+    } else {
+      this.camera.far = Math.max(optimalFar, this.camera.far);
+    }
+    
+    this.camera.near = Math.min(optimalNear, this.camera.near);
+  }
+
   private updateMatrices(): void {
     this.viewMatrix = MathUtils.lookAt(
       this.camera.position,
       this.camera.target,
       this.camera.up
     );
-    this.projMatrix = MathUtils.perspective(
+    // Use reverse-Z projection for better depth precision
+    this.projMatrix = MathUtils.perspectiveReverseZ(
       this.camera.fov,
       this.camera.aspect,
       this.camera.near,

@@ -13,7 +13,7 @@ import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 export const MAGIC = 0x4C434649; // "IFCL" in little-endian
 
 /** Current format version */
-export const FORMAT_VERSION = 1;
+export const FORMAT_VERSION = 2;
 
 /** Section types in the binary format */
 export enum SectionType {
