@@ -28,7 +28,7 @@
 
 ## Overview
 
-**IFC-Lite** is a next-generation IFC (Industry Foundation Classes) platform built with **Rust + WebAssembly** for parsing, geometry processing, and **WebGPU** for 3D visualization. It's designed to be a **95x smaller** and significantly faster alternative to existing web-based IFC solutions.
+**IFC-Lite** is a next-generation IFC (Industry Foundation Classes) platform built with **Rust + WebAssembly** for parsing, geometry processing, and **WebGPU** for 3D visualization. It's designed to be a **a lot smaller** and **significantly faster** alternative to existing web-based IFC solutions.
 
 <p align="center">
   <strong>~650 KB WASM (~260 KB gzipped)</strong> &nbsp;•&nbsp; <strong>2.6x faster</strong> &nbsp;•&nbsp; <strong>100% IFC4X3 schema (876 entities)</strong>
