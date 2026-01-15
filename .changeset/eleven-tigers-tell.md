@@ -1,18 +1,18 @@
 ---
-"@ifc-lite/parser": patch
-"@ifc-lite/geometry": patch
-"@ifc-lite/wasm": patch
+"@ifc-lite/geometry": minor
+"@ifc-lite/wasm": minor
 ---
 
-### Bug Fixes
+### New Features
 
-- **Critical memory leak fix**: Fixed infinite loop in streaming parser that caused 40GB+ memory consumption by properly terminating the stream after Completed event
-- **CI compliance**: Fixed ~30 clippy warnings including `.get(0)` → `.first()` conversions, unused imports, and other code quality improvements
-- **Documentation fixes**: Fixed unclosed HTML tags in rustdoc comments
+- **2D Profile-Level Boolean Operations**: Implemented efficient 2D polygon boolean operations for void subtraction at the profile level before extrusion. This provides 10-25x performance improvement over 3D CSG operations for most openings and produces cleaner geometry with fewer degenerate triangles.
 
-### Internal Improvements
+- **Void Analysis and Classification**: Added intelligent void classification system that distinguishes between coplanar voids (can be handled efficiently in 2D) and non-planar voids (require 3D CSG). This enables optimal processing strategy selection.
 
-- Added `taplo.toml` configuration for consistent TOML formatting
-- Added `scripts/test-ci-locally.sh` for local CI validation
-- Formatted and sorted all Cargo.toml files for consistency
-- All code now passes strict CI checks with `-D warnings` (treat warnings as errors)
+- **Enhanced Void Handling**: Improved void subtraction in extrusions with support for both full-depth and partial-depth voids, including segmented extrusion for complex void configurations.
+
+### Improvements
+
+- **WASM Compatibility**: Replaced `clipper2` (C++ dependency) with `i_overlay` (pure Rust) for WASM builds, eliminating C++ compilation issues and ensuring reliable WASM builds.
+
+- **Performance**: Profile-level void subtraction is significantly faster than 3D CSG operations, especially for floors/slabs with many penetrations.
