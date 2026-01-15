@@ -4,10 +4,10 @@
 
 //! Extrusion operations - converting 2D profiles to 3D meshes
 
-use nalgebra::{Matrix4, Point3, Vector3};
+use crate::error::{Error, Result};
 use crate::mesh::Mesh;
 use crate::profile::{Profile2D, Triangulation};
-use crate::error::{Error, Result};
+use nalgebra::{Matrix4, Point3, Vector3};
 
 /// Extrude a 2D profile along the Z axis
 #[inline]
@@ -30,11 +30,19 @@ pub fn extrude_profile(
     let side_vertex_count = profile.outer.len() * 2; // Side walls
     let total_vertices = vertex_count + side_vertex_count;
 
-    let mut mesh = Mesh::with_capacity(total_vertices, triangulation.indices.len() * 2 + profile.outer.len() * 6);
+    let mut mesh = Mesh::with_capacity(
+        total_vertices,
+        triangulation.indices.len() * 2 + profile.outer.len() * 6,
+    );
 
     // Create top and bottom caps
     create_cap_mesh(&triangulation, 0.0, Vector3::new(0.0, 0.0, -1.0), &mut mesh);
-    create_cap_mesh(&triangulation, depth, Vector3::new(0.0, 0.0, 1.0), &mut mesh);
+    create_cap_mesh(
+        &triangulation,
+        depth,
+        Vector3::new(0.0, 0.0, 1.0),
+        &mut mesh,
+    );
 
     // Create side walls
     create_side_walls(&profile.outer, depth, &mut mesh);
@@ -54,20 +62,12 @@ pub fn extrude_profile(
 
 /// Create a cap mesh (top or bottom) from triangulation
 #[inline]
-fn create_cap_mesh(
-    triangulation: &Triangulation,
-    z: f64,
-    normal: Vector3<f64>,
-    mesh: &mut Mesh,
-) {
+fn create_cap_mesh(triangulation: &Triangulation, z: f64, normal: Vector3<f64>, mesh: &mut Mesh) {
     let base_index = mesh.vertex_count() as u32;
 
     // Add vertices
     for point in &triangulation.points {
-        mesh.add_vertex(
-            Point3::new(point.x, point.y, z),
-            normal,
-        );
+        mesh.add_vertex(Point3::new(point.x, point.y, z), normal);
     }
 
     // Add triangles
@@ -87,11 +87,7 @@ fn create_cap_mesh(
 
 /// Create side walls for a profile boundary
 #[inline]
-fn create_side_walls(
-    boundary: &[nalgebra::Point2<f64>],
-    depth: f64,
-    mesh: &mut Mesh,
-) {
+fn create_side_walls(boundary: &[nalgebra::Point2<f64>], depth: f64, mesh: &mut Mesh) {
     let base_index = mesh.vertex_count() as u32;
 
     for i in 0..boundary.len() {
@@ -138,10 +134,7 @@ pub fn apply_transform(mesh: &mut Mesh, transform: &Matrix4<f64>) {
     });
 
     // Transform normals (use inverse transpose for correct normal transformation)
-    let normal_matrix = transform
-        .try_inverse()
-        .unwrap_or(*transform)
-        .transpose();
+    let normal_matrix = transform.try_inverse().unwrap_or(*transform).transpose();
 
     mesh.normals.chunks_exact_mut(3).for_each(|chunk| {
         let normal = Vector3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);

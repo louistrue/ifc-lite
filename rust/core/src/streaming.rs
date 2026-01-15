@@ -6,9 +6,8 @@
 //!
 //! Progressive parsing with event callbacks for real-time processing.
 
-use crate::error::{Error, Result};
-use crate::parser::EntityScanner;
 use crate::generated::IfcType;
+use crate::parser::EntityScanner;
 use futures_core::Stream;
 use futures_util::stream;
 use std::pin::Pin;
@@ -108,9 +107,7 @@ pub fn parse_stream(
 ) -> Pin<Box<dyn Stream<Item = ParseEvent> + '_>> {
     Box::pin(stream::unfold(
         ParserState::new(content, config),
-        |mut state| async move {
-            state.next_event().map(|event| (event, state))
-        },
+        |mut state| async move { state.next_event().map(|event| (event, state)) },
     ))
 }
 
@@ -120,6 +117,7 @@ struct ParserState<'a> {
     scanner: EntityScanner<'a>,
     config: StreamConfig,
     started: bool,
+    completed: bool,
     start_time: f64,
     entities_scanned: usize,
     total_entities: usize,
@@ -133,6 +131,7 @@ impl<'a> ParserState<'a> {
             scanner: EntityScanner::new(content),
             config,
             started: false,
+            completed: false,
             start_time: 0.0,
             entities_scanned: 0,
             total_entities: 0,
@@ -141,6 +140,11 @@ impl<'a> ParserState<'a> {
     }
 
     fn next_event(&mut self) -> Option<ParseEvent> {
+        // Stream has ended - CRITICAL: prevents infinite loop!
+        if self.completed {
+            return None;
+        }
+
         // Emit Started event on first call
         if !self.started {
             self.started = true;
@@ -178,7 +182,10 @@ impl<'a> ParserState<'a> {
             };
 
             // Check if we should emit progress
-            if self.entities_scanned % self.config.progress_interval == 0 {
+            if self
+                .entities_scanned
+                .is_multiple_of(self.config.progress_interval)
+            {
                 // Note: In a real implementation, we'd estimate total_entities
                 // by doing a quick pre-scan or using file size heuristics
                 return Some(ParseEvent::Progress {
@@ -191,7 +198,8 @@ impl<'a> ParserState<'a> {
 
             Some(event)
         } else {
-            // No more entities - emit Completed event
+            // No more entities - emit Completed event and end stream
+            self.completed = true;
             let duration_ms = get_timestamp() - self.start_time;
             Some(ParseEvent::Completed {
                 duration_ms,
@@ -269,8 +277,10 @@ mod tests {
 #3=IFCWALL('guid3',$,$,$,$,$,$,$);
 "#;
 
-        let mut config = StreamConfig::default();
-        config.skip_types = vec![IfcType::IfcOwnerHistory];
+        let config = StreamConfig {
+            skip_types: vec![IfcType::IfcOwnerHistory],
+            ..Default::default()
+        };
 
         let mut stream = parse_stream(content, config);
 
@@ -293,9 +303,11 @@ mod tests {
 #3=IFCDOOR('guid3',$,$,$,$,$,$,$);
 "#;
 
-        let mut config = StreamConfig::default();
-        config.skip_types = vec![]; // Don't skip anything
-        config.only_types = Some(vec![IfcType::IfcWall]);
+        let config = StreamConfig {
+            skip_types: vec![],
+            only_types: Some(vec![IfcType::IfcWall]),
+            ..Default::default()
+        };
 
         let mut stream = parse_stream(content, config);
 

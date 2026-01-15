@@ -9,11 +9,11 @@
 //! Note: The IfcType enum is renamed to FullIfcType to avoid conflicts
 //! with the main schema::IfcType enum.
 
-mod type_ids;
 mod schema;
+mod type_ids;
 
 // Re-export type IDs (these are just constants, no conflict)
 pub use type_ids::*;
 
 // Re-export the generated IfcType directly (this is now the canonical schema)
-pub use schema::{IfcType, has_geometry_by_name};
+pub use schema::{has_geometry_by_name, IfcType};

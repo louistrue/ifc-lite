@@ -20,18 +20,18 @@ pub fn get_si_prefix_multiplier(prefix: &str) -> f64 {
         "PICO" => 1e-12,
         "NANO" => 1e-9,
         "MICRO" => 1e-6,
-        "MILLI" => 1e-3,   // Most common: millimeters
-        "CENTI" => 1e-2,   // Centimeters
-        "DECI" => 1e-1,    // Decimeters
-        "DECA" => 1e1,     // Dekameters
-        "HECTO" => 1e2,    // Hectometers
-        "KILO" => 1e3,     // Kilometers
+        "MILLI" => 1e-3, // Most common: millimeters
+        "CENTI" => 1e-2, // Centimeters
+        "DECI" => 1e-1,  // Decimeters
+        "DECA" => 1e1,   // Dekameters
+        "HECTO" => 1e2,  // Hectometers
+        "KILO" => 1e3,   // Kilometers
         "MEGA" => 1e6,
         "GIGA" => 1e9,
         "TERA" => 1e12,
         "PETA" => 1e15,
         "EXA" => 1e18,
-        _ => 1.0,          // No prefix or unknown = base unit (meters)
+        _ => 1.0, // No prefix or unknown = base unit (meters)
     }
 }
 
@@ -189,12 +189,16 @@ DATA;
 ENDSEC;
 END-ISO-10303-21;
 "#;
-        
+
         let mut decoder = EntityDecoder::new(ifc_content);
         let scale = extract_length_unit_scale(&mut decoder, 1).unwrap();
-        
+
         // Should be 0.001 for millimeters
-        assert!((scale - 0.001).abs() < 0.0001, "Expected 0.001 for MILLI, got {}", scale);
+        assert!(
+            (scale - 0.001).abs() < 0.0001,
+            "Expected 0.001 for MILLI, got {}",
+            scale
+        );
     }
 
     #[test]
@@ -216,11 +220,15 @@ DATA;
 ENDSEC;
 END-ISO-10303-21;
 "#;
-        
+
         let mut decoder = EntityDecoder::new(ifc_content);
         let scale = extract_length_unit_scale(&mut decoder, 1).unwrap();
-        
+
         // Should be 1.0 for meters (no prefix)
-        assert!((scale - 1.0).abs() < 0.0001, "Expected 1.0 for meters, got {}", scale);
+        assert!(
+            (scale - 1.0).abs() < 0.0001,
+            "Expected 1.0 for meters, got {}",
+            scale
+        );
     }
 }

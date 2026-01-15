@@ -74,7 +74,8 @@ impl Mesh {
         self.normals.extend_from_slice(&other.normals);
 
         // Vectorized index offset - more cache-friendly than loop
-        self.indices.extend(other.indices.iter().map(|&i| i + vertex_offset));
+        self.indices
+            .extend(other.indices.iter().map(|&i| i + vertex_offset));
     }
 
     /// Batch merge multiple meshes at once (more efficient than individual merges)
@@ -95,7 +96,8 @@ impl Mesh {
                 let vertex_offset = (self.positions.len() / 3) as u32;
                 self.positions.extend_from_slice(&mesh.positions);
                 self.normals.extend_from_slice(&mesh.normals);
-                self.indices.extend(mesh.indices.iter().map(|&i| i + vertex_offset));
+                self.indices
+                    .extend(mesh.indices.iter().map(|&i| i + vertex_offset));
             }
         }
     }
@@ -172,10 +174,7 @@ mod tests {
     #[test]
     fn test_add_vertex() {
         let mut mesh = Mesh::new();
-        mesh.add_vertex(
-            Point3::new(1.0, 2.0, 3.0),
-            Vector3::new(0.0, 0.0, 1.0),
-        );
+        mesh.add_vertex(Point3::new(1.0, 2.0, 3.0), Vector3::new(0.0, 0.0, 1.0));
         assert_eq!(mesh.vertex_count(), 1);
         assert_eq!(mesh.positions, vec![1.0, 2.0, 3.0]);
         assert_eq!(mesh.normals, vec![0.0, 0.0, 1.0]);

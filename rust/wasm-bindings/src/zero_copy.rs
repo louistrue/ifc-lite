@@ -6,8 +6,8 @@
 //!
 //! Enables direct access to WASM memory from JavaScript without copying.
 
-use wasm_bindgen::prelude::*;
 use ifc_lite_geometry::Mesh;
+use wasm_bindgen::prelude::*;
 
 /// Individual mesh data with express ID and color (matches MeshData interface)
 #[wasm_bindgen]
@@ -133,7 +133,9 @@ impl MeshCollection {
 
     /// Create new collection with capacity hint
     pub fn with_capacity(capacity: usize) -> Self {
-        Self { meshes: Vec::with_capacity(capacity) }
+        Self {
+            meshes: Vec::with_capacity(capacity),
+        }
     }
 
     /// Add a mesh to the collection
@@ -152,6 +154,11 @@ impl MeshCollection {
         self.meshes.len()
     }
 
+    /// Check if collection is empty
+    pub fn is_empty(&self) -> bool {
+        self.meshes.is_empty()
+    }
+
     /// Apply RTC offset to all meshes (shift coordinates)
     pub fn apply_rtc_offset(&mut self, x: f64, y: f64, z: f64) {
         for mesh in &mut self.meshes {
@@ -167,14 +174,18 @@ impl MeshCollection {
 impl Clone for MeshCollection {
     fn clone(&self) -> Self {
         Self {
-            meshes: self.meshes.iter().map(|m| MeshDataJs {
-                express_id: m.express_id,
-                ifc_type: m.ifc_type.clone(),
-                positions: m.positions.clone(),
-                normals: m.normals.clone(),
-                indices: m.indices.clone(),
-                color: m.color,
-            }).collect(),
+            meshes: self
+                .meshes
+                .iter()
+                .map(|m| MeshDataJs {
+                    express_id: m.express_id,
+                    ifc_type: m.ifc_type.clone(),
+                    positions: m.positions.clone(),
+                    normals: m.normals.clone(),
+                    indices: m.indices.clone(),
+                    color: m.color,
+                })
+                .collect(),
         }
     }
 }
@@ -196,9 +207,7 @@ impl ZeroCopyMesh {
     /// Create a new zero-copy mesh from a Mesh
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
-        Self {
-            mesh: Mesh::new(),
-        }
+        Self { mesh: Mesh::new() }
     }
 
     /// Get pointer to positions array
@@ -288,7 +297,7 @@ impl Default for ZeroCopyMesh {
 pub struct InstanceData {
     express_id: u32,
     transform: Vec<f32>, // 16 floats (4x4 matrix)
-    color: [f32; 4],      // RGBA
+    color: [f32; 4],     // RGBA
 }
 
 #[wasm_bindgen]
@@ -367,7 +376,12 @@ impl InstancedGeometry {
 }
 
 impl InstancedGeometry {
-    pub fn new(geometry_id: u64, positions: Vec<f32>, normals: Vec<f32>, indices: Vec<u32>) -> Self {
+    pub fn new(
+        geometry_id: u64,
+        positions: Vec<f32>,
+        normals: Vec<f32>,
+        indices: Vec<u32>,
+    ) -> Self {
         Self {
             geometry_id,
             positions,
@@ -402,11 +416,15 @@ impl InstancedMeshCollection {
             positions: g.positions.clone(),
             normals: g.normals.clone(),
             indices: g.indices.clone(),
-            instances: g.instances.iter().map(|inst| InstanceData {
-                express_id: inst.express_id,
-                transform: inst.transform.clone(),
-                color: inst.color,
-            }).collect(),
+            instances: g
+                .instances
+                .iter()
+                .map(|inst| InstanceData {
+                    express_id: inst.express_id,
+                    transform: inst.transform.clone(),
+                    color: inst.color,
+                })
+                .collect(),
         })
     }
 

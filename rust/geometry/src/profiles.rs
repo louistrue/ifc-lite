@@ -6,8 +6,8 @@
 //!
 //! Dynamic profile processing for parametric, arbitrary, and composite profiles.
 
-use crate::{Error, Point2, Point3, Result, Vector3};
 use crate::profile::Profile2D;
+use crate::{Error, Point2, Point3, Result, Vector3};
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcSchema, IfcType, ProfileCategory};
 use std::f64::consts::PI;
 
@@ -64,7 +64,7 @@ impl ProfileProcessor {
                 profile.ifc_type
             ))),
         }?;
-        
+
         // Apply Profile Position transform (attribute 2: IfcAxis2Placement2D)
         if let Some(pos_attr) = profile.get(2) {
             if !pos_attr.is_null() {
@@ -75,10 +75,10 @@ impl ProfileProcessor {
                 }
             }
         }
-        
+
         Ok(base_profile)
     }
-    
+
     /// Apply IfcAxis2Placement2D transform to profile points
     /// IfcAxis2Placement2D: Location, RefDirection
     fn apply_profile_position(
@@ -91,10 +91,11 @@ impl ProfileProcessor {
         let (loc_x, loc_y) = if let Some(loc_attr) = placement.get(0) {
             if !loc_attr.is_null() {
                 if let Some(loc_entity) = decoder.resolve_ref(loc_attr)? {
-                    let coords = loc_entity.get(0)
+                    let coords = loc_entity
+                        .get(0)
                         .and_then(|v| v.as_list())
                         .ok_or_else(|| Error::geometry("Missing point coordinates".to_string()))?;
-                    let x = coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0);
+                    let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0);
                     let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
                     (x, y)
                 } else {
@@ -106,15 +107,16 @@ impl ProfileProcessor {
         } else {
             (0.0, 0.0)
         };
-        
+
         // Get RefDirection (attribute 1) - IfcDirection (optional, default is (1,0))
         let (dir_x, dir_y) = if let Some(dir_attr) = placement.get(1) {
             if !dir_attr.is_null() {
                 if let Some(dir_entity) = decoder.resolve_ref(dir_attr)? {
-                    let ratios = dir_entity.get(0)
+                    let ratios = dir_entity
+                        .get(0)
                         .and_then(|v| v.as_list())
                         .ok_or_else(|| Error::geometry("Missing direction ratios".to_string()))?;
-                    let x = ratios.get(0).and_then(|v| v.as_float()).unwrap_or(1.0);
+                    let x = ratios.first().and_then(|v| v.as_float()).unwrap_or(1.0);
                     let y = ratios.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
                     // Normalize
                     let len = (x * x + y * y).sqrt();
@@ -132,18 +134,21 @@ impl ProfileProcessor {
         } else {
             (1.0, 0.0)
         };
-        
+
         // Skip transform if it's identity (location at origin, direction is (1,0))
-        if loc_x.abs() < 1e-10 && loc_y.abs() < 1e-10 && 
-           (dir_x - 1.0).abs() < 1e-10 && dir_y.abs() < 1e-10 {
+        if loc_x.abs() < 1e-10
+            && loc_y.abs() < 1e-10
+            && (dir_x - 1.0).abs() < 1e-10
+            && dir_y.abs() < 1e-10
+        {
             return Ok(());
         }
-        
+
         // RefDirection is the local X axis direction
         // Local Y axis is perpendicular: (-dir_y, dir_x)
         let x_axis = (dir_x, dir_y);
         let y_axis = (-dir_y, dir_x);
-        
+
         // Transform all outer points
         for point in &mut profile.outer {
             let old_x = point.x;
@@ -152,7 +157,7 @@ impl ProfileProcessor {
             point.x = old_x * x_axis.0 + old_y * y_axis.0 + loc_x;
             point.y = old_x * x_axis.1 + old_y * y_axis.1 + loc_y;
         }
-        
+
         // Transform all hole points
         for hole in &mut profile.holes {
             for point in hole {
@@ -162,7 +167,7 @@ impl ProfileProcessor {
                 point.y = old_x * x_axis.1 + old_y * y_axis.1 + loc_y;
             }
         }
-        
+
         Ok(())
     }
 
@@ -283,7 +288,10 @@ impl ProfileProcessor {
         let mut inner_points = Vec::with_capacity(segments);
         for i in (0..segments).rev() {
             let angle = (i as f64) * 2.0 * PI / (segments as f64);
-            inner_points.push(Point2::new(inner_radius * angle.cos(), inner_radius * angle.sin()));
+            inner_points.push(Point2::new(
+                inner_radius * angle.cos(),
+                inner_radius * angle.sin(),
+            ));
         }
 
         let mut result = Profile2D::new(outer_points);
@@ -342,9 +350,15 @@ impl ProfileProcessor {
     /// Process L-shape profile (angle)
     /// IfcLShapeProfileDef: ProfileType, ProfileName, Position, Depth, Width, Thickness, ...
     fn process_l_shape(&self, profile: &DecodedEntity) -> Result<Profile2D> {
-        let depth = profile.get_float(3).ok_or_else(|| Error::geometry("L-Shape missing Depth".to_string()))?;
-        let width = profile.get_float(4).ok_or_else(|| Error::geometry("L-Shape missing Width".to_string()))?;
-        let thickness = profile.get_float(5).ok_or_else(|| Error::geometry("L-Shape missing Thickness".to_string()))?;
+        let depth = profile
+            .get_float(3)
+            .ok_or_else(|| Error::geometry("L-Shape missing Depth".to_string()))?;
+        let width = profile
+            .get_float(4)
+            .ok_or_else(|| Error::geometry("L-Shape missing Width".to_string()))?;
+        let thickness = profile
+            .get_float(5)
+            .ok_or_else(|| Error::geometry("L-Shape missing Thickness".to_string()))?;
 
         // L-shape profile (counter-clockwise from origin)
         let points = vec![
@@ -362,10 +376,18 @@ impl ProfileProcessor {
     /// Process U-shape profile (channel)
     /// IfcUShapeProfileDef: ProfileType, ProfileName, Position, Depth, FlangeWidth, WebThickness, FlangeThickness, ...
     fn process_u_shape(&self, profile: &DecodedEntity) -> Result<Profile2D> {
-        let depth = profile.get_float(3).ok_or_else(|| Error::geometry("U-Shape missing Depth".to_string()))?;
-        let flange_width = profile.get_float(4).ok_or_else(|| Error::geometry("U-Shape missing FlangeWidth".to_string()))?;
-        let web_thickness = profile.get_float(5).ok_or_else(|| Error::geometry("U-Shape missing WebThickness".to_string()))?;
-        let flange_thickness = profile.get_float(6).ok_or_else(|| Error::geometry("U-Shape missing FlangeThickness".to_string()))?;
+        let depth = profile
+            .get_float(3)
+            .ok_or_else(|| Error::geometry("U-Shape missing Depth".to_string()))?;
+        let flange_width = profile
+            .get_float(4)
+            .ok_or_else(|| Error::geometry("U-Shape missing FlangeWidth".to_string()))?;
+        let web_thickness = profile
+            .get_float(5)
+            .ok_or_else(|| Error::geometry("U-Shape missing WebThickness".to_string()))?;
+        let flange_thickness = profile
+            .get_float(6)
+            .ok_or_else(|| Error::geometry("U-Shape missing FlangeThickness".to_string()))?;
 
         let half_depth = depth / 2.0;
 
@@ -387,10 +409,18 @@ impl ProfileProcessor {
     /// Process T-shape profile
     /// IfcTShapeProfileDef: ProfileType, ProfileName, Position, Depth, FlangeWidth, WebThickness, FlangeThickness, ...
     fn process_t_shape(&self, profile: &DecodedEntity) -> Result<Profile2D> {
-        let depth = profile.get_float(3).ok_or_else(|| Error::geometry("T-Shape missing Depth".to_string()))?;
-        let flange_width = profile.get_float(4).ok_or_else(|| Error::geometry("T-Shape missing FlangeWidth".to_string()))?;
-        let web_thickness = profile.get_float(5).ok_or_else(|| Error::geometry("T-Shape missing WebThickness".to_string()))?;
-        let flange_thickness = profile.get_float(6).ok_or_else(|| Error::geometry("T-Shape missing FlangeThickness".to_string()))?;
+        let depth = profile
+            .get_float(3)
+            .ok_or_else(|| Error::geometry("T-Shape missing Depth".to_string()))?;
+        let flange_width = profile
+            .get_float(4)
+            .ok_or_else(|| Error::geometry("T-Shape missing FlangeWidth".to_string()))?;
+        let web_thickness = profile
+            .get_float(5)
+            .ok_or_else(|| Error::geometry("T-Shape missing WebThickness".to_string()))?;
+        let flange_thickness = profile
+            .get_float(6)
+            .ok_or_else(|| Error::geometry("T-Shape missing FlangeThickness".to_string()))?;
 
         let half_flange = flange_width / 2.0;
         let half_web = web_thickness / 2.0;
@@ -413,9 +443,15 @@ impl ProfileProcessor {
     /// Process C-shape profile (channel with lips)
     /// IfcCShapeProfileDef: ProfileType, ProfileName, Position, Depth, Width, WallThickness, Girth, ...
     fn process_c_shape(&self, profile: &DecodedEntity) -> Result<Profile2D> {
-        let depth = profile.get_float(3).ok_or_else(|| Error::geometry("C-Shape missing Depth".to_string()))?;
-        let width = profile.get_float(4).ok_or_else(|| Error::geometry("C-Shape missing Width".to_string()))?;
-        let wall_thickness = profile.get_float(5).ok_or_else(|| Error::geometry("C-Shape missing WallThickness".to_string()))?;
+        let depth = profile
+            .get_float(3)
+            .ok_or_else(|| Error::geometry("C-Shape missing Depth".to_string()))?;
+        let _width = profile
+            .get_float(4)
+            .ok_or_else(|| Error::geometry("C-Shape missing Width".to_string()))?;
+        let wall_thickness = profile
+            .get_float(5)
+            .ok_or_else(|| Error::geometry("C-Shape missing WallThickness".to_string()))?;
         let girth = profile.get_float(6).unwrap_or(wall_thickness * 2.0); // Lip length
 
         let half_depth = depth / 2.0;
@@ -438,10 +474,18 @@ impl ProfileProcessor {
     /// Process Z-shape profile
     /// IfcZShapeProfileDef: ProfileType, ProfileName, Position, Depth, FlangeWidth, WebThickness, FlangeThickness, ...
     fn process_z_shape(&self, profile: &DecodedEntity) -> Result<Profile2D> {
-        let depth = profile.get_float(3).ok_or_else(|| Error::geometry("Z-Shape missing Depth".to_string()))?;
-        let flange_width = profile.get_float(4).ok_or_else(|| Error::geometry("Z-Shape missing FlangeWidth".to_string()))?;
-        let web_thickness = profile.get_float(5).ok_or_else(|| Error::geometry("Z-Shape missing WebThickness".to_string()))?;
-        let flange_thickness = profile.get_float(6).ok_or_else(|| Error::geometry("Z-Shape missing FlangeThickness".to_string()))?;
+        let depth = profile
+            .get_float(3)
+            .ok_or_else(|| Error::geometry("Z-Shape missing Depth".to_string()))?;
+        let flange_width = profile
+            .get_float(4)
+            .ok_or_else(|| Error::geometry("Z-Shape missing FlangeWidth".to_string()))?;
+        let web_thickness = profile
+            .get_float(5)
+            .ok_or_else(|| Error::geometry("Z-Shape missing WebThickness".to_string()))?;
+        let flange_thickness = profile
+            .get_float(6)
+            .ok_or_else(|| Error::geometry("Z-Shape missing FlangeThickness".to_string()))?;
 
         let half_depth = depth / 2.0;
         let half_web = web_thickness / 2.0;
@@ -536,12 +580,18 @@ impl ProfileProcessor {
             IfcType::IfcTrimmedCurve => {
                 // For trimmed curve, get 2D points and convert to 3D
                 let points_2d = self.process_trimmed_curve(curve, decoder)?;
-                Ok(points_2d.into_iter().map(|p| Point3::new(p.x, p.y, 0.0)).collect())
+                Ok(points_2d
+                    .into_iter()
+                    .map(|p| Point3::new(p.x, p.y, 0.0))
+                    .collect())
             }
             _ => {
                 // Fallback: try 2D curve and convert to 3D
                 let points_2d = self.process_curve(curve, decoder)?;
-                Ok(points_2d.into_iter().map(|p| Point3::new(p.x, p.y, 0.0)).collect())
+                Ok(points_2d
+                    .into_iter()
+                    .map(|p| Point3::new(p.x, p.y, 0.0))
+                    .collect())
             }
         }
     }
@@ -553,32 +603,33 @@ impl ProfileProcessor {
         decoder: &mut EntityDecoder,
     ) -> Result<Vec<Point3<f64>>> {
         // IfcCircle: Position (IfcAxis2Placement2D or 3D), Radius
-        let position_attr = curve.get(0).ok_or_else(|| {
-            Error::geometry("Circle missing Position".to_string())
-        })?;
+        let position_attr = curve
+            .get(0)
+            .ok_or_else(|| Error::geometry("Circle missing Position".to_string()))?;
 
-        let radius = curve.get_float(1).ok_or_else(|| {
-            Error::geometry("Circle missing Radius".to_string())
-        })?;
+        let radius = curve
+            .get_float(1)
+            .ok_or_else(|| Error::geometry("Circle missing Radius".to_string()))?;
 
-        let position = decoder.resolve_ref(position_attr)?.ok_or_else(|| {
-            Error::geometry("Failed to resolve circle position".to_string())
-        })?;
+        let position = decoder
+            .resolve_ref(position_attr)?
+            .ok_or_else(|| Error::geometry("Failed to resolve circle position".to_string()))?;
 
         // Get center and orientation from Axis2Placement3D
         let (center, x_axis, y_axis) = if position.ifc_type == IfcType::IfcAxis2Placement3D {
             // IfcAxis2Placement3D: Location, Axis (Z), RefDirection (X)
-            let loc_attr = position.get(0).ok_or_else(|| {
-                Error::geometry("Axis2Placement3D missing Location".to_string())
-            })?;
-            let loc = decoder.resolve_ref(loc_attr)?.ok_or_else(|| {
-                Error::geometry("Failed to resolve location".to_string())
-            })?;
-            let coords = loc.get(0).and_then(|v| v.as_list()).ok_or_else(|| {
-                Error::geometry("Location missing coordinates".to_string())
-            })?;
+            let loc_attr = position
+                .get(0)
+                .ok_or_else(|| Error::geometry("Axis2Placement3D missing Location".to_string()))?;
+            let loc = decoder
+                .resolve_ref(loc_attr)?
+                .ok_or_else(|| Error::geometry("Failed to resolve location".to_string()))?;
+            let coords = loc
+                .get(0)
+                .and_then(|v| v.as_list())
+                .ok_or_else(|| Error::geometry("Location missing coordinates".to_string()))?;
             let center = Point3::new(
-                coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0),
+                coords.first().and_then(|v| v.as_float()).unwrap_or(0.0),
                 coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0),
                 coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0),
             );
@@ -591,10 +642,11 @@ impl ProfileProcessor {
                         let coords = axis.get(0).and_then(|v| v.as_list());
                         if let Some(coords) = coords {
                             Vector3::new(
-                                coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0),
+                                coords.first().and_then(|v| v.as_float()).unwrap_or(0.0),
                                 coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0),
                                 coords.get(2).and_then(|v| v.as_float()).unwrap_or(1.0),
-                            ).normalize()
+                            )
+                            .normalize()
                         } else {
                             Vector3::new(0.0, 0.0, 1.0)
                         }
@@ -616,10 +668,11 @@ impl ProfileProcessor {
                         let coords = ref_dir.get(0).and_then(|v| v.as_list());
                         if let Some(coords) = coords {
                             Vector3::new(
-                                coords.get(0).and_then(|v| v.as_float()).unwrap_or(1.0),
+                                coords.first().and_then(|v| v.as_float()).unwrap_or(1.0),
                                 coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0),
                                 coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0),
-                            ).normalize()
+                            )
+                            .normalize()
                         } else {
                             Vector3::new(1.0, 0.0, 0.0)
                         }
@@ -646,7 +699,7 @@ impl ProfileProcessor {
                     let coords = loc.get(0).and_then(|v| v.as_list());
                     if let Some(coords) = coords {
                         (
-                            coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0),
+                            coords.first().and_then(|v| v.as_float()).unwrap_or(0.0),
                             coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0),
                         )
                     } else {
@@ -685,24 +738,24 @@ impl ProfileProcessor {
         decoder: &mut EntityDecoder,
     ) -> Result<Vec<Point3<f64>>> {
         // IfcPolyline: Points
-        let points_attr = curve.get(0).ok_or_else(|| {
-            Error::geometry("Polyline missing Points".to_string())
-        })?;
+        let points_attr = curve
+            .get(0)
+            .ok_or_else(|| Error::geometry("Polyline missing Points".to_string()))?;
 
         let points = decoder.resolve_ref_list(points_attr)?;
         let mut result = Vec::with_capacity(points.len());
 
         for point in points {
             // IfcCartesianPoint: Coordinates
-            let coords_attr = point.get(0).ok_or_else(|| {
-                Error::geometry("CartesianPoint missing Coordinates".to_string())
-            })?;
+            let coords_attr = point
+                .get(0)
+                .ok_or_else(|| Error::geometry("CartesianPoint missing Coordinates".to_string()))?;
 
-            let coords = coords_attr.as_list().ok_or_else(|| {
-                Error::geometry("Coordinates is not a list".to_string())
-            })?;
+            let coords = coords_attr
+                .as_list()
+                .ok_or_else(|| Error::geometry("Coordinates is not a list".to_string()))?;
 
-            let x = coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0);
+            let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0);
             let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
             let z = coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
 
@@ -719,9 +772,9 @@ impl ProfileProcessor {
         decoder: &mut EntityDecoder,
     ) -> Result<Vec<Point3<f64>>> {
         // IfcCompositeCurve: Segments, SelfIntersect
-        let segments_attr = curve.get(0).ok_or_else(|| {
-            Error::geometry("CompositeCurve missing Segments".to_string())
-        })?;
+        let segments_attr = curve
+            .get(0)
+            .ok_or_else(|| Error::geometry("CompositeCurve missing Segments".to_string()))?;
 
         let segments = decoder.resolve_ref_list(segments_attr)?;
         let mut result = Vec::new();
@@ -732,12 +785,13 @@ impl ProfileProcessor {
                 Error::geometry("CompositeCurveSegment missing ParentCurve".to_string())
             })?;
 
-            let parent_curve = decoder.resolve_ref(parent_curve_attr)?.ok_or_else(|| {
-                Error::geometry("Failed to resolve ParentCurve".to_string())
-            })?;
+            let parent_curve = decoder
+                .resolve_ref(parent_curve_attr)?
+                .ok_or_else(|| Error::geometry("Failed to resolve ParentCurve".to_string()))?;
 
             // Get same_sense for direction
-            let same_sense = segment.get(1)
+            let same_sense = segment
+                .get(1)
                 .and_then(|v| match v {
                     ifc_lite_core::AttributeValue::Enum(e) => Some(e.as_str()),
                     _ => None,
@@ -810,7 +864,7 @@ impl ProfileProcessor {
                 // Check for IFCPARAMETERVALUE (stored as ["IFCPARAMETERVALUE", value])
                 if let Some(inner_list) = item.as_list() {
                     if inner_list.len() >= 2 {
-                        if let Some(type_name) = inner_list.get(0).and_then(|v| v.as_string()) {
+                        if let Some(type_name) = inner_list.first().and_then(|v| v.as_string()) {
                             if type_name == "IFCPARAMETERVALUE" {
                                 return inner_list.get(1).and_then(|v| v.as_float());
                             }
@@ -900,7 +954,7 @@ impl ProfileProcessor {
             if let Some(loc) = decoder.resolve_ref(loc_attr)? {
                 let coords = loc.get(0).and_then(|v| v.as_list());
                 if let Some(coords) = coords {
-                    let x = coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0);
+                    let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0);
                     let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
                     Point2::new(x, y)
                 } else {
@@ -917,7 +971,7 @@ impl ProfileProcessor {
             if let Some(dir) = decoder.resolve_ref(dir_attr)? {
                 let ratios = dir.get(0).and_then(|v| v.as_list());
                 if let Some(ratios) = ratios {
-                    let x = ratios.get(0).and_then(|v| v.as_float()).unwrap_or(1.0);
+                    let x = ratios.first().and_then(|v| v.as_float()).unwrap_or(1.0);
                     let y = ratios.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
                     y.atan2(x)
                 } else {
@@ -1016,7 +1070,7 @@ impl ProfileProcessor {
                 .as_list()
                 .ok_or_else(|| Error::geometry("Expected coordinate list".to_string()))?;
 
-            let x = coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0);
+            let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0);
             let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
 
             points.push(Point2::new(x, y));
@@ -1055,7 +1109,7 @@ impl ProfileProcessor {
             .iter()
             .filter_map(|coord| {
                 coord.as_list().and_then(|coords| {
-                    let x = coords.get(0)?.as_float()?;
+                    let x = coords.first()?.as_float()?;
                     let y = coords.get(1)?.as_float()?;
                     Some(Point2::new(x, y))
                 })
@@ -1096,11 +1150,20 @@ impl ProfileProcessor {
                     if let (Some(start), Some(mid), Some(end)) = (p1, p2, p3) {
                         // Approximate arc with adaptive segment count based on arc size
                         // Calculate approximate arc angle from chord length vs radius
-                        let chord_len = ((end.x - start.x).powi(2) + (end.y - start.y).powi(2)).sqrt();
-                        let mid_chord = ((mid.x - (start.x + end.x) / 2.0).powi(2) + (mid.y - (start.y + end.y) / 2.0).powi(2)).sqrt();
+                        let chord_len =
+                            ((end.x - start.x).powi(2) + (end.y - start.y).powi(2)).sqrt();
+                        let mid_chord = ((mid.x - (start.x + end.x) / 2.0).powi(2)
+                            + (mid.y - (start.y + end.y) / 2.0).powi(2))
+                        .sqrt();
                         // Estimate arc angle: larger mid deviation = larger arc
-                        let arc_estimate = if chord_len > 1e-10 { (mid_chord / chord_len).abs().min(1.0).acos() * 2.0 } else { 0.5 };
-                        let num_segments = ((arc_estimate / std::f64::consts::FRAC_PI_2 * 8.0).ceil() as usize).max(4).min(16);
+                        let arc_estimate = if chord_len > 1e-10 {
+                            (mid_chord / chord_len).abs().min(1.0).acos() * 2.0
+                        } else {
+                            0.5
+                        };
+                        let num_segments = ((arc_estimate / std::f64::consts::FRAC_PI_2 * 8.0)
+                            .ceil() as usize)
+                            .clamp(4, 16);
                         let arc_points = self.approximate_arc_3pt(start, mid, end, num_segments);
                         for pt in arc_points {
                             if result_points.last() != Some(&pt) {
@@ -1165,7 +1228,7 @@ impl ProfileProcessor {
         let angle2 = (p2.y - center.y).atan2(p2.x - center.x);
 
         // Determine arc direction
-        let mut start_angle = angle1;
+        let start_angle = angle1;
         let mut end_angle = angle3;
 
         // Check if we need to go the long way around
@@ -1217,9 +1280,9 @@ impl ProfileProcessor {
             }
 
             // Get ParentCurve (attribute 2)
-            let parent_curve_attr = segment
-                .get(2)
-                .ok_or_else(|| Error::geometry("CompositeCurveSegment missing ParentCurve".to_string()))?;
+            let parent_curve_attr = segment.get(2).ok_or_else(|| {
+                Error::geometry("CompositeCurveSegment missing ParentCurve".to_string())
+            })?;
 
             let parent_curve = decoder
                 .resolve_ref(parent_curve_attr)?
@@ -1268,7 +1331,9 @@ impl ProfileProcessor {
         let sub_profiles = decoder.resolve_ref_list(profiles_attr)?;
 
         if sub_profiles.is_empty() {
-            return Err(Error::geometry("Composite profile has no sub-profiles".to_string()));
+            return Err(Error::geometry(
+                "Composite profile has no sub-profiles".to_string(),
+            ));
         }
 
         // Process first profile as base

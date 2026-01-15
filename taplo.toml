@@ -1,0 +1,11 @@
+# Taplo configuration
+# https://taplo.tamasfe.dev/configuration/
+
+[formatting]
+# Match cargo-sort's 4-space indentation
+indent_string = "    "
+# Align with cargo-sort
+column_width = 80
+# Always put arrays on multiple lines
+array_auto_collapse = false
+array_auto_expand = true

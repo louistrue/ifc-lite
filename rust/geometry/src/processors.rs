@@ -7,10 +7,11 @@
 //! High-priority processors for common IFC geometry types.
 
 use crate::{
-    extrusion::{apply_transform, extrude_profile}, profiles::ProfileProcessor, triangulation::triangulate_polygon,
+    extrusion::{apply_transform, extrude_profile},
+    profiles::ProfileProcessor,
     Error, Mesh, Point3, Result, Vector3,
 };
-use ifc_lite_core::{DecodedEntity, EntityDecoder, GeometryCategory, IfcSchema, IfcType};
+use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcSchema, IfcType};
 use nalgebra::Matrix4;
 
 use super::router::GeometryProcessor;
@@ -38,7 +39,7 @@ fn extract_coord_index_bytes(bytes: &[u8]) -> Option<&[u8]> {
 
     while i < bytes.len() && depth > 0 {
         let b = bytes[i];
-        
+
         // Handle string literals - skip content inside quotes
         if b == b'\'' {
             in_string = !in_string;
@@ -49,7 +50,7 @@ fn extract_coord_index_bytes(bytes: &[u8]) -> Option<&[u8]> {
             i += 1;
             continue;
         }
-        
+
         // Skip comments (/* ... */)
         if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
             i += 2;
@@ -59,7 +60,7 @@ fn extract_coord_index_bytes(bytes: &[u8]) -> Option<&[u8]> {
             i += 2;
             continue;
         }
-        
+
         match b {
             b'(' => {
                 if depth == 1 && attr_count == 3 {
@@ -105,14 +106,14 @@ fn validate_coord_index_structure(bytes: &[u8]) -> bool {
     if bytes.is_empty() {
         return false;
     }
-    
+
     // Must start with '(' and end with ')'
     let first = bytes.first().copied();
     let last = bytes.last().copied();
     if first != Some(b'(') || last != Some(b')') {
         return false;
     }
-    
+
     // Check structure: only allow digits, commas, parens, whitespace
     let mut depth = 0;
     for &b in bytes {
@@ -137,7 +138,7 @@ fn validate_coord_index_structure(bytes: &[u8]) -> bool {
             }
         }
     }
-    
+
     // Must have balanced parens
     depth == 0
 }
@@ -179,20 +180,16 @@ impl GeometryProcessor for ExtrudedAreaSolidProcessor {
             .resolve_ref(profile_attr)?
             .ok_or_else(|| Error::geometry("Failed to resolve SweptArea".to_string()))?;
 
-        let profile = self
-            .profile_processor
-            .process(&profile_entity, decoder)?;
+        let profile = self.profile_processor.process(&profile_entity, decoder)?;
 
         if profile.outer.is_empty() {
             return Ok(Mesh::new());
         }
 
         // Get extrusion direction
-        let direction_attr = entity
-            .get(2)
-            .ok_or_else(|| {
-                Error::geometry("ExtrudedAreaSolid missing ExtrudedDirection".to_string())
-            })?;
+        let direction_attr = entity.get(2).ok_or_else(|| {
+            Error::geometry("ExtrudedAreaSolid missing ExtrudedDirection".to_string())
+        })?;
 
         let direction_entity = decoder
             .resolve_ref(direction_attr)?
@@ -215,9 +212,18 @@ impl GeometryProcessor for ExtrudedAreaSolidProcessor {
             .ok_or_else(|| Error::geometry("Expected ratio list".to_string()))?;
 
         use ifc_lite_core::AttributeValue;
-        let dir_x = ratios.get(0).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0);
-        let dir_y = ratios.get(1).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(0.0);
-        let dir_z = ratios.get(2).and_then(|v: &AttributeValue| v.as_float()).unwrap_or(1.0);
+        let dir_x = ratios
+            .first()
+            .and_then(|v: &AttributeValue| v.as_float())
+            .unwrap_or(0.0);
+        let dir_y = ratios
+            .get(1)
+            .and_then(|v: &AttributeValue| v.as_float())
+            .unwrap_or(0.0);
+        let dir_z = ratios
+            .get(2)
+            .and_then(|v: &AttributeValue| v.as_float())
+            .unwrap_or(1.0);
 
         let direction = Vector3::new(dir_x, dir_y, dir_z).normalize();
 
@@ -252,9 +258,9 @@ impl GeometryProcessor for ExtrudedAreaSolidProcessor {
 
             // Choose up vector (world Z, unless direction is nearly vertical)
             let up = if new_z.z.abs() > 0.9 {
-                Vector3::new(0.0, 1.0, 0.0)  // Use Y when nearly vertical
+                Vector3::new(0.0, 1.0, 0.0) // Use Y when nearly vertical
             } else {
-                Vector3::new(0.0, 0.0, 1.0)  // Use Z otherwise
+                Vector3::new(0.0, 0.0, 1.0) // Use Z otherwise
             };
 
             let new_x = up.cross(&new_z).normalize();
@@ -340,7 +346,7 @@ impl ExtrudedAreaSolidProcessor {
         // Normalize axes
         let z_axis_final = z_axis.normalize();
         let x_axis_normalized = x_axis.normalize();
-        
+
         // Ensure X is orthogonal to Z (project X onto plane perpendicular to Z)
         let dot_product = x_axis_normalized.dot(&z_axis_final);
         let x_axis_orthogonal = x_axis_normalized - z_axis_final * dot_product;
@@ -354,7 +360,7 @@ impl ExtrudedAreaSolidProcessor {
                 Vector3::new(1.0, 0.0, 0.0).cross(&z_axis_final).normalize()
             }
         };
-        
+
         // Y axis is cross product of Z and X (right-hand rule: Y = Z × X)
         let y_axis = z_axis_final.cross(&x_axis_final).normalize();
 
@@ -409,18 +415,9 @@ impl ExtrudedAreaSolidProcessor {
             .as_list()
             .ok_or_else(|| Error::geometry("Expected coordinate list".to_string()))?;
 
-        let x = coords
-            .get(0)
-            .and_then(|v| v.as_float())
-            .unwrap_or(0.0);
-        let y = coords
-            .get(1)
-            .and_then(|v| v.as_float())
-            .unwrap_or(0.0);
-        let z = coords
-            .get(2)
-            .and_then(|v| v.as_float())
-            .unwrap_or(0.0);
+        let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0);
+        let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
+        let z = coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
 
         Ok(Point3::new(x, y, z))
     }
@@ -444,7 +441,7 @@ impl ExtrudedAreaSolidProcessor {
             .as_list()
             .ok_or_else(|| Error::geometry("Expected ratio list".to_string()))?;
 
-        let x = ratios.get(0).and_then(|v| v.as_float()).unwrap_or(0.0);
+        let x = ratios.first().and_then(|v| v.as_float()).unwrap_or(0.0);
         let y = ratios.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
         let z = ratios.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
 
@@ -477,15 +474,13 @@ impl GeometryProcessor for TriangulatedFaceSetProcessor {
         // 3: CoordIndex (list of list of IfcPositiveInteger)
 
         // Get coordinate entity reference
-        let coords_attr = entity
-            .get(0)
-            .ok_or_else(|| {
-                Error::geometry("TriangulatedFaceSet missing Coordinates".to_string())
-            })?;
+        let coords_attr = entity.get(0).ok_or_else(|| {
+            Error::geometry("TriangulatedFaceSet missing Coordinates".to_string())
+        })?;
 
-        let coord_entity_id = coords_attr
-            .as_entity_ref()
-            .ok_or_else(|| Error::geometry("Expected entity reference for Coordinates".to_string()))?;
+        let coord_entity_id = coords_attr.as_entity_ref().ok_or_else(|| {
+            Error::geometry("Expected entity reference for Coordinates".to_string())
+        })?;
 
         // FAST PATH: Try direct parsing of raw bytes (3-5x faster)
         // This bypasses Token/AttributeValue allocations entirely
@@ -497,12 +492,11 @@ impl GeometryProcessor for TriangulatedFaceSetProcessor {
             extract_coordinate_list_from_entity(raw_bytes).unwrap_or_default()
         } else {
             // Fallback path: use standard decoding
-            let coords_entity = decoder
-                .decode_by_id(coord_entity_id)?;
+            let coords_entity = decoder.decode_by_id(coord_entity_id)?;
 
-            let coord_list_attr = coords_entity
-                .get(0)
-                .ok_or_else(|| Error::geometry("CartesianPointList3D missing CoordList".to_string()))?;
+            let coord_list_attr = coords_entity.get(0).ok_or_else(|| {
+                Error::geometry("CartesianPointList3D missing CoordList".to_string())
+            })?;
 
             let coord_list = coord_list_attr
                 .as_list()
@@ -584,6 +578,7 @@ impl FacetedBrepProcessor {
 
     /// Extract polygon points from a loop entity
     /// Uses fast path for CartesianPoint extraction to avoid decode overhead
+    #[allow(dead_code)]
     #[inline]
     fn extract_loop_points(
         &self,
@@ -601,7 +596,7 @@ impl FacetedBrepProcessor {
 
         for point_ref in point_refs {
             let point_id = point_ref.as_entity_ref()?;
-            
+
             // Try fast path first
             if let Some((x, y, z)) = decoder.get_cartesian_point_fast(point_id) {
                 polygon_points.push(Point3::new(x, y, z));
@@ -611,7 +606,7 @@ impl FacetedBrepProcessor {
                 let coords_attr = point.get(0)?;
                 let coords = coords_attr.as_list()?;
                 use ifc_lite_core::AttributeValue;
-                let x = coords.get(0).and_then(|v: &AttributeValue| v.as_float())?;
+                let x = coords.first().and_then(|v: &AttributeValue| v.as_float())?;
                 let y = coords.get(1).and_then(|v: &AttributeValue| v.as_float())?;
                 let z = coords.get(2).and_then(|v: &AttributeValue| v.as_float())?;
                 polygon_points.push(Point3::new(x, y, z));
@@ -736,7 +731,10 @@ impl FacetedBrepProcessor {
         }
 
         // SLOW PATH: Complex polygon or polygon with holes
-        use crate::triangulation::{triangulate_polygon_with_holes, calculate_polygon_normal, project_to_2d, project_to_2d_with_basis};
+        use crate::triangulation::{
+            calculate_polygon_normal, project_to_2d, project_to_2d_with_basis,
+            triangulate_polygon_with_holes,
+        };
 
         let mut positions = Vec::new();
         let mut indices = Vec::new();
@@ -748,7 +746,8 @@ impl FacetedBrepProcessor {
         let (outer_2d, u_axis, v_axis, origin) = project_to_2d(&face.outer_points, &normal);
 
         // Project holes to 2D using the SAME coordinate system as the outer boundary
-        let holes_2d: Vec<Vec<nalgebra::Point2<f64>>> = face.hole_points
+        let holes_2d: Vec<Vec<nalgebra::Point2<f64>>> = face
+            .hole_points
             .iter()
             .map(|hole| project_to_2d_with_basis(hole, &u_axis, &v_axis, &origin))
             .collect();
@@ -849,11 +848,12 @@ impl FacetedBrepProcessor {
                         None => continue,
                     };
 
-                    let orientation = bound.get(1)
-                        .and_then(|v| match v {
+                    let orientation = bound
+                        .get(1)
+                        .map(|v| match v {
                             // Parser strips dots, so enum value is "T" or "F", not ".T." or ".F."
-                            ifc_lite_core::AttributeValue::Enum(e) => Some(e != "F" && e != ".F."),
-                            _ => Some(true),
+                            ifc_lite_core::AttributeValue::Enum(e) => e != "F" && e != ".F.",
+                            _ => true,
                         })
                         .unwrap_or(true);
 
@@ -863,7 +863,7 @@ impl FacetedBrepProcessor {
                             None => continue,
                         }
                     } else {
-                        continue
+                        continue;
                     };
 
                     if !orientation {
@@ -889,10 +889,13 @@ impl FacetedBrepProcessor {
                 }
 
                 if let Some(outer_points) = outer_bound_points {
-                    all_faces.push((brep_idx, FaceData {
-                        outer_points,
-                        hole_points,
-                    }));
+                    all_faces.push((
+                        brep_idx,
+                        FaceData {
+                            outer_points,
+                            hole_points,
+                        },
+                    ));
                 }
             }
         }
@@ -914,7 +917,10 @@ impl FacetedBrepProcessor {
         let mut mesh_builders: Vec<(Vec<f32>, Vec<u32>)> = face_counts
             .iter()
             .map(|&count| {
-                (Vec::with_capacity(count * 100), Vec::with_capacity(count * 50))
+                (
+                    Vec::with_capacity(count * 100),
+                    Vec::with_capacity(count * 50),
+                )
             })
             .collect();
 
@@ -934,11 +940,14 @@ impl FacetedBrepProcessor {
             .enumerate()
             .filter(|(_, (positions, _))| !positions.is_empty())
             .map(|(brep_idx, (positions, indices))| {
-                (brep_idx, Mesh {
-                    positions,
-                    normals: Vec::new(),
-                    indices,
-                })
+                (
+                    brep_idx,
+                    Mesh {
+                        positions,
+                        normals: Vec::new(),
+                        indices,
+                    },
+                )
             })
             .collect()
     }
@@ -997,11 +1006,12 @@ impl GeometryProcessor for FacetedBrepProcessor {
                 };
 
                 // Get orientation
-                let orientation = bound.get(1)
-                    .and_then(|v| match v {
+                let orientation = bound
+                    .get(1)
+                    .map(|v| match v {
                         // Parser strips dots, so enum value is "T" or "F", not ".T." or ".F."
-                        ifc_lite_core::AttributeValue::Enum(e) => Some(e != "F" && e != ".F."),
-                        _ => Some(true),
+                        ifc_lite_core::AttributeValue::Enum(e) => e != "F" && e != ".F.",
+                        _ => true,
                     })
                     .unwrap_or(true);
 
@@ -1012,7 +1022,7 @@ impl GeometryProcessor for FacetedBrepProcessor {
                         None => continue,
                     }
                 } else {
-                    continue
+                    continue;
                 };
 
                 if !orientation {
@@ -1148,18 +1158,21 @@ impl BooleanClippingProcessor {
         // 0: BaseSurface (IfcSurface - usually IfcPlane)
         // 1: AgreementFlag (boolean - true means material is on positive side)
 
-        let surface_attr = half_space.get(0)
+        let surface_attr = half_space
+            .get(0)
             .ok_or_else(|| Error::geometry("HalfSpaceSolid missing BaseSurface".to_string()))?;
 
-        let surface = decoder.resolve_ref(surface_attr)?
+        let surface = decoder
+            .resolve_ref(surface_attr)?
             .ok_or_else(|| Error::geometry("Failed to resolve BaseSurface".to_string()))?;
 
         // Get agreement flag - defaults to true
-        let agreement = half_space.get(1)
-            .and_then(|v| match v {
+        let agreement = half_space
+            .get(1)
+            .map(|v| match v {
                 // Parser strips dots, so enum value is "T" or "F", not ".T." or ".F."
-                ifc_lite_core::AttributeValue::Enum(e) => Some(e != "F" && e != ".F."),
-                _ => Some(true),
+                ifc_lite_core::AttributeValue::Enum(e) => e != "F" && e != ".F.",
+                _ => true,
             })
             .unwrap_or(true);
 
@@ -1172,23 +1185,29 @@ impl BooleanClippingProcessor {
         }
 
         // IfcPlane has one attribute: Position (IfcAxis2Placement3D)
-        let position_attr = surface.get(0)
+        let position_attr = surface
+            .get(0)
             .ok_or_else(|| Error::geometry("IfcPlane missing Position".to_string()))?;
 
-        let position = decoder.resolve_ref(position_attr)?
+        let position = decoder
+            .resolve_ref(position_attr)?
             .ok_or_else(|| Error::geometry("Failed to resolve Plane position".to_string()))?;
 
         // Parse IfcAxis2Placement3D
         // Location (Point), Axis (Direction - Z), RefDirection (Direction - X)
         let location = {
-            let loc_attr = position.get(0)
+            let loc_attr = position
+                .get(0)
                 .ok_or_else(|| Error::geometry("Axis2Placement3D missing Location".to_string()))?;
-            let loc = decoder.resolve_ref(loc_attr)?
+            let loc = decoder
+                .resolve_ref(loc_attr)?
                 .ok_or_else(|| Error::geometry("Failed to resolve plane location".to_string()))?;
-            let coords = loc.get(0).and_then(|v| v.as_list())
+            let coords = loc
+                .get(0)
+                .and_then(|v| v.as_list())
                 .ok_or_else(|| Error::geometry("Location missing coordinates".to_string()))?;
             Point3::new(
-                coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0),
+                coords.first().and_then(|v| v.as_float()).unwrap_or(0.0),
                 coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0),
                 coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0),
             )
@@ -1197,15 +1216,18 @@ impl BooleanClippingProcessor {
         let normal = {
             if let Some(axis_attr) = position.get(1) {
                 if !axis_attr.is_null() {
-                    let axis = decoder.resolve_ref(axis_attr)?
-                        .ok_or_else(|| Error::geometry("Failed to resolve plane axis".to_string()))?;
-                    let coords = axis.get(0).and_then(|v| v.as_list())
-                        .ok_or_else(|| Error::geometry("Axis missing direction ratios".to_string()))?;
+                    let axis = decoder.resolve_ref(axis_attr)?.ok_or_else(|| {
+                        Error::geometry("Failed to resolve plane axis".to_string())
+                    })?;
+                    let coords = axis.get(0).and_then(|v| v.as_list()).ok_or_else(|| {
+                        Error::geometry("Axis missing direction ratios".to_string())
+                    })?;
                     Vector3::new(
-                        coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0),
+                        coords.first().and_then(|v| v.as_float()).unwrap_or(0.0),
                         coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0),
                         coords.get(2).and_then(|v| v.as_float()).unwrap_or(1.0),
-                    ).normalize()
+                    )
+                    .normalize()
                 } else {
                     Vector3::new(0.0, 0.0, 1.0)
                 }
@@ -1232,9 +1254,9 @@ impl BooleanClippingProcessor {
         // - AgreementFlag=.F. means keep material on negative side of plane
         // But we're SUBTRACTING the half-space, so we invert
         let clip_normal = if agreement {
-            -plane_normal  // Subtract positive side = keep negative side
+            -plane_normal // Subtract positive side = keep negative side
         } else {
-            plane_normal   // Subtract negative side = keep positive side
+            plane_normal // Subtract negative side = keep positive side
         };
 
         let plane = Plane::new(plane_point, clip_normal);
@@ -1256,7 +1278,8 @@ impl GeometryProcessor for BooleanClippingProcessor {
         // 2: SecondOperand (clipping geometry)
 
         // Get operator
-        let operator = entity.get(0)
+        let operator = entity
+            .get(0)
             .and_then(|v| match v {
                 ifc_lite_core::AttributeValue::Enum(e) => Some(e.as_str()),
                 _ => None,
@@ -1264,31 +1287,36 @@ impl GeometryProcessor for BooleanClippingProcessor {
             .unwrap_or(".DIFFERENCE.");
 
         // Get first operand (base geometry)
-        let first_operand_attr = entity.get(1)
+        let first_operand_attr = entity
+            .get(1)
             .ok_or_else(|| Error::geometry("BooleanResult missing FirstOperand".to_string()))?;
 
-        let first_operand = decoder.resolve_ref(first_operand_attr)?
+        let first_operand = decoder
+            .resolve_ref(first_operand_attr)?
             .ok_or_else(|| Error::geometry("Failed to resolve FirstOperand".to_string()))?;
 
         // Process first operand to get base mesh
-        let mut mesh = self.process_operand(&first_operand, decoder)?;
+        let mesh = self.process_operand(&first_operand, decoder)?;
 
         if mesh.is_empty() {
             return Ok(mesh);
         }
 
         // Get second operand
-        let second_operand_attr = entity.get(2)
+        let second_operand_attr = entity
+            .get(2)
             .ok_or_else(|| Error::geometry("BooleanResult missing SecondOperand".to_string()))?;
 
-        let second_operand = decoder.resolve_ref(second_operand_attr)?
+        let second_operand = decoder
+            .resolve_ref(second_operand_attr)?
             .ok_or_else(|| Error::geometry("Failed to resolve SecondOperand".to_string()))?;
 
         // Handle DIFFERENCE operation
         if operator == ".DIFFERENCE." {
             // Check if second operand is a half-space solid (can clip efficiently)
             if second_operand.ifc_type == IfcType::IfcHalfSpaceSolid
-                || second_operand.ifc_type == IfcType::IfcPolygonalBoundedHalfSpace {
+                || second_operand.ifc_type == IfcType::IfcPolygonalBoundedHalfSpace
+            {
                 let (plane_point, plane_normal, agreement) =
                     self.parse_half_space_solid(&second_operand, decoder)?;
                 return self.clip_mesh_with_half_space(&mesh, plane_point, plane_normal, agreement);
@@ -1297,23 +1325,26 @@ impl GeometryProcessor for BooleanClippingProcessor {
             // For solid-solid difference, we can't do proper CSG without a full boolean library
             // Just return the first operand for now - this gives approximate geometry
             #[cfg(debug_assertions)]
-            eprintln!("[WARN] CSG operation {} not fully supported, returning first operand only", operator);
+            eprintln!(
+                "[WARN] CSG operation {} not fully supported, returning first operand only",
+                operator
+            );
         }
 
         // For UNION and INTERSECTION, and solid-solid DIFFERENCE,
         // just return the first operand for now
         #[cfg(debug_assertions)]
         if operator != ".DIFFERENCE." {
-            eprintln!("[WARN] CSG operation {} not fully supported, returning first operand only", operator);
+            eprintln!(
+                "[WARN] CSG operation {} not fully supported, returning first operand only",
+                operator
+            );
         }
         Ok(mesh)
     }
 
     fn supported_types(&self) -> Vec<IfcType> {
-        vec![
-            IfcType::IfcBooleanResult,
-            IfcType::IfcBooleanClippingResult,
-        ]
+        vec![IfcType::IfcBooleanResult, IfcType::IfcBooleanClippingResult]
     }
 }
 
@@ -1357,11 +1388,9 @@ impl GeometryProcessor for MappedItemProcessor {
         // 0: MappingOrigin (IfcAxis2Placement)
         // 1: MappedRepresentation (IfcRepresentation)
 
-        let mapped_rep_attr = source_entity
-            .get(1)
-            .ok_or_else(|| {
-                Error::geometry("RepresentationMap missing MappedRepresentation".to_string())
-            })?;
+        let mapped_rep_attr = source_entity.get(1).ok_or_else(|| {
+            Error::geometry("RepresentationMap missing MappedRepresentation".to_string())
+        })?;
 
         let mapped_rep = decoder
             .resolve_ref(mapped_rep_attr)?
@@ -1462,7 +1491,7 @@ impl GeometryProcessor for SweptDiskSolidProcessor {
             .ok_or_else(|| Error::geometry("SweptDiskSolid missing Radius".to_string()))?;
 
         // Get inner radius if hollow
-        let inner_radius = entity.get_float(2);
+        let _inner_radius = entity.get_float(2);
 
         // Resolve the directrix curve
         let directrix = decoder
@@ -1470,7 +1499,9 @@ impl GeometryProcessor for SweptDiskSolidProcessor {
             .ok_or_else(|| Error::geometry("Failed to resolve Directrix".to_string()))?;
 
         // Get points along the curve
-        let curve_points = self.profile_processor.get_curve_points(&directrix, decoder)?;
+        let curve_points = self
+            .profile_processor
+            .get_curve_points(&directrix, decoder)?;
 
         if curve_points.len() < 2 {
             return Ok(Mesh::new()); // Not enough points
@@ -1642,17 +1673,18 @@ impl GeometryProcessor for RevolvedAreaSolidProcessor {
         // Parse axis placement to get axis point and direction
         // IfcAxis1Placement: Location, Axis (optional)
         let axis_location = {
-            let loc_attr = axis_placement.get(0).ok_or_else(|| {
-                Error::geometry("Axis1Placement missing Location".to_string())
-            })?;
-            let loc = decoder.resolve_ref(loc_attr)?.ok_or_else(|| {
-                Error::geometry("Failed to resolve axis location".to_string())
-            })?;
-            let coords = loc.get(0).and_then(|v| v.as_list()).ok_or_else(|| {
-                Error::geometry("Axis location missing coordinates".to_string())
-            })?;
+            let loc_attr = axis_placement
+                .get(0)
+                .ok_or_else(|| Error::geometry("Axis1Placement missing Location".to_string()))?;
+            let loc = decoder
+                .resolve_ref(loc_attr)?
+                .ok_or_else(|| Error::geometry("Failed to resolve axis location".to_string()))?;
+            let coords = loc
+                .get(0)
+                .and_then(|v| v.as_list())
+                .ok_or_else(|| Error::geometry("Axis location missing coordinates".to_string()))?;
             Point3::new(
-                coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0),
+                coords.first().and_then(|v| v.as_float()).unwrap_or(0.0),
                 coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0),
                 coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0),
             )
@@ -1668,10 +1700,11 @@ impl GeometryProcessor for RevolvedAreaSolidProcessor {
                         Error::geometry("Axis direction missing coordinates".to_string())
                     })?;
                     Vector3::new(
-                        coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0),
+                        coords.first().and_then(|v| v.as_float()).unwrap_or(0.0),
                         coords.get(1).and_then(|v| v.as_float()).unwrap_or(1.0),
                         coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0),
-                    ).normalize()
+                    )
+                    .normalize()
                 } else {
                     Vector3::new(0.0, 1.0, 0.0) // Default Y axis
                 }
@@ -1731,7 +1764,8 @@ impl GeometryProcessor for RevolvedAreaSolidProcessor {
                 let k_cross_v = k_matrix(v);
                 let k_dot_v = ax * v.x + ay * v.y + az * v.z;
 
-                let v_rot = v * cos_t + k_cross_v * sin_t + axis_direction * k_dot_v * (1.0 - cos_t);
+                let v_rot =
+                    v * cos_t + k_cross_v * sin_t + axis_direction * k_dot_v * (1.0 - cos_t);
 
                 // Final position = axis_location + height along axis + rotated radius
                 let pos = axis_location + axis_direction * height + v_rot;
@@ -1763,7 +1797,10 @@ impl GeometryProcessor for RevolvedAreaSolidProcessor {
         if !full_circle {
             // Start cap
             let start_center_idx = (positions.len() / 3) as u32;
-            let start_center = axis_location + axis_direction * (profile_points.iter().map(|p| p.y).sum::<f64>() / profile_points.len() as f64);
+            let start_center = axis_location
+                + axis_direction
+                    * (profile_points.iter().map(|p| p.y).sum::<f64>()
+                        / profile_points.len() as f64);
             positions.push(start_center.x as f32);
             positions.push(start_center.y as f32);
             positions.push(start_center.z as f32);
@@ -1856,18 +1893,16 @@ impl AdvancedBrepProcessor {
         u_knots: &[f64],
         v_knots: &[f64],
     ) -> Point3<f64> {
-        let n_u = control_points.len();
-        let n_v = if n_u > 0 { control_points[0].len() } else { 0 };
+        let _n_u = control_points.len();
 
         let mut result = Point3::new(0.0, 0.0, 0.0);
 
-        for i in 0..n_u {
+        for (i, row) in control_points.iter().enumerate() {
             let n_i = Self::bspline_basis(i, u_degree, u, u_knots);
-            for j in 0..n_v {
+            for (j, cp) in row.iter().enumerate() {
                 let n_j = Self::bspline_basis(j, v_degree, v, v_knots);
                 let weight = n_i * n_j;
                 if weight.abs() > 1e-10 {
-                    let cp = &control_points[i][j];
                     result.x += weight * cp.x;
                     result.y += weight * cp.y;
                     result.z += weight * cp.z;
@@ -1908,7 +1943,13 @@ impl AdvancedBrepProcessor {
                 let v = v.min(v_max - 1e-6).max(v_min);
 
                 let point = Self::evaluate_bspline_surface(
-                    u, v, u_degree, v_degree, control_points, u_knots, v_knots,
+                    u,
+                    v,
+                    u_degree,
+                    v_degree,
+                    control_points,
+                    u_knots,
+                    v_knots,
                 );
 
                 positions.push(point.x as f32);
@@ -1946,16 +1987,16 @@ impl AdvancedBrepProcessor {
             Error::geometry("BSplineSurface missing ControlPointsList".to_string())
         })?;
 
-        let rows = cp_list_attr.as_list().ok_or_else(|| {
-            Error::geometry("Expected control point list".to_string())
-        })?;
+        let rows = cp_list_attr
+            .as_list()
+            .ok_or_else(|| Error::geometry("Expected control point list".to_string()))?;
 
         let mut result = Vec::with_capacity(rows.len());
 
         for row in rows {
-            let cols = row.as_list().ok_or_else(|| {
-                Error::geometry("Expected control point row".to_string())
-            })?;
+            let cols = row
+                .as_list()
+                .ok_or_else(|| Error::geometry("Expected control point row".to_string()))?;
 
             let mut row_points = Vec::with_capacity(cols.len());
             for col in cols {
@@ -1965,7 +2006,7 @@ impl AdvancedBrepProcessor {
                         Error::geometry("CartesianPoint missing coordinates".to_string())
                     })?;
 
-                    let x = coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0);
+                    let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0);
                     let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
                     let z = coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
 
@@ -1990,10 +2031,7 @@ impl AdvancedBrepProcessor {
     }
 
     /// Parse knot vectors from B-spline surface entity
-    fn parse_knot_vectors(
-        &self,
-        bspline: &DecodedEntity,
-    ) -> Result<(Vec<f64>, Vec<f64>)> {
+    fn parse_knot_vectors(&self, bspline: &DecodedEntity) -> Result<(Vec<f64>, Vec<f64>)> {
         // IFCBSPLINESURFACEWITHKNOTS attributes:
         // 0: UDegree
         // 1: VDegree
@@ -2009,9 +2047,9 @@ impl AdvancedBrepProcessor {
         // 11: KnotSpec
 
         // Get U multiplicities
-        let u_mult_attr = bspline.get(7).ok_or_else(|| {
-            Error::geometry("BSplineSurface missing UMultiplicities".to_string())
-        })?;
+        let u_mult_attr = bspline
+            .get(7)
+            .ok_or_else(|| Error::geometry("BSplineSurface missing UMultiplicities".to_string()))?;
         let u_mults: Vec<i64> = u_mult_attr
             .as_list()
             .ok_or_else(|| Error::geometry("Expected U multiplicities list".to_string()))?
@@ -2020,9 +2058,9 @@ impl AdvancedBrepProcessor {
             .collect();
 
         // Get V multiplicities
-        let v_mult_attr = bspline.get(8).ok_or_else(|| {
-            Error::geometry("BSplineSurface missing VMultiplicities".to_string())
-        })?;
+        let v_mult_attr = bspline
+            .get(8)
+            .ok_or_else(|| Error::geometry("BSplineSurface missing VMultiplicities".to_string()))?;
         let v_mults: Vec<i64> = v_mult_attr
             .as_list()
             .ok_or_else(|| Error::geometry("Expected V multiplicities list".to_string()))?
@@ -2031,9 +2069,9 @@ impl AdvancedBrepProcessor {
             .collect();
 
         // Get U knots
-        let u_knots_attr = bspline.get(9).ok_or_else(|| {
-            Error::geometry("BSplineSurface missing UKnots".to_string())
-        })?;
+        let u_knots_attr = bspline
+            .get(9)
+            .ok_or_else(|| Error::geometry("BSplineSurface missing UKnots".to_string()))?;
         let u_knot_values: Vec<f64> = u_knots_attr
             .as_list()
             .ok_or_else(|| Error::geometry("Expected U knots list".to_string()))?
@@ -2042,9 +2080,9 @@ impl AdvancedBrepProcessor {
             .collect();
 
         // Get V knots
-        let v_knots_attr = bspline.get(10).ok_or_else(|| {
-            Error::geometry("BSplineSurface missing VKnots".to_string())
-        })?;
+        let v_knots_attr = bspline
+            .get(10)
+            .ok_or_else(|| Error::geometry("BSplineSurface missing VKnots".to_string()))?;
         let v_knot_values: Vec<f64> = v_knots_attr
             .as_list()
             .ok_or_else(|| Error::geometry("Expected V knots list".to_string()))?
@@ -2066,13 +2104,13 @@ impl AdvancedBrepProcessor {
         decoder: &mut EntityDecoder,
     ) -> Result<(Vec<f32>, Vec<u32>)> {
         // Get bounds from face (attribute 0)
-        let bounds_attr = face.get(0).ok_or_else(|| {
-            Error::geometry("AdvancedFace missing Bounds".to_string())
-        })?;
+        let bounds_attr = face
+            .get(0)
+            .ok_or_else(|| Error::geometry("AdvancedFace missing Bounds".to_string()))?;
 
-        let bounds = bounds_attr.as_list().ok_or_else(|| {
-            Error::geometry("Expected bounds list".to_string())
-        })?;
+        let bounds = bounds_attr
+            .as_list()
+            .ok_or_else(|| Error::geometry("Expected bounds list".to_string()))?;
 
         let mut positions = Vec::new();
         let mut indices = Vec::new();
@@ -2082,23 +2120,27 @@ impl AdvancedBrepProcessor {
                 let bound_entity = decoder.decode_by_id(bound_id)?;
 
                 // Get the loop (attribute 0: Bound)
-                let loop_attr = bound_entity.get(0).ok_or_else(|| {
-                    Error::geometry("FaceBound missing Bound".to_string())
-                })?;
+                let loop_attr = bound_entity
+                    .get(0)
+                    .ok_or_else(|| Error::geometry("FaceBound missing Bound".to_string()))?;
 
-                let loop_entity = decoder.resolve_ref(loop_attr)?.ok_or_else(|| {
-                    Error::geometry("Failed to resolve loop".to_string())
-                })?;
+                let loop_entity = decoder
+                    .resolve_ref(loop_attr)?
+                    .ok_or_else(|| Error::geometry("Failed to resolve loop".to_string()))?;
 
                 // Get oriented edges from edge loop
-                if loop_entity.ifc_type.as_str().eq_ignore_ascii_case("IFCEDGELOOP") {
-                    let edges_attr = loop_entity.get(0).ok_or_else(|| {
-                        Error::geometry("EdgeLoop missing EdgeList".to_string())
-                    })?;
+                if loop_entity
+                    .ifc_type
+                    .as_str()
+                    .eq_ignore_ascii_case("IFCEDGELOOP")
+                {
+                    let edges_attr = loop_entity
+                        .get(0)
+                        .ok_or_else(|| Error::geometry("EdgeLoop missing EdgeList".to_string()))?;
 
-                    let edges = edges_attr.as_list().ok_or_else(|| {
-                        Error::geometry("Expected edge list".to_string())
-                    })?;
+                    let edges = edges_attr
+                        .as_list()
+                        .ok_or_else(|| Error::geometry("Expected edge list".to_string()))?;
 
                     let mut polygon_points = Vec::new();
 
@@ -2119,11 +2161,17 @@ impl AdvancedBrepProcessor {
                                 })?;
 
                                 if let Some(point) = decoder.resolve_ref(point_attr)? {
-                                    let coords = point.get(0).and_then(|v| v.as_list()).ok_or_else(|| {
-                                        Error::geometry("CartesianPoint missing coords".to_string())
-                                    })?;
+                                    let coords = point
+                                        .get(0)
+                                        .and_then(|v| v.as_list())
+                                        .ok_or_else(|| {
+                                            Error::geometry(
+                                                "CartesianPoint missing coords".to_string(),
+                                            )
+                                        })?;
 
-                                    let x = coords.get(0).and_then(|v| v.as_float()).unwrap_or(0.0);
+                                    let x =
+                                        coords.first().and_then(|v| v.as_float()).unwrap_or(0.0);
                                     let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
                                     let z = coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
 
@@ -2176,9 +2224,9 @@ impl AdvancedBrepProcessor {
         let (u_knots, v_knots) = self.parse_knot_vectors(bspline)?;
 
         // Determine tessellation resolution based on surface complexity
-        let u_segments = (control_points.len() * 3).max(8).min(24);
+        let u_segments = (control_points.len() * 3).clamp(8, 24);
         let v_segments = if !control_points.is_empty() {
-            (control_points[0].len() * 3).max(4).min(24)
+            (control_points[0].len() * 3).clamp(4, 24)
         } else {
             4
         };
@@ -2209,22 +2257,22 @@ impl GeometryProcessor for AdvancedBrepProcessor {
         // 0: Outer (IfcClosedShell)
 
         // Get the outer shell
-        let shell_attr = entity.get(0).ok_or_else(|| {
-            Error::geometry("AdvancedBrep missing Outer shell".to_string())
-        })?;
+        let shell_attr = entity
+            .get(0)
+            .ok_or_else(|| Error::geometry("AdvancedBrep missing Outer shell".to_string()))?;
 
-        let shell = decoder.resolve_ref(shell_attr)?.ok_or_else(|| {
-            Error::geometry("Failed to resolve Outer shell".to_string())
-        })?;
+        let shell = decoder
+            .resolve_ref(shell_attr)?
+            .ok_or_else(|| Error::geometry("Failed to resolve Outer shell".to_string()))?;
 
         // Get faces from the shell (IfcClosedShell.CfsFaces)
-        let faces_attr = shell.get(0).ok_or_else(|| {
-            Error::geometry("ClosedShell missing CfsFaces".to_string())
-        })?;
+        let faces_attr = shell
+            .get(0)
+            .ok_or_else(|| Error::geometry("ClosedShell missing CfsFaces".to_string()))?;
 
-        let faces = faces_attr.as_list().ok_or_else(|| {
-            Error::geometry("Expected face list".to_string())
-        })?;
+        let faces = faces_attr
+            .as_list()
+            .ok_or_else(|| Error::geometry("Expected face list".to_string()))?;
 
         let mut all_positions = Vec::new();
         let mut all_indices = Vec::new();
@@ -2242,16 +2290,17 @@ impl GeometryProcessor for AdvancedBrepProcessor {
                     Error::geometry("AdvancedFace missing FaceSurface".to_string())
                 })?;
 
-                let surface = decoder.resolve_ref(surface_attr)?.ok_or_else(|| {
-                    Error::geometry("Failed to resolve FaceSurface".to_string())
-                })?;
+                let surface = decoder
+                    .resolve_ref(surface_attr)?
+                    .ok_or_else(|| Error::geometry("Failed to resolve FaceSurface".to_string()))?;
 
                 let surface_type = surface.ifc_type.as_str().to_uppercase();
                 let (positions, indices) = if surface_type == "IFCPLANE" {
                     // Planar face - extract boundary vertices
                     self.process_planar_face(&face, decoder)?
                 } else if surface_type == "IFCBSPLINESURFACEWITHKNOTS"
-                       || surface_type == "IFCRATIONALBSPLINESURFACEWITHKNOTS" {
+                    || surface_type == "IFCRATIONALBSPLINESURFACEWITHKNOTS"
+                {
                     // B-spline surface - tessellate
                     self.process_bspline_face(&surface, decoder)?
                 } else {
@@ -2276,10 +2325,7 @@ impl GeometryProcessor for AdvancedBrepProcessor {
     }
 
     fn supported_types(&self) -> Vec<IfcType> {
-        vec![
-            IfcType::IfcAdvancedBrep,
-            IfcType::IfcAdvancedBrepWithVoids,
-        ]
+        vec![IfcType::IfcAdvancedBrep, IfcType::IfcAdvancedBrepWithVoids]
     }
 }
 
@@ -2298,9 +2344,9 @@ mod tests {
         use crate::router::GeometryRouter;
 
         // Read the actual advanced_brep.ifc file
-        let content = std::fs::read_to_string(
-            "../../tests/benchmark/models/ifcopenshell/advanced_brep.ifc"
-        ).expect("Failed to read test file");
+        let content =
+            std::fs::read_to_string("../../tests/benchmark/models/ifcopenshell/advanced_brep.ifc")
+                .expect("Failed to read test file");
 
         let entity_index = ifc_lite_core::build_entity_index(&content);
         let mut decoder = EntityDecoder::with_index(&content, entity_index);
@@ -2310,12 +2356,16 @@ mod tests {
         let element = decoder.decode_by_id(181).expect("Failed to decode element");
         assert_eq!(element.ifc_type, IfcType::IfcBuildingElementProxy);
 
-        let mesh = router.process_element(&element, &mut decoder)
+        let mesh = router
+            .process_element(&element, &mut decoder)
             .expect("Failed to process advanced brep");
 
         // Should produce geometry (B-spline surfaces tessellated)
         assert!(!mesh.is_empty(), "AdvancedBrep should produce geometry");
-        assert!(mesh.positions.len() >= 3 * 100, "Should have significant geometry");
+        assert!(
+            mesh.positions.len() >= 3 * 100,
+            "Should have significant geometry"
+        );
         assert!(mesh.indices.len() >= 3 * 100, "Should have many triangles");
     }
 
@@ -2335,8 +2385,8 @@ mod tests {
         let mesh = processor.process(&entity, &mut decoder, &schema).unwrap();
 
         assert!(!mesh.is_empty());
-        assert!(mesh.positions.len() > 0);
-        assert!(mesh.indices.len() > 0);
+        assert!(!mesh.positions.is_empty());
+        assert!(!mesh.indices.is_empty());
     }
 
     #[test]
@@ -2386,13 +2436,15 @@ mod tests {
         assert_eq!(half_space.ifc_type, IfcType::IfcHalfSpaceSolid);
 
         // Now process the boolean result
-        let mesh = processor.process(&bool_result, &mut decoder, &schema).unwrap();
+        let mesh = processor
+            .process(&bool_result, &mut decoder, &schema)
+            .unwrap();
         println!("Mesh vertices: {}", mesh.positions.len() / 3);
         println!("Mesh triangles: {}", mesh.indices.len() / 3);
 
         // The mesh should have geometry (base extrusion clipped)
         assert!(!mesh.is_empty(), "BooleanResult should produce geometry");
-        assert!(mesh.positions.len() > 0);
+        assert!(!mesh.positions.is_empty());
     }
 
     #[test]
@@ -2414,7 +2466,9 @@ mod tests {
         assert_eq!(column.ifc_type, IfcType::IfcColumn);
 
         // Check representation attribute
-        let rep_attr = column.get(6).expect("Column missing representation attribute");
+        let rep_attr = column
+            .get(6)
+            .expect("Column missing representation attribute");
         println!("Representation attr: {:?}", rep_attr);
 
         // Try process_element
@@ -2436,8 +2490,9 @@ mod tests {
 
         // Read the wall-with-opening file
         let content = std::fs::read_to_string(
-            "../../tests/benchmark/models/buildingsmart/wall-with-opening-and-window.ifc"
-        ).expect("Failed to read test file");
+            "../../tests/benchmark/models/buildingsmart/wall-with-opening-and-window.ifc",
+        )
+        .expect("Failed to read test file");
 
         let entity_index = ifc_lite_core::build_entity_index(&content);
         let mut decoder = EntityDecoder::with_index(&content, entity_index);

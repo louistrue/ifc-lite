@@ -6,10 +6,10 @@
 //!
 //! Fast triangle clipping and boolean operations.
 
-use nalgebra::{Point2, Point3, Vector3};
-use crate::mesh::Mesh;
 use crate::error::Result;
+use crate::mesh::Mesh;
 use crate::triangulation::{calculate_polygon_normal, project_to_2d, triangulate_polygon};
+use nalgebra::{Point3, Vector3};
 use rustc_hash::FxHashMap;
 
 /// Plane definition for clipping
@@ -91,9 +91,7 @@ pub struct ClippingProcessor {
 impl ClippingProcessor {
     /// Create a new clipping processor
     pub fn new() -> Self {
-        Self {
-            epsilon: 1e-6,
-        }
+        Self { epsilon: 1e-6 }
     }
 
     /// Clip a triangle against a plane
@@ -106,9 +104,15 @@ impl ClippingProcessor {
 
         // Count vertices in front of plane
         let mut front_count = 0;
-        if d0 >= -self.epsilon { front_count += 1; }
-        if d1 >= -self.epsilon { front_count += 1; }
-        if d2 >= -self.epsilon { front_count += 1; }
+        if d0 >= -self.epsilon {
+            front_count += 1;
+        }
+        if d1 >= -self.epsilon {
+            front_count += 1;
+        }
+        if d2 >= -self.epsilon {
+            front_count += 1;
+        }
 
         match front_count {
             // All vertices behind - discard triangle
@@ -128,9 +132,27 @@ impl ClippingProcessor {
                 };
 
                 // Interpolate to find intersection points
-                let d_front = if d0 >= -self.epsilon { d0 } else if d1 >= -self.epsilon { d1 } else { d2 };
-                let d_back1 = if d0 >= -self.epsilon { d1 } else if d1 >= -self.epsilon { d2 } else { d0 };
-                let d_back2 = if d0 >= -self.epsilon { d2 } else if d1 >= -self.epsilon { d0 } else { d1 };
+                let d_front = if d0 >= -self.epsilon {
+                    d0
+                } else if d1 >= -self.epsilon {
+                    d1
+                } else {
+                    d2
+                };
+                let d_back1 = if d0 >= -self.epsilon {
+                    d1
+                } else if d1 >= -self.epsilon {
+                    d2
+                } else {
+                    d0
+                };
+                let d_back2 = if d0 >= -self.epsilon {
+                    d2
+                } else if d1 >= -self.epsilon {
+                    d0
+                } else {
+                    d1
+                };
 
                 let t1 = d_front / (d_front - d_back1);
                 let t2 = d_front / (d_front - d_back2);
@@ -152,9 +174,27 @@ impl ClippingProcessor {
                 };
 
                 // Interpolate to find intersection points
-                let d_back = if d0 < -self.epsilon { d0 } else if d1 < -self.epsilon { d1 } else { d2 };
-                let d_front1 = if d0 < -self.epsilon { d1 } else if d1 < -self.epsilon { d2 } else { d0 };
-                let d_front2 = if d0 < -self.epsilon { d2 } else if d1 < -self.epsilon { d0 } else { d1 };
+                let d_back = if d0 < -self.epsilon {
+                    d0
+                } else if d1 < -self.epsilon {
+                    d1
+                } else {
+                    d2
+                };
+                let d_front1 = if d0 < -self.epsilon {
+                    d1
+                } else if d1 < -self.epsilon {
+                    d2
+                } else {
+                    d0
+                };
+                let d_front2 = if d0 < -self.epsilon {
+                    d2
+                } else if d1 < -self.epsilon {
+                    d0
+                } else {
+                    d1
+                };
 
                 let t1 = d_front1 / (d_front1 - d_back);
                 let t2 = d_front2 / (d_front2 - d_back);
@@ -176,7 +216,7 @@ impl ClippingProcessor {
     /// Uses bitflag classification for O(n) performance with fast paths
     pub fn subtract_box(&self, mesh: &Mesh, min: Point3<f64>, max: Point3<f64>) -> Result<Mesh> {
         let mut result = Mesh::with_capacity(mesh.vertex_count(), mesh.indices.len());
-        
+
         // Process each triangle
         for i in (0..mesh.indices.len()).step_by(3) {
             let i0 = mesh.indices[i] as usize;
@@ -209,12 +249,24 @@ impl ClippingProcessor {
             // Bit 5: outside_max_z (z > max.z)
             let classify = |v: &Point3<f64>| -> u8 {
                 let mut flags = 0u8;
-                if v.x < min.x { flags |= 1 << 0; }
-                if v.x > max.x { flags |= 1 << 1; }
-                if v.y < min.y { flags |= 1 << 2; }
-                if v.y > max.y { flags |= 1 << 3; }
-                if v.z < min.z { flags |= 1 << 4; }
-                if v.z > max.z { flags |= 1 << 5; }
+                if v.x < min.x {
+                    flags |= 1 << 0;
+                }
+                if v.x > max.x {
+                    flags |= 1 << 1;
+                }
+                if v.y < min.y {
+                    flags |= 1 << 2;
+                }
+                if v.y > max.y {
+                    flags |= 1 << 3;
+                }
+                if v.z < min.z {
+                    flags |= 1 << 4;
+                }
+                if v.z > max.z {
+                    flags |= 1 << 5;
+                }
                 flags
             };
 
@@ -241,17 +293,17 @@ impl ClippingProcessor {
             // Slow path: Triangle intersects box boundary → clip against all 6 box planes
             // Create 6 clipping planes (keep everything OUTSIDE the box)
             let planes = [
-                Plane::new(min, Vector3::new(1.0, 0.0, 0.0)),   // Left: keep x >= min.x
-                Plane::new(max, Vector3::new(-1.0, 0.0, 0.0)),  // Right: keep x <= max.x
-                Plane::new(min, Vector3::new(0.0, 1.0, 0.0)),   // Bottom: keep y >= min.y
-                Plane::new(max, Vector3::new(0.0, -1.0, 0.0)),  // Top: keep y <= max.y
-                Plane::new(min, Vector3::new(0.0, 0.0, 1.0)),   // Front: keep z >= min.z
+                Plane::new(min, Vector3::new(1.0, 0.0, 0.0)), // Left: keep x >= min.x
+                Plane::new(max, Vector3::new(-1.0, 0.0, 0.0)), // Right: keep x <= max.x
+                Plane::new(min, Vector3::new(0.0, 1.0, 0.0)), // Bottom: keep y >= min.y
+                Plane::new(max, Vector3::new(0.0, -1.0, 0.0)), // Top: keep y <= max.y
+                Plane::new(min, Vector3::new(0.0, 0.0, 1.0)), // Front: keep z >= min.z
                 Plane::new(max, Vector3::new(0.0, 0.0, -1.0)), // Back: keep z <= max.z
             ];
 
             // Start with single triangle, collect all clipped triangles
             let mut triangles_to_clip = vec![Triangle::new(v0, v1, v2)];
-            
+
             // Clip against each plane sequentially
             for plane in &planes {
                 let mut next_triangles = Vec::new();
@@ -285,7 +337,11 @@ impl ClippingProcessor {
 
     /// Extract opening profile from mesh (find largest face)
     /// Returns profile points and normal
-    fn extract_opening_profile(&self, opening_mesh: &Mesh) -> Option<(Vec<Point3<f64>>, Vector3<f64>)> {
+    #[allow(dead_code)]
+    fn extract_opening_profile(
+        &self,
+        opening_mesh: &Mesh,
+    ) -> Option<(Vec<Point3<f64>>, Vector3<f64>)> {
         if opening_mesh.is_empty() {
             return None;
         }
@@ -329,7 +385,8 @@ impl ClippingProcessor {
         }
 
         // Find largest face group (most triangles = largest face)
-        let largest_face = face_groups.iter()
+        let largest_face = face_groups
+            .iter()
             .max_by_key(|(_, triangles)| triangles.len())?;
 
         // Extract boundary of largest face (simplified: use all vertices)
@@ -346,9 +403,8 @@ impl ClippingProcessor {
 
     /// Convert our Mesh format to csgrs Mesh format
     fn mesh_to_csgrs(mesh: &Mesh) -> Result<csgrs::mesh::Mesh<()>> {
-        use csgrs::mesh::{Mesh as CSGMesh, polygon::Polygon, vertex::Vertex};
+        use csgrs::mesh::{polygon::Polygon, vertex::Vertex, Mesh as CSGMesh};
         use std::sync::OnceLock;
-        use csgrs::float_types::parry3d::bounding_volume::Aabb;
 
         if mesh.is_empty() {
             return Ok(CSGMesh {
@@ -430,7 +486,11 @@ impl ClippingProcessor {
                 for v in vertices {
                     mesh.add_vertex(v.pos, v.normal);
                 }
-                mesh.add_triangle(base_idx as u32, (base_idx + 1) as u32, (base_idx + 2) as u32);
+                mesh.add_triangle(
+                    base_idx as u32,
+                    (base_idx + 1) as u32,
+                    (base_idx + 2) as u32,
+                );
                 continue;
             }
 
@@ -486,7 +546,12 @@ impl ClippingProcessor {
     /// Clip mesh using bounding box (6 planes) - DEPRECATED: use subtract_box() instead
     /// Subtracts everything inside the box from the mesh
     #[deprecated(note = "Use subtract_box() for better performance")]
-    pub fn clip_mesh_with_box(&self, mesh: &Mesh, min: Point3<f64>, max: Point3<f64>) -> Result<Mesh> {
+    pub fn clip_mesh_with_box(
+        &self,
+        mesh: &Mesh,
+        min: Point3<f64>,
+        max: Point3<f64>,
+    ) -> Result<Mesh> {
         self.subtract_box(mesh, min, max)
     }
 
@@ -626,10 +691,7 @@ mod tests {
 
     #[test]
     fn test_plane_signed_distance() {
-        let plane = Plane::new(
-            Point3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 1.0),
-        );
+        let plane = Plane::new(Point3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 1.0));
 
         assert_eq!(plane.signed_distance(&Point3::new(0.0, 0.0, 5.0)), 5.0);
         assert_eq!(plane.signed_distance(&Point3::new(0.0, 0.0, -5.0)), -5.0);
@@ -644,10 +706,7 @@ mod tests {
             Point3::new(1.0, 0.0, 1.0),
             Point3::new(0.5, 1.0, 1.0),
         );
-        let plane = Plane::new(
-            Point3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 1.0),
-        );
+        let plane = Plane::new(Point3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 1.0));
 
         match processor.clip_triangle(&triangle, &plane) {
             ClipResult::AllFront(_) => {}
@@ -663,10 +722,7 @@ mod tests {
             Point3::new(1.0, 0.0, -1.0),
             Point3::new(0.5, 1.0, -1.0),
         );
-        let plane = Plane::new(
-            Point3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 1.0),
-        );
+        let plane = Plane::new(Point3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 1.0));
 
         match processor.clip_triangle(&triangle, &plane) {
             ClipResult::AllBehind => {}
@@ -682,10 +738,7 @@ mod tests {
             Point3::new(1.0, 0.0, -1.0), // Behind
             Point3::new(0.5, 1.0, -1.0), // Behind
         );
-        let plane = Plane::new(
-            Point3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 1.0),
-        );
+        let plane = Plane::new(Point3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 1.0));
 
         match processor.clip_triangle(&triangle, &plane) {
             ClipResult::Split(triangles) => {
@@ -703,10 +756,7 @@ mod tests {
             Point3::new(1.0, 0.0, 1.0),  // Front
             Point3::new(0.5, 1.0, -1.0), // Behind
         );
-        let plane = Plane::new(
-            Point3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 1.0),
-        );
+        let plane = Plane::new(Point3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 1.0));
 
         match processor.clip_triangle(&triangle, &plane) {
             ClipResult::Split(triangles) => {

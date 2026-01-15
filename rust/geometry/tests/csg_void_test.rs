@@ -2,11 +2,11 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use ifc_lite_core::{EntityScanner, EntityDecoder, IfcSchema};
+use ifc_lite_core::{EntityDecoder, EntityScanner};
 use ifc_lite_geometry::{GeometryRouter, Mesh};
+use rustc_hash::FxHashMap;
 use std::fs;
 use std::path::PathBuf;
-use rustc_hash::FxHashMap;
 
 fn get_test_file_path() -> PathBuf {
     // Try multiple possible paths
@@ -15,30 +15,40 @@ fn get_test_file_path() -> PathBuf {
         "../tests/ifc/02_BIMcollab_Example_STR_random_C_ebkp.ifc",
         "tests/ifc/02_BIMcollab_Example_STR_random_C_ebkp.ifc",
     ];
-    
+
     for path in &paths {
         if std::path::Path::new(path).exists() {
             return PathBuf::from(path);
         }
     }
-    
+
     panic!("Could not find test IFC file");
 }
 
 fn analyze_mesh(mesh: &Mesh, name: &str) {
     let (min, max) = mesh.bounds();
     let volume = (max.x - min.x) * (max.y - min.y) * (max.z - min.z);
-    
+
     println!("\n=== {} Mesh Analysis ===", name);
     println!("  Triangles: {}", mesh.triangle_count());
     println!("  Vertices: {}", mesh.vertex_count());
-    println!("  Positions: {} (len={})", mesh.positions.len() / 3, mesh.positions.len());
-    println!("  Normals: {} (len={})", mesh.normals.len() / 3, mesh.normals.len());
+    println!(
+        "  Positions: {} (len={})",
+        mesh.positions.len() / 3,
+        mesh.positions.len()
+    );
+    println!(
+        "  Normals: {} (len={})",
+        mesh.normals.len() / 3,
+        mesh.normals.len()
+    );
     println!("  Indices: {}", mesh.indices.len());
-    println!("  Bounds: min=({:.2}, {:.2}, {:.2}), max=({:.2}, {:.2}, {:.2})", 
-        min.x, min.y, min.z, max.x, max.y, max.z);
+    println!(
+        "  Bounds: min=({:.2}, {:.2}, {:.2}), max=({:.2}, {:.2}, {:.2})",
+        min.x, min.y, min.z, max.x, max.y, max.z
+    );
     println!("  Volume: {:.2}", volume);
-    
+
     // Check for degenerate triangles
     let mut degenerate_count = 0;
     for i in (0..mesh.indices.len()).step_by(3) {
@@ -48,14 +58,15 @@ fn analyze_mesh(mesh: &Mesh, name: &str) {
         let i0 = mesh.indices[i] as usize;
         let i1 = mesh.indices[i + 1] as usize;
         let i2 = mesh.indices[i + 2] as usize;
-        
-        if i0 * 3 + 2 >= mesh.positions.len() || 
-           i1 * 3 + 2 >= mesh.positions.len() || 
-           i2 * 3 + 2 >= mesh.positions.len() {
+
+        if i0 * 3 + 2 >= mesh.positions.len()
+            || i1 * 3 + 2 >= mesh.positions.len()
+            || i2 * 3 + 2 >= mesh.positions.len()
+        {
             degenerate_count += 1;
             continue;
         }
-        
+
         let v0 = nalgebra::Point3::new(
             mesh.positions[i0 * 3] as f64,
             mesh.positions[i0 * 3 + 1] as f64,
@@ -71,7 +82,7 @@ fn analyze_mesh(mesh: &Mesh, name: &str) {
             mesh.positions[i2 * 3 + 1] as f64,
             mesh.positions[i2 * 3 + 2] as f64,
         );
-        
+
         let edge1 = v1 - v0;
         let edge2 = v2 - v0;
         let area = edge1.cross(&edge2).norm() / 2.0;
@@ -80,10 +91,10 @@ fn analyze_mesh(mesh: &Mesh, name: &str) {
         }
     }
     println!("  Degenerate triangles: {}", degenerate_count);
-    
+
     // Check for invalid values
-    let has_nan = mesh.positions.iter().any(|&v| !v.is_finite()) || 
-                  mesh.normals.iter().any(|&v| !v.is_finite());
+    let has_nan = mesh.positions.iter().any(|&v| !v.is_finite())
+        || mesh.normals.iter().any(|&v| !v.is_finite());
     println!("  Has NaN/Inf: {}", has_nan);
 }
 
@@ -98,7 +109,7 @@ fn process_element_with_diagnostics(
     println!("\n\n{}", "=".repeat(80));
     println!("PROCESSING ELEMENT #{}: {}", element_id, element_name);
     println!("{}", "=".repeat(80));
-    
+
     // Find element
     let mut scanner = EntityScanner::new(content);
     let mut element_entity = None;
@@ -109,28 +120,36 @@ fn process_element_with_diagnostics(
             break;
         }
     }
-    
+
     let entity = element_entity.ok_or_else(|| format!("Element #{} not found", element_id))?;
-    
+
     // Get base mesh
     let base_mesh = router.process_element(&entity, decoder)?;
     analyze_mesh(&base_mesh, "Base Mesh");
-    
+
     // Check for openings
     let opening_ids = void_index.get(&element_id);
     if opening_ids.is_none() || opening_ids.unwrap().is_empty() {
         println!("\nNo openings found for element #{}", element_id);
         return Ok(base_mesh);
     }
-    
+
     let opening_ids = opening_ids.unwrap();
-    println!("\nFound {} opening(s) for element #{}", opening_ids.len(), element_id);
-    
+    println!(
+        "\nFound {} opening(s) for element #{}",
+        opening_ids.len(),
+        element_id
+    );
+
     // Process each opening
     let mut combined_openings = Mesh::new();
     for (idx, &opening_id) in opening_ids.iter().enumerate() {
-        println!("\n--- Processing Opening #{} (ID: {}) ---", idx + 1, opening_id);
-        
+        println!(
+            "\n--- Processing Opening #{} (ID: {}) ---",
+            idx + 1,
+            opening_id
+        );
+
         // Find opening entity
         scanner = EntityScanner::new(content);
         let mut opening_entity = None;
@@ -141,27 +160,34 @@ fn process_element_with_diagnostics(
                 break;
             }
         }
-        
+
         if let Some(opening) = opening_entity {
             match router.process_element(&opening, decoder) {
                 Ok(opening_mesh) => {
                     analyze_mesh(&opening_mesh, &format!("Opening #{}", idx + 1));
-                    
+
                     // Check bounds relationship
                     let (host_min, host_max) = base_mesh.bounds();
                     let (open_min, open_max) = opening_mesh.bounds();
-                    
+
                     println!("\n  Bounds Comparison:");
-                    println!("    Host: ({:.2},{:.2},{:.2}) to ({:.2},{:.2},{:.2})",
-                        host_min.x, host_min.y, host_min.z, host_max.x, host_max.y, host_max.z);
-                    println!("    Opening: ({:.2},{:.2},{:.2}) to ({:.2},{:.2},{:.2})",
-                        open_min.x, open_min.y, open_min.z, open_max.x, open_max.y, open_max.z);
-                    
+                    println!(
+                        "    Host: ({:.2},{:.2},{:.2}) to ({:.2},{:.2},{:.2})",
+                        host_min.x, host_min.y, host_min.z, host_max.x, host_max.y, host_max.z
+                    );
+                    println!(
+                        "    Opening: ({:.2},{:.2},{:.2}) to ({:.2},{:.2},{:.2})",
+                        open_min.x, open_min.y, open_min.z, open_max.x, open_max.y, open_max.z
+                    );
+
                     let overlap_x = open_min.x < host_max.x && open_max.x > host_min.x;
                     let overlap_y = open_min.y < host_max.y && open_max.y > host_min.y;
                     let overlap_z = open_min.z < host_max.z && open_max.z > host_min.z;
-                    println!("    Overlaps: X={}, Y={}, Z={}", overlap_x, overlap_y, overlap_z);
-                    
+                    println!(
+                        "    Overlaps: X={}, Y={}, Z={}",
+                        overlap_x, overlap_y, overlap_z
+                    );
+
                     combined_openings.merge(&opening_mesh);
                 }
                 Err(e) => {
@@ -172,50 +198,66 @@ fn process_element_with_diagnostics(
             println!("  Opening #{} not found!", opening_id);
         }
     }
-    
+
     if combined_openings.is_empty() {
         println!("\nNo valid opening geometry, returning base mesh");
         return Ok(base_mesh);
     }
-    
+
     analyze_mesh(&combined_openings, "Combined Openings");
-    
+
     // Perform CSG subtraction
     println!("\n--- Performing CSG Subtraction ---");
     use ifc_lite_geometry::csg::ClippingProcessor;
     let clipper = ClippingProcessor::new();
-    
+
     let original_tri_count = base_mesh.triangle_count();
     match clipper.subtract_mesh(&base_mesh, &combined_openings) {
         Ok(result_mesh) => {
             let new_tri_count = result_mesh.triangle_count();
             analyze_mesh(&result_mesh, "CSG Result");
-            
+
             println!("\n  CSG Comparison:");
-            println!("    Triangle count: {} -> {} (delta: {:+})", 
-                original_tri_count, new_tri_count, new_tri_count as i32 - original_tri_count as i32);
-            
+            println!(
+                "    Triangle count: {} -> {} (delta: {:+})",
+                original_tri_count,
+                new_tri_count,
+                new_tri_count as i32 - original_tri_count as i32
+            );
+
             let (orig_min, orig_max) = base_mesh.bounds();
             let (new_min, new_max) = result_mesh.bounds();
-            let orig_vol = (orig_max.x - orig_min.x) * (orig_max.y - orig_min.y) * (orig_max.z - orig_min.z);
-            let new_vol = (new_max.x - new_min.x) * (new_max.y - new_min.y) * (new_max.z - new_min.z);
-            let vol_ratio = if orig_vol > 0.0 { new_vol / orig_vol } else { 0.0 };
-            
-            println!("    Volume: {:.2} -> {:.2} (ratio: {:.3})", orig_vol, new_vol, vol_ratio);
-            
+            let orig_vol =
+                (orig_max.x - orig_min.x) * (orig_max.y - orig_min.y) * (orig_max.z - orig_min.z);
+            let new_vol =
+                (new_max.x - new_min.x) * (new_max.y - new_min.y) * (new_max.z - new_min.z);
+            let vol_ratio = if orig_vol > 0.0 {
+                new_vol / orig_vol
+            } else {
+                0.0
+            };
+
+            println!(
+                "    Volume: {:.2} -> {:.2} (ratio: {:.3})",
+                orig_vol, new_vol, vol_ratio
+            );
+
             // Validation checks
             let min_expected = original_tri_count / 3;
             let tri_ok = new_tri_count > 0 && new_tri_count >= min_expected;
             let vol_ok = vol_ratio > 0.3 && vol_ratio < 1.1;
             let has_valid_positions = result_mesh.positions.iter().all(|&v| v.is_finite());
             let has_valid_normals = result_mesh.normals.iter().all(|&v| v.is_finite());
-            
+
             println!("\n  Validation:");
-            println!("    Triangle check: {} (min_expected={})", tri_ok, min_expected);
+            println!(
+                "    Triangle check: {} (min_expected={})",
+                tri_ok, min_expected
+            );
             println!("    Volume check: {} (ratio={:.3})", vol_ok, vol_ratio);
             println!("    Valid positions: {}", has_valid_positions);
             println!("    Valid normals: {}", has_valid_normals);
-            
+
             if tri_ok && vol_ok && has_valid_positions && has_valid_normals {
                 println!("\n  ✓ CSG result VALID");
                 Ok(result_mesh)
@@ -235,34 +277,47 @@ fn process_element_with_diagnostics(
 #[test]
 fn test_void_subtraction_element_276() {
     let file_path = get_test_file_path();
-    let content = fs::read_to_string(&file_path)
-        .expect("Failed to read IFC file");
-    
+    let content = fs::read_to_string(&file_path).expect("Failed to read IFC file");
+
     let mut decoder = EntityDecoder::new(&content);
     let router = GeometryRouter::with_units(&content, &mut decoder);
-    
+
     // Build void index
     let mut void_index: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
     let mut scanner = EntityScanner::new(&content);
-    while let Some((id, type_name, start, end)) = scanner.next_entity() {
+    while let Some((_id, type_name, start, end)) = scanner.next_entity() {
         if type_name == "IFCRELVOIDSELEMENT" {
             if let Ok(entity) = decoder.decode_at(start, end) {
                 if let (Some(host_id), Some(opening_id)) = (entity.get_ref(4), entity.get_ref(5)) {
-                    void_index.entry(host_id).or_insert_with(Vec::new).push(opening_id);
+                    void_index.entry(host_id).or_default().push(opening_id);
                 }
             }
         }
     }
-    
+
     println!("Void index built: {} hosts with voids", void_index.len());
     if let Some(openings) = void_index.get(&276) {
-        println!("Element 276 has {} opening(s): {:?}", openings.len(), openings);
+        println!(
+            "Element 276 has {} opening(s): {:?}",
+            openings.len(),
+            openings
+        );
     }
-    
-    match process_element_with_diagnostics(&router, &mut decoder, &content, &void_index, 276, "Problematic Slab") {
+
+    match process_element_with_diagnostics(
+        &router,
+        &mut decoder,
+        &content,
+        &void_index,
+        276,
+        "Problematic Slab",
+    ) {
         Ok(mesh) => {
-            println!("\n\nFinal mesh: {} triangles, {} vertices", 
-                mesh.triangle_count(), mesh.vertex_count());
+            println!(
+                "\n\nFinal mesh: {} triangles, {} vertices",
+                mesh.triangle_count(),
+                mesh.vertex_count()
+            );
             assert!(!mesh.is_empty(), "Mesh should not be empty");
         }
         Err(e) => {
@@ -274,25 +329,24 @@ fn test_void_subtraction_element_276() {
 #[test]
 fn test_void_subtraction_working_element() {
     let file_path = get_test_file_path();
-    let content = fs::read_to_string(&file_path)
-        .expect("Failed to read IFC file");
-    
+    let content = fs::read_to_string(&file_path).expect("Failed to read IFC file");
+
     let mut decoder = EntityDecoder::new(&content);
     let router = GeometryRouter::with_units(&content, &mut decoder);
-    
+
     // Build void index
     let mut void_index: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
     let mut scanner = EntityScanner::new(&content);
-    while let Some((id, type_name, start, end)) = scanner.next_entity() {
+    while let Some((_id, type_name, start, end)) = scanner.next_entity() {
         if type_name == "IFCRELVOIDSELEMENT" {
             if let Ok(entity) = decoder.decode_at(start, end) {
                 if let (Some(host_id), Some(opening_id)) = (entity.get_ref(4), entity.get_ref(5)) {
-                    void_index.entry(host_id).or_insert_with(Vec::new).push(opening_id);
+                    void_index.entry(host_id).or_default().push(opening_id);
                 }
             }
         }
     }
-    
+
     // Find a known-good element with voids (not 276)
     let mut good_element_id = None;
     for (host_id, openings) in &void_index {
@@ -301,14 +355,24 @@ fn test_void_subtraction_working_element() {
             break;
         }
     }
-    
+
     let element_id = good_element_id.expect("No other element with voids found");
     println!("Testing known-good element #{}", element_id);
-    
-    match process_element_with_diagnostics(&router, &mut decoder, &content, &void_index, element_id, "Known-Good Element") {
+
+    match process_element_with_diagnostics(
+        &router,
+        &mut decoder,
+        &content,
+        &void_index,
+        element_id,
+        "Known-Good Element",
+    ) {
         Ok(mesh) => {
-            println!("\n\nFinal mesh: {} triangles, {} vertices", 
-                mesh.triangle_count(), mesh.vertex_count());
+            println!(
+                "\n\nFinal mesh: {} triangles, {} vertices",
+                mesh.triangle_count(),
+                mesh.vertex_count()
+            );
             assert!(!mesh.is_empty(), "Mesh should not be empty");
         }
         Err(e) => {
@@ -320,45 +384,68 @@ fn test_void_subtraction_working_element() {
 #[test]
 fn compare_void_geometries() {
     let file_path = get_test_file_path();
-    let content = fs::read_to_string(&file_path)
-        .expect("Failed to read IFC file");
-    
+    let content = fs::read_to_string(&file_path).expect("Failed to read IFC file");
+
     let mut decoder = EntityDecoder::new(&content);
     let router = GeometryRouter::with_units(&content, &mut decoder);
-    
+
     // Build void index
     let mut void_index: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
     let mut scanner = EntityScanner::new(&content);
-    while let Some((id, type_name, start, end)) = scanner.next_entity() {
+    while let Some((_id, type_name, start, end)) = scanner.next_entity() {
         if type_name == "IFCRELVOIDSELEMENT" {
             if let Ok(entity) = decoder.decode_at(start, end) {
                 if let (Some(host_id), Some(opening_id)) = (entity.get_ref(4), entity.get_ref(5)) {
-                    void_index.entry(host_id).or_insert_with(Vec::new).push(opening_id);
+                    void_index.entry(host_id).or_default().push(opening_id);
                 }
             }
         }
     }
-    
+
     println!("\n\n{}", "=".repeat(80));
     println!("COMPARISON: Element 276 vs Known-Good Element");
     println!("{}", "=".repeat(80));
-    
+
     // Process both
     let mut decoder_276 = EntityDecoder::new(&content);
-    let mesh_276 = process_element_with_diagnostics(&router, &mut decoder_276, &content, &void_index, 276, "Element 276")
-        .expect("Failed to process element 276");
-    
+    let mesh_276 = process_element_with_diagnostics(
+        &router,
+        &mut decoder_276,
+        &content,
+        &void_index,
+        276,
+        "Element 276",
+    )
+    .expect("Failed to process element 276");
+
     let mut decoder_good = EntityDecoder::new(&content);
-    let good_element_id = void_index.iter()
+    let good_element_id = void_index
+        .iter()
         .find(|(id, _)| **id != 276)
         .map(|(id, _)| *id)
         .expect("No other element found");
-    let mesh_good = process_element_with_diagnostics(&router, &mut decoder_good, &content, &void_index, good_element_id, "Known-Good")
-        .expect("Failed to process good element");
-    
+    let mesh_good = process_element_with_diagnostics(
+        &router,
+        &mut decoder_good,
+        &content,
+        &void_index,
+        good_element_id,
+        "Known-Good",
+    )
+    .expect("Failed to process good element");
+
     println!("\n\n{}", "=".repeat(80));
     println!("SIDE-BY-SIDE COMPARISON");
     println!("{}", "=".repeat(80));
-    println!("Element 276: {} tris, {} verts", mesh_276.triangle_count(), mesh_276.vertex_count());
-    println!("Element {}: {} tris, {} verts", good_element_id, mesh_good.triangle_count(), mesh_good.vertex_count());
+    println!(
+        "Element 276: {} tris, {} verts",
+        mesh_276.triangle_count(),
+        mesh_276.vertex_count()
+    );
+    println!(
+        "Element {}: {} tris, {} verts",
+        good_element_id,
+        mesh_good.triangle_count(),
+        mesh_good.vertex_count()
+    );
 }

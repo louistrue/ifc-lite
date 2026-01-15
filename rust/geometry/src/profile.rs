@@ -4,8 +4,8 @@
 
 //! 2D Profile definitions and triangulation
 
-use nalgebra::Point2;
 use crate::error::{Error, Result};
+use nalgebra::Point2;
 
 /// 2D Profile with optional holes
 #[derive(Debug, Clone)]
@@ -91,10 +91,20 @@ pub struct Triangulation {
 /// Common profile types
 #[derive(Debug, Clone)]
 pub enum ProfileType {
-    Rectangle { width: f64, height: f64 },
-    Circle { radius: f64 },
-    HollowCircle { outer_radius: f64, inner_radius: f64 },
-    Polygon { points: Vec<Point2<f64>> },
+    Rectangle {
+        width: f64,
+        height: f64,
+    },
+    Circle {
+        radius: f64,
+    },
+    HollowCircle {
+        outer_radius: f64,
+        inner_radius: f64,
+    },
+    Polygon {
+        points: Vec<Point2<f64>>,
+    },
 }
 
 impl ProfileType {
@@ -103,9 +113,10 @@ impl ProfileType {
         match self {
             Self::Rectangle { width, height } => create_rectangle(*width, *height),
             Self::Circle { radius } => create_circle(*radius, None),
-            Self::HollowCircle { outer_radius, inner_radius } => {
-                create_circle(*outer_radius, Some(*inner_radius))
-            }
+            Self::HollowCircle {
+                outer_radius,
+                inner_radius,
+            } => create_circle(*outer_radius, Some(*inner_radius)),
             Self::Polygon { points } => Profile2D::new(points.clone()),
         }
     }
@@ -134,10 +145,7 @@ pub fn create_circle(radius: f64, hole_radius: Option<f64>) -> Profile2D {
 
     for i in 0..segments {
         let angle = 2.0 * std::f64::consts::PI * (i as f64) / (segments as f64);
-        outer.push(Point2::new(
-            radius * angle.cos(),
-            radius * angle.sin(),
-        ));
+        outer.push(Point2::new(radius * angle.cos(), radius * angle.sin()));
     }
 
     let mut profile = Profile2D::new(outer);
@@ -150,10 +158,7 @@ pub fn create_circle(radius: f64, hole_radius: Option<f64>) -> Profile2D {
         for i in 0..hole_segments {
             let angle = 2.0 * std::f64::consts::PI * (i as f64) / (hole_segments as f64);
             // Reverse winding for hole (clockwise)
-            hole.push(Point2::new(
-                hole_r * angle.cos(),
-                hole_r * angle.sin(),
-            ));
+            hole.push(Point2::new(hole_r * angle.cos(), hole_r * angle.sin()));
         }
         hole.reverse(); // Make clockwise
 
@@ -247,9 +252,9 @@ mod tests {
 
     #[test]
     fn test_circle_segments() {
-        assert_eq!(calculate_circle_segments(1.0), 8);   // sqrt(1)*8=8, clamped to min 8
-        assert_eq!(calculate_circle_segments(4.0), 16);  // sqrt(4)*8=16
+        assert_eq!(calculate_circle_segments(1.0), 8); // sqrt(1)*8=8, clamped to min 8
+        assert_eq!(calculate_circle_segments(4.0), 16); // sqrt(4)*8=16
         assert!(calculate_circle_segments(100.0) <= 32); // Max clamp at 32
-        assert!(calculate_circle_segments(0.1) >= 8);    // Min clamp
+        assert!(calculate_circle_segments(0.1) >= 8); // Min clamp
     }
 }

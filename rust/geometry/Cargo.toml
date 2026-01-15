@@ -10,31 +10,32 @@ keywords = ["ifc", "bim", "geometry", "mesh", "aec"]
 categories = ["graphics", "parsing"]
 readme = "../../README.md"
 
+[features]
+default = []
+# csg = ["dep:manifold3d"]
+
 [dependencies]
+
+# CSG operations for opening subtraction
+csgrs = { version = "0.20", default-features = false, features = ["earcut", "f64"] }
+
+# Triangulation
+earcutr = "0.4"
+
 # Core IFC parsing
 ifc-lite-core = { version = "1.1.6", path = "../core" }
 
 # Math library
 nalgebra = { version = "0.33", default-features = false, features = ["std"] }
 
-# Triangulation
-earcutr = "0.4"
-
-# Error handling
-thiserror = "1.0"
+# Parallel processing
+rayon = "1.10"
 
 # Fast hashing
 rustc-hash = "1.1"
 
-# Parallel processing
-rayon = "1.10"
-
-# CSG operations for opening subtraction
-csgrs = { version = "0.20", default-features = false, features = ["earcut", "f64"] }
+# Error handling
+thiserror = "1.0"
 
 [dev-dependencies]
 approx = "0.5"
-
-[features]
-default = []
-# csg = ["dep:manifold3d"]
