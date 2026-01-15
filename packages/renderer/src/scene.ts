@@ -158,6 +158,10 @@ export class Scene {
         this.batchedMeshData.set(key, []);
       }
       this.batchedMeshData.get(key)!.push(meshData);
+
+      // Also store individual mesh data for visibility filtering
+      // This allows individual meshes to be created lazily when needed
+      this.addMeshData(meshData);
     }
 
     // Recreate batches for all colors that have new data

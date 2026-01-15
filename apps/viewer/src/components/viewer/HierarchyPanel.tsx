@@ -185,11 +185,11 @@ export function HierarchyPanel() {
     }
   }, [storeyElementsMap, isEntityVisible, hideEntities, showEntities, toggleEntityVisibility]);
 
-  // Check if storey is fully visible (all elements visible)
+  // Check if storey has any visible elements (show as hidden only when ALL are hidden)
   const isStoreyVisible = useCallback((storeyId: number) => {
     const elements = storeyElementsMap.get(storeyId) || [];
     if (elements.length === 0) return true;
-    return elements.every(id => isEntityVisible(id));
+    return elements.some(id => isEntityVisible(id));
   }, [storeyElementsMap, isEntityVisible]);
 
   const handleNodeClick = useCallback((node: TreeNode) => {

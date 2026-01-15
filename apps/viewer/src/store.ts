@@ -322,25 +322,13 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
 
   // Visibility actions
   hideEntity: (id) => set((state) => {
-    // Toggle hide: if already hidden, show it; otherwise hide it
     const newHidden = new Set(state.hiddenEntities);
-    if (newHidden.has(id)) {
-      newHidden.delete(id);
-    } else {
-      newHidden.add(id);
-    }
+    newHidden.add(id);
     return { hiddenEntities: newHidden };
   }),
   hideEntities: (ids) => set((state) => {
-    // Toggle hide for each entity: if already hidden, show it; otherwise hide it
     const newHidden = new Set(state.hiddenEntities);
-    ids.forEach(id => {
-      if (newHidden.has(id)) {
-        newHidden.delete(id);
-      } else {
-        newHidden.add(id);
-      }
-    });
+    ids.forEach(id => newHidden.add(id));
     return { hiddenEntities: newHidden };
   }),
   showEntity: (id) => set((state) => {
