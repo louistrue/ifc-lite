@@ -15,7 +15,7 @@ export class Scene {
   private batchedMeshes: BatchedMesh[] = [];
   private batchedMeshMap: Map<string, BatchedMesh> = new Map(); // Map colorKey -> BatchedMesh
   private batchedMeshData: Map<string, MeshData[]> = new Map(); // Map colorKey -> accumulated MeshData[]
-  private meshDataMap: Map<number, MeshData> = new Map(); // Map expressId -> MeshData (for lazy buffer creation)
+  private meshDataMap: Map<number, MeshData[]> = new Map(); // Map expressId -> MeshData[] (for lazy buffer creation, accumulates multiple pieces)
 
   /**
    * Add mesh to scene
@@ -55,16 +55,68 @@ export class Scene {
   /**
    * Store MeshData for lazy GPU buffer creation (used for selection highlighting)
    * This avoids creating 2x GPU buffers during streaming
+   * Accumulates multiple mesh pieces per expressId (elements can have multiple geometry pieces)
    */
   addMeshData(meshData: MeshData): void {
-    this.meshDataMap.set(meshData.expressId, meshData);
+    const existing = this.meshDataMap.get(meshData.expressId);
+    if (existing) {
+      existing.push(meshData);
+    } else {
+      this.meshDataMap.set(meshData.expressId, [meshData]);
+    }
   }
 
   /**
    * Get MeshData by expressId (for lazy buffer creation)
+   * Returns merged MeshData if element has multiple pieces
    */
   getMeshData(expressId: number): MeshData | undefined {
-    return this.meshDataMap.get(expressId);
+    const pieces = this.meshDataMap.get(expressId);
+    if (!pieces || pieces.length === 0) return undefined;
+    if (pieces.length === 1) return pieces[0];
+
+    // Merge multiple pieces into one MeshData
+    // Calculate total sizes
+    let totalPositions = 0;
+    let totalIndices = 0;
+    for (const piece of pieces) {
+      totalPositions += piece.positions.length;
+      totalIndices += piece.indices.length;
+    }
+
+    // Create merged arrays
+    const mergedPositions = new Float32Array(totalPositions);
+    const mergedNormals = new Float32Array(totalPositions);
+    const mergedIndices = new Uint32Array(totalIndices);
+
+    let posOffset = 0;
+    let idxOffset = 0;
+    let vertexOffset = 0;
+
+    for (const piece of pieces) {
+      // Copy positions and normals
+      mergedPositions.set(piece.positions, posOffset);
+      mergedNormals.set(piece.normals, posOffset);
+
+      // Copy indices with offset
+      for (let i = 0; i < piece.indices.length; i++) {
+        mergedIndices[idxOffset + i] = piece.indices[i] + vertexOffset;
+      }
+
+      posOffset += piece.positions.length;
+      idxOffset += piece.indices.length;
+      vertexOffset += piece.positions.length / 3;
+    }
+
+    // Return merged MeshData (use first piece's metadata)
+    return {
+      expressId,
+      positions: mergedPositions,
+      normals: mergedNormals,
+      indices: mergedIndices,
+      color: pieces[0].color,
+      ifcType: pieces[0].ifcType,
+    };
   }
 
   /**
@@ -72,6 +124,13 @@ export class Scene {
    */
   hasMeshData(expressId: number): boolean {
     return this.meshDataMap.has(expressId);
+  }
+
+  /**
+   * Get all MeshData pieces for an expressId (without merging)
+   */
+  getMeshDataPieces(expressId: number): MeshData[] | undefined {
+    return this.meshDataMap.get(expressId);
   }
 
   /**

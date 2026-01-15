@@ -78,7 +78,7 @@ function rebuildSpatialHierarchy(
       for (let i = 0; i < entities.count; i++) {
         if (entities.expressId[i] === id) {
           const elemType = entities.typeEnum[i];
-          // Exclude spatial structure types
+          // Exclude spatial structure types - they shouldn't be "contained elements"
           if (
             elemType === IfcTypeEnum.IfcProject ||
             elemType === IfcTypeEnum.IfcSite ||
