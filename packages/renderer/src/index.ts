@@ -21,7 +21,7 @@ import { Camera } from './camera.js';
 import { Scene } from './scene.js';
 import { Picker } from './picker.js';
 import { FrustumUtils } from '@ifc-lite/spatial';
-import type { RenderOptions, Mesh, InstancedMesh } from './types.js';
+import type { RenderOptions, PickOptions, Mesh, InstancedMesh } from './types.js';
 import { SectionPlaneRenderer } from './section-plane.js';
 import type { MeshData } from '@ifc-lite/geometry';
 import { deduplicateMeshes } from '@ifc-lite/geometry';
@@ -957,8 +957,9 @@ export class Renderer {
 
     /**
      * Pick object at screen coordinates
+     * Respects visibility filtering so users can only select visible elements
      */
-    async pick(x: number, y: number, options?: { isStreaming?: boolean }): Promise<number | null> {
+    async pick(x: number, y: number, options?: PickOptions): Promise<number | null> {
         if (!this.picker) {
             return null;
         }
@@ -988,8 +989,16 @@ export class Renderer {
                 const existingExpressIds = new Set(meshes.map(m => m.expressId));
 
                 // Create picking meshes lazily from stored MeshData
+                // Only create meshes for VISIBLE elements (not hidden, and either no isolation or in isolated set)
                 for (const expressId of expressIds) {
-                    if (!existingExpressIds.has(expressId) && this.scene.hasMeshData(expressId)) {
+                    // Skip if already exists
+                    if (existingExpressIds.has(expressId)) continue;
+                    // Skip if hidden
+                    if (options?.hiddenIds?.has(expressId)) continue;
+                    // Skip if isolation is active and this entity is not isolated
+                    if (options?.isolatedIds !== null && options?.isolatedIds !== undefined && !options.isolatedIds.has(expressId)) continue;
+
+                    if (this.scene.hasMeshData(expressId)) {
                         const meshData = this.scene.getMeshData(expressId);
                         if (meshData) {
                             this.createMeshFromData(meshData);
@@ -1001,6 +1010,15 @@ export class Renderer {
                 // Get updated meshes list (includes newly created ones)
                 meshes = this.scene.getMeshes();
             }
+        }
+
+        // Apply visibility filtering to meshes before picking
+        // This ensures users can only select elements that are actually visible
+        if (options?.hiddenIds && options.hiddenIds.size > 0) {
+            meshes = meshes.filter(mesh => !options.hiddenIds!.has(mesh.expressId));
+        }
+        if (options?.isolatedIds !== null && options?.isolatedIds !== undefined) {
+            meshes = meshes.filter(mesh => options.isolatedIds!.has(mesh.expressId));
         }
 
         const viewProj = this.camera.getViewProjMatrix().m;

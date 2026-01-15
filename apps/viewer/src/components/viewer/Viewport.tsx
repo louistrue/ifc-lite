@@ -171,6 +171,18 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       const mouseState = mouseStateRef.current;
       const touchState = touchStateRef.current;
 
+      // Helper function to get current pick options with visibility filtering
+      // This ensures users can only select visible elements (respects hide/isolate/type visibility)
+      function getPickOptions() {
+        const currentProgress = useViewerStore.getState().progress;
+        const currentIsStreaming = currentProgress !== null && currentProgress.percent < 100;
+        return {
+          isStreaming: currentIsStreaming,
+          hiddenIds: hiddenEntitiesRef.current,
+          isolatedIds: isolatedEntitiesRef.current,
+        };
+      }
+
       // Helper function to get entity bounds (min/max) - defined early for callbacks
       function getEntityBounds(
         geom: MeshData[] | null,
@@ -391,9 +403,8 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           const y = e.clientY - rect.top;
 
           // Pick at cursor position - orbit around what user is clicking on
-          const currentProgress = useViewerStore.getState().progress;
-          const currentIsStreaming = currentProgress !== null && currentProgress.percent < 100;
-          const pickedId = await renderer.pick(x, y, { isStreaming: currentIsStreaming });
+          // Uses visibility filtering so hidden elements don't affect orbit pivot
+          const pickedId = await renderer.pick(x, y, getPickOptions());
           if (pickedId !== null) {
             const center = getEntityCenter(geometryRef.current, pickedId);
             if (center) {
@@ -481,9 +492,8 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           const now = Date.now();
           if (now - lastHoverCheckRef.current > hoverThrottleMs) {
             lastHoverCheckRef.current = now;
-            const currentProgress = useViewerStore.getState().progress;
-            const currentIsStreaming = currentProgress !== null && currentProgress.percent < 100;
-            const pickedId = await renderer.pick(x, y, { isStreaming: currentIsStreaming });
+            // Uses visibility filtering so hidden elements don't show hover tooltips
+            const pickedId = await renderer.pick(x, y, getPickOptions());
             if (pickedId) {
               setHoverState({ entityId: pickedId, screenX: e.clientX, screenY: e.clientY });
             } else {
@@ -516,7 +526,8 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         const rect = canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
-        const pickedId = await renderer.pick(x, y);
+        // Uses visibility filtering so hidden elements don't appear in context menu
+        const pickedId = await renderer.pick(x, y, getPickOptions());
         openContextMenu(pickedId, e.clientX, e.clientY);
       });
 
@@ -554,9 +565,8 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
 
         // Handle measure tool clicks
         if (tool === 'measure') {
-          const currentProgress = useViewerStore.getState().progress;
-          const currentIsStreaming = currentProgress !== null && currentProgress.percent < 100;
-          const pickedId = await renderer.pick(x, y, { isStreaming: currentIsStreaming });
+          // Uses visibility filtering so measurements only snap to visible elements
+          const pickedId = await renderer.pick(x, y, getPickOptions());
           if (pickedId) {
             // Get 3D position from mesh vertices (simplified - uses center of clicked entity)
             // In a full implementation, you'd use ray-triangle intersection
@@ -664,20 +674,16 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           Math.abs(clickPos.x - lastClickPosRef.current.x) < 5 &&
           Math.abs(clickPos.y - lastClickPosRef.current.y) < 5) {
           // Double-click - isolate element
-          const currentProgress = useViewerStore.getState().progress;
-          const currentIsStreaming = currentProgress !== null && currentProgress.percent < 100;
-          const pickedId = await renderer.pick(x, y, { isStreaming: currentIsStreaming });
+          // Uses visibility filtering so only visible elements can be selected
+          const pickedId = await renderer.pick(x, y, getPickOptions());
           if (pickedId) {
             setSelectedEntityId(pickedId);
           }
           lastClickTimeRef.current = 0;
           lastClickPosRef.current = null;
         } else {
-          // Single click
-          // Get current progress state (not from closure)
-          const currentProgress = useViewerStore.getState().progress;
-          const currentIsStreaming = currentProgress !== null && currentProgress.percent < 100;
-          const pickedId = await renderer.pick(x, y, { isStreaming: currentIsStreaming });
+          // Single click - uses visibility filtering so only visible elements can be selected
+          const pickedId = await renderer.pick(x, y, getPickOptions());
 
           // Multi-selection with Ctrl/Cmd
           if (e.ctrlKey || e.metaKey) {
@@ -722,9 +728,8 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           const x = touchState.touches[0].clientX - rect.left;
           const y = touchState.touches[0].clientY - rect.top;
 
-          const currentProgress = useViewerStore.getState().progress;
-          const currentIsStreaming = currentProgress !== null && currentProgress.percent < 100;
-          const pickedId = await renderer.pick(x, y, { isStreaming: currentIsStreaming });
+          // Uses visibility filtering so hidden elements don't affect orbit pivot
+          const pickedId = await renderer.pick(x, y, getPickOptions());
           if (pickedId !== null) {
             const center = getEntityCenter(geometryRef.current, pickedId);
             if (center) {

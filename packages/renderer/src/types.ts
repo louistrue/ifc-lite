@@ -106,3 +106,15 @@ export interface RenderOptions {
   // Streaming state
   isStreaming?: boolean;          // If true, skip expensive operations like picker
 }
+
+/**
+ * Options for GPU picking/selection
+ * Filters out hidden/invisible elements so users can select what's visible
+ */
+export interface PickOptions {
+  // Skip picking during streaming for performance
+  isStreaming?: boolean;
+  // Visibility filtering - same as RenderOptions for consistency
+  hiddenIds?: Set<number>;        // Hidden elements (can't be picked)
+  isolatedIds?: Set<number> | null; // Only these elements can be picked (null = all pickable)
+}
