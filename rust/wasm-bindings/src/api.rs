@@ -441,8 +441,8 @@ impl IfcAPI {
 
             // Decode and process the entity
             if let Ok(entity) = decoder.decode_at(start, end) {
-                // Check if entity actually has representation (attribute index 2 for IfcProduct)
-                let has_representation = entity.get(2).map(|a| !a.is_null()).unwrap_or(false);
+                // Check if entity actually has representation (attribute index 6 for IfcProduct)
+                let has_representation = entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
                 if !has_representation {
                     continue;
                 }
@@ -450,20 +450,6 @@ impl IfcAPI {
                 if let Ok(mut mesh) =
                     router.process_element_with_voids(&entity, &mut decoder, &void_index)
                 {
-                    // #region agent log [Hypothesis - CSG validation debugging]
-                    if id == 276 {
-                        web_sys::console::log_1(
-                            &format!(
-                                "[DEBUG] element_276_final: tris={}, positions={}, normals={}",
-                                mesh.triangle_count(),
-                                mesh.positions.len() / 3,
-                                mesh.normals.len() / 3
-                            )
-                            .into(),
-                        );
-                    }
-                    // #endregion
-
                     if !mesh.is_empty() {
                         // Calculate normals if not present
                         if mesh.normals.is_empty() {
@@ -1194,7 +1180,7 @@ impl IfcAPI {
                         if let Ok(entity) = decoder.decode_at(start, end) {
                             // Check if entity actually has representation
                             let has_representation =
-                                entity.get(2).map(|a| !a.is_null()).unwrap_or(false);
+                                entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
                             if has_representation {
                                 if let Ok(mut mesh) = router.process_element(&entity, &mut decoder)
                                 {
@@ -1502,8 +1488,8 @@ impl IfcAPI {
             }
 
             if let Ok(entity) = decoder.decode_at(start, end) {
-                // Check if entity actually has representation (attribute index 2 for IfcProduct)
-                let has_representation = entity.get(2).map(|a| !a.is_null()).unwrap_or(false);
+                // Check if entity actually has representation (attribute index 6 for IfcProduct)
+                let has_representation = entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
                 if !has_representation {
                     continue;
                 }
