@@ -49,9 +49,9 @@ import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { cn } from '@/lib/utils';
 import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
-import { FileSpreadsheet, FileJson, SquareDashedMousePointer } from 'lucide-react';
+import { FileSpreadsheet, FileJson } from 'lucide-react';
 
-type Tool = 'select' | 'pan' | 'orbit' | 'walk' | 'measure' | 'section' | 'boxselect';
+type Tool = 'select' | 'pan' | 'orbit' | 'walk' | 'measure' | 'section';
 
 interface MainToolbarProps {
   onShowShortcuts?: () => void;
@@ -329,7 +329,6 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
       {/* Navigation Tools */}
       <ToolButton tool="select" icon={MousePointer2} label="Select" shortcut="V" />
-      <ToolButton tool="boxselect" icon={SquareDashedMousePointer} label="Box Select" shortcut="B" />
       <ToolButton tool="pan" icon={Hand} label="Pan" shortcut="P" />
       <ToolButton tool="orbit" icon={Rotate3d} label="Orbit" shortcut="O" />
       <ToolButton tool="walk" icon={PersonStanding} label="Walk Mode" shortcut="C" />

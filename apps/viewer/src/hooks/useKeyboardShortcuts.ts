@@ -65,10 +65,6 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       e.preventDefault();
       setActiveTool('section');
     }
-    if (key === 'b' && !ctrl && !shift) {
-      e.preventDefault();
-      setActiveTool('boxselect');
-    }
 
     // Visibility controls
     if (key === 'i' && !ctrl && !shift && selectedEntityId) {

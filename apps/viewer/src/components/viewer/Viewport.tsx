@@ -35,11 +35,6 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   const clearHover = useViewerStore((state) => state.clearHover);
   const hoverTooltipsEnabled = useViewerStore((state) => state.hoverTooltipsEnabled);
   const openContextMenu = useViewerStore((state) => state.openContextMenu);
-  const startBoxSelect = useViewerStore((state) => state.startBoxSelect);
-  const updateBoxSelect = useViewerStore((state) => state.updateBoxSelect);
-  const endBoxSelect = useViewerStore((state) => state.endBoxSelect);
-  const boxSelect = useViewerStore((state) => state.boxSelect);
-  const setSelectedEntityIds = useViewerStore((state) => state.setSelectedEntityIds);
   const toggleSelection = useViewerStore((state) => state.toggleSelection);
   const pendingMeasurePoint = useViewerStore((state) => state.pendingMeasurePoint);
   const addMeasurePoint = useViewerStore((state) => state.addMeasurePoint);
@@ -117,7 +112,6 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   const activeToolRef = useRef<string>(activeTool);
   const pendingMeasurePointRef = useRef<MeasurePoint | null>(pendingMeasurePoint);
   const sectionPlaneRef = useRef(sectionPlane);
-  const boxSelectRef = useRef(boxSelect);
   const geometryRef = useRef<MeshData[] | null>(geometry);
 
   // Hover throttling
@@ -132,7 +126,6 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
   useEffect(() => { pendingMeasurePointRef.current = pendingMeasurePoint; }, [pendingMeasurePoint]);
   useEffect(() => { sectionPlaneRef.current = sectionPlane; }, [sectionPlane]);
-  useEffect(() => { boxSelectRef.current = boxSelect; }, [boxSelect]);
   useEffect(() => {
     geometryRef.current = geometry;
   }, [geometry]);
@@ -384,13 +377,6 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
         // Determine action based on active tool and mouse button
         const tool = activeToolRef.current;
 
-        // Box selection tool
-        if (tool === 'boxselect' && e.button === 0) {
-          startBoxSelect(e.clientX, e.clientY);
-          canvas.style.cursor = 'crosshair';
-          return;
-        }
-
         const willOrbit = !(tool === 'pan' || e.button === 1 || e.button === 2 ||
           (tool === 'select' && e.shiftKey) ||
           (tool !== 'orbit' && tool !== 'select' && e.shiftKey));
@@ -453,12 +439,6 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
           const totalDy = e.clientY - mouseState.startY;
           if (Math.abs(totalDx) > 5 || Math.abs(totalDy) > 5) {
             mouseState.didDrag = true;
-          }
-
-          // Handle box selection
-          if (tool === 'boxselect' && mouseState.button === 0) {
-            updateBoxSelect(e.clientX, e.clientY);
-            return;
           }
 
           if (mouseState.isPanning || tool === 'pan') {
@@ -587,89 +567,6 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
               addMeasurePoint(measurePoint);
             }
           }
-          return;
-        }
-
-        // Handle box selection completion
-        if (tool === 'boxselect') {
-          // Get box selection coordinates (in screen space relative to viewport)
-          const bs = boxSelectRef.current;
-          const geom = geometryRef.current;
-          if (bs.isSelecting && geom) {
-            const selectionRect = {
-              left: Math.min(bs.startX, bs.currentX),
-              right: Math.max(bs.startX, bs.currentX),
-              top: Math.min(bs.startY, bs.currentY),
-              bottom: Math.max(bs.startY, bs.currentY),
-            };
-
-            // Check if selection is large enough
-            const selectionWidth = selectionRect.right - selectionRect.left;
-            const selectionHeight = selectionRect.bottom - selectionRect.top;
-
-            if (selectionWidth > 5 && selectionHeight > 5) {
-              // Convert selection rect from viewport to canvas coordinates
-              const canvasRect = canvas.getBoundingClientRect();
-              const canvasLeft = selectionRect.left - canvasRect.left;
-              const canvasRight = selectionRect.right - canvasRect.left;
-              const canvasTop = selectionRect.top - canvasRect.top;
-              const canvasBottom = selectionRect.bottom - canvasRect.top;
-
-              // Find all entities whose center projects into the selection box
-              // Respects visibility filtering (hidden entities and isolation mode)
-              const selectedIds: number[] = [];
-              const hiddenIds = hiddenEntitiesRef.current;
-              const isolatedIds = isolatedEntitiesRef.current;
-
-              for (const mesh of geom) {
-                // Skip hidden entities
-                if (hiddenIds.has(mesh.expressId)) continue;
-                // Skip non-isolated entities when isolation is active
-                if (isolatedIds !== null && !isolatedIds.has(mesh.expressId)) continue;
-
-                // Calculate mesh bounding box center
-                if (mesh.positions.length >= 3) {
-                  let minX = Infinity, minY = Infinity, minZ = Infinity;
-                  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-
-                  for (let i = 0; i < mesh.positions.length; i += 3) {
-                    const px = mesh.positions[i];
-                    const py = mesh.positions[i + 1];
-                    const pz = mesh.positions[i + 2];
-                    minX = Math.min(minX, px);
-                    minY = Math.min(minY, py);
-                    minZ = Math.min(minZ, pz);
-                    maxX = Math.max(maxX, px);
-                    maxY = Math.max(maxY, py);
-                    maxZ = Math.max(maxZ, pz);
-                  }
-
-                  const center = {
-                    x: (minX + maxX) / 2,
-                    y: (minY + maxY) / 2,
-                    z: (minZ + maxZ) / 2,
-                  };
-
-                  // Project center to screen space
-                  const screenPos = camera.projectToScreen(center, canvas.width, canvas.height);
-
-                  if (screenPos) {
-                    // Check if screen position is within selection box
-                    if (screenPos.x >= canvasLeft && screenPos.x <= canvasRight &&
-                      screenPos.y >= canvasTop && screenPos.y <= canvasBottom) {
-                      selectedIds.push(mesh.expressId);
-                    }
-                  }
-                }
-              }
-
-              // Select all found entities
-              if (selectedIds.length > 0) {
-                setSelectedEntityIds(selectedIds);
-              }
-            }
-          }
-          endBoxSelect();
           return;
         }
 

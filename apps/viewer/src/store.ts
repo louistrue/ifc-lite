@@ -48,15 +48,6 @@ export interface ContextMenuState {
   screenY: number;
 }
 
-// Box selection state
-export interface BoxSelectState {
-  isSelecting: boolean;
-  startX: number;
-  startY: number;
-  currentX: number;
-  currentY: number;
-}
-
 interface ViewerState {
   // Loading state
   loading: boolean;
@@ -96,9 +87,6 @@ interface ViewerState {
 
   // Context menu state
   contextMenu: ContextMenuState;
-
-  // Box selection state
-  boxSelect: BoxSelectState;
 
   // Measurement state
   measurements: Measurement[];
@@ -180,12 +168,6 @@ interface ViewerState {
   openContextMenu: (entityId: number | null, screenX: number, screenY: number) => void;
   closeContextMenu: () => void;
 
-  // Box selection actions
-  startBoxSelect: (startX: number, startY: number) => void;
-  updateBoxSelect: (currentX: number, currentY: number) => void;
-  endBoxSelect: () => void;
-  cancelBoxSelect: () => void;
-
   // Measurement actions
   addMeasurePoint: (point: MeasurePoint) => void;
   completeMeasurement: (endPoint: MeasurePoint) => void;
@@ -227,7 +209,6 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   hoverTooltipsEnabled: false,
   hoverState: { entityId: null, screenX: 0, screenY: 0 },
   contextMenu: { isOpen: false, entityId: null, screenX: 0, screenY: 0 },
-  boxSelect: { isSelecting: false, startX: 0, startY: 0, currentX: 0, currentY: 0 },
   measurements: [],
   pendingMeasurePoint: null,
   sectionPlane: { axis: 'y', position: 50, enabled: false },
@@ -469,20 +450,6 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     contextMenu: { isOpen: false, entityId: null, screenX: 0, screenY: 0 },
   }),
 
-  // Box selection actions
-  startBoxSelect: (startX, startY) => set({
-    boxSelect: { isSelecting: true, startX, startY, currentX: startX, currentY: startY },
-  }),
-  updateBoxSelect: (currentX, currentY) => set((state) => ({
-    boxSelect: { ...state.boxSelect, currentX, currentY },
-  })),
-  endBoxSelect: () => set({
-    boxSelect: { isSelecting: false, startX: 0, startY: 0, currentX: 0, currentY: 0 },
-  }),
-  cancelBoxSelect: () => set({
-    boxSelect: { isSelecting: false, startX: 0, startY: 0, currentX: 0, currentY: 0 },
-  }),
-
   // Measurement actions
   addMeasurePoint: (point) => set({ pendingMeasurePoint: point }),
   completeMeasurement: (endPoint) => set((state) => {
@@ -540,7 +507,6 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     },
     hoverState: { entityId: null, screenX: 0, screenY: 0 },
     contextMenu: { isOpen: false, entityId: null, screenX: 0, screenY: 0 },
-    boxSelect: { isSelecting: false, startX: 0, startY: 0, currentX: 0, currentY: 0 },
     measurements: [],
     pendingMeasurePoint: null,
     sectionPlane: { axis: 'y', position: 50, enabled: false },
