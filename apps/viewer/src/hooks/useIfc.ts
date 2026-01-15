@@ -66,11 +66,33 @@ function rebuildSpatialHierarchy(
     const name = entities.getName(expressId) || `Entity #${expressId}`;
 
     // Get contained elements via IfcRelContainedInSpatialStructure
-    const containedElements = relationships.getRelated(
+    const rawContainedElements = relationships.getRelated(
       expressId,
       RelationshipType.ContainsElements,
       'forward'
     );
+
+    // Filter out spatial structure elements (storeys, buildings, etc.)
+    // These should only contain actual building elements like walls, doors, etc.
+    const containedElements = rawContainedElements.filter(id => {
+      for (let i = 0; i < entities.count; i++) {
+        if (entities.expressId[i] === id) {
+          const elemType = entities.typeEnum[i];
+          // Exclude spatial structure types
+          if (
+            elemType === IfcTypeEnum.IfcProject ||
+            elemType === IfcTypeEnum.IfcSite ||
+            elemType === IfcTypeEnum.IfcBuilding ||
+            elemType === IfcTypeEnum.IfcBuildingStorey ||
+            elemType === IfcTypeEnum.IfcSpace
+          ) {
+            return false;
+          }
+          return true;
+        }
+      }
+      return true; // Keep if not found (shouldn't happen)
+    });
 
     // Get aggregated children via IfcRelAggregates
     const aggregatedChildren = relationships.getRelated(
