@@ -223,9 +223,9 @@ export function useIfc() {
   const lastLoggedDataStoreRef = useRef<typeof ifcDataStore>(null);
 
   /**
-   * Load from binary cache (INSTANT path)
+   * Load from binary cache with STREAMING for progressive rendering
    * Key optimizations:
-   * 1. Single setGeometryResult call instead of batched appendGeometryBatch
+   * 1. Stream geometry in batches for fast first frame (same as fresh load)
    * 2. Build spatial index in requestIdleCallback (non-blocking)
    */
   const loadFromCache = useCallback(async (
@@ -256,29 +256,46 @@ export function useIfc() {
         console.timeEnd('[useIfc] rebuild-spatial-hierarchy');
       }
 
+      // Set data store first (enables property panel)
+      setIfcDataStore(dataStore);
+
       if (result.geometry) {
-        const { meshes, coordinateInfo, totalVertices, totalTriangles } = result.geometry;
+        const { meshes, coordinateInfo } = result.geometry;
 
-        // INSTANT: Set ALL geometry in ONE state update (no batching!)
-        setGeometryResult({
-          meshes,
-          totalVertices,
-          totalTriangles,
-          coordinateInfo,
-        });
+        // STREAMING: Send geometry in batches for progressive rendering
+        // This prevents UI freeze on large cached models
+        const BATCH_SIZE = 50; // Larger batches since cache is already fast
+        const totalBatches = Math.ceil(meshes.length / BATCH_SIZE);
 
-        // Set data store
-        setIfcDataStore(dataStore);
+        console.log(`[useIfc] Streaming ${meshes.length} cached meshes in ${totalBatches} batches...`);
+
+        for (let i = 0; i < meshes.length; i += BATCH_SIZE) {
+          const batch = meshes.slice(i, i + BATCH_SIZE);
+          const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+
+          // Append batch (triggers React re-render with new geometry)
+          appendGeometryBatch(batch, coordinateInfo);
+
+          // Update progress
+          const progressPercent = 10 + (batchNum / totalBatches) * 85;
+          setProgress({
+            phase: `Loading from cache (${i + batch.length}/${meshes.length})`,
+            percent: progressPercent
+          });
+
+          // Yield to main thread every few batches for smooth UI
+          if (batchNum % 3 === 0) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+          }
+        }
 
         // Build spatial index in background (non-blocking)
         if (meshes.length > 0) {
-          // Use requestIdleCallback for non-blocking BVH build
           const buildIndex = () => {
             console.time('[useIfc] spatial-index-background');
             try {
               const spatialIndex = buildSpatialIndex(meshes);
               dataStore.spatialIndex = spatialIndex;
-              // Update store with spatial index (doesn't affect rendering)
               setIfcDataStore({ ...dataStore });
               console.timeEnd('[useIfc] spatial-index-background');
             } catch (err) {
@@ -286,27 +303,25 @@ export function useIfc() {
             }
           };
 
-          // Schedule for idle time, or fallback to setTimeout
+          // Schedule for idle time
           if ('requestIdleCallback' in window) {
-            (window as any).requestIdleCallback(buildIndex, { timeout: 1000 });
+            (window as any).requestIdleCallback(buildIndex, { timeout: 2000 });
           } else {
             setTimeout(buildIndex, 100);
           }
         }
-      } else {
-        setIfcDataStore(dataStore);
       }
 
       setProgress({ phase: 'Complete (from cache)', percent: 100 });
       console.timeEnd('[useIfc] cache-load');
-      console.log(`[useIfc] INSTANT load: ${fileName} from cache (${result.geometry?.meshes.length || 0} meshes)`);
+      console.log(`[useIfc] Streamed ${result.geometry?.meshes.length || 0} meshes from cache: ${fileName}`);
 
       return true;
     } catch (err) {
       console.error('[useIfc] Failed to load from cache:', err);
       return false;
     }
-  }, [setProgress, setIfcDataStore, setGeometryResult]);
+  }, [setProgress, setIfcDataStore, setGeometryResult, appendGeometryBatch]);
 
   /**
    * Save to binary cache (background operation)
@@ -386,37 +401,34 @@ export function useIfc() {
       }
 
       // Cache miss or small file - parse normally
-      setProgress({ phase: 'Parsing IFC', percent: 10 });
+      // OPTIMIZATION: Start geometry streaming IMMEDIATELY, parse data model in PARALLEL
+      // This eliminates the 8-12 second wait before geometry appears
+      setProgress({ phase: 'Starting geometry streaming', percent: 10 });
 
-      // Parse IFC using columnar parser
-      const parser = new IfcParser();
-      const dataStore = await parser.parseColumnar(buffer, {
-        onProgress: (prog) => {
-          setProgress({
-            phase: `Parsing: ${prog.phase}`,
-            percent: 10 + (prog.percent * 0.4),
-          });
-        },
-      });
-
-      setIfcDataStore(dataStore);
-      setProgress({ phase: 'Triangulating geometry', percent: 50 });
-
-      // Process geometry with streaming for progressive rendering
-      // Quality: Fast for speed, Balanced for quality, High for best quality
+      // Initialize geometry processor first (WASM init is fast if already loaded)
       const geometryProcessor = new GeometryProcessor({
         useWorkers: false,
-        quality: GeometryQuality.Balanced // Can be GeometryQuality.Fast, Balanced, or High
+        quality: GeometryQuality.Balanced
       });
       await geometryProcessor.init();
 
-      // Pass entity index for priority-based loading
-      const entityIndexMap = new Map<number, any>();
-      if (dataStore.entityIndex?.byId) {
-        for (const [id, ref] of dataStore.entityIndex.byId) {
-          entityIndexMap.set(id, { type: ref.type });
-        }
-      }
+      // Start data model parsing in PARALLEL (non-blocking)
+      // This parses entities, properties, relationships for the UI panels
+      const parser = new IfcParser();
+      const dataStorePromise = parser.parseColumnar(buffer, {
+        onProgress: (prog) => {
+          // Update progress in background - don't block geometry
+          console.log(`[useIfc] Data model: ${prog.phase} ${prog.percent.toFixed(0)}%`);
+        },
+      });
+
+      // Handle data model completion in background
+      dataStorePromise.then(dataStore => {
+        console.log('[useIfc] Data model parsing complete - enabling property panel');
+        setIfcDataStore(dataStore);
+      }).catch(err => {
+        console.error('[useIfc] Data model parsing failed:', err);
+      });
 
       // Use adaptive processing: sync for small files, streaming for large files
       let estimatedTotal = 0;
@@ -435,13 +447,12 @@ export function useIfc() {
       let totalProcessTime = 0; // Time processing batches in JS
 
       try {
-        console.log(`[useIfc] Starting adaptive processing (file size: ${fileSizeMB.toFixed(2)}MB)...`);
+        console.log(`[useIfc] Starting geometry streaming IMMEDIATELY (file size: ${fileSizeMB.toFixed(2)}MB)...`);
         console.time('[useIfc] total-processing');
 
         for await (const event of geometryProcessor.processAdaptive(new Uint8Array(buffer), {
           sizeThreshold: 2 * 1024 * 1024, // 2MB threshold
           batchSize: 25,
-          entityIndex: entityIndexMap,
         })) {
           const eventReceived = performance.now();
           const waitTime = eventReceived - lastBatchTime;
@@ -491,7 +502,7 @@ export function useIfc() {
             }
             case 'complete':
               console.log(
-                `[useIfc] Processing complete: ${batchCount} batches, ${event.totalMeshes} meshes\n` +
+                `[useIfc] Geometry streaming complete: ${batchCount} batches, ${event.totalMeshes} meshes\n` +
                 `  Total wait (WASM): ${totalWaitTime.toFixed(0)}ms\n` +
                 `  Total process (JS): ${totalProcessTime.toFixed(0)}ms\n` +
                 `  First batch at: ${batchCount > 0 ? '(see Batch #1 above)' : 'N/A'}`
@@ -503,34 +514,44 @@ export function useIfc() {
               // Update geometry result with final coordinate info
               updateCoordinateInfo(event.coordinateInfo);
 
-              // Build spatial index from meshes
-              if (allMeshes.length > 0) {
-                setProgress({ phase: 'Building spatial index', percent: 95 });
-                console.time('[useIfc] spatial-index');
-                try {
-                  const spatialIndex = buildSpatialIndex(allMeshes);
-                  (dataStore as any).spatialIndex = spatialIndex;
-                  setIfcDataStore(dataStore);
-                  console.timeEnd('[useIfc] spatial-index');
-                } catch (err) {
-                  console.timeEnd('[useIfc] spatial-index');
-                  console.warn('[useIfc] Failed to build spatial index:', err);
-                }
-              }
-
               setProgress({ phase: 'Complete', percent: 100 });
 
-              // Cache the result in the background (for files above threshold)
-              if (buffer.byteLength >= CACHE_SIZE_THRESHOLD && allMeshes.length > 0 && finalCoordinateInfo) {
-                // Don't await - let it run in background
-                const geometryData: GeometryData = {
-                  meshes: allMeshes,
-                  totalVertices: allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0),
-                  totalTriangles: allMeshes.reduce((sum, m) => sum + m.indices.length / 3, 0),
-                  coordinateInfo: finalCoordinateInfo,
-                };
-                saveToCache(cacheKey, dataStore, geometryData, buffer, file.name);
-              }
+              // Build spatial index and cache in background (non-blocking)
+              // Wait for data model to complete first
+              dataStorePromise.then(dataStore => {
+                // Build spatial index from meshes (in background)
+                if (allMeshes.length > 0) {
+                  const buildIndex = () => {
+                    console.time('[useIfc] spatial-index-background');
+                    try {
+                      const spatialIndex = buildSpatialIndex(allMeshes);
+                      (dataStore as any).spatialIndex = spatialIndex;
+                      setIfcDataStore({ ...dataStore });
+                      console.timeEnd('[useIfc] spatial-index-background');
+                    } catch (err) {
+                      console.warn('[useIfc] Failed to build spatial index:', err);
+                    }
+                  };
+
+                  // Use requestIdleCallback if available
+                  if ('requestIdleCallback' in window) {
+                    (window as any).requestIdleCallback(buildIndex, { timeout: 2000 });
+                  } else {
+                    setTimeout(buildIndex, 100);
+                  }
+                }
+
+                // Cache the result in the background (for files above threshold)
+                if (buffer.byteLength >= CACHE_SIZE_THRESHOLD && allMeshes.length > 0 && finalCoordinateInfo) {
+                  const geometryData: GeometryData = {
+                    meshes: allMeshes,
+                    totalVertices: allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0),
+                    totalTriangles: allMeshes.reduce((sum, m) => sum + m.indices.length / 3, 0),
+                    coordinateInfo: finalCoordinateInfo,
+                  };
+                  saveToCache(cacheKey, dataStore, geometryData, buffer, file.name);
+                }
+              });
               break;
           }
 
