@@ -432,9 +432,6 @@ export class Renderer {
         const device = this.device.getDevice();
         const viewProj = this.camera.getViewProjMatrix().m;
 
-        // Ensure all meshes have GPU resources (in case they were added before pipeline was ready)
-        this.ensureMeshResources();
-
         let meshes = this.scene.getMeshes();
         
         // Check if visibility filtering is active
@@ -443,9 +440,9 @@ export class Renderer {
         const hasVisibilityFiltering = hasHiddenFilter || hasIsolatedFilter;
         
         // When using batched rendering with visibility filtering, we need individual meshes
-        // Create them lazily from stored MeshData for visible elements only
+        // Create them lazily from stored MeshData for visible elements
         const batchedMeshes = this.scene.getBatchedMeshes();
-        if (hasVisibilityFiltering && batchedMeshes.length > 0 && meshes.length === 0) {
+        if (hasVisibilityFiltering && batchedMeshes.length > 0) {
             // Collect all expressIds from batched meshes
             const allExpressIds = new Set<number>();
             for (const batch of batchedMeshes) {
@@ -464,7 +461,8 @@ export class Renderer {
                 }
             }
             
-            // Create individual meshes for visible elements only
+            // Create individual meshes for visible elements that don't have meshes yet
+            // This ensures elements that were previously hidden can be shown again
             const existingMeshIds = new Set(meshes.map(m => m.expressId));
             for (const expressId of visibleExpressIds) {
                 if (!existingMeshIds.has(expressId) && this.scene.hasMeshData(expressId)) {
@@ -476,6 +474,9 @@ export class Renderer {
             // Get updated meshes list
             meshes = this.scene.getMeshes();
         }
+
+        // Ensure all meshes have GPU resources (must be AFTER creating individual meshes above)
+        this.ensureMeshResources();
 
         // Frustum culling (if enabled and spatial index available)
         if (options.enableFrustumCulling && options.spatialIndex) {
