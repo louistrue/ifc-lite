@@ -28,13 +28,27 @@ const CACHE_SIZE_THRESHOLD = 10 * 1024 * 1024;
 
 /**
  * Rebuild spatial hierarchy from cache data (entities + relationships)
- * This is needed because the cache doesn't serialize the spatialHierarchy directly.
- * Note: Elevations are not available since we don't have the source buffer.
+ * OPTIMIZED: Uses index maps for O(1) lookups instead of O(n) linear searches
  */
 function rebuildSpatialHierarchy(
   entities: EntityTable,
   relationships: RelationshipGraph
 ): SpatialHierarchy | undefined {
+  // PRE-BUILD INDEX MAP: O(n) once, then O(1) lookups
+  // This eliminates the O(n²) nested loops from before
+  const entityTypeMap = new Map<number, IfcTypeEnum>();
+  for (let i = 0; i < entities.count; i++) {
+    entityTypeMap.set(entities.expressId[i], entities.typeEnum[i]);
+  }
+
+  const spatialTypes = new Set([
+    IfcTypeEnum.IfcProject,
+    IfcTypeEnum.IfcSite,
+    IfcTypeEnum.IfcBuilding,
+    IfcTypeEnum.IfcBuildingStorey,
+    IfcTypeEnum.IfcSpace
+  ]);
+
   const byStorey = new Map<number, number[]>();
   const byBuilding = new Map<number, number[]>();
   const bySite = new Map<number, number[]>();
@@ -50,18 +64,10 @@ function rebuildSpatialHierarchy(
   }
   const projectId = projectIds[0];
 
-  // Build node tree recursively
+  // Build node tree recursively - NOW O(1) lookups!
   function buildNode(expressId: number): SpatialNode {
-    let typeEnum = IfcTypeEnum.Unknown;
-
-    // Find type for this entity
-    for (let i = 0; i < entities.count; i++) {
-      if (entities.expressId[i] === expressId) {
-        typeEnum = entities.typeEnum[i];
-        break;
-      }
-    }
-
+    // O(1) lookup instead of O(n) linear search
+    const typeEnum = entityTypeMap.get(expressId) ?? IfcTypeEnum.Unknown;
     const name = entities.getName(expressId) || `Entity #${expressId}`;
 
     // Get contained elements via IfcRelContainedInSpatialStructure
@@ -71,26 +77,10 @@ function rebuildSpatialHierarchy(
       'forward'
     );
 
-    // Filter out spatial structure elements (storeys, buildings, etc.)
-    // These should only contain actual building elements like walls, doors, etc.
+    // Filter out spatial structure elements - O(1) per element now!
     const containedElements = rawContainedElements.filter(id => {
-      for (let i = 0; i < entities.count; i++) {
-        if (entities.expressId[i] === id) {
-          const elemType = entities.typeEnum[i];
-          // Exclude spatial structure types - they shouldn't be "contained elements"
-          if (
-            elemType === IfcTypeEnum.IfcProject ||
-            elemType === IfcTypeEnum.IfcSite ||
-            elemType === IfcTypeEnum.IfcBuilding ||
-            elemType === IfcTypeEnum.IfcBuildingStorey ||
-            elemType === IfcTypeEnum.IfcSpace
-          ) {
-            return false;
-          }
-          return true;
-        }
-      }
-      return true; // Keep if not found (shouldn't happen)
+      const elemType = entityTypeMap.get(id);
+      return elemType !== undefined && !spatialTypes.has(elemType);
     });
 
     // Get aggregated children via IfcRelAggregates
@@ -100,23 +90,11 @@ function rebuildSpatialHierarchy(
       'forward'
     );
 
-    // Filter to spatial structure types and recurse
+    // Filter to spatial structure types and recurse - O(1) per child now!
     const childNodes: SpatialNode[] = [];
     for (const childId of aggregatedChildren) {
-      let childType = IfcTypeEnum.Unknown;
-      for (let i = 0; i < entities.count; i++) {
-        if (entities.expressId[i] === childId) {
-          childType = entities.typeEnum[i];
-          break;
-        }
-      }
-
-      if (
-        childType === IfcTypeEnum.IfcSite ||
-        childType === IfcTypeEnum.IfcBuilding ||
-        childType === IfcTypeEnum.IfcBuildingStorey ||
-        childType === IfcTypeEnum.IfcSpace
-      ) {
+      const childType = entityTypeMap.get(childId);
+      if (childType && spatialTypes.has(childType) && childType !== IfcTypeEnum.IfcProject) {
         childNodes.push(buildNode(childId));
       }
     }
@@ -150,6 +128,14 @@ function rebuildSpatialHierarchy(
     }
   }
 
+  // Pre-build space lookup for O(1) getContainingSpace
+  const elementToSpace = new Map<number, number>();
+  for (const [spaceId, elementIds] of bySpace) {
+    for (const elementId of elementIds) {
+      elementToSpace.set(elementId, spaceId);
+    }
+  }
+
   return {
     project: projectNode,
     byStorey,
@@ -164,17 +150,11 @@ function rebuildSpatialHierarchy(
     },
 
     getStoreyByElevation(): number | null {
-      // Not available without source buffer
       return null;
     },
 
     getContainingSpace(elementId: number): number | null {
-      for (const [spaceId, elementIds] of bySpace) {
-        if (elementIds.includes(elementId)) {
-          return spaceId;
-        }
-      }
-      return null;
+      return elementToSpace.get(elementId) ?? null;
     },
 
     getPath(elementId: number): SpatialNode[] {

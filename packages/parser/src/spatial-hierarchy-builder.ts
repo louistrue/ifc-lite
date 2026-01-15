@@ -29,6 +29,13 @@ export class SpatialHierarchyBuilder {
     const storeyElevations = new Map<number, number>();
     const elementToStorey = new Map<number, number>();
 
+    // PRE-BUILD INDEX MAP: O(n) once, then O(1) lookups
+    // This eliminates O(n²) when getTypeEnum is called for every spatial node
+    const entityTypeMap = new Map<number, IfcTypeEnum>();
+    for (let i = 0; i < entities.count; i++) {
+      entityTypeMap.set(entities.expressId[i], entities.typeEnum[i]);
+    }
+
     // Find IfcProject (should be only one)
     const projectIds = entities.getByType(IfcTypeEnum.IfcProject);
     if (projectIds.length === 0) {
@@ -50,7 +57,8 @@ export class SpatialHierarchyBuilder {
       bySite,
       bySpace,
       storeyElevations,
-      elementToStorey
+      elementToStorey,
+      entityTypeMap
     );
 
     // Build reverse lookup map: elementId -> storeyId
@@ -155,9 +163,10 @@ export class SpatialHierarchyBuilder {
     bySite: Map<number, number[]>,
     bySpace: Map<number, number[]>,
     storeyElevations: Map<number, number>,
-    elementToStorey: Map<number, number>
+    elementToStorey: Map<number, number>,
+    entityTypeMap: Map<number, IfcTypeEnum>
   ): SpatialNode {
-    const typeEnum = this.getTypeEnum(expressId, entities);
+    const typeEnum = entityTypeMap.get(expressId) ?? IfcTypeEnum.Unknown;
     const name = entities.getName(expressId);
 
     // Extract elevation for storeys
@@ -187,7 +196,7 @@ export class SpatialHierarchyBuilder {
     // Filter to only spatial structure types
     const childNodes: SpatialNode[] = [];
     for (const childId of aggregatedChildren) {
-      const childType = this.getTypeEnum(childId, entities);
+      const childType = entityTypeMap.get(childId) ?? IfcTypeEnum.Unknown;
       if (
         childType === IfcTypeEnum.IfcSite ||
         childType === IfcTypeEnum.IfcBuilding ||
@@ -206,7 +215,8 @@ export class SpatialHierarchyBuilder {
           bySite,
           bySpace,
           storeyElevations,
-          elementToStorey
+          elementToStorey,
+          entityTypeMap
         );
         childNodes.push(childNode);
       }
@@ -231,16 +241,6 @@ export class SpatialHierarchyBuilder {
       children: childNodes,
       elements: containedElements,
     };
-  }
-
-  private getTypeEnum(expressId: number, entities: EntityTable): IfcTypeEnum {
-    // Linear search through expressId array
-    for (let i = 0; i < entities.count; i++) {
-      if (entities.expressId[i] === expressId) {
-        return entities.typeEnum[i];
-      }
-    }
-    return IfcTypeEnum.Unknown;
   }
 
   /**

@@ -88,11 +88,15 @@ export function readEntities(reader: BufferReader, strings: StringTable): Entity
   // Build EntityTable with methods
   const HAS_GEOMETRY = 0b00000001;
 
+  // PRE-BUILD INDEX MAP: O(n) once, then O(1) lookups
+  // This eliminates O(n²) when getName/hasGeometry are called for every entity
+  const idToIndex = new Map<number, number>();
+  for (let i = 0; i < count; i++) {
+    idToIndex.set(expressId[i], i);
+  }
+
   const indexOfId = (id: number): number => {
-    for (let i = 0; i < expressId.length; i++) {
-      if (expressId[i] === id) return i;
-    }
-    return -1;
+    return idToIndex.get(id) ?? -1;
   };
 
   return {
