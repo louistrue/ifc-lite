@@ -223,10 +223,8 @@ export function useIfc() {
   const lastLoggedDataStoreRef = useRef<typeof ifcDataStore>(null);
 
   /**
-   * Load from binary cache with STREAMING for progressive rendering
-   * Key optimizations:
-   * 1. Stream geometry in batches for fast first frame (same as fresh load)
-   * 2. Build spatial index in requestIdleCallback (non-blocking)
+   * Load from binary cache - INSTANT load for maximum speed
+   * Large cached models load all geometry at once for fastest total time
    */
   const loadFromCache = useCallback(async (
     cacheBuffer: ArrayBuffer,
@@ -236,8 +234,7 @@ export function useIfc() {
       console.time('[useIfc] cache-load');
       setProgress({ phase: 'Loading from cache', percent: 10 });
 
-      // IMPORTANT: Reset geometry first so Viewport detects this as a new file
-      // This ensures camera fitting and bounds are properly reset
+      // Reset geometry first so Viewport detects this as a new file
       setGeometryResult(null);
 
       const reader = new BinaryCacheReader();
@@ -256,72 +253,48 @@ export function useIfc() {
         console.timeEnd('[useIfc] rebuild-spatial-hierarchy');
       }
 
-      // Set data store first (enables property panel)
-      setIfcDataStore(dataStore);
-
       if (result.geometry) {
-        const { meshes, coordinateInfo } = result.geometry;
+        const { meshes, coordinateInfo, totalVertices, totalTriangles } = result.geometry;
 
-        // STREAMING: Send geometry in batches for progressive rendering
-        // This prevents UI freeze on large cached models
-        const BATCH_SIZE = 50; // Larger batches since cache is already fast
-        const totalBatches = Math.ceil(meshes.length / BATCH_SIZE);
+        // INSTANT: Set ALL geometry in ONE call - fastest for cached models
+        setGeometryResult({
+          meshes,
+          totalVertices,
+          totalTriangles,
+          coordinateInfo,
+        });
 
-        console.log(`[useIfc] Streaming ${meshes.length} cached meshes in ${totalBatches} batches...`);
-
-        for (let i = 0; i < meshes.length; i += BATCH_SIZE) {
-          const batch = meshes.slice(i, i + BATCH_SIZE);
-          const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-
-          // Append batch (triggers React re-render with new geometry)
-          appendGeometryBatch(batch, coordinateInfo);
-
-          // Update progress
-          const progressPercent = 10 + (batchNum / totalBatches) * 85;
-          setProgress({
-            phase: `Loading from cache (${i + batch.length}/${meshes.length})`,
-            percent: progressPercent
-          });
-
-          // Yield to main thread every few batches for smooth UI
-          if (batchNum % 3 === 0) {
-            await new Promise(resolve => setTimeout(resolve, 0));
-          }
-        }
+        // Set data store
+        setIfcDataStore(dataStore);
 
         // Build spatial index in background (non-blocking)
         if (meshes.length > 0) {
-          const buildIndex = () => {
-            console.time('[useIfc] spatial-index-background');
-            try {
-              const spatialIndex = buildSpatialIndex(meshes);
-              dataStore.spatialIndex = spatialIndex;
-              setIfcDataStore({ ...dataStore });
-              console.timeEnd('[useIfc] spatial-index-background');
-            } catch (err) {
-              console.warn('[useIfc] Failed to build spatial index:', err);
-            }
-          };
-
-          // Schedule for idle time
           if ('requestIdleCallback' in window) {
-            (window as any).requestIdleCallback(buildIndex, { timeout: 2000 });
-          } else {
-            setTimeout(buildIndex, 100);
+            (window as any).requestIdleCallback(() => {
+              try {
+                const spatialIndex = buildSpatialIndex(meshes);
+                dataStore.spatialIndex = spatialIndex;
+                setIfcDataStore({ ...dataStore });
+              } catch (err) {
+                console.warn('[useIfc] Failed to build spatial index:', err);
+              }
+            }, { timeout: 2000 });
           }
         }
+      } else {
+        setIfcDataStore(dataStore);
       }
 
       setProgress({ phase: 'Complete (from cache)', percent: 100 });
       console.timeEnd('[useIfc] cache-load');
-      console.log(`[useIfc] Streamed ${result.geometry?.meshes.length || 0} meshes from cache: ${fileName}`);
+      console.log(`[useIfc] INSTANT cache load: ${fileName} (${result.geometry?.meshes.length || 0} meshes)`);
 
       return true;
     } catch (err) {
       console.error('[useIfc] Failed to load from cache:', err);
       return false;
     }
-  }, [setProgress, setIfcDataStore, setGeometryResult, appendGeometryBatch]);
+  }, [setProgress, setIfcDataStore, setGeometryResult]);
 
   /**
    * Save to binary cache (background operation)
@@ -467,13 +440,19 @@ export function useIfc() {
       let totalWaitTime = 0; // Time waiting for WASM to yield batches
       let totalProcessTime = 0; // Time processing batches in JS
 
+      // OPTIMIZATION: Accumulate meshes and batch state updates
+      // First batch renders immediately, then accumulate for throughput
+      let pendingMeshes: MeshData[] = [];
+      let lastRenderTime = 0;
+      const RENDER_INTERVAL_MS = 50; // Max 20 state updates per second after first batch
+
       try {
         console.log(`[useIfc] Starting geometry streaming IMMEDIATELY (file size: ${fileSizeMB.toFixed(2)}MB)...`);
         console.time('[useIfc] total-processing');
 
         for await (const event of geometryProcessor.processAdaptive(new Uint8Array(buffer), {
           sizeThreshold: 2 * 1024 * 1024, // 2MB threshold
-          batchSize: 25,
+          batchSize: 50, // Larger batches for better throughput
         })) {
           const eventReceived = performance.now();
           const waitTime = eventReceived - lastBatchTime;
@@ -496,23 +475,34 @@ export function useIfc() {
               // Collect meshes for BVH building
               allMeshes.push(...event.meshes);
               finalCoordinateInfo = event.coordinateInfo;
-
-              // Append mesh batch to store (triggers React re-render)
-              appendGeometryBatch(event.meshes, event.coordinateInfo);
               totalMeshes = event.totalSoFar;
 
-              // Update progress (50-95% for geometry processing)
-              const progressPercent = 50 + Math.min(45, (totalMeshes / Math.max(estimatedTotal / 10, totalMeshes)) * 45);
-              setProgress({
-                phase: `Rendering geometry (${totalMeshes} meshes)`,
-                percent: progressPercent
-              });
+              // Accumulate meshes for batched rendering
+              pendingMeshes.push(...event.meshes);
+
+              // FIRST BATCH: Render immediately for fast first frame
+              // SUBSEQUENT: Throttle to reduce React re-renders
+              const timeSinceLastRender = eventReceived - lastRenderTime;
+              const shouldRender = batchCount === 1 || timeSinceLastRender >= RENDER_INTERVAL_MS;
+
+              if (shouldRender && pendingMeshes.length > 0) {
+                appendGeometryBatch(pendingMeshes, event.coordinateInfo);
+                pendingMeshes = [];
+                lastRenderTime = eventReceived;
+
+                // Update progress
+                const progressPercent = 50 + Math.min(45, (totalMeshes / Math.max(estimatedTotal / 10, totalMeshes)) * 45);
+                setProgress({
+                  phase: `Rendering geometry (${totalMeshes} meshes)`,
+                  percent: progressPercent
+                });
+              }
 
               const processTime = performance.now() - processStart;
               totalProcessTime += processTime;
 
-              // Log batch timing (first 5, then every 10th)
-              if (batchCount <= 5 || batchCount % 10 === 0) {
+              // Log batch timing (first 5, then every 20th)
+              if (batchCount <= 5 || batchCount % 20 === 0) {
                 console.log(
                   `[useIfc] Batch #${batchCount}: ${event.meshes.length} meshes, ` +
                   `wait: ${waitTime.toFixed(0)}ms, process: ${processTime.toFixed(0)}ms, ` +
@@ -522,6 +512,12 @@ export function useIfc() {
               break;
             }
             case 'complete':
+              // Flush any remaining pending meshes
+              if (pendingMeshes.length > 0) {
+                appendGeometryBatch(pendingMeshes, event.coordinateInfo);
+                pendingMeshes = [];
+              }
+
               console.log(
                 `[useIfc] Geometry streaming complete: ${batchCount} batches, ${event.totalMeshes} meshes\n` +
                 `  Total wait (WASM): ${totalWaitTime.toFixed(0)}ms\n` +
