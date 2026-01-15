@@ -200,9 +200,14 @@ export class GeometryProcessor {
     // Reset coordinate handler for new file
     this.coordinateHandler.reset();
 
+    // Yield start event FIRST so UI can update before heavy processing
     yield { type: 'start', totalEstimate: buffer.length / 1000 };
 
+    // Yield to main thread before heavy decode operation
+    await new Promise(resolve => setTimeout(resolve, 0));
+
     // Convert buffer to string (IFC files are text)
+    // This is blocking but unavoidable - WASM API expects string
     const decoder = new TextDecoder();
     const content = decoder.decode(buffer);
 
