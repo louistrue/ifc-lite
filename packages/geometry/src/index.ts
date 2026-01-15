@@ -26,6 +26,19 @@ export {
 export * from './types.js';
 export * from './default-materials.js';
 
+// Zero-copy GPU upload (new - faster, less memory)
+export { WasmMemoryManager, type GpuGeometryHandle, type GpuMeshMetadataHandle, type GpuInstancedGeometryHandle, type GpuInstancedGeometryCollectionHandle, type GpuInstancedGeometryRefHandle } from './wasm-memory-manager.js';
+export {
+  ZeroCopyMeshCollector,
+  ZeroCopyInstancedCollector,
+  type ZeroCopyStreamingProgress,
+  type ZeroCopyBatchResult,
+  type ZeroCopyCompleteStats,
+  type ZeroCopyMeshMetadata,
+  type ZeroCopyBatch,
+  type ZeroCopyInstancedBatch,
+} from './zero-copy-collector.js';
+
 // Legacy exports for compatibility (deprecated)
 export { IfcLiteBridge as WebIfcBridge } from './ifc-lite-bridge.js';
 

@@ -15,6 +15,18 @@ export { MathUtils } from './math.js';
 export { SectionPlaneRenderer } from './section-plane.js';
 export * from './types.js';
 
+// Zero-copy GPU upload (new - faster, less memory)
+export {
+  ZeroCopyGpuUploader,
+  createZeroCopyUploader,
+  type WasmMemoryHandle,
+  type GpuGeometryData,
+  type GpuInstancedGeometryData,
+  type ZeroCopyMeshMetadata,
+  type ZeroCopyUploadResult,
+  type ZeroCopyInstancedUploadResult,
+} from './zero-copy-uploader.js';
+
 import { WebGPUDevice } from './device.js';
 import { RenderPipeline, InstancedRenderPipeline } from './pipeline.js';
 import { Camera } from './camera.js';
