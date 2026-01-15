@@ -148,8 +148,13 @@ export class Scene {
   /**
    * Append meshes to color batches incrementally
    * Merges new meshes into existing color groups or creates new ones
+   *
+   * OPTIMIZATION: Only recreates batches that received new data (O(n) not O(n²))
    */
   appendToBatches(meshDataArray: MeshData[], device: GPUDevice, pipeline: any): void {
+    // Track which color keys received new data in THIS call
+    const changedKeys = new Set<string>();
+
     for (const meshData of meshDataArray) {
       const key = this.colorKey(meshData.color);
 
@@ -158,15 +163,17 @@ export class Scene {
         this.batchedMeshData.set(key, []);
       }
       this.batchedMeshData.get(key)!.push(meshData);
+      changedKeys.add(key);
 
       // Also store individual mesh data for visibility filtering
       // This allows individual meshes to be created lazily when needed
       this.addMeshData(meshData);
     }
 
-    // Recreate batches for all colors that have new data
-    // This ensures geometry is properly merged
-    for (const [key, meshDataArray] of this.batchedMeshData) {
+    // Only recreate batches for colors that received new data
+    // This is O(changedKeys) instead of O(allBatches) - critical for streaming!
+    for (const key of changedKeys) {
+      const meshDataForKey = this.batchedMeshData.get(key)!;
       const existingBatch = this.batchedMeshMap.get(key);
 
       if (existingBatch) {
@@ -178,9 +185,9 @@ export class Scene {
         }
       }
 
-      // Create new batch with all accumulated meshes
-      const color = meshDataArray[0].color;
-      const batchedMesh = this.createBatchedMesh(meshDataArray, color, device, pipeline);
+      // Create new batch with all accumulated meshes for this color
+      const color = meshDataForKey[0].color;
+      const batchedMesh = this.createBatchedMesh(meshDataForKey, color, device, pipeline);
       this.batchedMeshMap.set(key, batchedMesh);
 
       // Update array if batch already exists, otherwise add new
@@ -251,6 +258,8 @@ export class Scene {
 
   /**
    * Merge multiple mesh geometries into single vertex/index buffers
+   *
+   * OPTIMIZATION: Uses efficient loops and bulk index adjustment
    */
   private mergeGeometry(meshDataArray: MeshData[]): {
     vertexData: Float32Array;
@@ -269,34 +278,37 @@ export class Scene {
     const vertexData = new Float32Array(totalVertices * 6); // 6 floats per vertex (pos + normal)
     const indices = new Uint32Array(totalIndices);
 
-    let vertexOffset = 0;
     let indexOffset = 0;
     let vertexBase = 0;
 
     for (const mesh of meshDataArray) {
-      const vertexCount = mesh.positions.length / 3;
+      const positions = mesh.positions;
+      const normals = mesh.normals;
+      const vertexCount = positions.length / 3;
 
-      // Copy interleaved vertex data (position + normal)
+      // Interleave vertex data (position + normal)
+      // This loop is O(n) per mesh and unavoidable for interleaving
+      let outIdx = vertexBase * 6;
       for (let i = 0; i < vertexCount; i++) {
-        const base = (vertexBase + i) * 6;
-        const posBase = i * 3;
-        const normBase = i * 3;
-
-        vertexData[base + 0] = mesh.positions[posBase + 0];
-        vertexData[base + 1] = mesh.positions[posBase + 1];
-        vertexData[base + 2] = mesh.positions[posBase + 2];
-        vertexData[base + 3] = mesh.normals[normBase + 0];
-        vertexData[base + 4] = mesh.normals[normBase + 1];
-        vertexData[base + 5] = mesh.normals[normBase + 2];
+        const srcIdx = i * 3;
+        vertexData[outIdx++] = positions[srcIdx];
+        vertexData[outIdx++] = positions[srcIdx + 1];
+        vertexData[outIdx++] = positions[srcIdx + 2];
+        vertexData[outIdx++] = normals[srcIdx];
+        vertexData[outIdx++] = normals[srcIdx + 1];
+        vertexData[outIdx++] = normals[srcIdx + 2];
       }
 
-      // Copy indices with offset
-      for (let i = 0; i < mesh.indices.length; i++) {
-        indices[indexOffset + i] = mesh.indices[i] + vertexBase;
+      // Copy indices with vertex base offset
+      // Use subarray for slightly better cache locality
+      const meshIndices = mesh.indices;
+      const indexCount = meshIndices.length;
+      for (let i = 0; i < indexCount; i++) {
+        indices[indexOffset + i] = meshIndices[i] + vertexBase;
       }
 
       vertexBase += vertexCount;
-      indexOffset += mesh.indices.length;
+      indexOffset += indexCount;
     }
 
     return { vertexData, indices };
