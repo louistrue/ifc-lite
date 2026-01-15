@@ -17,7 +17,6 @@ import { buildSpatialIndex } from '@ifc-lite/spatial';
 import {
   BinaryCacheWriter,
   BinaryCacheReader,
-  xxhash64Hex,
   type IfcDataStore as CacheDataStore,
   type GeometryData,
 } from '@ifc-lite/cache';
@@ -355,37 +354,12 @@ export function useIfc() {
       const fileSizeMB = buffer.byteLength / (1024 * 1024);
       console.log(`[useIfc] File: ${file.name}, size: ${fileSizeMB.toFixed(2)}MB`);
 
-      // For large files: Check cache QUICKLY using a partial hash or skip cache on first load
-      // For small files: Full hash is fast enough
-      let cacheKey: string | null = null;
+      // INSTANT cache lookup: Use filename + size as key (no hashing!)
+      // Same filename + same size = same file (fast and reliable enough)
+      const cacheKey = `${file.name}-${buffer.byteLength}`;
 
       if (buffer.byteLength >= CACHE_SIZE_THRESHOLD) {
-        // Try quick cache lookup first - compute hash only if we might have a cache hit
-        // Use first 1MB + last 1MB + file size as quick fingerprint
         setProgress({ phase: 'Checking cache', percent: 5 });
-        const quickKey = `${file.name}-${buffer.byteLength}`;
-        const cachedBuffer = await getCached(quickKey);
-
-        if (cachedBuffer) {
-          // Found potential cache hit - verify with full hash
-          console.time('[useIfc] full-hash');
-          cacheKey = xxhash64Hex(buffer);
-          console.timeEnd('[useIfc] full-hash');
-
-          const verifiedCache = await getCached(cacheKey);
-          if (verifiedCache) {
-            const success = await loadFromCache(verifiedCache, file.name);
-            if (success) {
-              setLoading(false);
-              return;
-            }
-          }
-          console.log('[useIfc] Cache verification failed, falling back to parsing');
-        }
-        // No cache hit - compute hash in background while streaming
-      } else {
-        // Small files - hash is fast
-        cacheKey = xxhash64Hex(buffer);
         const cachedBuffer = await getCached(cacheKey);
         if (cachedBuffer) {
           const success = await loadFromCache(cachedBuffer, file.name);
@@ -452,7 +426,7 @@ export function useIfc() {
 
         for await (const event of geometryProcessor.processAdaptive(new Uint8Array(buffer), {
           sizeThreshold: 2 * 1024 * 1024, // 2MB threshold
-          batchSize: 50, // Larger batches for better throughput
+          batchSize: 100, // Large batches for maximum throughput
         })) {
           const eventReceived = performance.now();
           const waitTime = eventReceived - lastBatchTime;
@@ -560,15 +534,13 @@ export function useIfc() {
 
                 // Cache the result in the background (for files above threshold)
                 if (buffer.byteLength >= CACHE_SIZE_THRESHOLD && allMeshes.length > 0 && finalCoordinateInfo) {
-                  // Compute hash now if not already done (deferred to avoid blocking geometry)
-                  const finalCacheKey = cacheKey || xxhash64Hex(buffer);
                   const geometryData: GeometryData = {
                     meshes: allMeshes,
                     totalVertices: allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0),
                     totalTriangles: allMeshes.reduce((sum, m) => sum + m.indices.length / 3, 0),
                     coordinateInfo: finalCoordinateInfo,
                   };
-                  saveToCache(finalCacheKey, dataStore, geometryData, buffer, file.name);
+                  saveToCache(cacheKey, dataStore, geometryData, buffer, file.name);
                 }
               });
               break;
