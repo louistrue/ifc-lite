@@ -13,6 +13,7 @@
 
 use crate::bool2d::{ensure_ccw, is_valid_contour};
 use crate::mesh::Mesh;
+use crate::profile::VoidInfo;
 use nalgebra::{Matrix4, Point2, Point3, Vector3};
 use rustc_hash::FxHashMap;
 
@@ -46,19 +47,6 @@ pub enum VoidClassification {
     },
     /// Void doesn't intersect the host geometry - can be skipped
     NonIntersecting,
-}
-
-/// Void metadata for depth-aware extrusion
-#[derive(Debug, Clone)]
-pub struct VoidInfo {
-    /// Hole contour in 2D profile space (clockwise winding for holes)
-    pub contour: Vec<Point2<f64>>,
-    /// Start depth in extrusion space (0.0 = bottom cap)
-    pub depth_start: f64,
-    /// End depth in extrusion space
-    pub depth_end: f64,
-    /// Whether void extends full depth
-    pub is_through: bool,
 }
 
 /// Analyzer for void geometry classification
@@ -369,7 +357,7 @@ impl VoidAnalyzer {
         sorted.sort_by(|a, b| {
             let angle_a = (a.y - start.y).atan2(a.x - start.x);
             let angle_b = (b.y - start.y).atan2(b.x - start.x);
-            angle_a.partial_cmp(&angle_b).unwrap()
+            angle_a.total_cmp(&angle_b)
         });
 
         // Graham scan

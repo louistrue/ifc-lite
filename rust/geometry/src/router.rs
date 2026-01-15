@@ -700,8 +700,8 @@ impl GeometryRouter {
         }
 
         // Classify voids
+        // Use unscaled depth since void_meshes are in file units (not yet scaled)
         let analyzer = VoidAnalyzer::new();
-        let scaled_depth = depth * self.unit_scale;
 
         let classifications: Vec<VoidClassification> = void_meshes
             .iter()
@@ -710,7 +710,7 @@ impl GeometryRouter {
                     mesh,
                     &combined_transform,
                     &extrusion_direction.normalize(),
-                    scaled_depth,
+                    depth,
                 )
             })
             .collect();

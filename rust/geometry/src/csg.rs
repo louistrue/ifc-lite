@@ -645,8 +645,8 @@ impl ClippingProcessor {
 
     /// Union multiple meshes together
     ///
-    /// More efficient than calling union_mesh repeatedly as it can
-    /// batch the operations.
+    /// Convenience method that sequentially unions all non-empty meshes.
+    /// Skips empty meshes to avoid unnecessary CSG operations.
     pub fn union_meshes(&self, meshes: &[Mesh]) -> Result<Mesh> {
         if meshes.is_empty() {
             return Ok(Mesh::new());
