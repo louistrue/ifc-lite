@@ -22,9 +22,164 @@ import {
   type GeometryData,
 } from '@ifc-lite/cache';
 import { getCached, setCached } from '../services/ifc-cache.js';
+import { IfcTypeEnum, RelationshipType, type SpatialHierarchy, type SpatialNode, type EntityTable, type RelationshipGraph } from '@ifc-lite/data';
 
 // Minimum file size to cache (10MB) - smaller files parse quickly anyway
 const CACHE_SIZE_THRESHOLD = 10 * 1024 * 1024;
+
+/**
+ * Rebuild spatial hierarchy from cache data (entities + relationships)
+ * This is needed because the cache doesn't serialize the spatialHierarchy directly.
+ * Note: Elevations are not available since we don't have the source buffer.
+ */
+function rebuildSpatialHierarchy(
+  entities: EntityTable,
+  relationships: RelationshipGraph
+): SpatialHierarchy | undefined {
+  const byStorey = new Map<number, number[]>();
+  const byBuilding = new Map<number, number[]>();
+  const bySite = new Map<number, number[]>();
+  const bySpace = new Map<number, number[]>();
+  const storeyElevations = new Map<number, number>();
+  const elementToStorey = new Map<number, number>();
+
+  // Find IfcProject
+  const projectIds = entities.getByType(IfcTypeEnum.IfcProject);
+  if (projectIds.length === 0) {
+    console.warn('[rebuildSpatialHierarchy] No IfcProject found');
+    return undefined;
+  }
+  const projectId = projectIds[0];
+
+  // Build node tree recursively
+  function buildNode(expressId: number): SpatialNode {
+    let typeEnum = IfcTypeEnum.Unknown;
+
+    // Find type for this entity
+    for (let i = 0; i < entities.count; i++) {
+      if (entities.expressId[i] === expressId) {
+        typeEnum = entities.typeEnum[i];
+        break;
+      }
+    }
+
+    const name = entities.getName(expressId) || `Entity #${expressId}`;
+
+    // Get contained elements via IfcRelContainedInSpatialStructure
+    const containedElements = relationships.getRelated(
+      expressId,
+      RelationshipType.ContainsElements,
+      'forward'
+    );
+
+    // Get aggregated children via IfcRelAggregates
+    const aggregatedChildren = relationships.getRelated(
+      expressId,
+      RelationshipType.Aggregates,
+      'forward'
+    );
+
+    // Filter to spatial structure types and recurse
+    const childNodes: SpatialNode[] = [];
+    for (const childId of aggregatedChildren) {
+      let childType = IfcTypeEnum.Unknown;
+      for (let i = 0; i < entities.count; i++) {
+        if (entities.expressId[i] === childId) {
+          childType = entities.typeEnum[i];
+          break;
+        }
+      }
+
+      if (
+        childType === IfcTypeEnum.IfcSite ||
+        childType === IfcTypeEnum.IfcBuilding ||
+        childType === IfcTypeEnum.IfcBuildingStorey ||
+        childType === IfcTypeEnum.IfcSpace
+      ) {
+        childNodes.push(buildNode(childId));
+      }
+    }
+
+    // Add elements to appropriate maps
+    if (typeEnum === IfcTypeEnum.IfcBuildingStorey) {
+      byStorey.set(expressId, containedElements);
+    } else if (typeEnum === IfcTypeEnum.IfcBuilding) {
+      byBuilding.set(expressId, containedElements);
+    } else if (typeEnum === IfcTypeEnum.IfcSite) {
+      bySite.set(expressId, containedElements);
+    } else if (typeEnum === IfcTypeEnum.IfcSpace) {
+      bySpace.set(expressId, containedElements);
+    }
+
+    return {
+      expressId,
+      type: typeEnum,
+      name,
+      children: childNodes,
+      elements: containedElements,
+    };
+  }
+
+  const projectNode = buildNode(projectId);
+
+  // Build reverse lookup map: elementId -> storeyId
+  for (const [storeyId, elementIds] of byStorey) {
+    for (const elementId of elementIds) {
+      elementToStorey.set(elementId, storeyId);
+    }
+  }
+
+  return {
+    project: projectNode,
+    byStorey,
+    byBuilding,
+    bySite,
+    bySpace,
+    storeyElevations,
+    elementToStorey,
+
+    getStoreyElements(storeyId: number): number[] {
+      return byStorey.get(storeyId) ?? [];
+    },
+
+    getStoreyByElevation(): number | null {
+      // Not available without source buffer
+      return null;
+    },
+
+    getContainingSpace(elementId: number): number | null {
+      for (const [spaceId, elementIds] of bySpace) {
+        if (elementIds.includes(elementId)) {
+          return spaceId;
+        }
+      }
+      return null;
+    },
+
+    getPath(elementId: number): SpatialNode[] {
+      const path: SpatialNode[] = [];
+      const storeyId = elementToStorey.get(elementId);
+      if (!storeyId) return path;
+
+      const findPath = (node: SpatialNode, targetId: number): boolean => {
+        path.push(node);
+        if (node.elements.includes(targetId)) {
+          return true;
+        }
+        for (const child of node.children) {
+          if (findPath(child, targetId)) {
+            return true;
+          }
+        }
+        path.pop();
+        return false;
+      };
+
+      findPath(projectNode, elementId);
+      return path;
+    },
+  };
+}
 
 export function useIfc() {
   const {
@@ -68,6 +223,16 @@ export function useIfc() {
 
       // Convert cache data store to viewer data store format
       const dataStore = result.dataStore as any;
+
+      // Rebuild spatial hierarchy from cache data (cache doesn't serialize it)
+      if (!dataStore.spatialHierarchy && dataStore.entities && dataStore.relationships) {
+        console.time('[useIfc] rebuild-spatial-hierarchy');
+        dataStore.spatialHierarchy = rebuildSpatialHierarchy(
+          dataStore.entities,
+          dataStore.relationships
+        );
+        console.timeEnd('[useIfc] rebuild-spatial-hierarchy');
+      }
 
       if (result.geometry) {
         const { meshes, coordinateInfo, totalVertices, totalTriangles } = result.geometry;
