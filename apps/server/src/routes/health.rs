@@ -15,11 +15,64 @@ pub struct HealthResponse {
     pub service: &'static str,
 }
 
+/// API information response.
+#[derive(Debug, Serialize)]
+pub struct ApiInfoResponse {
+    pub service: &'static str,
+    pub version: &'static str,
+    pub description: &'static str,
+    pub endpoints: Vec<EndpointInfo>,
+}
+
+/// Endpoint information.
+#[derive(Debug, Serialize)]
+pub struct EndpointInfo {
+    pub method: &'static str,
+    pub path: &'static str,
+    pub description: &'static str,
+}
+
 /// GET /api/v1/health - Health check endpoint.
 pub async fn check() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "healthy",
         version: env!("CARGO_PKG_VERSION"),
         service: "ifc-lite-server",
+    })
+}
+
+/// GET / - API information endpoint.
+pub async fn info() -> Json<ApiInfoResponse> {
+    Json(ApiInfoResponse {
+        service: "ifc-lite-server",
+        version: env!("CARGO_PKG_VERSION"),
+        description: "High-performance IFC processing server",
+        endpoints: vec![
+            EndpointInfo {
+                method: "GET",
+                path: "/api/v1/health",
+                description: "Health check endpoint",
+            },
+            EndpointInfo {
+                method: "POST",
+                path: "/api/v1/parse",
+                description: "Full parse with all geometry",
+            },
+            EndpointInfo {
+                method: "POST",
+                path: "/api/v1/parse/stream",
+                description: "Streaming parse (Server-Sent Events)",
+            },
+            EndpointInfo {
+                method: "POST",
+                path: "/api/v1/parse/metadata",
+                description: "Quick metadata extraction only",
+            },
+            EndpointInfo {
+                method: "GET",
+                path: "/api/v1/cache/:key",
+                description: "Retrieve cached result",
+            },
+        ],
     })
 }

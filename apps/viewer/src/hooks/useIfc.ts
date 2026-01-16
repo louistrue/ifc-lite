@@ -22,9 +22,13 @@ import {
 } from '@ifc-lite/cache';
 import { getCached, setCached } from '../services/ifc-cache.js';
 import { IfcTypeEnum, RelationshipType, type SpatialHierarchy, type SpatialNode, type EntityTable, type RelationshipGraph } from '@ifc-lite/data';
+import { IfcServerClient } from '@ifc-lite/server-client';
 
 // Minimum file size to cache (10MB) - smaller files parse quickly anyway
 const CACHE_SIZE_THRESHOLD = 10 * 1024 * 1024;
+
+// Server URL - can be set via environment variable or use default localhost
+const SERVER_URL = import.meta.env.VITE_IFC_SERVER_URL || 'http://localhost:8080';
 
 /**
  * Rebuild spatial hierarchy from cache data (entities + relationships)
@@ -276,6 +280,91 @@ export function useIfc() {
   }, [setProgress, setIfcDataStore, setGeometryResult]);
 
   /**
+   * Load from server - uses server-side parsing for faster processing
+   */
+  const loadFromServer = useCallback(async (
+    file: File,
+    buffer: ArrayBuffer
+  ): Promise<boolean> => {
+    try {
+      console.time('[useIfc] server-parse');
+      setProgress({ phase: 'Connecting to server', percent: 5 });
+
+      const client = new IfcServerClient({ baseUrl: SERVER_URL });
+      
+      // Check server health first
+      try {
+        await client.health();
+      } catch (err) {
+        console.warn('[useIfc] Server not available, falling back to local parsing:', err);
+        return false;
+      }
+
+      setProgress({ phase: 'Parsing on server', percent: 10 });
+
+      // Use streaming parse for progressive rendering
+      const allMeshes: MeshData[] = [];
+      let coordinateInfo: any = null;
+
+      for await (const event of client.parseStream(file)) {
+        switch (event.type) {
+          case 'start':
+            setProgress({ phase: 'Server processing', percent: 15 });
+            console.log(`[useIfc] Server processing started, estimated: ${event.total_estimate}`);
+            break;
+          case 'progress':
+            const progressPercent = 15 + Math.min(70, (event.processed / event.total) * 70);
+            setProgress({ phase: 'Server processing', percent: progressPercent });
+            break;
+          case 'batch':
+            // Convert server mesh format to viewer format
+            const meshes: MeshData[] = event.meshes.map((m: any) => ({
+              expressId: m.express_id,
+              positions: new Float32Array(m.positions),
+              indices: new Uint32Array(m.indices),
+              normals: m.normals ? new Float32Array(m.normals) : undefined,
+              color: m.color ? new Uint8Array(m.color) : undefined,
+            }));
+            allMeshes.push(...meshes);
+            coordinateInfo = event.coordinate_info;
+            appendGeometryBatch(meshes, coordinateInfo);
+            break;
+          case 'complete':
+            console.log(`[useIfc] Server parse complete: ${event.stats.total_time_ms}ms`);
+            break;
+          case 'error':
+            throw new Error(event.message);
+        }
+      }
+
+      // Parse data model locally for UI (entities, properties, etc.)
+      setProgress({ phase: 'Loading data model', percent: 90 });
+      const parser = new IfcParser();
+      const dataStore = await parser.parseColumnar(buffer, {
+        onProgress: (prog) => {
+          console.log(`[useIfc] Data model: ${prog.phase} ${prog.percent.toFixed(0)}%`);
+        },
+      });
+
+      // Build spatial index
+      if (allMeshes.length > 0) {
+        const spatialIndex = buildSpatialIndex(allMeshes);
+        dataStore.spatialIndex = spatialIndex;
+      }
+
+      setIfcDataStore(dataStore);
+      setProgress({ phase: 'Complete', percent: 100 });
+      console.timeEnd('[useIfc] server-parse');
+      console.log(`[useIfc] Server parse complete: ${file.name} (${allMeshes.length} meshes)`);
+
+      return true;
+    } catch (err) {
+      console.error('[useIfc] Server parse failed:', err);
+      return false;
+    }
+  }, [setProgress, setIfcDataStore, appendGeometryBatch]);
+
+  /**
    * Save to binary cache (background operation)
    */
   const saveToCache = useCallback(async (
@@ -348,6 +437,18 @@ export function useIfc() {
             return;
           }
         }
+      }
+
+      // Try server parsing first (if server URL is configured)
+      if (SERVER_URL && SERVER_URL !== '') {
+        setProgress({ phase: 'Trying server', percent: 8 });
+        const serverSuccess = await loadFromServer(file, buffer);
+        if (serverSuccess) {
+          setLoading(false);
+          return;
+        }
+        // Fall back to local parsing if server fails
+        console.log('[useIfc] Falling back to local WASM parsing');
       }
 
       // Cache miss - start geometry streaming IMMEDIATELY

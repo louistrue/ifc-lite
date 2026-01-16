@@ -82,6 +82,8 @@ async fn main() {
 
     // Build router
     let app = Router::new()
+        // Root endpoint - API information
+        .route("/", get(routes::health::info))
         // Health check
         .route("/api/v1/health", get(routes::health::check))
         // Parse endpoints
