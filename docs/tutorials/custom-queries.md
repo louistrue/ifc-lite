@@ -1,6 +1,6 @@
 # Custom Queries
 
-Learn to build powerful queries with IFC-Lite.
+Learn to build powerful queries with IFClite.
 
 ## Query Basics
 

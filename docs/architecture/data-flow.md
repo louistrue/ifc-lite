@@ -1,6 +1,6 @@
 # Data Flow
 
-Detailed data flow through the IFC-Lite system.
+Detailed data flow through the IFClite system.
 
 ## Complete Data Flow
 

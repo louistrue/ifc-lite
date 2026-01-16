@@ -1,10 +1,10 @@
 # Querying Data
 
-Guide to querying IFC data with IFC-Lite.
+Guide to querying IFC data with IFClite.
 
 ## Overview
 
-IFC-Lite provides multiple query interfaces:
+IFClite provides multiple query interfaces:
 
 ```mermaid
 flowchart TB

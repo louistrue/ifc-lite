@@ -4,7 +4,7 @@ Guide to exporting IFC data in various formats.
 
 ## Overview
 
-IFC-Lite supports multiple export formats:
+IFClite supports multiple export formats:
 
 ```mermaid
 flowchart LR

@@ -1,6 +1,6 @@
 # Parsing Pipeline
 
-Detailed architecture of the IFC-Lite parsing system.
+Detailed architecture of the IFClite parsing system.
 
 ## Overview
 
@@ -250,7 +250,7 @@ flowchart LR
         E3["High Memory"]
     end
 
-    subgraph Lazy["Lazy Decoding (IFC-Lite)"]
+    subgraph Lazy["Lazy Decoding (IFClite)"]
         L1["Index Only"]
         L2["Decode on Access"]
         L3["Low Memory"]

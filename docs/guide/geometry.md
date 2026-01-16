@@ -1,10 +1,10 @@
 # Geometry Processing
 
-Guide to geometry extraction and processing in IFC-Lite.
+Guide to geometry extraction and processing in IFClite.
 
 ## Overview
 
-IFC-Lite processes IFC geometry through a streaming pipeline:
+IFClite processes IFC geometry through a streaming pipeline:
 
 ```mermaid
 flowchart TB

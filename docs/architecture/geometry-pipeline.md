@@ -1,6 +1,6 @@
 # Geometry Pipeline
 
-Detailed architecture of geometry processing in IFC-Lite.
+Detailed architecture of geometry processing in IFClite.
 
 ## Overview
 

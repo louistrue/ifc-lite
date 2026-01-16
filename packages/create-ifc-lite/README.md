@@ -1,6 +1,6 @@
 # create-ifc-lite
 
-Scaffold IFC-Lite projects in seconds.
+Scaffold IFClite projects in seconds.
 
 ## Usage
 
@@ -39,5 +39,5 @@ npm run dev
 
 ## Learn More
 
-- [IFC-Lite Documentation](https://louistrue.github.io/ifc-lite/)
+- [IFClite Documentation](https://louistrue.github.io/ifc-lite/)
 - [GitHub Repository](https://github.com/louistrue/ifc-lite)

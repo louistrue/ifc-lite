@@ -13,3 +13,14 @@ Cargo.lock
 **/*.rs.bk
 *.pdb
 .vercel
+
+# MkDocs build output
+site/
+
+# Rust compiled binaries in tests
+tests/test_geometry
+
+# Debug/test scripts in wasm package
+packages/wasm/debug-*.js
+packages/wasm/benchmark.js
+packages/wasm/test-parser.js

@@ -1,6 +1,6 @@
 # Architecture Overview
 
-This document describes the high-level architecture of IFC-Lite.
+This document describes the high-level architecture of IFClite.
 
 ## System Architecture
 
@@ -60,7 +60,7 @@ flowchart LR
         T1 -->|copy| T2 -->|copy| T3 -->|copy| T4
     end
 
-    subgraph IFCLite["IFC-Lite Approach"]
+    subgraph IFCLite["IFClite Approach"]
         I1["File Buffer"]
         I2["Direct Index"]
         I3["TypedArrays"]
@@ -114,7 +114,7 @@ graph LR
         R3["Entity 3: id=3, type=WALL, name='C'"]
     end
 
-    subgraph Columnar["Columnar (IFC-Lite)"]
+    subgraph Columnar["Columnar (IFClite)"]
         C1["IDs: [1, 2, 3, ...]"]
         C2["Types: [WALL, DOOR, WALL, ...]"]
         C3["Names: ['A', 'B', 'C', ...]"]

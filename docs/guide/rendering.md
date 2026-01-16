@@ -1,10 +1,10 @@
 # Rendering
 
-Guide to the WebGPU rendering pipeline in IFC-Lite.
+Guide to the WebGPU rendering pipeline in IFClite.
 
 ## Overview
 
-IFC-Lite uses WebGPU for modern, high-performance 3D rendering:
+IFClite uses WebGPU for modern, high-performance 3D rendering:
 
 ```mermaid
 flowchart TB

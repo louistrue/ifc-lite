@@ -1,6 +1,6 @@
 # Parsing IFC Files
 
-Complete guide to parsing IFC files with IFC-Lite.
+Complete guide to parsing IFC files with IFClite.
 
 ## Overview
 
@@ -316,7 +316,7 @@ const hierarchy = result.relationships.getSpatialHierarchy();
 
 ## Schema Support
 
-IFC-Lite supports multiple IFC schemas:
+IFClite supports multiple IFC schemas:
 
 | Schema | Entities | Status |
 |--------|----------|--------|

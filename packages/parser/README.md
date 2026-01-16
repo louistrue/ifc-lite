@@ -291,7 +291,7 @@ import type {
 - **Parse speed:** ~1,259 MB/s tokenization
 - **Memory:** Columnar storage with TypedArrays
 - **Bundle size:** ~1.9 MB generated schema (200 KB gzipped)
-- **Parse overhead:** +4% with full schema (2.5s → 2.6s for 50 MB file)
+- **Parse time:** ~600-700ms for 50 MB files, ~100-200ms for 10 MB files
 - **Coverage gain:** +1393% (70 → 1000+ entities)
 
 ## Examples

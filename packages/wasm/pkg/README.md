@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/assets/logo.svg" alt="IFC-Lite Logo" width="120" height="120">
+  <img src="docs/assets/logo.png" alt="IFClite Logo" width="120" height="120">
 </p>
 
-<h1 align="center">IFC-Lite</h1>
+<h1 align="center">IFClite</h1>
 
 <p align="center">
   <strong>High-performance browser-native IFC platform</strong>
@@ -28,7 +28,7 @@
 
 ## Overview
 
-**IFC-Lite** is a next-generation IFC (Industry Foundation Classes) platform built with **Rust + WebAssembly** for parsing, geometry processing, and **WebGPU** for 3D visualization. It's designed to be a **95x smaller** and significantly faster alternative to existing web-based IFC solutions.
+**IFClite** is a next-generation IFC (Industry Foundation Classes) platform built with **Rust + WebAssembly** for parsing, geometry processing, and **WebGPU** for 3D visualization. It's designed to be a **95x smaller** and significantly faster alternative to existing web-based IFC solutions.
 
 <p align="center">
   <strong>~86 KB total</strong> &nbsp;•&nbsp; <strong>1.9x faster</strong> &nbsp;•&nbsp; <strong>100% IFC4 schema</strong>
@@ -66,7 +66,7 @@ npm install && npm run dev
 
 ### Option 2: Install Packages Directly
 
-Add IFC-Lite to your existing project:
+Add IFClite to your existing project:
 
 ```bash
 npm install @ifc-lite/parser
@@ -188,13 +188,13 @@ ifc-lite/
 
 | Library | Size | Gzipped |
 |---------|------|---------|
-| **IFC-Lite** | **~86 KB** | **~28 KB** |
+| **IFClite** | **~86 KB** | **~28 KB** |
 | Traditional WASM | 8+ MB | N/A |
 | **Reduction** | **93%** | - |
 
 ### Parse Performance
 
-| Model Size | IFC-Lite | Notes |
+| Model Size | IFClite | Notes |
 |------------|----------|-------|
 | 10 MB | ~800ms | Small models |
 | 50 MB | ~2.7s | Typical models |
@@ -217,7 +217,7 @@ ifc-lite/
 
 ## Development (Contributors)
 
-For contributing to IFC-Lite itself:
+For contributing to IFClite itself:
 
 ```bash
 git clone https://github.com/louistrue/ifc-lite.git

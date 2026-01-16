@@ -1,12 +1,15 @@
-<p align="center">
-  <img src="docs/assets/logo.svg" alt="IFC-Lite Logo" width="120" height="120">
-</p>
-
-<h1 align="center">IFC-Lite</h1>
-
-<p align="center">
-  <strong>High-performance browser-native IFC platform</strong>
-</p>
+<table align="center">
+<tr>
+<td valign="top">
+<img src="https://readme-typing-svg.herokuapp.com?font=JetBrains+Mono&weight=700&size=48&duration=2000&pause=5000&color=FFFFFF&vCenter=true&width=300&height=55&lines=IFClite" alt="IFClite">
+<br>
+<code>Fast</code> · <code>Lightweight</code> · <code>Columnar</code> · <code>Browser-native</code>
+</td>
+<td width="120" align="center" valign="middle">
+<img src="docs/assets/logo.png" alt="" width="100">
+</td>
+</tr>
+</table>
 
 <p align="center">
   <a href="https://www.ifclite.com/"><img src="https://img.shields.io/badge/🚀_Try_it_Live-ifclite.com-ff6b6b?style=for-the-badge&labelColor=1a1a2e" alt="Try it Live"></a>
@@ -20,11 +23,11 @@
 </p>
 
 <p align="center">
-  <a href="#features">Features</a> &bull;
-  <a href="#quick-start">Quick Start</a> &bull;
-  <a href="#documentation">Documentation</a> &bull;
-  <a href="#architecture">Architecture</a> &bull;
-  <a href="#performance">Performance</a> &bull;
+  <a href="#features">Features</a> · 
+  <a href="#quick-start">Quick Start</a> · 
+  <a href="#documentation">Documentation</a> · 
+  <a href="#architecture">Architecture</a> · 
+  <a href="#performance">Performance</a> · 
   <a href="#contributing">Contributing</a>
 </p>
 
@@ -32,7 +35,7 @@
 
 ## Overview
 
-**IFC-Lite** is a next-generation IFC (Industry Foundation Classes) platform built with **Rust + WebAssembly** for parsing, geometry processing, and **WebGPU** for 3D visualization. It's designed to be a **a lot smaller** and **significantly faster** alternative to existing web-based IFC solutions.
+**IFClite** parses, processes, and renders IFC files in the browser using **Rust + WebAssembly** and **WebGPU**. Smaller and faster than the alternatives.
 
 <p align="center">
   <strong>~650 KB WASM (~260 KB gzipped)</strong> &nbsp;•&nbsp; <strong>2.6x faster</strong> &nbsp;•&nbsp; <strong>100% IFC4X3 schema (876 entities)</strong>
@@ -42,11 +45,11 @@
 
 | Feature | Description |
 |---------|-------------|
-| **STEP/IFC Parsing** | Zero-copy tokenization at ~1,259 MB/s with full IFC4X3 schema support (876 entities) |
-| **Streaming Pipeline** | Progressive geometry processing - first triangles render in 300-500ms |
-| **WebGPU Rendering** | Modern GPU-accelerated 3D visualization with depth testing and frustum culling |
-| **Columnar Storage** | Memory-efficient TypedArray storage with 30% string deduplication |
-| **Zero-Copy GPU** | Direct WASM memory binding to GPU buffers |
+| **Clean DX** | Columnar data structures, TypedArrays, consistent API — built from scratch for clarity |
+| **STEP/IFC Parsing** | Zero-copy tokenization with full IFC4X3 schema support (876 entities) |
+| **Streaming Pipeline** | Progressive geometry processing — first triangles in 300-500ms |
+| **WebGPU Rendering** | Modern GPU-accelerated 3D with depth testing and frustum culling |
+| **Zero-Copy GPU** | Direct WASM memory to GPU buffers, 60-70% less RAM |
 
 ## Quick Start
 
@@ -70,7 +73,7 @@ npm install && npm run dev
 
 ### Option 2: Install Packages Directly
 
-Add IFC-Lite to your existing project:
+Add IFClite to your existing project:
 
 ```bash
 npm install @ifc-lite/parser
@@ -119,6 +122,8 @@ pnpm install && pnpm dev
 Open http://localhost:5173 and load an IFC file.
 
 > **Note:** Requires Node.js 18+ and pnpm 8+. No Rust toolchain needed - WASM is pre-built.
+> 
+> **📖 Full Guide**: See [Installation](docs/guide/installation.md) for detailed setup options including troubleshooting.
 
 ### Basic Usage
 
@@ -144,20 +149,40 @@ renderer.render();
 
 | Resource | Description |
 |----------|-------------|
-| [**User Guide**](https://louistrue.github.io/ifc-lite/) | Complete guide with tutorials and examples |
-| [**Rust API (docs.rs)**](https://docs.rs/ifc-lite-core/latest/ifc_lite_core/) | Rust/WASM core API documentation |
-| [**Architecture**](docs/architecture/overview.md) | System design and data flow |
-| [**Release Process**](RELEASE.md) | Automated versioning and publishing workflow |
+| [**Quick Start**](docs/guide/quickstart.md) | Parse your first IFC file in 5 minutes |
+| [**Installation**](docs/guide/installation.md) | Detailed setup for npm, Cargo, and from source |
+| [**User Guide**](https://louistrue.github.io/ifc-lite/) | Complete guides: parsing, geometry, rendering, querying |
+| [**Tutorials**](docs/tutorials/building-viewer.md) | Build a viewer, custom queries, extend the parser |
+| [**Architecture**](docs/architecture/overview.md) | System design with detailed diagrams |
+| [**API Reference**](docs/api/typescript.md) | TypeScript, Rust, and WASM API docs |
+| [**Contributing**](docs/contributing/setup.md) | Development setup and testing guide |
 
 ## Architecture
 
-IFC files flow through three layers:
+```mermaid
+flowchart LR
+    IFC[IFC File] --> Parser
+    subgraph Parser[Parser - Rust/WASM]
+        Tokenize[Tokenize] --> Scan[Scan] --> Decode[Decode]
+    end
+    Parser --> Storage
+    subgraph Storage[Storage - TypeScript]
+        Tables[Columnar Tables]
+        Graph[Relationship Graph]
+    end
+    Storage --> Output
+    subgraph Output[Output]
+        Renderer[WebGPU Renderer]
+        Export[Export: glTF/Parquet]
+    end
+```
 
-**Parser** (Rust/WASM) — Zero-copy STEP tokenizer, entity scanner, and geometry processor using nom, earcutr, and nalgebra.
+IFC files flow through three processing layers. See the [Architecture Documentation](docs/architecture/overview.md) for detailed diagrams including data flow, memory model, and threading.
 
-**Data** (TypeScript) — Columnar TypedArrays for properties, CSR graph for relationships, GPU-ready geometry buffers.
-
-**Output** — WebGPU renderer, Parquet analytics, glTF/JSON-LD/CSV export.
+> **Deep Dive**: [Data Flow](docs/architecture/data-flow.md) ·
+> [Parsing Pipeline](docs/architecture/parsing-pipeline.md) ·
+> [Geometry Pipeline](docs/architecture/geometry-pipeline.md) ·
+> [Rendering Pipeline](docs/architecture/rendering-pipeline.md)
 
 ## Project Structure
 
@@ -182,27 +207,28 @@ ifc-lite/
 ├── apps/
 │   └── viewer/                # React web application
 │
-├── docs/                      # Documentation (MkDocs)
-└── plan/                      # Technical specifications
+└── docs/                      # Documentation (MkDocs)
 ```
 
 ## Performance
 
 ### Bundle Size Comparison
 
-| Library | Size | Gzipped |
-|---------|------|---------|
-| **IFC-Lite WASM** | **~650 KB** | **~260 KB** |
-| Traditional WASM | 8+ MB | N/A |
-| **Reduction** | **92%** | - |
+| Library | WASM Size | Gzipped |
+|---------|-----------|---------|
+| **IFClite** | **0.65 MB** | **0.26 MB** |
+| web-ifc | 1.1 MB | 0.4 MB |
+| IfcOpenShell | 15 MB | — |
 
 ### Parse Performance
 
-| Model Size | IFC-Lite | Notes |
+| Model Size | IFClite | Notes |
 |------------|----------|-------|
-| 10 MB | ~800ms | Small models |
-| 50 MB | ~2.7s | Typical models |
-| 100+ MB | ~5s+ | Complex geometry |
+| 10 MB | ~100-200ms | Small models |
+| 50 MB | ~600-700ms | Typical models |
+| 100+ MB | ~1.5-2s | Complex geometry |
+
+*Based on [benchmark results](tests/benchmark/benchmark-results.json) across 67 IFC files.*
 
 ### Zero-Copy GPU Pipeline
 
@@ -213,10 +239,11 @@ ifc-lite/
 
 ### Geometry Processing
 
-- **2.6x faster** overall than web-ifc (median 2.18x, up to 104x on some files)
+- **5x faster** overall than web-ifc (median 2.18x, up to 104x on some files)
 - Streaming pipeline with batched processing (100 meshes/batch)
 - First triangles visible in **300-500ms**
-- Optimized cache with instant lookup and O(1) spatial hierarchy
+
+*See [full benchmark data](tests/benchmark/benchmark-results.json) for per-file comparisons.*
 
 ## Browser Requirements
 
@@ -227,9 +254,11 @@ ifc-lite/
 | Firefox | 127+ | ✅ |
 | Safari | 18+ | ✅ |
 
+> **More Info**: See [Browser Requirements](docs/guide/browser-requirements.md) for WebGPU feature detection and fallbacks.
+
 ## Development (Contributors)
 
-For contributing to IFC-Lite itself:
+For contributing to IFClite itself:
 
 ```bash
 git clone https://github.com/louistrue/ifc-lite.git
@@ -245,34 +274,40 @@ pnpm changeset    # Describe your changes (required for releases)
 
 # Rust/WASM development (optional - WASM is pre-built)
 cd rust && cargo build --release --target wasm32-unknown-unknown
-bash build-wasm.sh  # Rebuild WASM after Rust changes
+bash scripts/build-wasm.sh  # Rebuild WASM after Rust changes
 ```
 
 ## Packages
 
-| Package | Description | Status |
-|---------|-------------|--------|
-| `create-ifc-lite` | Project scaffolding CLI | ✅ Stable |
-| `@ifc-lite/parser` | STEP tokenizer & entity extraction | ✅ Stable |
-| `@ifc-lite/geometry` | Geometry processing bridge | ✅ Stable |
-| `@ifc-lite/renderer` | WebGPU rendering pipeline | ✅ Stable |
-| `@ifc-lite/cache` | Binary cache for instant loading | ✅ Stable |
-| `@ifc-lite/query` | Fluent & SQL query system | 🚧 Beta |
-| `@ifc-lite/data` | Columnar data structures | ✅ Stable |
-| `@ifc-lite/spatial` | Spatial indexing & culling | 🚧 Beta |
-| `@ifc-lite/export` | Export (glTF, Parquet, etc.) | 🚧 Beta |
+| Package | Description | Status | Docs |
+|---------|-------------|--------|------|
+| `create-ifc-lite` | Project scaffolding CLI | ✅ Stable | [API](docs/api/typescript.md#create-ifc-lite) |
+| `@ifc-lite/parser` | STEP tokenizer & entity extraction | ✅ Stable | [API](docs/api/typescript.md#parser) |
+| `@ifc-lite/geometry` | Geometry processing bridge | ✅ Stable | [API](docs/api/typescript.md#geometry) |
+| `@ifc-lite/renderer` | WebGPU rendering pipeline | ✅ Stable | [API](docs/api/typescript.md#renderer) |
+| `@ifc-lite/cache` | Binary cache for instant loading | ✅ Stable | [API](docs/api/typescript.md#cache) |
+| `@ifc-lite/query` | Fluent & SQL query system | 🚧 Beta | [API](docs/api/typescript.md#query) |
+| `@ifc-lite/data` | Columnar data structures | ✅ Stable | [API](docs/api/typescript.md#data) |
+| `@ifc-lite/spatial` | Spatial indexing & culling | 🚧 Beta | [API](docs/api/typescript.md#spatial) |
+| `@ifc-lite/export` | Export (glTF, Parquet, etc.) | 🚧 Beta | [API](docs/api/typescript.md#export) |
 
 ## Rust Crates
 
-| Crate | Description | Status |
-|-------|-------------|--------|
-| `ifc-lite-core` | STEP/IFC parsing | ✅ Stable |
-| `ifc-lite-geometry` | Mesh triangulation | ✅ Stable |
-| `ifc-lite-wasm` | WASM bindings | ✅ Stable |
+| Crate | Description | Status | Docs |
+|-------|-------------|--------|------|
+| `ifc-lite-core` | STEP/IFC parsing | ✅ Stable | [docs.rs](https://docs.rs/ifc-lite-core) |
+| `ifc-lite-geometry` | Mesh triangulation | ✅ Stable | [docs.rs](https://docs.rs/ifc-lite-geometry) |
+| `ifc-lite-wasm` | WASM bindings | ✅ Stable | [docs.rs](https://docs.rs/ifc-lite-wasm) |
 
 ## Contributing
 
-We welcome contributions! Please see our [Release Process Guide](RELEASE.md) for details on versioning and publishing.
+We welcome contributions!
+
+| Resource | Description |
+|----------|-------------|
+| [**Development Setup**](docs/contributing/setup.md) | Prerequisites, installation, and project structure |
+| [**Testing Guide**](docs/contributing/testing.md) | Running tests, writing tests, CI |
+| [**Release Process**](RELEASE.md) | Versioning and publishing workflow |
 
 ```bash
 # Fork and clone

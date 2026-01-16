@@ -1,6 +1,6 @@
 # Contributors
 
-Thank you to everyone who has contributed to IFC-Lite!
+Thank you to everyone who has contributed to IFClite!
 
 ## Code Contributors
 

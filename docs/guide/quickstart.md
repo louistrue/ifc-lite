@@ -1,6 +1,6 @@
 # Quick Start
 
-Get up and running with IFC-Lite in under 5 minutes.
+Get up and running with IFClite in under 5 minutes.
 
 ## Basic Setup
 
@@ -16,7 +16,7 @@ pnpm add @ifc-lite/parser @ifc-lite/renderer
 <!DOCTYPE html>
 <html>
 <head>
-  <title>IFC-Lite Viewer</title>
+  <title>IFClite Viewer</title>
   <style>
     #viewer {
       width: 100%;

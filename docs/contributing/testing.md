@@ -1,6 +1,6 @@
 # Testing
 
-Guide to testing IFC-Lite.
+Guide to testing IFClite.
 
 ## Overview
 

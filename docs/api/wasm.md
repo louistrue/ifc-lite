@@ -4,7 +4,7 @@ API documentation for the WebAssembly bindings.
 
 ## Overview
 
-IFC-Lite provides WebAssembly bindings for high-performance parsing and geometry processing in the browser.
+IFClite provides WebAssembly bindings for high-performance parsing and geometry processing in the browser.
 
 ```mermaid
 flowchart LR

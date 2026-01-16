@@ -1,6 +1,6 @@
 # Extending the Parser
 
-Learn to extend IFC-Lite with custom functionality.
+Learn to extend IFClite with custom functionality.
 
 ## Extension Points
 

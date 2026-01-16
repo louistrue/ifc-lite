@@ -1,6 +1,6 @@
 # Installation
 
-This guide covers installing IFC-Lite in various environments.
+This guide covers installing IFClite in various environments.
 
 ## Package Manager Installation
 
@@ -89,7 +89,7 @@ cd apps/viewer && pnpm dev
 
 ## CDN Usage
 
-For quick prototyping, you can use IFC-Lite directly from a CDN:
+For quick prototyping, you can use IFClite directly from a CDN:
 
 ```html
 <script type="module">
@@ -111,8 +111,8 @@ After installation, verify everything works:
 import { IfcParser } from '@ifc-lite/parser';
 
 const parser = new IfcParser();
-console.log('IFC-Lite version:', parser.version);
-// Should output: IFC-Lite version: 0.1.0
+console.log('IFClite version:', parser.version);
+// Should output: IFClite version: 0.1.0
 ```
 
 ## Next Steps

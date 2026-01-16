@@ -1,6 +1,6 @@
 # Development Setup
 
-Guide to setting up a development environment for IFC-Lite.
+Guide to setting up a development environment for IFClite.
 
 ## Prerequisites
 

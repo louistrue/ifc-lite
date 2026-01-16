@@ -1,6 +1,6 @@
 # Browser Requirements
 
-IFC-Lite uses modern web technologies that require recent browser versions.
+IFClite uses modern web technologies that require recent browser versions.
 
 ## WebGPU Support
 
@@ -86,7 +86,7 @@ function checkWASM(): boolean {
 
 ## JavaScript Requirements
 
-IFC-Lite requires ES2022+ features:
+IFClite requires ES2022+ features:
 
 - `async`/`await`
 - `for await...of`
@@ -223,5 +223,5 @@ async function createRenderer(canvas: HTMLCanvasElement) {
 
 ## Next Steps
 
-- [Installation](installation.md) - Install IFC-Lite
+- [Installation](installation.md) - Install IFClite
 - [Quick Start](quickstart.md) - Get started quickly

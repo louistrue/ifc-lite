@@ -1,4 +1,4 @@
-# IFC-Lite Documentation
+# IFClite Documentation
 
 <div class="grid cards" markdown>
 
@@ -6,7 +6,7 @@
 
     ---
 
-    Install IFC-Lite and parse your first IFC file in under 5 minutes.
+    Install IFClite and parse your first IFC file in under 5 minutes.
 
     [:octicons-arrow-right-24: Quick Start](guide/quickstart.md)
 
@@ -14,7 +14,7 @@
 
     ---
 
-    Learn how to use all features of IFC-Lite for parsing, geometry, and rendering.
+    Learn how to use all features of IFClite for parsing, geometry, and rendering.
 
     [:octicons-arrow-right-24: User Guide](guide/parsing.md)
 
@@ -22,7 +22,7 @@
 
     ---
 
-    Understand the system design and how data flows through IFC-Lite.
+    Understand the system design and how data flows through IFClite.
 
     [:octicons-arrow-right-24: Architecture](architecture/overview.md)
 
@@ -36,9 +36,9 @@
 
 </div>
 
-## What is IFC-Lite?
+## What is IFClite?
 
-**IFC-Lite** is a high-performance, browser-native IFC (Industry Foundation Classes) platform. It provides:
+**IFClite** is a high-performance, browser-native IFC (Industry Foundation Classes) platform. It provides:
 
 - **Fast Parsing**: Zero-copy STEP tokenization at ~1,259 MB/s
 - **Streaming Geometry**: Progressive mesh processing with first triangles in 300-500ms
@@ -150,17 +150,17 @@ flowchart TB
 | **Streaming Pipeline** | Progressive geometry processing |
 | **WebGPU Rendering** | Modern GPU acceleration |
 | **Columnar Storage** | Memory-efficient TypedArray storage |
-| **Full IFC4 Schema** | 776 entities, 397 types, 207 enums |
+| **Full IFC4X3 Schema** | 876 entities, 449 types, 211 enums |
 | **Cross-Platform** | Browser, Node.js, and native Rust |
 
 ## Performance Comparison
 
 ```mermaid
 xychart-beta
-    title "Bundle Size Comparison (KB)"
-    x-axis ["IFC-Lite", "web-ifc"]
-    y-axis "Size (KB)" 0 --> 9000
-    bar [86, 8000]
+    title "WASM Size (MB)"
+    x-axis ["IFClite", "web-ifc", "IfcOpenShell"]
+    y-axis "Size (MB)" 0 --> 16
+    bar [0.65, 1.1, 15]
 ```
 
 ## Browser Support
@@ -178,7 +178,7 @@ xychart-beta
 
 -   [:material-download: __Installation__](guide/installation.md)
 
-    Install IFC-Lite in your project
+    Install IFClite in your project
 
 -   [:material-play: __Quick Start__](guide/quickstart.md)
 
