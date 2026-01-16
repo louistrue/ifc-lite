@@ -5,9 +5,11 @@
 //! Service modules for IFC processing and caching.
 
 pub mod cache;
+pub mod parquet;
 pub mod processor;
 pub mod streaming;
 
 pub use cache::DiskCache;
-pub use processor::{process_geometry, ProcessingResult};
+pub use parquet::{serialize_to_parquet, ParquetError};
+pub use processor::process_geometry;
 pub use streaming::process_streaming;

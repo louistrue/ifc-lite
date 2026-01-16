@@ -15,6 +15,18 @@
     "build": "tsc || true",
     "dev": "tsc --watch"
   },
+  "peerDependencies": {
+    "apache-arrow": ">=14.0.0",
+    "parquet-wasm": ">=0.5.0"
+  },
+  "peerDependenciesMeta": {
+    "apache-arrow": {
+      "optional": true
+    },
+    "parquet-wasm": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "typescript": "^5.3.0"
   },

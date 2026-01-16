@@ -41,6 +41,9 @@ pub enum ApiError {
 
     #[error("Join error")]
     Join(#[from] tokio::task::JoinError),
+
+    #[error("Parquet serialization error: {0}")]
+    Parquet(String),
 }
 
 /// Error response body.
@@ -62,6 +65,7 @@ impl IntoResponse for ApiError {
             ApiError::NotFound(_) => (StatusCode::NOT_FOUND, "NOT_FOUND"),
             ApiError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR"),
             ApiError::Join(_) => (StatusCode::INTERNAL_SERVER_ERROR, "TASK_ERROR"),
+            ApiError::Parquet(_) => (StatusCode::INTERNAL_SERVER_ERROR, "PARQUET_ERROR"),
         };
 
         let body = ErrorResponse {
@@ -94,5 +98,11 @@ impl From<cacache::Error> for ApiError {
 impl From<serde_json::Error> for ApiError {
     fn from(err: serde_json::Error) -> Self {
         ApiError::Internal(format!("JSON error: {}", err))
+    }
+}
+
+impl From<crate::services::ParquetError> for ApiError {
+    fn from(err: crate::services::ParquetError) -> Self {
+        ApiError::Parquet(err.to_string())
     }
 }

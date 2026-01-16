@@ -6,10 +6,13 @@ import type {
   ErrorResponse,
   HealthResponse,
   MetadataResponse,
+  ParquetMetadataHeader,
+  ParquetParseResponse,
   ParseResponse,
   ServerConfig,
   StreamEvent,
 } from './types';
+import { decodeParquetGeometry, isParquetAvailable } from './parquet-decoder';
 
 /**
  * Client for the IFC-Lite Server API.
@@ -97,6 +100,93 @@ export class IfcServerClient {
     }
 
     return response.json();
+  }
+
+  /**
+   * Parse IFC file and return geometry in Parquet format.
+   *
+   * This method provides ~15x smaller payload size compared to JSON,
+   * which is critical for large IFC files over network connections.
+   *
+   * **Requirements:** This method requires `parquet-wasm` and `apache-arrow`
+   * to be installed as peer dependencies.
+   *
+   * @param file - File or ArrayBuffer containing IFC data
+   * @returns Parse result with all meshes (decoded from Parquet)
+   *
+   * @example
+   * ```typescript
+   * const result = await client.parseParquet(file);
+   * console.log(`Payload: ${result.parquet_stats.payload_size} bytes`);
+   * console.log(`Decode time: ${result.parquet_stats.decode_time_ms}ms`);
+   * for (const mesh of result.meshes) {
+   *   scene.add(createMesh(mesh.positions, mesh.indices, mesh.color));
+   * }
+   * ```
+   */
+  async parseParquet(file: File | ArrayBuffer): Promise<ParquetParseResponse> {
+    // Check if Parquet decoding is available
+    const parquetReady = await isParquetAvailable();
+    if (!parquetReady) {
+      throw new Error(
+        'Parquet parsing requires parquet-wasm and apache-arrow. ' +
+        'Install them with: npm install parquet-wasm apache-arrow'
+      );
+    }
+
+    const formData = new FormData();
+    formData.append(
+      'file',
+      file instanceof File ? file : new Blob([file]),
+      file instanceof File ? file.name : 'model.ifc'
+    );
+
+    const response = await fetch(`${this.baseUrl}/api/v1/parse/parquet`, {
+      method: 'POST',
+      body: formData,
+      signal: AbortSignal.timeout(this.timeout),
+    });
+
+    if (!response.ok) {
+      throw await this.handleError(response);
+    }
+
+    // Extract metadata from header
+    const metadataHeader = response.headers.get('X-IFC-Metadata');
+    if (!metadataHeader) {
+      throw new Error('Missing X-IFC-Metadata header in Parquet response');
+    }
+
+    const metadata: ParquetMetadataHeader = JSON.parse(metadataHeader);
+
+    // Get binary payload
+    const payloadBuffer = await response.arrayBuffer();
+    const payloadSize = payloadBuffer.byteLength;
+
+    // Decode Parquet geometry
+    const decodeStart = performance.now();
+    const meshes = await decodeParquetGeometry(payloadBuffer);
+    const decodeTime = performance.now() - decodeStart;
+
+    return {
+      cache_key: metadata.cache_key,
+      meshes,
+      metadata: metadata.metadata,
+      stats: metadata.stats,
+      parquet_stats: {
+        payload_size: payloadSize,
+        decode_time_ms: Math.round(decodeTime),
+      },
+    };
+  }
+
+  /**
+   * Check if Parquet parsing is available.
+   *
+   * @returns true if parquet-wasm is available for parseParquet()
+   */
+  async isParquetSupported(): Promise<boolean> {
+    return isParquetAvailable();
   }
 
   /**

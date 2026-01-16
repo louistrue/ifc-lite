@@ -5,16 +5,19 @@
 //! Parse endpoints for IFC file processing.
 
 use crate::error::ApiError;
-use crate::services::{cache::DiskCache, process_geometry, process_streaming};
-use crate::types::{MetadataResponse, ParseResponse, StreamEvent};
+use crate::services::{cache::DiskCache, process_geometry, process_streaming, serialize_to_parquet};
+use crate::types::{MetadataResponse, ModelMetadata, ParseResponse, ProcessingStats, StreamEvent};
 use crate::AppState;
 use axum::{
+    body::Body,
     extract::{Multipart, State},
-    response::sse::{Event, KeepAlive, Sse},
+    http::{header, StatusCode},
+    response::{sse::{Event, KeepAlive, Sse}, Response},
     Json,
 };
 use futures::stream::StreamExt;
 use ifc_lite_core::EntityScanner;
+use serde::Serialize;
 use std::convert::Infallible;
 
 /// Extract file data from multipart request.
@@ -169,4 +172,72 @@ pub async fn parse_metadata(
     .await?;
 
     Ok(Json(result))
+}
+
+/// Response header containing metadata for Parquet response.
+#[derive(Debug, Clone, Serialize)]
+pub struct ParquetMetadataHeader {
+    pub cache_key: String,
+    pub metadata: ModelMetadata,
+    pub stats: ProcessingStats,
+}
+
+/// POST /api/v1/parse/parquet - Full parse with Parquet-encoded geometry.
+///
+/// Returns binary Parquet data with ~15x smaller payload than JSON.
+/// Response format:
+/// - Content-Type: application/x-parquet-geometry
+/// - X-IFC-Metadata: JSON-encoded ParquetMetadataHeader
+/// - Body: Binary Parquet data (mesh_parquet + vertex_parquet + index_parquet)
+pub async fn parse_parquet(
+    State(state): State<AppState>,
+    mut multipart: Multipart,
+) -> Result<Response, ApiError> {
+    // Extract file from multipart
+    let data = extract_file(&mut multipart).await?;
+
+    // Check file size
+    if data.len() > state.config.max_file_size_mb * 1024 * 1024 {
+        return Err(ApiError::FileTooLarge {
+            max_mb: state.config.max_file_size_mb,
+        });
+    }
+
+    // Generate cache key
+    let cache_key = DiskCache::generate_key(&data);
+
+    tracing::info!(
+        cache_key = %cache_key,
+        size = data.len(),
+        "Processing with Parquet output"
+    );
+
+    // Parse content
+    let content = String::from_utf8(data)?;
+
+    // Process on blocking thread pool (CPU-intensive)
+    let result = tokio::task::spawn_blocking(move || process_geometry(&content)).await?;
+
+    // Serialize to Parquet (much more efficient than JSON)
+    let parquet_data = serialize_to_parquet(&result.meshes)?;
+
+    // Create metadata header
+    let metadata_header = ParquetMetadataHeader {
+        cache_key,
+        metadata: result.metadata,
+        stats: result.stats,
+    };
+
+    let metadata_json = serde_json::to_string(&metadata_header)?;
+
+    // Build response with binary body and metadata header
+    let response = Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/x-parquet-geometry")
+        .header("X-IFC-Metadata", metadata_json)
+        .header(header::CONTENT_LENGTH, parquet_data.len())
+        .body(Body::from(parquet_data))
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+
+    Ok(response)
 }

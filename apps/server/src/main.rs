@@ -14,9 +14,10 @@
 //! # Endpoints
 //!
 //! - `GET /api/v1/health` - Health check
-//! - `POST /api/v1/parse` - Full parse with all geometry
+//! - `POST /api/v1/parse` - Full parse with all geometry (JSON)
 //! - `POST /api/v1/parse/stream` - Streaming parse (SSE)
 //! - `POST /api/v1/parse/metadata` - Quick metadata only
+//! - `POST /api/v1/parse/parquet` - Full parse with Parquet-encoded geometry (~15x smaller)
 //! - `GET /api/v1/cache/:key` - Retrieve cached result
 
 use axum::{
@@ -91,6 +92,7 @@ async fn main() {
         .route("/api/v1/parse", post(routes::parse::parse_full))
         .route("/api/v1/parse/stream", post(routes::parse::parse_stream))
         .route("/api/v1/parse/metadata", post(routes::parse::parse_metadata))
+        .route("/api/v1/parse/parquet", post(routes::parse::parse_parquet))
         // Cache endpoint
         .route("/api/v1/cache/{key}", get(routes::cache::get_cached))
         // Middleware

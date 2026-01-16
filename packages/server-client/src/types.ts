@@ -188,3 +188,36 @@ export interface StreamErrorEvent {
   /** Error message */
   message: string;
 }
+
+/**
+ * Metadata header from Parquet response (sent via X-IFC-Metadata header).
+ */
+export interface ParquetMetadataHeader {
+  /** Cache key for this result (SHA256 of file content) */
+  cache_key: string;
+  /** Model metadata */
+  metadata: ModelMetadata;
+  /** Processing statistics */
+  stats: ProcessingStats;
+}
+
+/**
+ * Parquet parse response with decoded geometry.
+ */
+export interface ParquetParseResponse {
+  /** Cache key for this result (SHA256 of file content) */
+  cache_key: string;
+  /** All meshes extracted from the IFC file */
+  meshes: MeshData[];
+  /** Model metadata */
+  metadata: ModelMetadata;
+  /** Processing statistics */
+  stats: ProcessingStats;
+  /** Additional stats for Parquet transfer */
+  parquet_stats: {
+    /** Size of Parquet payload in bytes */
+    payload_size: number;
+    /** Time spent decoding Parquet (ms) */
+    decode_time_ms: number;
+  };
+}
