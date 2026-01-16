@@ -96,6 +96,11 @@ export class ColumnarParser {
             if (processed % 1000 === 0) {
                 options.onProgress?.({ phase: 'entities', percent: (processed / entities.size) * 100 });
             }
+            
+            // Yield to event loop every 500 entities to allow geometry processing
+            if (processed % 500 === 0) {
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
         }
 
         const entityTable = entityTableBuilder.build();
@@ -126,6 +131,7 @@ export class ColumnarParser {
         }
 
         // Extract properties into columnar format
+        let propProcessed = 0;
         for (const [psetId, pset] of propertySets) {
             const entityIds = psetToEntities.get(psetId) || [];
             const globalId = String(entities.get(psetId)?.attributes?.[0] || '');
@@ -154,6 +160,12 @@ export class ColumnarParser {
                         propType,
                         value,
                     });
+                    
+                    propProcessed++;
+                    // Yield every 500 properties to allow geometry processing
+                    if (propProcessed % 500 === 0) {
+                        await new Promise(resolve => setTimeout(resolve, 0));
+                    }
                 }
             }
         }
@@ -197,6 +209,7 @@ export class ColumnarParser {
         };
 
         // Extract quantities into columnar format
+        let qtyProcessed = 0;
         for (const [qsetId, qset] of quantitySets) {
             const entityIds = qsetToEntities.get(qsetId) || [];
 
@@ -210,6 +223,12 @@ export class ColumnarParser {
                         value: quantity.value,
                         formula: quantity.formula,
                     });
+                    
+                    qtyProcessed++;
+                    // Yield every 500 quantities to allow geometry processing
+                    if (qtyProcessed % 500 === 0) {
+                        await new Promise(resolve => setTimeout(resolve, 0));
+                    }
                 }
             }
         }
@@ -233,11 +252,17 @@ export class ColumnarParser {
             'IFCRELSPACEBOUNDARY': RelationshipType.SpaceBoundary,
         };
 
+        let relProcessed = 0;
         for (const rel of relationships) {
             const relType = relTypeMap[rel.type.toUpperCase()];
             if (relType) {
                 for (const targetId of rel.relatedObjects) {
                     relationshipGraphBuilder.addEdge(rel.relatingObject, targetId, relType, rel.relatingObject);
+                    relProcessed++;
+                    // Yield every 500 relationships to allow geometry processing
+                    if (relProcessed % 500 === 0) {
+                        await new Promise(resolve => setTimeout(resolve, 0));
+                    }
                 }
             }
         }

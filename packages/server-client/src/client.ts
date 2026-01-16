@@ -135,15 +135,17 @@ export class IfcServerClient {
    */
   async *parseStream(file: File | ArrayBuffer): AsyncGenerator<StreamEvent> {
     const formData = new FormData();
+    const blob = file instanceof File ? file : new Blob([file], { type: 'application/octet-stream' });
     formData.append(
       'file',
-      file instanceof File ? file : new Blob([file]),
+      blob,
       file instanceof File ? file.name : 'model.ifc'
     );
 
     const response = await fetch(`${this.baseUrl}/api/v1/parse/stream`, {
       method: 'POST',
       body: formData,
+      // Don't set Content-Type header - browser will set it with boundary for FormData
       headers: {
         Accept: 'text/event-stream',
       },

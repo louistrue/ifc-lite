@@ -20,6 +20,7 @@
 //! - `GET /api/v1/cache/:key` - Retrieve cached result
 
 use axum::{
+    extract::DefaultBodyLimit,
     routing::{get, post},
     Router,
 };
@@ -93,6 +94,7 @@ async fn main() {
         // Cache endpoint
         .route("/api/v1/cache/{key}", get(routes::cache::get_cached))
         // Middleware
+        .layer(DefaultBodyLimit::max(config.max_file_size_mb * 1024 * 1024)) // Match max_file_size_mb
         .layer(TimeoutLayer::new(Duration::from_secs(
             config.request_timeout_secs,
         )))

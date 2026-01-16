@@ -20,10 +20,17 @@ use std::convert::Infallible;
 /// Extract file data from multipart request.
 async fn extract_file(multipart: &mut Multipart) -> Result<Vec<u8>, ApiError> {
     while let Some(field) = multipart.next_field().await? {
-        if field.name() == Some("file") {
-            return Ok(field.bytes().await?.to_vec());
+        let field_name = field.name().unwrap_or_default();
+        tracing::debug!(field_name = %field_name, "Processing multipart field");
+        
+        if field_name == "file" {
+            let bytes = field.bytes().await?;
+            tracing::debug!(size = bytes.len(), "Extracted file from multipart");
+            return Ok(bytes.to_vec());
         }
     }
+    
+    tracing::warn!("No 'file' field found in multipart request");
     Err(ApiError::MissingFile)
 }
 
@@ -95,10 +102,11 @@ pub async fn parse_stream(
     }
 
     let content = String::from_utf8(data)?;
-    let batch_size = state.config.batch_size;
+    let initial_batch_size = state.config.initial_batch_size;
+    let max_batch_size = state.config.max_batch_size;
 
-    // Create streaming response
-    let stream = process_streaming(content, batch_size).map(|event: StreamEvent| {
+    // Create streaming response with dynamic batch sizing
+    let stream = process_streaming(content, initial_batch_size, max_batch_size).map(|event: StreamEvent| {
         let json = serde_json::to_string(&event).unwrap_or_else(|e| {
             serde_json::to_string(&StreamEvent::Error {
                 message: e.to_string(),

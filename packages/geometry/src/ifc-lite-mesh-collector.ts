@@ -210,6 +210,43 @@ export class IfcLiteMeshCollector {
   }
 
   /**
+   * Collect meshes with dynamic batch sizing (ramp-up approach)
+   * Accumulates meshes from WASM and yields them in dynamically-sized batches
+   * @param getBatchSize Function that returns batch size for current batch number
+   */
+  async *collectMeshesStreamingDynamic(
+    getBatchSize: () => number
+  ): AsyncGenerator<MeshData[]> {
+    let batchNumber = 0;
+    let accumulatedMeshes: MeshData[] = [];
+    let currentBatchSize = getBatchSize();
+
+    // Use larger WASM batches to reduce callback overhead
+    // First frame responsiveness comes from WASM's internal simple/complex ordering
+    // For huge files (>100MB), use 500 to minimize callbacks (20x fewer than 25)
+    const wasmBatchSize = 500; // Larger batches = fewer callbacks = faster
+
+    for await (const wasmBatch of this.collectMeshesStreaming(wasmBatchSize)) {
+      accumulatedMeshes.push(...wasmBatch);
+
+      // Yield when we've accumulated enough for current dynamic batch size
+      while (accumulatedMeshes.length >= currentBatchSize) {
+        const batchToYield = accumulatedMeshes.splice(0, currentBatchSize);
+        yield batchToYield;
+        
+        // Update batch size for next batch
+        batchNumber++;
+        currentBatchSize = getBatchSize();
+      }
+    }
+
+    // Yield remaining meshes
+    if (accumulatedMeshes.length > 0) {
+      yield accumulatedMeshes;
+    }
+  }
+
+  /**
    * Collect instanced geometry incrementally, yielding batches for progressive rendering
    * Groups identical geometries by hash (before transformation) for GPU instancing
    * Uses fast-first-frame streaming: simple geometry (walls, slabs) first

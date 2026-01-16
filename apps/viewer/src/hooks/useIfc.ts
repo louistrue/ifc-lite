@@ -23,12 +23,32 @@ import {
 import { getCached, setCached } from '../services/ifc-cache.js';
 import { IfcTypeEnum, RelationshipType, type SpatialHierarchy, type SpatialNode, type EntityTable, type RelationshipGraph } from '@ifc-lite/data';
 import { IfcServerClient } from '@ifc-lite/server-client';
+import type { DynamicBatchConfig } from '@ifc-lite/geometry';
 
 // Minimum file size to cache (10MB) - smaller files parse quickly anyway
 const CACHE_SIZE_THRESHOLD = 10 * 1024 * 1024;
 
 // Server URL - can be set via environment variable or use default localhost
-const SERVER_URL = import.meta.env.VITE_IFC_SERVER_URL || 'http://localhost:8080';
+const SERVER_URL = import.meta.env.VITE_IFC_SERVER_URL || import.meta.env.VITE_SERVER_URL || 'http://localhost:8080';
+// Enable server by default (with graceful fallback if unavailable)
+// Set VITE_USE_SERVER=false to disable server parsing
+const USE_SERVER = import.meta.env.VITE_USE_SERVER !== 'false';
+
+/**
+ * Calculate dynamic batch config based on file size
+ */
+function getDynamicBatchConfig(fileSizeMB: number): DynamicBatchConfig {
+  if (fileSizeMB < 10) {
+    return { initialBatchSize: 50, maxBatchSize: 200, fileSizeMB };
+  } else if (fileSizeMB < 50) {
+    return { initialBatchSize: 100, maxBatchSize: 500, fileSizeMB };
+  } else if (fileSizeMB < 100) {
+    return { initialBatchSize: 100, maxBatchSize: 1000, fileSizeMB };
+  } else {
+    // HUGE files (100MB+): aggressive batching for maximum throughput
+    return { initialBatchSize: 100, maxBatchSize: 3000, fileSizeMB };
+  }
+}
 
 /**
  * Rebuild spatial hierarchy from cache data (entities + relationships)
@@ -215,13 +235,17 @@ export function useIfc() {
   ): Promise<boolean> => {
     try {
       console.time('[useIfc] cache-load');
+      const cacheLoadStart = performance.now();
       setProgress({ phase: 'Loading from cache', percent: 10 });
 
       // Reset geometry first so Viewport detects this as a new file
       setGeometryResult(null);
 
+      console.time('[useIfc] cache-read');
       const reader = new BinaryCacheReader();
       const result = await reader.read(cacheBuffer);
+      console.timeEnd('[useIfc] cache-read');
+      const cacheReadTime = performance.now() - cacheLoadStart;
 
       // Convert cache data store to viewer data store format
       const dataStore = result.dataStore as any;
@@ -269,8 +293,14 @@ export function useIfc() {
       }
 
       setProgress({ phase: 'Complete (from cache)', percent: 100 });
+      const totalCacheTime = performance.now() - cacheLoadStart;
       console.timeEnd('[useIfc] cache-load');
-      console.log(`[useIfc] INSTANT cache load: ${fileName} (${result.geometry?.meshes.length || 0} meshes)`);
+      console.log(
+        `[useIfc] INSTANT cache load: ${fileName} (${result.geometry?.meshes.length || 0} meshes)\n` +
+        `  Cache read: ${cacheReadTime.toFixed(0)}ms\n` +
+        `  Total time: ${totalCacheTime.toFixed(0)}ms\n` +
+        `  Expected: <2000ms for instant feel`
+      );
 
       return true;
     } catch (err) {
@@ -280,65 +310,77 @@ export function useIfc() {
   }, [setProgress, setIfcDataStore, setGeometryResult]);
 
   /**
-   * Load from server - uses server-side parsing for faster processing
+   * Load from server - uses server-side PARALLEL parsing for maximum speed
+   * Uses full parse endpoint (not streaming) for all-at-once parallel processing
    */
   const loadFromServer = useCallback(async (
     file: File,
     buffer: ArrayBuffer
   ): Promise<boolean> => {
     try {
+      const serverStart = performance.now();
       console.time('[useIfc] server-parse');
       setProgress({ phase: 'Connecting to server', percent: 5 });
 
       const client = new IfcServerClient({ baseUrl: SERVER_URL });
       
       // Check server health first
+      const healthStart = performance.now();
       try {
         await client.health();
+        const healthTime = performance.now() - healthStart;
+        console.log(`[useIfc] Server health check: ${healthTime.toFixed(0)}ms`);
       } catch (err) {
         console.warn('[useIfc] Server not available, falling back to local parsing:', err);
         return false;
       }
 
-      setProgress({ phase: 'Parsing on server', percent: 10 });
+      setProgress({ phase: 'Processing on server (parallel)', percent: 15 });
+      console.log(`[useIfc] Using FULL PARSE (parallel) - all geometry processed at once`);
 
-      // Use streaming parse for progressive rendering
-      const allMeshes: MeshData[] = [];
-      let coordinateInfo: any = null;
+      // Use FULL parse endpoint - processes ALL geometry in parallel on server
+      // This is faster than streaming because:
+      // 1. Server processes everything with Rayon par_iter (all CPU cores)
+      // 2. No sequential batch waiting
+      // 3. Single response with all meshes
+      const parseStart = performance.now();
+      const result = await client.parse(file);
+      const parseTime = performance.now() - parseStart;
 
-      for await (const event of client.parseStream(file)) {
-        switch (event.type) {
-          case 'start':
-            setProgress({ phase: 'Server processing', percent: 15 });
-            console.log(`[useIfc] Server processing started, estimated: ${event.total_estimate}`);
-            break;
-          case 'progress':
-            const progressPercent = 15 + Math.min(70, (event.processed / event.total) * 70);
-            setProgress({ phase: 'Server processing', percent: progressPercent });
-            break;
-          case 'batch':
-            // Convert server mesh format to viewer format
-            const meshes: MeshData[] = event.meshes.map((m: any) => ({
-              expressId: m.express_id,
-              positions: new Float32Array(m.positions),
-              indices: new Uint32Array(m.indices),
-              normals: m.normals ? new Float32Array(m.normals) : undefined,
-              color: m.color ? new Uint8Array(m.color) : undefined,
-            }));
-            allMeshes.push(...meshes);
-            coordinateInfo = event.coordinate_info;
-            appendGeometryBatch(meshes, coordinateInfo);
-            break;
-          case 'complete':
-            console.log(`[useIfc] Server parse complete: ${event.stats.total_time_ms}ms`);
-            break;
-          case 'error':
-            throw new Error(event.message);
-        }
-      }
+      console.log(`[useIfc] Server parse response received in ${parseTime.toFixed(0)}ms`);
+      console.log(`  Server stats: ${result.stats.total_time_ms}ms total (parse: ${result.stats.parse_time_ms}ms, geometry: ${result.stats.geometry_time_ms}ms)`);
+      console.log(`  Meshes: ${result.meshes.length}, Vertices: ${result.stats.total_vertices}, Triangles: ${result.stats.total_triangles}`);
+      console.log(`  Cache key: ${result.cache_key}`);
+
+      setProgress({ phase: 'Converting meshes', percent: 70 });
+
+      // Convert server mesh format to viewer format
+      // NOTE: Server sends colors as floats [0-1], viewer expects bytes [0-255]
+      const convertStart = performance.now();
+      const allMeshes: MeshData[] = result.meshes.map((m: any) => ({
+        expressId: m.express_id,
+        positions: new Float32Array(m.positions),
+        indices: new Uint32Array(m.indices),
+        normals: m.normals ? new Float32Array(m.normals) : undefined,
+        color: m.color ? new Uint8Array(m.color.map((c: number) => Math.round(c * 255))) : undefined,
+      }));
+      const convertTime = performance.now() - convertStart;
+      console.log(`[useIfc] Mesh conversion: ${convertTime.toFixed(0)}ms for ${allMeshes.length} meshes`);
+
+      // Set all geometry at once
+      setProgress({ phase: 'Rendering geometry', percent: 80 });
+      const renderStart = performance.now();
+      setGeometryResult({
+        meshes: allMeshes,
+        totalVertices: result.stats.total_vertices,
+        totalTriangles: result.stats.total_triangles,
+        coordinateInfo: result.metadata.coordinate_info,
+      });
+      const renderTime = performance.now() - renderStart;
+      console.log(`[useIfc] Geometry set: ${renderTime.toFixed(0)}ms`);
 
       // Parse data model locally for UI (entities, properties, etc.)
-      setProgress({ phase: 'Loading data model', percent: 90 });
+      setProgress({ phase: 'Loading data model', percent: 85 });
       const parser = new IfcParser();
       const dataStore = await parser.parseColumnar(buffer, {
         onProgress: (prog) => {
@@ -354,15 +396,18 @@ export function useIfc() {
 
       setIfcDataStore(dataStore);
       setProgress({ phase: 'Complete', percent: 100 });
+      const totalServerTime = performance.now() - serverStart;
       console.timeEnd('[useIfc] server-parse');
-      console.log(`[useIfc] Server parse complete: ${file.name} (${allMeshes.length} meshes)`);
+      console.log(`[useIfc] SERVER PARALLEL complete: ${file.name}`);
+      console.log(`  Total time: ${totalServerTime.toFixed(0)}ms`);
+      console.log(`  Breakdown: health=${(healthStart - serverStart).toFixed(0)}ms, parse=${parseTime.toFixed(0)}ms, convert=${convertTime.toFixed(0)}ms, render=${renderTime.toFixed(0)}ms`);
 
       return true;
     } catch (err) {
       console.error('[useIfc] Server parse failed:', err);
       return false;
     }
-  }, [setProgress, setIfcDataStore, appendGeometryBatch]);
+  }, [setProgress, setIfcDataStore, setGeometryResult]);
 
   /**
    * Save to binary cache (background operation)
@@ -439,10 +484,13 @@ export function useIfc() {
         }
       }
 
-      // Try server parsing first (if server URL is configured)
-      if (SERVER_URL && SERVER_URL !== '') {
+      // Try server parsing first (enabled by default for multi-core performance)
+      if (USE_SERVER && SERVER_URL && SERVER_URL !== '') {
         setProgress({ phase: 'Trying server', percent: 8 });
-        const serverSuccess = await loadFromServer(file, buffer);
+        console.log(`[useIfc] Sending ${file.name} (${(buffer.byteLength / (1024 * 1024)).toFixed(2)}MB) to server at ${SERVER_URL}`);
+        // Clone buffer for server parsing (prevents detachment if server fails)
+        const bufferForServer = buffer.slice(0);
+        const serverSuccess = await loadFromServer(file, bufferForServer);
         if (serverSuccess) {
           setLoading(false);
           return;
@@ -452,6 +500,7 @@ export function useIfc() {
       }
 
       // Cache miss - start geometry streaming IMMEDIATELY
+      // Use original buffer (not detached)
       setProgress({ phase: 'Starting geometry streaming', percent: 10 });
 
       // Initialize geometry processor first (WASM init is fast if already loaded)
@@ -461,10 +510,11 @@ export function useIfc() {
       });
       await geometryProcessor.init();
 
-      // Start data model parsing in PARALLEL (non-blocking)
+      // Start data model parsing in parallel (non-blocking)
       // This parses entities, properties, relationships for the UI panels
+      // Use IfcParser directly - it has async yields every 500 entities so won't block geometry
       const parser = new IfcParser();
-      const dataStorePromise = parser.parseColumnar(buffer, {
+      const dataStorePromise = parser.parseColumnar(buffer.slice(0), {
         onProgress: (prog) => {
           // Update progress in background - don't block geometry
           console.log(`[useIfc] Data model: ${prog.phase} ${prog.percent.toFixed(0)}%`);
@@ -505,9 +555,12 @@ export function useIfc() {
         console.log(`[useIfc] Starting geometry streaming IMMEDIATELY (file size: ${fileSizeMB.toFixed(2)}MB)...`);
         console.time('[useIfc] total-processing');
 
+        // Use dynamic batch sizing for optimal throughput
+        const dynamicBatchConfig = getDynamicBatchConfig(fileSizeMB);
+        
         for await (const event of geometryProcessor.processAdaptive(new Uint8Array(buffer), {
           sizeThreshold: 2 * 1024 * 1024, // 2MB threshold
-          batchSize: 100, // Large batches for maximum throughput
+          batchSize: dynamicBatchConfig, // Dynamic batches: small first, then large
         })) {
           const eventReceived = performance.now();
           const waitTime = eventReceived - lastBatchTime;

@@ -174,10 +174,37 @@ fn process_batch(
         .collect()
 }
 
-/// Generate streaming geometry events.
+/// Calculate dynamic batch size based on batch number and total job count.
+/// For large files, use much larger batches to maximize parallel throughput.
+fn calculate_batch_size(
+    batch_number: usize, 
+    initial_batch_size: usize, 
+    max_batch_size: usize,
+    total_jobs: usize,
+) -> usize {
+    // For huge files (>100k jobs), use aggressive batching
+    let adjusted_max = if total_jobs > 100_000 {
+        // Scale max batch size with file size: 5000-10000 entities per batch
+        (max_batch_size * 10).min(10_000)
+    } else if total_jobs > 10_000 {
+        // Medium files: 1000-5000 entities per batch
+        (max_batch_size * 5).min(5_000)
+    } else {
+        max_batch_size
+    };
+    
+    match batch_number {
+        1..=3 => initial_batch_size,                    // Fast first frame
+        4..=10 => (initial_batch_size + adjusted_max) / 2,  // Ramp up
+        _ => adjusted_max,                              // Full throughput
+    }
+}
+
+/// Generate streaming geometry events with dynamic batch sizing.
 pub fn process_streaming(
     content: String,
-    batch_size: usize,
+    initial_batch_size: usize,
+    max_batch_size: usize,
 ) -> Pin<Box<dyn Stream<Item = StreamEvent> + Send>> {
     Box::pin(stream! {
         let total_start = std::time::Instant::now();
@@ -216,9 +243,26 @@ pub fn process_streaming(
         let mut total_vertices = 0usize;
         let mut total_triangles = 0usize;
 
-        // Process in batches
-        for chunk in prepared.jobs.chunks(batch_size) {
-            let chunk_vec: Vec<EntityJob> = chunk.to_vec();
+        // Process in batches with dynamic sizing
+        // For large files, use much larger batches to maximize parallel throughput
+        let mut job_index = 0;
+        while job_index < prepared.jobs.len() {
+            // Calculate batch size for this batch number (scaled by total jobs)
+            let current_batch_size = calculate_batch_size(
+                batch_number + 1, 
+                initial_batch_size, 
+                max_batch_size,
+                total_jobs,
+            );
+            let end_index = (job_index + current_batch_size).min(prepared.jobs.len());
+            let chunk: Vec<EntityJob> = prepared.jobs[job_index..end_index].to_vec();
+            job_index = end_index;
+            
+            // Store values before moving into closure
+            let chunk_len = chunk.len();
+            let last_type_name = chunk.last().map(|j| j.type_name.clone()).unwrap_or_default();
+            
+            let chunk_vec = chunk;
             let content_clone = prepared.content.clone();
             let index_clone = prepared.entity_index.clone();
             let void_clone = prepared.void_index.clone();
@@ -239,7 +283,7 @@ pub fn process_streaming(
                 }
             };
 
-            total_processed += chunk.len();
+            total_processed += chunk_len;
             batch_number += 1;
 
             // Update stats
@@ -259,7 +303,7 @@ pub fn process_streaming(
             yield StreamEvent::Progress {
                 processed: total_processed,
                 total: total_jobs,
-                current_type: chunk.last().map(|j| j.type_name.clone()).unwrap_or_default(),
+                current_type: last_type_name,
             };
         }
 

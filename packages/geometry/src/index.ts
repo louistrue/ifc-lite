@@ -55,6 +55,36 @@ export interface GeometryProcessorOptions {
   quality?: GeometryQuality; // Default: Balanced
 }
 
+/**
+ * Dynamic batch configuration for ramp-up streaming
+ * Starts with small batches for fast first frame, ramps up for throughput
+ */
+export interface DynamicBatchConfig {
+  /** Initial batch size for first 3 batches (default: 50) */
+  initialBatchSize?: number;
+  /** Maximum batch size for batches 11+ (default: 500) */
+  maxBatchSize?: number;
+  /** File size in MB for adaptive sizing (optional) */
+  fileSizeMB?: number;
+}
+
+/**
+ * Calculate dynamic batch size based on batch number
+ */
+export function calculateDynamicBatchSize(
+  batchNumber: number,
+  initialBatchSize: number = 50,
+  maxBatchSize: number = 500
+): number {
+  if (batchNumber <= 3) {
+    return initialBatchSize; // Fast first frame
+  } else if (batchNumber <= 6) {
+    return Math.floor((initialBatchSize + maxBatchSize) / 2); // Quick ramp
+  } else {
+    return maxBatchSize; // Full throughput earlier
+  }
+}
+
 export type StreamingGeometryEvent =
   | { type: 'start'; totalEstimate: number }
   | { type: 'model-open'; modelID: number }
@@ -186,12 +216,12 @@ export class GeometryProcessor {
    * Uses IFC-Lite for native Rust geometry processing (1.9x faster)
    * @param buffer IFC file buffer
    * @param entityIndex Optional entity index for priority-based loading
-   * @param batchSize Number of meshes per batch (default: 100)
+   * @param batchConfig Dynamic batch configuration or fixed batch size
    */
   async *processStreaming(
     buffer: Uint8Array,
     _entityIndex?: Map<number, any>,
-    batchSize: number = 25  // Reduced from 100 for faster first frame
+    batchConfig: number | DynamicBatchConfig = 25
   ): AsyncGenerator<StreamingGeometryEvent> {
     if (!this.bridge.isInitialized()) {
       await this.init();
@@ -217,7 +247,18 @@ export class GeometryProcessor {
     const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
     let totalMeshes = 0;
 
-    for await (const batch of collector.collectMeshesStreaming(batchSize)) {
+    // Determine optimal WASM batch size based on file size
+    // Larger batches = fewer callbacks = faster processing
+    const fileSizeMB = typeof batchConfig !== 'number' && batchConfig.fileSizeMB
+      ? batchConfig.fileSizeMB
+      : buffer.length / (1024 * 1024);
+    
+    // Use WASM batches directly - no JS accumulation layer
+    // WASM already prioritizes simple geometry (walls, slabs) for fast first frame
+    const wasmBatchSize = fileSizeMB < 10 ? 100 : fileSizeMB < 50 ? 200 : fileSizeMB < 100 ? 300 : 500;
+
+    // Use WASM batches directly for maximum throughput
+    for await (const batch of collector.collectMeshesStreaming(wasmBatchSize)) {
       // Process coordinate shifts incrementally (will accumulate bounds)
       this.coordinateHandler.processMeshesIncremental(batch);
       totalMeshes += batch.length;
@@ -327,12 +368,12 @@ export class GeometryProcessor {
     buffer: Uint8Array,
     options: {
       sizeThreshold?: number;
-      batchSize?: number;
+      batchSize?: number | DynamicBatchConfig;
       entityIndex?: Map<number, any>;
     } = {}
   ): AsyncGenerator<StreamingGeometryEvent> {
     const sizeThreshold = options.sizeThreshold ?? 2 * 1024 * 1024; // Default 2MB
-    const batchSize = options.batchSize ?? 25;
+    const batchConfig = options.batchSize ?? 25;
 
     if (!this.bridge.isInitialized()) {
       await this.init();
@@ -369,7 +410,7 @@ export class GeometryProcessor {
     } else {
       // Large files: Stream for fast first frame
       // processStreaming will emit its own start and model-open events
-      yield* this.processStreaming(buffer, options.entityIndex, batchSize);
+      yield* this.processStreaming(buffer, options.entityIndex, batchConfig);
     }
   }
 

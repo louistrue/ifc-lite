@@ -17,7 +17,11 @@ pub struct Config {
     pub request_timeout_secs: u64,
     /// Number of worker threads for parallel processing.
     pub worker_threads: usize,
-    /// Batch size for streaming responses.
+    /// Initial batch size for fast first frame (first 3 batches).
+    pub initial_batch_size: usize,
+    /// Maximum batch size for throughput (batches 11+).
+    pub max_batch_size: usize,
+    /// Batch size for streaming responses (deprecated, use dynamic sizing).
     pub batch_size: usize,
     /// Maximum cache age in days.
     pub cache_max_age_days: u64,
@@ -44,10 +48,18 @@ impl Config {
                 .unwrap_or_else(|_| num_cpus::get().to_string())
                 .parse()
                 .unwrap_or_else(|_| num_cpus::get()),
-            batch_size: std::env::var("BATCH_SIZE")
-                .unwrap_or_else(|_| "50".into())
+            initial_batch_size: std::env::var("INITIAL_BATCH_SIZE")
+                .unwrap_or_else(|_| "100".into())
                 .parse()
-                .unwrap_or(50),
+                .unwrap_or(100),
+            max_batch_size: std::env::var("MAX_BATCH_SIZE")
+                .unwrap_or_else(|_| "1000".into())
+                .parse()
+                .unwrap_or(1000),
+            batch_size: std::env::var("BATCH_SIZE")
+                .unwrap_or_else(|_| "200".into())
+                .parse()
+                .unwrap_or(200),
             cache_max_age_days: std::env::var("CACHE_MAX_AGE_DAYS")
                 .unwrap_or_else(|_| "7".into())
                 .parse()
