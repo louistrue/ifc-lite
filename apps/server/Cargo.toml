@@ -1,0 +1,60 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+[package]
+name = "ifc-lite-server"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "High-performance IFC processing server for Railway deployment"
+keywords = ["ifc", "bim", "server", "aec", "api"]
+categories = ["web-programming", "parsing"]
+
+[dependencies]
+# Web framework
+axum = { version = "0.7", features = ["multipart", "tokio"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "timeout", "limit"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# IFC processing (workspace crates)
+ifc-lite-core = { path = "../../rust/core" }
+ifc-lite-geometry = { path = "../../rust/geometry" }
+
+# Parallelism
+rayon = "1.10"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Streaming
+tokio-stream = "0.1"
+futures = "0.3"
+async-stream = "0.3"
+
+# Caching
+cacache = "13"
+
+# Hashing
+sha2 = "0.10"
+hex = "0.4"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Fast hashing (for style index) - must match ifc-lite-geometry version
+rustc-hash = "1.1"
+
+# CPU count
+num_cpus = "1.16"

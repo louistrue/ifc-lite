@@ -1,0 +1,63 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+//! Server configuration loaded from environment variables.
+
+/// Server configuration.
+#[derive(Debug, Clone)]
+pub struct Config {
+    /// Port to listen on.
+    pub port: u16,
+    /// Directory for cache storage.
+    pub cache_dir: String,
+    /// Maximum file size in MB.
+    pub max_file_size_mb: usize,
+    /// Request timeout in seconds.
+    pub request_timeout_secs: u64,
+    /// Number of worker threads for parallel processing.
+    pub worker_threads: usize,
+    /// Batch size for streaming responses.
+    pub batch_size: usize,
+    /// Maximum cache age in days.
+    pub cache_max_age_days: u64,
+}
+
+impl Config {
+    /// Load configuration from environment variables.
+    pub fn from_env() -> Self {
+        Self {
+            port: std::env::var("PORT")
+                .unwrap_or_else(|_| "8080".into())
+                .parse()
+                .unwrap_or(8080),
+            cache_dir: std::env::var("CACHE_DIR").unwrap_or_else(|_| "/app/cache".into()),
+            max_file_size_mb: std::env::var("MAX_FILE_SIZE_MB")
+                .unwrap_or_else(|_| "500".into())
+                .parse()
+                .unwrap_or(500),
+            request_timeout_secs: std::env::var("REQUEST_TIMEOUT_SECS")
+                .unwrap_or_else(|_| "300".into())
+                .parse()
+                .unwrap_or(300),
+            worker_threads: std::env::var("WORKER_THREADS")
+                .unwrap_or_else(|_| num_cpus::get().to_string())
+                .parse()
+                .unwrap_or_else(|_| num_cpus::get()),
+            batch_size: std::env::var("BATCH_SIZE")
+                .unwrap_or_else(|_| "50".into())
+                .parse()
+                .unwrap_or(50),
+            cache_max_age_days: std::env::var("CACHE_MAX_AGE_DAYS")
+                .unwrap_or_else(|_| "7".into())
+                .parse()
+                .unwrap_or(7),
+        }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::from_env()
+    }
+}

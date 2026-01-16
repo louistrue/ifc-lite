@@ -1,0 +1,37 @@
+# Build artifacts
+target/
+*.rs.bk
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Node modules (from other packages)
+node_modules/
+packages/*/node_modules/
+apps/viewer/node_modules/
+
+# Test files
+tests/
+**/*.test.ts
+**/*.spec.ts
+
+# Development files
+.env
+.env.local
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db

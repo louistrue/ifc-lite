@@ -1,0 +1,12 @@
+# Railway deployment configuration for IFC-Lite Server
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "apps/server/Dockerfile"
+
+[deploy]
+numReplicas = 1
+healthcheckPath = "/api/v1/health"
+healthcheckTimeout = 10
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3

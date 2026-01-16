@@ -1,0 +1,106 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+//! IFC-Lite Server - High-performance IFC processing server.
+//!
+//! This server provides a REST API for parsing IFC files and extracting
+//! geometry. It supports:
+//!
+//! - Full synchronous parsing with caching
+//! - Streaming Server-Sent Events for progressive rendering
+//! - Quick metadata extraction without geometry processing
+//!
+//! # Endpoints
+//!
+//! - `GET /api/v1/health` - Health check
+//! - `POST /api/v1/parse` - Full parse with all geometry
+//! - `POST /api/v1/parse/stream` - Streaming parse (SSE)
+//! - `POST /api/v1/parse/metadata` - Quick metadata only
+//! - `GET /api/v1/cache/:key` - Retrieve cached result
+
+use axum::{
+    routing::{get, post},
+    Router,
+};
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::Duration;
+use tower_http::{cors::CorsLayer, timeout::TimeoutLayer, trace::TraceLayer};
+
+mod config;
+mod error;
+mod middleware;
+mod routes;
+mod services;
+mod types;
+
+use config::Config;
+use services::cache::DiskCache;
+
+/// Application state shared across handlers.
+#[derive(Clone)]
+pub struct AppState {
+    pub cache: Arc<DiskCache>,
+    pub config: Arc<Config>,
+}
+
+#[tokio::main]
+async fn main() {
+    // Initialize logging
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "info,tower_http=debug".into()),
+        )
+        .json()
+        .init();
+
+    let config = Config::from_env();
+
+    tracing::info!(
+        port = config.port,
+        cache_dir = %config.cache_dir,
+        max_file_size_mb = config.max_file_size_mb,
+        worker_threads = config.worker_threads,
+        batch_size = config.batch_size,
+        "Starting IFC-Lite Server"
+    );
+
+    // Initialize rayon thread pool
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(config.worker_threads)
+        .build_global()
+        .expect("Failed to initialize rayon thread pool");
+
+    // Initialize cache
+    let cache = Arc::new(DiskCache::new(&config.cache_dir).await);
+
+    let state = AppState {
+        cache,
+        config: Arc::new(config.clone()),
+    };
+
+    // Build router
+    let app = Router::new()
+        // Health check
+        .route("/api/v1/health", get(routes::health::check))
+        // Parse endpoints
+        .route("/api/v1/parse", post(routes::parse::parse_full))
+        .route("/api/v1/parse/stream", post(routes::parse::parse_stream))
+        .route("/api/v1/parse/metadata", post(routes::parse::parse_metadata))
+        // Cache endpoint
+        .route("/api/v1/cache/{key}", get(routes::cache::get_cached))
+        // Middleware
+        .layer(TimeoutLayer::new(Duration::from_secs(
+            config.request_timeout_secs,
+        )))
+        .layer(TraceLayer::new_for_http())
+        .layer(CorsLayer::permissive())
+        .with_state(state);
+
+    let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
+    tracing::info!("Listening on http://{}", addr);
+
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
+}
