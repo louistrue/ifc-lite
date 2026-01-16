@@ -221,3 +221,58 @@ export interface ParquetParseResponse {
     decode_time_ms: number;
   };
 }
+
+/**
+ * Optimization statistics from the server.
+ */
+export interface OptimizationStats {
+  /** Number of input meshes before deduplication */
+  input_meshes: number;
+  /** Number of unique meshes after deduplication */
+  unique_meshes: number;
+  /** Number of unique materials */
+  unique_materials: number;
+  /** Mesh reuse ratio (higher = more instancing benefit) */
+  mesh_reuse_ratio: number;
+  /** Whether normals are included in the response */
+  has_normals: boolean;
+}
+
+/**
+ * Metadata header from optimized Parquet response.
+ */
+export interface OptimizedParquetMetadataHeader {
+  /** Cache key for this result */
+  cache_key: string;
+  /** Model metadata */
+  metadata: ModelMetadata;
+  /** Processing statistics */
+  stats: ProcessingStats;
+  /** Optimization statistics */
+  optimization_stats: OptimizationStats;
+  /** Vertex multiplier for dequantization (default: 10000 = 0.1mm precision) */
+  vertex_multiplier: number;
+}
+
+/**
+ * Optimized Parquet parse response with ara3d BOS-compatible format.
+ */
+export interface OptimizedParquetParseResponse {
+  /** Cache key for this result */
+  cache_key: string;
+  /** All meshes extracted from the IFC file */
+  meshes: MeshData[];
+  /** Model metadata */
+  metadata: ModelMetadata;
+  /** Processing statistics */
+  stats: ProcessingStats;
+  /** Optimization statistics */
+  optimization_stats: OptimizationStats;
+  /** Transfer/decode stats */
+  parquet_stats: {
+    /** Size of Parquet payload in bytes */
+    payload_size: number;
+    /** Time spent decoding Parquet (ms) */
+    decode_time_ms: number;
+  };
+}

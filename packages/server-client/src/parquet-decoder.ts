@@ -173,3 +173,230 @@ export async function isParquetAvailable(): Promise<boolean> {
     return false;
   }
 }
+
+// ============================================================================
+// OPTIMIZED FORMAT (ara3d BOS-compatible)
+// ============================================================================
+
+/**
+ * Decode an optimized Parquet geometry response (ara3d BOS format).
+ *
+ * Binary format:
+ * - [version:u8][flags:u8]
+ * - [instance_len:u32][mesh_len:u32][material_len:u32][vertex_len:u32][index_len:u32]
+ * - [instance_parquet][mesh_parquet][material_parquet][vertex_parquet][index_parquet]
+ *
+ * Key features:
+ * - Integer quantized vertices (multiply by vertex_multiplier to get meters)
+ * - Mesh instancing (deduplicated geometry)
+ * - Byte colors (0-255)
+ * - Optional normals (compute on client if not present)
+ *
+ * @param data - Binary optimized Parquet response from server
+ * @param vertexMultiplier - Multiplier for vertex dequantization (default: 10000)
+ * @returns Decoded MeshData array
+ */
+export async function decodeOptimizedParquetGeometry(
+  data: ArrayBuffer,
+  vertexMultiplier: number = 10000
+): Promise<MeshData[]> {
+  // @ts-ignore - parquet-wasm types may not be available
+  const parquet = await import('parquet-wasm');
+  // @ts-ignore - Apache Arrow types
+  const arrow = await import('apache-arrow');
+
+  const view = new DataView(data);
+  let offset = 0;
+
+  // Read header
+  const version = view.getUint8(offset);
+  offset += 1;
+  if (version !== 2) {
+    throw new Error(`Unsupported optimized Parquet version: ${version}`);
+  }
+
+  const flags = view.getUint8(offset);
+  offset += 1;
+  const hasNormals = (flags & 1) !== 0;
+
+  // Read table lengths
+  const instanceLen = view.getUint32(offset, true);
+  offset += 4;
+  const meshLen = view.getUint32(offset, true);
+  offset += 4;
+  const materialLen = view.getUint32(offset, true);
+  offset += 4;
+  const vertexLen = view.getUint32(offset, true);
+  offset += 4;
+  const indexLen = view.getUint32(offset, true);
+  offset += 4;
+
+  // Read Parquet tables
+  const instanceData = new Uint8Array(data, offset, instanceLen);
+  offset += instanceLen;
+  const meshData = new Uint8Array(data, offset, meshLen);
+  offset += meshLen;
+  const materialData = new Uint8Array(data, offset, materialLen);
+  offset += materialLen;
+  const vertexData = new Uint8Array(data, offset, vertexLen);
+  offset += vertexLen;
+  const indexData = new Uint8Array(data, offset, indexLen);
+
+  // Parse Parquet tables
+  // @ts-ignore
+  const instanceTable = parquet.readParquet(instanceData);
+  // @ts-ignore
+  const meshTable = parquet.readParquet(meshData);
+  // @ts-ignore
+  const materialTable = parquet.readParquet(materialData);
+  // @ts-ignore
+  const vertexTable = parquet.readParquet(vertexData);
+  // @ts-ignore
+  const indexTable = parquet.readParquet(indexData);
+
+  // Convert to Arrow
+  // @ts-ignore
+  const instanceArrow = arrow.tableFromIPC(instanceTable.intoIPCStream());
+  // @ts-ignore
+  const meshArrow = arrow.tableFromIPC(meshTable.intoIPCStream());
+  // @ts-ignore
+  const materialArrow = arrow.tableFromIPC(materialTable.intoIPCStream());
+  // @ts-ignore
+  const vertexArrow = arrow.tableFromIPC(vertexTable.intoIPCStream());
+  // @ts-ignore
+  const indexArrow = arrow.tableFromIPC(indexTable.intoIPCStream());
+
+  // Extract instance columns
+  const entityIds = instanceArrow.getChild('entity_id')?.toArray() as Uint32Array;
+  const ifcTypes = instanceArrow.getChild('ifc_type');
+  const meshIndices = instanceArrow.getChild('mesh_index')?.toArray() as Uint32Array;
+  const materialIndices = instanceArrow.getChild('material_index')?.toArray() as Uint32Array;
+
+  // Extract mesh columns
+  const meshVertexOffsets = meshArrow.getChild('vertex_offset')?.toArray() as Uint32Array;
+  const meshVertexCounts = meshArrow.getChild('vertex_count')?.toArray() as Uint32Array;
+  const meshIndexOffsets = meshArrow.getChild('index_offset')?.toArray() as Uint32Array;
+  const meshIndexCounts = meshArrow.getChild('index_count')?.toArray() as Uint32Array;
+
+  // Extract material columns (bytes 0-255)
+  const matR = materialArrow.getChild('r')?.toArray() as Uint8Array;
+  const matG = materialArrow.getChild('g')?.toArray() as Uint8Array;
+  const matB = materialArrow.getChild('b')?.toArray() as Uint8Array;
+  const matA = materialArrow.getChild('a')?.toArray() as Uint8Array;
+
+  // Extract vertex columns (quantized integers)
+  const vertexX = vertexArrow.getChild('x')?.toArray() as Int32Array;
+  const vertexY = vertexArrow.getChild('y')?.toArray() as Int32Array;
+  const vertexZ = vertexArrow.getChild('z')?.toArray() as Int32Array;
+  const normalX = hasNormals ? (vertexArrow.getChild('nx')?.toArray() as Float32Array) : null;
+  const normalY = hasNormals ? (vertexArrow.getChild('ny')?.toArray() as Float32Array) : null;
+  const normalZ = hasNormals ? (vertexArrow.getChild('nz')?.toArray() as Float32Array) : null;
+
+  // Extract index column
+  const indices = indexArrow.getChild('i')?.toArray() as Uint32Array;
+
+  // Reconstruct MeshData array from instances
+  const instanceCount = entityIds.length;
+  const meshes: MeshData[] = new Array(instanceCount);
+  const dequantMultiplier = 1.0 / vertexMultiplier;
+
+  for (let i = 0; i < instanceCount; i++) {
+    const meshIdx = meshIndices[i];
+    const materialIdx = materialIndices[i];
+
+    const vertexOffset = meshVertexOffsets[meshIdx];
+    const vertexCount = meshVertexCounts[meshIdx];
+    const indexOffset = meshIndexOffsets[meshIdx];
+    const indexCount = meshIndexCounts[meshIdx];
+
+    // Dequantize and reconstruct positions
+    const positions = new Array<number>(vertexCount * 3);
+    for (let v = 0; v < vertexCount; v++) {
+      const srcIdx = vertexOffset + v;
+      positions[v * 3] = vertexX[srcIdx] * dequantMultiplier;
+      positions[v * 3 + 1] = vertexY[srcIdx] * dequantMultiplier;
+      positions[v * 3 + 2] = vertexZ[srcIdx] * dequantMultiplier;
+    }
+
+    // Reconstruct normals (or compute if not present)
+    let normals: number[];
+    if (hasNormals && normalX && normalY && normalZ) {
+      normals = new Array<number>(vertexCount * 3);
+      for (let v = 0; v < vertexCount; v++) {
+        const srcIdx = vertexOffset + v;
+        normals[v * 3] = normalX[srcIdx];
+        normals[v * 3 + 1] = normalY[srcIdx];
+        normals[v * 3 + 2] = normalZ[srcIdx];
+      }
+    } else {
+      // Compute flat normals from triangle faces
+      normals = computeFlatNormals(positions, indices.slice(indexOffset, indexOffset + indexCount));
+    }
+
+    // Reconstruct indices (relative to this mesh's vertices)
+    const meshIndicesArray = new Array<number>(indexCount);
+    for (let j = 0; j < indexCount; j++) {
+      meshIndicesArray[j] = indices[indexOffset + j];
+    }
+
+    // Convert byte colors to float [0-1]
+    meshes[i] = {
+      express_id: entityIds[i],
+      ifc_type: ifcTypes?.get(i) ?? 'Unknown',
+      positions,
+      normals,
+      indices: meshIndicesArray,
+      color: [matR[materialIdx] / 255, matG[materialIdx] / 255, matB[materialIdx] / 255, matA[materialIdx] / 255],
+    };
+  }
+
+  return meshes;
+}
+
+/**
+ * Compute flat normals for a mesh from positions and indices.
+ * Each triangle face gets a uniform normal.
+ */
+function computeFlatNormals(positions: number[], indices: number[] | Uint32Array): number[] {
+  const vertexCount = positions.length / 3;
+  const normals = new Array<number>(vertexCount * 3).fill(0);
+  const triangleCount = indices.length / 3;
+
+  for (let t = 0; t < triangleCount; t++) {
+    const i0 = indices[t * 3];
+    const i1 = indices[t * 3 + 1];
+    const i2 = indices[t * 3 + 2];
+
+    // Get triangle vertices
+    const ax = positions[i0 * 3], ay = positions[i0 * 3 + 1], az = positions[i0 * 3 + 2];
+    const bx = positions[i1 * 3], by = positions[i1 * 3 + 1], bz = positions[i1 * 3 + 2];
+    const cx = positions[i2 * 3], cy = positions[i2 * 3 + 1], cz = positions[i2 * 3 + 2];
+
+    // Compute edge vectors
+    const e1x = bx - ax, e1y = by - ay, e1z = bz - az;
+    const e2x = cx - ax, e2y = cy - ay, e2z = cz - az;
+
+    // Cross product
+    const nx = e1y * e2z - e1z * e2y;
+    const ny = e1z * e2x - e1x * e2z;
+    const nz = e1x * e2y - e1y * e2x;
+
+    // Accumulate normals (will normalize later)
+    normals[i0 * 3] += nx; normals[i0 * 3 + 1] += ny; normals[i0 * 3 + 2] += nz;
+    normals[i1 * 3] += nx; normals[i1 * 3 + 1] += ny; normals[i1 * 3 + 2] += nz;
+    normals[i2 * 3] += nx; normals[i2 * 3 + 1] += ny; normals[i2 * 3 + 2] += nz;
+  }
+
+  // Normalize
+  for (let v = 0; v < vertexCount; v++) {
+    const x = normals[v * 3], y = normals[v * 3 + 1], z = normals[v * 3 + 2];
+    const len = Math.sqrt(x * x + y * y + z * z);
+    if (len > 0) {
+      normals[v * 3] /= len;
+      normals[v * 3 + 1] /= len;
+      normals[v * 3 + 2] /= len;
+    }
+  }
+
+  return normals;
+}

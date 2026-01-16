@@ -30,4 +30,4 @@
 
 export * from './client';
 export * from './types';
-export { decodeParquetGeometry, isParquetAvailable } from './parquet-decoder';
+export { decodeParquetGeometry, decodeOptimizedParquetGeometry, isParquetAvailable } from './parquet-decoder';

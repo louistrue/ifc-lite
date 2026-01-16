@@ -6,13 +6,15 @@ import type {
   ErrorResponse,
   HealthResponse,
   MetadataResponse,
+  OptimizedParquetMetadataHeader,
+  OptimizedParquetParseResponse,
   ParquetMetadataHeader,
   ParquetParseResponse,
   ParseResponse,
   ServerConfig,
   StreamEvent,
 } from './types';
-import { decodeParquetGeometry, isParquetAvailable } from './parquet-decoder';
+import { decodeParquetGeometry, decodeOptimizedParquetGeometry, isParquetAvailable } from './parquet-decoder';
 
 /**
  * Client for the IFC-Lite Server API.
@@ -187,6 +189,86 @@ export class IfcServerClient {
    */
   async isParquetSupported(): Promise<boolean> {
     return isParquetAvailable();
+  }
+
+  /**
+   * Parse IFC file using the ara3d BOS-optimized Parquet format.
+   *
+   * This is the most efficient transfer format, providing:
+   * - ~50x smaller payloads compared to JSON
+   * - Integer quantized vertices (0.1mm precision)
+   * - Mesh deduplication (instancing)
+   * - Byte colors instead of floats
+   * - Optional normals (computed on client if not included)
+   *
+   * **Requirements:** Requires `parquet-wasm` and `apache-arrow`.
+   *
+   * @param file - File or ArrayBuffer containing IFC data
+   * @returns Parse result with all meshes (decoded from optimized Parquet)
+   *
+   * @example
+   * ```typescript
+   * const result = await client.parseParquetOptimized(file);
+   * console.log(`Unique meshes: ${result.optimization_stats.unique_meshes}`);
+   * console.log(`Mesh reuse ratio: ${result.optimization_stats.mesh_reuse_ratio}x`);
+   * console.log(`Payload: ${result.parquet_stats.payload_size} bytes`);
+   * ```
+   */
+  async parseParquetOptimized(file: File | ArrayBuffer): Promise<OptimizedParquetParseResponse> {
+    // Check if Parquet decoding is available
+    const parquetReady = await isParquetAvailable();
+    if (!parquetReady) {
+      throw new Error(
+        'Parquet parsing requires parquet-wasm and apache-arrow. ' +
+        'Install them with: npm install parquet-wasm apache-arrow'
+      );
+    }
+
+    const formData = new FormData();
+    formData.append(
+      'file',
+      file instanceof File ? file : new Blob([file]),
+      file instanceof File ? file.name : 'model.ifc'
+    );
+
+    const response = await fetch(`${this.baseUrl}/api/v1/parse/parquet/optimized`, {
+      method: 'POST',
+      body: formData,
+      signal: AbortSignal.timeout(this.timeout),
+    });
+
+    if (!response.ok) {
+      throw await this.handleError(response);
+    }
+
+    // Extract metadata from header
+    const metadataHeader = response.headers.get('X-IFC-Metadata');
+    if (!metadataHeader) {
+      throw new Error('Missing X-IFC-Metadata header in optimized Parquet response');
+    }
+
+    const metadata: OptimizedParquetMetadataHeader = JSON.parse(metadataHeader);
+
+    // Get binary payload
+    const payloadBuffer = await response.arrayBuffer();
+    const payloadSize = payloadBuffer.byteLength;
+
+    // Decode optimized Parquet geometry
+    const decodeStart = performance.now();
+    const meshes = await decodeOptimizedParquetGeometry(payloadBuffer, metadata.vertex_multiplier);
+    const decodeTime = performance.now() - decodeStart;
+
+    return {
+      cache_key: metadata.cache_key,
+      meshes,
+      metadata: metadata.metadata,
+      stats: metadata.stats,
+      optimization_stats: metadata.optimization_stats,
+      parquet_stats: {
+        payload_size: payloadSize,
+        decode_time_ms: Math.round(decodeTime),
+      },
+    };
   }
 
   /**
