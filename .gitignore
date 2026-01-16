@@ -24,3 +24,4 @@ tests/test_geometry
 packages/wasm/debug-*.js
 packages/wasm/benchmark.js
 packages/wasm/test-parser.js
+tmpclaude*
