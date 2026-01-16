@@ -1,8 +1,9 @@
 <table align="center">
 <tr>
 <td valign="top">
-<img src="https://readme-typing-svg.herokuapp.com?font=JetBrains+Mono&weight=700&size=48&duration=2000&pause=5000&color=FFFFFF&vCenter=true&width=300&height=55&lines=IFClite" alt="IFClite">
-<br>
+<h1>
+<img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=700&size=48&duration=2000&pause=5000&color=6366F1&vCenter=true&width=300&height=55&lines=IFClite" alt="IFClite">
+</h1>
 <code>Fast</code> · <code>Lightweight</code> · <code>Columnar</code> · <code>Browser-native</code>
 </td>
 <td width="120" align="center" valign="middle">
