@@ -45,9 +45,9 @@
 
 | Feature | Description |
 |---------|-------------|
-| **Clean DX** | Columnar data structures, TypedArrays, consistent API — built from scratch for clarity |
+| **Clean DX** | Columnar data structures, TypedArrays, consistent API. Built from scratch for clarity |
 | **STEP/IFC Parsing** | Zero-copy tokenization with full IFC4X3 schema support (876 entities) |
-| **Streaming Pipeline** | Progressive geometry processing — first triangles in 300-500ms |
+| **Streaming Pipeline** | Progressive geometry processing. First triangles in 300-500ms |
 | **WebGPU Rendering** | Modern GPU-accelerated 3D with depth testing and frustum culling |
 | **Zero-Copy GPU** | Direct WASM memory to GPU buffers, 60-70% less RAM |
 
@@ -161,20 +161,21 @@ renderer.render();
 
 ```mermaid
 flowchart LR
-    IFC[IFC File] --> Parser
-    subgraph Parser[Parser - Rust/WASM]
-        Tokenize[Tokenize] --> Scan[Scan] --> Decode[Decode]
-    end
-    Parser --> Storage
-    subgraph Storage[Storage - TypeScript]
-        Tables[Columnar Tables]
-        Graph[Relationship Graph]
-    end
-    Storage --> Output
-    subgraph Output[Output]
-        Renderer[WebGPU Renderer]
-        Export[Export: glTF/Parquet]
-    end
+    IFC[IFC File] --> Tokenize
+    Tokenize --> Scan --> Decode
+    Decode --> Tables[Columnar Tables]
+    Decode --> Graph[Relationship Graph]
+    Tables --> Renderer[WebGPU Renderer]
+    Graph --> Export[glTF / Parquet]
+    
+    style IFC fill:#6366f1,stroke:#312e81,color:#fff
+    style Tokenize fill:#2563eb,stroke:#1e3a8a,color:#fff
+    style Scan fill:#2563eb,stroke:#1e3a8a,color:#fff
+    style Decode fill:#10b981,stroke:#064e3b,color:#fff
+    style Tables fill:#f59e0b,stroke:#7c2d12,color:#fff
+    style Graph fill:#f59e0b,stroke:#7c2d12,color:#fff
+    style Renderer fill:#a855f7,stroke:#581c87,color:#fff
+    style Export fill:#a855f7,stroke:#581c87,color:#fff
 ```
 
 IFC files flow through three processing layers. See the [Architecture Documentation](docs/architecture/overview.md) for detailed diagrams including data flow, memory model, and threading.
@@ -218,7 +219,7 @@ ifc-lite/
 |---------|-----------|---------|
 | **IFClite** | **0.65 MB** | **0.26 MB** |
 | web-ifc | 1.1 MB | 0.4 MB |
-| IfcOpenShell | 15 MB | — |
+| IfcOpenShell | 15 MB | - |
 
 ### Parse Performance
 
@@ -298,6 +299,16 @@ bash scripts/build-wasm.sh  # Rebuild WASM after Rust changes
 | `ifc-lite-core` | STEP/IFC parsing | ✅ Stable | [docs.rs](https://docs.rs/ifc-lite-core) |
 | `ifc-lite-geometry` | Mesh triangulation | ✅ Stable | [docs.rs](https://docs.rs/ifc-lite-geometry) |
 | `ifc-lite-wasm` | WASM bindings | ✅ Stable | [docs.rs](https://docs.rs/ifc-lite-wasm) |
+
+## Community Projects
+
+Projects built by the community using IFClite (not officially maintained):
+
+| Project | Author | Description |
+|---------|--------|-------------|
+| [bimifc.de](https://bimifc.de/) | [@holg](https://github.com/holg) | Pure Rust/Bevy IFC viewer, no TypeScript needed |
+
+*Built something with IFClite? Open a PR to add it here!*
 
 ## Contributing
 
