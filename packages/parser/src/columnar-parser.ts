@@ -47,6 +47,9 @@ export interface IfcDataStore {
 
     spatialHierarchy?: SpatialHierarchy;
     spatialIndex?: SpatialIndex;
+
+    /** True if this was parsed in lite mode (properties/quantities not available) */
+    isLiteMode?: boolean;
 }
 
 // Pre-computed type sets for O(1) lookups
@@ -593,6 +596,7 @@ export class ColumnarParser {
             quantities: quantityTable,
             relationships: relationshipGraph,
             spatialHierarchy,
+            isLiteMode: true, // Mark as lite mode - properties need background parse
         };
     }
 
@@ -666,5 +670,60 @@ export class ColumnarParser {
         const formula = typeof attrs[4] === 'string' ? attrs[4] : undefined;
 
         return { name, type: qtyType, value, formula };
+    }
+
+    /**
+     * Background full parse - takes an existing lite data store and fills in properties/quantities
+     * Runs in background with minimal blocking
+     */
+    async parseFullBackground(
+        liteStore: IfcDataStore,
+        options: { onProgress?: (progress: { phase: string; percent: number }) => void } = {}
+    ): Promise<IfcDataStore> {
+        const startTime = performance.now();
+        const source = liteStore.source;
+        const entityIndex = liteStore.entityIndex;
+
+        options.onProgress?.({ phase: 'background parsing', percent: 0 });
+
+        // Extract full entities
+        const extractor = new EntityExtractor(source);
+        const entities = new Map<number, IfcEntity>();
+        const entityRefs = Array.from(entityIndex.byId.values());
+        const totalEntities = entityRefs.length;
+
+        let processed = 0;
+        const YIELD_INTERVAL = 2000; // Yield frequently to avoid blocking
+
+        for (const ref of entityRefs) {
+            const entity = extractor.extractEntity(ref);
+            if (entity) {
+                entities.set(ref.expressId, entity);
+            }
+
+            processed++;
+            if (processed % YIELD_INTERVAL === 0) {
+                options.onProgress?.({ phase: 'parsing entities', percent: (processed / totalEntities) * 30 });
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
+        }
+
+        console.log(`[ColumnarParser] Background: extracted ${entities.size} entities`);
+
+        // Now do the full parse with all entities
+        const buffer = source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength);
+        const fullStore = await this.parse(buffer, entityRefs, entities, {
+            onProgress: (prog) => {
+                options.onProgress?.({
+                    phase: prog.phase,
+                    percent: 30 + (prog.percent * 0.7) // Scale to 30-100%
+                });
+            }
+        });
+
+        const parseTime = performance.now() - startTime;
+        console.log(`[ColumnarParser] Background full parse complete: ${parseTime.toFixed(0)}ms`);
+
+        return fullStore;
     }
 }

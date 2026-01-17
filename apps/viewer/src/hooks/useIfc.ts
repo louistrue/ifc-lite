@@ -9,7 +9,7 @@
 
 import { useMemo, useCallback, useRef } from 'react';
 import { useViewerStore } from '../store.js';
-import { IfcParser, detectFormat, parseIfcx } from '@ifc-lite/parser';
+import { IfcParser, ColumnarParser, detectFormat, parseIfcx } from '@ifc-lite/parser';
 import { GeometryProcessor, GeometryQuality, type MeshData } from '@ifc-lite/geometry';
 import { IfcQuery } from '@ifc-lite/query';
 import { BufferBuilder } from '@ifc-lite/geometry';
@@ -1249,6 +1249,23 @@ export function useIfc() {
       dataStorePromise.then(dataStore => {
         console.log('[useIfc] Data model parsing complete - enabling property panel');
         setIfcDataStore(dataStore);
+
+        // If lite mode was used, trigger background full parse for properties
+        if (dataStore.isLiteMode) {
+          console.log('[useIfc] Lite mode detected - starting background full parse for properties...');
+          const columnarParser = new ColumnarParser();
+          columnarParser.parseFullBackground(dataStore, {
+            onProgress: (prog) => {
+              console.log(`[useIfc] Background parse: ${prog.phase} ${prog.percent.toFixed(0)}%`);
+            }
+          }).then(fullStore => {
+            console.log('[useIfc] Background full parse complete - properties now available');
+            setIfcDataStore(fullStore);
+          }).catch(err => {
+            console.warn('[useIfc] Background full parse failed:', err);
+            // Keep using lite store - properties just won't be available
+          });
+        }
       }).catch(err => {
         console.error('[useIfc] Data model parsing failed:', err);
       });

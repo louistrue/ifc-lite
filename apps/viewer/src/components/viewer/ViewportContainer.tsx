@@ -13,6 +13,7 @@ export function ViewportContainer() {
   const { geometryResult, ifcDataStore } = useIfc();
   const selectedStorey = useViewerStore((s) => s.selectedStorey);
   const typeVisibility = useViewerStore((s) => s.typeVisibility);
+  const hiddenEntities = useViewerStore((s) => s.hiddenEntities);
 
   // Filter geometry based on selected storey and type visibility
   const filteredGeometry = useMemo(() => {
@@ -73,8 +74,13 @@ export function ViewportContainer() {
       }
     }
 
+    // Filter out hidden entities
+    if (hiddenEntities.size > 0) {
+      meshes = meshes.filter(mesh => !hiddenEntities.has(mesh.expressId));
+    }
+
     return meshes;
-  }, [geometryResult, ifcDataStore, selectedStorey, typeVisibility]);
+  }, [geometryResult, ifcDataStore, selectedStorey, typeVisibility, hiddenEntities]);
 
   return (
     <div className="relative h-full w-full bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-900 dark:to-slate-800">
