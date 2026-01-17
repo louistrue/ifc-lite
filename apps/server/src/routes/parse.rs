@@ -554,30 +554,38 @@ pub async fn parse_parquet(
     };
     
     // Spawn background task to serialize and cache data model
-    tokio::task::spawn_blocking(move || {
+    // Use tokio::spawn with inner spawn_blocking for proper async handling
+    tokio::spawn(async move {
         let dm_start = std::time::Instant::now();
-        match serialize_data_model_to_parquet(&data_model) {
-            Ok(data_model_parquet) => {
+        let serialize_result = tokio::task::spawn_blocking(move || {
+            serialize_data_model_to_parquet(&data_model)
+        }).await;
+
+        match serialize_result {
+            Ok(Ok(data_model_parquet)) => {
                 let serialize_time = dm_start.elapsed();
                 tracing::info!(
                     data_model_parquet_size = data_model_parquet.len(),
                     serialize_time_ms = serialize_time.as_millis(),
                     "Data model serialization complete (background)"
                 );
-                
+
                 // Cache the data model
-                let cache = cache_for_datamodel;
-                let key = data_model_cache_key;
-                tokio::runtime::Handle::current().spawn(async move {
-                    if let Err(e) = cache.set_bytes(&key, &data_model_parquet).await {
-                        tracing::error!(error = %e, "Failed to cache data model");
-                    } else {
-                        tracing::info!(cache_key = %key, size = data_model_parquet.len(), "Data model cached");
-                    }
-                });
+                if let Err(e) = cache_for_datamodel.set_bytes(&data_model_cache_key, &data_model_parquet).await {
+                    tracing::error!(error = %e, "Failed to cache data model");
+                } else {
+                    tracing::info!(
+                        cache_key = %data_model_cache_key,
+                        size = data_model_parquet.len(),
+                        "Data model cached"
+                    );
+                }
+            }
+            Ok(Err(e)) => {
+                tracing::error!(error = %e, "Failed to serialize data model");
             }
             Err(e) => {
-                tracing::error!(error = %e, "Failed to serialize data model");
+                tracing::error!(error = %e, "Data model serialization task panicked");
             }
         }
     });
