@@ -21,7 +21,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Separator } from '@/components/ui/separator';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
-import { extractPropertiesOnDemand, extractQuantitiesOnDemand } from '@ifc-lite/parser';
 
 interface PropertySet {
   name: string;
@@ -63,35 +62,6 @@ export function PropertiesPanel() {
     };
   }, [selectedEntityId, ifcDataStore]);
 
-  // Get quantities - use on-demand extraction in lite mode for instant access
-  const quantities = useMemo((): QuantitySet[] => {
-    if (!selectedEntityId || !ifcDataStore) return [];
-
-    // Use on-demand extraction in lite mode for instant property access
-    if (ifcDataStore.isLiteMode && ifcDataStore.onDemandQuantityMap) {
-      return extractQuantitiesOnDemand(ifcDataStore, selectedEntityId);
-    }
-
-    // Otherwise use the pre-extracted quantity table
-    return ifcDataStore.quantities?.getForEntity(selectedEntityId) ?? [];
-  }, [selectedEntityId, ifcDataStore]);
-
-  // Get properties - use on-demand extraction in lite mode for instant access
-  const onDemandProperties = useMemo((): PropertySet[] => {
-    if (!selectedEntityId || !ifcDataStore) return [];
-
-    // Use on-demand extraction in lite mode for instant property access
-    if (ifcDataStore.isLiteMode && ifcDataStore.onDemandPropertyMap) {
-      const rawProps = extractPropertiesOnDemand(ifcDataStore, selectedEntityId);
-      return rawProps.map(pset => ({
-        name: pset.name,
-        properties: pset.properties.map(p => ({ name: p.name, value: p.value })),
-      }));
-    }
-
-    return [];
-  }, [selectedEntityId, ifcDataStore]);
-
   if (!selectedEntityId || !query) {
     return (
       <div className="h-full flex flex-col border-l bg-card">
@@ -106,10 +76,20 @@ export function PropertiesPanel() {
   }
 
   const entityNode = query.entity(selectedEntityId);
-  // Use on-demand properties in lite mode, otherwise use query
-  const properties: PropertySet[] = (ifcDataStore?.isLiteMode && onDemandProperties.length > 0)
-    ? onDemandProperties
-    : entityNode.properties();
+
+  // Unified property/quantity access - EntityNode handles on-demand extraction automatically
+  const properties: PropertySet[] = useMemo(() => {
+    const rawProps = entityNode.properties();
+    return rawProps.map(pset => ({
+      name: pset.name,
+      properties: pset.properties.map(p => ({ name: p.name, value: p.value })),
+    }));
+  }, [entityNode]);
+
+  const quantities: QuantitySet[] = useMemo(() => {
+    return entityNode.quantities();
+  }, [entityNode]);
+
   const entityType = entityNode.type;
   const entityName = entityNode.name;
   const entityGlobalId = entityNode.globalId;
