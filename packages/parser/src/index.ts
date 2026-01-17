@@ -273,6 +273,16 @@ function parseAttributeValue(value: string): any {
     return null;
   }
 
+  // TypedValue: IFCTYPENAME(value) - must check before list check
+  // Pattern: identifier followed by parentheses (e.g., IFCNORMALISEDRATIOMEASURE(0.5))
+  const typedValueMatch = value.match(/^([A-Z][A-Z0-9_]*)\((.+)\)$/i);
+  if (typedValueMatch) {
+    const typeName = typedValueMatch[1];
+    const innerValue = typedValueMatch[2].trim();
+    // Return as array [typeName, parsedValue] to match Rust structure
+    return [typeName, parseAttributeValue(innerValue)];
+  }
+
   // List/Array
   if (value.startsWith('(') && value.endsWith(')')) {
     const listContent = value.slice(1, -1).trim();
