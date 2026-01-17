@@ -50,6 +50,18 @@ export interface IfcDataStore {
 
     /** True if this was parsed in lite mode (properties/quantities not available) */
     isLiteMode?: boolean;
+
+    /**
+     * On-demand property lookup: entityId -> array of property set expressIds
+     * Only populated in lite mode for instant property access
+     */
+    onDemandPropertyMap?: Map<number, number[]>;
+
+    /**
+     * On-demand quantity lookup: entityId -> array of quantity set expressIds
+     * Only populated in lite mode for instant quantity access
+     */
+    onDemandQuantityMap?: Map<number, number[]>;
 }
 
 // Pre-computed type sets for O(1) lookups
@@ -101,6 +113,21 @@ const SPATIAL_TYPES = new Set([
 // Relationship types needed for hierarchy
 const HIERARCHY_REL_TYPES = new Set([
     'IFCRELAGGREGATES', 'IFCRELCONTAINEDINSPATIALSTRUCTURE',
+]);
+
+// Relationship types for on-demand property loading
+const PROPERTY_REL_TYPES = new Set([
+    'IFCRELDEFINESBYPROPERTIES',
+]);
+
+// Property-related entity types for on-demand extraction
+const PROPERTY_ENTITY_TYPES = new Set([
+    'IFCPROPERTYSET', 'IFCELEMENTQUANTITY',
+    'IFCPROPERTYSINGLEVALUE', 'IFCPROPERTYENUMERATEDVALUE',
+    'IFCPROPERTYBOUNDEDVALUE', 'IFCPROPERTYTABLEVALUE',
+    'IFCPROPERTYLISTVALUE', 'IFCPROPERTYREFERENCEVALUE',
+    'IFCQUANTITYLENGTH', 'IFCQUANTITYAREA', 'IFCQUANTITYVOLUME',
+    'IFCQUANTITYCOUNT', 'IFCQUANTITYWEIGHT', 'IFCQUANTITYTIME',
 ]);
 
 // Yield helper - batched to reduce overhead
@@ -449,16 +476,38 @@ export class ColumnarParser {
         const quantityTableBuilder = new QuantityTableBuilder(strings);
         const relationshipGraphBuilder = new RelationshipGraphBuilder();
 
-        // First pass: collect spatial and relationship refs for targeted parsing
+        // Build entity index early (needed for property relationship lookup)
+        const entityIndex = {
+            byId: new Map<number, EntityRef>(),
+            byType: new Map<string, number[]>(),
+        };
+
+        // First pass: collect spatial, relationship, and property refs for targeted parsing
         const spatialRefs: EntityRef[] = [];
         const relationshipRefs: EntityRef[] = [];
+        const propertyRelRefs: EntityRef[] = [];
+        const propertyEntityRefs: EntityRef[] = [];
 
         for (const ref of entityRefs) {
+            // Build entity index
+            entityIndex.byId.set(ref.expressId, ref);
+            let typeList = entityIndex.byType.get(ref.type);
+            if (!typeList) {
+                typeList = [];
+                entityIndex.byType.set(ref.type, typeList);
+            }
+            typeList.push(ref.expressId);
+
+            // Categorize refs for targeted parsing
             const typeUpper = ref.type.toUpperCase();
             if (SPATIAL_TYPES.has(typeUpper)) {
                 spatialRefs.push(ref);
             } else if (HIERARCHY_REL_TYPES.has(typeUpper)) {
                 relationshipRefs.push(ref);
+            } else if (PROPERTY_REL_TYPES.has(typeUpper)) {
+                propertyRelRefs.push(ref);
+            } else if (PROPERTY_ENTITY_TYPES.has(typeUpper)) {
+                propertyEntityRefs.push(ref);
             }
         }
 
@@ -506,6 +555,49 @@ export class ColumnarParser {
 
         console.log(`[ColumnarParser] Parsed ${relationshipRefs.length} relationship entities, ${relationships.length} valid relationships`);
 
+        // === PARSE PROPERTY RELATIONSHIPS for on-demand loading ===
+        options.onProgress?.({ phase: 'parsing property refs', percent: 25 });
+
+        const onDemandPropertyMap = new Map<number, number[]>();
+        const onDemandQuantityMap = new Map<number, number[]>();
+
+        // Parse IfcRelDefinesByProperties to build entity -> pset/qset mapping
+        for (const ref of propertyRelRefs) {
+            const entity = extractor.extractEntity(ref);
+            if (entity) {
+                const attrs = entity.attributes || [];
+                // IfcRelDefinesByProperties: relatedObjects at [4], relatingPropertyDefinition at [5]
+                const relatedObjects = attrs[4];
+                const relatingDef = attrs[5];
+
+                if (typeof relatingDef === 'number' && Array.isArray(relatedObjects)) {
+                    // Find if the relating definition is a property set or quantity set
+                    const defRef = entityIndex.byId.get(relatingDef);
+                    if (defRef) {
+                        const defTypeUpper = defRef.type.toUpperCase();
+                        const isPropertySet = defTypeUpper === 'IFCPROPERTYSET';
+                        const isQuantitySet = defTypeUpper === 'IFCELEMENTQUANTITY';
+
+                        if (isPropertySet || isQuantitySet) {
+                            const targetMap = isPropertySet ? onDemandPropertyMap : onDemandQuantityMap;
+                            for (const objId of relatedObjects) {
+                                if (typeof objId === 'number') {
+                                    let list = targetMap.get(objId);
+                                    if (!list) {
+                                        list = [];
+                                        targetMap.set(objId, list);
+                                    }
+                                    list.push(relatingDef);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        console.log(`[ColumnarParser] On-demand: ${onDemandPropertyMap.size} entities with properties, ${onDemandQuantityMap.size} with quantities`);
+
         // === BUILD ENTITY TABLE with spatial data included ===
         options.onProgress?.({ phase: 'building entities', percent: 30 });
 
@@ -539,22 +631,6 @@ export class ColumnarParser {
         }
 
         const entityTable = entityTableBuilder.build();
-
-        // Build entity index
-        const entityIndex = {
-            byId: new Map<number, EntityRef>(),
-            byType: new Map<string, number[]>(),
-        };
-
-        for (const ref of entityRefs) {
-            entityIndex.byId.set(ref.expressId, ref);
-            let typeList = entityIndex.byType.get(ref.type);
-            if (!typeList) {
-                typeList = [];
-                entityIndex.byType.set(ref.type, typeList);
-            }
-            typeList.push(ref.expressId);
-        }
 
         // Empty property/quantity tables for lite mode
         const propertyTable = propertyTableBuilder.build();
@@ -597,6 +673,8 @@ export class ColumnarParser {
             relationships: relationshipGraph,
             spatialHierarchy,
             isLiteMode: true, // Mark as lite mode - properties need background parse
+            onDemandPropertyMap, // For instant property access
+            onDemandQuantityMap, // For instant quantity access
         };
     }
 
@@ -711,7 +789,7 @@ export class ColumnarParser {
         console.log(`[ColumnarParser] Background: extracted ${entities.size} entities`);
 
         // Now do the full parse with all entities
-        const buffer = source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength);
+        const buffer = (source.buffer as ArrayBuffer).slice(source.byteOffset, source.byteOffset + source.byteLength);
         const fullStore = await this.parse(buffer, entityRefs, entities, {
             onProgress: (prog) => {
                 options.onProgress?.({
@@ -726,4 +804,169 @@ export class ColumnarParser {
 
         return fullStore;
     }
+
+    /**
+     * Extract properties for a single entity ON-DEMAND
+     * For use in lite mode - parses only what's needed, instantly
+     */
+    extractPropertiesOnDemand(
+        store: IfcDataStore,
+        entityId: number
+    ): Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: any }> }> {
+        if (!store.isLiteMode || !store.onDemandPropertyMap) {
+            // Not in lite mode, use regular property table
+            return store.properties.getForEntity(entityId);
+        }
+
+        const psetIds = store.onDemandPropertyMap.get(entityId);
+        if (!psetIds || psetIds.length === 0) {
+            return [];
+        }
+
+        const extractor = new EntityExtractor(store.source);
+        const result: Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: any }> }> = [];
+
+        for (const psetId of psetIds) {
+            const psetRef = store.entityIndex.byId.get(psetId);
+            if (!psetRef) continue;
+
+            const psetEntity = extractor.extractEntity(psetRef);
+            if (!psetEntity) continue;
+
+            const psetAttrs = psetEntity.attributes || [];
+            const psetGlobalId = typeof psetAttrs[0] === 'string' ? psetAttrs[0] : undefined;
+            const psetName = typeof psetAttrs[2] === 'string' ? psetAttrs[2] : `PropertySet #${psetId}`;
+            const hasProperties = psetAttrs[4];
+
+            const properties: Array<{ name: string; type: number; value: any }> = [];
+
+            if (Array.isArray(hasProperties)) {
+                for (const propRef of hasProperties) {
+                    if (typeof propRef !== 'number') continue;
+
+                    const propEntityRef = store.entityIndex.byId.get(propRef);
+                    if (!propEntityRef) continue;
+
+                    const propEntity = extractor.extractEntity(propEntityRef);
+                    if (!propEntity) continue;
+
+                    const propAttrs = propEntity.attributes || [];
+                    const propName = typeof propAttrs[0] === 'string' ? propAttrs[0] : '';
+                    if (!propName) continue;
+
+                    // IfcPropertySingleValue: [name, description, nominalValue, unit]
+                    const nominalValue = propAttrs[2];
+                    let type = 0; // String
+                    let value: any = nominalValue;
+
+                    if (typeof nominalValue === 'number') {
+                        type = 1; // Real
+                    } else if (typeof nominalValue === 'boolean') {
+                        type = 2; // Boolean
+                    } else if (nominalValue !== null && nominalValue !== undefined) {
+                        value = String(nominalValue);
+                    }
+
+                    properties.push({ name: propName, type, value });
+                }
+            }
+
+            if (properties.length > 0 || psetName) {
+                result.push({ name: psetName, globalId: psetGlobalId, properties });
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Extract quantities for a single entity ON-DEMAND
+     * For use in lite mode - parses only what's needed, instantly
+     */
+    extractQuantitiesOnDemand(
+        store: IfcDataStore,
+        entityId: number
+    ): Array<{ name: string; quantities: Array<{ name: string; type: number; value: number }> }> {
+        if (!store.isLiteMode || !store.onDemandQuantityMap) {
+            // Not in lite mode, use regular quantity table
+            return store.quantities.getForEntity(entityId);
+        }
+
+        const qsetIds = store.onDemandQuantityMap.get(entityId);
+        if (!qsetIds || qsetIds.length === 0) {
+            return [];
+        }
+
+        const extractor = new EntityExtractor(store.source);
+        const result: Array<{ name: string; quantities: Array<{ name: string; type: number; value: number }> }> = [];
+
+        for (const qsetId of qsetIds) {
+            const qsetRef = store.entityIndex.byId.get(qsetId);
+            if (!qsetRef) continue;
+
+            const qsetEntity = extractor.extractEntity(qsetRef);
+            if (!qsetEntity) continue;
+
+            const qsetAttrs = qsetEntity.attributes || [];
+            const qsetName = typeof qsetAttrs[2] === 'string' ? qsetAttrs[2] : `QuantitySet #${qsetId}`;
+            const hasQuantities = qsetAttrs[5];
+
+            const quantities: Array<{ name: string; type: number; value: number }> = [];
+
+            if (Array.isArray(hasQuantities)) {
+                for (const qtyRef of hasQuantities) {
+                    if (typeof qtyRef !== 'number') continue;
+
+                    const qtyEntityRef = store.entityIndex.byId.get(qtyRef);
+                    if (!qtyEntityRef) continue;
+
+                    const qtyEntity = extractor.extractEntity(qtyEntityRef);
+                    if (!qtyEntity) continue;
+
+                    const qtyAttrs = qtyEntity.attributes || [];
+                    const qtyName = typeof qtyAttrs[0] === 'string' ? qtyAttrs[0] : '';
+                    if (!qtyName) continue;
+
+                    // Get quantity type from entity type
+                    const qtyTypeUpper = qtyEntity.type.toUpperCase();
+                    const qtyType = QUANTITY_TYPE_MAP[qtyTypeUpper] ?? QuantityType.Count;
+
+                    // Value is at index 3 for most quantity types
+                    const value = typeof qtyAttrs[3] === 'number' ? qtyAttrs[3] : 0;
+
+                    quantities.push({ name: qtyName, type: qtyType, value });
+                }
+            }
+
+            if (quantities.length > 0 || qsetName) {
+                result.push({ name: qsetName, quantities });
+            }
+        }
+
+        return result;
+    }
+}
+
+/**
+ * Standalone on-demand property extractor
+ * Can be used outside ColumnarParser class
+ */
+export function extractPropertiesOnDemand(
+    store: IfcDataStore,
+    entityId: number
+): Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: any }> }> {
+    const parser = new ColumnarParser();
+    return parser.extractPropertiesOnDemand(store, entityId);
+}
+
+/**
+ * Standalone on-demand quantity extractor
+ * Can be used outside ColumnarParser class
+ */
+export function extractQuantitiesOnDemand(
+    store: IfcDataStore,
+    entityId: number
+): Array<{ name: string; quantities: Array<{ name: string; type: number; value: number }> }> {
+    const parser = new ColumnarParser();
+    return parser.extractQuantitiesOnDemand(store, entityId);
 }
