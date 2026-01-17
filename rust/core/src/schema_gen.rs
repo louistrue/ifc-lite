@@ -396,6 +396,13 @@ impl IfcSchema {
                 | IfcType::IfcFlowFitting
                 | IfcType::IfcFlowTerminal
             )
+            // Spatial elements with geometry (for visibility toggling)
+            || matches!(
+                ifc_type,
+                IfcType::IfcSpace
+                | IfcType::IfcOpeningElement
+                | IfcType::IfcSite
+            )
     }
 }
 

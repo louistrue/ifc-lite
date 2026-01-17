@@ -2596,6 +2596,15 @@ fn get_default_color_for_type(ifc_type: &ifc_lite_core::IfcType) -> [f32; 4] {
         // Furniture - wood
         IfcType::IfcFurnishingElement => [0.7, 0.55, 0.4, 1.0],
 
+        // Spaces - cyan transparent (matches MainToolbar)
+        IfcType::IfcSpace => [0.2, 0.85, 1.0, 0.3],
+
+        // Opening elements - red-orange transparent
+        IfcType::IfcOpeningElement => [1.0, 0.42, 0.29, 0.4],
+
+        // Site - green
+        IfcType::IfcSite => [0.4, 0.8, 0.3, 1.0],
+
         // Default gray
         _ => [0.8, 0.8, 0.8, 1.0],
     }

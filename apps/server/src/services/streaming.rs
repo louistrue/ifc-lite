@@ -552,7 +552,12 @@ fn get_default_color(ifc_type: &IfcType) -> [f32; 4] {
         IfcType::IfcRailing => [0.4, 0.4, 0.45, 1.0],
         IfcType::IfcPlate | IfcType::IfcCovering => [0.8, 0.8, 0.8, 1.0],
         IfcType::IfcFurnishingElement => [0.5, 0.35, 0.2, 1.0],
-        IfcType::IfcSpace => [0.7, 0.8, 0.95, 0.15],
+        // Space - cyan transparent (matches MainToolbar)
+        IfcType::IfcSpace => [0.2, 0.85, 1.0, 0.3],
+        // Opening elements - red-orange transparent
+        IfcType::IfcOpeningElement => [1.0, 0.42, 0.29, 0.4],
+        // Site - green
+        IfcType::IfcSite => [0.4, 0.8, 0.3, 1.0],
         IfcType::IfcBuildingElementProxy => [0.6, 0.6, 0.6, 1.0],
         _ => [0.8, 0.8, 0.8, 1.0],
     }

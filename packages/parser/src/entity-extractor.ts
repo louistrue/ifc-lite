@@ -55,24 +55,24 @@ export class EntityExtractor {
     let depth = 0;
     let current = '';
     let inString = false;
-    let escapeNext = false;
 
     for (let i = 0; i < paramsText.length; i++) {
       const char = paramsText[i];
 
-      if (escapeNext) {
-        current += char;
-        escapeNext = false;
-        continue;
-      }
-
       if (char === "'") {
-        inString = !inString;
+        if (inString) {
+          // Check for escaped quote ('') - STEP uses doubled quotes
+          if (i + 1 < paramsText.length && paramsText[i + 1] === "'") {
+            current += "''"; // Keep the escaped quote
+            i++; // Skip next quote
+            continue;
+          }
+          inString = false;
+        } else {
+          inString = true;
+        }
         current += char;
       } else if (inString) {
-        if (char === '\\') {
-          escapeNext = true;
-        }
         current += char;
       } else if (char === '(') {
         depth++;
@@ -153,7 +153,8 @@ export class EntityExtractor {
 
     // String: 'text'
     if (value.startsWith("'") && value.endsWith("'")) {
-      return value.slice(1, -1).replace(/\\'/g, "'").replace(/\\\\/g, '\\');
+      // STEP uses doubled quotes ('') for escaping, not backslash
+      return value.slice(1, -1).replace(/''/g, "'");
     }
 
     // Number

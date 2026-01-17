@@ -155,27 +155,26 @@ export class StepTokenizer {
     let pos = this.position;
     let depth = 0;
     let inString = false;
-    let escapeNext = false;
 
     while (pos < this.buffer.length) {
       const char = this.buffer[pos];
 
-      if (escapeNext) {
-        escapeNext = false;
-        pos++;
-        continue;
-      }
-
       if (char === 0x27) { // Single quote (string delimiter)
-        inString = !inString;
+        if (inString) {
+          // Check for escaped quote ('') - STEP uses doubled quotes
+          if (pos + 1 < this.buffer.length && this.buffer[pos + 1] === 0x27) {
+            pos += 2; // Skip escaped quote
+            continue;
+          }
+          inString = false;
+        } else {
+          inString = true;
+        }
         pos++;
         continue;
       }
 
       if (inString) {
-        if (char === 0x5C) { // Backslash (escape)
-          escapeNext = true;
-        }
         pos++;
         continue;
       }
