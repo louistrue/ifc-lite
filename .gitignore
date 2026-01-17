@@ -24,3 +24,19 @@ tests/test_geometry
 packages/wasm/debug-*.js
 packages/wasm/benchmark.js
 packages/wasm/test-parser.js
+
+# Cache directories
+**/.cache/
+.cache/
+
+# Temporary output files
+output.json
+*.output.json
+
+# Temporary test/analysis scripts
+test_*.sh
+*_ANALYSIS.md
+*_ISSUE.md
+*_FIX.md
+*_IMPROVEMENTS.md
+*_COMPLETE.md

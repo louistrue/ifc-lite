@@ -323,7 +323,7 @@ export function useIfc() {
       setProgress({ phase: 'Connecting to server', percent: 5 });
 
       const client = new IfcServerClient({ baseUrl: SERVER_URL });
-      
+
       // Check server health first
       const healthStart = performance.now();
       try {
@@ -336,36 +336,72 @@ export function useIfc() {
       }
 
       setProgress({ phase: 'Processing on server (parallel)', percent: 15 });
-      console.log(`[useIfc] Using FULL PARSE (parallel) - all geometry processed at once`);
 
-      // Use FULL parse endpoint - processes ALL geometry in parallel on server
-      // This is faster than streaming because:
-      // 1. Server processes everything with Rayon par_iter (all CPU cores)
-      // 2. No sequential batch waiting
-      // 3. Single response with all meshes
-      const parseStart = performance.now();
-      const result = await client.parse(file);
-      const parseTime = performance.now() - parseStart;
+      // Check if Parquet is supported (requires parquet-wasm)
+      const parquetSupported = await client.isParquetSupported();
 
-      console.log(`[useIfc] Server parse response received in ${parseTime.toFixed(0)}ms`);
-      console.log(`  Server stats: ${result.stats.total_time_ms}ms total (parse: ${result.stats.parse_time_ms}ms, geometry: ${result.stats.geometry_time_ms}ms)`);
-      console.log(`  Meshes: ${result.meshes.length}, Vertices: ${result.stats.total_vertices}, Triangles: ${result.stats.total_triangles}`);
-      console.log(`  Cache key: ${result.cache_key}`);
+      let allMeshes: MeshData[];
+      let result: any;
+      let parseTime: number;
+      let convertTime: number;
 
-      setProgress({ phase: 'Converting meshes', percent: 70 });
+      if (parquetSupported) {
+        console.log(`[useIfc] Using PARQUET endpoint - 15x smaller payload, faster transfer`);
 
-      // Convert server mesh format to viewer format
-      // NOTE: Server sends colors as floats [0-1], viewer expects bytes [0-255]
-      const convertStart = performance.now();
-      const allMeshes: MeshData[] = result.meshes.map((m: any) => ({
-        expressId: m.express_id,
-        positions: new Float32Array(m.positions),
-        indices: new Uint32Array(m.indices),
-        normals: m.normals ? new Float32Array(m.normals) : undefined,
-        color: m.color ? new Uint8Array(m.color.map((c: number) => Math.round(c * 255))) : undefined,
-      }));
-      const convertTime = performance.now() - convertStart;
-      console.log(`[useIfc] Mesh conversion: ${convertTime.toFixed(0)}ms for ${allMeshes.length} meshes`);
+        // Use Parquet endpoint - much smaller payload (~15x compression)
+        const parseStart = performance.now();
+        result = await client.parseParquet(file);
+        parseTime = performance.now() - parseStart;
+
+        console.log(`[useIfc] Server parse response received in ${parseTime.toFixed(0)}ms`);
+        console.log(`  Server stats: ${result.stats.total_time_ms}ms total (parse: ${result.stats.parse_time_ms}ms, geometry: ${result.stats.geometry_time_ms}ms)`);
+        console.log(`  Parquet payload: ${(result.parquet_stats.payload_size / 1024 / 1024).toFixed(2)}MB, decode: ${result.parquet_stats.decode_time_ms}ms`);
+        console.log(`  Meshes: ${result.meshes.length}, Vertices: ${result.stats.total_vertices}, Triangles: ${result.stats.total_triangles}`);
+        console.log(`  Cache key: ${result.cache_key}`);
+
+        setProgress({ phase: 'Converting meshes', percent: 70 });
+
+        // Parquet decoder already returns the correct format
+        const convertStart = performance.now();
+        allMeshes = result.meshes.map((m: any) => ({
+          expressId: m.express_id,
+          positions: m.positions,
+          indices: m.indices,
+          normals: m.normals,
+          color: m.color,
+          ifcType: m.ifc_type,
+        }));
+        convertTime = performance.now() - convertStart;
+        console.log(`[useIfc] Mesh conversion: ${convertTime.toFixed(0)}ms for ${allMeshes.length} meshes`);
+      } else {
+        console.log(`[useIfc] Parquet not available, using JSON endpoint (install parquet-wasm for 15x faster transfer)`);
+        console.log(`[useIfc] Using FULL PARSE (parallel) - all geometry processed at once`);
+
+        // Fallback to JSON endpoint
+        const parseStart = performance.now();
+        result = await client.parse(file);
+        parseTime = performance.now() - parseStart;
+
+        console.log(`[useIfc] Server parse response received in ${parseTime.toFixed(0)}ms`);
+        console.log(`  Server stats: ${result.stats.total_time_ms}ms total (parse: ${result.stats.parse_time_ms}ms, geometry: ${result.stats.geometry_time_ms}ms)`);
+        console.log(`  Meshes: ${result.meshes.length}, Vertices: ${result.stats.total_vertices}, Triangles: ${result.stats.total_triangles}`);
+        console.log(`  Cache key: ${result.cache_key}`);
+
+        setProgress({ phase: 'Converting meshes', percent: 70 });
+
+        // Convert server mesh format to viewer format
+        // NOTE: Server sends colors as floats [0-1], viewer expects bytes [0-255]
+        const convertStart = performance.now();
+        allMeshes = result.meshes.map((m: any) => ({
+          expressId: m.express_id,
+          positions: new Float32Array(m.positions),
+          indices: new Uint32Array(m.indices),
+          normals: m.normals ? new Float32Array(m.normals) : undefined,
+          color: m.color ? new Uint8Array(m.color.map((c: number) => Math.round(c * 255))) : undefined,
+        }));
+        convertTime = performance.now() - convertStart;
+        console.log(`[useIfc] Mesh conversion: ${convertTime.toFixed(0)}ms for ${allMeshes.length} meshes`);
+      }
 
       // Set all geometry at once
       setProgress({ phase: 'Rendering geometry', percent: 80 });
@@ -379,7 +415,14 @@ export function useIfc() {
       const renderTime = performance.now() - renderStart;
       console.log(`[useIfc] Geometry set: ${renderTime.toFixed(0)}ms`);
 
-      // Parse data model locally for UI (entities, properties, etc.)
+      // TODO: Server should return data model (entities, properties, relationships)
+      // For now, we skip data model parsing to avoid redundant work (saves 35-40 seconds!)
+      // This means property panel won't work when using server, but geometry loads MUCH faster
+
+      // FUTURE: Extend server to return full data model in Parquet format
+      // Then we can use server data instead of parsing locally
+
+      /* TEMPORARILY DISABLED - Causes redundant 40s parsing
       setProgress({ phase: 'Loading data model', percent: 85 });
       const parser = new IfcParser();
       const dataStore = await parser.parseColumnar(buffer, {
@@ -395,6 +438,9 @@ export function useIfc() {
       }
 
       setIfcDataStore(dataStore);
+      */
+
+      console.log('[useIfc] ⚡ Skipping data model parsing (server mode) - MASSIVE speedup!');
       setProgress({ phase: 'Complete', percent: 100 });
       const totalServerTime = performance.now() - serverStart;
       console.timeEnd('[useIfc] server-parse');
@@ -557,7 +603,7 @@ export function useIfc() {
 
         // Use dynamic batch sizing for optimal throughput
         const dynamicBatchConfig = getDynamicBatchConfig(fileSizeMB);
-        
+
         for await (const event of geometryProcessor.processAdaptive(new Uint8Array(buffer), {
           sizeThreshold: 2 * 1024 * 1024, // 2MB threshold
           batchSize: dynamicBatchConfig, // Dynamic batches: small first, then large

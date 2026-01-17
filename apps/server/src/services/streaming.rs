@@ -53,8 +53,8 @@ fn prepare_streaming_data(content: String) -> PreparedData {
     let parse_start = std::time::Instant::now();
 
     // Build entity index
-    let entity_index = build_entity_index(&content);
-    let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+    let entity_index = Arc::new(build_entity_index(&content));
+    let mut decoder = EntityDecoder::with_arc_index(&content, entity_index.clone());
 
     // Build style indices
     let geometry_styles = build_geometry_style_index(&content, &mut decoder);
@@ -112,7 +112,7 @@ fn prepare_streaming_data(content: String) -> PreparedData {
 
     PreparedData {
         content: Arc::new(content),
-        entity_index: Arc::new(entity_index),
+        entity_index, // Already Arc
         style_index: Arc::new(style_index),
         void_index: Arc::new(void_index),
         jobs,
@@ -133,7 +133,7 @@ fn process_batch(
     jobs.par_iter()
         .filter_map(|job| {
             let mut local_decoder =
-                EntityDecoder::with_index(&content, (*entity_index).clone());
+                EntityDecoder::with_arc_index(&content, entity_index.clone());
 
             if let Ok(entity) = local_decoder.decode_at(job.start, job.end) {
                 let has_representation = entity.get(6).is_some_and(|a| !a.is_null());

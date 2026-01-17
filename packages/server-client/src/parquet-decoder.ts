@@ -11,6 +11,98 @@
 
 import type { MeshData } from './types';
 
+// WASM initialization state
+let parquetInitialized = false;
+let parquetModule: any = null;
+
+/**
+ * Ensure parquet-wasm WASM module is initialized.
+ * This MUST be called before using any parquet functions.
+ * 
+ * @returns Initialized parquet-wasm module
+ */
+async function ensureParquetInit() {
+  if (parquetInitialized && parquetModule) {
+    return parquetModule;
+  }
+
+  console.log('[parquet-decoder] Starting WASM initialization...');
+
+  let parquet: any;
+
+  // Strategy 1: Try ESM build with explicit WASM URL (works with Vite)
+  try {
+    // @ts-ignore - Import the ESM module
+    parquet = await import('parquet-wasm/esm/arrow2.js');
+    console.log('[parquet-decoder] Imported ESM build');
+
+    // ESM build requires calling init (default export) to load WASM
+    if (typeof parquet.default === 'function') {
+      console.log('[parquet-decoder] Calling ESM init to load WASM...');
+
+      // Get the WASM file URL - Vite handles this with ?url suffix
+      // @ts-ignore
+      const wasmModule = await import('parquet-wasm/esm/arrow2_bg.wasm?url');
+      const wasmUrl = wasmModule.default;
+      console.log('[parquet-decoder] Loading WASM from:', wasmUrl);
+
+      // Pass the URL to init so it can fetch the WASM correctly
+      await parquet.default(wasmUrl);
+      console.log('[parquet-decoder] ESM WASM initialized');
+    }
+
+    if (typeof parquet.readParquet === 'function') {
+      parquetModule = parquet;
+      parquetInitialized = true;
+      console.log('[parquet-decoder] ESM build ready with readParquet');
+      return parquet;
+    } else {
+      console.warn('[parquet-decoder] ESM build initialized but readParquet not found');
+    }
+  } catch (e) {
+    console.warn('[parquet-decoder] ESM import failed:', e);
+  }
+
+  // Strategy 2: Try web build with fetch (alternative for browsers)
+  try {
+    // @ts-ignore
+    parquet = await import('parquet-wasm/esm/arrow2.js');
+
+    if (typeof parquet.default === 'function') {
+      console.log('[parquet-decoder] Trying web init with node_modules path...');
+
+      // Try common paths where WASM might be served
+      const wasmPaths = [
+        '/node_modules/parquet-wasm/esm/arrow2_bg.wasm',
+        './node_modules/parquet-wasm/esm/arrow2_bg.wasm',
+      ];
+
+      for (const wasmPath of wasmPaths) {
+        try {
+          const response = await fetch(wasmPath);
+          if (response.ok) {
+            console.log('[parquet-decoder] Found WASM at:', wasmPath);
+            await parquet.default(response);
+
+            if (typeof parquet.readParquet === 'function') {
+              parquetModule = parquet;
+              parquetInitialized = true;
+              console.log('[parquet-decoder] Web init successful');
+              return parquet;
+            }
+          }
+        } catch {
+          // Try next path
+        }
+      }
+    }
+  } catch (e2) {
+    console.warn('[parquet-decoder] Web init failed:', e2);
+  }
+
+  throw new Error('parquet-wasm: Could not load WASM module. Ensure parquet-wasm is installed and WASM files are accessible.');
+}
+
 /**
  * Decoded mesh metadata from Parquet.
  */
@@ -39,9 +131,8 @@ interface MeshMetadata {
  * @returns Decoded MeshData array
  */
 export async function decodeParquetGeometry(data: ArrayBuffer): Promise<MeshData[]> {
-  // Dynamically import parquet-wasm
-  // @ts-ignore - parquet-wasm types may not be available
-  const parquet = await import('parquet-wasm');
+  // Initialize WASM module (only runs once)
+  const parquet = await ensureParquetInit();
 
   const view = new DataView(data);
   let offset = 0;
@@ -118,27 +209,30 @@ export async function decodeParquetGeometry(data: ArrayBuffer): Promise<MeshData
     const indexCount = indexCounts[i];
 
     // Reconstruct interleaved positions from columnar format
-    const positions = new Array<number>(vertexCount * 3);
+    // Apply Z-up to Y-up coordinate transformation inline:
+    // IFC uses Z-up, WebGL/Three.js uses Y-up
+    // Swap Y and Z, negate new Z to maintain right-handedness
+    const positions = new Float32Array(vertexCount * 3);
     for (let v = 0; v < vertexCount; v++) {
       const srcIdx = vertexStart + v;
-      positions[v * 3] = posX[srcIdx];
-      positions[v * 3 + 1] = posY[srcIdx];
-      positions[v * 3 + 2] = posZ[srcIdx];
+      positions[v * 3] = posX[srcIdx];           // X stays the same
+      positions[v * 3 + 1] = posZ[srcIdx];       // New Y = old Z (vertical)
+      positions[v * 3 + 2] = -posY[srcIdx];      // New Z = -old Y (depth)
     }
 
-    // Reconstruct interleaved normals from columnar format
-    const normals = new Array<number>(vertexCount * 3);
+    // Reconstruct interleaved normals with same Z-up to Y-up transformation
+    const normals = new Float32Array(vertexCount * 3);
     for (let v = 0; v < vertexCount; v++) {
       const srcIdx = vertexStart + v;
-      normals[v * 3] = normX[srcIdx];
-      normals[v * 3 + 1] = normY[srcIdx];
-      normals[v * 3 + 2] = normZ[srcIdx];
+      normals[v * 3] = normX[srcIdx];            // X stays the same
+      normals[v * 3 + 1] = normZ[srcIdx];        // New Y = old Z
+      normals[v * 3 + 2] = -normY[srcIdx];       // New Z = -old Y
     }
 
     // Reconstruct triangle indices from columnar format
     const triangleCount = indexCount / 3;
     const triangleStart = indexStart / 3;
-    const indices = new Array<number>(indexCount);
+    const indices = new Uint32Array(indexCount);
     for (let t = 0; t < triangleCount; t++) {
       const srcIdx = triangleStart + t;
       indices[t * 3] = idx0[srcIdx];
@@ -149,9 +243,9 @@ export async function decodeParquetGeometry(data: ArrayBuffer): Promise<MeshData
     meshes[i] = {
       express_id: expressIds[i],
       ifc_type: ifcTypes?.get(i) ?? 'Unknown',
-      positions,
-      normals,
-      indices,
+      positions: positions as any,
+      normals: normals as any,
+      indices: indices as any,
       color: [colorR[i], colorG[i], colorB[i], colorA[i]],
     };
   }
@@ -160,16 +254,17 @@ export async function decodeParquetGeometry(data: ArrayBuffer): Promise<MeshData
 }
 
 /**
- * Check if parquet-wasm is available for import.
+ * Check if parquet-wasm is available and can be initialized.
  *
- * @returns true if parquet-wasm can be imported
+ * @returns true if parquet-wasm can be imported and initialized
  */
 export async function isParquetAvailable(): Promise<boolean> {
   try {
-    // @ts-ignore - parquet-wasm types may not be available
-    await import('parquet-wasm');
+    // Try to initialize WASM - this is the real test
+    await ensureParquetInit();
     return true;
-  } catch {
+  } catch (err) {
+    console.warn('[parquet-decoder] Parquet WASM initialization failed:', err);
     return false;
   }
 }
@@ -200,8 +295,8 @@ export async function decodeOptimizedParquetGeometry(
   data: ArrayBuffer,
   vertexMultiplier: number = 10000
 ): Promise<MeshData[]> {
-  // @ts-ignore - parquet-wasm types may not be available
-  const parquet = await import('parquet-wasm');
+  // Initialize WASM module (only runs once)
+  const parquet = await ensureParquetInit();
   // @ts-ignore - Apache Arrow types
   const arrow = await import('apache-arrow');
 
@@ -309,24 +404,26 @@ export async function decodeOptimizedParquetGeometry(
     const indexOffset = meshIndexOffsets[meshIdx];
     const indexCount = meshIndexCounts[meshIdx];
 
-    // Dequantize and reconstruct positions
-    const positions = new Array<number>(vertexCount * 3);
+    // Dequantize and reconstruct positions with Z-up to Y-up transformation
+    // IFC uses Z-up, WebGL/Three.js uses Y-up
+    // Swap Y and Z, negate new Z to maintain right-handedness
+    const positions = new Float32Array(vertexCount * 3);
     for (let v = 0; v < vertexCount; v++) {
       const srcIdx = vertexOffset + v;
-      positions[v * 3] = vertexX[srcIdx] * dequantMultiplier;
-      positions[v * 3 + 1] = vertexY[srcIdx] * dequantMultiplier;
-      positions[v * 3 + 2] = vertexZ[srcIdx] * dequantMultiplier;
+      positions[v * 3] = vertexX[srcIdx] * dequantMultiplier;      // X stays the same
+      positions[v * 3 + 1] = vertexZ[srcIdx] * dequantMultiplier;  // New Y = old Z (vertical)
+      positions[v * 3 + 2] = -vertexY[srcIdx] * dequantMultiplier; // New Z = -old Y (depth)
     }
 
-    // Reconstruct normals (or compute if not present)
-    let normals: number[];
+    // Reconstruct normals with same Z-up to Y-up transformation (or compute if not present)
+    let normals: Float32Array;
     if (hasNormals && normalX && normalY && normalZ) {
-      normals = new Array<number>(vertexCount * 3);
+      normals = new Float32Array(vertexCount * 3);
       for (let v = 0; v < vertexCount; v++) {
         const srcIdx = vertexOffset + v;
-        normals[v * 3] = normalX[srcIdx];
-        normals[v * 3 + 1] = normalY[srcIdx];
-        normals[v * 3 + 2] = normalZ[srcIdx];
+        normals[v * 3] = normalX[srcIdx];       // X stays the same
+        normals[v * 3 + 1] = normalZ[srcIdx];   // New Y = old Z
+        normals[v * 3 + 2] = -normalY[srcIdx];  // New Z = -old Y
       }
     } else {
       // Compute flat normals from triangle faces
@@ -334,7 +431,7 @@ export async function decodeOptimizedParquetGeometry(
     }
 
     // Reconstruct indices (relative to this mesh's vertices)
-    const meshIndicesArray = new Array<number>(indexCount);
+    const meshIndicesArray = new Uint32Array(indexCount);
     for (let j = 0; j < indexCount; j++) {
       meshIndicesArray[j] = indices[indexOffset + j];
     }
@@ -343,9 +440,9 @@ export async function decodeOptimizedParquetGeometry(
     meshes[i] = {
       express_id: entityIds[i],
       ifc_type: ifcTypes?.get(i) ?? 'Unknown',
-      positions,
-      normals,
-      indices: meshIndicesArray,
+      positions: positions as any,
+      normals: normals as any,
+      indices: meshIndicesArray as any,
       color: [matR[materialIdx] / 255, matG[materialIdx] / 255, matB[materialIdx] / 255, matA[materialIdx] / 255],
     };
   }
@@ -357,9 +454,9 @@ export async function decodeOptimizedParquetGeometry(
  * Compute flat normals for a mesh from positions and indices.
  * Each triangle face gets a uniform normal.
  */
-function computeFlatNormals(positions: number[], indices: number[] | Uint32Array): number[] {
+function computeFlatNormals(positions: Float32Array, indices: number[] | Uint32Array): Float32Array {
   const vertexCount = positions.length / 3;
-  const normals = new Array<number>(vertexCount * 3).fill(0);
+  const normals = new Float32Array(vertexCount * 3).fill(0);
   const triangleCount = indices.length / 3;
 
   for (let t = 0; t < triangleCount; t++) {

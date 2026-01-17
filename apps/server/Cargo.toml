@@ -17,7 +17,7 @@ categories = ["web-programming", "parsing"]
 # Web framework
 axum = { version = "0.7", features = ["multipart", "tokio"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "trace", "timeout", "limit"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "timeout", "limit", "compression-gzip", "decompression-gzip"] }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -63,6 +63,9 @@ num_cpus = "1.16"
 arrow = { version = "53", default-features = false, features = ["ipc"] }
 parquet = { version = "53", default-features = false, features = ["arrow", "snap", "zstd"] }
 bytes = "1.5"
+
+# Compression/decompression
+flate2 = "1.0"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

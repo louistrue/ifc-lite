@@ -88,7 +88,8 @@ pub struct EntityDecoder<'a> {
     cache: FxHashMap<u32, Arc<DecodedEntity>>,
     /// Index of entity offsets (entity_id -> (start, end))
     /// Can be pre-built or built lazily
-    entity_index: Option<EntityIndex>,
+    /// Using Arc to allow sharing across threads without cloning the HashMap
+    entity_index: Option<Arc<EntityIndex>>,
 }
 
 impl<'a> EntityDecoder<'a> {
@@ -106,6 +107,15 @@ impl<'a> EntityDecoder<'a> {
         Self {
             content,
             cache: FxHashMap::default(),
+            entity_index: Some(Arc::new(index)),
+        }
+    }
+
+    /// Create decoder with shared Arc index (for parallel processing)
+    pub fn with_arc_index(content: &'a str, index: Arc<EntityIndex>) -> Self {
+        Self {
+            content,
+            cache: FxHashMap::default(),
             entity_index: Some(index),
         }
     }
@@ -116,7 +126,7 @@ impl<'a> EntityDecoder<'a> {
         if self.entity_index.is_some() {
             return; // Already built
         }
-        self.entity_index = Some(build_entity_index(self.content));
+        self.entity_index = Some(Arc::new(build_entity_index(self.content)));
     }
 
     /// Decode entity at byte offset

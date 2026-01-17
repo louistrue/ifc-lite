@@ -18,12 +18,15 @@ use axum::{
     response::{sse::{Event, KeepAlive, Sse}, Response},
     Json,
 };
+use flate2::read::GzDecoder;
 use futures::stream::StreamExt;
 use ifc_lite_core::EntityScanner;
 use serde::Serialize;
 use std::convert::Infallible;
+use std::io::Read;
 
 /// Extract file data from multipart request.
+/// Automatically decompresses gzip-compressed files.
 async fn extract_file(multipart: &mut Multipart) -> Result<Vec<u8>, ApiError> {
     while let Some(field) = multipart.next_field().await? {
         let field_name = field.name().unwrap_or_default();
@@ -31,8 +34,28 @@ async fn extract_file(multipart: &mut Multipart) -> Result<Vec<u8>, ApiError> {
         
         if field_name == "file" {
             let bytes = field.bytes().await?;
-            tracing::debug!(size = bytes.len(), "Extracted file from multipart");
-            return Ok(bytes.to_vec());
+            let original_size = bytes.len();
+            tracing::debug!(size = original_size, "Extracted file from multipart");
+            
+            // Check if file is gzip-compressed (magic bytes: 1f 8b)
+            let is_gzipped = bytes.len() >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b;
+            
+            if is_gzipped {
+                tracing::debug!("Detected gzip compression, decompressing...");
+                let mut decoder = GzDecoder::new(bytes.as_ref());
+                let mut decompressed = Vec::new();
+                decoder.read_to_end(&mut decompressed)
+                    .map_err(|e| ApiError::Internal(format!("Failed to decompress gzip: {}", e)))?;
+                tracing::info!(
+                    original_size = original_size,
+                    decompressed_size = decompressed.len(),
+                    compression_ratio = format!("{:.1}x", original_size as f64 / decompressed.len() as f64),
+                    "File decompressed successfully"
+                );
+                return Ok(decompressed);
+            } else {
+                return Ok(bytes.to_vec());
+            }
         }
     }
     
@@ -222,7 +245,15 @@ pub async fn parse_parquet(
     let result = tokio::task::spawn_blocking(move || process_geometry(&content)).await?;
 
     // Serialize to Parquet (much more efficient than JSON)
+    let serialize_start = tokio::time::Instant::now();
     let parquet_data = serialize_to_parquet(&result.meshes)?;
+    let serialize_time = serialize_start.elapsed();
+    tracing::info!(
+        meshes = result.meshes.len(),
+        parquet_size = parquet_data.len(),
+        serialize_time_ms = serialize_time.as_millis(),
+        "Parquet serialization complete"
+    );
 
     // Create metadata header
     let metadata_header = ParquetMetadataHeader {

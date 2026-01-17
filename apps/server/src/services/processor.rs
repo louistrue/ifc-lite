@@ -43,9 +43,12 @@ pub fn process_geometry(content: &str) -> ProcessingResult {
     let total_start = std::time::Instant::now();
     let parse_start = std::time::Instant::now();
 
+    tracing::info!(content_size = content.len(), "Starting IFC geometry processing");
+
     // Build entity index (fast - single pass)
-    let entity_index = build_entity_index(content);
-    let mut decoder = EntityDecoder::with_index(content, entity_index.clone());
+    let entity_index = Arc::new(build_entity_index(content));
+    let mut decoder = EntityDecoder::with_arc_index(content, entity_index.clone());
+    tracing::debug!("Built entity index");
 
     // Build style indices for colors
     let geometry_styles = build_geometry_style_index(content, &mut decoder);
@@ -97,26 +100,37 @@ pub fn process_geometry(content: &str) -> ProcessingResult {
     }
 
     let geometry_entity_count = entity_jobs.len();
+    tracing::info!(
+        total_entities = total_entities,
+        geometry_entities = geometry_entity_count,
+        faceted_breps = faceted_brep_ids.len(),
+        voids = void_index.len(),
+        schema_version = %schema_version,
+        "Entity scanning complete"
+    );
 
     // Preprocess complex geometry
     let router = GeometryRouter::with_units(content, &mut decoder);
     if !faceted_brep_ids.is_empty() {
+        tracing::debug!(count = faceted_brep_ids.len(), "Preprocessing FacetedBreps");
         router.preprocess_faceted_breps(&faceted_brep_ids, &mut decoder);
     }
 
     let parse_time = parse_start.elapsed();
+    tracing::info!(parse_time_ms = parse_time.as_millis(), "Parse phase complete, starting geometry extraction");
 
     // PARALLEL GEOMETRY PROCESSING
     let geometry_start = std::time::Instant::now();
     let content_arc = Arc::new(content.to_string());
-    let entity_index_arc = Arc::new(entity_index);
+    let entity_index_arc = entity_index; // Already Arc from above
+    let unit_scale = router.unit_scale();
     let void_index_arc = Arc::new(void_index);
 
     let meshes: Vec<MeshData> = entity_jobs
         .into_par_iter()
         .filter_map(|job| {
             let mut local_decoder =
-                EntityDecoder::with_index(&content_arc, (*entity_index_arc).clone());
+                EntityDecoder::with_arc_index(&content_arc, entity_index_arc.clone());
 
             if let Ok(entity) = local_decoder.decode_at(job.start, job.end) {
                 // Check if entity has representation
@@ -125,7 +139,7 @@ pub fn process_geometry(content: &str) -> ProcessingResult {
                     return None;
                 }
 
-                let local_router = GeometryRouter::with_units(&content_arc, &mut local_decoder);
+                let local_router = GeometryRouter::with_scale(unit_scale);
 
                 if let Ok(mut mesh) = local_router.process_element_with_voids(
                     &entity,
@@ -163,6 +177,15 @@ pub fn process_geometry(content: &str) -> ProcessingResult {
     // Calculate stats
     let total_vertices: usize = meshes.iter().map(|m| m.vertex_count()).sum();
     let total_triangles: usize = meshes.iter().map(|m| m.triangle_count()).sum();
+
+    tracing::info!(
+        meshes = meshes.len(),
+        vertices = total_vertices,
+        triangles = total_triangles,
+        geometry_time_ms = geometry_time.as_millis(),
+        total_time_ms = total_time.as_millis(),
+        "Geometry processing complete"
+    );
 
     ProcessingResult {
         meshes: meshes.clone(),

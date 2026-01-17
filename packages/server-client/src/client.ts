@@ -17,6 +17,20 @@ import type {
 import { decodeParquetGeometry, decodeOptimizedParquetGeometry, isParquetAvailable } from './parquet-decoder';
 
 /**
+ * Compress a file or ArrayBuffer using gzip compression.
+ * Uses the browser's CompressionStream API for efficient compression.
+ *
+ * @param file - File or ArrayBuffer to compress
+ * @returns Compressed Blob
+ */
+async function compressGzip(file: File | ArrayBuffer): Promise<Blob> {
+  const stream = file instanceof File ? file.stream() : new Blob([file]).stream();
+  const compressionStream = new CompressionStream('gzip');
+  const compressedStream = stream.pipeThrough(compressionStream);
+  return new Response(compressedStream).blob();
+}
+
+/**
  * Client for the IFC-Lite Server API.
  *
  * @example
@@ -84,12 +98,12 @@ export class IfcServerClient {
    * ```
    */
   async parse(file: File | ArrayBuffer): Promise<ParseResponse> {
+    // Compress file before upload for faster transfer
+    const compressedFile = await compressGzip(file);
+    const fileName = file instanceof File ? file.name : 'model.ifc';
+
     const formData = new FormData();
-    formData.append(
-      'file',
-      file instanceof File ? file : new Blob([file]),
-      file instanceof File ? file.name : 'model.ifc'
-    );
+    formData.append('file', compressedFile, fileName);
 
     const response = await fetch(`${this.baseUrl}/api/v1/parse`, {
       method: 'POST',
@@ -136,12 +150,12 @@ export class IfcServerClient {
       );
     }
 
+    // Compress file before upload for faster transfer
+    const compressedFile = await compressGzip(file);
+    const fileName = file instanceof File ? file.name : 'model.ifc';
+
     const formData = new FormData();
-    formData.append(
-      'file',
-      file instanceof File ? file : new Blob([file]),
-      file instanceof File ? file.name : 'model.ifc'
-    );
+    formData.append('file', compressedFile, fileName);
 
     const response = await fetch(`${this.baseUrl}/api/v1/parse/parquet`, {
       method: 'POST',
@@ -224,12 +238,12 @@ export class IfcServerClient {
       );
     }
 
+    // Compress file before upload for faster transfer
+    const compressedFile = await compressGzip(file);
+    const fileName = file instanceof File ? file.name : 'model.ifc';
+
     const formData = new FormData();
-    formData.append(
-      'file',
-      file instanceof File ? file : new Blob([file]),
-      file instanceof File ? file.name : 'model.ifc'
-    );
+    formData.append('file', compressedFile, fileName);
 
     const response = await fetch(`${this.baseUrl}/api/v1/parse/parquet/optimized`, {
       method: 'POST',

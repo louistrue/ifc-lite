@@ -95,6 +95,9 @@ importers:
       '@tanstack/react-virtual':
         specifier: ^3.13.18
         version: 3.13.18(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      apache-arrow:
+        specifier: ^14.0.2
+        version: 14.0.2
       autoprefixer:
         specifier: ^10.4.23
         version: 10.4.23(postcss@8.5.6)
@@ -107,6 +110,9 @@ importers:
       lucide-react:
         specifier: ^0.562.0
         version: 0.562.0(react@18.3.1)
+      parquet-wasm:
+        specifier: ^0.5.0
+        version: 0.5.0
       postcss:
         specifier: ^8.5.6
         version: 8.5.6
@@ -269,6 +275,13 @@ importers:
         version: 5.9.3
 
   packages/server-client:
+    dependencies:
+      apache-arrow:
+        specifier: '>=14.0.0'
+        version: 14.0.2
+      parquet-wasm:
+        specifier: '>=0.5.0'
+        version: 0.5.0
     devDependencies:
       typescript:
         specifier: ^5.3.0

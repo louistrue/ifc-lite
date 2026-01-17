@@ -900,7 +900,7 @@ pub fn calculate_normals(mesh: &mut Mesh) {
     mesh.normals.reserve(vertex_count * 3);
 
     for normal in normals {
-        let normalized = normal.normalize();
+        let normalized = normal.try_normalize(1e-6).unwrap_or_else(|| Vector3::new(0.0, 0.0, 1.0));
         mesh.normals.push(normalized.x as f32);
         mesh.normals.push(normalized.y as f32);
         mesh.normals.push(normalized.z as f32);

@@ -29,7 +29,12 @@ use axum::{
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use tower_http::{cors::CorsLayer, timeout::TimeoutLayer, trace::TraceLayer};
+use tower_http::{
+    compression::CompressionLayer,
+    cors::CorsLayer,
+    timeout::TimeoutLayer,
+    trace::TraceLayer,
+};
 
 mod config;
 mod error;
@@ -53,9 +58,9 @@ async fn main() {
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "info,tower_http=debug".into()),
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "info,tower_http=debug,ifc_lite_server=debug".into()),
         )
-        .json()
+        .pretty()
         .init();
 
     let config = Config::from_env();
@@ -99,6 +104,8 @@ async fn main() {
         .route("/api/v1/cache/{key}", get(routes::cache::get_cached))
         // Middleware
         .layer(DefaultBodyLimit::max(config.max_file_size_mb * 1024 * 1024)) // Match max_file_size_mb
+        .layer(CompressionLayer::new()) // Compress responses (gzip)
+        // Note: Request decompression handled manually in extract_file() to support multipart
         .layer(TimeoutLayer::new(Duration::from_secs(
             config.request_timeout_secs,
         )))
