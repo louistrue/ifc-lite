@@ -16,12 +16,42 @@ export class RelationshipExtractor {
   }
 
   /**
-   * Extract all relationships
+   * Extract all relationships (async version with yields for large files)
+   */
+  async extractRelationshipsAsync(): Promise<Relationship[]> {
+    const relationships: Relationship[] = [];
+    const typeCounts = new Map<string, number>();
+    let processed = 0;
+
+    for (const [, entity] of this.entities) {
+      const typeUpper = entity.type.toUpperCase();
+      if (typeUpper.startsWith('IFCREL')) {
+        typeCounts.set(typeUpper, (typeCounts.get(typeUpper) || 0) + 1);
+      }
+
+      const rel = this.extractRelationship(entity);
+      if (rel) {
+        relationships.push(rel);
+      }
+
+      processed++;
+      // Yield to event loop every 2000 entities to prevent blocking
+      if (processed % 2000 === 0) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+    }
+
+    console.log('[RelationshipExtractor] Relationship type counts:', Object.fromEntries(typeCounts));
+    console.log('[RelationshipExtractor] Successfully extracted:', relationships.length);
+
+    return relationships;
+  }
+
+  /**
+   * Extract all relationships (sync version for backward compatibility)
    */
   extractRelationships(): Relationship[] {
     const relationships: Relationship[] = [];
-
-    // Debug: count relationship types found
     const typeCounts = new Map<string, number>();
 
     for (const [, entity] of this.entities) {
@@ -29,7 +59,7 @@ export class RelationshipExtractor {
       if (typeUpper.startsWith('IFCREL')) {
         typeCounts.set(typeUpper, (typeCounts.get(typeUpper) || 0) + 1);
       }
-      
+
       const rel = this.extractRelationship(entity);
       if (rel) {
         relationships.push(rel);

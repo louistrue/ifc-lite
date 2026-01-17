@@ -109,12 +109,12 @@ export class ColumnarParser {
         // === Build Property Table ===
         options.onProgress?.({ phase: 'properties', percent: 0 });
         const propertyExtractor = new PropertyExtractor(entities);
-        const propertySets = propertyExtractor.extractPropertySets();
+        const propertySets = await propertyExtractor.extractPropertySetsAsync();
 
         // Build mapping: psetId -> entityIds
         const psetToEntities = new Map<number, number[]>();
         const relationshipExtractor = new RelationshipExtractor(entities);
-        const relationships = relationshipExtractor.extractRelationships();
+        const relationships = await relationshipExtractor.extractRelationshipsAsync();
 
         for (const rel of relationships) {
             if (rel.type.toUpperCase() === 'IFCRELDEFINESBYPROPERTIES') {
@@ -177,7 +177,7 @@ export class ColumnarParser {
         options.onProgress?.({ phase: 'quantities', percent: 0 });
         const quantityTableBuilder = new QuantityTableBuilder(strings);
         const quantityExtractor = new QuantityExtractor(entities);
-        const quantitySets = quantityExtractor.extractQuantitySets();
+        const quantitySets = await quantityExtractor.extractQuantitySetsAsync();
 
         // Build mapping: qsetId -> entityIds (similar to properties)
         const qsetToEntities = new Map<number, number[]>();

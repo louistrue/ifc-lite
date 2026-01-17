@@ -16,7 +16,32 @@ export class PropertyExtractor {
   }
 
   /**
-   * Extract all PropertySets from entities
+   * Extract all PropertySets from entities (async version with yields)
+   */
+  async extractPropertySetsAsync(): Promise<Map<number, PropertySet>> {
+    const propertySets = new Map<number, PropertySet>();
+    let processed = 0;
+
+    for (const [id, entity] of this.entities) {
+      if (entity.type.toUpperCase() === 'IFCPROPERTYSET') {
+        const pset = this.extractPropertySet(entity);
+        if (pset) {
+          propertySets.set(id, pset);
+        }
+      }
+
+      processed++;
+      // Yield to event loop every 2000 entities to prevent blocking
+      if (processed % 2000 === 0) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+    }
+
+    return propertySets;
+  }
+
+  /**
+   * Extract all PropertySets from entities (sync version for backward compatibility)
    */
   extractPropertySets(): Map<number, PropertySet> {
     const propertySets = new Map<number, PropertySet>();

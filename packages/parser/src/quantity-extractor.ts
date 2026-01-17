@@ -46,7 +46,41 @@ export class QuantityExtractor {
   }
 
   /**
-   * Extract all IfcElementQuantity sets from entities
+   * Extract all IfcElementQuantity sets from entities (async version with yields)
+   */
+  async extractQuantitySetsAsync(): Promise<Map<number, QuantitySet>> {
+    const quantitySets = new Map<number, QuantitySet>();
+    let elementQuantityCount = 0;
+    let quantityValueCount = 0;
+    let processed = 0;
+
+    for (const [id, entity] of this.entities) {
+      const typeUpper = entity.type.toUpperCase();
+
+      if (typeUpper === 'IFCELEMENTQUANTITY') {
+        elementQuantityCount++;
+        const qset = this.extractQuantitySet(entity);
+        if (qset) {
+          quantitySets.set(id, qset);
+          quantityValueCount += qset.quantities.length;
+        }
+      }
+
+      processed++;
+      // Yield to event loop every 2000 entities to prevent blocking
+      if (processed % 2000 === 0) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+    }
+
+    console.log(`[QuantityExtractor] Found ${elementQuantityCount} IfcElementQuantity entities`);
+    console.log(`[QuantityExtractor] Extracted ${quantitySets.size} quantity sets with ${quantityValueCount} total quantities`);
+
+    return quantitySets;
+  }
+
+  /**
+   * Extract all IfcElementQuantity sets from entities (sync version for backward compatibility)
    */
   extractQuantitySets(): Map<number, QuantitySet> {
     const quantitySets = new Map<number, QuantitySet>();

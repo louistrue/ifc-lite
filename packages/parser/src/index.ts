@@ -141,7 +141,7 @@ export class IfcParser {
   async parseColumnar(buffer: ArrayBuffer, options: ParseOptions = {}): Promise<IfcDataStore> {
     const uint8Buffer = new Uint8Array(buffer);
 
-    // Phase 1: Scan for entities
+    // Phase 1: Scan for entities (with async yields for large files)
     options.onProgress?.({ phase: 'scan', percent: 0 });
     const tokenizer = new StepTokenizer(uint8Buffer);
     const indexBuilder = new EntityIndexBuilder();
@@ -165,12 +165,16 @@ export class IfcParser {
         lineNumber: ref.line,
       });
       scanned++;
+      // Yield to event loop every 2000 entities to prevent blocking
+      if (scanned % 2000 === 0) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
     }
 
     indexBuilder.build();
     options.onProgress?.({ phase: 'scan', percent: 100 });
 
-    // Phase 2: Extract entities
+    // Phase 2: Extract entities (with async yields)
     options.onProgress?.({ phase: 'extract', percent: 0 });
     const extractor = new EntityExtractor(uint8Buffer);
     const entities = new Map<number, any>();
@@ -181,8 +185,11 @@ export class IfcParser {
       if (entity) {
         entities.set(ref.expressId, entity);
       }
+      // Progress update and yield every 1000 entities
       if ((i + 1) % 1000 === 0) {
         options.onProgress?.({ phase: 'extract', percent: ((i + 1) / entityRefs.length) * 100 });
+        // Yield to event loop to prevent blocking geometry streaming
+        await new Promise(resolve => setTimeout(resolve, 0));
       }
     }
 
