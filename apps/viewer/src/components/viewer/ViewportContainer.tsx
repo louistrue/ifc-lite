@@ -13,9 +13,12 @@ export function ViewportContainer() {
   const { geometryResult, ifcDataStore } = useIfc();
   const selectedStorey = useViewerStore((s) => s.selectedStorey);
   const typeVisibility = useViewerStore((s) => s.typeVisibility);
-  const hiddenEntities = useViewerStore((s) => s.hiddenEntities);
+  const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
 
-  // Filter geometry based on selected storey and type visibility
+  // Filter geometry based on type visibility only
+  // PERFORMANCE FIX: Don't filter by storey or hiddenEntities here
+  // Instead, let the renderer handle visibility filtering at the batch level
+  // This avoids expensive batch rebuilding when visibility changes
   const filteredGeometry = useMemo(() => {
     if (!geometryResult?.meshes) {
       return null;
@@ -61,32 +64,37 @@ export function ViewportContainer() {
       return mesh;
     });
 
-    // Filter by selected storey (if applicable)
+    return meshes;
+  }, [geometryResult, typeVisibility]);
+
+  // Compute combined isolation set (storey + manual isolation)
+  // This is passed to the renderer for batch-level visibility filtering
+  const computedIsolatedIds = useMemo(() => {
+    // If manual isolation is active, use that
+    if (isolatedEntities !== null) {
+      return isolatedEntities;
+    }
+
+    // If storey is selected, compute storey element IDs
     if (ifcDataStore?.spatialHierarchy && selectedStorey !== null) {
       const hierarchy = ifcDataStore.spatialHierarchy;
       const storeyElementIds = hierarchy.byStorey.get(selectedStorey);
 
       if (storeyElementIds && storeyElementIds.length > 0) {
-        const storeyElementIdSet = new Set(storeyElementIds);
-        meshes = meshes.filter(mesh =>
-          storeyElementIdSet.has(mesh.expressId)
-        );
+        return new Set(storeyElementIds);
       }
     }
 
-    // Filter out hidden entities
-    if (hiddenEntities.size > 0) {
-      meshes = meshes.filter(mesh => !hiddenEntities.has(mesh.expressId));
-    }
-
-    return meshes;
-  }, [geometryResult, ifcDataStore, selectedStorey, typeVisibility, hiddenEntities]);
+    // No isolation active
+    return null;
+  }, [ifcDataStore, selectedStorey, isolatedEntities]);
 
   return (
     <div className="relative h-full w-full bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-900 dark:to-slate-800">
       <Viewport
         geometry={filteredGeometry}
         coordinateInfo={geometryResult?.coordinateInfo}
+        computedIsolatedIds={computedIsolatedIds}
       />
       <ViewportOverlays />
       <ToolOverlays />

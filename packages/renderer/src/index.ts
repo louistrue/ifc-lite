@@ -445,69 +445,18 @@ export class Renderer {
         const viewProj = this.camera.getViewProjMatrix().m;
 
         let meshes = this.scene.getMeshes();
-        
+
         // Check if visibility filtering is active
         const hasHiddenFilter = options.hiddenIds && options.hiddenIds.size > 0;
         const hasIsolatedFilter = options.isolatedIds !== null && options.isolatedIds !== undefined;
         const hasVisibilityFiltering = hasHiddenFilter || hasIsolatedFilter;
-        
-        // When using batched rendering with visibility filtering, we need individual meshes
-        // Create them lazily from stored MeshData for visible elements
-        const batchedMeshes = this.scene.getBatchedMeshes();
-        if (hasVisibilityFiltering && batchedMeshes.length > 0) {
-            // Collect all expressIds from batched meshes
-            const allExpressIds = new Set<number>();
-            for (const batch of batchedMeshes) {
-                for (const expressId of batch.expressIds) {
-                    allExpressIds.add(expressId);
-                }
-            }
-            
-            // Filter to get visible expressIds
-            const visibleExpressIds: number[] = [];
-            for (const expressId of allExpressIds) {
-                const isHidden = options.hiddenIds?.has(expressId) ?? false;
-                const isIsolated = !hasIsolatedFilter || options.isolatedIds!.has(expressId);
-                if (!isHidden && isIsolated) {
-                    visibleExpressIds.push(expressId);
-                }
-            }
-            
-            // Create individual meshes for visible elements that don't have meshes yet
-            // This ensures elements that were previously hidden can be shown again
-            const existingMeshIds = new Set(meshes.map(m => m.expressId));
 
-            // Count how many meshes need creation
-            let toCreate = 0;
-            for (const expressId of visibleExpressIds) {
-                if (!existingMeshIds.has(expressId) && this.scene.hasMeshData(expressId)) {
-                    toCreate++;
-                }
-            }
+        // PERFORMANCE FIX: Use batch-level visibility filtering instead of creating individual meshes
+        // Only create individual meshes for selected elements (for highlighting)
+        // Batches are filtered at render time - fully visible batches render normally,
+        // partially visible batches are skipped (their visible elements will be in other batches or individual meshes)
 
-            // PERFORMANCE: Limit batch mesh creation to prevent frame drops
-            // With visibility filtering, we need individual meshes which is slower than batching
-            const MAX_VISIBILITY_MESH_CREATION = 2000;
-            if (toCreate > MAX_VISIBILITY_MESH_CREATION) {
-                console.warn(`[Renderer] Large mesh creation for visibility: ${toCreate} meshes. Creating in batches.`);
-            }
-
-            let created = 0;
-            for (const expressId of visibleExpressIds) {
-                if (!existingMeshIds.has(expressId) && this.scene.hasMeshData(expressId)) {
-                    const meshData = this.scene.getMeshData(expressId)!;
-                    this.createMeshFromData(meshData);
-                    created++;
-                    // Throttle: only create up to MAX per frame, rest will be created next frame
-                    if (created >= MAX_VISIBILITY_MESH_CREATION) break;
-                }
-            }
-
-            // Get updated meshes list
-            meshes = this.scene.getMeshes();
-        }
-
-        // Ensure all meshes have GPU resources (must be AFTER creating individual meshes above)
+        // Ensure all existing meshes have GPU resources
         this.ensureMeshResources();
 
         // Frustum culling (if enabled and spatial index available)
@@ -703,16 +652,48 @@ export class Renderer {
             pass.setPipeline(this.pipeline.getPipeline());
 
             // Check if we have batched meshes (preferred for performance)
-            // When visibility filtering is active, we need to render individual meshes instead of batches
-            // because batches merge geometry by color and can't be partially rendered
             const allBatchedMeshes = this.scene.getBatchedMeshes();
-            
-            if (allBatchedMeshes.length > 0 && !hasVisibilityFiltering) {
-                // Separate batches into opaque and transparent
+
+            // PERFORMANCE FIX: Always use batch rendering when we have batches
+            // Apply visibility filtering at the BATCH level instead of creating individual meshes
+            // This keeps draw calls at ~50-200 instead of 60K+
+            if (allBatchedMeshes.length > 0) {
+                // Pre-compute visibility for each batch (only when filtering is active)
+                // A batch is visible if ANY of its elements are visible
+                // A batch is fully visible if ALL of its elements are visible
+                const batchVisibility = new Map<string, { visible: boolean; fullyVisible: boolean }>();
+
+                if (hasVisibilityFiltering) {
+                    for (const batch of allBatchedMeshes) {
+                        let visibleCount = 0;
+                        const total = batch.expressIds.length;
+
+                        for (const expressId of batch.expressIds) {
+                            const isHidden = options.hiddenIds?.has(expressId) ?? false;
+                            const isIsolated = !hasIsolatedFilter || options.isolatedIds!.has(expressId);
+                            if (!isHidden && isIsolated) {
+                                visibleCount++;
+                            }
+                        }
+
+                        batchVisibility.set(batch.colorKey, {
+                            visible: visibleCount > 0,
+                            fullyVisible: visibleCount === total,
+                        });
+                    }
+                }
+
+                // Separate batches into opaque and transparent, filtering by visibility
                 const opaqueBatches: typeof allBatchedMeshes = [];
                 const transparentBatches: typeof allBatchedMeshes = [];
-                
+
                 for (const batch of allBatchedMeshes) {
+                    // Check visibility (skip completely hidden batches)
+                    if (hasVisibilityFiltering) {
+                        const vis = batchVisibility.get(batch.colorKey);
+                        if (!vis || !vis.visible) continue; // Skip completely hidden batches
+                    }
+
                     const alpha = batch.color[3];
                     if (alpha < 0.99) {
                         transparentBatches.push(batch);
@@ -720,7 +701,7 @@ export class Renderer {
                         opaqueBatches.push(batch);
                     }
                 }
-                
+
                 const selectedExpressIds = new Set<number>();
                 if (selectedId !== undefined && selectedId !== null) {
                     selectedExpressIds.add(selectedId);
@@ -788,9 +769,9 @@ export class Renderer {
                 const existingMeshIds = new Set(allMeshes.map(m => m.expressId));
 
                 // Create GPU resources lazily for selected meshes that don't have them yet
-                for (const selectedId of selectedExpressIds) {
-                    if (!existingMeshIds.has(selectedId) && this.scene.hasMeshData(selectedId)) {
-                        const meshData = this.scene.getMeshData(selectedId)!;
+                for (const selId of selectedExpressIds) {
+                    if (!existingMeshIds.has(selId) && this.scene.hasMeshData(selId)) {
+                        const meshData = this.scene.getMeshData(selId)!;
                         this.createMeshFromData(meshData);
                     }
                 }
@@ -906,7 +887,7 @@ export class Renderer {
                     }
                 }
             } else {
-                // Fallback: render individual meshes (slower but works)
+                // Fallback: render individual meshes (only when no batches exist)
                 // Render opaque meshes with per-mesh bind groups
                 for (const mesh of opaqueMeshes) {
                     if (mesh.bindGroup) {

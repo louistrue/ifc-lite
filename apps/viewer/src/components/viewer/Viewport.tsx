@@ -14,16 +14,18 @@ import { useViewerStore, type MeasurePoint } from '@/store';
 interface ViewportProps {
   geometry: MeshData[] | null;
   coordinateInfo?: CoordinateInfo;
+  computedIsolatedIds?: Set<number> | null;
 }
 
-export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
+export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: ViewportProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<Renderer | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const selectedEntityId = useViewerStore((state) => state.selectedEntityId);
   const setSelectedEntityId = useViewerStore((state) => state.setSelectedEntityId);
   const hiddenEntities = useViewerStore((state) => state.hiddenEntities);
-  const isolatedEntities = useViewerStore((state) => state.isolatedEntities);
+  // Use computedIsolatedIds from parent (includes storey selection) instead of store's isolatedEntities
+  const isolatedEntities = computedIsolatedIds ?? null;
   const activeTool = useViewerStore((state) => state.activeTool);
   const updateCameraRotationRealtime = useViewerStore((state) => state.updateCameraRotationRealtime);
   const updateScaleRealtime = useViewerStore((state) => state.updateScaleRealtime);
@@ -1041,15 +1043,10 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
       const pipeline = renderer.getPipeline();
       if (pipeline) {
         // Use batched rendering - groups meshes by color into single draw calls
-        (scene as any).appendToBatches(newMeshes, device, pipeline);
+        // Pass isStreaming flag to enable throttled batch rebuilding (reduces O(N²) cost)
+        (scene as any).appendToBatches(newMeshes, device, pipeline, isStreaming);
 
-        // Store mesh data for on-demand selection rendering
-        // We DON'T create GPU buffers here during streaming - that's 2x the overhead!
-        // Instead, store MeshData references and create buffers lazily when selected
-        for (const meshData of newMeshes) {
-          // Store minimal mesh data for picker and lazy selection buffer creation
-          scene.addMeshData(meshData);
-        }
+        // Note: addMeshData is now called inside appendToBatches, no need to duplicate
       } else {
         // Fallback: add individual meshes if pipeline not ready
         for (const meshData of newMeshes) {
@@ -1171,8 +1168,17 @@ export function Viewport({ geometry, coordinateInfo }: ViewportProps) {
     const renderer = rendererRef.current;
     if (!renderer || !isInitialized) return;
 
-    // If streaming just completed (was streaming, now not), force immediate render
+    // If streaming just completed (was streaming, now not), rebuild pending batches and render
     if (prevIsStreamingRef.current && !isStreaming) {
+      const device = renderer.getGPUDevice();
+      const pipeline = renderer.getPipeline();
+      const scene = renderer.getScene();
+
+      // Rebuild any pending batches that were deferred during streaming
+      if (device && pipeline && (scene as any).hasPendingBatches?.()) {
+        (scene as any).rebuildPendingBatches(device, pipeline);
+      }
+
       renderer.render();
       lastRenderTimeRef.current = Date.now();
     }

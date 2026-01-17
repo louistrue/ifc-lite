@@ -24,6 +24,11 @@ export class Scene {
   private meshDataMap: Map<number, MeshData[]> = new Map(); // Map expressId -> MeshData[] (for lazy buffer creation, accumulates multiple pieces)
   private boundingBoxes: Map<number, BoundingBox> = new Map(); // Map expressId -> bounding box (computed lazily)
 
+  // Streaming optimization: track pending batch rebuilds
+  private pendingBatchKeys: Set<string> = new Set();
+  private lastBatchRebuildTime: number = 0;
+  private batchRebuildThrottleMs: number = 100; // Rebuild batches at most every 100ms during streaming
+
   /**
    * Add mesh to scene
    */
@@ -156,12 +161,12 @@ export class Scene {
    * Append meshes to color batches incrementally
    * Merges new meshes into existing color groups or creates new ones
    *
-   * OPTIMIZATION: Only recreates batches that received new data (O(n) not O(n²))
+   * OPTIMIZATION: Throttles batch rebuilding during streaming to avoid O(N²) cost
+   * - Mesh data is accumulated immediately (fast)
+   * - GPU buffers are rebuilt at most every batchRebuildThrottleMs (expensive)
    */
-  appendToBatches(meshDataArray: MeshData[], device: GPUDevice, pipeline: any): void {
+  appendToBatches(meshDataArray: MeshData[], device: GPUDevice, pipeline: any, isStreaming: boolean = false): void {
     // Track which color keys received new data in THIS call
-    const changedKeys = new Set<string>();
-
     for (const meshData of meshDataArray) {
       const key = this.colorKey(meshData.color);
 
@@ -170,17 +175,37 @@ export class Scene {
         this.batchedMeshData.set(key, []);
       }
       this.batchedMeshData.get(key)!.push(meshData);
-      changedKeys.add(key);
+      this.pendingBatchKeys.add(key);
 
       // Also store individual mesh data for visibility filtering
       // This allows individual meshes to be created lazily when needed
       this.addMeshData(meshData);
     }
 
-    // Only recreate batches for colors that received new data
-    // This is O(changedKeys) instead of O(allBatches) - critical for streaming!
-    for (const key of changedKeys) {
-      const meshDataForKey = this.batchedMeshData.get(key)!;
+    // During streaming, throttle batch rebuilding to reduce O(N²) cost
+    // This allows mesh data to accumulate before expensive buffer recreation
+    const now = performance.now();
+    const timeSinceLastRebuild = now - this.lastBatchRebuildTime;
+
+    if (isStreaming && timeSinceLastRebuild < this.batchRebuildThrottleMs) {
+      // Skip rebuild - data is accumulated, will be rebuilt later
+      return;
+    }
+
+    // Rebuild pending batches
+    this.rebuildPendingBatches(device, pipeline);
+  }
+
+  /**
+   * Rebuild all pending batches (call this after streaming completes)
+   */
+  rebuildPendingBatches(device: GPUDevice, pipeline: any): void {
+    if (this.pendingBatchKeys.size === 0) return;
+
+    for (const key of this.pendingBatchKeys) {
+      const meshDataForKey = this.batchedMeshData.get(key);
+      if (!meshDataForKey || meshDataForKey.length === 0) continue;
+
       const existingBatch = this.batchedMeshMap.get(key);
 
       if (existingBatch) {
@@ -205,6 +230,16 @@ export class Scene {
         this.batchedMeshes.push(batchedMesh);
       }
     }
+
+    this.pendingBatchKeys.clear();
+    this.lastBatchRebuildTime = performance.now();
+  }
+
+  /**
+   * Check if there are pending batch rebuilds
+   */
+  hasPendingBatches(): boolean {
+    return this.pendingBatchKeys.size > 0;
   }
 
   /**
@@ -367,6 +402,8 @@ export class Scene {
     this.batchedMeshData.clear();
     this.meshDataMap.clear();
     this.boundingBoxes.clear();
+    this.pendingBatchKeys.clear();
+    this.lastBatchRebuildTime = 0;
   }
 
   /**
