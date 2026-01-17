@@ -1056,8 +1056,6 @@ export class Camera {
       z: worldPoint.z - origin.z,
     });
 
-    console.log(`[UnprojectRay] screen=(${screenX.toFixed(0)}, ${screenY.toFixed(0)}) ndc=(${ndcX.toFixed(3)}, ${ndcY.toFixed(3)}) worldPt=${JSON.stringify({x: worldPoint.x.toFixed(2), y: worldPoint.y.toFixed(2), z: worldPoint.z.toFixed(2)})}`);
-
     return { origin, direction };
   }
 
