@@ -1016,6 +1016,45 @@ export class Camera {
    * @param canvasHeight - Canvas height in pixels
    * @returns Screen coordinates { x, y } or null if behind camera
    */
+  /**
+   * Unproject screen coordinates to a ray in world space
+   * @param screenX - X position in screen coordinates
+   * @param screenY - Y position in screen coordinates
+   * @param canvasWidth - Canvas width in pixels
+   * @param canvasHeight - Canvas height in pixels
+   * @returns Ray origin and direction in world space
+   */
+  unprojectToRay(screenX: number, screenY: number, canvasWidth: number, canvasHeight: number): { origin: Vec3; direction: Vec3 } {
+    // Convert screen coords to NDC (-1 to 1)
+    const ndcX = (screenX / canvasWidth) * 2 - 1;
+    const ndcY = 1 - (screenY / canvasHeight) * 2; // Flip Y
+
+    // Invert the view-projection matrix
+    const invViewProj = MathUtils.invert(this.viewProjMatrix);
+    if (!invViewProj) {
+      // Fallback: return ray from camera position towards target
+      const dir = MathUtils.normalize({
+        x: this.camera.target.x - this.camera.position.x,
+        y: this.camera.target.y - this.camera.position.y,
+        z: this.camera.target.z - this.camera.position.z,
+      });
+      return { origin: { ...this.camera.position }, direction: dir };
+    }
+
+    // Unproject near and far points to world space
+    const nearWorld = MathUtils.transformPoint(invViewProj, { x: ndcX, y: ndcY, z: 1.0 }); // Reverse-Z: near = 1
+    const farWorld = MathUtils.transformPoint(invViewProj, { x: ndcX, y: ndcY, z: 0.0 });  // Reverse-Z: far = 0
+
+    // Calculate ray direction
+    const direction = MathUtils.normalize({
+      x: farWorld.x - nearWorld.x,
+      y: farWorld.y - nearWorld.y,
+      z: farWorld.z - nearWorld.z,
+    });
+
+    return { origin: nearWorld, direction };
+  }
+
   projectToScreen(worldPos: Vec3, canvasWidth: number, canvasHeight: number): { x: number; y: number } | null {
     // Transform world position by view-projection matrix
     const m = this.viewProjMatrix.m;

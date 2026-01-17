@@ -6,8 +6,14 @@
  * Scene graph and mesh management
  */
 
-import type { Mesh, InstancedMesh, BatchedMesh } from './types.js';
+import type { Mesh, InstancedMesh, BatchedMesh, Vec3 } from './types.js';
 import type { MeshData } from '@ifc-lite/geometry';
+import { MathUtils } from './math.js';
+
+interface BoundingBox {
+  min: Vec3;
+  max: Vec3;
+}
 
 export class Scene {
   private meshes: Mesh[] = [];
@@ -16,6 +22,7 @@ export class Scene {
   private batchedMeshMap: Map<string, BatchedMesh> = new Map(); // Map colorKey -> BatchedMesh
   private batchedMeshData: Map<string, MeshData[]> = new Map(); // Map colorKey -> accumulated MeshData[]
   private meshDataMap: Map<number, MeshData[]> = new Map(); // Map expressId -> MeshData[] (for lazy buffer creation, accumulates multiple pieces)
+  private boundingBoxes: Map<number, BoundingBox> = new Map(); // Map expressId -> bounding box (computed lazily)
 
   /**
    * Add mesh to scene
@@ -359,6 +366,7 @@ export class Scene {
     this.batchedMeshMap.clear();
     this.batchedMeshData.clear();
     this.meshDataMap.clear();
+    this.boundingBoxes.clear();
   }
 
   /**
@@ -373,5 +381,190 @@ export class Scene {
       min: { x: -10, y: -10, z: -10 },
       max: { x: 10, y: 10, z: 10 },
     };
+  }
+
+  /**
+   * Get all expressIds that have mesh data (for CPU raycasting)
+   */
+  getAllMeshDataExpressIds(): number[] {
+    return Array.from(this.meshDataMap.keys());
+  }
+
+  /**
+   * Get or compute bounding box for a mesh
+   */
+  private getBoundingBox(expressId: number): BoundingBox | null {
+    // Check cache first
+    const cached = this.boundingBoxes.get(expressId);
+    if (cached) return cached;
+
+    // Compute from mesh data
+    const pieces = this.meshDataMap.get(expressId);
+    if (!pieces || pieces.length === 0) return null;
+
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+    for (const piece of pieces) {
+      const positions = piece.positions;
+      for (let i = 0; i < positions.length; i += 3) {
+        const x = positions[i];
+        const y = positions[i + 1];
+        const z = positions[i + 2];
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (z < minZ) minZ = z;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+        if (z > maxZ) maxZ = z;
+      }
+    }
+
+    const bbox: BoundingBox = {
+      min: { x: minX, y: minY, z: minZ },
+      max: { x: maxX, y: maxY, z: maxZ },
+    };
+    this.boundingBoxes.set(expressId, bbox);
+    return bbox;
+  }
+
+  /**
+   * Ray-box intersection test (slab method)
+   */
+  private rayIntersectsBox(
+    rayOrigin: Vec3,
+    rayDirInv: Vec3,  // 1/rayDir for efficiency
+    rayDirSign: [number, number, number],
+    box: BoundingBox
+  ): boolean {
+    const bounds = [box.min, box.max];
+
+    let tmin = (bounds[rayDirSign[0]].x - rayOrigin.x) * rayDirInv.x;
+    let tmax = (bounds[1 - rayDirSign[0]].x - rayOrigin.x) * rayDirInv.x;
+    const tymin = (bounds[rayDirSign[1]].y - rayOrigin.y) * rayDirInv.y;
+    const tymax = (bounds[1 - rayDirSign[1]].y - rayOrigin.y) * rayDirInv.y;
+
+    if (tmin > tymax || tymin > tmax) return false;
+    if (tymin > tmin) tmin = tymin;
+    if (tymax < tmax) tmax = tymax;
+
+    const tzmin = (bounds[rayDirSign[2]].z - rayOrigin.z) * rayDirInv.z;
+    const tzmax = (bounds[1 - rayDirSign[2]].z - rayOrigin.z) * rayDirInv.z;
+
+    if (tmin > tzmax || tzmin > tmax) return false;
+    if (tzmin > tmin) tmin = tzmin;
+    if (tzmax < tmax) tmax = tzmax;
+
+    return tmax >= 0;
+  }
+
+  /**
+   * Möller–Trumbore ray-triangle intersection
+   * Returns distance to intersection or null if no hit
+   */
+  private rayTriangleIntersect(
+    rayOrigin: Vec3,
+    rayDir: Vec3,
+    v0: Vec3,
+    v1: Vec3,
+    v2: Vec3
+  ): number | null {
+    const EPSILON = 1e-7;
+
+    const edge1 = MathUtils.subtract(v1, v0);
+    const edge2 = MathUtils.subtract(v2, v0);
+    const h = MathUtils.cross(rayDir, edge2);
+    const a = MathUtils.dot(edge1, h);
+
+    if (a > -EPSILON && a < EPSILON) return null; // Ray parallel to triangle
+
+    const f = 1.0 / a;
+    const s = MathUtils.subtract(rayOrigin, v0);
+    const u = f * MathUtils.dot(s, h);
+
+    if (u < 0.0 || u > 1.0) return null;
+
+    const q = MathUtils.cross(s, edge1);
+    const v = f * MathUtils.dot(rayDir, q);
+
+    if (v < 0.0 || u + v > 1.0) return null;
+
+    const t = f * MathUtils.dot(edge2, q);
+
+    if (t > EPSILON) return t; // Ray intersection
+    return null;
+  }
+
+  /**
+   * CPU raycast against all mesh data
+   * Returns expressId of closest hit or null
+   */
+  raycast(
+    rayOrigin: Vec3,
+    rayDir: Vec3,
+    hiddenIds?: Set<number>,
+    isolatedIds?: Set<number> | null
+  ): { expressId: number; distance: number } | null {
+    // Precompute ray direction inverse and signs for box tests
+    const rayDirInv: Vec3 = {
+      x: rayDir.x !== 0 ? 1.0 / rayDir.x : Infinity,
+      y: rayDir.y !== 0 ? 1.0 / rayDir.y : Infinity,
+      z: rayDir.z !== 0 ? 1.0 / rayDir.z : Infinity,
+    };
+    const rayDirSign: [number, number, number] = [
+      rayDirInv.x < 0 ? 1 : 0,
+      rayDirInv.y < 0 ? 1 : 0,
+      rayDirInv.z < 0 ? 1 : 0,
+    ];
+
+    let closestHit: { expressId: number; distance: number } | null = null;
+    let closestDistance = Infinity;
+
+    // First pass: filter by bounding box (fast)
+    const candidates: number[] = [];
+
+    for (const expressId of this.meshDataMap.keys()) {
+      // Skip hidden elements
+      if (hiddenIds?.has(expressId)) continue;
+      // Skip non-isolated elements if isolation is active
+      if (isolatedIds !== null && isolatedIds !== undefined && !isolatedIds.has(expressId)) continue;
+
+      const bbox = this.getBoundingBox(expressId);
+      if (!bbox) continue;
+
+      if (this.rayIntersectsBox(rayOrigin, rayDirInv, rayDirSign, bbox)) {
+        candidates.push(expressId);
+      }
+    }
+
+    // Second pass: test triangles for candidates (accurate)
+    for (const expressId of candidates) {
+      const pieces = this.meshDataMap.get(expressId);
+      if (!pieces) continue;
+
+      for (const piece of pieces) {
+        const positions = piece.positions;
+        const indices = piece.indices;
+
+        // Test each triangle
+        for (let i = 0; i < indices.length; i += 3) {
+          const i0 = indices[i] * 3;
+          const i1 = indices[i + 1] * 3;
+          const i2 = indices[i + 2] * 3;
+
+          const v0: Vec3 = { x: positions[i0], y: positions[i0 + 1], z: positions[i0 + 2] };
+          const v1: Vec3 = { x: positions[i1], y: positions[i1 + 1], z: positions[i1 + 2] };
+          const v2: Vec3 = { x: positions[i2], y: positions[i2 + 1], z: positions[i2 + 2] };
+
+          const t = this.rayTriangleIntersect(rayOrigin, rayDir, v0, v1, v2);
+          if (t !== null && t < closestDistance) {
+            closestDistance = t;
+            closestHit = { expressId, distance: t };
+          }
+        }
+      }
+    }
+
+    return closestHit;
   }
 }

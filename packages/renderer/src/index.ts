@@ -1030,13 +1030,15 @@ export class Renderer {
                     if (this.scene.hasMeshData(expressId)) toCreate++;
                 }
 
-                // PERFORMANCE FIX: Don't create huge numbers of meshes during picking
-                // This prevents the first hover from creating 60K+ GPU buffers
-                // Individual meshes will be created incrementally during interaction
+                // PERFORMANCE FIX: Use CPU raycasting for large models instead of creating GPU meshes
+                // GPU picking requires individual mesh buffers; for 60K+ elements this is too slow
+                // CPU raycasting uses bounding box filtering + triangle tests - no GPU buffers needed
                 const MAX_PICK_MESH_CREATION = 500;
                 if (toCreate > MAX_PICK_MESH_CREATION) {
-                    console.warn(`[Renderer] Pick skipped: would need to create ${toCreate} meshes. Interaction will build incrementally.`);
-                    return null;
+                    // Use CPU raycasting fallback
+                    const ray = this.camera.unprojectToRay(x, y, this.canvas.width, this.canvas.height);
+                    const hit = this.scene.raycast(ray.origin, ray.direction, options?.hiddenIds, options?.isolatedIds);
+                    return hit ? hit.expressId : null;
                 }
 
                 // Create picking meshes lazily from stored MeshData
