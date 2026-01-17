@@ -153,7 +153,7 @@ pub fn process_geometry(content: &str) -> ProcessingResult {
 
                         return Some(MeshData::new(
                             job.id,
-                            job.type_name,
+                            job.ifc_type.name().to_string(),
                             mesh.positions,
                             mesh.normals,
                             mesh.indices,

@@ -169,7 +169,7 @@ fn process_batch(
 
                         return Some(MeshData::new(
                             job.id,
-                            job.type_name.clone(),
+                            job.ifc_type.name().to_string(),
                             mesh.positions,
                             mesh.normals,
                             mesh.indices,

@@ -476,13 +476,33 @@ export class Renderer {
             // Create individual meshes for visible elements that don't have meshes yet
             // This ensures elements that were previously hidden can be shown again
             const existingMeshIds = new Set(meshes.map(m => m.expressId));
+
+            // Count how many meshes need creation
+            let toCreate = 0;
+            for (const expressId of visibleExpressIds) {
+                if (!existingMeshIds.has(expressId) && this.scene.hasMeshData(expressId)) {
+                    toCreate++;
+                }
+            }
+
+            // PERFORMANCE: Limit batch mesh creation to prevent frame drops
+            // With visibility filtering, we need individual meshes which is slower than batching
+            const MAX_VISIBILITY_MESH_CREATION = 2000;
+            if (toCreate > MAX_VISIBILITY_MESH_CREATION) {
+                console.warn(`[Renderer] Large mesh creation for visibility: ${toCreate} meshes. Creating in batches.`);
+            }
+
+            let created = 0;
             for (const expressId of visibleExpressIds) {
                 if (!existingMeshIds.has(expressId) && this.scene.hasMeshData(expressId)) {
                     const meshData = this.scene.getMeshData(expressId)!;
                     this.createMeshFromData(meshData);
+                    created++;
+                    // Throttle: only create up to MAX per frame, rest will be created next frame
+                    if (created >= MAX_VISIBILITY_MESH_CREATION) break;
                 }
             }
-            
+
             // Get updated meshes list
             meshes = this.scene.getMeshes();
         }
@@ -1000,6 +1020,24 @@ export class Renderer {
 
                 // Track existing expressIds to avoid duplicates (using Set for O(1) lookup)
                 const existingExpressIds = new Set(meshes.map(m => m.expressId));
+
+                // Count how many meshes we'd need to create
+                let toCreate = 0;
+                for (const expressId of expressIds) {
+                    if (existingExpressIds.has(expressId)) continue;
+                    if (options?.hiddenIds?.has(expressId)) continue;
+                    if (options?.isolatedIds !== null && options?.isolatedIds !== undefined && !options.isolatedIds.has(expressId)) continue;
+                    if (this.scene.hasMeshData(expressId)) toCreate++;
+                }
+
+                // PERFORMANCE FIX: Don't create huge numbers of meshes during picking
+                // This prevents the first hover from creating 60K+ GPU buffers
+                // Individual meshes will be created incrementally during interaction
+                const MAX_PICK_MESH_CREATION = 500;
+                if (toCreate > MAX_PICK_MESH_CREATION) {
+                    console.warn(`[Renderer] Pick skipped: would need to create ${toCreate} meshes. Interaction will build incrementally.`);
+                    return null;
+                }
 
                 // Create picking meshes lazily from stored MeshData
                 // Only create meshes for VISIBLE elements (not hidden, and either no isolation or in isolated set)
