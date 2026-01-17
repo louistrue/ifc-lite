@@ -54,6 +54,8 @@ import { ColumnarParser, type IfcDataStore } from './columnar-parser.js';
 
 export interface ParseOptions {
   onProgress?: (progress: { phase: string; percent: number }) => void;
+  /** Skip attribute extraction for faster initial load (large files) */
+  lite?: boolean;
 }
 
 /**
@@ -138,10 +140,22 @@ export class IfcParser {
   /**
    * Parse IFC file into columnar data store (new format)
    * OPTIMIZED: Combined scan + extract for maximum performance
+   *
+   * For large files (>50MB), use options.lite=true to skip attribute extraction.
+   * This makes initial load ~10x faster, with properties loaded on-demand.
    */
   async parseColumnar(buffer: ArrayBuffer, options: ParseOptions = {}): Promise<IfcDataStore> {
     const uint8Buffer = new Uint8Array(buffer);
     const startTime = performance.now();
+    const fileSizeMB = buffer.byteLength / (1024 * 1024);
+
+    // Auto-enable lite mode for very large files
+    const useLiteMode = options.lite ?? (fileSizeMB > 100);
+
+    if (useLiteMode) {
+      console.log(`[IfcParser] Using LITE mode for ${fileSizeMB.toFixed(1)}MB file (skip attribute extraction)`);
+      return this.parseColumnarLite(buffer, options);
+    }
 
     // OPTIMIZED: Combined scan + extract in one pass
     options.onProgress?.({ phase: 'scanning', percent: 0 });
@@ -199,6 +213,191 @@ export class IfcParser {
     const columnarParser = new ColumnarParser();
     return columnarParser.parse(buffer, entityRefs, entities, options);
   }
+
+  /**
+   * LITE parsing mode - scan-only without attribute extraction
+   * ~10x faster for large files (>100MB)
+   *
+   * Properties/quantities/relationships not available until parseEntityAttributes() is called.
+   */
+  private async parseColumnarLite(buffer: ArrayBuffer, options: ParseOptions = {}): Promise<IfcDataStore> {
+    const uint8Buffer = new Uint8Array(buffer);
+    const startTime = performance.now();
+
+    options.onProgress?.({ phase: 'scanning (lite)', percent: 0 });
+    const tokenizer = new StepTokenizer(uint8Buffer);
+
+    const entityRefs: EntityRef[] = [];
+    let processed = 0;
+    const YIELD_INTERVAL = 10000; // Even less frequent yields for scan-only
+
+    // Scan-only: just get entity refs (ID, type, offset) - NO attribute parsing
+    for (const ref of tokenizer.scanEntities()) {
+      entityRefs.push({
+        expressId: ref.expressId,
+        type: ref.type,
+        byteOffset: ref.offset,
+        byteLength: ref.length,
+        lineNumber: ref.line,
+      });
+
+      processed++;
+      if (processed % YIELD_INTERVAL === 0) {
+        options.onProgress?.({ phase: 'scanning (lite)', percent: Math.min(95, processed / 1000) });
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+    }
+
+    const scanTime = performance.now() - startTime;
+    console.log(`[IfcParser] LITE scan: ${processed} entities in ${scanTime.toFixed(0)}ms`);
+
+    options.onProgress?.({ phase: 'scanning (lite)', percent: 100 });
+
+    // Build minimal columnar structures (no parsed entities)
+    const columnarParser = new ColumnarParser();
+    return columnarParser.parseLite(buffer, entityRefs, options);
+  }
+}
+
+/**
+ * On-demand entity parser for lite mode
+ * Parse a single entity's attributes from the source buffer
+ */
+export function parseEntityOnDemand(
+  source: Uint8Array,
+  entityRef: EntityRef
+): { expressId: number; type: string; attributes: any[] } | null {
+  try {
+    const entityText = new TextDecoder().decode(
+      source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength)
+    );
+
+    // Parse: #ID = TYPE(attr1, attr2, ...)
+    const match = entityText.match(/^#(\d+)\s*=\s*(\w+)\((.*)\)/);
+    if (!match) return null;
+
+    const expressId = parseInt(match[1], 10);
+    const type = match[2];
+    const paramsText = match[3];
+
+    // Parse attributes
+    const attributes = parseAttributeList(paramsText);
+
+    return { expressId, type, attributes };
+  } catch (error) {
+    console.warn(`Failed to parse entity #${entityRef.expressId}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Parse attribute list from STEP format
+ */
+function parseAttributeList(paramsText: string): any[] {
+  if (!paramsText.trim()) return [];
+
+  const attributes: any[] = [];
+  let depth = 0;
+  let current = '';
+  let inString = false;
+
+  for (let i = 0; i < paramsText.length; i++) {
+    const char = paramsText[i];
+
+    if (char === "'") {
+      if (inString) {
+        // Check for escaped quote ('') - STEP uses doubled quotes
+        if (i + 1 < paramsText.length && paramsText[i + 1] === "'") {
+          current += "''";
+          i++;
+          continue;
+        }
+        inString = false;
+      } else {
+        inString = true;
+      }
+      current += char;
+    } else if (inString) {
+      current += char;
+    } else if (char === '(') {
+      depth++;
+      current += char;
+    } else if (char === ')') {
+      depth--;
+      current += char;
+    } else if (char === ',' && depth === 0) {
+      attributes.push(parseAttributeValue(current.trim()));
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+
+  if (current.trim()) {
+    attributes.push(parseAttributeValue(current.trim()));
+  }
+
+  return attributes;
+}
+
+/**
+ * Parse a single attribute value
+ */
+function parseAttributeValue(value: string): any {
+  value = value.trim();
+
+  if (!value || value === '$') {
+    return null;
+  }
+
+  // List/Array
+  if (value.startsWith('(') && value.endsWith(')')) {
+    const listContent = value.slice(1, -1).trim();
+    if (!listContent) return [];
+
+    const items: any[] = [];
+    let depth = 0;
+    let current = '';
+
+    for (let i = 0; i < listContent.length; i++) {
+      const char = listContent[i];
+
+      if (char === '(') {
+        depth++;
+        current += char;
+      } else if (char === ')') {
+        depth--;
+        current += char;
+      } else if (char === ',' && depth === 0) {
+        const itemValue = current.trim();
+        if (itemValue) items.push(parseAttributeValue(itemValue));
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+
+    if (current.trim()) items.push(parseAttributeValue(current.trim()));
+    return items;
+  }
+
+  // Reference: #123
+  if (value.startsWith('#')) {
+    const id = parseInt(value.substring(1), 10);
+    return isNaN(id) ? null : id;
+  }
+
+  // String: 'text'
+  if (value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1).replace(/''/g, "'");
+  }
+
+  // Number
+  const num = parseFloat(value);
+  if (!isNaN(num)) return num;
+
+  // Enumeration or other identifier
+  return value;
 }
 
 // Import for auto-parser

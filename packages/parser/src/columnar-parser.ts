@@ -411,6 +411,100 @@ export class ColumnarParser {
     }
 
     /**
+     * LITE parsing mode - minimal structures without parsed entities
+     * For very large files where we want geometry first, properties later
+     */
+    async parseLite(
+        buffer: ArrayBuffer,
+        entityRefs: EntityRef[],
+        options: { onProgress?: (progress: { phase: string; percent: number }) => void } = {}
+    ): Promise<IfcDataStore> {
+        const startTime = performance.now();
+        const uint8Buffer = new Uint8Array(buffer);
+        const totalEntities = entityRefs.length;
+
+        options.onProgress?.({ phase: 'building (lite)', percent: 0 });
+
+        // Initialize minimal builders
+        const strings = new StringTable();
+        const entityTableBuilder = new EntityTableBuilder(totalEntities, strings);
+        const propertyTableBuilder = new PropertyTableBuilder(strings);
+        const quantityTableBuilder = new QuantityTableBuilder(strings);
+        const relationshipGraphBuilder = new RelationshipGraphBuilder();
+
+        // Build entity table with just type info (no names/descriptions from attributes)
+        let processed = 0;
+        for (const ref of entityRefs) {
+            const typeUpper = ref.type.toUpperCase();
+            const hasGeometry = GEOMETRY_TYPES.has(typeUpper);
+            const isType = typeUpper.endsWith('TYPE');
+
+            // Minimal entity entry - no parsed attributes available
+            entityTableBuilder.add(
+                ref.expressId,
+                ref.type,
+                '', // globalId - not available without parsing
+                '', // name - not available without parsing
+                '', // description - not available without parsing
+                '', // objectType - not available without parsing
+                hasGeometry,
+                isType
+            );
+
+            processed++;
+            if (processed % 50000 === 0) {
+                options.onProgress?.({ phase: 'building (lite)', percent: (processed / totalEntities) * 90 });
+                await maybeYield();
+            }
+        }
+
+        const entityTable = entityTableBuilder.build();
+
+        // Build entity index
+        const entityIndex = {
+            byId: new Map<number, EntityRef>(),
+            byType: new Map<string, number[]>(),
+        };
+
+        for (const ref of entityRefs) {
+            entityIndex.byId.set(ref.expressId, ref);
+            let typeList = entityIndex.byType.get(ref.type);
+            if (!typeList) {
+                typeList = [];
+                entityIndex.byType.set(ref.type, typeList);
+            }
+            typeList.push(ref.expressId);
+        }
+
+        // Empty property/quantity tables for lite mode
+        const propertyTable = propertyTableBuilder.build();
+        const quantityTable = quantityTableBuilder.build();
+        const relationshipGraph = relationshipGraphBuilder.build();
+
+        // No spatial hierarchy in lite mode (requires relationships)
+        // Spatial hierarchy can be built on-demand when properties are loaded
+
+        const parseTime = performance.now() - startTime;
+        console.log(`[ColumnarParser] LITE parse: ${totalEntities} entities in ${parseTime.toFixed(0)}ms`);
+        options.onProgress?.({ phase: 'complete (lite)', percent: 100 });
+
+        return {
+            fileSize: buffer.byteLength,
+            schemaVersion: 'IFC4' as const,
+            entityCount: totalEntities,
+            parseTime,
+            source: uint8Buffer,
+            entityIndex,
+            strings,
+            entities: entityTable,
+            properties: propertyTable,
+            quantities: quantityTable,
+            relationships: relationshipGraph,
+            // spatialHierarchy omitted in lite mode - can be built on-demand
+        };
+    }
+
+    /**
      * Fast relationship extraction - inline for performance
      */
     private extractRelationshipFast(entity: IfcEntity, typeUpper: string): Relationship | null {
