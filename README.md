@@ -24,11 +24,11 @@
 </p>
 
 <p align="center">
-  <a href="#features">Features</a> · 
-  <a href="#quick-start">Quick Start</a> · 
-  <a href="#documentation">Documentation</a> · 
-  <a href="#architecture">Architecture</a> · 
-  <a href="#performance">Performance</a> · 
+  <a href="#features">Features</a> ·
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#server-paradigm">Server</a> ·
+  <a href="#performance">Performance</a> ·
   <a href="#contributing">Contributing</a>
 </p>
 
@@ -186,6 +186,68 @@ IFC files flow through three processing layers. See the [Architecture Documentat
 > [Geometry Pipeline](docs/architecture/geometry-pipeline.md) ·
 > [Rendering Pipeline](docs/architecture/rendering-pipeline.md)
 
+## Server Paradigm
+
+For production deployments, IFClite provides a **Rust server** that handles CPU-intensive processing, enabling instant loading for repeat visits and efficient handling of large models.
+
+```mermaid
+flowchart LR
+    subgraph Client
+        Upload[Upload IFC]
+        Viewer[WebGPU Viewer]
+    end
+
+    subgraph Server
+        Parse[Parse & Process]
+        Cache[(Content Cache)]
+    end
+
+    Upload -->|hash check| Cache
+    Cache -->|hit| Viewer
+    Upload -->|miss| Parse
+    Parse --> Cache
+    Cache --> Viewer
+
+    style Upload fill:#6366f1,stroke:#312e81,color:#fff
+    style Parse fill:#10b981,stroke:#064e3b,color:#fff
+    style Cache fill:#f59e0b,stroke:#7c2d12,color:#fff
+    style Viewer fill:#a855f7,stroke:#581c87,color:#fff
+```
+
+### Key Features
+
+| Feature | Description |
+|---------|-------------|
+| **Content-Addressable Cache** | SHA-256 hash of file content as cache key. Client checks cache before upload |
+| **Parallel Geometry Processing** | Rayon thread pool processes entities concurrently |
+| **Columnar Formats** | Apache Parquet for geometry (15-50x smaller than JSON) |
+| **Progressive Streaming** | SSE batches enable rendering while server processes |
+| **Lazy Data Model** | Properties/relationships computed in background, fetched on-demand |
+
+### Data Flow
+
+1. **Cache-First**: Client computes SHA-256 hash locally, checks server cache
+2. **Cache Hit**: Geometry served directly from cache (skips upload entirely)
+3. **Cache Miss**: File uploaded, processed in parallel, cached, then served
+4. **Streaming**: Geometry batches streamed via SSE for progressive rendering
+
+### When to Use
+
+| Scenario | Recommendation |
+|----------|----------------|
+| Single file, one-time view | Client-only (`@ifc-lite/parser`) |
+| Repeat access, team sharing | Server with caching |
+| Large models (100+ MB) | Server with streaming |
+| Offline/embedded apps | Client-only with local cache |
+
+```bash
+# Run the server locally
+cd apps/server && cargo run --release
+
+# Or with Docker
+docker run -p 3001:3001 ghcr.io/louistrue/ifc-lite-server
+```
+
 ## Project Structure
 
 ```
@@ -200,6 +262,7 @@ ifc-lite/
 │   ├── geometry/              # Geometry bridge (WASM)
 │   ├── renderer/              # WebGPU rendering
 │   ├── cache/                 # Binary cache format
+│   ├── server-client/         # Server SDK (caching, streaming)
 │   ├── query/                 # Query system
 │   ├── data/                  # Columnar data structures
 │   ├── spatial/               # Spatial indexing
@@ -207,7 +270,8 @@ ifc-lite/
 │   └── codegen/               # Schema generator
 │
 ├── apps/
-│   └── viewer/                # React web application
+│   ├── viewer/                # React web application
+│   └── server/                # Rust HTTP server (Axum)
 │
 └── docs/                      # Documentation (MkDocs)
 ```
@@ -292,6 +356,7 @@ bash scripts/build-wasm.sh  # Rebuild WASM after Rust changes
 | `@ifc-lite/data` | Columnar data structures | ✅ Stable | [API](docs/api/typescript.md#data) |
 | `@ifc-lite/spatial` | Spatial indexing & culling | 🚧 Beta | [API](docs/api/typescript.md#spatial) |
 | `@ifc-lite/export` | Export (glTF, Parquet, etc.) | 🚧 Beta | [API](docs/api/typescript.md#export) |
+| `@ifc-lite/server-client` | Server SDK with caching & streaming | ✅ Stable | [API](docs/api/typescript.md#server-client) |
 
 ## Rust Crates
 
@@ -300,6 +365,7 @@ bash scripts/build-wasm.sh  # Rebuild WASM after Rust changes
 | `ifc-lite-core` | STEP/IFC parsing | ✅ Stable | [docs.rs](https://docs.rs/ifc-lite-core) |
 | `ifc-lite-geometry` | Mesh triangulation | ✅ Stable | [docs.rs](https://docs.rs/ifc-lite-geometry) |
 | `ifc-lite-wasm` | WASM bindings | ✅ Stable | [docs.rs](https://docs.rs/ifc-lite-wasm) |
+| `ifc-lite-server` | HTTP server with parallel processing | ✅ Stable | [API](#server-paradigm) |
 
 ## Community Projects
 
