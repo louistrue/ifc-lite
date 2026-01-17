@@ -4,6 +4,7 @@
 
 /**
  * @ifc-lite/parser - Main parser interface
+ * Supports both IFC4 (STEP) and IFC5 (IFCX/JSON) formats
  */
 
 export { StepTokenizer } from './tokenizer.js';
@@ -16,6 +17,18 @@ export { StyleExtractor } from './style-extractor.js';
 export { SpatialHierarchyBuilder } from './spatial-hierarchy-builder.js';
 export { ColumnarParser, type IfcDataStore } from './columnar-parser.js';
 export { WorkerParser } from './worker-parser.js';
+
+// IFC5 (IFCX) support - re-export from @ifc-lite/ifcx
+export {
+  parseIfcx,
+  detectFormat,
+  composeIfcx,
+  type IfcxParseResult,
+  type IfcxFile,
+  type IfcxNode,
+  type ComposedNode,
+  type MeshData as IfcxMeshData,
+} from '@ifc-lite/ifcx';
 
 // New extractors with 100% schema coverage
 export { extractMaterials, getMaterialForElement, getMaterialNameForElement, type MaterialsData, type Material, type MaterialLayer, type MaterialLayerSet } from './material-extractor.js';
@@ -179,4 +192,51 @@ export class IfcParser {
     const columnarParser = new ColumnarParser();
     return columnarParser.parse(buffer, entityRefs, entities, options);
   }
+}
+
+// Import for auto-parser
+import { parseIfcx, detectFormat, type IfcxParseResult, type MeshData as IfcxMeshData } from '@ifc-lite/ifcx';
+
+/**
+ * Result type for auto-parsing (union of IFC4 and IFC5 results)
+ */
+export type AutoParseResult = {
+  format: 'ifc';
+  data: IfcDataStore;
+  meshes?: undefined;
+} | {
+  format: 'ifcx';
+  data: IfcxParseResult;
+  meshes: IfcxMeshData[];
+};
+
+/**
+ * Auto-detect file format and parse accordingly.
+ * Returns unified result with format indicator.
+ */
+export async function parseAuto(
+  buffer: ArrayBuffer,
+  options: ParseOptions = {}
+): Promise<AutoParseResult> {
+  const format = detectFormat(buffer);
+
+  if (format === 'ifcx') {
+    const result = await parseIfcx(buffer, options);
+    return {
+      format: 'ifcx',
+      data: result,
+      meshes: result.meshes,
+    };
+  }
+
+  if (format === 'ifc') {
+    const parser = new IfcParser();
+    const data = await parser.parseColumnar(buffer, options);
+    return {
+      format: 'ifc',
+      data,
+    };
+  }
+
+  throw new Error('Unknown file format. Expected IFC (STEP) or IFCX (JSON).');
 }

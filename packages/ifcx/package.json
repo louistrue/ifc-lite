@@ -1,7 +1,7 @@
 {
-  "name": "@ifc-lite/parser",
-  "version": "1.1.8",
-  "description": "IFC/STEP parser for IFC-Lite",
+  "name": "@ifc-lite/ifcx",
+  "version": "0.1.0",
+  "description": "IFC5 (IFCX) parser for IFC-Lite",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -12,12 +12,11 @@
     }
   },
   "scripts": {
-    "build": "tsc || true",
+    "build": "tsc",
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@ifc-lite/data": "workspace:^",
-    "@ifc-lite/ifcx": "workspace:^"
+    "@ifc-lite/data": "workspace:^"
   },
   "devDependencies": {
     "typescript": "^5.3.0"
@@ -27,15 +26,16 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/louistrue/ifc-lite.git",
-    "directory": "packages/parser"
+    "directory": "packages/ifcx"
   },
   "homepage": "https://louistrue.github.io/ifc-lite/",
   "bugs": "https://github.com/louistrue/ifc-lite/issues",
   "keywords": [
     "ifc",
+    "ifc5",
+    "ifcx",
     "bim",
     "parser",
-    "step",
     "aec"
   ],
   "publishConfig": {

@@ -40,6 +40,18 @@
       ],
       "@ifc-lite/spatial/*": [
         "packages/spatial/dist/*"
+      ],
+      "@ifc-lite/ifcx": [
+        "packages/ifcx/dist/index.d.ts"
+      ],
+      "@ifc-lite/ifcx/*": [
+        "packages/ifcx/dist/*"
+      ],
+      "@ifc-lite/data": [
+        "packages/data/dist/index.d.ts"
+      ],
+      "@ifc-lite/data/*": [
+        "packages/data/dist/*"
       ]
     }
   },

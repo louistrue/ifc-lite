@@ -226,11 +226,24 @@ importers:
         specifier: ^5.3.0
         version: 5.9.3
 
+  packages/ifcx:
+    dependencies:
+      '@ifc-lite/data':
+        specifier: workspace:^
+        version: link:../data
+    devDependencies:
+      typescript:
+        specifier: ^5.3.0
+        version: 5.9.3
+
   packages/parser:
     dependencies:
       '@ifc-lite/data':
         specifier: workspace:^
         version: link:../data
+      '@ifc-lite/ifcx':
+        specifier: workspace:^
+        version: link:../ifcx
     devDependencies:
       typescript:
         specifier: ^5.3.0
