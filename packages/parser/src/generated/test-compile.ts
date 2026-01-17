@@ -2,36 +2,48 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-// Test file to verify generated types compile correctly
-import type { IfcWall, IfcDoor, IfcWindow, IfcProject, IfcBuilding } from './entities';
-import { IfcWallTypeEnum, IfcDoorTypeEnum } from './enums';
-import { SCHEMA_REGISTRY, getEntityMetadata } from './schema-registry';
+/**
+ * Type-check test file
+ * This file is used to verify the generated types compile correctly.
+ *
+ * DO NOT EDIT - This file is auto-generated
+ */
 
-// Test: Create typed objects
-const wall: IfcWall = {
-  GlobalId: 'abc123',
-  Name: 'Test Wall',
-  ObjectType: 'External Wall',
-  PredefinedType: IfcWallTypeEnum.SOLIDWALL,
+import type { IfcWall, IfcProject, IfcExtrudedAreaSolid } from './entities.js';
+import { TYPE_IDS, getTypeId, getTypeName } from './type-ids.js';
+import { SCHEMA_REGISTRY, getEntityMetadata } from './schema-registry.js';
+import { toStepLine, serializeValue, ref, enumVal, type StepEntity } from './serializers.js';
+
+// Test type IDs
+const wallId: number = TYPE_IDS.IfcWall;
+const projectId: number = TYPE_IDS.IfcProject;
+
+// Test ID lookup
+const wallIdFromName = getTypeId('IfcWall');
+const nameFromId = getTypeName(wallId);
+
+// Test schema registry
+const wallMeta = getEntityMetadata('IfcWall');
+const wallAttrs = wallMeta?.allAttributes;
+
+// Test serialization
+const testEntity: StepEntity = {
+  expressId: 1,
+  type: 'IfcProject',
+  GlobalId: '0YvctVUKr0kugbFTf53O9L',
+  OwnerHistory: ref(2),
+  Name: 'Test Project',
+  Description: null,
+  ObjectType: null,
+  LongName: null,
+  Phase: null,
+  RepresentationContexts: [ref(3)],
+  UnitsInContext: ref(4),
 };
 
-const door: IfcDoor = {
-  GlobalId: 'door123',
-  Name: 'Main Door',
-  ObjectType: 'Entrance',
-  PredefinedType: IfcDoorTypeEnum.DOOR,
-  OverallHeight: 2.1,
-  OverallWidth: 0.9,
-};
+const stepLine = toStepLine(testEntity);
 
-// Test: Use schema registry
-const wallMetadata = getEntityMetadata('IfcWall');
-console.log(wallMetadata?.name);
-console.log(wallMetadata?.parent);
-console.log(wallMetadata?.attributes);
-
-// Test: Check entity count
-const entityCount = Object.keys(SCHEMA_REGISTRY.entities).length;
-console.log(`Total entities: ${entityCount}`);
-
-export { wall, door, wallMetadata, entityCount };
+console.log('✓ All types compile correctly');
+console.log('  Wall ID:', wallId);
+console.log('  Project ID:', projectId);
+console.log('  STEP line:', stepLine);

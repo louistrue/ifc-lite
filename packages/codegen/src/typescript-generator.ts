@@ -43,6 +43,17 @@ export function generateTypeScript(schema: ExpressSchema): GeneratedCode {
  * Generate entity interfaces
  */
 function generateEntityInterfaces(schema: ExpressSchema): string {
+  // Collect type, enum, and select names - filtering types that are also enums/selects
+  const enumNamesSet = new Set(schema.enums.map(e => e.name));
+  const selectNamesSet = new Set(schema.selects.map(s => s.name));
+
+  // Types to import from types.ts (exclude those that are enums or selects)
+  const typeNames = schema.types
+    .filter(t => !enumNamesSet.has(t.name) && !selectNamesSet.has(t.name))
+    .map(t => t.name);
+  const enumNames = schema.enums.map(e => e.name);
+  const selectNames = schema.selects.map(s => s.name);
+
   let code = `/**
  * IFC Entity Interfaces
  * Generated from EXPRESS schema: ${schema.name}
@@ -51,6 +62,19 @@ function generateEntityInterfaces(schema: ExpressSchema): string {
  */
 
 `;
+
+  // Add imports for types, enums, and selects
+  if (typeNames.length > 0) {
+    code += `import type {\n  ${typeNames.join(',\n  ')},\n} from './types.js';\n\n`;
+  }
+
+  if (enumNames.length > 0) {
+    code += `import type {\n  ${enumNames.join(',\n  ')},\n} from './enums.js';\n\n`;
+  }
+
+  if (selectNames.length > 0) {
+    code += `import type {\n  ${selectNames.join(',\n  ')},\n} from './selects.js';\n\n`;
+  }
 
   // Sort entities by dependency order (parents before children)
   const sortedEntities = topologicalSort(schema.entities);
@@ -145,6 +169,28 @@ function mapExpressTypeToTypeScript(expressType: string): string {
     BINARY: 'string',
   };
 
+  // Handle STRING(N) and STRING(N) FIXED patterns
+  if (/^STRING\s*\(/i.test(expressType)) {
+    return 'string';
+  }
+
+  // Handle BINARY(N) patterns
+  if (/^BINARY\s*\(/i.test(expressType)) {
+    return 'string';
+  }
+
+  // Handle LIST [N:?] OF X, SET [N:?] OF X, ARRAY [N:M] OF X patterns
+  const collectionMatch = expressType.match(/^(LIST|SET|ARRAY)\s*\[.*?\]\s*OF\s+(.+)$/i);
+  if (collectionMatch) {
+    const innerType = mapExpressTypeToTypeScript(collectionMatch[2].trim());
+    return `${innerType}[]`;
+  }
+
+  // Handle ENUMERATION OF (...) - these should be handled by enum generation
+  if (/^ENUMERATION\s+OF/i.test(expressType)) {
+    return 'string'; // Fallback to string for inline enumerations
+  }
+
   // Check if it's a measure type (ends with Measure)
   if (expressType.endsWith('Measure')) {
     return 'number';
@@ -169,6 +215,28 @@ function mapExpressTypeToTypeScript(expressType: string): string {
  * Generate type aliases
  */
 function generateTypeAliases(schema: ExpressSchema): string {
+  // Collect entity names and type names
+  const entityNames = new Set(schema.entities.map(e => e.name));
+  const enumNames = new Set(schema.enums.map(e => e.name));
+  const selectNames = new Set(schema.selects.map(s => s.name));
+
+  // Filter out types that are also defined as enums or selects (they have separate files)
+  const typesToGenerate = schema.types.filter(
+    t => !enumNames.has(t.name) && !selectNames.has(t.name)
+  );
+
+  // Track referenced entities
+  const referencedEntities = new Set<string>();
+
+  for (const type of typesToGenerate) {
+    const mapped = mapExpressTypeToTypeScript(type.underlyingType);
+    // Check if the underlying type or array element type is an entity
+    const baseType = mapped.replace(/\[\]$/, '');
+    if (entityNames.has(baseType)) {
+      referencedEntities.add(baseType);
+    }
+  }
+
   let code = `/**
  * IFC Type Aliases
  * Generated from EXPRESS schema: ${schema.name}
@@ -178,7 +246,13 @@ function generateTypeAliases(schema: ExpressSchema): string {
 
 `;
 
-  for (const type of schema.types) {
+  // Add imports for referenced entities (circular but allowed with import type)
+  if (referencedEntities.size > 0) {
+    const sortedEntities = Array.from(referencedEntities).sort();
+    code += `import type {\n  ${sortedEntities.join(',\n  ')},\n} from './entities.js';\n\n`;
+  }
+
+  for (const type of typesToGenerate) {
     code += `/** ${type.name} */\n`;
     code += `export type ${type.name} = ${mapExpressTypeToTypeScript(type.underlyingType)};\n\n`;
   }
@@ -229,6 +303,36 @@ function generateEnum(enumDef: EnumDefinition): string {
  * Generate SELECT type unions
  */
 function generateSelectTypes(schema: ExpressSchema): string {
+  // Collect referenced types from selects
+  const entityNames = new Set(schema.entities.map(e => e.name));
+  const enumNames = new Set(schema.enums.map(e => e.name));
+  const selectNames = new Set(schema.selects.map(s => s.name));
+  // Types in types.ts (filtered: not enums, not selects)
+  const typeNames = new Set(
+    schema.types
+      .filter(t => !enumNames.has(t.name) && !selectNames.has(t.name))
+      .map(t => t.name)
+  );
+
+  // Track which names are referenced in selects
+  const referencedEntities = new Set<string>();
+  const referencedTypes = new Set<string>();
+  const referencedEnums = new Set<string>();
+
+  for (const select of schema.selects) {
+    for (const typeName of select.types) {
+      const mapped = mapExpressTypeToTypeScript(typeName);
+      if (entityNames.has(mapped)) {
+        referencedEntities.add(mapped);
+      } else if (typeNames.has(mapped)) {
+        referencedTypes.add(mapped);
+      } else if (enumNames.has(mapped)) {
+        referencedEnums.add(mapped);
+      }
+      // Selects referencing other selects are fine - they're in the same file
+    }
+  }
+
   let code = `/**
  * IFC SELECT Types (Unions)
  * Generated from EXPRESS schema: ${schema.name}
@@ -237,6 +341,24 @@ function generateSelectTypes(schema: ExpressSchema): string {
  */
 
 `;
+
+  // Add imports for entities (circular but allowed with import type)
+  if (referencedEntities.size > 0) {
+    const sortedEntities = Array.from(referencedEntities).sort();
+    code += `import type {\n  ${sortedEntities.join(',\n  ')},\n} from './entities.js';\n\n`;
+  }
+
+  // Add imports for types
+  if (referencedTypes.size > 0) {
+    const sortedTypes = Array.from(referencedTypes).sort();
+    code += `import type {\n  ${sortedTypes.join(',\n  ')},\n} from './types.js';\n\n`;
+  }
+
+  // Add imports for enums
+  if (referencedEnums.size > 0) {
+    const sortedEnums = Array.from(referencedEnums).sort();
+    code += `import type {\n  ${sortedEnums.join(',\n  ')},\n} from './enums.js';\n\n`;
+  }
 
   for (const select of schema.selects) {
     code += `/** ${select.name} */\n`;

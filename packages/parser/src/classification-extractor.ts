@@ -113,7 +113,7 @@ function extractClassification(entity: IfcEntity): Classification {
   // [6] ReferenceTokens (OPTIONAL LIST OF IfcIdentifier)
 
   return {
-    id: entity.id,
+    id: entity.expressId,
     source: getString(entity.attributes[0]),
     edition: getString(entity.attributes[1]),
     editionDate: getString(entity.attributes[2]),
@@ -134,7 +134,7 @@ function extractClassificationReference(entity: IfcEntity): ClassificationRefere
   // [5] Sort (OPTIONAL IfcIdentifier)
 
   return {
-    id: entity.id,
+    id: entity.expressId,
     location: getString(entity.attributes[0]),
     identification: getString(entity.attributes[1]),
     name: getString(entity.attributes[2]),
@@ -161,7 +161,7 @@ function extractClassificationAssociation(entity: IfcEntity): ClassificationAsso
   }
 
   return {
-    relationshipId: entity.id,
+    relationshipId: entity.expressId,
     classificationId: classificationRef,
     relatedObjects,
   };

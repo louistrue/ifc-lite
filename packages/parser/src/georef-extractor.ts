@@ -102,7 +102,7 @@ function extractMapConversion(entity: IfcEntity): MapConversion {
   // [7] Scale (OPTIONAL IfcReal)
 
   return {
-    id: entity.id,
+    id: entity.expressId,
     sourceCRS: getReference(entity.attributes[0]) || 0,
     targetCRS: getReference(entity.attributes[1]) || 0,
     eastings: getNumber(entity.attributes[2]) || 0,
@@ -133,7 +133,7 @@ function extractProjectedCRS(entity: IfcEntity): ProjectedCRS {
   }
 
   return {
-    id: entity.id,
+    id: entity.expressId,
     name: getString(entity.attributes[0]) || '',
     description: getString(entity.attributes[1]),
     geodeticDatum: getString(entity.attributes[2]),

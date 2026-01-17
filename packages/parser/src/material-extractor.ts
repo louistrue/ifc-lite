@@ -195,7 +195,7 @@ export function extractMaterials(
 
 function extractMaterial(entity: IfcEntity): Material {
   return {
-    id: entity.id,
+    id: entity.expressId,
     name: getString(entity.attributes[0]) || '',
     description: getString(entity.attributes[1]),
     category: getString(entity.attributes[2]),
@@ -210,7 +210,7 @@ function extractMaterialLayer(
   const thickness = getNumber(entity.attributes[1]) || 0;
 
   return {
-    id: entity.id,
+    id: entity.expressId,
     material: materialRef || 0,
     thickness,
     isVentilated: getBoolean(entity.attributes[2]),
@@ -240,7 +240,7 @@ function extractMaterialLayerSet(
   }
 
   return {
-    id: entity.id,
+    id: entity.expressId,
     name,
     description,
     layers,
@@ -253,7 +253,7 @@ function extractMaterialProfile(
   entities: Map<number, IfcEntity>
 ): MaterialProfile {
   return {
-    id: entity.id,
+    id: entity.expressId,
     name: getString(entity.attributes[0]),
     description: getString(entity.attributes[1]),
     material: getReference(entity.attributes[2]),
@@ -268,7 +268,7 @@ function extractMaterialProfileSet(
   entities: Map<number, IfcEntity>
 ): MaterialProfileSet {
   return {
-    id: entity.id,
+    id: entity.expressId,
     name: getString(entity.attributes[0]),
     description: getString(entity.attributes[1]),
     profiles: getReferences(entity.attributes[2]) || [],
@@ -280,7 +280,7 @@ function extractMaterialConstituent(
   entities: Map<number, IfcEntity>
 ): MaterialConstituent {
   return {
-    id: entity.id,
+    id: entity.expressId,
     name: getString(entity.attributes[0]),
     description: getString(entity.attributes[1]),
     material: getReference(entity.attributes[2]) || 0,
@@ -294,7 +294,7 @@ function extractMaterialConstituentSet(
   entities: Map<number, IfcEntity>
 ): MaterialConstituentSet {
   return {
-    id: entity.id,
+    id: entity.expressId,
     name: getString(entity.attributes[0]),
     description: getString(entity.attributes[1]),
     constituents: getReferences(entity.attributes[2]) || [],
@@ -336,7 +336,7 @@ function extractMaterialAssociation(
   }
 
   return {
-    relationshipId: entity.id,
+    relationshipId: entity.expressId,
     relatingMaterialId: relatingMaterialRef,
     materialType,
     relatedObjects,
