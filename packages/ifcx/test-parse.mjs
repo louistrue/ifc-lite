@@ -98,21 +98,56 @@ try {
   // Show properties
   console.log('\n=== Sample Properties ===');
   const props = result.properties;
+  console.log(`  Total property rows: ${props.count}`);
   if (props.count > 0) {
-    const sampleEntityId = props.entityId[0];
-    const psets = props.getForEntity(sampleEntityId);
-    console.log(`  Properties for entity #${sampleEntityId}:`);
-    for (const pset of psets.slice(0, 3)) {
-      console.log(`    ${pset.name}:`);
-      for (const prop of pset.properties.slice(0, 3)) {
-        console.log(`      ${prop.name}: ${prop.value}`);
-      }
-      if (pset.properties.length > 3) {
-        console.log(`      ... and ${pset.properties.length - 3} more properties`);
+    // Find entity with most properties
+    const entityPropCounts = new Map();
+    for (let i = 0; i < props.count; i++) {
+      const eid = props.entityId[i];
+      entityPropCounts.set(eid, (entityPropCounts.get(eid) || 0) + 1);
+    }
+    const [richestEntity] = [...entityPropCounts.entries()].sort((a, b) => b[1] - a[1])[0] || [null, 0];
+
+    if (richestEntity) {
+      const psets = props.getForEntity(richestEntity);
+      console.log(`  Properties for entity #${richestEntity} (${entityPropCounts.get(richestEntity)} properties):`);
+      for (const pset of psets) {
+        console.log(`    ${pset.name}:`);
+        for (const prop of pset.properties) {
+          console.log(`      ${prop.name}: ${prop.value} (type: ${prop.type})`);
+        }
       }
     }
   } else {
     console.log('  No properties found');
+  }
+
+  // Show quantities
+  console.log('\n=== Sample Quantities ===');
+  const quants = result.quantities;
+  console.log(`  Total quantity rows: ${quants.count}`);
+  if (quants.count > 0) {
+    // Find entity with quantities
+    const entityQuantCounts = new Map();
+    for (let i = 0; i < quants.count; i++) {
+      const eid = quants.entityId[i];
+      entityQuantCounts.set(eid, (entityQuantCounts.get(eid) || 0) + 1);
+    }
+    const [richestEntity] = [...entityQuantCounts.entries()].sort((a, b) => b[1] - a[1])[0] || [null, 0];
+
+    if (richestEntity) {
+      const qsets = quants.getForEntity(richestEntity);
+      console.log(`  Quantities for entity #${richestEntity} (${entityQuantCounts.get(richestEntity)} quantities):`);
+      for (const qset of qsets) {
+        console.log(`    ${qset.name}:`);
+        for (const q of qset.quantities) {
+          const typeNames = ['Length', 'Area', 'Volume', 'Count', 'Weight', 'Time'];
+          console.log(`      ${q.name}: ${q.value} (type: ${typeNames[q.type] || q.type})`);
+        }
+      }
+    }
+  } else {
+    console.log('  No quantities found');
   }
 
   console.log('\n=== Test Passed! ===\n');

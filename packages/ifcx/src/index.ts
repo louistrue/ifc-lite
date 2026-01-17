@@ -12,7 +12,7 @@
 import type { IfcxFile, ComposedNode } from './types.js';
 import { composeIfcx, findRoots } from './composition.js';
 import { extractEntities } from './entity-extractor.js';
-import { extractProperties } from './property-extractor.js';
+import { extractProperties, isQuantityProperty } from './property-extractor.js';
 import { extractGeometry, type MeshData } from './geometry-extractor.js';
 import { buildHierarchy } from './hierarchy-builder.js';
 import {
@@ -27,7 +27,7 @@ import type { SpatialHierarchy, EntityTable, PropertyTable, QuantityTable, Relat
 export * from './types.js';
 export { composeIfcx, findRoots, getDescendants, getPathToRoot } from './composition.js';
 export { extractEntities } from './entity-extractor.js';
-export { extractProperties } from './property-extractor.js';
+export { extractProperties, isQuantityProperty } from './property-extractor.js';
 export { extractGeometry, type MeshData } from './geometry-extractor.js';
 export { buildHierarchy } from './hierarchy-builder.js';
 
@@ -209,6 +209,7 @@ function isSpatialElement(typeCode: string | undefined): boolean {
 
 /**
  * Build quantity table from properties that appear to be quantities.
+ * Uses the isQuantityProperty helper to identify quantity-like properties.
  */
 function buildQuantities(
   composed: Map<string, ComposedNode>,
@@ -217,47 +218,41 @@ function buildQuantities(
 ): QuantityTable {
   const builder = new QuantityTableBuilder(strings);
 
-  // Quantity property name patterns
-  const quantityPatterns: Record<string, number> = {
-    Volume: 2, // QuantityType.Volume
-    Area: 1, // QuantityType.Area
-    Length: 0, // QuantityType.Length
-    Width: 0,
-    Height: 0,
-    Depth: 0,
-    Thickness: 0,
-    Weight: 4, // QuantityType.Weight
-    Mass: 4,
-    Count: 3, // QuantityType.Count
-    GrossArea: 1,
-    NetArea: 1,
-    GrossVolume: 2,
-    NetVolume: 2,
-    GrossWeight: 4,
-    NetWeight: 4,
+  // Map property names to quantity types
+  const getQuantityType = (propName: string): number => {
+    // Volume types
+    if (propName === 'Volume' || propName.endsWith('Volume')) return 2; // QuantityType.Volume
+    // Area types
+    if (propName === 'Area' || propName.endsWith('Area')) return 1; // QuantityType.Area
+    // Count types
+    if (propName === 'Count' || propName.endsWith('Count')) return 3; // QuantityType.Count
+    // Weight types
+    if (propName === 'Weight' || propName === 'Mass' ||
+        propName.endsWith('Weight') || propName.endsWith('Mass')) return 4; // QuantityType.Weight
+    // Default to length for dimension-like quantities
+    return 0; // QuantityType.Length
   };
 
   for (const node of composed.values()) {
     const expressId = pathToId.get(node.path);
     if (expressId === undefined) continue;
 
+    // Get the IFC class to use as context for qset naming
+    const ifcClass = (node.attributes.get('bsi::ifc::class') as { code?: string })?.code;
+    const qsetName = ifcClass ? `Qto_${ifcClass.replace('Ifc', '')}BaseQuantities` : 'BaseQuantities';
+
     for (const [key, value] of node.attributes) {
       // Check if this looks like a quantity
       const propName = key.split('::').pop() ?? '';
 
-      for (const [pattern, qtyType] of Object.entries(quantityPatterns)) {
-        if (propName === pattern || propName.endsWith(pattern)) {
-          if (typeof value === 'number') {
-            builder.add({
-              entityId: expressId,
-              qsetName: 'BaseQuantities',
-              quantityName: propName,
-              quantityType: qtyType,
-              value,
-            });
-            break;
-          }
-        }
+      if (typeof value === 'number' && isQuantityProperty(propName)) {
+        builder.add({
+          entityId: expressId,
+          qsetName,
+          quantityName: propName,
+          quantityType: getQuantityType(propName),
+          value,
+        });
       }
     }
   }

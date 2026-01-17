@@ -71,6 +71,7 @@ export function extractProperties(
 
 /**
  * Group attributes by their namespace prefix.
+ * Excludes quantity-like properties (they go to QuantityTable instead).
  */
 function groupAttributesByNamespace(
   attributes: Map<string, unknown>
@@ -90,6 +91,11 @@ function groupAttributesByNamespace(
     const namespace = key.slice(0, lastColon);
     const propName = key.slice(lastColon + 2);
 
+    // Skip quantity-like properties - they go to QuantityTable
+    if (typeof value === 'number' && isQuantityProperty(propName)) {
+      continue;
+    }
+
     // Use namespace as pset name, format for display
     const psetName = formatNamespace(namespace);
 
@@ -104,11 +110,39 @@ function groupAttributesByNamespace(
 
 /**
  * Format namespace for display as PropertySet name.
+ * Maps technical namespaces to user-friendly names.
  */
 function formatNamespace(namespace: string): string {
-  // Replace :: with / for readability
-  // e.g., "bsi::ifc::prop" -> "bsi / ifc / prop"
-  return namespace.replace(/::/g, ' / ');
+  // Map common IFC5 namespaces to user-friendly names
+  const namespaceMap: Record<string, string> = {
+    'bsi::ifc::prop': 'IFC Properties',
+    'bsi::ifc::presentation': 'Presentation',
+    'bsi::ifc::material': 'Material',
+    'bsi::ifc::spaceBoundary': 'Space Boundary',
+    'bsi::ifc': 'IFC',
+    'usd::usdgeom': 'Geometry',
+    'usd': 'USD',
+  };
+
+  // Check for exact match first
+  if (namespaceMap[namespace]) {
+    return namespaceMap[namespace];
+  }
+
+  // Check for prefix match (e.g., custom extensions)
+  for (const [prefix, name] of Object.entries(namespaceMap)) {
+    if (namespace.startsWith(prefix + '::')) {
+      const suffix = namespace.slice(prefix.length + 2);
+      return `${name} - ${suffix}`;
+    }
+  }
+
+  // Fallback: make it readable
+  // e.g., "vendor::custom::prop" -> "Vendor Custom Prop"
+  return namespace
+    .split('::')
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 /**
@@ -165,7 +199,8 @@ function convertPropertyValue(value: unknown): {
  * These are identified by their names matching quantity patterns.
  */
 export function isQuantityProperty(propName: string): boolean {
-  const quantityPatterns = [
+  // Exact matches for common quantity names
+  const exactQuantityNames = new Set([
     'Volume',
     'Area',
     'Length',
@@ -176,15 +211,28 @@ export function isQuantityProperty(propName: string): boolean {
     'Weight',
     'Mass',
     'Count',
-    'GrossArea',
-    'NetArea',
-    'GrossVolume',
-    'NetVolume',
-    'GrossWeight',
-    'NetWeight',
+    'Perimeter',
+    'CrossSectionArea',
+  ]);
+
+  // Suffix patterns for compound quantity names
+  const suffixPatterns = [
+    'Volume',
+    'Area',
+    'Length',
+    'Weight',
+    'Mass',
+    'Count',
+    'Perimeter',
   ];
 
-  return quantityPatterns.some(
-    pattern => propName === pattern || propName.endsWith(pattern)
+  // Check exact match
+  if (exactQuantityNames.has(propName)) {
+    return true;
+  }
+
+  // Check suffix patterns (e.g., GrossArea, NetVolume, SideArea)
+  return suffixPatterns.some(pattern =>
+    propName.endsWith(pattern) && propName !== pattern
   );
 }
