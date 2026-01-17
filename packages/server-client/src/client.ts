@@ -499,15 +499,17 @@ export class IfcServerClient {
     const view = new DataView(payloadBuffer);
     let offset = 0;
 
-    // Detect format: if metadata has data_model_stats, it's the new format with wrapper
-    const hasDataModel = metadata.data_model_stats !== undefined;
-
+    // Detect format: check if payload starts with length prefix (wrapped format)
+    // Even if metadata.data_model_stats is undefined, cached responses use wrapped format
+    const firstLen = view.getUint32(0, true);
+    const hasWrapper = firstLen > 0 && firstLen < payloadBuffer.byteLength && firstLen < payloadBuffer.byteLength - 4;
+    
     let geometryData: ArrayBuffer;
     let dataModelBuffer: ArrayBuffer | undefined;
 
-    if (hasDataModel) {
-      // New format: [geometry_len][geometry_data][data_model_len][data_model_data]
-      const geometryLen = view.getUint32(offset, true);
+    if (hasWrapper) {
+      // Wrapped format: [geometry_len][geometry_data][data_model_len][data_model_data]
+      const geometryLen = firstLen;
       offset += 4;
 
       // Validate geometry length

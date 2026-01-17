@@ -35,7 +35,20 @@ impl Config {
                 .unwrap_or_else(|_| "8080".into())
                 .parse()
                 .unwrap_or(8080),
-            cache_dir: std::env::var("CACHE_DIR").unwrap_or_else(|_| "/app/cache".into()),
+            cache_dir: std::env::var("CACHE_DIR").unwrap_or_else(|_| {
+                // Auto-detect environment:
+                // - Docker: use /app/cache (created in Dockerfile)
+                // - Local dev: use ./.cache relative to server directory
+                if std::path::Path::new("/.dockerenv").exists() {
+                    "/app/cache".into()
+                } else {
+                    // Use absolute path for local development to avoid issues
+                    std::env::current_dir()
+                        .ok()
+                        .and_then(|dir| dir.join(".cache").to_str().map(|s| s.to_string()))
+                        .unwrap_or_else(|| "./.cache".into())
+                }
+            }),
             max_file_size_mb: std::env::var("MAX_FILE_SIZE_MB")
                 .unwrap_or_else(|_| "500".into())
                 .parse()
