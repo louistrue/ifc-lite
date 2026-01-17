@@ -1004,65 +1004,64 @@ export class Renderer {
         }
 
         let meshes = this.scene.getMeshes();
+        const batchedMeshes = this.scene.getBatchedMeshes();
 
-        // If we have batched meshes but no regular meshes, create picking meshes from stored MeshData
-        // This implements lazy loading for picking - meshes are created on-demand from MeshData
-        if (meshes.length === 0) {
-            const batchedMeshes = this.scene.getBatchedMeshes();
-            if (batchedMeshes.length > 0) {
-                // Collect all expressIds from batched meshes
-                const expressIds = new Set<number>();
-                for (const batch of batchedMeshes) {
-                    for (const expressId of batch.expressIds) {
-                        expressIds.add(expressId);
-                    }
+        // If we have batched meshes, check if we need CPU raycasting
+        // This handles the case where we have SOME individual meshes (e.g., from highlighting)
+        // but not enough for full GPU picking coverage
+        if (batchedMeshes.length > 0) {
+            // Collect all expressIds from batched meshes
+            const expressIds = new Set<number>();
+            for (const batch of batchedMeshes) {
+                for (const expressId of batch.expressIds) {
+                    expressIds.add(expressId);
                 }
-
-                // Track existing expressIds to avoid duplicates (using Set for O(1) lookup)
-                const existingExpressIds = new Set(meshes.map(m => m.expressId));
-
-                // Count how many meshes we'd need to create
-                let toCreate = 0;
-                for (const expressId of expressIds) {
-                    if (existingExpressIds.has(expressId)) continue;
-                    if (options?.hiddenIds?.has(expressId)) continue;
-                    if (options?.isolatedIds !== null && options?.isolatedIds !== undefined && !options.isolatedIds.has(expressId)) continue;
-                    if (this.scene.hasMeshData(expressId)) toCreate++;
-                }
-
-                // PERFORMANCE FIX: Use CPU raycasting for large models instead of creating GPU meshes
-                // GPU picking requires individual mesh buffers; for 60K+ elements this is too slow
-                // CPU raycasting uses bounding box filtering + triangle tests - no GPU buffers needed
-                const MAX_PICK_MESH_CREATION = 500;
-                if (toCreate > MAX_PICK_MESH_CREATION) {
-                    // Use CPU raycasting fallback
-                    const ray = this.camera.unprojectToRay(x, y, this.canvas.width, this.canvas.height);
-                    const hit = this.scene.raycast(ray.origin, ray.direction, options?.hiddenIds, options?.isolatedIds);
-                    return hit ? hit.expressId : null;
-                }
-
-                // Create picking meshes lazily from stored MeshData
-                // Only create meshes for VISIBLE elements (not hidden, and either no isolation or in isolated set)
-                for (const expressId of expressIds) {
-                    // Skip if already exists
-                    if (existingExpressIds.has(expressId)) continue;
-                    // Skip if hidden
-                    if (options?.hiddenIds?.has(expressId)) continue;
-                    // Skip if isolation is active and this entity is not isolated
-                    if (options?.isolatedIds !== null && options?.isolatedIds !== undefined && !options.isolatedIds.has(expressId)) continue;
-
-                    if (this.scene.hasMeshData(expressId)) {
-                        const meshData = this.scene.getMeshData(expressId);
-                        if (meshData) {
-                            this.createMeshFromData(meshData);
-                            existingExpressIds.add(expressId); // Track newly created mesh
-                        }
-                    }
-                }
-
-                // Get updated meshes list (includes newly created ones)
-                meshes = this.scene.getMeshes();
             }
+
+            // Track existing expressIds to avoid duplicates (using Set for O(1) lookup)
+            const existingExpressIds = new Set(meshes.map(m => m.expressId));
+
+            // Count how many meshes we'd need to create for full GPU picking
+            let toCreate = 0;
+            for (const expressId of expressIds) {
+                if (existingExpressIds.has(expressId)) continue;
+                if (options?.hiddenIds?.has(expressId)) continue;
+                if (options?.isolatedIds !== null && options?.isolatedIds !== undefined && !options.isolatedIds.has(expressId)) continue;
+                if (this.scene.hasMeshData(expressId)) toCreate++;
+            }
+
+            // PERFORMANCE FIX: Use CPU raycasting for large models instead of creating GPU meshes
+            // GPU picking requires individual mesh buffers; for 60K+ elements this is too slow
+            // CPU raycasting uses bounding box filtering + triangle tests - no GPU buffers needed
+            const MAX_PICK_MESH_CREATION = 500;
+            if (toCreate > MAX_PICK_MESH_CREATION) {
+                // Use CPU raycasting fallback - works regardless of how many individual meshes exist
+                const ray = this.camera.unprojectToRay(x, y, this.canvas.width, this.canvas.height);
+                const hit = this.scene.raycast(ray.origin, ray.direction, options?.hiddenIds, options?.isolatedIds);
+                return hit ? hit.expressId : null;
+            }
+
+            // For smaller models, create GPU meshes for picking
+            // Only create meshes for VISIBLE elements (not hidden, and either no isolation or in isolated set)
+            for (const expressId of expressIds) {
+                // Skip if already exists
+                if (existingExpressIds.has(expressId)) continue;
+                // Skip if hidden
+                if (options?.hiddenIds?.has(expressId)) continue;
+                // Skip if isolation is active and this entity is not isolated
+                if (options?.isolatedIds !== null && options?.isolatedIds !== undefined && !options.isolatedIds.has(expressId)) continue;
+
+                if (this.scene.hasMeshData(expressId)) {
+                    const meshData = this.scene.getMeshData(expressId);
+                    if (meshData) {
+                        this.createMeshFromData(meshData);
+                        existingExpressIds.add(expressId); // Track newly created mesh
+                    }
+                }
+            }
+
+            // Get updated meshes list (includes newly created ones)
+            meshes = this.scene.getMeshes();
         }
 
         // Apply visibility filtering to meshes before picking
