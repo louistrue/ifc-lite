@@ -4,12 +4,12 @@
 
 /**
  * Columnar parser - builds columnar data structures
+ *
+ * OPTIMIZED: Single-pass extraction for maximum performance
+ * Instead of multiple passes through entities, we extract everything in ONE loop.
  */
 
-import type { EntityRef, IfcEntity } from './types.js';
-import { PropertyExtractor } from './property-extractor.js';
-import { QuantityExtractor } from './quantity-extractor.js';
-import { RelationshipExtractor } from './relationship-extractor.js';
+import type { EntityRef, IfcEntity, PropertySet, PropertyValue, Relationship } from './types.js';
 import { SpatialHierarchyBuilder } from './spatial-hierarchy-builder.js';
 import {
     StringTable,
@@ -24,7 +24,6 @@ import {
 import type { SpatialHierarchy, QuantityTable } from '@ifc-lite/data';
 
 // SpatialIndex interface - matches BVH from @ifc-lite/spatial
-// Defined here to avoid circular dependency
 export interface SpatialIndex {
     queryAABB(bounds: { min: [number, number, number]; max: [number, number, number] }): number[];
     raycast(origin: [number, number, number], direction: [number, number, number]): number[];
@@ -45,14 +44,65 @@ export interface IfcDataStore {
     quantities: QuantityTable;
     relationships: ReturnType<RelationshipGraphBuilder['build']>;
 
-    // Spatial structures (optional, built after parsing)
     spatialHierarchy?: SpatialHierarchy;
-    spatialIndex?: SpatialIndex; // BVH from @ifc-lite/spatial
+    spatialIndex?: SpatialIndex;
+}
+
+// Pre-computed type sets for O(1) lookups
+const GEOMETRY_TYPES = new Set([
+    'IFCWALL', 'IFCWALLSTANDARDCASE', 'IFCDOOR', 'IFCWINDOW', 'IFCSLAB',
+    'IFCCOLUMN', 'IFCBEAM', 'IFCROOF', 'IFCSTAIR', 'IFCSTAIRFLIGHT',
+    'IFCRAILING', 'IFCRAMP', 'IFCRAMPFLIGHT', 'IFCPLATE', 'IFCMEMBER',
+    'IFCCURTAINWALL', 'IFCFOOTING', 'IFCPILE', 'IFCBUILDINGELEMENTPROXY',
+    'IFCFURNISHINGELEMENT', 'IFCFLOWSEGMENT', 'IFCFLOWTERMINAL',
+    'IFCFLOWCONTROLLER', 'IFCFLOWFITTING', 'IFCSPACE', 'IFCOPENINGELEMENT',
+    'IFCSITE', 'IFCBUILDING', 'IFCBUILDINGSTOREY',
+]);
+
+const RELATIONSHIP_TYPES = new Set([
+    'IFCRELCONTAINEDINSPATIALSTRUCTURE', 'IFCRELAGGREGATES',
+    'IFCRELDEFINESBYPROPERTIES', 'IFCRELDEFINESBYTYPE',
+    'IFCRELASSOCIATESMATERIAL', 'IFCRELASSOCIATESCLASSIFICATION',
+    'IFCRELVOIDSELEMENT', 'IFCRELFILLSELEMENT',
+    'IFCRELCONNECTSPATHELEMENTS', 'IFCRELSPACEBOUNDARY',
+]);
+
+const REL_TYPE_MAP: Record<string, RelationshipType> = {
+    'IFCRELCONTAINEDINSPATIALSTRUCTURE': RelationshipType.ContainsElements,
+    'IFCRELAGGREGATES': RelationshipType.Aggregates,
+    'IFCRELDEFINESBYPROPERTIES': RelationshipType.DefinesByProperties,
+    'IFCRELDEFINESBYTYPE': RelationshipType.DefinesByType,
+    'IFCRELASSOCIATESMATERIAL': RelationshipType.AssociatesMaterial,
+    'IFCRELASSOCIATESCLASSIFICATION': RelationshipType.AssociatesClassification,
+    'IFCRELVOIDSELEMENT': RelationshipType.VoidsElement,
+    'IFCRELFILLSELEMENT': RelationshipType.FillsElement,
+    'IFCRELCONNECTSPATHELEMENTS': RelationshipType.ConnectsPathElements,
+    'IFCRELSPACEBOUNDARY': RelationshipType.SpaceBoundary,
+};
+
+const QUANTITY_TYPE_MAP: Record<string, QuantityType> = {
+    'IFCQUANTITYLENGTH': QuantityType.Length,
+    'IFCQUANTITYAREA': QuantityType.Area,
+    'IFCQUANTITYVOLUME': QuantityType.Volume,
+    'IFCQUANTITYCOUNT': QuantityType.Count,
+    'IFCQUANTITYWEIGHT': QuantityType.Weight,
+    'IFCQUANTITYTIME': QuantityType.Time,
+};
+
+// Yield helper - batched to reduce overhead
+const YIELD_INTERVAL = 5000;
+let yieldCounter = 0;
+async function maybeYield(): Promise<void> {
+    yieldCounter++;
+    if (yieldCounter >= YIELD_INTERVAL) {
+        yieldCounter = 0;
+        await new Promise(resolve => setTimeout(resolve, 0));
+    }
 }
 
 export class ColumnarParser {
     /**
-     * Parse IFC file into columnar data store
+     * Parse IFC file into columnar data store - SINGLE PASS OPTIMIZED
      */
     async parse(
         buffer: ArrayBuffer,
@@ -62,79 +112,199 @@ export class ColumnarParser {
     ): Promise<IfcDataStore> {
         const startTime = performance.now();
         const uint8Buffer = new Uint8Array(buffer);
+        const totalEntities = entities.size;
 
-        // Initialize builders
+        // Initialize all builders upfront
         const strings = new StringTable();
-        const entityTableBuilder = new EntityTableBuilder(entities.size, strings);
+        const entityTableBuilder = new EntityTableBuilder(totalEntities, strings);
         const propertyTableBuilder = new PropertyTableBuilder(strings);
+        const quantityTableBuilder = new QuantityTableBuilder(strings);
         const relationshipGraphBuilder = new RelationshipGraphBuilder();
 
-        // === Build Entity Table ===
-        options.onProgress?.({ phase: 'entities', percent: 0 });
+        // Temporary storage for second-pass resolution
+        const propertySets = new Map<number, PropertySet>();
+        const quantitySets = new Map<number, { name: string; quantities: Array<{ name: string; type: QuantityType; value: number; formula?: string }> }>();
+        const relationships: Relationship[] = [];
+        const propertyRefs = new Map<number, IfcEntity>(); // IfcPropertySingleValue etc.
+        const quantityRefs = new Map<number, IfcEntity>(); // IfcQuantityLength etc.
+
+        // === SINGLE PASS: Extract everything at once ===
+        options.onProgress?.({ phase: 'parsing', percent: 0 });
         let processed = 0;
+        let schemaVersion: 'IFC2X3' | 'IFC4' | 'IFC4X3' = 'IFC4';
 
         for (const [id, entity] of entities) {
+            const typeUpper = entity.type.toUpperCase();
             const attrs = entity.attributes || [];
-            const globalId = String(attrs[0] || '');
-            const name = String(attrs[2] || '');
-            const description = String(attrs[3] || '');
-            const objectType = String(attrs[7] || '');
 
-            // Check if entity has geometry (simplified check)
-            const hasGeometry = entity.type.toUpperCase().includes('WALL') ||
-                entity.type.toUpperCase().includes('DOOR') ||
-                entity.type.toUpperCase().includes('WINDOW') ||
-                entity.type.toUpperCase().includes('SLAB') ||
-                entity.type.toUpperCase().includes('COLUMN') ||
-                entity.type.toUpperCase().includes('BEAM');
-
-            const isType = entity.type.toUpperCase().endsWith('TYPE');
+            // 1. Build entity table entry
+            const globalId = typeof attrs[0] === 'string' ? attrs[0] : '';
+            const name = typeof attrs[2] === 'string' ? attrs[2] : '';
+            const description = typeof attrs[3] === 'string' ? attrs[3] : '';
+            const objectType = typeof attrs[7] === 'string' ? attrs[7] : '';
+            const hasGeometry = GEOMETRY_TYPES.has(typeUpper);
+            const isType = typeUpper.endsWith('TYPE');
 
             entityTableBuilder.add(id, entity.type, globalId, name, description, objectType, hasGeometry, isType);
 
-            processed++;
-            if (processed % 1000 === 0) {
-                options.onProgress?.({ phase: 'entities', percent: (processed / entities.size) * 100 });
+            // 2. Extract relationships in same pass
+            if (RELATIONSHIP_TYPES.has(typeUpper)) {
+                const rel = this.extractRelationshipFast(entity, typeUpper);
+                if (rel) {
+                    relationships.push(rel);
+                }
             }
-            
-            // Yield to event loop every 500 entities to allow geometry processing
-            if (processed % 500 === 0) {
-                await new Promise(resolve => setTimeout(resolve, 0));
+
+            // 3. Extract property sets in same pass
+            if (typeUpper === 'IFCPROPERTYSET') {
+                const psetName = typeof attrs[2] === 'string' ? attrs[2] : '';
+                if (psetName) {
+                    const hasProperties = attrs[4];
+                    const properties = new Map<string, PropertyValue>();
+
+                    if (Array.isArray(hasProperties)) {
+                        for (const propRef of hasProperties) {
+                            if (typeof propRef === 'number') {
+                                // Store ref for second pass
+                                const propEntity = entities.get(propRef);
+                                if (propEntity) {
+                                    propertyRefs.set(propRef, propEntity);
+                                }
+                            }
+                        }
+                    }
+                    propertySets.set(id, { name: psetName, properties });
+                }
+            }
+
+            // 4. Extract quantity sets in same pass
+            if (typeUpper === 'IFCELEMENTQUANTITY') {
+                const qsetName = typeof attrs[2] === 'string' ? attrs[2] : '';
+                if (qsetName && attrs.length >= 6) {
+                    const hasQuantities = attrs[5];
+                    const quantities: Array<{ name: string; type: QuantityType; value: number; formula?: string }> = [];
+
+                    if (Array.isArray(hasQuantities)) {
+                        for (const qtyRef of hasQuantities) {
+                            if (typeof qtyRef === 'number') {
+                                const qtyEntity = entities.get(qtyRef);
+                                if (qtyEntity) {
+                                    quantityRefs.set(qtyRef, qtyEntity);
+                                }
+                            }
+                        }
+                    }
+                    quantitySets.set(id, { name: qsetName, quantities });
+                }
+            }
+
+            // 5. Store property/quantity value entities for resolution
+            if (typeUpper.startsWith('IFCPROPERTY') || typeUpper.startsWith('IFCQUANTITY')) {
+                if (typeUpper.startsWith('IFCPROPERTY')) {
+                    propertyRefs.set(id, entity);
+                } else {
+                    quantityRefs.set(id, entity);
+                }
+            }
+
+            processed++;
+            if (processed % 10000 === 0) {
+                options.onProgress?.({ phase: 'parsing', percent: (processed / totalEntities) * 50 });
+                await maybeYield();
             }
         }
 
         const entityTable = entityTableBuilder.build();
-        options.onProgress?.({ phase: 'entities', percent: 100 });
+        console.log(`[ColumnarParser] Single-pass extraction: ${processed} entities, ${relationships.length} relationships`);
 
-        // === Build Property Table ===
-        options.onProgress?.({ phase: 'properties', percent: 0 });
-        const propertyExtractor = new PropertyExtractor(entities);
-        const propertySets = await propertyExtractor.extractPropertySetsAsync();
+        // === SECOND PASS: Resolve property and quantity values (much smaller datasets) ===
+        options.onProgress?.({ phase: 'resolving', percent: 50 });
 
-        // Build mapping: psetId -> entityIds
-        const psetToEntities = new Map<number, number[]>();
-        const relationshipExtractor = new RelationshipExtractor(entities);
-        const relationships = await relationshipExtractor.extractRelationshipsAsync();
+        // Resolve property values
+        for (const [psetId, pset] of propertySets) {
+            const psetEntity = entities.get(psetId);
+            if (!psetEntity) continue;
 
-        for (const rel of relationships) {
-            if (rel.type.toUpperCase() === 'IFCRELDEFINESBYPROPERTIES') {
-                const psetId = rel.relatingObject;
-                for (const entityId of rel.relatedObjects) {
-                    let list = psetToEntities.get(psetId);
-                    if (!list) {
-                        list = [];
-                        psetToEntities.set(psetId, list);
+            const hasProperties = psetEntity.attributes[4];
+            if (Array.isArray(hasProperties)) {
+                for (const propRef of hasProperties) {
+                    if (typeof propRef === 'number') {
+                        const propEntity = propertyRefs.get(propRef);
+                        if (propEntity) {
+                            const prop = this.extractPropertyFast(propEntity);
+                            if (prop) {
+                                pset.properties.set(prop.name, prop.value);
+                            }
+                        }
                     }
-                    list.push(entityId);
                 }
             }
         }
 
-        // Extract properties into columnar format
-        let propProcessed = 0;
+        // Resolve quantity values
+        for (const [qsetId, qset] of quantitySets) {
+            const qsetEntity = entities.get(qsetId);
+            if (!qsetEntity) continue;
+
+            const hasQuantities = qsetEntity.attributes[5];
+            if (Array.isArray(hasQuantities)) {
+                for (const qtyRef of hasQuantities) {
+                    if (typeof qtyRef === 'number') {
+                        const qtyEntity = quantityRefs.get(qtyRef);
+                        if (qtyEntity) {
+                            const qty = this.extractQuantityFast(qtyEntity);
+                            if (qty) {
+                                qset.quantities.push(qty);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // === BUILD RELATIONSHIP MAPPINGS ===
+        options.onProgress?.({ phase: 'building', percent: 60 });
+
+        const psetToEntities = new Map<number, number[]>();
+        const qsetToEntities = new Map<number, number[]>();
+
+        for (const rel of relationships) {
+            const typeUpper = rel.type.toUpperCase();
+
+            if (typeUpper === 'IFCRELDEFINESBYPROPERTIES') {
+                const defId = rel.relatingObject;
+                for (const entityId of rel.relatedObjects) {
+                    // Could be property set or quantity set
+                    if (propertySets.has(defId)) {
+                        let list = psetToEntities.get(defId);
+                        if (!list) { list = []; psetToEntities.set(defId, list); }
+                        list.push(entityId);
+                    }
+                    if (quantitySets.has(defId)) {
+                        let list = qsetToEntities.get(defId);
+                        if (!list) { list = []; qsetToEntities.set(defId, list); }
+                        list.push(entityId);
+                    }
+                }
+            }
+
+            // Add to relationship graph
+            const relType = REL_TYPE_MAP[typeUpper];
+            if (relType) {
+                for (const targetId of rel.relatedObjects) {
+                    relationshipGraphBuilder.addEdge(rel.relatingObject, targetId, relType, rel.relatingObject);
+                }
+            }
+
+            await maybeYield();
+        }
+
+        // === BUILD PROPERTY TABLE ===
+        options.onProgress?.({ phase: 'properties', percent: 70 });
+
         for (const [psetId, pset] of propertySets) {
             const entityIds = psetToEntities.get(psetId) || [];
-            const globalId = String(entities.get(psetId)?.attributes?.[0] || '');
+            const globalId = entities.get(psetId)?.attributes?.[0] || '';
 
             for (const [propName, propValue] of pset.properties) {
                 for (const entityId of entityIds) {
@@ -143,73 +313,28 @@ export class ColumnarParser {
 
                     if (propValue.type === 'number') {
                         propType = PropertyValueType.Real;
-                        value = propValue.value;
                     } else if (propValue.type === 'boolean') {
                         propType = PropertyValueType.Boolean;
-                        value = propValue.value;
-                    } else if (propValue.type === 'string') {
-                        propType = PropertyValueType.String;
-                        value = String(propValue.value);
                     }
 
                     propertyTableBuilder.add({
                         entityId,
                         psetName: pset.name,
-                        psetGlobalId: globalId,
+                        psetGlobalId: String(globalId),
                         propName,
                         propType,
                         value,
                     });
-                    
-                    propProcessed++;
-                    // Yield every 500 properties to allow geometry processing
-                    if (propProcessed % 500 === 0) {
-                        await new Promise(resolve => setTimeout(resolve, 0));
-                    }
                 }
             }
+            await maybeYield();
         }
 
         const propertyTable = propertyTableBuilder.build();
-        options.onProgress?.({ phase: 'properties', percent: 100 });
 
-        // === Build Quantity Table ===
-        options.onProgress?.({ phase: 'quantities', percent: 0 });
-        const quantityTableBuilder = new QuantityTableBuilder(strings);
-        const quantityExtractor = new QuantityExtractor(entities);
-        const quantitySets = await quantityExtractor.extractQuantitySetsAsync();
+        // === BUILD QUANTITY TABLE ===
+        options.onProgress?.({ phase: 'quantities', percent: 80 });
 
-        // Build mapping: qsetId -> entityIds (similar to properties)
-        const qsetToEntities = new Map<number, number[]>();
-        for (const rel of relationships) {
-            if (rel.type.toUpperCase() === 'IFCRELDEFINESBYPROPERTIES') {
-                const qsetId = rel.relatingObject;
-                // Check if this is actually a quantity set (not a property set)
-                if (quantitySets.has(qsetId)) {
-                    for (const entityId of rel.relatedObjects) {
-                        let list = qsetToEntities.get(qsetId);
-                        if (!list) {
-                            list = [];
-                            qsetToEntities.set(qsetId, list);
-                        }
-                        list.push(entityId);
-                    }
-                }
-            }
-        }
-
-        // Map quantity type names to QuantityType enum
-        const quantityTypeMap: Record<string, QuantityType> = {
-            'length': QuantityType.Length,
-            'area': QuantityType.Area,
-            'volume': QuantityType.Volume,
-            'count': QuantityType.Count,
-            'weight': QuantityType.Weight,
-            'time': QuantityType.Time,
-        };
-
-        // Extract quantities into columnar format
-        let qtyProcessed = 0;
         for (const [qsetId, qset] of quantitySets) {
             const entityIds = qsetToEntities.get(qsetId) || [];
 
@@ -219,70 +344,21 @@ export class ColumnarParser {
                         entityId,
                         qsetName: qset.name,
                         quantityName: quantity.name,
-                        quantityType: quantityTypeMap[quantity.type] ?? QuantityType.Length,
+                        quantityType: quantity.type,
                         value: quantity.value,
                         formula: quantity.formula,
                     });
-                    
-                    qtyProcessed++;
-                    // Yield every 500 quantities to allow geometry processing
-                    if (qtyProcessed % 500 === 0) {
-                        await new Promise(resolve => setTimeout(resolve, 0));
-                    }
                 }
             }
+            await maybeYield();
         }
 
         const quantityTable = quantityTableBuilder.build();
-        options.onProgress?.({ phase: 'quantities', percent: 100 });
-
-        // === Build Relationship Graph ===
-        options.onProgress?.({ phase: 'relationships', percent: 0 });
-
-        const relTypeMap: Record<string, RelationshipType> = {
-            'IFCRELCONTAINEDINSPATIALSTRUCTURE': RelationshipType.ContainsElements,
-            'IFCRELAGGREGATES': RelationshipType.Aggregates,
-            'IFCRELDEFINESBYPROPERTIES': RelationshipType.DefinesByProperties,
-            'IFCRELDEFINESBYTYPE': RelationshipType.DefinesByType,
-            'IFCRELASSOCIATESMATERIAL': RelationshipType.AssociatesMaterial,
-            'IFCRELASSOCIATESCLASSIFICATION': RelationshipType.AssociatesClassification,
-            'IFCRELVOIDSELEMENT': RelationshipType.VoidsElement,
-            'IFCRELFILLSELEMENT': RelationshipType.FillsElement,
-            'IFCRELCONNECTSPATHELEMENTS': RelationshipType.ConnectsPathElements,
-            'IFCRELSPACEBOUNDARY': RelationshipType.SpaceBoundary,
-        };
-
-        let relProcessed = 0;
-        for (const rel of relationships) {
-            const relType = relTypeMap[rel.type.toUpperCase()];
-            if (relType) {
-                for (const targetId of rel.relatedObjects) {
-                    relationshipGraphBuilder.addEdge(rel.relatingObject, targetId, relType, rel.relatingObject);
-                    relProcessed++;
-                    // Yield every 500 relationships to allow geometry processing
-                    if (relProcessed % 500 === 0) {
-                        await new Promise(resolve => setTimeout(resolve, 0));
-                    }
-                }
-            }
-        }
-
         const relationshipGraph = relationshipGraphBuilder.build();
-        options.onProgress?.({ phase: 'relationships', percent: 100 });
 
-        // Detect schema version (simplified)
-        let schemaVersion: 'IFC2X3' | 'IFC4' | 'IFC4X3' = 'IFC4';
-        for (const [, entity] of entities) {
-            if (entity.type.toUpperCase() === 'IFCPROJECT') {
-                // Check schema version from header or entity
-                schemaVersion = 'IFC4';
-                break;
-            }
-        }
+        // === BUILD ENTITY INDEX ===
+        options.onProgress?.({ phase: 'indexing', percent: 90 });
 
-        const parseTime = performance.now() - startTime;
-
-        // Build entity index
         const entityIndex = {
             byId: new Map<number, EntityRef>(),
             byType: new Map<string, number[]>(),
@@ -298,8 +374,8 @@ export class ColumnarParser {
             typeList.push(ref.expressId);
         }
 
-        // === Build Spatial Hierarchy ===
-        options.onProgress?.({ phase: 'spatial-hierarchy', percent: 0 });
+        // === BUILD SPATIAL HIERARCHY ===
+        options.onProgress?.({ phase: 'spatial-hierarchy', percent: 95 });
         let spatialHierarchy: SpatialHierarchy | undefined;
         try {
             const hierarchyBuilder = new SpatialHierarchyBuilder();
@@ -312,14 +388,16 @@ export class ColumnarParser {
             );
         } catch (error) {
             console.warn('[ColumnarParser] Failed to build spatial hierarchy:', error);
-            // Continue without hierarchy - it's optional
         }
-        options.onProgress?.({ phase: 'spatial-hierarchy', percent: 100 });
+
+        const parseTime = performance.now() - startTime;
+        console.log(`[ColumnarParser] Total parse time: ${parseTime.toFixed(0)}ms`);
+        options.onProgress?.({ phase: 'complete', percent: 100 });
 
         return {
             fileSize: buffer.byteLength,
             schemaVersion,
-            entityCount: entities.size,
+            entityCount: totalEntities,
             parseTime,
             source: uint8Buffer,
             entityIndex,
@@ -330,5 +408,77 @@ export class ColumnarParser {
             relationships: relationshipGraph,
             spatialHierarchy,
         };
+    }
+
+    /**
+     * Fast relationship extraction - inline for performance
+     */
+    private extractRelationshipFast(entity: IfcEntity, typeUpper: string): Relationship | null {
+        const attrs = entity.attributes;
+        if (attrs.length < 6) return null;
+
+        let relatingObject: any;
+        let relatedObjects: any;
+
+        if (typeUpper === 'IFCRELDEFINESBYPROPERTIES' || typeUpper === 'IFCRELCONTAINEDINSPATIALSTRUCTURE') {
+            relatedObjects = attrs[4];
+            relatingObject = attrs[5];
+        } else {
+            relatingObject = attrs[4];
+            relatedObjects = attrs[5];
+        }
+
+        if (typeof relatingObject !== 'number' || !Array.isArray(relatedObjects)) {
+            return null;
+        }
+
+        return {
+            type: entity.type,
+            relatingObject,
+            relatedObjects: relatedObjects.filter((id): id is number => typeof id === 'number'),
+        };
+    }
+
+    /**
+     * Fast property extraction - inline for performance
+     */
+    private extractPropertyFast(entity: IfcEntity): { name: string; value: PropertyValue } | null {
+        const attrs = entity.attributes;
+        const name = typeof attrs[0] === 'string' ? attrs[0] : '';
+        if (!name) return null;
+
+        const nominalValue = attrs[2];
+        let value: PropertyValue;
+
+        if (typeof nominalValue === 'number') {
+            value = { type: 'number', value: nominalValue };
+        } else if (typeof nominalValue === 'boolean') {
+            value = { type: 'boolean', value: nominalValue };
+        } else if (nominalValue === null || nominalValue === undefined) {
+            value = { type: 'null', value: null };
+        } else {
+            value = { type: 'string', value: String(nominalValue) };
+        }
+
+        return { name, value };
+    }
+
+    /**
+     * Fast quantity extraction - inline for performance
+     */
+    private extractQuantityFast(entity: IfcEntity): { name: string; type: QuantityType; value: number; formula?: string } | null {
+        const typeUpper = entity.type.toUpperCase();
+        const qtyType = QUANTITY_TYPE_MAP[typeUpper];
+        if (!qtyType) return null;
+
+        const attrs = entity.attributes;
+        const name = typeof attrs[0] === 'string' ? attrs[0] : '';
+        if (!name) return null;
+
+        // Value is at index 3 for most quantity types
+        const value = typeof attrs[3] === 'number' ? attrs[3] : 0;
+        const formula = typeof attrs[4] === 'string' ? attrs[4] : undefined;
+
+        return { name, type: qtyType, value, formula };
     }
 }

@@ -137,19 +137,27 @@ export class IfcParser {
   
   /**
    * Parse IFC file into columnar data store (new format)
+   * OPTIMIZED: Combined scan + extract for maximum performance
    */
   async parseColumnar(buffer: ArrayBuffer, options: ParseOptions = {}): Promise<IfcDataStore> {
     const uint8Buffer = new Uint8Array(buffer);
+    const startTime = performance.now();
 
-    // Phase 1: Scan for entities (with async yields for large files)
-    options.onProgress?.({ phase: 'scan', percent: 0 });
+    // OPTIMIZED: Combined scan + extract in one pass
+    options.onProgress?.({ phase: 'scanning', percent: 0 });
     const tokenizer = new StepTokenizer(uint8Buffer);
     const indexBuilder = new EntityIndexBuilder();
+    const extractor = new EntityExtractor(uint8Buffer);
 
-    let scanned = 0;
     const entityRefs: EntityRef[] = [];
+    const entities = new Map<number, any>();
 
+    let processed = 0;
+    const YIELD_INTERVAL = 5000; // Yield less frequently for better throughput
+
+    // Single pass: scan AND extract simultaneously
     for (const ref of tokenizer.scanEntities()) {
+      // Add to index
       indexBuilder.addEntity({
         expressId: ref.expressId,
         type: ref.type,
@@ -157,45 +165,37 @@ export class IfcParser {
         byteLength: ref.length,
         lineNumber: ref.line,
       });
-      entityRefs.push({
+
+      const entityRef: EntityRef = {
         expressId: ref.expressId,
         type: ref.type,
         byteOffset: ref.offset,
         byteLength: ref.length,
         lineNumber: ref.line,
-      });
-      scanned++;
-      // Yield to event loop every 2000 entities to prevent blocking
-      if (scanned % 2000 === 0) {
+      };
+      entityRefs.push(entityRef);
+
+      // Extract entity immediately
+      const entity = extractor.extractEntity(entityRef);
+      if (entity) {
+        entities.set(ref.expressId, entity);
+      }
+
+      processed++;
+      // Yield and report progress every YIELD_INTERVAL entities
+      if (processed % YIELD_INTERVAL === 0) {
+        options.onProgress?.({ phase: 'scanning', percent: Math.min(90, processed / 1000) }); // Approximate progress
         await new Promise(resolve => setTimeout(resolve, 0));
       }
     }
 
     indexBuilder.build();
-    options.onProgress?.({ phase: 'scan', percent: 100 });
+    const scanExtractTime = performance.now() - startTime;
+    console.log(`[IfcParser] Scan+Extract: ${processed} entities in ${scanExtractTime.toFixed(0)}ms`);
 
-    // Phase 2: Extract entities (with async yields)
-    options.onProgress?.({ phase: 'extract', percent: 0 });
-    const extractor = new EntityExtractor(uint8Buffer);
-    const entities = new Map<number, any>();
+    options.onProgress?.({ phase: 'scanning', percent: 100 });
 
-    for (let i = 0; i < entityRefs.length; i++) {
-      const ref = entityRefs[i];
-      const entity = extractor.extractEntity(ref);
-      if (entity) {
-        entities.set(ref.expressId, entity);
-      }
-      // Progress update and yield every 1000 entities
-      if ((i + 1) % 1000 === 0) {
-        options.onProgress?.({ phase: 'extract', percent: ((i + 1) / entityRefs.length) * 100 });
-        // Yield to event loop to prevent blocking geometry streaming
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
-    }
-
-    options.onProgress?.({ phase: 'extract', percent: 100 });
-
-    // Phase 3: Build columnar structures
+    // Phase 2: Build columnar structures (single-pass optimized)
     const columnarParser = new ColumnarParser();
     return columnarParser.parse(buffer, entityRefs, entities, options);
   }
