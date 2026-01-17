@@ -1096,40 +1096,20 @@ export function useIfc() {
           });
 
           // Convert IFCX meshes to viewer format
-
-          // IFCX/IFC5 uses Y-up coordinate system, but viewer expects Z-up (like IFC4)
-          // Convert Y-up to Z-up: swap Y and Z, negate new Z to maintain right-handedness
-          // Transform: X stays same, new Y = old Z, new Z = -old Y
-          const convertYUpToZUp = (positions: Float32Array | number[]): number[] => {
-            const arr = positions instanceof Float32Array ? Array.from(positions) : positions;
-            const result: number[] = [];
-            for (let i = 0; i < arr.length; i += 3) {
-              const x = arr[i];
-              const y = arr[i + 1];
-              const z = arr[i + 2];
-              // Y-up → Z-up: swap Y and Z, negate new Z
-              result.push(x);      // X stays same
-              result.push(z);      // New Y = old Z (depth)
-              result.push(-y);     // New Z = -old Y (vertical, negated for right-hand rule)
-            }
-            return result;
-          };
+          // Note: IFCX geometry extractor already handles Y-up to Z-up conversion
+          // and applies transforms correctly in Z-up space, so we just pass through
 
           const meshes: MeshData[] = ifcxResult.meshes.map((m: { expressId?: number; express_id?: number; id?: number; positions: Float32Array | number[]; indices: Uint32Array | number[]; normals: Float32Array | number[]; color?: [number, number, number, number]; ifcType?: string; ifc_type?: string }) => {
             // IFCX MeshData has: expressId, ifcType, positions (Float32Array), indices (Uint32Array), normals (Float32Array), color
-            const positionsRaw = m.positions instanceof Float32Array ? m.positions : new Float32Array(m.positions || []);
-            const indices = m.indices instanceof Uint32Array ? m.indices : new Uint32Array(m.indices || []);
-            const normalsRaw = m.normals instanceof Float32Array ? m.normals : new Float32Array(m.normals || []);
-
-            // Convert Y-up (IFCX) to Z-up (viewer expects)
-            const positions = convertYUpToZUp(positionsRaw);
-            const normals = convertYUpToZUp(normalsRaw);
+            const positions = m.positions instanceof Float32Array ? Array.from(m.positions) : (m.positions || []);
+            const indices = m.indices instanceof Uint32Array ? Array.from(m.indices) : (m.indices || []);
+            const normals = m.normals instanceof Float32Array ? Array.from(m.normals) : (m.normals || []);
 
             return {
               expressId: m.expressId || m.express_id || m.id || 0,
-              positions, // Already converted to regular array
-              indices: Array.from(indices), // Convert to regular array for viewer
-              normals, // Already converted to regular array
+              positions,
+              indices,
+              normals,
               color: m.color || [0.7, 0.7, 0.7],
               ifcType: m.ifcType || m.ifc_type || 'IfcProduct',
             };
