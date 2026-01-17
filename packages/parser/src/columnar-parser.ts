@@ -11,6 +11,7 @@
 
 import type { EntityRef, IfcEntity, PropertySet, PropertyValue, Relationship } from './types.js';
 import { SpatialHierarchyBuilder } from './spatial-hierarchy-builder.js';
+import { EntityExtractor } from './entity-extractor.js';
 import {
     StringTable,
     EntityTableBuilder,
@@ -88,6 +89,16 @@ const QUANTITY_TYPE_MAP: Record<string, QuantityType> = {
     'IFCQUANTITYWEIGHT': QuantityType.Weight,
     'IFCQUANTITYTIME': QuantityType.Time,
 };
+
+// Types needed for spatial hierarchy (small subset)
+const SPATIAL_TYPES = new Set([
+    'IFCPROJECT', 'IFCSITE', 'IFCBUILDING', 'IFCBUILDINGSTOREY', 'IFCSPACE',
+]);
+
+// Relationship types needed for hierarchy
+const HIERARCHY_REL_TYPES = new Set([
+    'IFCRELAGGREGATES', 'IFCRELCONTAINEDINSPATIALSTRUCTURE',
+]);
 
 // Yield helper - batched to reduce overhead
 const YIELD_INTERVAL = 5000;
@@ -411,8 +422,11 @@ export class ColumnarParser {
     }
 
     /**
-     * LITE parsing mode - minimal structures without parsed entities
-     * For very large files where we want geometry first, properties later
+     * LITE parsing mode - minimal structures with targeted spatial parsing
+     * For very large files where we want geometry first, then hierarchy
+     *
+     * Parses ONLY spatial entities and relationships for hierarchy display,
+     * skips all property sets and quantities (can be loaded on-demand).
      */
     async parseLite(
         buffer: ArrayBuffer,
@@ -425,35 +439,98 @@ export class ColumnarParser {
 
         options.onProgress?.({ phase: 'building (lite)', percent: 0 });
 
-        // Initialize minimal builders
+        // Initialize builders
         const strings = new StringTable();
         const entityTableBuilder = new EntityTableBuilder(totalEntities, strings);
         const propertyTableBuilder = new PropertyTableBuilder(strings);
         const quantityTableBuilder = new QuantityTableBuilder(strings);
         const relationshipGraphBuilder = new RelationshipGraphBuilder();
 
-        // Build entity table with just type info (no names/descriptions from attributes)
+        // First pass: collect spatial and relationship refs for targeted parsing
+        const spatialRefs: EntityRef[] = [];
+        const relationshipRefs: EntityRef[] = [];
+
+        for (const ref of entityRefs) {
+            const typeUpper = ref.type.toUpperCase();
+            if (SPATIAL_TYPES.has(typeUpper)) {
+                spatialRefs.push(ref);
+            } else if (HIERARCHY_REL_TYPES.has(typeUpper)) {
+                relationshipRefs.push(ref);
+            }
+        }
+
+        // === TARGETED PARSING: Parse spatial entities first ===
+        options.onProgress?.({ phase: 'parsing spatial', percent: 10 });
+
+        const extractor = new EntityExtractor(uint8Buffer);
+        const parsedSpatialData = new Map<number, { globalId: string; name: string }>();
+
+        // Parse spatial entities (typically < 100 entities)
+        for (const ref of spatialRefs) {
+            const entity = extractor.extractEntity(ref);
+            if (entity) {
+                const attrs = entity.attributes || [];
+                const globalId = typeof attrs[0] === 'string' ? attrs[0] : '';
+                const name = typeof attrs[2] === 'string' ? attrs[2] : '';
+                parsedSpatialData.set(ref.expressId, { globalId, name });
+            }
+        }
+
+        console.log(`[ColumnarParser] Parsed ${spatialRefs.length} spatial entities`);
+
+        // Parse relationship entities (typically < 10k entities)
+        options.onProgress?.({ phase: 'parsing relationships', percent: 20 });
+
+        const relationships: Relationship[] = [];
+        for (const ref of relationshipRefs) {
+            const entity = extractor.extractEntity(ref);
+            if (entity) {
+                const typeUpper = entity.type.toUpperCase();
+                const rel = this.extractRelationshipFast(entity, typeUpper);
+                if (rel) {
+                    relationships.push(rel);
+
+                    // Add to relationship graph
+                    const relType = REL_TYPE_MAP[typeUpper];
+                    if (relType) {
+                        for (const targetId of rel.relatedObjects) {
+                            relationshipGraphBuilder.addEdge(rel.relatingObject, targetId, relType, rel.relatingObject);
+                        }
+                    }
+                }
+            }
+        }
+
+        console.log(`[ColumnarParser] Parsed ${relationshipRefs.length} relationship entities, ${relationships.length} valid relationships`);
+
+        // === BUILD ENTITY TABLE with spatial data included ===
+        options.onProgress?.({ phase: 'building entities', percent: 30 });
+
         let processed = 0;
         for (const ref of entityRefs) {
             const typeUpper = ref.type.toUpperCase();
             const hasGeometry = GEOMETRY_TYPES.has(typeUpper);
             const isType = typeUpper.endsWith('TYPE');
 
-            // Minimal entity entry - no parsed attributes available
+            // Get parsed data for spatial entities
+            const spatialData = parsedSpatialData.get(ref.expressId);
+            const globalId = spatialData?.globalId || '';
+            const name = spatialData?.name || '';
+
             entityTableBuilder.add(
                 ref.expressId,
                 ref.type,
-                '', // globalId - not available without parsing
-                '', // name - not available without parsing
-                '', // description - not available without parsing
-                '', // objectType - not available without parsing
+                globalId,
+                name,
+                '', // description
+                '', // objectType
                 hasGeometry,
                 isType
             );
 
             processed++;
             if (processed % 50000 === 0) {
-                options.onProgress?.({ phase: 'building (lite)', percent: (processed / totalEntities) * 90 });
+                options.onProgress?.({ phase: 'building entities', percent: 30 + (processed / totalEntities) * 50 });
                 await maybeYield();
             }
         }
@@ -481,8 +558,23 @@ export class ColumnarParser {
         const quantityTable = quantityTableBuilder.build();
         const relationshipGraph = relationshipGraphBuilder.build();
 
-        // No spatial hierarchy in lite mode (requires relationships)
-        // Spatial hierarchy can be built on-demand when properties are loaded
+        // === BUILD SPATIAL HIERARCHY ===
+        options.onProgress?.({ phase: 'building hierarchy', percent: 90 });
+
+        let spatialHierarchy: SpatialHierarchy | undefined;
+        try {
+            const hierarchyBuilder = new SpatialHierarchyBuilder();
+            spatialHierarchy = hierarchyBuilder.build(
+                entityTable,
+                relationshipGraph,
+                strings,
+                uint8Buffer,
+                entityIndex
+            );
+            console.log(`[ColumnarParser] Built spatial hierarchy with ${spatialHierarchy.byStorey.size} storeys`);
+        } catch (error) {
+            console.warn('[ColumnarParser] Failed to build spatial hierarchy:', error);
+        }
 
         const parseTime = performance.now() - startTime;
         console.log(`[ColumnarParser] LITE parse: ${totalEntities} entities in ${parseTime.toFixed(0)}ms`);
@@ -500,7 +592,7 @@ export class ColumnarParser {
             properties: propertyTable,
             quantities: quantityTable,
             relationships: relationshipGraph,
-            // spatialHierarchy omitted in lite mode - can be built on-demand
+            spatialHierarchy,
         };
     }
 
