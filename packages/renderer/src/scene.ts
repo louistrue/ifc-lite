@@ -537,7 +537,13 @@ export class Scene {
       }
     }
 
+    console.log(`[Raycast] origin=${JSON.stringify(rayOrigin)}, dir=${JSON.stringify(rayDir)}`);
+    console.log(`[Raycast] ${candidates.length} bbox candidates out of ${this.meshDataMap.size} meshes`);
+
     // Second pass: test triangles for candidates (accurate)
+    let trianglesTested = 0;
+    let triangleHits = 0;
+
     for (const expressId of candidates) {
       const pieces = this.meshDataMap.get(expressId);
       if (!pieces) continue;
@@ -556,14 +562,20 @@ export class Scene {
           const v1: Vec3 = { x: positions[i1], y: positions[i1 + 1], z: positions[i1 + 2] };
           const v2: Vec3 = { x: positions[i2], y: positions[i2 + 1], z: positions[i2 + 2] };
 
+          trianglesTested++;
           const t = this.rayTriangleIntersect(rayOrigin, rayDir, v0, v1, v2);
-          if (t !== null && t < closestDistance) {
-            closestDistance = t;
-            closestHit = { expressId, distance: t };
+          if (t !== null) {
+            triangleHits++;
+            if (t < closestDistance) {
+              closestDistance = t;
+              closestHit = { expressId, distance: t };
+            }
           }
         }
       }
     }
+
+    console.log(`[Raycast] tested ${trianglesTested} triangles, ${triangleHits} hits, closest: ${closestHit ? `id=${closestHit.expressId} dist=${closestHit.distance.toFixed(2)}` : 'none'}`);
 
     return closestHit;
   }
