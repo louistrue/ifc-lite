@@ -13,6 +13,7 @@ use arrow::record_batch::RecordBatch;
 use parquet::arrow::ArrowWriter;
 use parquet::basic::Compression;
 use parquet::file::properties::WriterProperties;
+use rayon::prelude::*;
 use std::io::Cursor;
 use std::sync::Arc;
 use thiserror::Error;
@@ -37,15 +38,25 @@ pub enum DataModelParquetError {
 /// 4. Spatial (entity_id, parent_id, level, path, type_name, name, elevation, children_ids, element_ids)
 ///    Plus lookup tables: element_to_storey, element_to_building, element_to_site, element_to_space
 pub fn serialize_data_model_to_parquet(data_model: &DataModel) -> Result<Vec<u8>, DataModelParquetError> {
-    let mut result = Vec::new();
+    // Serialize all tables in parallel using rayon
+    let (entities_data, (properties_data, (relationships_data, spatial_data))) = rayon::join(
+        || serialize_entities_table(&data_model.entities),
+        || rayon::join(
+            || serialize_properties_table(&data_model.property_sets),
+            || rayon::join(
+                || serialize_relationships_table(&data_model.relationships),
+                || serialize_spatial_hierarchy(&data_model.spatial_hierarchy),
+            ),
+        ),
+    );
 
-    // Serialize each table
-    let entities_data = serialize_entities_table(&data_model.entities)?;
-    let properties_data = serialize_properties_table(&data_model.property_sets)?;
-    let relationships_data = serialize_relationships_table(&data_model.relationships)?;
-    let spatial_data = serialize_spatial_hierarchy(&data_model.spatial_hierarchy)?;
+    let entities_data = entities_data?;
+    let properties_data = properties_data?;
+    let relationships_data = relationships_data?;
+    let spatial_data = spatial_data?;
 
     // Write format: [entities_len][entities_data][properties_len][properties_data][relationships_len][relationships_data][spatial_len][spatial_data]
+    let mut result = Vec::new();
     result.extend_from_slice(&(entities_data.len() as u32).to_le_bytes());
     result.extend_from_slice(&entities_data);
     result.extend_from_slice(&(properties_data.len() as u32).to_le_bytes());
@@ -61,18 +72,34 @@ pub fn serialize_data_model_to_parquet(data_model: &DataModel) -> Result<Vec<u8>
 /// Serialize entities table.
 fn serialize_entities_table(entities: &[EntityMetadata]) -> Result<Vec<u8>, DataModelParquetError> {
     let count = entities.len();
+    
+    // Build arrays in parallel using rayon
+    let results: Vec<(u32, String, String, String, bool)> = entities
+        .par_iter()
+        .map(|entity| {
+            (
+                entity.entity_id,
+                entity.type_name.clone(),
+                entity.global_id.clone().unwrap_or_default(),
+                entity.name.clone().unwrap_or_default(),
+                entity.has_geometry,
+            )
+        })
+        .collect();
+    
+    // Split into separate vectors
     let mut entity_ids = Vec::with_capacity(count);
     let mut type_names = Vec::with_capacity(count);
     let mut global_ids = Vec::with_capacity(count);
     let mut names = Vec::with_capacity(count);
     let mut has_geometry = Vec::with_capacity(count);
-
-    for entity in entities {
-        entity_ids.push(entity.entity_id);
-        type_names.push(entity.type_name.as_str());
-        global_ids.push(entity.global_id.as_deref().unwrap_or(""));
-        names.push(entity.name.as_deref().unwrap_or(""));
-        has_geometry.push(entity.has_geometry);
+    
+    for (id, type_name, global_id, name, has_geom) in results {
+        entity_ids.push(id);
+        type_names.push(type_name);
+        global_ids.push(global_id);
+        names.push(name);
+        has_geometry.push(has_geom);
     }
 
     let schema = Schema::new(vec![
@@ -99,21 +126,35 @@ fn serialize_entities_table(entities: &[EntityMetadata]) -> Result<Vec<u8>, Data
 
 /// Serialize properties table.
 fn serialize_properties_table(property_sets: &[PropertySet]) -> Result<Vec<u8>, DataModelParquetError> {
-    // Flatten property sets into rows
-    let mut pset_ids = Vec::new();
-    let mut pset_names = Vec::new();
-    let mut property_names = Vec::new();
-    let mut property_values = Vec::new();
-    let mut property_types = Vec::new();
-
-    for pset in property_sets {
-        for prop in &pset.properties {
-            pset_ids.push(pset.pset_id);
-            pset_names.push(pset.pset_name.as_str());
-            property_names.push(prop.property_name.as_str());
-            property_values.push(prop.property_value.as_str());
-            property_types.push(prop.property_type.as_str());
-        }
+    // Flatten property sets into rows using parallel iteration
+    let rows: Vec<(u32, String, String, String, String)> = property_sets
+        .par_iter()
+        .flat_map_iter(|pset| {
+            pset.properties.iter().map(move |prop| {
+                (
+                    pset.pset_id,
+                    pset.pset_name.clone(),
+                    prop.property_name.clone(),
+                    prop.property_value.clone(),
+                    prop.property_type.clone(),
+                )
+            })
+        })
+        .collect();
+    
+    // Split into separate vectors
+    let mut pset_ids = Vec::with_capacity(rows.len());
+    let mut pset_names = Vec::with_capacity(rows.len());
+    let mut property_names = Vec::with_capacity(rows.len());
+    let mut property_values = Vec::with_capacity(rows.len());
+    let mut property_types = Vec::with_capacity(rows.len());
+    
+    for (pset_id, pset_name, prop_name, prop_value, prop_type) in rows {
+        pset_ids.push(pset_id);
+        pset_names.push(pset_name);
+        property_names.push(prop_name);
+        property_values.push(prop_value);
+        property_types.push(prop_type);
     }
 
     let schema = Schema::new(vec![
@@ -141,14 +182,21 @@ fn serialize_properties_table(property_sets: &[PropertySet]) -> Result<Vec<u8>, 
 /// Serialize relationships table.
 fn serialize_relationships_table(relationships: &[Relationship]) -> Result<Vec<u8>, DataModelParquetError> {
     let count = relationships.len();
+    
+    // Build arrays in parallel
+    let results: Vec<(String, u32, u32)> = relationships
+        .par_iter()
+        .map(|rel| (rel.rel_type.clone(), rel.relating_id, rel.related_id))
+        .collect();
+    
     let mut rel_types = Vec::with_capacity(count);
     let mut relating_ids = Vec::with_capacity(count);
     let mut related_ids = Vec::with_capacity(count);
-
-    for rel in relationships {
-        rel_types.push(rel.rel_type.as_str());
-        relating_ids.push(rel.relating_id);
-        related_ids.push(rel.related_id);
+    
+    for (rel_type, relating_id, related_id) in results {
+        rel_types.push(rel_type);
+        relating_ids.push(relating_id);
+        related_ids.push(related_id);
     }
 
     let schema = Schema::new(vec![
@@ -329,7 +377,7 @@ fn write_parquet_batch(batch: RecordBatch) -> Result<Vec<u8>, DataModelParquetEr
     let cursor = Cursor::new(&mut buffer);
 
     let props = WriterProperties::builder()
-        .set_compression(Compression::ZSTD(Default::default()))
+        .set_compression(Compression::LZ4_RAW)
         .build();
 
     let mut writer = ArrowWriter::try_new(cursor, batch.schema(), Some(props))?;

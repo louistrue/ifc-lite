@@ -77,4 +77,20 @@ impl DiskCache {
         cacache::clear(&self.cache_dir).await?;
         Ok(())
     }
+
+    /// Get raw bytes from cache (for Parquet responses).
+    pub async fn get_bytes(&self, key: &str) -> Result<Option<Vec<u8>>, ApiError> {
+        match cacache::read(&self.cache_dir, key).await {
+            Ok(data) => Ok(Some(data)),
+            Err(cacache::Error::EntryNotFound(_, _)) => Ok(None),
+            Err(e) => Err(ApiError::Cache(e.to_string())),
+        }
+    }
+
+    /// Set raw bytes in cache.
+    pub async fn set_bytes(&self, key: &str, data: &[u8]) -> Result<(), ApiError> {
+        cacache::write(&self.cache_dir, key, data).await?;
+        tracing::debug!(key = %key, size = data.len(), "Cached raw bytes");
+        Ok(())
+    }
 }

@@ -187,20 +187,20 @@ export class IfcServerClient {
 
     // Detect format: if metadata has data_model_stats, it's the new format with wrapper
     const hasDataModel = metadata.data_model_stats !== undefined;
-    
+
     let geometryData: ArrayBuffer;
     let dataModelBuffer: ArrayBuffer | undefined;
-    
+
     if (hasDataModel) {
       // New format: [geometry_len][geometry_data][data_model_len][data_model_data]
       const geometryLen = view.getUint32(offset, true);
       offset += 4;
-      
+
       // Validate geometry length
       if (geometryLen > payloadBuffer.byteLength || geometryLen === 0 || offset + geometryLen > payloadBuffer.byteLength) {
         throw new Error(`Invalid geometry length: ${geometryLen}, buffer size: ${payloadBuffer.byteLength}, offset: ${offset}`);
       }
-      
+
       geometryData = payloadBuffer.slice(offset, offset + geometryLen);
       offset += geometryLen;
 
@@ -235,6 +235,70 @@ export class IfcServerClient {
       },
       data_model: dataModelBuffer,
     };
+  }
+
+  /**
+   * Fetch the data model for a previously parsed file.
+   * 
+   * The data model is processed in the background after geometry is returned.
+   * This method polls until the data model is ready (with exponential backoff).
+   *
+   * @param cacheKey - The cache key from the geometry parse response
+   * @param maxRetries - Maximum number of retries (default: 10)
+   * @returns Data model Parquet buffer, or null if not available after retries
+   *
+   * @example
+   * ```typescript
+   * const geometryResult = await client.parseParquet(file);
+   * // Start rendering geometry immediately...
+   * 
+   * // Then fetch data model in background
+   * const dataModelBuffer = await client.fetchDataModel(geometryResult.cache_key);
+   * if (dataModelBuffer) {
+   *   const dataModel = await decodeDataModel(dataModelBuffer);
+   * }
+   * ```
+   */
+  async fetchDataModel(cacheKey: string, maxRetries = 10): Promise<ArrayBuffer | null> {
+    let delay = 100; // Start with 100ms delay
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const response = await fetch(`${this.baseUrl}/api/v1/parse/data-model/${cacheKey}`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(30000),
+        });
+
+        if (response.status === 200) {
+          // Data model is ready
+          const buffer = await response.arrayBuffer();
+          console.log(`[client] Data model fetched: ${(buffer.byteLength / 1024 / 1024).toFixed(2)}MB`);
+          return buffer;
+        } else if (response.status === 202) {
+          // Still processing, wait and retry
+          console.log(`[client] Data model still processing (attempt ${attempt + 1}/${maxRetries}), waiting ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          delay = Math.min(delay * 1.5, 2000); // Exponential backoff, max 2s
+        } else if (response.status === 404) {
+          // Cache key not found
+          console.warn(`[client] Data model not found for cache key: ${cacheKey}`);
+          return null;
+        } else {
+          throw new Error(`Unexpected response status: ${response.status}`);
+        }
+      } catch (error) {
+        if (attempt === maxRetries - 1) {
+          console.error('[client] Failed to fetch data model:', error);
+          return null;
+        }
+        // Retry on network errors
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay = Math.min(delay * 1.5, 2000);
+      }
+    }
+
+    console.warn('[client] Data model fetch timed out after max retries');
+    return null;
   }
 
   /**

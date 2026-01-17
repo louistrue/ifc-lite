@@ -17,6 +17,8 @@ use bytes::Bytes;
 use parquet::arrow::ArrowWriter;
 use parquet::basic::Compression;
 use parquet::file::properties::WriterProperties;
+use parquet::schema::types::ColumnPath;
+use rayon::prelude::*;
 use std::io::Cursor;
 use std::sync::Arc;
 use thiserror::Error;
@@ -47,10 +49,41 @@ pub fn serialize_to_parquet(meshes: &[MeshData]) -> Result<Bytes, ParquetError> 
     let total_triangles: usize = meshes.iter().map(|m| m.indices.len() / 3).sum();
     let mesh_count = meshes.len();
 
-    // Pre-allocate arrays
-    // Mesh metadata arrays
+    // Phase 1: Compute cumulative offsets (must be sequential)
+    let mut vertex_offsets = Vec::with_capacity(mesh_count);
+    let mut index_offsets = Vec::with_capacity(mesh_count);
+    let mut vertex_offset: u32 = 0;
+    let mut index_offset: u32 = 0;
+    
+    for mesh in meshes {
+        vertex_offsets.push(vertex_offset);
+        index_offsets.push(index_offset);
+        vertex_offset += (mesh.positions.len() / 3) as u32;
+        index_offset += mesh.indices.len() as u32;
+    }
+
+    // Phase 2: Extract mesh metadata in parallel
+    let metadata: Vec<_> = meshes
+        .par_iter()
+        .zip(vertex_offsets.par_iter())
+        .zip(index_offsets.par_iter())
+        .map(|((mesh, &v_start), &i_start)| {
+            let vert_count = mesh.positions.len() / 3;
+            (
+                mesh.express_id,
+                mesh.ifc_type.as_str(),
+                v_start,
+                vert_count as u32,
+                i_start,
+                mesh.indices.len() as u32,
+                mesh.color,
+            )
+        })
+        .collect();
+
+    // Unpack metadata into separate vectors
     let mut express_ids = Vec::with_capacity(mesh_count);
-    let mut ifc_types = Vec::with_capacity(mesh_count);
+    let mut ifc_types: Vec<&str> = Vec::with_capacity(mesh_count);
     let mut vertex_starts = Vec::with_capacity(mesh_count);
     let mut vertex_counts = Vec::with_capacity(mesh_count);
     let mut index_starts = Vec::with_capacity(mesh_count);
@@ -60,59 +93,88 @@ pub fn serialize_to_parquet(meshes: &[MeshData]) -> Result<Bytes, ParquetError> 
     let mut color_b = Vec::with_capacity(mesh_count);
     let mut color_a = Vec::with_capacity(mesh_count);
 
-    // Vertex arrays (columnar)
+    for (eid, itype, vstart, vcount, istart, icount, color) in metadata {
+        express_ids.push(eid);
+        ifc_types.push(itype);
+        vertex_starts.push(vstart);
+        vertex_counts.push(vcount);
+        index_starts.push(istart);
+        index_counts.push(icount);
+        color_r.push(color[0]);
+        color_g.push(color[1]);
+        color_b.push(color[2]);
+        color_a.push(color[3]);
+    }
+
+    // Phase 3: Extract vertex and index data in parallel chunks
+    // Process meshes in parallel, then flatten results
+    let vertex_data: Vec<(Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>)> = meshes
+        .par_iter()
+        .map(|mesh| {
+            let vert_count = mesh.positions.len() / 3;
+            let mut px = Vec::with_capacity(vert_count);
+            let mut py = Vec::with_capacity(vert_count);
+            let mut pz = Vec::with_capacity(vert_count);
+            let mut nx = Vec::with_capacity(vert_count);
+            let mut ny = Vec::with_capacity(vert_count);
+            let mut nz = Vec::with_capacity(vert_count);
+            
+            for i in 0..vert_count {
+                px.push(mesh.positions[i * 3]);
+                py.push(mesh.positions[i * 3 + 1]);
+                pz.push(mesh.positions[i * 3 + 2]);
+                nx.push(mesh.normals[i * 3]);
+                ny.push(mesh.normals[i * 3 + 1]);
+                nz.push(mesh.normals[i * 3 + 2]);
+            }
+            (px, py, pz, nx, ny, nz)
+        })
+        .collect();
+
+    // Flatten vertex data
     let mut pos_x = Vec::with_capacity(total_vertices);
     let mut pos_y = Vec::with_capacity(total_vertices);
     let mut pos_z = Vec::with_capacity(total_vertices);
     let mut norm_x = Vec::with_capacity(total_vertices);
     let mut norm_y = Vec::with_capacity(total_vertices);
     let mut norm_z = Vec::with_capacity(total_vertices);
+    
+    for (px, py, pz, nx, ny, nz) in vertex_data {
+        pos_x.extend(px);
+        pos_y.extend(py);
+        pos_z.extend(pz);
+        norm_x.extend(nx);
+        norm_y.extend(ny);
+        norm_z.extend(nz);
+    }
 
-    // Index arrays (columnar - triangle corners)
+    // Extract index data in parallel
+    let index_data: Vec<(Vec<u32>, Vec<u32>, Vec<u32>)> = meshes
+        .par_iter()
+        .map(|mesh| {
+            let tri_count = mesh.indices.len() / 3;
+            let mut i0 = Vec::with_capacity(tri_count);
+            let mut i1 = Vec::with_capacity(tri_count);
+            let mut i2 = Vec::with_capacity(tri_count);
+            
+            for i in 0..tri_count {
+                i0.push(mesh.indices[i * 3]);
+                i1.push(mesh.indices[i * 3 + 1]);
+                i2.push(mesh.indices[i * 3 + 2]);
+            }
+            (i0, i1, i2)
+        })
+        .collect();
+
+    // Flatten index data
     let mut idx_0 = Vec::with_capacity(total_triangles);
     let mut idx_1 = Vec::with_capacity(total_triangles);
     let mut idx_2 = Vec::with_capacity(total_triangles);
-
-    // Track offsets
-    let mut vertex_offset: u32 = 0;
-    let mut index_offset: u32 = 0;
-
-    // Populate arrays
-    for mesh in meshes {
-        let vert_count = mesh.positions.len() / 3;
-        let tri_count = mesh.indices.len() / 3;
-
-        // Mesh metadata
-        express_ids.push(mesh.express_id);
-        ifc_types.push(mesh.ifc_type.as_str());
-        vertex_starts.push(vertex_offset);
-        vertex_counts.push(vert_count as u32);
-        index_starts.push(index_offset);
-        index_counts.push(mesh.indices.len() as u32);
-        color_r.push(mesh.color[0]);
-        color_g.push(mesh.color[1]);
-        color_b.push(mesh.color[2]);
-        color_a.push(mesh.color[3]);
-
-        // Vertex data (deinterleave to columnar)
-        for i in 0..vert_count {
-            pos_x.push(mesh.positions[i * 3]);
-            pos_y.push(mesh.positions[i * 3 + 1]);
-            pos_z.push(mesh.positions[i * 3 + 2]);
-            norm_x.push(mesh.normals[i * 3]);
-            norm_y.push(mesh.normals[i * 3 + 1]);
-            norm_z.push(mesh.normals[i * 3 + 2]);
-        }
-
-        // Index data (deinterleave triangles to columnar)
-        for i in 0..tri_count {
-            idx_0.push(mesh.indices[i * 3]);
-            idx_1.push(mesh.indices[i * 3 + 1]);
-            idx_2.push(mesh.indices[i * 3 + 2]);
-        }
-
-        vertex_offset += vert_count as u32;
-        index_offset += mesh.indices.len() as u32;
+    
+    for (i0, i1, i2) in index_data {
+        idx_0.extend(i0);
+        idx_1.extend(i1);
+        idx_2.extend(i2);
     }
 
     // Use separate schemas for each table type
@@ -204,15 +266,36 @@ pub fn serialize_to_parquet(meshes: &[MeshData]) -> Result<Bytes, ParquetError> 
     Ok(Bytes::from(output))
 }
 
-/// Write a RecordBatch to a Parquet buffer with Zstd compression.
+/// Write a RecordBatch to a Parquet buffer with LZ4 compression.
+/// Dictionary encoding is disabled for numeric columns (floats, integers) as they
+/// have high entropy and dictionary encoding provides no benefit while adding significant overhead.
 fn write_parquet_buffer(batch: &RecordBatch) -> Result<Vec<u8>, ParquetError> {
     let mut buffer = Vec::new();
     let cursor = Cursor::new(&mut buffer);
 
-    let props = WriterProperties::builder()
-        .set_compression(Compression::ZSTD(Default::default()))
-        .set_dictionary_enabled(true)
-        .build();
+    // Build WriterProperties with dictionary disabled for numeric columns
+    let mut props_builder = WriterProperties::builder()
+        .set_compression(Compression::LZ4_RAW)
+        .set_dictionary_enabled(true); // Default: enabled for strings
+
+    // Disable dictionary encoding for all numeric columns (floats and integers)
+    // This dramatically speeds up serialization for high-entropy data like vertex coordinates
+    for field in batch.schema().fields() {
+        let is_numeric = matches!(
+            field.data_type(),
+            DataType::Float32 | DataType::Float64 | DataType::UInt32 | DataType::UInt64
+                | DataType::Int32 | DataType::Int64
+        );
+        
+        if is_numeric {
+            props_builder = props_builder.set_column_dictionary_enabled(
+                ColumnPath::from(field.name().as_str()),
+                false,
+            );
+        }
+    }
+
+    let props = props_builder.build();
 
     let mut writer = ArrowWriter::try_new(cursor, batch.schema(), Some(props))?;
     writer.write(batch)?;

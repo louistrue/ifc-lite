@@ -456,13 +456,31 @@ export function useIfc() {
       const renderTime = performance.now() - renderStart;
       console.log(`[useIfc] Geometry set: ${renderTime.toFixed(0)}ms`);
 
-      // Decode server-provided data model if available
-      if (result.data_model) {
-        setProgress({ phase: 'Decoding data model', percent: 85 });
+      // Fetch and decode data model asynchronously (geometry already displayed)
+      // Data model is processed on server in background, fetch via separate endpoint
+      const cacheKey = result.cache_key;
+
+      // Start data model fetch in background - don't block rendering
+      (async () => {
+        setProgress({ phase: 'Fetching data model', percent: 85 });
         const dataModelStart = performance.now();
 
         try {
-          const dataModel = await decodeDataModel(result.data_model);
+          // If data model was included in response, use it directly
+          // Otherwise, fetch from the data model endpoint
+          let dataModelBuffer = result.data_model;
+
+          if (!dataModelBuffer || dataModelBuffer.byteLength === 0) {
+            console.log('[useIfc] Fetching data model from server (background processing)...');
+            dataModelBuffer = await client.fetchDataModel(cacheKey);
+          }
+
+          if (!dataModelBuffer) {
+            console.log('[useIfc] ⚡ Data model not available - property panel disabled');
+            return;
+          }
+
+          const dataModel = await decodeDataModel(dataModelBuffer);
 
           console.log(`[useIfc] Data model decoded in ${(performance.now() - dataModelStart).toFixed(0)}ms`);
           console.log(`  Entities: ${dataModel.entities.size}`);
@@ -852,13 +870,14 @@ export function useIfc() {
 
           setIfcDataStore(dataStore);
           console.log('[useIfc] ✅ Property panel ready with server data model');
+          console.log(`[useIfc] Data model loaded in ${(performance.now() - dataModelStart).toFixed(0)}ms (background)`);
         } catch (err) {
           console.warn('[useIfc] Failed to decode data model:', err);
           console.log('[useIfc] ⚡ Skipping data model (decoding failed)');
         }
-      } else {
-        console.log('[useIfc] ⚡ No data model provided by server - property panel disabled');
-      }
+      })(); // End of async data model fetch block - runs in background, doesn't block
+
+      // Geometry is ready - mark complete immediately (data model loads in background)
       setProgress({ phase: 'Complete', percent: 100 });
       const totalServerTime = performance.now() - serverStart;
       console.timeEnd('[useIfc] server-parse');

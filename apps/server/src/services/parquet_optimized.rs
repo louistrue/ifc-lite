@@ -21,6 +21,7 @@ use bytes::Bytes;
 use parquet::arrow::ArrowWriter;
 use parquet::basic::Compression;
 use parquet::file::properties::WriterProperties;
+use parquet::schema::types::ColumnPath;
 use rustc_hash::FxHashMap;
 use std::hash::{Hash, Hasher};
 use std::io::Cursor;
@@ -371,15 +372,36 @@ pub fn serialize_to_parquet_optimized(
     Ok(Bytes::from(output))
 }
 
-/// Write a RecordBatch to a Parquet buffer with Zstd compression.
+/// Write a RecordBatch to a Parquet buffer with LZ4 compression.
+/// Dictionary encoding is disabled for numeric columns (floats, integers) as they
+/// have high entropy and dictionary encoding provides no benefit while adding significant overhead.
 fn write_parquet_buffer(batch: &RecordBatch) -> Result<Vec<u8>, ParquetError> {
     let mut buffer = Vec::new();
     let cursor = Cursor::new(&mut buffer);
 
-    let props = WriterProperties::builder()
-        .set_compression(Compression::ZSTD(Default::default()))
-        .set_dictionary_enabled(true)
-        .build();
+    // Build WriterProperties with dictionary disabled for numeric columns
+    let mut props_builder = WriterProperties::builder()
+        .set_compression(Compression::LZ4_RAW)
+        .set_dictionary_enabled(true); // Default: enabled for strings
+
+    // Disable dictionary encoding for all numeric columns (floats and integers)
+    // This dramatically speeds up serialization for high-entropy data like vertex coordinates
+    for field in batch.schema().fields() {
+        let is_numeric = matches!(
+            field.data_type(),
+            DataType::Float32 | DataType::Float64 | DataType::UInt32 | DataType::UInt64
+                | DataType::Int32 | DataType::Int64 | DataType::UInt8 | DataType::Int8
+        );
+        
+        if is_numeric {
+            props_builder = props_builder.set_column_dictionary_enabled(
+                ColumnPath::from(field.name().as_str()),
+                false,
+            );
+        }
+    }
+
+    let props = props_builder.build();
 
     let mut writer = ArrowWriter::try_new(cursor, batch.schema(), Some(props))?;
     writer.write(batch)?;

@@ -100,6 +100,7 @@ async fn main() {
         .route("/api/v1/parse/metadata", post(routes::parse::parse_metadata))
         .route("/api/v1/parse/parquet", post(routes::parse::parse_parquet))
         .route("/api/v1/parse/parquet/optimized", post(routes::parse::parse_parquet_optimized))
+        .route("/api/v1/parse/data-model/:cache_key", get(routes::parse::get_data_model))
         // Cache endpoint
         .route("/api/v1/cache/{key}", get(routes::cache::get_cached))
         // Middleware
