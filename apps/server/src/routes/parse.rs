@@ -22,7 +22,7 @@ use axum::{
 use flate2::read::GzDecoder;
 use futures::stream::StreamExt;
 use ifc_lite_core::EntityScanner;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::io::Read;
 
@@ -199,11 +199,12 @@ pub enum ParquetStreamEvent {
 pub async fn parse_parquet_stream(
     State(state): State<AppState>,
     mut multipart: Multipart,
-) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>>>, ApiError> {
+) -> Result<Sse<std::pin::Pin<Box<dyn futures::Stream<Item = Result<Event, Infallible>> + Send>>>, ApiError> {
     use base64::{Engine, engine::general_purpose::STANDARD};
     use crate::services::serialize_to_parquet;
     use std::sync::{Arc, Mutex};
     use crate::types::MeshData;
+    use futures::StreamExt;
 
     // Extract file
     let data = extract_file(&mut multipart).await?;
@@ -218,6 +219,65 @@ pub async fn parse_parquet_stream(
     // Generate cache key before processing
     let cache_key = DiskCache::generate_key(&data);
     let cache_key_clone = cache_key.clone();
+
+    // OPTIMIZATION: Check cache first and fast-path return if available
+    // This avoids re-processing files that are already cached
+    let parquet_cache_key = format!("{}-parquet-v2", cache_key);
+    let metadata_cache_key = format!("{}-parquet-metadata-v2", cache_key);
+
+    if let (Some(cached_parquet), Some(cached_metadata_json)) = (
+        state.cache.get_bytes(&parquet_cache_key).await?,
+        state.cache.get_bytes(&metadata_cache_key).await?,
+    ) {
+        tracing::info!(
+            cache_key = %cache_key,
+            parquet_size = cached_parquet.len(),
+            "Streaming cache HIT - returning cached data as fast stream"
+        );
+
+        // Parse cached metadata
+        let metadata_header: ParquetMetadataHeader = serde_json::from_slice(&cached_metadata_json)
+            .map_err(|e| ApiError::Internal(format!("Failed to parse cached metadata: {}", e)))?;
+
+        // Extract geometry length from combined parquet (first 4 bytes)
+        let geometry_len = u32::from_le_bytes(cached_parquet[0..4].try_into().unwrap()) as usize;
+        let geometry_data = cached_parquet[4..4 + geometry_len].to_vec();
+
+        // Create fast stream with cached data
+        let cache_key_for_stream = cache_key.clone();
+        let fast_stream: std::pin::Pin<Box<dyn futures::Stream<Item = Result<Event, Infallible>> + Send>> = Box::pin(futures::stream::iter(vec![
+            // Start event
+            Ok::<_, Infallible>(Event::default().data(
+                serde_json::to_string(&ParquetStreamEvent::Start {
+                    total_estimate: metadata_header.stats.total_meshes,
+                    cache_key: cache_key_for_stream.clone(),
+                }).unwrap()
+            )),
+            // Single batch with all cached geometry
+            Ok(Event::default().data(
+                serde_json::to_string(&ParquetStreamEvent::Batch {
+                    data: base64::engine::general_purpose::STANDARD.encode(&geometry_data),
+                    mesh_count: metadata_header.stats.total_meshes,
+                    batch_number: 1,
+                }).unwrap()
+            )),
+            // Complete event
+            Ok(Event::default().data(
+                serde_json::to_string(&ParquetStreamEvent::Complete {
+                    stats: metadata_header.stats,
+                    metadata: metadata_header.metadata,
+                }).unwrap()
+            )),
+        ]));
+
+        return Ok(Sse::new(fast_stream).keep_alive(KeepAlive::default()));
+    }
+
+    tracing::info!(
+        cache_key = %cache_key,
+        size = data.len(),
+        "Streaming cache MISS - processing file"
+    );
 
     let content = String::from_utf8(data)?;
     let initial_batch_size = state.config.initial_batch_size;
@@ -385,7 +445,8 @@ pub async fn parse_parquet_stream(
         }
     });
 
-    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+    let boxed_stream: std::pin::Pin<Box<dyn futures::Stream<Item = Result<Event, Infallible>> + Send>> = Box::pin(stream);
+    Ok(Sse::new(boxed_stream).keep_alive(KeepAlive::default()))
 }
 
 /// POST /api/v1/parse/metadata - Quick metadata only (no geometry).
@@ -441,7 +502,7 @@ pub async fn parse_metadata(
 }
 
 /// Response header containing metadata for Parquet response.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParquetMetadataHeader {
     pub cache_key: String,
     pub metadata: ModelMetadata,
@@ -452,7 +513,7 @@ pub struct ParquetMetadataHeader {
 }
 
 /// Data model extraction statistics.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataModelStats {
     pub entity_count: usize,
     pub property_set_count: usize,
