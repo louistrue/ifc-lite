@@ -50,13 +50,8 @@ pub fn process_geometry(content: &str) -> ProcessingResult {
     let mut decoder = EntityDecoder::with_arc_index(content, entity_index.clone());
     tracing::debug!("Built entity index");
 
-    // Build style indices for colors
-    let geometry_styles = build_geometry_style_index(content, &mut decoder);
-    let style_index = Arc::new(build_element_style_index(
-        content,
-        &geometry_styles,
-        &mut decoder,
-    ));
+    // OPTIMIZATION: Build style indices in a single pass (previously two separate scans)
+    let style_index = Arc::new(build_style_indices(content, &mut decoder));
 
     // Collect geometry entities and build void index
     let mut scanner = EntityScanner::new(content);
@@ -207,70 +202,45 @@ pub fn process_geometry(content: &str) -> ProcessingResult {
     }
 }
 
-/// Build an index mapping geometry IDs to colors from IfcStyledItem entities.
-fn build_geometry_style_index(
+/// OPTIMIZATION: Build both style indices in a single pass through entities.
+/// Previously, build_geometry_style_index and build_element_style_index each scanned all entities.
+/// This combined function scans once and builds both maps together, reducing I/O overhead.
+fn build_style_indices(
     content: &str,
     decoder: &mut EntityDecoder,
 ) -> FxHashMap<u32, [f32; 4]> {
-    let mut style_index: FxHashMap<u32, [f32; 4]> = FxHashMap::default();
+    // Phase 1: Single scan to collect styled items and geometry-bearing elements
+    let mut geometry_styles: FxHashMap<u32, [f32; 4]> = FxHashMap::default();
+    let mut element_repr_ids: Vec<(u32, u32)> = Vec::with_capacity(2000); // (element_id, repr_id)
     let mut scanner = EntityScanner::new(content);
 
-    while let Some((_id, type_name, start, end)) = scanner.next_entity() {
-        if type_name != "IFCSTYLEDITEM" {
-            continue;
+    while let Some((id, type_name, start, end)) = scanner.next_entity() {
+        // Collect IfcStyledItem data
+        if type_name == "IFCSTYLEDITEM" {
+            if let Ok(styled_item) = decoder.decode_at(start, end) {
+                if let Some(geometry_id) = styled_item.get_ref(0) {
+                    if !geometry_styles.contains_key(&geometry_id) {
+                        if let Some(color) = extract_color_from_styled_item(&styled_item, decoder) {
+                            geometry_styles.insert(geometry_id, color);
+                        }
+                    }
+                }
+            }
         }
-
-        let styled_item = match decoder.decode_at(start, end) {
-            Ok(entity) => entity,
-            Err(_) => continue,
-        };
-
-        // IfcStyledItem: Attribute 0 = Item (geometry reference)
-        let geometry_id = match styled_item.get_ref(0) {
-            Some(id) => id,
-            None => continue,
-        };
-
-        if style_index.contains_key(&geometry_id) {
-            continue;
-        }
-
-        // Try to extract color from styles
-        if let Some(color) = extract_color_from_styled_item(&styled_item, decoder) {
-            style_index.insert(geometry_id, color);
+        // Collect geometry-bearing element representation IDs
+        else if ifc_lite_core::has_geometry_by_name(type_name) {
+            if let Ok(element) = decoder.decode_at(start, end) {
+                if let Some(repr_id) = element.get_ref(6) {
+                    element_repr_ids.push((id, repr_id));
+                }
+            }
         }
     }
 
-    style_index
-}
-
-/// Build an index mapping element IDs to colors by traversing representations.
-fn build_element_style_index(
-    content: &str,
-    geometry_styles: &FxHashMap<u32, [f32; 4]>,
-    decoder: &mut EntityDecoder,
-) -> FxHashMap<u32, [f32; 4]> {
+    // Phase 2: Build element style index using collected data (no re-scan needed)
     let mut element_styles: FxHashMap<u32, [f32; 4]> = FxHashMap::default();
-    let mut scanner = EntityScanner::new(content);
-
-    while let Some((element_id, type_name, start, end)) = scanner.next_entity() {
-        if !ifc_lite_core::has_geometry_by_name(type_name) {
-            continue;
-        }
-
-        let element = match decoder.decode_at(start, end) {
-            Ok(entity) => entity,
-            Err(_) => continue,
-        };
-
-        // Building elements have Representation at index 6
-        let repr_id = match element.get_ref(6) {
-            Some(id) => id,
-            None => continue,
-        };
-
-        // Check if any geometry in the representation has a style
-        if let Some(color) = find_color_in_representation(repr_id, geometry_styles, decoder) {
+    for (element_id, repr_id) in element_repr_ids {
+        if let Some(color) = find_color_in_representation(repr_id, &geometry_styles, decoder) {
             element_styles.insert(element_id, color);
         }
     }

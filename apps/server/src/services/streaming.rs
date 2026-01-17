@@ -36,6 +36,8 @@ struct PreparedData {
     schema_version: String,
     total_entities: usize,
     parse_time_ms: u64,
+    /// OPTIMIZATION: Precomputed unit scale to avoid parsing content per mesh
+    unit_scale: f64,
 }
 
 /// Extract entity references from a list attribute.
@@ -57,9 +59,8 @@ fn prepare_streaming_data(content: String) -> PreparedData {
     let entity_index = Arc::new(build_entity_index(&content));
     let mut decoder = EntityDecoder::with_arc_index(&content, entity_index.clone());
 
-    // Build style indices
-    let geometry_styles = build_geometry_style_index(&content, &mut decoder);
-    let style_index = build_element_style_index(&content, &geometry_styles, &mut decoder);
+    // OPTIMIZATION: Build style indices in a single pass (previously two separate scans)
+    let style_index = build_style_indices(&content, &mut decoder);
 
     // Collect jobs and build void index
     let mut scanner = EntityScanner::new(&content);
@@ -102,11 +103,14 @@ fn prepare_streaming_data(content: String) -> PreparedData {
         schema_version = "IFC4".into();
     }
 
-    // Preprocess FacetedBreps
+    // Preprocess FacetedBreps and extract unit_scale
     let router = GeometryRouter::with_units(&content, &mut decoder);
     if !faceted_brep_ids.is_empty() {
         router.preprocess_faceted_breps(&faceted_brep_ids, &mut decoder);
     }
+    // OPTIMIZATION: Extract unit_scale before dropping router
+    // This allows process_batch to use with_scale() instead of with_units() per mesh
+    let unit_scale = router.unit_scale();
     drop(router); // Explicitly drop non-Send router
 
     let parse_time_ms = parse_start.elapsed().as_millis() as u64;
@@ -120,6 +124,7 @@ fn prepare_streaming_data(content: String) -> PreparedData {
         schema_version,
         total_entities,
         parse_time_ms,
+        unit_scale,
     }
 }
 
@@ -130,6 +135,7 @@ fn process_batch(
     entity_index: Arc<EntityIndex>,
     style_index: Arc<FxHashMap<u32, [f32; 4]>>,
     void_index: Arc<FxHashMap<u32, Vec<u32>>>,
+    unit_scale: f64,
 ) -> Vec<MeshData> {
     jobs.par_iter()
         .filter_map(|job| {
@@ -142,7 +148,9 @@ fn process_batch(
                     return None;
                 }
 
-                let local_router = GeometryRouter::with_units(&content, &mut local_decoder);
+                // OPTIMIZATION: Use with_scale() instead of with_units()
+                // unit_scale is precomputed once, avoiding content parsing per mesh
+                let local_router = GeometryRouter::with_scale(unit_scale);
 
                 if let Ok(mut mesh) = local_router.process_element_with_voids(
                     &entity,
@@ -284,12 +292,13 @@ pub fn process_streaming(
                 let index_bg = prepared.entity_index.clone();
                 let void_bg = prepared.void_index.clone();
                 let style_bg = prepared.style_index.clone();
+                let unit_scale = prepared.unit_scale;
                 let tx_clone = tx.clone();
-                
+
                 // Spawn batch processing task
                 tokio::spawn(async move {
                     let result = tokio::task::spawn_blocking(move || {
-                        process_batch(chunk_vec, content_bg, index_bg, style_bg, void_bg)
+                        process_batch(chunk_vec, content_bg, index_bg, style_bg, void_bg, unit_scale)
                     }).await;
                     
                     let batch_result = match result {
@@ -381,64 +390,45 @@ pub fn process_streaming(
 
 // Helper functions for style extraction
 
-fn build_geometry_style_index(
+/// OPTIMIZATION: Build both style indices in a single pass through entities.
+/// Previously, build_geometry_style_index and build_element_style_index each scanned all entities.
+/// This combined function scans once and builds both maps together, reducing I/O overhead.
+fn build_style_indices(
     content: &str,
     decoder: &mut EntityDecoder,
 ) -> FxHashMap<u32, [f32; 4]> {
-    let mut style_index: FxHashMap<u32, [f32; 4]> = FxHashMap::default();
+    // Phase 1: Single scan to collect styled items and geometry-bearing elements
+    let mut geometry_styles: FxHashMap<u32, [f32; 4]> = FxHashMap::default();
+    let mut element_repr_ids: Vec<(u32, u32)> = Vec::with_capacity(2000); // (element_id, repr_id)
     let mut scanner = EntityScanner::new(content);
 
-    while let Some((_id, type_name, start, end)) = scanner.next_entity() {
-        if type_name != "IFCSTYLEDITEM" {
-            continue;
+    while let Some((id, type_name, start, end)) = scanner.next_entity() {
+        // Collect IfcStyledItem data
+        if type_name == "IFCSTYLEDITEM" {
+            if let Ok(styled_item) = decoder.decode_at(start, end) {
+                if let Some(geometry_id) = styled_item.get_ref(0) {
+                    if !geometry_styles.contains_key(&geometry_id) {
+                        if let Some(color) = extract_color_from_styled_item(&styled_item, decoder) {
+                            geometry_styles.insert(geometry_id, color);
+                        }
+                    }
+                }
+            }
         }
-
-        let styled_item = match decoder.decode_at(start, end) {
-            Ok(entity) => entity,
-            Err(_) => continue,
-        };
-
-        let geometry_id = match styled_item.get_ref(0) {
-            Some(id) => id,
-            None => continue,
-        };
-
-        if style_index.contains_key(&geometry_id) {
-            continue;
-        }
-
-        if let Some(color) = extract_color_from_styled_item(&styled_item, decoder) {
-            style_index.insert(geometry_id, color);
+        // Collect geometry-bearing element representation IDs
+        else if ifc_lite_core::has_geometry_by_name(type_name) {
+            if let Ok(element) = decoder.decode_at(start, end) {
+                if let Some(repr_id) = element.get_ref(6) {
+                    element_repr_ids.push((id, repr_id));
+                }
+            }
         }
     }
 
-    style_index
-}
-
-fn build_element_style_index(
-    content: &str,
-    geometry_styles: &FxHashMap<u32, [f32; 4]>,
-    decoder: &mut EntityDecoder,
-) -> FxHashMap<u32, [f32; 4]> {
+    // Phase 2: Build element style index using collected data (no re-scan needed)
     let mut element_styles: FxHashMap<u32, [f32; 4]> = FxHashMap::default();
-    let mut scanner = EntityScanner::new(content);
-
-    while let Some((element_id, type_name, start, end)) = scanner.next_entity() {
-        if !ifc_lite_core::has_geometry_by_name(type_name) {
-            continue;
-        }
-
-        let element = match decoder.decode_at(start, end) {
-            Ok(entity) => entity,
-            Err(_) => continue,
-        };
-
-        let repr_id = match element.get_ref(6) {
-            Some(id) => id,
-            None => continue,
-        };
-
-        if let Some(color) = find_color_in_representation(repr_id, geometry_styles, decoder) {
+    for (element_id, repr_id) in element_repr_ids {
+        if let Some(color) = find_color_in_representation(repr_id, &geometry_styles, decoder) {
             element_styles.insert(element_id, color);
         }
     }

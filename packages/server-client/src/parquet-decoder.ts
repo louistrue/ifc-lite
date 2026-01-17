@@ -209,24 +209,24 @@ export async function decodeParquetGeometry(data: ArrayBuffer): Promise<MeshData
     const indexCount = indexCounts[i];
 
     // Reconstruct interleaved positions from columnar format
-    // Apply Z-up to Y-up coordinate transformation inline:
-    // IFC uses Z-up, WebGL/Three.js uses Y-up
-    // Swap Y and Z, negate new Z to maintain right-handedness
+    // OPTIMIZATION: Z-up to Y-up transform is now done server-side
+    // Server already transforms: X stays same, new Y = old Z, new Z = -old Y
+    // So we just copy directly without per-vertex transformation
     const positions = new Float32Array(vertexCount * 3);
     for (let v = 0; v < vertexCount; v++) {
       const srcIdx = vertexStart + v;
-      positions[v * 3] = posX[srcIdx];           // X stays the same
-      positions[v * 3 + 1] = posZ[srcIdx];       // New Y = old Z (vertical)
-      positions[v * 3 + 2] = -posY[srcIdx];      // New Z = -old Y (depth)
+      positions[v * 3] = posX[srcIdx];
+      positions[v * 3 + 1] = posY[srcIdx];
+      positions[v * 3 + 2] = posZ[srcIdx];
     }
 
-    // Reconstruct interleaved normals with same Z-up to Y-up transformation
+    // Reconstruct interleaved normals (also pre-transformed server-side)
     const normals = new Float32Array(vertexCount * 3);
     for (let v = 0; v < vertexCount; v++) {
       const srcIdx = vertexStart + v;
-      normals[v * 3] = normX[srcIdx];            // X stays the same
-      normals[v * 3 + 1] = normZ[srcIdx];        // New Y = old Z
-      normals[v * 3 + 2] = -normY[srcIdx];       // New Z = -old Y
+      normals[v * 3] = normX[srcIdx];
+      normals[v * 3 + 1] = normY[srcIdx];
+      normals[v * 3 + 2] = normZ[srcIdx];
     }
 
     // Reconstruct triangle indices from columnar format
@@ -404,26 +404,26 @@ export async function decodeOptimizedParquetGeometry(
     const indexOffset = meshIndexOffsets[meshIdx];
     const indexCount = meshIndexCounts[meshIdx];
 
-    // Dequantize and reconstruct positions with Z-up to Y-up transformation
-    // IFC uses Z-up, WebGL/Three.js uses Y-up
-    // Swap Y and Z, negate new Z to maintain right-handedness
+    // Dequantize and reconstruct positions
+    // OPTIMIZATION: Z-up to Y-up transform is now done server-side for optimized format too
+    // Server already transforms before quantization, so we just dequantize directly
     const positions = new Float32Array(vertexCount * 3);
     for (let v = 0; v < vertexCount; v++) {
       const srcIdx = vertexOffset + v;
-      positions[v * 3] = vertexX[srcIdx] * dequantMultiplier;      // X stays the same
-      positions[v * 3 + 1] = vertexZ[srcIdx] * dequantMultiplier;  // New Y = old Z (vertical)
-      positions[v * 3 + 2] = -vertexY[srcIdx] * dequantMultiplier; // New Z = -old Y (depth)
+      positions[v * 3] = vertexX[srcIdx] * dequantMultiplier;
+      positions[v * 3 + 1] = vertexY[srcIdx] * dequantMultiplier;
+      positions[v * 3 + 2] = vertexZ[srcIdx] * dequantMultiplier;
     }
 
-    // Reconstruct normals with same Z-up to Y-up transformation (or compute if not present)
+    // Reconstruct normals (pre-transformed server-side, or compute if not present)
     let normals: Float32Array;
     if (hasNormals && normalX && normalY && normalZ) {
       normals = new Float32Array(vertexCount * 3);
       for (let v = 0; v < vertexCount; v++) {
         const srcIdx = vertexOffset + v;
-        normals[v * 3] = normalX[srcIdx];       // X stays the same
-        normals[v * 3 + 1] = normalZ[srcIdx];   // New Y = old Z
-        normals[v * 3 + 2] = -normalY[srcIdx];  // New Z = -old Y
+        normals[v * 3] = normalX[srcIdx];
+        normals[v * 3 + 1] = normalY[srcIdx];
+        normals[v * 3 + 2] = normalZ[srcIdx];
       }
     } else {
       // Compute flat normals from triangle faces
