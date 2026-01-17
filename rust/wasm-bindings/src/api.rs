@@ -2500,6 +2500,7 @@ fn extract_color_from_styles(
 }
 
 /// Extract color from IfcPresentationStyleAssignment or IfcSurfaceStyle
+/// Note: IfcPresentationStyleAssignment may be parsed as Unknown type in some schemas
 fn extract_color_from_style_assignment(
     style_id: u32,
     decoder: &mut ifc_lite_core::EntityDecoder,
@@ -2509,23 +2510,31 @@ fn extract_color_from_style_assignment(
     let style = decoder.decode_by_id(style_id).ok()?;
 
     match style.ifc_type {
-        IfcType::IfcPresentationStyle => {
-            // IfcPresentationStyleAssignment: Styles (list)
-            let styles_attr = style.get(0)?;
-            if let Some(list) = styles_attr.as_list() {
-                for item in list {
-                    if let Some(inner_id) = item.as_entity_ref() {
-                        if let Some(color) = extract_color_from_surface_style(inner_id, decoder) {
-                            return Some(color);
+        IfcType::IfcSurfaceStyle => {
+            // Direct IfcSurfaceStyle reference (IFC4 style)
+            return extract_color_from_surface_style(style_id, decoder);
+        }
+        _ => {
+            // Handle IfcPresentationStyleAssignment (IFC2X3) or Unknown types
+            // IfcPresentationStyleAssignment has Styles (list) at attribute 0
+            // Try to extract styles from attribute 0 regardless of type
+            if let Some(styles_attr) = style.get(0) {
+                if let Some(list) = styles_attr.as_list() {
+                    for item in list {
+                        if let Some(inner_id) = item.as_entity_ref() {
+                            // Try to extract color from the referenced style
+                            if let Some(color) = extract_color_from_surface_style(inner_id, decoder) {
+                                return Some(color);
+                            }
+                            // Also try recursively in case of nested style assignments
+                            if let Some(color) = extract_color_from_style_assignment(inner_id, decoder) {
+                                return Some(color);
+                            }
                         }
                     }
                 }
             }
         }
-        IfcType::IfcSurfaceStyle => {
-            return extract_color_from_surface_style(style_id, decoder);
-        }
-        _ => {}
     }
 
     None
@@ -2562,63 +2571,54 @@ fn extract_color_from_surface_style(
 }
 
 /// Extract color from IfcSurfaceStyleRendering or IfcSurfaceStyleShading
+/// Also handles Unknown types by trying to extract color from attribute 0
 fn extract_color_from_rendering(
     rendering_id: u32,
     decoder: &mut ifc_lite_core::EntityDecoder,
 ) -> Option<[f32; 4]> {
-    use ifc_lite_core::IfcType;
-
     let rendering = decoder.decode_by_id(rendering_id).ok()?;
 
-    match rendering.ifc_type {
-        IfcType::IfcSurfaceStyleRendering => {
-            // IfcSurfaceStyleRendering:
-            // SurfaceColour (0) - IfcColourRgb
-            // Transparency (1) - OPTIONAL IfcNormalisedRatioMeasure
-            let color_ref = rendering.get_ref(0)?;
-            let color = decoder.decode_by_id(color_ref).ok()?;
+    // For all types (known and unknown), try to extract color
+    // This handles both recognized types and cases where the parser doesn't recognize the type
+    // IfcSurfaceStyleRendering and IfcSurfaceStyleShading both have SurfaceColour at attribute 0
+    try_extract_color_from_rendering_entity(&rendering, decoder)
+}
 
-            if color.ifc_type != IfcType::IfcColourRgb {
-                return None;
-            }
+/// Try to extract color from an entity that might be IfcSurfaceStyleRendering or IfcSurfaceStyleShading
+fn try_extract_color_from_rendering_entity(
+    rendering: &ifc_lite_core::DecodedEntity,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+) -> Option<[f32; 4]> {
+    use ifc_lite_core::IfcType;
 
-            let r = color.get_float(1).unwrap_or(0.8) as f32;
-            let g = color.get_float(2).unwrap_or(0.8) as f32;
-            let b = color.get_float(3).unwrap_or(0.8) as f32;
+    // SurfaceColour should be at attribute 0 (reference to IfcColourRgb)
+    let color_ref = rendering.get_ref(0)?;
+    let color = decoder.decode_by_id(color_ref).ok()?;
 
-            // Extract transparency (attribute 1 in IfcSurfaceStyleRendering)
-            // Transparency is 0.0 (opaque) to 1.0 (fully transparent)
-            // Alpha is the inverse: 1.0 (opaque) to 0.0 (fully transparent)
-            let transparency = rendering.get_float(1).unwrap_or(0.0) as f32;
-            let alpha = (1.0 - transparency).clamp(0.0, 1.0);
+    // Verify it's a color entity (IfcColourRgb or potentially Unknown)
+    let is_color = matches!(color.ifc_type, IfcType::IfcColourRgb);
 
-            return Some([r, g, b, alpha]);
-        }
-        IfcType::IfcSurfaceStyleShading => {
-            // IfcSurfaceStyleShading:
-            // SurfaceColour (0) - IfcColourRgb
-            // Transparency (1) - OPTIONAL (IFC4 only)
-            let color_ref = rendering.get_ref(0)?;
-            let color = decoder.decode_by_id(color_ref).ok()?;
+    // For IfcColourRgb: Name (0), Red (1), Green (2), Blue (3)
+    // Try to get RGB values - if this fails, it's not a valid color
+    let r = color.get_float(1)?;
+    let g = color.get_float(2)?;
+    let b = color.get_float(3)?;
 
-            if color.ifc_type != IfcType::IfcColourRgb {
-                return None;
-            }
-
-            let r = color.get_float(1).unwrap_or(0.8) as f32;
-            let g = color.get_float(2).unwrap_or(0.8) as f32;
-            let b = color.get_float(3).unwrap_or(0.8) as f32;
-
-            // Extract transparency (attribute 1 in IfcSurfaceStyleShading for IFC4)
-            let transparency = rendering.get_float(1).unwrap_or(0.0) as f32;
-            let alpha = (1.0 - transparency).clamp(0.0, 1.0);
-
-            return Some([r, g, b, alpha]);
-        }
-        _ => {}
+    // Only return if we got valid color values or type matches
+    if !is_color && (r < 0.0 || r > 1.0 || g < 0.0 || g > 1.0 || b < 0.0 || b > 1.0) {
+        return None;
     }
 
-    None
+    let r = r as f32;
+    let g = g as f32;
+    let b = b as f32;
+
+    // Try to extract transparency from attribute 1
+    // Transparency is 0.0 (opaque) to 1.0 (fully transparent)
+    let transparency = rendering.get_float(1).unwrap_or(0.0) as f32;
+    let alpha = (1.0 - transparency).clamp(0.0, 1.0);
+
+    Some([r, g, b, alpha])
 }
 
 /// Get default color for IFC type (matches default-materials.ts)
