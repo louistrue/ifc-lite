@@ -20,8 +20,42 @@ import {
   type IfcDataStore as CacheDataStore,
   type GeometryData,
 } from '@ifc-lite/cache';
-import { getCached, setCached } from '../services/ifc-cache.js';
 import { IfcTypeEnum, RelationshipType, type SpatialHierarchy, type SpatialNode, type EntityTable, type RelationshipGraph } from '@ifc-lite/data';
+
+// Platform-aware cache service
+// Tauri uses native file system cache, browser uses IndexedDB
+const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+// Cache service functions - loaded dynamically based on platform
+let cacheService: { getCached: typeof getCachedFn; setCached: typeof setCachedFn } | null = null;
+
+// Type definitions for cache functions
+type getCachedFn = (key: string) => Promise<ArrayBuffer | null>;
+type setCachedFn = (key: string, data: ArrayBuffer, fileName: string, originalSize: number) => Promise<void>;
+
+async function getCacheService() {
+  if (cacheService) return cacheService;
+
+  if (isTauri) {
+    const mod = await import('../services/desktop-cache.js');
+    cacheService = { getCached: mod.getCached, setCached: mod.setCached };
+  } else {
+    const mod = await import('../services/ifc-cache.js');
+    cacheService = { getCached: mod.getCached, setCached: mod.setCached };
+  }
+  return cacheService;
+}
+
+// Convenience wrappers
+async function getCached(key: string): Promise<ArrayBuffer | null> {
+  const service = await getCacheService();
+  return service.getCached(key);
+}
+
+async function setCached(key: string, data: ArrayBuffer, fileName: string, originalSize: number): Promise<void> {
+  const service = await getCacheService();
+  return service.setCached(key, data, fileName, originalSize);
+}
 
 // Minimum file size to cache (10MB) - smaller files parse quickly anyway
 const CACHE_SIZE_THRESHOLD = 10 * 1024 * 1024;

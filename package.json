@@ -10,7 +10,12 @@
   ],
   "scripts": {
     "dev": "pnpm --filter viewer dev",
+    "dev:desktop": "pnpm --filter @ifc-lite/desktop dev",
     "build": "pnpm -r build",
+    "build:desktop": "pnpm --filter @ifc-lite/desktop build",
+    "build:desktop:windows": "pnpm --filter @ifc-lite/desktop build:windows",
+    "build:desktop:macos": "pnpm --filter @ifc-lite/desktop build:macos",
+    "build:desktop:linux": "pnpm --filter @ifc-lite/desktop build:linux",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
     "docs:serve": "python3 -m mkdocs serve",
