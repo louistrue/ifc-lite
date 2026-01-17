@@ -21,8 +21,9 @@ import {
   type GeometryData,
 } from '@ifc-lite/cache';
 import { getCached, setCached } from '../services/ifc-cache.js';
-import { IfcTypeEnum, RelationshipType, type SpatialHierarchy, type SpatialNode, type EntityTable, type RelationshipGraph } from '@ifc-lite/data';
-import { IfcServerClient } from '@ifc-lite/server-client';
+import { IfcTypeEnum, RelationshipType, IfcTypeEnumFromString, IfcTypeEnumToString, EntityFlags, type SpatialHierarchy, type SpatialNode, type EntityTable, type RelationshipGraph } from '@ifc-lite/data';
+import { StringTable } from '@ifc-lite/data';
+import { IfcServerClient, decodeDataModel } from '@ifc-lite/server-client';
 import type { DynamicBatchConfig } from '@ifc-lite/geometry';
 
 // Minimum file size to cache (10MB) - smaller files parse quickly anyway
@@ -403,6 +404,46 @@ export function useIfc() {
         console.log(`[useIfc] Mesh conversion: ${convertTime.toFixed(0)}ms for ${allMeshes.length} meshes`);
       }
 
+      // Calculate bounds from mesh positions for camera fitting
+      // Server sends origin_shift but not shiftedBounds - we need to calculate them
+      const bounds = {
+        min: { x: Infinity, y: Infinity, z: Infinity },
+        max: { x: -Infinity, y: -Infinity, z: -Infinity },
+      };
+      for (const mesh of allMeshes) {
+        const positions = mesh.positions;
+        for (let i = 0; i < positions.length; i += 3) {
+          const x = positions[i];
+          const y = positions[i + 1];
+          const z = positions[i + 2];
+          if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+            bounds.min.x = Math.min(bounds.min.x, x);
+            bounds.min.y = Math.min(bounds.min.y, y);
+            bounds.min.z = Math.min(bounds.min.z, z);
+            bounds.max.x = Math.max(bounds.max.x, x);
+            bounds.max.y = Math.max(bounds.max.y, y);
+            bounds.max.z = Math.max(bounds.max.z, z);
+          }
+        }
+      }
+
+      // Create proper CoordinateInfo with shiftedBounds for camera fitting
+      const serverCoordInfo = result.metadata.coordinate_info;
+      const coordinateInfo = {
+        originShift: serverCoordInfo?.origin_shift
+          ? { x: serverCoordInfo.origin_shift[0], y: serverCoordInfo.origin_shift[1], z: serverCoordInfo.origin_shift[2] }
+          : { x: 0, y: 0, z: 0 },
+        originalBounds: bounds,
+        shiftedBounds: bounds, // Positions are already shifted by server
+        isGeoReferenced: serverCoordInfo?.is_geo_referenced ?? false,
+      };
+
+      console.log(`[useIfc] Calculated bounds:`, {
+        min: `(${bounds.min.x.toFixed(1)}, ${bounds.min.y.toFixed(1)}, ${bounds.min.z.toFixed(1)})`,
+        max: `(${bounds.max.x.toFixed(1)}, ${bounds.max.y.toFixed(1)}, ${bounds.max.z.toFixed(1)})`,
+        size: `${(bounds.max.x - bounds.min.x).toFixed(1)} x ${(bounds.max.y - bounds.min.y).toFixed(1)} x ${(bounds.max.z - bounds.min.z).toFixed(1)}`,
+      });
+
       // Set all geometry at once
       setProgress({ phase: 'Rendering geometry', percent: 80 });
       const renderStart = performance.now();
@@ -410,37 +451,414 @@ export function useIfc() {
         meshes: allMeshes,
         totalVertices: result.stats.total_vertices,
         totalTriangles: result.stats.total_triangles,
-        coordinateInfo: result.metadata.coordinate_info,
+        coordinateInfo,
       });
       const renderTime = performance.now() - renderStart;
       console.log(`[useIfc] Geometry set: ${renderTime.toFixed(0)}ms`);
 
-      // TODO: Server should return data model (entities, properties, relationships)
-      // For now, we skip data model parsing to avoid redundant work (saves 35-40 seconds!)
-      // This means property panel won't work when using server, but geometry loads MUCH faster
+      // Decode server-provided data model if available
+      if (result.data_model) {
+        setProgress({ phase: 'Decoding data model', percent: 85 });
+        const dataModelStart = performance.now();
 
-      // FUTURE: Extend server to return full data model in Parquet format
-      // Then we can use server data instead of parsing locally
+        try {
+          const dataModel = await decodeDataModel(result.data_model);
 
-      /* TEMPORARILY DISABLED - Causes redundant 40s parsing
-      setProgress({ phase: 'Loading data model', percent: 85 });
-      const parser = new IfcParser();
-      const dataStore = await parser.parseColumnar(buffer, {
-        onProgress: (prog) => {
-          console.log(`[useIfc] Data model: ${prog.phase} ${prog.percent.toFixed(0)}%`);
-        },
-      });
+          console.log(`[useIfc] Data model decoded in ${(performance.now() - dataModelStart).toFixed(0)}ms`);
+          console.log(`  Entities: ${dataModel.entities.size}`);
+          console.log(`  PropertySets: ${dataModel.propertySets.size}`);
+          console.log(`  Relationships: ${dataModel.relationships.length}`);
+          console.log(`  Spatial nodes: ${dataModel.spatialHierarchy.nodes.length}`);
 
-      // Build spatial index
-      if (allMeshes.length > 0) {
-        const spatialIndex = buildSpatialIndex(allMeshes);
-        dataStore.spatialIndex = spatialIndex;
+          // Convert server data model to IfcDataStore format
+          // Build spatial hierarchy from server data
+
+          // Helper function to convert IFC type name to enum
+          const ifcTypeNameToEnum = (typeName: string): IfcTypeEnum => {
+            return IfcTypeEnumFromString(typeName);
+          };
+
+          // Build recursive SpatialNode tree
+          const buildSpatialNodeTree = (
+            nodeId: number,
+            nodesMap: Map<number, typeof dataModel.spatialHierarchy.nodes[0]>
+          ): SpatialNode => {
+            const node = nodesMap.get(nodeId);
+            if (!node) {
+              throw new Error(`Spatial node ${nodeId} not found`);
+            }
+
+            const typeEnum = ifcTypeNameToEnum(node.type_name);
+
+            return {
+              expressId: node.entity_id,
+              type: typeEnum,
+              name: node.name || node.type_name,
+              elevation: node.elevation,
+              children: node.children_ids.map(childId =>
+                buildSpatialNodeTree(childId, nodesMap)
+              ),
+              elements: node.element_ids,
+            };
+          };
+
+          // Build lookup maps from spatial hierarchy data
+          const byStorey = new Map<number, number[]>();
+          const byBuilding = new Map<number, number[]>();
+          const bySite = new Map<number, number[]>();
+          const bySpace = new Map<number, number[]>();
+          const storeyElevations = new Map<number, number>();
+
+          const nodesMap = new Map(
+            dataModel.spatialHierarchy.nodes.map(n => [n.entity_id, n])
+          );
+
+          for (const node of dataModel.spatialHierarchy.nodes) {
+            const typeUpper = node.type_name.toUpperCase();
+            if (typeUpper === 'IFCBUILDINGSTOREY') {
+              byStorey.set(node.entity_id, node.element_ids);
+              if (node.elevation !== undefined) {
+                storeyElevations.set(node.entity_id, node.elevation);
+              }
+            } else if (typeUpper === 'IFCBUILDING') {
+              byBuilding.set(node.entity_id, node.element_ids);
+            } else if (typeUpper === 'IFCSITE') {
+              bySite.set(node.entity_id, node.element_ids);
+            } else if (typeUpper === 'IFCSPACE') {
+              bySpace.set(node.entity_id, node.element_ids);
+            }
+          }
+
+          // Build project node tree
+          const projectNode = buildSpatialNodeTree(
+            dataModel.spatialHierarchy.project_id,
+            nodesMap
+          );
+
+          // Create SpatialHierarchy object with helper methods
+          const spatialHierarchy: SpatialHierarchy = {
+            project: projectNode,
+            byStorey,
+            byBuilding,
+            bySite,
+            bySpace,
+            storeyElevations,
+            elementToStorey: dataModel.spatialHierarchy.element_to_storey,
+            getStoreyElements: (storeyId: number) => byStorey.get(storeyId) || [],
+            getStoreyByElevation: (z: number) => {
+              // Find closest storey by elevation
+              let closest: [number, number] | null = null;
+              for (const [storeyId, elev] of storeyElevations) {
+                const diff = Math.abs(elev - z);
+                if (!closest || diff < closest[1]) {
+                  closest = [storeyId, diff];
+                }
+              }
+              return closest ? closest[0] : null;
+            },
+            getContainingSpace: (elementId: number) => {
+              return dataModel.spatialHierarchy.element_to_space.get(elementId) || null;
+            },
+            getPath: (elementId: number) => {
+              // Build path from element up to project
+              const path: SpatialNode[] = [];
+              let currentId: number | undefined = elementId;
+
+              // First, find which spatial node contains this element
+              let containingNodeId: number | undefined;
+              for (const [spatialId, elements] of byStorey) {
+                if (elements.includes(elementId)) {
+                  containingNodeId = spatialId;
+                  break;
+                }
+              }
+              if (!containingNodeId) {
+                for (const [spatialId, elements] of bySpace) {
+                  if (elements.includes(elementId)) {
+                    containingNodeId = spatialId;
+                    break;
+                  }
+                }
+              }
+
+              // Build path from containing node up to project
+              currentId = containingNodeId;
+              while (currentId) {
+                const node = nodesMap.get(currentId);
+                if (!node) break;
+                path.unshift(buildSpatialNodeTree(currentId, nodesMap));
+                currentId = node.parent_id || undefined;
+              }
+
+              return path;
+            },
+          };
+
+          // ===== OPTIMIZED: Build all data structures in single pass =====
+          const strings = new StringTable();
+          const entityCount = dataModel.entities.size;
+
+          // Pre-allocate TypedArrays
+          const expressId = new Uint32Array(entityCount);
+          const typeEnumArr = new Uint16Array(entityCount);
+          const globalIdArr = new Uint32Array(entityCount);
+          const nameArr = new Uint32Array(entityCount);
+          const descriptionArr = new Uint32Array(entityCount);
+          const objectTypeArr = new Uint32Array(entityCount);
+          const flagsArr = new Uint8Array(entityCount);
+          const containedInStoreyArr = new Int32Array(entityCount).fill(-1);
+          const definedByTypeArr = new Int32Array(entityCount).fill(-1);
+          const geometryIndexArr = new Int32Array(entityCount).fill(-1);
+
+          // Maps for fast lookup
+          const idToIndex = new Map<number, number>();
+          const entityByIdMap = new Map<number, { expressId: number; type: string; byteOffset: number; byteLength: number; lineNumber: number }>();
+          const typeGroups = new Map<IfcTypeEnum, number[]>();
+
+          // Single pass through entities
+          let idx = 0;
+          for (const [id, entity] of dataModel.entities) {
+            idToIndex.set(id, idx);
+            expressId[idx] = id;
+            const typeVal = IfcTypeEnumFromString(entity.type_name);
+            typeEnumArr[idx] = typeVal;
+            globalIdArr[idx] = strings.intern(entity.global_id || '');
+            nameArr[idx] = strings.intern(entity.name || '');
+            descriptionArr[idx] = strings.NULL_INDEX;
+            objectTypeArr[idx] = strings.NULL_INDEX;
+            flagsArr[idx] = entity.has_geometry ? EntityFlags.HAS_GEOMETRY : 0;
+
+            // Build entityByIdMap for entityIndex
+            entityByIdMap.set(id, {
+              expressId: id,
+              type: entity.type_name,
+              byteOffset: 0,
+              byteLength: 0,
+              lineNumber: 0,
+            });
+
+            // Group by type
+            if (!typeGroups.has(typeVal)) {
+              typeGroups.set(typeVal, []);
+            }
+            typeGroups.get(typeVal)!.push(idx);
+            idx++;
+          }
+
+          // Build type ranges
+          const typeRanges = new Map<IfcTypeEnum, { start: number; end: number }>();
+          let rangeIdx = 0;
+          for (const [type, indices] of Array.from(typeGroups.entries()).sort((a, b) => a[0] - b[0])) {
+            typeRanges.set(type, { start: rangeIdx, end: rangeIdx + indices.length });
+            rangeIdx += indices.length;
+          }
+
+          // EntityTable with methods
+          const indexOfId = (id: number): number => idToIndex.get(id) ?? -1;
+
+          const entities: EntityTable = {
+            count: entityCount,
+            expressId,
+            typeEnum: typeEnumArr,
+            globalId: globalIdArr,
+            name: nameArr,
+            description: descriptionArr,
+            objectType: objectTypeArr,
+            flags: flagsArr,
+            containedInStorey: containedInStoreyArr,
+            definedByType: definedByTypeArr,
+            geometryIndex: geometryIndexArr,
+            typeRanges,
+            getGlobalId: (id) => {
+              const i = indexOfId(id);
+              return i >= 0 ? strings.get(globalIdArr[i]) : '';
+            },
+            getName: (id) => {
+              const i = indexOfId(id);
+              return i >= 0 ? strings.get(nameArr[i]) : '';
+            },
+            getTypeName: (id) => {
+              const i = indexOfId(id);
+              return i >= 0 ? IfcTypeEnumToString(typeEnumArr[i]) : 'Unknown';
+            },
+            hasGeometry: (id) => {
+              const i = indexOfId(id);
+              return i >= 0 ? (flagsArr[i] & EntityFlags.HAS_GEOMETRY) !== 0 : false;
+            },
+            getByType: (type) => {
+              const range = typeRanges.get(type);
+              if (!range) return [];
+              const ids: number[] = [];
+              for (let j = range.start; j < range.end; j++) {
+                ids.push(expressId[j]);
+              }
+              return ids;
+            },
+          };
+
+          // ===== PropertyTable with getForEntity =====
+          // Build entity -> pset relationships from server data
+          const entityToPsets = new Map<number, Array<{ pset_id: number; pset_name: string; properties: Array<{ property_name: string; property_value: string; property_type: string }> }>>();
+
+          // Parse relationships to link entities to their property sets
+          for (const rel of dataModel.relationships) {
+            if (rel.rel_type === 'IFCRELDEFINESBYPROPERTIES') {
+              const pset = dataModel.propertySets.get(rel.relating_id);
+              if (pset) {
+                if (!entityToPsets.has(rel.related_id)) {
+                  entityToPsets.set(rel.related_id, []);
+                }
+                entityToPsets.get(rel.related_id)!.push(pset);
+              }
+            }
+          }
+
+          const properties = {
+            count: 0,
+            entityId: new Uint32Array(0),
+            psetName: new Uint32Array(0),
+            psetGlobalId: new Uint32Array(0),
+            propName: new Uint32Array(0),
+            propType: new Uint8Array(0),
+            valueString: new Uint32Array(0),
+            valueReal: new Float64Array(0),
+            valueInt: new Int32Array(0),
+            valueBool: new Uint8Array(0),
+            unitId: new Int32Array(0),
+            entityIndex: new Map<number, number[]>(),
+            psetIndex: new Map<number, number[]>(),
+            propIndex: new Map<number, number[]>(),
+            getForEntity: (exprId: number) => {
+              const psets = entityToPsets.get(exprId) || [];
+              return psets.map(pset => ({
+                name: pset.pset_name,
+                globalId: '',
+                properties: pset.properties.map(p => ({
+                  name: p.property_name,
+                  type: 0 as const,
+                  value: p.property_value,
+                })),
+              }));
+            },
+            getPropertyValue: () => null,
+            findByProperty: () => [],
+          };
+
+          // ===== QuantityTable (empty but with methods) =====
+          const quantities = {
+            count: 0,
+            entityId: new Uint32Array(0),
+            qsetName: new Uint32Array(0),
+            quantityName: new Uint32Array(0),
+            quantityType: new Uint8Array(0),
+            value: new Float64Array(0),
+            unitId: new Int32Array(0),
+            formula: new Uint32Array(0),
+            entityIndex: new Map<number, number[]>(),
+            qsetIndex: new Map<number, number[]>(),
+            quantityIndex: new Map<number, number[]>(),
+            getForEntity: () => [],
+            getQuantityValue: () => null,
+            sumByType: () => 0,
+          };
+
+          // ===== RelationshipGraph with methods =====
+          // Build forward/inverse edge maps
+          const forwardEdges = new Map<number, Array<{ target: number; type: RelationshipType; relationshipId: number }>>();
+          const inverseEdges = new Map<number, Array<{ target: number; type: RelationshipType; relationshipId: number }>>();
+
+          for (const rel of dataModel.relationships) {
+            const relType = rel.rel_type.toUpperCase().includes('AGGREGATE') ? RelationshipType.Aggregates
+              : rel.rel_type.toUpperCase().includes('CONTAINED') ? RelationshipType.ContainsElements
+                : rel.rel_type.toUpperCase().includes('DEFINESBYPROP') ? RelationshipType.DefinesByProperties
+                  : rel.rel_type.toUpperCase().includes('DEFINESBYTYPE') ? RelationshipType.DefinesByType
+                    : rel.rel_type.toUpperCase().includes('MATERIAL') ? RelationshipType.AssociatesMaterial
+                      : rel.rel_type.toUpperCase().includes('VOIDS') ? RelationshipType.VoidsElement
+                        : rel.rel_type.toUpperCase().includes('FILLS') ? RelationshipType.FillsElement
+                          : RelationshipType.Aggregates;
+
+            // Forward: relating -> related
+            if (!forwardEdges.has(rel.relating_id)) {
+              forwardEdges.set(rel.relating_id, []);
+            }
+            forwardEdges.get(rel.relating_id)!.push({ target: rel.related_id, type: relType, relationshipId: 0 });
+
+            // Inverse: related -> relating
+            if (!inverseEdges.has(rel.related_id)) {
+              inverseEdges.set(rel.related_id, []);
+            }
+            inverseEdges.get(rel.related_id)!.push({ target: rel.relating_id, type: relType, relationshipId: 0 });
+          }
+
+          const createEdgeAccessor = (edges: Map<number, Array<{ target: number; type: RelationshipType; relationshipId: number }>>) => ({
+            offsets: new Map<number, number>(),
+            counts: new Map<number, number>(),
+            edgeTargets: new Uint32Array(0),
+            edgeTypes: new Uint16Array(0),
+            edgeRelIds: new Uint32Array(0),
+            getEdges: (entityId: number, type?: RelationshipType) => {
+              const e = edges.get(entityId) || [];
+              return type !== undefined ? e.filter(edge => edge.type === type) : e;
+            },
+            getTargets: (entityId: number, type?: RelationshipType) => {
+              const e = edges.get(entityId) || [];
+              const filtered = type !== undefined ? e.filter(edge => edge.type === type) : e;
+              return filtered.map(edge => edge.target);
+            },
+            hasAnyEdges: (entityId: number) => (edges.get(entityId)?.length ?? 0) > 0,
+          });
+
+          const relationships: RelationshipGraph = {
+            forward: createEdgeAccessor(forwardEdges),
+            inverse: createEdgeAccessor(inverseEdges),
+            getRelated: (entityId, relType, direction) => {
+              const edgeMap = direction === 'forward' ? forwardEdges : inverseEdges;
+              const edges = edgeMap.get(entityId) || [];
+              return edges.filter(e => e.type === relType).map(e => e.target);
+            },
+            hasRelationship: (sourceId, targetId, relType) => {
+              const edges = forwardEdges.get(sourceId) || [];
+              return edges.some(e => e.target === targetId && (relType === undefined || e.type === relType));
+            },
+            getRelationshipsBetween: (sourceId, targetId) => {
+              const edges = forwardEdges.get(sourceId) || [];
+              return edges.filter(e => e.target === targetId).map(e => ({
+                relationshipId: e.relationshipId,
+                type: e.type,
+                typeName: RelationshipType[e.type] || 'Unknown',
+              }));
+            },
+          };
+
+          // Build spatial index for geometry
+          const spatialIndex = allMeshes.length > 0 ? buildSpatialIndex(allMeshes) : undefined;
+
+          // Construct dataStore compatible with parser's IfcDataStore type
+          const dataStore = {
+            fileSize: file.size,
+            schemaVersion: result.metadata.schema_version as 'IFC2X3' | 'IFC4' | 'IFC4X3',
+            entityCount,
+            parseTime: result.stats.total_time_ms,
+            source: new Uint8Array(0),
+            entityIndex: { byId: entityByIdMap, byType: new Map() },
+            strings,
+            entities,
+            properties,
+            quantities,
+            relationships,
+            spatialHierarchy,
+            spatialIndex,
+          } as any; // Type assertion - parser IfcDataStore has slightly different type
+
+          setIfcDataStore(dataStore);
+          console.log('[useIfc] ✅ Property panel ready with server data model');
+        } catch (err) {
+          console.warn('[useIfc] Failed to decode data model:', err);
+          console.log('[useIfc] ⚡ Skipping data model (decoding failed)');
+        }
+      } else {
+        console.log('[useIfc] ⚡ No data model provided by server - property panel disabled');
       }
-
-      setIfcDataStore(dataStore);
-      */
-
-      console.log('[useIfc] ⚡ Skipping data model parsing (server mode) - MASSIVE speedup!');
       setProgress({ phase: 'Complete', percent: 100 });
       const totalServerTime = performance.now() - serverStart;
       console.timeEnd('[useIfc] server-parse');

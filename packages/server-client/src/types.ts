@@ -199,6 +199,13 @@ export interface ParquetMetadataHeader {
   metadata: ModelMetadata;
   /** Processing statistics */
   stats: ProcessingStats;
+  /** Data model statistics (if included) */
+  data_model_stats?: {
+    entity_count: number;
+    property_set_count: number;
+    relationship_count: number;
+    spatial_node_count: number;
+  };
 }
 
 /**
@@ -220,6 +227,8 @@ export interface ParquetParseResponse {
     /** Time spent decoding Parquet (ms) */
     decode_time_ms: number;
   };
+  /** Data model binary (Parquet format) - optional */
+  data_model?: ArrayBuffer;
 }
 
 /**

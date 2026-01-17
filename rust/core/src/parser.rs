@@ -269,9 +269,10 @@ impl<'a> EntityScanner<'a> {
         let start_offset = memchr::memchr(b'#', remaining)?;
         let line_start = self.position + start_offset;
 
-        // Find the end of the line (semicolon) using SIMD
+        // Find the end of the entity (semicolon) while respecting quoted strings
+        // IFC strings use single quotes and can contain semicolons
         let line_content = &self.bytes[line_start..];
-        let end_offset = memchr::memchr(b';', line_content)?;
+        let end_offset = self.find_entity_end(line_content)?;
         let line_end = line_start + end_offset + 1;
 
         // Parse entity ID (inline for speed)
@@ -325,6 +326,50 @@ impl<'a> EntityScanner<'a> {
             result = result.wrapping_mul(10).wrapping_add(digit as u32);
         }
         Some(result)
+    }
+
+    /// Find the terminating semicolon of an entity, skipping over quoted strings.
+    /// IFC strings are enclosed in single quotes ('...') and can contain semicolons.
+    /// Returns the offset of the semicolon from the start of the slice.
+    #[inline]
+    fn find_entity_end(&self, content: &[u8]) -> Option<usize> {
+        let mut pos = 0;
+        let len = content.len();
+        let mut in_string = false;
+
+        while pos < len {
+            let b = content[pos];
+            
+            if in_string {
+                if b == b'\'' {
+                    // Check for escaped quote ('') - if next char is also quote, skip both
+                    if pos + 1 < len && content[pos + 1] == b'\'' {
+                        pos += 2; // Skip escaped quote
+                        continue;
+                    }
+                    in_string = false;
+                }
+                pos += 1;
+            } else {
+                match b {
+                    b'\'' => {
+                        in_string = true;
+                        pos += 1;
+                    }
+                    b';' => {
+                        return Some(pos);
+                    }
+                    b'\n' => {
+                        // Entity definitions can span multiple lines in some IFC files
+                        pos += 1;
+                    }
+                    _ => {
+                        pos += 1;
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// Find all entities of a specific type

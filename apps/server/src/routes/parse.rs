@@ -6,7 +6,8 @@
 
 use crate::error::ApiError;
 use crate::services::{
-    cache::DiskCache, process_geometry, process_streaming, serialize_to_parquet,
+    cache::DiskCache, extract_data_model, process_geometry, process_streaming,
+    serialize_data_model_to_parquet, serialize_to_parquet,
     serialize_to_parquet_optimized_with_stats, OptimizedStats, VERTEX_MULTIPLIER,
 };
 use crate::types::{MetadataResponse, ModelMetadata, ParseResponse, ProcessingStats, StreamEvent};
@@ -206,6 +207,18 @@ pub struct ParquetMetadataHeader {
     pub cache_key: String,
     pub metadata: ModelMetadata,
     pub stats: ProcessingStats,
+    /// Data model statistics (if included).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_model_stats: Option<DataModelStats>,
+}
+
+/// Data model extraction statistics.
+#[derive(Debug, Clone, Serialize)]
+pub struct DataModelStats {
+    pub entity_count: usize,
+    pub property_set_count: usize,
+    pub relationship_count: usize,
+    pub spatial_node_count: usize,
 }
 
 /// POST /api/v1/parse/parquet - Full parse with Parquet-encoded geometry.
@@ -241,25 +254,56 @@ pub async fn parse_parquet(
     // Parse content
     let content = String::from_utf8(data)?;
 
-    // Process on blocking thread pool (CPU-intensive)
-    let result = tokio::task::spawn_blocking(move || process_geometry(&content)).await?;
+    // Process geometry and data model in parallel
+    // rayon::join works correctly here because rayon has its own thread pool
+    // that's independent of tokio's blocking thread pool
+    let (geometry_result, data_model) = tokio::task::spawn_blocking(move || {
+        // rayon::join will use rayon's global thread pool to run both closures in parallel
+        rayon::join(
+            || process_geometry(&content),
+            || extract_data_model(&content),
+        )
+    })
+    .await?;
 
-    // Serialize to Parquet (much more efficient than JSON)
+    // Serialize both to Parquet in parallel
     let serialize_start = tokio::time::Instant::now();
-    let parquet_data = serialize_to_parquet(&result.meshes)?;
+    let (geometry_parquet, data_model_parquet) = rayon::join(
+        || serialize_to_parquet(&geometry_result.meshes),
+        || serialize_data_model_to_parquet(&data_model),
+    );
+
+    let geometry_parquet = geometry_parquet?;
+    let data_model_parquet = data_model_parquet?;
+
+    // Combine Parquet data: [geometry_len][geometry_data][data_model_len][data_model_data]
+    let mut combined_parquet = Vec::new();
+    combined_parquet.extend_from_slice(&(geometry_parquet.len() as u32).to_le_bytes());
+    combined_parquet.extend_from_slice(&geometry_parquet);
+    combined_parquet.extend_from_slice(&(data_model_parquet.len() as u32).to_le_bytes());
+    combined_parquet.extend_from_slice(&data_model_parquet);
+
     let serialize_time = serialize_start.elapsed();
     tracing::info!(
-        meshes = result.meshes.len(),
-        parquet_size = parquet_data.len(),
+        meshes = geometry_result.meshes.len(),
+        geometry_parquet_size = geometry_parquet.len(),
+        data_model_parquet_size = data_model_parquet.len(),
+        total_parquet_size = combined_parquet.len(),
         serialize_time_ms = serialize_time.as_millis(),
         "Parquet serialization complete"
     );
 
-    // Create metadata header
+    // Create metadata header with data model stats
     let metadata_header = ParquetMetadataHeader {
         cache_key,
-        metadata: result.metadata,
-        stats: result.stats,
+        metadata: geometry_result.metadata,
+        stats: geometry_result.stats,
+        data_model_stats: Some(DataModelStats {
+            entity_count: data_model.entities.len(),
+            property_set_count: data_model.property_sets.len(),
+            relationship_count: data_model.relationships.len(),
+            spatial_node_count: data_model.spatial_hierarchy.nodes.len(),
+        }),
     };
 
     let metadata_json = serde_json::to_string(&metadata_header)?;
@@ -269,8 +313,8 @@ pub async fn parse_parquet(
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/x-parquet-geometry")
         .header("X-IFC-Metadata", metadata_json)
-        .header(header::CONTENT_LENGTH, parquet_data.len())
-        .body(Body::from(parquet_data))
+        .header(header::CONTENT_LENGTH, combined_parquet.len())
+        .body(Body::from(combined_parquet))
         .map_err(|e| ApiError::Internal(e.to_string()))?;
 
     Ok(response)

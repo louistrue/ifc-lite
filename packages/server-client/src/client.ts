@@ -179,9 +179,49 @@ export class IfcServerClient {
     const payloadBuffer = await response.arrayBuffer();
     const payloadSize = payloadBuffer.byteLength;
 
+    // Extract geometry and data model from combined Parquet format
+    // Format: [geometry_len][geometry_data][data_model_len][data_model_data]
+    // Note: geometry_data itself contains [mesh_len][mesh_data][vertex_len][vertex_data][index_len][index_data]
+    const view = new DataView(payloadBuffer);
+    let offset = 0;
+
+    // Detect format: if metadata has data_model_stats, it's the new format with wrapper
+    const hasDataModel = metadata.data_model_stats !== undefined;
+    
+    let geometryData: ArrayBuffer;
+    let dataModelBuffer: ArrayBuffer | undefined;
+    
+    if (hasDataModel) {
+      // New format: [geometry_len][geometry_data][data_model_len][data_model_data]
+      const geometryLen = view.getUint32(offset, true);
+      offset += 4;
+      
+      // Validate geometry length
+      if (geometryLen > payloadBuffer.byteLength || geometryLen === 0 || offset + geometryLen > payloadBuffer.byteLength) {
+        throw new Error(`Invalid geometry length: ${geometryLen}, buffer size: ${payloadBuffer.byteLength}, offset: ${offset}`);
+      }
+      
+      geometryData = payloadBuffer.slice(offset, offset + geometryLen);
+      offset += geometryLen;
+
+      // Extract data model if present
+      if (offset < payloadBuffer.byteLength) {
+        const dataModelLen = view.getUint32(offset, true);
+        offset += 4;
+        if (dataModelLen > 0 && offset + dataModelLen <= payloadBuffer.byteLength) {
+          dataModelBuffer = payloadBuffer.slice(offset, offset + dataModelLen);
+        }
+      }
+    } else {
+      // Old format: geometry Parquet directly (no wrapper)
+      console.log('[client] Detected old format (no wrapper), using entire payload as geometry');
+      geometryData = payloadBuffer;
+      dataModelBuffer = undefined;
+    }
+
     // Decode Parquet geometry
     const decodeStart = performance.now();
-    const meshes = await decodeParquetGeometry(payloadBuffer);
+    const meshes = await decodeParquetGeometry(geometryData);
     const decodeTime = performance.now() - decodeStart;
 
     return {
@@ -193,6 +233,7 @@ export class IfcServerClient {
         payload_size: payloadSize,
         decode_time_ms: Math.round(decodeTime),
       },
+      data_model: dataModelBuffer,
     };
   }
 

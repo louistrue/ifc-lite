@@ -106,3 +106,9 @@ impl From<crate::services::ParquetError> for ApiError {
         ApiError::Parquet(err.to_string())
     }
 }
+
+impl From<crate::services::parquet_data_model::DataModelParquetError> for ApiError {
+    fn from(err: crate::services::parquet_data_model::DataModelParquetError) -> Self {
+        ApiError::Parquet(err.to_string())
+    }
+}

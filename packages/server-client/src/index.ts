@@ -31,3 +31,4 @@
 export * from './client';
 export * from './types';
 export { decodeParquetGeometry, decodeOptimizedParquetGeometry, isParquetAvailable } from './parquet-decoder';
+export { decodeDataModel, type DataModel } from './data-model-decoder';

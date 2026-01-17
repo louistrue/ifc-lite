@@ -21,7 +21,7 @@ let parquetModule: any = null;
  * 
  * @returns Initialized parquet-wasm module
  */
-async function ensureParquetInit() {
+export async function ensureParquetInit() {
   if (parquetInitialized && parquetModule) {
     return parquetModule;
   }
