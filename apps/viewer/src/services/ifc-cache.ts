@@ -16,6 +16,7 @@ const STORE_NAME = 'models';
 interface CacheEntry {
   key: string;
   buffer: ArrayBuffer;
+  sourceBuffer?: ArrayBuffer; // Original IFC source for on-demand property extraction
   fileName: string;
   fileSize: number;
   createdAt: number;
@@ -77,10 +78,15 @@ function openDatabase(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
+export interface CacheResult {
+  buffer: ArrayBuffer;
+  sourceBuffer?: ArrayBuffer;
+}
+
 /**
  * Get a cached model by hash key
  */
-export async function getCached(key: string): Promise<ArrayBuffer | null> {
+export async function getCached(key: string): Promise<CacheResult | null> {
   try {
     const db = await openDatabase();
     return new Promise((resolve, reject) => {
@@ -92,7 +98,10 @@ export async function getCached(key: string): Promise<ArrayBuffer | null> {
         const entry = request.result as CacheEntry | undefined;
         if (entry) {
           console.log(`[IFC Cache] Cache hit for ${entry.fileName} (${(entry.fileSize / 1024 / 1024).toFixed(2)}MB)`);
-          resolve(entry.buffer);
+          resolve({
+            buffer: entry.buffer,
+            sourceBuffer: entry.sourceBuffer,
+          });
         } else {
           resolve(null);
         }
@@ -116,7 +125,8 @@ export async function setCached(
   key: string,
   buffer: ArrayBuffer,
   fileName: string,
-  fileSize: number
+  fileSize: number,
+  sourceBuffer?: ArrayBuffer
 ): Promise<void> {
   try {
     const db = await openDatabase();
@@ -127,6 +137,7 @@ export async function setCached(
       const entry: CacheEntry = {
         key,
         buffer,
+        sourceBuffer,
         fileName,
         fileSize,
         createdAt: Date.now(),
@@ -135,7 +146,8 @@ export async function setCached(
       const request = store.put(entry);
 
       request.onsuccess = () => {
-        console.log(`[IFC Cache] Cached ${fileName} (${(fileSize / 1024 / 1024).toFixed(2)}MB)`);
+        const totalSize = buffer.byteLength + (sourceBuffer?.byteLength || 0);
+        console.log(`[IFC Cache] Cached ${fileName} (${(totalSize / 1024 / 1024).toFixed(2)}MB total)`);
         resolve();
       };
 

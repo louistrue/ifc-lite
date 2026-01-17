@@ -20,7 +20,7 @@ import {
   type IfcDataStore as CacheDataStore,
   type GeometryData,
 } from '@ifc-lite/cache';
-import { getCached, setCached } from '../services/ifc-cache.js';
+import { getCached, setCached, type CacheResult } from '../services/ifc-cache.js';
 import { IfcTypeEnum, RelationshipType, IfcTypeEnumFromString, IfcTypeEnumToString, EntityFlags, type SpatialHierarchy, type SpatialNode, type EntityTable, type RelationshipGraph } from '@ifc-lite/data';
 import { StringTable } from '@ifc-lite/data';
 import { IfcServerClient, decodeDataModel, type ParquetBatch } from '@ifc-lite/server-client';
@@ -227,11 +227,49 @@ export function useIfc() {
   const lastLoggedDataStoreRef = useRef<typeof ifcDataStore>(null);
 
   /**
+   * Rebuild on-demand property/quantity maps from relationships and entity types
+   */
+  const rebuildOnDemandMaps = (
+    entities: EntityTable,
+    relationships: RelationshipGraph
+  ): { onDemandPropertyMap: Map<number, number[]>; onDemandQuantityMap: Map<number, number[]> } => {
+    const onDemandPropertyMap = new Map<number, number[]>();
+    const onDemandQuantityMap = new Map<number, number[]>();
+
+    // Iterate through all entity IDs
+    for (let i = 0; i < entities.count; i++) {
+      const entityId = entities.expressId[i];
+
+      // Get property definitions for this entity (inverse relationship)
+      const definingPsets = relationships.getRelated(entityId, RelationshipType.DefinesByProperties, 'inverse');
+
+      for (const psetId of definingPsets) {
+        // Check if it's a property set or quantity set by entity type
+        const psetType = entities.getTypeName(psetId);
+        const psetTypeUpper = psetType?.toUpperCase() || '';
+
+        if (psetTypeUpper === 'IFCPROPERTYSET') {
+          let list = onDemandPropertyMap.get(entityId);
+          if (!list) { list = []; onDemandPropertyMap.set(entityId, list); }
+          list.push(psetId);
+        } else if (psetTypeUpper === 'IFCELEMENTQUANTITY') {
+          let list = onDemandQuantityMap.get(entityId);
+          if (!list) { list = []; onDemandQuantityMap.set(entityId, list); }
+          list.push(psetId);
+        }
+      }
+    }
+
+    console.log(`[useIfc] Rebuilt on-demand maps: ${onDemandPropertyMap.size} entities with properties, ${onDemandQuantityMap.size} with quantities`);
+    return { onDemandPropertyMap, onDemandQuantityMap };
+  };
+
+  /**
    * Load from binary cache - INSTANT load for maximum speed
    * Large cached models load all geometry at once for fastest total time
    */
   const loadFromCache = useCallback(async (
-    cacheBuffer: ArrayBuffer,
+    cacheResult: CacheResult,
     fileName: string
   ): Promise<boolean> => {
     try {
@@ -244,12 +282,53 @@ export function useIfc() {
 
       console.time('[useIfc] cache-read');
       const reader = new BinaryCacheReader();
-      const result = await reader.read(cacheBuffer);
+      const result = await reader.read(cacheResult.buffer);
       console.timeEnd('[useIfc] cache-read');
       const cacheReadTime = performance.now() - cacheLoadStart;
 
       // Convert cache data store to viewer data store format
       const dataStore = result.dataStore as any;
+
+      // Restore source buffer for on-demand property extraction
+      if (cacheResult.sourceBuffer) {
+        console.time('[useIfc] rebuild-entity-index');
+        dataStore.source = new Uint8Array(cacheResult.sourceBuffer);
+
+        // Quick scan to rebuild entity index with byte offsets (needed for on-demand extraction)
+        const { StepTokenizer } = await import('@ifc-lite/parser');
+        const tokenizer = new StepTokenizer(dataStore.source);
+        const entityIndex = {
+          byId: new Map<number, any>(),
+          byType: new Map<string, number[]>(),
+        };
+
+        for (const ref of tokenizer.scanEntitiesFast()) {
+          entityIndex.byId.set(ref.expressId, {
+            expressId: ref.expressId,
+            type: ref.type,
+            byteOffset: ref.offset,
+            byteLength: ref.length,
+            lineNumber: ref.line,
+          });
+          let typeList = entityIndex.byType.get(ref.type);
+          if (!typeList) { typeList = []; entityIndex.byType.set(ref.type, typeList); }
+          typeList.push(ref.expressId);
+        }
+        dataStore.entityIndex = entityIndex;
+        console.timeEnd('[useIfc] rebuild-entity-index');
+
+        // Rebuild on-demand maps from relationships
+        const { onDemandPropertyMap, onDemandQuantityMap } = rebuildOnDemandMaps(
+          dataStore.entities,
+          dataStore.relationships
+        );
+        dataStore.onDemandPropertyMap = onDemandPropertyMap;
+        dataStore.onDemandQuantityMap = onDemandQuantityMap;
+        console.log('[useIfc] Restored source buffer and on-demand maps from cache');
+      } else {
+        console.warn('[useIfc] No source buffer in cache - on-demand property extraction disabled');
+        dataStore.source = new Uint8Array(0);
+      }
 
       // Rebuild spatial hierarchy from cache data (cache doesn't serialize it)
       if (!dataStore.spatialHierarchy && dataStore.entities && dataStore.relationships) {
@@ -1056,7 +1135,7 @@ export function useIfc() {
         { includeGeometry: true }
       );
 
-      await setCached(cacheKey, cacheBuffer, fileName, sourceBuffer.byteLength);
+      await setCached(cacheKey, cacheBuffer, fileName, sourceBuffer.byteLength, sourceBuffer);
 
       console.timeEnd('[useIfc] cache-write');
       console.log(`[useIfc] Cached ${fileName} (${(cacheBuffer.byteLength / 1024 / 1024).toFixed(2)}MB cache)`);
@@ -1195,9 +1274,9 @@ export function useIfc() {
 
       if (buffer.byteLength >= CACHE_SIZE_THRESHOLD) {
         setProgress({ phase: 'Checking cache', percent: 5 });
-        const cachedBuffer = await getCached(cacheKey);
-        if (cachedBuffer) {
-          const success = await loadFromCache(cachedBuffer, file.name);
+        const cacheResult = await getCached(cacheKey);
+        if (cacheResult) {
+          const success = await loadFromCache(cacheResult, file.name);
           if (success) {
             setLoading(false);
             return;
