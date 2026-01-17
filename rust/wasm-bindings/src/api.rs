@@ -2414,10 +2414,32 @@ fn build_element_style_index(
                     None => continue,
                 };
 
-                // Check if this geometry has a style
+                // Check if this geometry has a direct style
                 if let Some(&color) = geometry_styles.get(&geom_id) {
                     element_styles.insert(element_id, color);
                     break; // Found a color for this element
+                }
+
+                // Check if this is an IfcMappedItem and traverse into it
+                if let Ok(item) = decoder.decode_by_id(geom_id) {
+                    if item.ifc_type == ifc_lite_core::IfcType::IfcMappedItem {
+                        // IfcMappedItem: MappingSource (0), MappingTarget (1)
+                        if let Some(source_id) = item.get_ref(0) {
+                            if let Ok(source) = decoder.decode_by_id(source_id) {
+                                // IfcRepresentationMap: MappingOrigin (0), MappedRepresentation (1)
+                                if let Some(mapped_repr_id) = source.get_ref(1) {
+                                    if let Some(color) = find_color_in_shape_representation(
+                                        mapped_repr_id,
+                                        geometry_styles,
+                                        decoder,
+                                    ) {
+                                        element_styles.insert(element_id, color);
+                                        break; // Found a color for this element
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -2429,6 +2451,31 @@ fn build_element_style_index(
     }
 
     element_styles
+}
+
+/// Find a color in a shape representation by checking its geometry items
+fn find_color_in_shape_representation(
+    repr_id: u32,
+    geometry_styles: &rustc_hash::FxHashMap<u32, [f32; 4]>,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+) -> Option<[f32; 4]> {
+    let repr = decoder.decode_by_id(repr_id).ok()?;
+
+    // IfcShapeRepresentation: ContextOfItems (0), RepresentationIdentifier (1),
+    //                         RepresentationType (2), Items (3)
+    let items_attr = repr.get(3)?;
+    let items_list = items_attr.as_list()?;
+
+    for item in items_list {
+        let item_id = item.as_entity_ref()?;
+
+        // Check if this geometry item has a style
+        if let Some(&color) = geometry_styles.get(&item_id) {
+            return Some(color);
+        }
+    }
+
+    None
 }
 
 /// Extract RGBA color from IfcStyledItem.Styles attribute
@@ -2524,38 +2571,54 @@ fn extract_color_from_rendering(
     let rendering = decoder.decode_by_id(rendering_id).ok()?;
 
     match rendering.ifc_type {
-        IfcType::IfcSurfaceStyleRendering | IfcType::IfcSurfaceStyleShading => {
-            // Both have SurfaceColour as attribute 0
+        IfcType::IfcSurfaceStyleRendering => {
+            // IfcSurfaceStyleRendering:
+            // SurfaceColour (0) - IfcColourRgb
+            // Transparency (1) - OPTIONAL IfcNormalisedRatioMeasure
             let color_ref = rendering.get_ref(0)?;
-            return extract_color_rgb(color_ref, decoder);
+            let color = decoder.decode_by_id(color_ref).ok()?;
+
+            if color.ifc_type != IfcType::IfcColourRgb {
+                return None;
+            }
+
+            let r = color.get_float(1).unwrap_or(0.8) as f32;
+            let g = color.get_float(2).unwrap_or(0.8) as f32;
+            let b = color.get_float(3).unwrap_or(0.8) as f32;
+
+            // Extract transparency (attribute 1 in IfcSurfaceStyleRendering)
+            // Transparency is 0.0 (opaque) to 1.0 (fully transparent)
+            // Alpha is the inverse: 1.0 (opaque) to 0.0 (fully transparent)
+            let transparency = rendering.get_float(1).unwrap_or(0.0) as f32;
+            let alpha = (1.0 - transparency).clamp(0.0, 1.0);
+
+            return Some([r, g, b, alpha]);
+        }
+        IfcType::IfcSurfaceStyleShading => {
+            // IfcSurfaceStyleShading:
+            // SurfaceColour (0) - IfcColourRgb
+            // Transparency (1) - OPTIONAL (IFC4 only)
+            let color_ref = rendering.get_ref(0)?;
+            let color = decoder.decode_by_id(color_ref).ok()?;
+
+            if color.ifc_type != IfcType::IfcColourRgb {
+                return None;
+            }
+
+            let r = color.get_float(1).unwrap_or(0.8) as f32;
+            let g = color.get_float(2).unwrap_or(0.8) as f32;
+            let b = color.get_float(3).unwrap_or(0.8) as f32;
+
+            // Extract transparency (attribute 1 in IfcSurfaceStyleShading for IFC4)
+            let transparency = rendering.get_float(1).unwrap_or(0.0) as f32;
+            let alpha = (1.0 - transparency).clamp(0.0, 1.0);
+
+            return Some([r, g, b, alpha]);
         }
         _ => {}
     }
 
     None
-}
-
-/// Extract RGB color from IfcColourRgb
-fn extract_color_rgb(
-    color_id: u32,
-    decoder: &mut ifc_lite_core::EntityDecoder,
-) -> Option<[f32; 4]> {
-    use ifc_lite_core::IfcType;
-
-    let color = decoder.decode_by_id(color_id).ok()?;
-
-    if color.ifc_type != IfcType::IfcColourRgb {
-        return None;
-    }
-
-    // IfcColourRgb: Name, Red, Green, Blue
-    // Note: In IFC2x3, attributes are at indices 1, 2, 3 (0 is Name)
-    // In IFC4, attributes are also at 1, 2, 3
-    let red = color.get_float(1).unwrap_or(0.8);
-    let green = color.get_float(2).unwrap_or(0.8);
-    let blue = color.get_float(3).unwrap_or(0.8);
-
-    Some([red as f32, green as f32, blue as f32, 1.0])
 }
 
 /// Get default color for IFC type (matches default-materials.ts)
