@@ -684,14 +684,34 @@ export class Renderer {
                 }
 
                 // Separate batches into opaque and transparent, filtering by visibility
+                // IMPORTANT: Only render FULLY visible batches - partially visible batches
+                // need individual mesh rendering to show only the visible elements
                 const opaqueBatches: typeof allBatchedMeshes = [];
                 const transparentBatches: typeof allBatchedMeshes = [];
 
+                // Collect visible expressIds from partially visible batches
+                // These need individual mesh rendering instead of batch rendering
+                const partiallyVisibleExpressIds = new Set<number>();
+
                 for (const batch of allBatchedMeshes) {
-                    // Check visibility (skip completely hidden batches)
+                    // Check visibility
                     if (hasVisibilityFiltering) {
                         const vis = batchVisibility.get(batch.colorKey);
                         if (!vis || !vis.visible) continue; // Skip completely hidden batches
+
+                        // FIX: Skip partially visible batches - their visible elements
+                        // will be rendered individually below
+                        if (!vis.fullyVisible) {
+                            // Collect the visible expressIds from this batch
+                            for (const expressId of batch.expressIds) {
+                                const isHidden = options.hiddenIds?.has(expressId) ?? false;
+                                const isIsolated = !hasIsolatedFilter || options.isolatedIds!.has(expressId);
+                                if (!isHidden && isIsolated) {
+                                    partiallyVisibleExpressIds.add(expressId);
+                                }
+                            }
+                            continue; // Don't add batch to render list
+                        }
                     }
 
                     const alpha = batch.color[3];
@@ -762,17 +782,100 @@ export class Renderer {
                     renderBatch(batch);
                 }
 
+                // Render partially visible elements individually (from batches that had mixed visibility)
+                // This is the FIX for hide/isolate showing wrong batches
+                const allMeshes = this.scene.getMeshes();
+                const existingMeshIds = new Set(allMeshes.map(m => m.expressId));
+
+                if (partiallyVisibleExpressIds.size > 0) {
+                    // Create GPU resources lazily for partially visible meshes
+                    for (const pvId of partiallyVisibleExpressIds) {
+                        if (!existingMeshIds.has(pvId) && this.scene.hasMeshData(pvId)) {
+                            const meshData = this.scene.getMeshData(pvId)!;
+                            this.createMeshFromData(meshData);
+                            existingMeshIds.add(pvId);
+                        }
+                    }
+
+                    // Get partially visible meshes and render them
+                    const partialMeshes = this.scene.getMeshes().filter(mesh =>
+                        partiallyVisibleExpressIds.has(mesh.expressId)
+                    );
+
+                    // Ensure partial meshes have uniform buffers and bind groups
+                    for (const mesh of partialMeshes) {
+                        if (!mesh.uniformBuffer && this.pipeline) {
+                            mesh.uniformBuffer = device.createBuffer({
+                                size: this.pipeline.getUniformBufferSize(),
+                                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+                            });
+                            mesh.bindGroup = device.createBindGroup({
+                                layout: this.pipeline.getBindGroupLayout(),
+                                entries: [
+                                    {
+                                        binding: 0,
+                                        resource: { buffer: mesh.uniformBuffer },
+                                    },
+                                ],
+                            });
+                        }
+                    }
+
+                    // Render partially visible meshes (not selected, normal rendering)
+                    for (const mesh of partialMeshes) {
+                        if (!mesh.bindGroup || !mesh.uniformBuffer) {
+                            continue;
+                        }
+
+                        const buffer = new Float32Array(48);
+                        const flagBuffer = new Uint32Array(buffer.buffer, 176, 4);
+
+                        buffer.set(viewProj, 0);
+                        buffer.set(mesh.transform.m, 16);
+                        buffer.set(mesh.color, 32);
+                        buffer[36] = mesh.material?.metallic ?? 0.0;
+                        buffer[37] = mesh.material?.roughness ?? 0.6;
+
+                        // Section plane data
+                        if (sectionPlaneData) {
+                            buffer[40] = sectionPlaneData.normal[0];
+                            buffer[41] = sectionPlaneData.normal[1];
+                            buffer[42] = sectionPlaneData.normal[2];
+                            buffer[43] = sectionPlaneData.distance;
+                        }
+
+                        // Flags (not selected)
+                        flagBuffer[0] = 0;
+                        flagBuffer[1] = sectionPlaneData?.enabled ? 1 : 0;
+                        flagBuffer[2] = 0;
+                        flagBuffer[3] = 0;
+
+                        device.queue.writeBuffer(mesh.uniformBuffer, 0, buffer);
+
+                        // Use opaque or transparent pipeline based on alpha
+                        const isTransparent = mesh.color[3] < 0.99;
+                        if (isTransparent) {
+                            pass.setPipeline(this.pipeline.getTransparentPipeline());
+                        } else {
+                            pass.setPipeline(this.pipeline.getPipeline());
+                        }
+                        pass.setBindGroup(0, mesh.bindGroup);
+                        pass.setVertexBuffer(0, mesh.vertexBuffer);
+                        pass.setIndexBuffer(mesh.indexBuffer, 'uint32');
+                        pass.drawIndexed(mesh.indexCount, 1, 0, 0, 0);
+                    }
+                }
+
                 // Render selected meshes individually for proper highlighting
                 // First, check if we have Mesh objects for selected IDs
                 // If not, create them lazily from stored MeshData
-                const allMeshes = this.scene.getMeshes();
-                const existingMeshIds = new Set(allMeshes.map(m => m.expressId));
 
                 // Create GPU resources lazily for selected meshes that don't have them yet
                 for (const selId of selectedExpressIds) {
                     if (!existingMeshIds.has(selId) && this.scene.hasMeshData(selId)) {
                         const meshData = this.scene.getMeshData(selId)!;
                         this.createMeshFromData(meshData);
+                        existingMeshIds.add(selId);
                     }
                 }
 
