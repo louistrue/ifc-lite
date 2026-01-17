@@ -9,7 +9,7 @@
 
 import { useMemo, useCallback, useRef } from 'react';
 import { useViewerStore } from '../store.js';
-import { IfcParser } from '@ifc-lite/parser';
+import { IfcParser, detectFormat, parseIfcx } from '@ifc-lite/parser';
 import { GeometryProcessor, GeometryQuality, type MeshData } from '@ifc-lite/geometry';
 import { IfcQuery } from '@ifc-lite/query';
 import { BufferBuilder } from '@ifc-lite/geometry';
@@ -1081,6 +1081,134 @@ export function useIfc() {
       const fileSizeMB = buffer.byteLength / (1024 * 1024);
       console.log(`[useIfc] File: ${file.name}, size: ${fileSizeMB.toFixed(2)}MB`);
 
+      // Detect file format (IFCX/IFC5 vs IFC4 STEP)
+      const format = detectFormat(buffer);
+
+      // IFCX files must be parsed client-side (server only supports IFC4 STEP)
+      if (format === 'ifcx') {
+        setProgress({ phase: 'Parsing IFCX (client-side)', percent: 10 });
+
+        try {
+          const ifcxResult = await parseIfcx(buffer, {
+            onProgress: (prog: { phase: string; percent: number }) => {
+              setProgress({ phase: `IFCX ${prog.phase}`, percent: 10 + (prog.percent * 0.8) });
+            },
+          });
+
+          // Convert IFCX meshes to viewer format
+
+          // IFCX/IFC5 uses Y-up coordinate system, but viewer expects Z-up (like IFC4)
+          // Convert Y-up to Z-up: swap Y and Z, negate new Z to maintain right-handedness
+          // Transform: X stays same, new Y = old Z, new Z = -old Y
+          const convertYUpToZUp = (positions: Float32Array | number[]): number[] => {
+            const arr = positions instanceof Float32Array ? Array.from(positions) : positions;
+            const result: number[] = [];
+            for (let i = 0; i < arr.length; i += 3) {
+              const x = arr[i];
+              const y = arr[i + 1];
+              const z = arr[i + 2];
+              // Y-up → Z-up: swap Y and Z, negate new Z
+              result.push(x);      // X stays same
+              result.push(z);      // New Y = old Z (depth)
+              result.push(-y);     // New Z = -old Y (vertical, negated for right-hand rule)
+            }
+            return result;
+          };
+
+          const meshes: MeshData[] = ifcxResult.meshes.map((m: { expressId?: number; express_id?: number; id?: number; positions: Float32Array | number[]; indices: Uint32Array | number[]; normals: Float32Array | number[]; color?: [number, number, number, number]; ifcType?: string; ifc_type?: string }) => {
+            // IFCX MeshData has: expressId, ifcType, positions (Float32Array), indices (Uint32Array), normals (Float32Array), color
+            const positionsRaw = m.positions instanceof Float32Array ? m.positions : new Float32Array(m.positions || []);
+            const indices = m.indices instanceof Uint32Array ? m.indices : new Uint32Array(m.indices || []);
+            const normalsRaw = m.normals instanceof Float32Array ? m.normals : new Float32Array(m.normals || []);
+
+            // Convert Y-up (IFCX) to Z-up (viewer expects)
+            const positions = convertYUpToZUp(positionsRaw);
+            const normals = convertYUpToZUp(normalsRaw);
+
+            return {
+              expressId: m.expressId || m.express_id || m.id || 0,
+              positions, // Already converted to regular array
+              indices: Array.from(indices), // Convert to regular array for viewer
+              normals, // Already converted to regular array
+              color: m.color || [0.7, 0.7, 0.7],
+              ifcType: m.ifcType || m.ifc_type || 'IfcProduct',
+            };
+          }).filter((m: MeshData) => m.positions.length > 0 && m.indices.length > 0); // Filter out empty meshes
+
+          // Calculate bounds
+          const bounds = {
+            min: { x: Infinity, y: Infinity, z: Infinity },
+            max: { x: -Infinity, y: -Infinity, z: -Infinity },
+          };
+          let totalVertices = 0;
+          let totalTriangles = 0;
+
+          for (const mesh of meshes) {
+            const positions = mesh.positions;
+            for (let i = 0; i < positions.length; i += 3) {
+              const x = positions[i];
+              const y = positions[i + 1];
+              const z = positions[i + 2];
+              if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+                bounds.min.x = Math.min(bounds.min.x, x);
+                bounds.min.y = Math.min(bounds.min.y, y);
+                bounds.min.z = Math.min(bounds.min.z, z);
+                bounds.max.x = Math.max(bounds.max.x, x);
+                bounds.max.y = Math.max(bounds.max.y, y);
+                bounds.max.z = Math.max(bounds.max.z, z);
+              }
+            }
+            totalVertices += positions.length / 3;
+            totalTriangles += mesh.indices.length / 3;
+          }
+
+          const coordinateInfo = {
+            originShift: { x: 0, y: 0, z: 0 },
+            originalBounds: bounds,
+            shiftedBounds: bounds,
+            isGeoReferenced: false,
+          };
+
+          setGeometryResult({
+            meshes,
+            totalVertices,
+            totalTriangles,
+            coordinateInfo,
+          });
+
+          // Convert IFCX data model to IfcDataStore format
+          // IFCX already provides entities, properties, quantities, relationships, spatialHierarchy
+          const dataStore = {
+            fileSize: ifcxResult.fileSize,
+            schemaVersion: 'IFC5' as const,
+            entityCount: ifcxResult.entityCount,
+            parseTime: ifcxResult.parseTime,
+            source: new Uint8Array(buffer),
+            entityIndex: {
+              byId: new Map(),
+              byType: new Map(),
+            },
+            strings: ifcxResult.strings,
+            entities: ifcxResult.entities,
+            properties: ifcxResult.properties,
+            quantities: ifcxResult.quantities,
+            relationships: ifcxResult.relationships,
+            spatialHierarchy: ifcxResult.spatialHierarchy,
+          } as any; // Type assertion - IFCX format is compatible but schemaVersion differs
+
+          setIfcDataStore(dataStore);
+
+          setProgress({ phase: 'Complete', percent: 100 });
+          setLoading(false);
+          return;
+        } catch (err: any) {
+          console.error('[useIfc] IFCX parsing failed:', err);
+          setError(`IFCX parsing failed: ${err.message}`);
+          setLoading(false);
+          return;
+        }
+      }
+
       // INSTANT cache lookup: Use filename + size as key (no hashing!)
       // Same filename + same size = same file (fast and reliable enough)
       const cacheKey = `${file.name}-${buffer.byteLength}`;
@@ -1098,7 +1226,8 @@ export function useIfc() {
       }
 
       // Try server parsing first (enabled by default for multi-core performance)
-      if (USE_SERVER && SERVER_URL && SERVER_URL !== '') {
+      // Only for IFC4 STEP files (server doesn't support IFCX)
+      if (format === 'ifc' && USE_SERVER && SERVER_URL && SERVER_URL !== '') {
         setProgress({ phase: 'Trying server', percent: 8 });
         console.log(`[useIfc] Sending ${file.name} (${(buffer.byteLength / (1024 * 1024)).toFixed(2)}MB) to server at ${SERVER_URL}`);
         // Clone buffer for server parsing (prevents detachment if server fails)
@@ -1110,6 +1239,8 @@ export function useIfc() {
         }
         // Fall back to local parsing if server fails
         console.log('[useIfc] Falling back to local WASM parsing');
+      } else if (format === 'unknown') {
+        console.warn('[useIfc] Unknown file format - attempting to parse as IFC4 STEP');
       }
 
       // Cache miss - start geometry streaming IMMEDIATELY

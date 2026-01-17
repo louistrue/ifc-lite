@@ -266,7 +266,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       <input
         ref={fileInputRef}
         type="file"
-        accept=".ifc"
+        accept=".ifc,.ifcx"
         onChange={handleFileSelect}
         className="hidden"
       />

@@ -22,7 +22,7 @@ export type IfcAmountOfSubstanceMeasure = number;
 export type IfcAngularVelocityMeasure = number;
 
 /** IfcArcIndex */
-export type IfcArcIndex = LIST [3:3] OF IfcPositiveInteger;
+export type IfcArcIndex = [IfcPositiveInteger, IfcPositiveInteger, IfcPositiveInteger];
 
 /** IfcAreaDensityMeasure */
 export type IfcAreaDensityMeasure = number;
@@ -43,10 +43,10 @@ export type IfcBoxAlignment = IfcLabel;
 export type IfcCardinalPointReference = number;
 
 /** IfcComplexNumber */
-export type IfcComplexNumber = ARRAY [1:2] OF REAL;
+export type IfcComplexNumber = [number, number];
 
 /** IfcCompoundPlaneAngleMeasure */
-export type IfcCompoundPlaneAngleMeasure = LIST [3:4] OF INTEGER;
+export type IfcCompoundPlaneAngleMeasure = [number, number, number] | [number, number, number, number];
 
 /** IfcContextDependentMeasure */
 export type IfcContextDependentMeasure = number;
@@ -2573,84 +2573,28 @@ export type IfcWindowPanelOperationEnum = ENUMERATION OF
 	,NOTDEFINED);
 
 /** IfcWindowPanelPositionEnum */
-export type IfcWindowPanelPositionEnum = ENUMERATION OF
-	(LEFT
-	,MIDDLE
-	,RIGHT
-	,BOTTOM
-	,TOP
-	,NOTDEFINED);
+export type IfcWindowPanelPositionEnum = 'LEFT' | 'MIDDLE' | 'RIGHT' | 'BOTTOM' | 'TOP' | 'NOTDEFINED';
 
 /** IfcWindowStyleConstructionEnum */
-export type IfcWindowStyleConstructionEnum = ENUMERATION OF
-	(ALUMINIUM
-	,HIGH_GRADE_STEEL
-	,STEEL
-	,WOOD
-	,ALUMINIUM_WOOD
-	,PLASTIC
-	,OTHER_CONSTRUCTION
-	,NOTDEFINED);
+export type IfcWindowStyleConstructionEnum = 'ALUMINIUM' | 'HIGH_GRADE_STEEL' | 'STEEL' | 'WOOD' | 'ALUMINIUM_WOOD' | 'PLASTIC' | 'OTHER_CONSTRUCTION' | 'NOTDEFINED';
 
 /** IfcWindowStyleOperationEnum */
-export type IfcWindowStyleOperationEnum = ENUMERATION OF
-	(SINGLE_PANEL
-	,DOUBLE_PANEL_VERTICAL
-	,DOUBLE_PANEL_HORIZONTAL
-	,TRIPLE_PANEL_VERTICAL
-	,TRIPLE_PANEL_BOTTOM
-	,TRIPLE_PANEL_TOP
-	,TRIPLE_PANEL_LEFT
-	,TRIPLE_PANEL_RIGHT
-	,TRIPLE_PANEL_HORIZONTAL
-	,USERDEFINED
-	,NOTDEFINED);
+export type IfcWindowStyleOperationEnum = 'SINGLE_PANEL' | 'DOUBLE_PANEL_VERTICAL' | 'DOUBLE_PANEL_HORIZONTAL' | 'TRIPLE_PANEL_VERTICAL' | 'TRIPLE_PANEL_BOTTOM' | 'TRIPLE_PANEL_TOP' | 'TRIPLE_PANEL_LEFT' | 'TRIPLE_PANEL_RIGHT' | 'TRIPLE_PANEL_HORIZONTAL' | 'USERDEFINED' | 'NOTDEFINED';
 
 /** IfcWindowTypeEnum */
-export type IfcWindowTypeEnum = ENUMERATION OF
-	(WINDOW
-	,SKYLIGHT
-	,LIGHTDOME
-	,USERDEFINED
-	,NOTDEFINED);
+export type IfcWindowTypeEnum = 'WINDOW' | 'SKYLIGHT' | 'LIGHTDOME' | 'USERDEFINED' | 'NOTDEFINED';
 
 /** IfcWindowTypePartitioningEnum */
-export type IfcWindowTypePartitioningEnum = ENUMERATION OF
-	(SINGLE_PANEL
-	,DOUBLE_PANEL_VERTICAL
-	,DOUBLE_PANEL_HORIZONTAL
-	,TRIPLE_PANEL_VERTICAL
-	,TRIPLE_PANEL_BOTTOM
-	,TRIPLE_PANEL_TOP
-	,TRIPLE_PANEL_LEFT
-	,TRIPLE_PANEL_RIGHT
-	,TRIPLE_PANEL_HORIZONTAL
-	,USERDEFINED
-	,NOTDEFINED);
+export type IfcWindowTypePartitioningEnum = 'SINGLE_PANEL' | 'DOUBLE_PANEL_VERTICAL' | 'DOUBLE_PANEL_HORIZONTAL' | 'TRIPLE_PANEL_VERTICAL' | 'TRIPLE_PANEL_BOTTOM' | 'TRIPLE_PANEL_TOP' | 'TRIPLE_PANEL_LEFT' | 'TRIPLE_PANEL_RIGHT' | 'TRIPLE_PANEL_HORIZONTAL' | 'USERDEFINED' | 'NOTDEFINED';
 
 /** IfcWorkCalendarTypeEnum */
-export type IfcWorkCalendarTypeEnum = ENUMERATION OF
-	(FIRSTSHIFT
-	,SECONDSHIFT
-	,THIRDSHIFT
-	,USERDEFINED
-	,NOTDEFINED);
+export type IfcWorkCalendarTypeEnum = 'FIRSTSHIFT' | 'SECONDSHIFT' | 'THIRDSHIFT' | 'USERDEFINED' | 'NOTDEFINED';
 
 /** IfcWorkPlanTypeEnum */
-export type IfcWorkPlanTypeEnum = ENUMERATION OF
-	(ACTUAL
-	,BASELINE
-	,PLANNED
-	,USERDEFINED
-	,NOTDEFINED);
+export type IfcWorkPlanTypeEnum = 'ACTUAL' | 'BASELINE' | 'PLANNED' | 'USERDEFINED' | 'NOTDEFINED';
 
 /** IfcWorkScheduleTypeEnum */
-export type IfcWorkScheduleTypeEnum = ENUMERATION OF
-	(ACTUAL
-	,BASELINE
-	,PLANNED
-	,USERDEFINED
-	,NOTDEFINED);
+export type IfcWorkScheduleTypeEnum = 'ACTUAL' | 'BASELINE' | 'PLANNED' | 'USERDEFINED' | 'NOTDEFINED';
 
 /** IfcActorSelect */
 export type IfcActorSelect = SELECT
