@@ -434,6 +434,7 @@ export class ColumnarParser {
         const onDemandQuantityMap = new Map<number, number[]>();
 
         // Parse IfcRelDefinesByProperties to build entity -> pset/qset mapping
+        // ALSO add to relationship graph so cache loads can rebuild on-demand maps
         for (const ref of propertyRelRefs) {
             const entity = extractor.extractEntity(ref);
             if (entity) {
@@ -443,6 +444,13 @@ export class ColumnarParser {
                 const relatingDef = attrs[5];
 
                 if (typeof relatingDef === 'number' && Array.isArray(relatedObjects)) {
+                    // Add to relationship graph (needed for cache rebuild)
+                    for (const objId of relatedObjects) {
+                        if (typeof objId === 'number') {
+                            relationshipGraphBuilder.addEdge(relatingDef, objId, RelationshipType.DefinesByProperties, ref.expressId);
+                        }
+                    }
+
                     // Find if the relating definition is a property set or quantity set
                     const defRef = entityIndex.byId.get(relatingDef);
                     if (defRef) {
