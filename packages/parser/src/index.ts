@@ -229,10 +229,11 @@ export class IfcParser {
 
     const entityRefs: EntityRef[] = [];
     let processed = 0;
-    const YIELD_INTERVAL = 10000; // Even less frequent yields for scan-only
+    const YIELD_INTERVAL = 50000; // Very infrequent yields for max throughput
 
-    // Scan-only: just get entity refs (ID, type, offset) - NO attribute parsing
-    for (const ref of tokenizer.scanEntities()) {
+    // FAST scan: uses semicolon-based scanning instead of parenthesis matching
+    // ~5-10x faster than regular scanEntities for large files
+    for (const ref of tokenizer.scanEntitiesFast()) {
       entityRefs.push({
         expressId: ref.expressId,
         type: ref.type,
@@ -249,7 +250,7 @@ export class IfcParser {
     }
 
     const scanTime = performance.now() - startTime;
-    console.log(`[IfcParser] LITE scan: ${processed} entities in ${scanTime.toFixed(0)}ms`);
+    console.log(`[IfcParser] LITE scan (fast): ${processed} entities in ${scanTime.toFixed(0)}ms`);
 
     options.onProgress?.({ phase: 'scanning (lite)', percent: 100 });
 
