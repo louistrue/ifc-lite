@@ -36,10 +36,10 @@
 
 ## Overview
 
-**IFClite** parses, processes, and renders IFC files in the browser using **Rust + WebAssembly** and **WebGPU**. Smaller and faster than the alternatives.
+**IFClite** parses, processes, and renders IFC files in the browser using **Rust + WebAssembly** and **WebGPU**. Smaller and faster than the alternatives. Supports both IFC4 (STEP) and IFC5 (IFCX/JSON).
 
 <p align="center">
-  <strong>~650 KB WASM (~260 KB gzipped)</strong> &nbsp;•&nbsp; <strong>2.6x faster</strong> &nbsp;•&nbsp; <strong>100% IFC4X3 schema (876 entities)</strong>
+  <strong>~650 KB WASM (~260 KB gzipped)</strong> &nbsp;•&nbsp; <strong>2.6x faster</strong> &nbsp;•&nbsp; <strong>IFC4X3 + IFC5 support</strong>
 </p>
 
 ## Features
@@ -48,6 +48,7 @@
 |---------|-------------|
 | **Clean DX** | Columnar data structures, TypedArrays, consistent API. Built from scratch for clarity |
 | **STEP/IFC Parsing** | Zero-copy tokenization with full IFC4X3 schema support (876 entities) |
+| **IFC5 (IFCX) Support** | Native parsing of JSON-based IFC5 format with ECS composition and USD geometry |
 | **Streaming Pipeline** | Progressive geometry processing. First triangles in 300-500ms |
 | **WebGPU Rendering** | Modern GPU-accelerated 3D with depth testing and frustum culling |
 | **Zero-Copy GPU** | Direct WASM memory to GPU buffers, 60-70% less RAM |
@@ -188,7 +189,7 @@ IFC files flow through three processing layers. See the [Architecture Documentat
 
 ## Server Paradigm
 
-For production deployments, IFClite provides a **Rust server** that handles CPU-intensive processing, enabling instant loading for repeat visits and efficient handling of large models.
+For production deployments, IFClite provides a **Rust server** that processes geometry and data model **fully upfront**, enabling instant loading for repeat visits. Unlike the client-side parser (which uses on-demand property extraction for responsiveness), the server computes everything in parallel and caches the complete result.
 
 ```mermaid
 flowchart LR
@@ -219,10 +220,10 @@ flowchart LR
 | Feature | Description |
 |---------|-------------|
 | **Content-Addressable Cache** | SHA-256 hash of file content as cache key. Client checks cache before upload |
-| **Parallel Geometry Processing** | Rayon thread pool processes entities concurrently |
+| **Parallel Processing** | Geometry and data model processed concurrently with Rayon thread pool |
 | **Columnar Formats** | Apache Parquet for geometry (15-50x smaller than JSON) |
 | **Progressive Streaming** | SSE batches enable rendering while server processes |
-| **Lazy Data Model** | Properties/relationships computed in background, fetched on-demand |
+| **Full Data Model** | Properties, relationships, and spatial hierarchy computed upfront and cached |
 
 ### Data Flow
 
@@ -309,6 +310,14 @@ ifc-lite/
 - Streaming pipeline with batched processing (100 meshes/batch)
 - First triangles visible in **300-500ms**
 
+### On-Demand Property Extraction (Client-Side)
+
+When using `@ifc-lite/parser` directly in the browser:
+- Properties and quantities are extracted lazily when accessed
+- Initial parse skips expensive property table building
+- Large files (100+ MB) stream geometry instantly while data loads in background
+- CPU raycasting for picking in models with 500+ elements (no GPU buffer overhead)
+
 *See [full benchmark data](tests/benchmark/benchmark-results.json) for per-file comparisons.*
 
 ## Browser Requirements
@@ -349,6 +358,7 @@ bash scripts/build-wasm.sh  # Rebuild WASM after Rust changes
 |---------|-------------|--------|------|
 | `create-ifc-lite` | Project scaffolding CLI | ✅ Stable | [API](docs/api/typescript.md#create-ifc-lite) |
 | `@ifc-lite/parser` | STEP tokenizer & entity extraction | ✅ Stable | [API](docs/api/typescript.md#parser) |
+| `@ifc-lite/ifcx` | IFC5 (IFCX) parser with ECS composition | 🚧 Beta | [API](docs/api/typescript.md#ifcx) |
 | `@ifc-lite/geometry` | Geometry processing bridge | ✅ Stable | [API](docs/api/typescript.md#geometry) |
 | `@ifc-lite/renderer` | WebGPU rendering pipeline | ✅ Stable | [API](docs/api/typescript.md#renderer) |
 | `@ifc-lite/cache` | Binary cache for instant loading | ✅ Stable | [API](docs/api/typescript.md#cache) |
