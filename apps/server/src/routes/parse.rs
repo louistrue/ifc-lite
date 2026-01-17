@@ -519,76 +519,61 @@ pub async fn parse_parquet(
     // Parse content
     let content = String::from_utf8(data)?;
 
-    // Process geometry and data model in parallel
+    // Process geometry and data model extraction + serialization ALL in parallel
     // rayon::join works correctly here because rayon has its own thread pool
     // that's independent of tokio's blocking thread pool
-    let (geometry_result, data_model) = tokio::task::spawn_blocking(move || {
-        // rayon::join will use rayon's global thread pool to run both closures in parallel
-        rayon::join(
-            || process_geometry(&content),
-            || extract_data_model(&content),
-        )
-    })
-    .await?;
-
-    // Serialize geometry immediately (fast path with parallelized array building)
     let serialize_start = tokio::time::Instant::now();
-    let geometry_parquet = serialize_to_parquet(&geometry_result.meshes)?;
-    let geometry_serialize_time = serialize_start.elapsed();
-    
+    let ((geometry_result, geometry_parquet), (data_model_stats, data_model_parquet)) =
+        tokio::task::spawn_blocking(move || {
+            // First: extract geometry and data model in parallel
+            let (geometry_result, data_model) = rayon::join(
+                || process_geometry(&content),
+                || extract_data_model(&content),
+            );
+
+            // Capture stats before moving data_model
+            let dm_stats = DataModelStats {
+                entity_count: data_model.entities.len(),
+                property_set_count: data_model.property_sets.len(),
+                relationship_count: data_model.relationships.len(),
+                spatial_node_count: data_model.spatial_hierarchy.nodes.len(),
+            };
+
+            // Second: serialize BOTH geometry and data model in parallel
+            // This way data model is ready by the time client needs it
+            let (geo_parquet, dm_parquet) = rayon::join(
+                || serialize_to_parquet(&geometry_result.meshes),
+                || serialize_data_model_to_parquet(&data_model),
+            );
+
+            ((geometry_result, geo_parquet), (dm_stats, dm_parquet))
+        })
+        .await?;
+
+    // Unwrap serialization results
+    let geometry_parquet = geometry_parquet?;
+    let data_model_parquet = data_model_parquet?;
+
+    let serialize_time = serialize_start.elapsed();
     tracing::info!(
         meshes = geometry_result.meshes.len(),
         geometry_parquet_size = geometry_parquet.len(),
-        geometry_serialize_time_ms = geometry_serialize_time.as_millis(),
-        "Geometry serialization complete - returning immediately"
+        data_model_parquet_size = data_model_parquet.len(),
+        total_serialize_time_ms = serialize_time.as_millis(),
+        "Geometry and data model serialization complete (parallel)"
     );
 
-    // Serialize data model in background and cache it
+    // Cache data model IMMEDIATELY (not in background) so it's ready when client polls
     let data_model_cache_key = format!("{}-datamodel-v2", cache_key);
-    let cache_for_datamodel = state.cache.clone();
-    let data_model_stats = DataModelStats {
-        entity_count: data_model.entities.len(),
-        property_set_count: data_model.property_sets.len(),
-        relationship_count: data_model.relationships.len(),
-        spatial_node_count: data_model.spatial_hierarchy.nodes.len(),
-    };
-    
-    // Spawn background task to serialize and cache data model
-    // Use tokio::spawn with inner spawn_blocking for proper async handling
-    tokio::spawn(async move {
-        let dm_start = std::time::Instant::now();
-        let serialize_result = tokio::task::spawn_blocking(move || {
-            serialize_data_model_to_parquet(&data_model)
-        }).await;
-
-        match serialize_result {
-            Ok(Ok(data_model_parquet)) => {
-                let serialize_time = dm_start.elapsed();
-                tracing::info!(
-                    data_model_parquet_size = data_model_parquet.len(),
-                    serialize_time_ms = serialize_time.as_millis(),
-                    "Data model serialization complete (background)"
-                );
-
-                // Cache the data model
-                if let Err(e) = cache_for_datamodel.set_bytes(&data_model_cache_key, &data_model_parquet).await {
-                    tracing::error!(error = %e, "Failed to cache data model");
-                } else {
-                    tracing::info!(
-                        cache_key = %data_model_cache_key,
-                        size = data_model_parquet.len(),
-                        "Data model cached"
-                    );
-                }
-            }
-            Ok(Err(e)) => {
-                tracing::error!(error = %e, "Failed to serialize data model");
-            }
-            Err(e) => {
-                tracing::error!(error = %e, "Data model serialization task panicked");
-            }
-        }
-    });
+    if let Err(e) = state.cache.set_bytes(&data_model_cache_key, &data_model_parquet).await {
+        tracing::error!(error = %e, "Failed to cache data model");
+    } else {
+        tracing::info!(
+            cache_key = %data_model_cache_key,
+            size = data_model_parquet.len(),
+            "Data model cached (ready for client)"
+        );
+    }
 
     // Build geometry-only response (data model available via separate endpoint)
     let mut combined_parquet = Vec::new();
