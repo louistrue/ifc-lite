@@ -395,6 +395,7 @@ export class StyleExtractor {
 
     /**
      * Get numeric value from entity attribute
+     * Also handles TypedValue wrappers like [typeName, numericValue]
      */
     private getNumericValue(entity: IfcEntity, index: number): number | null {
         const value = this.getAttributeValue(entity, index);
@@ -404,6 +405,23 @@ export class StyleExtractor {
         if (typeof value === 'string') {
             const parsed = parseFloat(value);
             return isNaN(parsed) ? null : parsed;
+        }
+        // Handle TypedValue wrappers: [typeName, numericValue]
+        // e.g., ["IFCNORMALISEDRATIOMEASURE", 0.5]
+        if (Array.isArray(value) && value.length >= 2) {
+            if (typeof value[0] === 'string' && typeof value[1] === 'number') {
+                return value[1];
+            }
+            // Nested case: recursively try to extract numeric from second element
+            if (typeof value[0] === 'string') {
+                if (typeof value[1] === 'number') {
+                    return value[1];
+                }
+                if (typeof value[1] === 'string') {
+                    const parsed = parseFloat(value[1]);
+                    return isNaN(parsed) ? null : parsed;
+                }
+            }
         }
         return null;
     }

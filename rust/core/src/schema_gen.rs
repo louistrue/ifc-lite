@@ -104,11 +104,27 @@ impl AttributeValue {
     }
 
     /// Get as float
+    /// Also handles TypedValue wrappers like IFCNORMALISEDRATIOMEASURE(0.5)
+    /// which are stored as List([String("typename"), Float(value)])
     #[inline]
     pub fn as_float(&self) -> Option<f64> {
         match self {
             AttributeValue::Float(f) => Some(*f),
             AttributeValue::Integer(i) => Some(*i as f64),
+            // Handle TypedValue wrappers (stored as List with type name + value)
+            AttributeValue::List(items) if items.len() >= 2 => {
+                // Check if first item is a string (type name) and second is numeric
+                if matches!(items.first(), Some(AttributeValue::String(_))) {
+                    // Try to get the numeric value from the second element
+                    match items.get(1) {
+                        Some(AttributeValue::Float(f)) => Some(*f),
+                        Some(AttributeValue::Integer(i)) => Some(*i as f64),
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            }
             _ => None,
         }
     }
@@ -465,5 +481,42 @@ mod tests {
         assert_eq!(entity.get_ref(0), Some(2));
         assert_eq!(entity.get_string(1), Some("Wall-001"));
         assert_eq!(entity.get_float(2), Some(3.5));
+    }
+
+    #[test]
+    fn test_as_float_with_typed_value() {
+        // Test plain float
+        let plain_float = AttributeValue::Float(0.5);
+        assert_eq!(plain_float.as_float(), Some(0.5));
+
+        // Test integer to float conversion
+        let integer = AttributeValue::Integer(42);
+        assert_eq!(integer.as_float(), Some(42.0));
+
+        // Test TypedValue wrapper like IFCNORMALISEDRATIOMEASURE(0.5)
+        // This is stored as List([String("IFCNORMALISEDRATIOMEASURE"), Float(0.5)])
+        let typed_value = AttributeValue::List(vec![
+            AttributeValue::String("IFCNORMALISEDRATIOMEASURE".to_string()),
+            AttributeValue::Float(0.5),
+        ]);
+        assert_eq!(typed_value.as_float(), Some(0.5));
+
+        // Test TypedValue with integer
+        let typed_int = AttributeValue::List(vec![
+            AttributeValue::String("IFCINTEGER".to_string()),
+            AttributeValue::Integer(100),
+        ]);
+        assert_eq!(typed_int.as_float(), Some(100.0));
+
+        // Test that non-typed lists return None
+        let regular_list = AttributeValue::List(vec![
+            AttributeValue::Float(1.0),
+            AttributeValue::Float(2.0),
+        ]);
+        assert_eq!(regular_list.as_float(), None);
+
+        // Test that empty list returns None
+        let empty_list = AttributeValue::List(vec![]);
+        assert_eq!(empty_list.as_float(), None);
     }
 }
