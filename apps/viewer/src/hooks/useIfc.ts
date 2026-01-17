@@ -228,6 +228,7 @@ export function useIfc() {
 
   /**
    * Rebuild on-demand property/quantity maps from relationships and entity types
+   * Uses FORWARD direction: pset -> elements (more efficient than inverse lookup)
    */
   const rebuildOnDemandMaps = (
     entities: EntityTable,
@@ -236,23 +237,34 @@ export function useIfc() {
     const onDemandPropertyMap = new Map<number, number[]>();
     const onDemandQuantityMap = new Map<number, number[]>();
 
-    // Iterate through all entity IDs
+    let psetCount = 0;
+    let qsetCount = 0;
+
+    // Find all property sets and quantity sets, then look up what they define
     for (let i = 0; i < entities.count; i++) {
-      const entityId = entities.expressId[i];
+      const psetId = entities.expressId[i];
+      const psetType = entities.getTypeName(psetId);
+      const psetTypeUpper = psetType?.toUpperCase() || '';
 
-      // Get property definitions for this entity (inverse relationship)
-      const definingPsets = relationships.getRelated(entityId, RelationshipType.DefinesByProperties, 'inverse');
+      // Only process property sets and quantity sets
+      const isPropertySet = psetTypeUpper === 'IFCPROPERTYSET';
+      const isQuantitySet = psetTypeUpper === 'IFCELEMENTQUANTITY';
+      if (!isPropertySet && !isQuantitySet) {
+        continue;
+      }
 
-      for (const psetId of definingPsets) {
-        // Check if it's a property set or quantity set by entity type
-        const psetType = entities.getTypeName(psetId);
-        const psetTypeUpper = psetType?.toUpperCase() || '';
+      if (isPropertySet) psetCount++;
+      if (isQuantitySet) qsetCount++;
 
-        if (psetTypeUpper === 'IFCPROPERTYSET') {
+      // Get elements defined by this pset (FORWARD: pset -> elements)
+      const definedElements = relationships.getRelated(psetId, RelationshipType.DefinesByProperties, 'forward');
+
+      for (const entityId of definedElements) {
+        if (isPropertySet) {
           let list = onDemandPropertyMap.get(entityId);
           if (!list) { list = []; onDemandPropertyMap.set(entityId, list); }
           list.push(psetId);
-        } else if (psetTypeUpper === 'IFCELEMENTQUANTITY') {
+        } else {
           let list = onDemandQuantityMap.get(entityId);
           if (!list) { list = []; onDemandQuantityMap.set(entityId, list); }
           list.push(psetId);
@@ -260,7 +272,7 @@ export function useIfc() {
       }
     }
 
-    console.log(`[useIfc] Rebuilt on-demand maps: ${onDemandPropertyMap.size} entities with properties, ${onDemandQuantityMap.size} with quantities`);
+    console.log(`[useIfc] Rebuilt on-demand maps: ${psetCount} psets, ${qsetCount} qsets -> ${onDemandPropertyMap.size} entities with properties, ${onDemandQuantityMap.size} with quantities`);
     return { onDemandPropertyMap, onDemandQuantityMap };
   };
 
