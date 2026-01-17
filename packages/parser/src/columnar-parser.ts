@@ -47,19 +47,16 @@ export interface IfcDataStore {
     spatialHierarchy?: SpatialHierarchy;
     spatialIndex?: SpatialIndex;
 
-    /** True if parsed in lite mode (property tables empty, use on-demand extraction) */
-    isLiteMode?: boolean;
-
     /**
      * On-demand property lookup: entityId -> array of property set expressIds
-     * Populated in both lite and normal modes for fast single-entity property access.
+     * Used for fast single-entity property access without pre-building property tables.
      * Use extractPropertiesOnDemand() with this map for instant property retrieval.
      */
     onDemandPropertyMap?: Map<number, number[]>;
 
     /**
      * On-demand quantity lookup: entityId -> array of quantity set expressIds
-     * Populated in both lite and normal modes for fast single-entity quantity access.
+     * Used for fast single-entity quantity access without pre-building quantity tables.
      * Use extractQuantitiesOnDemand() with this map for instant quantity retrieval.
      */
     onDemandQuantityMap?: Map<number, number[]>;
@@ -144,191 +141,11 @@ async function maybeYield(): Promise<void> {
 
 export class ColumnarParser {
     /**
-     * Parse IFC file into columnar data store - SINGLE PASS OPTIMIZED
-     */
-    async parse(
-        buffer: ArrayBuffer,
-        entityRefs: EntityRef[],
-        entities: Map<number, IfcEntity>,
-        options: { onProgress?: (progress: { phase: string; percent: number }) => void } = {}
-    ): Promise<IfcDataStore> {
-        const startTime = performance.now();
-        const uint8Buffer = new Uint8Array(buffer);
-        const totalEntities = entities.size;
-
-        // Initialize builders
-        const strings = new StringTable();
-        const entityTableBuilder = new EntityTableBuilder(totalEntities, strings);
-        const propertyTableBuilder = new PropertyTableBuilder(strings);
-        const quantityTableBuilder = new QuantityTableBuilder(strings);
-        const relationshipGraphBuilder = new RelationshipGraphBuilder();
-
-        // Track property/quantity sets by ID (just to identify them, not extract values)
-        const propertySetsIds = new Set<number>();
-        const quantitySetsIds = new Set<number>();
-        const relationships: Relationship[] = [];
-
-        // === SINGLE PASS: Build entity table + collect relationships ===
-        // Property values are NOT extracted - use on-demand extraction instead
-        options.onProgress?.({ phase: 'parsing', percent: 0 });
-        let processed = 0;
-        let schemaVersion: 'IFC2X3' | 'IFC4' | 'IFC4X3' = 'IFC4';
-
-        for (const [id, entity] of entities) {
-            const typeUpper = entity.type.toUpperCase();
-            const attrs = entity.attributes || [];
-
-            // 1. Build entity table entry
-            const globalId = typeof attrs[0] === 'string' ? attrs[0] : '';
-            const name = typeof attrs[2] === 'string' ? attrs[2] : '';
-            const description = typeof attrs[3] === 'string' ? attrs[3] : '';
-            const objectType = typeof attrs[7] === 'string' ? attrs[7] : '';
-            const hasGeometry = GEOMETRY_TYPES.has(typeUpper);
-            const isType = typeUpper.endsWith('TYPE');
-
-            entityTableBuilder.add(id, entity.type, globalId, name, description, objectType, hasGeometry, isType);
-
-            // 2. Extract relationships
-            if (RELATIONSHIP_TYPES.has(typeUpper)) {
-                const rel = this.extractRelationshipFast(entity, typeUpper);
-                if (rel) {
-                    relationships.push(rel);
-                }
-            }
-
-            // 3. Track property/quantity set IDs (no value extraction)
-            if (typeUpper === 'IFCPROPERTYSET') {
-                propertySetsIds.add(id);
-            } else if (typeUpper === 'IFCELEMENTQUANTITY') {
-                quantitySetsIds.add(id);
-            }
-
-            processed++;
-            if (processed % 10000 === 0) {
-                options.onProgress?.({ phase: 'parsing', percent: (processed / totalEntities) * 60 });
-                await maybeYield();
-            }
-        }
-
-        const entityTable = entityTableBuilder.build();
-        console.log(`[ColumnarParser] Fast parse: ${processed} entities, ${relationships.length} relationships (property values deferred)`);
-
-        // === BUILD RELATIONSHIP MAPPINGS + ON-DEMAND MAPS ===
-        options.onProgress?.({ phase: 'building', percent: 60 });
-
-        // On-demand maps: entity → property/quantity set IDs (for lazy extraction)
-        const onDemandPropertyMap = new Map<number, number[]>();
-        const onDemandQuantityMap = new Map<number, number[]>();
-
-        for (const rel of relationships) {
-            const typeUpper = rel.type.toUpperCase();
-
-            if (typeUpper === 'IFCRELDEFINESBYPROPERTIES') {
-                const defId = rel.relatingObject;
-                const isPropertySet = propertySetsIds.has(defId);
-                const isQuantitySet = quantitySetsIds.has(defId);
-
-                for (const entityId of rel.relatedObjects) {
-                    if (isPropertySet) {
-                        let entityList = onDemandPropertyMap.get(entityId);
-                        if (!entityList) { entityList = []; onDemandPropertyMap.set(entityId, entityList); }
-                        entityList.push(defId);
-                    }
-                    if (isQuantitySet) {
-                        let entityList = onDemandQuantityMap.get(entityId);
-                        if (!entityList) { entityList = []; onDemandQuantityMap.set(entityId, entityList); }
-                        entityList.push(defId);
-                    }
-                }
-            }
-
-            // Add to relationship graph
-            const relType = REL_TYPE_MAP[typeUpper];
-            if (relType) {
-                for (const targetId of rel.relatedObjects) {
-                    relationshipGraphBuilder.addEdge(rel.relatingObject, targetId, relType, rel.relatingObject);
-                }
-            }
-
-            await maybeYield();
-        }
-
-        // === SKIP PROPERTY/QUANTITY TABLE BUILDING ===
-        // On-demand extraction is now the primary method for property access.
-        // Tables are built empty - use onDemandPropertyMap/onDemandQuantityMap instead.
-        // This saves significant parse time (property tables can be 10x larger than entity tables).
-        options.onProgress?.({ phase: 'finalizing', percent: 70 });
-
-        // Build empty tables (structure exists but no data - use on-demand extraction)
-        const propertyTable = propertyTableBuilder.build();
-        const quantityTable = quantityTableBuilder.build();
-        const relationshipGraph = relationshipGraphBuilder.build();
-
-        console.log(`[ColumnarParser] Skipped property table building - using on-demand extraction (${onDemandPropertyMap.size} entities with properties)`);
-
-        // === BUILD ENTITY INDEX ===
-        options.onProgress?.({ phase: 'indexing', percent: 90 });
-
-        const entityIndex = {
-            byId: new Map<number, EntityRef>(),
-            byType: new Map<string, number[]>(),
-        };
-
-        for (const ref of entityRefs) {
-            entityIndex.byId.set(ref.expressId, ref);
-            let typeList = entityIndex.byType.get(ref.type);
-            if (!typeList) {
-                typeList = [];
-                entityIndex.byType.set(ref.type, typeList);
-            }
-            typeList.push(ref.expressId);
-        }
-
-        // === BUILD SPATIAL HIERARCHY ===
-        options.onProgress?.({ phase: 'spatial-hierarchy', percent: 95 });
-        let spatialHierarchy: SpatialHierarchy | undefined;
-        try {
-            const hierarchyBuilder = new SpatialHierarchyBuilder();
-            spatialHierarchy = hierarchyBuilder.build(
-                entityTable,
-                relationshipGraph,
-                strings,
-                uint8Buffer,
-                entityIndex
-            );
-        } catch (error) {
-            console.warn('[ColumnarParser] Failed to build spatial hierarchy:', error);
-        }
-
-        const parseTime = performance.now() - startTime;
-        console.log(`[ColumnarParser] Total parse time: ${parseTime.toFixed(0)}ms`);
-        options.onProgress?.({ phase: 'complete', percent: 100 });
-
-        return {
-            fileSize: buffer.byteLength,
-            schemaVersion,
-            entityCount: totalEntities,
-            parseTime,
-            source: uint8Buffer,
-            entityIndex,
-            strings,
-            entities: entityTable,
-            properties: propertyTable,
-            quantities: quantityTable,
-            relationships: relationshipGraph,
-            spatialHierarchy,
-            // On-demand maps for fast single-entity property lookup
-            onDemandPropertyMap,
-            onDemandQuantityMap,
-        };
-    }
-
-    /**
-     * LITE parsing mode - minimal structures with targeted spatial parsing
-     * For very large files where we want geometry first, then hierarchy
+     * Parse IFC file into columnar data store
      *
-     * Parses ONLY spatial entities and relationships for hierarchy display,
-     * skips all property sets and quantities (can be loaded on-demand).
+     * Uses fast semicolon-based scanning with on-demand property extraction.
+     * Properties are parsed lazily when accessed, not upfront.
+     * This provides instant UI responsiveness even for very large files.
      */
     async parseLite(
         buffer: ArrayBuffer,
@@ -339,7 +156,7 @@ export class ColumnarParser {
         const uint8Buffer = new Uint8Array(buffer);
         const totalEntities = entityRefs.length;
 
-        options.onProgress?.({ phase: 'building (lite)', percent: 0 });
+        options.onProgress?.({ phase: 'building', percent: 0 });
 
         // Initialize builders
         const strings = new StringTable();
@@ -512,7 +329,7 @@ export class ColumnarParser {
 
         const entityTable = entityTableBuilder.build();
 
-        // Empty property/quantity tables for lite mode
+        // Empty property/quantity tables - use on-demand extraction instead
         const propertyTable = propertyTableBuilder.build();
         const quantityTable = quantityTableBuilder.build();
         const relationshipGraph = relationshipGraphBuilder.build();
@@ -536,8 +353,8 @@ export class ColumnarParser {
         }
 
         const parseTime = performance.now() - startTime;
-        console.log(`[ColumnarParser] LITE parse: ${totalEntities} entities in ${parseTime.toFixed(0)}ms`);
-        options.onProgress?.({ phase: 'complete (lite)', percent: 100 });
+        console.log(`[ColumnarParser] Parsed ${totalEntities} entities in ${parseTime.toFixed(0)}ms`);
+        options.onProgress?.({ phase: 'complete', percent: 100 });
 
         return {
             fileSize: buffer.byteLength,
@@ -552,7 +369,6 @@ export class ColumnarParser {
             quantities: quantityTable,
             relationships: relationshipGraph,
             spatialHierarchy,
-            isLiteMode: true, // Mark as lite mode - properties need background parse
             onDemandPropertyMap, // For instant property access
             onDemandQuantityMap, // For instant quantity access
         };
@@ -590,7 +406,6 @@ export class ColumnarParser {
     /**
      * Extract properties for a single entity ON-DEMAND
      * Parses only what's needed from the source buffer - instant results.
-     * Works in both lite and normal modes when onDemandPropertyMap is available.
      */
     extractPropertiesOnDemand(
         store: IfcDataStore,
@@ -666,7 +481,6 @@ export class ColumnarParser {
     /**
      * Extract quantities for a single entity ON-DEMAND
      * Parses only what's needed from the source buffer - instant results.
-     * Works in both lite and normal modes when onDemandQuantityMap is available.
      */
     extractQuantitiesOnDemand(
         store: IfcDataStore,

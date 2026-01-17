@@ -54,8 +54,6 @@ import { ColumnarParser, type IfcDataStore } from './columnar-parser.js';
 
 export interface ParseOptions {
   onProgress?: (progress: { phase: string; percent: number }) => void;
-  /** Skip attribute extraction for faster initial load (large files) */
-  lite?: boolean;
 }
 
 /**
@@ -138,101 +136,26 @@ export class IfcParser {
   }
   
   /**
-   * Parse IFC file into columnar data store (new format)
-   * OPTIMIZED: Combined scan + extract for maximum performance
+   * Parse IFC file into columnar data store
    *
-   * For large files (>50MB), use options.lite=true to skip attribute extraction.
-   * This makes initial load ~10x faster, with properties loaded on-demand.
+   * Uses fast scan + on-demand property extraction for all files.
+   * Properties are extracted lazily when accessed, not upfront.
    */
   async parseColumnar(buffer: ArrayBuffer, options: ParseOptions = {}): Promise<IfcDataStore> {
     const uint8Buffer = new Uint8Array(buffer);
     const startTime = performance.now();
     const fileSizeMB = buffer.byteLength / (1024 * 1024);
 
-    // Auto-enable lite mode for very large files
-    const useLiteMode = options.lite ?? (fileSizeMB > 100);
+    console.log(`[IfcParser] Parsing ${fileSizeMB.toFixed(1)}MB file with on-demand property extraction`);
 
-    if (useLiteMode) {
-      console.log(`[IfcParser] Using LITE mode for ${fileSizeMB.toFixed(1)}MB file (skip attribute extraction)`);
-      return this.parseColumnarLite(buffer, options);
-    }
-
-    // OPTIMIZED: Combined scan + extract in one pass
+    // Fast scan: uses semicolon-based scanning (~5-10x faster than full extraction)
     options.onProgress?.({ phase: 'scanning', percent: 0 });
     const tokenizer = new StepTokenizer(uint8Buffer);
-    const indexBuilder = new EntityIndexBuilder();
-    const extractor = new EntityExtractor(uint8Buffer);
-
-    const entityRefs: EntityRef[] = [];
-    const entities = new Map<number, any>();
-
-    let processed = 0;
-    const YIELD_INTERVAL = 5000; // Yield less frequently for better throughput
-
-    // Single pass: scan AND extract simultaneously
-    for (const ref of tokenizer.scanEntities()) {
-      // Add to index
-      indexBuilder.addEntity({
-        expressId: ref.expressId,
-        type: ref.type,
-        byteOffset: ref.offset,
-        byteLength: ref.length,
-        lineNumber: ref.line,
-      });
-
-      const entityRef: EntityRef = {
-        expressId: ref.expressId,
-        type: ref.type,
-        byteOffset: ref.offset,
-        byteLength: ref.length,
-        lineNumber: ref.line,
-      };
-      entityRefs.push(entityRef);
-
-      // Extract entity immediately
-      const entity = extractor.extractEntity(entityRef);
-      if (entity) {
-        entities.set(ref.expressId, entity);
-      }
-
-      processed++;
-      // Yield and report progress every YIELD_INTERVAL entities
-      if (processed % YIELD_INTERVAL === 0) {
-        options.onProgress?.({ phase: 'scanning', percent: Math.min(90, processed / 1000) }); // Approximate progress
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
-    }
-
-    indexBuilder.build();
-    const scanExtractTime = performance.now() - startTime;
-    console.log(`[IfcParser] Scan+Extract: ${processed} entities in ${scanExtractTime.toFixed(0)}ms`);
-
-    options.onProgress?.({ phase: 'scanning', percent: 100 });
-
-    // Phase 2: Build columnar structures (single-pass optimized)
-    const columnarParser = new ColumnarParser();
-    return columnarParser.parse(buffer, entityRefs, entities, options);
-  }
-
-  /**
-   * LITE parsing mode - scan-only without attribute extraction
-   * ~10x faster for large files (>100MB)
-   *
-   * Properties/quantities/relationships not available until parseEntityAttributes() is called.
-   */
-  private async parseColumnarLite(buffer: ArrayBuffer, options: ParseOptions = {}): Promise<IfcDataStore> {
-    const uint8Buffer = new Uint8Array(buffer);
-    const startTime = performance.now();
-
-    options.onProgress?.({ phase: 'scanning (lite)', percent: 0 });
-    const tokenizer = new StepTokenizer(uint8Buffer);
 
     const entityRefs: EntityRef[] = [];
     let processed = 0;
-    const YIELD_INTERVAL = 50000; // Very infrequent yields for max throughput
+    const YIELD_INTERVAL = 50000;
 
-    // FAST scan: uses semicolon-based scanning instead of parenthesis matching
-    // ~5-10x faster than regular scanEntities for large files
     for (const ref of tokenizer.scanEntitiesFast()) {
       entityRefs.push({
         expressId: ref.expressId,
@@ -244,17 +167,16 @@ export class IfcParser {
 
       processed++;
       if (processed % YIELD_INTERVAL === 0) {
-        options.onProgress?.({ phase: 'scanning (lite)', percent: Math.min(95, processed / 1000) });
+        options.onProgress?.({ phase: 'scanning', percent: Math.min(95, processed / 1000) });
         await new Promise(resolve => setTimeout(resolve, 0));
       }
     }
 
     const scanTime = performance.now() - startTime;
-    console.log(`[IfcParser] LITE scan (fast): ${processed} entities in ${scanTime.toFixed(0)}ms`);
+    console.log(`[IfcParser] Fast scan: ${processed} entities in ${scanTime.toFixed(0)}ms`);
+    options.onProgress?.({ phase: 'scanning', percent: 100 });
 
-    options.onProgress?.({ phase: 'scanning (lite)', percent: 100 });
-
-    // Build minimal columnar structures (no parsed entities)
+    // Build columnar structures with on-demand property extraction
     const columnarParser = new ColumnarParser();
     return columnarParser.parseLite(buffer, entityRefs, options);
   }
