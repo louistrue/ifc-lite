@@ -6,11 +6,16 @@ import type {
   ErrorResponse,
   HealthResponse,
   MetadataResponse,
+  ModelMetadata,
   OptimizedParquetMetadataHeader,
   OptimizedParquetParseResponse,
+  ParquetBatch,
   ParquetMetadataHeader,
   ParquetParseResponse,
+  ParquetStreamEvent,
+  ParquetStreamResult,
   ParseResponse,
+  ProcessingStats,
   ServerConfig,
   StreamEvent,
 } from './types';
@@ -28,6 +33,21 @@ async function compressGzip(file: File | ArrayBuffer): Promise<Blob> {
   const compressionStream = new CompressionStream('gzip');
   const compressedStream = stream.pipeThrough(compressionStream);
   return new Response(compressedStream).blob();
+}
+
+/**
+ * Compute SHA-256 hash of a file or ArrayBuffer.
+ * Used for cache key generation client-side to avoid uploading files that are already cached.
+ *
+ * @param file - File or ArrayBuffer to hash
+ * @returns Hexadecimal SHA-256 hash string
+ */
+async function computeFileHash(file: File | ArrayBuffer): Promise<string> {
+  const buffer = file instanceof File ? await file.arrayBuffer() : file;
+  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 /**
@@ -124,6 +144,9 @@ export class IfcServerClient {
    * This method provides ~15x smaller payload size compared to JSON,
    * which is critical for large IFC files over network connections.
    *
+   * **Cache-aware:** Computes file hash client-side and checks cache before uploading.
+   * If cached, skips upload entirely for much faster response.
+   *
    * **Requirements:** This method requires `parquet-wasm` and `apache-arrow`
    * to be installed as peer dependencies.
    *
@@ -150,18 +173,291 @@ export class IfcServerClient {
       );
     }
 
-    // Compress file before upload for faster transfer
-    const compressedFile = await compressGzip(file);
+    // Step 1: Compute hash client-side (fast, ~50ms for large files)
+    const hashStart = performance.now();
+    const hash = await computeFileHash(file);
+    const hashTime = performance.now() - hashStart;
+    console.log(`[client] Computed file hash in ${hashTime.toFixed(0)}ms: ${hash.substring(0, 16)}...`);
+
+    // Step 2: Check if already cached
+    const cacheCheckStart = performance.now();
+    const cacheCheck = await fetch(`${this.baseUrl}/api/v1/cache/check/${hash}`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(5000), // 5s timeout for cache check
+    });
+    const cacheCheckTime = performance.now() - cacheCheckStart;
+
+    if (cacheCheck.ok) {
+      // Cache HIT - fetch directly without uploading!
+      console.log(`[client] Cache HIT (check: ${cacheCheckTime.toFixed(0)}ms) - skipping upload`);
+      return this.fetchCachedGeometry(hash);
+    }
+
+    // Cache MISS - upload and process as usual
+    console.log(`[client] Cache MISS (check: ${cacheCheckTime.toFixed(0)}ms) - uploading file`);
+    return this.uploadAndProcessParquet(file, hash);
+  }
+
+  /**
+   * Parse IFC file with streaming Parquet response for progressive rendering.
+   * 
+   * Returns an async generator that yields geometry batches as they're processed.
+   * Use this for large files (>50MB) to show geometry progressively.
+   * 
+   * After streaming completes, fetch the data model via `fetchDataModel(cacheKey)`.
+   *
+   * @param file - IFC file to parse (File or ArrayBuffer)
+   * @param onBatch - Callback for each geometry batch (for immediate rendering)
+   * @returns Final result with cache_key, stats, and metadata
+   *
+   * @example
+   * ```typescript
+   * const result = await client.parseParquetStream(file, (batch) => {
+   *   // Render each batch immediately
+   *   for (const mesh of batch.meshes) {
+   *     scene.add(createMesh(mesh));
+   *   }
+   * });
+   * 
+   * // After geometry is complete, fetch data model for properties panel
+   * const dataModel = await client.fetchDataModel(result.cache_key);
+   * ```
+   */
+  async parseParquetStream(
+    file: File | ArrayBuffer,
+    onBatch: (batch: ParquetBatch) => void
+  ): Promise<ParquetStreamResult> {
+    const parquetReady = await isParquetAvailable();
+    if (!parquetReady) {
+      throw new Error(
+        'Parquet streaming requires parquet-wasm and apache-arrow. ' +
+        'Install them with: npm install parquet-wasm apache-arrow'
+      );
+    }
+
+    const fileSize = file instanceof File ? file.size : file.byteLength;
     const fileName = file instanceof File ? file.name : 'model.ifc';
 
-    const formData = new FormData();
-    formData.append('file', compressedFile, fileName);
+    // Step 1: Compute hash and check cache first (even for streaming)
+    const hashStart = performance.now();
+    const hash = await computeFileHash(file);
+    const hashTime = performance.now() - hashStart;
+    console.log(`[client] Stream: computed hash in ${hashTime.toFixed(0)}ms: ${hash.substring(0, 16)}...`);
 
+    // Step 2: Check if already cached
+    const cacheCheckStart = performance.now();
+    const cacheCheck = await fetch(`${this.baseUrl}/api/v1/cache/check/${hash}`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(5000),
+    });
+    const cacheCheckTime = performance.now() - cacheCheckStart;
+
+    if (cacheCheck.ok) {
+      // CACHE HIT - fetch all geometry at once (much faster than re-parsing)
+      console.log(`[client] Stream: Cache HIT (check: ${cacheCheckTime.toFixed(0)}ms) - fetching cached geometry`);
+
+      const cachedResult = await this.fetchCachedGeometry(hash);
+
+      // Send all meshes as a single batch to the callback
+      const decodeStart = performance.now();
+      onBatch({
+        meshes: cachedResult.meshes,
+        batch_number: 1,
+        decode_time_ms: performance.now() - decodeStart,
+      });
+
+      return {
+        cache_key: cachedResult.cache_key,
+        total_meshes: cachedResult.meshes.length,
+        stats: cachedResult.stats,
+        metadata: cachedResult.metadata,
+      };
+    }
+
+    // CACHE MISS - use streaming for progressive rendering
+    console.log(`[client] Stream: Cache MISS (check: ${cacheCheckTime.toFixed(0)}ms) - starting stream for ${fileName} (${(fileSize / 1024 / 1024).toFixed(1)}MB)`);
+
+    const formData = new FormData();
+    formData.append('file', file instanceof File ? file : new Blob([file]), fileName);
+
+    const uploadStart = performance.now();
+    const response = await fetch(`${this.baseUrl}/api/v1/parse/parquet-stream`, {
+      method: 'POST',
+      body: formData,
+      signal: AbortSignal.timeout(this.timeout),
+    });
+
+    if (!response.ok) {
+      throw await this.handleError(response);
+    }
+
+    if (!response.body) {
+      throw new Error('No response body for streaming');
+    }
+
+    // Parse SSE stream
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let cache_key = '';
+    let total_meshes = 0;
+    let stats: ProcessingStats | null = null;
+    let metadata: ModelMetadata | null = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // Process complete SSE events
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+
+        const jsonStr = line.slice(5).trim();
+        if (!jsonStr) continue;
+
+        try {
+          const event: ParquetStreamEvent = JSON.parse(jsonStr);
+
+          switch (event.type) {
+            case 'start':
+              cache_key = event.cache_key;
+              console.log(`[client] Stream started: ${event.total_estimate} entities, cache_key: ${cache_key.substring(0, 16)}...`);
+              break;
+
+            case 'progress':
+              // Progress events can be used for UI feedback
+              break;
+
+            case 'batch': {
+              const decodeStart = performance.now();
+              // Decode base64 Parquet data
+              const binaryStr = atob(event.data);
+              const bytes = new Uint8Array(binaryStr.length);
+              for (let i = 0; i < binaryStr.length; i++) {
+                bytes[i] = binaryStr.charCodeAt(i);
+              }
+
+              // Decode Parquet to meshes
+              const meshes = await decodeParquetGeometry(bytes.buffer);
+              const decodeTime = performance.now() - decodeStart;
+
+              total_meshes += meshes.length;
+              console.log(`[client] Batch #${event.batch_number}: ${meshes.length} meshes, decode: ${decodeTime.toFixed(0)}ms`);
+
+              // Call the batch callback for immediate rendering
+              onBatch({
+                meshes,
+                batch_number: event.batch_number,
+                decode_time_ms: decodeTime,
+              });
+              break;
+            }
+
+            case 'complete':
+              stats = event.stats;
+              metadata = event.metadata;
+              const totalTime = performance.now() - uploadStart;
+              console.log(`[client] Stream complete: ${total_meshes} meshes in ${totalTime.toFixed(0)}ms`);
+              break;
+
+            case 'error':
+              throw new Error(`Stream error: ${event.message}`);
+          }
+        } catch (e) {
+          if (e instanceof SyntaxError) {
+            console.warn('[client] Failed to parse SSE event:', jsonStr);
+          } else {
+            throw e;
+          }
+        }
+      }
+    }
+
+    if (!stats || !metadata) {
+      throw new Error('Stream ended without complete event');
+    }
+
+    return {
+      cache_key,
+      total_meshes,
+      stats,
+      metadata,
+    };
+  }
+
+  /**
+   * Fetch cached geometry directly without uploading the file.
+   * @private
+   */
+  private async fetchCachedGeometry(hash: string): Promise<ParquetParseResponse> {
+    const fetchStart = performance.now();
+    const response = await fetch(`${this.baseUrl}/api/v1/cache/geometry/${hash}`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(this.timeout),
+    });
+
+    if (!response.ok) {
+      throw await this.handleError(response);
+    }
+
+    const fetchTime = performance.now() - fetchStart;
+    console.log(`[client] Fetched cached geometry in ${fetchTime.toFixed(0)}ms`);
+
+    // Extract metadata from header
+    const metadataHeader = response.headers.get('X-IFC-Metadata');
+    if (!metadataHeader) {
+      throw new Error('Missing X-IFC-Metadata header in cached geometry response');
+    }
+
+    const metadata: ParquetMetadataHeader = JSON.parse(metadataHeader);
+
+    // Get binary payload
+    const payloadBuffer = await response.arrayBuffer();
+    const payloadSize = payloadBuffer.byteLength;
+
+    // Parse response (same format as upload path)
+    return this.parseParquetResponse(payloadBuffer, metadata, payloadSize);
+  }
+
+  /**
+   * Upload file and process on server.
+   * @private
+   */
+  private async uploadAndProcessParquet(file: File | ArrayBuffer, hash: string): Promise<ParquetParseResponse> {
+    const fileSize = file instanceof File ? file.size : file.byteLength;
+    const fileName = file instanceof File ? file.name : 'model.ifc';
+
+    // Skip compression for large files (>50MB) - compression time exceeds transfer savings
+    // Also skip for localhost where bandwidth is not a bottleneck
+    const isLocalhost = this.baseUrl.includes('localhost') || this.baseUrl.includes('127.0.0.1');
+    const skipCompression = fileSize > 50 * 1024 * 1024 || isLocalhost;
+
+    let uploadFile: Blob | File | ArrayBuffer;
+    if (skipCompression) {
+      console.log(`[client] Skipping compression (file: ${(fileSize / 1024 / 1024).toFixed(1)}MB, localhost: ${isLocalhost})`);
+      uploadFile = file instanceof File ? file : new Blob([file]);
+    } else {
+      const compressStart = performance.now();
+      uploadFile = await compressGzip(file);
+      console.log(`[client] Compressed in ${(performance.now() - compressStart).toFixed(0)}ms: ${(fileSize / 1024 / 1024).toFixed(1)}MB → ${((uploadFile as Blob).size / 1024 / 1024).toFixed(1)}MB`);
+    }
+
+    const formData = new FormData();
+    formData.append('file', uploadFile as Blob, fileName);
+
+    const uploadStart = performance.now();
     const response = await fetch(`${this.baseUrl}/api/v1/parse/parquet`, {
       method: 'POST',
       body: formData,
       signal: AbortSignal.timeout(this.timeout),
     });
+    const uploadTime = performance.now() - uploadStart;
+    console.log(`[client] Upload and processing completed in ${uploadTime.toFixed(0)}ms`);
 
     if (!response.ok) {
       throw await this.handleError(response);
@@ -175,10 +471,28 @@ export class IfcServerClient {
 
     const metadata: ParquetMetadataHeader = JSON.parse(metadataHeader);
 
+    // Verify hash matches (sanity check)
+    if (metadata.cache_key !== hash) {
+      console.warn(`[client] Cache key mismatch: expected ${hash.substring(0, 16)}..., got ${metadata.cache_key.substring(0, 16)}...`);
+    }
+
     // Get binary payload
     const payloadBuffer = await response.arrayBuffer();
     const payloadSize = payloadBuffer.byteLength;
 
+    // Parse response (same format as cached path)
+    return this.parseParquetResponse(payloadBuffer, metadata, payloadSize);
+  }
+
+  /**
+   * Parse Parquet response payload into meshes.
+   * @private
+   */
+  private async parseParquetResponse(
+    payloadBuffer: ArrayBuffer,
+    metadata: ParquetMetadataHeader,
+    payloadSize: number
+  ): Promise<ParquetParseResponse> {
     // Extract geometry and data model from combined Parquet format
     // Format: [geometry_len][geometry_data][data_model_len][data_model_data]
     // Note: geometry_data itself contains [mesh_len][mesh_data][vertex_len][vertex_data][index_len][index_data]

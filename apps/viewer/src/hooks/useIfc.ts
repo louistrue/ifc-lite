@@ -23,7 +23,7 @@ import {
 import { getCached, setCached } from '../services/ifc-cache.js';
 import { IfcTypeEnum, RelationshipType, IfcTypeEnumFromString, IfcTypeEnumToString, EntityFlags, type SpatialHierarchy, type SpatialNode, type EntityTable, type RelationshipGraph } from '@ifc-lite/data';
 import { StringTable } from '@ifc-lite/data';
-import { IfcServerClient, decodeDataModel } from '@ifc-lite/server-client';
+import { IfcServerClient, decodeDataModel, type ParquetBatch } from '@ifc-lite/server-client';
 import type { DynamicBatchConfig } from '@ifc-lite/geometry';
 
 // Minimum file size to cache (10MB) - smaller files parse quickly anyway
@@ -346,7 +346,131 @@ export function useIfc() {
       let parseTime: number;
       let convertTime: number;
 
-      if (parquetSupported) {
+      // Use streaming for large files (>150MB) for progressive rendering
+      // Smaller files use non-streaming path (faster - avoids ~1.1s background re-processing overhead)
+      // Streaming overhead: ~67 batch serializations + background re-processing (~1100ms)
+      // Non-streaming: single serialization (~218ms for 60k meshes)
+      // Threshold chosen to balance UX (progressive rendering) vs performance (overhead)
+      const fileSizeMB = buffer.byteLength / (1024 * 1024);
+      const USE_STREAMING_THRESHOLD_MB = 150;
+
+      if (parquetSupported && fileSizeMB > USE_STREAMING_THRESHOLD_MB) {
+        // STREAMING PATH - for large files, render progressively
+        console.log(`[useIfc] Using STREAMING endpoint for large file (${fileSizeMB.toFixed(1)}MB)`);
+
+        allMeshes = [];
+        let totalVertices = 0;
+        let totalTriangles = 0;
+        let cacheKey = '';
+        let streamMetadata: any = null;
+        let streamStats: any = null;
+        let batchCount = 0;
+
+        // Progressive bounds calculation
+        const bounds = {
+          min: { x: Infinity, y: Infinity, z: Infinity },
+          max: { x: -Infinity, y: -Infinity, z: -Infinity },
+        };
+
+        const parseStart = performance.now();
+
+        // Use streaming endpoint with batch callback
+        const streamResult = await client.parseParquetStream(file, (batch: ParquetBatch) => {
+          batchCount++;
+
+          // Convert batch meshes to viewer format
+          const batchMeshes = batch.meshes.map((m: any) => ({
+            expressId: m.express_id,
+            positions: m.positions,
+            indices: m.indices,
+            normals: m.normals,
+            color: m.color,
+            ifcType: m.ifc_type,
+          }));
+
+          // Update bounds incrementally
+          for (const mesh of batchMeshes) {
+            const positions = mesh.positions;
+            for (let i = 0; i < positions.length; i += 3) {
+              const x = positions[i];
+              const y = positions[i + 1];
+              const z = positions[i + 2];
+              if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+                bounds.min.x = Math.min(bounds.min.x, x);
+                bounds.min.y = Math.min(bounds.min.y, y);
+                bounds.min.z = Math.min(bounds.min.z, z);
+                bounds.max.x = Math.max(bounds.max.x, x);
+                bounds.max.y = Math.max(bounds.max.y, y);
+                bounds.max.z = Math.max(bounds.max.z, z);
+              }
+            }
+            totalVertices += positions.length / 3;
+            totalTriangles += mesh.indices.length / 3;
+          }
+
+          // Add to collection
+          allMeshes.push(...batchMeshes);
+
+          // Update progress
+          setProgress({
+            phase: `Streaming batch ${batchCount}`,
+            percent: Math.min(15 + (batchCount * 5), 85)
+          });
+
+          // PROGRESSIVE RENDERING: Set geometry after each batch
+          // This allows the user to see geometry appearing progressively
+          const coordinateInfo = {
+            originShift: { x: 0, y: 0, z: 0 },
+            originalBounds: bounds,
+            shiftedBounds: bounds,
+            isGeoReferenced: false,
+          };
+
+          setGeometryResult({
+            meshes: [...allMeshes], // Clone to trigger re-render
+            totalVertices,
+            totalTriangles,
+            coordinateInfo,
+          });
+        });
+
+        parseTime = performance.now() - parseStart;
+        cacheKey = streamResult.cache_key;
+        streamMetadata = streamResult.metadata;
+        streamStats = streamResult.stats;
+
+        console.log(`[useIfc] Streaming complete in ${parseTime.toFixed(0)}ms`);
+        console.log(`  ${batchCount} batches, ${allMeshes.length} meshes`);
+        console.log(`  Cache key: ${cacheKey}`);
+
+        // Build final result object for data model fetching
+        result = {
+          cache_key: cacheKey,
+          meshes: allMeshes,
+          metadata: streamMetadata,
+          stats: streamStats,
+        };
+        convertTime = 0; // Already converted inline
+
+        // Final geometry set with complete bounds
+        const finalCoordinateInfo = {
+          originShift: streamMetadata?.coordinate_info?.origin_shift
+            ? { x: streamMetadata.coordinate_info.origin_shift[0], y: streamMetadata.coordinate_info.origin_shift[1], z: streamMetadata.coordinate_info.origin_shift[2] }
+            : { x: 0, y: 0, z: 0 },
+          originalBounds: bounds,
+          shiftedBounds: bounds,
+          isGeoReferenced: streamMetadata?.coordinate_info?.is_geo_referenced ?? false,
+        };
+
+        setGeometryResult({
+          meshes: allMeshes,
+          totalVertices,
+          totalTriangles,
+          coordinateInfo: finalCoordinateInfo,
+        });
+
+      } else if (parquetSupported) {
+        // NON-STREAMING PATH - for smaller files, use batch request (with cache check)
         console.log(`[useIfc] Using PARQUET endpoint - 15x smaller payload, faster transfer`);
 
         // Use Parquet endpoint - much smaller payload (~15x compression)
@@ -404,57 +528,63 @@ export function useIfc() {
         console.log(`[useIfc] Mesh conversion: ${convertTime.toFixed(0)}ms for ${allMeshes.length} meshes`);
       }
 
-      // Calculate bounds from mesh positions for camera fitting
-      // Server sends origin_shift but not shiftedBounds - we need to calculate them
-      const bounds = {
-        min: { x: Infinity, y: Infinity, z: Infinity },
-        max: { x: -Infinity, y: -Infinity, z: -Infinity },
-      };
-      for (const mesh of allMeshes) {
-        const positions = mesh.positions;
-        for (let i = 0; i < positions.length; i += 3) {
-          const x = positions[i];
-          const y = positions[i + 1];
-          const z = positions[i + 2];
-          if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
-            bounds.min.x = Math.min(bounds.min.x, x);
-            bounds.min.y = Math.min(bounds.min.y, y);
-            bounds.min.z = Math.min(bounds.min.z, z);
-            bounds.max.x = Math.max(bounds.max.x, x);
-            bounds.max.y = Math.max(bounds.max.y, y);
-            bounds.max.z = Math.max(bounds.max.z, z);
+      // For non-streaming paths, calculate bounds and set geometry
+      // (Streaming path already handled this progressively)
+      const wasStreaming = parquetSupported && fileSizeMB > USE_STREAMING_THRESHOLD_MB;
+
+      if (!wasStreaming) {
+        // Calculate bounds from mesh positions for camera fitting
+        // Server sends origin_shift but not shiftedBounds - we need to calculate them
+        const bounds = {
+          min: { x: Infinity, y: Infinity, z: Infinity },
+          max: { x: -Infinity, y: -Infinity, z: -Infinity },
+        };
+        for (const mesh of allMeshes) {
+          const positions = mesh.positions;
+          for (let i = 0; i < positions.length; i += 3) {
+            const x = positions[i];
+            const y = positions[i + 1];
+            const z = positions[i + 2];
+            if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+              bounds.min.x = Math.min(bounds.min.x, x);
+              bounds.min.y = Math.min(bounds.min.y, y);
+              bounds.min.z = Math.min(bounds.min.z, z);
+              bounds.max.x = Math.max(bounds.max.x, x);
+              bounds.max.y = Math.max(bounds.max.y, y);
+              bounds.max.z = Math.max(bounds.max.z, z);
+            }
           }
         }
+
+        // Create proper CoordinateInfo with shiftedBounds for camera fitting
+        const serverCoordInfo = result.metadata.coordinate_info;
+        const coordinateInfo = {
+          originShift: serverCoordInfo?.origin_shift
+            ? { x: serverCoordInfo.origin_shift[0], y: serverCoordInfo.origin_shift[1], z: serverCoordInfo.origin_shift[2] }
+            : { x: 0, y: 0, z: 0 },
+          originalBounds: bounds,
+          shiftedBounds: bounds, // Positions are already shifted by server
+          isGeoReferenced: serverCoordInfo?.is_geo_referenced ?? false,
+        };
+
+        console.log(`[useIfc] Calculated bounds:`, {
+          min: `(${bounds.min.x.toFixed(1)}, ${bounds.min.y.toFixed(1)}, ${bounds.min.z.toFixed(1)})`,
+          max: `(${bounds.max.x.toFixed(1)}, ${bounds.max.y.toFixed(1)}, ${bounds.max.z.toFixed(1)})`,
+          size: `${(bounds.max.x - bounds.min.x).toFixed(1)} x ${(bounds.max.y - bounds.min.y).toFixed(1)} x ${(bounds.max.z - bounds.min.z).toFixed(1)}`,
+        });
+
+        // Set all geometry at once
+        setProgress({ phase: 'Rendering geometry', percent: 80 });
+        const renderStart = performance.now();
+        setGeometryResult({
+          meshes: allMeshes,
+          totalVertices: result.stats.total_vertices,
+          totalTriangles: result.stats.total_triangles,
+          coordinateInfo,
+        });
+        const renderTime = performance.now() - renderStart;
+        console.log(`[useIfc] Geometry set: ${renderTime.toFixed(0)}ms`);
       }
-
-      // Create proper CoordinateInfo with shiftedBounds for camera fitting
-      const serverCoordInfo = result.metadata.coordinate_info;
-      const coordinateInfo = {
-        originShift: serverCoordInfo?.origin_shift
-          ? { x: serverCoordInfo.origin_shift[0], y: serverCoordInfo.origin_shift[1], z: serverCoordInfo.origin_shift[2] }
-          : { x: 0, y: 0, z: 0 },
-        originalBounds: bounds,
-        shiftedBounds: bounds, // Positions are already shifted by server
-        isGeoReferenced: serverCoordInfo?.is_geo_referenced ?? false,
-      };
-
-      console.log(`[useIfc] Calculated bounds:`, {
-        min: `(${bounds.min.x.toFixed(1)}, ${bounds.min.y.toFixed(1)}, ${bounds.min.z.toFixed(1)})`,
-        max: `(${bounds.max.x.toFixed(1)}, ${bounds.max.y.toFixed(1)}, ${bounds.max.z.toFixed(1)})`,
-        size: `${(bounds.max.x - bounds.min.x).toFixed(1)} x ${(bounds.max.y - bounds.min.y).toFixed(1)} x ${(bounds.max.z - bounds.min.z).toFixed(1)}`,
-      });
-
-      // Set all geometry at once
-      setProgress({ phase: 'Rendering geometry', percent: 80 });
-      const renderStart = performance.now();
-      setGeometryResult({
-        meshes: allMeshes,
-        totalVertices: result.stats.total_vertices,
-        totalTriangles: result.stats.total_triangles,
-        coordinateInfo,
-      });
-      const renderTime = performance.now() - renderStart;
-      console.log(`[useIfc] Geometry set: ${renderTime.toFixed(0)}ms`);
 
       // Fetch and decode data model asynchronously (geometry already displayed)
       // Data model is processed on server in background, fetch via separate endpoint
@@ -883,7 +1013,7 @@ export function useIfc() {
       console.timeEnd('[useIfc] server-parse');
       console.log(`[useIfc] SERVER PARALLEL complete: ${file.name}`);
       console.log(`  Total time: ${totalServerTime.toFixed(0)}ms`);
-      console.log(`  Breakdown: health=${(healthStart - serverStart).toFixed(0)}ms, parse=${parseTime.toFixed(0)}ms, convert=${convertTime.toFixed(0)}ms, render=${renderTime.toFixed(0)}ms`);
+      console.log(`  Breakdown: health=${(healthStart - serverStart).toFixed(0)}ms, parse=${parseTime.toFixed(0)}ms, convert=${convertTime.toFixed(0)}ms`);
 
       return true;
     } catch (err) {

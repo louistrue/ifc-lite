@@ -285,3 +285,98 @@ export interface OptimizedParquetParseResponse {
     decode_time_ms: number;
   };
 }
+
+// ============================================
+// Streaming Parquet Types
+// ============================================
+
+/**
+ * SSE event types for Parquet streaming responses.
+ */
+export type ParquetStreamEvent =
+  | ParquetStreamStartEvent
+  | ParquetStreamProgressEvent
+  | ParquetStreamBatchEvent
+  | ParquetStreamCompleteEvent
+  | ParquetStreamErrorEvent;
+
+/**
+ * Initial streaming event with estimated totals.
+ */
+export interface ParquetStreamStartEvent {
+  type: 'start';
+  /** Estimated number of geometry entities */
+  total_estimate: number;
+  /** Cache key for this file (use for data model fetch) */
+  cache_key: string;
+}
+
+/**
+ * Progress update event.
+ */
+export interface ParquetStreamProgressEvent {
+  type: 'progress';
+  /** Number of entities processed */
+  processed: number;
+  /** Total entities to process */
+  total: number;
+}
+
+/**
+ * Batch of geometry data as Parquet.
+ */
+export interface ParquetStreamBatchEvent {
+  type: 'batch';
+  /** Base64-encoded Parquet data */
+  data: string;
+  /** Number of meshes in this batch */
+  mesh_count: number;
+  /** Batch sequence number (1-indexed) */
+  batch_number: number;
+}
+
+/**
+ * Processing complete event.
+ */
+export interface ParquetStreamCompleteEvent {
+  type: 'complete';
+  /** Final processing statistics */
+  stats: ProcessingStats;
+  /** Model metadata */
+  metadata: ModelMetadata;
+}
+
+/**
+ * Error event.
+ */
+export interface ParquetStreamErrorEvent {
+  type: 'error';
+  /** Error message */
+  message: string;
+}
+
+/**
+ * Decoded geometry batch from streaming.
+ */
+export interface ParquetBatch {
+  /** Meshes in this batch */
+  meshes: MeshData[];
+  /** Batch sequence number */
+  batch_number: number;
+  /** Decode time in ms */
+  decode_time_ms: number;
+}
+
+/**
+ * Complete streaming result.
+ */
+export interface ParquetStreamResult {
+  /** Cache key for data model fetch */
+  cache_key: string;
+  /** Total meshes received */
+  total_meshes: number;
+  /** Processing statistics */
+  stats: ProcessingStats;
+  /** Model metadata */
+  metadata: ModelMetadata;
+}

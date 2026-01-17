@@ -67,6 +67,9 @@ bytes = "1.5"
 # Compression/decompression
 flate2 = "1.0"
 
+# Base64 encoding for SSE payloads
+base64 = "0.22"
+
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 

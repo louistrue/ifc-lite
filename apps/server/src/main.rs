@@ -97,12 +97,15 @@ async fn main() {
         // Parse endpoints
         .route("/api/v1/parse", post(routes::parse::parse_full))
         .route("/api/v1/parse/stream", post(routes::parse::parse_stream))
+        .route("/api/v1/parse/parquet-stream", post(routes::parse::parse_parquet_stream))
         .route("/api/v1/parse/metadata", post(routes::parse::parse_metadata))
         .route("/api/v1/parse/parquet", post(routes::parse::parse_parquet))
         .route("/api/v1/parse/parquet/optimized", post(routes::parse::parse_parquet_optimized))
         .route("/api/v1/parse/data-model/:cache_key", get(routes::parse::get_data_model))
-        // Cache endpoint
+        // Cache endpoints
         .route("/api/v1/cache/{key}", get(routes::cache::get_cached))
+        .route("/api/v1/cache/check/:hash", get(routes::parse::check_cache))
+        .route("/api/v1/cache/geometry/:hash", get(routes::parse::get_cached_geometry))
         // Middleware
         .layer(DefaultBodyLimit::max(config.max_file_size_mb * 1024 * 1024)) // Match max_file_size_mb
         .layer(CompressionLayer::new()) // Compress responses (gzip)

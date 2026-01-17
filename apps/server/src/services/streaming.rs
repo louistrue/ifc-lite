@@ -14,6 +14,7 @@ use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use std::pin::Pin;
 use std::sync::Arc;
+use tokio::sync::mpsc;
 
 /// Job for processing a single entity.
 #[derive(Clone)]
@@ -175,28 +176,31 @@ fn process_batch(
 }
 
 /// Calculate dynamic batch size based on batch number and total job count.
-/// For large files, use much larger batches to maximize parallel throughput.
+/// For large files, use MUCH larger batches to maximize parallel throughput and reduce overhead.
 fn calculate_batch_size(
     batch_number: usize, 
     initial_batch_size: usize, 
     max_batch_size: usize,
     total_jobs: usize,
 ) -> usize {
-    // For huge files (>100k jobs), use aggressive batching
-    let adjusted_max = if total_jobs > 100_000 {
-        // Scale max batch size with file size: 5000-10000 entities per batch
-        (max_batch_size * 10).min(10_000)
+    // For huge files (>50k jobs), use VERY aggressive batching to minimize batch count
+    let adjusted_max = if total_jobs > 50_000 {
+        // Very large files: 10k-20k entities per batch (minimize batch overhead)
+        (max_batch_size * 20).min(20_000)
     } else if total_jobs > 10_000 {
-        // Medium files: 1000-5000 entities per batch
+        // Large files: 5k-10k entities per batch
+        (max_batch_size * 10).min(10_000)
+    } else if total_jobs > 1_000 {
+        // Medium files: 2k-5k entities per batch
         (max_batch_size * 5).min(5_000)
     } else {
         max_batch_size
     };
     
     match batch_number {
-        1..=3 => initial_batch_size,                    // Fast first frame
-        4..=10 => (initial_batch_size + adjusted_max) / 2,  // Ramp up
-        _ => adjusted_max,                              // Full throughput
+        1..=2 => initial_batch_size,                    // Fast first frame (2 batches for quick start)
+        3..=5 => (initial_batch_size + adjusted_max) / 2,  // Ramp up quickly
+        _ => adjusted_max,                              // Full throughput (much larger batches)
     }
 }
 
@@ -243,68 +247,110 @@ pub fn process_streaming(
         let mut total_vertices = 0usize;
         let mut total_triangles = 0usize;
 
-        // Process in batches with dynamic sizing
-        // For large files, use much larger batches to maximize parallel throughput
+        // PIPELINED BATCH PROCESSING: Process multiple batches concurrently
+        // Pipeline depth: more batches in flight = better CPU utilization
+        let pipeline_depth = if total_jobs > 50_000 { 4 } else if total_jobs > 10_000 { 3 } else { 2 };
         let mut job_index = 0;
-        while job_index < prepared.jobs.len() {
-            // Calculate batch size for this batch number (scaled by total jobs)
-            let current_batch_size = calculate_batch_size(
-                batch_number + 1, 
-                initial_batch_size, 
-                max_batch_size,
-                total_jobs,
-            );
-            let end_index = (job_index + current_batch_size).min(prepared.jobs.len());
-            let chunk: Vec<EntityJob> = prepared.jobs[job_index..end_index].to_vec();
-            job_index = end_index;
-            
-            // Store values before moving into closure
-            let chunk_len = chunk.len();
-            let last_type_name = chunk.last().map(|j| j.type_name.clone()).unwrap_or_default();
-            
-            let chunk_vec = chunk;
-            let content_clone = prepared.content.clone();
-            let index_clone = prepared.entity_index.clone();
-            let void_clone = prepared.void_index.clone();
-            let style_clone = prepared.style_index.clone();
-
-            // Process batch in blocking task
-            let chunk_meshes = tokio::task::spawn_blocking(move || {
-                process_batch(chunk_vec, content_clone, index_clone, style_clone, void_clone)
-            }).await;
-
-            let chunk_meshes = match chunk_meshes {
-                Ok(meshes) => meshes,
-                Err(e) => {
-                    yield StreamEvent::Error {
-                        message: format!("Batch processing failed: {}", e),
+        let mut next_batch_num = 1;
+        let mut next_expected_batch = 1;
+        let mut completed_batches: std::collections::BTreeMap<usize, (usize, String, Vec<MeshData>)> = std::collections::BTreeMap::new();
+        
+        // Use a channel to receive completed batches
+        let (tx, mut rx) = mpsc::unbounded_channel::<(usize, Result<(usize, String, Vec<MeshData>), String>)>();
+        let mut in_flight = 0;
+        
+        loop {
+            // Start new batches up to pipeline depth
+            while in_flight < pipeline_depth && job_index < prepared.jobs.len() {
+                let batch_num = next_batch_num;
+                next_batch_num += 1;
+                in_flight += 1;
+                
+                let current_batch_size = calculate_batch_size(
+                    batch_num,
+                    initial_batch_size,
+                    max_batch_size,
+                    total_jobs,
+                );
+                let end_index = (job_index + current_batch_size).min(prepared.jobs.len());
+                let chunk: Vec<EntityJob> = prepared.jobs[job_index..end_index].to_vec();
+                job_index = end_index;
+                
+                let chunk_len = chunk.len();
+                let last_type_name = chunk.last().map(|j| j.type_name.clone()).unwrap_or_default();
+                
+                let chunk_vec = chunk;
+                let content_bg = prepared.content.clone();
+                let index_bg = prepared.entity_index.clone();
+                let void_bg = prepared.void_index.clone();
+                let style_bg = prepared.style_index.clone();
+                let tx_clone = tx.clone();
+                
+                // Spawn batch processing task
+                tokio::spawn(async move {
+                    let result = tokio::task::spawn_blocking(move || {
+                        process_batch(chunk_vec, content_bg, index_bg, style_bg, void_bg)
+                    }).await;
+                    
+                    let batch_result = match result {
+                        Ok(meshes) => Ok((chunk_len, last_type_name, meshes)),
+                        Err(e) => Err(format!("Batch processing failed: {}", e)),
                     };
-                    continue;
+                    
+                    let _ = tx_clone.send((batch_num, batch_result));
+                });
+            }
+            
+            // Receive completed batches (non-blocking)
+            while let Ok((batch_num, result)) = rx.try_recv() {
+                in_flight -= 1;
+                match result {
+                    Ok(data) => {
+                        completed_batches.insert(batch_num, data);
+                    }
+                    Err(e) => {
+                        yield StreamEvent::Error {
+                            message: format!("Batch {}: {}", batch_num, e),
+                        };
+                    }
                 }
-            };
-
-            total_processed += chunk_len;
-            batch_number += 1;
-
-            // Update stats
-            for mesh in &chunk_meshes {
-                total_vertices += mesh.vertex_count();
-                total_triangles += mesh.triangle_count();
             }
+            
+            // Yield completed batches in order
+            while let Some((chunk_len, last_type_name, meshes)) = completed_batches.remove(&next_expected_batch) {
+                total_processed += chunk_len;
+                batch_number = next_expected_batch;
 
-            if !chunk_meshes.is_empty() {
-                all_meshes.extend(chunk_meshes.clone());
-                yield StreamEvent::Batch {
-                    meshes: chunk_meshes,
-                    batch_number,
+                // Update stats
+                for mesh in &meshes {
+                    total_vertices += mesh.vertex_count();
+                    total_triangles += mesh.triangle_count();
+                }
+
+                if !meshes.is_empty() {
+                    all_meshes.extend(meshes.iter().cloned());
+                    yield StreamEvent::Batch {
+                        meshes,
+                        batch_number,
+                    };
+                }
+
+                yield StreamEvent::Progress {
+                    processed: total_processed,
+                    total: total_jobs,
+                    current_type: last_type_name,
                 };
+                
+                next_expected_batch += 1;
             }
-
-            yield StreamEvent::Progress {
-                processed: total_processed,
-                total: total_jobs,
-                current_type: last_type_name,
-            };
+            
+            // Check if we're done
+            if job_index >= prepared.jobs.len() && in_flight == 0 && completed_batches.is_empty() {
+                break;
+            }
+            
+            // Yield control to allow other tasks to run
+            tokio::task::yield_now().await;
         }
 
         let total_time = total_start.elapsed();
