@@ -452,6 +452,12 @@ function SnapIndicator({ screenX, screenY, snapType }: SnapIndicatorProps) {
 
   const color = snapColors[snapType];
 
+  // Flip label to left if too close to right edge (avoid right panel)
+  const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
+  const isNearRightEdge = screenX > windowWidth - 350; // 350px for right panel + margin
+  const labelTransform = isNearRightEdge ? 'translateX(-100%)' : 'translateX(-50%)';
+  const labelLeft = isNearRightEdge ? screenX - 10 : screenX;
+
   return (
     <>
       <svg
@@ -508,13 +514,13 @@ function SnapIndicator({ screenX, screenY, snapType }: SnapIndicatorProps) {
         )}
       </svg>
 
-      {/* Snap type label */}
+      {/* Snap type label - flips to left side when near right edge */}
       <div
         className="absolute pointer-events-none z-25 text-xs font-semibold px-2 py-0.5 rounded shadow-lg"
         style={{
-          left: screenX,
+          left: labelLeft,
           top: screenY - 35,
-          transform: 'translateX(-50%)',
+          transform: labelTransform,
           backgroundColor: color,
           color: '#000',
         }}

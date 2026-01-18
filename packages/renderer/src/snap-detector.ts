@@ -196,16 +196,16 @@ export class SnapDetector {
     const targets: SnapTarget[] = [];
     const cache = this.getGeometryCache(mesh);
 
-    // Find vertices within radius - only when very close for smooth edge sliding
+    // Find vertices within radius - ONLY when VERY close for smooth edge sliding
     for (const vertex of cache.vertices) {
       const dist = this.distance(vertex, point);
-      // Only snap to vertices when within 1/3 of snap radius to avoid sticky behavior
-      if (dist < radius * 0.33) {
+      // Only snap to vertices when within 20% of snap radius (very tight) to avoid sticky behavior
+      if (dist < radius * 0.2) {
         targets.push({
           type: SnapType.VERTEX,
           position: vertex,
           expressId: mesh.expressId,
-          confidence: 1.0 - dist / (radius * 0.33), // Very high when close
+          confidence: 0.95 - dist / (radius * 0.2), // Lower than edges, only wins when VERY close
         });
       }
     }
@@ -220,8 +220,8 @@ export class SnapDetector {
     const targets: SnapTarget[] = [];
     const cache = this.getGeometryCache(mesh);
 
-    // Use larger radius for edges - easier to catch, more forgiving
-    const edgeRadius = radius * 1.5;
+    // Use MUCH larger radius for edges - very forgiving, cursor "jumps" to edges
+    const edgeRadius = radius * 3.0; // Tripled for easy detection
 
     // Find edges near point using cached data
     for (const edge of cache.edges) {
@@ -229,13 +229,13 @@ export class SnapDetector {
       const dist = this.distance(closestPoint, point);
 
       if (dist < edgeRadius) {
-        // Edge snap - HIGHEST priority for smooth sliding along edges
-        // Very high confidence ensures edges always win over vertices/faces
+        // Edge snap - ABSOLUTE HIGHEST priority for smooth sliding along edges
+        // Maximum confidence ensures edges ALWAYS win over vertices/faces
         targets.push({
           type: SnapType.EDGE,
           position: closestPoint,
           expressId: mesh.expressId,
-          confidence: 0.99 * (1.0 - dist / edgeRadius), // Maximum priority for edges
+          confidence: 0.999 * (1.0 - dist / edgeRadius), // Nearly perfect priority for edges
           metadata: { vertices: [edge.v0, edge.v1], edgeIndex: edge.index },
         });
 

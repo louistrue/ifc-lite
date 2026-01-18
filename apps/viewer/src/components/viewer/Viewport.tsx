@@ -547,7 +547,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
                 snapToVertices: true,
                 snapToEdges: true,
                 snapToFaces: true,
-                screenSnapRadius: 30,
+                screenSnapRadius: 60, // Increased for easier edge detection
               } : undefined,
             });
 
@@ -619,7 +619,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
                     snapToVertices: true,
                     snapToEdges: true,
                     snapToFaces: true,
-                    screenSnapRadius: 30,
+                    screenSnapRadius: 60,
                   } : undefined,
                 });
 
