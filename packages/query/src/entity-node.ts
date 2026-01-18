@@ -7,32 +7,69 @@
  */
 
 import type { IfcDataStore } from '@ifc-lite/parser';
-import { extractPropertiesOnDemand, extractQuantitiesOnDemand } from '@ifc-lite/parser';
+import { extractPropertiesOnDemand, extractQuantitiesOnDemand, extractEntityAttributesOnDemand } from '@ifc-lite/parser';
 import { RelationshipType } from '@ifc-lite/data';
 
 export class EntityNode {
   private store: IfcDataStore;
   readonly expressId: number;
-  
+  private _cachedAttributes: { globalId: string; name: string; description: string; objectType: string } | null = null;
+
   constructor(store: IfcDataStore, expressId: number) {
     this.store = store;
     this.expressId = expressId;
   }
-  
-  get globalId(): string {
-    return this.store.entities.getGlobalId(this.expressId);
+
+  /**
+   * Get on-demand extracted attributes (cached for performance)
+   * Only extracts if stored values are empty and source buffer is available
+   */
+  private getOnDemandAttributes(): { globalId: string; name: string; description: string; objectType: string } {
+    if (this._cachedAttributes) {
+      return this._cachedAttributes;
+    }
+
+    // Only extract on-demand if source buffer is available
+    if (this.store.source && this.store.entityIndex) {
+      this._cachedAttributes = extractEntityAttributesOnDemand(this.store, this.expressId);
+    } else {
+      // No source available, return empty
+      this._cachedAttributes = { globalId: '', name: '', description: '', objectType: '' };
+    }
+
+    return this._cachedAttributes;
   }
-  
+
+  get globalId(): string {
+    // Try stored value first (fast path for spatial entities)
+    const stored = this.store.entities.getGlobalId(this.expressId);
+    if (stored) return stored;
+    // Fall back to on-demand extraction for other entities
+    return this.getOnDemandAttributes().globalId;
+  }
+
   get name(): string {
-    return this.store.entities.getName(this.expressId);
+    // Try stored value first (fast path for spatial entities)
+    const stored = this.store.entities.getName(this.expressId);
+    if (stored) return stored;
+    // Fall back to on-demand extraction for other entities
+    return this.getOnDemandAttributes().name;
   }
 
   get description(): string {
-    return this.store.entities.getDescription(this.expressId);
+    // Try stored value first
+    const stored = this.store.entities.getDescription(this.expressId);
+    if (stored) return stored;
+    // Fall back to on-demand extraction
+    return this.getOnDemandAttributes().description;
   }
 
   get objectType(): string {
-    return this.store.entities.getObjectType(this.expressId);
+    // Try stored value first
+    const stored = this.store.entities.getObjectType(this.expressId);
+    if (stored) return stored;
+    // Fall back to on-demand extraction
+    return this.getOnDemandAttributes().objectType;
   }
 
   get type(): string {

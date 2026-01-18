@@ -15,7 +15,7 @@ export { QuantityExtractor } from './quantity-extractor.js';
 export { RelationshipExtractor } from './relationship-extractor.js';
 export { StyleExtractor } from './style-extractor.js';
 export { SpatialHierarchyBuilder } from './spatial-hierarchy-builder.js';
-export { ColumnarParser, type IfcDataStore, extractPropertiesOnDemand, extractQuantitiesOnDemand } from './columnar-parser.js';
+export { ColumnarParser, type IfcDataStore, extractPropertiesOnDemand, extractQuantitiesOnDemand, extractEntityAttributesOnDemand } from './columnar-parser.js';
 export { WorkerParser } from './worker-parser.js';
 
 // IFC5 (IFCX) support - re-export from @ifc-lite/ifcx

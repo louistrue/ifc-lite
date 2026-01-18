@@ -570,3 +570,34 @@ export function extractQuantitiesOnDemand(
     const parser = new ColumnarParser();
     return parser.extractQuantitiesOnDemand(store, entityId);
 }
+
+/**
+ * Extract entity attributes on-demand from source buffer
+ * Returns globalId, name, description, objectType for any IfcRoot-derived entity.
+ * This is used for entities that weren't fully parsed during initial load.
+ */
+export function extractEntityAttributesOnDemand(
+    store: IfcDataStore,
+    entityId: number
+): { globalId: string; name: string; description: string; objectType: string } {
+    const ref = store.entityIndex.byId.get(entityId);
+    if (!ref) {
+        return { globalId: '', name: '', description: '', objectType: '' };
+    }
+
+    const extractor = new EntityExtractor(store.source);
+    const entity = extractor.extractEntity(ref);
+    if (!entity) {
+        return { globalId: '', name: '', description: '', objectType: '' };
+    }
+
+    const attrs = entity.attributes || [];
+    // IfcRoot attributes: [GlobalId, OwnerHistory, Name, Description]
+    // IfcObject adds: [ObjectType] at index 4
+    const globalId = typeof attrs[0] === 'string' ? attrs[0] : '';
+    const name = typeof attrs[2] === 'string' ? attrs[2] : '';
+    const description = typeof attrs[3] === 'string' ? attrs[3] : '';
+    const objectType = typeof attrs[4] === 'string' ? attrs[4] : '';
+
+    return { globalId, name, description, objectType };
+}
