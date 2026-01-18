@@ -12,13 +12,13 @@ import {
   Layers,
   FileText,
   Calculator,
+  MousePointer2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { Separator } from '@/components/ui/separator';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 
@@ -86,12 +86,18 @@ export function PropertiesPanel() {
 
   if (!selectedEntityId || !query) {
     return (
-      <div className="h-full flex flex-col border-l bg-card">
-        <div className="p-3 border-b">
-          <h2 className="font-semibold text-sm">Properties</h2>
+      <div className="h-full flex flex-col border-l-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-black">
+        <div className="p-3 border-b-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
+          <h2 className="font-bold uppercase tracking-wider text-xs text-zinc-900 dark:text-zinc-100">Properties</h2>
         </div>
-        <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm p-4 text-center">
-          Select an object to view properties
+        <div className="flex-1 flex flex-col items-center justify-center text-center p-6 bg-white dark:bg-black">
+          <div className="w-16 h-16 border-2 border-dashed border-zinc-300 dark:border-zinc-800 flex items-center justify-center mb-4 bg-zinc-100 dark:bg-zinc-950">
+            <MousePointer2 className="h-8 w-8 text-zinc-400 dark:text-zinc-500" />
+          </div>
+          <p className="font-bold uppercase text-zinc-900 dark:text-zinc-100 mb-2">No Selection</p>
+          <p className="text-xs font-mono text-zinc-500 dark:text-zinc-400 max-w-[150px]">
+            Select an element to view details
+          </p>
         </div>
       </div>
     );
@@ -107,18 +113,18 @@ export function PropertiesPanel() {
   };
 
   return (
-    <div className="h-full flex flex-col border-l bg-card">
+    <div className="h-full flex flex-col border-l-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
       {/* Entity Header */}
-      <div className="p-3 border-b space-y-2">
+      <div className="p-4 border-b-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-black space-y-3">
         <div className="flex items-start gap-3">
-          <div className="p-2 rounded-lg bg-primary/10 shrink-0">
-            <Building2 className="h-5 w-5 text-primary" />
+          <div className="p-2 border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shrink-0 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.1)]">
+            <Building2 className="h-5 w-5 text-zinc-700 dark:text-zinc-300" />
           </div>
-          <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-sm truncate">
+          <div className="flex-1 min-w-0 pt-0.5">
+            <h3 className="font-bold text-sm truncate uppercase tracking-tight text-zinc-900 dark:text-zinc-100">
               {entityName || `${entityType}`}
             </h3>
-            <p className="text-xs text-muted-foreground">{entityType}</p>
+            <p className="text-xs font-mono text-zinc-500 dark:text-zinc-400">{entityType}</p>
           </div>
           <div className="flex gap-1 shrink-0">
             <Tooltip>
@@ -126,6 +132,7 @@ export function PropertiesPanel() {
                 <Button
                   variant="ghost"
                   size="icon-xs"
+                  className="rounded-none hover:bg-zinc-200 dark:hover:bg-zinc-700"
                   onClick={() => {
                     if (selectedEntityId && cameraCallbacks.frameSelection) {
                       cameraCallbacks.frameSelection();
@@ -142,6 +149,7 @@ export function PropertiesPanel() {
                 <Button
                   variant="ghost"
                   size="icon-xs"
+                  className="rounded-none hover:bg-zinc-200 dark:hover:bg-zinc-700"
                   onClick={() => {
                     if (selectedEntityId) {
                       toggleEntityVisibility(selectedEntityId);
@@ -164,28 +172,29 @@ export function PropertiesPanel() {
 
         {/* GlobalId */}
         {entityGlobalId && (
-          <div className="flex items-center gap-2">
-            <code className="flex-1 text-xs bg-muted px-2 py-1 rounded truncate font-mono">
+          <div className="flex items-center gap-0 border border-zinc-200 dark:border-zinc-800">
+            <code className="flex-1 text-[10px] bg-white dark:bg-zinc-950 px-2 py-1 truncate font-mono select-all text-zinc-900 dark:text-zinc-100">
               {entityGlobalId}
             </code>
             <Button
               variant="ghost"
               size="icon-xs"
+              className="h-6 w-6 rounded-none border-l border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-950"
               onClick={() => copyToClipboard(entityGlobalId)}
             >
-              <Copy className="h-3 w-3" />
+              <Copy className="h-3 w-3 text-zinc-600 dark:text-zinc-400" />
             </Button>
           </div>
         )}
 
         {/* Spatial Location */}
         {spatialInfo && (
-          <div className="flex items-center gap-2 text-xs bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 px-2 py-1.5 rounded">
+          <div className="flex items-center gap-2 text-xs border border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-900/10 px-2 py-1.5 text-emerald-800 dark:text-emerald-400">
             <Layers className="h-3.5 w-3.5" />
-            <span className="font-medium">{spatialInfo.storeyName}</span>
+            <span className="font-bold uppercase tracking-wide">{spatialInfo.storeyName}</span>
             {spatialInfo.elevation !== undefined && (
-              <span className="text-emerald-600/70 dark:text-emerald-400/70">
-                ({spatialInfo.elevation.toFixed(2)}m)
+              <span className="text-emerald-600/70 dark:text-emerald-500/70 font-mono ml-auto">
+                {spatialInfo.elevation.toFixed(2)}m
               </span>
             )}
           </div>
@@ -194,29 +203,29 @@ export function PropertiesPanel() {
 
       {/* Tabs */}
       <Tabs defaultValue="properties" className="flex-1 flex flex-col overflow-hidden">
-        <TabsList className="w-full justify-start rounded-none border-b bg-transparent h-9 p-0">
+        <TabsList className="tabs-list w-full justify-start rounded-none h-10 p-0" style={{ backgroundColor: 'var(--tabs-bg)', borderBottom: '1px solid var(--tabs-border)' }}>
           <TabsTrigger
             value="properties"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent"
+            className="tab-trigger flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-xs tracking-wider h-full"
           >
-            <FileText className="h-3.5 w-3.5 mr-1.5" />
+            <FileText className="h-3.5 w-3.5 mr-2" />
             Properties
           </TabsTrigger>
           <TabsTrigger
             value="quantities"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent"
+            className="tab-trigger flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-xs tracking-wider h-full"
           >
-            <Calculator className="h-3.5 w-3.5 mr-1.5" />
+            <Calculator className="h-3.5 w-3.5 mr-2" />
             Quantities
           </TabsTrigger>
         </TabsList>
 
-        <ScrollArea className="flex-1">
-          <TabsContent value="properties" className="m-0 p-3">
+        <ScrollArea className="flex-1 bg-white dark:bg-black">
+          <TabsContent value="properties" className="m-0 p-4">
             {properties.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No property sets</p>
+              <p className="text-sm text-zinc-500 dark:text-zinc-500 text-center py-8 font-mono">No property sets</p>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {properties.map((pset: PropertySet) => (
                   <PropertySetCard key={pset.name} pset={pset} />
                 ))}
@@ -224,11 +233,11 @@ export function PropertiesPanel() {
             )}
           </TabsContent>
 
-          <TabsContent value="quantities" className="m-0 p-3">
+          <TabsContent value="quantities" className="m-0 p-4">
             {quantities.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No quantities</p>
+              <p className="text-sm text-zinc-500 dark:text-zinc-500 text-center py-8 font-mono">No quantities</p>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {quantities.map((qset: QuantitySet) => (
                   <QuantitySetCard key={qset.name} qset={qset} />
                 ))}
@@ -243,18 +252,17 @@ export function PropertiesPanel() {
 
 function PropertySetCard({ pset }: { pset: PropertySet }) {
   return (
-    <Collapsible defaultOpen className="border rounded-lg">
-      <CollapsibleTrigger className="flex items-center justify-between w-full p-2.5 hover:bg-muted/50 rounded-t-lg text-left">
-        <span className="font-medium text-sm">{pset.name}</span>
-        <span className="text-xs text-muted-foreground">{pset.properties.length}</span>
+    <Collapsible defaultOpen className="border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 group">
+      <CollapsibleTrigger className="flex items-center justify-between w-full p-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-left transition-colors">
+        <span className="font-bold text-xs uppercase tracking-wide text-zinc-900 dark:text-zinc-100">{pset.name}</span>
+        <span className="text-[10px] font-mono bg-zinc-100 dark:bg-zinc-900 px-1.5 py-0.5 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400">{pset.properties.length}</span>
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <Separator />
-        <div className="divide-y">
+        <div className="border-t-2 border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-100 dark:divide-zinc-900">
           {pset.properties.map((prop: { name: string; value: unknown }) => (
-            <div key={prop.name} className="flex justify-between gap-2 px-2.5 py-1.5 text-sm">
-              <span className="text-muted-foreground truncate">{prop.name}</span>
-              <span className="text-right truncate font-medium">
+            <div key={prop.name} className="flex justify-between gap-4 px-3 py-2 text-xs hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50">
+              <span className="text-zinc-500 dark:text-zinc-400 font-medium truncate">{prop.name}</span>
+              <span className="text-right truncate font-mono text-zinc-900 dark:text-zinc-100 select-all">
                 {prop.value !== null && prop.value !== undefined ? String(prop.value) : '—'}
               </span>
             </div>
@@ -280,18 +288,17 @@ function QuantitySetCard({ qset }: { qset: QuantitySet }) {
   };
 
   return (
-    <Collapsible defaultOpen className="border rounded-lg border-blue-200 dark:border-blue-900">
-      <CollapsibleTrigger className="flex items-center justify-between w-full p-2.5 hover:bg-blue-50 dark:hover:bg-blue-950/50 rounded-t-lg text-left">
-        <span className="font-medium text-sm text-blue-700 dark:text-blue-400">{qset.name}</span>
-        <span className="text-xs text-blue-500/70">{qset.quantities.length}</span>
+    <Collapsible defaultOpen className="border-2 border-blue-200 dark:border-blue-800 bg-blue-50/20 dark:bg-blue-950/20">
+      <CollapsibleTrigger className="flex items-center justify-between w-full p-2.5 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-left transition-colors">
+        <span className="font-bold text-xs uppercase tracking-wide text-blue-700 dark:text-blue-400">{qset.name}</span>
+        <span className="text-[10px] font-mono bg-blue-100 dark:bg-blue-900/50 px-1.5 py-0.5 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300">{qset.quantities.length}</span>
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <Separator className="bg-blue-200 dark:bg-blue-900" />
-        <div className="divide-y divide-blue-100 dark:divide-blue-900/50">
+        <div className="border-t-2 border-blue-200 dark:border-blue-800 divide-y divide-blue-100 dark:divide-blue-900/30">
           {qset.quantities.map((q: { name: string; value: number; type: number }) => (
-            <div key={q.name} className="flex justify-between gap-2 px-2.5 py-1.5 text-sm">
-              <span className="text-muted-foreground truncate">{q.name}</span>
-              <span className="text-right font-mono text-blue-700 dark:text-blue-400">
+            <div key={q.name} className="flex justify-between gap-4 px-3 py-2 text-xs hover:bg-blue-50/50 dark:hover:bg-blue-900/20">
+              <span className="text-zinc-500 dark:text-zinc-400 font-medium truncate">{q.name}</span>
+              <span className="text-right font-mono text-blue-700 dark:text-blue-400 select-all">
                 {formatValue(q.value, q.type)}
               </span>
             </div>

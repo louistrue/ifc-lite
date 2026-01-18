@@ -47,6 +47,12 @@ export function ViewerLayout() {
     return () => window.removeEventListener('resize', checkMobile);
   }, [setIsMobile, setLeftPanelCollapsed, setRightPanelCollapsed]);
 
+  // Initialize theme on mount and sync with store
+  useEffect(() => {
+    const currentTheme = useViewerStore.getState().theme;
+    document.documentElement.classList.toggle('dark', currentTheme === 'dark');
+  }, []);
+
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);

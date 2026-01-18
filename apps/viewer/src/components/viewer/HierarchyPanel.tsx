@@ -16,6 +16,7 @@ import {
   DoorOpen,
   Eye,
   EyeOff,
+  LayoutTemplate
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -50,13 +51,21 @@ export function HierarchyPanel() {
   const { ifcDataStore } = useIfc();
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
-  const selectedStorey = useViewerStore((s) => s.selectedStorey);
-  const setSelectedStorey = useViewerStore((s) => s.setSelectedStorey);
+  const selectedStoreys = useViewerStore((s) => s.selectedStoreys);
+  const toggleStoreySelection = useViewerStore((s) => s.toggleStoreySelection);
+  const setStoreySelection = useViewerStore((s) => s.setStoreySelection);
+  const setStoreysSelection = useViewerStore((s) => s.setStoreysSelection);
+  const clearStoreySelection = useViewerStore((s) => s.clearStoreySelection);
+  
+  // Track anchor for shift-click range selection
+  const lastClickedStoreyRef = useRef<number | null>(null);
   const hiddenEntities = useViewerStore((s) => s.hiddenEntities);
   const hideEntities = useViewerStore((s) => s.hideEntities);
   const showEntities = useViewerStore((s) => s.showEntities);
   const toggleEntityVisibility = useViewerStore((s) => s.toggleEntityVisibility);
   const isEntityVisible = useViewerStore((s) => s.isEntityVisible);
+
+  const clearSelection = useViewerStore((s) => s.clearSelection);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedNodes, setExpandedNodes] = useState<Set<number>>(new Set());
@@ -65,6 +74,20 @@ export function HierarchyPanel() {
   const storeyElementsMap = useMemo(() => {
     if (!ifcDataStore?.spatialHierarchy) return new Map<number, number[]>();
     return ifcDataStore.spatialHierarchy.byStorey;
+  }, [ifcDataStore]);
+
+  // Ordered list of storey IDs (for shift-click range selection)
+  const orderedStoreyIds = useMemo(() => {
+    if (!ifcDataStore?.spatialHierarchy) return [];
+    const hierarchy = ifcDataStore.spatialHierarchy;
+    const storeysArray = Array.from(hierarchy.byStorey.entries()) as [number, number[]][];
+    return storeysArray
+      .map(([id]) => ({
+        id,
+        elevation: hierarchy.storeyElevations.get(id) ?? 0,
+      }))
+      .sort((a, b) => b.elevation - a.elevation)
+      .map(s => s.id);
   }, [ifcDataStore]);
 
   // Build spatial tree data
@@ -175,15 +198,24 @@ export function HierarchyPanel() {
       if (allVisible) {
         // Hide all elements in storey
         hideEntities(elements);
+        // Clear selection if selected element is being hidden
+        if (selectedEntityId !== null && elements.includes(selectedEntityId)) {
+          clearSelection();
+        }
       } else {
         // Show all elements in storey
         showEntities(elements);
       }
     } else {
       // Single element toggle
+      const wasVisible = isEntityVisible(node.id);
       toggleEntityVisibility(node.id);
+      // Clear selection if we just hid the selected element
+      if (wasVisible && selectedEntityId === node.id) {
+        clearSelection();
+      }
     }
-  }, [storeyElementsMap, isEntityVisible, hideEntities, showEntities, toggleEntityVisibility]);
+  }, [storeyElementsMap, isEntityVisible, hideEntities, showEntities, toggleEntityVisibility, selectedEntityId, clearSelection]);
 
   // Check if storey has any visible elements (show as hidden only when ALL are hidden)
   const isStoreyVisible = useCallback((storeyId: number) => {
@@ -192,43 +224,72 @@ export function HierarchyPanel() {
     return elements.some(id => isEntityVisible(id));
   }, [storeyElementsMap, isEntityVisible]);
 
-  const handleNodeClick = useCallback((node: TreeNode) => {
+  const handleNodeClick = useCallback((node: TreeNode, e: React.MouseEvent) => {
     if (node.type === 'IfcBuildingStorey') {
-      setSelectedStorey(selectedStorey === node.id ? null : node.id);
+      if (e.shiftKey && lastClickedStoreyRef.current !== null) {
+        // Shift+click: select range from anchor to clicked item
+        const anchorIdx = orderedStoreyIds.indexOf(lastClickedStoreyRef.current);
+        const clickedIdx = orderedStoreyIds.indexOf(node.id);
+        
+        if (anchorIdx !== -1 && clickedIdx !== -1) {
+          const startIdx = Math.min(anchorIdx, clickedIdx);
+          const endIdx = Math.max(anchorIdx, clickedIdx);
+          const rangeIds = orderedStoreyIds.slice(startIdx, endIdx + 1);
+          setStoreysSelection(rangeIds);
+        } else {
+          // Fallback if indices not found
+          setStoreySelection(node.id);
+          lastClickedStoreyRef.current = node.id;
+        }
+      } else if (e.ctrlKey || e.metaKey) {
+        // Ctrl/Cmd+click: toggle individual item in selection
+        toggleStoreySelection(node.id);
+        lastClickedStoreyRef.current = node.id;
+      } else {
+        // Normal click: single select (or deselect if already only selected)
+        setStoreySelection(node.id);
+        lastClickedStoreyRef.current = node.id;
+      }
     } else {
       setSelectedEntityId(node.id);
     }
-  }, [selectedStorey, setSelectedStorey, setSelectedEntityId]);
+  }, [toggleStoreySelection, setStoreySelection, setStoreysSelection, setSelectedEntityId, orderedStoreyIds]);
 
   if (!ifcDataStore) {
     return (
-      <div className="h-full flex flex-col border-r bg-card">
-        <div className="p-3 border-b">
-          <h2 className="font-semibold text-sm">Model Hierarchy</h2>
+      <div className="h-full flex flex-col border-r-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-black">
+        <div className="p-3 border-b-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
+          <h2 className="font-bold uppercase tracking-wider text-xs text-zinc-900 dark:text-zinc-100">Hierarchy</h2>
         </div>
-        <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-          Load an IFC file to view hierarchy
+        <div className="flex-1 flex flex-col items-center justify-center text-center p-6 bg-white dark:bg-black">
+          <div className="w-16 h-16 border-2 border-dashed border-zinc-300 dark:border-zinc-800 flex items-center justify-center mb-4 bg-zinc-100 dark:bg-zinc-950">
+            <LayoutTemplate className="h-8 w-8 text-zinc-400 dark:text-zinc-500" />
+          </div>
+          <p className="font-bold uppercase text-zinc-900 dark:text-zinc-100 mb-2">No Model</p>
+          <p className="text-xs font-mono text-zinc-500 dark:text-zinc-400 max-w-[150px]">
+            Structure will appear here when loaded
+          </p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col border-r bg-card">
+    <div className="h-full flex flex-col border-r-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
       {/* Header */}
-      <div className="p-3 border-b space-y-2">
-        <h2 className="font-semibold text-sm">Model Hierarchy</h2>
+      <div className="p-3 border-b-2 border-zinc-200 dark:border-zinc-800 space-y-3 bg-zinc-50 dark:bg-black">
+        <h2 className="font-bold uppercase tracking-wider text-xs text-zinc-900 dark:text-zinc-100">Hierarchy</h2>
         <Input
-          placeholder="Search elements..."
+          placeholder="Search..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           leftIcon={<Search className="h-4 w-4" />}
-          className="h-8 text-sm"
+          className="h-9 text-sm rounded-none border-2 border-zinc-200 dark:border-zinc-800 focus:border-primary focus:ring-0 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600"
         />
       </div>
 
       {/* Tree */}
-      <div ref={parentRef} className="flex-1 overflow-auto scrollbar-thin">
+      <div ref={parentRef} className="flex-1 overflow-auto scrollbar-thin bg-white dark:bg-black">
         <div
           style={{
             height: `${virtualizer.getTotalSize()}px`,
@@ -240,7 +301,7 @@ export function HierarchyPanel() {
             const node = filteredNodes[virtualRow.index];
             const Icon = TYPE_ICONS[node.type] || TYPE_ICONS.default;
             const isSelected = node.type === 'IfcBuildingStorey'
-              ? selectedStorey === node.id
+              ? selectedStoreys.has(node.id)
               : selectedEntityId === node.id;
             // For storeys, check if all elements are visible
             const nodeVisible = node.type === 'IfcBuildingStorey'
@@ -262,15 +323,19 @@ export function HierarchyPanel() {
               >
                 <div
                   className={cn(
-                    'flex items-center gap-1 px-2 py-1.5 cursor-pointer hover:bg-muted/50 border-l-2 border-transparent transition-colors group',
-                    isSelected && 'bg-primary/10 border-l-primary',
-                    nodeHidden && 'opacity-50'
+                    'flex items-center gap-1 px-2 py-1.5 cursor-pointer border-l-4 transition-all group hierarchy-item',
+                    isSelected ? 'border-l-primary font-medium selected' : 'border-transparent',
+                    nodeHidden && 'opacity-50 grayscale'
                   )}
-                  style={{ paddingLeft: `${node.depth * 16 + 8}px` }}
+                  style={{ 
+                    paddingLeft: `${node.depth * 16 + 8}px`,
+                    backgroundColor: isSelected ? 'var(--hierarchy-selected-bg)' : undefined,
+                    color: isSelected ? 'var(--hierarchy-selected-text)' : 'var(--hierarchy-text)'
+                  }}
                   onClick={(e) => {
                     // Only handle click if not clicking on a button
                     if ((e.target as HTMLElement).closest('button') === null) {
-                      handleNodeClick(node);
+                      handleNodeClick(node, e);
                     }
                   }}
                   onMouseDown={(e) => {
@@ -287,17 +352,17 @@ export function HierarchyPanel() {
                         e.stopPropagation();
                         toggleExpand(node.id);
                       }}
-                      className="p-0.5 hover:bg-muted rounded"
+                      className="p-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-none mr-1"
                     >
                       <ChevronRight
                         className={cn(
-                          'h-3.5 w-3.5 transition-transform',
+                          'h-3.5 w-3.5 transition-transform duration-200',
                           node.isExpanded && 'rotate-90'
                         )}
                       />
                     </button>
                   ) : (
-                    <div className="w-4.5" />
+                    <div className="w-5" />
                   )}
 
                   {/* Visibility Toggle */}
@@ -307,29 +372,29 @@ export function HierarchyPanel() {
                       handleVisibilityToggle(node);
                     }}
                     className={cn(
-                      'p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity',
+                      'p-0.5 opacity-0 group-hover:opacity-100 transition-opacity mr-1',
                       nodeHidden && 'opacity-100'
                     )}
                   >
                     {nodeVisible ? (
-                      <Eye className="h-3 w-3 text-muted-foreground" />
+                      <Eye className="h-3 w-3 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
                     ) : (
-                      <EyeOff className="h-3 w-3 text-muted-foreground" />
+                      <EyeOff className="h-3 w-3 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
                     )}
                   </button>
 
                   {/* Type Icon */}
-                  <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <Icon className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400 shrink-0" />
 
                   {/* Name */}
                   <span className={cn(
-                    'flex-1 text-sm truncate',
-                    nodeHidden && 'line-through'
+                    'flex-1 text-sm truncate ml-1.5 text-zinc-900 dark:text-zinc-200',
+                    nodeHidden && 'line-through decoration-zinc-400 dark:decoration-zinc-600'
                   )}>{node.name}</span>
 
                   {/* Element Count */}
                   {node.elementCount !== undefined && (
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-[10px] font-mono bg-zinc-100 dark:bg-zinc-950 px-1.5 py-0.5 border border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 rounded-none">
                       {node.elementCount}
                     </span>
                   )}
@@ -341,21 +406,28 @@ export function HierarchyPanel() {
       </div>
 
       {/* Quick Filter */}
-      {selectedStorey && (
-        <div className="p-2 border-t bg-primary/5">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">
-              Filtered to storey
+      {selectedStoreys.size > 0 ? (
+        <div className="p-2 border-t-2 border-zinc-200 dark:border-zinc-800 bg-primary text-white dark:bg-primary">
+          <div className="flex items-center justify-between text-xs font-medium">
+            <span className="uppercase tracking-wide">
+              {selectedStoreys.size} {selectedStoreys.size === 1 ? 'STOREY' : 'STOREYS'} FILTERED
             </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 text-xs"
-              onClick={() => setSelectedStorey(null)}
-            >
-              Clear filter
-            </Button>
+            <div className="flex items-center gap-2">
+              <span className="opacity-70 text-[10px] font-mono">ESC</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-[10px] uppercase border border-white/20 hover:bg-white/20 hover:text-white rounded-none px-2"
+                onClick={clearStoreySelection}
+              >
+                Clear
+              </Button>
+            </div>
           </div>
+        </div>
+      ) : ifcDataStore?.spatialHierarchy?.byStorey && ifcDataStore.spatialHierarchy.byStorey.size > 1 && (
+        <div className="p-2 border-t-2 border-zinc-200 dark:border-zinc-800 text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-500 text-center bg-zinc-50 dark:bg-black font-mono">
+          Click to filter · Shift range · Ctrl toggle
         </div>
       )}
     </div>
