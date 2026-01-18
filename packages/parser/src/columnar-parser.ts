@@ -73,14 +73,21 @@ const GEOMETRY_TYPES = new Set([
     'IFCSITE', 'IFCBUILDING', 'IFCBUILDINGSTOREY',
 ]);
 
+// IMPORTANT: This set MUST include ALL RelationshipType enum values to prevent semantic loss
+// Missing types will be skipped during parsing, causing incomplete relationship graphs
 const RELATIONSHIP_TYPES = new Set([
     'IFCRELCONTAINEDINSPATIALSTRUCTURE', 'IFCRELAGGREGATES',
     'IFCRELDEFINESBYPROPERTIES', 'IFCRELDEFINESBYTYPE',
     'IFCRELASSOCIATESMATERIAL', 'IFCRELASSOCIATESCLASSIFICATION',
     'IFCRELVOIDSELEMENT', 'IFCRELFILLSELEMENT',
-    'IFCRELCONNECTSPATHELEMENTS', 'IFCRELSPACEBOUNDARY',
+    'IFCRELCONNECTSPATHELEMENTS', 'IFCRELCONNECTSELEMENTS',
+    'IFCRELSPACEBOUNDARY',
+    'IFCRELASSIGNSTOGROUP', 'IFCRELASSIGNSTOPRODUCT',
+    'IFCRELREFERENCEDINSPATIALSTRUCTURE',
 ]);
 
+// Map IFC relationship type strings to RelationshipType enum
+// MUST cover ALL RelationshipType enum values (14 types total)
 const REL_TYPE_MAP: Record<string, RelationshipType> = {
     'IFCRELCONTAINEDINSPATIALSTRUCTURE': RelationshipType.ContainsElements,
     'IFCRELAGGREGATES': RelationshipType.Aggregates,
@@ -91,7 +98,11 @@ const REL_TYPE_MAP: Record<string, RelationshipType> = {
     'IFCRELVOIDSELEMENT': RelationshipType.VoidsElement,
     'IFCRELFILLSELEMENT': RelationshipType.FillsElement,
     'IFCRELCONNECTSPATHELEMENTS': RelationshipType.ConnectsPathElements,
+    'IFCRELCONNECTSELEMENTS': RelationshipType.ConnectsElements,
     'IFCRELSPACEBOUNDARY': RelationshipType.SpaceBoundary,
+    'IFCRELASSIGNSTOGROUP': RelationshipType.AssignsToGroup,
+    'IFCRELASSIGNSTOPRODUCT': RelationshipType.AssignsToProduct,
+    'IFCRELREFERENCEDINSPATIALSTRUCTURE': RelationshipType.ReferencedInSpatialStructure,
 };
 
 const QUANTITY_TYPE_MAP: Record<string, QuantityType> = {

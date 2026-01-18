@@ -992,7 +992,8 @@ export function useIfc() {
 
           // PERF: Pre-compute uppercase once for efficient comparison
           // This eliminates millions of .toUpperCase() calls for large files
-          // IMPORTANT: Keep in sync with columnar-parser.ts REL_TYPE_MAP (10 types)
+          // IMPORTANT: Keep in sync with columnar-parser.ts REL_TYPE_MAP (14 types total)
+          // This map MUST cover ALL RelationshipType enum values to prevent semantic loss
           const relTypeMap = new Map<string, RelationshipType>([
             ['IFCRELCONTAINEDINSPATIALSTRUCTURE', RelationshipType.ContainsElements],
             ['IFCRELAGGREGATES', RelationshipType.Aggregates],
@@ -1003,7 +1004,11 @@ export function useIfc() {
             ['IFCRELVOIDSELEMENT', RelationshipType.VoidsElement],
             ['IFCRELFILLSELEMENT', RelationshipType.FillsElement],
             ['IFCRELCONNECTSPATHELEMENTS', RelationshipType.ConnectsPathElements],
+            ['IFCRELCONNECTSELEMENTS', RelationshipType.ConnectsElements],
             ['IFCRELSPACEBOUNDARY', RelationshipType.SpaceBoundary],
+            ['IFCRELASSIGNSTOGROUP', RelationshipType.AssignsToGroup],
+            ['IFCRELASSIGNSTOPRODUCT', RelationshipType.AssignsToProduct],
+            ['IFCRELREFERENCEDINSPATIALSTRUCTURE', RelationshipType.ReferencedInSpatialStructure],
           ]);
 
           // Track unmapped relationship types for diagnostics
