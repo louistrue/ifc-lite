@@ -24,10 +24,6 @@ export default defineConfig({
           src: `${wasmPkgPath}/ifc-lite_bg.wasm`,
           dest: 'wasm',
         },
-        {
-          src: `${wasmPkgPath}/snippets/**/*`,
-          dest: 'wasm/snippets',
-        },
       ],
     }),
     {
