@@ -50,6 +50,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   const finalizeMeasurement = useViewerStore((state) => state.finalizeMeasurement);
   const cancelMeasurement = useViewerStore((state) => state.cancelMeasurement);
   const setSnapTarget = useViewerStore((state) => state.setSnapTarget);
+  const setSnapVisualization = useViewerStore((state) => state.setSnapVisualization);
   const snapEnabled = useViewerStore((state) => state.snapEnabled);
   const updateMeasurementScreenCoords = useViewerStore((state) => state.updateMeasurementScreenCoords);
   const measurements = useViewerStore((state) => state.measurements);
@@ -224,6 +225,41 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           hiddenIds: hiddenEntitiesRef.current,
           isolatedIds: isolatedEntitiesRef.current,
         };
+      }
+
+      // Helper function to compute snap visualization (edge highlights, plane indicators)
+      function updateSnapVisualization(snapTarget: any) {
+        if (!snapTarget) {
+          setSnapVisualization(null);
+          return;
+        }
+
+        const viz: any = {};
+
+        // For edge snaps: project edge vertices to screen space and draw line
+        if ((snapTarget.type === 'edge' || snapTarget.type === 'edge_midpoint') && snapTarget.metadata?.vertices) {
+          const [v0, v1] = snapTarget.metadata.vertices;
+          const start = camera.projectToScreen(v0, canvas.width, canvas.height);
+          const end = camera.projectToScreen(v1, canvas.width, canvas.height);
+
+          if (start && end) {
+            viz.edgeLine = { start, end };
+          }
+        }
+
+        // For face snaps: show plane indicator
+        if ((snapTarget.type === 'face' || snapTarget.type === 'face_center') && snapTarget.normal) {
+          const pos = camera.projectToScreen(snapTarget.position, canvas.width, canvas.height);
+          if (pos) {
+            viz.planeIndicator = {
+              x: pos.x,
+              y: pos.y,
+              normal: snapTarget.normal,
+            };
+          }
+        }
+
+        setSnapVisualization(viz);
       }
 
       // Helper function to get entity bounds (min/max) - defined early for callbacks
@@ -524,6 +560,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
               startMeasurement(measurePoint);
               if (result.snap) {
                 setSnapTarget(result.snap);
+                updateSnapVisualization(result.snap);
               }
             }
             return; // Early return for measure tool (non-shift)
@@ -594,6 +631,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
 
                   updateMeasurement(measurePoint);
                   setSnapTarget(result.snap || null);
+                  updateSnapVisualization(result.snap || null);
                 }
               });
             }
@@ -630,8 +668,10 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
               // Update snap target for visual feedback
               if (result && result.snap) {
                 setSnapTarget(result.snap);
+                updateSnapVisualization(result.snap);
               } else {
                 setSnapTarget(null);
+                updateSnapVisualization(null);
               }
             });
           }

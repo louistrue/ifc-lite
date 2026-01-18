@@ -102,6 +102,10 @@ interface ViewerState {
   activeMeasurement: ActiveMeasurement | null; // New drag-based measurement
   snapTarget: SnapTarget | null; // Current snap preview
   snapEnabled: boolean; // Toggle snapping on/off
+  snapVisualization: {
+    edgeLine?: { start: { x: number; y: number }; end: { x: number; y: number } }; // Projected edge in screen space
+    planeIndicator?: { x: number; y: number; normal: { x: number; y: number; z: number } }; // Face snap indicator
+  } | null;
 
   // Section plane state
   sectionPlane: SectionPlane;
@@ -197,6 +201,7 @@ interface ViewerState {
 
   // Snap actions
   setSnapTarget: (target: SnapTarget | null) => void;
+  setSnapVisualization: (viz: { edgeLine?: { start: { x: number; y: number }; end: { x: number; y: number } }; planeIndicator?: { x: number; y: number; normal: { x: number; y: number; z: number } } } | null) => void;
   toggleSnap: () => void;
 
   // Section plane actions
@@ -239,6 +244,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   activeMeasurement: null,
   snapTarget: null,
   snapEnabled: true,
+  snapVisualization: null,
   sectionPlane: { axis: 'y', position: 50, enabled: false },
   cameraRotation: { azimuth: 45, elevation: 25 },
   cameraCallbacks: {},
@@ -605,6 +611,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
 
   // Snap actions
   setSnapTarget: (snapTarget) => set({ snapTarget }),
+  setSnapVisualization: (snapVisualization) => set({ snapVisualization }),
   toggleSnap: () => set((state) => ({ snapEnabled: !state.snapEnabled })),
 
   // Section plane actions

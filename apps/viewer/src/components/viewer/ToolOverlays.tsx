@@ -31,6 +31,7 @@ function MeasureOverlay() {
   const pendingMeasurePoint = useViewerStore((s) => s.pendingMeasurePoint);
   const activeMeasurement = useViewerStore((s) => s.activeMeasurement);
   const snapTarget = useViewerStore((s) => s.snapTarget);
+  const snapVisualization = useViewerStore((s) => s.snapVisualization);
   const snapEnabled = useViewerStore((s) => s.snapEnabled);
   const toggleSnap = useViewerStore((s) => s.toggleSnap);
   const deleteMeasurement = useViewerStore((s) => s.deleteMeasurement);
@@ -144,6 +145,7 @@ function MeasureOverlay() {
         pending={pendingMeasurePoint}
         activeMeasurement={activeMeasurement}
         snapTarget={snapTarget}
+        snapVisualization={snapVisualization}
         hoverPosition={cursorPos}
       />
     </>
@@ -178,10 +180,11 @@ interface MeasurementOverlaysProps {
   pending: { screenX: number; screenY: number } | null;
   activeMeasurement: { start: { screenX: number; screenY: number }; current: { screenX: number; screenY: number }; distance: number } | null;
   snapTarget: { position: { x: number; y: number; z: number }; type: SnapType; metadata?: any } | null;
+  snapVisualization: { edgeLine?: { start: { x: number; y: number }; end: { x: number; y: number } }; planeIndicator?: { x: number; y: number; normal: { x: number; y: number; z: number } } } | null;
   hoverPosition?: { x: number; y: number } | null;
 }
 
-function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTarget, hoverPosition }: MeasurementOverlaysProps) {
+function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTarget, snapVisualization, hoverPosition }: MeasurementOverlaysProps) {
   // Determine snap indicator position
   // Priority: activeMeasurement.current > hoverPosition
   const snapIndicatorPos = activeMeasurement
@@ -314,6 +317,62 @@ function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTar
             {formatDistance(activeMeasurement.distance)}
           </div>
         </div>
+      )}
+
+      {/* Edge highlight - draw full edge in 3D-projected screen space */}
+      {snapVisualization?.edgeLine && (
+        <svg
+          className="absolute inset-0 pointer-events-none z-25"
+          style={{ overflow: 'visible' }}
+        >
+          <line
+            x1={snapVisualization.edgeLine.start.x}
+            y1={snapVisualization.edgeLine.start.y}
+            x2={snapVisualization.edgeLine.end.x}
+            y2={snapVisualization.edgeLine.end.y}
+            stroke="hsl(var(--primary))"
+            strokeWidth="4"
+            strokeOpacity="0.8"
+            filter="url(#snap-glow)"
+            className="animate-pulse"
+          />
+        </svg>
+      )}
+
+      {/* Plane indicator - subtle grid/cross for face snaps */}
+      {snapVisualization?.planeIndicator && (
+        <svg
+          className="absolute inset-0 pointer-events-none z-25"
+          style={{ overflow: 'visible' }}
+        >
+          {/* Cross indicator */}
+          <line
+            x1={snapVisualization.planeIndicator.x - 20}
+            y1={snapVisualization.planeIndicator.y}
+            x2={snapVisualization.planeIndicator.x + 20}
+            y2={snapVisualization.planeIndicator.y}
+            stroke="hsl(var(--primary))"
+            strokeWidth="2"
+            strokeOpacity="0.4"
+          />
+          <line
+            x1={snapVisualization.planeIndicator.x}
+            y1={snapVisualization.planeIndicator.y - 20}
+            x2={snapVisualization.planeIndicator.x}
+            y2={snapVisualization.planeIndicator.y + 20}
+            stroke="hsl(var(--primary))"
+            strokeWidth="2"
+            strokeOpacity="0.4"
+          />
+          {/* Small circle at center */}
+          <circle
+            cx={snapVisualization.planeIndicator.x}
+            cy={snapVisualization.planeIndicator.y}
+            r="4"
+            fill="hsl(var(--primary))"
+            fillOpacity="0.6"
+          />
+        </svg>
       )}
 
       {/* Snap indicator */}
