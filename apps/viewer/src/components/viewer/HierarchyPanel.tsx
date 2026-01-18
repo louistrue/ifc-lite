@@ -113,22 +113,21 @@ export function HierarchyPanel() {
     const storeysArray = Array.from(hierarchy.byStorey.entries()) as [number, number[]][];
     console.log(`[HierarchyPanel] Building tree for ${storeysArray.length} storeys`);
     console.log(`[HierarchyPanel] Pre-computed storeyHeights: ${hierarchy.storeyHeights?.size ?? 0} entries`);
-    const storeys = storeysArray
+
+    // First pass: collect storeys with elevations and try property/quantity extraction
+    const storeysWithData = storeysArray
       .map(([id, elements]: [number, number[]]) => {
         // Try pre-computed height first (server path), then on-demand extraction (client path)
         let height = hierarchy.storeyHeights?.get(id);
-        console.log(`[HierarchyPanel] Storey ${id}: pre-computed height = ${height}`);
+
+        // Try properties
         if (height === undefined && ifcDataStore.properties) {
-          console.log(`[HierarchyPanel] Trying on-demand extraction for storey ${id}`);
           const storeyProps = ifcDataStore.properties.getForEntity(id);
-          console.log(`[HierarchyPanel] Found ${storeyProps.length} property sets`);
           for (const pset of storeyProps) {
-            console.log(`[HierarchyPanel]   Pset "${pset.name}": ${pset.properties.length} props`);
             for (const prop of pset.properties) {
               const propName = prop.name.toLowerCase();
               if (propName === 'grossheight' || propName === 'netheight' || propName === 'height') {
                 const val = parseFloat(String(prop.value));
-                console.log(`[HierarchyPanel]     Height found: "${prop.name}" = ${val}`);
                 if (!isNaN(val) && val > 0) {
                   height = val;
                   break;
@@ -138,7 +137,24 @@ export function HierarchyPanel() {
             if (height !== undefined) break;
           }
         }
-        console.log(`[HierarchyPanel] Storey ${id} final height: ${height}`);
+
+        // Try quantities (GrossHeight/NetHeight are often stored as IfcQuantityLength)
+        if (height === undefined && ifcDataStore.quantities) {
+          const storeyQtos = ifcDataStore.quantities.getForEntity(id);
+          for (const qto of storeyQtos) {
+            for (const qty of qto.quantities) {
+              const qtyName = qty.name.toLowerCase();
+              if (qtyName === 'grossheight' || qtyName === 'netheight' || qtyName === 'height') {
+                if (typeof qty.value === 'number' && qty.value > 0) {
+                  height = qty.value;
+                  break;
+                }
+              }
+            }
+            if (height !== undefined) break;
+          }
+        }
+
         return {
           id,
           name: ifcDataStore.entities.getName(id) || `Storey #${id}`,
@@ -147,7 +163,29 @@ export function HierarchyPanel() {
           elements,
         };
       })
-      .sort((a, b) => b.elevation - a.elevation);
+      .sort((a, b) => a.elevation - b.elevation); // Sort ascending for height calculation
+
+    // Second pass: calculate heights from elevation differences for storeys without height
+    const heightsFromElevation = new Map<number, number>();
+    for (let i = 0; i < storeysWithData.length - 1; i++) {
+      const current = storeysWithData[i];
+      const next = storeysWithData[i + 1];
+      if (current.height === undefined) {
+        const calculatedHeight = next.elevation - current.elevation;
+        if (calculatedHeight > 0) {
+          heightsFromElevation.set(current.id, calculatedHeight);
+          console.log(`[HierarchyPanel] Storey ${current.id}: calculated height from elevations = ${calculatedHeight.toFixed(2)}m`);
+        }
+      }
+    }
+
+    // Apply calculated heights and sort descending for display
+    const storeys = storeysWithData
+      .map(s => ({
+        ...s,
+        height: s.height ?? heightsFromElevation.get(s.id),
+      }))
+      .sort((a, b) => b.elevation - a.elevation); // Sort descending for display
 
     for (const storey of storeys) {
       const isStoreyExpanded = expandedNodes.has(storey.id);
