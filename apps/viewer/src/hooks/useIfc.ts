@@ -854,8 +854,9 @@ export function useIfc() {
             typeEnumArr[idx] = typeVal;
             globalIdArr[idx] = strings.intern(entity.global_id || '');
             nameArr[idx] = strings.intern(entity.name || '');
-            descriptionArr[idx] = strings.intern(entity.description || '');
-            objectTypeArr[idx] = strings.intern(entity.object_type || '');
+            // Server data may have description and object_type as optional fields
+            descriptionArr[idx] = strings.intern((entity as { description?: string }).description || '');
+            objectTypeArr[idx] = strings.intern((entity as { object_type?: string }).object_type || '');
             flagsArr[idx] = entity.has_geometry ? EntityFlags.HAS_GEOMETRY : 0;
 
             // Build entityByIdMap for entityIndex
@@ -906,6 +907,14 @@ export function useIfc() {
             getName: (id) => {
               const i = indexOfId(id);
               return i >= 0 ? strings.get(nameArr[i]) : '';
+            },
+            getDescription: (id) => {
+              const i = indexOfId(id);
+              return i >= 0 ? strings.get(descriptionArr[i]) : '';
+            },
+            getObjectType: (id) => {
+              const i = indexOfId(id);
+              return i >= 0 ? strings.get(objectTypeArr[i]) : '';
             },
             getTypeName: (id) => {
               const i = indexOfId(id);
