@@ -3,26 +3,22 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import { useMemo, useState, useEffect } from 'react';
-import { Boxes, Triangle, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Boxes, Triangle, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { formatNumber, formatBytes } from '@/lib/utils';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
+import { useWebGPU } from '@/hooks/useWebGPU';
 
 export function StatusBar() {
   const { loading, geometryResult, ifcDataStore } = useIfc();
   const progress = useViewerStore((s) => s.progress);
   const error = useViewerStore((s) => s.error);
   const selectedStoreys = useViewerStore((s) => s.selectedStoreys);
+  const webgpu = useWebGPU();
 
   const [fps, setFps] = useState(60);
   const [memory, setMemory] = useState(0);
-  const [webgpuSupported, setWebgpuSupported] = useState<boolean | null>(null);
-
-  // Check WebGPU support
-  useEffect(() => {
-    setWebgpuSupported('gpu' in navigator);
-  }, []);
 
   // FPS counter (simplified)
   useEffect(() => {
@@ -135,12 +131,16 @@ export function StatusBar() {
         <Separator orientation="vertical" className="h-3.5" />
 
         <div className="flex items-center gap-1">
-          {webgpuSupported ? (
+          {webgpu.checking ? (
+            <Loader2 className="h-3.5 w-3.5 text-zinc-400 animate-spin" />
+          ) : webgpu.supported ? (
             <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
           ) : (
-            <AlertCircle className="h-3.5 w-3.5 text-yellow-500" />
+            <AlertCircle className="h-3.5 w-3.5 text-[#f7768e]" />
           )}
-          <span>{webgpuSupported ? 'WebGPU' : 'WebGL'}</span>
+          <span className={!webgpu.supported && !webgpu.checking ? 'text-[#f7768e]' : ''}>
+            {webgpu.checking ? 'Checking...' : webgpu.supported ? 'WebGPU' : 'No WebGPU'}
+          </span>
         </div>
       </div>
     </div>

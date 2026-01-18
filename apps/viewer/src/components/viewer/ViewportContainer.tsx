@@ -8,7 +8,8 @@ import { ViewportOverlays } from './ViewportOverlays';
 import { ToolOverlays } from './ToolOverlays';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
-import { Upload, MousePointer, Layers, Info, Command } from 'lucide-react';
+import { useWebGPU } from '@/hooks/useWebGPU';
+import { Upload, MousePointer, Layers, Info, Command, AlertTriangle } from 'lucide-react';
 
 export function ViewportContainer() {
   const { geometryResult, ifcDataStore, loadFile, loading } = useIfc();
@@ -17,12 +18,16 @@ export function ViewportContainer() {
   const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const webgpu = useWebGPU();
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDragging(true);
-  }, []);
+    // Only show drag state if WebGPU is supported
+    if (webgpu.supported) {
+      setIsDragging(true);
+    }
+  }, [webgpu.supported]);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -35,18 +40,27 @@ export function ViewportContainer() {
     e.stopPropagation();
     setIsDragging(false);
 
+    // Block file loading if WebGPU not supported
+    if (!webgpu.supported) {
+      return;
+    }
+
     const file = e.dataTransfer.files[0];
     if (file && (file.name.endsWith('.ifc') || file.name.endsWith('.ifcx'))) {
       loadFile(file);
     }
-  }, [loadFile]);
+  }, [loadFile, webgpu.supported]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    // Block file loading if WebGPU not supported
+    if (!webgpu.supported) {
+      return;
+    }
     const file = e.target.files?.[0];
     if (file) {
       loadFile(file);
     }
-  }, [loadFile]);
+  }, [loadFile, webgpu.supported]);
 
   const hasGeometry = geometryResult?.meshes && geometryResult.meshes.length > 0;
 
@@ -186,6 +200,60 @@ export function ViewportContainer() {
           </div>
         )}
 
+        {/* WebGPU Not Supported Banner */}
+        {!webgpu.checking && !webgpu.supported && (
+          <div className="absolute top-0 left-0 right-0 z-40">
+            {/* Hazard stripes background */}
+            <div
+              className="absolute inset-0 opacity-10"
+              style={{
+                backgroundImage: `repeating-linear-gradient(
+                  -45deg,
+                  transparent,
+                  transparent 10px,
+                  #f7768e 10px,
+                  #f7768e 20px
+                )`
+              }}
+            />
+            <div className="relative border-b-4 border-[#f7768e] bg-[#1a1b26] dark:bg-[#1a1b26] px-4 py-5">
+              <div className="max-w-3xl mx-auto flex items-start gap-4">
+                {/* Icon container with brutalist frame */}
+                <div className="flex-shrink-0 border-2 border-[#f7768e] p-2 bg-[#f7768e]/10">
+                  <AlertTriangle className="h-6 w-6 text-[#f7768e]" />
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-black text-lg uppercase tracking-wider text-[#f7768e] mb-1">
+                    WebGPU Not Available
+                  </h3>
+                  <p className="font-mono text-sm text-[#a9b1d6] leading-relaxed">
+                    This viewer requires WebGPU which is not supported by your browser or device.
+                    {webgpu.reason && (
+                      <span className="block mt-1 text-[#565f89]">
+                        {webgpu.reason}
+                      </span>
+                    )}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <a
+                      href="https://caniuse.com/webgpu"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-mono uppercase tracking-wide border border-[#3b4261] text-[#7aa2f7] hover:border-[#7aa2f7] hover:bg-[#7aa2f7]/10 transition-colors"
+                    >
+                      Check Browser Support
+                    </a>
+                    <span className="inline-flex items-center px-3 py-1 text-xs font-mono text-[#565f89] border border-[#3b4261]">
+                      Chrome 113+ / Edge 113+ / Safari 18+
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Empty state content */}
         <div className="absolute inset-0 flex flex-col items-center justify-center p-8 z-10">
 
@@ -229,15 +297,20 @@ export function ViewportContainer() {
 
             {/* Action */}
             <button
-              onClick={() => fileInputRef.current?.click()}
-              className="group w-full flex items-center justify-center gap-3 px-6 py-3 font-mono text-sm border border-zinc-300 dark:border-[#3b4261] text-zinc-600 dark:text-[#a9b1d6] hover:border-primary hover:text-primary transition-all cursor-pointer"
+              onClick={() => webgpu.supported && fileInputRef.current?.click()}
+              disabled={!webgpu.supported || webgpu.checking}
+              className={`group w-full flex items-center justify-center gap-3 px-6 py-3 font-mono text-sm border transition-all ${
+                !webgpu.supported || webgpu.checking
+                  ? 'border-zinc-200 dark:border-[#3b4261]/50 text-zinc-300 dark:text-[#565f89]/50 cursor-not-allowed'
+                  : 'border-zinc-300 dark:border-[#3b4261] text-zinc-600 dark:text-[#a9b1d6] hover:border-primary hover:text-primary cursor-pointer'
+              }`}
             >
-              <Upload className="h-4 w-4 transition-transform group-hover:-translate-y-0.5" />
-              <span>Open .ifc file</span>
+              <Upload className={`h-4 w-4 transition-transform ${webgpu.supported ? 'group-hover:-translate-y-0.5' : ''}`} />
+              <span>{webgpu.checking ? 'Checking WebGPU...' : webgpu.supported ? 'Open .ifc file' : 'WebGPU Required'}</span>
             </button>
-            
+
             <p className="mt-3 text-xs font-mono text-zinc-400 dark:text-[#565f89]">
-              or drag & drop anywhere
+              {webgpu.supported ? 'or drag & drop anywhere' : 'file upload disabled'}
             </p>
           </div>
 
