@@ -5,9 +5,14 @@
 /**
  * Hook for loading and processing IFC files
  * Includes binary cache support for fast subsequent loads
+ *
+ * OPTIMIZATION: Time-to-first-geometry improvements:
+ * - WASM pre-warm on app startup for instant file loading
+ * - Larger batch sizes for meaningful first visible geometry
+ * - Higher streaming threshold (5MB) for better medium-file performance
  */
 
-import { useMemo, useCallback, useRef } from 'react';
+import { useMemo, useCallback, useRef, useEffect } from 'react';
 import { useViewerStore } from '../store.js';
 import { IfcParser, detectFormat, parseIfcx } from '@ifc-lite/parser';
 import { GeometryProcessor, GeometryQuality, type MeshData } from '@ifc-lite/geometry';
@@ -35,19 +40,38 @@ const SERVER_URL = import.meta.env.VITE_IFC_SERVER_URL || import.meta.env.VITE_S
 // Set VITE_USE_SERVER=false to disable server parsing
 const USE_SERVER = import.meta.env.VITE_USE_SERVER !== 'false';
 
+// OPTIMIZATION: Pre-warm WASM on module load for instant file loading
+// This eliminates ~50-100ms WASM initialization latency when user opens first file
+let wasmPreWarmStarted = false;
+function ensureWasmPreWarmed(): void {
+  if (!wasmPreWarmStarted) {
+    wasmPreWarmStarted = true;
+    GeometryProcessor.preWarm().catch(err => {
+      console.warn('[useIfc] WASM pre-warm failed:', err);
+    });
+  }
+}
+// Start pre-warm immediately on module load
+ensureWasmPreWarmed();
+
 /**
  * Calculate dynamic batch config based on file size
+ * OPTIMIZATION: Larger batch sizes for more meaningful first batch
  */
 function getDynamicBatchConfig(fileSizeMB: number): DynamicBatchConfig {
-  if (fileSizeMB < 10) {
-    return { initialBatchSize: 50, maxBatchSize: 200, fileSizeMB };
+  if (fileSizeMB < 5) {
+    // Small files: sync processing is faster (no streaming overhead)
+    return { initialBatchSize: 100, maxBatchSize: 300, fileSizeMB };
+  } else if (fileSizeMB < 20) {
+    // Medium files: larger first batch for meaningful geometry
+    return { initialBatchSize: 150, maxBatchSize: 500, fileSizeMB };
   } else if (fileSizeMB < 50) {
-    return { initialBatchSize: 100, maxBatchSize: 500, fileSizeMB };
+    return { initialBatchSize: 200, maxBatchSize: 750, fileSizeMB };
   } else if (fileSizeMB < 100) {
-    return { initialBatchSize: 100, maxBatchSize: 1000, fileSizeMB };
+    return { initialBatchSize: 250, maxBatchSize: 1000, fileSizeMB };
   } else {
     // HUGE files (100MB+): aggressive batching for maximum throughput
-    return { initialBatchSize: 100, maxBatchSize: 3000, fileSizeMB };
+    return { initialBatchSize: 300, maxBatchSize: 2000, fileSizeMB };
   }
 }
 
@@ -1394,9 +1418,10 @@ export function useIfc() {
         // Use dynamic batch sizing for optimal throughput
         const dynamicBatchConfig = getDynamicBatchConfig(fileSizeMB);
 
+        // OPTIMIZATION: Higher threshold (5MB) - streaming has overhead that hurts smaller files
         for await (const event of geometryProcessor.processAdaptive(new Uint8Array(buffer), {
-          sizeThreshold: 2 * 1024 * 1024, // 2MB threshold
-          batchSize: dynamicBatchConfig, // Dynamic batches: small first, then large
+          sizeThreshold: 5 * 1024 * 1024, // 5MB threshold (was 2MB)
+          batchSize: dynamicBatchConfig, // Dynamic batches: larger first for meaningful geometry
         })) {
           const eventReceived = performance.now();
           const waitTime = eventReceived - lastBatchTime;

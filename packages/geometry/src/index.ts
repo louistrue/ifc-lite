@@ -5,6 +5,12 @@
 /**
  * @ifc-lite/geometry - Geometry processing bridge
  * Now powered by IFC-Lite native Rust WASM (1.9x faster than web-ifc)
+ *
+ * OPTIMIZATION: Time-to-first-geometry improvements:
+ * - Chunked TextDecoder with event loop yields (non-blocking decode)
+ * - Larger WASM batch sizes for meaningful first batch
+ * - Pre-warm capability for instant file loading
+ * - Higher adaptive threshold (5MB) for better medium-file performance
  */
 
 // IFC-Lite components (recommended - faster)
@@ -97,6 +103,47 @@ export type StreamingInstancedGeometryEvent =
   | { type: 'batch'; geometries: import('@ifc-lite/wasm').InstancedGeometry[]; totalSoFar: number; coordinateInfo?: import('./types.js').CoordinateInfo }
   | { type: 'complete'; totalGeometries: number; totalInstances: number; coordinateInfo: import('./types.js').CoordinateInfo };
 
+/**
+ * OPTIMIZATION: Chunked text decoder that yields to event loop
+ * Prevents UI blocking during large file decode
+ * @param buffer Binary IFC file content
+ * @param chunkSize Bytes per chunk (default: 1MB)
+ * @returns Decoded string
+ */
+async function decodeTextChunked(buffer: Uint8Array, chunkSize: number = 1024 * 1024): Promise<string> {
+  // For small files, decode all at once (faster)
+  if (buffer.length < chunkSize * 2) {
+    const decoder = new TextDecoder();
+    return decoder.decode(buffer);
+  }
+
+  // For large files, decode in chunks with event loop yields
+  const decoder = new TextDecoder();
+  const chunks: string[] = [];
+
+  for (let offset = 0; offset < buffer.length; offset += chunkSize) {
+    const end = Math.min(offset + chunkSize, buffer.length);
+    const chunk = buffer.subarray(offset, end);
+    chunks.push(decoder.decode(chunk, { stream: offset + chunkSize < buffer.length }));
+
+    // Yield to event loop every 2MB to keep UI responsive
+    if (offset > 0 && offset % (chunkSize * 2) === 0) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+  }
+
+  return chunks.join('');
+}
+
+/**
+ * OPTIMIZATION: Fast synchronous decode for small files
+ * Avoids async overhead when not needed
+ */
+function decodeTextSync(buffer: Uint8Array): string {
+  const decoder = new TextDecoder();
+  return decoder.decode(buffer);
+}
+
 export class GeometryProcessor {
   private bridge: IfcLiteBridge;
   private bufferBuilder: BufferBuilder;
@@ -104,8 +151,17 @@ export class GeometryProcessor {
   private workerPool: WorkerPool | null = null;
   private useWorkers: boolean = false;
 
+  // OPTIMIZATION: Static pre-warmed bridge for instant file loading
+  private static preWarmedBridge: IfcLiteBridge | null = null;
+  private static preWarmPromise: Promise<void> | null = null;
+
   constructor(options: GeometryProcessorOptions = {}) {
-    this.bridge = new IfcLiteBridge();
+    // Use pre-warmed bridge if available
+    if (GeometryProcessor.preWarmedBridge?.isInitialized()) {
+      this.bridge = GeometryProcessor.preWarmedBridge;
+    } else {
+      this.bridge = new IfcLiteBridge();
+    }
     this.bufferBuilder = new BufferBuilder();
     this.coordinateHandler = new CoordinateHandler();
     this.useWorkers = options.useWorkers ?? false;
@@ -114,10 +170,44 @@ export class GeometryProcessor {
   }
 
   /**
+   * OPTIMIZATION: Pre-warm WASM for instant file loading
+   * Call this during app initialization to eliminate WASM init latency
+   */
+  static async preWarm(): Promise<void> {
+    if (GeometryProcessor.preWarmedBridge?.isInitialized()) {
+      return;
+    }
+
+    if (GeometryProcessor.preWarmPromise) {
+      return GeometryProcessor.preWarmPromise;
+    }
+
+    GeometryProcessor.preWarmedBridge = new IfcLiteBridge();
+    GeometryProcessor.preWarmPromise = GeometryProcessor.preWarmedBridge.init().then(() => {
+      console.log('[GeometryProcessor] WASM pre-warmed and ready');
+    });
+
+    return GeometryProcessor.preWarmPromise;
+  }
+
+  /**
+   * Check if WASM is pre-warmed and ready
+   */
+  static isPreWarmed(): boolean {
+    return GeometryProcessor.preWarmedBridge?.isInitialized() ?? false;
+  }
+
+  /**
    * Initialize IFC-Lite WASM and worker pool
    * WASM is automatically resolved from the package location - no path needed
    */
   async init(_wasmPath?: string): Promise<void> {
+    // Use pre-warmed bridge if available
+    if (GeometryProcessor.preWarmedBridge?.isInitialized()) {
+      this.bridge = GeometryProcessor.preWarmedBridge;
+      return;
+    }
+
     await this.bridge.init();
 
     // Initialize worker pool if available (lazy - only when needed)
@@ -202,8 +292,7 @@ export class GeometryProcessor {
    */
   private async collectMeshesMainThread(buffer: Uint8Array, _entityIndex?: Map<number, any>): Promise<MeshData[]> {
     // Convert buffer to string (IFC files are text)
-    const decoder = new TextDecoder();
-    const content = decoder.decode(buffer);
+    const content = decodeTextSync(buffer);
 
     const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
     const meshes = collector.collectMeshes();
@@ -214,6 +303,12 @@ export class GeometryProcessor {
   /**
    * Process IFC file with streaming output for progressive rendering
    * Uses IFC-Lite for native Rust geometry processing (1.9x faster)
+   *
+   * OPTIMIZATION:
+   * - Chunked TextDecoder prevents UI blocking on large files
+   * - Larger WASM batch sizes for meaningful first visible geometry
+   * - Yields start event BEFORE decode for immediate UI feedback
+   *
    * @param buffer IFC file buffer
    * @param entityIndex Optional entity index for priority-based loading
    * @param batchConfig Dynamic batch configuration or fixed batch size
@@ -236,10 +331,11 @@ export class GeometryProcessor {
     // Yield to main thread before heavy decode operation
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    // Convert buffer to string (IFC files are text)
-    // This is blocking but unavoidable - WASM API expects string
-    const decoder = new TextDecoder();
-    const content = decoder.decode(buffer);
+    // OPTIMIZATION: Use chunked decode for large files to prevent UI blocking
+    const fileSizeMB = buffer.length / (1024 * 1024);
+    const content = fileSizeMB > 5
+      ? await decodeTextChunked(buffer)
+      : decodeTextSync(buffer);
 
     // Use a placeholder model ID (IFC-Lite doesn't use model IDs)
     yield { type: 'model-open', modelID: 0 };
@@ -248,14 +344,18 @@ export class GeometryProcessor {
     let totalMeshes = 0;
 
     // Determine optimal WASM batch size based on file size
-    // Larger batches = fewer callbacks = faster processing
-    const fileSizeMB = typeof batchConfig !== 'number' && batchConfig.fileSizeMB
+    // OPTIMIZATION: Larger batches = fewer callbacks = faster first visible geometry
+    const configSizeMB = typeof batchConfig !== 'number' && batchConfig.fileSizeMB
       ? batchConfig.fileSizeMB
-      : buffer.length / (1024 * 1024);
-    
-    // Use WASM batches directly - no JS accumulation layer
-    // WASM already prioritizes simple geometry (walls, slabs) for fast first frame
-    const wasmBatchSize = fileSizeMB < 10 ? 100 : fileSizeMB < 50 ? 200 : fileSizeMB < 100 ? 300 : 500;
+      : fileSizeMB;
+
+    // Use larger batch sizes for more meaningful first batch
+    // First batch should have enough geometry to show building structure
+    const wasmBatchSize = configSizeMB < 5 ? 150 :    // Small: 150 meshes
+                          configSizeMB < 20 ? 250 :   // Medium: 250 meshes
+                          configSizeMB < 50 ? 350 :   // Large: 350 meshes
+                          configSizeMB < 100 ? 500 :  // Very large: 500 meshes
+                          750;                         // Huge: 750 meshes
 
     // Use WASM batches directly for maximum throughput
     for await (const batch of collector.collectMeshesStreaming(wasmBatchSize)) {
@@ -293,9 +393,11 @@ export class GeometryProcessor {
 
     yield { type: 'start', totalEstimate: buffer.length / 1000 };
 
-    // Convert buffer to string (IFC files are text)
-    const decoder = new TextDecoder();
-    const content = decoder.decode(buffer);
+    // OPTIMIZATION: Use chunked decode for large files
+    const fileSizeMB = buffer.length / (1024 * 1024);
+    const content = fileSizeMB > 5
+      ? await decodeTextChunked(buffer)
+      : decodeTextSync(buffer);
 
     // Use a placeholder model ID (IFC-Lite doesn't use model IDs)
     yield { type: 'model-open', modelID: 0 };
@@ -356,11 +458,14 @@ export class GeometryProcessor {
 
   /**
    * Adaptive processing: Choose sync or streaming based on file size
-   * Small files (< threshold): Load all at once for instant display
-   * Large files (>= threshold): Stream for fast first frame
+   *
+   * OPTIMIZATION: Higher threshold (5MB instead of 2MB)
+   * - Small files (<5MB): Load all at once for instant display (no streaming overhead)
+   * - Large files (≥5MB): Stream for fast first frame with progressive rendering
+   *
    * @param buffer IFC file buffer
    * @param options Configuration options
-   * @param options.sizeThreshold File size threshold in bytes (default: 2MB)
+   * @param options.sizeThreshold File size threshold in bytes (default: 5MB)
    * @param options.batchSize Number of meshes per batch for streaming (default: 25)
    * @param options.entityIndex Optional entity index for priority-based loading
    */
@@ -372,7 +477,8 @@ export class GeometryProcessor {
       entityIndex?: Map<number, any>;
     } = {}
   ): AsyncGenerator<StreamingGeometryEvent> {
-    const sizeThreshold = options.sizeThreshold ?? 2 * 1024 * 1024; // Default 2MB
+    // OPTIMIZATION: Higher threshold - streaming has overhead that hurts smaller files
+    const sizeThreshold = options.sizeThreshold ?? 5 * 1024 * 1024; // Default 5MB (was 2MB)
     const batchConfig = options.batchSize ?? 25;
 
     if (!this.bridge.isInitialized()) {
@@ -382,13 +488,12 @@ export class GeometryProcessor {
     // Reset coordinate handler for new file
     this.coordinateHandler.reset();
 
-    // Small files: Load all at once (sync)
+    // Small files: Load all at once (sync) - avoids streaming overhead
     if (buffer.length < sizeThreshold) {
       yield { type: 'start', totalEstimate: buffer.length / 1000 };
 
       // Convert buffer to string (IFC files are text)
-      const decoder = new TextDecoder();
-      const content = decoder.decode(buffer);
+      const content = decodeTextSync(buffer);
 
       yield { type: 'model-open', modelID: 0 };
       const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
