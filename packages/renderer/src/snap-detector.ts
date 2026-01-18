@@ -68,6 +68,11 @@ export class SnapDetector {
 
     const targets: SnapTarget[] = [];
     const mesh = meshes[intersection.meshIndex];
+    
+    // Guard against invalid mesh index
+    if (!mesh) {
+      return null;
+    }
 
     // Calculate world-space snap radius based on screen-space radius and distance
     const distanceToCamera = this.distance(camera.position, intersection.point);

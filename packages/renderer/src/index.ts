@@ -1297,14 +1297,17 @@ export class Renderer {
                 // Get the actual intersected mesh data
                 const intersectedMesh = meshesToTest[intersection.meshIndex];
 
-                snapTarget = this.snapDetector.detectSnapTarget(
-                    ray,
-                    [intersectedMesh], // Only pass the one mesh we hit
-                    intersection,
-                    { position: cameraPos, fov: cameraFov },
-                    this.canvas.height,
-                    options.snapOptions
-                ) || undefined;
+                // Only detect snap if we have a valid mesh
+                if (intersectedMesh) {
+                    snapTarget = this.snapDetector.detectSnapTarget(
+                        ray,
+                        [intersectedMesh], // Only pass the one mesh we hit
+                        intersection,
+                        { position: cameraPos, fov: cameraFov },
+                        this.canvas.height,
+                        options.snapOptions
+                    ) || undefined;
+                }
             }
 
             return {

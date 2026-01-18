@@ -51,6 +51,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   const cancelMeasurement = useViewerStore((state) => state.cancelMeasurement);
   const setSnapTarget = useViewerStore((state) => state.setSnapTarget);
   const snapEnabled = useViewerStore((state) => state.snapEnabled);
+  const updateMeasurementScreenCoords = useViewerStore((state) => state.updateMeasurementScreenCoords);
+  const measurements = useViewerStore((state) => state.measurements);
 
   // Theme-aware clear color ref (updated when theme changes)
   // Tokyo Night storm: #1a1b26 = rgb(26, 27, 38)
@@ -376,6 +378,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
       // Animation loop - update ViewCube in real-time
       let lastRotationUpdate = 0;
       let lastScaleUpdate = 0;
+      let lastScreenCoordUpdate = 0;
       const animate = (currentTime: number) => {
         if (aborted) return;
 
@@ -404,6 +407,20 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
         if (currentTime - lastScaleUpdate > 100) {
           calculateScale();
           lastScaleUpdate = currentTime;
+        }
+
+        // Update measurement screen coordinates when camera changes (throttled to every 16ms ~60fps)
+        if (isAnimating || (currentTime - lastScreenCoordUpdate > 16)) {
+          const state = useViewerStore.getState();
+          if (state.measurements.length > 0 || state.activeMeasurement) {
+            const canvas = canvasRef.current;
+            if (canvas) {
+              updateMeasurementScreenCoords((worldPos) => {
+                return camera.projectToScreen(worldPos, canvas.width, canvas.height);
+              });
+            }
+          }
+          lastScreenCoordUpdate = currentTime;
         }
 
         animationFrameRef.current = requestAnimationFrame(animate);
@@ -463,33 +480,49 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           mouseState.isPanning = e.shiftKey;
           canvas.style.cursor = e.shiftKey ? 'move' : 'grabbing';
         } else if (tool === 'measure') {
-          // Measure tool - start measurement on mousedown
-          mouseState.isDragging = true; // Mark as dragging for measure tool
-          canvas.style.cursor = 'crosshair';
+          // Measure tool - shift+drag = orbit, normal drag = measure
+          if (e.shiftKey) {
+            // Shift pressed: allow orbit (not pan)
+            // Mouse positions already initialized at start of mousedown handler
+            mouseState.isPanning = false;
+            canvas.style.cursor = 'grabbing';
+            // Don't return early - fall through to allow orbit handling in mousemove
+          } else {
+            // Normal drag: start measurement
+            mouseState.isDragging = true; // Mark as dragging for measure tool
+            canvas.style.cursor = 'crosshair';
 
-          // Raycast to get start point
-          const result = renderer.raycastScene(x, y, {
-            hiddenIds: hiddenEntitiesRef.current,
-            isolatedIds: isolatedEntitiesRef.current,
-            snapOptions: snapEnabled ? {} : undefined,
-          });
+            // Calculate canvas coordinates
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
 
-          if (result) {
-            const snapPoint = result.snap || result.intersection;
-            const measurePoint: MeasurePoint = {
-              x: snapPoint.position.x,
-              y: snapPoint.position.y,
-              z: snapPoint.position.z,
-              screenX: e.clientX,
-              screenY: e.clientY,
-            };
+            // Raycast to get start point
+            const result = renderer.raycastScene(x, y, {
+              hiddenIds: hiddenEntitiesRef.current,
+              isolatedIds: isolatedEntitiesRef.current,
+              snapOptions: snapEnabled ? {} : undefined,
+            });
 
-            startMeasurement(measurePoint);
-            if (result.snap) {
-              setSnapTarget(result.snap);
+            if (result) {
+              const snapPoint = result.snap || result.intersection;
+              // Normalize position access: SnapTarget has 'position', Intersection has 'point'
+              const pos = 'position' in snapPoint ? snapPoint.position : snapPoint.point;
+              const measurePoint: MeasurePoint = {
+                x: pos.x,
+                y: pos.y,
+                z: pos.z,
+                screenX: x, // Use canvas-relative coordinates
+                screenY: y,
+              };
+
+              startMeasurement(measurePoint);
+              if (result.snap) {
+                setSnapTarget(result.snap);
+              }
             }
+            return; // Early return for measure tool (non-shift)
           }
-          return; // Early return for measure tool
         } else {
           // Default behavior
           mouseState.isPanning = e.shiftKey;
@@ -506,51 +539,63 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
         // Handle measure tool live preview while dragging
         // IMPORTANT: Check tool first, not activeMeasurement, to prevent orbit conflict
         if (tool === 'measure' && mouseState.isDragging) {
-          // Only raycast if we have an active measurement
-          if (!activeMeasurementRef.current) {
-            // Just started dragging, measurement will be set soon
-            // Don't do anything yet to avoid race condition
+          // Shift+drag: allow orbit instead of measurement
+          if (e.shiftKey) {
+            // Cancel any active measurement and allow orbit
+            if (activeMeasurementRef.current) {
+              cancelMeasurement();
+            }
+            // Fall through to orbit handling below
+          } else {
+            // Normal measure tool drag
+            // Only raycast if we have an active measurement
+            if (!activeMeasurementRef.current) {
+              // Just started dragging, measurement will be set soon
+              // Don't do anything yet to avoid race condition
+              return;
+            }
+
+            // Throttle raycasting to 60fps max using requestAnimationFrame
+            if (!measureRaycastPendingRef.current) {
+              measureRaycastPendingRef.current = true;
+
+              measureRaycastFrameRef.current = requestAnimationFrame(() => {
+                measureRaycastPendingRef.current = false;
+                measureRaycastFrameRef.current = null;
+
+                // Raycast to get current position
+                const result = renderer.raycastScene(x, y, {
+                  hiddenIds: hiddenEntitiesRef.current,
+                  isolatedIds: isolatedEntitiesRef.current,
+                  snapOptions: snapEnabledRef.current ? {} : undefined,
+                });
+
+                if (result) {
+                  const snapPoint = result.snap || result.intersection;
+                  // Normalize position access: SnapTarget has 'position', Intersection has 'point'
+                  const pos = 'position' in snapPoint ? snapPoint.position : snapPoint.point;
+                  const measurePoint: MeasurePoint = {
+                    x: pos.x,
+                    y: pos.y,
+                    z: pos.z,
+                    screenX: x, // Use canvas-relative coordinates
+                    screenY: y,
+                  };
+
+                  updateMeasurement(measurePoint);
+                  setSnapTarget(result.snap || null);
+                }
+              });
+            }
+
+            // Mark as dragged (any movement counts for measure tool)
+            mouseState.didDrag = true;
             return;
           }
-
-          // Throttle raycasting to 60fps max using requestAnimationFrame
-          if (!measureRaycastPendingRef.current) {
-            measureRaycastPendingRef.current = true;
-
-            measureRaycastFrameRef.current = requestAnimationFrame(() => {
-              measureRaycastPendingRef.current = false;
-              measureRaycastFrameRef.current = null;
-
-              // Raycast to get current position
-              const result = renderer.raycastScene(x, y, {
-                hiddenIds: hiddenEntitiesRef.current,
-                isolatedIds: isolatedEntitiesRef.current,
-                snapOptions: snapEnabledRef.current ? {} : undefined,
-              });
-
-              if (result) {
-                const snapPoint = result.snap || result.intersection;
-                const measurePoint: MeasurePoint = {
-                  x: snapPoint.position.x,
-                  y: snapPoint.position.y,
-                  z: snapPoint.position.z,
-                  screenX: e.clientX,
-                  screenY: e.clientY,
-                };
-
-                updateMeasurement(measurePoint);
-                setSnapTarget(result.snap || null);
-              }
-            });
-          }
-
-          // Mark as dragged (any movement counts for measure tool)
-          mouseState.didDrag = true;
-          return;
         }
 
-        // Handle orbit/pan for other tools (NOT measure tool)
-        if (mouseState.isDragging && tool !== 'measure') {
+        // Handle orbit/pan for other tools (or measure tool with shift)
+        if (mouseState.isDragging && (tool !== 'measure' || e.shiftKey)) {
           const dx = e.clientX - mouseState.lastX;
           const dy = e.clientY - mouseState.lastY;
 

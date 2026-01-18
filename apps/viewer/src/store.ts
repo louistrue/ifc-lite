@@ -193,6 +193,7 @@ interface ViewerState {
   cancelMeasurement: () => void;
   deleteMeasurement: (id: string) => void;
   clearMeasurements: () => void;
+  updateMeasurementScreenCoords: (projectToScreen: (worldPos: { x: number; y: number; z: number }) => { x: number; y: number } | null) => void;
 
   // Snap actions
   setSnapTarget: (target: SnapTarget | null) => void;
@@ -555,6 +556,51 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     pendingMeasurePoint: null,
     activeMeasurement: null,
     snapTarget: null,
+  }),
+  updateMeasurementScreenCoords: (projectToScreen) => set((state) => {
+    // Update completed measurements
+    const updatedMeasurements = state.measurements.map((m) => {
+      const startScreen = projectToScreen(m.start);
+      const endScreen = projectToScreen(m.end);
+      return {
+        ...m,
+        start: {
+          ...m.start,
+          screenX: startScreen?.x ?? m.start.screenX,
+          screenY: startScreen?.y ?? m.start.screenY,
+        },
+        end: {
+          ...m.end,
+          screenX: endScreen?.x ?? m.end.screenX,
+          screenY: endScreen?.y ?? m.end.screenY,
+        },
+      };
+    });
+
+    // Update active measurement if it exists
+    let updatedActiveMeasurement = state.activeMeasurement;
+    if (state.activeMeasurement) {
+      const startScreen = projectToScreen(state.activeMeasurement.start);
+      const currentScreen = projectToScreen(state.activeMeasurement.current);
+      updatedActiveMeasurement = {
+        ...state.activeMeasurement,
+        start: {
+          ...state.activeMeasurement.start,
+          screenX: startScreen?.x ?? state.activeMeasurement.start.screenX,
+          screenY: startScreen?.y ?? state.activeMeasurement.start.screenY,
+        },
+        current: {
+          ...state.activeMeasurement.current,
+          screenX: currentScreen?.x ?? state.activeMeasurement.current.screenX,
+          screenY: currentScreen?.y ?? state.activeMeasurement.current.screenY,
+        },
+      };
+    }
+
+    return {
+      measurements: updatedMeasurements,
+      activeMeasurement: updatedActiveMeasurement,
+    };
   }),
 
   // Snap actions
