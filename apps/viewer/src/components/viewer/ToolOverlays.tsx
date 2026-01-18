@@ -452,11 +452,47 @@ function SnapIndicator({ screenX, screenY, snapType }: SnapIndicatorProps) {
 
   const color = snapColors[snapType];
 
-  // Flip label to left if too close to right edge (avoid right panel)
+  // Smart positioning: avoid all panels and screen edges
   const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
-  const isNearRightEdge = screenX > windowWidth - 350; // 350px for right panel + margin
-  const labelTransform = isNearRightEdge ? 'translateX(-100%)' : 'translateX(-50%)';
-  const labelLeft = isNearRightEdge ? screenX - 10 : screenX;
+  const windowHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
+
+  const labelWidth = 60; // Approximate width of label
+  const labelHeight = 24; // Approximate height of label
+  const offset = 20; // Distance from cursor (closer than before)
+  const panelMargin = 320; // Right panel width + margin
+  const topMargin = 80; // Top margin (for top panel)
+  const bottomMargin = 100; // Bottom margin (for bottom controls)
+
+  // Check boundaries
+  const isNearRightEdge = screenX > windowWidth - panelMargin;
+  const isNearLeftEdge = screenX < labelWidth + 20;
+  const isNearTop = screenY < topMargin;
+  const isNearBottom = screenY > windowHeight - bottomMargin;
+
+  // Smart position calculation
+  let labelX = screenX;
+  let labelY = screenY - offset; // Default: above cursor, closer than before
+  let transformX = '-50%'; // Default: centered
+
+  // Horizontal positioning
+  if (isNearRightEdge) {
+    // Too close to right panel - position to left of cursor
+    labelX = screenX - offset - 10;
+    transformX = '-100%';
+  } else if (isNearLeftEdge) {
+    // Too close to left edge - position to right of cursor
+    labelX = screenX + offset + 10;
+    transformX = '0%';
+  }
+
+  // Vertical positioning
+  if (isNearTop) {
+    // Too close to top - position below cursor
+    labelY = screenY + offset + 10;
+  } else if (isNearBottom) {
+    // Too close to bottom - keep above but adjust
+    labelY = screenY - offset - 5;
+  }
 
   return (
     <>
@@ -514,13 +550,13 @@ function SnapIndicator({ screenX, screenY, snapType }: SnapIndicatorProps) {
         )}
       </svg>
 
-      {/* Snap type label - flips to left side when near right edge */}
+      {/* Snap type label - smart positioning to avoid all panels and edges */}
       <div
-        className="absolute pointer-events-none z-25 text-xs font-semibold px-2 py-0.5 rounded shadow-lg"
+        className="absolute pointer-events-none z-25 text-xs font-semibold px-2 py-0.5 rounded shadow-lg transition-all duration-150"
         style={{
-          left: labelLeft,
-          top: screenY - 35,
-          transform: labelTransform,
+          left: labelX,
+          top: labelY,
+          transform: `translateX(${transformX})`,
           backgroundColor: color,
           color: '#000',
         }}
