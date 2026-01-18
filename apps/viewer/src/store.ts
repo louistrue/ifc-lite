@@ -133,6 +133,7 @@ interface ViewerState {
   setIfcDataStore: (result: IfcDataStore | null) => void;
   setGeometryResult: (result: GeometryResult | null) => void;
   appendGeometryBatch: (meshes: GeometryResult['meshes'], coordinateInfo?: CoordinateInfo) => void;
+  updateMeshColors: (updates: Map<number, [number, number, number, number]>) => void;
   updateCoordinateInfo: (coordinateInfo: CoordinateInfo) => void;
   setSelectedEntityId: (id: number | null) => void;
   toggleStoreySelection: (id: number) => void;
@@ -284,6 +285,23 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
         totalTriangles,
         totalVertices,
         coordinateInfo: coordinateInfo || state.geometryResult.coordinateInfo,
+      },
+    };
+  }),
+  updateMeshColors: (updates) => set((state) => {
+    if (!state.geometryResult) return {};
+    // Update colors for meshes with matching expressIds
+    const updatedMeshes = state.geometryResult.meshes.map(mesh => {
+      const newColor = updates.get(mesh.expressId);
+      if (newColor) {
+        return { ...mesh, color: newColor };
+      }
+      return mesh;
+    });
+    return {
+      geometryResult: {
+        ...state.geometryResult,
+        meshes: updatedMeshes,
       },
     };
   }),

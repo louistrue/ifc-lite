@@ -1,0 +1,59 @@
+{
+  "O-S1-BWK-BIM architectural - BIM bouwkundig.ifc": {
+    "timestamp": "2026-01-18T22:00:00.000Z",
+    "metrics": {
+      "modelOpenMs": 4602,
+      "firstBatchWaitMs": 1004,
+      "firstBatchNumber": 1,
+      "firstBatchMeshes": 500,
+      "totalBatches": 34,
+      "totalMeshes": 16484,
+      "geometryStreamingMs": 4820,
+      "wasmWaitMs": 4820,
+      "jsProcessMs": 19,
+      "entityScanMs": 2903,
+      "entityCount": 4411807,
+      "dataModelParseMs": null,
+      "dataModelEntityCount": null,
+      "fileSizeMB": 326.78
+    }
+  },
+  "ISSUE_053_20181220Holter_Tower_10.ifc": {
+    "timestamp": "2026-01-18T22:00:00.000Z",
+    "metrics": {
+      "modelOpenMs": 2626,
+      "firstBatchWaitMs": 504,
+      "firstBatchNumber": 1,
+      "firstBatchMeshes": 500,
+      "totalBatches": 122,
+      "totalMeshes": 60889,
+      "geometryStreamingMs": 4083,
+      "wasmWaitMs": 4083,
+      "jsProcessMs": 77,
+      "entityScanMs": 1792,
+      "entityCount": 2807815,
+      "dataModelParseMs": 9429,
+      "dataModelEntityCount": 2807815,
+      "fileSizeMB": 169.24
+    }
+  },
+  "01_Snowdon_Towers_Sample_Structural(1).ifc": {
+    "timestamp": "2026-01-18T22:00:00.000Z",
+    "metrics": {
+      "modelOpenMs": 200,
+      "firstBatchWaitMs": 40,
+      "firstBatchNumber": 1,
+      "firstBatchMeshes": 100,
+      "totalBatches": 16,
+      "totalMeshes": 1516,
+      "geometryStreamingMs": 320,
+      "wasmWaitMs": 320,
+      "jsProcessMs": 2,
+      "entityScanMs": 130,
+      "entityCount": 147142,
+      "dataModelParseMs": 580,
+      "dataModelEntityCount": 147142,
+      "fileSizeMB": 8.31
+    }
+  }
+}

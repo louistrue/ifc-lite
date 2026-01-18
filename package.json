@@ -23,7 +23,10 @@
     "publish:npm": "pnpm -r publish --access public",
     "publish:dry": "pnpm -r publish --access public --dry-run",
     "test:benchmark": "playwright test tests/benchmark/benchmark.spec.ts",
-    "test:benchmark:headed": "playwright test tests/benchmark/benchmark.spec.ts --headed"
+    "test:benchmark:headed": "playwright test tests/benchmark/benchmark.spec.ts --headed",
+    "test:benchmark:viewer": "playwright test tests/benchmark/viewer-benchmark.spec.ts --project=viewer-benchmark --workers=3",
+    "test:benchmark:viewer:headed": "playwright test tests/benchmark/viewer-benchmark.spec.ts --project=viewer-benchmark --headed --workers=3",
+    "test:benchmark:viewer:ci": "playwright test tests/benchmark/viewer-benchmark.spec.ts --project=viewer-benchmark --reporter=json --workers=3"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.5.2",

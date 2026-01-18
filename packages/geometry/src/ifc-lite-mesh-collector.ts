@@ -32,7 +32,12 @@ export interface StreamingCompleteEvent {
   };
 }
 
-export type StreamingEvent = StreamingBatchEvent | StreamingCompleteEvent;
+export interface StreamingColorUpdateEvent {
+  type: 'colorUpdate';
+  updates: Map<number, [number, number, number, number]>;
+}
+
+export type StreamingEvent = StreamingBatchEvent | StreamingCompleteEvent | StreamingColorUpdateEvent;
 
 export class IfcLiteMeshCollector {
   private ifcApi: IfcAPI;
@@ -124,26 +129,46 @@ export class IfcLiteMeshCollector {
    * Uses fast-first-frame streaming: simple geometry (walls, slabs) first
    * @param batchSize Number of meshes per batch (default: 25 for faster first frame)
    */
-  async *collectMeshesStreaming(batchSize: number = 25): AsyncGenerator<MeshData[]> {
+  async *collectMeshesStreaming(batchSize: number = 25): AsyncGenerator<MeshData[] | StreamingColorUpdateEvent> {
     // Queue to hold batches produced by async callback
-    const batchQueue: MeshData[][] = [];
+    const batchQueue: (MeshData[] | StreamingColorUpdateEvent)[] = [];
     let resolveWaiting: (() => void) | null = null;
     let isComplete = false;
+    // Map to store color updates for pending batches
+    const colorUpdates = new Map<number, [number, number, number, number]>();
 
     // Start async processing
+    // NOTE: WASM now automatically defers style building for faster first frame
     const processingPromise = this.ifcApi.parseMeshesAsync(this.content, {
       batchSize,
+      onColorUpdate: (updates: Map<number, [number, number, number, number]>) => {
+        // Store color updates
+        for (const [expressId, color] of updates) {
+          colorUpdates.set(expressId, color);
+        }
+        // Emit color update event
+        batchQueue.push({
+          type: 'colorUpdate',
+          updates: new Map(updates),
+        });
+        // Wake up the generator if it's waiting
+        if (resolveWaiting) {
+          resolveWaiting();
+          resolveWaiting = null;
+        }
+      },
       onBatch: (meshes: MeshDataJs[], _progress: StreamingProgress) => {
         // Convert WASM meshes to MeshData[]
         const convertedBatch: MeshData[] = [];
 
         for (const mesh of meshes) {
-          const colorArray = mesh.color;
-          const color: [number, number, number, number] = [
-            colorArray[0],
-            colorArray[1],
-            colorArray[2],
-            colorArray[3],
+          // Use updated color if available, otherwise use mesh color
+          const expressId = mesh.expressId;
+          const color: [number, number, number, number] = colorUpdates.get(expressId) ?? [
+            mesh.color[0],
+            mesh.color[1],
+            mesh.color[2],
+            mesh.color[3],
           ];
 
           // Capture arrays once
@@ -156,7 +181,7 @@ export class IfcLiteMeshCollector {
           this.convertZUpToYUp(normals);
 
           convertedBatch.push({
-            expressId: mesh.expressId,
+            expressId,
             ifcType: mesh.ifcType,
             positions,
             normals,

@@ -9,7 +9,7 @@
 
 // IFC-Lite components (recommended - faster)
 export { IfcLiteBridge } from './ifc-lite-bridge.js';
-export { IfcLiteMeshCollector } from './ifc-lite-mesh-collector.js';
+export { IfcLiteMeshCollector, type StreamingColorUpdateEvent } from './ifc-lite-mesh-collector.js';
 
 // Support components
 export { BufferBuilder } from './buffer-builder.js';
@@ -89,6 +89,7 @@ export type StreamingGeometryEvent =
   | { type: 'start'; totalEstimate: number }
   | { type: 'model-open'; modelID: number }
   | { type: 'batch'; meshes: MeshData[]; totalSoFar: number; coordinateInfo?: import('./types.js').CoordinateInfo }
+  | { type: 'colorUpdate'; updates: Map<number, [number, number, number, number]> }
   | { type: 'complete'; totalMeshes: number; coordinateInfo: import('./types.js').CoordinateInfo };
 
 export type StreamingInstancedGeometryEvent =
@@ -258,7 +259,15 @@ export class GeometryProcessor {
     const wasmBatchSize = fileSizeMB < 10 ? 100 : fileSizeMB < 50 ? 200 : fileSizeMB < 100 ? 300 : 500;
 
     // Use WASM batches directly for maximum throughput
-    for await (const batch of collector.collectMeshesStreaming(wasmBatchSize)) {
+    for await (const item of collector.collectMeshesStreaming(wasmBatchSize)) {
+      // Handle color update events
+      if (item && typeof item === 'object' && 'type' in item && (item as StreamingColorUpdateEvent).type === 'colorUpdate') {
+        yield { type: 'colorUpdate', updates: (item as StreamingColorUpdateEvent).updates };
+        continue;
+      }
+
+      // Handle mesh batches
+      const batch = item as MeshData[];
       // Process coordinate shifts incrementally (will accumulate bounds)
       this.coordinateHandler.processMeshesIncremental(batch);
       totalMeshes += batch.length;
@@ -412,6 +421,16 @@ export class GeometryProcessor {
       // processStreaming will emit its own start and model-open events
       yield* this.processStreaming(buffer, options.entityIndex, batchConfig);
     }
+  }
+
+  /**
+   * Get the WASM API instance for advanced operations (e.g., entity scanning)
+   */
+  getApi() {
+    if (!this.bridge.isInitialized()) {
+      return null;
+    }
+    return this.bridge.getApi();
   }
 
   /**

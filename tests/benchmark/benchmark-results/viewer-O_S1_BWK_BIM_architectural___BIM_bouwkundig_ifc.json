@@ -1,0 +1,25 @@
+{
+  "file": "O-S1-BWK-BIM architectural - BIM bouwkundig.ifc",
+  "sizeMB": 326.78,
+  "timestamp": "2026-01-18T20:48:23.711Z",
+  "metrics": {
+    "modelOpenMs": 4602,
+    "firstBatchWaitMs": 1004,
+    "firstBatchNumber": 1,
+    "firstBatchMeshes": 500,
+    "totalBatches": 34,
+    "totalMeshes": 16484,
+    "geometryStreamingMs": 4820,
+    "wasmWaitMs": 4820,
+    "jsProcessMs": 19,
+    "entityScanMs": 2903,
+    "entityCount": 4411807,
+    "dataModelParseMs": null,
+    "dataModelEntityCount": null,
+    "fileSizeMB": 326.78
+  },
+  "thresholds": {
+    "passed": true,
+    "violations": []
+  }
+}

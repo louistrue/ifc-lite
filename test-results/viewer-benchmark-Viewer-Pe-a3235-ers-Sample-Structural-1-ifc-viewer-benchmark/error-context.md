@@ -1,0 +1,199 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - button [ref=e5]:
+      - img
+    - button [ref=e6]:
+      - img
+    - button [ref=e7]:
+      - img
+    - button [ref=e8]:
+      - img
+    - button [ref=e9]:
+      - img
+    - button [ref=e10]:
+      - img
+    - button [ref=e11]:
+      - img
+    - button [ref=e12]:
+      - img
+    - button [disabled]:
+      - img
+    - button [disabled]:
+      - img
+    - button [ref=e13]:
+      - img
+    - button [ref=e14]:
+      - img
+    - button [ref=e15]:
+      - img
+    - button [ref=e16]:
+      - img
+    - button [ref=e17]:
+      - img
+    - button [disabled]:
+      - img
+    - button [ref=e18]:
+      - img
+    - button [ref=e19]:
+      - img
+    - button [ref=e20]:
+      - img
+  - generic [ref=e21]:
+    - generic [ref=e25]:
+      - generic [ref=e26]:
+        - heading "Hierarchy" [level=2] [ref=e27]
+        - generic [ref=e28]:
+          - img [ref=e30]
+          - textbox "Search..." [ref=e33]
+      - generic [ref=e35]:
+        - generic [ref=e37] [cursor=pointer]:
+          - button [ref=e38]:
+            - img [ref=e39]
+          - button [ref=e41]:
+            - img [ref=e42]
+          - img [ref=e45]
+          - generic [ref=e47]: 7765328-33-S
+        - generic [ref=e49] [cursor=pointer]:
+          - button [ref=e50]:
+            - img [ref=e51]
+          - button [ref=e53]:
+            - img [ref=e54]
+          - img [ref=e57]
+          - generic [ref=e61]: Elevator Pit
+          - generic [ref=e62]: "166"
+        - generic [ref=e64] [cursor=pointer]:
+          - button [ref=e65]:
+            - img [ref=e66]
+          - button [ref=e68]:
+            - img [ref=e69]
+          - img [ref=e72]
+          - generic [ref=e76]: Parking
+          - generic [ref=e77]: "122"
+        - generic [ref=e79] [cursor=pointer]:
+          - button [ref=e80]:
+            - img [ref=e81]
+          - button [ref=e83]:
+            - img [ref=e84]
+          - img [ref=e87]
+          - generic [ref=e91]: L1_35_Low
+          - generic [ref=e92]: "24"
+        - generic [ref=e94] [cursor=pointer]:
+          - button [ref=e95]:
+            - img [ref=e96]
+          - button [ref=e98]:
+            - img [ref=e99]
+          - img [ref=e102]
+          - generic [ref=e106]: L1_37_Med
+          - generic [ref=e107]: "43"
+        - generic [ref=e109] [cursor=pointer]:
+          - button [ref=e110]:
+            - img [ref=e111]
+          - button [ref=e113]:
+            - img [ref=e114]
+          - img [ref=e117]
+          - generic [ref=e121]: L1_43_High
+          - generic [ref=e122]: "47"
+        - generic [ref=e124] [cursor=pointer]:
+          - button [ref=e125]:
+            - img [ref=e126]
+          - button [ref=e128]:
+            - img [ref=e129]
+          - img [ref=e132]
+          - generic [ref=e136]: M1
+          - generic [ref=e137]: "42"
+        - generic [ref=e139] [cursor=pointer]:
+          - button [ref=e140]:
+            - img [ref=e141]
+          - button [ref=e143]:
+            - img [ref=e144]
+          - img [ref=e147]
+          - generic [ref=e151]: L2
+          - generic [ref=e152]: "101"
+        - generic [ref=e154] [cursor=pointer]:
+          - button [ref=e155]:
+            - img [ref=e156]
+          - button [ref=e158]:
+            - img [ref=e159]
+          - img [ref=e162]
+          - generic [ref=e166]: L3
+          - generic [ref=e167]: "105"
+        - generic [ref=e169] [cursor=pointer]:
+          - button [ref=e170]:
+            - img [ref=e171]
+          - button [ref=e173]:
+            - img [ref=e174]
+          - img [ref=e177]
+          - generic [ref=e181]: L4
+          - generic [ref=e182]: "101"
+        - generic [ref=e184] [cursor=pointer]:
+          - button [ref=e185]:
+            - img [ref=e186]
+          - button [ref=e188]:
+            - img [ref=e189]
+          - img [ref=e192]
+          - generic [ref=e196]: L5
+          - generic [ref=e197]: "95"
+        - generic [ref=e199] [cursor=pointer]:
+          - button [ref=e200]:
+            - img [ref=e201]
+          - button [ref=e203]:
+            - img [ref=e204]
+          - img [ref=e207]
+          - generic [ref=e211]: R2
+          - generic [ref=e212]: "7"
+        - generic [ref=e214] [cursor=pointer]:
+          - button [ref=e215]:
+            - img [ref=e216]
+          - button [ref=e218]:
+            - img [ref=e219]
+          - img [ref=e222]
+          - generic [ref=e226]: Parapet 2
+          - generic [ref=e227]: "26"
+      - generic [ref=e228]: Click to filter · Shift range · Ctrl toggle
+    - separator [ref=e229]
+    - generic [ref=e233]:
+      - generic [ref=e235]:
+        - button [ref=e236]:
+          - img
+        - button [ref=e237]:
+          - img
+        - button [ref=e238]:
+          - img
+      - generic [ref=e241]:
+        - button "FRONT" [ref=e242] [cursor=pointer]
+        - button "BACK" [ref=e243] [cursor=pointer]
+        - button "TOP" [ref=e244] [cursor=pointer]
+        - button "BTM" [ref=e245] [cursor=pointer]
+        - button "RIGHT" [ref=e246] [cursor=pointer]
+        - button "LEFT" [ref=e247] [cursor=pointer]
+      - generic [ref=e250]:
+        - generic [ref=e252]: X
+        - generic [ref=e254]: Z
+        - generic [ref=e256]: "Y"
+      - generic [ref=e260]: 10.0m
+    - separator [ref=e261]
+    - generic [ref=e265]:
+      - heading "Properties" [level=2] [ref=e267]
+      - generic [ref=e268]:
+        - img [ref=e270]
+        - paragraph [ref=e272]: No Selection
+        - paragraph [ref=e273]: Select an element to view details
+  - generic [ref=e274]:
+    - generic [ref=e276]: Ready
+    - generic [ref=e277]:
+      - generic [ref=e278]:
+        - img [ref=e279]
+        - generic [ref=e289]: 1.5K elements
+      - generic [ref=e290]:
+        - img [ref=e291]
+        - generic [ref=e293]: 658.9K tris
+    - generic [ref=e294]:
+      - generic [ref=e295]: 61 FPS
+      - generic [ref=e296]: 32 MB
+      - generic [ref=e297]:
+        - img [ref=e298]
+        - generic [ref=e301]: WebGPU
+```

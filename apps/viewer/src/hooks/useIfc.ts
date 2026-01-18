@@ -220,6 +220,7 @@ export function useIfc() {
     setIfcDataStore,
     setGeometryResult,
     appendGeometryBatch,
+    updateMeshColors,
     updateCoordinateInfo,
   } = useViewerStore();
 
@@ -1356,7 +1357,10 @@ export function useIfc() {
 
       const startDataModelParsing = () => {
         const parser = new IfcParser();
+        // Get WASM API from geometry processor for accelerated entity scanning
+        const wasmApi = geometryProcessor.getApi();
         parser.parseColumnar(buffer, {
+          wasmApi, // Pass WASM API for 5-10x faster entity scanning
           onProgress: (prog) => {
             // Only log at key milestones to avoid console spam
             if (prog.percent === 0 || prog.percent === 50 || prog.percent === 100) {
@@ -1424,6 +1428,11 @@ export function useIfc() {
               setProgress({ phase: 'Processing geometry', percent: 50 });
               console.log(`[useIfc] Model opened at ${(eventReceived - processingStart).toFixed(0)}ms`);
               break;
+            case 'colorUpdate': {
+              // Update colors for already-rendered meshes
+              updateMeshColors(event.updates);
+              break;
+            }
             case 'batch': {
               batchCount++;
               totalWaitTime += waitTime;

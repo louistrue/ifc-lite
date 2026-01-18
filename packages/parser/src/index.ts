@@ -54,6 +54,7 @@ import { ColumnarParser, type IfcDataStore } from './columnar-parser.js';
 
 export interface ParseOptions {
   onProgress?: (progress: { phase: string; percent: number }) => void;
+  wasmApi?: any; // Optional IfcAPI instance for WASM-accelerated entity scanning
 }
 
 /**
@@ -148,33 +149,69 @@ export class IfcParser {
 
     console.log(`[IfcParser] Parsing ${fileSizeMB.toFixed(1)}MB file with on-demand property extraction`);
 
-    // Fast scan: uses semicolon-based scanning (~5-10x faster than full extraction)
+    // Fast scan: try WASM scanner first (5-10x faster), fallback to TypeScript
     options.onProgress?.({ phase: 'scanning', percent: 0 });
-    const tokenizer = new StepTokenizer(uint8Buffer);
-
-    const entityRefs: EntityRef[] = [];
+    
+    let entityRefs: EntityRef[] = [];
     let processed = 0;
-    // Yield frequently to avoid blocking geometry streaming
-    // Reduced from 50000 to 5000 for better interleaving with geometry processor
-    const YIELD_INTERVAL = 5000;
-    // Estimate total entities based on file size (~13,500 entities per MB typical for IFC)
-    const estimatedTotalEntities = Math.max(fileSizeMB * 13500, 10000);
+    
+    // Try WASM scanner if available
+    if (options.wasmApi && typeof options.wasmApi.scanEntitiesFast === 'function') {
+      try {
+        const decoder = new TextDecoder();
+        const content = decoder.decode(buffer);
+        const wasmRefs = options.wasmApi.scanEntitiesFast(content) as Array<{
+          express_id: number;
+          entity_type: string;
+          byte_offset: number;
+          byte_length: number;
+          line_number: number;
+        }>;
+        
+        // Direct mapping - optimized by JS engine, no intermediate loop/push
+        entityRefs = wasmRefs.map((ref) => ({
+          expressId: ref.express_id,
+          type: ref.entity_type,
+          byteOffset: ref.byte_offset,
+          byteLength: ref.byte_length,
+          lineNumber: ref.line_number,
+        }));
+        
+        processed = entityRefs.length;
+        console.log(`[IfcParser] WASM scan: ${processed} entities`);
+      } catch (error) {
+        console.warn('[IfcParser] WASM scan failed, falling back to TypeScript:', error);
+        // Fall through to TypeScript scanner
+        entityRefs.length = 0;
+        processed = 0;
+      }
+    }
+    
+    // Fallback to TypeScript scanner if WASM not available or failed
+    if (entityRefs.length === 0) {
+      const tokenizer = new StepTokenizer(uint8Buffer);
+      // Yield frequently to avoid blocking geometry streaming
+      // Reduced from 50000 to 5000 for better interleaving with geometry processor
+      const YIELD_INTERVAL = 5000;
+      // Estimate total entities based on file size (~13,500 entities per MB typical for IFC)
+      const estimatedTotalEntities = Math.max(fileSizeMB * 13500, 10000);
 
-    for (const ref of tokenizer.scanEntitiesFast()) {
-      entityRefs.push({
-        expressId: ref.expressId,
-        type: ref.type,
-        byteOffset: ref.offset,
-        byteLength: ref.length,
-        lineNumber: ref.line,
-      });
+      for (const ref of tokenizer.scanEntitiesFast()) {
+        entityRefs.push({
+          expressId: ref.expressId,
+          type: ref.type,
+          byteOffset: ref.offset,
+          byteLength: ref.length,
+          lineNumber: ref.line,
+        });
 
-      processed++;
-      if (processed % YIELD_INTERVAL === 0) {
-        // Progress capped at 95% (scanning phase), 100% reported after loop completes
-        const scanPercent = Math.min(95, (processed / estimatedTotalEntities) * 95);
-        options.onProgress?.({ phase: 'scanning', percent: scanPercent });
-        await new Promise(resolve => setTimeout(resolve, 0));
+        processed++;
+        if (processed % YIELD_INTERVAL === 0) {
+          // Progress capped at 95% (scanning phase), 100% reported after loop completes
+          const scanPercent = Math.min(95, (processed / estimatedTotalEntities) * 95);
+          options.onProgress?.({ phase: 'scanning', percent: scanPercent });
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
       }
     }
 
