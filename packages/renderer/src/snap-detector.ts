@@ -220,19 +220,22 @@ export class SnapDetector {
     const targets: SnapTarget[] = [];
     const cache = this.getGeometryCache(mesh);
 
+    // Use larger radius for edges - easier to catch, more forgiving
+    const edgeRadius = radius * 1.5;
+
     // Find edges near point using cached data
     for (const edge of cache.edges) {
       const closestPoint = this.raycaster.closestPointOnSegment(point, edge.v0, edge.v1);
       const dist = this.distance(closestPoint, point);
 
-      if (dist < radius) {
-        // Edge snap - prioritize for smooth sliding
-        // Use higher confidence to make cursor slide smoothly along edge
+      if (dist < edgeRadius) {
+        // Edge snap - HIGHEST priority for smooth sliding along edges
+        // Very high confidence ensures edges always win over vertices/faces
         targets.push({
           type: SnapType.EDGE,
           position: closestPoint,
           expressId: mesh.expressId,
-          confidence: 0.95 * (1.0 - dist / radius), // Increased from 0.8 for smoother sliding
+          confidence: 0.99 * (1.0 - dist / edgeRadius), // Maximum priority for edges
           metadata: { vertices: [edge.v0, edge.v1], edgeIndex: edge.index },
         });
 

@@ -7,7 +7,7 @@
  */
 
 import React, { useCallback, useMemo, useState, useEffect } from 'react';
-import { X, Trash2, Ruler, Slice } from 'lucide-react';
+import { X, Trash2, Ruler, Slice, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useViewerStore, type Measurement } from '@/store';
 import { SnapType } from '@ifc-lite/renderer';
@@ -40,6 +40,8 @@ function MeasureOverlay() {
 
   // Track cursor position for snap indicators
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
+  // Panel collapsed by default for minimal UI
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState(true);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -61,52 +63,67 @@ function MeasureOverlay() {
     deleteMeasurement(id);
   }, [deleteMeasurement]);
 
+  const togglePanel = useCallback(() => {
+    setIsPanelCollapsed(prev => !prev);
+  }, []);
+
   // Calculate total distance
   const totalDistance = measurements.reduce((sum, m) => sum + m.distance, 0);
 
   return (
     <>
-      {/* Measure Tool Panel */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-background/95 backdrop-blur-sm rounded-lg border shadow-lg p-3 min-w-64 z-30">
-        <div className="flex items-center justify-between gap-4 mb-3">
-          <div className="flex items-center gap-2">
+      {/* Compact Measure Tool Panel */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-background/95 backdrop-blur-sm rounded-lg border shadow-lg z-30">
+        {/* Header - always visible */}
+        <div className="flex items-center justify-between gap-2 p-2">
+          <button
+            onClick={togglePanel}
+            className="flex items-center gap-2 hover:bg-accent/50 rounded px-2 py-1 transition-colors"
+          >
             <Ruler className="h-4 w-4 text-primary" />
-            <span className="font-medium text-sm">Measure Tool</span>
-          </div>
+            <span className="font-medium text-sm">Measure</span>
+            {measurements.length > 0 && !isPanelCollapsed && (
+              <span className="text-xs text-muted-foreground">({measurements.length})</span>
+            )}
+            <ChevronDown className={`h-3 w-3 transition-transform ${isPanelCollapsed ? '-rotate-90' : ''}`} />
+          </button>
           <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon-sm" onClick={handleClear} title="Clear all">
-              <Trash2 className="h-4 w-4" />
-            </Button>
+            {measurements.length > 0 && (
+              <Button variant="ghost" size="icon-sm" onClick={handleClear} title="Clear all">
+                <Trash2 className="h-3 w-3" />
+              </Button>
+            )}
             <Button variant="ghost" size="icon-sm" onClick={handleClose} title="Close">
-              <X className="h-4 w-4" />
+              <X className="h-3 w-3" />
             </Button>
           </div>
         </div>
 
-        <div className="text-xs text-muted-foreground mb-3">
-          Drag on the model to measure distance
-        </div>
-
-        {measurements.length > 0 ? (
-          <div className="space-y-2">
-            {measurements.map((m, i) => (
-              <MeasurementItem
-                key={m.id}
-                measurement={m}
-                index={i}
-                onDelete={handleDeleteMeasurement}
-              />
-            ))}
-            {measurements.length > 1 && (
-              <div className="flex items-center justify-between border-t pt-2 mt-2 text-sm font-medium">
-                <span>Total</span>
-                <span className="font-mono">{formatDistance(totalDistance)}</span>
+        {/* Expandable content */}
+        {!isPanelCollapsed && (
+          <div className="border-t px-2 pb-2 min-w-56">
+            {measurements.length > 0 ? (
+              <div className="space-y-1 mt-2">
+                {measurements.map((m, i) => (
+                  <MeasurementItem
+                    key={m.id}
+                    measurement={m}
+                    index={i}
+                    onDelete={handleDeleteMeasurement}
+                  />
+                ))}
+                {measurements.length > 1 && (
+                  <div className="flex items-center justify-between border-t pt-1 mt-1 text-xs font-medium">
+                    <span>Total</span>
+                    <span className="font-mono">{formatDistance(totalDistance)}</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-2 text-muted-foreground text-xs">
+                No measurements
               </div>
             )}
-          </div>
-        ) : (
-          <div className="text-center py-4 text-muted-foreground text-sm">
-            No measurements yet
           </div>
         )}
       </div>
@@ -160,16 +177,16 @@ interface MeasurementItemProps {
 
 function MeasurementItem({ measurement, index, onDelete }: MeasurementItemProps) {
   return (
-    <div className="flex items-center justify-between bg-muted/50 rounded px-2 py-1 text-sm">
-      <span className="text-muted-foreground">#{index + 1}</span>
-      <span className="font-mono">{formatDistance(measurement.distance)}</span>
+    <div className="flex items-center justify-between bg-muted/50 rounded px-2 py-0.5 text-xs">
+      <span className="text-muted-foreground text-xs">#{index + 1}</span>
+      <span className="font-mono font-medium">{formatDistance(measurement.distance)}</span>
       <Button
         variant="ghost"
         size="icon-sm"
-        className="h-5 w-5"
+        className="h-4 w-4 hover:bg-destructive/20"
         onClick={() => onDelete(measurement.id)}
       >
-        <X className="h-3 w-3" />
+        <X className="h-2.5 w-2.5" />
       </Button>
     </div>
   );
