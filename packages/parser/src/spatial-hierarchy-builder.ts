@@ -249,7 +249,7 @@ export class SpatialHierarchyBuilder {
 
   /**
    * Extract elevation from IfcBuildingStorey entity
-   * Elevation is typically in attribute index 8 (after GlobalId, OwnerHistory, Name, Description, ObjectType, etc.)
+   * Elevation is at attribute index 9 in IFC4 (after GlobalId, OwnerHistory, Name, Description, ObjectType, ObjectPlacement, Representation, LongName, CompositionType)
    */
   private extractElevation(
     expressId: number,
@@ -264,29 +264,34 @@ export class SpatialHierarchyBuilder {
       const entity = extractor.extractEntity(ref);
       if (!entity) return undefined;
 
-      // IfcBuildingStorey elevation is typically at index 8
-      // But it might vary, so try common indices
       const attrs = entity.attributes || [];
       
-      // Try index 8 first (most common)
-      if (attrs.length > 8 && typeof attrs[8] === 'number') {
-        return attrs[8];
+      // Helper to extract number from raw value or typed value like ['IFCLENGTHMEASURE', 3.0]
+      const extractNumber = (val: any): number | undefined => {
+        if (typeof val === 'number') return val;
+        if (Array.isArray(val) && val.length === 2 && typeof val[1] === 'number') {
+          return val[1]; // Typed value: ['IFCLENGTHMEASURE', 3.0]
+        }
+        return undefined;
+      };
+      
+      // Try index 9 first (correct index for IfcBuildingStorey.Elevation in IFC4)
+      if (attrs.length > 9) {
+        const elev = extractNumber(attrs[9]);
+        if (elev !== undefined) return elev;
       }
       
-      // Try index 7
-      if (attrs.length > 7 && typeof attrs[7] === 'number') {
-        return attrs[7];
-      }
-      
-      // Try index 6
-      if (attrs.length > 6 && typeof attrs[6] === 'number') {
-        return attrs[6];
+      // Try index 8 (in case of schema variations)
+      if (attrs.length > 8) {
+        const elev = extractNumber(attrs[8]);
+        if (elev !== undefined) return elev;
       }
 
-      // Search for first numeric value that looks like an elevation
+      // Fallback: search for first numeric value that looks like an elevation
       for (let i = 0; i < attrs.length; i++) {
-        if (typeof attrs[i] === 'number' && Math.abs(attrs[i]) < 10000) {
-          return attrs[i];
+        const elev = extractNumber(attrs[i]);
+        if (elev !== undefined && Math.abs(elev) < 10000) {
+          return elev;
         }
       }
     } catch (error) {

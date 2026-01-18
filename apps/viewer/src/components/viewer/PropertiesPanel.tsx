@@ -14,6 +14,7 @@ import {
   Calculator,
   Tag,
   MousePointer2,
+  ArrowUpDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -45,27 +46,19 @@ export function PropertiesPanel() {
     if (!selectedEntityId || !ifcDataStore?.spatialHierarchy) return null;
 
     const hierarchy = ifcDataStore.spatialHierarchy;
-    let storeyId: number | null = null;
-
-    for (const [sid, elementIds] of hierarchy.byStorey) {
-      if ((elementIds as number[]).includes(selectedEntityId)) {
-        storeyId = sid as number;
-        break;
-      }
-    }
+    // Use O(1) lookup instead of O(n) includes() search
+    const storeyId = hierarchy.elementToStorey.get(selectedEntityId);
 
     if (!storeyId) return null;
 
-    // Try to get height from pre-computed storeyHeights first (server path)
+    // Get height: try pre-computed, then properties/quantities, then calculate from elevations
     let height = hierarchy.storeyHeights?.get(storeyId);
 
-    // Try properties
     if (height === undefined && ifcDataStore.properties) {
-      const storeyProps = ifcDataStore.properties.getForEntity(storeyId);
-      for (const pset of storeyProps) {
+      for (const pset of ifcDataStore.properties.getForEntity(storeyId)) {
         for (const prop of pset.properties) {
           const propName = prop.name.toLowerCase();
-          if (propName === 'grossheight' || propName === 'netheight' || propName === 'height') {
+          if (['grossheight', 'netheight', 'height'].includes(propName)) {
             const val = parseFloat(String(prop.value));
             if (!isNaN(val) && val > 0) {
               height = val;
@@ -77,28 +70,24 @@ export function PropertiesPanel() {
       }
     }
 
-    // Try quantities (GrossHeight/NetHeight are often stored as IfcQuantityLength)
     if (height === undefined && ifcDataStore.quantities) {
-      const storeyQtos = ifcDataStore.quantities.getForEntity(storeyId);
-      for (const qto of storeyQtos) {
+      for (const qto of ifcDataStore.quantities.getForEntity(storeyId)) {
         for (const qty of qto.quantities) {
           const qtyName = qty.name.toLowerCase();
-          if (qtyName === 'grossheight' || qtyName === 'netheight' || qtyName === 'height') {
-            if (typeof qty.value === 'number' && qty.value > 0) {
-              height = qty.value;
-              break;
-            }
+          if (['grossheight', 'netheight', 'height'].includes(qtyName) && typeof qty.value === 'number' && qty.value > 0) {
+            height = qty.value;
+            break;
           }
         }
         if (height !== undefined) break;
       }
     }
 
-    // Fallback: calculate height from elevation difference to next storey
+    // Fallback: calculate from elevation difference to next storey
     if (height === undefined && hierarchy.storeyElevations.size > 1) {
       const currentElevation = hierarchy.storeyElevations.get(storeyId);
       if (currentElevation !== undefined) {
-        // Find next storey (higher elevation)
+        // Find next storey with higher elevation (O(n) but only when height missing)
         let nextElevation: number | undefined;
         for (const [, elev] of hierarchy.storeyElevations) {
           if (elev > currentElevation && (nextElevation === undefined || elev < nextElevation)) {
@@ -259,14 +248,37 @@ export function PropertiesPanel() {
 
         {/* Spatial Location */}
         {spatialInfo && (
-          <div className="flex items-center gap-2 text-xs border border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-900/10 px-2 py-1.5 text-emerald-800 dark:text-emerald-400">
-            <Layers className="h-3.5 w-3.5" />
-            <span className="font-bold uppercase tracking-wide">{spatialInfo.storeyName}</span>
-            {spatialInfo.height !== undefined && (
-              <span className="text-emerald-600/70 dark:text-emerald-500/70 font-mono ml-auto">
-                {spatialInfo.height.toFixed(2)}m
-              </span>
-            )}
+          <div className="flex items-center gap-2 text-xs border border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-900/10 px-2 py-1.5 text-emerald-800 dark:text-emerald-400 min-w-0">
+            <Layers className="h-3.5 w-3.5 shrink-0" />
+            <span className="font-bold uppercase tracking-wide truncate min-w-0 flex-1">{spatialInfo.storeyName}</span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {spatialInfo.elevation !== undefined && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="text-emerald-600/70 dark:text-emerald-500/70 font-mono whitespace-nowrap">
+                      {spatialInfo.elevation >= 0 ? '+' : ''}{spatialInfo.elevation.toFixed(2)}m
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="text-xs">Elevation: {spatialInfo.elevation >= 0 ? '+' : ''}{spatialInfo.elevation.toFixed(2)}m from ground</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              {spatialInfo.height !== undefined && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="flex items-center gap-1 text-emerald-500/60 dark:text-emerald-400/60 font-mono text-[10px] whitespace-nowrap">
+                      <ArrowUpDown className="h-2.5 w-2.5 shrink-0" />
+                      <span className="hidden sm:inline">{spatialInfo.height.toFixed(2)}m</span>
+                      <span className="sm:hidden">{spatialInfo.height.toFixed(1)}m</span>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="text-xs">Height: {spatialInfo.height.toFixed(2)}m to next storey</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
           </div>
         )}
       </div>
