@@ -184,17 +184,22 @@ function triangulatePolygons(faceVertexIndices: number[], faceVertexCounts: numb
 /**
  * Get accumulated transform from node to root.
  * IFCX transforms are already in Z-up coordinate space, no conversion needed.
+ *
+ * For row-major matrices with right-multiply (point * matrix), transforms must
+ * be accumulated in child-to-parent order: child * parent * grandparent * root
  */
 function getAccumulatedTransform(node: ComposedNode): Float32Array | null {
   const transforms: Float32Array[] = [];
 
+  // Walk from node (child) up to root (parent), collecting transforms
   let current: ComposedNode | undefined = node;
   while (current) {
     const xform = current.attributes.get(ATTR.TRANSFORM) as UsdTransform | undefined;
     if (xform?.transform) {
       // Flatten the matrix (no coordinate conversion needed - IFCX is Z-up)
       const matrix = flattenMatrix(xform.transform);
-      transforms.unshift(matrix);
+      // Push to end - builds array in child-to-parent order for row-major multiplication
+      transforms.push(matrix);
     }
     current = current.parent;
   }
@@ -202,7 +207,8 @@ function getAccumulatedTransform(node: ComposedNode): Float32Array | null {
   if (transforms.length === 0) return null;
   if (transforms.length === 1) return transforms[0];
 
-  // Multiply transforms (parent * child order)
+  // Multiply transforms in child * parent * grandparent order (left to right)
+  // This is correct for row-major matrices where we do: point * accumulated_matrix
   let result = transforms[0];
   for (let i = 1; i < transforms.length; i++) {
     result = multiplyMatrices(result, transforms[i]);
