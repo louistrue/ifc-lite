@@ -41,44 +41,6 @@ export default defineConfig({
         });
       },
     },
-    // Transform wasm-bindgen-rayon worker imports for both dev and build
-    {
-      name: 'wasm-rayon-worker-fix',
-      enforce: 'pre',
-      transform(code, id) {
-        // Handle missing rayon workerHelpers import - stub it out since we don't use rayon threading
-        if (id.includes('ifc-lite.js') && code.includes('wasm-bindgen-rayon')) {
-          // Replace the import with a stub that does nothing
-          const transformed = code.replace(
-            /import\s*{\s*startWorkers\s*}\s*from\s*['"]\.\/snippets\/wasm-bindgen-rayon-[^'"]+\/src\/workerHelpers\.js['"];?/g,
-            '// Rayon threading disabled - startWorkers stub\nconst startWorkers = () => {};'
-          );
-          
-          if (code !== transformed) {
-            console.log(`[wasm-rayon-worker-fix] Stubbed out rayon worker import in ${id}`);
-          }
-          return transformed;
-        }
-        
-        // Transform workerHelpers.js to use absolute path (if file exists)
-        if (id.includes('wasm-bindgen-rayon') && id.includes('workerHelpers') && !id.includes('no-bundler')) {
-          const isProduction = process.env.NODE_ENV === 'production';
-          const importPath = isProduction
-            ? '/wasm/ifc-lite.js'
-            : `${wasmPkgPath}/ifc-lite.js`;
-          
-          const transformed = code
-            .replace("import('../../..')", `import('${importPath}')`)
-            .replace('import("../../..")', `import("${importPath}")`);
-          
-          if (code !== transformed) {
-            console.log(`[wasm-rayon-worker-fix] Transformed for ${isProduction ? 'production' : 'dev'}:`, importPath);
-          }
-          return transformed;
-        }
-        return code;
-      },
-    },
   ],
   resolve: {
     alias: {

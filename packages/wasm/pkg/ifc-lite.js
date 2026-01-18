@@ -1,4 +1,5 @@
-import { startWorkers } from './snippets/wasm-bindgen-rayon-38edf6e439f6d70d/src/workerHelpers.js';
+// Rayon threading disabled - stub (we use Web Workers instead)
+const startWorkers = () => Promise.resolve();
 
 let wasm;
 
