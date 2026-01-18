@@ -1,0 +1,331 @@
+import type { MeshData } from '@ifc-lite/geometry';
+import type { Ray, Vec3, Intersection } from './raycaster';
+import { Raycaster } from './raycaster';
+
+export enum SnapType {
+  VERTEX = 'vertex',
+  EDGE = 'edge',
+  EDGE_MIDPOINT = 'edge_midpoint',
+  FACE = 'face',
+  FACE_CENTER = 'face_center',
+}
+
+export interface SnapTarget {
+  type: SnapType;
+  position: Vec3;
+  normal?: Vec3;
+  expressId: number;
+  confidence: number; // 0-1, higher is better
+  metadata?: {
+    vertices?: Vec3[]; // For edges/faces
+    edgeIndex?: number;
+    faceIndex?: number;
+  };
+}
+
+export interface SnapOptions {
+  snapToVertices: boolean;
+  snapToEdges: boolean;
+  snapToFaces: boolean;
+  snapRadius: number; // In world units
+  screenSnapRadius: number; // In pixels
+}
+
+export class SnapDetector {
+  private raycaster = new Raycaster();
+  private defaultOptions: SnapOptions = {
+    snapToVertices: true,
+    snapToEdges: true,
+    snapToFaces: true,
+    snapRadius: 0.1, // 10cm in world units (meters)
+    screenSnapRadius: 20, // pixels
+  };
+
+  /**
+   * Detect best snap target near cursor
+   */
+  detectSnapTarget(
+    ray: Ray,
+    meshes: MeshData[],
+    intersection: Intersection | null,
+    camera: { position: Vec3; fov: number },
+    screenHeight: number,
+    options: Partial<SnapOptions> = {}
+  ): SnapTarget | null {
+    const opts = { ...this.defaultOptions, ...options };
+
+    if (!intersection) {
+      return null;
+    }
+
+    const targets: SnapTarget[] = [];
+    const mesh = meshes[intersection.meshIndex];
+
+    // Calculate world-space snap radius based on screen-space radius and distance
+    const distanceToCamera = this.distance(camera.position, intersection.point);
+    const worldSnapRadius = this.screenToWorldRadius(
+      opts.screenSnapRadius,
+      distanceToCamera,
+      camera.fov,
+      screenHeight
+    );
+
+    // Detect vertices
+    if (opts.snapToVertices) {
+      targets.push(...this.findVertices(mesh, intersection.point, worldSnapRadius));
+    }
+
+    // Detect edges
+    if (opts.snapToEdges) {
+      targets.push(...this.findEdges(mesh, intersection.point, worldSnapRadius));
+    }
+
+    // Detect faces
+    if (opts.snapToFaces) {
+      targets.push(...this.findFaces(mesh, intersection, worldSnapRadius));
+    }
+
+    // Return best target
+    return this.getBestSnapTarget(targets, intersection.point);
+  }
+
+  /**
+   * Find vertices near point
+   */
+  private findVertices(mesh: MeshData, point: Vec3, radius: number): SnapTarget[] {
+    const targets: SnapTarget[] = [];
+    const positions = mesh.positions;
+    const uniqueVertices = new Map<string, Vec3>();
+
+    // Collect unique vertices
+    for (let i = 0; i < positions.length; i += 3) {
+      const vertex: Vec3 = {
+        x: positions[i],
+        y: positions[i + 1],
+        z: positions[i + 2],
+      };
+
+      const key = `${vertex.x.toFixed(6)}_${vertex.y.toFixed(6)}_${vertex.z.toFixed(6)}`;
+      uniqueVertices.set(key, vertex);
+    }
+
+    // Find vertices within radius
+    for (const vertex of uniqueVertices.values()) {
+      const dist = this.distance(vertex, point);
+      if (dist < radius) {
+        targets.push({
+          type: SnapType.VERTEX,
+          position: vertex,
+          expressId: mesh.expressId,
+          confidence: 1.0 - dist / radius, // Closer = higher confidence
+        });
+      }
+    }
+
+    return targets;
+  }
+
+  /**
+   * Find edges near point
+   */
+  private findEdges(mesh: MeshData, point: Vec3, radius: number): SnapTarget[] {
+    const targets: SnapTarget[] = [];
+    const positions = mesh.positions;
+    const indices = mesh.indices;
+
+    if (!indices) return targets;
+
+    const edges = new Map<string, { v0: Vec3; v1: Vec3 }>();
+
+    // Extract unique edges from triangles
+    for (let i = 0; i < indices.length; i += 3) {
+      const triangleEdges = [
+        [indices[i], indices[i + 1]],
+        [indices[i + 1], indices[i + 2]],
+        [indices[i + 2], indices[i]],
+      ];
+
+      for (const [idx0, idx1] of triangleEdges) {
+        const i0 = idx0 * 3;
+        const i1 = idx1 * 3;
+
+        const v0: Vec3 = {
+          x: positions[i0],
+          y: positions[i0 + 1],
+          z: positions[i0 + 2],
+        };
+        const v1: Vec3 = {
+          x: positions[i1],
+          y: positions[i1 + 1],
+          z: positions[i1 + 2],
+        };
+
+        // Create canonical edge key (smaller index first)
+        const key =
+          idx0 < idx1
+            ? `${idx0}_${idx1}`
+            : `${idx1}_${idx0}`;
+
+        if (!edges.has(key)) {
+          edges.set(key, { v0, v1 });
+        }
+      }
+    }
+
+    // Find edges near point
+    let edgeIndex = 0;
+    for (const { v0, v1 } of edges.values()) {
+      const closestPoint = this.raycaster.closestPointOnSegment(point, v0, v1);
+      const dist = this.distance(closestPoint, point);
+
+      if (dist < radius) {
+        // Edge snap
+        targets.push({
+          type: SnapType.EDGE,
+          position: closestPoint,
+          expressId: mesh.expressId,
+          confidence: 0.8 * (1.0 - dist / radius),
+          metadata: { vertices: [v0, v1], edgeIndex },
+        });
+
+        // Edge midpoint snap
+        const midpoint: Vec3 = {
+          x: (v0.x + v1.x) / 2,
+          y: (v0.y + v1.y) / 2,
+          z: (v0.z + v1.z) / 2,
+        };
+        const midDist = this.distance(midpoint, point);
+
+        if (midDist < radius) {
+          targets.push({
+            type: SnapType.EDGE_MIDPOINT,
+            position: midpoint,
+            expressId: mesh.expressId,
+            confidence: 0.9 * (1.0 - midDist / radius),
+            metadata: { vertices: [v0, v1], edgeIndex },
+          });
+        }
+      }
+
+      edgeIndex++;
+    }
+
+    return targets;
+  }
+
+  /**
+   * Find faces/planes near intersection
+   */
+  private findFaces(mesh: MeshData, intersection: Intersection, radius: number): SnapTarget[] {
+    const targets: SnapTarget[] = [];
+
+    // Add the intersected face
+    targets.push({
+      type: SnapType.FACE,
+      position: intersection.point,
+      normal: intersection.normal,
+      expressId: mesh.expressId,
+      confidence: 0.5, // Lower priority than vertices/edges
+      metadata: { faceIndex: intersection.triangleIndex },
+    });
+
+    // Calculate face center (centroid of triangle)
+    const positions = mesh.positions;
+    const indices = mesh.indices;
+
+    if (indices) {
+      const triIndex = intersection.triangleIndex * 3;
+      const i0 = indices[triIndex] * 3;
+      const i1 = indices[triIndex + 1] * 3;
+      const i2 = indices[triIndex + 2] * 3;
+
+      const v0: Vec3 = {
+        x: positions[i0],
+        y: positions[i0 + 1],
+        z: positions[i0 + 2],
+      };
+      const v1: Vec3 = {
+        x: positions[i1],
+        y: positions[i1 + 1],
+        z: positions[i1 + 2],
+      };
+      const v2: Vec3 = {
+        x: positions[i2],
+        y: positions[i2 + 1],
+        z: positions[i2 + 2],
+      };
+
+      const center: Vec3 = {
+        x: (v0.x + v1.x + v2.x) / 3,
+        y: (v0.y + v1.y + v2.y) / 3,
+        z: (v0.z + v1.z + v2.z) / 3,
+      };
+
+      const dist = this.distance(center, intersection.point);
+      if (dist < radius) {
+        targets.push({
+          type: SnapType.FACE_CENTER,
+          position: center,
+          normal: intersection.normal,
+          expressId: mesh.expressId,
+          confidence: 0.7 * (1.0 - dist / radius),
+          metadata: { faceIndex: intersection.triangleIndex },
+        });
+      }
+    }
+
+    return targets;
+  }
+
+  /**
+   * Select best snap target based on confidence and priority
+   */
+  private getBestSnapTarget(targets: SnapTarget[], cursorPoint: Vec3): SnapTarget | null {
+    if (targets.length === 0) return null;
+
+    // Priority order: vertex > edge_midpoint > edge > face_center > face
+    const priorityMap = {
+      [SnapType.VERTEX]: 5,
+      [SnapType.EDGE_MIDPOINT]: 4,
+      [SnapType.EDGE]: 3,
+      [SnapType.FACE_CENTER]: 2,
+      [SnapType.FACE]: 1,
+    };
+
+    // Sort by priority then confidence
+    targets.sort((a, b) => {
+      const priorityDiff = priorityMap[b.type] - priorityMap[a.type];
+      if (priorityDiff !== 0) return priorityDiff;
+      return b.confidence - a.confidence;
+    });
+
+    return targets[0];
+  }
+
+  /**
+   * Convert screen-space radius to world-space radius
+   */
+  private screenToWorldRadius(
+    screenRadius: number,
+    distance: number,
+    fov: number,
+    screenHeight: number
+  ): number {
+    // Calculate world height at distance
+    const fovRadians = (fov * Math.PI) / 180;
+    const worldHeight = 2 * distance * Math.tan(fovRadians / 2);
+
+    // Convert screen pixels to world units
+    return (screenRadius / screenHeight) * worldHeight;
+  }
+
+  /**
+   * Vector utilities
+   */
+  private distance(a: Vec3, b: Vec3): number {
+    const dx = a.x - b.x;
+    const dy = a.y - b.y;
+    const dz = a.z - b.z;
+    return Math.sqrt(dx * dx + dy * dy + dz * dz);
+  }
+}

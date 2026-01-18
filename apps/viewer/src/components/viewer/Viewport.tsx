@@ -43,6 +43,15 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   const completeMeasurement = useViewerStore((state) => state.completeMeasurement);
   const sectionPlane = useViewerStore((state) => state.sectionPlane);
 
+  // New drag-based measurement store subscriptions
+  const activeMeasurement = useViewerStore((state) => state.activeMeasurement);
+  const startMeasurement = useViewerStore((state) => state.startMeasurement);
+  const updateMeasurement = useViewerStore((state) => state.updateMeasurement);
+  const finalizeMeasurement = useViewerStore((state) => state.finalizeMeasurement);
+  const cancelMeasurement = useViewerStore((state) => state.cancelMeasurement);
+  const setSnapTarget = useViewerStore((state) => state.setSnapTarget);
+  const snapEnabled = useViewerStore((state) => state.snapEnabled);
+
   // Theme-aware clear color ref (updated when theme changes)
   // Tokyo Night storm: #1a1b26 = rgb(26, 27, 38)
   const clearColorRef = useRef<[number, number, number, number]>([0.102, 0.106, 0.149, 1]);
@@ -114,6 +123,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   const selectedEntityIdRef = useRef<number | null>(selectedEntityId);
   const activeToolRef = useRef<string>(activeTool);
   const pendingMeasurePointRef = useRef<MeasurePoint | null>(pendingMeasurePoint);
+  const activeMeasurementRef = useRef(activeMeasurement);
+  const snapEnabledRef = useRef(snapEnabled);
   const sectionPlaneRef = useRef(sectionPlane);
   const geometryRef = useRef<MeshData[] | null>(geometry);
 
@@ -128,6 +139,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   useEffect(() => { selectedEntityIdRef.current = selectedEntityId; }, [selectedEntityId]);
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
   useEffect(() => { pendingMeasurePointRef.current = pendingMeasurePoint; }, [pendingMeasurePoint]);
+  useEffect(() => { activeMeasurementRef.current = activeMeasurement; }, [activeMeasurement]);
+  useEffect(() => { snapEnabledRef.current = snapEnabled; }, [snapEnabled]);
   useEffect(() => { sectionPlaneRef.current = sectionPlane; }, [sectionPlane]);
   useEffect(() => {
     geometryRef.current = geometry;
@@ -418,8 +431,33 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           mouseState.isPanning = e.shiftKey;
           canvas.style.cursor = e.shiftKey ? 'move' : 'grabbing';
         } else if (tool === 'measure') {
-          // Measure tool - cursor indicates measurement mode
+          // Measure tool - start measurement on mousedown
+          mouseState.isDragging = true; // Mark as dragging for measure tool
           canvas.style.cursor = 'crosshair';
+
+          // Raycast to get start point
+          const result = renderer.raycastScene(x, y, {
+            hiddenIds: hiddenEntitiesRef.current,
+            isolatedIds: isolatedEntitiesRef.current,
+            snapOptions: snapEnabled ? {} : undefined,
+          });
+
+          if (result) {
+            const snapPoint = result.snap || result.intersection;
+            const measurePoint: MeasurePoint = {
+              x: snapPoint.position.x,
+              y: snapPoint.position.y,
+              z: snapPoint.position.z,
+              screenX: e.clientX,
+              screenY: e.clientY,
+            };
+
+            startMeasurement(measurePoint);
+            if (result.snap) {
+              setSnapTarget(result.snap);
+            }
+          }
+          return; // Early return for measure tool
         } else {
           // Default behavior
           mouseState.isPanning = e.shiftKey;
@@ -431,11 +469,39 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
         const rect = canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
+        const tool = activeToolRef.current;
+
+        // Handle measure tool live preview while dragging
+        if (tool === 'measure' && activeMeasurementRef.current) {
+          // Raycast to get current position
+          const result = renderer.raycastScene(x, y, {
+            hiddenIds: hiddenEntitiesRef.current,
+            isolatedIds: isolatedEntitiesRef.current,
+            snapOptions: snapEnabledRef.current ? {} : undefined,
+          });
+
+          if (result) {
+            const snapPoint = result.snap || result.intersection;
+            const measurePoint: MeasurePoint = {
+              x: snapPoint.position.x,
+              y: snapPoint.position.y,
+              z: snapPoint.position.z,
+              screenX: e.clientX,
+              screenY: e.clientY,
+            };
+
+            updateMeasurement(measurePoint);
+            setSnapTarget(result.snap || null);
+          }
+
+          // Mark as dragged (any movement counts for measure tool)
+          mouseState.didDrag = true;
+          return;
+        }
 
         if (mouseState.isDragging) {
           const dx = e.clientX - mouseState.lastX;
           const dy = e.clientY - mouseState.lastY;
-          const tool = activeToolRef.current;
 
           // Check if this counts as a drag (moved more than 5px from start)
           const totalDx = e.clientX - mouseState.startX;
@@ -487,10 +553,20 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
       });
 
       canvas.addEventListener('mouseup', () => {
+        const tool = activeToolRef.current;
+
+        // Handle measure tool completion
+        if (tool === 'measure' && activeMeasurementRef.current) {
+          finalizeMeasurement();
+          mouseState.isDragging = false;
+          mouseState.didDrag = false;
+          canvas.style.cursor = 'crosshair';
+          return;
+        }
+
         mouseState.isDragging = false;
         mouseState.isPanning = false;
-        const tool = activeToolRef.current;
-        canvas.style.cursor = tool === 'pan' ? 'grab' : (tool === 'orbit' ? 'grab' : 'default');
+        canvas.style.cursor = tool === 'pan' ? 'grab' : (tool === 'orbit' ? 'grab' : (tool === 'measure' ? 'crosshair' : 'default'));
         // Clear orbit pivot after each orbit operation
         camera.setOrbitPivot(null);
       });
@@ -546,31 +622,9 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           return;
         }
 
-        // Handle measure tool clicks
+        // Measure tool now uses drag interaction (see mousedown/mousemove/mouseup)
         if (tool === 'measure') {
-          // Uses visibility filtering so measurements only snap to visible elements
-          const pickedId = await renderer.pick(x, y, getPickOptions());
-          if (pickedId) {
-            // Get 3D position from mesh vertices (simplified - uses center of clicked entity)
-            // In a full implementation, you'd use ray-triangle intersection
-            const worldPos = getApproximateWorldPosition(geometryRef.current, pickedId, x, y, canvas.width, canvas.height);
-            const measurePoint: MeasurePoint = {
-              x: worldPos.x,
-              y: worldPos.y,
-              z: worldPos.z,
-              screenX: e.clientX,
-              screenY: e.clientY,
-            };
-
-            if (pendingMeasurePointRef.current) {
-              // Complete the measurement
-              completeMeasurement(measurePoint);
-            } else {
-              // Start a new measurement
-              addMeasurePoint(measurePoint);
-            }
-          }
-          return;
+          return; // Skip click handling for measure tool
         }
 
         const now = Date.now();

@@ -18,11 +18,18 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
 
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
+  const activeTool = useViewerStore((s) => s.activeTool);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
   const isolateEntity = useViewerStore((s) => s.isolateEntity);
   const hideEntity = useViewerStore((s) => s.hideEntity);
   const showAll = useViewerStore((s) => s.showAll);
   const toggleTheme = useViewerStore((s) => s.toggleTheme);
+
+  // Measure tool specific actions
+  const activeMeasurement = useViewerStore((s) => s.activeMeasurement);
+  const cancelMeasurement = useViewerStore((s) => s.cancelMeasurement);
+  const clearMeasurements = useViewerStore((s) => s.clearMeasurements);
+  const toggleSnap = useViewerStore((s) => s.toggleSnap);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     // Ignore if typing in an input or textarea
@@ -80,6 +87,34 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       showAll();
     }
 
+    // Measure tool shortcuts
+    if (activeTool === 'measure') {
+      // Cancel active measurement with ESC
+      if (key === 'escape' && activeMeasurement) {
+        e.preventDefault();
+        cancelMeasurement();
+        return;
+      }
+      // Clear all measurements with Ctrl+C or Cmd+C
+      if (key === 'c' && ctrl && !shift) {
+        e.preventDefault();
+        clearMeasurements();
+        return;
+      }
+      // Toggle snapping with S
+      if (key === 's' && !ctrl && !shift) {
+        e.preventDefault();
+        toggleSnap();
+        return;
+      }
+      // Delete/Backspace clears measurements (when nothing is selected)
+      if ((key === 'delete' || key === 'backspace') && !ctrl && !shift && !selectedEntityId) {
+        e.preventDefault();
+        clearMeasurements();
+        return;
+      }
+    }
+
     // Selection - Escape clears selection and switches to select tool
     if (key === 'escape') {
       e.preventDefault();
@@ -99,11 +134,16 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
   }, [
     selectedEntityId,
     setSelectedEntityId,
+    activeTool,
     setActiveTool,
     isolateEntity,
     hideEntity,
     showAll,
     toggleTheme,
+    activeMeasurement,
+    cancelMeasurement,
+    clearMeasurements,
+    toggleSnap,
   ]);
 
   useEffect(() => {
@@ -125,6 +165,9 @@ export const KEYBOARD_SHORTCUTS = [
   { key: 'C', description: 'Walk mode', category: 'Tools' },
   { key: 'M', description: 'Measure tool', category: 'Tools' },
   { key: 'X', description: 'Section tool', category: 'Tools' },
+  { key: 'S', description: 'Toggle snapping (Measure tool)', category: 'Tools' },
+  { key: 'Esc', description: 'Cancel measurement (Measure tool)', category: 'Tools' },
+  { key: 'Ctrl+C', description: 'Clear measurements (Measure tool)', category: 'Tools' },
   { key: 'I', description: 'Isolate selection', category: 'Visibility' },
   { key: 'Del', description: 'Hide selection', category: 'Visibility' },
   { key: 'A', description: 'Show all (reset filters)', category: 'Visibility' },

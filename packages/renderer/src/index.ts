@@ -13,7 +13,12 @@ export { Scene } from './scene.js';
 export { Picker } from './picker.js';
 export { MathUtils } from './math.js';
 export { SectionPlaneRenderer } from './section-plane.js';
+export { Raycaster } from './raycaster.js';
+export { SnapDetector, SnapType } from './snap-detector.js';
+export { BVH } from './bvh.js';
 export * from './types.js';
+export type { Ray, Vec3, Intersection } from './raycaster.js';
+export type { SnapTarget, SnapOptions } from './snap-detector.js';
 
 // Zero-copy GPU upload (new - faster, less memory)
 export {
@@ -39,6 +44,9 @@ import type { MeshData } from '@ifc-lite/geometry';
 import { deduplicateMeshes } from '@ifc-lite/geometry';
 import type { InstancedGeometry } from '@ifc-lite/wasm';
 import { MathUtils } from './math.js';
+import { Raycaster, type Intersection, type Ray } from './raycaster.js';
+import { SnapDetector, type SnapTarget, type SnapOptions } from './snap-detector.js';
+import { BVH } from './bvh.js';
 
 /**
  * Main renderer class
@@ -53,12 +61,18 @@ export class Renderer {
     private canvas: HTMLCanvasElement;
     private sectionPlaneRenderer: SectionPlaneRenderer | null = null;
     private modelBounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | null = null;
+    private raycaster: Raycaster;
+    private snapDetector: SnapDetector;
+    private bvh: BVH;
 
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
         this.device = new WebGPUDevice();
         this.camera = new Camera();
         this.scene = new Scene();
+        this.raycaster = new Raycaster();
+        this.snapDetector = new SnapDetector();
+        this.bvh = new BVH();
     }
 
     /**
@@ -1171,6 +1185,115 @@ export class Renderer {
         const viewProj = this.camera.getViewProjMatrix().m;
         const result = await this.picker.pick(x, y, this.canvas.width, this.canvas.height, meshes, viewProj);
         return result;
+    }
+
+    /**
+     * Raycast into the scene to get precise 3D intersection point
+     * This is more accurate than pick() as it returns the exact surface point
+     */
+    raycastScene(
+        x: number,
+        y: number,
+        options?: PickOptions & { snapOptions?: Partial<SnapOptions> }
+    ): { intersection: Intersection; snap?: SnapTarget } | null {
+        // Create ray from screen coordinates
+        const ray = this.camera.unprojectToRay(x, y, this.canvas.width, this.canvas.height);
+
+        // Get all mesh data from scene
+        const allMeshData: MeshData[] = [];
+        const meshes = this.scene.getMeshes();
+        const batchedMeshes = this.scene.getBatchedMeshes();
+
+        // Collect mesh data from regular meshes
+        for (const mesh of meshes) {
+            const meshData = this.scene.getMeshData(mesh.expressId);
+            if (meshData) {
+                // Apply visibility filtering
+                if (options?.hiddenIds?.has(meshData.expressId)) continue;
+                if (
+                    options?.isolatedIds !== null &&
+                    options?.isolatedIds !== undefined &&
+                    !options.isolatedIds.has(meshData.expressId)
+                ) {
+                    continue;
+                }
+                allMeshData.push(meshData);
+            }
+        }
+
+        // Collect mesh data from batched meshes
+        for (const batch of batchedMeshes) {
+            for (const expressId of batch.expressIds) {
+                const meshData = this.scene.getMeshData(expressId);
+                if (meshData) {
+                    // Apply visibility filtering
+                    if (options?.hiddenIds?.has(meshData.expressId)) continue;
+                    if (
+                        options?.isolatedIds !== null &&
+                        options?.isolatedIds !== undefined &&
+                        !options.isolatedIds.has(meshData.expressId)
+                    ) {
+                        continue;
+                    }
+                    allMeshData.push(meshData);
+                }
+            }
+        }
+
+        if (allMeshData.length === 0) {
+            return null;
+        }
+
+        // Use BVH for performance if we have many meshes
+        let meshesToTest = allMeshData;
+        if (allMeshData.length > 100) {
+            // Build BVH if not already built or if mesh count changed significantly
+            this.bvh.build(allMeshData);
+            const meshIndices = this.bvh.getMeshesForRay(ray, allMeshData);
+            meshesToTest = meshIndices.map(i => allMeshData[i]);
+        }
+
+        // Perform raycasting
+        const intersection = this.raycaster.raycast(ray, meshesToTest);
+
+        if (!intersection) {
+            return null;
+        }
+
+        // Detect snap targets if requested
+        let snapTarget: SnapTarget | undefined;
+        if (options?.snapOptions) {
+            const cameraPos = this.camera.getPosition();
+            const cameraFov = this.camera.getFov();
+
+            snapTarget = this.snapDetector.detectSnapTarget(
+                ray,
+                allMeshData,
+                intersection,
+                { position: cameraPos, fov: cameraFov },
+                this.canvas.height,
+                options.snapOptions
+            ) || undefined;
+        }
+
+        return {
+            intersection,
+            snap: snapTarget,
+        };
+    }
+
+    /**
+     * Get the raycaster instance (for advanced usage)
+     */
+    getRaycaster(): Raycaster {
+        return this.raycaster;
+    }
+
+    /**
+     * Get the snap detector instance (for advanced usage)
+     */
+    getSnapDetector(): SnapDetector {
+        return this.snapDetector;
     }
 
     /**

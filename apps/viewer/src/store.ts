@@ -9,6 +9,7 @@
 import { create } from 'zustand';
 import type { IfcDataStore } from '@ifc-lite/parser';
 import type { GeometryResult, CoordinateInfo } from '@ifc-lite/geometry';
+import type { SnapTarget } from '@ifc-lite/renderer';
 
 // Measurement types
 export interface MeasurePoint {
@@ -23,6 +24,13 @@ export interface Measurement {
   id: string;
   start: MeasurePoint;
   end: MeasurePoint;
+  distance: number;
+}
+
+// Active measurement (for drag-based interaction)
+export interface ActiveMeasurement {
+  start: MeasurePoint;
+  current: MeasurePoint;
   distance: number;
 }
 
@@ -90,7 +98,10 @@ interface ViewerState {
 
   // Measurement state
   measurements: Measurement[];
-  pendingMeasurePoint: MeasurePoint | null;
+  pendingMeasurePoint: MeasurePoint | null; // Legacy (keep for backward compatibility)
+  activeMeasurement: ActiveMeasurement | null; // New drag-based measurement
+  snapTarget: SnapTarget | null; // Current snap preview
+  snapEnabled: boolean; // Toggle snapping on/off
 
   // Section plane state
   sectionPlane: SectionPlane;
@@ -171,11 +182,21 @@ interface ViewerState {
   openContextMenu: (entityId: number | null, screenX: number, screenY: number) => void;
   closeContextMenu: () => void;
 
-  // Measurement actions
+  // Measurement actions (legacy)
   addMeasurePoint: (point: MeasurePoint) => void;
   completeMeasurement: (endPoint: MeasurePoint) => void;
+
+  // Measurement actions (new drag-based)
+  startMeasurement: (point: MeasurePoint) => void;
+  updateMeasurement: (point: MeasurePoint) => void;
+  finalizeMeasurement: () => void;
+  cancelMeasurement: () => void;
   deleteMeasurement: (id: string) => void;
   clearMeasurements: () => void;
+
+  // Snap actions
+  setSnapTarget: (target: SnapTarget | null) => void;
+  toggleSnap: () => void;
 
   // Section plane actions
   setSectionPlaneAxis: (axis: 'x' | 'y' | 'z') => void;
@@ -214,6 +235,9 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   contextMenu: { isOpen: false, entityId: null, screenX: 0, screenY: 0 },
   measurements: [],
   pendingMeasurePoint: null,
+  activeMeasurement: null,
+  snapTarget: null,
+  snapEnabled: true,
   sectionPlane: { axis: 'y', position: 50, enabled: false },
   cameraRotation: { azimuth: 45, elevation: 25 },
   cameraCallbacks: {},
@@ -459,7 +483,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     contextMenu: { isOpen: false, entityId: null, screenX: 0, screenY: 0 },
   }),
 
-  // Measurement actions
+  // Measurement actions (legacy - keep for backward compatibility)
   addMeasurePoint: (point) => set({ pendingMeasurePoint: point }),
   completeMeasurement: (endPoint) => set((state) => {
     if (!state.pendingMeasurePoint) return {};
@@ -480,10 +504,62 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
       pendingMeasurePoint: null,
     };
   }),
+
+  // Measurement actions (new drag-based)
+  startMeasurement: (point) => set({
+    activeMeasurement: {
+      start: point,
+      current: point,
+      distance: 0,
+    },
+  }),
+  updateMeasurement: (point) => set((state) => {
+    if (!state.activeMeasurement) return {};
+    const start = state.activeMeasurement.start;
+    const distance = Math.sqrt(
+      Math.pow(point.x - start.x, 2) +
+      Math.pow(point.y - start.y, 2) +
+      Math.pow(point.z - start.z, 2)
+    );
+    return {
+      activeMeasurement: {
+        start,
+        current: point,
+        distance,
+      },
+    };
+  }),
+  finalizeMeasurement: () => set((state) => {
+    if (!state.activeMeasurement) return {};
+    const measurement: Measurement = {
+      id: `m-${Date.now()}`,
+      start: state.activeMeasurement.start,
+      end: state.activeMeasurement.current,
+      distance: state.activeMeasurement.distance,
+    };
+    return {
+      measurements: [...state.measurements, measurement],
+      activeMeasurement: null,
+      snapTarget: null,
+    };
+  }),
+  cancelMeasurement: () => set({
+    activeMeasurement: null,
+    snapTarget: null,
+  }),
   deleteMeasurement: (id) => set((state) => ({
     measurements: state.measurements.filter((m) => m.id !== id),
   })),
-  clearMeasurements: () => set({ measurements: [], pendingMeasurePoint: null }),
+  clearMeasurements: () => set({
+    measurements: [],
+    pendingMeasurePoint: null,
+    activeMeasurement: null,
+    snapTarget: null,
+  }),
+
+  // Snap actions
+  setSnapTarget: (snapTarget) => set({ snapTarget }),
+  toggleSnap: () => set((state) => ({ snapEnabled: !state.snapEnabled })),
 
   // Section plane actions
   setSectionPlaneAxis: (axis) => set((state) => ({
@@ -518,6 +594,8 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     contextMenu: { isOpen: false, entityId: null, screenX: 0, screenY: 0 },
     measurements: [],
     pendingMeasurePoint: null,
+    activeMeasurement: null,
+    snapTarget: null,
     sectionPlane: { axis: 'y', position: 50, enabled: false },
     cameraRotation: { azimuth: 45, elevation: 25 },
     activeTool: 'select',
