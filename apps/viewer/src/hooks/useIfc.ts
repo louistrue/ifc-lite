@@ -79,6 +79,7 @@ function rebuildSpatialHierarchy(
   const bySite = new Map<number, number[]>();
   const bySpace = new Map<number, number[]>();
   const storeyElevations = new Map<number, number>();
+  const storeyHeights = new Map<number, number>();
   const elementToStorey = new Map<number, number>();
 
   // Find IfcProject
@@ -161,6 +162,20 @@ function rebuildSpatialHierarchy(
     }
   }
 
+  // Calculate storey heights from elevation differences (if elevations available)
+  if (storeyElevations.size > 0) {
+    const sortedStoreys = Array.from(storeyElevations.entries())
+      .sort((a, b) => a[1] - b[1]); // Sort by elevation ascending
+    for (let i = 0; i < sortedStoreys.length - 1; i++) {
+      const [storeyId, elevation] = sortedStoreys[i];
+      const nextElevation = sortedStoreys[i + 1][1];
+      const height = nextElevation - elevation;
+      if (height > 0) {
+        storeyHeights.set(storeyId, height);
+      }
+    }
+  }
+
   return {
     project: projectNode,
     byStorey,
@@ -168,6 +183,7 @@ function rebuildSpatialHierarchy(
     bySite,
     bySpace,
     storeyElevations,
+    storeyHeights,
     elementToStorey,
 
     getStoreyElements(storeyId: number): number[] {
@@ -733,6 +749,7 @@ export function useIfc() {
           const bySite = new Map<number, number[]>();
           const bySpace = new Map<number, number[]>();
           const storeyElevations = new Map<number, number>();
+          const storeyHeights = new Map<number, number>();
 
           const nodesMap = new Map(
             dataModel.spatialHierarchy.nodes.map(n => [n.entity_id, n])
@@ -754,6 +771,20 @@ export function useIfc() {
             }
           }
 
+          // Calculate storey heights from elevation differences
+          if (storeyElevations.size > 0) {
+            const sortedStoreys = Array.from(storeyElevations.entries())
+              .sort((a, b) => a[1] - b[1]); // Sort by elevation ascending
+            for (let i = 0; i < sortedStoreys.length - 1; i++) {
+              const [storeyId, elevation] = sortedStoreys[i];
+              const nextElevation = sortedStoreys[i + 1][1];
+              const height = nextElevation - elevation;
+              if (height > 0) {
+                storeyHeights.set(storeyId, height);
+              }
+            }
+          }
+
           // Build project node tree
           const projectNode = buildSpatialNodeTree(
             dataModel.spatialHierarchy.project_id,
@@ -768,6 +799,7 @@ export function useIfc() {
             bySite,
             bySpace,
             storeyElevations,
+            storeyHeights,
             elementToStorey: dataModel.spatialHierarchy.element_to_storey,
             getStoreyElements: (storeyId: number) => byStorey.get(storeyId) || [],
             getStoreyByElevation: (z: number) => {

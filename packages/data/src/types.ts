@@ -140,6 +140,7 @@ export interface SpatialHierarchy {
   bySite: Map<number, number[]>;      // siteId -> element IDs
   bySpace: Map<number, number[]>;     // spaceId -> element IDs
   storeyElevations: Map<number, number>;  // storeyId -> elevation (z)
+  storeyHeights: Map<number, number>;     // storeyId -> floor-to-floor height (calculated from elevation differences)
   elementToStorey: Map<number, number>;  // elementId -> storeyId (reverse lookup)
   
   // Helper methods

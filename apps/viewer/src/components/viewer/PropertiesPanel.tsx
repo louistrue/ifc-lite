@@ -60,6 +60,7 @@ export function PropertiesPanel() {
       storeyId,
       storeyName: ifcDataStore.entities.getName(storeyId) || `Storey #${storeyId}`,
       elevation: hierarchy.storeyElevations.get(storeyId),
+      height: hierarchy.storeyHeights?.get(storeyId),
     };
   }, [selectedEntityId, ifcDataStore]);
 
@@ -206,9 +207,9 @@ export function PropertiesPanel() {
           <div className="flex items-center gap-2 text-xs border border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-900/10 px-2 py-1.5 text-emerald-800 dark:text-emerald-400">
             <Layers className="h-3.5 w-3.5" />
             <span className="font-bold uppercase tracking-wide">{spatialInfo.storeyName}</span>
-            {spatialInfo.elevation !== undefined && (
+            {spatialInfo.height !== undefined && (
               <span className="text-emerald-600/70 dark:text-emerald-500/70 font-mono ml-auto">
-                {spatialInfo.elevation.toFixed(2)}m
+                {spatialInfo.height.toFixed(2)}m
               </span>
             )}
           </div>

@@ -27,6 +27,7 @@ export class SpatialHierarchyBuilder {
     const bySite = new Map<number, number[]>();
     const bySpace = new Map<number, number[]>();
     const storeyElevations = new Map<number, number>();
+    const storeyHeights = new Map<number, number>();
     const elementToStorey = new Map<number, number>();
 
     // PRE-BUILD INDEX MAP: O(n) once, then O(1) lookups
@@ -68,6 +69,26 @@ export class SpatialHierarchyBuilder {
       }
     }
 
+    // Calculate storey heights from elevation differences
+    // Sort storeys by elevation (ascending) to calculate floor-to-floor height
+    if (storeyElevations.size > 0) {
+      const sortedStoreys = Array.from(storeyElevations.entries())
+        .sort((a, b) => a[1] - b[1]); // Sort by elevation ascending
+
+      for (let i = 0; i < sortedStoreys.length; i++) {
+        const [storeyId, elevation] = sortedStoreys[i];
+        if (i < sortedStoreys.length - 1) {
+          // Height = next storey's elevation - this storey's elevation
+          const nextElevation = sortedStoreys[i + 1][1];
+          const height = nextElevation - elevation;
+          if (height > 0) {
+            storeyHeights.set(storeyId, height);
+          }
+        }
+        // Top storey has no height (no storey above it)
+      }
+    }
+
     // Validation: log warnings if maps are empty
     if (byStorey.size === 0) {
       console.warn('[SpatialHierarchyBuilder] No storeys found in spatial hierarchy');
@@ -83,6 +104,7 @@ export class SpatialHierarchyBuilder {
       bySite,
       bySpace,
       storeyElevations,
+      storeyHeights,
       elementToStorey,
       
       getStoreyElements(storeyId: number): number[] {
