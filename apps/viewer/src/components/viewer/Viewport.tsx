@@ -492,7 +492,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             mouseState.isDragging = true; // Mark as dragging for measure tool
             canvas.style.cursor = 'crosshair';
 
-            // Calculate canvas coordinates
+            // Calculate canvas-relative coordinates
             const rect = canvas.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
@@ -506,14 +506,14 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
 
             if (result) {
               const snapPoint = result.snap || result.intersection;
-              // Normalize position access: SnapTarget has 'position', Intersection has 'point'
+              // Extract position from either SnapTarget (has .position) or Intersection (has .point)
               const pos = 'position' in snapPoint ? snapPoint.position : snapPoint.point;
               const measurePoint: MeasurePoint = {
                 x: pos.x,
                 y: pos.y,
                 z: pos.z,
-                screenX: x, // Use canvas-relative coordinates
-                screenY: y,
+                screenX: e.clientX,
+                screenY: e.clientY,
               };
 
               startMeasurement(measurePoint);
@@ -592,10 +592,83 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             mouseState.didDrag = true;
             return;
           }
+<<<<<<< HEAD
         }
 
         // Handle orbit/pan for other tools (or measure tool with shift)
         if (mouseState.isDragging && (tool !== 'measure' || e.shiftKey)) {
+=======
+
+          // Throttle raycasting to 60fps max using requestAnimationFrame
+          if (!measureRaycastPendingRef.current) {
+            measureRaycastPendingRef.current = true;
+
+            measureRaycastFrameRef.current = requestAnimationFrame(() => {
+              measureRaycastPendingRef.current = false;
+              measureRaycastFrameRef.current = null;
+
+              // Raycast to get current position
+              const result = renderer.raycastScene(x, y, {
+                hiddenIds: hiddenEntitiesRef.current,
+                isolatedIds: isolatedEntitiesRef.current,
+                snapOptions: snapEnabledRef.current ? {} : undefined,
+              });
+
+              if (result) {
+                const snapPoint = result.snap || result.intersection;
+                // Extract position from either SnapTarget (has .position) or Intersection (has .point)
+                const pos = 'position' in snapPoint ? snapPoint.position : snapPoint.point;
+                const measurePoint: MeasurePoint = {
+                  x: pos.x,
+                  y: pos.y,
+                  z: pos.z,
+                  screenX: e.clientX,
+                  screenY: e.clientY,
+                };
+
+                updateMeasurement(measurePoint);
+                setSnapTarget(result.snap || null);
+              }
+            });
+          }
+
+          // Mark as dragged (any movement counts for measure tool)
+          mouseState.didDrag = true;
+          return;
+        }
+
+        // Handle measure tool hover preview (BEFORE dragging starts)
+        // Show snap indicators to help user see where they can snap
+        if (tool === 'measure' && !mouseState.isDragging && snapEnabledRef.current) {
+          // Throttle raycasting to avoid performance issues
+          if (!measureRaycastPendingRef.current) {
+            measureRaycastPendingRef.current = true;
+
+            measureRaycastFrameRef.current = requestAnimationFrame(() => {
+              measureRaycastPendingRef.current = false;
+              measureRaycastFrameRef.current = null;
+
+              // Raycast to detect snap targets on hover
+              const result = renderer.raycastScene(x, y, {
+                hiddenIds: hiddenEntitiesRef.current,
+                isolatedIds: isolatedEntitiesRef.current,
+                snapOptions: {}, // Enable snapping
+              });
+
+              // Update snap target for visual feedback
+              if (result && result.snap) {
+                setSnapTarget(result.snap);
+              } else {
+                setSnapTarget(null);
+              }
+            });
+          }
+          return; // Don't fall through to other tool handlers
+        }
+
+        // Handle orbit/pan for other tools (NOT measure tool)
+        if (mouseState.isDragging && tool !== 'measure') {
+>>>>>>> c2173d2 (feat: Add hover-based snap preview for measure tool)
           const dx = e.clientX - mouseState.lastX;
           const dy = e.clientY - mouseState.lastY;
 

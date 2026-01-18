@@ -6,7 +6,7 @@
  * Tool-specific overlays for measure and section tools
  */
 
-import { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { X, Trash2, Ruler, Slice } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useViewerStore, type Measurement } from '@/store';
@@ -34,6 +34,17 @@ function MeasureOverlay() {
   const deleteMeasurement = useViewerStore((s) => s.deleteMeasurement);
   const clearMeasurements = useViewerStore((s) => s.clearMeasurements);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
+
+  // Track cursor position for snap indicators
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      setCursorPos({ x: e.clientX, y: e.clientY });
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
 
   const handleClear = useCallback(() => {
     clearMeasurements();
@@ -110,6 +121,7 @@ function MeasureOverlay() {
         pending={pendingMeasurePoint}
         activeMeasurement={activeMeasurement}
         snapTarget={snapTarget}
+        hoverPosition={cursorPos}
       />
     </>
   );
@@ -143,9 +155,16 @@ interface MeasurementOverlaysProps {
   pending: { screenX: number; screenY: number } | null;
   activeMeasurement: { start: { screenX: number; screenY: number }; current: { screenX: number; screenY: number }; distance: number } | null;
   snapTarget: { position: { x: number; y: number; z: number }; type: SnapType; metadata?: any } | null;
+  hoverPosition?: { x: number; y: number } | null;
 }
 
-function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTarget }: MeasurementOverlaysProps) {
+function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTarget, hoverPosition }: MeasurementOverlaysProps) {
+  // Determine snap indicator position
+  // Priority: activeMeasurement.current > hoverPosition
+  const snapIndicatorPos = activeMeasurement
+    ? { x: activeMeasurement.current.screenX, y: activeMeasurement.current.screenY }
+    : hoverPosition;
+
   return (
     <>
       {/* SVG filter definitions for glow effect */}
@@ -275,10 +294,10 @@ function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTar
       )}
 
       {/* Snap indicator */}
-      {snapTarget && activeMeasurement && (
+      {snapTarget && snapIndicatorPos && (
         <SnapIndicator
-          screenX={activeMeasurement.current.screenX}
-          screenY={activeMeasurement.current.screenY}
+          screenX={snapIndicatorPos.x}
+          screenY={snapIndicatorPos.y}
           snapType={snapTarget.type}
         />
       )}
