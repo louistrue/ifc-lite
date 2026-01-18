@@ -121,6 +121,14 @@ export function readEntities(reader: BufferReader, strings: StringTable): Entity
       const idx = indexOfId(id);
       return idx >= 0 ? strings.get(name[idx]) : '';
     },
+    getDescription: (id) => {
+      const idx = indexOfId(id);
+      return idx >= 0 ? strings.get(description[idx]) : '';
+    },
+    getObjectType: (id) => {
+      const idx = indexOfId(id);
+      return idx >= 0 ? strings.get(objectType[idx]) : '';
+    },
     getTypeName: (id) => {
       const idx = indexOfId(id);
       return idx >= 0 ? IfcTypeEnumToString(typeEnum[idx]) : 'Unknown';

@@ -26,7 +26,15 @@ export class EntityNode {
   get name(): string {
     return this.store.entities.getName(this.expressId);
   }
-  
+
+  get description(): string {
+    return this.store.entities.getDescription(this.expressId);
+  }
+
+  get objectType(): string {
+    return this.store.entities.getObjectType(this.expressId);
+  }
+
   get type(): string {
     return this.store.entities.getTypeName(this.expressId);
   }

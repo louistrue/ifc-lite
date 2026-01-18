@@ -29,6 +29,8 @@ export interface EntityTable {
   
   getGlobalId(expressId: number): string;
   getName(expressId: number): string;
+  getDescription(expressId: number): string;
+  getObjectType(expressId: number): string;
   getTypeName(expressId: number): string;
   hasGeometry(expressId: number): boolean;
   getByType(type: IfcTypeEnum): number[];
@@ -145,6 +147,14 @@ export class EntityTableBuilder {
       getName: (id) => {
         const idx = this.indexOfId(expressId, id);
         return idx >= 0 ? this.strings.get(name[idx]) : '';
+      },
+      getDescription: (id) => {
+        const idx = this.indexOfId(expressId, id);
+        return idx >= 0 ? this.strings.get(description[idx]) : '';
+      },
+      getObjectType: (id) => {
+        const idx = this.indexOfId(expressId, id);
+        return idx >= 0 ? this.strings.get(objectType[idx]) : '';
       },
       getTypeName: (id) => {
         const idx = this.indexOfId(expressId, id);
