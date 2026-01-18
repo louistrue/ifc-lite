@@ -54,6 +54,10 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   const snapEnabled = useViewerStore((state) => state.snapEnabled);
   const updateMeasurementScreenCoords = useViewerStore((state) => state.updateMeasurementScreenCoords);
   const measurements = useViewerStore((state) => state.measurements);
+  
+  // Color update subscriptions
+  const pendingColorUpdates = useViewerStore((state) => state.pendingColorUpdates);
+  const clearPendingColorUpdates = useViewerStore((state) => state.clearPendingColorUpdates);
 
   // Theme-aware clear color ref (updated when theme changes)
   // Tokyo Night storm: #1a1b26 = rgb(26, 27, 38)
@@ -1547,6 +1551,28 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
     }
     prevIsStreamingRef.current = isStreaming;
   }, [isStreaming, isInitialized]);
+
+  // Apply pending color updates to WebGPU scene
+  // Note: Color updates may arrive before viewport is initialized, so we wait
+  useEffect(() => {
+    if (!pendingColorUpdates || pendingColorUpdates.size === 0) return;
+    
+    // Wait until viewport is initialized before applying color updates
+    if (!isInitialized) return;
+    
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    
+    const device = renderer.getGPUDevice();
+    const pipeline = renderer.getPipeline();
+    const scene = renderer.getScene();
+    
+    if (device && pipeline && (scene as any).updateMeshColors) {
+      (scene as any).updateMeshColors(pendingColorUpdates, device, pipeline);
+      renderer.render();
+      clearPendingColorUpdates();
+    }
+  }, [pendingColorUpdates, isInitialized, clearPendingColorUpdates]);
 
   // Get selectedEntityIds from store for multi-selection
   const selectedEntityIds = useViewerStore((state) => state.selectedEntityIds);

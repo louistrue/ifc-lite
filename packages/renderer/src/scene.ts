@@ -243,6 +243,92 @@ export class Scene {
   }
 
   /**
+   * Update colors for existing meshes and rebuild affected batches
+   * Call this when deferred color parsing completes
+   */
+  updateMeshColors(
+    updates: Map<number, [number, number, number, number]>,
+    device: GPUDevice,
+    pipeline: any
+  ): void {
+    if (updates.size === 0) return;
+
+    const affectedOldKeys = new Set<string>();
+    const affectedNewKeys = new Set<string>();
+
+    // Update colors in meshDataMap and track affected batches
+    for (const [expressId, newColor] of updates) {
+      const meshDataList = this.meshDataMap.get(expressId);
+      if (!meshDataList) continue;
+
+      for (const meshData of meshDataList) {
+        const oldKey = this.colorKey(meshData.color);
+        const newKey = this.colorKey(newColor);
+
+        if (oldKey !== newKey) {
+          affectedOldKeys.add(oldKey);
+          affectedNewKeys.add(newKey);
+
+          // Remove from old color batch data
+          const oldBatchData = this.batchedMeshData.get(oldKey);
+          if (oldBatchData) {
+            const idx = oldBatchData.indexOf(meshData);
+            if (idx >= 0) {
+              oldBatchData.splice(idx, 1);
+            }
+            // Clean up empty batch data
+            if (oldBatchData.length === 0) {
+              this.batchedMeshData.delete(oldKey);
+            }
+          }
+
+          // Update mesh color
+          meshData.color = newColor;
+
+          // Add to new color batch data
+          if (!this.batchedMeshData.has(newKey)) {
+            this.batchedMeshData.set(newKey, []);
+          }
+          this.batchedMeshData.get(newKey)!.push(meshData);
+        }
+      }
+    }
+
+    // Mark affected batches for rebuild
+    for (const key of affectedOldKeys) {
+      this.pendingBatchKeys.add(key);
+    }
+    for (const key of affectedNewKeys) {
+      this.pendingBatchKeys.add(key);
+    }
+
+    // Rebuild affected batches
+    if (this.pendingBatchKeys.size > 0) {
+      this.rebuildPendingBatches(device, pipeline);
+      
+      // Remove empty batches
+      for (const key of affectedOldKeys) {
+        const batchData = this.batchedMeshData.get(key);
+        if (!batchData || batchData.length === 0) {
+          const batch = this.batchedMeshMap.get(key);
+          if (batch) {
+            batch.vertexBuffer.destroy();
+            batch.indexBuffer.destroy();
+            if (batch.uniformBuffer) {
+              batch.uniformBuffer.destroy();
+            }
+            this.batchedMeshMap.delete(key);
+            const idx = this.batchedMeshes.findIndex(b => b.colorKey === key);
+            if (idx >= 0) {
+              this.batchedMeshes.splice(idx, 1);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /**
    * Create a new batched mesh from mesh data array
    */
   private createBatchedMesh(

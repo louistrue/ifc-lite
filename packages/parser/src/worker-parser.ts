@@ -10,6 +10,11 @@
 import type { IfcDataStore } from './columnar-parser.js';
 import type { ParseOptions } from './index.js';
 
+// Import worker URL using Vite's worker bundling - this ensures the worker
+// is properly compiled and bundled for production builds
+// @ts-ignore - Vite-specific import syntax
+import ParserWorkerUrl from './parser.worker.ts?worker&url';
+
 export interface WorkerParserOptions extends ParseOptions {
   /** Worker URL (default: auto-detect) */
   workerUrl?: string;
@@ -23,22 +28,8 @@ export class WorkerParser {
   private workerUrl: string;
 
   constructor(options: WorkerParserOptions = {}) {
-    // Use provided worker URL or construct from import.meta.url
-    if (options.workerUrl) {
-      this.workerUrl = options.workerUrl;
-    } else {
-      // Default: construct URL from current module location
-      // Vite will handle the ?worker suffix automatically when importing
-      try {
-        // Construct worker URL relative to this module
-        const workerPath = new URL('./parser.worker.ts', import.meta.url);
-        // Vite requires ?worker suffix for proper worker handling
-        this.workerUrl = workerPath.href + '?worker';
-      } catch {
-        // Fallback for environments without import.meta.url
-        this.workerUrl = './parser.worker.ts?worker';
-      }
-    }
+    // Use provided worker URL or the Vite-bundled worker URL
+    this.workerUrl = options.workerUrl ?? ParserWorkerUrl;
   }
 
   /**

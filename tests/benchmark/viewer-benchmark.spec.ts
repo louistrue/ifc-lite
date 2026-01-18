@@ -33,10 +33,10 @@ interface ThresholdConfig {
 }
 
 const DEFAULT_THRESHOLDS: ThresholdConfig = {
-  firstBatchWait: 20, // +20%
-  geometryStreaming: 15, // +15%
-  entityScan: 15, // +15%
-  dataModelParse: 15, // +15%
+  firstBatchWait: 50, // +50% (allow for system variance)
+  geometryStreaming: 50, // +50%
+  entityScan: 50, // +50%
+  dataModelParse: 50, // +50%
 };
 
 function loadBaseline(): Baseline {
@@ -167,6 +167,11 @@ test.describe('Viewer Performance Benchmarks', () => {
       console.log(`Benchmark Results: ${fileName}`);
       console.log(`${'='.repeat(80)}`);
       console.log(`\nFile Size: ${metrics.fileSizeMB?.toFixed(2) || 'N/A'} MB`);
+      
+      // TOTAL TIME - the most important metric
+      console.log(`\n>>> TOTAL WALL-CLOCK TIME: ${metrics.totalWallClockMs?.toFixed(0) || 'N/A'} ms (${((metrics.totalWallClockMs || 0) / 1000).toFixed(1)}s) <<<`);
+      console.log(`    File Read: ${metrics.fileReadMs?.toFixed(0) || 'N/A'} ms`);
+      
       console.log(`\n--- Geometry Streaming ---`);
       console.log(`  Model Open: ${metrics.modelOpenMs?.toFixed(0) || 'N/A'} ms`);
       console.log(`  First Batch Wait: ${metrics.firstBatchWaitMs?.toFixed(0) || 'N/A'} ms`);

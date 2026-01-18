@@ -400,6 +400,13 @@ export class IfcAPI {
    */
   parseToGpuGeometryAsync(content: string, options: any): Promise<any>;
   /**
+   * Fast geometry-only entity scanning
+   * Scans only entities that have geometry, skipping 99% of non-geometry entities
+   * Returns array of geometry entity references for parallel processing
+   * Much faster than scanning all entities (3x speedup for large files)
+   */
+  scanGeometryEntitiesFast(content: string): any;
+  /**
    * Parse IFC file with streaming instanced geometry batches for progressive rendering
    * Groups identical geometries and yields batches of InstancedGeometry
    * Uses fast-first-frame streaming: simple geometry (walls, slabs) first
@@ -792,6 +799,7 @@ export interface InitOutput {
   readonly ifcapi_parseToGpuInstancedGeometry: (a: number, b: number, c: number) => number;
   readonly ifcapi_parseZeroCopy: (a: number, b: number, c: number) => number;
   readonly ifcapi_scanEntitiesFast: (a: number, b: number, c: number) => number;
+  readonly ifcapi_scanGeometryEntitiesFast: (a: number, b: number, c: number) => number;
   readonly ifcapi_version: (a: number, b: number) => void;
   readonly instancedata_color: (a: number, b: number) => void;
   readonly instancedata_expressId: (a: number) => number;
@@ -853,11 +861,11 @@ export interface InitOutput {
   readonly wbg_rayon_poolbuilder_numThreads: (a: number) => number;
   readonly wbg_rayon_poolbuilder_receiver: (a: number) => number;
   readonly wbg_rayon_start_worker: (a: number) => void;
-  readonly __wasm_bindgen_func_elem_415: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_411: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_825: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_819: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_1115: (a: number, b: number, c: number, d: number) => void;
+  readonly __wasm_bindgen_func_elem_828: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_822: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_418: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_414: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_1118: (a: number, b: number, c: number, d: number) => void;
   readonly memory: WebAssembly.Memory;
   readonly __wbindgen_export: (a: number, b: number) => number;
   readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;

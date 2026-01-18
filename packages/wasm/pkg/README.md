@@ -306,7 +306,7 @@ ifc-lite/
 
 ### Geometry Processing
 
-- **5x faster** overall than web-ifc (median 2.18x, up to 104x on some files)
+- **Up to 5x faster** overall than web-ifc (median 2.18x, up to 104x on some files)
 - Streaming pipeline with batched processing (100 meshes/batch)
 - First triangles visible in **300-500ms**
 
@@ -319,6 +319,26 @@ When using `@ifc-lite/parser` directly in the browser:
 - CPU raycasting for picking in models with 500+ elements (no GPU buffer overhead)
 
 *See [full benchmark data](tests/benchmark/benchmark-results.json) for per-file comparisons.*
+
+### Viewer Loading Performance
+
+End-to-end loading times measured with Playwright in headed Chrome (M1 MacBook Pro):
+
+| Model | Size | Entities | Total Load | First Batch |
+|-------|------|----------|------------|-------------|
+| Large architectural | 327 MB | 4.4M | **15.9s** | 5.0s |
+| Tower complex | 169 MB | 2.8M | **9.6s** | 2.6s |
+| Small model | 8 MB | 147K | **0.6s** | 0.16s |
+
+The streaming architecture ensures **first geometry appears within seconds** while the full model continues loading. Data model parsing runs in parallel with geometry streaming.
+
+Run benchmarks on your hardware:
+
+```bash
+pnpm --filter viewer build && pnpm test:benchmark:viewer
+```
+
+Results saved to `tests/benchmark/benchmark-results/` with automatic regression detection.
 
 ## Browser Requirements
 

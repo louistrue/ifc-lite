@@ -99,19 +99,10 @@ export class IfcLiteBridge {
       const numThreads = navigator.hardwareConcurrency || 4;
       await init_thread_pool(numThreads);
       console.log(`[IfcLiteBridge] Thread pool ready (${numThreads} threads)`);
-    } catch (error) {
-      // Thread pool initialization may fail even with headers present
-      // Known issue: wasm-bindgen-rayon threading fails in Vite dev mode due to
-      // module resolution/caching issues in the worker context. The workers load
-      // the module but PoolBuilder.build() fails during synchronization.
-      // This is a fundamental incompatibility - threading works in production builds.
-      //
-      // Current performance without threading is still excellent:
-      // - First Batch Wait: 91% improvement (deferred styles)
-      // - Entity Scan: 86% improvement (WASM scanner)
-      // - Geometry Streaming: 61% improvement (optimized processing)
-      console.warn('[IfcLiteBridge] Thread pool initialization failed - using sequential execution');
-      console.warn('[IfcLiteBridge] Note: Threading works in production builds, not Vite dev mode');
+    } catch {
+      // Known issue: wasm-bindgen-rayon requires __wasm_init_tls which modern Rust doesn't generate
+      // Sequential processing is still fast due to other WASM optimizations
+      console.info('[IfcLiteBridge] Using sequential processing (threading unavailable)');
     }
   }
 

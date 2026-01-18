@@ -251,7 +251,12 @@ export class IfcLiteMeshCollector {
     // For huge files (>100MB), use 500 to minimize callbacks (20x fewer than 25)
     const wasmBatchSize = 500; // Larger batches = fewer callbacks = faster
 
-    for await (const wasmBatch of this.collectMeshesStreaming(wasmBatchSize)) {
+    for await (const item of this.collectMeshesStreaming(wasmBatchSize)) {
+      // Skip color update events in dynamic batching
+      if (item && typeof item === 'object' && 'type' in item && (item as StreamingColorUpdateEvent).type === 'colorUpdate') {
+        continue;
+      }
+      const wasmBatch = item as MeshData[];
       accumulatedMeshes.push(...wasmBatch);
 
       // Yield when we've accumulated enough for current dynamic batch size

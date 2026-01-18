@@ -1,27 +1,29 @@
 {
   "file": "01_Snowdon_Towers_Sample_Structural(1).ifc",
   "sizeMB": 8.31,
-  "timestamp": "2026-01-18T20:48:10.636Z",
+  "timestamp": "2026-01-18T23:18:10.614Z",
   "metrics": {
-    "modelOpenMs": 202,
-    "firstBatchWaitMs": 40,
+    "totalWallClockMs": 954,
+    "fileReadMs": 24,
+    "modelOpenMs": 192,
+    "firstBatchWaitMs": 45,
     "firstBatchNumber": 1,
     "firstBatchMeshes": 100,
     "totalBatches": 16,
     "totalMeshes": 1516,
-    "geometryStreamingMs": 324,
-    "wasmWaitMs": 324,
+    "geometryStreamingMs": 497,
+    "wasmWaitMs": 497,
     "jsProcessMs": 2,
-    "entityScanMs": 127,
+    "entityScanMs": 143,
     "entityCount": 147142,
-    "dataModelParseMs": 590,
+    "dataModelParseMs": 114,
     "dataModelEntityCount": 147142,
-    "fileSizeMB": 8.31
+    "fileSizeMB": 8.31,
+    "renderCompleteMs": 1022,
+    "canvasHasContent": true
   },
   "thresholds": {
-    "passed": false,
-    "violations": [
-      "Entity scan increased by 36.6% (127ms vs 93ms baseline)"
-    ]
+    "passed": true,
+    "violations": []
   }
 }

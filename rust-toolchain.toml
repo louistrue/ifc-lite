@@ -1,0 +1,8 @@
+[toolchain]
+# Nightly required for WASM atomics and build-std
+# Note: wasm-bindgen-rayon threading requires __wasm_init_tls which modern
+# Rust/LLVM doesn't generate. Threading code is present but falls back to
+# sequential processing. Performance is still excellent due to WASM optimizations.
+channel = "nightly"
+components = ["rust-src"]
+targets = ["wasm32-unknown-unknown"]

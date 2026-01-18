@@ -5,6 +5,11 @@
 import { Page, ConsoleMessage } from '@playwright/test';
 
 export interface ViewerBenchmarkMetrics {
+  // Wall-clock total time (what users actually experience)
+  totalWallClockMs: number | null;
+  // File read time
+  fileReadMs: number | null;
+  // Individual phase timings
   modelOpenMs: number | null;
   firstBatchWaitMs: number | null;
   firstBatchNumber: number | null;
@@ -19,12 +24,17 @@ export interface ViewerBenchmarkMetrics {
   dataModelParseMs: number | null;
   dataModelEntityCount: number | null;
   fileSizeMB: number | null;
+  // New: Actual render time
+  renderCompleteMs: number | null;
+  canvasHasContent: boolean;
 }
 
 export class ViewerBenchmarkPage {
   private page: Page;
   private consoleLogs: string[] = [];
   private metrics: Partial<ViewerBenchmarkMetrics> = {};
+  private loadStartTime: number = 0;
+  private loadEndTime: number = 0;
 
   constructor(page: Page) {
     this.page = page;
@@ -53,6 +63,9 @@ export class ViewerBenchmarkPage {
     // Find the file input (there are two, use the one in ViewportContainer)
     const fileInput = this.page.locator('input[type="file"]').first();
 
+    // Record wall-clock start time
+    this.loadStartTime = Date.now();
+
     // Upload file
     await fileInput.setInputFiles(filePath);
 
@@ -60,10 +73,52 @@ export class ViewerBenchmarkPage {
     await this.page.waitForTimeout(1000);
   }
 
+  /**
+   * Check if canvas has actual rendered content (not just blank/gray)
+   */
+  private async checkCanvasHasContent(): Promise<boolean> {
+    try {
+      const hasContent = await this.page.evaluate(() => {
+        const canvas = document.querySelector('canvas');
+        if (!canvas) return false;
+        
+        // Check if canvas has non-zero dimensions
+        if (canvas.width === 0 || canvas.height === 0) return false;
+        
+        // Try to sample a few pixels to see if there's actual content
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (ctx) {
+          const imageData = ctx.getImageData(
+            Math.floor(canvas.width / 2),
+            Math.floor(canvas.height / 2),
+            10, 10
+          );
+          // Check if any pixels have non-background colors
+          for (let i = 0; i < imageData.data.length; i += 4) {
+            const r = imageData.data[i];
+            const g = imageData.data[i + 1];
+            const b = imageData.data[i + 2];
+            // Not pure background gray (128, 128, 128 or similar)
+            if (Math.abs(r - g) > 5 || Math.abs(g - b) > 5 || r > 200 || r < 50) {
+              return true;
+            }
+          }
+        }
+        
+        // For WebGPU, we can't easily read pixels, so just check dimensions
+        return canvas.width > 0 && canvas.height > 0;
+      });
+      return hasContent;
+    } catch {
+      return false;
+    }
+  }
+
   async waitForCompletion(timeoutMs: number = 600000) {
     const startTime = Date.now();
+    let renderCompleteTime: number | null = null;
 
-    // Wait for completion signals in console logs
+    // Wait for completion signals in console logs AND actual rendering
     while (Date.now() - startTime < timeoutMs) {
       // Check if we have all key completion signals
       const hasStreamingComplete = this.consoleLogs.some(log =>
@@ -73,15 +128,36 @@ export class ViewerBenchmarkPage {
         log.includes('[useIfc] Data model parsing complete') ||
         log.includes('[ColumnarParser] Parsed')
       );
+      const hasTotalLoadTime = this.consoleLogs.some(log =>
+        log.includes('[useIfc] TOTAL LOAD TIME')
+      );
 
-      if (hasStreamingComplete && hasDataModelComplete) {
-        // Give a bit more time for any final logs
-        await this.page.waitForTimeout(2000);
-        break;
+      // Check canvas has actual content
+      const canvasReady = await this.checkCanvasHasContent();
+      
+      if (hasStreamingComplete && hasDataModelComplete && hasTotalLoadTime) {
+        // Record when we see completion in logs
+        if (!renderCompleteTime) {
+          renderCompleteTime = Date.now();
+        }
+        
+        // Wait for canvas to actually have content (GPU flush)
+        if (canvasReady) {
+          this.loadEndTime = Date.now();
+          this.metrics.canvasHasContent = true;
+          // Additional wait for any pending GPU operations
+          await this.page.waitForTimeout(200);
+          break;
+        }
       }
 
       // Wait a bit before checking again
-      await this.page.waitForTimeout(1000);
+      await this.page.waitForTimeout(100);
+    }
+
+    // Calculate render delay (time between log completion and actual render)
+    if (renderCompleteTime && this.loadEndTime) {
+      this.metrics.renderCompleteMs = this.loadEndTime - this.loadStartTime;
     }
 
     // Parse metrics from console logs
@@ -91,12 +167,25 @@ export class ViewerBenchmarkPage {
   private parseMetrics() {
     const logs = this.consoleLogs.join('\n');
     
+    // Calculate wall-clock total time
+    if (this.loadStartTime > 0 && this.loadEndTime > 0) {
+      this.metrics.totalWallClockMs = this.loadEndTime - this.loadStartTime;
+    }
+    
     // Log threading status for debugging
     const threadingLogs = this.consoleLogs.filter(log => 
       log.includes('[IfcLiteBridge]') || log.includes('crossOriginIsolated')
     );
     if (threadingLogs.length > 0) {
       console.log('[Benchmark] Threading status:', threadingLogs);
+    }
+    
+    // Log color update status
+    const colorLogs = this.consoleLogs.filter(log => 
+      log.includes('color') || log.includes('Color')
+    );
+    if (colorLogs.length > 0) {
+      console.log('[Benchmark] Color updates:', colorLogs);
     }
 
     // Model open time
@@ -154,15 +243,30 @@ export class ViewerBenchmarkPage {
       this.metrics.dataModelParseMs = parseInt(dataModelMatch[2], 10);
     }
 
-    // File size
-    const fileSizeMatch = logs.match(/\[useIfc\] File: .+?, size: ([\d.]+)MB/);
+    // File size and read time
+    const fileSizeMatch = logs.match(/\[useIfc\] File: .+?, size: ([\d.]+)MB, read in (\d+)ms/);
     if (fileSizeMatch) {
       this.metrics.fileSizeMB = parseFloat(fileSizeMatch[1]);
+      this.metrics.fileReadMs = parseInt(fileSizeMatch[2], 10);
+    } else {
+      // Fallback for old format
+      const oldFileSizeMatch = logs.match(/\[useIfc\] File: .+?, size: ([\d.]+)MB/);
+      if (oldFileSizeMatch) {
+        this.metrics.fileSizeMB = parseFloat(oldFileSizeMatch[1]);
+      }
+    }
+    
+    // Total load time from app (most accurate measure of user experience)
+    const totalLoadMatch = logs.match(/\[useIfc\] TOTAL LOAD TIME.*?: (\d+)ms/);
+    if (totalLoadMatch) {
+      this.metrics.totalWallClockMs = parseInt(totalLoadMatch[1], 10);
     }
   }
 
   getMetrics(): ViewerBenchmarkMetrics {
     return {
+      totalWallClockMs: this.metrics.totalWallClockMs ?? null,
+      fileReadMs: this.metrics.fileReadMs ?? null,
       modelOpenMs: this.metrics.modelOpenMs ?? null,
       firstBatchWaitMs: this.metrics.firstBatchWaitMs ?? null,
       firstBatchNumber: this.metrics.firstBatchNumber ?? null,
@@ -177,6 +281,8 @@ export class ViewerBenchmarkPage {
       dataModelParseMs: this.metrics.dataModelParseMs ?? null,
       dataModelEntityCount: this.metrics.dataModelEntityCount ?? null,
       fileSizeMB: this.metrics.fileSizeMB ?? null,
+      renderCompleteMs: this.metrics.renderCompleteMs ?? null,
+      canvasHasContent: this.metrics.canvasHasContent ?? false,
     };
   }
 

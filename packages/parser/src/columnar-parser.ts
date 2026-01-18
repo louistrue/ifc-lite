@@ -298,11 +298,37 @@ export class ColumnarParser {
         // === BUILD ENTITY TABLE with spatial data included ===
         options.onProgress?.({ phase: 'building entities', percent: 30 });
 
+        // OPTIMIZATION: Only add entities that are useful for the viewer UI
+        // Skip geometric primitives like IFCCARTESIANPOINT, IFCDIRECTION, etc.
+        // This reduces 4M+ entities to ~100K relevant ones
+        const RELEVANT_ENTITY_PREFIXES = new Set([
+            'IFCWALL', 'IFCSLAB', 'IFCBEAM', 'IFCCOLUMN', 'IFCPLATE', 'IFCDOOR', 'IFCWINDOW',
+            'IFCROOF', 'IFCSTAIR', 'IFCRAILING', 'IFCRAMP', 'IFCFOOTING', 'IFCPILE',
+            'IFCMEMBER', 'IFCCURTAINWALL', 'IFCBUILDINGELEMENTPROXY', 'IFCFURNISHINGELEMENT',
+            'IFCFLOWSEGMENT', 'IFCFLOWTERMINAL', 'IFCFLOWCONTROLLER', 'IFCFLOWFITTING',
+            'IFCSPACE', 'IFCOPENINGELEMENT', 'IFCSITE', 'IFCBUILDING', 'IFCBUILDINGSTOREY',
+            'IFCPROJECT', 'IFCCOVERING', 'IFCANNOTATION', 'IFCGRID',
+        ]);
+        
         let processed = 0;
+        let added = 0;
         for (const ref of entityRefs) {
             const typeUpper = ref.type.toUpperCase();
+            
+            // Skip non-relevant entities (geometric primitives, etc.)
             const hasGeometry = GEOMETRY_TYPES.has(typeUpper);
             const isType = typeUpper.endsWith('TYPE');
+            const isSpatial = SPATIAL_TYPES.has(typeUpper);
+            const isRelevant = hasGeometry || isType || isSpatial || 
+                RELEVANT_ENTITY_PREFIXES.has(typeUpper) ||
+                typeUpper.startsWith('IFCREL') ||  // Keep relationships for hierarchy
+                onDemandPropertyMap.has(ref.expressId) ||  // Keep entities with properties
+                onDemandQuantityMap.has(ref.expressId);    // Keep entities with quantities
+            
+            if (!isRelevant) {
+                processed++;
+                continue;
+            }
 
             // Get parsed data for spatial entities
             const spatialData = parsedSpatialData.get(ref.expressId);
@@ -319,15 +345,18 @@ export class ColumnarParser {
                 hasGeometry,
                 isType
             );
+            added++;
 
             processed++;
-            // Yield every 5000 entities for better interleaving with geometry streaming
-            if (processed % 5000 === 0) {
+            // Yield every 10000 entities for better interleaving with geometry streaming
+            if (processed % 10000 === 0) {
                 options.onProgress?.({ phase: 'building entities', percent: 30 + (processed / totalEntities) * 50 });
                 // Direct yield - don't use maybeYield since we're already throttling
                 await new Promise(resolve => setTimeout(resolve, 0));
             }
         }
+        
+        console.log(`[ColumnarParser] Added ${added} relevant entities (skipped ${totalEntities - added} primitives)`);
 
         const entityTable = entityTableBuilder.build();
 

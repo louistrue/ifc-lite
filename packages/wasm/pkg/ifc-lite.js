@@ -266,16 +266,16 @@ if (cachedTextEncoder) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_415(arg0, arg1) {
-    wasm.__wasm_bindgen_func_elem_415(arg0, arg1);
+function __wasm_bindgen_func_elem_828(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_828(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_825(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_825(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_418(arg0, arg1) {
+    wasm.__wasm_bindgen_func_elem_418(arg0, arg1);
 }
 
-function __wasm_bindgen_func_elem_1115(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_1115(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_1118(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_1118(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -1425,6 +1425,20 @@ export class IfcAPI {
         return takeObject(ret);
     }
     /**
+     * Fast geometry-only entity scanning
+     * Scans only entities that have geometry, skipping 99% of non-geometry entities
+     * Returns array of geometry entity references for parallel processing
+     * Much faster than scanning all entities (3x speedup for large files)
+     * @param {string} content
+     * @returns {any}
+     */
+    scanGeometryEntitiesFast(content) {
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.ifcapi_scanGeometryEntitiesFast(this.__wbg_ptr, ptr0, len0);
+        return takeObject(ret);
+    }
+    /**
      * Parse IFC file with streaming instanced geometry batches for progressive rendering
      * Groups identical geometries and yields batches of InstancedGeometry
      * Uses fast-first-frame streaming: simple geometry (walls, slabs) first
@@ -2450,7 +2464,7 @@ function __wbg_get_imports(memory) {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wasm_bindgen_func_elem_1115(a, state0.b, arg0, arg1);
+                    return __wasm_bindgen_func_elem_1118(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -2570,7 +2584,7 @@ function __wbg_get_imports(memory) {
     };
     imports.wbg.__wbindgen_cast_4549ac4cd1bcc693 = function(arg0, arg1) {
         // Cast intrinsic for `Closure(Closure { dtor_idx: 140, function: Function { arguments: [Externref], shim_idx: 141, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_819, __wasm_bindgen_func_elem_825);
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_822, __wasm_bindgen_func_elem_828);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_cast_4625c577ab2ec9ee = function(arg0) {
@@ -2580,12 +2594,12 @@ function __wbg_get_imports(memory) {
     };
     imports.wbg.__wbindgen_cast_9aabeadef7a2e524 = function(arg0, arg1) {
         // Cast intrinsic for `Closure(Closure { dtor_idx: 57, function: Function { arguments: [], shim_idx: 58, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_411, __wasm_bindgen_func_elem_415);
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_414, __wasm_bindgen_func_elem_418);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_cast_bce7bf5c896a11bb = function(arg0, arg1) {
         // Cast intrinsic for `Closure(Closure { dtor_idx: 140, function: Function { arguments: [NamedExternref("MessageEvent")], shim_idx: 141, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_819, __wasm_bindgen_func_elem_825);
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_822, __wasm_bindgen_func_elem_828);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {

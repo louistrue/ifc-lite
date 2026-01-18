@@ -9,7 +9,7 @@
 
 import { useMemo, useCallback, useRef } from 'react';
 import { useViewerStore } from '../store.js';
-import { IfcParser, detectFormat, parseIfcx } from '@ifc-lite/parser';
+import { IfcParser, WorkerParser, detectFormat, parseIfcx } from '@ifc-lite/parser';
 import { GeometryProcessor, GeometryQuality, type MeshData } from '@ifc-lite/geometry';
 import { IfcQuery } from '@ifc-lite/query';
 import { BufferBuilder } from '@ifc-lite/geometry';
@@ -1174,6 +1174,9 @@ export function useIfc() {
   const loadFile = useCallback(async (file: File) => {
     const { resetViewerState } = useViewerStore.getState();
 
+    // Track total elapsed time for complete user experience
+    const totalStartTime = performance.now();
+    
     try {
       // Reset all viewer state before loading new file
       resetViewerState();
@@ -1182,10 +1185,12 @@ export function useIfc() {
       setError(null);
       setProgress({ phase: 'Loading file', percent: 0 });
 
-      // Read file
+      // Read file from disk (can take several seconds for large files)
+      const fileReadStart = performance.now();
       const buffer = await file.arrayBuffer();
+      const fileReadTime = performance.now() - fileReadStart;
       const fileSizeMB = buffer.byteLength / (1024 * 1024);
-      console.log(`[useIfc] File: ${file.name}, size: ${fileSizeMB.toFixed(2)}MB`);
+      console.log(`[useIfc] File: ${file.name}, size: ${fileSizeMB.toFixed(2)}MB, read in ${fileReadTime.toFixed(0)}ms`);
 
       // Detect file format (IFCX/IFC5 vs IFC4 STEP)
       const format = detectFormat(buffer);
@@ -1313,6 +1318,8 @@ export function useIfc() {
         if (cacheResult) {
           const success = await loadFromCache(cacheResult, file.name);
           if (success) {
+            const totalElapsedMs = performance.now() - totalStartTime;
+            console.log(`[useIfc] TOTAL LOAD TIME (from cache): ${totalElapsedMs.toFixed(0)}ms (${(totalElapsedMs / 1000).toFixed(1)}s)`);
             setLoading(false);
             return;
           }
@@ -1327,6 +1334,8 @@ export function useIfc() {
         // Pass buffer directly - server uses File object for parsing, buffer is only for size checks
         const serverSuccess = await loadFromServer(file, buffer);
         if (serverSuccess) {
+          const totalElapsedMs = performance.now() - totalStartTime;
+          console.log(`[useIfc] TOTAL LOAD TIME (server): ${totalElapsedMs.toFixed(0)}ms (${(totalElapsedMs / 1000).toFixed(1)}s)`);
           setLoading(false);
           return;
         }
@@ -1356,24 +1365,54 @@ export function useIfc() {
       });
 
       const startDataModelParsing = () => {
-        const parser = new IfcParser();
-        // Get WASM API from geometry processor for accelerated entity scanning
-        const wasmApi = geometryProcessor.getApi();
-        parser.parseColumnar(buffer, {
-          wasmApi, // Pass WASM API for 5-10x faster entity scanning
-          onProgress: (prog) => {
-            // Only log at key milestones to avoid console spam
-            if (prog.percent === 0 || prog.percent === 50 || prog.percent === 100) {
-              console.log(`[useIfc] Data model: ${prog.phase} ${prog.percent.toFixed(0)}%`);
-            }
-          },
-        }).then(dataStore => {
-          console.log('[useIfc] Data model parsing complete - properties available via on-demand extraction');
-          setIfcDataStore(dataStore);
-          resolveDataStore(dataStore);
-        }).catch(err => {
-          console.error('[useIfc] Data model parsing failed:', err);
-        });
+        // Worker parser disabled temporarily - IfcDataStore contains closures
+        // that can't be serialized for postMessage. The main thread parsing
+        // is fast enough (~3s for large files) since we skip primitive entities.
+        // TODO: Implement proper serialization for worker transfer
+        const useWorker = false; // Disabled: fileSizeMB > 50;
+        
+        if (useWorker) {
+          console.log(`[useIfc] Using worker for data model parsing (${fileSizeMB.toFixed(1)}MB file)`);
+          const workerParser = new WorkerParser();
+          // Clone buffer since worker will transfer it
+          const bufferClone = buffer.slice(0);
+          workerParser.parseColumnar(bufferClone, {
+            onProgress: (prog) => {
+              // Only log at key milestones to avoid console spam
+              if (prog.percent === 0 || prog.percent === 50 || prog.percent === 100) {
+                console.log(`[useIfc] Data model (worker): ${prog.phase} ${prog.percent.toFixed(0)}%`);
+              }
+            },
+          }).then(dataStore => {
+            console.log('[useIfc] Data model parsing complete (worker) - properties available via on-demand extraction');
+            setIfcDataStore(dataStore);
+            resolveDataStore(dataStore);
+            workerParser.terminate();
+          }).catch(err => {
+            console.error('[useIfc] Data model parsing failed (worker):', err);
+            workerParser.terminate();
+          });
+        } else {
+          // Use main thread for smaller files (faster, no worker overhead)
+          const parser = new IfcParser();
+          // Get WASM API from geometry processor for accelerated entity scanning
+          const wasmApi = geometryProcessor.getApi();
+          parser.parseColumnar(buffer, {
+            wasmApi, // Pass WASM API for 5-10x faster entity scanning
+            onProgress: (prog) => {
+              // Only log at key milestones to avoid console spam
+              if (prog.percent === 0 || prog.percent === 50 || prog.percent === 100) {
+                console.log(`[useIfc] Data model: ${prog.phase} ${prog.percent.toFixed(0)}%`);
+              }
+            },
+          }).then(dataStore => {
+            console.log('[useIfc] Data model parsing complete - properties available via on-demand extraction');
+            setIfcDataStore(dataStore);
+            resolveDataStore(dataStore);
+          }).catch(err => {
+            console.error('[useIfc] Data model parsing failed:', err);
+          });
+        }
       };
 
       // Schedule data model parsing to start after geometry begins streaming
@@ -1543,6 +1582,10 @@ export function useIfc() {
         setError(err instanceof Error ? err.message : 'Unknown error during geometry processing');
       }
 
+      // Log total elapsed time for complete user experience
+      const totalElapsedMs = performance.now() - totalStartTime;
+      console.log(`[useIfc] TOTAL LOAD TIME: ${totalElapsedMs.toFixed(0)}ms (${(totalElapsedMs / 1000).toFixed(1)}s)`);
+      
       setLoading(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');

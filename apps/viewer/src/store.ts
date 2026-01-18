@@ -65,6 +65,10 @@ interface ViewerState {
   // Data
   ifcDataStore: IfcDataStore | null;
   geometryResult: GeometryResult | null;
+  
+  // Pending color updates (for deferred color parsing)
+  // Viewport will apply these to the WebGPU scene and then clear them
+  pendingColorUpdates: Map<number, [number, number, number, number]> | null;
 
   // Selection
   selectedEntityId: number | null;
@@ -134,6 +138,7 @@ interface ViewerState {
   setGeometryResult: (result: GeometryResult | null) => void;
   appendGeometryBatch: (meshes: GeometryResult['meshes'], coordinateInfo?: CoordinateInfo) => void;
   updateMeshColors: (updates: Map<number, [number, number, number, number]>) => void;
+  clearPendingColorUpdates: () => void;
   updateCoordinateInfo: (coordinateInfo: CoordinateInfo) => void;
   setSelectedEntityId: (id: number | null) => void;
   toggleStoreySelection: (id: number) => void;
@@ -222,6 +227,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   error: null,
   ifcDataStore: null,
   geometryResult: null,
+  pendingColorUpdates: null,
   selectedEntityId: null,
   selectedEntityIds: new Set(),
   selectedStoreys: new Set(),
@@ -303,8 +309,11 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
         ...state.geometryResult,
         meshes: updatedMeshes,
       },
+      // Store pending updates for Viewport to apply to WebGPU scene
+      pendingColorUpdates: updates,
     };
   }),
+  clearPendingColorUpdates: () => set({ pendingColorUpdates: null }),
   updateCoordinateInfo: (coordinateInfo) => set((state) => {
     if (!state.geometryResult) return {};
     return {
@@ -698,6 +707,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     selectedStoreys: new Set(),
     hiddenEntities: new Set(),
     isolatedEntities: null,
+    pendingColorUpdates: null,
     typeVisibility: {
       spaces: false,
       openings: false,
