@@ -318,6 +318,10 @@ export class RenderPipeline {
                 depthWriteEnabled: true,
                 depthCompare: 'greater',  // Reverse-Z: greater instead of less
             },
+            // MSAA configuration - must match render pass attachment sample count
+            multisample: {
+                count: this.sampleCount,
+            },
         };
 
         this.pipeline = this.device.createRenderPipeline(pipelineDescriptor);
@@ -353,6 +357,10 @@ export class RenderPipeline {
                 depthCompare: 'greater-equal',  // Allow rendering at same depth, but still respect objects in front
                 depthBias: 0,
                 depthBiasSlopeScale: 0,
+            },
+            // MSAA configuration - must match render pass attachment sample count
+            multisample: {
+                count: this.sampleCount,
             },
         };
 
@@ -399,6 +407,10 @@ export class RenderPipeline {
                 format: this.depthFormat,
                 depthWriteEnabled: false,  // Don't write depth for transparent objects
                 depthCompare: 'greater',   // Still test depth to respect opaque objects
+            },
+            // MSAA configuration - must match render pass attachment sample count
+            multisample: {
+                count: this.sampleCount,
             },
         };
 
