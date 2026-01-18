@@ -1006,15 +1006,21 @@ export function useIfc() {
           const forwardEdges = new Map<number, Array<{ target: number; type: RelationshipType; relationshipId: number }>>();
           const inverseEdges = new Map<number, Array<{ target: number; type: RelationshipType; relationshipId: number }>>();
 
+          // PERF: Pre-compute uppercase once for efficient comparison
+          // This eliminates millions of .toUpperCase() calls for large files
+          const relTypeMap = new Map<string, RelationshipType>([
+            ['IFCRELAGGREGATES', RelationshipType.Aggregates],
+            ['IFCRELCONTAINEDINSPATIALSTRUCTURE', RelationshipType.ContainsElements],
+            ['IFCRELDEFINESBYPROPERTIES', RelationshipType.DefinesByProperties],
+            ['IFCRELDEFINESBYTYPE', RelationshipType.DefinesByType],
+            ['IFCRELASSOCIATESMATERIAL', RelationshipType.AssociatesMaterial],
+            ['IFCRELVOIDSELEMENT', RelationshipType.VoidsElement],
+            ['IFCRELFILLSELEMENT', RelationshipType.FillsElement],
+          ]);
+
           for (const rel of dataModel.relationships) {
-            const relType = rel.rel_type.toUpperCase().includes('AGGREGATE') ? RelationshipType.Aggregates
-              : rel.rel_type.toUpperCase().includes('CONTAINED') ? RelationshipType.ContainsElements
-                : rel.rel_type.toUpperCase().includes('DEFINESBYPROP') ? RelationshipType.DefinesByProperties
-                  : rel.rel_type.toUpperCase().includes('DEFINESBYTYPE') ? RelationshipType.DefinesByType
-                    : rel.rel_type.toUpperCase().includes('MATERIAL') ? RelationshipType.AssociatesMaterial
-                      : rel.rel_type.toUpperCase().includes('VOIDS') ? RelationshipType.VoidsElement
-                        : rel.rel_type.toUpperCase().includes('FILLS') ? RelationshipType.FillsElement
-                          : RelationshipType.Aggregates;
+            // Single .toUpperCase() call instead of 7
+            const relType = relTypeMap.get(rel.rel_type.toUpperCase()) ?? RelationshipType.Aggregates;
 
             // Forward: relating -> related
             if (!forwardEdges.has(rel.relating_id)) {
