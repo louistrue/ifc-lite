@@ -23,7 +23,7 @@ import {
 import { getCached, setCached, type CacheResult } from '../services/ifc-cache.js';
 import { IfcTypeEnum, RelationshipType, IfcTypeEnumFromString, IfcTypeEnumToString, EntityFlags, type SpatialHierarchy, type SpatialNode, type EntityTable, type RelationshipGraph } from '@ifc-lite/data';
 import { StringTable } from '@ifc-lite/data';
-import { IfcServerClient, decodeDataModel, type ParquetBatch } from '@ifc-lite/server-client';
+import { IfcServerClient, decodeDataModel, type ParquetBatch, type DataModel } from '@ifc-lite/server-client';
 import type { DynamicBatchConfig } from '@ifc-lite/geometry';
 
 // Minimum file size to cache (10MB) - smaller files parse quickly anyway
@@ -355,8 +355,8 @@ export function useIfc() {
           
           // Calculate storey heights from elevation differences (fallback if no property data)
           if (dataStore.spatialHierarchy.storeyHeights.size === 0 && dataStore.spatialHierarchy.storeyElevations.size > 1) {
-            const sortedStoreys: Array<[number, number]> = Array.from(dataStore.spatialHierarchy.storeyElevations.entries())
-              .sort((a: [number, number], b: [number, number]) => a[1] - b[1]); // Sort by elevation ascending
+            const entries = Array.from(dataStore.spatialHierarchy.storeyElevations.entries()) as Array<[number, number]>;
+            const sortedStoreys = entries.sort((a, b) => a[1] - b[1]); // Sort by elevation ascending
             for (let i = 0; i < sortedStoreys.length - 1; i++) {
               const [storeyId, elevation] = sortedStoreys[i];
               const nextElevation = sortedStoreys[i + 1][1];
@@ -742,12 +742,13 @@ export function useIfc() {
             return;
           }
 
-          const dataModel = await decodeDataModel(dataModelBuffer);
+          const dataModel: DataModel = await decodeDataModel(dataModelBuffer);
 
           console.log(`[useIfc] Data model decoded in ${(performance.now() - dataModelStart).toFixed(0)}ms`);
           console.log(`  Entities: ${dataModel.entities.size}`);
           console.log(`  PropertySets: ${dataModel.propertySets.size}`);
-          console.log(`  QuantitySets: ${dataModel.quantitySets.size}`);
+          const quantitySetsSize = 'quantitySets' in dataModel ? dataModel.quantitySets.size : 0;
+          console.log(`  QuantitySets: ${quantitySetsSize}`);
           console.log(`  Relationships: ${dataModel.relationships.length}`);
           console.log(`  Spatial nodes: ${dataModel.spatialHierarchy.nodes.length}`);
 
@@ -1115,7 +1116,7 @@ export function useIfc() {
                 entityToPsets.get(rel.related_id)!.push(pset);
               }
               // Check if it's a quantity set (same relationship type, different definition)
-              const qset = dataModel.quantitySets.get(rel.relating_id);
+              const qset = 'quantitySets' in dataModel ? dataModel.quantitySets.get(rel.relating_id) : undefined;
               if (qset) {
                 if (!entityToQsets.has(rel.related_id)) {
                   entityToQsets.set(rel.related_id, []);

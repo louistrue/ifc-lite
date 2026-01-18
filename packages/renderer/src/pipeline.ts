@@ -318,7 +318,6 @@ export class RenderPipeline {
                 depthWriteEnabled: true,
                 depthCompare: 'greater',  // Reverse-Z: greater instead of less
             },
-            multisample: this.sampleCount > 1 ? { count: this.sampleCount } : undefined,
         };
 
         this.pipeline = this.device.createRenderPipeline(pipelineDescriptor);
@@ -355,7 +354,6 @@ export class RenderPipeline {
                 depthBias: 0,
                 depthBiasSlopeScale: 0,
             },
-            multisample: this.sampleCount > 1 ? { count: this.sampleCount } : undefined,
         };
 
         this.selectionPipeline = this.device.createRenderPipeline(selectionPipelineDescriptor);
@@ -402,7 +400,6 @@ export class RenderPipeline {
                 depthWriteEnabled: false,  // Don't write depth for transparent objects
                 depthCompare: 'greater',   // Still test depth to respect opaque objects
             },
-            multisample: this.sampleCount > 1 ? { count: this.sampleCount } : undefined,
         };
 
         this.transparentPipeline = this.device.createRenderPipeline(transparentPipelineDescriptor);

@@ -253,7 +253,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
 
       // Helper function to compute snap visualization (edge highlights, plane indicators)
       function updateSnapVisualization(snapTarget: any) {
-        if (!snapTarget) {
+        if (!snapTarget || !canvas) {
           setSnapVisualization(null);
           return;
         }
