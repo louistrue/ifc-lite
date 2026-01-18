@@ -157,8 +157,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
     }
   }, [hoverTooltipsEnabled, clearHover]);
 
-  // Cleanup measurement state when tool changes
+  // Cleanup measurement state when tool changes + set cursor
   useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
     if (activeTool !== 'measure') {
       // Cancel any active measurement
       if (activeMeasurement) {
@@ -170,6 +173,15 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
         measureRaycastFrameRef.current = null;
         measureRaycastPendingRef.current = false;
       }
+    }
+
+    // Set cursor based on active tool
+    if (activeTool === 'measure') {
+      canvas.style.cursor = 'crosshair';
+    } else if (activeTool === 'pan' || activeTool === 'orbit') {
+      canvas.style.cursor = 'grab';
+    } else {
+      canvas.style.cursor = 'default';
     }
   }, [activeTool, activeMeasurement, cancelMeasurement]);
 
@@ -492,7 +504,15 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
         const tool = activeToolRef.current;
 
         // Handle measure tool live preview while dragging
-        if (tool === 'measure' && activeMeasurementRef.current) {
+        // IMPORTANT: Check tool first, not activeMeasurement, to prevent orbit conflict
+        if (tool === 'measure' && mouseState.isDragging) {
+          // Only raycast if we have an active measurement
+          if (!activeMeasurementRef.current) {
+            // Just started dragging, measurement will be set soon
+            // Don't do anything yet to avoid race condition
+            return;
+          }
+
           // Throttle raycasting to 60fps max using requestAnimationFrame
           if (!measureRaycastPendingRef.current) {
             measureRaycastPendingRef.current = true;
@@ -529,7 +549,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           return;
         }
 
-        if (mouseState.isDragging) {
+        // Handle orbit/pan for other tools (NOT measure tool)
+        if (mouseState.isDragging && tool !== 'measure') {
           const dx = e.clientX - mouseState.lastX;
           const dy = e.clientY - mouseState.lastY;
 
@@ -602,11 +623,19 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
       });
 
       canvas.addEventListener('mouseleave', () => {
+        const tool = activeToolRef.current;
         mouseState.isDragging = false;
         mouseState.isPanning = false;
         camera.stopInertia();
         camera.setOrbitPivot(null);
-        canvas.style.cursor = 'default';
+        // Restore cursor based on active tool
+        if (tool === 'measure') {
+          canvas.style.cursor = 'crosshair';
+        } else if (tool === 'pan' || tool === 'orbit') {
+          canvas.style.cursor = 'grab';
+        } else {
+          canvas.style.cursor = 'default';
+        }
         clearHover();
       });
 
