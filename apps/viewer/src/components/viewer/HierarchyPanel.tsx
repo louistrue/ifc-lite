@@ -111,17 +111,24 @@ export function HierarchyPanel() {
 
     // Add storeys sorted by elevation
     const storeysArray = Array.from(hierarchy.byStorey.entries()) as [number, number[]][];
+    console.log(`[HierarchyPanel] Building tree for ${storeysArray.length} storeys`);
+    console.log(`[HierarchyPanel] Pre-computed storeyHeights: ${hierarchy.storeyHeights?.size ?? 0} entries`);
     const storeys = storeysArray
       .map(([id, elements]: [number, number[]]) => {
         // Try pre-computed height first (server path), then on-demand extraction (client path)
         let height = hierarchy.storeyHeights?.get(id);
+        console.log(`[HierarchyPanel] Storey ${id}: pre-computed height = ${height}`);
         if (height === undefined && ifcDataStore.properties) {
+          console.log(`[HierarchyPanel] Trying on-demand extraction for storey ${id}`);
           const storeyProps = ifcDataStore.properties.getForEntity(id);
+          console.log(`[HierarchyPanel] Found ${storeyProps.length} property sets`);
           for (const pset of storeyProps) {
+            console.log(`[HierarchyPanel]   Pset "${pset.name}": ${pset.properties.length} props`);
             for (const prop of pset.properties) {
               const propName = prop.name.toLowerCase();
               if (propName === 'grossheight' || propName === 'netheight' || propName === 'height') {
                 const val = parseFloat(String(prop.value));
+                console.log(`[HierarchyPanel]     Height found: "${prop.name}" = ${val}`);
                 if (!isNaN(val) && val > 0) {
                   height = val;
                   break;
@@ -131,6 +138,7 @@ export function HierarchyPanel() {
             if (height !== undefined) break;
           }
         }
+        console.log(`[HierarchyPanel] Storey ${id} final height: ${height}`);
         return {
           id,
           name: ifcDataStore.entities.getName(id) || `Storey #${id}`,

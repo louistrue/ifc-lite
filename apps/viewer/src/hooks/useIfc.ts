@@ -1068,16 +1068,23 @@ export function useIfc() {
 
           // Extract storey heights from property sets (now that entityToPsets is built)
           // This is O(storeys * props_per_storey) which is typically very small (< 100 total)
+          console.log(`[useIfc] Extracting storey heights for ${byStorey.size} storeys`);
+          console.log(`[useIfc] entityToPsets has ${entityToPsets.size} entries`);
           for (const storeyId of byStorey.keys()) {
             const psets = entityToPsets.get(storeyId);
+            console.log(`[useIfc] Storey ${storeyId}: ${psets?.length ?? 0} property sets`);
             if (!psets) continue;
             for (const pset of psets) {
+              console.log(`[useIfc]   Pset "${pset.pset_name}" has ${pset.properties.length} properties`);
               for (const prop of pset.properties) {
                 const propName = prop.property_name.toLowerCase();
+                console.log(`[useIfc]     Property: "${prop.property_name}" = "${prop.property_value}"`);
                 if (propName === 'grossheight' || propName === 'netheight' || propName === 'height') {
                   const val = parseFloat(prop.property_value);
+                  console.log(`[useIfc]     -> Height candidate! Parsed value: ${val}`);
                   if (!isNaN(val) && val > 0) {
                     storeyHeights.set(storeyId, val);
+                    console.log(`[useIfc]     -> Set storey ${storeyId} height to ${val}`);
                     break;
                   }
                 }
@@ -1085,6 +1092,7 @@ export function useIfc() {
               if (storeyHeights.has(storeyId)) break;
             }
           }
+          console.log(`[useIfc] Final storeyHeights: ${storeyHeights.size} entries`, Object.fromEntries(storeyHeights));
 
           const createEdgeAccessor = (edges: Map<number, Array<{ target: number; type: RelationshipType; relationshipId: number }>>) => ({
             offsets: new Map<number, number>(),

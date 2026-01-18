@@ -58,16 +58,22 @@ export function PropertiesPanel() {
 
     // Try to get height from pre-computed storeyHeights first (server path)
     let height = hierarchy.storeyHeights?.get(storeyId);
+    console.log(`[PropertiesPanel] Storey ${storeyId}: pre-computed height = ${height}`);
 
     // If not available, try on-demand extraction from storey's properties (client path)
     if (height === undefined && ifcDataStore.properties) {
+      console.log(`[PropertiesPanel] Trying on-demand extraction for storey ${storeyId}`);
       const storeyProps = ifcDataStore.properties.getForEntity(storeyId);
+      console.log(`[PropertiesPanel] Found ${storeyProps.length} property sets for storey`);
       for (const pset of storeyProps) {
+        console.log(`[PropertiesPanel]   Pset "${pset.name}" has ${pset.properties.length} properties`);
         // Look in Pset_BuildingStoreyCommon or any pset with height-related properties
         for (const prop of pset.properties) {
+          console.log(`[PropertiesPanel]     Property: "${prop.name}" = "${prop.value}"`);
           const propName = prop.name.toLowerCase();
           if (propName === 'grossheight' || propName === 'netheight' || propName === 'height') {
             const val = parseFloat(String(prop.value));
+            console.log(`[PropertiesPanel]     -> Height candidate! Parsed value: ${val}`);
             if (!isNaN(val) && val > 0) {
               height = val;
               break;
@@ -77,6 +83,7 @@ export function PropertiesPanel() {
         if (height !== undefined) break;
       }
     }
+    console.log(`[PropertiesPanel] Final height for storey ${storeyId}: ${height}`);
 
     return {
       storeyId,
