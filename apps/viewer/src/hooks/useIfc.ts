@@ -932,20 +932,9 @@ export function useIfc() {
 
           // ===== PropertyTable with getForEntity =====
           // Build entity -> pset relationships from server data
+          // NOTE: This is now built in the combined relationship loop below (lines ~1028-1055)
+          // to avoid iterating relationships twice
           const entityToPsets = new Map<number, Array<{ pset_id: number; pset_name: string; properties: Array<{ property_name: string; property_value: string; property_type: string }> }>>();
-
-          // Parse relationships to link entities to their property sets
-          for (const rel of dataModel.relationships) {
-            if (rel.rel_type === 'IFCRELDEFINESBYPROPERTIES') {
-              const pset = dataModel.propertySets.get(rel.relating_id);
-              if (pset) {
-                if (!entityToPsets.has(rel.related_id)) {
-                  entityToPsets.set(rel.related_id, []);
-                }
-                entityToPsets.get(rel.related_id)!.push(pset);
-              }
-            }
-          }
 
           const properties = {
             count: 0,
@@ -1020,6 +1009,8 @@ export function useIfc() {
           // Track unmapped relationship types for diagnostics
           const unmappedRelTypes = new Set<string>();
 
+          // PERF: Combined loop - process relationships once for both graph building AND property mapping
+          // This eliminates the duplicate loop that was doing 1M string comparisons
           for (const rel of dataModel.relationships) {
             // Single .toUpperCase() call instead of 7
             const upperType = rel.rel_type.toUpperCase();
@@ -1032,6 +1023,17 @@ export function useIfc() {
             }
 
             const finalRelType = relType ?? RelationshipType.Aggregates;
+
+            // Build property set mapping in the same loop (avoid duplicate iteration)
+            if (upperType === 'IFCRELDEFINESBYPROPERTIES') {
+              const pset = dataModel.propertySets.get(rel.relating_id);
+              if (pset) {
+                if (!entityToPsets.has(rel.related_id)) {
+                  entityToPsets.set(rel.related_id, []);
+                }
+                entityToPsets.get(rel.related_id)!.push(pset);
+              }
+            }
 
             // Forward: relating -> related
             if (!forwardEdges.has(rel.relating_id)) {
