@@ -17,6 +17,8 @@ pub struct DataModel {
     pub entities: Vec<EntityMetadata>,
     /// Property sets (pset_id -> PropertySet).
     pub property_sets: Vec<PropertySet>,
+    /// Quantity sets (qset_id -> QuantitySet).
+    pub quantity_sets: Vec<QuantitySet>,
     /// Relationships (type, relating, related[]).
     pub relationships: Vec<Relationship>,
     /// Spatial hierarchy data with nodes and lookup maps.
@@ -58,6 +60,30 @@ pub struct Property {
     pub property_value: String,
     /// Property value type.
     pub property_type: String,
+}
+
+/// Quantity set (IfcElementQuantity).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuantitySet {
+    /// QuantitySet entity ID.
+    pub qset_id: u32,
+    /// QuantitySet name.
+    pub qset_name: String,
+    /// Method of measurement (optional).
+    pub method_of_measurement: Option<String>,
+    /// Quantities in this set.
+    pub quantities: Vec<Quantity>,
+}
+
+/// Single quantity value.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Quantity {
+    /// Quantity name.
+    pub quantity_name: String,
+    /// Quantity numeric value.
+    pub quantity_value: f64,
+    /// Quantity type (length, area, volume, count, weight, time).
+    pub quantity_type: String,
 }
 
 /// Relationship between entities.
@@ -185,10 +211,13 @@ pub fn extract_data_model(content: &str) -> DataModel {
 
     // Parallel extraction using rayon::join
     let content_arc = Arc::new(content.to_string());
-    let (entities, (property_sets, relationships)) = rayon::join(
+    let (entities, ((property_sets, quantity_sets), relationships)) = rayon::join(
         || extract_entity_metadata(&all_entities, &content_arc, &entity_index),
         || rayon::join(
-            || extract_properties(&all_entities, &content_arc, &entity_index),
+            || rayon::join(
+                || extract_properties(&all_entities, &content_arc, &entity_index),
+                || extract_quantities(&all_entities, &content_arc, &entity_index),
+            ),
             || extract_relationships(&all_entities, &content_arc, &entity_index),
         ),
     );
@@ -200,6 +229,7 @@ pub fn extract_data_model(content: &str) -> DataModel {
     tracing::info!(
         entities = entities.len(),
         property_sets = property_sets.len(),
+        quantity_sets = quantity_sets.len(),
         relationships = relationships.len(),
         spatial_nodes = spatial_hierarchy.nodes.len(),
         extract_time_ms = extract_time.as_millis(),
@@ -209,6 +239,7 @@ pub fn extract_data_model(content: &str) -> DataModel {
     DataModel {
         entities,
         property_sets,
+        quantity_sets,
         relationships,
         spatial_hierarchy,
     }
@@ -247,9 +278,10 @@ fn extract_properties(
     entity_index: &Arc<ifc_lite_core::EntityIndex>,
 ) -> Vec<PropertySet> {
     // First, collect all PropertySet entities
+    // PERF: Use eq_ignore_ascii_case to avoid string allocation per comparison
     let pset_jobs: Vec<_> = jobs
         .iter()
-        .filter(|job| job.type_name.to_uppercase() == "IFCPROPERTYSET")
+        .filter(|job| job.type_name.eq_ignore_ascii_case("IFCPROPERTYSET"))
         .collect();
 
     tracing::debug!(count = pset_jobs.len(), "Extracting property sets");
@@ -295,10 +327,11 @@ fn extract_property(
     entity: &DecodedEntity,
     _decoder: &mut EntityDecoder,
 ) -> Option<Property> {
-    let type_upper = entity.ifc_type.as_str().to_uppercase();
+    // PERF: Use eq_ignore_ascii_case to avoid string allocation per comparison
+    let ifc_type = entity.ifc_type.as_str();
 
     // IfcPropertySingleValue: [0]=Name, [1]=Description, [2]=NominalValue, [3]=Unit
-    if type_upper == "IFCPROPERTYSINGLEVALUE" {
+    if ifc_type.eq_ignore_ascii_case("IFCPROPERTYSINGLEVALUE") {
         let property_name = entity.get_string(0)?.to_string();
         let nominal_value = entity.get(2)?;
 
@@ -322,6 +355,97 @@ fn extract_property(
     } else {
         None
     }
+}
+
+/// Extract all quantity sets (IfcElementQuantity) and their quantities.
+fn extract_quantities(
+    jobs: &[EntityJob],
+    content: &Arc<String>,
+    entity_index: &Arc<ifc_lite_core::EntityIndex>,
+) -> Vec<QuantitySet> {
+    // First, collect all IfcElementQuantity entities
+    // PERF: Use eq_ignore_ascii_case to avoid string allocation per comparison
+    let qset_jobs: Vec<_> = jobs
+        .iter()
+        .filter(|job| job.type_name.eq_ignore_ascii_case("IFCELEMENTQUANTITY"))
+        .collect();
+
+    tracing::debug!(count = qset_jobs.len(), "Extracting quantity sets");
+
+    qset_jobs
+        .par_iter()
+        .filter_map(|job| {
+            let mut local_decoder = EntityDecoder::with_arc_index(content, entity_index.clone());
+            let entity = local_decoder.decode_at(job.start, job.end).ok()?;
+
+            // IfcElementQuantity: [0]=GlobalId, [1]=OwnerHistory, [2]=Name, [3]=Description, [4]=MethodOfMeasurement, [5]=Quantities
+            let qset_name = entity.get_string(2)?.to_string();
+            let method_of_measurement = entity.get_string(4).map(|s| s.to_string());
+            let has_quantities = entity.get_list(5)?;
+
+            let mut quantities = Vec::new();
+
+            // Extract quantities from Quantities list
+            for quant_ref in has_quantities.iter() {
+                if let Some(quant_id) = quant_ref.as_entity_ref() {
+                    if let Ok(quant_entity) = local_decoder.decode_by_id(quant_id) {
+                        if let Some(quant) = extract_quantity_value(&quant_entity) {
+                            quantities.push(quant);
+                        }
+                    }
+                }
+            }
+
+            if quantities.is_empty() {
+                return None;
+            }
+
+            Some(QuantitySet {
+                qset_id: job.id,
+                qset_name,
+                method_of_measurement,
+                quantities,
+            })
+        })
+        .collect()
+}
+
+/// Extract a single quantity value from IfcPhysicalQuantity entity.
+/// Supports: IfcQuantityLength, IfcQuantityArea, IfcQuantityVolume,
+///           IfcQuantityCount, IfcQuantityWeight, IfcQuantityTime
+fn extract_quantity_value(entity: &DecodedEntity) -> Option<Quantity> {
+    // PERF: Use eq_ignore_ascii_case to avoid string allocation per comparison
+    let ifc_type = entity.ifc_type.as_str();
+
+    // Map IFC type to quantity type string
+    let quantity_type = if ifc_type.eq_ignore_ascii_case("IFCQUANTITYLENGTH") {
+        "length"
+    } else if ifc_type.eq_ignore_ascii_case("IFCQUANTITYAREA") {
+        "area"
+    } else if ifc_type.eq_ignore_ascii_case("IFCQUANTITYVOLUME") {
+        "volume"
+    } else if ifc_type.eq_ignore_ascii_case("IFCQUANTITYCOUNT") {
+        "count"
+    } else if ifc_type.eq_ignore_ascii_case("IFCQUANTITYWEIGHT") {
+        "weight"
+    } else if ifc_type.eq_ignore_ascii_case("IFCQUANTITYTIME") {
+        "time"
+    } else {
+        return None; // Not a recognized quantity type
+    };
+
+    // All IFC quantity types have:
+    // [0]=Name, [1]=Description, [2]=Unit, [3]=*Value, [4]=Formula (optional, IFC4)
+    let quantity_name = entity.get_string(0)?.to_string();
+
+    // Value is at index 3 for all quantity types
+    let quantity_value = entity.get_float(3)?;
+
+    Some(Quantity {
+        quantity_name,
+        quantity_value,
+        quantity_type: quantity_type.to_string(),
+    })
 }
 
 /// Extract all relationships.

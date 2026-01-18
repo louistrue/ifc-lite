@@ -9,7 +9,7 @@
 
 import { useMemo, useCallback, useRef } from 'react';
 import { useViewerStore } from '../store.js';
-import { IfcParser, WorkerParser, detectFormat, parseIfcx } from '@ifc-lite/parser';
+import { IfcParser, WorkerParser, detectFormat, parseIfcx, SpatialHierarchyBuilder } from '@ifc-lite/parser';
 import { GeometryProcessor, GeometryQuality, type MeshData } from '@ifc-lite/geometry';
 import { IfcQuery } from '@ifc-lite/query';
 import { BufferBuilder } from '@ifc-lite/geometry';
@@ -79,6 +79,7 @@ function rebuildSpatialHierarchy(
   const bySite = new Map<number, number[]>();
   const bySpace = new Map<number, number[]>();
   const storeyElevations = new Map<number, number>();
+  const storeyHeights = new Map<number, number>();
   const elementToStorey = new Map<number, number>();
 
   // Find IfcProject
@@ -161,6 +162,8 @@ function rebuildSpatialHierarchy(
     }
   }
 
+  // Note: storeyHeights remains empty for cache path - client uses on-demand property extraction
+
   return {
     project: projectNode,
     byStorey,
@@ -168,6 +171,7 @@ function rebuildSpatialHierarchy(
     bySite,
     bySpace,
     storeyElevations,
+    storeyHeights,
     elementToStorey,
 
     getStoreyElements(storeyId: number): number[] {
@@ -230,6 +234,7 @@ export function useIfc() {
   /**
    * Rebuild on-demand property/quantity maps from relationships and entity types
    * Uses FORWARD direction: pset -> elements (more efficient than inverse lookup)
+   * OPTIMIZED: Uses getByType() instead of iterating all entities
    */
   const rebuildOnDemandMaps = (
     entities: EntityTable,
@@ -238,47 +243,36 @@ export function useIfc() {
     const onDemandPropertyMap = new Map<number, number[]>();
     const onDemandQuantityMap = new Map<number, number[]>();
 
-    let psetCount = 0;
-    let qsetCount = 0;
+    // PERF: Use getByType() instead of iterating ALL entities
+    // This eliminates O(n²) linear searches through expressId array
+    const propertySets = entities.getByType(IfcTypeEnum.IfcPropertySet);
+    const quantitySets = entities.getByType(IfcTypeEnum.IfcElementQuantity);
 
-    // OPTIMIZATION: Use direct typeEnum array access instead of getTypeName() which does O(n) linear search
-    // This reduces complexity from O(n²) to O(n) for large files
-    const PROPERTY_SET_ENUM = IfcTypeEnum.IfcPropertySet;
-    const QUANTITY_SET_ENUM = IfcTypeEnum.IfcElementQuantity;
-
-    // Find all property sets and quantity sets, then look up what they define
-    for (let i = 0; i < entities.count; i++) {
-      const typeEnum = entities.typeEnum[i];
-
-      // Only process property sets and quantity sets (direct enum comparison, no string conversion)
-      const isPropertySet = typeEnum === PROPERTY_SET_ENUM;
-      const isQuantitySet = typeEnum === QUANTITY_SET_ENUM;
-      if (!isPropertySet && !isQuantitySet) {
-        continue;
-      }
-
-      const psetId = entities.expressId[i];
-
-      if (isPropertySet) psetCount++;
-      if (isQuantitySet) qsetCount++;
-
+    // Process property sets
+    for (const psetId of propertySets) {
       // Get elements defined by this pset (FORWARD: pset -> elements)
       const definedElements = relationships.getRelated(psetId, RelationshipType.DefinesByProperties, 'forward');
 
       for (const entityId of definedElements) {
-        if (isPropertySet) {
-          let list = onDemandPropertyMap.get(entityId);
-          if (!list) { list = []; onDemandPropertyMap.set(entityId, list); }
-          list.push(psetId);
-        } else {
-          let list = onDemandQuantityMap.get(entityId);
-          if (!list) { list = []; onDemandQuantityMap.set(entityId, list); }
-          list.push(psetId);
-        }
+        let list = onDemandPropertyMap.get(entityId);
+        if (!list) { list = []; onDemandPropertyMap.set(entityId, list); }
+        list.push(psetId);
       }
     }
 
-    console.log(`[useIfc] Rebuilt on-demand maps: ${psetCount} psets, ${qsetCount} qsets -> ${onDemandPropertyMap.size} entities with properties, ${onDemandQuantityMap.size} with quantities`);
+    // Process quantity sets
+    for (const qsetId of quantitySets) {
+      // Get elements defined by this qset (FORWARD: qset -> elements)
+      const definedElements = relationships.getRelated(qsetId, RelationshipType.DefinesByProperties, 'forward');
+
+      for (const entityId of definedElements) {
+        let list = onDemandQuantityMap.get(entityId);
+        if (!list) { list = []; onDemandQuantityMap.set(entityId, list); }
+        list.push(qsetId);
+      }
+    }
+
+    console.log(`[useIfc] Rebuilt on-demand maps: ${propertySets.length} psets, ${quantitySets.length} qsets -> ${onDemandPropertyMap.size} entities with properties, ${onDemandQuantityMap.size} with quantities`);
     return { onDemandPropertyMap, onDemandQuantityMap };
   };
 
@@ -344,11 +338,48 @@ export function useIfc() {
       }
 
       // Rebuild spatial hierarchy from cache data (cache doesn't serialize it)
+      // Use SpatialHierarchyBuilder to extract elevations from source buffer
       if (!dataStore.spatialHierarchy && dataStore.entities && dataStore.relationships) {
-        dataStore.spatialHierarchy = rebuildSpatialHierarchy(
-          dataStore.entities,
-          dataStore.relationships
-        );
+        // Ensure we have source buffer and entityIndex for elevation extraction
+        if (dataStore.source && dataStore.source.length > 0 && dataStore.entityIndex && dataStore.strings) {
+          console.log('[useIfc] Building spatial hierarchy with elevation extraction from source buffer');
+          const builder = new SpatialHierarchyBuilder();
+          dataStore.spatialHierarchy = builder.build(
+            dataStore.entities,
+            dataStore.relationships,
+            dataStore.strings,
+            dataStore.source,
+            dataStore.entityIndex
+          );
+          console.log(`[useIfc] Spatial hierarchy built: ${dataStore.spatialHierarchy.storeyElevations.size} storey elevations extracted`);
+          
+          // Calculate storey heights from elevation differences (fallback if no property data)
+          if (dataStore.spatialHierarchy.storeyHeights.size === 0 && dataStore.spatialHierarchy.storeyElevations.size > 1) {
+            const sortedStoreys = Array.from(dataStore.spatialHierarchy.storeyElevations.entries())
+              .sort((a, b) => a[1] - b[1]); // Sort by elevation ascending
+            for (let i = 0; i < sortedStoreys.length - 1; i++) {
+              const [storeyId, elevation] = sortedStoreys[i];
+              const nextElevation = sortedStoreys[i + 1][1];
+              const height = nextElevation - elevation;
+              if (height > 0) {
+                dataStore.spatialHierarchy.storeyHeights.set(storeyId, height);
+              }
+            }
+            console.log(`[useIfc] Calculated ${dataStore.spatialHierarchy.storeyHeights.size} storey heights from elevation differences`);
+          }
+        } else {
+          console.warn('[useIfc] Missing data for elevation extraction:', {
+            hasSource: !!dataStore.source,
+            sourceLength: dataStore.source?.length ?? 0,
+            hasEntityIndex: !!dataStore.entityIndex,
+            hasStrings: !!dataStore.strings
+          });
+          // Fallback: use simplified rebuild if source data not available
+          dataStore.spatialHierarchy = rebuildSpatialHierarchy(
+            dataStore.entities,
+            dataStore.relationships
+          );
+        }
       }
 
       if (result.geometry) {
@@ -716,6 +747,7 @@ export function useIfc() {
           console.log(`[useIfc] Data model decoded in ${(performance.now() - dataModelStart).toFixed(0)}ms`);
           console.log(`  Entities: ${dataModel.entities.size}`);
           console.log(`  PropertySets: ${dataModel.propertySets.size}`);
+          console.log(`  QuantitySets: ${dataModel.quantitySets.size}`);
           console.log(`  Relationships: ${dataModel.relationships.length}`);
           console.log(`  Spatial nodes: ${dataModel.spatialHierarchy.nodes.length}`);
 
@@ -757,6 +789,7 @@ export function useIfc() {
           const bySite = new Map<number, number[]>();
           const bySpace = new Map<number, number[]>();
           const storeyElevations = new Map<number, number>();
+          const storeyHeights = new Map<number, number>();
 
           const nodesMap = new Map(
             dataModel.spatialHierarchy.nodes.map(n => [n.entity_id, n])
@@ -778,6 +811,8 @@ export function useIfc() {
             }
           }
 
+          // Note: storeyHeights will be populated after entityToPsets is built (see below)
+
           // Build project node tree
           const projectNode = buildSpatialNodeTree(
             dataModel.spatialHierarchy.project_id,
@@ -792,6 +827,7 @@ export function useIfc() {
             bySite,
             bySpace,
             storeyElevations,
+            storeyHeights,
             elementToStorey: dataModel.spatialHierarchy.element_to_storey,
             getStoreyElements: (storeyId: number) => byStorey.get(storeyId) || [],
             getStoreyByElevation: (z: number) => {
@@ -956,20 +992,13 @@ export function useIfc() {
 
           // ===== PropertyTable with getForEntity =====
           // Build entity -> pset relationships from server data
+          // NOTE: This is now built in the combined relationship loop below (lines ~1028-1055)
+          // to avoid iterating relationships twice
           const entityToPsets = new Map<number, Array<{ pset_id: number; pset_name: string; properties: Array<{ property_name: string; property_value: string; property_type: string }> }>>();
 
-          // Parse relationships to link entities to their property sets
-          for (const rel of dataModel.relationships) {
-            if (rel.rel_type === 'IFCRELDEFINESBYPROPERTIES') {
-              const pset = dataModel.propertySets.get(rel.relating_id);
-              if (pset) {
-                if (!entityToPsets.has(rel.related_id)) {
-                  entityToPsets.set(rel.related_id, []);
-                }
-                entityToPsets.get(rel.related_id)!.push(pset);
-              }
-            }
-          }
+          // ===== QuantityTable with getForEntity =====
+          // Build entity -> qset relationships from server data (same loop as psets)
+          const entityToQsets = new Map<number, Array<{ qset_id: number; qset_name: string; method_of_measurement?: string; quantities: Array<{ quantity_name: string; quantity_value: number; quantity_type: string }> }>>();
 
           const properties = {
             count: 0,
@@ -1002,7 +1031,7 @@ export function useIfc() {
             findByProperty: () => [],
           };
 
-          // ===== QuantityTable (empty but with methods) =====
+          // ===== QuantityTable with getForEntity (uses server data via entityToQsets) =====
           const quantities = {
             count: 0,
             entityId: new Uint32Array(0),
@@ -1015,7 +1044,18 @@ export function useIfc() {
             entityIndex: new Map<number, number[]>(),
             qsetIndex: new Map<number, number[]>(),
             quantityIndex: new Map<number, number[]>(),
-            getForEntity: () => [],
+            getForEntity: (exprId: number) => {
+              const qsets = entityToQsets.get(exprId) || [];
+              return qsets.map(qset => ({
+                name: qset.qset_name,
+                methodOfMeasurement: qset.method_of_measurement,
+                quantities: qset.quantities.map(q => ({
+                  name: q.quantity_name,
+                  type: q.quantity_type as 'length' | 'area' | 'volume' | 'count' | 'weight' | 'time',
+                  value: q.quantity_value,
+                })),
+              }));
+            },
             getQuantityValue: () => null,
             sumByType: () => 0,
           };
@@ -1025,27 +1065,116 @@ export function useIfc() {
           const forwardEdges = new Map<number, Array<{ target: number; type: RelationshipType; relationshipId: number }>>();
           const inverseEdges = new Map<number, Array<{ target: number; type: RelationshipType; relationshipId: number }>>();
 
+          // PERF: Pre-compute uppercase once for efficient comparison
+          // This eliminates millions of .toUpperCase() calls for large files
+          // IMPORTANT: Keep in sync with columnar-parser.ts REL_TYPE_MAP (14 types total)
+          // This map MUST cover ALL RelationshipType enum values to prevent semantic loss
+          const relTypeMap = new Map<string, RelationshipType>([
+            ['IFCRELCONTAINEDINSPATIALSTRUCTURE', RelationshipType.ContainsElements],
+            ['IFCRELAGGREGATES', RelationshipType.Aggregates],
+            ['IFCRELDEFINESBYPROPERTIES', RelationshipType.DefinesByProperties],
+            ['IFCRELDEFINESBYTYPE', RelationshipType.DefinesByType],
+            ['IFCRELASSOCIATESMATERIAL', RelationshipType.AssociatesMaterial],
+            ['IFCRELASSOCIATESCLASSIFICATION', RelationshipType.AssociatesClassification],
+            ['IFCRELVOIDSELEMENT', RelationshipType.VoidsElement],
+            ['IFCRELFILLSELEMENT', RelationshipType.FillsElement],
+            ['IFCRELCONNECTSPATHELEMENTS', RelationshipType.ConnectsPathElements],
+            ['IFCRELCONNECTSELEMENTS', RelationshipType.ConnectsElements],
+            ['IFCRELSPACEBOUNDARY', RelationshipType.SpaceBoundary],
+            ['IFCRELASSIGNSTOGROUP', RelationshipType.AssignsToGroup],
+            ['IFCRELASSIGNSTOPRODUCT', RelationshipType.AssignsToProduct],
+            ['IFCRELREFERENCEDINSPATIALSTRUCTURE', RelationshipType.ReferencedInSpatialStructure],
+          ]);
+
+          // Track unmapped relationship types for diagnostics
+          const unmappedRelTypes = new Set<string>();
+
+          // PERF: Combined loop - process relationships once for both graph building AND property mapping
+          // This eliminates the duplicate loop that was doing 1M string comparisons
           for (const rel of dataModel.relationships) {
-            const relType = rel.rel_type.toUpperCase().includes('AGGREGATE') ? RelationshipType.Aggregates
-              : rel.rel_type.toUpperCase().includes('CONTAINED') ? RelationshipType.ContainsElements
-                : rel.rel_type.toUpperCase().includes('DEFINESBYPROP') ? RelationshipType.DefinesByProperties
-                  : rel.rel_type.toUpperCase().includes('DEFINESBYTYPE') ? RelationshipType.DefinesByType
-                    : rel.rel_type.toUpperCase().includes('MATERIAL') ? RelationshipType.AssociatesMaterial
-                      : rel.rel_type.toUpperCase().includes('VOIDS') ? RelationshipType.VoidsElement
-                        : rel.rel_type.toUpperCase().includes('FILLS') ? RelationshipType.FillsElement
-                          : RelationshipType.Aggregates;
+            // Single .toUpperCase() call instead of 7
+            const upperType = rel.rel_type.toUpperCase();
+            const relType = relTypeMap.get(upperType);
+
+            // Log unmapped types (helps identify missing IFC relationship types)
+            if (relType === undefined && !unmappedRelTypes.has(upperType)) {
+              unmappedRelTypes.add(upperType);
+              console.debug(`[useIfc] Unmapped relationship type: ${rel.rel_type}`);
+            }
+
+            const finalRelType = relType ?? RelationshipType.Aggregates;
+
+            // Build property set and quantity set mappings in the same loop (avoid duplicate iteration)
+            if (upperType === 'IFCRELDEFINESBYPROPERTIES') {
+              // Check if it's a property set
+              const pset = dataModel.propertySets.get(rel.relating_id);
+              if (pset) {
+                if (!entityToPsets.has(rel.related_id)) {
+                  entityToPsets.set(rel.related_id, []);
+                }
+                entityToPsets.get(rel.related_id)!.push(pset);
+              }
+              // Check if it's a quantity set (same relationship type, different definition)
+              const qset = dataModel.quantitySets.get(rel.relating_id);
+              if (qset) {
+                if (!entityToQsets.has(rel.related_id)) {
+                  entityToQsets.set(rel.related_id, []);
+                }
+                entityToQsets.get(rel.related_id)!.push(qset);
+              }
+            }
 
             // Forward: relating -> related
             if (!forwardEdges.has(rel.relating_id)) {
               forwardEdges.set(rel.relating_id, []);
             }
-            forwardEdges.get(rel.relating_id)!.push({ target: rel.related_id, type: relType, relationshipId: 0 });
+            forwardEdges.get(rel.relating_id)!.push({ target: rel.related_id, type: finalRelType, relationshipId: 0 });
 
             // Inverse: related -> relating
             if (!inverseEdges.has(rel.related_id)) {
               inverseEdges.set(rel.related_id, []);
             }
-            inverseEdges.get(rel.related_id)!.push({ target: rel.relating_id, type: relType, relationshipId: 0 });
+            inverseEdges.get(rel.related_id)!.push({ target: rel.relating_id, type: finalRelType, relationshipId: 0 });
+          }
+
+          // Log summary of unmapped relationship types
+          if (unmappedRelTypes.size > 0) {
+            console.warn(`[useIfc] Found ${unmappedRelTypes.size} unmapped relationship types: ${Array.from(unmappedRelTypes).join(', ')}`);
+          }
+
+          // Extract storey heights from property sets (now that entityToPsets is built)
+          // This is O(storeys * props_per_storey) which is typically very small (< 100 total)
+          for (const storeyId of byStorey.keys()) {
+            const psets = entityToPsets.get(storeyId);
+            if (!psets) continue;
+            for (const pset of psets) {
+              for (const prop of pset.properties) {
+                const propName = prop.property_name.toLowerCase();
+                if (propName === 'grossheight' || propName === 'netheight' || propName === 'height') {
+                  const val = parseFloat(prop.property_value);
+                  if (!isNaN(val) && val > 0) {
+                    storeyHeights.set(storeyId, val);
+                    break;
+                  }
+                }
+              }
+              if (storeyHeights.has(storeyId)) break;
+            }
+          }
+
+          // Fallback: calculate heights from elevation differences if no property data
+          if (storeyHeights.size === 0 && storeyElevations.size > 1) {
+            const sortedStoreys = Array.from(storeyElevations.entries())
+              .sort((a, b) => a[1] - b[1]); // Sort by elevation ascending
+            for (let i = 0; i < sortedStoreys.length - 1; i++) {
+              const [storeyId, elevation] = sortedStoreys[i];
+              const nextElevation = sortedStoreys[i + 1][1];
+              const height = nextElevation - elevation;
+              if (height > 0) {
+                storeyHeights.set(storeyId, height);
+              }
+            }
+            console.log(`[useIfc] Calculated ${storeyHeights.size} storey heights from elevation differences`);
           }
 
           const createEdgeAccessor = (edges: Map<number, Array<{ target: number; type: RelationshipType; relationshipId: number }>>) => ({
@@ -1365,58 +1494,41 @@ export function useIfc() {
       });
 
       const startDataModelParsing = () => {
-        // Worker parser disabled temporarily - IfcDataStore contains closures
-        // that can't be serialized for postMessage. The main thread parsing
-        // is fast enough (~3s for large files) since we skip primitive entities.
-        // TODO: Implement proper serialization for worker transfer
-        const useWorker = false; // Disabled: fileSizeMB > 50;
-        
-        if (useWorker) {
-          console.log(`[useIfc] Using worker for data model parsing (${fileSizeMB.toFixed(1)}MB file)`);
-          const workerParser = new WorkerParser();
-          // Clone buffer since worker will transfer it
-          const bufferClone = buffer.slice(0);
-          workerParser.parseColumnar(bufferClone, {
-            onProgress: (prog) => {
-              // Only log at key milestones to avoid console spam
-              if (prog.percent === 0 || prog.percent === 50 || prog.percent === 100) {
-                console.log(`[useIfc] Data model (worker): ${prog.phase} ${prog.percent.toFixed(0)}%`);
+        // Use main thread - worker parsing disabled (IfcDataStore has closures that can't be serialized)
+        const parser = new IfcParser();
+        const wasmApi = geometryProcessor.getApi();
+        parser.parseColumnar(buffer, {
+          wasmApi, // Pass WASM API for 5-10x faster entity scanning
+          onProgress: (prog) => {
+            if (prog.percent === 0 || prog.percent === 50 || prog.percent === 100) {
+              console.log(`[useIfc] Data model: ${prog.phase} ${prog.percent.toFixed(0)}%`);
+            }
+          },
+        }).then(dataStore => {
+          console.log('[useIfc] Data model parsing complete - properties available via on-demand extraction');
+          
+          // Calculate storey heights from elevation differences if not already populated
+          if (dataStore.spatialHierarchy && dataStore.spatialHierarchy.storeyHeights.size === 0 && dataStore.spatialHierarchy.storeyElevations.size > 1) {
+            const sortedStoreys = Array.from(dataStore.spatialHierarchy.storeyElevations.entries())
+              .sort((a, b) => a[1] - b[1]);
+            for (let i = 0; i < sortedStoreys.length - 1; i++) {
+              const [storeyId, elevation] = sortedStoreys[i];
+              const nextElevation = sortedStoreys[i + 1][1];
+              const height = nextElevation - elevation;
+              if (height > 0) {
+                dataStore.spatialHierarchy.storeyHeights.set(storeyId, height);
               }
-            },
-          }).then(dataStore => {
-            console.log('[useIfc] Data model parsing complete (worker) - properties available via on-demand extraction');
-            setIfcDataStore(dataStore);
-            resolveDataStore(dataStore);
-            workerParser.terminate();
-          }).catch(err => {
-            console.error('[useIfc] Data model parsing failed (worker):', err);
-            workerParser.terminate();
-          });
-        } else {
-          // Use main thread for smaller files (faster, no worker overhead)
-          const parser = new IfcParser();
-          // Get WASM API from geometry processor for accelerated entity scanning
-          const wasmApi = geometryProcessor.getApi();
-          parser.parseColumnar(buffer, {
-            wasmApi, // Pass WASM API for 5-10x faster entity scanning
-            onProgress: (prog) => {
-              // Only log at key milestones to avoid console spam
-              if (prog.percent === 0 || prog.percent === 50 || prog.percent === 100) {
-                console.log(`[useIfc] Data model: ${prog.phase} ${prog.percent.toFixed(0)}%`);
-              }
-            },
-          }).then(dataStore => {
-            console.log('[useIfc] Data model parsing complete - properties available via on-demand extraction');
-            setIfcDataStore(dataStore);
-            resolveDataStore(dataStore);
-          }).catch(err => {
-            console.error('[useIfc] Data model parsing failed:', err);
-          });
-        }
+            }
+          }
+          
+          setIfcDataStore(dataStore);
+          resolveDataStore(dataStore);
+        }).catch(err => {
+          console.error('[useIfc] Data model parsing failed:', err);
+        });
       };
 
       // Schedule data model parsing to start after geometry begins streaming
-      // Use setTimeout(0) to yield to event loop first, letting geometry start
       setTimeout(startDataModelParsing, 0);
 
       // Use adaptive processing: sync for small files, streaming for large files

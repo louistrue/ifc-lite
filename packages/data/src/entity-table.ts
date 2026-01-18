@@ -107,14 +107,14 @@ export class EntityTableBuilder {
     const trim = <T extends TypedArray>(arr: T): T => {
       return arr.subarray(0, this.count) as T;
     };
-    
+
     // Build type ranges
     const typeRanges = new Map<IfcTypeEnum, { start: number; end: number }>();
     for (const [type, start] of this.typeStarts) {
       const count = this.typeCounts.get(type)!;
       typeRanges.set(type, { start, end: start + count });
     }
-    
+
     const expressId = trim(this.expressId);
     const typeEnum = trim(this.typeEnum);
     const globalId = trim(this.globalId);
@@ -125,7 +125,16 @@ export class EntityTableBuilder {
     const containedInStorey = trim(this.containedInStorey);
     const definedByType = trim(this.definedByType);
     const geometryIndex = trim(this.geometryIndex);
-    
+
+    // PERF: Build idToIndex map for O(1) lookups instead of O(n) linear search
+    // This eliminates the linear search in indexOfId() which is called frequently
+    const idToIndex = new Map<number, number>();
+    for (let i = 0; i < this.count; i++) {
+      idToIndex.set(expressId[i], i);
+    }
+
+    const indexOfId = (id: number): number => idToIndex.get(id) ?? -1;
+
     return {
       count: this.count,
       expressId,
@@ -139,29 +148,29 @@ export class EntityTableBuilder {
       definedByType,
       geometryIndex,
       typeRanges,
-      
+
       getGlobalId: (id) => {
-        const idx = this.indexOfId(expressId, id);
+        const idx = indexOfId(id);
         return idx >= 0 ? this.strings.get(globalId[idx]) : '';
       },
       getName: (id) => {
-        const idx = this.indexOfId(expressId, id);
+        const idx = indexOfId(id);
         return idx >= 0 ? this.strings.get(name[idx]) : '';
       },
       getDescription: (id) => {
-        const idx = this.indexOfId(expressId, id);
+        const idx = indexOfId(id);
         return idx >= 0 ? this.strings.get(description[idx]) : '';
       },
       getObjectType: (id) => {
-        const idx = this.indexOfId(expressId, id);
+        const idx = indexOfId(id);
         return idx >= 0 ? this.strings.get(objectType[idx]) : '';
       },
       getTypeName: (id) => {
-        const idx = this.indexOfId(expressId, id);
+        const idx = indexOfId(id);
         return idx >= 0 ? IfcTypeEnumToString(typeEnum[idx]) : 'Unknown';
       },
       hasGeometry: (id) => {
-        const idx = this.indexOfId(expressId, id);
+        const idx = indexOfId(id);
         return idx >= 0 ? (flags[idx] & EntityFlags.HAS_GEOMETRY) !== 0 : false;
       },
       getByType: (type) => {
@@ -174,14 +183,6 @@ export class EntityTableBuilder {
         return ids;
       },
     };
-  }
-  
-  private indexOfId(expressId: Uint32Array, id: number): number {
-    // Linear search (TODO: optimize with binary search if sorted)
-    for (let i = 0; i < expressId.length; i++) {
-      if (expressId[i] === id) return i;
-    }
-    return -1;
   }
 }
 

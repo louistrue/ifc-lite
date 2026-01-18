@@ -4,7 +4,7 @@
 
 //! Parquet serialization for IFC data model (entities, properties, relationships, spatial hierarchy).
 
-use crate::services::data_model::{DataModel, EntityMetadata, PropertySet, Relationship, SpatialHierarchyData, SpatialNode};
+use crate::services::data_model::{DataModel, EntityMetadata, PropertySet, QuantitySet, Relationship, SpatialHierarchyData, SpatialNode};
 use arrow::array::{BooleanArray, ListArray, StringArray, UInt16Array, UInt32Array};
 use arrow::array::builder::ListBuilder;
 use arrow::array::UInt32Builder;
@@ -31,18 +31,22 @@ pub enum DataModelParquetError {
 
 /// Serialize data model to Parquet format.
 ///
-/// Creates 4 Parquet tables:
+/// Creates 5 Parquet tables:
 /// 1. Entities (entity_id, type_name, global_id, name, has_geometry)
 /// 2. Properties (pset_id, pset_name, property_name, property_value, property_type)
-/// 3. Relationships (rel_type, relating_id, related_id)
-/// 4. Spatial (entity_id, parent_id, level, path, type_name, name, elevation, children_ids, element_ids)
+/// 3. Quantities (qset_id, qset_name, method_of_measurement, quantity_name, quantity_value, quantity_type)
+/// 4. Relationships (rel_type, relating_id, related_id)
+/// 5. Spatial (entity_id, parent_id, level, path, type_name, name, elevation, children_ids, element_ids)
 ///    Plus lookup tables: element_to_storey, element_to_building, element_to_site, element_to_space
 pub fn serialize_data_model_to_parquet(data_model: &DataModel) -> Result<Vec<u8>, DataModelParquetError> {
     // Serialize all tables in parallel using rayon
-    let (entities_data, (properties_data, (relationships_data, spatial_data))) = rayon::join(
+    let (entities_data, ((properties_data, quantities_data), (relationships_data, spatial_data))) = rayon::join(
         || serialize_entities_table(&data_model.entities),
         || rayon::join(
-            || serialize_properties_table(&data_model.property_sets),
+            || rayon::join(
+                || serialize_properties_table(&data_model.property_sets),
+                || serialize_quantities_table(&data_model.quantity_sets),
+            ),
             || rayon::join(
                 || serialize_relationships_table(&data_model.relationships),
                 || serialize_spatial_hierarchy(&data_model.spatial_hierarchy),
@@ -52,15 +56,18 @@ pub fn serialize_data_model_to_parquet(data_model: &DataModel) -> Result<Vec<u8>
 
     let entities_data = entities_data?;
     let properties_data = properties_data?;
+    let quantities_data = quantities_data?;
     let relationships_data = relationships_data?;
     let spatial_data = spatial_data?;
 
-    // Write format: [entities_len][entities_data][properties_len][properties_data][relationships_len][relationships_data][spatial_len][spatial_data]
+    // Write format: [entities_len][entities_data][properties_len][properties_data][quantities_len][quantities_data][relationships_len][relationships_data][spatial_len][spatial_data]
     let mut result = Vec::new();
     result.extend_from_slice(&(entities_data.len() as u32).to_le_bytes());
     result.extend_from_slice(&entities_data);
     result.extend_from_slice(&(properties_data.len() as u32).to_le_bytes());
     result.extend_from_slice(&properties_data);
+    result.extend_from_slice(&(quantities_data.len() as u32).to_le_bytes());
+    result.extend_from_slice(&quantities_data);
     result.extend_from_slice(&(relationships_data.len() as u32).to_le_bytes());
     result.extend_from_slice(&relationships_data);
     result.extend_from_slice(&(spatial_data.len() as u32).to_le_bytes());
@@ -173,6 +180,68 @@ fn serialize_properties_table(property_sets: &[PropertySet]) -> Result<Vec<u8>, 
             Arc::new(StringArray::from(property_names)),
             Arc::new(StringArray::from(property_values)),
             Arc::new(StringArray::from(property_types)),
+        ],
+    )?;
+
+    write_parquet_batch(batch)
+}
+
+/// Serialize quantities table.
+fn serialize_quantities_table(quantity_sets: &[QuantitySet]) -> Result<Vec<u8>, DataModelParquetError> {
+    use arrow::array::Float64Array;
+
+    // Flatten quantity sets into rows using parallel iteration
+    let rows: Vec<(u32, String, String, String, f64, String)> = quantity_sets
+        .par_iter()
+        .flat_map_iter(|qset| {
+            qset.quantities.iter().map(move |quant| {
+                (
+                    qset.qset_id,
+                    qset.qset_name.clone(),
+                    qset.method_of_measurement.clone().unwrap_or_default(),
+                    quant.quantity_name.clone(),
+                    quant.quantity_value,
+                    quant.quantity_type.clone(),
+                )
+            })
+        })
+        .collect();
+
+    // Split into separate vectors
+    let mut qset_ids = Vec::with_capacity(rows.len());
+    let mut qset_names = Vec::with_capacity(rows.len());
+    let mut methods = Vec::with_capacity(rows.len());
+    let mut quantity_names = Vec::with_capacity(rows.len());
+    let mut quantity_values = Vec::with_capacity(rows.len());
+    let mut quantity_types = Vec::with_capacity(rows.len());
+
+    for (qset_id, qset_name, method, quant_name, quant_value, quant_type) in rows {
+        qset_ids.push(qset_id);
+        qset_names.push(qset_name);
+        methods.push(method);
+        quantity_names.push(quant_name);
+        quantity_values.push(quant_value);
+        quantity_types.push(quant_type);
+    }
+
+    let schema = Schema::new(vec![
+        Field::new("qset_id", DataType::UInt32, false),
+        Field::new("qset_name", DataType::Utf8, false),
+        Field::new("method_of_measurement", DataType::Utf8, true),
+        Field::new("quantity_name", DataType::Utf8, false),
+        Field::new("quantity_value", DataType::Float64, false),
+        Field::new("quantity_type", DataType::Utf8, false),
+    ]);
+
+    let batch = RecordBatch::try_new(
+        Arc::new(schema),
+        vec![
+            Arc::new(UInt32Array::from(qset_ids)),
+            Arc::new(StringArray::from(qset_names)),
+            Arc::new(StringArray::from(methods)),
+            Arc::new(StringArray::from(quantity_names)),
+            Arc::new(Float64Array::from(quantity_values)),
+            Arc::new(StringArray::from(quantity_types)),
         ],
     )?;
 

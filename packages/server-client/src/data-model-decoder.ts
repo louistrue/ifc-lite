@@ -30,6 +30,19 @@ export interface PropertySet {
   properties: Property[];
 }
 
+export interface Quantity {
+  quantity_name: string;
+  quantity_value: number;
+  quantity_type: string;
+}
+
+export interface QuantitySet {
+  qset_id: number;
+  qset_name: string;
+  method_of_measurement?: string;
+  quantities: Quantity[];
+}
+
 export interface Relationship {
   rel_type: string;
   relating_id: number;
@@ -60,6 +73,7 @@ export interface SpatialHierarchy {
 export interface DataModel {
   entities: Map<number, EntityMetadata>;
   propertySets: Map<number, PropertySet>;
+  quantitySets: Map<number, QuantitySet>;
   relationships: Relationship[];
   spatialHierarchy: SpatialHierarchy;
 }
@@ -71,7 +85,7 @@ export interface DataModel {
  * Arrow's .get(i) is slow for strings (offset lookup + UTF-8 decode per call).
  * toArray() decodes all strings in one pass which is 10-20x faster for large datasets.
  *
- * Format: [entities_len][entities_data][properties_len][properties_data][relationships_len][relationships_data][spatial_len][spatial_data]
+ * Format: [entities_len][entities_data][properties_len][properties_data][quantities_len][quantities_data][relationships_len][relationships_data][spatial_len][spatial_data]
  */
 export async function decodeDataModel(data: ArrayBuffer): Promise<DataModel> {
   // Initialize WASM module (only runs once)
@@ -93,6 +107,12 @@ export async function decodeDataModel(data: ArrayBuffer): Promise<DataModel> {
   offset += 4;
   const propertiesData = new Uint8Array(data, offset, propertiesLen);
   offset += propertiesLen;
+
+  // Read quantities Parquet section
+  const quantitiesLen = view.getUint32(offset, true);
+  offset += 4;
+  const quantitiesData = new Uint8Array(data, offset, quantitiesLen);
+  offset += quantitiesLen;
 
   // Read relationships Parquet section
   const relationshipsLen = view.getUint32(offset, true);
@@ -170,6 +190,39 @@ export async function decodeDataModel(data: ArrayBuffer): Promise<DataModel> {
       property_name: propertyNamesArr[i] ?? '',
       property_value: propertyValuesArr[i] ?? '',
       property_type: propertyTypesArr[i] ?? '',
+    });
+  }
+
+  // OPTIMIZED: Parse quantities Parquet table
+  // @ts-ignore
+  const quantitiesTable = parquet.readParquet(quantitiesData);
+  // @ts-ignore
+  const quantitiesArrow = arrow.tableFromIPC(quantitiesTable.intoIPCStream());
+
+  // Extract all quantity columns as arrays upfront
+  const qsetIds = quantitiesArrow.getChild('qset_id')?.toArray() as Uint32Array;
+  const qsetNamesArr = quantitiesArrow.getChild('qset_name')?.toArray() as string[];
+  const methodsArr = quantitiesArrow.getChild('method_of_measurement')?.toArray() as (string | null)[];
+  const quantityNamesArr = quantitiesArrow.getChild('quantity_name')?.toArray() as string[];
+  const quantityValuesArr = quantitiesArrow.getChild('quantity_value')?.toArray() as Float64Array;
+  const quantityTypesArr = quantitiesArrow.getChild('quantity_type')?.toArray() as string[];
+
+  const quantitySets = new Map<number, QuantitySet>();
+  for (let i = 0; i < qsetIds.length; i++) {
+    const qsetId = qsetIds[i];
+    if (!quantitySets.has(qsetId)) {
+      quantitySets.set(qsetId, {
+        qset_id: qsetId,
+        qset_name: qsetNamesArr[i] ?? '',
+        method_of_measurement: methodsArr[i] || undefined,
+        quantities: [],
+      });
+    }
+    const qset = quantitySets.get(qsetId)!;
+    qset.quantities.push({
+      quantity_name: quantityNamesArr[i] ?? '',
+      quantity_value: quantityValuesArr[i] ?? 0,
+      quantity_type: quantityTypesArr[i] ?? '',
     });
   }
 
@@ -303,6 +356,7 @@ export async function decodeDataModel(data: ArrayBuffer): Promise<DataModel> {
   return {
     entities,
     propertySets,
+    quantitySets,
     relationships,
     spatialHierarchy: {
       nodes: spatialNodes,

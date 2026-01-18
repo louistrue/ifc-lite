@@ -39,6 +39,7 @@ export function buildHierarchy(
   const bySite = new Map<number, number[]>();
   const bySpace = new Map<number, number[]>();
   const storeyElevations = new Map<number, number>();
+  const storeyHeights = new Map<number, number>();
   const elementToStorey = new Map<number, number>();
 
   // Traverse and populate maps
@@ -56,6 +57,8 @@ export function buildHierarchy(
     elementToStorey
   );
 
+  // Note: storeyHeights remains empty - uses on-demand property extraction
+
   return {
     project: projectSpatial,
     byStorey,
@@ -63,6 +66,7 @@ export function buildHierarchy(
     bySite,
     bySpace,
     storeyElevations,
+    storeyHeights,
     elementToStorey,
     // Helper methods
     getStoreyElements(storeyId: number): number[] {
@@ -268,6 +272,7 @@ function createEmptyHierarchy(): SpatialHierarchy {
     bySite: new Map(),
     bySpace: new Map(),
     storeyElevations: new Map(),
+    storeyHeights: new Map(),
     elementToStorey: new Map(),
     getStoreyElements: () => [],
     getStoreyByElevation: () => null,

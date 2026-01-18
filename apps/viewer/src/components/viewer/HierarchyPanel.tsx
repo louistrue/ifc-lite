@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
@@ -33,6 +34,7 @@ interface TreeNode {
   isExpanded: boolean;
   isVisible: boolean;
   elementCount?: number;
+  storeyElevation?: number;
 }
 
 const TYPE_ICONS: Record<string, React.ElementType> = {
@@ -95,6 +97,7 @@ export function HierarchyPanel() {
     if (!ifcDataStore?.spatialHierarchy) return [];
 
     const hierarchy = ifcDataStore.spatialHierarchy;
+    const { byStorey, storeyElevations, storeyHeights } = hierarchy;
     const nodes: TreeNode[] = [];
 
     // Add project
@@ -109,15 +112,45 @@ export function HierarchyPanel() {
     });
 
     // Add storeys sorted by elevation
-    const storeysArray = Array.from(hierarchy.byStorey.entries()) as [number, number[]][];
-    const storeys = storeysArray
-      .map(([id, elements]: [number, number[]]) => ({
-        id,
-        name: ifcDataStore.entities.getName(id) || `Storey #${id}`,
-        elevation: hierarchy.storeyElevations.get(id) ?? 0,
-        elements,
+    const storeysArray = Array.from(byStorey.entries()) as [number, number[]][];
+
+    // Collect storeys with elevations - skip expensive property extraction if heights already computed
+    const storeysWithData = storeysArray
+      .map(([id, elements]: [number, number[]]) => {
+        // Use pre-computed height if available (fast path)
+        const height = storeyHeights?.get(id);
+        const elevation = storeyElevations.get(id);
+        
+        return {
+          id,
+          name: ifcDataStore.entities.getName(id) || `Storey #${id}`,
+          elevation: elevation !== undefined ? elevation : 0,
+          height,
+          elements,
+        };
+      })
+      .sort((a, b) => a.elevation - b.elevation);
+
+    // Calculate heights from elevation differences for storeys without height
+    const heightsFromElevation = new Map<number, number>();
+    for (let i = 0; i < storeysWithData.length - 1; i++) {
+      const current = storeysWithData[i];
+      const next = storeysWithData[i + 1];
+      if (current.height === undefined) {
+        const calculatedHeight = next.elevation - current.elevation;
+        if (calculatedHeight > 0) {
+          heightsFromElevation.set(current.id, calculatedHeight);
+        }
+      }
+    }
+
+    // Apply calculated heights and sort descending for display
+    const storeys = storeysWithData
+      .map(s => ({
+        ...s,
+        height: s.height ?? heightsFromElevation.get(s.id),
       }))
-      .sort((a, b) => b.elevation - a.elevation);
+      .sort((a, b) => b.elevation - a.elevation); // Sort descending for display
 
     for (const storey of storeys) {
       const isStoreyExpanded = expandedNodes.has(storey.id);
@@ -131,6 +164,7 @@ export function HierarchyPanel() {
         isExpanded: isStoreyExpanded,
         isVisible: true,
         elementCount: storey.elements.length,
+        storeyElevation: storey.elevation,
       });
 
       // Add storey elements if expanded
@@ -366,37 +400,79 @@ export function HierarchyPanel() {
                   )}
 
                   {/* Visibility Toggle */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleVisibilityToggle(node);
-                    }}
-                    className={cn(
-                      'p-0.5 opacity-0 group-hover:opacity-100 transition-opacity mr-1',
-                      nodeHidden && 'opacity-100'
-                    )}
-                  >
-                    {nodeVisible ? (
-                      <Eye className="h-3 w-3 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
-                    ) : (
-                      <EyeOff className="h-3 w-3 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
-                    )}
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleVisibilityToggle(node);
+                        }}
+                        className={cn(
+                          'p-0.5 opacity-0 group-hover:opacity-100 transition-opacity mr-1',
+                          nodeHidden && 'opacity-100'
+                        )}
+                      >
+                        {nodeVisible ? (
+                          <Eye className="h-3 w-3 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
+                        ) : (
+                          <EyeOff className="h-3 w-3 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">{nodeVisible ? 'Hide' : 'Show'}</p>
+                    </TooltipContent>
+                  </Tooltip>
 
                   {/* Type Icon */}
-                  <Icon className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400 shrink-0" />
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Icon className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400 shrink-0" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">{node.type}</p>
+                    </TooltipContent>
+                  </Tooltip>
 
                   {/* Name */}
-                  <span className={cn(
-                    'flex-1 text-sm truncate ml-1.5 text-zinc-900 dark:text-zinc-200',
-                    nodeHidden && 'line-through decoration-zinc-400 dark:decoration-zinc-600'
-                  )}>{node.name}</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className={cn(
+                        'flex-1 text-sm truncate ml-1.5 text-zinc-900 dark:text-zinc-200',
+                        nodeHidden && 'line-through decoration-zinc-400 dark:decoration-zinc-600'
+                      )}>{node.name}</span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">{node.name}</p>
+                    </TooltipContent>
+                  </Tooltip>
+
+                  {/* Storey Elevation */}
+                  {node.storeyElevation !== undefined && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="text-[10px] font-mono bg-emerald-100 dark:bg-emerald-950 px-1.5 py-0.5 border border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 rounded-none">
+                          {node.storeyElevation >= 0 ? '+' : ''}{node.storeyElevation.toFixed(2)}m
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">Elevation: {node.storeyElevation >= 0 ? '+' : ''}{node.storeyElevation.toFixed(2)}m from ground</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
 
                   {/* Element Count */}
                   {node.elementCount !== undefined && (
-                    <span className="text-[10px] font-mono bg-zinc-100 dark:bg-zinc-950 px-1.5 py-0.5 border border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 rounded-none">
-                      {node.elementCount}
-                    </span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="text-[10px] font-mono bg-zinc-100 dark:bg-zinc-950 px-1.5 py-0.5 border border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 rounded-none">
+                          {node.elementCount}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">{node.elementCount} {node.elementCount === 1 ? 'element' : 'elements'}</p>
+                      </TooltipContent>
+                    </Tooltip>
                   )}
                 </div>
               </div>
