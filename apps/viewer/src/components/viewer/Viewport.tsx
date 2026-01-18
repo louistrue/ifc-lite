@@ -44,14 +44,15 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   const sectionPlane = useViewerStore((state) => state.sectionPlane);
 
   // Theme-aware clear color ref (updated when theme changes)
-  const clearColorRef = useRef<[number, number, number, number]>([0.1, 0.1, 0.1, 1]);
+  // Tokyo Night storm: #1a1b26 = rgb(26, 27, 38)
+  const clearColorRef = useRef<[number, number, number, number]>([0.102, 0.106, 0.149, 1]);
 
   useEffect(() => {
     // Update clear color when theme changes
     if (theme === 'light') {
-      clearColorRef.current = [0.95, 0.95, 0.95, 1]; // Light gray/white for light mode
+      clearColorRef.current = [0.96, 0.96, 0.97, 1]; // Light gray for light mode
     } else {
-      clearColorRef.current = [0.1, 0.1, 0.1, 1]; // Dark gray for dark mode
+      clearColorRef.current = [0.102, 0.106, 0.149, 1]; // Tokyo Night storm (#1a1b26)
     }
     // Re-render with new clear color
     const renderer = rendererRef.current;

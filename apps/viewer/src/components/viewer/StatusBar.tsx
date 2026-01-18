@@ -13,7 +13,7 @@ export function StatusBar() {
   const { loading, geometryResult, ifcDataStore } = useIfc();
   const progress = useViewerStore((s) => s.progress);
   const error = useViewerStore((s) => s.error);
-  const selectedStorey = useViewerStore((s) => s.selectedStorey);
+  const selectedStoreys = useViewerStore((s) => s.selectedStoreys);
 
   const [fps, setFps] = useState(60);
   const [memory, setMemory] = useState(0);
@@ -71,12 +71,19 @@ export function StatusBar() {
   }, [geometryResult]);
 
   const visibleElements = useMemo(() => {
-    if (!selectedStorey || !ifcDataStore?.spatialHierarchy) {
+    if (selectedStoreys.size === 0 || !ifcDataStore?.spatialHierarchy) {
       return stats.elements;
     }
-    const storeyElements = ifcDataStore.spatialHierarchy.byStorey.get(selectedStorey);
-    return (storeyElements as number[] | undefined)?.length ?? stats.elements;
-  }, [selectedStorey, ifcDataStore, stats.elements]);
+    // Count elements from all selected storeys
+    let count = 0;
+    for (const storeyId of selectedStoreys) {
+      const storeyElements = ifcDataStore.spatialHierarchy.byStorey.get(storeyId);
+      if (storeyElements) {
+        count += storeyElements.length;
+      }
+    }
+    return count || stats.elements;
+  }, [selectedStoreys, ifcDataStore, stats.elements]);
 
   return (
     <div className="h-7 px-3 border-t bg-muted/30 flex items-center justify-between text-xs text-muted-foreground">
@@ -97,7 +104,7 @@ export function StatusBar() {
           <Boxes className="h-3.5 w-3.5" />
           <span>
             {formatNumber(visibleElements)}
-            {selectedStorey && stats.elements !== visibleElements && (
+            {selectedStoreys.size > 0 && stats.elements !== visibleElements && (
               <span className="opacity-60"> / {formatNumber(stats.elements)}</span>
             )}
             {' '}elements

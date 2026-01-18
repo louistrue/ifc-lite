@@ -61,7 +61,7 @@ interface ViewerState {
   // Selection
   selectedEntityId: number | null;
   selectedEntityIds: Set<number>; // Multi-selection support
-  selectedStorey: number | null;
+  selectedStoreys: Set<number>; // Multi-storey selection support
 
   // Visibility
   hiddenEntities: Set<number>;
@@ -120,7 +120,10 @@ interface ViewerState {
   appendGeometryBatch: (meshes: GeometryResult['meshes'], coordinateInfo?: CoordinateInfo) => void;
   updateCoordinateInfo: (coordinateInfo: CoordinateInfo) => void;
   setSelectedEntityId: (id: number | null) => void;
-  setSelectedStorey: (id: number | null) => void;
+  toggleStoreySelection: (id: number) => void;
+  setStoreySelection: (id: number) => void; // Single select (replaces selection)
+  setStoreysSelection: (ids: number[]) => void; // Multi-select (replaces selection with multiple)
+  clearStoreySelection: () => void;
   setLeftPanelCollapsed: (collapsed: boolean) => void;
   setRightPanelCollapsed: (collapsed: boolean) => void;
   setActiveTool: (tool: string) => void;
@@ -193,7 +196,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   geometryResult: null,
   selectedEntityId: null,
   selectedEntityIds: new Set(),
-  selectedStorey: null,
+  selectedStoreys: new Set(),
   hiddenEntities: new Set(),
   isolatedEntities: null,
   typeVisibility: {
@@ -263,7 +266,25 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     };
   }),
   setSelectedEntityId: (selectedEntityId) => set({ selectedEntityId }),
-  setSelectedStorey: (selectedStorey) => set({ selectedStorey }),
+  toggleStoreySelection: (id) => set((state) => {
+    const newSelection = new Set(state.selectedStoreys);
+    if (newSelection.has(id)) {
+      newSelection.delete(id);
+    } else {
+      newSelection.add(id);
+    }
+    return { selectedStoreys: newSelection };
+  }),
+  setStoreySelection: (id) => set((state) => {
+    // If already the only selected storey, deselect it (toggle behavior)
+    if (state.selectedStoreys.size === 1 && state.selectedStoreys.has(id)) {
+      return { selectedStoreys: new Set() };
+    }
+    // Otherwise, select only this storey
+    return { selectedStoreys: new Set([id]) };
+  }),
+  setStoreysSelection: (ids) => set({ selectedStoreys: new Set(ids) }),
+  clearStoreySelection: () => set({ selectedStoreys: new Set() }),
   setLeftPanelCollapsed: (leftPanelCollapsed) => set({ leftPanelCollapsed }),
   setRightPanelCollapsed: (rightPanelCollapsed) => set({ rightPanelCollapsed }),
   setActiveTool: (activeTool) => set({ activeTool }),
@@ -373,7 +394,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     }
   }),
   clearIsolation: () => set({ isolatedEntities: null }),
-  showAll: () => set({ hiddenEntities: new Set(), isolatedEntities: null }),
+  showAll: () => set({ hiddenEntities: new Set(), isolatedEntities: null, selectedStoreys: new Set() }),
   isEntityVisible: (id) => {
     const state = get();
     if (state.hiddenEntities.has(id)) return false;
@@ -485,7 +506,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   resetViewerState: () => set({
     selectedEntityId: null,
     selectedEntityIds: new Set(),
-    selectedStorey: null,
+    selectedStoreys: new Set(),
     hiddenEntities: new Set(),
     isolatedEntities: null,
     typeVisibility: {

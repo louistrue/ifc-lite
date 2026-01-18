@@ -102,7 +102,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   }, [selectedEntityId, isolateEntity]);
 
   const clearSelection = useViewerStore((state) => state.clearSelection);
-  
+
   const handleHide = useCallback(() => {
     if (selectedEntityId) {
       hideEntity(selectedEntityId);
@@ -265,7 +265,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   );
 
   return (
-    <div className="flex items-center gap-1 px-2 h-12 border-b bg-card">
+    <div className="flex items-center gap-1 px-2 h-12 border-b bg-white dark:bg-black border-zinc-200 dark:border-zinc-800">
       {/* File Operations */}
       <input
         ref={fileInputRef}
@@ -348,7 +348,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       {/* Visibility */}
       <ActionButton icon={Focus} label="Isolate Selection" onClick={handleIsolate} shortcut="I" disabled={!selectedEntityId} />
       <ActionButton icon={EyeOff} label="Hide Selection" onClick={handleHide} shortcut="Del" disabled={!selectedEntityId} />
-      <ActionButton icon={Eye} label="Show All" onClick={showAll} shortcut="A" />
+      <ActionButton icon={Eye} label="Show All (Reset Filters)" onClick={showAll} shortcut="A" />
 
       <DropdownMenu>
         <Tooltip>
