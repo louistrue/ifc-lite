@@ -58,6 +58,8 @@ export function HierarchyPanel() {
   const toggleEntityVisibility = useViewerStore((s) => s.toggleEntityVisibility);
   const isEntityVisible = useViewerStore((s) => s.isEntityVisible);
 
+  const clearSelection = useViewerStore((s) => s.clearSelection);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedNodes, setExpandedNodes] = useState<Set<number>>(new Set());
 
@@ -175,15 +177,24 @@ export function HierarchyPanel() {
       if (allVisible) {
         // Hide all elements in storey
         hideEntities(elements);
+        // Clear selection if selected element is being hidden
+        if (selectedEntityId !== null && elements.includes(selectedEntityId)) {
+          clearSelection();
+        }
       } else {
         // Show all elements in storey
         showEntities(elements);
       }
     } else {
       // Single element toggle
+      const wasVisible = isEntityVisible(node.id);
       toggleEntityVisibility(node.id);
+      // Clear selection if we just hid the selected element
+      if (wasVisible && selectedEntityId === node.id) {
+        clearSelection();
+      }
     }
-  }, [storeyElementsMap, isEntityVisible, hideEntities, showEntities, toggleEntityVisibility]);
+  }, [storeyElementsMap, isEntityVisible, hideEntities, showEntities, toggleEntityVisibility, selectedEntityId, clearSelection]);
 
   // Check if storey has any visible elements (show as hidden only when ALL are hidden)
   const isStoreyVisible = useCallback((storeyId: number) => {

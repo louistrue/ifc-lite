@@ -101,11 +101,15 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     }
   }, [selectedEntityId, isolateEntity]);
 
+  const clearSelection = useViewerStore((state) => state.clearSelection);
+  
   const handleHide = useCallback(() => {
     if (selectedEntityId) {
       hideEntity(selectedEntityId);
+      // Clear selection after hiding - element is no longer visible
+      clearSelection();
     }
-  }, [selectedEntityId, hideEntity]);
+  }, [selectedEntityId, hideEntity, clearSelection]);
 
   const handleExportGLB = useCallback(() => {
     if (!geometryResult) return;

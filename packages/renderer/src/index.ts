@@ -869,9 +869,20 @@ export class Renderer {
                 // Render selected meshes individually for proper highlighting
                 // First, check if we have Mesh objects for selected IDs
                 // If not, create them lazily from stored MeshData
-
-                // Create GPU resources lazily for selected meshes that don't have them yet
+                
+                // FIX: Filter selected IDs by visibility BEFORE creating GPU resources
+                // This ensures highlights don't appear for hidden elements
+                const visibleSelectedIds = new Set<number>();
                 for (const selId of selectedExpressIds) {
+                    // Skip if hidden
+                    if (options.hiddenIds?.has(selId)) continue;
+                    // Skip if isolation is active and this entity is not isolated
+                    if (hasIsolatedFilter && !options.isolatedIds!.has(selId)) continue;
+                    visibleSelectedIds.add(selId);
+                }
+
+                // Create GPU resources lazily for visible selected meshes that don't have them yet
+                for (const selId of visibleSelectedIds) {
                     if (!existingMeshIds.has(selId) && this.scene.hasMeshData(selId)) {
                         const meshData = this.scene.getMeshData(selId)!;
                         this.createMeshFromData(meshData);
@@ -879,9 +890,9 @@ export class Renderer {
                     }
                 }
 
-                // Now get selected meshes (includes newly created ones)
+                // Now get selected meshes (only visible ones)
                 const selectedMeshes = this.scene.getMeshes().filter(mesh =>
-                    selectedExpressIds.has(mesh.expressId)
+                    visibleSelectedIds.has(mesh.expressId)
                 );
 
                 // Ensure selected meshes have uniform buffers and bind groups
