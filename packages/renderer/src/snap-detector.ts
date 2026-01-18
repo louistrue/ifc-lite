@@ -108,6 +108,14 @@ export class SnapDetector {
 
     // Compute and cache vertices
     const positions = mesh.positions;
+
+    // Validate input
+    if (!positions || positions.length === 0) {
+      const emptyCache: MeshGeometryCache = { vertices: [], edges: [] };
+      this.geometryCache.set(mesh.expressId, emptyCache);
+      return emptyCache;
+    }
+
     const vertexMap = new Map<string, Vec3>();
 
     for (let i = 0; i < positions.length; i += 3) {
@@ -116,6 +124,12 @@ export class SnapDetector {
         y: positions[i + 1],
         z: positions[i + 2],
       };
+
+      // Skip invalid vertices
+      if (!isFinite(vertex.x) || !isFinite(vertex.y) || !isFinite(vertex.z)) {
+        continue;
+      }
+
       // Use reduced precision for deduplication
       const key = `${vertex.x.toFixed(4)}_${vertex.y.toFixed(4)}_${vertex.z.toFixed(4)}`;
       vertexMap.set(key, vertex);

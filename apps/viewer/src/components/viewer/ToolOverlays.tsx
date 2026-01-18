@@ -6,7 +6,7 @@
  * Tool-specific overlays for measure and section tools
  */
 
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { X, Trash2, Ruler, Slice } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useViewerStore, type Measurement } from '@/store';

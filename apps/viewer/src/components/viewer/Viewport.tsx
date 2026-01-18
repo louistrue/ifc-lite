@@ -946,6 +946,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
       if (keyboardHandlersRef.current.handleKeyUp) {
         window.removeEventListener('keyup', keyboardHandlersRef.current.handleKeyUp);
       }
+      // Cancel pending raycast requests
+      if (measureRaycastFrameRef.current !== null) {
+        cancelAnimationFrame(measureRaycastFrameRef.current);
+        measureRaycastFrameRef.current = null;
+      }
       setIsInitialized(false);
       rendererRef.current = null;
     };
@@ -1170,6 +1175,9 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           });
         }
       }
+
+      // Invalidate caches when new geometry is added
+      renderer.clearCaches();
     }
 
     lastGeometryLengthRef.current = currentLength;

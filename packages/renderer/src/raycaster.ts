@@ -51,7 +51,14 @@ export class Raycaster {
     const positions = mesh.positions;
     const indices = mesh.indices;
 
-    if (!indices || indices.length === 0) {
+    // Validate input
+    if (!indices || indices.length === 0 || !positions || positions.length === 0) {
+      return null;
+    }
+
+    // Ensure triangle count is valid
+    if (indices.length % 3 !== 0) {
+      console.warn(`Invalid index count for mesh ${mesh.expressId}: ${indices.length}`);
       return null;
     }
 
@@ -60,9 +67,19 @@ export class Raycaster {
 
     // Test each triangle
     for (let i = 0; i < indices.length; i += 3) {
-      const i0 = indices[i] * 3;
-      const i1 = indices[i + 1] * 3;
-      const i2 = indices[i + 2] * 3;
+      const idx0 = indices[i];
+      const idx1 = indices[i + 1];
+      const idx2 = indices[i + 2];
+
+      // Validate indices are within bounds
+      const maxIndex = positions.length / 3 - 1;
+      if (idx0 > maxIndex || idx1 > maxIndex || idx2 > maxIndex) {
+        continue; // Skip invalid triangles
+      }
+
+      const i0 = idx0 * 3;
+      const i1 = idx1 * 3;
+      const i2 = idx2 * 3;
 
       const v0: Vec3 = {
         x: positions[i0],
@@ -79,6 +96,15 @@ export class Raycaster {
         y: positions[i2 + 1],
         z: positions[i2 + 2],
       };
+
+      // Skip degenerate triangles (NaN or identical vertices)
+      if (
+        !isFinite(v0.x) || !isFinite(v0.y) || !isFinite(v0.z) ||
+        !isFinite(v1.x) || !isFinite(v1.y) || !isFinite(v1.z) ||
+        !isFinite(v2.x) || !isFinite(v2.y) || !isFinite(v2.z)
+      ) {
+        continue;
+      }
 
       const intersection = this.intersectTriangle(ray, v0, v1, v2);
 
