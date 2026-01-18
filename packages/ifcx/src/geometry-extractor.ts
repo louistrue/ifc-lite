@@ -6,9 +6,10 @@
  * Geometry Extractor for IFCX
  * Extracts USD-style mesh data and converts to MeshData format
  *
- * COORDINATE SYSTEM: IFCX uses Z-up (following IFC convention), which matches
- * the viewer's expected coordinate system. No coordinate conversion is needed.
- * Transforms are accumulated from parent to child and applied to geometry.
+ * COORDINATE SYSTEM:
+ * - IFCX uses Z-up (following IFC/buildingSMART convention)
+ * - The ifc-lite viewer uses Y-up (standard WebGL convention)
+ * - This extractor converts from Z-up to Y-up after applying transforms
  */
 
 import type { ComposedNode, UsdMesh, UsdTransform } from './types.js';
@@ -36,7 +37,7 @@ export interface MeshData {
  * have their own bsi::ifc::class. We associate these with the closest
  * ancestor entity that has an expressId.
  *
- * Output geometry is in Z-up coordinate system (same as input).
+ * Output geometry is converted to Y-up for the viewer.
  */
 export function extractGeometry(
   composed: Map<string, ComposedNode>,
@@ -110,7 +111,7 @@ function getIfcTypeFromHierarchy(node: ComposedNode): string | undefined {
 
 /**
  * Convert USD mesh format to MeshData format.
- * IFCX geometry is already in Z-up coordinate system.
+ * Applies transform in Z-up space, then converts to Y-up for the viewer.
  */
 function convertUsdMesh(
   usd: UsdMesh,
@@ -118,22 +119,27 @@ function convertUsdMesh(
   ifcType: string | undefined,
   transform: Float32Array | null
 ): MeshData {
-  // Flatten points array (no coordinate conversion needed - IFCX is Z-up)
+  // Process points: apply transform in Z-up space, then convert to Y-up
   const positions = new Float32Array(usd.points.length * 3);
   for (let i = 0; i < usd.points.length; i++) {
     const [x, y, z] = usd.points[i];
 
+    // World position in Z-up space
+    let wx: number, wy: number, wz: number;
     if (transform) {
-      // Apply transform to point
-      const [tx, ty, tz] = applyTransform(x, y, z, transform);
-      positions[i * 3] = tx;
-      positions[i * 3 + 1] = ty;
-      positions[i * 3 + 2] = tz;
+      [wx, wy, wz] = applyTransform(x, y, z, transform);
     } else {
-      positions[i * 3] = x;
-      positions[i * 3 + 1] = y;
-      positions[i * 3 + 2] = z;
+      wx = x;
+      wy = y;
+      wz = z;
     }
+
+    // Convert from Z-up to Y-up: swap Y and Z
+    // Z-up: X=right, Y=forward, Z=up
+    // Y-up: X=right, Y=up, Z=back (negated for right-hand rule)
+    positions[i * 3] = wx;
+    positions[i * 3 + 1] = wz;      // Y-up = Z from Z-up
+    positions[i * 3 + 2] = -wy;     // Z-back = -Y from Z-up
   }
 
   // Handle face vertex counts if present (for non-triangle faces)
@@ -182,8 +188,7 @@ function triangulatePolygons(faceVertexIndices: number[], faceVertexCounts: numb
 }
 
 /**
- * Get accumulated transform from node to root.
- * IFCX transforms are already in Z-up coordinate space, no conversion needed.
+ * Get accumulated transform from node to root (in Z-up space).
  *
  * For row-major matrices with right-multiply (point * matrix), transforms must
  * be accumulated in child-to-parent order: child * parent * grandparent * root
@@ -311,8 +316,7 @@ function computeNormals(positions: Float32Array, indices: Uint32Array): Float32A
 }
 
 /**
- * Flatten 2D normals array to 1D and optionally transform.
- * IFCX normals are already in Z-up coordinate space, no conversion needed.
+ * Flatten 2D normals array to 1D, transform, and convert to Y-up.
  */
 function flattenNormals(normals: number[][], transform: Float32Array | null): Float32Array {
   const result = new Float32Array(normals.length * 3);
@@ -320,7 +324,7 @@ function flattenNormals(normals: number[][], transform: Float32Array | null): Fl
   const hasTransform = transform !== null;
 
   for (let i = 0; i < normals.length; i++) {
-    // Normal already in Z-up space
+    // Normal in Z-up space
     let [nx, ny, nz] = normals[i];
 
     if (hasTransform && transform) {
@@ -342,9 +346,10 @@ function flattenNormals(normals: number[][], transform: Float32Array | null): Fl
       }
     }
 
+    // Convert from Z-up to Y-up (same as positions)
     result[i * 3] = nx;
-    result[i * 3 + 1] = ny;
-    result[i * 3 + 2] = nz;
+    result[i * 3 + 1] = nz;      // Y = Z
+    result[i * 3 + 2] = -ny;     // Z = -Y
   }
 
   return result;
