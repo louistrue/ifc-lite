@@ -6,11 +6,10 @@
  * Geometry Extractor for IFCX
  * Extracts USD-style mesh data and converts to MeshData format
  *
- * COORDINATE SYSTEM: IFCX/USD uses Y-up, but the viewer expects Z-up.
- * This extractor handles the conversion by:
- * 1. Converting raw geometry points from Y-up to Z-up
- * 2. Converting transform matrices from Y-up to Z-up coordinate space
- * 3. Applying the converted transforms to the converted geometry
+ * COORDINATE SYSTEM:
+ * - IFCX uses Z-up (following IFC/buildingSMART convention)
+ * - The ifc-lite viewer uses Y-up (standard WebGL convention)
+ * - This extractor converts from Z-up to Y-up after applying transforms
  */
 
 import type { ComposedNode, UsdMesh, UsdTransform } from './types.js';
@@ -38,7 +37,7 @@ export interface MeshData {
  * have their own bsi::ifc::class. We associate these with the closest
  * ancestor entity that has an expressId.
  *
- * Output geometry is in Z-up coordinate system (converted from Y-up).
+ * Output geometry is converted to Y-up for the viewer.
  */
 export function extractGeometry(
   composed: Map<string, ComposedNode>,
@@ -57,10 +56,10 @@ export function extractGeometry(
     // Get IFC type from parent (mesh nodes are usually children of element nodes)
     const ifcType = getIfcTypeFromHierarchy(node);
 
-    // Get accumulated transform (already converted to Z-up space)
+    // Get accumulated transform from hierarchy
     const transform = getAccumulatedTransform(node);
 
-    // Convert USD mesh to MeshData (with Y-up to Z-up conversion)
+    // Convert USD mesh to MeshData
     const meshData = convertUsdMesh(mesh, expressId, ifcType, transform);
 
     // Apply presentation attributes
@@ -111,62 +110,8 @@ function getIfcTypeFromHierarchy(node: ComposedNode): string | undefined {
 }
 
 /**
- * Convert a point from Y-up to Z-up coordinate system.
- * Y-up: X=right, Y=up, Z=forward
- * Z-up: X=right, Y=forward, Z=up
- *
- * Mapping: newX = oldX, newY = oldZ, newZ = oldY
- */
-function yUpToZUp(x: number, y: number, z: number): [number, number, number] {
-  return [x, z, y];
-}
-
-/**
- * Convert a 4x4 transform matrix from Y-up to Z-up coordinate system.
- * Uses change of basis: M' = C * M * C^(-1)
- * where C is the Y-up to Z-up change of basis matrix.
- */
-function convertMatrixYUpToZUp(m: Float32Array): Float32Array {
-  // Change of basis matrix C (Y-up to Z-up):
-  // [1, 0, 0, 0]
-  // [0, 0, 1, 0]
-  // [0, 1, 0, 0]
-  // [0, 0, 0, 1]
-  //
-  // This swaps Y and Z axes.
-  // For a transform matrix in row-major format where translation is in the last row,
-  // we need to swap rows/columns 1 and 2.
-
-  const result = new Float32Array(16);
-
-  // The transform is: C * M * C^(-1)
-  // Since C just swaps Y and Z, and C^(-1) = C, we get:
-  // - Swap rows 1 and 2
-  // - Swap columns 1 and 2
-
-  // Original indices (row-major, 4 elements per row):
-  // Row 0: 0, 1, 2, 3
-  // Row 1: 4, 5, 6, 7
-  // Row 2: 8, 9, 10, 11
-  // Row 3: 12, 13, 14, 15
-
-  // After swapping rows 1 and 2, then columns 1 and 2:
-  // Result[i][j] = M[swapRow(i)][swapCol(j)]
-
-  for (let row = 0; row < 4; row++) {
-    for (let col = 0; col < 4; col++) {
-      const srcRow = row === 1 ? 2 : row === 2 ? 1 : row;
-      const srcCol = col === 1 ? 2 : col === 2 ? 1 : col;
-      result[row * 4 + col] = m[srcRow * 4 + srcCol];
-    }
-  }
-
-  return result;
-}
-
-/**
  * Convert USD mesh format to MeshData format.
- * Converts geometry from Y-up to Z-up coordinate system.
+ * Applies transform in Z-up space, then converts to Y-up for the viewer.
  */
 function convertUsdMesh(
   usd: UsdMesh,
@@ -174,24 +119,27 @@ function convertUsdMesh(
   ifcType: string | undefined,
   transform: Float32Array | null
 ): MeshData {
-  // Flatten points array and convert from Y-up to Z-up
+  // Process points: apply transform in Z-up space, then convert to Y-up
   const positions = new Float32Array(usd.points.length * 3);
   for (let i = 0; i < usd.points.length; i++) {
     const [x, y, z] = usd.points[i];
-    // First convert point from Y-up to Z-up
-    const [zx, zy, zz] = yUpToZUp(x, y, z);
 
+    // World position in Z-up space
+    let wx: number, wy: number, wz: number;
     if (transform) {
-      // Apply Z-up transform to Z-up point
-      const [tx, ty, tz] = applyTransform(zx, zy, zz, transform);
-      positions[i * 3] = tx;
-      positions[i * 3 + 1] = ty;
-      positions[i * 3 + 2] = tz;
+      [wx, wy, wz] = applyTransform(x, y, z, transform);
     } else {
-      positions[i * 3] = zx;
-      positions[i * 3 + 1] = zy;
-      positions[i * 3 + 2] = zz;
+      wx = x;
+      wy = y;
+      wz = z;
     }
+
+    // Convert from Z-up to Y-up: swap Y and Z
+    // Z-up: X=right, Y=forward, Z=up
+    // Y-up: X=right, Y=up, Z=back (negated for right-hand rule)
+    positions[i * 3] = wx;
+    positions[i * 3 + 1] = wz;      // Y-up = Z from Z-up
+    positions[i * 3 + 2] = -wy;     // Z-back = -Y from Z-up
   }
 
   // Handle face vertex counts if present (for non-triangle faces)
@@ -240,20 +188,23 @@ function triangulatePolygons(faceVertexIndices: number[], faceVertexCounts: numb
 }
 
 /**
- * Get accumulated transform from node to root.
- * Converts each transform from Y-up to Z-up coordinate space before accumulating.
+ * Get accumulated transform from node to root (in Z-up space).
+ *
+ * For row-major matrices with right-multiply (point * matrix), transforms must
+ * be accumulated in child-to-parent order: child * parent * grandparent * root
  */
 function getAccumulatedTransform(node: ComposedNode): Float32Array | null {
   const transforms: Float32Array[] = [];
 
+  // Walk from node (child) up to root (parent), collecting transforms
   let current: ComposedNode | undefined = node;
   while (current) {
     const xform = current.attributes.get(ATTR.TRANSFORM) as UsdTransform | undefined;
     if (xform?.transform) {
-      // Flatten and convert from Y-up to Z-up coordinate space
-      const yUpMatrix = flattenMatrix(xform.transform);
-      const zUpMatrix = convertMatrixYUpToZUp(yUpMatrix);
-      transforms.unshift(zUpMatrix);
+      // Flatten the matrix (no coordinate conversion needed - IFCX is Z-up)
+      const matrix = flattenMatrix(xform.transform);
+      // Push to end - builds array in child-to-parent order for row-major multiplication
+      transforms.push(matrix);
     }
     current = current.parent;
   }
@@ -261,7 +212,8 @@ function getAccumulatedTransform(node: ComposedNode): Float32Array | null {
   if (transforms.length === 0) return null;
   if (transforms.length === 1) return transforms[0];
 
-  // Multiply transforms (parent * child order)
+  // Multiply transforms in child * parent * grandparent order (left to right)
+  // This is correct for row-major matrices where we do: point * accumulated_matrix
   let result = transforms[0];
   for (let i = 1; i < transforms.length; i++) {
     result = multiplyMatrices(result, transforms[i]);
@@ -364,23 +316,16 @@ function computeNormals(positions: Float32Array, indices: Uint32Array): Float32A
 }
 
 /**
- * Flatten 2D normals array to 1D and optionally transform.
- * Converts normals from Y-up to Z-up and applies transform (which is already in Z-up space).
+ * Flatten 2D normals array to 1D, transform, and convert to Y-up.
  */
 function flattenNormals(normals: number[][], transform: Float32Array | null): Float32Array {
   const result = new Float32Array(normals.length * 3);
 
-  // Extract rotation part of transform matrix (upper 3x3)
   const hasTransform = transform !== null;
 
   for (let i = 0; i < normals.length; i++) {
-    // Original normal in Y-up space
-    const [ox, oy, oz] = normals[i];
-
-    // Convert from Y-up to Z-up: newX = oldX, newY = oldZ, newZ = oldY
-    let nx = ox;
-    let ny = oz;
-    let nz = oy;
+    // Normal in Z-up space
+    let [nx, ny, nz] = normals[i];
 
     if (hasTransform && transform) {
       // Transform normal by upper 3x3 of matrix (rotation only)
@@ -401,9 +346,10 @@ function flattenNormals(normals: number[][], transform: Float32Array | null): Fl
       }
     }
 
+    // Convert from Z-up to Y-up (same as positions)
     result[i * 3] = nx;
-    result[i * 3 + 1] = ny;
-    result[i * 3 + 2] = nz;
+    result[i * 3 + 1] = nz;      // Y = Z
+    result[i * 3 + 2] = -ny;     // Z = -Y
   }
 
   return result;
