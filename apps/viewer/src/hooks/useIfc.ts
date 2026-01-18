@@ -854,8 +854,8 @@ export function useIfc() {
             typeEnumArr[idx] = typeVal;
             globalIdArr[idx] = strings.intern(entity.global_id || '');
             nameArr[idx] = strings.intern(entity.name || '');
-            descriptionArr[idx] = strings.NULL_INDEX;
-            objectTypeArr[idx] = strings.NULL_INDEX;
+            descriptionArr[idx] = strings.intern(entity.description || '');
+            objectTypeArr[idx] = strings.intern(entity.object_type || '');
             flagsArr[idx] = entity.has_geometry ? EntityFlags.HAS_GEOMETRY : 0;
 
             // Build entityByIdMap for entityIndex

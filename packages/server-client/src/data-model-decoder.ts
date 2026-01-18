@@ -13,6 +13,8 @@ export interface EntityMetadata {
   type_name: string;
   global_id?: string;
   name?: string;
+  description?: string;
+  object_type?: string;
   has_geometry: boolean;
 }
 
@@ -127,6 +129,9 @@ export async function decodeDataModel(data: ArrayBuffer): Promise<DataModel> {
   const typeNames = entitiesArrow.getChild('type_name')?.toArray() as string[];
   const globalIds = entitiesArrow.getChild('global_id')?.toArray() as (string | null)[];
   const names = entitiesArrow.getChild('name')?.toArray() as (string | null)[];
+  // Description and object_type may not be present in older server versions
+  const descriptions = entitiesArrow.getChild('description')?.toArray() as (string | null)[] | undefined;
+  const objectTypes = entitiesArrow.getChild('object_type')?.toArray() as (string | null)[] | undefined;
   const entityCount = entityIds.length;
 
   // Build entity map with pre-extracted arrays (no per-element .get() calls)
@@ -137,6 +142,8 @@ export async function decodeDataModel(data: ArrayBuffer): Promise<DataModel> {
       type_name: typeNames[i] ?? '',
       global_id: globalIds[i] || undefined,
       name: names[i] || undefined,
+      description: descriptions?.[i] || undefined,
+      object_type: objectTypes?.[i] || undefined,
       has_geometry: hasGeometry[i] !== 0,
     });
   }
