@@ -1292,7 +1292,7 @@ export class Renderer {
             let snapTarget: SnapTarget | undefined;
             if (options?.snapOptions) {
                 const cameraPos = this.camera.getPosition();
-                const cameraFov = this.camera.getFov();
+                const cameraFov = this.camera.getFOV();
 
                 // Get the actual intersected mesh data
                 const intersectedMesh = meshesToTest[intersection.meshIndex];
