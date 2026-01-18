@@ -692,6 +692,7 @@ export function useIfc() {
           console.log(`[useIfc] Data model decoded in ${(performance.now() - dataModelStart).toFixed(0)}ms`);
           console.log(`  Entities: ${dataModel.entities.size}`);
           console.log(`  PropertySets: ${dataModel.propertySets.size}`);
+          console.log(`  QuantitySets: ${dataModel.quantitySets.size}`);
           console.log(`  Relationships: ${dataModel.relationships.length}`);
           console.log(`  Spatial nodes: ${dataModel.spatialHierarchy.nodes.length}`);
 
@@ -936,6 +937,10 @@ export function useIfc() {
           // to avoid iterating relationships twice
           const entityToPsets = new Map<number, Array<{ pset_id: number; pset_name: string; properties: Array<{ property_name: string; property_value: string; property_type: string }> }>>();
 
+          // ===== QuantityTable with getForEntity =====
+          // Build entity -> qset relationships from server data (same loop as psets)
+          const entityToQsets = new Map<number, Array<{ qset_id: number; qset_name: string; method_of_measurement?: string; quantities: Array<{ quantity_name: string; quantity_value: number; quantity_type: string }> }>>();
+
           const properties = {
             count: 0,
             entityId: new Uint32Array(0),
@@ -967,7 +972,7 @@ export function useIfc() {
             findByProperty: () => [],
           };
 
-          // ===== QuantityTable (empty but with methods) =====
+          // ===== QuantityTable with getForEntity (uses server data via entityToQsets) =====
           const quantities = {
             count: 0,
             entityId: new Uint32Array(0),
@@ -980,7 +985,18 @@ export function useIfc() {
             entityIndex: new Map<number, number[]>(),
             qsetIndex: new Map<number, number[]>(),
             quantityIndex: new Map<number, number[]>(),
-            getForEntity: () => [],
+            getForEntity: (exprId: number) => {
+              const qsets = entityToQsets.get(exprId) || [];
+              return qsets.map(qset => ({
+                name: qset.qset_name,
+                methodOfMeasurement: qset.method_of_measurement,
+                quantities: qset.quantities.map(q => ({
+                  name: q.quantity_name,
+                  type: q.quantity_type as 'length' | 'area' | 'volume' | 'count' | 'weight' | 'time',
+                  value: q.quantity_value,
+                })),
+              }));
+            },
             getQuantityValue: () => null,
             sumByType: () => 0,
           };
@@ -1029,14 +1045,23 @@ export function useIfc() {
 
             const finalRelType = relType ?? RelationshipType.Aggregates;
 
-            // Build property set mapping in the same loop (avoid duplicate iteration)
+            // Build property set and quantity set mappings in the same loop (avoid duplicate iteration)
             if (upperType === 'IFCRELDEFINESBYPROPERTIES') {
+              // Check if it's a property set
               const pset = dataModel.propertySets.get(rel.relating_id);
               if (pset) {
                 if (!entityToPsets.has(rel.related_id)) {
                   entityToPsets.set(rel.related_id, []);
                 }
                 entityToPsets.get(rel.related_id)!.push(pset);
+              }
+              // Check if it's a quantity set (same relationship type, different definition)
+              const qset = dataModel.quantitySets.get(rel.relating_id);
+              if (qset) {
+                if (!entityToQsets.has(rel.related_id)) {
+                  entityToQsets.set(rel.related_id, []);
+                }
+                entityToQsets.get(rel.related_id)!.push(qset);
               }
             }
 
