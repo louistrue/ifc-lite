@@ -9,7 +9,7 @@ import { ToolOverlays } from './ToolOverlays';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { useWebGPU } from '@/hooks/useWebGPU';
-import { Upload, MousePointer, Layers, Info, Command, AlertTriangle } from 'lucide-react';
+import { Upload, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown, ExternalLink } from 'lucide-react';
 
 export function ViewportContainer() {
   const { geometryResult, ifcDataStore, loadFile, loading } = useIfc();
@@ -18,6 +18,7 @@ export function ViewportContainer() {
   const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [showTroubleshooting, setShowTroubleshooting] = useState(false);
   const webgpu = useWebGPU();
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -243,11 +244,72 @@ export function ViewportContainer() {
                       className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-mono uppercase tracking-wide border border-[#3b4261] text-[#7aa2f7] hover:border-[#7aa2f7] hover:bg-[#7aa2f7]/10 transition-colors"
                     >
                       Check Browser Support
+                      <ExternalLink className="h-3 w-3" />
                     </a>
                     <span className="inline-flex items-center px-3 py-1 text-xs font-mono text-[#565f89] border border-[#3b4261]">
-                      Chrome 113+ / Edge 113+ / Safari 18+
+                      Chrome 113+ / Edge 113+ / Firefox 141+ / Safari 18+
                     </span>
                   </div>
+
+                  {/* Troubleshooting Section */}
+                  <button
+                    onClick={() => setShowTroubleshooting(!showTroubleshooting)}
+                    className="mt-4 flex items-center gap-2 text-xs font-mono uppercase tracking-wide text-[#ff9e64] hover:text-[#e0af68] transition-colors"
+                  >
+                    <ChevronDown className={`h-4 w-4 transition-transform ${showTroubleshooting ? 'rotate-180' : ''}`} />
+                    {showTroubleshooting ? 'Hide' : 'Show'} Troubleshooting
+                  </button>
+
+                  {showTroubleshooting && (
+                    <div className="mt-4 p-4 bg-[#1f2335] border border-[#3b4261] text-xs font-mono space-y-4">
+                      <div>
+                        <h4 className="font-bold text-[#ff9e64] uppercase tracking-wide mb-2">Blocklist Override</h4>
+                        <p className="text-[#a9b1d6] mb-2">
+                          WebGPU may be disabled due to GPU/driver blocklist. Try these flags:
+                        </p>
+                        <div className="space-y-1 text-[#7dcfff]">
+                          <p><code className="bg-[#16161e] px-1.5 py-0.5">chrome://flags/#enable-unsafe-webgpu</code> → Enable</p>
+                          <p><code className="bg-[#16161e] px-1.5 py-0.5">chrome://flags/#ignore-gpu-blocklist</code> → Enable</p>
+                        </div>
+                      </div>
+
+                      <div>
+                        <h4 className="font-bold text-[#bb9af7] uppercase tracking-wide mb-2">Firefox</h4>
+                        <p className="text-[#a9b1d6] mb-2">
+                          WebGPU enabled by default in Firefox 141+. For older versions:
+                        </p>
+                        <p className="text-[#7dcfff]">
+                          <code className="bg-[#16161e] px-1.5 py-0.5">about:config</code> → <code className="bg-[#16161e] px-1.5 py-0.5">dom.webgpu.enabled</code> → true
+                        </p>
+                      </div>
+
+                      <div>
+                        <h4 className="font-bold text-[#9ece6a] uppercase tracking-wide mb-2">Safari</h4>
+                        <p className="text-[#a9b1d6]">
+                          Safari → Settings → Feature Flags → Enable "WebGPU"
+                        </p>
+                      </div>
+
+                      <div>
+                        <h4 className="font-bold text-[#7aa2f7] uppercase tracking-wide mb-2">Verify Status</h4>
+                        <p className="text-[#a9b1d6] mb-2">Check your GPU status page:</p>
+                        <div className="space-y-1 text-[#7dcfff]">
+                          <p>Chrome/Edge: <code className="bg-[#16161e] px-1.5 py-0.5">chrome://gpu</code></p>
+                          <p>Firefox: <code className="bg-[#16161e] px-1.5 py-0.5">about:support</code></p>
+                        </div>
+                      </div>
+
+                      <a
+                        href="https://developer.chrome.com/docs/web-platform/webgpu/troubleshooting-tips"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-[#7aa2f7] hover:underline"
+                      >
+                        Full Troubleshooting Guide
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
