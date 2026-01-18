@@ -456,6 +456,10 @@ export function useIfc() {
 
         const parseStart = performance.now();
 
+        // Throttle server streaming updates - large files get less frequent UI updates
+        let lastServerStreamRenderTime = 0;
+        const SERVER_STREAM_INTERVAL_MS = fileSizeMB > 100 ? 200 : 100;
+
         // Use streaming endpoint with batch callback
         const streamResult = await client.parseParquetStream(file, (batch: ParquetBatch) => {
           batchCount++;
@@ -493,27 +497,36 @@ export function useIfc() {
           // Add to collection
           allMeshes.push(...batchMeshes);
 
-          // Update progress
-          setProgress({
-            phase: `Streaming batch ${batchCount}`,
-            percent: Math.min(15 + (batchCount * 5), 85)
-          });
+          // THROTTLED PROGRESSIVE RENDERING: Update UI at controlled rate
+          // First batch renders immediately, subsequent batches throttled
+          const now = performance.now();
+          const shouldRender = batchCount === 1 || (now - lastServerStreamRenderTime >= SERVER_STREAM_INTERVAL_MS);
 
-          // PROGRESSIVE RENDERING: Set geometry after each batch
-          // This allows the user to see geometry appearing progressively
-          const coordinateInfo = {
-            originShift: { x: 0, y: 0, z: 0 },
-            originalBounds: bounds,
-            shiftedBounds: bounds,
-            isGeoReferenced: false,
-          };
+          if (shouldRender) {
+            lastServerStreamRenderTime = now;
 
-          setGeometryResult({
-            meshes: [...allMeshes], // Clone to trigger re-render
-            totalVertices,
-            totalTriangles,
-            coordinateInfo,
-          });
+            // Update progress
+            setProgress({
+              phase: `Streaming batch ${batchCount}`,
+              percent: Math.min(15 + (batchCount * 5), 85)
+            });
+
+            // PROGRESSIVE RENDERING: Set geometry after each batch
+            // This allows the user to see geometry appearing progressively
+            const coordinateInfo = {
+              originShift: { x: 0, y: 0, z: 0 },
+              originalBounds: bounds,
+              shiftedBounds: bounds,
+              isGeoReferenced: false,
+            };
+
+            setGeometryResult({
+              meshes: [...allMeshes], // Clone to trigger re-render
+              totalVertices,
+              totalTriangles,
+              coordinateInfo,
+            });
+          }
         });
 
         parseTime = performance.now() - parseStart;
@@ -1367,9 +1380,13 @@ export function useIfc() {
 
       // OPTIMIZATION: Accumulate meshes and batch state updates
       // First batch renders immediately, then accumulate for throughput
+      // Adaptive interval: larger files get less frequent updates to reduce React re-render overhead
       let pendingMeshes: MeshData[] = [];
       let lastRenderTime = 0;
-      const RENDER_INTERVAL_MS = 50; // Max 20 state updates per second after first batch
+      const RENDER_INTERVAL_MS = fileSizeMB > 100 ? 200  // Huge files: 5 updates/sec
+        : fileSizeMB > 50 ? 100   // Large files: 10 updates/sec
+        : fileSizeMB > 20 ? 75    // Medium files: ~13 updates/sec
+        : 50;                      // Small files: 20 updates/sec
 
       try {
         console.log(`[useIfc] Starting geometry streaming IMMEDIATELY (file size: ${fileSizeMB.toFixed(2)}MB)...`);

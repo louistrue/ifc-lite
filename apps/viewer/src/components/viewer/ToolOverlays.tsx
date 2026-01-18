@@ -38,26 +38,48 @@ function MeasureOverlay() {
   const clearMeasurements = useViewerStore((s) => s.clearMeasurements);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
 
-  // Track cursor position for snap indicators
-  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
+  // Track cursor position in ref (no re-renders on mouse move)
+  const cursorPosRef = React.useRef<{ x: number; y: number } | null>(null);
+  // Only update snap indicator position when snap target changes (not on every cursor move)
+  const [snapIndicatorPos, setSnapIndicatorPos] = useState<{ x: number; y: number } | null>(null);
   // Panel collapsed by default for minimal UI
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(true);
+  // Ref to the overlay container for coordinate conversion
+  const overlayRef = React.useRef<HTMLDivElement>(null);
 
+  // Update cursor position in ref (no re-renders)
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      setCursorPos({ x: e.clientX, y: e.clientY });
+      // Convert page coords to overlay-relative coords for consistent SVG positioning
+      const container = overlayRef.current?.parentElement;
+      if (container) {
+        const rect = container.getBoundingClientRect();
+        cursorPosRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      } else {
+        cursorPosRef.current = { x: e.clientX, y: e.clientY };
+      }
     };
+    
     window.addEventListener('mousemove', handleMouseMove);
-    return () => window.removeEventListener('mousemove', handleMouseMove);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+    };
   }, []);
+
+  // Update snap indicator position when snap target changes
+  // Cursor position is stored in ref (no re-renders on mouse move)
+  // Snap target changes already trigger re-renders, so indicator will update frequently enough
+  useEffect(() => {
+    if (snapTarget && cursorPosRef.current) {
+      setSnapIndicatorPos(cursorPosRef.current);
+    } else {
+      setSnapIndicatorPos(null);
+    }
+  }, [snapTarget]);
 
   const handleClear = useCallback(() => {
     clearMeasurements();
   }, [clearMeasurements]);
-
-  const handleClose = useCallback(() => {
-    setActiveTool('select');
-  }, [setActiveTool]);
 
   const handleDeleteMeasurement = useCallback((id: string) => {
     deleteMeasurement(id);
@@ -67,13 +89,20 @@ function MeasureOverlay() {
     setIsPanelCollapsed(prev => !prev);
   }, []);
 
+  const handleClose = useCallback(() => {
+    setActiveTool('select');
+  }, [setActiveTool]);
+
   // Calculate total distance
   const totalDistance = measurements.reduce((sum, m) => sum + m.distance, 0);
 
   return (
     <>
+      {/* Hidden ref element for coordinate calculation */}
+      <div ref={overlayRef} className="absolute top-0 left-0 w-0 h-0" />
+      
       {/* Compact Measure Tool Panel */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-background/95 backdrop-blur-sm rounded-lg border shadow-lg z-30">
+      <div className="pointer-events-auto absolute top-4 left-1/2 -translate-x-1/2 bg-background/95 backdrop-blur-sm rounded-lg border shadow-lg z-30">
         {/* Header - always visible */}
         <div className="flex items-center justify-between gap-2 p-2">
           <button
@@ -128,31 +157,37 @@ function MeasureOverlay() {
         )}
       </div>
 
-      {/* Instruction hint */}
-      <div className="absolute bottom-20 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground px-4 py-2 rounded-full text-sm shadow-lg z-30 flex items-center gap-2">
-        <span>
-          {activeMeasurement
-            ? 'Release to complete measurement'
-            : 'Drag to measure distance'}
+      {/* Instruction hint - brutalist style with snap-colored shadow */}
+      <div 
+        className="pointer-events-auto absolute bottom-16 left-1/2 -translate-x-1/2 z-30 bg-zinc-900 dark:bg-zinc-100 text-zinc-100 dark:text-zinc-900 px-3 py-1.5 border-2 border-zinc-900 dark:border-zinc-100 transition-shadow duration-150"
+        style={{
+          boxShadow: snapTarget 
+            ? `4px 4px 0px 0px ${
+                snapTarget.type === 'vertex' ? '#FFEB3B' :
+                snapTarget.type === 'edge' ? '#FF9800' :
+                snapTarget.type === 'edge_midpoint' ? '#FFC107' :
+                snapTarget.type === 'face' ? '#03A9F4' : '#00BCD4'
+              }`
+            : '3px 3px 0px 0px rgba(0,0,0,0.3)'
+        }}
+      >
+        <span className="font-mono text-xs uppercase tracking-wide">
+          {activeMeasurement ? 'Release to complete' : 'Drag to measure'}
         </span>
-        {snapTarget && (
-          <span className="px-2 py-0.5 bg-white/20 rounded text-xs">
-            Snap: {snapTarget.type === 'vertex' ? 'Vertex' :
-                   snapTarget.type === 'edge' ? 'Edge' :
-                   snapTarget.type === 'edge_midpoint' ? 'Midpoint' :
-                   snapTarget.type === 'face' ? 'Face' : 'Center'}
-          </span>
-        )}
       </div>
 
-      {/* Snap status indicator */}
-      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 text-xs text-muted-foreground z-30">
+      {/* Snap toggle - brutalist style */}
+      <div className="pointer-events-auto absolute bottom-4 left-1/2 -translate-x-1/2 z-30">
         <button
           onClick={toggleSnap}
-          className={`px-2 py-1 rounded ${snapEnabled ? 'bg-primary/20 text-primary' : 'bg-muted'}`}
+          className={`px-2 py-1 font-mono text-[10px] uppercase tracking-wider border-2 transition-colors ${
+            snapEnabled 
+              ? 'bg-primary text-primary-foreground border-primary' 
+              : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-500 border-zinc-300 dark:border-zinc-700'
+          }`}
           title="Toggle snap (S key)"
         >
-          Snap: {snapEnabled ? 'ON' : 'OFF'}
+          Snap {snapEnabled ? 'On' : 'Off'}
         </button>
       </div>
 
@@ -163,7 +198,7 @@ function MeasureOverlay() {
         activeMeasurement={activeMeasurement}
         snapTarget={snapTarget}
         snapVisualization={snapVisualization}
-        hoverPosition={cursorPos}
+        hoverPosition={snapIndicatorPos}
       />
     </>
   );
@@ -201,17 +236,31 @@ interface MeasurementOverlaysProps {
   hoverPosition?: { x: number; y: number } | null;
 }
 
-function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTarget, snapVisualization, hoverPosition }: MeasurementOverlaysProps) {
+const MeasurementOverlays = React.memo(function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTarget, snapVisualization, hoverPosition }: MeasurementOverlaysProps) {
   // Determine snap indicator position
   // Priority: activeMeasurement.current > hoverPosition
-  const snapIndicatorPos = activeMeasurement
-    ? { x: activeMeasurement.current.screenX, y: activeMeasurement.current.screenY }
-    : hoverPosition;
+  const snapIndicatorPos = useMemo(() => {
+    return activeMeasurement
+      ? { x: activeMeasurement.current.screenX, y: activeMeasurement.current.screenY }
+      : hoverPosition;
+  }, [
+    activeMeasurement?.current?.screenX,
+    activeMeasurement?.current?.screenY,
+    hoverPosition?.x,
+    hoverPosition?.y,
+  ]);
+
+  // Stable values for effect dependencies
+  const measurementsCount = measurements.length;
+  const hasActiveMeasurement = !!activeMeasurement;
+  const hasSnapTarget = !!snapTarget;
+  const hasSnapVisualization = !!snapVisualization;
+
 
   return (
     <>
       {/* SVG filter definitions for glow effect */}
-      <svg className="absolute w-0 h-0">
+      <svg className="absolute w-0 h-0 pointer-events-none" style={{ pointerEvents: 'none' }}>
         <defs>
           <filter id="glow">
             <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
@@ -232,11 +281,11 @@ function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTar
 
       {/* Completed measurements */}
       {measurements.map((m) => (
-        <div key={m.id}>
+        <div key={m.id} className="pointer-events-none">
           {/* Line connecting start and end */}
           <svg
             className="absolute inset-0 pointer-events-none z-20"
-            style={{ overflow: 'visible' }}
+            style={{ overflow: 'visible', pointerEvents: 'none' }}
           >
             <line
               x1={m.start.screenX}
@@ -244,33 +293,33 @@ function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTar
               x2={m.end.screenX}
               y2={m.end.screenY}
               stroke="hsl(var(--primary))"
-              strokeWidth="4"
-              strokeDasharray="8,4"
+              strokeWidth="2"
+              strokeDasharray="6,3"
               filter="url(#glow)"
             />
             {/* Start point */}
             <circle
               cx={m.start.screenX}
               cy={m.start.screenY}
-              r="8"
+              r="5"
               fill="white"
               stroke="hsl(var(--primary))"
-              strokeWidth="3"
+              strokeWidth="2"
             />
             {/* End point */}
             <circle
               cx={m.end.screenX}
               cy={m.end.screenY}
-              r="8"
+              r="5"
               fill="white"
               stroke="hsl(var(--primary))"
-              strokeWidth="3"
+              strokeWidth="2"
             />
           </svg>
 
-          {/* Distance label at midpoint */}
+          {/* Distance label at midpoint - brutalist style */}
           <div
-            className="absolute pointer-events-none z-20 bg-primary text-primary-foreground px-3 py-1 rounded-md text-sm font-mono font-semibold -translate-x-1/2 -translate-y-1/2 border-2 border-white shadow-lg"
+            className="absolute pointer-events-none z-20 bg-zinc-900 dark:bg-zinc-100 text-zinc-100 dark:text-zinc-900 px-2 py-1 font-mono text-xs font-bold -translate-x-1/2 -translate-y-1/2 border-2 border-zinc-900 dark:border-zinc-100 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
             style={{
               left: (m.start.screenX + m.end.screenX) / 2,
               top: (m.start.screenY + m.end.screenY) / 2,
@@ -283,10 +332,10 @@ function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTar
 
       {/* Active measurement (live preview while dragging) */}
       {activeMeasurement && (
-        <div>
+        <div className="pointer-events-none">
           <svg
             className="absolute inset-0 pointer-events-none z-20"
-            style={{ overflow: 'visible' }}
+            style={{ overflow: 'visible', pointerEvents: 'none' }}
           >
             {/* Animated dashed line (marching ants effect) */}
             <line
@@ -295,8 +344,8 @@ function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTar
               x2={activeMeasurement.current.screenX}
               y2={activeMeasurement.current.screenY}
               stroke="hsl(var(--primary))"
-              strokeWidth="4"
-              strokeDasharray="8,4"
+              strokeWidth="2"
+              strokeDasharray="6,3"
               strokeOpacity="0.7"
               filter="url(#glow)"
             />
@@ -304,28 +353,28 @@ function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTar
             <circle
               cx={activeMeasurement.start.screenX}
               cy={activeMeasurement.start.screenY}
-              r="10"
+              r="6"
               fill="white"
               stroke="hsl(var(--primary))"
-              strokeWidth="3"
+              strokeWidth="2"
               filter="url(#glow)"
             />
-            {/* Current point (larger, pulsing) */}
+            {/* Current point (slightly larger, pulsing) */}
             <circle
               cx={activeMeasurement.current.screenX}
               cy={activeMeasurement.current.screenY}
-              r="12"
+              r="7"
               fill="white"
               stroke="hsl(var(--primary))"
-              strokeWidth="3"
+              strokeWidth="2"
               filter="url(#glow)"
               className="animate-pulse"
             />
           </svg>
 
-          {/* Live distance label */}
+          {/* Live distance label - brutalist style */}
           <div
-            className="absolute pointer-events-none z-20 bg-primary text-primary-foreground px-3 py-1.5 rounded-md text-base font-mono font-bold -translate-x-1/2 -translate-y-1/2 border-2 border-white shadow-xl"
+            className="absolute pointer-events-none z-20 bg-primary text-primary-foreground px-2.5 py-1 font-mono text-sm font-bold -translate-x-1/2 -translate-y-1/2 border-2 border-primary shadow-[3px_3px_0px_0px_rgba(0,0,0,0.2)]"
             style={{
               left: (activeMeasurement.start.screenX + activeMeasurement.current.screenX) / 2,
               top: (activeMeasurement.start.screenY + activeMeasurement.current.screenY) / 2,
@@ -340,7 +389,7 @@ function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTar
       {snapVisualization?.edgeLine && (
         <svg
           className="absolute inset-0 pointer-events-none z-25"
-          style={{ overflow: 'visible' }}
+          style={{ overflow: 'visible', pointerEvents: 'none' }}
         >
           <line
             x1={snapVisualization.edgeLine.start.x}
@@ -360,7 +409,7 @@ function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTar
       {snapVisualization?.planeIndicator && (
         <svg
           className="absolute inset-0 pointer-events-none z-25"
-          style={{ overflow: 'visible' }}
+          style={{ overflow: 'visible', pointerEvents: 'none' }}
         >
           {/* Cross indicator */}
           <line
@@ -405,27 +454,98 @@ function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTar
       {pending && !activeMeasurement && (
         <svg
           className="absolute inset-0 pointer-events-none z-20"
-          style={{ overflow: 'visible' }}
+          style={{ overflow: 'visible', pointerEvents: 'none' }}
         >
           <circle
             cx={pending.screenX}
             cy={pending.screenY}
-            r="8"
+            r="5"
             fill="none"
             stroke="hsl(var(--primary))"
-            strokeWidth="2"
+            strokeWidth="1.5"
           />
           <circle
             cx={pending.screenX}
             cy={pending.screenY}
-            r="4"
+            r="2.5"
             fill="hsl(var(--primary))"
           />
         </svg>
       )}
     </>
   );
-}
+}, (prevProps, nextProps) => {
+  // Custom comparison to prevent unnecessary re-renders
+  // Return true if props are equal (skip re-render), false if different (re-render)
+  
+  // Compare measurements - check both IDs AND screen coordinates
+  if (prevProps.measurements.length !== nextProps.measurements.length) return false;
+  for (let i = 0; i < prevProps.measurements.length; i++) {
+    const prev = prevProps.measurements[i];
+    const next = nextProps.measurements[i];
+    if (!next || prev.id !== next.id) return false;
+    // Check screen coordinates for zoom/camera changes
+    if (prev.start.screenX !== next.start.screenX || prev.start.screenY !== next.start.screenY) return false;
+    if (prev.end.screenX !== next.end.screenX || prev.end.screenY !== next.end.screenY) return false;
+  }
+  
+  // Compare activeMeasurement - check if it exists and if position changed
+  if (!!prevProps.activeMeasurement !== !!nextProps.activeMeasurement) return false;
+  if (prevProps.activeMeasurement && nextProps.activeMeasurement) {
+    if (
+      prevProps.activeMeasurement.current.screenX !== nextProps.activeMeasurement.current.screenX ||
+      prevProps.activeMeasurement.current.screenY !== nextProps.activeMeasurement.current.screenY ||
+      prevProps.activeMeasurement.start.screenX !== nextProps.activeMeasurement.start.screenX ||
+      prevProps.activeMeasurement.start.screenY !== nextProps.activeMeasurement.start.screenY
+    ) return false;
+  }
+  
+  // Compare snapTarget - check type and position
+  if (!!prevProps.snapTarget !== !!nextProps.snapTarget) return false;
+  if (prevProps.snapTarget && nextProps.snapTarget) {
+    if (
+      prevProps.snapTarget.type !== nextProps.snapTarget.type ||
+      prevProps.snapTarget.position.x !== nextProps.snapTarget.position.x ||
+      prevProps.snapTarget.position.y !== nextProps.snapTarget.position.y ||
+      prevProps.snapTarget.position.z !== nextProps.snapTarget.position.z
+    ) return false;
+  }
+  
+  // Compare snapVisualization
+  if (!!prevProps.snapVisualization !== !!nextProps.snapVisualization) return false;
+  if (prevProps.snapVisualization && nextProps.snapVisualization) {
+    const prevEdge = prevProps.snapVisualization.edgeLine;
+    const nextEdge = nextProps.snapVisualization.edgeLine;
+    if (!!prevEdge !== !!nextEdge) return false;
+    if (prevEdge && nextEdge) {
+      if (
+        prevEdge.start.x !== nextEdge.start.x ||
+        prevEdge.start.y !== nextEdge.start.y ||
+        prevEdge.end.x !== nextEdge.end.x ||
+        prevEdge.end.y !== nextEdge.end.y
+      ) return false;
+    }
+    const prevPlane = prevProps.snapVisualization.planeIndicator;
+    const nextPlane = nextProps.snapVisualization.planeIndicator;
+    if (!!prevPlane !== !!nextPlane) return false;
+    if (prevPlane && nextPlane) {
+      if (
+        prevPlane.x !== nextPlane.x ||
+        prevPlane.y !== nextPlane.y
+      ) return false;
+    }
+  }
+  
+  // Compare hoverPosition
+  if (prevProps.hoverPosition?.x !== nextProps.hoverPosition?.x ||
+      prevProps.hoverPosition?.y !== nextProps.hoverPosition?.y) return false;
+  
+  // Compare pending
+  if (prevProps.pending?.screenX !== nextProps.pending?.screenX ||
+      prevProps.pending?.screenY !== nextProps.pending?.screenY) return false;
+  
+  return true; // All props are equal, skip re-render
+});
 
 interface SnapIndicatorProps {
   screenX: number;
@@ -434,136 +554,109 @@ interface SnapIndicatorProps {
 }
 
 function SnapIndicator({ screenX, screenY, snapType }: SnapIndicatorProps) {
-  const snapLabels = {
-    [SnapType.VERTEX]: 'Vertex',
-    [SnapType.EDGE]: 'Edge',
-    [SnapType.EDGE_MIDPOINT]: 'Midpoint',
-    [SnapType.FACE]: 'Face',
-    [SnapType.FACE_CENTER]: 'Center',
-  };
-
+  // Distinct colors for each snap type - no labels needed, shapes are self-explanatory
   const snapColors = {
-    [SnapType.VERTEX]: '#FFEB3B', // Yellow
-    [SnapType.EDGE]: '#FF9800', // Orange
-    [SnapType.EDGE_MIDPOINT]: '#FFC107', // Amber
-    [SnapType.FACE]: '#03A9F4', // Light Blue
-    [SnapType.FACE_CENTER]: '#00BCD4', // Cyan
+    [SnapType.VERTEX]: '#FFEB3B', // Yellow - circle = point
+    [SnapType.EDGE]: '#FF9800', // Orange - line = edge
+    [SnapType.EDGE_MIDPOINT]: '#FFC107', // Amber - line with diamond = midpoint
+    [SnapType.FACE]: '#03A9F4', // Light Blue - square = face
+    [SnapType.FACE_CENTER]: '#00BCD4', // Cyan - square with dot = center
   };
 
   const color = snapColors[snapType];
 
-  // Smart positioning: avoid all panels and screen edges
-  const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
-  const windowHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
-
-  const labelWidth = 60; // Approximate width of label
-  const labelHeight = 24; // Approximate height of label
-  const offset = 20; // Distance from cursor (closer than before)
-  const panelMargin = 320; // Right panel width + margin
-  const topMargin = 80; // Top margin (for top panel)
-  const bottomMargin = 100; // Bottom margin (for bottom controls)
-
-  // Check boundaries
-  const isNearRightEdge = screenX > windowWidth - panelMargin;
-  const isNearLeftEdge = screenX < labelWidth + 20;
-  const isNearTop = screenY < topMargin;
-  const isNearBottom = screenY > windowHeight - bottomMargin;
-
-  // Smart position calculation
-  let labelX = screenX;
-  let labelY = screenY - offset; // Default: above cursor, closer than before
-  let transformX = '-50%'; // Default: centered
-
-  // Horizontal positioning
-  if (isNearRightEdge) {
-    // Too close to right panel - position to left of cursor
-    labelX = screenX - offset - 10;
-    transformX = '-100%';
-  } else if (isNearLeftEdge) {
-    // Too close to left edge - position to right of cursor
-    labelX = screenX + offset + 10;
-    transformX = '0%';
-  }
-
-  // Vertical positioning
-  if (isNearTop) {
-    // Too close to top - position below cursor
-    labelY = screenY + offset + 10;
-  } else if (isNearBottom) {
-    // Too close to bottom - keep above but adjust
-    labelY = screenY - offset - 5;
-  }
-
   return (
-    <>
-      <svg
-        className="absolute inset-0 pointer-events-none z-25"
-        style={{ overflow: 'visible' }}
-      >
-        {/* Outer glow ring */}
-        <circle
-          cx={screenX}
-          cy={screenY}
-          r="20"
-          fill="none"
-          stroke={color}
-          strokeWidth="2"
-          strokeOpacity="0.5"
-          filter="url(#snap-glow)"
-          className="animate-pulse"
-        />
-        {/* Inner snap indicator */}
-        {snapType === SnapType.VERTEX && (
-          <>
-            <circle cx={screenX} cy={screenY} r="12" fill={color} opacity="0.3" />
-            <circle cx={screenX} cy={screenY} r="6" fill={color} />
-          </>
-        )}
-        {(snapType === SnapType.EDGE || snapType === SnapType.EDGE_MIDPOINT) && (
-          <>
-            <line
-              x1={screenX - 15}
-              y1={screenY}
-              x2={screenX + 15}
-              y2={screenY}
-              stroke={color}
-              strokeWidth="4"
-              filter="url(#snap-glow)"
-            />
-            <circle cx={screenX} cy={screenY} r="5" fill={color} />
-          </>
-        )}
-        {(snapType === SnapType.FACE || snapType === SnapType.FACE_CENTER) && (
-          <>
-            <rect
-              x={screenX - 12}
-              y={screenY - 12}
-              width="24"
-              height="24"
-              fill="none"
-              stroke={color}
-              strokeWidth="3"
-              opacity="0.5"
-            />
-            <circle cx={screenX} cy={screenY} r="4" fill={color} />
-          </>
-        )}
-      </svg>
-
-      {/* Snap type label - smart positioning to avoid all panels and edges */}
-      <div
-        className="absolute pointer-events-none z-25 text-xs font-semibold px-2 py-0.5 rounded shadow-lg transition-all duration-150"
-        style={{
-          left: labelX,
-          top: labelY,
-          transform: `translateX(${transformX})`,
-          backgroundColor: color,
-          color: '#000',
-        }}
-      >
-        {snapLabels[snapType]}
-      </div>
-    </>
+    <svg
+      className="absolute inset-0 pointer-events-none z-25"
+      style={{ overflow: 'visible', pointerEvents: 'none' }}
+    >
+      {/* Outer glow ring - subtle pulsing indicator */}
+      <circle
+        cx={screenX}
+        cy={screenY}
+        r="10"
+        fill="none"
+        stroke={color}
+        strokeWidth="1.5"
+        strokeOpacity="0.4"
+        filter="url(#snap-glow)"
+      />
+      
+      {/* Vertex: filled circle (point) */}
+      {snapType === SnapType.VERTEX && (
+        <>
+          <circle cx={screenX} cy={screenY} r="5" fill={color} opacity="0.3" />
+          <circle cx={screenX} cy={screenY} r="2.5" fill={color} />
+        </>
+      )}
+      
+      {/* Edge: horizontal line with center dot */}
+      {snapType === SnapType.EDGE && (
+        <>
+          <line
+            x1={screenX - 8}
+            y1={screenY}
+            x2={screenX + 8}
+            y2={screenY}
+            stroke={color}
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+          <circle cx={screenX} cy={screenY} r="2" fill={color} />
+        </>
+      )}
+      
+      {/* Edge Midpoint: line with diamond marker */}
+      {snapType === SnapType.EDGE_MIDPOINT && (
+        <>
+          <line
+            x1={screenX - 8}
+            y1={screenY}
+            x2={screenX + 8}
+            y2={screenY}
+            stroke={color}
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+          <polygon
+            points={`${screenX},${screenY - 3} ${screenX + 3},${screenY} ${screenX},${screenY + 3} ${screenX - 3},${screenY}`}
+            fill={color}
+          />
+        </>
+      )}
+      
+      {/* Face: square outline */}
+      {snapType === SnapType.FACE && (
+        <>
+          <rect
+            x={screenX - 5}
+            y={screenY - 5}
+            width="10"
+            height="10"
+            fill={color}
+            fillOpacity="0.2"
+            stroke={color}
+            strokeWidth="1.5"
+          />
+        </>
+      )}
+      
+      {/* Face Center: square with center dot */}
+      {snapType === SnapType.FACE_CENTER && (
+        <>
+          <rect
+            x={screenX - 5}
+            y={screenY - 5}
+            width="10"
+            height="10"
+            fill="none"
+            stroke={color}
+            strokeWidth="1.5"
+          />
+          <circle cx={screenX} cy={screenY} r="2" fill={color} />
+        </>
+      )}
+    </svg>
   );
 }
 

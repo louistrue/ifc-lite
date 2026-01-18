@@ -563,51 +563,93 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     activeMeasurement: null,
     snapTarget: null,
   }),
-  updateMeasurementScreenCoords: (projectToScreen) => set((state) => {
-    // Update completed measurements
+  updateMeasurementScreenCoords: (projectToScreen) => {
+    // Use get() to read state first - check for changes before calling set()
+    const state = get();
+    let hasChanges = false;
+
+    // Check completed measurements for changes
     const updatedMeasurements = state.measurements.map((m) => {
       const startScreen = projectToScreen(m.start);
       const endScreen = projectToScreen(m.end);
+      
+      const newStartX = startScreen?.x ?? m.start.screenX;
+      const newStartY = startScreen?.y ?? m.start.screenY;
+      const newEndX = endScreen?.x ?? m.end.screenX;
+      const newEndY = endScreen?.y ?? m.end.screenY;
+      
+      // Check if coordinates changed
+      if (
+        newStartX !== m.start.screenX ||
+        newStartY !== m.start.screenY ||
+        newEndX !== m.end.screenX ||
+        newEndY !== m.end.screenY
+      ) {
+        hasChanges = true;
+      }
+      
       return {
         ...m,
         start: {
           ...m.start,
-          screenX: startScreen?.x ?? m.start.screenX,
-          screenY: startScreen?.y ?? m.start.screenY,
+          screenX: newStartX,
+          screenY: newStartY,
         },
         end: {
           ...m.end,
-          screenX: endScreen?.x ?? m.end.screenX,
-          screenY: endScreen?.y ?? m.end.screenY,
+          screenX: newEndX,
+          screenY: newEndY,
         },
       };
     });
 
-    // Update active measurement if it exists
+    // Check active measurement for changes
     let updatedActiveMeasurement = state.activeMeasurement;
     if (state.activeMeasurement) {
       const startScreen = projectToScreen(state.activeMeasurement.start);
       const currentScreen = projectToScreen(state.activeMeasurement.current);
+      
+      const newStartX = startScreen?.x ?? state.activeMeasurement.start.screenX;
+      const newStartY = startScreen?.y ?? state.activeMeasurement.start.screenY;
+      const newCurrentX = currentScreen?.x ?? state.activeMeasurement.current.screenX;
+      const newCurrentY = currentScreen?.y ?? state.activeMeasurement.current.screenY;
+      
+      // Check if coordinates changed
+      if (
+        newStartX !== state.activeMeasurement.start.screenX ||
+        newStartY !== state.activeMeasurement.start.screenY ||
+        newCurrentX !== state.activeMeasurement.current.screenX ||
+        newCurrentY !== state.activeMeasurement.current.screenY
+      ) {
+        hasChanges = true;
+      }
+      
       updatedActiveMeasurement = {
         ...state.activeMeasurement,
         start: {
           ...state.activeMeasurement.start,
-          screenX: startScreen?.x ?? state.activeMeasurement.start.screenX,
-          screenY: startScreen?.y ?? state.activeMeasurement.start.screenY,
+          screenX: newStartX,
+          screenY: newStartY,
         },
         current: {
           ...state.activeMeasurement.current,
-          screenX: currentScreen?.x ?? state.activeMeasurement.current.screenX,
-          screenY: currentScreen?.y ?? state.activeMeasurement.current.screenY,
+          screenX: newCurrentX,
+          screenY: newCurrentY,
         },
       };
     }
 
-    return {
+    // Early exit if nothing changed - prevents calling set() and unnecessary re-renders
+    if (!hasChanges) {
+      return;
+    }
+
+    // Only call set() when changes detected
+    set({
       measurements: updatedMeasurements,
       activeMeasurement: updatedActiveMeasurement,
-    };
-  }),
+    });
+  },
 
   // Snap actions
   setSnapTarget: (snapTarget) => set({ snapTarget }),

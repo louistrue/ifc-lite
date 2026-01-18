@@ -77,24 +77,23 @@ export class SnapDetector {
       screenHeight
     );
 
-    // Check ALL nearby meshes for snap targets (not just the intersected one)
-    // This allows detecting edges even when they're behind other objects
-    for (const mesh of meshes) {
-      if (!mesh) continue;
-
+    // Only check the intersected mesh for snap targets (performance optimization)
+    // Checking all meshes was causing severe framerate drops with large models
+    const intersectedMesh = meshes[intersection.meshIndex];
+    if (intersectedMesh) {
       // Detect vertices
       if (opts.snapToVertices) {
-        targets.push(...this.findVertices(mesh, intersection.point, worldSnapRadius));
+        targets.push(...this.findVertices(intersectedMesh, intersection.point, worldSnapRadius));
       }
 
       // Detect edges
       if (opts.snapToEdges) {
-        targets.push(...this.findEdges(mesh, intersection.point, worldSnapRadius));
+        targets.push(...this.findEdges(intersectedMesh, intersection.point, worldSnapRadius));
       }
 
-      // Detect faces (only on the intersected mesh to avoid confusion)
-      if (opts.snapToFaces && mesh.expressId === meshes[intersection.meshIndex]?.expressId) {
-        targets.push(...this.findFaces(mesh, intersection, worldSnapRadius));
+      // Detect faces
+      if (opts.snapToFaces) {
+        targets.push(...this.findFaces(intersectedMesh, intersection, worldSnapRadius));
       }
     }
 

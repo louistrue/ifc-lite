@@ -139,6 +139,26 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   // Measure tool throttling (16ms = 60fps max)
   const measureRaycastPendingRef = useRef(false);
   const measureRaycastFrameRef = useRef<number | null>(null);
+  // Hover-only snap detection throttling (100ms = 10fps max for hover, 60fps for active measurement)
+  const lastHoverSnapTimeRef = useRef<number>(0);
+  const HOVER_SNAP_THROTTLE_MS = 100;
+
+  // Render throttling during orbit/pan
+  // Adaptive: 16ms (60fps) for small models, up to 33ms (30fps) for very large models
+  const lastRenderTimeRef = useRef<number>(0);
+  const renderPendingRef = useRef<boolean>(false);
+  const RENDER_THROTTLE_MS_SMALL = 16;  // ~60fps for models < 10K meshes
+  const RENDER_THROTTLE_MS_LARGE = 25;  // ~40fps for models 10K-50K meshes
+  const RENDER_THROTTLE_MS_HUGE = 33;   // ~30fps for models > 50K meshes
+
+  // Camera state tracking for measurement updates (only update when camera actually moved)
+  const lastCameraStateRef = useRef<{
+    position: { x: number; y: number; z: number };
+    rotation: { azimuth: number; elevation: number };
+    distance: number;
+    canvasWidth: number;
+    canvasHeight: number;
+  } | null>(null);
 
   // Keep refs in sync
   useEffect(() => { hiddenEntitiesRef.current = hiddenEntities; }, [hiddenEntities]);
@@ -234,7 +254,6 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           return;
         }
 
-        const rect = canvas.getBoundingClientRect();
         const viz: any = {};
 
         // For edge snaps: project edge vertices to screen space and draw line
@@ -244,10 +263,10 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           const end = camera.projectToScreen(v1, canvas.width, canvas.height);
 
           if (start && end) {
-            // Convert canvas-relative coords to page coords
+            // Keep canvas-relative coords (SVG overlay is absolute inset-0 within viewport)
             viz.edgeLine = {
-              start: { x: start.x + rect.left, y: start.y + rect.top },
-              end: { x: end.x + rect.left, y: end.y + rect.top }
+              start: { x: start.x, y: start.y },
+              end: { x: end.x, y: end.y }
             };
           }
         }
@@ -256,10 +275,10 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
         if ((snapTarget.type === 'face' || snapTarget.type === 'face_center') && snapTarget.normal) {
           const pos = camera.projectToScreen(snapTarget.position, canvas.width, canvas.height);
           if (pos) {
-            // Convert canvas-relative coords to page coords
+            // Keep canvas-relative coords (SVG overlay is absolute inset-0 within viewport)
             viz.planeIndicator = {
-              x: pos.x + rect.left,
-              y: pos.y + rect.top,
+              x: pos.x,
+              y: pos.y,
               normal: snapTarget.normal,
             };
           }
@@ -420,7 +439,6 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
       // Animation loop - update ViewCube in real-time
       let lastRotationUpdate = 0;
       let lastScaleUpdate = 0;
-      let lastScreenCoordUpdate = 0;
       const animate = (currentTime: number) => {
         if (aborted) return;
 
@@ -439,30 +457,60 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           // Update ViewCube during camera animation (e.g., preset view transitions)
           updateCameraRotationRealtime(camera.getRotation());
           calculateScale();
-        } else if (!mouseState.isDragging && currentTime - lastRotationUpdate > 100) {
-          // Update camera rotation for ViewCube when not dragging (throttled)
+        } else if (!mouseState.isDragging && currentTime - lastRotationUpdate > 500) {
+          // Update camera rotation for ViewCube when not dragging (throttled to every 500ms when idle)
           updateCameraRotationRealtime(camera.getRotation());
           lastRotationUpdate = currentTime;
         }
 
-        // Update scale bar (throttled to every 100ms)
-        if (currentTime - lastScaleUpdate > 100) {
+        // Update scale bar (throttled to every 500ms - scale rarely needs frequent updates)
+        if (currentTime - lastScaleUpdate > 500) {
           calculateScale();
           lastScaleUpdate = currentTime;
         }
 
-        // Update measurement screen coordinates when camera changes (throttled to every 16ms ~60fps)
-        if (isAnimating || (currentTime - lastScreenCoordUpdate > 16)) {
+        // Update measurement screen coordinates only when:
+        // 1. Measure tool is active (not in other modes)
+        // 2. Measurements exist
+        // 3. Camera actually changed
+        // This prevents unnecessary store updates and re-renders when not measuring
+        if (activeToolRef.current === 'measure') {
           const state = useViewerStore.getState();
           if (state.measurements.length > 0 || state.activeMeasurement) {
             const canvas = canvasRef.current;
             if (canvas) {
-              updateMeasurementScreenCoords((worldPos) => {
-                return camera.projectToScreen(worldPos, canvas.width, canvas.height);
-              });
+              const cameraPos = camera.getPosition();
+              const cameraRot = camera.getRotation();
+              const cameraDist = camera.getDistance();
+              const currentCameraState = {
+                position: cameraPos,
+                rotation: cameraRot,
+                distance: cameraDist,
+                canvasWidth: canvas.width,
+                canvasHeight: canvas.height,
+              };
+
+              // Check if camera state changed
+              const lastState = lastCameraStateRef.current;
+              const cameraChanged =
+                !lastState ||
+                lastState.position.x !== currentCameraState.position.x ||
+                lastState.position.y !== currentCameraState.position.y ||
+                lastState.position.z !== currentCameraState.position.z ||
+                lastState.rotation.azimuth !== currentCameraState.rotation.azimuth ||
+                lastState.rotation.elevation !== currentCameraState.rotation.elevation ||
+                lastState.distance !== currentCameraState.distance ||
+                lastState.canvasWidth !== currentCameraState.canvasWidth ||
+                lastState.canvasHeight !== currentCameraState.canvasHeight;
+
+              if (cameraChanged) {
+                lastCameraStateRef.current = currentCameraState;
+                updateMeasurementScreenCoords((worldPos) => {
+                  return camera.projectToScreen(worldPos, canvas.width, canvas.height);
+                });
+              }
             }
           }
-          lastScreenCoordUpdate = currentTime;
         }
 
         animationFrameRef.current = requestAnimationFrame(animate);
@@ -559,8 +607,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
                 x: pos.x,
                 y: pos.y,
                 z: pos.z,
-                screenX: e.clientX,
-                screenY: e.clientY,
+                screenX: x, // Use canvas-relative coordinates (consistent with mousemove)
+                screenY: y,
               };
 
               startMeasurement(measurePoint);
@@ -651,6 +699,14 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
         // Handle measure tool hover preview (BEFORE dragging starts)
         // Show snap indicators to help user see where they can snap
         if (tool === 'measure' && !mouseState.isDragging && snapEnabledRef.current) {
+          // Throttle hover snap detection more aggressively (100ms) to avoid performance issues
+          // Active measurement still uses 60fps throttling via requestAnimationFrame
+          const now = Date.now();
+          if (now - lastHoverSnapTimeRef.current < HOVER_SNAP_THROTTLE_MS) {
+            return; // Skip hover snap detection if throttled
+          }
+          lastHoverSnapTimeRef.current = now;
+          
           // Throttle raycasting to avoid performance issues
           if (!measureRaycastPendingRef.current) {
             measureRaycastPendingRef.current = true;
@@ -696,6 +752,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             mouseState.didDrag = true;
           }
 
+          // Always update camera state immediately (feels responsive)
           if (mouseState.isPanning || tool === 'pan') {
             camera.pan(dx, dy, false);
           } else if (tool === 'walk') {
@@ -710,16 +767,44 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
 
           mouseState.lastX = e.clientX;
           mouseState.lastY = e.clientY;
-          renderer.render({
-            hiddenIds: hiddenEntitiesRef.current,
-            isolatedIds: isolatedEntitiesRef.current,
-            selectedId: selectedEntityIdRef.current,
-            clearColor: clearColorRef.current,
-            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
-          });
-          // Update ViewCube rotation in real-time during drag
-          updateCameraRotationRealtime(camera.getRotation());
-          calculateScale();
+
+          // PERFORMANCE: Adaptive throttle based on model size
+          // Small models: 60fps, Large: 40fps, Huge: 30fps
+          const meshCount = geometryRef.current?.length ?? 0;
+          const throttleMs = meshCount > 50000 ? RENDER_THROTTLE_MS_HUGE
+            : meshCount > 10000 ? RENDER_THROTTLE_MS_LARGE
+            : RENDER_THROTTLE_MS_SMALL;
+
+          const now = performance.now();
+          if (now - lastRenderTimeRef.current >= throttleMs) {
+            lastRenderTimeRef.current = now;
+            renderer.render({
+              hiddenIds: hiddenEntitiesRef.current,
+              isolatedIds: isolatedEntitiesRef.current,
+              selectedId: selectedEntityIdRef.current,
+              clearColor: clearColorRef.current,
+              sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+            });
+            // Update ViewCube rotation in real-time during drag
+            updateCameraRotationRealtime(camera.getRotation());
+            calculateScale();
+          } else if (!renderPendingRef.current) {
+            // Schedule a final render for when throttle expires
+            // This ensures we always render the final position
+            renderPendingRef.current = true;
+            requestAnimationFrame(() => {
+              renderPendingRef.current = false;
+              renderer.render({
+                hiddenIds: hiddenEntitiesRef.current,
+                isolatedIds: isolatedEntitiesRef.current,
+                selectedId: selectedEntityIdRef.current,
+                clearColor: clearColorRef.current,
+                sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+              });
+              updateCameraRotationRealtime(camera.getRotation());
+              calculateScale();
+            });
+          }
           // Clear hover while dragging
           clearHover();
         } else if (hoverTooltipsEnabledRef.current) {
@@ -797,6 +882,27 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           clearColor: clearColorRef.current,
           sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
         });
+        // Update measurement screen coordinates immediately during zoom (only in measure mode)
+        if (activeToolRef.current === 'measure') {
+          const state = useViewerStore.getState();
+          if (state.measurements.length > 0 || state.activeMeasurement) {
+            updateMeasurementScreenCoords((worldPos) => {
+              return camera.projectToScreen(worldPos, canvas.width, canvas.height);
+            });
+            // Update camera state tracking to prevent duplicate update in animation loop
+            const cameraPos = camera.getPosition();
+            const cameraRot = camera.getRotation();
+            const cameraDist = camera.getDistance();
+            lastCameraStateRef.current = {
+              position: cameraPos,
+              rotation: cameraRot,
+              distance: cameraDist,
+              canvasWidth: canvas.width,
+              canvasHeight: canvas.height,
+            };
+          }
+        }
+        calculateScale();
       });
 
       // Click handling
@@ -1131,8 +1237,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   const finalBoundsRefittedRef = useRef<boolean>(false); // Track if we've refitted after streaming
 
   // Render throttling during streaming
-  const lastRenderTimeRef = useRef<number>(0);
-  const RENDER_THROTTLE_MS = 200; // Render at most every 200ms during streaming
+  const lastStreamRenderTimeRef = useRef<number>(0);
+  const STREAM_RENDER_THROTTLE_MS = 200; // Render at most every 200ms during streaming
   const progress = useViewerStore((state) => state.progress);
   const isStreaming = progress !== null && progress.percent < 100;
 
@@ -1407,15 +1513,15 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
     // Instancing conversion would require preserving actual mesh transforms, which is complex
     // For now, we render regular meshes directly (fast enough for most cases)
 
-    // Render throttling: During streaming, only render every RENDER_THROTTLE_MS
+    // Render throttling: During streaming, only render every STREAM_RENDER_THROTTLE_MS
     // This prevents rendering 28K+ meshes from blocking WASM batch processing
     const now = Date.now();
-    const timeSinceLastRender = now - lastRenderTimeRef.current;
-    const shouldRender = !isStreaming || timeSinceLastRender >= RENDER_THROTTLE_MS;
+    const timeSinceLastRender = now - lastStreamRenderTimeRef.current;
+    const shouldRender = !isStreaming || timeSinceLastRender >= STREAM_RENDER_THROTTLE_MS;
 
     if (shouldRender) {
       renderer.render();
-      lastRenderTimeRef.current = now;
+      lastStreamRenderTimeRef.current = now;
     }
   }, [geometry, coordinateInfo, isInitialized, isStreaming]);
 
@@ -1437,7 +1543,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
       }
 
       renderer.render();
-      lastRenderTimeRef.current = Date.now();
+      lastStreamRenderTimeRef.current = Date.now();
     }
     prevIsStreamingRef.current = isStreaming;
   }, [isStreaming, isInitialized]);

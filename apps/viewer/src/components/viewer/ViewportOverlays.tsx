@@ -31,6 +31,7 @@ export function ViewportOverlays() {
 
   // Local state for scale - updated via callback, no global re-renders
   const [scale, setScale] = useState(10);
+  const lastScaleRef = useRef(10);
 
   // Register callback for real-time rotation updates - updates ViewCube directly
   useEffect(() => {
@@ -48,8 +49,17 @@ export function ViewportOverlays() {
   }, [setOnCameraRotationChange]);
 
   // Register callback for real-time scale updates
+  // Only update state if scale changed significantly (>1%) to avoid unnecessary re-renders
   useEffect(() => {
-    setOnScaleChange(setScale);
+    const handleScaleChange = (newScale: number) => {
+      const lastScale = lastScaleRef.current;
+      // Only update if scale changed by more than 1%
+      if (Math.abs(newScale - lastScale) / lastScale > 0.01) {
+        lastScaleRef.current = newScale;
+        setScale(newScale);
+      }
+    };
+    setOnScaleChange(handleScaleChange);
     return () => setOnScaleChange(null);
   }, [setOnScaleChange]);
 

@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { useRef, useCallback, useMemo } from 'react';
+import React, { useRef, useCallback, useMemo } from 'react';
 import {
   FolderOpen,
   Download,
@@ -52,6 +52,75 @@ import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
 import { FileSpreadsheet, FileJson } from 'lucide-react';
 
 type Tool = 'select' | 'pan' | 'orbit' | 'walk' | 'measure' | 'section';
+
+// #region FIX: Move ToolButton OUTSIDE MainToolbar to prevent recreation on every render
+// This fixes Radix UI Tooltip's asChild prop becoming stale during re-renders
+interface ToolButtonProps {
+  tool: Tool;
+  icon: React.ElementType;
+  label: string;
+  shortcut?: string;
+  activeTool: string;
+  onToolChange: (tool: Tool) => void;
+}
+
+function ToolButton({ tool, icon: Icon, label, shortcut, activeTool, onToolChange }: ToolButtonProps) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant={activeTool === tool ? 'default' : 'ghost'}
+          size="icon-sm"
+          onClick={(e) => {
+            // Blur button to close tooltip after click
+            (e.currentTarget as HTMLButtonElement).blur();
+            onToolChange(tool);
+          }}
+          className={cn(activeTool === tool && 'bg-primary text-primary-foreground')}
+        >
+          <Icon className="h-4 w-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {label} {shortcut && <span className="ml-2 text-xs opacity-60">({shortcut})</span>}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+// #region FIX: Move ActionButton OUTSIDE MainToolbar to prevent recreation on every render
+interface ActionButtonProps {
+  icon: React.ElementType;
+  label: string;
+  onClick: () => void;
+  shortcut?: string;
+  disabled?: boolean;
+}
+
+function ActionButton({ icon: Icon, label, onClick, shortcut, disabled }: ActionButtonProps) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={(e) => {
+            // Blur button to close tooltip after click
+            (e.currentTarget as HTMLButtonElement).blur();
+            onClick();
+          }}
+          disabled={disabled}
+        >
+          <Icon className="h-4 w-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {label} {shortcut && <span className="ml-2 text-xs opacity-60">({shortcut})</span>}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+// #endregion
 
 interface MainToolbarProps {
   onShowShortcuts?: () => void;
@@ -206,66 +275,8 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     }
   }, [ifcDataStore]);
 
-  const ToolButton = ({
-    tool,
-    icon: Icon,
-    label,
-    shortcut
-  }: {
-    tool: Tool;
-    icon: React.ElementType;
-    label: string;
-    shortcut?: string;
-  }) => (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant={activeTool === tool ? 'default' : 'ghost'}
-          size="icon-sm"
-          onClick={() => setActiveTool(tool)}
-          className={cn(activeTool === tool && 'bg-primary text-primary-foreground')}
-        >
-          <Icon className="h-4 w-4" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>
-        {label} {shortcut && <span className="ml-2 text-xs opacity-60">({shortcut})</span>}
-      </TooltipContent>
-    </Tooltip>
-  );
-
-  const ActionButton = ({
-    icon: Icon,
-    label,
-    onClick,
-    shortcut,
-    disabled
-  }: {
-    icon: React.ElementType;
-    label: string;
-    onClick: () => void;
-    shortcut?: string;
-    disabled?: boolean;
-  }) => (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={onClick}
-          disabled={disabled}
-        >
-          <Icon className="h-4 w-4" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>
-        {label} {shortcut && <span className="ml-2 text-xs opacity-60">({shortcut})</span>}
-      </TooltipContent>
-    </Tooltip>
-  );
-
   return (
-    <div className="flex items-center gap-1 px-2 h-12 border-b bg-white dark:bg-black border-zinc-200 dark:border-zinc-800">
+    <div className="flex items-center gap-1 px-2 h-12 border-b bg-white dark:bg-black border-zinc-200 dark:border-zinc-800 relative z-50">
       {/* File Operations */}
       <input
         ref={fileInputRef}
@@ -280,7 +291,11 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={(e) => {
+              // Blur button to close tooltip before opening file dialog
+              (e.currentTarget as HTMLButtonElement).blur();
+              fileInputRef.current?.click();
+            }}
             disabled={loading}
           >
             {loading ? (
@@ -332,16 +347,16 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       <Separator orientation="vertical" className="h-6 mx-1" />
 
       {/* Navigation Tools */}
-      <ToolButton tool="select" icon={MousePointer2} label="Select" shortcut="V" />
-      <ToolButton tool="pan" icon={Hand} label="Pan" shortcut="P" />
-      <ToolButton tool="orbit" icon={Rotate3d} label="Orbit" shortcut="O" />
-      <ToolButton tool="walk" icon={PersonStanding} label="Walk Mode" shortcut="C" />
+      <ToolButton tool="select" icon={MousePointer2} label="Select" shortcut="V" activeTool={activeTool} onToolChange={setActiveTool} />
+      <ToolButton tool="pan" icon={Hand} label="Pan" shortcut="P" activeTool={activeTool} onToolChange={setActiveTool} />
+      <ToolButton tool="orbit" icon={Rotate3d} label="Orbit" shortcut="O" activeTool={activeTool} onToolChange={setActiveTool} />
+      <ToolButton tool="walk" icon={PersonStanding} label="Walk Mode" shortcut="C" activeTool={activeTool} onToolChange={setActiveTool} />
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 
       {/* Measurement & Section */}
-      <ToolButton tool="measure" icon={Ruler} label="Measure" shortcut="M" />
-      <ToolButton tool="section" icon={Scissors} label="Section" shortcut="X" />
+      <ToolButton tool="measure" icon={Ruler} label="Measure" shortcut="M" activeTool={activeTool} onToolChange={setActiveTool} />
+      <ToolButton tool="section" icon={Scissors} label="Section" shortcut="X" activeTool={activeTool} onToolChange={setActiveTool} />
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 
@@ -400,7 +415,11 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
           <Button
             variant={hoverTooltipsEnabled ? 'default' : 'ghost'}
             size="icon-sm"
-            onClick={toggleHoverTooltips}
+            onClick={(e) => {
+              // Blur button to close tooltip after click
+              (e.currentTarget as HTMLButtonElement).blur();
+              toggleHoverTooltips();
+            }}
             className={cn(hoverTooltipsEnabled && 'bg-primary text-primary-foreground')}
           >
             <Info className="h-4 w-4" />

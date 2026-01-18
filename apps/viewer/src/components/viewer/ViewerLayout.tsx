@@ -57,6 +57,7 @@ export function ViewerLayout() {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
 
+
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex flex-col h-screen w-screen overflow-hidden bg-background text-foreground">
