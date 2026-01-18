@@ -7,7 +7,7 @@
  * Replaces web-ifc-bridge.ts with native IFC-Lite implementation (1.9x faster)
  */
 
-import init, { IfcAPI, MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData, init_thread_pool } from '@ifc-lite/wasm';
+import init, { IfcAPI, MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData } from '@ifc-lite/wasm';
 export type { MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData };
 
 export interface StreamingProgress {
@@ -45,12 +45,10 @@ export interface ParseMeshesInstancedAsyncOptions {
 export class IfcLiteBridge {
   private ifcApi: IfcAPI | null = null;
   private initialized: boolean = false;
-  private threadPoolPromise: Promise<void> | null = null;
 
   /**
    * Initialize IFC-Lite WASM
    * The WASM binary is automatically resolved from the same location as the JS module
-   * Thread pool initialization happens in the background to avoid blocking
    */
   async init(_wasmPath?: string): Promise<void> {
     if (this.initialized) return;
@@ -59,61 +57,8 @@ export class IfcLiteBridge {
     // from import.meta.url, no need to manually construct paths
     await init();
     
-    // Start thread pool initialization in background (don't await)
-    // This prevents blocking Model Open time while still enabling parallelism
-    // for geometry processing which happens after initial load
-    this.threadPoolPromise = this.initThreadPoolBackground();
-    
     this.ifcApi = new IfcAPI();
     this.initialized = true;
-  }
-
-  /**
-   * Initialize thread pool in background for parallel processing (wasm-bindgen-rayon)
-   * This enables rayon's par_iter() to actually run in parallel using Web Workers
-   * Called asynchronously to avoid blocking Model Open time
-   */
-  private async initThreadPoolBackground(): Promise<void> {
-    // Check prerequisites for SharedArrayBuffer threading
-    const crossOriginIsolated = typeof self !== 'undefined' && (self as any).crossOriginIsolated;
-    const hasSharedArrayBuffer = typeof SharedArrayBuffer !== 'undefined';
-    
-    console.log(`[IfcLiteBridge] Threading prerequisites:`, {
-      crossOriginIsolated,
-      hasSharedArrayBuffer,
-      hardwareConcurrency: navigator.hardwareConcurrency,
-    });
-    
-    if (!crossOriginIsolated) {
-      console.warn('[IfcLiteBridge] crossOriginIsolated is false - SharedArrayBuffer threading disabled');
-      console.warn('[IfcLiteBridge] Ensure COOP/COEP headers are set: Cross-Origin-Opener-Policy: same-origin, Cross-Origin-Embedder-Policy: require-corp');
-      return;
-    }
-    
-    if (!hasSharedArrayBuffer) {
-      console.warn('[IfcLiteBridge] SharedArrayBuffer not available');
-      return;
-    }
-    
-    try {
-      const numThreads = navigator.hardwareConcurrency || 4;
-      await init_thread_pool(numThreads);
-      console.log(`[IfcLiteBridge] Thread pool ready (${numThreads} threads)`);
-    } catch {
-      // Known issue: wasm-bindgen-rayon requires __wasm_init_tls which modern Rust doesn't generate
-      // Sequential processing is still fast due to other WASM optimizations
-      console.info('[IfcLiteBridge] Using sequential processing (threading unavailable)');
-    }
-  }
-
-  /**
-   * Ensure thread pool is initialized before heavy processing
-   * This is optional - geometry processing will work without it, just slower
-   */
-  async ensureThreadPool(): Promise<void> {
-    if (this.threadPoolPromise) {
-      await this.threadPoolPromise;
-    }
   }
 
   /**

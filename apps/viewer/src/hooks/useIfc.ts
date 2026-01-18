@@ -9,7 +9,7 @@
 
 import { useMemo, useCallback, useRef } from 'react';
 import { useViewerStore } from '../store.js';
-import { IfcParser, WorkerParser, detectFormat, parseIfcx, SpatialHierarchyBuilder } from '@ifc-lite/parser';
+import { IfcParser, detectFormat, parseIfcx, SpatialHierarchyBuilder } from '@ifc-lite/parser';
 import { GeometryProcessor, GeometryQuality, type MeshData } from '@ifc-lite/geometry';
 import { IfcQuery } from '@ifc-lite/query';
 import { BufferBuilder } from '@ifc-lite/geometry';
@@ -24,6 +24,14 @@ import { getCached, setCached, type CacheResult } from '../services/ifc-cache.js
 import { IfcTypeEnum, RelationshipType, IfcTypeEnumFromString, IfcTypeEnumToString, EntityFlags, type SpatialHierarchy, type SpatialNode, type EntityTable, type RelationshipGraph } from '@ifc-lite/data';
 import { StringTable } from '@ifc-lite/data';
 import { IfcServerClient, decodeDataModel, type ParquetBatch, type DataModel } from '@ifc-lite/server-client';
+
+// Define QuantitySet type inline (matches server-client's QuantitySet interface)
+interface ServerQuantitySet {
+  qset_id: number;
+  qset_name: string;
+  method_of_measurement?: string;
+  quantities: Array<{ quantity_name: string; quantity_value: number; quantity_type: string }>;
+}
 import type { DynamicBatchConfig } from '@ifc-lite/geometry';
 
 // Minimum file size to cache (10MB) - smaller files parse quickly anyway
@@ -747,7 +755,7 @@ export function useIfc() {
           console.log(`[useIfc] Data model decoded in ${(performance.now() - dataModelStart).toFixed(0)}ms`);
           console.log(`  Entities: ${dataModel.entities.size}`);
           console.log(`  PropertySets: ${dataModel.propertySets.size}`);
-          const quantitySetsSize = 'quantitySets' in dataModel ? dataModel.quantitySets.size : 0;
+          const quantitySetsSize = (dataModel as { quantitySets?: Map<number, unknown> }).quantitySets?.size ?? 0;
           console.log(`  QuantitySets: ${quantitySetsSize}`);
           console.log(`  Relationships: ${dataModel.relationships.length}`);
           console.log(`  Spatial nodes: ${dataModel.spatialHierarchy.nodes.length}`);
@@ -1116,7 +1124,7 @@ export function useIfc() {
                 entityToPsets.get(rel.related_id)!.push(pset);
               }
               // Check if it's a quantity set (same relationship type, different definition)
-              const qset = 'quantitySets' in dataModel ? dataModel.quantitySets.get(rel.relating_id) : undefined;
+              const qset = (dataModel as { quantitySets?: Map<number, ServerQuantitySet> }).quantitySets?.get(rel.relating_id);
               if (qset) {
                 if (!entityToQsets.has(rel.related_id)) {
                   entityToQsets.set(rel.related_id, []);
@@ -1481,7 +1489,6 @@ export function useIfc() {
 
       // Initialize geometry processor first (WASM init is fast if already loaded)
       const geometryProcessor = new GeometryProcessor({
-        useWorkers: false,
         quality: GeometryQuality.Balanced
       });
       await geometryProcessor.init();

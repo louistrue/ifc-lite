@@ -17,9 +17,6 @@ export { BufferBuilder } from './buffer-builder.js';
 export { CoordinateHandler } from './coordinate-handler.js';
 export { GeometryQuality } from './progressive-loader.js';
 
-// Import worker URL using Vite's worker bundling - ensures proper bundling in production
-// @ts-ignore - Vite-specific import syntax
-import GeometryStreamingWorkerUrl from './geometry-streaming-worker.ts?worker&url';
 export { LODGenerator, type LODConfig, type LODMesh } from './lod.js';
 export {
   deduplicateMeshes,
@@ -54,7 +51,6 @@ import { GeometryQuality } from './progressive-loader.js';
 import type { GeometryResult, MeshData } from './types.js';
 
 export interface GeometryProcessorOptions {
-  useWorkers?: boolean; // Default: false (workers add overhead)
   quality?: GeometryQuality; // Default: Balanced
 }
 
@@ -111,7 +107,6 @@ export class GeometryProcessor {
     this.bufferBuilder = new BufferBuilder();
     this.coordinateHandler = new CoordinateHandler();
     // Note: options accepted for API compatibility
-    void options.useWorkers;
     void options.quality;
   }
 
@@ -175,7 +170,6 @@ export class GeometryProcessor {
   /**
    * Process IFC file with streaming output for progressive rendering
    * Uses IFC-Lite for native Rust geometry processing (1.9x faster)
-   * For large files (>50MB), uses parallel Web Workers for 2-3x speedup
    * @param buffer IFC file buffer
    * @param entityIndex Optional entity index for priority-based loading
    * @param batchConfig Dynamic batch configuration or fixed batch size
@@ -215,151 +209,33 @@ export class GeometryProcessor {
       ? batchConfig.fileSizeMB
       : buffer.length / (1024 * 1024);
     
-    // Use dedicated worker for large files (>50MB) to enable true parallelism
-    // Worker streams batches while main thread handles data model parsing
-    const useWorker = fileSizeMB > 50 && typeof Worker !== 'undefined';
-    
-    if (useWorker) {
-      const wasmBatchSize = fileSizeMB < 100 ? 200 : fileSizeMB < 200 ? 300 : 500;
-      
-      // Use worker-based streaming for true parallelism
-      for await (const event of this.processStreamingViaWorker(content, wasmBatchSize)) {
-        if (event.type === 'batch') {
-          this.coordinateHandler.processMeshesIncremental(event.meshes);
-          totalMeshes += event.meshes.length;
-          const coordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
-          yield { type: 'batch', meshes: event.meshes, totalSoFar: totalMeshes, coordinateInfo: coordinateInfo || undefined };
-        } else if (event.type === 'colorUpdate') {
-          yield event;
-        }
+    // Use WASM batches directly - no JS accumulation layer
+    // WASM already prioritizes simple geometry (walls, slabs) for fast first frame
+    const wasmBatchSize = fileSizeMB < 10 ? 100 : fileSizeMB < 50 ? 200 : fileSizeMB < 100 ? 300 : 500;
+
+    // Use WASM batches directly for maximum throughput
+    for await (const item of collector.collectMeshesStreaming(wasmBatchSize)) {
+      // Handle color update events
+      if (item && typeof item === 'object' && 'type' in item && (item as StreamingColorUpdateEvent).type === 'colorUpdate') {
+        yield { type: 'colorUpdate', updates: (item as StreamingColorUpdateEvent).updates };
+        continue;
       }
-    } else {
-      // Use WASM batches directly - no JS accumulation layer
-      // WASM already prioritizes simple geometry (walls, slabs) for fast first frame
-      const wasmBatchSize = fileSizeMB < 10 ? 100 : fileSizeMB < 50 ? 200 : fileSizeMB < 100 ? 300 : 500;
 
-      // Use WASM batches directly for maximum throughput
-      for await (const item of collector.collectMeshesStreaming(wasmBatchSize)) {
-        // Handle color update events
-        if (item && typeof item === 'object' && 'type' in item && (item as StreamingColorUpdateEvent).type === 'colorUpdate') {
-          yield { type: 'colorUpdate', updates: (item as StreamingColorUpdateEvent).updates };
-          continue;
-        }
+      // Handle mesh batches
+      const batch = item as MeshData[];
+      // Process coordinate shifts incrementally (will accumulate bounds)
+      this.coordinateHandler.processMeshesIncremental(batch);
+      totalMeshes += batch.length;
 
-        // Handle mesh batches
-        const batch = item as MeshData[];
-        // Process coordinate shifts incrementally (will accumulate bounds)
-        this.coordinateHandler.processMeshesIncremental(batch);
-        totalMeshes += batch.length;
+      // Get current coordinate info for this batch (may be null if bounds not yet valid)
+      const coordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
 
-        // Get current coordinate info for this batch (may be null if bounds not yet valid)
-        const coordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
-
-        yield { type: 'batch', meshes: batch, totalSoFar: totalMeshes, coordinateInfo: coordinateInfo || undefined };
-      }
+      yield { type: 'batch', meshes: batch, totalSoFar: totalMeshes, coordinateInfo: coordinateInfo || undefined };
     }
 
     const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
 
     yield { type: 'complete', totalMeshes, coordinateInfo };
-  }
-
-  /**
-   * Process geometry via dedicated worker for true parallelism
-   * Worker runs WASM parseMeshes() and streams batches back via postMessage
-   */
-  private async *processStreamingViaWorker(
-    content: string,
-    batchSize: number
-  ): AsyncGenerator<{ type: 'batch'; meshes: MeshData[] } | { type: 'colorUpdate'; updates: Map<number, [number, number, number, number]> }> {
-    // Create worker
-    const worker = new Worker(GeometryStreamingWorkerUrl, { type: 'module' });
-    
-    // Set up message handling via async iterator pattern
-    const batchQueue: Array<{ type: 'batch'; meshes: MeshData[] } | { type: 'colorUpdate'; updates: Map<number, [number, number, number, number]> }> = [];
-    let resolveNext: (() => void) | null = null;
-    let done = false;
-    let error: Error | null = null;
-
-    worker.onmessage = (e: MessageEvent) => {
-      const msg = e.data;
-      
-      switch (msg.type) {
-        case 'ready':
-          // Worker is ready, send the content
-          worker.postMessage({
-            type: 'start',
-            ifcContent: content,
-            batchSize,
-          });
-          break;
-          
-        case 'batch':
-          // Received a batch of meshes
-          batchQueue.push({ type: 'batch', meshes: msg.meshes });
-          if (resolveNext) {
-            resolveNext();
-            resolveNext = null;
-          }
-          break;
-          
-        case 'colorUpdate':
-          // Received color updates
-          const updates = new Map<number, [number, number, number, number]>(msg.updates);
-          batchQueue.push({ type: 'colorUpdate', updates });
-          if (resolveNext) {
-            resolveNext();
-            resolveNext = null;
-          }
-          break;
-          
-        case 'complete':
-          done = true;
-          if (resolveNext) {
-            resolveNext();
-            resolveNext = null;
-          }
-          break;
-          
-        case 'error':
-          error = new Error(msg.error);
-          done = true;
-          if (resolveNext) {
-            resolveNext();
-            resolveNext = null;
-          }
-          break;
-      }
-    };
-
-    worker.onerror = (e) => {
-      error = new Error(`Worker error: ${e.message}`);
-      done = true;
-      if (resolveNext) {
-        resolveNext();
-        resolveNext = null;
-      }
-    };
-
-    // Yield batches as they arrive
-    try {
-      while (!done || batchQueue.length > 0) {
-        if (batchQueue.length > 0) {
-          yield batchQueue.shift()!;
-        } else if (!done) {
-          // Wait for next message
-          await new Promise<void>(resolve => {
-            resolveNext = resolve;
-          });
-        }
-      }
-      
-      if (error) {
-        throw error;
-      }
-    } finally {
-      worker.terminate();
-    }
   }
 
   /**
@@ -516,6 +392,6 @@ export class GeometryProcessor {
    * Cleanup resources
    */
   dispose(): void {
-    // No cleanup needed - workers are created per-request and terminated after use
+    // No cleanup needed
   }
 }

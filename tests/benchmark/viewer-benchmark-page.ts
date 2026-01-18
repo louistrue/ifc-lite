@@ -172,14 +172,6 @@ export class ViewerBenchmarkPage {
       this.metrics.totalWallClockMs = this.loadEndTime - this.loadStartTime;
     }
     
-    // Log threading status for debugging
-    const threadingLogs = this.consoleLogs.filter(log => 
-      log.includes('[IfcLiteBridge]') || log.includes('crossOriginIsolated')
-    );
-    if (threadingLogs.length > 0) {
-      console.log('[Benchmark] Threading status:', threadingLogs);
-    }
-    
     // Log color update status
     const colorLogs = this.consoleLogs.filter(log => 
       log.includes('color') || log.includes('Color')
