@@ -57,19 +57,7 @@ export function buildHierarchy(
     elementToStorey
   );
 
-  // Calculate storey heights from elevation differences
-  if (storeyElevations.size > 0) {
-    const sortedStoreys = Array.from(storeyElevations.entries())
-      .sort((a, b) => a[1] - b[1]); // Sort by elevation ascending
-    for (let i = 0; i < sortedStoreys.length - 1; i++) {
-      const [storeyId, elevation] = sortedStoreys[i];
-      const nextElevation = sortedStoreys[i + 1][1];
-      const height = nextElevation - elevation;
-      if (height > 0) {
-        storeyHeights.set(storeyId, height);
-      }
-    }
-  }
+  // Note: storeyHeights remains empty - uses on-demand property extraction
 
   return {
     project: projectSpatial,

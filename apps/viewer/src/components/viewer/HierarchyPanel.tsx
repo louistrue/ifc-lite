@@ -112,13 +112,33 @@ export function HierarchyPanel() {
     // Add storeys sorted by elevation
     const storeysArray = Array.from(hierarchy.byStorey.entries()) as [number, number[]][];
     const storeys = storeysArray
-      .map(([id, elements]: [number, number[]]) => ({
-        id,
-        name: ifcDataStore.entities.getName(id) || `Storey #${id}`,
-        elevation: hierarchy.storeyElevations.get(id) ?? 0,
-        height: hierarchy.storeyHeights?.get(id),
-        elements,
-      }))
+      .map(([id, elements]: [number, number[]]) => {
+        // Try pre-computed height first (server path), then on-demand extraction (client path)
+        let height = hierarchy.storeyHeights?.get(id);
+        if (height === undefined && ifcDataStore.properties) {
+          const storeyProps = ifcDataStore.properties.getForEntity(id);
+          for (const pset of storeyProps) {
+            for (const prop of pset.properties) {
+              const propName = prop.name.toLowerCase();
+              if (propName === 'grossheight' || propName === 'netheight' || propName === 'height') {
+                const val = parseFloat(String(prop.value));
+                if (!isNaN(val) && val > 0) {
+                  height = val;
+                  break;
+                }
+              }
+            }
+            if (height !== undefined) break;
+          }
+        }
+        return {
+          id,
+          name: ifcDataStore.entities.getName(id) || `Storey #${id}`,
+          elevation: hierarchy.storeyElevations.get(id) ?? 0,
+          height,
+          elements,
+        };
+      })
       .sort((a, b) => b.elevation - a.elevation);
 
     for (const storey of storeys) {

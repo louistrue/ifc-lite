@@ -162,19 +162,7 @@ function rebuildSpatialHierarchy(
     }
   }
 
-  // Calculate storey heights from elevation differences (if elevations available)
-  if (storeyElevations.size > 0) {
-    const sortedStoreys = Array.from(storeyElevations.entries())
-      .sort((a, b) => a[1] - b[1]); // Sort by elevation ascending
-    for (let i = 0; i < sortedStoreys.length - 1; i++) {
-      const [storeyId, elevation] = sortedStoreys[i];
-      const nextElevation = sortedStoreys[i + 1][1];
-      const height = nextElevation - elevation;
-      if (height > 0) {
-        storeyHeights.set(storeyId, height);
-      }
-    }
-  }
+  // Note: storeyHeights remains empty for cache path - client uses on-demand property extraction
 
   return {
     project: projectNode,
@@ -771,19 +759,7 @@ export function useIfc() {
             }
           }
 
-          // Calculate storey heights from elevation differences
-          if (storeyElevations.size > 0) {
-            const sortedStoreys = Array.from(storeyElevations.entries())
-              .sort((a, b) => a[1] - b[1]); // Sort by elevation ascending
-            for (let i = 0; i < sortedStoreys.length - 1; i++) {
-              const [storeyId, elevation] = sortedStoreys[i];
-              const nextElevation = sortedStoreys[i + 1][1];
-              const height = nextElevation - elevation;
-              if (height > 0) {
-                storeyHeights.set(storeyId, height);
-              }
-            }
-          }
+          // Note: storeyHeights will be populated after entityToPsets is built (see below)
 
           // Build project node tree
           const projectNode = buildSpatialNodeTree(
@@ -1088,6 +1064,26 @@ export function useIfc() {
           // Log summary of unmapped relationship types
           if (unmappedRelTypes.size > 0) {
             console.warn(`[useIfc] Found ${unmappedRelTypes.size} unmapped relationship types: ${Array.from(unmappedRelTypes).join(', ')}`);
+          }
+
+          // Extract storey heights from property sets (now that entityToPsets is built)
+          // This is O(storeys * props_per_storey) which is typically very small (< 100 total)
+          for (const storeyId of byStorey.keys()) {
+            const psets = entityToPsets.get(storeyId);
+            if (!psets) continue;
+            for (const pset of psets) {
+              for (const prop of pset.properties) {
+                const propName = prop.property_name.toLowerCase();
+                if (propName === 'grossheight' || propName === 'netheight' || propName === 'height') {
+                  const val = parseFloat(prop.property_value);
+                  if (!isNaN(val) && val > 0) {
+                    storeyHeights.set(storeyId, val);
+                    break;
+                  }
+                }
+              }
+              if (storeyHeights.has(storeyId)) break;
+            }
           }
 
           const createEdgeAccessor = (edges: Map<number, Array<{ target: number; type: RelationshipType; relationshipId: number }>>) => ({

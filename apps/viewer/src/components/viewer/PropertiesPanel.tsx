@@ -56,11 +56,33 @@ export function PropertiesPanel() {
 
     if (!storeyId) return null;
 
+    // Try to get height from pre-computed storeyHeights first (server path)
+    let height = hierarchy.storeyHeights?.get(storeyId);
+
+    // If not available, try on-demand extraction from storey's properties (client path)
+    if (height === undefined && ifcDataStore.properties) {
+      const storeyProps = ifcDataStore.properties.getForEntity(storeyId);
+      for (const pset of storeyProps) {
+        // Look in Pset_BuildingStoreyCommon or any pset with height-related properties
+        for (const prop of pset.properties) {
+          const propName = prop.name.toLowerCase();
+          if (propName === 'grossheight' || propName === 'netheight' || propName === 'height') {
+            const val = parseFloat(String(prop.value));
+            if (!isNaN(val) && val > 0) {
+              height = val;
+              break;
+            }
+          }
+        }
+        if (height !== undefined) break;
+      }
+    }
+
     return {
       storeyId,
       storeyName: ifcDataStore.entities.getName(storeyId) || `Storey #${storeyId}`,
       elevation: hierarchy.storeyElevations.get(storeyId),
-      height: hierarchy.storeyHeights?.get(storeyId),
+      height,
     };
   }, [selectedEntityId, ifcDataStore]);
 
