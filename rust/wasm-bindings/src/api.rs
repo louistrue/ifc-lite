@@ -1127,8 +1127,8 @@ impl IfcAPI {
                     .ok()
                     .and_then(|v| v.dyn_into::<Function>().ok());
 
-                // Build entity index for lookups
-                let entity_index = ifc_lite_core::build_entity_index(&content);
+                // Build entity index for lookups - async version yields to browser for large files
+                let entity_index = build_entity_index_async(&content).await;
                 let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
 
                 // Create geometry router (extracts unit scale)
@@ -1154,14 +1154,28 @@ impl IfcAPI {
                     Vec::new();
                 let mut faceted_brep_ids: Vec<u32> = Vec::new(); // Collect for batch preprocessing
 
+                // OPTIMIZATION: Track entities scanned for early yields
+                let mut entities_scanned: usize = 0;
+                let mut last_yield_scan: usize = 0;
+                const YIELD_SCAN_INTERVAL: usize = 5000; // Yield every 5000 entities scanned
+                const EARLY_FIRST_BATCH_THRESHOLD: usize = 500; // Yield first batch after 500 entities if we have ANY geometry
+
                 // First pass - process simple geometry immediately, defer complex
                 while let Some((id, type_name, start, end)) = scanner.next_entity() {
+                    entities_scanned += 1;
+
                     // Track FacetedBrep IDs for batch preprocessing
                     if type_name == "IFCFACETEDBREP" {
                         faceted_brep_ids.push(id);
                     }
 
                     if !ifc_lite_core::has_geometry_by_name(type_name) {
+                        // OPTIMIZATION: Periodic yield even when scanning non-geometry entities
+                        // This keeps browser responsive for files with sparse geometry
+                        if entities_scanned - last_yield_scan > YIELD_SCAN_INTERVAL {
+                            last_yield_scan = entities_scanned;
+                            gloo_timers::future::TimeoutFuture::new(0).await;
+                        }
                         continue;
                     }
 
@@ -1217,8 +1231,18 @@ impl IfcAPI {
                             }
                         }
 
-                        // Yield batch frequently for responsive UI
-                        if batch_meshes.len() >= batch_size {
+                        // OPTIMIZATION: Yield first batch EARLY - don't wait for full batch
+                        // This dramatically reduces time-to-first-geometry
+                        let should_yield_batch = if !first_batch_yielded {
+                            // First batch: yield as soon as we have ANY geometry after scanning some entities
+                            // Or yield if batch is full (standard behavior)
+                            !batch_meshes.is_empty() && (entities_scanned > EARLY_FIRST_BATCH_THRESHOLD || batch_meshes.len() >= batch_size)
+                        } else {
+                            // Subsequent batches: wait for full batch for efficiency
+                            batch_meshes.len() >= batch_size
+                        };
+
+                        if should_yield_batch {
                             if let Some(ref callback) = on_batch {
                                 let js_meshes = js_sys::Array::new();
                                 for mesh in batch_meshes.drain(..) {
@@ -1243,6 +1267,7 @@ impl IfcAPI {
                             }
 
                             // Yield to browser
+                            last_yield_scan = entities_scanned;
                             gloo_timers::future::TimeoutFuture::new(0).await;
 
                             // OPTIMIZATION: Build style index AFTER first batch is yielded
@@ -2305,6 +2330,81 @@ fn parse_event_to_js(event: &ParseEvent) -> JsValue {
     }
 
     obj.into()
+}
+
+/// Build entity index asynchronously with periodic yields to browser event loop
+/// This prevents blocking the main thread during index building for large files
+/// Yields every ~2MB of content processed
+async fn build_entity_index_async(content: &str) -> ifc_lite_core::decoder::EntityIndex {
+    use rustc_hash::FxHashMap;
+
+    let bytes = content.as_bytes();
+    let len = bytes.len();
+
+    // For small files (<5MB), just build synchronously - yield overhead not worth it
+    if len < 5 * 1024 * 1024 {
+        return ifc_lite_core::build_entity_index(content);
+    }
+
+    // Chunk size for yielding (2MB)
+    const YIELD_CHUNK: usize = 2 * 1024 * 1024;
+
+    // Pre-allocate with estimated capacity
+    let estimated_entities = len / 50;
+    let mut index: FxHashMap<u32, (usize, usize)> = FxHashMap::with_capacity_and_hasher(estimated_entities, Default::default());
+
+    let mut pos = 0;
+    let mut last_yield_pos = 0;
+
+    while pos < len {
+        // Find next '#' using SIMD-accelerated search
+        let remaining = &bytes[pos..];
+        let hash_offset = match memchr::memchr(b'#', remaining) {
+            Some(offset) => offset,
+            None => break,
+        };
+
+        let start = pos + hash_offset;
+        pos = start + 1;
+
+        // Parse entity ID
+        let id_start = pos;
+        while pos < len && bytes[pos].is_ascii_digit() {
+            pos += 1;
+        }
+        let id_end = pos;
+
+        // Skip whitespace before '='
+        while pos < len && bytes[pos].is_ascii_whitespace() {
+            pos += 1;
+        }
+
+        if id_end > id_start && pos < len && bytes[pos] == b'=' {
+            // Fast integer parsing
+            let mut id: u32 = 0;
+            for &byte in &bytes[id_start..id_end] {
+                let digit = byte.wrapping_sub(b'0');
+                id = id.wrapping_mul(10).wrapping_add(digit as u32);
+            }
+
+            // Find end of entity (;)
+            let entity_content = &bytes[pos..];
+            if let Some(semicolon_offset) = memchr::memchr(b';', entity_content) {
+                pos += semicolon_offset + 1;
+                index.insert(id, (start, pos));
+            } else {
+                break;
+            }
+        }
+
+        // Yield to browser every 2MB to keep UI responsive
+        if pos - last_yield_pos > YIELD_CHUNK {
+            last_yield_pos = pos;
+            gloo_timers::future::TimeoutFuture::new(0).await;
+        }
+    }
+
+    index
 }
 
 /// Build style index: maps geometry express IDs to RGBA colors
