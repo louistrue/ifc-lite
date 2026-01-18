@@ -229,6 +229,7 @@ export function useIfc() {
   /**
    * Rebuild on-demand property/quantity maps from relationships and entity types
    * Uses FORWARD direction: pset -> elements (more efficient than inverse lookup)
+   * OPTIMIZED: Uses getByType() instead of iterating all entities
    */
   const rebuildOnDemandMaps = (
     entities: EntityTable,
@@ -237,42 +238,36 @@ export function useIfc() {
     const onDemandPropertyMap = new Map<number, number[]>();
     const onDemandQuantityMap = new Map<number, number[]>();
 
-    let psetCount = 0;
-    let qsetCount = 0;
+    // PERF: Use getByType() instead of iterating ALL entities
+    // This eliminates O(n²) linear searches through expressId array
+    const propertySets = entities.getByType(IfcTypeEnum.IfcPropertySet);
+    const quantitySets = entities.getByType(IfcTypeEnum.IfcElementQuantity);
 
-    // Find all property sets and quantity sets, then look up what they define
-    for (let i = 0; i < entities.count; i++) {
-      const psetId = entities.expressId[i];
-      const psetType = entities.getTypeName(psetId);
-      const psetTypeUpper = psetType?.toUpperCase() || '';
-
-      // Only process property sets and quantity sets
-      const isPropertySet = psetTypeUpper === 'IFCPROPERTYSET';
-      const isQuantitySet = psetTypeUpper === 'IFCELEMENTQUANTITY';
-      if (!isPropertySet && !isQuantitySet) {
-        continue;
-      }
-
-      if (isPropertySet) psetCount++;
-      if (isQuantitySet) qsetCount++;
-
+    // Process property sets
+    for (const psetId of propertySets) {
       // Get elements defined by this pset (FORWARD: pset -> elements)
       const definedElements = relationships.getRelated(psetId, RelationshipType.DefinesByProperties, 'forward');
 
       for (const entityId of definedElements) {
-        if (isPropertySet) {
-          let list = onDemandPropertyMap.get(entityId);
-          if (!list) { list = []; onDemandPropertyMap.set(entityId, list); }
-          list.push(psetId);
-        } else {
-          let list = onDemandQuantityMap.get(entityId);
-          if (!list) { list = []; onDemandQuantityMap.set(entityId, list); }
-          list.push(psetId);
-        }
+        let list = onDemandPropertyMap.get(entityId);
+        if (!list) { list = []; onDemandPropertyMap.set(entityId, list); }
+        list.push(psetId);
       }
     }
 
-    console.log(`[useIfc] Rebuilt on-demand maps: ${psetCount} psets, ${qsetCount} qsets -> ${onDemandPropertyMap.size} entities with properties, ${onDemandQuantityMap.size} with quantities`);
+    // Process quantity sets
+    for (const qsetId of quantitySets) {
+      // Get elements defined by this qset (FORWARD: qset -> elements)
+      const definedElements = relationships.getRelated(qsetId, RelationshipType.DefinesByProperties, 'forward');
+
+      for (const entityId of definedElements) {
+        let list = onDemandQuantityMap.get(entityId);
+        if (!list) { list = []; onDemandQuantityMap.set(entityId, list); }
+        list.push(qsetId);
+      }
+    }
+
+    console.log(`[useIfc] Rebuilt on-demand maps: ${propertySets.length} psets, ${quantitySets.length} qsets -> ${onDemandPropertyMap.size} entities with properties, ${onDemandQuantityMap.size} with quantities`);
     return { onDemandPropertyMap, onDemandQuantityMap };
   };
 
