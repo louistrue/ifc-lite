@@ -1366,25 +1366,31 @@ export function useIfc() {
       });
       await geometryProcessor.init();
 
-      // Start data model parsing in parallel (non-blocking)
-      // This parses entities, properties, relationships for the UI panels
-      // Use IfcParser directly - it has async yields every 500 entities so won't block geometry
-      const parser = new IfcParser();
-      const dataStorePromise = parser.parseColumnar(buffer.slice(0), {
-        onProgress: (prog) => {
-          // Update progress in background - don't block geometry
-          console.log(`[useIfc] Data model: ${prog.phase} ${prog.percent.toFixed(0)}%`);
-        },
-      });
+      // OPTIMIZATION: DEFER data model parsing until AFTER first geometry batch
+      // This gives WASM full CPU to produce first visible geometry faster
+      // Data model is only needed for property panels, not for rendering
+      let dataStorePromise: Promise<any> | null = null;
+      let dataModelStarted = false;
+      const startDataModelParsing = () => {
+        if (dataModelStarted) return;
+        dataModelStarted = true;
 
-      // Handle data model completion in background
-      // On-demand property extraction is now used for all modes - no background parse needed
-      dataStorePromise.then(dataStore => {
-        console.log('[useIfc] Data model parsing complete - properties available via on-demand extraction');
-        setIfcDataStore(dataStore);
-      }).catch(err => {
-        console.error('[useIfc] Data model parsing failed:', err);
-      });
+        const parser = new IfcParser();
+        dataStorePromise = parser.parseColumnar(buffer.slice(0), {
+          onProgress: (prog) => {
+            // Update progress in background - don't block geometry
+            console.log(`[useIfc] Data model: ${prog.phase} ${prog.percent.toFixed(0)}%`);
+          },
+        });
+
+        // Handle data model completion in background
+        dataStorePromise.then(dataStore => {
+          console.log('[useIfc] Data model parsing complete - properties available via on-demand extraction');
+          setIfcDataStore(dataStore);
+        }).catch(err => {
+          console.error('[useIfc] Data model parsing failed:', err);
+        });
+      };
 
       // Use adaptive processing: sync for small files, streaming for large files
       let estimatedTotal = 0;
@@ -1459,6 +1465,13 @@ export function useIfc() {
                 pendingMeshes = [];
                 lastRenderTime = eventReceived;
 
+                // OPTIMIZATION: Start data model parsing AFTER first batch is rendered
+                // This ensures WASM gets full CPU for producing first visible geometry
+                if (batchCount === 1) {
+                  // Use setTimeout to let the UI update first
+                  setTimeout(startDataModelParsing, 0);
+                }
+
                 // Update progress
                 const progressPercent = 50 + Math.min(45, (totalMeshes / Math.max(estimatedTotal / 10, totalMeshes)) * 45);
                 setProgress({
@@ -1501,9 +1514,12 @@ export function useIfc() {
 
               setProgress({ phase: 'Complete', percent: 100 });
 
+              // Ensure data model parsing started (in case no batches were rendered)
+              startDataModelParsing();
+
               // Build spatial index and cache in background (non-blocking)
               // Wait for data model to complete first
-              dataStorePromise.then(dataStore => {
+              dataStorePromise!.then(dataStore => {
                 // Build spatial index from meshes (in background)
                 if (allMeshes.length > 0) {
                   const buildIndex = () => {

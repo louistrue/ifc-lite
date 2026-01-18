@@ -1131,14 +1131,14 @@ impl IfcAPI {
                 let entity_index = ifc_lite_core::build_entity_index(&content);
                 let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
 
-                // Build style index BEFORE processing any geometry
-                // This ensures both simple and complex geometry get styled colors
-                let geometry_styles = build_geometry_style_index(&content, &mut decoder);
-                let style_index =
-                    build_element_style_index(&content, &geometry_styles, &mut decoder);
-
-                // Create geometry router
+                // Create geometry router (extracts unit scale)
                 let router = GeometryRouter::with_units(&content, &mut decoder);
+
+                // OPTIMIZATION: Defer style index building to AFTER first batch
+                // This allows simple geometry to appear immediately with default colors
+                // Style index will be built after first yield, so complex geometry gets proper colors
+                let mut style_index: Option<rustc_hash::FxHashMap<u32, [f32; 4]>> = None;
+                let mut style_index_built = false;
 
                 // Process counters
                 let mut processed = 0;
@@ -1146,14 +1146,7 @@ impl IfcAPI {
                 let mut total_vertices = 0;
                 let mut total_triangles = 0;
                 let mut batch_meshes: Vec<MeshDataJs> = Vec::with_capacity(batch_size);
-
-                // FIX: Build style index BEFORE processing any geometry
-                // This ensures simple geometry (walls, slabs) gets IFC styled colors
-                // Previously style_index was built after simple geometry, causing all
-                // simple elements to get default gray colors instead of IFC colors
-                let geometry_styles = build_geometry_style_index(&content, &mut decoder);
-                let style_index =
-                    build_element_style_index(&content, &geometry_styles, &mut decoder);
+                let mut first_batch_yielded = false;
 
                 // SINGLE PASS: Process elements as we find them
                 let mut scanner = EntityScanner::new(&content);
@@ -1204,11 +1197,13 @@ impl IfcAPI {
                                             calculate_normals(&mut mesh);
                                         }
 
-                                        // FIX: Use styled colors from IFC file, fallback to default
-                                        let color = style_index
-                                            .get(&id)
-                                            .copied()
-                                            .unwrap_or_else(|| get_default_color_for_type(&ifc_type));
+                                        // OPTIMIZATION: First batch uses default colors for speed
+                                        // Style index built after first yield, subsequent batches get proper colors
+                                        let color = if let Some(ref styles) = style_index {
+                                            styles.get(&id).copied().unwrap_or_else(|| get_default_color_for_type(&ifc_type))
+                                        } else {
+                                            get_default_color_for_type(&ifc_type)
+                                        };
                                         total_vertices += mesh.positions.len() / 3;
                                         total_triangles += mesh.indices.len() / 3;
 
@@ -1244,10 +1239,20 @@ impl IfcAPI {
 
                                 let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
                                 total_meshes += js_meshes.length() as usize;
+                                first_batch_yielded = true;
                             }
 
                             // Yield to browser
                             gloo_timers::future::TimeoutFuture::new(0).await;
+
+                            // OPTIMIZATION: Build style index AFTER first batch is yielded
+                            // This gives fastest time-to-first-geometry with default colors
+                            // Subsequent batches and complex geometry will get proper styled colors
+                            if first_batch_yielded && !style_index_built {
+                                style_index_built = true;
+                                let geometry_styles = build_geometry_style_index(&content, &mut decoder);
+                                style_index = Some(build_element_style_index(&content, &geometry_styles, &mut decoder));
+                            }
                         }
                     } else {
                         // Defer complex geometry
@@ -1283,7 +1288,12 @@ impl IfcAPI {
                 }
 
                 // Process deferred complex geometry
-                // NOTE: style_index was built at the start of this function
+                // Ensure style index is built before processing complex geometry
+                if !style_index_built {
+                    style_index_built = true;
+                    let geometry_styles = build_geometry_style_index(&content, &mut decoder);
+                    style_index = Some(build_element_style_index(&content, &geometry_styles, &mut decoder));
+                }
 
                 for (id, start, end, ifc_type) in deferred_complex {
                     if let Ok(entity) = decoder.decode_at(start, end) {
@@ -1293,10 +1303,12 @@ impl IfcAPI {
                                     calculate_normals(&mut mesh);
                                 }
 
-                                let color = style_index
-                                    .get(&id)
-                                    .copied()
-                                    .unwrap_or_else(|| get_default_color_for_type(&ifc_type));
+                                // Use styled colors for complex geometry (style index built by now)
+                                let color = if let Some(ref styles) = style_index {
+                                    styles.get(&id).copied().unwrap_or_else(|| get_default_color_for_type(&ifc_type))
+                                } else {
+                                    get_default_color_for_type(&ifc_type)
+                                };
 
                                 total_vertices += mesh.positions.len() / 3;
                                 total_triangles += mesh.indices.len() / 3;
