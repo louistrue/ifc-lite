@@ -33,6 +33,7 @@ interface TreeNode {
   isExpanded: boolean;
   isVisible: boolean;
   elementCount?: number;
+  storeyHeight?: number;
 }
 
 const TYPE_ICONS: Record<string, React.ElementType> = {
@@ -115,6 +116,7 @@ export function HierarchyPanel() {
         id,
         name: ifcDataStore.entities.getName(id) || `Storey #${id}`,
         elevation: hierarchy.storeyElevations.get(id) ?? 0,
+        height: hierarchy.storeyHeights?.get(id),
         elements,
       }))
       .sort((a, b) => b.elevation - a.elevation);
@@ -131,6 +133,7 @@ export function HierarchyPanel() {
         isExpanded: isStoreyExpanded,
         isVisible: true,
         elementCount: storey.elements.length,
+        storeyHeight: storey.height,
       });
 
       // Add storey elements if expanded
@@ -391,6 +394,13 @@ export function HierarchyPanel() {
                     'flex-1 text-sm truncate ml-1.5 text-zinc-900 dark:text-zinc-200',
                     nodeHidden && 'line-through decoration-zinc-400 dark:decoration-zinc-600'
                   )}>{node.name}</span>
+
+                  {/* Storey Height */}
+                  {node.storeyHeight !== undefined && (
+                    <span className="text-[10px] font-mono bg-emerald-100 dark:bg-emerald-950 px-1.5 py-0.5 border border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 rounded-none">
+                      {node.storeyHeight.toFixed(2)}m
+                    </span>
+                  )}
 
                   {/* Element Count */}
                   {node.elementCount !== undefined && (
