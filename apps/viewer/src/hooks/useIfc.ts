@@ -355,8 +355,8 @@ export function useIfc() {
           
           // Calculate storey heights from elevation differences (fallback if no property data)
           if (dataStore.spatialHierarchy.storeyHeights.size === 0 && dataStore.spatialHierarchy.storeyElevations.size > 1) {
-            const sortedStoreys = Array.from(dataStore.spatialHierarchy.storeyElevations.entries())
-              .sort((a, b) => a[1] - b[1]); // Sort by elevation ascending
+            const sortedStoreys: Array<[number, number]> = Array.from(dataStore.spatialHierarchy.storeyElevations.entries())
+              .sort((a: [number, number], b: [number, number]) => a[1] - b[1]); // Sort by elevation ascending
             for (let i = 0; i < sortedStoreys.length - 1; i++) {
               const [storeyId, elevation] = sortedStoreys[i];
               const nextElevation = sortedStoreys[i + 1][1];

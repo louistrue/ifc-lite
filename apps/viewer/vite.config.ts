@@ -46,10 +46,22 @@ export default defineConfig({
       name: 'wasm-rayon-worker-fix',
       enforce: 'pre',
       transform(code, id) {
-        // Transform workerHelpers.js to use absolute path
+        // Handle missing rayon workerHelpers import - stub it out since we don't use rayon threading
+        if (id.includes('ifc-lite.js') && code.includes('wasm-bindgen-rayon')) {
+          // Replace the import with a stub that does nothing
+          const transformed = code.replace(
+            /import\s*{\s*startWorkers\s*}\s*from\s*['"]\.\/snippets\/wasm-bindgen-rayon-[^'"]+\/src\/workerHelpers\.js['"];?/g,
+            '// Rayon threading disabled - startWorkers stub\nconst startWorkers = () => {};'
+          );
+          
+          if (code !== transformed) {
+            console.log(`[wasm-rayon-worker-fix] Stubbed out rayon worker import in ${id}`);
+          }
+          return transformed;
+        }
+        
+        // Transform workerHelpers.js to use absolute path (if file exists)
         if (id.includes('wasm-bindgen-rayon') && id.includes('workerHelpers') && !id.includes('no-bundler')) {
-          // In production, files are copied to /wasm/
-          // In dev, Vite serves them via /@fs/
           const isProduction = process.env.NODE_ENV === 'production';
           const importPath = isProduction
             ? '/wasm/ifc-lite.js'
