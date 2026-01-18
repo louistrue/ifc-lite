@@ -1141,6 +1141,14 @@ impl IfcAPI {
                 let mut total_triangles = 0;
                 let mut batch_meshes: Vec<MeshDataJs> = Vec::with_capacity(batch_size);
 
+                // FIX: Build style index BEFORE processing any geometry
+                // This ensures simple geometry (walls, slabs) gets IFC styled colors
+                // Previously style_index was built after simple geometry, causing all
+                // simple elements to get default gray colors instead of IFC colors
+                let geometry_styles = build_geometry_style_index(&content, &mut decoder);
+                let style_index =
+                    build_element_style_index(&content, &geometry_styles, &mut decoder);
+
                 // SINGLE PASS: Process elements as we find them
                 let mut scanner = EntityScanner::new(&content);
                 let mut deferred_complex: Vec<(u32, usize, usize, ifc_lite_core::IfcType)> =
@@ -1190,7 +1198,11 @@ impl IfcAPI {
                                             calculate_normals(&mut mesh);
                                         }
 
-                                        let color = get_default_color_for_type(&ifc_type);
+                                        // FIX: Use styled colors from IFC file, fallback to default
+                                        let color = style_index
+                                            .get(&id)
+                                            .copied()
+                                            .unwrap_or_else(|| get_default_color_for_type(&ifc_type));
                                         total_vertices += mesh.positions.len() / 3;
                                         total_triangles += mesh.indices.len() / 3;
 
@@ -1265,10 +1277,7 @@ impl IfcAPI {
                 }
 
                 // Process deferred complex geometry
-                // Build style index now (deferred from start)
-                let geometry_styles = build_geometry_style_index(&content, &mut decoder);
-                let style_index =
-                    build_element_style_index(&content, &geometry_styles, &mut decoder);
+                // NOTE: style_index was built at the start of this function
 
                 for (id, start, end, ifc_type) in deferred_complex {
                     if let Ok(entity) = decoder.decode_at(start, end) {
@@ -2463,7 +2472,7 @@ fn extract_color_from_style_assignment(
 
     match style.ifc_type {
         IfcType::IfcPresentationStyle => {
-            // IfcPresentationStyleAssignment: Styles (list)
+            // IfcPresentationStyle has Styles at attr 0
             let styles_attr = style.get(0)?;
             if let Some(list) = styles_attr.as_list() {
                 for item in list {
@@ -2478,7 +2487,21 @@ fn extract_color_from_style_assignment(
         IfcType::IfcSurfaceStyle => {
             return extract_color_from_surface_style(style_id, decoder);
         }
-        _ => {}
+        _ => {
+            // FIX: Handle IfcPresentationStyleAssignment (IFC2x3 entity not in IFC4 schema)
+            // IfcPresentationStyleAssignment has Styles list at attribute 0
+            // It's decoded as Unknown type, so we check by structure
+            let styles_attr = style.get(0)?;
+            if let Some(list) = styles_attr.as_list() {
+                for item in list {
+                    if let Some(inner_id) = item.as_entity_ref() {
+                        if let Some(color) = extract_color_from_surface_style(inner_id, decoder) {
+                            return Some(color);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     None
@@ -2525,9 +2548,19 @@ fn extract_color_from_rendering(
 
     match rendering.ifc_type {
         IfcType::IfcSurfaceStyleRendering | IfcType::IfcSurfaceStyleShading => {
-            // Both have SurfaceColour as attribute 0
+            // Attr 0: SurfaceColour (inherited from IfcSurfaceStyleShading)
+            // Attr 1: Transparency (inherited, 0.0=opaque, 1.0=transparent)
             let color_ref = rendering.get_ref(0)?;
-            return extract_color_rgb(color_ref, decoder);
+            let [r, g, b, _] = extract_color_rgb(color_ref, decoder)?;
+            
+            // Read transparency and convert to alpha
+            // Transparency: 0.0 = opaque, 1.0 = fully transparent
+            // Alpha: 1.0 = opaque, 0.0 = fully transparent
+            // So: alpha = 1.0 - transparency
+            let transparency = rendering.get_float(1).unwrap_or(0.0);
+            let alpha = 1.0 - transparency as f32;
+            
+            return Some([r, g, b, alpha.max(0.0).min(1.0)]);
         }
         _ => {}
     }

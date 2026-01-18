@@ -359,8 +359,11 @@ fn extract_surface_style_color(style_id: u32, decoder: &mut EntityDecoder) -> Op
                     let g = color.get_float(2).unwrap_or(0.8) as f32;
                     let b = color.get_float(3).unwrap_or(0.8) as f32;
 
-                    // Check for transparency (Attr 8 in IfcSurfaceStyleRendering)
-                    let alpha: f32 = 1.0 - rendering.get_float(8).unwrap_or(0.0) as f32;
+                    // Check for transparency (Attr 1 in IfcSurfaceStyleShading, inherited by IfcSurfaceStyleRendering)
+                    // Transparency: 0.0 = opaque, 1.0 = fully transparent
+                    // Alpha: 1.0 = opaque, 0.0 = fully transparent
+                    // So: alpha = 1.0 - transparency
+                    let alpha: f32 = 1.0 - rendering.get_float(1).unwrap_or(0.0) as f32;
 
                     return Some([r, g, b, alpha.max(0.0).min(1.0)]);
                 }

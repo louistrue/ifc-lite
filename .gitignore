@@ -40,3 +40,6 @@ test_*.sh
 *_FIX.md
 *_IMPROVEMENTS.md
 *_COMPLETE.md
+
+# WASM files - use packages/wasm/pkg/ as canonical source
+apps/viewer/public/ifc-lite_bg.wasm

@@ -12,5 +12,6 @@ pnpm-lock.yaml linguist-generated=true
 Cargo.lock linguist-generated=true
 # Binary files
 *.wasm binary linguist-generated=true
-# IFC files - treat as binary (committed before LFS, kept as regular files)
-*.ifc binary
+# IFC files - use Git LFS for large model files
+*.ifc filter=lfs diff=lfs merge=lfs -text
+*.IFC filter=lfs diff=lfs merge=lfs -text

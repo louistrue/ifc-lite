@@ -86,6 +86,11 @@ export class IfcLiteMeshCollector {
         colorArray[3],
       ];
 
+      // #region agent log
+      // DEBUG: Log mesh colors from WASM (first 10 meshes only)
+      if (i < 10) { fetch('http://127.0.0.1:7248/ingest/23432d39-3a37-4dd4-80fc-bbd61504cb4e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ifc-lite-mesh-collector.ts:88',message:'WASM mesh color',data:{meshIndex:i,expressId:mesh.expressId,ifcType:mesh.ifcType,color,isColored:Math.abs(color[0]-color[1])>0.05||Math.abs(color[0]-color[2])>0.05},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'color-from-wasm'})}).catch(()=>{}); }
+      // #endregion
+
       // Capture arrays once (WASM creates new copies on each access)
       const positions = mesh.positions;
       const normals = mesh.normals;
@@ -137,6 +142,7 @@ export class IfcLiteMeshCollector {
         // Convert WASM meshes to MeshData[]
         const convertedBatch: MeshData[] = [];
 
+        let meshIdx = 0;
         for (const mesh of meshes) {
           const colorArray = mesh.color;
           const color: [number, number, number, number] = [
@@ -145,6 +151,12 @@ export class IfcLiteMeshCollector {
             colorArray[2],
             colorArray[3],
           ];
+
+          // #region agent log
+          // DEBUG: Log streaming mesh colors from WASM (first 5 per batch)
+          if (meshIdx < 5) { fetch('http://127.0.0.1:7248/ingest/23432d39-3a37-4dd4-80fc-bbd61504cb4e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ifc-lite-mesh-collector.ts:streaming',message:'WASM streaming mesh color',data:{expressId:mesh.expressId,ifcType:mesh.ifcType,color,isColored:Math.abs(color[0]-color[1])>0.05||Math.abs(color[0]-color[2])>0.05},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'streaming-color'})}).catch(()=>{}); }
+          meshIdx++;
+          // #endregion
 
           // Capture arrays once
           const positions = mesh.positions;
