@@ -1003,31 +1003,52 @@ export function useIfc() {
 
           // PERF: Pre-compute uppercase once for efficient comparison
           // This eliminates millions of .toUpperCase() calls for large files
+          // IMPORTANT: Keep in sync with columnar-parser.ts REL_TYPE_MAP (10 types)
           const relTypeMap = new Map<string, RelationshipType>([
-            ['IFCRELAGGREGATES', RelationshipType.Aggregates],
             ['IFCRELCONTAINEDINSPATIALSTRUCTURE', RelationshipType.ContainsElements],
+            ['IFCRELAGGREGATES', RelationshipType.Aggregates],
             ['IFCRELDEFINESBYPROPERTIES', RelationshipType.DefinesByProperties],
             ['IFCRELDEFINESBYTYPE', RelationshipType.DefinesByType],
             ['IFCRELASSOCIATESMATERIAL', RelationshipType.AssociatesMaterial],
+            ['IFCRELASSOCIATESCLASSIFICATION', RelationshipType.AssociatesClassification],
             ['IFCRELVOIDSELEMENT', RelationshipType.VoidsElement],
             ['IFCRELFILLSELEMENT', RelationshipType.FillsElement],
+            ['IFCRELCONNECTSPATHELEMENTS', RelationshipType.ConnectsPathElements],
+            ['IFCRELSPACEBOUNDARY', RelationshipType.SpaceBoundary],
           ]);
+
+          // Track unmapped relationship types for diagnostics
+          const unmappedRelTypes = new Set<string>();
 
           for (const rel of dataModel.relationships) {
             // Single .toUpperCase() call instead of 7
-            const relType = relTypeMap.get(rel.rel_type.toUpperCase()) ?? RelationshipType.Aggregates;
+            const upperType = rel.rel_type.toUpperCase();
+            const relType = relTypeMap.get(upperType);
+
+            // Log unmapped types (helps identify missing IFC relationship types)
+            if (relType === undefined && !unmappedRelTypes.has(upperType)) {
+              unmappedRelTypes.add(upperType);
+              console.debug(`[useIfc] Unmapped relationship type: ${rel.rel_type}`);
+            }
+
+            const finalRelType = relType ?? RelationshipType.Aggregates;
 
             // Forward: relating -> related
             if (!forwardEdges.has(rel.relating_id)) {
               forwardEdges.set(rel.relating_id, []);
             }
-            forwardEdges.get(rel.relating_id)!.push({ target: rel.related_id, type: relType, relationshipId: 0 });
+            forwardEdges.get(rel.relating_id)!.push({ target: rel.related_id, type: finalRelType, relationshipId: 0 });
 
             // Inverse: related -> relating
             if (!inverseEdges.has(rel.related_id)) {
               inverseEdges.set(rel.related_id, []);
             }
-            inverseEdges.get(rel.related_id)!.push({ target: rel.relating_id, type: relType, relationshipId: 0 });
+            inverseEdges.get(rel.related_id)!.push({ target: rel.relating_id, type: finalRelType, relationshipId: 0 });
+          }
+
+          // Log summary of unmapped relationship types
+          if (unmappedRelTypes.size > 0) {
+            console.warn(`[useIfc] Found ${unmappedRelTypes.size} unmapped relationship types: ${Array.from(unmappedRelTypes).join(', ')}`);
           }
 
           const createEdgeAccessor = (edges: Map<number, Array<{ target: number; type: RelationshipType; relationshipId: number }>>) => ({
