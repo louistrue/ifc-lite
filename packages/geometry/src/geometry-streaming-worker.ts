@@ -66,11 +66,8 @@ let ifcApi: IfcAPI | null = null;
  */
 async function initWasm(): Promise<void> {
   if (ifcApi) return;
-  
-  const start = performance.now();
   await init();
   ifcApi = new IfcAPI();
-  console.log(`[GeometryWorker] WASM initialized in ${(performance.now() - start).toFixed(0)}ms`);
 }
 
 /**
@@ -95,7 +92,6 @@ async function processGeometry(content: string, batchSize: number): Promise<void
   }
 
   const parseStart = performance.now();
-  console.log(`[GeometryWorker] Starting streaming geometry parsing...`);
 
   let batchNumber = 0;
   let totalMeshes = 0;
@@ -176,7 +172,6 @@ async function processGeometry(content: string, batchSize: number): Promise<void
         const firstBatch = accumulatedMeshes.splice(0, batchSize);
         sendBatch(firstBatch, batchNumber, totalMeshes);
         firstBatchSent = true;
-        console.log(`[GeometryWorker] First batch sent at ${(performance.now() - parseStart).toFixed(0)}ms`);
       }
       // After first batch, accumulate more before sending (reduces overhead)
       else if (firstBatchSent && accumulatedMeshes.length >= POST_MESSAGE_BATCH_SIZE) {
@@ -207,8 +202,6 @@ async function processGeometry(content: string, batchSize: number): Promise<void
         },
       };
       self.postMessage(completeMsg);
-      
-      console.log(`[GeometryWorker] Complete: ${stats.totalMeshes} meshes in ${parseTime.toFixed(0)}ms`);
     },
   });
 }

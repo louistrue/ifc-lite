@@ -220,7 +220,6 @@ export class GeometryProcessor {
     const useWorker = fileSizeMB > 50 && typeof Worker !== 'undefined';
     
     if (useWorker) {
-      console.log(`[GeometryProcessor] Using dedicated worker for ${fileSizeMB.toFixed(1)}MB file`);
       const wasmBatchSize = fileSizeMB < 100 ? 200 : fileSizeMB < 200 ? 300 : 500;
       
       // Use worker-based streaming for true parallelism
@@ -315,7 +314,6 @@ export class GeometryProcessor {
           break;
           
         case 'complete':
-          console.log(`[GeometryProcessor] Worker complete: ${msg.stats.totalMeshes} meshes in ${msg.stats.parseTimeMs.toFixed(0)}ms`);
           done = true;
           if (resolveNext) {
             resolveNext();
