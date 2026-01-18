@@ -278,9 +278,10 @@ fn extract_properties(
     entity_index: &Arc<ifc_lite_core::EntityIndex>,
 ) -> Vec<PropertySet> {
     // First, collect all PropertySet entities
+    // PERF: Use eq_ignore_ascii_case to avoid string allocation per comparison
     let pset_jobs: Vec<_> = jobs
         .iter()
-        .filter(|job| job.type_name.to_uppercase() == "IFCPROPERTYSET")
+        .filter(|job| job.type_name.eq_ignore_ascii_case("IFCPROPERTYSET"))
         .collect();
 
     tracing::debug!(count = pset_jobs.len(), "Extracting property sets");
@@ -326,10 +327,11 @@ fn extract_property(
     entity: &DecodedEntity,
     _decoder: &mut EntityDecoder,
 ) -> Option<Property> {
-    let type_upper = entity.ifc_type.as_str().to_uppercase();
+    // PERF: Use eq_ignore_ascii_case to avoid string allocation per comparison
+    let ifc_type = entity.ifc_type.as_str();
 
     // IfcPropertySingleValue: [0]=Name, [1]=Description, [2]=NominalValue, [3]=Unit
-    if type_upper == "IFCPROPERTYSINGLEVALUE" {
+    if ifc_type.eq_ignore_ascii_case("IFCPROPERTYSINGLEVALUE") {
         let property_name = entity.get_string(0)?.to_string();
         let nominal_value = entity.get(2)?;
 
@@ -362,9 +364,10 @@ fn extract_quantities(
     entity_index: &Arc<ifc_lite_core::EntityIndex>,
 ) -> Vec<QuantitySet> {
     // First, collect all IfcElementQuantity entities
+    // PERF: Use eq_ignore_ascii_case to avoid string allocation per comparison
     let qset_jobs: Vec<_> = jobs
         .iter()
-        .filter(|job| job.type_name.to_uppercase() == "IFCELEMENTQUANTITY")
+        .filter(|job| job.type_name.eq_ignore_ascii_case("IFCELEMENTQUANTITY"))
         .collect();
 
     tracing::debug!(count = qset_jobs.len(), "Extracting quantity sets");
@@ -411,17 +414,24 @@ fn extract_quantities(
 /// Supports: IfcQuantityLength, IfcQuantityArea, IfcQuantityVolume,
 ///           IfcQuantityCount, IfcQuantityWeight, IfcQuantityTime
 fn extract_quantity_value(entity: &DecodedEntity) -> Option<Quantity> {
-    let type_upper = entity.ifc_type.as_str().to_uppercase();
+    // PERF: Use eq_ignore_ascii_case to avoid string allocation per comparison
+    let ifc_type = entity.ifc_type.as_str();
 
     // Map IFC type to quantity type string
-    let quantity_type = match type_upper.as_str() {
-        "IFCQUANTITYLENGTH" => "length",
-        "IFCQUANTITYAREA" => "area",
-        "IFCQUANTITYVOLUME" => "volume",
-        "IFCQUANTITYCOUNT" => "count",
-        "IFCQUANTITYWEIGHT" => "weight",
-        "IFCQUANTITYTIME" => "time",
-        _ => return None, // Not a recognized quantity type
+    let quantity_type = if ifc_type.eq_ignore_ascii_case("IFCQUANTITYLENGTH") {
+        "length"
+    } else if ifc_type.eq_ignore_ascii_case("IFCQUANTITYAREA") {
+        "area"
+    } else if ifc_type.eq_ignore_ascii_case("IFCQUANTITYVOLUME") {
+        "volume"
+    } else if ifc_type.eq_ignore_ascii_case("IFCQUANTITYCOUNT") {
+        "count"
+    } else if ifc_type.eq_ignore_ascii_case("IFCQUANTITYWEIGHT") {
+        "weight"
+    } else if ifc_type.eq_ignore_ascii_case("IFCQUANTITYTIME") {
+        "time"
+    } else {
+        return None; // Not a recognized quantity type
     };
 
     // All IFC quantity types have:
