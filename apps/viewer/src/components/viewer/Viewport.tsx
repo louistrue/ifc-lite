@@ -234,6 +234,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           return;
         }
 
+        const rect = canvas.getBoundingClientRect();
         const viz: any = {};
 
         // For edge snaps: project edge vertices to screen space and draw line
@@ -243,7 +244,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           const end = camera.projectToScreen(v1, canvas.width, canvas.height);
 
           if (start && end) {
-            viz.edgeLine = { start, end };
+            // Convert canvas-relative coords to page coords
+            viz.edgeLine = {
+              start: { x: start.x + rect.left, y: start.y + rect.top },
+              end: { x: end.x + rect.left, y: end.y + rect.top }
+            };
           }
         }
 
@@ -251,9 +256,10 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
         if ((snapTarget.type === 'face' || snapTarget.type === 'face_center') && snapTarget.normal) {
           const pos = camera.projectToScreen(snapTarget.position, canvas.width, canvas.height);
           if (pos) {
+            // Convert canvas-relative coords to page coords
             viz.planeIndicator = {
-              x: pos.x,
-              y: pos.y,
+              x: pos.x + rect.left,
+              y: pos.y + rect.top,
               normal: snapTarget.normal,
             };
           }

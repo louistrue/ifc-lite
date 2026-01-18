@@ -1288,26 +1288,22 @@ export class Renderer {
             }
 
             // Detect snap targets if requested
-            // OPTIMIZATION: Only pass the intersected mesh, not all meshes
+            // Pass meshes near the ray to detect edges even when partially occluded
             let snapTarget: SnapTarget | undefined;
             if (options?.snapOptions) {
                 const cameraPos = this.camera.getPosition();
                 const cameraFov = this.camera.getFOV();
 
-                // Get the actual intersected mesh data
-                const intersectedMesh = meshesToTest[intersection.meshIndex];
-
-                // Only detect snap if we have a valid mesh
-                if (intersectedMesh) {
-                    snapTarget = this.snapDetector.detectSnapTarget(
-                        ray,
-                        [intersectedMesh], // Only pass the one mesh we hit
-                        intersection,
-                        { position: cameraPos, fov: cameraFov },
-                        this.canvas.height,
-                        options.snapOptions
-                    ) || undefined;
-                }
+                // Pass meshes that are near the ray (from BVH or all meshes if BVH not used)
+                // This allows detecting edges even when they're behind other objects
+                snapTarget = this.snapDetector.detectSnapTarget(
+                    ray,
+                    meshesToTest, // Pass all meshes near the ray
+                    intersection,
+                    { position: cameraPos, fov: cameraFov },
+                    this.canvas.height,
+                    options.snapOptions
+                ) || undefined;
             }
 
             return {

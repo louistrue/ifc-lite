@@ -67,12 +67,6 @@ export class SnapDetector {
     }
 
     const targets: SnapTarget[] = [];
-    const mesh = meshes[intersection.meshIndex];
-    
-    // Guard against invalid mesh index
-    if (!mesh) {
-      return null;
-    }
 
     // Calculate world-space snap radius based on screen-space radius and distance
     const distanceToCamera = this.distance(camera.position, intersection.point);
@@ -83,19 +77,25 @@ export class SnapDetector {
       screenHeight
     );
 
-    // Detect vertices
-    if (opts.snapToVertices) {
-      targets.push(...this.findVertices(mesh, intersection.point, worldSnapRadius));
-    }
+    // Check ALL nearby meshes for snap targets (not just the intersected one)
+    // This allows detecting edges even when they're behind other objects
+    for (const mesh of meshes) {
+      if (!mesh) continue;
 
-    // Detect edges
-    if (opts.snapToEdges) {
-      targets.push(...this.findEdges(mesh, intersection.point, worldSnapRadius));
-    }
+      // Detect vertices
+      if (opts.snapToVertices) {
+        targets.push(...this.findVertices(mesh, intersection.point, worldSnapRadius));
+      }
 
-    // Detect faces
-    if (opts.snapToFaces) {
-      targets.push(...this.findFaces(mesh, intersection, worldSnapRadius));
+      // Detect edges
+      if (opts.snapToEdges) {
+        targets.push(...this.findEdges(mesh, intersection.point, worldSnapRadius));
+      }
+
+      // Detect faces (only on the intersected mesh to avoid confusion)
+      if (opts.snapToFaces && mesh.expressId === meshes[intersection.meshIndex]?.expressId) {
+        targets.push(...this.findFaces(mesh, intersection, worldSnapRadius));
+      }
     }
 
     // Return best target
@@ -196,15 +196,16 @@ export class SnapDetector {
     const targets: SnapTarget[] = [];
     const cache = this.getGeometryCache(mesh);
 
-    // Find vertices within radius
+    // Find vertices within radius - only when very close for smooth edge sliding
     for (const vertex of cache.vertices) {
       const dist = this.distance(vertex, point);
-      if (dist < radius) {
+      // Only snap to vertices when within 1/3 of snap radius to avoid sticky behavior
+      if (dist < radius * 0.33) {
         targets.push({
           type: SnapType.VERTEX,
           position: vertex,
           expressId: mesh.expressId,
-          confidence: 1.0 - dist / radius, // Closer = higher confidence
+          confidence: 1.0 - dist / (radius * 0.33), // Very high when close
         });
       }
     }
@@ -225,16 +226,17 @@ export class SnapDetector {
       const dist = this.distance(closestPoint, point);
 
       if (dist < radius) {
-        // Edge snap
+        // Edge snap - prioritize for smooth sliding
+        // Use higher confidence to make cursor slide smoothly along edge
         targets.push({
           type: SnapType.EDGE,
           position: closestPoint,
           expressId: mesh.expressId,
-          confidence: 0.8 * (1.0 - dist / radius),
+          confidence: 0.95 * (1.0 - dist / radius), // Increased from 0.8 for smoother sliding
           metadata: { vertices: [edge.v0, edge.v1], edgeIndex: edge.index },
         });
 
-        // Edge midpoint snap
+        // Edge midpoint snap - only when very close to midpoint
         const midpoint: Vec3 = {
           x: (edge.v0.x + edge.v1.x) / 2,
           y: (edge.v0.y + edge.v1.y) / 2,
@@ -242,12 +244,13 @@ export class SnapDetector {
         };
         const midDist = this.distance(midpoint, point);
 
-        if (midDist < radius) {
+        // Only snap to midpoint when within 1/3 of snap radius
+        if (midDist < radius * 0.33) {
           targets.push({
             type: SnapType.EDGE_MIDPOINT,
             position: midpoint,
             expressId: mesh.expressId,
-            confidence: 0.9 * (1.0 - midDist / radius),
+            confidence: 1.0 * (1.0 - midDist / (radius * 0.33)), // Very high when close
             metadata: { vertices: [edge.v0, edge.v1], edgeIndex: edge.index },
           });
         }
