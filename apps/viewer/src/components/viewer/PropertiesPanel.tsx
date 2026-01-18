@@ -85,6 +85,17 @@ export function PropertiesPanel() {
     return entityNode.quantities();
   }, [entityNode]);
 
+  // Build attributes array for display - must be before early return to maintain hook order
+  const attributes = useMemo(() => {
+    if (!entityNode) return [];
+    const attrs: Array<{ name: string; value: string }> = [];
+    if (entityNode.globalId) attrs.push({ name: 'GlobalId', value: entityNode.globalId });
+    if (entityNode.name) attrs.push({ name: 'Name', value: entityNode.name });
+    if (entityNode.description) attrs.push({ name: 'Description', value: entityNode.description });
+    if (entityNode.objectType) attrs.push({ name: 'ObjectType', value: entityNode.objectType });
+    return attrs;
+  }, [entityNode]);
+
   if (!selectedEntityId || !query) {
     return (
       <div className="h-full flex flex-col border-l bg-card">
@@ -104,16 +115,6 @@ export function PropertiesPanel() {
   const entityGlobalId = entityNode!.globalId;
   const entityDescription = entityNode!.description;
   const entityObjectType = entityNode!.objectType;
-
-  // Build attributes array for display
-  const attributes = useMemo(() => {
-    const attrs: Array<{ name: string; value: string }> = [];
-    if (entityGlobalId) attrs.push({ name: 'GlobalId', value: entityGlobalId });
-    if (entityName) attrs.push({ name: 'Name', value: entityName });
-    if (entityDescription) attrs.push({ name: 'Description', value: entityDescription });
-    if (entityObjectType) attrs.push({ name: 'ObjectType', value: entityObjectType });
-    return attrs;
-  }, [entityGlobalId, entityName, entityDescription, entityObjectType]);
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
