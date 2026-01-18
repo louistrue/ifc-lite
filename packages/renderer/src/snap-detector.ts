@@ -31,6 +31,11 @@ export interface SnapOptions {
   screenSnapRadius: number; // In pixels
 }
 
+interface MeshGeometryCache {
+  vertices: Vec3[];
+  edges: Array<{ v0: Vec3; v1: Vec3; index: number }>;
+}
+
 export class SnapDetector {
   private raycaster = new Raycaster();
   private defaultOptions: SnapOptions = {
@@ -40,6 +45,9 @@ export class SnapDetector {
     snapRadius: 0.1, // 10cm in world units (meters)
     screenSnapRadius: 20, // pixels
   };
+
+  // Cache for processed mesh geometry (vertices and edges)
+  private geometryCache = new Map<number, MeshGeometryCache>();
 
   /**
    * Detect best snap target near cursor
@@ -90,27 +98,87 @@ export class SnapDetector {
   }
 
   /**
-   * Find vertices near point
+   * Get or compute geometry cache for a mesh
    */
-  private findVertices(mesh: MeshData, point: Vec3, radius: number): SnapTarget[] {
-    const targets: SnapTarget[] = [];
-    const positions = mesh.positions;
-    const uniqueVertices = new Map<string, Vec3>();
+  private getGeometryCache(mesh: MeshData): MeshGeometryCache {
+    const cached = this.geometryCache.get(mesh.expressId);
+    if (cached) {
+      return cached;
+    }
 
-    // Collect unique vertices
+    // Compute and cache vertices
+    const positions = mesh.positions;
+    const vertexMap = new Map<string, Vec3>();
+
     for (let i = 0; i < positions.length; i += 3) {
       const vertex: Vec3 = {
         x: positions[i],
         y: positions[i + 1],
         z: positions[i + 2],
       };
-
-      const key = `${vertex.x.toFixed(6)}_${vertex.y.toFixed(6)}_${vertex.z.toFixed(6)}`;
-      uniqueVertices.set(key, vertex);
+      // Use reduced precision for deduplication
+      const key = `${vertex.x.toFixed(4)}_${vertex.y.toFixed(4)}_${vertex.z.toFixed(4)}`;
+      vertexMap.set(key, vertex);
     }
 
+    const vertices = Array.from(vertexMap.values());
+
+    // Compute and cache edges
+    const edges: Array<{ v0: Vec3; v1: Vec3; index: number }> = [];
+    const indices = mesh.indices;
+
+    if (indices) {
+      const edgeMap = new Map<string, { v0: Vec3; v1: Vec3; index: number }>();
+
+      for (let i = 0; i < indices.length; i += 3) {
+        const triangleEdges = [
+          [indices[i], indices[i + 1]],
+          [indices[i + 1], indices[i + 2]],
+          [indices[i + 2], indices[i]],
+        ];
+
+        for (const [idx0, idx1] of triangleEdges) {
+          const i0 = idx0 * 3;
+          const i1 = idx1 * 3;
+
+          const v0: Vec3 = {
+            x: positions[i0],
+            y: positions[i0 + 1],
+            z: positions[i0 + 2],
+          };
+          const v1: Vec3 = {
+            x: positions[i1],
+            y: positions[i1 + 1],
+            z: positions[i1 + 2],
+          };
+
+          // Create canonical edge key (smaller index first)
+          const key = idx0 < idx1 ? `${idx0}_${idx1}` : `${idx1}_${idx0}`;
+
+          if (!edgeMap.has(key)) {
+            edgeMap.set(key, { v0, v1, index: edgeMap.size });
+          }
+        }
+      }
+
+      edges.push(...edgeMap.values());
+    }
+
+    const cache: MeshGeometryCache = { vertices, edges };
+    this.geometryCache.set(mesh.expressId, cache);
+
+    return cache;
+  }
+
+  /**
+   * Find vertices near point
+   */
+  private findVertices(mesh: MeshData, point: Vec3, radius: number): SnapTarget[] {
+    const targets: SnapTarget[] = [];
+    const cache = this.getGeometryCache(mesh);
+
     // Find vertices within radius
-    for (const vertex of uniqueVertices.values()) {
+    for (const vertex of cache.vertices) {
       const dist = this.distance(vertex, point);
       if (dist < radius) {
         targets.push({
@@ -130,52 +198,11 @@ export class SnapDetector {
    */
   private findEdges(mesh: MeshData, point: Vec3, radius: number): SnapTarget[] {
     const targets: SnapTarget[] = [];
-    const positions = mesh.positions;
-    const indices = mesh.indices;
+    const cache = this.getGeometryCache(mesh);
 
-    if (!indices) return targets;
-
-    const edges = new Map<string, { v0: Vec3; v1: Vec3 }>();
-
-    // Extract unique edges from triangles
-    for (let i = 0; i < indices.length; i += 3) {
-      const triangleEdges = [
-        [indices[i], indices[i + 1]],
-        [indices[i + 1], indices[i + 2]],
-        [indices[i + 2], indices[i]],
-      ];
-
-      for (const [idx0, idx1] of triangleEdges) {
-        const i0 = idx0 * 3;
-        const i1 = idx1 * 3;
-
-        const v0: Vec3 = {
-          x: positions[i0],
-          y: positions[i0 + 1],
-          z: positions[i0 + 2],
-        };
-        const v1: Vec3 = {
-          x: positions[i1],
-          y: positions[i1 + 1],
-          z: positions[i1 + 2],
-        };
-
-        // Create canonical edge key (smaller index first)
-        const key =
-          idx0 < idx1
-            ? `${idx0}_${idx1}`
-            : `${idx1}_${idx0}`;
-
-        if (!edges.has(key)) {
-          edges.set(key, { v0, v1 });
-        }
-      }
-    }
-
-    // Find edges near point
-    let edgeIndex = 0;
-    for (const { v0, v1 } of edges.values()) {
-      const closestPoint = this.raycaster.closestPointOnSegment(point, v0, v1);
+    // Find edges near point using cached data
+    for (const edge of cache.edges) {
+      const closestPoint = this.raycaster.closestPointOnSegment(point, edge.v0, edge.v1);
       const dist = this.distance(closestPoint, point);
 
       if (dist < radius) {
@@ -185,14 +212,14 @@ export class SnapDetector {
           position: closestPoint,
           expressId: mesh.expressId,
           confidence: 0.8 * (1.0 - dist / radius),
-          metadata: { vertices: [v0, v1], edgeIndex },
+          metadata: { vertices: [edge.v0, edge.v1], edgeIndex: edge.index },
         });
 
         // Edge midpoint snap
         const midpoint: Vec3 = {
-          x: (v0.x + v1.x) / 2,
-          y: (v0.y + v1.y) / 2,
-          z: (v0.z + v1.z) / 2,
+          x: (edge.v0.x + edge.v1.x) / 2,
+          y: (edge.v0.y + edge.v1.y) / 2,
+          z: (edge.v0.z + edge.v1.z) / 2,
         };
         const midDist = this.distance(midpoint, point);
 
@@ -202,15 +229,20 @@ export class SnapDetector {
             position: midpoint,
             expressId: mesh.expressId,
             confidence: 0.9 * (1.0 - midDist / radius),
-            metadata: { vertices: [v0, v1], edgeIndex },
+            metadata: { vertices: [edge.v0, edge.v1], edgeIndex: edge.index },
           });
         }
       }
-
-      edgeIndex++;
     }
 
     return targets;
+  }
+
+  /**
+   * Clear geometry cache (call when meshes change)
+   */
+  clearCache(): void {
+    this.geometryCache.clear();
   }
 
   /**

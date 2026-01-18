@@ -133,6 +133,10 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   const hoverThrottleMs = 50; // Check hover every 50ms
   const hoverTooltipsEnabledRef = useRef(hoverTooltipsEnabled);
 
+  // Measure tool throttling (16ms = 60fps max)
+  const measureRaycastPendingRef = useRef(false);
+  const measureRaycastFrameRef = useRef<number | null>(null);
+
   // Keep refs in sync
   useEffect(() => { hiddenEntitiesRef.current = hiddenEntities; }, [hiddenEntities]);
   useEffect(() => { isolatedEntitiesRef.current = isolatedEntities; }, [isolatedEntities]);
@@ -152,6 +156,22 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
       clearHover();
     }
   }, [hoverTooltipsEnabled, clearHover]);
+
+  // Cleanup measurement state when tool changes
+  useEffect(() => {
+    if (activeTool !== 'measure') {
+      // Cancel any active measurement
+      if (activeMeasurement) {
+        cancelMeasurement();
+      }
+      // Clear pending raycast requests
+      if (measureRaycastFrameRef.current !== null) {
+        cancelAnimationFrame(measureRaycastFrameRef.current);
+        measureRaycastFrameRef.current = null;
+        measureRaycastPendingRef.current = false;
+      }
+    }
+  }, [activeTool, activeMeasurement, cancelMeasurement]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -473,25 +493,35 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
 
         // Handle measure tool live preview while dragging
         if (tool === 'measure' && activeMeasurementRef.current) {
-          // Raycast to get current position
-          const result = renderer.raycastScene(x, y, {
-            hiddenIds: hiddenEntitiesRef.current,
-            isolatedIds: isolatedEntitiesRef.current,
-            snapOptions: snapEnabledRef.current ? {} : undefined,
-          });
+          // Throttle raycasting to 60fps max using requestAnimationFrame
+          if (!measureRaycastPendingRef.current) {
+            measureRaycastPendingRef.current = true;
 
-          if (result) {
-            const snapPoint = result.snap || result.intersection;
-            const measurePoint: MeasurePoint = {
-              x: snapPoint.position.x,
-              y: snapPoint.position.y,
-              z: snapPoint.position.z,
-              screenX: e.clientX,
-              screenY: e.clientY,
-            };
+            measureRaycastFrameRef.current = requestAnimationFrame(() => {
+              measureRaycastPendingRef.current = false;
+              measureRaycastFrameRef.current = null;
 
-            updateMeasurement(measurePoint);
-            setSnapTarget(result.snap || null);
+              // Raycast to get current position
+              const result = renderer.raycastScene(x, y, {
+                hiddenIds: hiddenEntitiesRef.current,
+                isolatedIds: isolatedEntitiesRef.current,
+                snapOptions: snapEnabledRef.current ? {} : undefined,
+              });
+
+              if (result) {
+                const snapPoint = result.snap || result.intersection;
+                const measurePoint: MeasurePoint = {
+                  x: snapPoint.position.x,
+                  y: snapPoint.position.y,
+                  z: snapPoint.position.z,
+                  screenX: e.clientX,
+                  screenY: e.clientY,
+                };
+
+                updateMeasurement(measurePoint);
+                setSnapTarget(result.snap || null);
+              }
+            });
           }
 
           // Mark as dragged (any movement counts for measure tool)

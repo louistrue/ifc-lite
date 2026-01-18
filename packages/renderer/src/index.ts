@@ -65,6 +65,16 @@ export class Renderer {
     private snapDetector: SnapDetector;
     private bvh: BVH;
 
+    // BVH cache
+    private bvhCache: {
+        meshCount: number;
+        meshData: MeshData[];
+        isBuilt: boolean;
+    } | null = null;
+
+    // Performance constants
+    private readonly BVH_THRESHOLD = 100;
+
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
         this.device = new WebGPUDevice();
@@ -73,6 +83,7 @@ export class Renderer {
         this.raycaster = new Raycaster();
         this.snapDetector = new SnapDetector();
         this.bvh = new BVH();
+        this.bvhCache = null;
     }
 
     /**
@@ -1196,35 +1207,18 @@ export class Renderer {
         y: number,
         options?: PickOptions & { snapOptions?: Partial<SnapOptions> }
     ): { intersection: Intersection; snap?: SnapTarget } | null {
-        // Create ray from screen coordinates
-        const ray = this.camera.unprojectToRay(x, y, this.canvas.width, this.canvas.height);
+        try {
+            // Create ray from screen coordinates
+            const ray = this.camera.unprojectToRay(x, y, this.canvas.width, this.canvas.height);
 
-        // Get all mesh data from scene
-        const allMeshData: MeshData[] = [];
-        const meshes = this.scene.getMeshes();
-        const batchedMeshes = this.scene.getBatchedMeshes();
+            // Get all mesh data from scene
+            const allMeshData: MeshData[] = [];
+            const meshes = this.scene.getMeshes();
+            const batchedMeshes = this.scene.getBatchedMeshes();
 
-        // Collect mesh data from regular meshes
-        for (const mesh of meshes) {
-            const meshData = this.scene.getMeshData(mesh.expressId);
-            if (meshData) {
-                // Apply visibility filtering
-                if (options?.hiddenIds?.has(meshData.expressId)) continue;
-                if (
-                    options?.isolatedIds !== null &&
-                    options?.isolatedIds !== undefined &&
-                    !options.isolatedIds.has(meshData.expressId)
-                ) {
-                    continue;
-                }
-                allMeshData.push(meshData);
-            }
-        }
-
-        // Collect mesh data from batched meshes
-        for (const batch of batchedMeshes) {
-            for (const expressId of batch.expressIds) {
-                const meshData = this.scene.getMeshData(expressId);
+            // Collect mesh data from regular meshes
+            for (const mesh of meshes) {
+                const meshData = this.scene.getMeshData(mesh.expressId);
                 if (meshData) {
                     // Apply visibility filtering
                     if (options?.hiddenIds?.has(meshData.expressId)) continue;
@@ -1238,48 +1232,96 @@ export class Renderer {
                     allMeshData.push(meshData);
                 }
             }
-        }
 
-        if (allMeshData.length === 0) {
-            return null;
-        }
+            // Collect mesh data from batched meshes
+            for (const batch of batchedMeshes) {
+                for (const expressId of batch.expressIds) {
+                    const meshData = this.scene.getMeshData(expressId);
+                    if (meshData) {
+                        // Apply visibility filtering
+                        if (options?.hiddenIds?.has(meshData.expressId)) continue;
+                        if (
+                            options?.isolatedIds !== null &&
+                            options?.isolatedIds !== undefined &&
+                            !options.isolatedIds.has(meshData.expressId)
+                        ) {
+                            continue;
+                        }
+                        allMeshData.push(meshData);
+                    }
+                }
+            }
 
-        // Use BVH for performance if we have many meshes
-        let meshesToTest = allMeshData;
-        if (allMeshData.length > 100) {
-            // Build BVH if not already built or if mesh count changed significantly
-            this.bvh.build(allMeshData);
-            const meshIndices = this.bvh.getMeshesForRay(ray, allMeshData);
-            meshesToTest = meshIndices.map(i => allMeshData[i]);
-        }
+            if (allMeshData.length === 0) {
+                return null;
+            }
 
-        // Perform raycasting
-        const intersection = this.raycaster.raycast(ray, meshesToTest);
+            // Use BVH for performance if we have many meshes
+            let meshesToTest = allMeshData;
+            if (allMeshData.length > this.BVH_THRESHOLD) {
+                // Check if BVH needs rebuilding
+                const needsRebuild =
+                    !this.bvhCache ||
+                    !this.bvhCache.isBuilt ||
+                    this.bvhCache.meshCount !== allMeshData.length;
 
-        if (!intersection) {
-            return null;
-        }
+                if (needsRebuild) {
+                    // Build BVH only when needed
+                    this.bvh.build(allMeshData);
+                    this.bvhCache = {
+                        meshCount: allMeshData.length,
+                        meshData: allMeshData,
+                        isBuilt: true,
+                    };
+                }
 
-        // Detect snap targets if requested
-        let snapTarget: SnapTarget | undefined;
-        if (options?.snapOptions) {
-            const cameraPos = this.camera.getPosition();
-            const cameraFov = this.camera.getFov();
+                // Use BVH to filter meshes
+                const meshIndices = this.bvh.getMeshesForRay(ray, allMeshData);
+                meshesToTest = meshIndices.map(i => allMeshData[i]);
+            }
 
-            snapTarget = this.snapDetector.detectSnapTarget(
-                ray,
-                allMeshData,
+            // Perform raycasting
+            const intersection = this.raycaster.raycast(ray, meshesToTest);
+
+            if (!intersection) {
+                return null;
+            }
+
+            // Detect snap targets if requested
+            // OPTIMIZATION: Only pass the intersected mesh, not all meshes
+            let snapTarget: SnapTarget | undefined;
+            if (options?.snapOptions) {
+                const cameraPos = this.camera.getPosition();
+                const cameraFov = this.camera.getFov();
+
+                // Get the actual intersected mesh data
+                const intersectedMesh = meshesToTest[intersection.meshIndex];
+
+                snapTarget = this.snapDetector.detectSnapTarget(
+                    ray,
+                    [intersectedMesh], // Only pass the one mesh we hit
+                    intersection,
+                    { position: cameraPos, fov: cameraFov },
+                    this.canvas.height,
+                    options.snapOptions
+                ) || undefined;
+            }
+
+            return {
                 intersection,
-                { position: cameraPos, fov: cameraFov },
-                this.canvas.height,
-                options.snapOptions
-            ) || undefined;
+                snap: snapTarget,
+            };
+        } catch (error) {
+            console.error('Raycast error:', error);
+            return null;
         }
+    }
 
-        return {
-            intersection,
-            snap: snapTarget,
-        };
+    /**
+     * Invalidate BVH cache (call when geometry changes)
+     */
+    invalidateBVHCache(): void {
+        this.bvhCache = null;
     }
 
     /**
@@ -1294,6 +1336,14 @@ export class Renderer {
      */
     getSnapDetector(): SnapDetector {
         return this.snapDetector;
+    }
+
+    /**
+     * Clear all caches (call when geometry changes)
+     */
+    clearCaches(): void {
+        this.invalidateBVHCache();
+        this.snapDetector.clearCache();
     }
 
     /**
