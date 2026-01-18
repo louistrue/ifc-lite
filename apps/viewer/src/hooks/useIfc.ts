@@ -1177,18 +1177,26 @@ export function useIfc() {
           // Note: IFCX geometry extractor already handles Y-up to Z-up conversion
           // and applies transforms correctly in Z-up space, so we just pass through
 
-          const meshes: MeshData[] = ifcxResult.meshes.map((m: { expressId?: number; express_id?: number; id?: number; positions: Float32Array | number[]; indices: Uint32Array | number[]; normals: Float32Array | number[]; color?: [number, number, number, number]; ifcType?: string; ifc_type?: string }) => {
+          const meshes: MeshData[] = ifcxResult.meshes.map((m: { expressId?: number; express_id?: number; id?: number; positions: Float32Array | number[]; indices: Uint32Array | number[]; normals: Float32Array | number[]; color?: [number, number, number, number] | [number, number, number]; ifcType?: string; ifc_type?: string }) => {
             // IFCX MeshData has: expressId, ifcType, positions (Float32Array), indices (Uint32Array), normals (Float32Array), color
-            const positions = m.positions instanceof Float32Array ? Array.from(m.positions) : (m.positions || []);
-            const indices = m.indices instanceof Uint32Array ? Array.from(m.indices) : (m.indices || []);
-            const normals = m.normals instanceof Float32Array ? Array.from(m.normals) : (m.normals || []);
+            const positions = m.positions instanceof Float32Array ? m.positions : new Float32Array(m.positions || []);
+            const indices = m.indices instanceof Uint32Array ? m.indices : new Uint32Array(m.indices || []);
+            const normals = m.normals instanceof Float32Array ? m.normals : new Float32Array(m.normals || []);
+            
+            // Normalize color to RGBA format (4 elements)
+            let color: [number, number, number, number];
+            if (m.color) {
+              color = m.color.length === 4 ? m.color as [number, number, number, number] : [m.color[0], m.color[1], m.color[2], 1.0];
+            } else {
+              color = [0.7, 0.7, 0.7, 1.0];
+            }
 
             return {
               expressId: m.expressId || m.express_id || m.id || 0,
               positions,
               indices,
               normals,
-              color: m.color || [0.7, 0.7, 0.7],
+              color,
               ifcType: m.ifcType || m.ifc_type || 'IfcProduct',
             };
           }).filter((m: MeshData) => m.positions.length > 0 && m.indices.length > 0); // Filter out empty meshes
