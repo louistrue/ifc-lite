@@ -17,7 +17,7 @@ import { ViewCube, type ViewCubeRef } from './ViewCube';
 import { AxisHelper } from './AxisHelper';
 
 export function ViewportOverlays() {
-  const selectedStorey = useViewerStore((s) => s.selectedStorey);
+  const selectedStoreys = useViewerStore((s) => s.selectedStoreys);
   const hiddenEntities = useViewerStore((s) => s.hiddenEntities);
   const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
   const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
@@ -53,8 +53,11 @@ export function ViewportOverlays() {
     return () => setOnScaleChange(null);
   }, [setOnScaleChange]);
 
-  const storeyName = selectedStorey && ifcDataStore
-    ? ifcDataStore.entities.getName(selectedStorey) || `Storey #${selectedStorey}`
+  // Get names of selected storeys
+  const storeyNames = selectedStoreys.size > 0 && ifcDataStore
+    ? Array.from(selectedStoreys).map(id => 
+        ifcDataStore.entities.getName(id) || `Storey #${id}`
+      )
     : null;
 
   // Calculate visible count considering visibility filters
@@ -146,12 +149,16 @@ export function ViewportOverlays() {
         </Tooltip>
       </div>
 
-      {/* Context Info (bottom-center) - Storey name only */}
-      {storeyName && (
+      {/* Context Info (bottom-center) - Storey names */}
+      {storeyNames && storeyNames.length > 0 && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-background/80 backdrop-blur-sm rounded-full border shadow-sm">
           <div className="flex items-center gap-2 text-sm">
             <Layers className="h-4 w-4 text-primary" />
-            <span className="font-medium">{storeyName}</span>
+            <span className="font-medium">
+              {storeyNames.length === 1 
+                ? storeyNames[0] 
+                : `${storeyNames.length} storeys`}
+            </span>
           </div>
         </div>
       )}
