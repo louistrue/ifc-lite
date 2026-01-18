@@ -17,9 +17,12 @@ pub struct Config {
     pub request_timeout_secs: u64,
     /// Number of worker threads for parallel processing.
     pub worker_threads: usize,
-    /// Initial batch size for fast first frame (first 3 batches).
+    /// Initial batch size for fast first frame.
+    /// OPTIMIZATION: Larger value (250+) ensures meaningful geometry in first batch.
+    /// First batch is prioritized to include simple geometry (walls, slabs, columns).
     pub initial_batch_size: usize,
-    /// Maximum batch size for throughput (batches 11+).
+    /// Maximum batch size for throughput on large files.
+    /// OPTIMIZATION: Larger batches (2000+) reduce per-batch overhead on files with >10k entities.
     pub max_batch_size: usize,
     /// Batch size for streaming responses (deprecated, use dynamic sizing).
     pub batch_size: usize,
@@ -61,14 +64,17 @@ impl Config {
                 .unwrap_or_else(|_| num_cpus::get().to_string())
                 .parse()
                 .unwrap_or_else(|_| num_cpus::get()),
+            // OPTIMIZATION: Larger initial batch for faster time-to-first-geometry
+            // First batch should show meaningful geometry (walls, slabs, columns)
             initial_batch_size: std::env::var("INITIAL_BATCH_SIZE")
-                .unwrap_or_else(|_| "100".into())
+                .unwrap_or_else(|_| "250".into())
                 .parse()
-                .unwrap_or(100),
+                .unwrap_or(250),
+            // Larger max batch for reduced overhead on large files
             max_batch_size: std::env::var("MAX_BATCH_SIZE")
-                .unwrap_or_else(|_| "1000".into())
+                .unwrap_or_else(|_| "2000".into())
                 .parse()
-                .unwrap_or(1000),
+                .unwrap_or(2000),
             batch_size: std::env::var("BATCH_SIZE")
                 .unwrap_or_else(|_| "200".into())
                 .parse()
