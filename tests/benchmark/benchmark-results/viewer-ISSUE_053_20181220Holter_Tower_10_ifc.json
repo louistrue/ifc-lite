@@ -1,29 +1,31 @@
 {
   "file": "ISSUE_053_20181220Holter_Tower_10.ifc",
   "sizeMB": 169.24,
-  "timestamp": "2026-01-18T23:18:30.460Z",
+  "timestamp": "2026-01-18T23:21:17.249Z",
   "metrics": {
-    "totalWallClockMs": 17577,
-    "fileReadMs": 202,
-    "modelOpenMs": 3835,
-    "firstBatchWaitMs": 1049,
+    "totalWallClockMs": 16494,
+    "fileReadMs": 178,
+    "modelOpenMs": 4947,
+    "firstBatchWaitMs": 1925,
     "firstBatchNumber": 1,
     "firstBatchMeshes": 300,
     "totalBatches": 123,
     "totalMeshes": 60889,
-    "geometryStreamingMs": 7109,
-    "wasmWaitMs": 7109,
-    "jsProcessMs": 183,
-    "entityScanMs": 2911,
+    "geometryStreamingMs": 7326,
+    "wasmWaitMs": 7326,
+    "jsProcessMs": 140,
+    "entityScanMs": 2880,
     "entityCount": 2807815,
-    "dataModelParseMs": 1305,
+    "dataModelParseMs": 2738,
     "dataModelEntityCount": 2807815,
     "fileSizeMB": 169.24,
-    "renderCompleteMs": 18567,
+    "renderCompleteMs": 17107,
     "canvasHasContent": true
   },
   "thresholds": {
-    "passed": true,
-    "violations": []
+    "passed": false,
+    "violations": [
+      "First batch wait increased by 140.6% (1925ms vs 800ms baseline)"
+    ]
   }
 }
