@@ -240,18 +240,23 @@ export function useIfc() {
     let psetCount = 0;
     let qsetCount = 0;
 
+    // OPTIMIZATION: Use direct typeEnum array access instead of getTypeName() which does O(n) linear search
+    // This reduces complexity from O(n²) to O(n) for large files
+    const PROPERTY_SET_ENUM = IfcTypeEnum.IfcPropertySet;
+    const QUANTITY_SET_ENUM = IfcTypeEnum.IfcElementQuantity;
+
     // Find all property sets and quantity sets, then look up what they define
     for (let i = 0; i < entities.count; i++) {
-      const psetId = entities.expressId[i];
-      const psetType = entities.getTypeName(psetId);
-      const psetTypeUpper = psetType?.toUpperCase() || '';
+      const typeEnum = entities.typeEnum[i];
 
-      // Only process property sets and quantity sets
-      const isPropertySet = psetTypeUpper === 'IFCPROPERTYSET';
-      const isQuantitySet = psetTypeUpper === 'IFCELEMENTQUANTITY';
+      // Only process property sets and quantity sets (direct enum comparison, no string conversion)
+      const isPropertySet = typeEnum === PROPERTY_SET_ENUM;
+      const isQuantitySet = typeEnum === QUANTITY_SET_ENUM;
       if (!isPropertySet && !isQuantitySet) {
         continue;
       }
+
+      const psetId = entities.expressId[i];
 
       if (isPropertySet) psetCount++;
       if (isQuantitySet) qsetCount++;
@@ -1318,9 +1323,8 @@ export function useIfc() {
       if (format === 'ifc' && USE_SERVER && SERVER_URL && SERVER_URL !== '') {
         setProgress({ phase: 'Trying server', percent: 8 });
         console.log(`[useIfc] Sending ${file.name} (${(buffer.byteLength / (1024 * 1024)).toFixed(2)}MB) to server at ${SERVER_URL}`);
-        // Clone buffer for server parsing (prevents detachment if server fails)
-        const bufferForServer = buffer.slice(0);
-        const serverSuccess = await loadFromServer(file, bufferForServer);
+        // Pass buffer directly - server uses File object for parsing, buffer is only for size checks
+        const serverSuccess = await loadFromServer(file, buffer);
         if (serverSuccess) {
           setLoading(false);
           return;
@@ -1342,25 +1346,35 @@ export function useIfc() {
       });
       await geometryProcessor.init();
 
-      // Start data model parsing in parallel (non-blocking)
-      // This parses entities, properties, relationships for the UI panels
-      // Use IfcParser directly - it has async yields every 500 entities so won't block geometry
-      const parser = new IfcParser();
-      const dataStorePromise = parser.parseColumnar(buffer.slice(0), {
-        onProgress: (prog) => {
-          // Update progress in background - don't block geometry
-          console.log(`[useIfc] Data model: ${prog.phase} ${prog.percent.toFixed(0)}%`);
-        },
+      // DEFER data model parsing - start it AFTER geometry streaming begins
+      // This ensures geometry gets first crack at the CPU for fast first frame
+      // Data model parsing is lower priority - UI can work without it initially
+      let resolveDataStore: (dataStore: any) => void;
+      const dataStorePromise = new Promise<any>((resolve) => {
+        resolveDataStore = resolve;
       });
 
-      // Handle data model completion in background
-      // On-demand property extraction is now used for all modes - no background parse needed
-      dataStorePromise.then(dataStore => {
-        console.log('[useIfc] Data model parsing complete - properties available via on-demand extraction');
-        setIfcDataStore(dataStore);
-      }).catch(err => {
-        console.error('[useIfc] Data model parsing failed:', err);
-      });
+      const startDataModelParsing = () => {
+        const parser = new IfcParser();
+        parser.parseColumnar(buffer, {
+          onProgress: (prog) => {
+            // Only log at key milestones to avoid console spam
+            if (prog.percent === 0 || prog.percent === 50 || prog.percent === 100) {
+              console.log(`[useIfc] Data model: ${prog.phase} ${prog.percent.toFixed(0)}%`);
+            }
+          },
+        }).then(dataStore => {
+          console.log('[useIfc] Data model parsing complete - properties available via on-demand extraction');
+          setIfcDataStore(dataStore);
+          resolveDataStore(dataStore);
+        }).catch(err => {
+          console.error('[useIfc] Data model parsing failed:', err);
+        });
+      };
+
+      // Schedule data model parsing to start after geometry begins streaming
+      // Use setTimeout(0) to yield to event loop first, letting geometry start
+      setTimeout(startDataModelParsing, 0);
 
       // Use adaptive processing: sync for small files, streaming for large files
       let estimatedTotal = 0;

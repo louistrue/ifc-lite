@@ -154,7 +154,11 @@ export class IfcParser {
 
     const entityRefs: EntityRef[] = [];
     let processed = 0;
-    const YIELD_INTERVAL = 50000;
+    // Yield frequently to avoid blocking geometry streaming
+    // Reduced from 50000 to 5000 for better interleaving with geometry processor
+    const YIELD_INTERVAL = 5000;
+    // Estimate total entities based on file size (~13,500 entities per MB typical for IFC)
+    const estimatedTotalEntities = Math.max(fileSizeMB * 13500, 10000);
 
     for (const ref of tokenizer.scanEntitiesFast()) {
       entityRefs.push({
@@ -167,7 +171,9 @@ export class IfcParser {
 
       processed++;
       if (processed % YIELD_INTERVAL === 0) {
-        options.onProgress?.({ phase: 'scanning', percent: Math.min(95, processed / 1000) });
+        // Progress capped at 95% (scanning phase), 100% reported after loop completes
+        const scanPercent = Math.min(95, (processed / estimatedTotalEntities) * 95);
+        options.onProgress?.({ phase: 'scanning', percent: scanPercent });
         await new Promise(resolve => setTimeout(resolve, 0));
       }
     }

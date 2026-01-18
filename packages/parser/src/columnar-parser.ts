@@ -321,9 +321,11 @@ export class ColumnarParser {
             );
 
             processed++;
-            if (processed % 50000 === 0) {
+            // Yield every 5000 entities for better interleaving with geometry streaming
+            if (processed % 5000 === 0) {
                 options.onProgress?.({ phase: 'building entities', percent: 30 + (processed / totalEntities) * 50 });
-                await maybeYield();
+                // Direct yield - don't use maybeYield since we're already throttling
+                await new Promise(resolve => setTimeout(resolve, 0));
             }
         }
 
