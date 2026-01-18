@@ -1127,9 +1127,15 @@ impl IfcAPI {
                     .ok()
                     .and_then(|v| v.dyn_into::<Function>().ok());
 
-                // LAZY INDEXING: Don't build full index upfront
-                // Index will be built on first reference resolution
-                let mut decoder = EntityDecoder::new(&content);
+                // Build entity index for lookups
+                let entity_index = ifc_lite_core::build_entity_index(&content);
+                let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+
+                // Build style index BEFORE processing any geometry
+                // This ensures both simple and complex geometry get styled colors
+                let geometry_styles = build_geometry_style_index(&content, &mut decoder);
+                let style_index =
+                    build_element_style_index(&content, &geometry_styles, &mut decoder);
 
                 // Create geometry router
                 let router = GeometryRouter::with_units(&content, &mut decoder);
