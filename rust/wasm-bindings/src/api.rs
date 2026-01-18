@@ -1127,9 +1127,15 @@ impl IfcAPI {
                     .ok()
                     .and_then(|v| v.dyn_into::<Function>().ok());
 
-                // LAZY INDEXING: Don't build full index upfront
-                // Index will be built on first reference resolution
-                let mut decoder = EntityDecoder::new(&content);
+                // Build entity index for lookups
+                let entity_index = ifc_lite_core::build_entity_index(&content);
+                let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+
+                // Build style index BEFORE processing any geometry
+                // This ensures both simple and complex geometry get styled colors
+                let geometry_styles = build_geometry_style_index(&content, &mut decoder);
+                let style_index =
+                    build_element_style_index(&content, &geometry_styles, &mut decoder);
 
                 // Create geometry router
                 let router = GeometryRouter::with_units(&content, &mut decoder);
@@ -1190,7 +1196,11 @@ impl IfcAPI {
                                             calculate_normals(&mut mesh);
                                         }
 
-                                        let color = get_default_color_for_type(&ifc_type);
+                                        // Use styled color from IFC, fall back to default
+                                        let color = style_index
+                                            .get(&id)
+                                            .copied()
+                                            .unwrap_or_else(|| get_default_color_for_type(&ifc_type));
                                         total_vertices += mesh.positions.len() / 3;
                                         total_triangles += mesh.indices.len() / 3;
 
@@ -1264,12 +1274,7 @@ impl IfcAPI {
                     router.preprocess_faceted_breps(&faceted_brep_ids, &mut decoder);
                 }
 
-                // Process deferred complex geometry
-                // Build style index now (deferred from start)
-                let geometry_styles = build_geometry_style_index(&content, &mut decoder);
-                let style_index =
-                    build_element_style_index(&content, &geometry_styles, &mut decoder);
-
+                // Process deferred complex geometry (style_index already built at start)
                 for (id, start, end, ifc_type) in deferred_complex {
                     if let Ok(entity) = decoder.decode_at(start, end) {
                         if let Ok(mut mesh) = router.process_element(&entity, &mut decoder) {
