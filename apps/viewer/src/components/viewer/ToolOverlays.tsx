@@ -31,6 +31,8 @@ function MeasureOverlay() {
   const pendingMeasurePoint = useViewerStore((s) => s.pendingMeasurePoint);
   const activeMeasurement = useViewerStore((s) => s.activeMeasurement);
   const snapTarget = useViewerStore((s) => s.snapTarget);
+  const snapEnabled = useViewerStore((s) => s.snapEnabled);
+  const toggleSnap = useViewerStore((s) => s.toggleSnap);
   const deleteMeasurement = useViewerStore((s) => s.deleteMeasurement);
   const clearMeasurements = useViewerStore((s) => s.clearMeasurements);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
@@ -109,10 +111,31 @@ function MeasureOverlay() {
       </div>
 
       {/* Instruction hint */}
-      <div className="absolute bottom-20 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground px-4 py-2 rounded-full text-sm shadow-lg z-30">
-        {activeMeasurement
-          ? 'Release to complete measurement'
-          : 'Drag to measure distance'}
+      <div className="absolute bottom-20 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground px-4 py-2 rounded-full text-sm shadow-lg z-30 flex items-center gap-2">
+        <span>
+          {activeMeasurement
+            ? 'Release to complete measurement'
+            : 'Drag to measure distance'}
+        </span>
+        {snapTarget && (
+          <span className="px-2 py-0.5 bg-white/20 rounded text-xs">
+            Snap: {snapTarget.type === 'vertex' ? 'Vertex' :
+                   snapTarget.type === 'edge' ? 'Edge' :
+                   snapTarget.type === 'edge_midpoint' ? 'Midpoint' :
+                   snapTarget.type === 'face' ? 'Face' : 'Center'}
+          </span>
+        )}
+      </div>
+
+      {/* Snap status indicator */}
+      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 text-xs text-muted-foreground z-30">
+        <button
+          onClick={toggleSnap}
+          className={`px-2 py-1 rounded ${snapEnabled ? 'bg-primary/20 text-primary' : 'bg-muted'}`}
+          title="Toggle snap (S key)"
+        >
+          Snap: {snapEnabled ? 'ON' : 'OFF'}
+        </button>
       </div>
 
       {/* Render measurement lines, labels, and snap indicators */}

@@ -501,7 +501,12 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             const result = renderer.raycastScene(x, y, {
               hiddenIds: hiddenEntitiesRef.current,
               isolatedIds: isolatedEntitiesRef.current,
-              snapOptions: snapEnabled ? {} : undefined,
+              snapOptions: snapEnabled ? {
+                snapToVertices: true,
+                snapToEdges: true,
+                snapToFaces: true,
+                screenSnapRadius: 30,
+              } : undefined,
             });
 
             if (result) {
@@ -567,7 +572,12 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
                 const result = renderer.raycastScene(x, y, {
                   hiddenIds: hiddenEntitiesRef.current,
                   isolatedIds: isolatedEntitiesRef.current,
-                  snapOptions: snapEnabledRef.current ? {} : undefined,
+                  snapOptions: snapEnabledRef.current ? {
+                    snapToVertices: true,
+                    snapToEdges: true,
+                    snapToFaces: true,
+                    screenSnapRadius: 30,
+                  } : undefined,
                 });
 
                 if (result) {
@@ -609,7 +619,12 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
               const result = renderer.raycastScene(x, y, {
                 hiddenIds: hiddenEntitiesRef.current,
                 isolatedIds: isolatedEntitiesRef.current,
-                snapOptions: {}, // Enable snapping
+                snapOptions: {
+                  snapToVertices: true,
+                  snapToEdges: true,
+                  snapToFaces: true,
+                  screenSnapRadius: 30, // Larger radius for easier snap detection
+                }, // Enable snapping
               });
 
               // Update snap target for visual feedback
@@ -623,8 +638,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           return; // Don't fall through to other tool handlers
         }
 
-        // Handle orbit/pan for other tools (NOT measure tool)
-        if (mouseState.isDragging && tool !== 'measure') {
+        // Handle orbit/pan for other tools (or measure tool with shift+drag or no active measurement)
+        if (mouseState.isDragging && (tool !== 'measure' || !activeMeasurementRef.current)) {
           const dx = e.clientX - mouseState.lastX;
           const dy = e.clientY - mouseState.lastY;
 
