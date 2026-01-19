@@ -960,9 +960,6 @@ export class Camera {
   setRTCOrigin(origin: Vec3): void {
     this.rtcOrigin = { ...origin };
     this.useRTC = origin.x !== 0 || origin.y !== 0 || origin.z !== 0;
-    if (this.useRTC) {
-      console.log('[Camera] RTC origin set for large coordinate precision:', origin);
-    }
     this.updateMatrices();
   }
 
