@@ -660,6 +660,13 @@ function SnapIndicator({ screenX, screenY, snapType }: SnapIndicatorProps) {
   );
 }
 
+// Axis display info for semantic names
+const AXIS_INFO = {
+  up: { label: 'Up', description: 'Horizontal cut (floor plan view)', icon: '↑' },
+  front: { label: 'Front', description: 'Vertical cut (elevation view)', icon: '→' },
+  side: { label: 'Side', description: 'Vertical cut (side elevation)', icon: '⊙' },
+} as const;
+
 function SectionOverlay() {
   const sectionPlane = useViewerStore((s) => s.sectionPlane);
   const setSectionPlaneAxis = useViewerStore((s) => s.setSectionPlaneAxis);
@@ -667,12 +674,13 @@ function SectionOverlay() {
   const toggleSectionPlane = useViewerStore((s) => s.toggleSectionPlane);
   const flipSectionPlane = useViewerStore((s) => s.flipSectionPlane);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState(true);
 
   const handleClose = useCallback(() => {
     setActiveTool('select');
   }, [setActiveTool]);
 
-  const handleAxisChange = useCallback((axis: 'x' | 'y' | 'z') => {
+  const handleAxisChange = useCallback((axis: 'up' | 'front' | 'side') => {
     setSectionPlaneAxis(axis);
   }, [setSectionPlaneAxis]);
 
@@ -680,73 +688,196 @@ function SectionOverlay() {
     setSectionPlanePosition(Number(e.target.value));
   }, [setSectionPlanePosition]);
 
-  return (
-    <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-background/95 backdrop-blur-sm rounded-lg border shadow-lg p-3 min-w-72 z-30">
-      <div className="flex items-center justify-between gap-4 mb-3">
-        <div className="flex items-center gap-2">
-          <Slice className="h-4 w-4 text-primary" />
-          <span className="font-medium text-sm">Section Plane</span>
-        </div>
-        <Button variant="ghost" size="icon-sm" onClick={handleClose} title="Close">
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
+  const togglePanel = useCallback(() => {
+    setIsPanelCollapsed(prev => !prev);
+  }, []);
 
-      <div className="space-y-4">
-        {/* Axis Selection */}
-        <div>
-          <label className="text-xs text-muted-foreground mb-2 block">Axis</label>
-          <div className="flex gap-1">
-            {(['x', 'y', 'z'] as const).map((axis) => (
+  return (
+    <>
+      {/* Compact Section Tool Panel - matches Measure tool style */}
+      <div className="pointer-events-auto absolute top-4 left-1/2 -translate-x-1/2 bg-background/95 backdrop-blur-sm rounded-lg border shadow-lg z-30">
+        {/* Header - always visible */}
+        <div className="flex items-center justify-between gap-2 p-2">
+          <button
+            onClick={togglePanel}
+            className="flex items-center gap-2 hover:bg-accent/50 rounded px-2 py-1 transition-colors"
+          >
+            <Slice className="h-4 w-4 text-primary" />
+            <span className="font-medium text-sm">Section</span>
+            {sectionPlane.enabled && (
+              <span className="text-xs text-primary font-mono">
+                {AXIS_INFO[sectionPlane.axis].label} {sectionPlane.position}%
+              </span>
+            )}
+            <ChevronDown className={`h-3 w-3 transition-transform ${isPanelCollapsed ? '-rotate-90' : ''}`} />
+          </button>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon-sm" onClick={handleClose} title="Close">
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+        </div>
+
+        {/* Expandable content */}
+        {!isPanelCollapsed && (
+          <div className="border-t px-3 pb-3 min-w-64">
+            {/* Direction Selection */}
+            <div className="mt-3">
+              <label className="text-xs text-muted-foreground mb-2 block">Direction</label>
+              <div className="flex gap-1">
+                {(['up', 'front', 'side'] as const).map((axis) => (
+                  <Button
+                    key={axis}
+                    variant={sectionPlane.axis === axis ? 'default' : 'outline'}
+                    size="sm"
+                    className="flex-1 flex-col h-auto py-1.5"
+                    onClick={() => handleAxisChange(axis)}
+                  >
+                    <span className="text-xs font-medium">{AXIS_INFO[axis].label}</span>
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {/* Position Slider */}
+            <div className="mt-3">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-muted-foreground">Position</label>
+                <span className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded">{sectionPlane.position}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={sectionPlane.position}
+                onChange={handlePositionChange}
+                className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2 mt-3">
               <Button
-                key={axis}
-                variant={sectionPlane.axis === axis ? 'default' : 'outline'}
+                variant={sectionPlane.enabled ? 'default' : 'outline'}
                 size="sm"
                 className="flex-1"
-                onClick={() => handleAxisChange(axis)}
+                onClick={toggleSectionPlane}
               >
-                {axis.toUpperCase()}
+                {sectionPlane.enabled ? 'Enabled' : 'Disabled'}
               </Button>
-            ))}
+              <Button
+                variant={sectionPlane.flipped ? 'default' : 'outline'}
+                size="sm"
+                className="flex-1"
+                onClick={flipSectionPlane}
+                title="Flip which side of the cut is visible"
+              >
+                {sectionPlane.flipped ? 'Flipped' : 'Normal'}
+              </Button>
+            </div>
           </div>
-        </div>
-
-        {/* Position Slider */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-xs text-muted-foreground">Position</label>
-            <span className="text-xs font-mono">{sectionPlane.position}%</span>
-          </div>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            value={sectionPlane.position}
-            onChange={handlePositionChange}
-            className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-          />
-        </div>
-
-        {/* Actions */}
-        <div className="flex gap-2">
-          <Button
-            variant={sectionPlane.enabled ? 'default' : 'outline'}
-            size="sm"
-            className="flex-1"
-            onClick={toggleSectionPlane}
-          >
-            {sectionPlane.enabled ? 'Disable' : 'Enable'}
-          </Button>
-          <Button variant="outline" size="sm" className="flex-1" onClick={flipSectionPlane}>
-            Flip
-          </Button>
-        </div>
-
-        <div className="text-xs text-muted-foreground text-center">
-          Section plane cuts the model along the selected axis
-        </div>
+        )}
       </div>
-    </div>
+
+      {/* Instruction hint - brutalist style matching Measure tool */}
+      <div
+        className="pointer-events-auto absolute bottom-16 left-1/2 -translate-x-1/2 z-30 bg-zinc-900 dark:bg-zinc-100 text-zinc-100 dark:text-zinc-900 px-3 py-1.5 border-2 border-zinc-900 dark:border-zinc-100 transition-shadow duration-150"
+        style={{
+          boxShadow: sectionPlane.enabled
+            ? '4px 4px 0px 0px #03A9F4' // Light blue shadow when active
+            : '3px 3px 0px 0px rgba(0,0,0,0.3)'
+        }}
+      >
+        <span className="font-mono text-xs uppercase tracking-wide">
+          {sectionPlane.enabled
+            ? `Cutting ${AXIS_INFO[sectionPlane.axis].label.toLowerCase()}${sectionPlane.flipped ? ' (flipped)' : ''}`
+            : 'Section disabled'}
+        </span>
+      </div>
+
+      {/* Enable toggle - brutalist style matching Measure tool */}
+      <div className="pointer-events-auto absolute bottom-4 left-1/2 -translate-x-1/2 z-30">
+        <button
+          onClick={toggleSectionPlane}
+          className={`px-2 py-1 font-mono text-[10px] uppercase tracking-wider border-2 transition-colors ${
+            sectionPlane.enabled
+              ? 'bg-primary text-primary-foreground border-primary'
+              : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-500 border-zinc-300 dark:border-zinc-700'
+          }`}
+          title="Toggle section plane"
+        >
+          Section {sectionPlane.enabled ? 'On' : 'Off'}
+        </button>
+      </div>
+
+      {/* Section plane visualization overlay */}
+      {sectionPlane.enabled && (
+        <SectionPlaneVisualization axis={sectionPlane.axis} flipped={sectionPlane.flipped} />
+      )}
+    </>
+  );
+}
+
+// Section plane visual indicator component
+function SectionPlaneVisualization({ axis, flipped }: { axis: 'up' | 'front' | 'side'; flipped: boolean }) {
+  // Get the axis color
+  const axisColors = {
+    up: '#03A9F4',    // Light blue for horizontal cuts
+    front: '#4CAF50', // Green for front cuts
+    side: '#FF9800',  // Orange for side cuts
+  };
+
+  const color = axisColors[axis];
+
+  return (
+    <svg
+      className="absolute inset-0 pointer-events-none z-20"
+      style={{ overflow: 'visible', pointerEvents: 'none' }}
+    >
+      <defs>
+        <filter id="section-glow">
+          <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+          <feMerge>
+            <feMergeNode in="coloredBlur"/>
+            <feMergeNode in="SourceGraphic"/>
+          </feMerge>
+        </filter>
+        {/* Animated dash pattern */}
+        <pattern id="section-pattern" patternUnits="userSpaceOnUse" width="10" height="10">
+          <line x1="0" y1="0" x2="10" y2="10" stroke={color} strokeWidth="1" strokeOpacity="0.5"/>
+        </pattern>
+      </defs>
+
+      {/* Axis indicator in corner */}
+      <g transform="translate(24, 24)">
+        <circle cx="20" cy="20" r="18" fill={color} fillOpacity="0.1" stroke={color} strokeWidth="2" filter="url(#section-glow)"/>
+        <text
+          x="20"
+          y="20"
+          textAnchor="middle"
+          dominantBaseline="central"
+          fill={color}
+          fontFamily="monospace"
+          fontSize="11"
+          fontWeight="bold"
+        >
+          {AXIS_INFO[axis].label.toUpperCase()}
+        </text>
+        {/* Flip indicator */}
+        {flipped && (
+          <text
+            x="20"
+            y="32"
+            textAnchor="middle"
+            fill={color}
+            fontFamily="monospace"
+            fontSize="8"
+          >
+            FLIP
+          </text>
+        )}
+      </g>
+    </svg>
   );
 }
 

@@ -38,7 +38,7 @@ import { Camera } from './camera.js';
 import { Scene } from './scene.js';
 import { Picker } from './picker.js';
 import { FrustumUtils } from '@ifc-lite/spatial';
-import type { RenderOptions, PickOptions, Mesh, InstancedMesh } from './types.js';
+import type { RenderOptions, PickOptions, Mesh, InstancedMesh, SectionPlaneAxis } from './types.js';
 import { SectionPlaneRenderer } from './section-plane.js';
 import type { MeshData } from '@ifc-lite/geometry';
 import { deduplicateMeshes } from '@ifc-lite/geometry';
@@ -559,11 +559,17 @@ export class Renderer {
             // Calculate section plane parameters if enabled
             let sectionPlaneData: { normal: [number, number, number]; distance: number; enabled: boolean } | undefined;
             if (options.sectionPlane?.enabled) {
-                // Calculate plane normal based on axis
-                const normal: [number, number, number] = [0, 0, 0];
-                if (options.sectionPlane.axis === 'x') normal[0] = 1;
-                else if (options.sectionPlane.axis === 'y') normal[1] = 1;
-                else normal[2] = 1;
+                // Calculate plane normal based on semantic axis
+                // up = Y axis (horizontal cut), front = Z axis, side = X axis
+                let normal: [number, number, number] = [0, 0, 0];
+                if (options.sectionPlane.axis === 'side') normal[0] = 1;       // X axis
+                else if (options.sectionPlane.axis === 'up') normal[1] = 1;    // Y axis (horizontal)
+                else normal[2] = 1;                                             // Z axis (front)
+
+                // If flipped, negate the normal to show the opposite side
+                if (options.sectionPlane.flipped) {
+                    normal = [-normal[0], -normal[1], -normal[2]];
+                }
 
                 // Get model bounds for calculating plane position and visual
                 const boundsMin = { x: Infinity, y: Infinity, z: Infinity };
@@ -592,8 +598,8 @@ export class Renderer {
                 // Store bounds for section plane visual
                 this.modelBounds = { min: boundsMin, max: boundsMax };
 
-                // Get axis-specific range
-                const axisIdx = options.sectionPlane.axis === 'x' ? 'x' : options.sectionPlane.axis === 'y' ? 'y' : 'z';
+                // Get axis-specific range based on semantic axis
+                const axisIdx = options.sectionPlane.axis === 'side' ? 'x' : options.sectionPlane.axis === 'up' ? 'y' : 'z';
                 const minVal = boundsMin[axisIdx];
                 const maxVal = boundsMax[axisIdx];
 
@@ -1092,6 +1098,7 @@ export class Renderer {
                         position: options.sectionPlane!.position,
                         bounds: this.modelBounds,
                         viewProj,
+                        flipped: options.sectionPlane!.flipped,
                     }
                 );
             }

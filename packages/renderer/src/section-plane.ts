@@ -7,13 +7,14 @@
  */
 
 export interface SectionPlaneRenderOptions {
-  axis: 'x' | 'y' | 'z';
+  axis: 'up' | 'front' | 'side';  // Semantic axis names: up (Y), front (Z), side (X)
   position: number; // 0-100 percentage
   bounds: {
     min: { x: number; y: number; z: number };
     max: { x: number; y: number; z: number };
   };
   viewProj: Float32Array;
+  flipped?: boolean; // If true, show the opposite side indicator
 }
 
 export class SectionPlaneRenderer {
@@ -57,23 +58,38 @@ export class SectionPlaneRenderer {
 
         @fragment
         fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-          // Create a grid pattern on the plane
-          let gridSize = 0.05;
-          let lineWidth = 0.02;
+          // Create a more visible grid pattern with animated effect
+          let gridSize = 0.08;
+          let lineWidth = 0.015;
 
           let gridX = abs(fract(input.uv.x / gridSize + 0.5) - 0.5);
           let gridY = abs(fract(input.uv.y / gridSize + 0.5) - 0.5);
 
           let gridLine = min(gridX, gridY);
           let isGridLine = gridLine < lineWidth;
+          let isMajorGridLine = gridLine < lineWidth * 0.5;
 
-          // Edge fade for softer appearance
-          let edgeFade = smoothstep(0.0, 0.1, min(input.uv.x, min(input.uv.y, min(1.0 - input.uv.x, 1.0 - input.uv.y))));
+          // Edge fade for softer appearance - wider border
+          let edgeFade = smoothstep(0.0, 0.15, min(input.uv.x, min(input.uv.y, min(1.0 - input.uv.x, 1.0 - input.uv.y))));
+
+          // Border glow effect
+          let borderDist = min(input.uv.x, min(input.uv.y, min(1.0 - input.uv.x, 1.0 - input.uv.y)));
+          let borderGlow = 1.0 - smoothstep(0.0, 0.08, borderDist);
 
           var color = uniforms.planeColor;
-          if (isGridLine) {
-            color = vec4<f32>(color.rgb * 1.3, color.a * 1.5);
+
+          // Enhanced grid lines - brighter and more visible
+          if (isMajorGridLine) {
+            color = vec4<f32>(1.0, 1.0, 1.0, color.a * 2.5);
+          } else if (isGridLine) {
+            color = vec4<f32>(color.rgb * 1.5, color.a * 2.0);
           }
+
+          // Add border glow
+          color = vec4<f32>(
+            color.rgb + vec3<f32>(borderGlow * 0.3),
+            color.a + borderGlow * 0.4
+          );
 
           color.a *= edgeFade;
 
@@ -172,11 +188,23 @@ export class SectionPlaneRenderer {
     // Update uniforms
     const uniforms = new Float32Array(20);
     uniforms.set(viewProj, 0);
-    // Plane color - semi-transparent blue/cyan
-    uniforms[16] = 0.2;  // R
-    uniforms[17] = 0.6;  // G
-    uniforms[18] = 0.9;  // B
-    uniforms[19] = 0.3;  // A (transparency)
+
+    // Axis-specific colors for better identification
+    // up (Y) = light blue, front (Z) = green, side (X) = orange
+    if (axis === 'up') {
+      uniforms[16] = 0.012; // R - #03A9F4
+      uniforms[17] = 0.663; // G
+      uniforms[18] = 0.957; // B
+    } else if (axis === 'front') {
+      uniforms[16] = 0.298; // R - #4CAF50
+      uniforms[17] = 0.686; // G
+      uniforms[18] = 0.314; // B
+    } else {
+      uniforms[16] = 1.0;   // R - #FF9800
+      uniforms[17] = 0.596; // G
+      uniforms[18] = 0.0;   // B
+    }
+    uniforms[19] = 0.35;  // A (transparency - slightly more visible)
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
 
     // Render the section plane
@@ -201,7 +229,7 @@ export class SectionPlaneRenderer {
   }
 
   private calculatePlaneVertices(
-    axis: 'x' | 'y' | 'z',
+    axis: 'up' | 'front' | 'side',
     position: number,
     bounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } }
   ): Float32Array {
@@ -221,7 +249,8 @@ export class SectionPlaneRenderer {
 
     let vertices: number[] = [];
 
-    if (axis === 'x') {
+    if (axis === 'side') {
+      // Side = X axis (YZ plane)
       const x = min.x + t * (max.x - min.x);
       const halfY = sizeY / 2;
       const halfZ = sizeZ / 2;
@@ -236,7 +265,8 @@ export class SectionPlaneRenderer {
         x, centerY + halfY, centerZ + halfZ, 1, 1,
         x, centerY - halfY, centerZ + halfZ, 0, 1,
       ];
-    } else if (axis === 'y') {
+    } else if (axis === 'up') {
+      // Up = Y axis (XZ plane) - horizontal cut
       const y = min.y + t * (max.y - min.y);
       const halfX = sizeX / 2;
       const halfZ = sizeZ / 2;
@@ -252,6 +282,7 @@ export class SectionPlaneRenderer {
         centerX - halfX, y, centerZ + halfZ, 0, 1,
       ];
     } else {
+      // Front = Z axis (XY plane)
       const z = min.z + t * (max.z - min.z);
       const halfX = sizeX / 2;
       const halfY = sizeY / 2;

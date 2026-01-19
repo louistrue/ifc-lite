@@ -35,10 +35,13 @@ export interface ActiveMeasurement {
 }
 
 // Section plane types
+// Semantic axis names: up (Y), front (Z), side (X) for intuitive user experience
+export type SectionPlaneAxis = 'up' | 'front' | 'side';
 export interface SectionPlane {
-  axis: 'x' | 'y' | 'z';
+  axis: SectionPlaneAxis;
   position: number; // 0-100 percentage of model bounds
   enabled: boolean;
+  flipped: boolean; // If true, show the opposite side of the cut
 }
 
 // Hover state
@@ -211,7 +214,7 @@ interface ViewerState {
   toggleSnap: () => void;
 
   // Section plane actions
-  setSectionPlaneAxis: (axis: 'x' | 'y' | 'z') => void;
+  setSectionPlaneAxis: (axis: SectionPlaneAxis) => void;
   setSectionPlanePosition: (position: number) => void;
   toggleSectionPlane: () => void;
   flipSectionPlane: () => void;
@@ -252,7 +255,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   snapTarget: null,
   snapEnabled: true,
   snapVisualization: null,
-  sectionPlane: { axis: 'y', position: 50, enabled: false },
+  sectionPlane: { axis: 'up', position: 50, enabled: false, flipped: false },
   cameraRotation: { azimuth: 45, elevation: 25 },
   cameraCallbacks: {},
   onCameraRotationChange: null,
@@ -694,10 +697,10 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     sectionPlane: { ...state.sectionPlane, enabled: !state.sectionPlane.enabled },
   })),
   flipSectionPlane: () => set((state) => ({
-    sectionPlane: { ...state.sectionPlane, position: 100 - state.sectionPlane.position },
+    sectionPlane: { ...state.sectionPlane, flipped: !state.sectionPlane.flipped },
   })),
   resetSectionPlane: () => set({
-    sectionPlane: { axis: 'y', position: 50, enabled: false },
+    sectionPlane: { axis: 'up', position: 50, enabled: false, flipped: false },
   }),
 
   // Reset all viewer state when loading new file
@@ -719,7 +722,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     pendingMeasurePoint: null,
     activeMeasurement: null,
     snapTarget: null,
-    sectionPlane: { axis: 'y', position: 50, enabled: false },
+    sectionPlane: { axis: 'up', position: 50, enabled: false, flipped: false },
     cameraRotation: { azimuth: 45, elevation: 25 },
     activeTool: 'select',
   }),
