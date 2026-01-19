@@ -255,7 +255,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   snapTarget: null,
   snapEnabled: true,
   snapVisualization: null,
-  sectionPlane: { axis: 'up', position: 50, enabled: false, flipped: false },
+  sectionPlane: { axis: 'up', position: 50, enabled: true, flipped: false },
   cameraRotation: { azimuth: 45, elevation: 25 },
   cameraCallbacks: {},
   onCameraRotationChange: null,

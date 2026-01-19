@@ -20,8 +20,9 @@ export interface SectionPlaneRenderOptions {
 
 export class SectionPlaneRenderer {
   private device: GPUDevice;
-  private previewPipeline: GPURenderPipeline | null = null;  // With depth test (respects geometry)
-  private cutPipeline: GPURenderPipeline | null = null;      // No depth test (always visible)
+  private bindGroupLayout: GPUBindGroupLayout | null = null;  // Shared layout for both pipelines
+  private previewPipeline: GPURenderPipeline | null = null;   // With depth test (respects geometry)
+  private cutPipeline: GPURenderPipeline | null = null;       // No depth test (always visible)
   private vertexBuffer: GPUBuffer | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
@@ -37,6 +38,22 @@ export class SectionPlaneRenderer {
 
   private init(): void {
     if (this.initialized) return;
+
+    // Create explicit bind group layout (shared between both pipelines)
+    this.bindGroupLayout = this.device.createBindGroupLayout({
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'uniform' },
+        },
+      ],
+    });
+
+    // Create pipeline layout using the shared bind group layout
+    const pipelineLayout = this.device.createPipelineLayout({
+      bindGroupLayouts: [this.bindGroupLayout],
+    });
 
     // Create shader for section plane rendering
     const shaderModule = this.device.createShaderModule({
@@ -113,9 +130,9 @@ export class SectionPlaneRenderer {
       `,
     });
 
-    // Shared pipeline config
+    // Shared pipeline config (now using explicit layout)
     const pipelineBase = {
-      layout: 'auto' as const,
+      layout: pipelineLayout,
       vertex: {
         module: shaderModule,
         entryPoint: 'vs_main',
@@ -189,9 +206,9 @@ export class SectionPlaneRenderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    // Create bind group (both pipelines have same layout)
+    // Create bind group using explicit layout (compatible with both pipelines)
     this.bindGroup = this.device.createBindGroup({
-      layout: this.previewPipeline.getBindGroupLayout(0),
+      layout: this.bindGroupLayout,
       entries: [
         { binding: 0, resource: { buffer: this.uniformBuffer } },
       ],
