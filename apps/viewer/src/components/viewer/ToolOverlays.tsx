@@ -7,7 +7,7 @@
  */
 
 import React, { useCallback, useMemo, useState, useEffect } from 'react';
-import { X, Trash2, Ruler } from 'lucide-react';
+import { X, Trash2, Ruler, Slice, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useViewerStore, type Measurement } from '@/store';
 import { SnapType } from '@ifc-lite/renderer';
@@ -762,6 +762,7 @@ function SectionOverlay() {
   const setSectionPlanePosition = useViewerStore((s) => s.setSectionPlanePosition);
   const toggleSectionPlane = useViewerStore((s) => s.toggleSectionPlane);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
 
   const handleClose = useCallback(() => {
     setActiveTool('select');
@@ -775,82 +776,93 @@ function SectionOverlay() {
     setSectionPlanePosition(Number(e.target.value));
   }, [setSectionPlanePosition]);
 
-  // Axis colors - subtle, professional
-  const axisColors = {
-    down: '#03A9F4',
-    front: '#4CAF50',
-    side: '#FF9800',
-  };
-  const currentColor = axisColors[sectionPlane.axis];
-  const axes = ['down', 'front', 'side'] as const;
+  const togglePanel = useCallback(() => {
+    setIsPanelCollapsed(prev => !prev);
+  }, []);
 
   return (
     <>
-      {/* Minimal section control - top left */}
-      <div className="pointer-events-auto absolute top-4 left-4 z-30 flex flex-col items-start gap-2">
-        {/* Carousel direction switcher - round buttons */}
-        <div className="flex items-center gap-1">
-          {axes.map((axis) => {
-            const isActive = sectionPlane.axis === axis;
-            const color = axisColors[axis];
-            return (
-              <button
-                key={axis}
-                onClick={() => handleAxisChange(axis)}
-                className="relative w-9 h-9 rounded-full transition-all duration-200 flex items-center justify-center"
-                style={{
-                  border: `2px solid ${isActive ? color : 'hsl(var(--border))'}`,
-                  backgroundColor: isActive ? `${color}15` : 'transparent',
-                  color: isActive ? color : 'hsl(var(--muted-foreground))',
-                }}
-                title={AXIS_INFO[axis].description}
-              >
-                <span className="font-mono text-xs font-semibold">
-                  {axis.charAt(0).toUpperCase()}
-                </span>
-              </button>
-            );
-          })}
-
-          {/* Close button */}
+      {/* Section Tool Panel - matches Measure tool style */}
+      <div className="pointer-events-auto absolute top-4 left-1/2 -translate-x-1/2 bg-background/95 backdrop-blur-sm rounded-lg border shadow-lg z-30">
+        {/* Header - always visible */}
+        <div className="flex items-center justify-between gap-2 p-2">
           <button
-            onClick={handleClose}
-            className="w-7 h-7 rounded-full border border-border text-muted-foreground hover:text-foreground hover:border-foreground/50 transition-colors flex items-center justify-center ml-1"
-            title="Exit section mode"
+            onClick={togglePanel}
+            className="flex items-center gap-2 hover:bg-accent/50 rounded px-2 py-1 transition-colors"
           >
-            <X className="h-3 w-3" />
+            <Slice className="h-4 w-4 text-primary" />
+            <span className="font-medium text-sm">Section</span>
+            <span className="text-xs text-muted-foreground">
+              {AXIS_INFO[sectionPlane.axis].label} {sectionPlane.position}%
+            </span>
+            <ChevronDown className={`h-3 w-3 transition-transform ${isPanelCollapsed ? '-rotate-90' : ''}`} />
           </button>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon-sm" onClick={handleClose} title="Close">
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
         </div>
 
-        {/* Horizontal slider - clean, minimal */}
-        <div className="flex items-center gap-2 pl-1">
-          <input
-            type="range"
-            min="0"
-            max="100"
-            value={sectionPlane.position}
-            onChange={handlePositionChange}
-            className="w-24 h-1 cursor-pointer appearance-none rounded-full bg-border"
-            style={{
-              accentColor: currentColor,
-            }}
-          />
-          <span
-            className="font-mono text-[10px] tabular-nums w-8"
-            style={{ color: currentColor }}
-          >
-            {sectionPlane.position}%
-          </span>
-        </div>
+        {/* Expandable content */}
+        {!isPanelCollapsed && (
+          <div className="border-t px-3 pb-3 flex gap-4">
+            {/* Left side: Direction buttons */}
+            <div className="mt-3">
+              <label className="text-xs text-muted-foreground mb-2 block">Direction</label>
+              <div className="flex flex-col gap-1">
+                {(['down', 'front', 'side'] as const).map((axis) => (
+                  <button
+                    key={axis}
+                    onClick={() => handleAxisChange(axis)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded transition-colors text-left ${
+                      sectionPlane.axis === axis
+                        ? 'bg-primary text-primary-foreground'
+                        : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {AXIS_INFO[axis].label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-        {/* Cut/Preview toggle - minimal text button */}
+            {/* Right side: Vertical slider */}
+            <div className="mt-3 flex flex-col items-center">
+              <label className="text-xs text-muted-foreground mb-2">Height</label>
+              <div className="relative h-24 flex items-center justify-center">
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={sectionPlane.position}
+                  onChange={handlePositionChange}
+                  className="h-20 w-2 cursor-pointer appearance-none rounded-full bg-muted accent-primary"
+                  style={{
+                    writingMode: 'vertical-lr',
+                    direction: 'rtl',
+                  }}
+                />
+              </div>
+              <span className="text-xs font-mono text-muted-foreground mt-1">
+                {sectionPlane.position}%
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Preview/Cutting toggle - bottom center, prominent */}
+      <div className="pointer-events-auto absolute bottom-4 left-1/2 -translate-x-1/2 z-30">
         <button
           onClick={toggleSectionPlane}
-          className="font-mono text-[10px] uppercase tracking-wider pl-1 transition-colors"
-          style={{ color: sectionPlane.enabled ? currentColor : 'hsl(var(--muted-foreground))' }}
-          title={sectionPlane.enabled ? 'Switch to preview' : 'Enable cutting'}
+          className={`px-4 py-2 rounded-lg font-medium text-sm transition-all border-2 ${
+            sectionPlane.enabled
+              ? 'bg-primary text-primary-foreground border-primary shadow-lg'
+              : 'bg-background/95 backdrop-blur-sm text-muted-foreground border-border hover:border-primary hover:text-primary'
+          }`}
         >
-          {sectionPlane.enabled ? '● Cutting' : '○ Preview'}
+          {sectionPlane.enabled ? '✓ Cutting Active' : 'Enable Cutting'}
         </button>
       </div>
     </>
