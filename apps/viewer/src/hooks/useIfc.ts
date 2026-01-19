@@ -242,19 +242,35 @@ export function useIfc() {
   /**
    * Rebuild on-demand property/quantity maps from relationships and entity types
    * Uses FORWARD direction: pset -> elements (more efficient than inverse lookup)
-   * OPTIMIZED: Uses getByType() instead of iterating all entities
+   * OPTIMIZED: Uses entityIndex.byType for property/quantity set lookup since
+   * the entity table may not include these types (filtered during fresh parse)
    */
   const rebuildOnDemandMaps = (
     entities: EntityTable,
-    relationships: RelationshipGraph
+    relationships: RelationshipGraph,
+    entityIndex?: { byId: Map<number, any>; byType: Map<string, number[]> }
   ): { onDemandPropertyMap: Map<number, number[]>; onDemandQuantityMap: Map<number, number[]> } => {
     const onDemandPropertyMap = new Map<number, number[]>();
     const onDemandQuantityMap = new Map<number, number[]>();
 
-    // PERF: Use getByType() instead of iterating ALL entities
-    // This eliminates O(n²) linear searches through expressId array
-    const propertySets = entities.getByType(IfcTypeEnum.IfcPropertySet);
-    const quantitySets = entities.getByType(IfcTypeEnum.IfcElementQuantity);
+    // Use entityIndex.byType if available (needed for cache loads where entity table
+    // doesn't include IfcPropertySet/IfcElementQuantity entities)
+    // Fall back to entities.getByType() for fresh parses where entity table has these types
+    let propertySets: number[];
+    let quantitySets: number[];
+
+    if (entityIndex?.byType) {
+      // entityIndex.byType keys are the original type strings from the IFC file
+      // Check both common casings (STEP files may use either)
+      propertySets = entityIndex.byType.get('IFCPROPERTYSET') ||
+                     entityIndex.byType.get('IfcPropertySet') || [];
+      quantitySets = entityIndex.byType.get('IFCELEMENTQUANTITY') ||
+                     entityIndex.byType.get('IfcElementQuantity') || [];
+    } else {
+      // Fallback for when entityIndex is not provided
+      propertySets = entities.getByType(IfcTypeEnum.IfcPropertySet);
+      quantitySets = entities.getByType(IfcTypeEnum.IfcElementQuantity);
+    }
 
     // Process property sets
     for (const psetId of propertySets) {
@@ -333,9 +349,12 @@ export function useIfc() {
         dataStore.entityIndex = entityIndex;
 
         // Rebuild on-demand maps from relationships
+        // Pass entityIndex which contains ALL entity types including IfcPropertySet/IfcElementQuantity
+        // (the entity table may not include these since they're filtered during fresh parse)
         const { onDemandPropertyMap, onDemandQuantityMap } = rebuildOnDemandMaps(
           dataStore.entities,
-          dataStore.relationships
+          dataStore.relationships,
+          dataStore.entityIndex
         );
         dataStore.onDemandPropertyMap = onDemandPropertyMap;
         dataStore.onDemandQuantityMap = onDemandQuantityMap;
