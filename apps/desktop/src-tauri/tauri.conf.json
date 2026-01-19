@@ -21,7 +21,8 @@
         "resizable": true,
         "fullscreen": false,
         "decorations": true,
-        "center": true
+        "center": true,
+        "additionalBrowserArgs": "--enable-unsafe-webgpu --enable-gpu-rasterization --ignore-gpu-blocklist"
       }
     ],
     "security": {
@@ -49,16 +50,9 @@
       "exceptionDomain": "",
       "frameworks": [],
       "providerShortName": null,
-      "signingIdentity": null
+      "signingIdentity": null,
+      "minimumSystemVersion": "12.0"
     }
   },
-  "plugins": {
-    "dialog": {},
-    "fs": {
-      "scope": ["$APPDATA/*", "$HOME/*", "**"]
-    },
-    "shell": {
-      "open": true
-    }
-  }
+  "plugins": {}
 }

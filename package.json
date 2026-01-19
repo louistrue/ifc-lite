@@ -9,7 +9,7 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "pnpm --filter viewer dev",
+    "dev": "pnpm build && pnpm --filter viewer dev",
     "dev:desktop": "pnpm --filter @ifc-lite/desktop dev",
     "build": "pnpm -r build",
     "build:desktop": "pnpm --filter @ifc-lite/desktop build",
