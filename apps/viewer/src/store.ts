@@ -123,10 +123,11 @@ interface ViewerState {
   snapTarget: SnapTarget | null; // Current snap preview
   snapEnabled: boolean; // Toggle snapping on/off
   snapVisualization: {
-    edgeLine?: { start: { x: number; y: number }; end: { x: number; y: number } }; // Projected edge in screen space
+    // 3D world coordinates for edge (projected to screen by renderer)
+    edgeLine3D?: { v0: { x: number; y: number; z: number }; v1: { x: number; y: number; z: number } };
     planeIndicator?: { x: number; y: number; normal: { x: number; y: number; z: number } }; // Face snap indicator
-    slidingDot?: { x: number; y: number; t: number }; // Position on edge (t = 0-1)
-    cornerRings?: { x: number; y: number; valence: number }; // Corner indicator with edge count
+    slidingDot?: { t: number }; // Position on edge (t = 0-1), projected from edgeLine3D
+    cornerRings?: { atStart: boolean; valence: number }; // Corner indicator: true = at v0, false = at v1
   } | null;
 
   // Edge lock state for magnetic snapping
@@ -145,6 +146,7 @@ interface ViewerState {
     zoomOut?: () => void;
     frameSelection?: () => void;  // Center view on selected element (F key)
     orbit?: (deltaX: number, deltaY: number) => void;  // Orbit camera by delta
+    projectToScreen?: (worldPos: { x: number; y: number; z: number }) => { x: number; y: number } | null;  // Project 3D to screen
   };
   // Direct callback for real-time ViewCube updates (bypasses React state)
   onCameraRotationChange: ((rotation: { azimuth: number; elevation: number }) => void) | null;
@@ -228,7 +230,7 @@ interface ViewerState {
 
   // Snap actions
   setSnapTarget: (target: SnapTarget | null) => void;
-  setSnapVisualization: (viz: { edgeLine?: { start: { x: number; y: number }; end: { x: number; y: number } }; planeIndicator?: { x: number; y: number; normal: { x: number; y: number; z: number } }; slidingDot?: { x: number; y: number; t: number }; cornerRings?: { x: number; y: number; valence: number } } | null) => void;
+  setSnapVisualization: (viz: ViewerState['snapVisualization']) => void;
   toggleSnap: () => void;
 
   // Edge lock actions (magnetic snapping)

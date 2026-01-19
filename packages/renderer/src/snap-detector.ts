@@ -5,7 +5,6 @@ import { Raycaster } from './raycaster';
 export enum SnapType {
   VERTEX = 'vertex',
   EDGE = 'edge',
-  EDGE_MIDPOINT = 'edge_midpoint',
   FACE = 'face',
   FACE_CENTER = 'face_center',
 }
@@ -254,7 +253,20 @@ export class SnapDetector {
     const edgeRadius = worldSnapRadius * MAGNETIC_CONFIG.EDGE_ATTRACTION_MULTIPLIER;
     const cornerRadius = edgeRadius * MAGNETIC_CONFIG.CORNER_ATTRACTION_MULTIPLIER;
 
-    // Find all nearby edges
+    // Compute view direction for visibility filtering
+    const viewDir = {
+      x: intersection.point.x - camera.position.x,
+      y: intersection.point.y - camera.position.y,
+      z: intersection.point.z - camera.position.z,
+    };
+    const viewLen = Math.sqrt(viewDir.x * viewDir.x + viewDir.y * viewDir.y + viewDir.z * viewDir.z);
+    if (viewLen > 0) {
+      viewDir.x /= viewLen;
+      viewDir.y /= viewLen;
+      viewDir.z /= viewLen;
+    }
+
+    // Find all nearby edges (filtered for visibility)
     const nearbyEdges: Array<{
       edge: { v0: Vec3; v1: Vec3; index: number };
       closestPoint: Vec3;
@@ -265,12 +277,27 @@ export class SnapDetector {
     for (const edge of cache.edges) {
       const result = this.closestPointOnEdgeWithT(intersection.point, edge.v0, edge.v1);
       if (result.distance < edgeRadius) {
-        nearbyEdges.push({
-          edge,
-          closestPoint: result.point,
-          distance: result.distance,
-          t: result.t,
-        });
+        // Visibility check: edge should be on front-facing side
+        // Compute vector from intersection point to edge closest point
+        const toEdge = {
+          x: result.point.x - intersection.point.x,
+          y: result.point.y - intersection.point.y,
+          z: result.point.z - intersection.point.z,
+        };
+        // Check if edge point is roughly on the visible side (dot with normal should be <= small positive)
+        // Edges that are clearly behind the surface are filtered out
+        const dotWithNormal = toEdge.x * intersection.normal.x + toEdge.y * intersection.normal.y + toEdge.z * intersection.normal.z;
+
+        // Allow edges that are on the surface or slightly in front (tolerance for edge proximity)
+        // Filter out edges that are clearly behind the intersected surface
+        if (dotWithNormal <= edgeRadius * 0.5) {
+          nearbyEdges.push({
+            edge,
+            closestPoint: result.point,
+            distance: result.distance,
+            t: result.t,
+          });
+        }
       }
     }
 
@@ -325,31 +352,13 @@ export class SnapDetector {
       };
     } else {
       // Edge snap - snap to closest point on edge
-      // Check for midpoint
-      const midpointDist = Math.abs(bestEdge.t - 0.5);
-      if (midpointDist < 0.1) {
-        // Near midpoint
-        const midpoint: Vec3 = {
-          x: (bestEdge.edge.v0.x + bestEdge.edge.v1.x) / 2,
-          y: (bestEdge.edge.v0.y + bestEdge.edge.v1.y) / 2,
-          z: (bestEdge.edge.v0.z + bestEdge.edge.v1.z) / 2,
-        };
-        snapTarget = {
-          type: SnapType.EDGE_MIDPOINT,
-          position: midpoint,
-          expressId: intersectedMesh.expressId,
-          confidence: 0.98,
-          metadata: { vertices: [bestEdge.edge.v0, bestEdge.edge.v1], edgeIndex: bestEdge.edge.index },
-        };
-      } else {
-        snapTarget = {
-          type: SnapType.EDGE,
-          position: bestEdge.closestPoint,
-          expressId: intersectedMesh.expressId,
-          confidence: 0.999 * (1.0 - bestEdge.distance / edgeRadius),
-          metadata: { vertices: [bestEdge.edge.v0, bestEdge.edge.v1], edgeIndex: bestEdge.edge.index },
-        };
-      }
+      snapTarget = {
+        type: SnapType.EDGE,
+        position: bestEdge.closestPoint,
+        expressId: intersectedMesh.expressId,
+        confidence: 0.999 * (1.0 - bestEdge.distance / edgeRadius),
+        metadata: { vertices: [bestEdge.edge.v0, bestEdge.edge.v1], edgeIndex: bestEdge.edge.index },
+      };
     }
 
     return {
@@ -464,13 +473,6 @@ export class SnapDetector {
         snapPosition.y = v1.y;
         snapPosition.z = v1.z;
       }
-    } else if (Math.abs(edgeT - 0.5) < 0.08) {
-      // Near midpoint
-      snapType = SnapType.EDGE_MIDPOINT;
-      confidence = 0.98;
-      snapPosition.x = (v0.x + v1.x) / 2;
-      snapPosition.y = (v0.y + v1.y) / 2;
-      snapPosition.z = (v0.z + v1.z) / 2;
     } else {
       snapType = SnapType.EDGE;
       // Clamp confidence to 0-1 range (can go negative if perpDistance exceeds attraction radius)
@@ -737,25 +739,6 @@ export class SnapDetector {
           confidence: 0.999 * (1.0 - dist / edgeRadius), // Nearly perfect priority for edges
           metadata: { vertices: [edge.v0, edge.v1], edgeIndex: edge.index },
         });
-
-        // Edge midpoint snap - only when very close to midpoint
-        const midpoint: Vec3 = {
-          x: (edge.v0.x + edge.v1.x) / 2,
-          y: (edge.v0.y + edge.v1.y) / 2,
-          z: (edge.v0.z + edge.v1.z) / 2,
-        };
-        const midDist = this.distance(midpoint, point);
-
-        // Only snap to midpoint when within 1/3 of snap radius
-        if (midDist < radius * 0.33) {
-          targets.push({
-            type: SnapType.EDGE_MIDPOINT,
-            position: midpoint,
-            expressId: mesh.expressId,
-            confidence: 1.0 * (1.0 - midDist / (radius * 0.33)), // Very high when close
-            metadata: { vertices: [edge.v0, edge.v1], edgeIndex: edge.index },
-          });
-        }
       }
     }
 
@@ -839,10 +822,9 @@ export class SnapDetector {
   private getBestSnapTarget(targets: SnapTarget[], cursorPoint: Vec3): SnapTarget | null {
     if (targets.length === 0) return null;
 
-    // Priority order: vertex > edge_midpoint > edge > face_center > face
+    // Priority order: vertex > edge > face_center > face
     const priorityMap = {
-      [SnapType.VERTEX]: 5,
-      [SnapType.EDGE_MIDPOINT]: 4,
+      [SnapType.VERTEX]: 4,
       [SnapType.EDGE]: 3,
       [SnapType.FACE_CENTER]: 2,
       [SnapType.FACE]: 1,

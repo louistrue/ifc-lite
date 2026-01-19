@@ -261,6 +261,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
       }
 
       // Helper function to compute snap visualization (edge highlights, sliding dot, corner rings, plane indicators)
+      // Stores 3D coordinates so edge highlights stay positioned correctly during camera rotation
       function updateSnapVisualization(snapTarget: any, edgeLockInfo?: { edgeT: number; isCorner: boolean; cornerValence: number }) {
         if (!snapTarget || !canvas) {
           setSnapVisualization(null);
@@ -269,56 +270,38 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
 
         const viz: any = {};
 
-        // For edge snaps: project edge vertices to screen space and draw line
-        if ((snapTarget.type === 'edge' || snapTarget.type === 'edge_midpoint' || snapTarget.type === 'vertex') && snapTarget.metadata?.vertices) {
+        // For edge snaps: store 3D world coordinates (will be projected to screen by ToolOverlays)
+        if ((snapTarget.type === 'edge' || snapTarget.type === 'vertex') && snapTarget.metadata?.vertices) {
           const [v0, v1] = snapTarget.metadata.vertices;
-          const start = camera.projectToScreen(v0, canvas.width, canvas.height);
-          const end = camera.projectToScreen(v1, canvas.width, canvas.height);
 
-          if (start && end) {
-            viz.edgeLine = {
-              start: { x: start.x, y: start.y },
-              end: { x: end.x, y: end.y }
-            };
+          // Store 3D coordinates - these will be projected dynamically during rendering
+          viz.edgeLine3D = {
+            v0: { x: v0.x, y: v0.y, z: v0.z },
+            v1: { x: v1.x, y: v1.y, z: v1.z },
+          };
 
-            // Add sliding dot position along the edge
-            if (edgeLockInfo) {
-              const t = edgeLockInfo.edgeT;
-              viz.slidingDot = {
-                x: start.x + (end.x - start.x) * t,
-                y: start.y + (end.y - start.y) * t,
-                t: t,
+          // Add sliding dot t-parameter along the edge
+          if (edgeLockInfo) {
+            viz.slidingDot = { t: edgeLockInfo.edgeT };
+
+            // Add corner rings if at a corner with high valence
+            if (edgeLockInfo.isCorner && edgeLockInfo.cornerValence >= 2) {
+              viz.cornerRings = {
+                atStart: edgeLockInfo.edgeT < 0.5,
+                valence: edgeLockInfo.cornerValence,
               };
-
-              // Add corner rings if at a corner with high valence
-              if (edgeLockInfo.isCorner && edgeLockInfo.cornerValence >= 2) {
-                const cornerPos = t < 0.5 ? start : end;
-                viz.cornerRings = {
-                  x: cornerPos.x,
-                  y: cornerPos.y,
-                  valence: edgeLockInfo.cornerValence,
-                };
-              }
-            } else {
-              // No edge lock info - show snap position as sliding dot
-              const snapPos = camera.projectToScreen(snapTarget.position, canvas.width, canvas.height);
-              if (snapPos) {
-                // Calculate t from snap position
-                const dx = end.x - start.x;
-                const dy = end.y - start.y;
-                const len = Math.sqrt(dx * dx + dy * dy);
-                const t = len > 0 ? ((snapPos.x - start.x) * dx + (snapPos.y - start.y) * dy) / (len * len) : 0.5;
-                viz.slidingDot = {
-                  x: snapPos.x,
-                  y: snapPos.y,
-                  t: Math.max(0, Math.min(1, t)),
-                };
-              }
             }
+          } else {
+            // No edge lock info - calculate t from snap position
+            const edge = { x: v1.x - v0.x, y: v1.y - v0.y, z: v1.z - v0.z };
+            const toSnap = { x: snapTarget.position.x - v0.x, y: snapTarget.position.y - v0.y, z: snapTarget.position.z - v0.z };
+            const edgeLenSq = edge.x * edge.x + edge.y * edge.y + edge.z * edge.z;
+            const t = edgeLenSq > 0 ? (toSnap.x * edge.x + toSnap.y * edge.y + toSnap.z * edge.z) / edgeLenSq : 0.5;
+            viz.slidingDot = { t: Math.max(0, Math.min(1, t)) };
           }
         }
 
-        // For face snaps: show plane indicator
+        // For face snaps: show plane indicator (still screen-space since it's just an indicator)
         if ((snapTarget.type === 'face' || snapTarget.type === 'face_center') && snapTarget.normal) {
           const pos = camera.projectToScreen(snapTarget.position, canvas.width, canvas.height);
           if (pos) {
@@ -464,6 +447,12 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           });
           updateCameraRotationRealtime(camera.getRotation());
           calculateScale();
+        },
+        projectToScreen: (worldPos: { x: number; y: number; z: number }) => {
+          // Project 3D world position to 2D screen coordinates
+          const canvas = canvasRef.current;
+          if (!canvas) return null;
+          return camera.projectToScreen(worldPos, canvas.width, canvas.height);
         },
       });
 
