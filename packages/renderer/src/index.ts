@@ -561,29 +561,40 @@ export class Renderer {
             const selectedIds = options.selectedIds;
 
             // Calculate section plane parameters and model bounds
-            // Always calculate bounds when sectionPlane is provided (for preview)
+            // Always calculate bounds when sectionPlane is provided (for preview and active mode)
             let sectionPlaneData: { normal: [number, number, number]; distance: number; enabled: boolean } | undefined;
             if (options.sectionPlane) {
-                // Get model bounds for calculating plane position and visual
+                // Get model bounds from ALL geometry sources: individual meshes AND batched meshes
                 const boundsMin = { x: Infinity, y: Infinity, z: Infinity };
                 const boundsMax = { x: -Infinity, y: -Infinity, z: -Infinity };
 
-                if (meshes.length > 0) {
-                    for (const mesh of meshes) {
-                        if (mesh.bounds) {
-                            boundsMin.x = Math.min(boundsMin.x, mesh.bounds.min[0]);
-                            boundsMin.y = Math.min(boundsMin.y, mesh.bounds.min[1]);
-                            boundsMin.z = Math.min(boundsMin.z, mesh.bounds.min[2]);
-                            boundsMax.x = Math.max(boundsMax.x, mesh.bounds.max[0]);
-                            boundsMax.y = Math.max(boundsMax.y, mesh.bounds.max[1]);
-                            boundsMax.z = Math.max(boundsMax.z, mesh.bounds.max[2]);
-                        }
+                // Check individual meshes
+                for (const mesh of meshes) {
+                    if (mesh.bounds) {
+                        boundsMin.x = Math.min(boundsMin.x, mesh.bounds.min[0]);
+                        boundsMin.y = Math.min(boundsMin.y, mesh.bounds.min[1]);
+                        boundsMin.z = Math.min(boundsMin.z, mesh.bounds.min[2]);
+                        boundsMax.x = Math.max(boundsMax.x, mesh.bounds.max[0]);
+                        boundsMax.y = Math.max(boundsMax.y, mesh.bounds.max[1]);
+                        boundsMax.z = Math.max(boundsMax.z, mesh.bounds.max[2]);
                     }
-                    if (!Number.isFinite(boundsMin.x)) {
-                        boundsMin.x = boundsMin.y = boundsMin.z = -100;
-                        boundsMax.x = boundsMax.y = boundsMax.z = 100;
+                }
+
+                // Check batched meshes (most geometry is here!)
+                const batchedMeshes = this.scene.getBatchedMeshes();
+                for (const batch of batchedMeshes) {
+                    if (batch.bounds) {
+                        boundsMin.x = Math.min(boundsMin.x, batch.bounds.min[0]);
+                        boundsMin.y = Math.min(boundsMin.y, batch.bounds.min[1]);
+                        boundsMin.z = Math.min(boundsMin.z, batch.bounds.min[2]);
+                        boundsMax.x = Math.max(boundsMax.x, batch.bounds.max[0]);
+                        boundsMax.y = Math.max(boundsMax.y, batch.bounds.max[1]);
+                        boundsMax.z = Math.max(boundsMax.z, batch.bounds.max[2]);
                     }
-                } else {
+                }
+
+                // Fallback if no bounds found
+                if (!Number.isFinite(boundsMin.x)) {
                     boundsMin.x = boundsMin.y = boundsMin.z = -100;
                     boundsMax.x = boundsMax.y = boundsMax.z = 100;
                 }
@@ -595,15 +606,10 @@ export class Renderer {
                 if (options.sectionPlane.enabled) {
                     // Calculate plane normal based on semantic axis
                     // up = Y axis (horizontal cut), front = Z axis, side = X axis
-                    let normal: [number, number, number] = [0, 0, 0];
+                    const normal: [number, number, number] = [0, 0, 0];
                     if (options.sectionPlane.axis === 'side') normal[0] = 1;       // X axis
                     else if (options.sectionPlane.axis === 'up') normal[1] = 1;    // Y axis (horizontal)
                     else normal[2] = 1;                                             // Z axis (front)
-
-                    // If flipped, negate the normal to show the opposite side
-                    if (options.sectionPlane.flipped) {
-                        normal = [-normal[0], -normal[1], -normal[2]];
-                    }
 
                     // Get axis-specific range based on semantic axis
                     const axisIdx = options.sectionPlane.axis === 'side' ? 'x' : options.sectionPlane.axis === 'up' ? 'y' : 'z';
@@ -612,7 +618,18 @@ export class Renderer {
 
                     // Calculate plane distance from position percentage
                     const range = maxVal - minVal;
-                    const distance = minVal + (options.sectionPlane.position / 100) * range;
+                    let distance = minVal + (options.sectionPlane.position / 100) * range;
+
+                    // IMPORTANT: For flip to work correctly, we need to negate BOTH normal AND distance
+                    // The plane equation is: dot(pos, N) - d = 0
+                    // To flip which side is clipped: dot(pos, -N) - (-d) = 0
+                    // This keeps the plane in the same position but flips the clipping side
+                    if (options.sectionPlane.flipped) {
+                        normal[0] = -normal[0];
+                        normal[1] = -normal[1];
+                        normal[2] = -normal[2];
+                        distance = -distance;
+                    }
 
                     sectionPlaneData = { normal, distance, enabled: true };
                 }
