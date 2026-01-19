@@ -399,11 +399,6 @@ const MeasurementOverlays = React.memo(function MeasurementOverlays({ measuremen
         const end = projectToScreen(snapVisualization.edgeLine3D.v1);
         if (!start || !end) return null;
 
-        // Calculate sliding dot position from t parameter
-        const t = snapVisualization.slidingDot?.t ?? 0.5;
-        const dotX = start.x + (end.x - start.x) * t;
-        const dotY = start.y + (end.y - start.y) * t;
-
         // Corner position (at v0 or v1)
         const cornerPos = snapVisualization.cornerRings
           ? (snapVisualization.cornerRings.atStart ? start : end)
@@ -440,40 +435,6 @@ const MeasurementOverlays = React.memo(function MeasurementOverlays({ measuremen
             {/* Edge endpoints */}
             <circle cx={start.x} cy={start.y} r="4" fill="#FF9800" fillOpacity="0.6" />
             <circle cx={end.x} cy={end.y} r="4" fill="#FF9800" fillOpacity="0.6" />
-
-            {/* Sliding dot - shows current position along edge */}
-            {snapVisualization.slidingDot && (
-              <>
-                {/* Outer glow ring */}
-                <circle
-                  cx={dotX}
-                  cy={dotY}
-                  r="12"
-                  fill="none"
-                  stroke="#FF9800"
-                  strokeWidth="2"
-                  strokeOpacity="0.4"
-                  filter="url(#snap-glow)"
-                />
-                {/* Main sliding dot */}
-                <circle
-                  cx={dotX}
-                  cy={dotY}
-                  r="6"
-                  fill="#FF9800"
-                  stroke="white"
-                  strokeWidth="2"
-                />
-                {/* Inner highlight */}
-                <circle
-                  cx={dotX - 1.5}
-                  cy={dotY - 1.5}
-                  r="2"
-                  fill="white"
-                  fillOpacity="0.6"
-                />
-              </>
-            )}
 
             {/* Corner rings - shows strong attraction at corners */}
             {cornerPos && snapVisualization.cornerRings && (
