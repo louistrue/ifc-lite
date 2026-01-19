@@ -618,18 +618,7 @@ export class Renderer {
 
                     // Calculate plane distance from position percentage
                     const range = maxVal - minVal;
-                    let distance = minVal + (options.sectionPlane.position / 100) * range;
-
-                    // IMPORTANT: For flip to work correctly, we need to negate BOTH normal AND distance
-                    // The plane equation is: dot(pos, N) - d = 0
-                    // To flip which side is clipped: dot(pos, -N) - (-d) = 0
-                    // This keeps the plane in the same position but flips the clipping side
-                    if (options.sectionPlane.flipped) {
-                        normal[0] = -normal[0];
-                        normal[1] = -normal[1];
-                        normal[2] = -normal[2];
-                        distance = -distance;
-                    }
+                    const distance = minVal + (options.sectionPlane.position / 100) * range;
 
                     sectionPlaneData = { normal, distance, enabled: true };
                 }
@@ -1120,7 +1109,6 @@ export class Renderer {
                         position: options.sectionPlane.position,
                         bounds: this.modelBounds,
                         viewProj,
-                        flipped: options.sectionPlane.flipped,
                         isPreview: !options.sectionPlane.enabled, // Preview mode when not enabled
                     }
                 );

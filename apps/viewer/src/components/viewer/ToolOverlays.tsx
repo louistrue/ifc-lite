@@ -672,7 +672,6 @@ function SectionOverlay() {
   const setSectionPlaneAxis = useViewerStore((s) => s.setSectionPlaneAxis);
   const setSectionPlanePosition = useViewerStore((s) => s.setSectionPlanePosition);
   const toggleSectionPlane = useViewerStore((s) => s.toggleSectionPlane);
-  const flipSectionPlane = useViewerStore((s) => s.flipSectionPlane);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(true);
 
@@ -755,24 +754,15 @@ function SectionOverlay() {
               />
             </div>
 
-            {/* Actions */}
-            <div className="flex gap-2 mt-3">
+            {/* Enable/Disable Button */}
+            <div className="mt-3">
               <Button
                 variant={sectionPlane.enabled ? 'default' : 'outline'}
                 size="sm"
-                className="flex-1"
+                className="w-full"
                 onClick={toggleSectionPlane}
               >
-                {sectionPlane.enabled ? 'Enabled' : 'Disabled'}
-              </Button>
-              <Button
-                variant={sectionPlane.flipped ? 'default' : 'outline'}
-                size="sm"
-                className="flex-1"
-                onClick={flipSectionPlane}
-                title="Flip which side of the cut is visible"
-              >
-                {sectionPlane.flipped ? 'Flipped' : 'Normal'}
+                {sectionPlane.enabled ? 'Cutting Active' : 'Enable Cutting'}
               </Button>
             </div>
           </div>
@@ -790,8 +780,8 @@ function SectionOverlay() {
       >
         <span className="font-mono text-xs uppercase tracking-wide">
           {sectionPlane.enabled
-            ? `Cutting ${AXIS_INFO[sectionPlane.axis].label.toLowerCase()}${sectionPlane.flipped ? ' (flipped)' : ''}`
-            : 'Section disabled'}
+            ? `Cutting ${AXIS_INFO[sectionPlane.axis].label.toLowerCase()} at ${sectionPlane.position}%`
+            : 'Preview mode'}
         </span>
       </div>
 
@@ -806,20 +796,18 @@ function SectionOverlay() {
           }`}
           title="Toggle section plane"
         >
-          Section {sectionPlane.enabled ? 'On' : 'Off'}
+          {sectionPlane.enabled ? 'Cutting' : 'Preview'}
         </button>
       </div>
 
       {/* Section plane visualization overlay */}
-      {sectionPlane.enabled && (
-        <SectionPlaneVisualization axis={sectionPlane.axis} flipped={sectionPlane.flipped} />
-      )}
+      <SectionPlaneVisualization axis={sectionPlane.axis} enabled={sectionPlane.enabled} />
     </>
   );
 }
 
 // Section plane visual indicator component
-function SectionPlaneVisualization({ axis, flipped }: { axis: 'up' | 'front' | 'side'; flipped: boolean }) {
+function SectionPlaneVisualization({ axis, enabled }: { axis: 'up' | 'front' | 'side'; enabled: boolean }) {
   // Get the axis color
   const axisColors = {
     up: '#03A9F4',    // Light blue for horizontal cuts
@@ -850,7 +838,7 @@ function SectionPlaneVisualization({ axis, flipped }: { axis: 'up' | 'front' | '
 
       {/* Axis indicator in corner */}
       <g transform="translate(24, 24)">
-        <circle cx="20" cy="20" r="18" fill={color} fillOpacity="0.1" stroke={color} strokeWidth="2" filter="url(#section-glow)"/>
+        <circle cx="20" cy="20" r="18" fill={color} fillOpacity={enabled ? 0.2 : 0.1} stroke={color} strokeWidth={enabled ? 3 : 2} filter="url(#section-glow)"/>
         <text
           x="20"
           y="20"
@@ -863,17 +851,18 @@ function SectionPlaneVisualization({ axis, flipped }: { axis: 'up' | 'front' | '
         >
           {AXIS_INFO[axis].label.toUpperCase()}
         </text>
-        {/* Flip indicator */}
-        {flipped && (
+        {/* Active indicator */}
+        {enabled && (
           <text
             x="20"
             y="32"
             textAnchor="middle"
             fill={color}
             fontFamily="monospace"
-            fontSize="8"
+            fontSize="7"
+            fontWeight="bold"
           >
-            FLIP
+            CUT
           </text>
         )}
       </g>

@@ -61,40 +61,51 @@ export class SectionPlaneRenderer {
 
         @fragment
         fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-          // Create a more visible grid pattern with animated effect
-          let gridSize = 0.08;
-          let lineWidth = 0.015;
+          // Create beautiful grid pattern
+          let gridSize = 0.05;           // Grid cell size
+          let lineWidth = 0.008;         // Thin lines
+          let majorGridSize = 0.25;      // Major grid every 5 cells
+          let majorLineWidth = 0.015;    // Thicker major lines
 
+          // Minor grid
           let gridX = abs(fract(input.uv.x / gridSize + 0.5) - 0.5);
           let gridY = abs(fract(input.uv.y / gridSize + 0.5) - 0.5);
+          let isMinorGridLine = min(gridX, gridY) < lineWidth;
 
-          let gridLine = min(gridX, gridY);
-          let isGridLine = gridLine < lineWidth;
-          let isMajorGridLine = gridLine < lineWidth * 0.5;
+          // Major grid (every 5 cells)
+          let majorX = abs(fract(input.uv.x / majorGridSize + 0.5) - 0.5);
+          let majorY = abs(fract(input.uv.y / majorGridSize + 0.5) - 0.5);
+          let isMajorGridLine = min(majorX, majorY) < majorLineWidth;
 
-          // Edge fade for softer appearance - wider border
-          let edgeFade = smoothstep(0.0, 0.15, min(input.uv.x, min(input.uv.y, min(1.0 - input.uv.x, 1.0 - input.uv.y))));
+          // Soft edge fade
+          let edgeDist = min(input.uv.x, min(input.uv.y, min(1.0 - input.uv.x, 1.0 - input.uv.y)));
+          let edgeFade = smoothstep(0.0, 0.12, edgeDist);
 
-          // Border glow effect
-          let borderDist = min(input.uv.x, min(input.uv.y, min(1.0 - input.uv.x, 1.0 - input.uv.y)));
-          let borderGlow = 1.0 - smoothstep(0.0, 0.08, borderDist);
+          // Strong border glow
+          let borderGlow = 1.0 - smoothstep(0.0, 0.06, edgeDist);
 
           var color = uniforms.planeColor;
 
-          // Enhanced grid lines - brighter and more visible
+          // Layered rendering: base fill + minor grid + major grid + border
           if (isMajorGridLine) {
-            color = vec4<f32>(1.0, 1.0, 1.0, color.a * 2.5);
-          } else if (isGridLine) {
-            color = vec4<f32>(color.rgb * 1.5, color.a * 2.0);
+            // Major grid lines - white with high visibility
+            color = vec4<f32>(1.0, 1.0, 1.0, min(color.a * 3.0, 1.0));
+          } else if (isMinorGridLine) {
+            // Minor grid lines - brighter color
+            color = vec4<f32>(color.rgb * 1.8, color.a * 2.0);
           }
 
-          // Add border glow
+          // Add bright border glow
           color = vec4<f32>(
-            color.rgb + vec3<f32>(borderGlow * 0.3),
-            color.a + borderGlow * 0.4
+            mix(color.rgb, vec3<f32>(1.0, 1.0, 1.0), borderGlow * 0.6),
+            color.a + borderGlow * 0.5
           );
 
+          // Apply edge fade
           color.a *= edgeFade;
+
+          // Clamp alpha
+          color.a = min(color.a, 0.85);
 
           return color;
         }
@@ -143,7 +154,7 @@ export class SectionPlaneRenderer {
       depthStencil: {
         format: 'depth24plus',
         depthWriteEnabled: false, // Don't write to depth buffer (transparent)
-        depthCompare: 'less-equal',
+        depthCompare: 'always',   // Always draw the plane (visible through geometry)
       },
       multisample: {
         count: this.sampleCount,
@@ -211,8 +222,8 @@ export class SectionPlaneRenderer {
       uniforms[17] = 0.596; // G
       uniforms[18] = 0.0;   // B
     }
-    // Use lower opacity for preview mode
-    uniforms[19] = isPreview ? 0.15 : 0.4;
+    // Opacity: preview mode (subtle) vs active cutting (prominent)
+    uniforms[19] = isPreview ? 0.2 : 0.5;
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
 
     // Draw the section plane
@@ -263,8 +274,8 @@ export class SectionPlaneRenderer {
       uniforms[17] = 0.596; // G
       uniforms[18] = 0.0;   // B
     }
-    // Use lower opacity for preview mode
-    uniforms[19] = isPreview ? 0.15 : 0.4;
+    // Opacity: preview mode (subtle) vs active cutting (prominent)
+    uniforms[19] = isPreview ? 0.2 : 0.5;
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
 
     // Render the section plane in its own pass (legacy - may cause MSAA issues)
