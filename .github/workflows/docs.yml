@@ -56,7 +56,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Install dependencies
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglib2.0-dev libcairo2-dev libpango1.0-dev libatk1.0-dev libgdk-pixbuf2.0-dev libgtk-3-dev
+
+      - name: Install Python dependencies
         run: pip install -r requirements-docs.txt
 
       - name: Build MkDocs
@@ -67,12 +72,12 @@ jobs:
         continue-on-error: true
 
       - name: Copy Rustdoc to site
-        if: success() || failure()
         run: |
           if [ -d "target/doc" ]; then
             mkdir -p site/api/rust
             cp -r target/doc/* site/api/rust/
           fi
+        continue-on-error: true
 
       - name: Create .nojekyll file
         run: touch site/.nojekyll
