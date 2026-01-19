@@ -666,10 +666,6 @@ export function get_memory(): any;
  */
 export function init(): void;
 
-export function initThreadPool(num_threads: number): Promise<any>;
-
-export function init_thread_pool(num_threads: number): Promise<any>;
-
 /**
  * Get the version of IFC-Lite.
  *
@@ -685,20 +681,10 @@ export function init_thread_pool(num_threads: number): Promise<any>;
  */
 export function version(): string;
 
-export class wbg_rayon_PoolBuilder {
-  private constructor();
-  free(): void;
-  [Symbol.dispose](): void;
-  numThreads(): number;
-  build(): void;
-  receiver(): number;
-}
-
-export function wbg_rayon_start_worker(receiver: number): void;
-
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
+  readonly memory: WebAssembly.Memory;
   readonly __wbg_georeferencejs_free: (a: number, b: number) => void;
   readonly __wbg_get_georeferencejs_eastings: (a: number) => number;
   readonly __wbg_get_georeferencejs_northings: (a: number) => number;
@@ -833,12 +819,12 @@ export interface InitOutput {
   readonly zerocopymesh_bounds_min: (a: number, b: number) => void;
   readonly zerocopymesh_new: () => number;
   readonly zerocopymesh_vertex_count: (a: number) => number;
+  readonly init: () => void;
   readonly instancedmeshcollection_length: (a: number) => number;
   readonly instancedmeshcollection_totalGeometries: (a: number) => number;
   readonly zerocopymesh_indices_len: (a: number) => number;
   readonly zerocopymesh_normals_len: (a: number) => number;
   readonly zerocopymesh_positions_len: (a: number) => number;
-  readonly init: () => void;
   readonly __wbg_set_rtcoffsetjs_x: (a: number, b: number) => void;
   readonly __wbg_set_rtcoffsetjs_y: (a: number, b: number) => void;
   readonly __wbg_set_rtcoffsetjs_z: (a: number, b: number) => void;
@@ -854,26 +840,17 @@ export interface InitOutput {
   readonly __wbg_get_rtcoffsetjs_y: (a: number) => number;
   readonly __wbg_get_rtcoffsetjs_z: (a: number) => number;
   readonly instancedgeometry_geometryId: (a: number) => bigint;
-  readonly init_thread_pool: (a: number) => number;
-  readonly __wbg_wbg_rayon_poolbuilder_free: (a: number, b: number) => void;
-  readonly initThreadPool: (a: number) => number;
-  readonly wbg_rayon_poolbuilder_build: (a: number) => void;
-  readonly wbg_rayon_poolbuilder_numThreads: (a: number) => number;
-  readonly wbg_rayon_poolbuilder_receiver: (a: number) => number;
-  readonly wbg_rayon_start_worker: (a: number) => void;
-  readonly __wasm_bindgen_func_elem_828: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_822: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_418: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_414: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_1118: (a: number, b: number, c: number, d: number) => void;
-  readonly memory: WebAssembly.Memory;
+  readonly __wasm_bindgen_func_elem_393: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_389: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_725: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_720: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_756: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_export: (a: number, b: number) => number;
   readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_export3: (a: number) => void;
   readonly __wbindgen_export4: (a: number, b: number, c: number) => void;
   readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
-  readonly __wbindgen_thread_destroy: (a?: number, b?: number, c?: number) => void;
-  readonly __wbindgen_start: (a: number) => void;
+  readonly __wbindgen_start: () => void;
 }
 
 export type SyncInitInput = BufferSource | WebAssembly.Module;
@@ -882,20 +859,18 @@ export type SyncInitInput = BufferSource | WebAssembly.Module;
 * Instantiates the given `module`, which can either be bytes or
 * a precompiled `WebAssembly.Module`.
 *
-* @param {{ module: SyncInitInput, memory?: WebAssembly.Memory, thread_stack_size?: number }} module - Passing `SyncInitInput` directly is deprecated.
-* @param {WebAssembly.Memory} memory - Deprecated.
+* @param {{ module: SyncInitInput }} module - Passing `SyncInitInput` directly is deprecated.
 *
 * @returns {InitOutput}
 */
-export function initSync(module: { module: SyncInitInput, memory?: WebAssembly.Memory, thread_stack_size?: number } | SyncInitInput, memory?: WebAssembly.Memory): InitOutput;
+export function initSync(module: { module: SyncInitInput } | SyncInitInput): InitOutput;
 
 /**
 * If `module_or_path` is {RequestInfo} or {URL}, makes a request and
 * for everything else, calls `WebAssembly.instantiate` directly.
 *
-* @param {{ module_or_path: InitInput | Promise<InitInput>, memory?: WebAssembly.Memory, thread_stack_size?: number }} module_or_path - Passing `InitInput` directly is deprecated.
-* @param {WebAssembly.Memory} memory - Deprecated.
+* @param {{ module_or_path: InitInput | Promise<InitInput> }} module_or_path - Passing `InitInput` directly is deprecated.
 *
 * @returns {Promise<InitOutput>}
 */
-export default function __wbg_init (module_or_path?: { module_or_path: InitInput | Promise<InitInput>, memory?: WebAssembly.Memory, thread_stack_size?: number } | InitInput | Promise<InitInput>, memory?: WebAssembly.Memory): Promise<InitOutput>;
+export default function __wbg_init (module_or_path?: { module_or_path: InitInput | Promise<InitInput> } | InitInput | Promise<InitInput>): Promise<InitOutput>;

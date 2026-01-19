@@ -1140,7 +1140,6 @@ impl IfcAPI {
                 // This trades slightly incorrect initial colors for much faster first render
                 let mut style_index: rustc_hash::FxHashMap<u32, [f32; 4]> =
                     rustc_hash::FxHashMap::default();
-                let mut styles_built = false;
 
                 // Create geometry router
                 let router = GeometryRouter::with_units(&content, &mut decoder);
@@ -1278,28 +1277,25 @@ impl IfcAPI {
 
                 // NOW build styles - after first batches are yielded for faster first frame
                 // Complex geometry will have proper IFC colors
-                if !styles_built {
-                    let geometry_styles = build_geometry_style_index(&content, &mut decoder);
-                    style_index = build_element_style_index(&content, &geometry_styles, &mut decoder);
-                    styles_built = true;
+                let geometry_styles = build_geometry_style_index(&content, &mut decoder);
+                style_index = build_element_style_index(&content, &geometry_styles, &mut decoder);
 
-                    // Send color updates for already-processed simple geometry
-                    if let Some(ref callback) = on_color_update {
-                        let color_updates = js_sys::Map::new();
-                        for &id in &processed_simple_ids {
-                            if let Some(&color) = style_index.get(&id) {
-                                // Convert [f32; 4] to JS array
-                                let js_color = js_sys::Array::new();
-                                js_color.push(&color[0].into());
-                                js_color.push(&color[1].into());
-                                js_color.push(&color[2].into());
-                                js_color.push(&color[3].into());
-                                color_updates.set(&(id as f64).into(), &js_color);
-                            }
+                // Send color updates for already-processed simple geometry
+                if let Some(ref callback) = on_color_update {
+                    let color_updates = js_sys::Map::new();
+                    for &id in &processed_simple_ids {
+                        if let Some(&color) = style_index.get(&id) {
+                            // Convert [f32; 4] to JS array
+                            let js_color = js_sys::Array::new();
+                            js_color.push(&color[0].into());
+                            js_color.push(&color[1].into());
+                            js_color.push(&color[2].into());
+                            js_color.push(&color[3].into());
+                            color_updates.set(&(id as f64).into(), &js_color);
                         }
-                        if color_updates.size() > 0 {
-                            let _ = callback.call1(&JsValue::NULL, &color_updates);
-                        }
+                    }
+                    if color_updates.size() > 0 {
+                        let _ = callback.call1(&JsValue::NULL, &color_updates);
                     }
                 }
 

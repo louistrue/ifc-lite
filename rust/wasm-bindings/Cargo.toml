@@ -15,7 +15,6 @@ wasm-opt = [
     "-O4",
     "--enable-simd",
     "--enable-bulk-memory",
-    "--enable-threads",
     "--enable-mutable-globals",
     "--enable-nontrapping-float-to-int",
     "--enable-sign-ext",
@@ -40,7 +39,6 @@ serde-wasm-bindgen = "0.6"
 thiserror = "1.0"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-wasm-bindgen-rayon = "1.2"
 web-sys = { version = "0.3", features = ["console", "Performance", "Window"] }
 
 [dev-dependencies]

@@ -1,6 +1,5 @@
 {
   "name": "ifc-lite-wasm",
-  "type": "module",
   "collaborators": [
     "IFC-Lite Contributors"
   ],
@@ -16,7 +15,7 @@
     "ifc-lite.js",
     "ifc-lite.d.ts"
   ],
-  "main": "ifc-lite.js",
+  "module": "ifc-lite.js",
   "types": "ifc-lite.d.ts",
   "sideEffects": [
     "./snippets/*"

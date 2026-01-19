@@ -59,17 +59,9 @@
 //! ```
 
 use wasm_bindgen::prelude::*;
-use js_sys::Promise;
 
 #[cfg(feature = "console_error_panic_hook")]
 pub use console_error_panic_hook::set_once as set_panic_hook;
-
-// Re-export thread pool initialization for wasm-bindgen-rayon
-// Wrap it in a wasm_bindgen function so it's accessible from JavaScript
-#[wasm_bindgen]
-pub fn init_thread_pool(num_threads: usize) -> Promise {
-    wasm_bindgen_rayon::init_thread_pool(num_threads)
-}
 
 mod api;
 mod gpu_geometry;

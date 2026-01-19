@@ -324,13 +324,17 @@ When using `@ifc-lite/parser` directly in the browser:
 
 End-to-end loading times measured with Playwright in headed Chrome (M1 MacBook Pro):
 
-| Model | Size | Entities | Total Load | First Batch |
-|-------|------|----------|------------|-------------|
-| Large architectural | 327 MB | 4.4M | **15.9s** | 5.0s |
-| Tower complex | 169 MB | 2.8M | **9.6s** | 2.6s |
-| Small model | 8 MB | 147K | **0.6s** | 0.16s |
+| Model | Size | Entities | Total Load | First Batch | Geometry | Data Model |
+|-------|------|----------|------------|-------------|----------|------------|
+| Large architectural | 327 MB | 4.4M | **17s** | 1.2s | 9s | 5s |
+| Tower complex | 169 MB | 2.8M | **14s** | 0.8s | 7s | 3s |
+| Small model | 8 MB | 147K | **1.0s** | 50ms | 500ms | 200ms |
 
-The streaming architecture ensures **first geometry appears within seconds** while the full model continues loading. Data model parsing runs in parallel with geometry streaming.
+**Architecture:**
+- **Dedicated geometry worker**: Large files (>50MB) use a Web Worker for geometry processing
+- **True parallelism**: Geometry streams from worker while data model parses on main thread
+- **First batch < 1.5s**: Users see geometry within 1-1.5 seconds, even for 327MB files
+- **Zero-copy transfer**: ArrayBuffers transferred (not copied) between worker and main thread
 
 Run benchmarks on your hardware:
 

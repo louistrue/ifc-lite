@@ -26,6 +26,18 @@ export default defineConfig({
         },
       ],
     }),
+    // Prevent Vite from bundling WASM files that we copy manually
+    {
+      name: 'exclude-wasm-from-bundle',
+      generateBundle(_options, bundle) {
+        // Remove any WASM files from the bundle - they're copied via viteStaticCopy
+        Object.keys(bundle).forEach((key) => {
+          if (key.endsWith('.wasm')) {
+            delete bundle[key];
+          }
+        });
+      },
+    },
     {
       name: 'wasm-mime-type',
       configureServer(server) {

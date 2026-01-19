@@ -16,6 +16,7 @@ use i_overlay::float::single::SingleFloatOverlay;
 use nalgebra::Point2;
 
 /// Epsilon for floating point comparisons in 2D operations
+#[cfg(test)]
 const EPSILON_2D: f64 = 1e-9;
 
 /// Minimum area threshold - polygons smaller than this are considered degenerate

@@ -217,18 +217,6 @@ impl GpuGeometry {
         }
     }
 
-    /// Convert Z-up to Y-up in place for a coordinate triple
-    #[inline]
-    fn convert_z_up_to_y_up(coords: &mut [f32]) {
-        for chunk in coords.chunks_exact_mut(3) {
-            let y = chunk[1];
-            let z = chunk[2];
-            // Swap Y and Z: Z-up → Y-up
-            chunk[1] = z; // New Y = old Z (vertical)
-            chunk[2] = -y; // New Z = -old Y (depth, negated for right-hand rule)
-        }
-    }
-
     /// Add a mesh with positions and normals, interleaving and converting coordinates
     pub fn add_mesh(
         &mut self,

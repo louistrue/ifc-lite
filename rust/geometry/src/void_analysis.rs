@@ -20,9 +20,6 @@ use rustc_hash::FxHashMap;
 /// Default epsilon for planarity detection
 const DEFAULT_PLANARITY_EPSILON: f64 = 0.02;
 
-/// Minimum epsilon for adaptive planarity detection
-const MIN_PLANARITY_EPSILON: f64 = 0.001;
-
 /// Maximum depth tolerance for considering a void as "through"
 const THROUGH_VOID_TOLERANCE: f64 = 0.01;
 

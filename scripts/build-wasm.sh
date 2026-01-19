@@ -9,31 +9,25 @@ cd "$ROOT_DIR"
 
 echo "🦀 Building IFC-Lite WASM..."
 
-# Build with wasm-pack (skip internal wasm-opt to preserve TLS exports for threading)
+# Build with wasm-pack
 echo "📦 Running wasm-pack..."
 wasm-pack build rust/wasm-bindings \
   --target web \
   --out-dir ../../packages/wasm/pkg \
   --out-name ifc-lite \
-  --release \
-  --no-opt
+  --release
 
 # Optimize with wasm-opt
 echo "⚡ Optimizing with wasm-opt..."
 if command -v wasm-opt &> /dev/null; then
   wasm-opt -Oz \
     --enable-bulk-memory \
-    --enable-threads \
     --enable-mutable-globals \
     --enable-nontrapping-float-to-int \
     --enable-sign-ext \
-    --export=__wasm_init_tls \
-    --export=__tls_size \
-    --export=__tls_align \
-    --export=__tls_base \
     packages/wasm/pkg/ifc-lite_bg.wasm \
     -o packages/wasm/pkg/ifc-lite_bg.wasm
-  echo "✅ Optimized with wasm-opt (preserved TLS exports for threading)"
+  echo "✅ Optimized with wasm-opt"
 else
   echo "⚠️  wasm-opt not found, skipping optimization"
   echo "   Install with: npm install -g wasm-opt"

@@ -322,7 +322,7 @@ export class RenderPipeline {
             multisample: {
                 count: this.sampleCount,
             },
-        };
+        } as GPURenderPipelineDescriptor;
 
         this.pipeline = this.device.createRenderPipeline(pipelineDescriptor);
 
@@ -362,7 +362,7 @@ export class RenderPipeline {
             multisample: {
                 count: this.sampleCount,
             },
-        };
+        } as GPURenderPipelineDescriptor;
 
         this.selectionPipeline = this.device.createRenderPipeline(selectionPipelineDescriptor);
 
@@ -412,7 +412,7 @@ export class RenderPipeline {
             multisample: {
                 count: this.sampleCount,
             },
-        };
+        } as GPURenderPipelineDescriptor;
 
         this.transparentPipeline = this.device.createRenderPipeline(transparentPipelineDescriptor);
 
