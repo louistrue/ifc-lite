@@ -612,9 +612,10 @@ export class Renderer {
                     else normal[2] = 1;                                              // Z axis (front)
 
                     // Get axis-specific range based on semantic axis
+                    // Use min/max overrides from sectionPlane if provided (storey-based range)
                     const axisIdx = options.sectionPlane.axis === 'side' ? 'x' : options.sectionPlane.axis === 'down' ? 'y' : 'z';
-                    const minVal = boundsMin[axisIdx];
-                    const maxVal = boundsMax[axisIdx];
+                    const minVal = options.sectionPlane.min ?? boundsMin[axisIdx];
+                    const maxVal = options.sectionPlane.max ?? boundsMax[axisIdx];
 
                     // Calculate plane distance from position percentage
                     const range = maxVal - minVal;
@@ -1110,6 +1111,8 @@ export class Renderer {
                         bounds: this.modelBounds,
                         viewProj,
                         isPreview: !options.sectionPlane.enabled, // Preview mode when not enabled
+                        min: options.sectionPlane.min,
+                        max: options.sectionPlane.max,
                     }
                 );
             }

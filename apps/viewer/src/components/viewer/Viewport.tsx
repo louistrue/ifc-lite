@@ -59,22 +59,34 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   const pendingColorUpdates = useViewerStore((state) => state.pendingColorUpdates);
   const clearPendingColorUpdates = useViewerStore((state) => state.clearPendingColorUpdates);
 
-  // Calculate section plane range based on model bounds
+  const ifcDataStore = useViewerStore((state) => state.ifcDataStore);
+
+  // Calculate section plane range based on storey heights only
   const sectionRange = useMemo(() => {
-    if (!coordinateInfo) return null;
+    if (!ifcDataStore?.spatialHierarchy || !coordinateInfo) return null;
 
-    // Use geometric bounds from the model - this is always accurate
-    const minLevel = coordinateInfo.shiftedBounds.min.y;
-    const maxLevel = coordinateInfo.shiftedBounds.max.y;
+    const { storeyElevations } = ifcDataStore.spatialHierarchy;
+    if (storeyElevations.size === 0) return null;
 
-    // Add small margin at top and bottom (5% of total height) so section can go a bit further
-    const totalHeight = maxLevel - minLevel;
-    const margin = totalHeight * 0.05;
-    const minWithMargin = minLevel - margin;
-    const maxWithMargin = maxLevel + margin;
+    // Storey elevations are in original IFC coordinates - need to apply origin shift
+    const yShift = coordinateInfo.originShift.y;
+
+    let minLevel = Infinity;
+    let maxLevel = -Infinity;
+
+    // Find lowest and highest storey elevations (shifted to match geometry)
+    for (const elevation of storeyElevations.values()) {
+      const shiftedElevation = elevation - yShift;
+      if (shiftedElevation < minLevel) minLevel = shiftedElevation;
+      if (shiftedElevation > maxLevel) maxLevel = shiftedElevation;
+    }
+
+    // Use storey bounds with fixed 5m margin
+    const minWithMargin = minLevel - 5;
+    const maxWithMargin = maxLevel + 5;
 
     return Number.isFinite(minWithMargin) && Number.isFinite(maxWithMargin) ? { min: minWithMargin, max: maxWithMargin } : null;
-  }, [coordinateInfo]);
+  }, [ifcDataStore, coordinateInfo]);
 
   // Theme-aware clear color ref (updated when theme changes)
   // Tokyo Night storm: #1a1b26 = rgb(26, 27, 38)
