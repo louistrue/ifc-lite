@@ -1,5 +1,11 @@
 # @ifc-lite/geometry
 
+## 1.2.1
+
+### Patch Changes
+
+- Version sync with @ifc-lite packages
+
 ## 1.2.0
 
 ### Minor Changes
