@@ -7,7 +7,7 @@
  */
 
 export interface SectionPlaneRenderOptions {
-  axis: 'up' | 'front' | 'side';  // Semantic axis names: up (Y), front (Z), side (X)
+  axis: 'down' | 'front' | 'side';  // Semantic axis names: down (Y), front (Z), side (X)
   position: number; // 0-100 percentage
   bounds: {
     min: { x: number; y: number; z: number };
@@ -232,10 +232,13 @@ export class SectionPlaneRenderer {
 
     const { axis, position, bounds, viewProj, isPreview } = options;
 
+    // Only draw section plane in preview mode - hide it during active cutting
+    if (!isPreview) {
+      return;
+    }
+
     // Calculate plane vertices based on axis and bounds
-    // In cut mode, inset the plane so users can see the cut cross-section
-    const inset = isPreview ? 0 : 0.15; // 15% inset when cutting to show edges
-    const vertices = this.calculatePlaneVertices(axis, position, bounds, inset);
+    const vertices = this.calculatePlaneVertices(axis, position, bounds, 0);
     this.device.queue.writeBuffer(this.vertexBuffer, 0, vertices);
 
     // Update uniforms
@@ -243,8 +246,8 @@ export class SectionPlaneRenderer {
     uniforms.set(viewProj, 0);
 
     // Axis-specific colors for better identification
-    // up (Y) = light blue, front (Z) = green, side (X) = orange
-    if (axis === 'up') {
+    // down (Y) = light blue, front (Z) = green, side (X) = orange
+    if (axis === 'down') {
       uniforms[16] = 0.012; // R - #03A9F4
       uniforms[17] = 0.663; // G
       uniforms[18] = 0.957; // B
@@ -257,15 +260,12 @@ export class SectionPlaneRenderer {
       uniforms[17] = 0.596; // G
       uniforms[18] = 0.0;   // B
     }
-    // Opacity: preview mode (subtle) vs active cutting (prominent)
-    uniforms[19] = isPreview ? 0.25 : 0.45;
+    // Preview mode opacity
+    uniforms[19] = 0.35;
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
 
-    // Draw the section plane with appropriate pipeline
-    // Preview: respects depth (hidden behind geometry)
-    // Cut: always visible (shows cut location)
-    const pipeline = isPreview ? this.previewPipeline : this.cutPipeline;
-    pass.setPipeline(pipeline);
+    // Draw section plane with preview pipeline (respects depth)
+    pass.setPipeline(this.previewPipeline!);
     pass.setBindGroup(0, this.bindGroup);
     pass.setVertexBuffer(0, this.vertexBuffer);
     pass.draw(6); // 2 triangles
@@ -298,8 +298,8 @@ export class SectionPlaneRenderer {
     uniforms.set(viewProj, 0);
 
     // Axis-specific colors for better identification
-    // up (Y) = light blue, front (Z) = green, side (X) = orange
-    if (axis === 'up') {
+    // down (Y) = light blue, front (Z) = green, side (X) = orange
+    if (axis === 'down') {
       uniforms[16] = 0.012; // R - #03A9F4
       uniforms[17] = 0.663; // G
       uniforms[18] = 0.957; // B
@@ -312,8 +312,8 @@ export class SectionPlaneRenderer {
       uniforms[17] = 0.596; // G
       uniforms[18] = 0.0;   // B
     }
-    // Opacity: preview mode (subtle) vs active cutting (prominent)
-    uniforms[19] = isPreview ? 0.2 : 0.5;
+    // Preview mode opacity
+    uniforms[19] = 0.35;
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
 
     // Render the section plane in its own pass (legacy - may cause MSAA issues)
@@ -338,16 +338,16 @@ export class SectionPlaneRenderer {
   }
 
   private calculatePlaneVertices(
-    axis: 'up' | 'front' | 'side',
+    axis: 'down' | 'front' | 'side',
     position: number,
     bounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } },
     inset: number = 0  // 0 = full size, 0.15 = 15% smaller on each side
   ): Float32Array {
     const { min, max } = bounds;
 
-    // Calculate base size with 10% padding for preview, then apply inset for cut mode
+    // Calculate base size with 10% padding for preview
     const basePadding = 0.1;
-    const effectiveScale = (1 + basePadding) * (1 - inset * 2);  // inset applies to both sides
+    const effectiveScale = (1 + basePadding) * (1 - inset * 2);
     const sizeX = (max.x - min.x) * effectiveScale;
     const sizeY = (max.y - min.y) * effectiveScale;
     const sizeZ = (max.z - min.z) * effectiveScale;
@@ -376,8 +376,8 @@ export class SectionPlaneRenderer {
         x, centerY + halfY, centerZ + halfZ, 1, 1,
         x, centerY - halfY, centerZ + halfZ, 0, 1,
       ];
-    } else if (axis === 'up') {
-      // Up = Y axis (XZ plane) - horizontal cut
+    } else if (axis === 'down') {
+      // Down = Y axis (XZ plane) - horizontal cut
       const y = min.y + t * (max.y - min.y);
       const halfX = sizeX / 2;
       const halfZ = sizeZ / 2;

@@ -662,7 +662,7 @@ function SnapIndicator({ screenX, screenY, snapType }: SnapIndicatorProps) {
 
 // Axis display info for semantic names
 const AXIS_INFO = {
-  up: { label: 'Up', description: 'Horizontal cut (floor plan view)', icon: '↑' },
+  down: { label: 'Down', description: 'Horizontal cut (floor plan view)', icon: '↓' },
   front: { label: 'Front', description: 'Vertical cut (elevation view)', icon: '→' },
   side: { label: 'Side', description: 'Vertical cut (side elevation)', icon: '⊙' },
 } as const;
@@ -679,7 +679,7 @@ function SectionOverlay() {
     setActiveTool('select');
   }, [setActiveTool]);
 
-  const handleAxisChange = useCallback((axis: 'up' | 'front' | 'side') => {
+  const handleAxisChange = useCallback((axis: 'down' | 'front' | 'side') => {
     setSectionPlaneAxis(axis);
   }, [setSectionPlaneAxis]);
 
@@ -724,7 +724,7 @@ function SectionOverlay() {
             <div className="mt-3">
               <label className="text-xs text-muted-foreground mb-2 block">Direction</label>
               <div className="flex gap-1">
-                {(['up', 'front', 'side'] as const).map((axis) => (
+                {(['down', 'front', 'side'] as const).map((axis) => (
                   <Button
                     key={axis}
                     variant={sectionPlane.axis === axis ? 'default' : 'outline'}
@@ -795,10 +795,10 @@ function SectionOverlay() {
 }
 
 // Section plane visual indicator component
-function SectionPlaneVisualization({ axis, enabled }: { axis: 'up' | 'front' | 'side'; enabled: boolean }) {
+function SectionPlaneVisualization({ axis, enabled }: { axis: 'down' | 'front' | 'side'; enabled: boolean }) {
   // Get the axis color
   const axisColors = {
-    up: '#03A9F4',    // Light blue for horizontal cuts
+    down: '#03A9F4',  // Light blue for horizontal cuts
     front: '#4CAF50', // Green for front cuts
     side: '#FF9800',  // Orange for side cuts
   };

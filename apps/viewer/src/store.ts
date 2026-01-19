@@ -35,8 +35,8 @@ export interface ActiveMeasurement {
 }
 
 // Section plane types
-// Semantic axis names: up (Y), front (Z), side (X) for intuitive user experience
-export type SectionPlaneAxis = 'up' | 'front' | 'side';
+// Semantic axis names: down (Y), front (Z), side (X) for intuitive user experience
+export type SectionPlaneAxis = 'down' | 'front' | 'side';
 export interface SectionPlane {
   axis: SectionPlaneAxis;
   position: number; // 0-100 percentage of model bounds
@@ -255,7 +255,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   snapTarget: null,
   snapEnabled: true,
   snapVisualization: null,
-  sectionPlane: { axis: 'up', position: 50, enabled: true, flipped: false },
+  sectionPlane: { axis: 'down', position: 50, enabled: true, flipped: false },
   cameraRotation: { azimuth: 45, elevation: 25 },
   cameraCallbacks: {},
   onCameraRotationChange: null,
@@ -700,7 +700,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     sectionPlane: { ...state.sectionPlane, flipped: !state.sectionPlane.flipped },
   })),
   resetSectionPlane: () => set({
-    sectionPlane: { axis: 'up', position: 50, enabled: false, flipped: false },
+    sectionPlane: { axis: 'down', position: 50, enabled: true, flipped: false },
   }),
 
   // Reset all viewer state when loading new file
@@ -722,7 +722,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     pendingMeasurePoint: null,
     activeMeasurement: null,
     snapTarget: null,
-    sectionPlane: { axis: 'up', position: 50, enabled: false, flipped: false },
+    sectionPlane: { axis: 'down', position: 50, enabled: true, flipped: false },
     cameraRotation: { azimuth: 45, elevation: 25 },
     activeTool: 'select',
   }),

@@ -605,14 +605,14 @@ export class Renderer {
                 // Only calculate clipping data if section is enabled
                 if (options.sectionPlane.enabled) {
                     // Calculate plane normal based on semantic axis
-                    // up = Y axis (horizontal cut), front = Z axis, side = X axis
+                    // down = Y axis (horizontal cut), front = Z axis, side = X axis
                     const normal: [number, number, number] = [0, 0, 0];
-                    if (options.sectionPlane.axis === 'side') normal[0] = 1;       // X axis
-                    else if (options.sectionPlane.axis === 'up') normal[1] = 1;    // Y axis (horizontal)
-                    else normal[2] = 1;                                             // Z axis (front)
+                    if (options.sectionPlane.axis === 'side') normal[0] = 1;        // X axis
+                    else if (options.sectionPlane.axis === 'down') normal[1] = 1;   // Y axis (horizontal)
+                    else normal[2] = 1;                                              // Z axis (front)
 
                     // Get axis-specific range based on semantic axis
-                    const axisIdx = options.sectionPlane.axis === 'side' ? 'x' : options.sectionPlane.axis === 'up' ? 'y' : 'z';
+                    const axisIdx = options.sectionPlane.axis === 'side' ? 'x' : options.sectionPlane.axis === 'down' ? 'y' : 'z';
                     const minVal = boundsMin[axisIdx];
                     const maxVal = boundsMax[axisIdx];
 

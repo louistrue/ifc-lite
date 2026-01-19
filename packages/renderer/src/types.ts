@@ -85,8 +85,8 @@ export interface BatchedMesh {
 }
 
 // Section plane for clipping
-// Semantic axis names: up (Y), front (Z), side (X) for intuitive user experience
-export type SectionPlaneAxis = 'up' | 'front' | 'side';
+// Semantic axis names: down (Y), front (Z), side (X) for intuitive user experience
+export type SectionPlaneAxis = 'down' | 'front' | 'side';
 export interface SectionPlane {
   axis: SectionPlaneAxis;
   position: number; // 0-100 percentage of model bounds
