@@ -110,12 +110,18 @@ function fixPackageJson(targetDir: string, projectName: string) {
   // Update name
   pkg.name = projectName;
 
-  // Replace workspace protocol with latest npm version
+  // Replace workspace protocol with latest npm version in all dependency fields
   const latestVersion = getLatestVersion();
-  const deps = pkg.dependencies || {};
-  for (const [name, version] of Object.entries(deps)) {
-    if (typeof version === 'string' && version.startsWith('workspace:') && name.startsWith('@ifc-lite/')) {
-      deps[name] = latestVersion;
+  const depFields = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
+
+  for (const field of depFields) {
+    const deps = pkg[field];
+    if (!deps) continue;
+
+    for (const [name, version] of Object.entries(deps)) {
+      if (typeof version === 'string' && version.includes('workspace:')) {
+        deps[name] = latestVersion;
+      }
     }
   }
 
@@ -294,7 +300,7 @@ function createBasicTemplate(targetDir: string, projectName: string) {
   // package.json
   writeFileSync(join(targetDir, 'package.json'), JSON.stringify({
     name: projectName,
-    version: '1.1.6',
+    version: latestVersion.replace('^', ''),
     type: 'module',
     scripts: {
       parse: 'npx tsx src/index.ts',

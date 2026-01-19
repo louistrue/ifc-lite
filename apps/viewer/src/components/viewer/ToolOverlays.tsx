@@ -37,6 +37,7 @@ function MeasureOverlay() {
   const deleteMeasurement = useViewerStore((s) => s.deleteMeasurement);
   const clearMeasurements = useViewerStore((s) => s.clearMeasurements);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
+  const projectToScreen = useViewerStore((s) => s.cameraCallbacks.projectToScreen);
 
   // Track cursor position in ref (no re-renders on mouse move)
   const cursorPosRef = React.useRef<{ x: number; y: number } | null>(null);
@@ -161,11 +162,10 @@ function MeasureOverlay() {
       <div 
         className="pointer-events-auto absolute bottom-16 left-1/2 -translate-x-1/2 z-30 bg-zinc-900 dark:bg-zinc-100 text-zinc-100 dark:text-zinc-900 px-3 py-1.5 border-2 border-zinc-900 dark:border-zinc-100 transition-shadow duration-150"
         style={{
-          boxShadow: snapTarget 
+          boxShadow: snapTarget
             ? `4px 4px 0px 0px ${
                 snapTarget.type === 'vertex' ? '#FFEB3B' :
                 snapTarget.type === 'edge' ? '#FF9800' :
-                snapTarget.type === 'edge_midpoint' ? '#FFC107' :
                 snapTarget.type === 'face' ? '#03A9F4' : '#00BCD4'
               }`
             : '3px 3px 0px 0px rgba(0,0,0,0.3)'
@@ -199,6 +199,7 @@ function MeasureOverlay() {
         snapTarget={snapTarget}
         snapVisualization={snapVisualization}
         hoverPosition={snapIndicatorPos}
+        projectToScreen={projectToScreen}
       />
     </>
   );
@@ -232,11 +233,18 @@ interface MeasurementOverlaysProps {
   pending: { screenX: number; screenY: number } | null;
   activeMeasurement: { start: { screenX: number; screenY: number }; current: { screenX: number; screenY: number }; distance: number } | null;
   snapTarget: { position: { x: number; y: number; z: number }; type: SnapType; metadata?: any } | null;
-  snapVisualization: { edgeLine?: { start: { x: number; y: number }; end: { x: number; y: number } }; planeIndicator?: { x: number; y: number; normal: { x: number; y: number; z: number } } } | null;
+  snapVisualization: {
+    // 3D world coordinates for edge (projected to screen dynamically)
+    edgeLine3D?: { v0: { x: number; y: number; z: number }; v1: { x: number; y: number; z: number } };
+    planeIndicator?: { x: number; y: number; normal: { x: number; y: number; z: number } };
+    slidingDot?: { t: number }; // Position on edge (t = 0-1)
+    cornerRings?: { atStart: boolean; valence: number }; // Corner at v0 (true) or v1 (false)
+  } | null;
   hoverPosition?: { x: number; y: number } | null;
+  projectToScreen?: (worldPos: { x: number; y: number; z: number }) => { x: number; y: number } | null;
 }
 
-const MeasurementOverlays = React.memo(function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTarget, snapVisualization, hoverPosition }: MeasurementOverlaysProps) {
+const MeasurementOverlays = React.memo(function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTarget, snapVisualization, hoverPosition, projectToScreen }: MeasurementOverlaysProps) {
   // Determine snap indicator position
   // Priority: activeMeasurement.current > hoverPosition
   const snapIndicatorPos = useMemo(() => {
@@ -386,24 +394,102 @@ const MeasurementOverlays = React.memo(function MeasurementOverlays({ measuremen
       )}
 
       {/* Edge highlight - draw full edge in 3D-projected screen space */}
-      {snapVisualization?.edgeLine && (
-        <svg
-          className="absolute inset-0 pointer-events-none z-25"
-          style={{ overflow: 'visible', pointerEvents: 'none' }}
-        >
-          <line
-            x1={snapVisualization.edgeLine.start.x}
-            y1={snapVisualization.edgeLine.start.y}
-            x2={snapVisualization.edgeLine.end.x}
-            y2={snapVisualization.edgeLine.end.y}
-            stroke="hsl(var(--primary))"
-            strokeWidth="4"
-            strokeOpacity="0.8"
-            filter="url(#snap-glow)"
-            className="animate-pulse"
-          />
-        </svg>
-      )}
+      {snapVisualization?.edgeLine3D && projectToScreen && (() => {
+        const start = projectToScreen(snapVisualization.edgeLine3D.v0);
+        const end = projectToScreen(snapVisualization.edgeLine3D.v1);
+        if (!start || !end) return null;
+
+        // Corner position (at v0 or v1)
+        const cornerPos = snapVisualization.cornerRings
+          ? (snapVisualization.cornerRings.atStart ? start : end)
+          : null;
+
+        return (
+          <svg
+            className="absolute inset-0 pointer-events-none z-30"
+            style={{ overflow: 'visible', pointerEvents: 'none' }}
+          >
+            {/* Edge line with snap color (orange for edges) */}
+            <line
+              x1={start.x}
+              y1={start.y}
+              x2={end.x}
+              y2={end.y}
+              stroke="#FF9800"
+              strokeWidth="4"
+              strokeOpacity="0.9"
+              strokeLinecap="round"
+              filter="url(#snap-glow)"
+            />
+            {/* Outer glow line for better visibility */}
+            <line
+              x1={start.x}
+              y1={start.y}
+              x2={end.x}
+              y2={end.y}
+              stroke="#FF9800"
+              strokeWidth="8"
+              strokeOpacity="0.3"
+              strokeLinecap="round"
+            />
+            {/* Edge endpoints */}
+            <circle cx={start.x} cy={start.y} r="4" fill="#FF9800" fillOpacity="0.6" />
+            <circle cx={end.x} cy={end.y} r="4" fill="#FF9800" fillOpacity="0.6" />
+
+            {/* Corner rings - shows strong attraction at corners */}
+            {cornerPos && snapVisualization.cornerRings && (
+              <>
+                {/* Outer pulsing ring */}
+                <circle
+                  cx={cornerPos.x}
+                  cy={cornerPos.y}
+                  r="18"
+                  fill="none"
+                  stroke="#FFEB3B"
+                  strokeWidth="2"
+                  strokeOpacity="0.4"
+                  className="animate-pulse"
+                />
+                {/* Middle ring */}
+                <circle
+                  cx={cornerPos.x}
+                  cy={cornerPos.y}
+                  r="12"
+                  fill="none"
+                  stroke="#FFEB3B"
+                  strokeWidth="2"
+                  strokeOpacity="0.6"
+                />
+                {/* Inner ring */}
+                <circle
+                  cx={cornerPos.x}
+                  cy={cornerPos.y}
+                  r="6"
+                  fill="#FFEB3B"
+                  fillOpacity="0.8"
+                  stroke="white"
+                  strokeWidth="1"
+                />
+                {/* Center dot */}
+                <circle
+                  cx={cornerPos.x}
+                  cy={cornerPos.y}
+                  r="2"
+                  fill="white"
+                />
+                {/* Valence indicators (small dots around corner) */}
+                {snapVisualization.cornerRings.valence >= 3 && (
+                  <>
+                    <circle cx={cornerPos.x - 10} cy={cornerPos.y} r="2" fill="#FFEB3B" fillOpacity="0.7" />
+                    <circle cx={cornerPos.x + 10} cy={cornerPos.y} r="2" fill="#FFEB3B" fillOpacity="0.7" />
+                    <circle cx={cornerPos.x} cy={cornerPos.y - 10} r="2" fill="#FFEB3B" fillOpacity="0.7" />
+                  </>
+                )}
+              </>
+            )}
+          </svg>
+        );
+      })()}
 
       {/* Plane indicator - subtle grid/cross for face snaps */}
       {snapVisualization?.planeIndicator && (
@@ -514,15 +600,35 @@ const MeasurementOverlays = React.memo(function MeasurementOverlays({ measuremen
   // Compare snapVisualization
   if (!!prevProps.snapVisualization !== !!nextProps.snapVisualization) return false;
   if (prevProps.snapVisualization && nextProps.snapVisualization) {
-    const prevEdge = prevProps.snapVisualization.edgeLine;
-    const nextEdge = nextProps.snapVisualization.edgeLine;
+    // Compare edgeLine3D (3D world coordinates)
+    const prevEdge = prevProps.snapVisualization.edgeLine3D;
+    const nextEdge = nextProps.snapVisualization.edgeLine3D;
     if (!!prevEdge !== !!nextEdge) return false;
     if (prevEdge && nextEdge) {
       if (
-        prevEdge.start.x !== nextEdge.start.x ||
-        prevEdge.start.y !== nextEdge.start.y ||
-        prevEdge.end.x !== nextEdge.end.x ||
-        prevEdge.end.y !== nextEdge.end.y
+        prevEdge.v0.x !== nextEdge.v0.x ||
+        prevEdge.v0.y !== nextEdge.v0.y ||
+        prevEdge.v0.z !== nextEdge.v0.z ||
+        prevEdge.v1.x !== nextEdge.v1.x ||
+        prevEdge.v1.y !== nextEdge.v1.y ||
+        prevEdge.v1.z !== nextEdge.v1.z
+      ) return false;
+    }
+    // Compare slidingDot (t parameter only)
+    const prevDot = prevProps.snapVisualization.slidingDot;
+    const nextDot = nextProps.snapVisualization.slidingDot;
+    if (!!prevDot !== !!nextDot) return false;
+    if (prevDot && nextDot) {
+      if (prevDot.t !== nextDot.t) return false;
+    }
+    // Compare cornerRings (atStart + valence)
+    const prevCorner = prevProps.snapVisualization.cornerRings;
+    const nextCorner = nextProps.snapVisualization.cornerRings;
+    if (!!prevCorner !== !!nextCorner) return false;
+    if (prevCorner && nextCorner) {
+      if (
+        prevCorner.atStart !== nextCorner.atStart ||
+        prevCorner.valence !== nextCorner.valence
       ) return false;
     }
     const prevPlane = prevProps.snapVisualization.planeIndicator;
@@ -535,6 +641,9 @@ const MeasurementOverlays = React.memo(function MeasurementOverlays({ measuremen
       ) return false;
     }
   }
+
+  // Compare projectToScreen (always re-render if it changes as we need it for projection)
+  if (prevProps.projectToScreen !== nextProps.projectToScreen) return false;
   
   // Compare hoverPosition
   if (prevProps.hoverPosition?.x !== nextProps.hoverPosition?.x ||
@@ -558,7 +667,6 @@ function SnapIndicator({ screenX, screenY, snapType }: SnapIndicatorProps) {
   const snapColors = {
     [SnapType.VERTEX]: '#FFEB3B', // Yellow - circle = point
     [SnapType.EDGE]: '#FF9800', // Orange - line = edge
-    [SnapType.EDGE_MIDPOINT]: '#FFC107', // Amber - line with diamond = midpoint
     [SnapType.FACE]: '#03A9F4', // Light Blue - square = face
     [SnapType.FACE_CENTER]: '#00BCD4', // Cyan - square with dot = center
   };
@@ -603,25 +711,6 @@ function SnapIndicator({ screenX, screenY, snapType }: SnapIndicatorProps) {
             strokeLinecap="round"
           />
           <circle cx={screenX} cy={screenY} r="2" fill={color} />
-        </>
-      )}
-      
-      {/* Edge Midpoint: line with diamond marker */}
-      {snapType === SnapType.EDGE_MIDPOINT && (
-        <>
-          <line
-            x1={screenX - 8}
-            y1={screenY}
-            x2={screenX + 8}
-            y2={screenY}
-            stroke={color}
-            strokeWidth="2"
-            strokeLinecap="round"
-          />
-          <polygon
-            points={`${screenX},${screenY - 3} ${screenX + 3},${screenY} ${screenX},${screenY + 3} ${screenX - 3},${screenY}`}
-            fill={color}
-          />
         </>
       )}
       
