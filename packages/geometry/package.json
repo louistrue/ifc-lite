@@ -18,7 +18,11 @@
   "dependencies": {
     "@ifc-lite/wasm": "workspace:^"
   },
+  "optionalDependencies": {
+    "@tauri-apps/api": "^2.0.0"
+  },
   "devDependencies": {
+    "@tauri-apps/api": "^2.0.0",
     "typescript": "^5.3.0"
   },
   "license": "MPL-2.0",

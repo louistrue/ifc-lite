@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo check:*)",
+      "Bash(cargo build:*)",
+      "Bash(npx tauri:*)",
+      "Bash(pnpm tauri icon:*)",
+      "Bash(pnpm install)",
+      "Bash(pnpm exec tauri:*)",
+      "Bash(pnpm build:packages:*)",
+      "Bash(pnpm build:*)",
+      "Bash(pnpm dev:*)"
+    ]
+  }
+}
