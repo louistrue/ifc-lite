@@ -6,7 +6,7 @@
  * 3D viewport component
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { Renderer, MathUtils } from '@ifc-lite/renderer';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 import { useViewerStore, type MeasurePoint } from '@/store';
@@ -54,10 +54,27 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   const snapEnabled = useViewerStore((state) => state.snapEnabled);
   const updateMeasurementScreenCoords = useViewerStore((state) => state.updateMeasurementScreenCoords);
   const measurements = useViewerStore((state) => state.measurements);
-  
+
   // Color update subscriptions
   const pendingColorUpdates = useViewerStore((state) => state.pendingColorUpdates);
   const clearPendingColorUpdates = useViewerStore((state) => state.clearPendingColorUpdates);
+
+  // Calculate section plane range based on model bounds
+  const sectionRange = useMemo(() => {
+    if (!coordinateInfo) return null;
+
+    // Use geometric bounds from the model - this is always accurate
+    const minLevel = coordinateInfo.shiftedBounds.min.y;
+    const maxLevel = coordinateInfo.shiftedBounds.max.y;
+
+    // Add small margin at top and bottom (5% of total height) so section can go a bit further
+    const totalHeight = maxLevel - minLevel;
+    const margin = totalHeight * 0.05;
+    const minWithMargin = minLevel - margin;
+    const maxWithMargin = maxLevel + margin;
+
+    return Number.isFinite(minWithMargin) && Number.isFinite(maxWithMargin) ? { min: minWithMargin, max: maxWithMargin } : null;
+  }, [coordinateInfo]);
 
   // Theme-aware clear color ref (updated when theme changes)
   // Tokyo Night storm: #1a1b26 = rgb(26, 27, 38)
@@ -133,6 +150,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   const activeMeasurementRef = useRef(activeMeasurement);
   const snapEnabledRef = useRef(snapEnabled);
   const sectionPlaneRef = useRef(sectionPlane);
+  const sectionRangeRef = useRef<{ min: number; max: number } | null>(null);
   const geometryRef = useRef<MeshData[] | null>(geometry);
 
   // Hover throttling
@@ -173,6 +191,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   useEffect(() => { activeMeasurementRef.current = activeMeasurement; }, [activeMeasurement]);
   useEffect(() => { snapEnabledRef.current = snapEnabled; }, [snapEnabled]);
   useEffect(() => { sectionPlaneRef.current = sectionPlane; }, [sectionPlane]);
+  useEffect(() => { sectionRangeRef.current = sectionRange; }, [sectionRange]);
   useEffect(() => {
     geometryRef.current = geometry;
   }, [geometry]);
@@ -358,7 +377,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
-            sectionPlane: activeToolRef.current === 'section' || sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+            sectionPlane: activeToolRef.current === 'section' ? {
+              ...sectionPlaneRef.current,
+              min: sectionRangeRef.current?.min,
+              max: sectionRangeRef.current?.max,
+            } : undefined,
           });
           calculateScale();
         },
@@ -379,7 +402,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
-            sectionPlane: activeToolRef.current === 'section' || sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+            sectionPlane: activeToolRef.current === 'section' ? {
+              ...sectionPlaneRef.current,
+              min: sectionRangeRef.current?.min,
+              max: sectionRangeRef.current?.max,
+            } : undefined,
           });
           calculateScale();
         },
@@ -390,7 +417,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
-            sectionPlane: activeToolRef.current === 'section' || sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+            sectionPlane: activeToolRef.current === 'section' ? {
+              ...sectionPlaneRef.current,
+              min: sectionRangeRef.current?.min,
+              max: sectionRangeRef.current?.max,
+            } : undefined,
           });
           calculateScale();
         },
@@ -418,7 +449,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
-            sectionPlane: activeToolRef.current === 'section' || sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+            sectionPlane: activeToolRef.current === 'section' ? {
+              ...sectionPlaneRef.current,
+              min: sectionRangeRef.current?.min,
+              max: sectionRangeRef.current?.max,
+            } : undefined,
           });
           updateCameraRotationRealtime(camera.getRotation());
           calculateScale();
@@ -456,7 +491,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
-            sectionPlane: activeToolRef.current === 'section' || sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+            sectionPlane: activeToolRef.current === 'section' ? {
+              ...sectionPlaneRef.current,
+              min: sectionRangeRef.current?.min,
+              max: sectionRangeRef.current?.max,
+            } : undefined,
           });
           // Update ViewCube during camera animation (e.g., preset view transitions)
           updateCameraRotationRealtime(camera.getRotation());
@@ -710,7 +749,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             return; // Skip hover snap detection if throttled
           }
           lastHoverSnapTimeRef.current = now;
-          
+
           // Throttle raycasting to avoid performance issues
           if (!measureRaycastPendingRef.current) {
             measureRaycastPendingRef.current = true;
@@ -777,7 +816,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           const meshCount = geometryRef.current?.length ?? 0;
           const throttleMs = meshCount > 50000 ? RENDER_THROTTLE_MS_HUGE
             : meshCount > 10000 ? RENDER_THROTTLE_MS_LARGE
-            : RENDER_THROTTLE_MS_SMALL;
+              : RENDER_THROTTLE_MS_SMALL;
 
           const now = performance.now();
           if (now - lastRenderTimeRef.current >= throttleMs) {
@@ -787,7 +826,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
               isolatedIds: isolatedEntitiesRef.current,
               selectedId: selectedEntityIdRef.current,
               clearColor: clearColorRef.current,
-              sectionPlane: activeToolRef.current === 'section' || sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+              sectionPlane: activeToolRef.current === 'section' ? {
+                ...sectionPlaneRef.current,
+                min: sectionRangeRef.current?.min,
+                max: sectionRangeRef.current?.max,
+              } : undefined,
             });
             // Update ViewCube rotation in real-time during drag
             updateCameraRotationRealtime(camera.getRotation());
@@ -803,7 +846,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
                 isolatedIds: isolatedEntitiesRef.current,
                 selectedId: selectedEntityIdRef.current,
                 clearColor: clearColorRef.current,
-                sectionPlane: activeToolRef.current === 'section' || sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+                sectionPlane: activeToolRef.current === 'section' ? {
+                  ...sectionPlaneRef.current,
+                  min: sectionRangeRef.current?.min,
+                  max: sectionRangeRef.current?.max,
+                } : undefined,
               });
               updateCameraRotationRealtime(camera.getRotation());
               calculateScale();
@@ -884,7 +931,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           isolatedIds: isolatedEntitiesRef.current,
           selectedId: selectedEntityIdRef.current,
           clearColor: clearColorRef.current,
-          sectionPlane: activeToolRef.current === 'section' || sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+          sectionPlane: activeToolRef.current === 'section' ? {
+            ...sectionPlaneRef.current,
+            min: sectionRangeRef.current?.min,
+            max: sectionRangeRef.current?.max,
+          } : undefined,
         });
         // Update measurement screen coordinates immediately during zoom (only in measure mode)
         if (activeToolRef.current === 'measure') {
@@ -1034,6 +1085,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
+            sectionPlane: activeToolRef.current === 'section' ? {
+              ...sectionPlaneRef.current,
+              min: sectionRangeRef.current?.min,
+              max: sectionRangeRef.current?.max,
+            } : undefined,
           });
         } else if (touchState.touches.length === 2) {
           const dx1 = touchState.touches[1].clientX - touchState.touches[0].clientX;
@@ -1057,7 +1113,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
-            sectionPlane: activeToolRef.current === 'section' || sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+            sectionPlane: activeToolRef.current === 'section' ? {
+              ...sectionPlaneRef.current,
+              min: sectionRangeRef.current?.min,
+              max: sectionRangeRef.current?.max,
+            } : undefined,
           });
         }
       });
@@ -1090,6 +1150,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
+            sectionPlane: activeToolRef.current === 'section' ? {
+              ...sectionPlaneRef.current,
+              min: sectionRangeRef.current?.min,
+              max: sectionRangeRef.current?.max,
+            } : undefined,
           });
           updateCameraRotationRealtime(camera.getRotation());
           calculateScale();
@@ -1173,7 +1238,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
-            sectionPlane: activeToolRef.current === 'section' || sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+            sectionPlane: activeToolRef.current === 'section' ? {
+              ...sectionPlaneRef.current,
+              min: sectionRangeRef.current?.min,
+              max: sectionRangeRef.current?.max,
+            } : undefined,
           });
         }
         requestAnimationFrame(keyboardMove);
@@ -1194,6 +1263,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           isolatedIds: isolatedEntitiesRef.current,
           selectedId: selectedEntityIdRef.current,
           clearColor: clearColorRef.current,
+          sectionPlane: activeToolRef.current === 'section' ? {
+            ...sectionPlaneRef.current,
+            min: sectionRangeRef.current?.min,
+            max: sectionRangeRef.current?.max,
+          } : undefined,
         });
       });
       resizeObserver.observe(canvas);
@@ -1203,6 +1277,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
         isolatedIds: isolatedEntitiesRef.current,
         selectedId: selectedEntityIdRef.current,
         clearColor: clearColorRef.current,
+        sectionPlane: activeToolRef.current === 'section' ? {
+          ...sectionPlaneRef.current,
+          min: sectionRangeRef.current?.min,
+          max: sectionRangeRef.current?.max,
+        } : undefined,
       });
     });
 
@@ -1556,17 +1635,17 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   // Note: Color updates may arrive before viewport is initialized, so we wait
   useEffect(() => {
     if (!pendingColorUpdates || pendingColorUpdates.size === 0) return;
-    
+
     // Wait until viewport is initialized before applying color updates
     if (!isInitialized) return;
-    
+
     const renderer = rendererRef.current;
     if (!renderer) return;
-    
+
     const device = renderer.getGPUDevice();
     const pipeline = renderer.getPipeline();
     const scene = renderer.getScene();
-    
+
     if (device && pipeline && (scene as any).updateMeshColors) {
       (scene as any).updateMeshColors(pendingColorUpdates, device, pipeline);
       renderer.render();
@@ -1588,9 +1667,13 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
       selectedId: selectedEntityId,
       selectedIds: selectedEntityIds,
       clearColor: clearColorRef.current,
-      sectionPlane: activeTool === 'section' || sectionPlane.enabled ? sectionPlane : undefined,
+      sectionPlane: activeTool === 'section' ? {
+        ...sectionPlane,
+        min: sectionRange?.min,
+        max: sectionRange?.max,
+      } : undefined,
     });
-  }, [hiddenEntities, isolatedEntities, selectedEntityId, selectedEntityIds, isInitialized, sectionPlane, activeTool]);
+  }, [hiddenEntities, isolatedEntities, selectedEntityId, selectedEntityIds, isInitialized, sectionPlane, activeTool, sectionRange]);
 
   return (
     <canvas

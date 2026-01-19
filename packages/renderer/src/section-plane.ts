@@ -16,6 +16,8 @@ export interface SectionPlaneRenderOptions {
   viewProj: Float32Array;
   flipped?: boolean; // If true, show the opposite side indicator
   isPreview?: boolean; // If true, render as preview (less opacity)
+  min?: number;      // Optional override for min range value
+  max?: number;      // Optional override for max range value
 }
 
 export class SectionPlaneRenderer {
@@ -79,51 +81,51 @@ export class SectionPlaneRenderer {
 
         @fragment
         fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-          // Create beautiful grid pattern
-          let gridSize = 0.05;           // Grid cell size
-          let lineWidth = 0.008;         // Thin lines
-          let majorGridSize = 0.25;      // Major grid every 5 cells
-          let majorLineWidth = 0.015;    // Thicker major lines
+          // Create fine grid pattern
+          let gridSize = 0.01;           // Fine grid cells (100 divisions)
+          let lineWidth = 0.001;         // Very thin lines
+          let majorGridSize = 0.1;       // Major grid every 10 cells
+          let majorLineWidth = 0.002;    // Slightly thicker major lines
 
           // Minor grid
           let gridX = abs(fract(input.uv.x / gridSize + 0.5) - 0.5);
           let gridY = abs(fract(input.uv.y / gridSize + 0.5) - 0.5);
           let isMinorGridLine = min(gridX, gridY) < lineWidth;
 
-          // Major grid (every 5 cells)
+          // Major grid (every 10 cells)
           let majorX = abs(fract(input.uv.x / majorGridSize + 0.5) - 0.5);
           let majorY = abs(fract(input.uv.y / majorGridSize + 0.5) - 0.5);
           let isMajorGridLine = min(majorX, majorY) < majorLineWidth;
 
           // Soft edge fade
           let edgeDist = min(input.uv.x, min(input.uv.y, min(1.0 - input.uv.x, 1.0 - input.uv.y)));
-          let edgeFade = smoothstep(0.0, 0.12, edgeDist);
+          let edgeFade = smoothstep(0.0, 0.08, edgeDist);
 
-          // Strong border glow
-          let borderGlow = 1.0 - smoothstep(0.0, 0.06, edgeDist);
+          // Subtle border
+          let borderGlow = 1.0 - smoothstep(0.0, 0.03, edgeDist);
 
           var color = uniforms.planeColor;
 
           // Layered rendering: base fill + minor grid + major grid + border
           if (isMajorGridLine) {
-            // Major grid lines - white with high visibility
-            color = vec4<f32>(1.0, 1.0, 1.0, min(color.a * 3.0, 1.0));
+            // Major grid lines - subtle white
+            color = vec4<f32>(1.0, 1.0, 1.0, color.a * 1.5);
           } else if (isMinorGridLine) {
-            // Minor grid lines - brighter color
-            color = vec4<f32>(color.rgb * 1.8, color.a * 2.0);
+            // Minor grid lines - slightly brighter
+            color = vec4<f32>(color.rgb * 1.3, color.a * 1.2);
           }
 
-          // Add bright border glow
+          // Add subtle border
           color = vec4<f32>(
-            mix(color.rgb, vec3<f32>(1.0, 1.0, 1.0), borderGlow * 0.6),
-            color.a + borderGlow * 0.5
+            mix(color.rgb, vec3<f32>(1.0, 1.0, 1.0), borderGlow * 0.3),
+            color.a + borderGlow * 0.2
           );
 
           // Apply edge fade
           color.a *= edgeFade;
 
           // Clamp alpha
-          color.a = min(color.a, 0.85);
+          color.a = min(color.a, 0.5);
 
           return color;
         }
@@ -230,7 +232,7 @@ export class SectionPlaneRenderer {
       return;
     }
 
-    const { axis, position, bounds, viewProj, isPreview } = options;
+    const { axis, position, bounds, viewProj, isPreview, min: minOverride, max: maxOverride } = options;
 
     // Only draw section plane in preview mode - hide it during active cutting
     if (!isPreview) {
@@ -238,7 +240,7 @@ export class SectionPlaneRenderer {
     }
 
     // Calculate plane vertices based on axis and bounds
-    const vertices = this.calculatePlaneVertices(axis, position, bounds, 0);
+    const vertices = this.calculatePlaneVertices(axis, position, bounds, 0, minOverride, maxOverride);
     this.device.queue.writeBuffer(this.vertexBuffer, 0, vertices);
 
     // Update uniforms
@@ -261,7 +263,7 @@ export class SectionPlaneRenderer {
       uniforms[18] = 0.0;   // B
     }
     // Preview mode opacity
-    uniforms[19] = 0.35;
+    uniforms[19] = 0.25;
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
 
     // Draw section plane with preview pipeline (respects depth)
@@ -271,77 +273,13 @@ export class SectionPlaneRenderer {
     pass.draw(6); // 2 triangles
   }
 
-  /**
-   * @deprecated Use draw() instead to render into an existing pass
-   * Legacy method that creates its own render pass (causes MSAA mismatch)
-   */
-  render(
-    encoder: GPUCommandEncoder,
-    textureView: GPUTextureView,
-    depthView: GPUTextureView,
-    options: SectionPlaneRenderOptions
-  ): void {
-    this.init();
-
-    if (!this.previewPipeline || !this.vertexBuffer || !this.uniformBuffer || !this.bindGroup) {
-      return;
-    }
-
-    const { axis, position, bounds, viewProj, isPreview } = options;
-
-    // Calculate plane vertices based on axis and bounds
-    const vertices = this.calculatePlaneVertices(axis, position, bounds);
-    this.device.queue.writeBuffer(this.vertexBuffer, 0, vertices);
-
-    // Update uniforms
-    const uniforms = new Float32Array(20);
-    uniforms.set(viewProj, 0);
-
-    // Axis-specific colors for better identification
-    // down (Y) = light blue, front (Z) = green, side (X) = orange
-    if (axis === 'down') {
-      uniforms[16] = 0.012; // R - #03A9F4
-      uniforms[17] = 0.663; // G
-      uniforms[18] = 0.957; // B
-    } else if (axis === 'front') {
-      uniforms[16] = 0.298; // R - #4CAF50
-      uniforms[17] = 0.686; // G
-      uniforms[18] = 0.314; // B
-    } else {
-      uniforms[16] = 1.0;   // R - #FF9800
-      uniforms[17] = 0.596; // G
-      uniforms[18] = 0.0;   // B
-    }
-    // Preview mode opacity
-    uniforms[19] = 0.35;
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
-
-    // Render the section plane in its own pass (legacy - may cause MSAA issues)
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: textureView,
-        loadOp: 'load', // Keep existing content
-        storeOp: 'store',
-      }],
-      depthStencilAttachment: {
-        view: depthView,
-        depthLoadOp: 'load',
-        depthStoreOp: 'store',
-      },
-    });
-
-    pass.setPipeline(this.previewPipeline!);
-    pass.setBindGroup(0, this.bindGroup);
-    pass.setVertexBuffer(0, this.vertexBuffer);
-    pass.draw(6); // 2 triangles
-    pass.end();
-  }
-
   private calculatePlaneVertices(
     axis: 'down' | 'front' | 'side',
     position: number,
     bounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } },
-    inset: number = 0  // 0 = full size, 0.15 = 15% smaller on each side
+    inset: number = 0,  // 0 = full size, 0.15 = 15% smaller on each side
+    minOverride?: number,
+    maxOverride?: number
   ): Float32Array {
     const { min, max } = bounds;
 
@@ -357,12 +295,15 @@ export class SectionPlaneRenderer {
 
     // Calculate the plane position along the axis
     const t = position / 100;
+    const axisIdx = axis === 'side' ? 'x' : axis === 'down' ? 'y' : 'z';
+    const axisMin = minOverride ?? min[axisIdx];
+    const axisMax = maxOverride ?? max[axisIdx];
 
     let vertices: number[] = [];
 
     if (axis === 'side') {
       // Side = X axis (YZ plane)
-      const x = min.x + t * (max.x - min.x);
+      const x = axisMin + t * (axisMax - axisMin);
       const halfY = sizeY / 2;
       const halfZ = sizeZ / 2;
       // Quad facing X axis (vertices in YZ plane)
@@ -378,7 +319,7 @@ export class SectionPlaneRenderer {
       ];
     } else if (axis === 'down') {
       // Down = Y axis (XZ plane) - horizontal cut
-      const y = min.y + t * (max.y - min.y);
+      const y = axisMin + t * (axisMax - axisMin);
       const halfX = sizeX / 2;
       const halfZ = sizeZ / 2;
       // Quad facing Y axis (vertices in XZ plane)
@@ -394,7 +335,7 @@ export class SectionPlaneRenderer {
       ];
     } else {
       // Front = Z axis (XY plane)
-      const z = min.z + t * (max.z - min.z);
+      const z = axisMin + t * (axisMax - axisMin);
       const halfX = sizeX / 2;
       const halfY = sizeY / 2;
       // Quad facing Z axis (vertices in XY plane)

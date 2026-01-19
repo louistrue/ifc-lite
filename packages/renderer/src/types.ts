@@ -92,6 +92,8 @@ export interface SectionPlane {
   position: number; // 0-100 percentage of model bounds
   enabled: boolean;
   flipped?: boolean; // If true, show the opposite side of the cut
+  min?: number;      // Optional override for min range value
+  max?: number;      // Optional override for max range value
 }
 
 export interface RenderOptions {
