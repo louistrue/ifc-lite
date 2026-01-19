@@ -104,6 +104,11 @@ export function extractLengthUnitScale(
     return 1.0;
   }
 
+  // Guard against missing attributes
+  if (!unitAssignment.attributes || !Array.isArray(unitAssignment.attributes)) {
+    return 1.0;
+  }
+
   // IFCUNITASSIGNMENT has a single attribute: Units (list of references)
   const unitsList = unitAssignment.attributes[0];
   if (!Array.isArray(unitsList)) {
