@@ -14,13 +14,16 @@ import { EntityExtractor } from './entity-extractor.js';
 export class SpatialHierarchyBuilder {
   /**
    * Build spatial hierarchy from entities and relationships
+   *
+   * @param lengthUnitScale - Scale factor to convert IFC length values to meters (e.g., 0.001 for millimeters)
    */
   build(
     entities: EntityTable,
     relationships: RelationshipGraph,
     strings: StringTable,
     source: Uint8Array,
-    entityIndex: { byId: Map<number, EntityRef> }
+    entityIndex: { byId: Map<number, EntityRef> },
+    lengthUnitScale: number = 1.0
   ): SpatialHierarchy {
     const byStorey = new Map<number, number[]>();
     const byBuilding = new Map<number, number[]>();
@@ -59,7 +62,8 @@ export class SpatialHierarchyBuilder {
       bySpace,
       storeyElevations,
       elementToStorey,
-      entityTypeMap
+      entityTypeMap,
+      lengthUnitScale
     );
 
     // Build reverse lookup map: elementId -> storeyId
@@ -168,16 +172,19 @@ export class SpatialHierarchyBuilder {
     bySpace: Map<number, number[]>,
     storeyElevations: Map<number, number>,
     elementToStorey: Map<number, number>,
-    entityTypeMap: Map<number, IfcTypeEnum>
+    entityTypeMap: Map<number, IfcTypeEnum>,
+    lengthUnitScale: number
   ): SpatialNode {
     const typeEnum = entityTypeMap.get(expressId) ?? IfcTypeEnum.Unknown;
     const name = entities.getName(expressId);
 
-    // Extract elevation for storeys
+    // Extract elevation for storeys (apply unit scale to convert to meters)
     let elevation: number | undefined;
     if (typeEnum === IfcTypeEnum.IfcBuildingStorey) {
-      elevation = this.extractElevation(expressId, source, entityIndex);
-      if (elevation !== undefined) {
+      const rawElevation = this.extractElevation(expressId, source, entityIndex);
+      if (rawElevation !== undefined) {
+        // Apply unit scale to convert to meters
+        elevation = rawElevation * lengthUnitScale;
         storeyElevations.set(expressId, elevation);
       }
     }
@@ -220,7 +227,8 @@ export class SpatialHierarchyBuilder {
           bySpace,
           storeyElevations,
           elementToStorey,
-          entityTypeMap
+          entityTypeMap,
+          lengthUnitScale
         );
         childNodes.push(childNode);
       }

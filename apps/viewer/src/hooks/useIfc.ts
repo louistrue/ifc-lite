@@ -9,7 +9,7 @@
 
 import { useMemo, useCallback, useRef } from 'react';
 import { useViewerStore } from '../store.js';
-import { IfcParser, detectFormat, parseIfcx, SpatialHierarchyBuilder } from '@ifc-lite/parser';
+import { IfcParser, detectFormat, parseIfcx, SpatialHierarchyBuilder, extractLengthUnitScale } from '@ifc-lite/parser';
 import { GeometryProcessor, GeometryQuality, type MeshData } from '@ifc-lite/geometry';
 import { IfcQuery } from '@ifc-lite/query';
 import { BufferBuilder } from '@ifc-lite/geometry';
@@ -351,13 +351,17 @@ export function useIfc() {
         // Ensure we have source buffer and entityIndex for elevation extraction
         if (dataStore.source && dataStore.source.length > 0 && dataStore.entityIndex && dataStore.strings) {
           console.log('[useIfc] Building spatial hierarchy with elevation extraction from source buffer');
+          // Extract unit scale for elevation conversion
+          const lengthUnitScale = extractLengthUnitScale(dataStore.source, dataStore.entityIndex);
+          console.log(`[useIfc] Length unit scale: ${lengthUnitScale}`);
           const builder = new SpatialHierarchyBuilder();
           dataStore.spatialHierarchy = builder.build(
             dataStore.entities,
             dataStore.relationships,
             dataStore.strings,
             dataStore.source,
-            dataStore.entityIndex
+            dataStore.entityIndex,
+            lengthUnitScale
           );
           console.log(`[useIfc] Spatial hierarchy built: ${dataStore.spatialHierarchy.storeyElevations.size} storey elevations extracted`);
           

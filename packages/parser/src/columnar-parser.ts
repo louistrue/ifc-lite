@@ -12,6 +12,7 @@
 import type { EntityRef, IfcEntity, Relationship } from './types.js';
 import { SpatialHierarchyBuilder } from './spatial-hierarchy-builder.js';
 import { EntityExtractor } from './entity-extractor.js';
+import { extractLengthUnitScale } from './unit-extractor.js';
 import {
     StringTable,
     EntityTableBuilder,
@@ -376,6 +377,11 @@ export class ColumnarParser {
         const quantityTable = quantityTableBuilder.build();
         const relationshipGraph = relationshipGraphBuilder.build();
 
+        // === EXTRACT LENGTH UNIT SCALE ===
+        options.onProgress?.({ phase: 'extracting units', percent: 85 });
+        const lengthUnitScale = extractLengthUnitScale(uint8Buffer, entityIndex);
+        console.log(`[ColumnarParser] Length unit scale: ${lengthUnitScale}`);
+
         // === BUILD SPATIAL HIERARCHY ===
         options.onProgress?.({ phase: 'building hierarchy', percent: 90 });
 
@@ -387,7 +393,8 @@ export class ColumnarParser {
                 relationshipGraph,
                 strings,
                 uint8Buffer,
-                entityIndex
+                entityIndex,
+                lengthUnitScale
             );
             console.log(`[ColumnarParser] Built spatial hierarchy with ${spatialHierarchy.byStorey.size} storeys`);
         } catch (error) {

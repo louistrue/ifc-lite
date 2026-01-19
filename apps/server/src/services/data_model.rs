@@ -4,7 +4,7 @@
 
 //! Data model extraction service - extracts properties, relationships, and spatial hierarchy.
 
-use ifc_lite_core::{build_entity_index, DecodedEntity, EntityDecoder, EntityScanner};
+use ifc_lite_core::{build_entity_index, DecodedEntity, EntityDecoder, EntityScanner, extract_length_unit_scale};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
@@ -222,8 +222,22 @@ pub fn extract_data_model(content: &str) -> DataModel {
         ),
     );
 
+    // Extract length unit scale (e.g., 0.001 for millimeters)
+    let mut unit_decoder = EntityDecoder::with_arc_index(content, entity_index.clone());
+    let project_id_for_units = entities
+        .iter()
+        .find(|e| e.type_name.to_uppercase() == "IFCPROJECT")
+        .map(|e| e.entity_id)
+        .unwrap_or(0);
+    let length_unit_scale = if project_id_for_units > 0 {
+        extract_length_unit_scale(&mut unit_decoder, project_id_for_units).unwrap_or(1.0)
+    } else {
+        1.0
+    };
+    tracing::debug!(length_unit_scale = length_unit_scale, "Extracted length unit scale");
+
     // Build spatial hierarchy (depends on relationships and entities)
-    let spatial_hierarchy = build_spatial_hierarchy(&relationships, &entities, content, &entity_index);
+    let spatial_hierarchy = build_spatial_hierarchy(&relationships, &entities, content, &entity_index, length_unit_scale);
 
     let extract_time = extract_start.elapsed();
     tracing::info!(
@@ -527,6 +541,7 @@ fn build_spatial_hierarchy(
     entities: &[EntityMetadata],
     content: &str,
     entity_index: &Arc<ifc_lite_core::EntityIndex>,
+    length_unit_scale: f64,
 ) -> SpatialHierarchyData {
     let mut decoder = EntityDecoder::with_arc_index(content, entity_index.clone());
     
@@ -592,6 +607,7 @@ fn build_spatial_hierarchy(
             &entity_map,
             &mut decoder,
             &mut nodes_map,
+            length_unit_scale,
         );
     }
 
@@ -600,7 +616,7 @@ fn build_spatial_hierarchy(
         if !nodes_map.contains_key(&entity_id) {
             if let Some(entity) = entity_map.get(&entity_id) {
                 let name = entity.name.clone().unwrap_or_else(|| format!("{}#{}", entity.type_name, entity_id));
-                
+
                 nodes_map.insert(entity_id, SpatialNode {
                     entity_id,
                     parent_id: 0,
@@ -608,7 +624,7 @@ fn build_spatial_hierarchy(
                     path: name.clone(),
                     type_name: entity.type_name.clone(),
                     name: entity.name.clone(),
-                    elevation: extract_elevation_if_storey(&entity.type_name, entity_id, &mut decoder),
+                    elevation: extract_elevation_if_storey(&entity.type_name, entity_id, &mut decoder, length_unit_scale),
                     children_ids: spatial_children_map.get(&entity_id).cloned().unwrap_or_default(),
                     element_ids: element_containment_map.get(&entity_id).cloned().unwrap_or_default(),
                 });
@@ -663,6 +679,7 @@ fn build_spatial_nodes_recursive(
     entity_map: &FxHashMap<u32, &EntityMetadata>,
     decoder: &mut EntityDecoder,
     nodes_map: &mut FxHashMap<u32, SpatialNode>,
+    length_unit_scale: f64,
 ) {
     let entity = match entity_map.get(&entity_id) {
         Some(e) => e,
@@ -679,8 +696,8 @@ fn build_spatial_nodes_recursive(
         format!("{}/{}", parent_path, entity_name)
     };
 
-    // Extract elevation for storeys
-    let elevation = extract_elevation_if_storey(&entity.type_name, entity_id, decoder);
+    // Extract elevation for storeys (with unit scale applied)
+    let elevation = extract_elevation_if_storey(&entity.type_name, entity_id, decoder, length_unit_scale);
 
     // Get children and elements
     let children_ids = spatial_children_map.get(&entity_id).cloned().unwrap_or_default();
@@ -712,15 +729,18 @@ fn build_spatial_nodes_recursive(
             entity_map,
             decoder,
             nodes_map,
+            length_unit_scale,
         );
     }
 }
 
 /// Extract elevation from IFCBUILDINGSTOREY entity.
+/// Applies unit scale to convert to meters.
 fn extract_elevation_if_storey(
     type_name: &str,
     entity_id: u32,
     decoder: &mut EntityDecoder,
+    length_unit_scale: f64,
 ) -> Option<f64> {
     if type_name.to_uppercase() != "IFCBUILDINGSTOREY" {
         return None;
@@ -732,11 +752,13 @@ fn extract_elevation_if_storey(
         // [0]=GlobalId, [1]=OwnerHistory, [2]=Name, [3]=Description, [4]=ObjectType,
         // [5]=Tag, [6]=LongName, [7]=CompositionType, [8]=Elevation
         if let Some(elevation) = entity.get_float(8) {
-            return Some(elevation);
+            // Apply unit scale to convert to meters
+            return Some(elevation * length_unit_scale);
         }
         // Fallback: try index 7
         if let Some(elevation) = entity.get_float(7) {
-            return Some(elevation);
+            // Apply unit scale to convert to meters
+            return Some(elevation * length_unit_scale);
         }
     }
 
