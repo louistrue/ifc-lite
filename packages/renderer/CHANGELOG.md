@@ -1,5 +1,22 @@
 # @ifc-lite/renderer
 
+## 1.2.1
+
+### Patch Changes
+
+- [#101](https://github.com/louistrue/ifc-lite/pull/101) [`bd6dccd`](https://github.com/louistrue/ifc-lite/commit/bd6dccd9f8526d736c3e6e3f8e06f8d473e71805) Thanks [@louistrue](https://github.com/louistrue)! - Fix section plane activation and clipping behavior.
+
+  - Section plane now only active when Section tool is selected
+  - Fixed section plane bounds to use model geometry bounds
+  - Simplified section plane axis to x/y/z coordinates
+  - Fixed visual section plane rendering with proper depth testing
+
+- [#101](https://github.com/louistrue/ifc-lite/pull/101) [`bd6dccd`](https://github.com/louistrue/ifc-lite/commit/bd6dccd9f8526d736c3e6e3f8e06f8d473e71805) Thanks [@louistrue](https://github.com/louistrue)! - Add magnetic edge snapping to measure tool.
+  - New raycastSceneMagnetic API for edge-aware snapping
+  - Edge lock state management for "stick and slide" behavior
+  - Corner detection with valence tracking
+  - Smooth snapping transitions along edges
+
 ## 1.2.0
 
 ### Minor Changes
