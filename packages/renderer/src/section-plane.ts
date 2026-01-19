@@ -174,13 +174,13 @@ export class SectionPlaneRenderer {
       },
     };
 
-    // Preview pipeline: respects depth (hidden behind geometry)
+    // Preview pipeline: only draw where there's NO geometry (behind/around building)
     this.previewPipeline = this.device.createRenderPipeline({
       ...pipelineBase,
       depthStencil: {
         format: 'depth24plus',
         depthWriteEnabled: false,
-        depthCompare: 'less-equal',  // Respect geometry depth
+        depthCompare: 'greater',  // Only draw where plane is behind geometry (empty space)
       },
     });
 

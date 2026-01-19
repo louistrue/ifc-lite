@@ -151,13 +151,13 @@ export class RenderPipeline {
 
         @fragment
         fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-          // Section plane clipping - discard fragments BELOW the plane
-          // For Up axis (normal +Y), keeps everything above the cut height
+          // Section plane clipping - discard fragments ABOVE the plane
+          // For Down axis (normal +Y), keeps everything below cut height (look down into building)
           if (uniforms.flags.y == 1u) {
             let planeNormal = uniforms.sectionPlane.xyz;
             let planeDistance = uniforms.sectionPlane.w;
             let distToPlane = dot(input.worldPos, planeNormal) - planeDistance;
-            if (distToPlane < 0.0) {
+            if (distToPlane > 0.0) {
               discard;
             }
           }
@@ -669,13 +669,13 @@ export class InstancedRenderPipeline {
 
         @fragment
         fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-          // Section plane clipping - discard fragments BELOW the plane
-          // For Up axis (normal +Y), keeps everything above the cut height
+          // Section plane clipping - discard fragments ABOVE the plane
+          // For Down axis (normal +Y), keeps everything below cut height (look down into building)
           if (uniforms.flags.x == 1u) {
             let planeNormal = uniforms.sectionPlane.xyz;
             let planeDistance = uniforms.sectionPlane.w;
             let distToPlane = dot(input.worldPos, planeNormal) - planeDistance;
-            if (distToPlane < 0.0) {
+            if (distToPlane > 0.0) {
               discard;
             }
           }
