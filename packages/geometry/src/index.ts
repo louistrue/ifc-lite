@@ -12,6 +12,20 @@ export { IfcLiteBridge } from './ifc-lite-bridge.js';
 export { IfcLiteMeshCollector, type StreamingColorUpdateEvent } from './ifc-lite-mesh-collector.js';
 import type { StreamingColorUpdateEvent } from './ifc-lite-mesh-collector.js';
 
+// Platform bridge abstraction (auto-selects WASM or native based on environment)
+export {
+  createPlatformBridge,
+  isTauri,
+  type IPlatformBridge,
+  type GeometryProcessingResult,
+  type GeometryStats as PlatformGeometryStats,
+  type StreamingOptions,
+  type StreamingProgress,
+  type GeometryBatch,
+} from './platform-bridge.js';
+export { WasmBridge } from './wasm-bridge.js';
+export { NativeBridge } from './native-bridge.js';
+
 // Support components
 export { BufferBuilder } from './buffer-builder.js';
 export { CoordinateHandler } from './coordinate-handler.js';
@@ -48,6 +62,7 @@ import { IfcLiteMeshCollector } from './ifc-lite-mesh-collector.js';
 import { BufferBuilder } from './buffer-builder.js';
 import { CoordinateHandler } from './coordinate-handler.js';
 import { GeometryQuality } from './progressive-loader.js';
+import { createPlatformBridge, isTauri, type IPlatformBridge } from './platform-bridge.js';
 import type { GeometryResult, MeshData } from './types.js';
 
 export interface GeometryProcessorOptions {
@@ -98,24 +113,44 @@ export type StreamingInstancedGeometryEvent =
   | { type: 'complete'; totalGeometries: number; totalInstances: number; coordinateInfo: import('./types.js').CoordinateInfo };
 
 export class GeometryProcessor {
-  private bridge: IfcLiteBridge;
+  private bridge: IfcLiteBridge | null = null;
+  private platformBridge: IPlatformBridge | null = null;
   private bufferBuilder: BufferBuilder;
   private coordinateHandler: CoordinateHandler;
+  private isNative: boolean = false;
 
   constructor(options: GeometryProcessorOptions = {}) {
-    this.bridge = new IfcLiteBridge();
     this.bufferBuilder = new BufferBuilder();
     this.coordinateHandler = new CoordinateHandler();
+    this.isNative = isTauri();
     // Note: options accepted for API compatibility
     void options.quality;
+
+    if (this.isNative) {
+      console.log('[GeometryProcessor] Running in Tauri - using NATIVE Rust processing');
+    } else {
+      console.log('[GeometryProcessor] Running in browser - using WASM processing');
+      this.bridge = new IfcLiteBridge();
+    }
   }
 
   /**
-   * Initialize IFC-Lite WASM
-   * WASM is automatically resolved from the package location - no path needed
+   * Initialize the geometry processor
+   * In Tauri: Creates platform bridge for native Rust processing
+   * In browser: Loads WASM
    */
   async init(_wasmPath?: string): Promise<void> {
-    await this.bridge.init();
+    if (this.isNative) {
+      // Create platform bridge for native processing
+      this.platformBridge = await createPlatformBridge();
+      await this.platformBridge.init();
+      console.log('[GeometryProcessor] Native bridge initialized');
+    } else {
+      // WASM path
+      if (this.bridge) {
+        await this.bridge.init();
+      }
+    }
   }
 
   /**
@@ -124,17 +159,26 @@ export class GeometryProcessor {
    * @param entityIndex Optional entity index for priority-based loading
    */
   async process(buffer: Uint8Array, entityIndex?: Map<number, any>): Promise<GeometryResult> {
-    if (!this.bridge.isInitialized()) {
-      await this.init();
-    }
-
     void entityIndex;
 
-    // Synchronous processing on main thread
-    // For large files, use processStreaming() instead which uses a dedicated worker
-    const meshes = await this.collectMeshesMainThread(buffer);
+    let meshes: MeshData[];
 
-    // const meshCollectionTime = performance.now() - meshCollectionStart;
+    if (this.isNative && this.platformBridge) {
+      // NATIVE PATH - Use Tauri commands
+      console.time('[GeometryProcessor] native-processing');
+      const decoder = new TextDecoder();
+      const content = decoder.decode(buffer);
+      const result = await this.platformBridge.processGeometry(content);
+      meshes = result.meshes;
+      console.timeEnd('[GeometryProcessor] native-processing');
+    } else {
+      // WASM PATH - Synchronous processing on main thread
+      // For large files, use processStreaming() instead
+      if (!this.bridge?.isInitialized()) {
+        await this.init();
+      }
+      meshes = await this.collectMeshesMainThread(buffer);
+    }
 
     // Handle large coordinates by shifting to origin
     const coordinateInfo = this.coordinateHandler.processMeshes(meshes);
@@ -154,9 +198,13 @@ export class GeometryProcessor {
   }
 
   /**
-   * Collect meshes on main thread using IFC-Lite
+   * Collect meshes on main thread using IFC-Lite WASM
    */
   private async collectMeshesMainThread(buffer: Uint8Array, _entityIndex?: Map<number, any>): Promise<MeshData[]> {
+    if (!this.bridge) {
+      throw new Error('WASM bridge not initialized');
+    }
+
     // Convert buffer to string (IFC files are text)
     const decoder = new TextDecoder();
     const content = decoder.decode(buffer);
@@ -169,7 +217,7 @@ export class GeometryProcessor {
 
   /**
    * Process IFC file with streaming output for progressive rendering
-   * Uses IFC-Lite for native Rust geometry processing (1.9x faster)
+   * Uses native Rust in Tauri, WASM in browser
    * @param buffer IFC file buffer
    * @param entityIndex Optional entity index for priority-based loading
    * @param batchConfig Dynamic batch configuration or fixed batch size
@@ -179,7 +227,12 @@ export class GeometryProcessor {
     _entityIndex?: Map<number, any>,
     batchConfig: number | DynamicBatchConfig = 25
   ): AsyncGenerator<StreamingGeometryEvent> {
-    if (!this.bridge.isInitialized()) {
+    // Initialize if needed
+    if (this.isNative) {
+      if (!this.platformBridge) {
+        await this.init();
+      }
+    } else if (!this.bridge?.isInitialized()) {
       await this.init();
     }
 
@@ -193,49 +246,66 @@ export class GeometryProcessor {
     await new Promise(resolve => setTimeout(resolve, 0));
 
     // Convert buffer to string (IFC files are text)
-    // This is blocking but unavoidable - WASM API expects string
     const decoder = new TextDecoder();
     const content = decoder.decode(buffer);
 
-    // Use a placeholder model ID (IFC-Lite doesn't use model IDs)
     yield { type: 'model-open', modelID: 0 };
 
-    const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
-    let totalMeshes = 0;
+    if (this.isNative && this.platformBridge) {
+      // NATIVE PATH - Use Tauri streaming
+      console.time('[GeometryProcessor] native-streaming');
 
-    // Determine optimal WASM batch size based on file size
-    // Larger batches = fewer callbacks = faster processing
-    const fileSizeMB = typeof batchConfig !== 'number' && batchConfig.fileSizeMB
-      ? batchConfig.fileSizeMB
-      : buffer.length / (1024 * 1024);
-    
-    // Use WASM batches directly - no JS accumulation layer
-    // WASM already prioritizes simple geometry (walls, slabs) for fast first frame
-    const wasmBatchSize = fileSizeMB < 10 ? 100 : fileSizeMB < 50 ? 200 : fileSizeMB < 100 ? 300 : 500;
+      // For native, we do a single batch for now (streaming via events is complex)
+      // TODO: Implement proper streaming with Tauri events
+      const result = await this.platformBridge.processGeometry(content);
+      const totalMeshes = result.meshes.length;
 
-    // Use WASM batches directly for maximum throughput
-    for await (const item of collector.collectMeshesStreaming(wasmBatchSize)) {
-      // Handle color update events
-      if (item && typeof item === 'object' && 'type' in item && (item as StreamingColorUpdateEvent).type === 'colorUpdate') {
-        yield { type: 'colorUpdate', updates: (item as StreamingColorUpdateEvent).updates };
-        continue;
+      this.coordinateHandler.processMeshesIncremental(result.meshes);
+      const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
+
+      yield { type: 'batch', meshes: result.meshes, totalSoFar: totalMeshes, coordinateInfo: coordinateInfo || undefined };
+      yield { type: 'complete', totalMeshes, coordinateInfo };
+
+      console.timeEnd('[GeometryProcessor] native-streaming');
+    } else {
+      // WASM PATH
+      if (!this.bridge) {
+        throw new Error('WASM bridge not initialized');
       }
 
-      // Handle mesh batches
-      const batch = item as MeshData[];
-      // Process coordinate shifts incrementally (will accumulate bounds)
-      this.coordinateHandler.processMeshesIncremental(batch);
-      totalMeshes += batch.length;
+      const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
+      let totalMeshes = 0;
 
-      // Get current coordinate info for this batch (may be null if bounds not yet valid)
-      const coordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
+      // Determine optimal WASM batch size based on file size
+      // Larger batches = fewer callbacks = faster processing
+      const fileSizeMB = typeof batchConfig !== 'number' && batchConfig.fileSizeMB
+        ? batchConfig.fileSizeMB
+        : buffer.length / (1024 * 1024);
 
-      yield { type: 'batch', meshes: batch, totalSoFar: totalMeshes, coordinateInfo: coordinateInfo || undefined };
+      // Use WASM batches directly - no JS accumulation layer
+      // WASM already prioritizes simple geometry (walls, slabs) for fast first frame
+      const wasmBatchSize = fileSizeMB < 10 ? 100 : fileSizeMB < 50 ? 200 : fileSizeMB < 100 ? 300 : 500;
+
+      // Use WASM batches directly for maximum throughput
+      for await (const item of collector.collectMeshesStreaming(wasmBatchSize)) {
+        // Handle color update events
+        if (item && typeof item === 'object' && 'type' in item && (item as StreamingColorUpdateEvent).type === 'colorUpdate') {
+          yield { type: 'colorUpdate', updates: (item as StreamingColorUpdateEvent).updates };
+          continue;
+        }
+
+        // Handle mesh batches
+        const batch = item as MeshData[];
+        // Process coordinate shifts incrementally (will accumulate bounds)
+        this.coordinateHandler.processMeshesIncremental(batch);
+        totalMeshes += batch.length;
+        const coordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
+        yield { type: 'batch', meshes: batch, totalSoFar: totalMeshes, coordinateInfo: coordinateInfo || undefined };
+      }
+
+      const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
+      yield { type: 'complete', totalMeshes, coordinateInfo };
     }
-
-    const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
-
-    yield { type: 'complete', totalMeshes, coordinateInfo };
   }
 
   /**
@@ -248,7 +318,17 @@ export class GeometryProcessor {
     buffer: Uint8Array,
     batchSize: number = 25
   ): AsyncGenerator<StreamingInstancedGeometryEvent> {
-    if (!this.bridge.isInitialized()) {
+    // Initialize if needed
+    if (this.isNative) {
+      if (!this.platformBridge) {
+        await this.init();
+      }
+      // Note: Native instanced streaming not yet implemented - fall through to WASM
+      // For now, throw an error to make it clear
+      console.warn('[GeometryProcessor] Native instanced streaming not yet implemented, using WASM');
+    }
+
+    if (!this.bridge?.isInitialized()) {
       await this.init();
     }
 
@@ -264,7 +344,7 @@ export class GeometryProcessor {
     // Use a placeholder model ID (IFC-Lite doesn't use model IDs)
     yield { type: 'model-open', modelID: 0 };
 
-    const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
+    const collector = new IfcLiteMeshCollector(this.bridge!.getApi(), content);
     let totalGeometries = 0;
     let totalInstances = 0;
 
@@ -339,7 +419,12 @@ export class GeometryProcessor {
     const sizeThreshold = options.sizeThreshold ?? 2 * 1024 * 1024; // Default 2MB
     const batchConfig = options.batchSize ?? 25;
 
-    if (!this.bridge.isInitialized()) {
+    // Initialize if needed
+    if (this.isNative) {
+      if (!this.platformBridge) {
+        await this.init();
+      }
+    } else if (!this.bridge?.isInitialized()) {
       await this.init();
     }
 
@@ -355,8 +440,20 @@ export class GeometryProcessor {
       const content = decoder.decode(buffer);
 
       yield { type: 'model-open', modelID: 0 };
-      const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
-      const allMeshes = collector.collectMeshes();
+
+      let allMeshes: MeshData[];
+
+      if (this.isNative && this.platformBridge) {
+        // NATIVE PATH - single batch processing
+        console.time('[GeometryProcessor] native-adaptive-sync');
+        const result = await this.platformBridge.processGeometry(content);
+        allMeshes = result.meshes;
+        console.timeEnd('[GeometryProcessor] native-adaptive-sync');
+      } else {
+        // WASM PATH
+        const collector = new IfcLiteMeshCollector(this.bridge!.getApi(), content);
+        allMeshes = collector.collectMeshes();
+      }
 
       // Process coordinate shifts
       this.coordinateHandler.processMeshesIncremental(allMeshes);
@@ -382,7 +479,7 @@ export class GeometryProcessor {
    * Get the WASM API instance for advanced operations (e.g., entity scanning)
    */
   getApi() {
-    if (!this.bridge.isInitialized()) {
+    if (!this.bridge || !this.bridge.isInitialized()) {
       return null;
     }
     return this.bridge.getApi();

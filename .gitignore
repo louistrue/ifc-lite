@@ -43,3 +43,7 @@ test_*.sh
 
 # WASM files - use packages/wasm/pkg/ as canonical source
 apps/viewer/public/ifc-lite_bg.wasm
+
+# Tauri/Claude temp files
+tmpclaude*
+nul

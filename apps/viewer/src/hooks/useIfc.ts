@@ -20,7 +20,6 @@ import {
   type IfcDataStore as CacheDataStore,
   type GeometryData,
 } from '@ifc-lite/cache';
-import { getCached, setCached, type CacheResult } from '../services/ifc-cache.js';
 import { IfcTypeEnum, RelationshipType, IfcTypeEnumFromString, IfcTypeEnumToString, EntityFlags, type SpatialHierarchy, type SpatialNode, type EntityTable, type RelationshipGraph } from '@ifc-lite/data';
 import { StringTable } from '@ifc-lite/data';
 import { IfcServerClient, decodeDataModel, type ParquetBatch, type DataModel } from '@ifc-lite/server-client';
@@ -33,6 +32,47 @@ interface ServerQuantitySet {
   quantities: Array<{ quantity_name: string; quantity_value: number; quantity_type: string }>;
 }
 import type { DynamicBatchConfig } from '@ifc-lite/geometry';
+
+// Platform-aware cache service
+// Tauri uses native file system cache, browser uses IndexedDB
+const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+// Type definitions for cache functions
+type GetCachedFn = (key: string) => Promise<CacheResult | null>;
+type SetCachedFn = (key: string, data: ArrayBuffer, fileName: string, fileSize: number, sourceBuffer?: ArrayBuffer) => Promise<void>;
+
+// Cache result type (matches ifc-cache.ts export)
+interface CacheResult {
+  buffer: ArrayBuffer;
+  sourceBuffer?: ArrayBuffer;
+}
+
+// Cache service functions - loaded dynamically based on platform
+let cacheService: { getCached: GetCachedFn; setCached: SetCachedFn } | null = null;
+
+async function getCacheService() {
+  if (cacheService) return cacheService;
+
+  if (isTauri) {
+    const mod = await import('../services/desktop-cache.js');
+    cacheService = { getCached: mod.getCached, setCached: mod.setCached };
+  } else {
+    const mod = await import('../services/ifc-cache.js');
+    cacheService = { getCached: mod.getCached, setCached: mod.setCached };
+  }
+  return cacheService;
+}
+
+// Convenience wrappers
+async function getCached(key: string): Promise<CacheResult | null> {
+  const service = await getCacheService();
+  return service.getCached(key);
+}
+
+async function setCached(key: string, data: ArrayBuffer, fileName: string, fileSize: number, sourceBuffer?: ArrayBuffer): Promise<void> {
+  const service = await getCacheService();
+  return service.setCached(key, data, fileName, fileSize, sourceBuffer);
+}
 
 // Minimum file size to cache (10MB) - smaller files parse quickly anyway
 const CACHE_SIZE_THRESHOLD = 10 * 1024 * 1024;
