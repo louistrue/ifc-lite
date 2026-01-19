@@ -119,7 +119,7 @@ function fixPackageJson(targetDir: string, projectName: string) {
     if (!deps) continue;
 
     for (const [name, version] of Object.entries(deps)) {
-      if (typeof version === 'string' && version.startsWith('workspace:') && name.startsWith('@ifc-lite/')) {
+      if (typeof version === 'string' && version.includes('workspace:')) {
         deps[name] = latestVersion;
       }
     }
@@ -300,7 +300,7 @@ function createBasicTemplate(targetDir: string, projectName: string) {
   // package.json
   writeFileSync(join(targetDir, 'package.json'), JSON.stringify({
     name: projectName,
-    version: '1.1.6',
+    version: latestVersion.replace('^', ''),
     type: 'module',
     scripts: {
       parse: 'npx tsx src/index.ts',
