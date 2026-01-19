@@ -205,6 +205,33 @@ export class SnapDetector {
 
     const cache = this.getGeometryCache(intersectedMesh);
 
+    // If edge snapping is disabled, skip edge logic entirely
+    if (!opts.snapToEdges) {
+      // Just return face/vertex snap as fallback
+      const targets: SnapTarget[] = [];
+      if (opts.snapToFaces) {
+        targets.push(...this.findFaces(intersectedMesh, intersection, worldSnapRadius));
+      }
+      if (opts.snapToVertices) {
+        targets.push(...this.findVertices(intersectedMesh, intersection.point, worldSnapRadius));
+      }
+      return {
+        snapTarget: this.getBestSnapTarget(targets, intersection.point),
+        edgeLock: {
+          edge: null,
+          meshExpressId: null,
+          edgeT: 0,
+          shouldLock: false,
+          shouldRelease: true, // Release any existing lock when edge snapping disabled
+          isCorner: false,
+          cornerValence: 0,
+        },
+      };
+    }
+
+    // Track whether we're releasing from a previous lock
+    let wasLockReleased = false;
+
     // If we have an active edge lock, try to maintain it
     if (currentEdgeLock.edge && currentEdgeLock.meshExpressId === intersectedMesh.expressId) {
       const lockResult = this.maintainEdgeLock(
@@ -219,6 +246,8 @@ export class SnapDetector {
         // Still locked - return the sliding position
         return lockResult;
       }
+      // Lock was released - continue to find new edges but remember we released
+      wasLockReleased = true;
     }
 
     // No active lock or lock released - find best snap target with magnetic behavior
@@ -258,7 +287,7 @@ export class SnapDetector {
           meshExpressId: null,
           edgeT: 0,
           shouldLock: false,
-          shouldRelease: false,
+          shouldRelease: wasLockReleased, // Propagate release signal from maintainEdgeLock
           isCorner: false,
           cornerValence: 0,
         },
@@ -288,7 +317,7 @@ export class SnapDetector {
         type: SnapType.VERTEX,
         position: cornerVertex,
         expressId: intersectedMesh.expressId,
-        confidence: 0.99 + cornerInfo.valence * MAGNETIC_CONFIG.CORNER_CONFIDENCE_BOOST,
+        confidence: Math.min(1, 0.99 + cornerInfo.valence * MAGNETIC_CONFIG.CORNER_CONFIDENCE_BOOST),
         metadata: { vertices: [bestEdge.edge.v0, bestEdge.edge.v1] },
       };
     } else {
@@ -421,7 +450,7 @@ export class SnapDetector {
 
     if (cornerInfo.isCorner && cornerInfo.valence >= MAGNETIC_CONFIG.MIN_CORNER_VALENCE) {
       snapType = SnapType.VERTEX;
-      confidence = 0.99 + cornerInfo.valence * MAGNETIC_CONFIG.CORNER_CONFIDENCE_BOOST;
+      confidence = Math.min(1, 0.99 + cornerInfo.valence * MAGNETIC_CONFIG.CORNER_CONFIDENCE_BOOST);
       // Snap to exact corner vertex
       if (edgeT < MAGNETIC_CONFIG.CORNER_THRESHOLD) {
         snapPosition.x = v0.x;

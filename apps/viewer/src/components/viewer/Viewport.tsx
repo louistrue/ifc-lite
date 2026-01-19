@@ -60,7 +60,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   const setEdgeLock = useViewerStore((state) => state.setEdgeLock);
   const updateEdgeLockPosition = useViewerStore((state) => state.updateEdgeLockPosition);
   const clearEdgeLock = useViewerStore((state) => state.clearEdgeLock);
-  
+  const incrementEdgeLockStrength = useViewerStore((state) => state.incrementEdgeLockStrength);
+
   // Color update subscriptions
   const pendingColorUpdates = useViewerStore((state) => state.pendingColorUpdates);
   const clearPendingColorUpdates = useViewerStore((state) => state.clearPendingColorUpdates);
@@ -646,7 +647,12 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
                 snapToEdges: true,
                 snapToFaces: true,
                 screenSnapRadius: 60,
-              } : undefined,
+              } : {
+                snapToVertices: false,
+                snapToEdges: false,
+                snapToFaces: false,
+                screenSnapRadius: 0,
+              },
             });
 
             if (result.intersection || result.snapTarget) {
@@ -737,7 +743,12 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
                     snapToEdges: true,
                     snapToFaces: true,
                     screenSnapRadius: 60,
-                  } : undefined,
+                  } : {
+                    snapToVertices: false,
+                    snapToEdges: false,
+                    snapToFaces: false,
+                    screenSnapRadius: 0,
+                  },
                 });
 
                 if (result.intersection || result.snapTarget) {
@@ -760,8 +771,25 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
                     if (result.edgeLock.shouldRelease) {
                       clearEdgeLock();
                     } else if (result.edgeLock.shouldLock && result.edgeLock.edge) {
-                      setEdgeLock(result.edgeLock.edge, result.edgeLock.meshExpressId, result.edgeLock.edgeT);
-                      updateEdgeLockPosition(result.edgeLock.edgeT, result.edgeLock.isCorner, result.edgeLock.cornerValence);
+                      // Check if we're on the same edge to preserve lock strength (hysteresis)
+                      const isSameEdge = currentLock.edge &&
+                        currentLock.meshExpressId === result.edgeLock.meshExpressId &&
+                        Math.abs(currentLock.edge.v0.x - result.edgeLock.edge.v0.x) < 0.0001 &&
+                        Math.abs(currentLock.edge.v0.y - result.edgeLock.edge.v0.y) < 0.0001 &&
+                        Math.abs(currentLock.edge.v0.z - result.edgeLock.edge.v0.z) < 0.0001 &&
+                        Math.abs(currentLock.edge.v1.x - result.edgeLock.edge.v1.x) < 0.0001 &&
+                        Math.abs(currentLock.edge.v1.y - result.edgeLock.edge.v1.y) < 0.0001 &&
+                        Math.abs(currentLock.edge.v1.z - result.edgeLock.edge.v1.z) < 0.0001;
+
+                      if (isSameEdge) {
+                        // Same edge - just update position and grow lock strength
+                        updateEdgeLockPosition(result.edgeLock.edgeT, result.edgeLock.isCorner, result.edgeLock.cornerValence);
+                        incrementEdgeLockStrength();
+                      } else {
+                        // New edge - reset lock state
+                        setEdgeLock(result.edgeLock.edge, result.edgeLock.meshExpressId, result.edgeLock.edgeT);
+                        updateEdgeLockPosition(result.edgeLock.edgeT, result.edgeLock.isCorner, result.edgeLock.cornerValence);
+                      }
                     }
 
                     // Update visualization with edge lock info
