@@ -38,7 +38,7 @@ import { Camera } from './camera.js';
 import { Scene } from './scene.js';
 import { Picker } from './picker.js';
 import { FrustumUtils } from '@ifc-lite/spatial';
-import type { RenderOptions, PickOptions, Mesh, InstancedMesh } from './types.js';
+import type { RenderOptions, PickOptions, Mesh, InstancedMesh, SectionPlaneAxis } from './types.js';
 import { SectionPlaneRenderer } from './section-plane.js';
 import type { MeshData } from '@ifc-lite/geometry';
 import { deduplicateMeshes } from '@ifc-lite/geometry';
@@ -106,7 +106,11 @@ export class Renderer {
         this.pipeline = new RenderPipeline(this.device, width, height);
         this.instancedPipeline = new InstancedRenderPipeline(this.device, width, height);
         this.picker = new Picker(this.device, width, height);
-        this.sectionPlaneRenderer = new SectionPlaneRenderer(this.device.getDevice(), this.device.getFormat());
+        this.sectionPlaneRenderer = new SectionPlaneRenderer(
+            this.device.getDevice(),
+            this.device.getFormat(),
+            this.pipeline.getSampleCount()
+        );
         this.camera.setAspect(width / height);
     }
 
@@ -556,52 +560,87 @@ export class Renderer {
             const selectedId = options.selectedId;
             const selectedIds = options.selectedIds;
 
-            // Calculate section plane parameters if enabled
+            // Calculate section plane parameters and model bounds
+            // Always calculate bounds when sectionPlane is provided (for preview and active mode)
             let sectionPlaneData: { normal: [number, number, number]; distance: number; enabled: boolean } | undefined;
-            if (options.sectionPlane?.enabled) {
-                // Calculate plane normal based on axis
-                const normal: [number, number, number] = [0, 0, 0];
-                if (options.sectionPlane.axis === 'x') normal[0] = 1;
-                else if (options.sectionPlane.axis === 'y') normal[1] = 1;
-                else normal[2] = 1;
-
-                // Get model bounds for calculating plane position and visual
+            if (options.sectionPlane) {
+                // Get model bounds from ALL geometry sources: individual meshes AND batched meshes
                 const boundsMin = { x: Infinity, y: Infinity, z: Infinity };
                 const boundsMax = { x: -Infinity, y: -Infinity, z: -Infinity };
 
-                if (meshes.length > 0) {
-                    for (const mesh of meshes) {
-                        if (mesh.bounds) {
-                            boundsMin.x = Math.min(boundsMin.x, mesh.bounds.min[0]);
-                            boundsMin.y = Math.min(boundsMin.y, mesh.bounds.min[1]);
-                            boundsMin.z = Math.min(boundsMin.z, mesh.bounds.min[2]);
-                            boundsMax.x = Math.max(boundsMax.x, mesh.bounds.max[0]);
-                            boundsMax.y = Math.max(boundsMax.y, mesh.bounds.max[1]);
-                            boundsMax.z = Math.max(boundsMax.z, mesh.bounds.max[2]);
-                        }
+                // Check individual meshes
+                for (const mesh of meshes) {
+                    if (mesh.bounds) {
+                        boundsMin.x = Math.min(boundsMin.x, mesh.bounds.min[0]);
+                        boundsMin.y = Math.min(boundsMin.y, mesh.bounds.min[1]);
+                        boundsMin.z = Math.min(boundsMin.z, mesh.bounds.min[2]);
+                        boundsMax.x = Math.max(boundsMax.x, mesh.bounds.max[0]);
+                        boundsMax.y = Math.max(boundsMax.y, mesh.bounds.max[1]);
+                        boundsMax.z = Math.max(boundsMax.z, mesh.bounds.max[2]);
                     }
-                    if (!Number.isFinite(boundsMin.x)) {
-                        boundsMin.x = boundsMin.y = boundsMin.z = -100;
-                        boundsMax.x = boundsMax.y = boundsMax.z = 100;
+                }
+
+                // Check batched meshes (most geometry is here!)
+                const batchedMeshes = this.scene.getBatchedMeshes();
+                for (const batch of batchedMeshes) {
+                    if (batch.bounds) {
+                        boundsMin.x = Math.min(boundsMin.x, batch.bounds.min[0]);
+                        boundsMin.y = Math.min(boundsMin.y, batch.bounds.min[1]);
+                        boundsMin.z = Math.min(boundsMin.z, batch.bounds.min[2]);
+                        boundsMax.x = Math.max(boundsMax.x, batch.bounds.max[0]);
+                        boundsMax.y = Math.max(boundsMax.y, batch.bounds.max[1]);
+                        boundsMax.z = Math.max(boundsMax.z, batch.bounds.max[2]);
                     }
-                } else {
+                }
+
+                // Fallback if no bounds found
+                if (!Number.isFinite(boundsMin.x)) {
                     boundsMin.x = boundsMin.y = boundsMin.z = -100;
                     boundsMax.x = boundsMax.y = boundsMax.z = 100;
                 }
 
-                // Store bounds for section plane visual
-                this.modelBounds = { min: boundsMin, max: boundsMax };
+                // Store TRUE building bounds for clipping (0% = bottom, 100% = top)
+                const trueBoundsMin = { ...boundsMin };
+                const trueBoundsMax = { ...boundsMax };
 
-                // Get axis-specific range
-                const axisIdx = options.sectionPlane.axis === 'x' ? 'x' : options.sectionPlane.axis === 'y' ? 'y' : 'z';
-                const minVal = boundsMin[axisIdx];
-                const maxVal = boundsMax[axisIdx];
+                // Add padding to bounds for plane VISUALIZATION only (extends beyond building)
+                const paddingX = (boundsMax.x - boundsMin.x) * 0.1;
+                const paddingY = (boundsMax.y - boundsMin.y) * 0.1;
+                const paddingZ = (boundsMax.z - boundsMin.z) * 0.1;
+                const visualBoundsMin = {
+                    x: boundsMin.x - paddingX,
+                    y: boundsMin.y - paddingY,
+                    z: boundsMin.z - paddingZ,
+                };
+                const visualBoundsMax = {
+                    x: boundsMax.x + paddingX,
+                    y: boundsMax.y + paddingY,
+                    z: boundsMax.z + paddingZ,
+                };
 
-                // Calculate plane distance from position percentage
-                const range = maxVal - minVal;
-                const distance = minVal + (options.sectionPlane.position / 100) * range;
+                // Store padded bounds for section plane visual
+                this.modelBounds = { min: visualBoundsMin, max: visualBoundsMax };
 
-                sectionPlaneData = { normal, distance, enabled: true };
+                // Only calculate clipping data if section is enabled
+                if (options.sectionPlane.enabled) {
+                    // Calculate plane normal based on semantic axis
+                    // down = Y axis (horizontal cut), front = Z axis, side = X axis
+                    const normal: [number, number, number] = [0, 0, 0];
+                    if (options.sectionPlane.axis === 'side') normal[0] = 1;        // X axis
+                    else if (options.sectionPlane.axis === 'down') normal[1] = 1;   // Y axis (horizontal)
+                    else normal[2] = 1;                                              // Z axis (front)
+
+                    // Get axis-specific range based on TRUE building bounds (not padded)
+                    const axisIdx = options.sectionPlane.axis === 'side' ? 'x' : options.sectionPlane.axis === 'down' ? 'y' : 'z';
+                    const minVal = trueBoundsMin[axisIdx];
+                    const maxVal = trueBoundsMax[axisIdx];
+
+                    // Calculate plane distance from position percentage using TRUE bounds
+                    const range = maxVal - minVal;
+                    const distance = minVal + (options.sectionPlane.position / 100) * range;
+
+                    sectionPlaneData = { normal, distance, enabled: true };
+                }
             }
 
             for (const mesh of allMeshes) {
@@ -1079,22 +1118,22 @@ export class Renderer {
                 }
             }
 
-            pass.end();
-
-            // Render section plane visual if enabled
-            if (sectionPlaneData?.enabled && this.sectionPlaneRenderer && this.modelBounds) {
-                this.sectionPlaneRenderer.render(
-                    encoder,
-                    textureView,
-                    this.pipeline.getDepthTextureView(),
+            // Draw section plane visual BEFORE pass.end() (within same MSAA render pass)
+            // Always show plane when sectionPlane options are provided (as preview or active)
+            if (options.sectionPlane && this.sectionPlaneRenderer && this.modelBounds) {
+                this.sectionPlaneRenderer.draw(
+                    pass,
                     {
-                        axis: options.sectionPlane!.axis,
-                        position: options.sectionPlane!.position,
+                        axis: options.sectionPlane.axis,
+                        position: options.sectionPlane.position,
                         bounds: this.modelBounds,
                         viewProj,
+                        isPreview: !options.sectionPlane.enabled, // Preview mode when not enabled
                     }
                 );
             }
+
+            pass.end();
 
             device.queue.submit([encoder.finish()]);
         } catch (error) {
