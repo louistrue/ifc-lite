@@ -10,7 +10,7 @@
  */
 
 import * as fs from '@tauri-apps/plugin-fs';
-import { appDataDir } from '@tauri-apps/api/path';
+import { appDataDir, join } from '@tauri-apps/api/path';
 
 const CACHE_DIR_NAME = 'ifc-lite-cache';
 
@@ -23,10 +23,10 @@ async function getCacheDir(): Promise<string> {
   if (cacheDirPath) return cacheDirPath;
 
   const appDir = await appDataDir();
-  cacheDirPath = `${appDir}${CACHE_DIR_NAME}`;
+  cacheDirPath = await join(appDir, CACHE_DIR_NAME);
 
-  // Directory will be created automatically by writeFile if it doesn't exist
-  // No need to create it explicitly
+  // Ensure cache directory exists (writeFile does NOT auto-create parent directories)
+  await fs.mkdir(cacheDirPath, { recursive: true });
 
   return cacheDirPath;
 }

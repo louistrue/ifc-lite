@@ -47,3 +47,6 @@ apps/viewer/public/ifc-lite_bg.wasm
 # Tauri/Claude temp files
 tmpclaude*
 nul
+
+# Claude Code local settings (user-specific)
+.claude/settings.local.json
