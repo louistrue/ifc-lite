@@ -9,8 +9,8 @@
 
 // IFC-Lite components (recommended - faster)
 export { IfcLiteBridge } from './ifc-lite-bridge.js';
-export { IfcLiteMeshCollector, type StreamingColorUpdateEvent } from './ifc-lite-mesh-collector.js';
-import type { StreamingColorUpdateEvent } from './ifc-lite-mesh-collector.js';
+export { IfcLiteMeshCollector, type StreamingColorUpdateEvent, type MeshCollectionWithRtcResult } from './ifc-lite-mesh-collector.js';
+import type { StreamingColorUpdateEvent, MeshCollectionWithRtcResult } from './ifc-lite-mesh-collector.js';
 
 // Support components
 export { BufferBuilder } from './buffer-builder.js';
@@ -130,17 +130,41 @@ export class GeometryProcessor {
 
     void entityIndex;
 
-    // Synchronous processing on main thread
-    // For large files, use processStreaming() instead which uses a dedicated worker
-    const meshes = await this.collectMeshesMainThread(buffer);
+    // Convert buffer to string (IFC files are text)
+    const decoder = new TextDecoder();
+    const content = decoder.decode(buffer);
 
-    // const meshCollectionTime = performance.now() - meshCollectionStart;
+    const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
 
-    // Handle large coordinates by shifting to origin
-    const coordinateInfo = this.coordinateHandler.processMeshes(meshes);
+    // Use RTC-aware parsing to preserve Float32 precision for large coordinates
+    // WASM shifts coordinates in Float64 BEFORE converting to Float32
+    const rtcResult = collector.collectMeshesWithRtc();
+
+    // Calculate bounds from the already-shifted meshes
+    const bounds = this.calculateBounds(rtcResult.meshes);
+
+    // Build coordinate info from RTC result
+    // Note: Meshes are already shifted, so shiftedBounds = bounds
+    const coordinateInfo = {
+      originShift: rtcResult.rtcOffset,
+      originalBounds: {
+        min: {
+          x: bounds.min.x + rtcResult.rtcOffset.x,
+          y: bounds.min.y + rtcResult.rtcOffset.y,
+          z: bounds.min.z + rtcResult.rtcOffset.z,
+        },
+        max: {
+          x: bounds.max.x + rtcResult.rtcOffset.x,
+          y: bounds.max.y + rtcResult.rtcOffset.y,
+          z: bounds.max.z + rtcResult.rtcOffset.z,
+        },
+      },
+      shiftedBounds: bounds,
+      isGeoReferenced: rtcResult.isGeoReferenced,
+    };
 
     // Build GPU-ready buffers
-    const bufferResult = this.bufferBuilder.processMeshes(meshes);
+    const bufferResult = this.bufferBuilder.processMeshes(rtcResult.meshes);
 
     // Combine results
     const result: GeometryResult = {
@@ -154,22 +178,57 @@ export class GeometryProcessor {
   }
 
   /**
-   * Collect meshes on main thread using IFC-Lite
+   * Calculate bounding box from meshes
    */
-  private async collectMeshesMainThread(buffer: Uint8Array, _entityIndex?: Map<number, any>): Promise<MeshData[]> {
-    // Convert buffer to string (IFC files are text)
-    const decoder = new TextDecoder();
-    const content = decoder.decode(buffer);
+  private calculateBounds(meshes: MeshData[]): { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } {
+    const bounds = {
+      min: { x: Infinity, y: Infinity, z: Infinity },
+      max: { x: -Infinity, y: -Infinity, z: -Infinity },
+    };
 
-    const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
-    const meshes = collector.collectMeshes();
+    for (const mesh of meshes) {
+      const positions = mesh.positions;
+      for (let i = 0; i < positions.length; i += 3) {
+        const x = positions[i];
+        const y = positions[i + 1];
+        const z = positions[i + 2];
 
-    return meshes;
+        if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+          bounds.min.x = Math.min(bounds.min.x, x);
+          bounds.min.y = Math.min(bounds.min.y, y);
+          bounds.min.z = Math.min(bounds.min.z, z);
+          bounds.max.x = Math.max(bounds.max.x, x);
+          bounds.max.y = Math.max(bounds.max.y, y);
+          bounds.max.z = Math.max(bounds.max.z, z);
+        }
+      }
+    }
+
+    // Fallback to zero bounds if no valid vertices
+    if (!Number.isFinite(bounds.min.x)) {
+      return {
+        min: { x: 0, y: 0, z: 0 },
+        max: { x: 0, y: 0, z: 0 },
+      };
+    }
+
+    return bounds;
   }
 
   /**
    * Process IFC file with streaming output for progressive rendering
    * Uses IFC-Lite for native Rust geometry processing (1.9x faster)
+   *
+   * NOTE ON LARGE COORDINATES (PRECISION):
+   * The streaming parser uses parseMeshesAsync which does NOT have built-in RTC support.
+   * For files with large coordinates (>10km from origin, e.g., Swiss coords 2,683,141m),
+   * there may be ~1-2m precision loss due to Float32 conversion in WASM before shifting.
+   *
+   * For maximum precision with large coordinates, use the non-streaming process() method
+   * which uses parseMeshesWithRtc() for proper Float64→Float32 conversion with shift.
+   *
+   * Future improvement: Add parseMeshesAsyncWithRtc() to WASM for streaming with RTC support.
+   *
    * @param buffer IFC file buffer
    * @param entityIndex Optional entity index for priority-based loading
    * @param batchConfig Dynamic batch configuration or fixed batch size

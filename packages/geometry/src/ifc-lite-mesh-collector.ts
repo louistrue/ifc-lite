@@ -7,8 +7,20 @@
  * Replaces mesh-collector.ts - uses native Rust geometry processing (1.9x faster)
  */
 
-import type { IfcAPI, MeshDataJs, InstancedGeometry } from '@ifc-lite/wasm';
-import type { MeshData } from './types.js';
+import type { IfcAPI, MeshDataJs, InstancedGeometry, MeshCollectionWithRtc, RtcOffsetJs } from '@ifc-lite/wasm';
+import type { MeshData, Vec3 } from './types.js';
+
+/**
+ * Result from RTC-aware mesh collection
+ * Contains meshes with coordinates already shifted in WASM (Float64 precision preserved)
+ */
+export interface MeshCollectionWithRtcResult {
+  meshes: MeshData[];
+  /** RTC offset that was applied to all coordinates in WASM (subtract this to get world coords) */
+  rtcOffset: Vec3;
+  /** Whether the offset is significant (>10km from origin) */
+  isGeoReferenced: boolean;
+}
 
 export interface StreamingProgress {
   percent: number;
@@ -122,6 +134,90 @@ export class IfcLiteMeshCollector {
 
     // const conversionTime = performance.now() - conversionStart;
     return meshes;
+  }
+
+  /**
+   * Collect all meshes with RTC (Relative-To-Center) coordinate handling
+   *
+   * CRITICAL FOR LARGE COORDINATES: This method preserves Float32 precision by:
+   * 1. WASM calculates model centroid in Float64 (double precision)
+   * 2. WASM subtracts centroid from all coordinates BEFORE converting to Float32
+   * 3. Returns the RTC offset for coordinate conversion
+   *
+   * Without this, files with Swiss coordinates (2,683,141m) lose ~2m precision!
+   *
+   * @returns Meshes with shifted coordinates + the RTC offset applied
+   */
+  collectMeshesWithRtc(): MeshCollectionWithRtcResult {
+    // Use WASM's RTC-aware parser which shifts in Float64 before Float32 conversion
+    const result = this.ifcApi.parseMeshesWithRtc(this.content);
+    const rtcOffset = result.rtcOffset;
+
+    const meshes: MeshData[] = [];
+
+    // Convert MeshCollection to MeshData[]
+    for (let i = 0; i < result.length; i++) {
+      const mesh = result.get(i);
+      if (!mesh) continue;
+
+      // Get color array [r, g, b, a]
+      const colorArray = mesh.color;
+      const color: [number, number, number, number] = [
+        colorArray[0],
+        colorArray[1],
+        colorArray[2],
+        colorArray[3],
+      ];
+
+      // Capture arrays once (WASM creates new copies on each access)
+      // These positions are ALREADY shifted by RTC offset in WASM!
+      const positions = mesh.positions;
+      const normals = mesh.normals;
+      const indices = mesh.indices;
+
+      // Convert IFC Z-up to WebGL Y-up (modify captured arrays)
+      this.convertZUpToYUp(positions);
+      this.convertZUpToYUp(normals);
+
+      meshes.push({
+        expressId: mesh.expressId,
+        ifcType: mesh.ifcType,
+        positions,
+        normals,
+        indices,
+        color,
+      });
+
+      // Free the individual mesh to avoid memory leaks
+      mesh.free();
+    }
+
+    // Get RTC offset values (these are the world coordinates of the origin shift)
+    // Note: RTC offset is in IFC Z-up coordinates, convert to Y-up
+    const rtcOffsetYUp: Vec3 = {
+      x: rtcOffset.x,
+      y: rtcOffset.z,      // IFC Z (vertical) → Y-up Y
+      z: -rtcOffset.y,     // IFC Y (depth) → Y-up Z (negated for right-hand rule)
+    };
+
+    const isSignificant = rtcOffset.isSignificant();
+
+    if (isSignificant) {
+      console.log('[IfcLiteMeshCollector] RTC offset applied in WASM for large coordinates:', {
+        original: { x: rtcOffset.x, y: rtcOffset.y, z: rtcOffset.z },
+        yUp: rtcOffsetYUp,
+      });
+    }
+
+    // Free RTC offset and result
+    rtcOffset.free();
+    result.free();
+
+    return {
+      meshes,
+      rtcOffset: rtcOffsetYUp,
+      isGeoReferenced: isSignificant,
+    };
   }
 
   /**
