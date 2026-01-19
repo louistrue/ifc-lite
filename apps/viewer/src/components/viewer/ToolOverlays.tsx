@@ -7,7 +7,7 @@
  */
 
 import React, { useCallback, useMemo, useState, useEffect } from 'react';
-import { X, Trash2, Ruler, Slice, ChevronDown } from 'lucide-react';
+import { X, Trash2, Ruler } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useViewerStore, type Measurement } from '@/store';
 import { SnapType } from '@ifc-lite/renderer';
@@ -673,7 +673,6 @@ function SectionOverlay() {
   const setSectionPlanePosition = useViewerStore((s) => s.setSectionPlanePosition);
   const toggleSectionPlane = useViewerStore((s) => s.toggleSectionPlane);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
-  const [isPanelCollapsed, setIsPanelCollapsed] = useState(true);
 
   const handleClose = useCallback(() => {
     setActiveTool('select');
@@ -687,174 +686,99 @@ function SectionOverlay() {
     setSectionPlanePosition(Number(e.target.value));
   }, [setSectionPlanePosition]);
 
-  const togglePanel = useCallback(() => {
-    setIsPanelCollapsed(prev => !prev);
-  }, []);
+  // Axis colors
+  const axisColors = {
+    down: '#03A9F4',
+    front: '#4CAF50',
+    side: '#FF9800',
+  };
+  const currentColor = axisColors[sectionPlane.axis];
 
   return (
     <>
-      {/* Compact Section Tool Panel - matches Measure tool style */}
-      <div className="pointer-events-auto absolute top-4 left-1/2 -translate-x-1/2 bg-background/95 backdrop-blur-sm rounded-lg border shadow-lg z-30">
-        {/* Header - always visible */}
-        <div className="flex items-center justify-between gap-2 p-2">
+      {/* Elegant corner section control */}
+      <div className="pointer-events-auto absolute top-4 left-4 z-30 flex gap-3">
+        {/* Direction switcher - compact pill design */}
+        <div className="bg-background/95 backdrop-blur-sm rounded-xl border shadow-lg p-1 flex flex-col gap-0.5">
+          {(['down', 'front', 'side'] as const).map((axis) => {
+            const isActive = sectionPlane.axis === axis;
+            const color = axisColors[axis];
+            return (
+              <button
+                key={axis}
+                onClick={() => handleAxisChange(axis)}
+                className={`relative w-12 h-10 rounded-lg font-mono text-[10px] uppercase tracking-wider transition-all duration-200 ${
+                  isActive
+                    ? 'text-white font-bold'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                }`}
+                style={isActive ? { backgroundColor: color } : {}}
+                title={AXIS_INFO[axis].description}
+              >
+                {axis.charAt(0).toUpperCase()}
+              </button>
+            );
+          })}
+
+          {/* Divider */}
+          <div className="h-px bg-border mx-1 my-1" />
+
+          {/* Close button */}
           <button
-            onClick={togglePanel}
-            className="flex items-center gap-2 hover:bg-accent/50 rounded px-2 py-1 transition-colors"
+            onClick={handleClose}
+            className="w-12 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors flex items-center justify-center"
+            title="Exit section mode"
           >
-            <Slice className="h-4 w-4 text-primary" />
-            <span className="font-medium text-sm">Section</span>
-            {sectionPlane.enabled && (
-              <span className="text-xs text-primary font-mono">
-                {AXIS_INFO[sectionPlane.axis].label} {sectionPlane.position}%
-              </span>
-            )}
-            <ChevronDown className={`h-3 w-3 transition-transform ${isPanelCollapsed ? '-rotate-90' : ''}`} />
+            <X className="h-3.5 w-3.5" />
           </button>
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon-sm" onClick={handleClose} title="Close">
-              <X className="h-3 w-3" />
-            </Button>
-          </div>
         </div>
 
-        {/* Expandable content */}
-        {!isPanelCollapsed && (
-          <div className="border-t px-3 pb-3 min-w-64">
-            {/* Direction Selection */}
-            <div className="mt-3">
-              <label className="text-xs text-muted-foreground mb-2 block">Direction</label>
-              <div className="flex gap-1">
-                {(['down', 'front', 'side'] as const).map((axis) => (
-                  <Button
-                    key={axis}
-                    variant={sectionPlane.axis === axis ? 'default' : 'outline'}
-                    size="sm"
-                    className="flex-1 flex-col h-auto py-1.5"
-                    onClick={() => handleAxisChange(axis)}
-                  >
-                    <span className="text-xs font-medium">{AXIS_INFO[axis].label}</span>
-                  </Button>
-                ))}
-              </div>
-            </div>
-
-            {/* Position Slider */}
-            <div className="mt-3">
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs text-muted-foreground">Position</label>
-                <span className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded">{sectionPlane.position}%</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={sectionPlane.position}
-                onChange={handlePositionChange}
-                className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-              />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Instruction hint - brutalist style matching Measure tool */}
-      <div
-        className="pointer-events-auto absolute bottom-16 left-1/2 -translate-x-1/2 z-30 bg-zinc-900 dark:bg-zinc-100 text-zinc-100 dark:text-zinc-900 px-3 py-1.5 border-2 border-zinc-900 dark:border-zinc-100 transition-shadow duration-150"
-        style={{
-          boxShadow: sectionPlane.enabled
-            ? '4px 4px 0px 0px #03A9F4' // Light blue shadow when active
-            : '3px 3px 0px 0px rgba(0,0,0,0.3)'
-        }}
-      >
-        <span className="font-mono text-xs uppercase tracking-wide">
-          {sectionPlane.enabled
-            ? `Cutting ${AXIS_INFO[sectionPlane.axis].label.toLowerCase()} at ${sectionPlane.position}%`
-            : 'Preview mode'}
-        </span>
-      </div>
-
-      {/* Enable toggle - brutalist style matching Measure tool */}
-      <div className="pointer-events-auto absolute bottom-4 left-1/2 -translate-x-1/2 z-30">
-        <button
-          onClick={toggleSectionPlane}
-          className={`px-2 py-1 font-mono text-[10px] uppercase tracking-wider border-2 transition-colors ${
-            sectionPlane.enabled
-              ? 'bg-primary text-primary-foreground border-primary'
-              : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-500 border-zinc-300 dark:border-zinc-700'
-          }`}
-          title="Toggle section plane"
+        {/* Vertical position slider */}
+        <div
+          className="bg-background/95 backdrop-blur-sm rounded-xl border shadow-lg p-2 flex flex-col items-center gap-2"
+          style={{ borderColor: sectionPlane.enabled ? currentColor : undefined }}
         >
-          {sectionPlane.enabled ? 'Cutting' : 'Preview'}
-        </button>
-      </div>
-
-      {/* Section plane visualization overlay */}
-      <SectionPlaneVisualization axis={sectionPlane.axis} enabled={sectionPlane.enabled} />
-    </>
-  );
-}
-
-// Section plane visual indicator component
-function SectionPlaneVisualization({ axis, enabled }: { axis: 'down' | 'front' | 'side'; enabled: boolean }) {
-  // Get the axis color
-  const axisColors = {
-    down: '#03A9F4',  // Light blue for horizontal cuts
-    front: '#4CAF50', // Green for front cuts
-    side: '#FF9800',  // Orange for side cuts
-  };
-
-  const color = axisColors[axis];
-
-  return (
-    <svg
-      className="absolute inset-0 pointer-events-none z-20"
-      style={{ overflow: 'visible', pointerEvents: 'none' }}
-    >
-      <defs>
-        <filter id="section-glow">
-          <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
-          <feMerge>
-            <feMergeNode in="coloredBlur"/>
-            <feMergeNode in="SourceGraphic"/>
-          </feMerge>
-        </filter>
-        {/* Animated dash pattern */}
-        <pattern id="section-pattern" patternUnits="userSpaceOnUse" width="10" height="10">
-          <line x1="0" y1="0" x2="10" y2="10" stroke={color} strokeWidth="1" strokeOpacity="0.5"/>
-        </pattern>
-      </defs>
-
-      {/* Axis indicator in corner */}
-      <g transform="translate(24, 24)">
-        <circle cx="20" cy="20" r="18" fill={color} fillOpacity={enabled ? 0.2 : 0.1} stroke={color} strokeWidth={enabled ? 3 : 2} filter="url(#section-glow)"/>
-        <text
-          x="20"
-          y="20"
-          textAnchor="middle"
-          dominantBaseline="central"
-          fill={color}
-          fontFamily="monospace"
-          fontSize="11"
-          fontWeight="bold"
-        >
-          {AXIS_INFO[axis].label.toUpperCase()}
-        </text>
-        {/* Active indicator */}
-        {enabled && (
-          <text
-            x="20"
-            y="32"
-            textAnchor="middle"
-            fill={color}
-            fontFamily="monospace"
-            fontSize="7"
-            fontWeight="bold"
+          {/* Position label */}
+          <span
+            className="font-mono text-[10px] font-bold tabular-nums"
+            style={{ color: currentColor }}
           >
-            CUT
-          </text>
-        )}
-      </g>
-    </svg>
+            {sectionPlane.position}%
+          </span>
+
+          {/* Vertical slider */}
+          <div className="relative h-32 w-6 flex items-center justify-center">
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={sectionPlane.position}
+              onChange={handlePositionChange}
+              className="absolute h-28 w-2 cursor-pointer appearance-none rounded-full"
+              style={{
+                writingMode: 'vertical-lr',
+                direction: 'rtl',
+                background: `linear-gradient(to top, ${currentColor} ${sectionPlane.position}%, hsl(var(--muted)) ${sectionPlane.position}%)`,
+              }}
+            />
+          </div>
+
+          {/* Toggle cut/preview */}
+          <button
+            onClick={toggleSectionPlane}
+            className={`w-full px-1.5 py-1 rounded-md font-mono text-[8px] uppercase tracking-wider transition-all ${
+              sectionPlane.enabled
+                ? 'text-white font-bold'
+                : 'bg-muted text-muted-foreground hover:text-foreground'
+            }`}
+            style={sectionPlane.enabled ? { backgroundColor: currentColor } : {}}
+            title={sectionPlane.enabled ? 'Switch to preview' : 'Enable cutting'}
+          >
+            {sectionPlane.enabled ? 'Cut' : 'Preview'}
+          </button>
+        </div>
+      </div>
+    </>
   );
 }
 

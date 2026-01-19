@@ -599,6 +599,17 @@ export class Renderer {
                     boundsMax.x = boundsMax.y = boundsMax.z = 100;
                 }
 
+                // Add 10% padding to bounds so section plane can go slightly beyond building
+                const paddingX = (boundsMax.x - boundsMin.x) * 0.1;
+                const paddingY = (boundsMax.y - boundsMin.y) * 0.1;
+                const paddingZ = (boundsMax.z - boundsMin.z) * 0.1;
+                boundsMin.x -= paddingX;
+                boundsMin.y -= paddingY;
+                boundsMin.z -= paddingZ;
+                boundsMax.x += paddingX;
+                boundsMax.y += paddingY;
+                boundsMax.z += paddingZ;
+
                 // Store bounds for section plane visual
                 this.modelBounds = { min: boundsMin, max: boundsMax };
 
