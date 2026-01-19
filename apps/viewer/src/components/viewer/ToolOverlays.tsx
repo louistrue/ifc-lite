@@ -753,18 +753,6 @@ function SectionOverlay() {
                 className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
               />
             </div>
-
-            {/* Enable/Disable Button */}
-            <div className="mt-3">
-              <Button
-                variant={sectionPlane.enabled ? 'default' : 'outline'}
-                size="sm"
-                className="w-full"
-                onClick={toggleSectionPlane}
-              >
-                {sectionPlane.enabled ? 'Cutting Active' : 'Enable Cutting'}
-              </Button>
-            </div>
           </div>
         )}
       </div>

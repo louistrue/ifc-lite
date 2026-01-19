@@ -20,7 +20,8 @@ export interface SectionPlaneRenderOptions {
 
 export class SectionPlaneRenderer {
   private device: GPUDevice;
-  private pipeline: GPURenderPipeline | null = null;
+  private previewPipeline: GPURenderPipeline | null = null;  // With depth test (respects geometry)
+  private cutPipeline: GPURenderPipeline | null = null;      // No depth test (always visible)
   private vertexBuffer: GPUBuffer | null = null;
   private uniformBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
@@ -112,9 +113,9 @@ export class SectionPlaneRenderer {
       `,
     });
 
-    // Create render pipeline with alpha blending and MSAA support
-    this.pipeline = this.device.createRenderPipeline({
-      layout: 'auto',
+    // Shared pipeline config
+    const pipelineBase = {
+      layout: 'auto' as const,
       vertex: {
         module: shaderModule,
         entryPoint: 'vs_main',
@@ -122,8 +123,8 @@ export class SectionPlaneRenderer {
           {
             arrayStride: 20, // 3 position + 2 uv = 5 floats
             attributes: [
-              { shaderLocation: 0, offset: 0, format: 'float32x3' },
-              { shaderLocation: 1, offset: 12, format: 'float32x2' },
+              { shaderLocation: 0, offset: 0, format: 'float32x3' as const },
+              { shaderLocation: 1, offset: 12, format: 'float32x2' as const },
             ],
           },
         ],
@@ -135,29 +136,44 @@ export class SectionPlaneRenderer {
           format: this.format,
           blend: {
             color: {
-              srcFactor: 'src-alpha',
-              dstFactor: 'one-minus-src-alpha',
-              operation: 'add',
+              srcFactor: 'src-alpha' as const,
+              dstFactor: 'one-minus-src-alpha' as const,
+              operation: 'add' as const,
             },
             alpha: {
-              srcFactor: 'one',
-              dstFactor: 'one-minus-src-alpha',
-              operation: 'add',
+              srcFactor: 'one' as const,
+              dstFactor: 'one-minus-src-alpha' as const,
+              operation: 'add' as const,
             },
           },
         }],
       },
       primitive: {
-        topology: 'triangle-list',
-        cullMode: 'none',
-      },
-      depthStencil: {
-        format: 'depth24plus',
-        depthWriteEnabled: false, // Don't write to depth buffer (transparent)
-        depthCompare: 'always',   // Always draw the plane (visible through geometry)
+        topology: 'triangle-list' as const,
+        cullMode: 'none' as const,
       },
       multisample: {
         count: this.sampleCount,
+      },
+    };
+
+    // Preview pipeline: respects depth (hidden behind geometry)
+    this.previewPipeline = this.device.createRenderPipeline({
+      ...pipelineBase,
+      depthStencil: {
+        format: 'depth24plus',
+        depthWriteEnabled: false,
+        depthCompare: 'less-equal',  // Respect geometry depth
+      },
+    });
+
+    // Cut pipeline: always visible (shows where the cut is)
+    this.cutPipeline = this.device.createRenderPipeline({
+      ...pipelineBase,
+      depthStencil: {
+        format: 'depth24plus',
+        depthWriteEnabled: false,
+        depthCompare: 'always',  // Always draw on top
       },
     });
 
@@ -173,9 +189,9 @@ export class SectionPlaneRenderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    // Create bind group
+    // Create bind group (both pipelines have same layout)
     this.bindGroup = this.device.createBindGroup({
-      layout: this.pipeline.getBindGroupLayout(0),
+      layout: this.previewPipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: this.uniformBuffer } },
       ],
@@ -193,14 +209,16 @@ export class SectionPlaneRenderer {
   ): void {
     this.init();
 
-    if (!this.pipeline || !this.vertexBuffer || !this.uniformBuffer || !this.bindGroup) {
+    if (!this.previewPipeline || !this.cutPipeline || !this.vertexBuffer || !this.uniformBuffer || !this.bindGroup) {
       return;
     }
 
     const { axis, position, bounds, viewProj, isPreview } = options;
 
     // Calculate plane vertices based on axis and bounds
-    const vertices = this.calculatePlaneVertices(axis, position, bounds);
+    // In cut mode, inset the plane so users can see the cut cross-section
+    const inset = isPreview ? 0 : 0.15; // 15% inset when cutting to show edges
+    const vertices = this.calculatePlaneVertices(axis, position, bounds, inset);
     this.device.queue.writeBuffer(this.vertexBuffer, 0, vertices);
 
     // Update uniforms
@@ -223,11 +241,14 @@ export class SectionPlaneRenderer {
       uniforms[18] = 0.0;   // B
     }
     // Opacity: preview mode (subtle) vs active cutting (prominent)
-    uniforms[19] = isPreview ? 0.2 : 0.5;
+    uniforms[19] = isPreview ? 0.25 : 0.45;
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
 
-    // Draw the section plane
-    pass.setPipeline(this.pipeline);
+    // Draw the section plane with appropriate pipeline
+    // Preview: respects depth (hidden behind geometry)
+    // Cut: always visible (shows cut location)
+    const pipeline = isPreview ? this.previewPipeline : this.cutPipeline;
+    pass.setPipeline(pipeline);
     pass.setBindGroup(0, this.bindGroup);
     pass.setVertexBuffer(0, this.vertexBuffer);
     pass.draw(6); // 2 triangles
@@ -245,7 +266,7 @@ export class SectionPlaneRenderer {
   ): void {
     this.init();
 
-    if (!this.pipeline || !this.vertexBuffer || !this.uniformBuffer || !this.bindGroup) {
+    if (!this.previewPipeline || !this.vertexBuffer || !this.uniformBuffer || !this.bindGroup) {
       return;
     }
 
@@ -292,7 +313,7 @@ export class SectionPlaneRenderer {
       },
     });
 
-    pass.setPipeline(this.pipeline);
+    pass.setPipeline(this.previewPipeline!);
     pass.setBindGroup(0, this.bindGroup);
     pass.setVertexBuffer(0, this.vertexBuffer);
     pass.draw(6); // 2 triangles
@@ -302,15 +323,17 @@ export class SectionPlaneRenderer {
   private calculatePlaneVertices(
     axis: 'up' | 'front' | 'side',
     position: number,
-    bounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } }
+    bounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } },
+    inset: number = 0  // 0 = full size, 0.15 = 15% smaller on each side
   ): Float32Array {
     const { min, max } = bounds;
 
-    // Add some padding to make the plane slightly larger than the model
-    const padding = 0.1;
-    const sizeX = (max.x - min.x) * (1 + padding);
-    const sizeY = (max.y - min.y) * (1 + padding);
-    const sizeZ = (max.z - min.z) * (1 + padding);
+    // Calculate base size with 10% padding for preview, then apply inset for cut mode
+    const basePadding = 0.1;
+    const effectiveScale = (1 + basePadding) * (1 - inset * 2);  // inset applies to both sides
+    const sizeX = (max.x - min.x) * effectiveScale;
+    const sizeY = (max.y - min.y) * effectiveScale;
+    const sizeZ = (max.z - min.z) * effectiveScale;
     const centerX = (min.x + max.x) / 2;
     const centerY = (min.y + max.y) / 2;
     const centerZ = (min.z + max.z) / 2;
