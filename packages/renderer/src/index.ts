@@ -1363,6 +1363,36 @@ export class Renderer {
     }
 
     /**
+     * Set RTC (Relative-To-Center) origin for large coordinate precision
+     *
+     * Call this after loading geometry to enable precision-safe rendering
+     * for models with large world coordinates (e.g., georeferenced buildings).
+     *
+     * The origin should match the coordinate shift from CoordinateHandler.
+     * When set, the camera will use RTC coordinates internally to avoid
+     * float32 precision loss that causes "jittery" geometry.
+     *
+     * @param origin The coordinate shift applied to geometry
+     */
+    setRTCOrigin(origin: { x: number; y: number; z: number }): void {
+        this.camera.setRTCOrigin(origin);
+    }
+
+    /**
+     * Get current RTC origin
+     */
+    getRTCOrigin(): { x: number; y: number; z: number } {
+        return this.camera.getRTCOrigin();
+    }
+
+    /**
+     * Check if RTC coordinates are active
+     */
+    isUsingRTC(): boolean {
+        return this.camera.isUsingRTC();
+    }
+
+    /**
      * Get render pipeline (for batching)
      */
     getPipeline(): RenderPipeline | null {

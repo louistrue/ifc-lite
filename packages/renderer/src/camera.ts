@@ -15,6 +15,12 @@ export class Camera {
   private projMatrix: Mat4;
   private viewProjMatrix: Mat4;
 
+  // RTC (Relative-To-Center) coordinate system for large coordinate precision
+  // When set, the view matrix is computed relative to this origin
+  // This fixes precision issues with models far from world origin
+  private rtcOrigin: Vec3 = { x: 0, y: 0, z: 0 };
+  private useRTC: boolean = false;
+
   // Inertia system
   private velocity = { orbit: { x: 0, y: 0 }, pan: { x: 0, y: 0 }, zoom: 0 };
   private damping = 0.92; // Inertia factor (0-1), higher = more damping
@@ -932,6 +938,68 @@ export class Camera {
     // Reset preset view tracking
     this.lastPresetView = null;
     this.presetViewRotation = 0;
+    // Reset RTC origin (will be set when loading new model)
+    this.rtcOrigin = { x: 0, y: 0, z: 0 };
+    this.useRTC = false;
+  }
+
+  /**
+   * Set RTC (Relative-To-Center) origin for large coordinate precision
+   *
+   * This is the key fix for "jittery" geometry with large coordinates.
+   * The RTC origin should match the coordinate shift applied to geometry
+   * by CoordinateHandler.
+   *
+   * When set:
+   * - View matrix is computed relative to this origin
+   * - All math stays in small numbers (near origin)
+   * - Float32 precision is preserved
+   *
+   * @param origin The coordinate shift applied to geometry (e.g., from CoordinateHandler)
+   */
+  setRTCOrigin(origin: Vec3): void {
+    this.rtcOrigin = { ...origin };
+    this.useRTC = origin.x !== 0 || origin.y !== 0 || origin.z !== 0;
+    if (this.useRTC) {
+      console.log('[Camera] RTC origin set for large coordinate precision:', origin);
+    }
+    this.updateMatrices();
+  }
+
+  /**
+   * Get current RTC origin
+   */
+  getRTCOrigin(): Vec3 {
+    return { ...this.rtcOrigin };
+  }
+
+  /**
+   * Check if RTC coordinates are active
+   */
+  isUsingRTC(): boolean {
+    return this.useRTC;
+  }
+
+  /**
+   * Convert world coordinates to local (RTC) coordinates
+   */
+  worldToLocal(worldPos: Vec3): Vec3 {
+    return {
+      x: worldPos.x - this.rtcOrigin.x,
+      y: worldPos.y - this.rtcOrigin.y,
+      z: worldPos.z - this.rtcOrigin.z,
+    };
+  }
+
+  /**
+   * Convert local (RTC) coordinates to world coordinates
+   */
+  localToWorld(localPos: Vec3): Vec3 {
+    return {
+      x: localPos.x + this.rtcOrigin.x,
+      y: localPos.y + this.rtcOrigin.y,
+      z: localPos.z + this.rtcOrigin.z,
+    };
   }
 
   getViewProjMatrix(): Mat4 {
@@ -1113,11 +1181,22 @@ export class Camera {
   }
 
   private updateMatrices(): void {
-    this.viewMatrix = MathUtils.lookAt(
-      this.camera.position,
-      this.camera.target,
-      this.camera.up
-    );
+    // Use RTC view matrix when large coordinates are in use
+    // This is the key fix for precision issues with georeferenced models
+    if (this.useRTC) {
+      this.viewMatrix = MathUtils.lookAtRTC(
+        this.camera.position,
+        this.camera.target,
+        this.camera.up,
+        this.rtcOrigin
+      );
+    } else {
+      this.viewMatrix = MathUtils.lookAt(
+        this.camera.position,
+        this.camera.target,
+        this.camera.up
+      );
+    }
     // Use reverse-Z projection for better depth precision
     this.projMatrix = MathUtils.perspectiveReverseZ(
       this.camera.fov,

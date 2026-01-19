@@ -216,4 +216,100 @@ export class MathUtils {
             z: a.x * b.y - a.y * b.x,
         };
     }
+
+    /**
+     * Add vectors
+     */
+    static add(a: Vec3, b: Vec3): Vec3 {
+        return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z };
+    }
+
+    /**
+     * Scale vector
+     */
+    static scale(v: Vec3, s: number): Vec3 {
+        return { x: v.x * s, y: v.y * s, z: v.z * s };
+    }
+
+    /**
+     * Vector length (magnitude)
+     */
+    static magnitude(v: Vec3): number {
+        return Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+    }
+
+    /**
+     * Create RTC (Relative-To-Center) view matrix
+     *
+     * This is the key fix for large coordinate precision issues.
+     * Instead of computing view matrix with potentially large world coordinates,
+     * we shift the eye and target by the RTC origin to keep values small.
+     *
+     * The technique is used by xeokit and flight simulators to handle
+     * models far from the world origin without losing float32 precision.
+     *
+     * @param eye Camera position in world coordinates
+     * @param target Look-at target in world coordinates
+     * @param up Up vector
+     * @param rtcOrigin The RTC origin (coordinate shift applied to geometry)
+     * @returns View matrix with RTC adjustment
+     */
+    static lookAtRTC(eye: Vec3, target: Vec3, up: Vec3, rtcOrigin: Vec3): Mat4 {
+        // Convert world coordinates to RTC-local coordinates
+        // This keeps all the math in small numbers (near origin)
+        const localEye: Vec3 = {
+            x: eye.x - rtcOrigin.x,
+            y: eye.y - rtcOrigin.y,
+            z: eye.z - rtcOrigin.z,
+        };
+        const localTarget: Vec3 = {
+            x: target.x - rtcOrigin.x,
+            y: target.y - rtcOrigin.y,
+            z: target.z - rtcOrigin.z,
+        };
+
+        // Now compute view matrix with local (small) coordinates
+        // This avoids precision loss in Float32Array
+        return this.lookAt(localEye, localTarget, up);
+    }
+
+    /**
+     * Check if coordinates need RTC handling
+     * Returns true if any coordinate component exceeds the threshold
+     * where float32 precision becomes problematic (~10km)
+     */
+    static needsRTCCoordinates(pos: Vec3, threshold: number = 10000): boolean {
+        return Math.abs(pos.x) > threshold ||
+               Math.abs(pos.y) > threshold ||
+               Math.abs(pos.z) > threshold;
+    }
+
+    /**
+     * Decompose world position into RTC center and local offset
+     * Uses a cell-based system similar to xeokit for consistent RTC centers
+     *
+     * @param worldPos Position in world coordinates
+     * @param cellSize Size of RTC cells (default 1000m for sub-millimeter precision)
+     * @returns Object with rtcCenter (Float64 precision) and localPos (Float32 safe)
+     */
+    static worldToRTCPosition(
+        worldPos: Vec3,
+        cellSize: number = 1000
+    ): { rtcCenter: Vec3; localPos: Vec3 } {
+        // Snap to cell centers for consistent RTC origins across geometry
+        const rtcCenter: Vec3 = {
+            x: Math.floor(worldPos.x / cellSize) * cellSize,
+            y: Math.floor(worldPos.y / cellSize) * cellSize,
+            z: Math.floor(worldPos.z / cellSize) * cellSize,
+        };
+
+        // Local position is the offset from cell center (always < cellSize)
+        const localPos: Vec3 = {
+            x: worldPos.x - rtcCenter.x,
+            y: worldPos.y - rtcCenter.y,
+            z: worldPos.z - rtcCenter.z,
+        };
+
+        return { rtcCenter, localPos };
+    }
 }

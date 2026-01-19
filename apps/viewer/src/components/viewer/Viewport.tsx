@@ -1471,6 +1471,18 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
       // (bounds are calculated from ALL geometry before streaming starts)
       // Waiting for streaming to complete causes the camera to start inside the model
       if (maxSize > 0 && Number.isFinite(maxSize)) {
+        // FIX FOR JITTERY GEOMETRY: Set RTC origin for large coordinate precision
+        // This is the key fix for models with large world coordinates (georeferenced buildings)
+        // When originShift is non-zero, enable RTC (Relative-To-Center) coordinate mode
+        // which keeps all camera math in small numbers to avoid float32 precision loss
+        if (coordinateInfo.originShift) {
+          const { x, y, z } = coordinateInfo.originShift;
+          if (x !== 0 || y !== 0 || z !== 0) {
+            renderer.setRTCOrigin(coordinateInfo.originShift);
+            console.log('[Viewport] RTC origin set for large coordinate precision:', coordinateInfo.originShift);
+          }
+        }
+
         renderer.getCamera().fitToBounds(shiftedBounds.min, shiftedBounds.max);
         geometryBoundsRef.current = { min: { ...shiftedBounds.min }, max: { ...shiftedBounds.max } };
         cameraFittedRef.current = true;
