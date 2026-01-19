@@ -649,12 +649,14 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
               const pos = snapPoint ? ('position' in snapPoint ? snapPoint.position : snapPoint.point) : null;
 
               if (pos) {
+                // Project snapped 3D position to screen - measurement starts from indicator, not cursor
+                const screenPos = camera.projectToScreen(pos, canvas.width, canvas.height);
                 const measurePoint: MeasurePoint = {
                   x: pos.x,
                   y: pos.y,
                   z: pos.z,
-                  screenX: x,
-                  screenY: y,
+                  screenX: screenPos?.x ?? x,
+                  screenY: screenPos?.y ?? y,
                 };
 
                 startMeasurement(measurePoint);
@@ -749,12 +751,14 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
                   const pos = snapPoint ? ('position' in snapPoint ? snapPoint.position : snapPoint.point) : null;
 
                   if (pos) {
+                    // Project snapped 3D position to screen - indicator position, not raw cursor
+                    const screenPos = camera.projectToScreen(pos, canvas.width, canvas.height);
                     const measurePoint: MeasurePoint = {
                       x: pos.x,
                       y: pos.y,
                       z: pos.z,
-                      screenX: x,
-                      screenY: y,
+                      screenX: screenPos?.x ?? x,
+                      screenY: screenPos?.y ?? y,
                     };
 
                     updateMeasurement(measurePoint);
