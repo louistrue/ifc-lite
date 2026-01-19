@@ -778,14 +778,24 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
                       updateSnapVisualization(result.snapTarget || null);
                     } else if (result.edgeLock.shouldLock && result.edgeLock.edge) {
                       // Check if we're on the same edge to preserve lock strength (hysteresis)
-                      const isSameEdge = currentLock.edge &&
-                        currentLock.meshExpressId === result.edgeLock.meshExpressId &&
+                      // Also check reversed edge ordering (v0↔v1 swap)
+                      const sameDirection = currentLock.edge &&
                         Math.abs(currentLock.edge.v0.x - result.edgeLock.edge.v0.x) < 0.0001 &&
                         Math.abs(currentLock.edge.v0.y - result.edgeLock.edge.v0.y) < 0.0001 &&
                         Math.abs(currentLock.edge.v0.z - result.edgeLock.edge.v0.z) < 0.0001 &&
                         Math.abs(currentLock.edge.v1.x - result.edgeLock.edge.v1.x) < 0.0001 &&
                         Math.abs(currentLock.edge.v1.y - result.edgeLock.edge.v1.y) < 0.0001 &&
                         Math.abs(currentLock.edge.v1.z - result.edgeLock.edge.v1.z) < 0.0001;
+                      const reversedDirection = currentLock.edge &&
+                        Math.abs(currentLock.edge.v0.x - result.edgeLock.edge.v1.x) < 0.0001 &&
+                        Math.abs(currentLock.edge.v0.y - result.edgeLock.edge.v1.y) < 0.0001 &&
+                        Math.abs(currentLock.edge.v0.z - result.edgeLock.edge.v1.z) < 0.0001 &&
+                        Math.abs(currentLock.edge.v1.x - result.edgeLock.edge.v0.x) < 0.0001 &&
+                        Math.abs(currentLock.edge.v1.y - result.edgeLock.edge.v0.y) < 0.0001 &&
+                        Math.abs(currentLock.edge.v1.z - result.edgeLock.edge.v0.z) < 0.0001;
+                      const isSameEdge = currentLock.edge &&
+                        currentLock.meshExpressId === result.edgeLock.meshExpressId &&
+                        (sameDirection || reversedDirection);
 
                       if (isSameEdge) {
                         // Same edge - just update position and grow lock strength
