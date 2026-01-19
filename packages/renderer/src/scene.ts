@@ -340,28 +340,6 @@ export class Scene {
     const merged = this.mergeGeometry(meshDataArray);
     const expressIds = meshDataArray.map(m => m.expressId);
 
-    // Calculate bounds from all mesh positions
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-    for (const mesh of meshDataArray) {
-      const positions = mesh.positions;
-      for (let i = 0; i < positions.length; i += 3) {
-        const x = positions[i];
-        const y = positions[i + 1];
-        const z = positions[i + 2];
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (z < minZ) minZ = z;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
-        if (z > maxZ) maxZ = z;
-      }
-    }
-    const bounds: { min: [number, number, number]; max: [number, number, number] } = {
-      min: [minX, minY, minZ],
-      max: [maxX, maxY, maxZ],
-    };
-
     // Create vertex buffer (interleaved positions + normals)
     const vertexBuffer = device.createBuffer({
       size: merged.vertexData.byteLength,
@@ -402,7 +380,6 @@ export class Scene {
       expressIds,
       bindGroup,
       uniformBuffer,
-      bounds,
     };
   }
 

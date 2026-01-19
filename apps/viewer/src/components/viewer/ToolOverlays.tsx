@@ -749,26 +749,19 @@ function SnapIndicator({ screenX, screenY, snapType }: SnapIndicatorProps) {
   );
 }
 
-// Axis display info for semantic names
-const AXIS_INFO = {
-  down: { label: 'Down', description: 'Horizontal cut (floor plan view)', icon: '↓' },
-  front: { label: 'Front', description: 'Vertical cut (elevation view)', icon: '→' },
-  side: { label: 'Side', description: 'Vertical cut (side elevation)', icon: '⊙' },
-} as const;
-
 function SectionOverlay() {
   const sectionPlane = useViewerStore((s) => s.sectionPlane);
   const setSectionPlaneAxis = useViewerStore((s) => s.setSectionPlaneAxis);
   const setSectionPlanePosition = useViewerStore((s) => s.setSectionPlanePosition);
   const toggleSectionPlane = useViewerStore((s) => s.toggleSectionPlane);
+  const flipSectionPlane = useViewerStore((s) => s.flipSectionPlane);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
-  const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
 
   const handleClose = useCallback(() => {
     setActiveTool('select');
   }, [setActiveTool]);
 
-  const handleAxisChange = useCallback((axis: 'down' | 'front' | 'side') => {
+  const handleAxisChange = useCallback((axis: 'x' | 'y' | 'z') => {
     setSectionPlaneAxis(axis);
   }, [setSectionPlaneAxis]);
 
@@ -776,96 +769,73 @@ function SectionOverlay() {
     setSectionPlanePosition(Number(e.target.value));
   }, [setSectionPlanePosition]);
 
-  const togglePanel = useCallback(() => {
-    setIsPanelCollapsed(prev => !prev);
-  }, []);
-
   return (
-    <>
-      {/* Section Tool Panel - matches Measure tool style */}
-      <div className="pointer-events-auto absolute top-4 left-1/2 -translate-x-1/2 bg-background/95 backdrop-blur-sm rounded-lg border shadow-lg z-30">
-        {/* Header - always visible */}
-        <div className="flex items-center justify-between gap-2 p-2">
-          <button
-            onClick={togglePanel}
-            className="flex items-center gap-2 hover:bg-accent/50 rounded px-2 py-1 transition-colors"
-          >
-            <Slice className="h-4 w-4 text-primary" />
-            <span className="font-medium text-sm">Section</span>
-            <span className="text-xs text-muted-foreground">
-              {AXIS_INFO[sectionPlane.axis].label} {sectionPlane.position}%
-            </span>
-            <ChevronDown className={`h-3 w-3 transition-transform ${isPanelCollapsed ? '-rotate-90' : ''}`} />
-          </button>
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon-sm" onClick={handleClose} title="Close">
-              <X className="h-3 w-3" />
-            </Button>
+    <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-background/95 backdrop-blur-sm rounded-lg border shadow-lg p-3 min-w-72 z-30">
+      <div className="flex items-center justify-between gap-4 mb-3">
+        <div className="flex items-center gap-2">
+          <Slice className="h-4 w-4 text-primary" />
+          <span className="font-medium text-sm">Section Plane</span>
+        </div>
+        <Button variant="ghost" size="icon-sm" onClick={handleClose} title="Close">
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <div className="space-y-4">
+        {/* Axis Selection */}
+        <div>
+          <label className="text-xs text-muted-foreground mb-2 block">Axis</label>
+          <div className="flex gap-1">
+            {(['x', 'y', 'z'] as const).map((axis) => (
+              <Button
+                key={axis}
+                variant={sectionPlane.axis === axis ? 'default' : 'outline'}
+                size="sm"
+                className="flex-1"
+                onClick={() => handleAxisChange(axis)}
+              >
+                {axis.toUpperCase()}
+              </Button>
+            ))}
           </div>
         </div>
 
-        {/* Expandable content */}
-        {!isPanelCollapsed && (
-          <div className="border-t px-3 pb-3 flex gap-4">
-            {/* Left side: Direction buttons */}
-            <div className="mt-3">
-              <label className="text-xs text-muted-foreground mb-2 block">Direction</label>
-              <div className="flex flex-col gap-1">
-                {(['down', 'front', 'side'] as const).map((axis) => (
-                  <button
-                    key={axis}
-                    onClick={() => handleAxisChange(axis)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded transition-colors text-left ${
-                      sectionPlane.axis === axis
-                        ? 'bg-primary text-primary-foreground'
-                        : 'hover:bg-accent text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    {AXIS_INFO[axis].label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Right side: Vertical slider */}
-            <div className="mt-3 flex flex-col items-center">
-              <label className="text-xs text-muted-foreground mb-2">Height</label>
-              <div className="relative h-24 flex items-center justify-center">
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={sectionPlane.position}
-                  onChange={handlePositionChange}
-                  className="h-20 w-2 cursor-pointer appearance-none rounded-full bg-muted accent-primary"
-                  style={{
-                    writingMode: 'vertical-lr',
-                    direction: 'rtl',
-                  }}
-                />
-              </div>
-              <span className="text-xs font-mono text-muted-foreground mt-1">
-                {sectionPlane.position}%
-              </span>
-            </div>
+        {/* Position Slider */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-xs text-muted-foreground">Position</label>
+            <span className="text-xs font-mono">{sectionPlane.position}%</span>
           </div>
-        )}
-      </div>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={sectionPlane.position}
+            onChange={handlePositionChange}
+            className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+          />
+        </div>
 
-      {/* Preview/Cutting toggle - bottom center, prominent */}
-      <div className="pointer-events-auto absolute bottom-4 left-1/2 -translate-x-1/2 z-30">
-        <button
-          onClick={toggleSectionPlane}
-          className={`px-4 py-2 rounded-lg font-medium text-sm transition-all border-2 ${
-            sectionPlane.enabled
-              ? 'bg-primary text-primary-foreground border-primary shadow-lg'
-              : 'bg-background/95 backdrop-blur-sm text-muted-foreground border-border hover:border-primary hover:text-primary'
-          }`}
-        >
-          {sectionPlane.enabled ? '✓ Cutting Active' : 'Enable Cutting'}
-        </button>
+        {/* Actions */}
+        <div className="flex gap-2">
+          <Button
+            variant={sectionPlane.enabled ? 'default' : 'outline'}
+            size="sm"
+            className="flex-1"
+            onClick={toggleSectionPlane}
+          >
+            {sectionPlane.enabled ? 'Disable' : 'Enable'}
+          </Button>
+          <Button variant="outline" size="sm" className="flex-1" onClick={flipSectionPlane}>
+            Flip
+          </Button>
+        </div>
+
+        <div className="text-xs text-muted-foreground text-center">
+          Section plane cuts the model along the selected axis
+        </div>
       </div>
-    </>
+    </div>
   );
 }
 

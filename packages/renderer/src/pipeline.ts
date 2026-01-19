@@ -151,8 +151,7 @@ export class RenderPipeline {
 
         @fragment
         fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-          // Section plane clipping - discard fragments ABOVE the plane
-          // For Down axis (normal +Y), keeps everything below cut height (look down into building)
+          // Section plane clipping
           if (uniforms.flags.y == 1u) {
             let planeNormal = uniforms.sectionPlane.xyz;
             let planeDistance = uniforms.sectionPlane.w;
@@ -669,8 +668,7 @@ export class InstancedRenderPipeline {
 
         @fragment
         fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-          // Section plane clipping - discard fragments ABOVE the plane
-          // For Down axis (normal +Y), keeps everything below cut height (look down into building)
+          // Section plane clipping
           if (uniforms.flags.x == 1u) {
             let planeNormal = uniforms.sectionPlane.xyz;
             let planeDistance = uniforms.sectionPlane.w;
@@ -681,7 +679,7 @@ export class InstancedRenderPipeline {
           }
 
           let N = normalize(input.normal);
-
+          
           // Enhanced lighting with multiple sources
           let sunLight = normalize(vec3<f32>(0.5, 1.0, 0.3));  // Main directional light
           let fillLight = normalize(vec3<f32>(-0.5, 0.3, -0.3));  // Fill light
