@@ -15,6 +15,7 @@ export interface SectionPlaneRenderOptions {
   };
   viewProj: Float32Array;
   flipped?: boolean; // If true, show the opposite side indicator
+  isPreview?: boolean; // If true, render as preview (less opacity)
 }
 
 export class SectionPlaneRenderer {
@@ -24,11 +25,13 @@ export class SectionPlaneRenderer {
   private uniformBuffer: GPUBuffer | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private format: GPUTextureFormat;
+  private sampleCount: number;
   private initialized = false;
 
-  constructor(device: GPUDevice, format: GPUTextureFormat) {
+  constructor(device: GPUDevice, format: GPUTextureFormat, sampleCount: number = 4) {
     this.device = device;
     this.format = format;
+    this.sampleCount = sampleCount;
   }
 
   private init(): void {
@@ -98,7 +101,7 @@ export class SectionPlaneRenderer {
       `,
     });
 
-    // Create render pipeline with alpha blending
+    // Create render pipeline with alpha blending and MSAA support
     this.pipeline = this.device.createRenderPipeline({
       layout: 'auto',
       vertex: {
@@ -142,6 +145,9 @@ export class SectionPlaneRenderer {
         depthWriteEnabled: false, // Don't write to depth buffer (transparent)
         depthCompare: 'less-equal',
       },
+      multisample: {
+        count: this.sampleCount,
+      },
     });
 
     // Create vertex buffer (6 vertices for 2 triangles)
@@ -167,10 +173,11 @@ export class SectionPlaneRenderer {
     this.initialized = true;
   }
 
-  render(
-    encoder: GPUCommandEncoder,
-    textureView: GPUTextureView,
-    depthView: GPUTextureView,
+  /**
+   * Draw section plane into an existing render pass (preferred - avoids MSAA mismatch)
+   */
+  draw(
+    pass: GPURenderPassEncoder,
     options: SectionPlaneRenderOptions
   ): void {
     this.init();
@@ -179,7 +186,7 @@ export class SectionPlaneRenderer {
       return;
     }
 
-    const { axis, position, bounds, viewProj } = options;
+    const { axis, position, bounds, viewProj, isPreview } = options;
 
     // Calculate plane vertices based on axis and bounds
     const vertices = this.calculatePlaneVertices(axis, position, bounds);
@@ -204,10 +211,63 @@ export class SectionPlaneRenderer {
       uniforms[17] = 0.596; // G
       uniforms[18] = 0.0;   // B
     }
-    uniforms[19] = 0.35;  // A (transparency - slightly more visible)
+    // Use lower opacity for preview mode
+    uniforms[19] = isPreview ? 0.15 : 0.4;
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
 
-    // Render the section plane
+    // Draw the section plane
+    pass.setPipeline(this.pipeline);
+    pass.setBindGroup(0, this.bindGroup);
+    pass.setVertexBuffer(0, this.vertexBuffer);
+    pass.draw(6); // 2 triangles
+  }
+
+  /**
+   * @deprecated Use draw() instead to render into an existing pass
+   * Legacy method that creates its own render pass (causes MSAA mismatch)
+   */
+  render(
+    encoder: GPUCommandEncoder,
+    textureView: GPUTextureView,
+    depthView: GPUTextureView,
+    options: SectionPlaneRenderOptions
+  ): void {
+    this.init();
+
+    if (!this.pipeline || !this.vertexBuffer || !this.uniformBuffer || !this.bindGroup) {
+      return;
+    }
+
+    const { axis, position, bounds, viewProj, isPreview } = options;
+
+    // Calculate plane vertices based on axis and bounds
+    const vertices = this.calculatePlaneVertices(axis, position, bounds);
+    this.device.queue.writeBuffer(this.vertexBuffer, 0, vertices);
+
+    // Update uniforms
+    const uniforms = new Float32Array(20);
+    uniforms.set(viewProj, 0);
+
+    // Axis-specific colors for better identification
+    // up (Y) = light blue, front (Z) = green, side (X) = orange
+    if (axis === 'up') {
+      uniforms[16] = 0.012; // R - #03A9F4
+      uniforms[17] = 0.663; // G
+      uniforms[18] = 0.957; // B
+    } else if (axis === 'front') {
+      uniforms[16] = 0.298; // R - #4CAF50
+      uniforms[17] = 0.686; // G
+      uniforms[18] = 0.314; // B
+    } else {
+      uniforms[16] = 1.0;   // R - #FF9800
+      uniforms[17] = 0.596; // G
+      uniforms[18] = 0.0;   // B
+    }
+    // Use lower opacity for preview mode
+    uniforms[19] = isPreview ? 0.15 : 0.4;
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
+
+    // Render the section plane in its own pass (legacy - may cause MSAA issues)
     const pass = encoder.beginRenderPass({
       colorAttachments: [{
         view: textureView,

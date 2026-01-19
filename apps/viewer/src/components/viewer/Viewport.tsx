@@ -358,7 +358,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
-            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+            sectionPlane: activeToolRef.current === 'section' || sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
           });
           calculateScale();
         },
@@ -379,7 +379,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
-            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+            sectionPlane: activeToolRef.current === 'section' || sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
           });
           calculateScale();
         },
@@ -390,7 +390,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
-            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+            sectionPlane: activeToolRef.current === 'section' || sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
           });
           calculateScale();
         },
@@ -418,7 +418,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
-            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+            sectionPlane: activeToolRef.current === 'section' || sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
           });
           updateCameraRotationRealtime(camera.getRotation());
           calculateScale();
@@ -456,7 +456,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
-            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+            sectionPlane: activeToolRef.current === 'section' || sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
           });
           // Update ViewCube during camera animation (e.g., preset view transitions)
           updateCameraRotationRealtime(camera.getRotation());
@@ -787,7 +787,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
               isolatedIds: isolatedEntitiesRef.current,
               selectedId: selectedEntityIdRef.current,
               clearColor: clearColorRef.current,
-              sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+              sectionPlane: activeToolRef.current === 'section' || sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
             });
             // Update ViewCube rotation in real-time during drag
             updateCameraRotationRealtime(camera.getRotation());
@@ -803,7 +803,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
                 isolatedIds: isolatedEntitiesRef.current,
                 selectedId: selectedEntityIdRef.current,
                 clearColor: clearColorRef.current,
-                sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+                sectionPlane: activeToolRef.current === 'section' || sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
               });
               updateCameraRotationRealtime(camera.getRotation());
               calculateScale();
@@ -884,7 +884,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           isolatedIds: isolatedEntitiesRef.current,
           selectedId: selectedEntityIdRef.current,
           clearColor: clearColorRef.current,
-          sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+          sectionPlane: activeToolRef.current === 'section' || sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
         });
         // Update measurement screen coordinates immediately during zoom (only in measure mode)
         if (activeToolRef.current === 'measure') {
@@ -1057,7 +1057,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
-            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+            sectionPlane: activeToolRef.current === 'section' || sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
           });
         }
       });
@@ -1173,7 +1173,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             clearColor: clearColorRef.current,
-            sectionPlane: sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
+            sectionPlane: activeToolRef.current === 'section' || sectionPlaneRef.current.enabled ? sectionPlaneRef.current : undefined,
           });
         }
         requestAnimationFrame(keyboardMove);
@@ -1588,9 +1588,9 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
       selectedId: selectedEntityId,
       selectedIds: selectedEntityIds,
       clearColor: clearColorRef.current,
-      sectionPlane: sectionPlane.enabled ? sectionPlane : undefined,
+      sectionPlane: activeTool === 'section' || sectionPlane.enabled ? sectionPlane : undefined,
     });
-  }, [hiddenEntities, isolatedEntities, selectedEntityId, selectedEntityIds, isInitialized, sectionPlane]);
+  }, [hiddenEntities, isolatedEntities, selectedEntityId, selectedEntityIds, isInitialized, sectionPlane, activeTool]);
 
   return (
     <canvas

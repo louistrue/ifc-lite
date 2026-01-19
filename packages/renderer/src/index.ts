@@ -106,7 +106,11 @@ export class Renderer {
         this.pipeline = new RenderPipeline(this.device, width, height);
         this.instancedPipeline = new InstancedRenderPipeline(this.device, width, height);
         this.picker = new Picker(this.device, width, height);
-        this.sectionPlaneRenderer = new SectionPlaneRenderer(this.device.getDevice(), this.device.getFormat());
+        this.sectionPlaneRenderer = new SectionPlaneRenderer(
+            this.device.getDevice(),
+            this.device.getFormat(),
+            this.pipeline.getSampleCount()
+        );
         this.camera.setAspect(width / height);
     }
 
@@ -556,21 +560,10 @@ export class Renderer {
             const selectedId = options.selectedId;
             const selectedIds = options.selectedIds;
 
-            // Calculate section plane parameters if enabled
+            // Calculate section plane parameters and model bounds
+            // Always calculate bounds when sectionPlane is provided (for preview)
             let sectionPlaneData: { normal: [number, number, number]; distance: number; enabled: boolean } | undefined;
-            if (options.sectionPlane?.enabled) {
-                // Calculate plane normal based on semantic axis
-                // up = Y axis (horizontal cut), front = Z axis, side = X axis
-                let normal: [number, number, number] = [0, 0, 0];
-                if (options.sectionPlane.axis === 'side') normal[0] = 1;       // X axis
-                else if (options.sectionPlane.axis === 'up') normal[1] = 1;    // Y axis (horizontal)
-                else normal[2] = 1;                                             // Z axis (front)
-
-                // If flipped, negate the normal to show the opposite side
-                if (options.sectionPlane.flipped) {
-                    normal = [-normal[0], -normal[1], -normal[2]];
-                }
-
+            if (options.sectionPlane) {
                 // Get model bounds for calculating plane position and visual
                 const boundsMin = { x: Infinity, y: Infinity, z: Infinity };
                 const boundsMax = { x: -Infinity, y: -Infinity, z: -Infinity };
@@ -598,16 +591,31 @@ export class Renderer {
                 // Store bounds for section plane visual
                 this.modelBounds = { min: boundsMin, max: boundsMax };
 
-                // Get axis-specific range based on semantic axis
-                const axisIdx = options.sectionPlane.axis === 'side' ? 'x' : options.sectionPlane.axis === 'up' ? 'y' : 'z';
-                const minVal = boundsMin[axisIdx];
-                const maxVal = boundsMax[axisIdx];
+                // Only calculate clipping data if section is enabled
+                if (options.sectionPlane.enabled) {
+                    // Calculate plane normal based on semantic axis
+                    // up = Y axis (horizontal cut), front = Z axis, side = X axis
+                    let normal: [number, number, number] = [0, 0, 0];
+                    if (options.sectionPlane.axis === 'side') normal[0] = 1;       // X axis
+                    else if (options.sectionPlane.axis === 'up') normal[1] = 1;    // Y axis (horizontal)
+                    else normal[2] = 1;                                             // Z axis (front)
 
-                // Calculate plane distance from position percentage
-                const range = maxVal - minVal;
-                const distance = minVal + (options.sectionPlane.position / 100) * range;
+                    // If flipped, negate the normal to show the opposite side
+                    if (options.sectionPlane.flipped) {
+                        normal = [-normal[0], -normal[1], -normal[2]];
+                    }
 
-                sectionPlaneData = { normal, distance, enabled: true };
+                    // Get axis-specific range based on semantic axis
+                    const axisIdx = options.sectionPlane.axis === 'side' ? 'x' : options.sectionPlane.axis === 'up' ? 'y' : 'z';
+                    const minVal = boundsMin[axisIdx];
+                    const maxVal = boundsMax[axisIdx];
+
+                    // Calculate plane distance from position percentage
+                    const range = maxVal - minVal;
+                    const distance = minVal + (options.sectionPlane.position / 100) * range;
+
+                    sectionPlaneData = { normal, distance, enabled: true };
+                }
             }
 
             for (const mesh of allMeshes) {
@@ -1085,23 +1093,23 @@ export class Renderer {
                 }
             }
 
-            pass.end();
-
-            // Render section plane visual if enabled
-            if (sectionPlaneData?.enabled && this.sectionPlaneRenderer && this.modelBounds) {
-                this.sectionPlaneRenderer.render(
-                    encoder,
-                    textureView,
-                    this.pipeline.getDepthTextureView(),
+            // Draw section plane visual BEFORE pass.end() (within same MSAA render pass)
+            // Always show plane when sectionPlane options are provided (as preview or active)
+            if (options.sectionPlane && this.sectionPlaneRenderer && this.modelBounds) {
+                this.sectionPlaneRenderer.draw(
+                    pass,
                     {
-                        axis: options.sectionPlane!.axis,
-                        position: options.sectionPlane!.position,
+                        axis: options.sectionPlane.axis,
+                        position: options.sectionPlane.position,
                         bounds: this.modelBounds,
                         viewProj,
-                        flipped: options.sectionPlane!.flipped,
+                        flipped: options.sectionPlane.flipped,
+                        isPreview: !options.sectionPlane.enabled, // Preview mode when not enabled
                     }
                 );
             }
+
+            pass.end();
 
             device.queue.submit([encoder.finish()]);
         } catch (error) {
