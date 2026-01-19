@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "tauri dev",
     "dev:frontend": "vite --port 3001",
-    "build": "tauri build",
+    "build": "node -e \"if(process.env.VERCEL || process.env.CI) { console.log('Skipping Tauri build on CI/Vercel'); process.exit(0); } else { require('child_process').execSync('tauri build', {stdio:'inherit'}); }\"",
+    "build:local": "tauri build",
     "build:frontend": "vite build",
     "build:windows": "tauri build --target x86_64-pc-windows-msvc",
     "build:macos": "tauri build --target universal-apple-darwin",
