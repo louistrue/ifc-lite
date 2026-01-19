@@ -232,7 +232,12 @@ interface MeasurementOverlaysProps {
   pending: { screenX: number; screenY: number } | null;
   activeMeasurement: { start: { screenX: number; screenY: number }; current: { screenX: number; screenY: number }; distance: number } | null;
   snapTarget: { position: { x: number; y: number; z: number }; type: SnapType; metadata?: any } | null;
-  snapVisualization: { edgeLine?: { start: { x: number; y: number }; end: { x: number; y: number } }; planeIndicator?: { x: number; y: number; normal: { x: number; y: number; z: number } } } | null;
+  snapVisualization: {
+    edgeLine?: { start: { x: number; y: number }; end: { x: number; y: number } };
+    planeIndicator?: { x: number; y: number; normal: { x: number; y: number; z: number } };
+    slidingDot?: { x: number; y: number; t: number };
+    cornerRings?: { x: number; y: number; valence: number };
+  } | null;
   hoverPosition?: { x: number; y: number } | null;
 }
 
@@ -388,20 +393,140 @@ const MeasurementOverlays = React.memo(function MeasurementOverlays({ measuremen
       {/* Edge highlight - draw full edge in 3D-projected screen space */}
       {snapVisualization?.edgeLine && (
         <svg
-          className="absolute inset-0 pointer-events-none z-25"
+          className="absolute inset-0 pointer-events-none z-30"
           style={{ overflow: 'visible', pointerEvents: 'none' }}
         >
+          {/* Edge line with snap color (orange for edges) */}
           <line
             x1={snapVisualization.edgeLine.start.x}
             y1={snapVisualization.edgeLine.start.y}
             x2={snapVisualization.edgeLine.end.x}
             y2={snapVisualization.edgeLine.end.y}
-            stroke="hsl(var(--primary))"
+            stroke="#FF9800"
             strokeWidth="4"
-            strokeOpacity="0.8"
+            strokeOpacity="0.9"
+            strokeLinecap="round"
             filter="url(#snap-glow)"
-            className="animate-pulse"
           />
+          {/* Outer glow line for better visibility */}
+          <line
+            x1={snapVisualization.edgeLine.start.x}
+            y1={snapVisualization.edgeLine.start.y}
+            x2={snapVisualization.edgeLine.end.x}
+            y2={snapVisualization.edgeLine.end.y}
+            stroke="#FF9800"
+            strokeWidth="8"
+            strokeOpacity="0.3"
+            strokeLinecap="round"
+          />
+          {/* Edge endpoints */}
+          <circle
+            cx={snapVisualization.edgeLine.start.x}
+            cy={snapVisualization.edgeLine.start.y}
+            r="4"
+            fill="#FF9800"
+            fillOpacity="0.6"
+          />
+          <circle
+            cx={snapVisualization.edgeLine.end.x}
+            cy={snapVisualization.edgeLine.end.y}
+            r="4"
+            fill="#FF9800"
+            fillOpacity="0.6"
+          />
+        </svg>
+      )}
+
+      {/* Sliding dot - shows current position along edge */}
+      {snapVisualization?.slidingDot && (
+        <svg
+          className="absolute inset-0 pointer-events-none z-30"
+          style={{ overflow: 'visible', pointerEvents: 'none' }}
+        >
+          {/* Outer glow ring */}
+          <circle
+            cx={snapVisualization.slidingDot.x}
+            cy={snapVisualization.slidingDot.y}
+            r="12"
+            fill="none"
+            stroke="#FF9800"
+            strokeWidth="2"
+            strokeOpacity="0.4"
+            filter="url(#snap-glow)"
+          />
+          {/* Main sliding dot */}
+          <circle
+            cx={snapVisualization.slidingDot.x}
+            cy={snapVisualization.slidingDot.y}
+            r="6"
+            fill="#FF9800"
+            stroke="white"
+            strokeWidth="2"
+          />
+          {/* Inner highlight */}
+          <circle
+            cx={snapVisualization.slidingDot.x - 1.5}
+            cy={snapVisualization.slidingDot.y - 1.5}
+            r="2"
+            fill="white"
+            fillOpacity="0.6"
+          />
+        </svg>
+      )}
+
+      {/* Corner rings - shows strong attraction at corners */}
+      {snapVisualization?.cornerRings && (
+        <svg
+          className="absolute inset-0 pointer-events-none z-30"
+          style={{ overflow: 'visible', pointerEvents: 'none' }}
+        >
+          {/* Outer pulsing ring */}
+          <circle
+            cx={snapVisualization.cornerRings.x}
+            cy={snapVisualization.cornerRings.y}
+            r="20"
+            fill="none"
+            stroke="#FFEB3B"
+            strokeWidth="2"
+            strokeOpacity="0.3"
+            className="animate-ping"
+          />
+          {/* Middle ring */}
+          <circle
+            cx={snapVisualization.cornerRings.x}
+            cy={snapVisualization.cornerRings.y}
+            r="14"
+            fill="none"
+            stroke="#FFEB3B"
+            strokeWidth="2"
+            strokeOpacity="0.5"
+            filter="url(#snap-glow)"
+          />
+          {/* Inner ring */}
+          <circle
+            cx={snapVisualization.cornerRings.x}
+            cy={snapVisualization.cornerRings.y}
+            r="8"
+            fill="#FFEB3B"
+            fillOpacity="0.3"
+            stroke="#FFEB3B"
+            strokeWidth="2"
+          />
+          {/* Center dot */}
+          <circle
+            cx={snapVisualization.cornerRings.x}
+            cy={snapVisualization.cornerRings.y}
+            r="4"
+            fill="#FFEB3B"
+          />
+          {/* Valence indicator (small dots around corner) */}
+          {snapVisualization.cornerRings.valence >= 3 && (
+            <>
+              <circle cx={snapVisualization.cornerRings.x - 10} cy={snapVisualization.cornerRings.y} r="2" fill="#FFEB3B" fillOpacity="0.7" />
+              <circle cx={snapVisualization.cornerRings.x + 10} cy={snapVisualization.cornerRings.y} r="2" fill="#FFEB3B" fillOpacity="0.7" />
+              <circle cx={snapVisualization.cornerRings.x} cy={snapVisualization.cornerRings.y - 10} r="2" fill="#FFEB3B" fillOpacity="0.7" />
+            </>
+          )}
         </svg>
       )}
 
@@ -523,6 +648,28 @@ const MeasurementOverlays = React.memo(function MeasurementOverlays({ measuremen
         prevEdge.start.y !== nextEdge.start.y ||
         prevEdge.end.x !== nextEdge.end.x ||
         prevEdge.end.y !== nextEdge.end.y
+      ) return false;
+    }
+    // Compare slidingDot
+    const prevDot = prevProps.snapVisualization.slidingDot;
+    const nextDot = nextProps.snapVisualization.slidingDot;
+    if (!!prevDot !== !!nextDot) return false;
+    if (prevDot && nextDot) {
+      if (
+        prevDot.x !== nextDot.x ||
+        prevDot.y !== nextDot.y ||
+        prevDot.t !== nextDot.t
+      ) return false;
+    }
+    // Compare cornerRings
+    const prevCorner = prevProps.snapVisualization.cornerRings;
+    const nextCorner = nextProps.snapVisualization.cornerRings;
+    if (!!prevCorner !== !!nextCorner) return false;
+    if (prevCorner && nextCorner) {
+      if (
+        prevCorner.x !== nextCorner.x ||
+        prevCorner.y !== nextCorner.y ||
+        prevCorner.valence !== nextCorner.valence
       ) return false;
     }
     const prevPlane = prevProps.snapVisualization.planeIndicator;

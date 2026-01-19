@@ -34,6 +34,22 @@ export interface ActiveMeasurement {
   distance: number;
 }
 
+// Edge lock state for magnetic snapping
+export interface EdgeLockState {
+  // The locked edge vertices (in world space)
+  edge: { v0: { x: number; y: number; z: number }; v1: { x: number; y: number; z: number } } | null;
+  // Which mesh the edge belongs to
+  meshExpressId: number | null;
+  // Current position along the edge (0-1, where 0 = v0, 1 = v1)
+  edgeT: number;
+  // Lock strength (increases over time while locked, affects escape threshold)
+  lockStrength: number;
+  // Is this a corner (vertex where 2+ edges meet)?
+  isCorner: boolean;
+  // Number of edges meeting at corner (valence)
+  cornerValence: number;
+}
+
 // Section plane types
 export interface SectionPlane {
   axis: 'x' | 'y' | 'z';
@@ -109,7 +125,12 @@ interface ViewerState {
   snapVisualization: {
     edgeLine?: { start: { x: number; y: number }; end: { x: number; y: number } }; // Projected edge in screen space
     planeIndicator?: { x: number; y: number; normal: { x: number; y: number; z: number } }; // Face snap indicator
+    slidingDot?: { x: number; y: number; t: number }; // Position on edge (t = 0-1)
+    cornerRings?: { x: number; y: number; valence: number }; // Corner indicator with edge count
   } | null;
+
+  // Edge lock state for magnetic snapping
+  edgeLockState: EdgeLockState;
 
   // Section plane state
   sectionPlane: SectionPlane;
@@ -207,8 +228,14 @@ interface ViewerState {
 
   // Snap actions
   setSnapTarget: (target: SnapTarget | null) => void;
-  setSnapVisualization: (viz: { edgeLine?: { start: { x: number; y: number }; end: { x: number; y: number } }; planeIndicator?: { x: number; y: number; normal: { x: number; y: number; z: number } } } | null) => void;
+  setSnapVisualization: (viz: { edgeLine?: { start: { x: number; y: number }; end: { x: number; y: number } }; planeIndicator?: { x: number; y: number; normal: { x: number; y: number; z: number } }; slidingDot?: { x: number; y: number; t: number }; cornerRings?: { x: number; y: number; valence: number } } | null) => void;
   toggleSnap: () => void;
+
+  // Edge lock actions (magnetic snapping)
+  setEdgeLock: (edge: EdgeLockState['edge'], meshExpressId: number | null, edgeT?: number) => void;
+  updateEdgeLockPosition: (edgeT: number, isCorner: boolean, cornerValence: number) => void;
+  clearEdgeLock: () => void;
+  incrementEdgeLockStrength: () => void;
 
   // Section plane actions
   setSectionPlaneAxis: (axis: 'x' | 'y' | 'z') => void;
@@ -252,6 +279,14 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   snapTarget: null,
   snapEnabled: true,
   snapVisualization: null,
+  edgeLockState: {
+    edge: null,
+    meshExpressId: null,
+    edgeT: 0,
+    lockStrength: 0,
+    isCorner: false,
+    cornerValence: 0,
+  },
   sectionPlane: { axis: 'y', position: 50, enabled: false },
   cameraRotation: { azimuth: 45, elevation: 25 },
   cameraCallbacks: {},
@@ -683,6 +718,42 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   setSnapVisualization: (snapVisualization) => set({ snapVisualization }),
   toggleSnap: () => set((state) => ({ snapEnabled: !state.snapEnabled })),
 
+  // Edge lock actions (magnetic snapping)
+  setEdgeLock: (edge, meshExpressId, edgeT = 0.5) => set({
+    edgeLockState: {
+      edge,
+      meshExpressId,
+      edgeT,
+      lockStrength: 0.5, // Start with some lock strength
+      isCorner: false,
+      cornerValence: 0,
+    },
+  }),
+  updateEdgeLockPosition: (edgeT, isCorner, cornerValence) => set((state) => ({
+    edgeLockState: {
+      ...state.edgeLockState,
+      edgeT,
+      isCorner,
+      cornerValence,
+    },
+  })),
+  clearEdgeLock: () => set({
+    edgeLockState: {
+      edge: null,
+      meshExpressId: null,
+      edgeT: 0,
+      lockStrength: 0,
+      isCorner: false,
+      cornerValence: 0,
+    },
+  }),
+  incrementEdgeLockStrength: () => set((state) => ({
+    edgeLockState: {
+      ...state.edgeLockState,
+      lockStrength: Math.min(state.edgeLockState.lockStrength + 0.1, 1.5),
+    },
+  })),
+
   // Section plane actions
   setSectionPlaneAxis: (axis) => set((state) => ({
     sectionPlane: { ...state.sectionPlane, axis },
@@ -719,6 +790,14 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     pendingMeasurePoint: null,
     activeMeasurement: null,
     snapTarget: null,
+    edgeLockState: {
+      edge: null,
+      meshExpressId: null,
+      edgeT: 0,
+      lockStrength: 0,
+      isCorner: false,
+      cornerValence: 0,
+    },
     sectionPlane: { axis: 'y', position: 50, enabled: false },
     cameraRotation: { azimuth: 45, elevation: 25 },
     activeTool: 'select',

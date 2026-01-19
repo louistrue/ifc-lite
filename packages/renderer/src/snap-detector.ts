@@ -31,9 +31,56 @@ export interface SnapOptions {
   screenSnapRadius: number; // In pixels
 }
 
+// Edge lock state for magnetic snapping (passed from store)
+export interface EdgeLockInput {
+  edge: { v0: Vec3; v1: Vec3 } | null;
+  meshExpressId: number | null;
+  lockStrength: number;
+}
+
+// Extended snap result with edge lock info
+export interface MagneticSnapResult {
+  snapTarget: SnapTarget | null;
+  edgeLock: {
+    edge: { v0: Vec3; v1: Vec3 } | null;
+    meshExpressId: number | null;
+    edgeT: number; // Position on edge 0-1
+    shouldLock: boolean; // Whether to lock to this edge
+    shouldRelease: boolean; // Whether to release current lock
+    isCorner: boolean; // Is at a corner (vertex where edges meet)
+    cornerValence: number; // Number of edges at corner
+  };
+}
+
+// Magnetic snapping configuration constants
+const MAGNETIC_CONFIG = {
+  // Edge attraction zone = base radius × this multiplier
+  EDGE_ATTRACTION_MULTIPLIER: 3.0,
+  // Corner attraction zone = edge zone × this multiplier
+  CORNER_ATTRACTION_MULTIPLIER: 2.0,
+  // Confidence boost per connected edge at corner
+  CORNER_CONFIDENCE_BOOST: 0.15,
+  // Must move perpendicular × this factor to escape locked edge
+  EDGE_ESCAPE_MULTIPLIER: 2.5,
+  // Corner escape requires even more movement
+  CORNER_ESCAPE_MULTIPLIER: 3.5,
+  // Lock strength growth per frame while locked
+  LOCK_STRENGTH_GROWTH: 0.05,
+  // Maximum lock strength
+  MAX_LOCK_STRENGTH: 1.5,
+  // Minimum edges at vertex for corner detection
+  MIN_CORNER_VALENCE: 2,
+  // Distance threshold for corner detection (percentage of edge length)
+  CORNER_THRESHOLD: 0.08,
+};
+
 interface MeshGeometryCache {
   vertices: Vec3[];
   edges: Array<{ v0: Vec3; v1: Vec3; index: number }>;
+  // Vertex valence map: vertex key -> number of edges connected
+  vertexValence: Map<string, number>;
+  // Edges at each vertex: vertex key -> array of edge indices
+  vertexEdges: Map<string, number[]>;
 }
 
 export class SnapDetector {
@@ -102,6 +149,404 @@ export class SnapDetector {
   }
 
   /**
+   * Detect snap target with magnetic edge locking behavior
+   * This provides the "stick and slide along edges" experience
+   */
+  detectMagneticSnap(
+    ray: Ray,
+    meshes: MeshData[],
+    intersection: Intersection | null,
+    camera: { position: Vec3; fov: number },
+    screenHeight: number,
+    currentEdgeLock: EdgeLockInput,
+    options: Partial<SnapOptions> = {}
+  ): MagneticSnapResult {
+    const opts = { ...this.defaultOptions, ...options };
+
+    // Default result when no intersection
+    if (!intersection) {
+      return {
+        snapTarget: null,
+        edgeLock: {
+          edge: null,
+          meshExpressId: null,
+          edgeT: 0,
+          shouldLock: false,
+          shouldRelease: true,
+          isCorner: false,
+          cornerValence: 0,
+        },
+      };
+    }
+
+    const distanceToCamera = this.distance(camera.position, intersection.point);
+    const worldSnapRadius = this.screenToWorldRadius(
+      opts.screenSnapRadius,
+      distanceToCamera,
+      camera.fov,
+      screenHeight
+    );
+
+    const intersectedMesh = meshes[intersection.meshIndex];
+    if (!intersectedMesh) {
+      return {
+        snapTarget: null,
+        edgeLock: {
+          edge: null,
+          meshExpressId: null,
+          edgeT: 0,
+          shouldLock: false,
+          shouldRelease: true,
+          isCorner: false,
+          cornerValence: 0,
+        },
+      };
+    }
+
+    const cache = this.getGeometryCache(intersectedMesh);
+
+    // If we have an active edge lock, try to maintain it
+    if (currentEdgeLock.edge && currentEdgeLock.meshExpressId === intersectedMesh.expressId) {
+      const lockResult = this.maintainEdgeLock(
+        intersection.point,
+        currentEdgeLock,
+        cache,
+        worldSnapRadius,
+        intersectedMesh.expressId
+      );
+
+      if (!lockResult.edgeLock.shouldRelease) {
+        // Still locked - return the sliding position
+        return lockResult;
+      }
+    }
+
+    // No active lock or lock released - find best snap target with magnetic behavior
+    const edgeRadius = worldSnapRadius * MAGNETIC_CONFIG.EDGE_ATTRACTION_MULTIPLIER;
+    const cornerRadius = edgeRadius * MAGNETIC_CONFIG.CORNER_ATTRACTION_MULTIPLIER;
+
+    // Find all nearby edges
+    const nearbyEdges: Array<{
+      edge: { v0: Vec3; v1: Vec3; index: number };
+      closestPoint: Vec3;
+      distance: number;
+      t: number; // Position on edge 0-1
+    }> = [];
+
+    for (const edge of cache.edges) {
+      const result = this.closestPointOnEdgeWithT(intersection.point, edge.v0, edge.v1);
+      if (result.distance < edgeRadius) {
+        nearbyEdges.push({
+          edge,
+          closestPoint: result.point,
+          distance: result.distance,
+          t: result.t,
+        });
+      }
+    }
+
+    // No nearby edges - return face snap or null
+    if (nearbyEdges.length === 0) {
+      const targets: SnapTarget[] = [];
+      if (opts.snapToFaces) {
+        targets.push(...this.findFaces(intersectedMesh, intersection, worldSnapRadius));
+      }
+      return {
+        snapTarget: targets.length > 0 ? targets[0] : null,
+        edgeLock: {
+          edge: null,
+          meshExpressId: null,
+          edgeT: 0,
+          shouldLock: false,
+          shouldRelease: false,
+          isCorner: false,
+          cornerValence: 0,
+        },
+      };
+    }
+
+    // Sort by distance - prefer closest edge
+    nearbyEdges.sort((a, b) => a.distance - b.distance);
+    const bestEdge = nearbyEdges[0];
+
+    // Check if we're at a corner (near edge endpoint with high valence)
+    const cornerInfo = this.detectCorner(
+      bestEdge.edge,
+      bestEdge.t,
+      cache,
+      cornerRadius,
+      intersection.point
+    );
+
+    // Determine snap target
+    let snapTarget: SnapTarget;
+
+    if (cornerInfo.isCorner && cornerInfo.valence >= MAGNETIC_CONFIG.MIN_CORNER_VALENCE) {
+      // Corner snap - snap to vertex
+      const cornerVertex = bestEdge.t < 0.5 ? bestEdge.edge.v0 : bestEdge.edge.v1;
+      snapTarget = {
+        type: SnapType.VERTEX,
+        position: cornerVertex,
+        expressId: intersectedMesh.expressId,
+        confidence: 0.99 + cornerInfo.valence * MAGNETIC_CONFIG.CORNER_CONFIDENCE_BOOST,
+        metadata: { vertices: [bestEdge.edge.v0, bestEdge.edge.v1] },
+      };
+    } else {
+      // Edge snap - snap to closest point on edge
+      // Check for midpoint
+      const midpointDist = Math.abs(bestEdge.t - 0.5);
+      if (midpointDist < 0.1) {
+        // Near midpoint
+        const midpoint: Vec3 = {
+          x: (bestEdge.edge.v0.x + bestEdge.edge.v1.x) / 2,
+          y: (bestEdge.edge.v0.y + bestEdge.edge.v1.y) / 2,
+          z: (bestEdge.edge.v0.z + bestEdge.edge.v1.z) / 2,
+        };
+        snapTarget = {
+          type: SnapType.EDGE_MIDPOINT,
+          position: midpoint,
+          expressId: intersectedMesh.expressId,
+          confidence: 0.98,
+          metadata: { vertices: [bestEdge.edge.v0, bestEdge.edge.v1], edgeIndex: bestEdge.edge.index },
+        };
+      } else {
+        snapTarget = {
+          type: SnapType.EDGE,
+          position: bestEdge.closestPoint,
+          expressId: intersectedMesh.expressId,
+          confidence: 0.999 * (1.0 - bestEdge.distance / edgeRadius),
+          metadata: { vertices: [bestEdge.edge.v0, bestEdge.edge.v1], edgeIndex: bestEdge.edge.index },
+        };
+      }
+    }
+
+    return {
+      snapTarget,
+      edgeLock: {
+        edge: { v0: bestEdge.edge.v0, v1: bestEdge.edge.v1 },
+        meshExpressId: intersectedMesh.expressId,
+        edgeT: bestEdge.t,
+        shouldLock: true,
+        shouldRelease: false,
+        isCorner: cornerInfo.isCorner,
+        cornerValence: cornerInfo.valence,
+      },
+    };
+  }
+
+  /**
+   * Maintain an existing edge lock - slide along edge or release if moved away
+   */
+  private maintainEdgeLock(
+    point: Vec3,
+    currentLock: EdgeLockInput,
+    cache: MeshGeometryCache,
+    worldSnapRadius: number,
+    meshExpressId: number
+  ): MagneticSnapResult {
+    if (!currentLock.edge) {
+      return {
+        snapTarget: null,
+        edgeLock: {
+          edge: null,
+          meshExpressId: null,
+          edgeT: 0,
+          shouldLock: false,
+          shouldRelease: true,
+          isCorner: false,
+          cornerValence: 0,
+        },
+      };
+    }
+
+    const { v0, v1 } = currentLock.edge;
+
+    // Project point onto the locked edge
+    const result = this.closestPointOnEdgeWithT(point, v0, v1);
+
+    // Calculate perpendicular distance (distance from point to edge line)
+    const perpDistance = result.distance;
+
+    // Calculate escape threshold based on lock strength
+    const escapeMultiplier = MAGNETIC_CONFIG.EDGE_ESCAPE_MULTIPLIER * (1 + currentLock.lockStrength * 0.5);
+    const escapeThreshold = worldSnapRadius * escapeMultiplier;
+
+    // Check if we should release the lock
+    if (perpDistance > escapeThreshold) {
+      return {
+        snapTarget: null,
+        edgeLock: {
+          edge: null,
+          meshExpressId: null,
+          edgeT: 0,
+          shouldLock: false,
+          shouldRelease: true,
+          isCorner: false,
+          cornerValence: 0,
+        },
+      };
+    }
+
+    // Still locked - calculate position along edge
+    const edgeT = Math.max(0, Math.min(1, result.t));
+
+    // Check for corner at current position
+    const cornerRadius = worldSnapRadius * MAGNETIC_CONFIG.EDGE_ATTRACTION_MULTIPLIER * MAGNETIC_CONFIG.CORNER_ATTRACTION_MULTIPLIER;
+
+    // Find the matching edge in cache to get proper index
+    let matchingEdge = cache.edges.find(e =>
+      (this.vecEquals(e.v0, v0) && this.vecEquals(e.v1, v1)) ||
+      (this.vecEquals(e.v0, v1) && this.vecEquals(e.v1, v0))
+    );
+
+    const edgeForCorner = matchingEdge || { v0, v1, index: -1 };
+    const cornerInfo = this.detectCorner(
+      edgeForCorner,
+      edgeT,
+      cache,
+      cornerRadius,
+      point
+    );
+
+    // Calculate snap position (on the edge)
+    const snapPosition: Vec3 = {
+      x: v0.x + (v1.x - v0.x) * edgeT,
+      y: v0.y + (v1.y - v0.y) * edgeT,
+      z: v0.z + (v1.z - v0.z) * edgeT,
+    };
+
+    // Determine snap type
+    let snapType: SnapType;
+    let confidence: number;
+
+    if (cornerInfo.isCorner && cornerInfo.valence >= MAGNETIC_CONFIG.MIN_CORNER_VALENCE) {
+      snapType = SnapType.VERTEX;
+      confidence = 0.99 + cornerInfo.valence * MAGNETIC_CONFIG.CORNER_CONFIDENCE_BOOST;
+      // Snap to exact corner vertex
+      if (edgeT < MAGNETIC_CONFIG.CORNER_THRESHOLD) {
+        snapPosition.x = v0.x;
+        snapPosition.y = v0.y;
+        snapPosition.z = v0.z;
+      } else if (edgeT > 1 - MAGNETIC_CONFIG.CORNER_THRESHOLD) {
+        snapPosition.x = v1.x;
+        snapPosition.y = v1.y;
+        snapPosition.z = v1.z;
+      }
+    } else if (Math.abs(edgeT - 0.5) < 0.08) {
+      // Near midpoint
+      snapType = SnapType.EDGE_MIDPOINT;
+      confidence = 0.98;
+      snapPosition.x = (v0.x + v1.x) / 2;
+      snapPosition.y = (v0.y + v1.y) / 2;
+      snapPosition.z = (v0.z + v1.z) / 2;
+    } else {
+      snapType = SnapType.EDGE;
+      confidence = 0.999 * (1.0 - perpDistance / (worldSnapRadius * MAGNETIC_CONFIG.EDGE_ATTRACTION_MULTIPLIER));
+    }
+
+    return {
+      snapTarget: {
+        type: snapType,
+        position: snapPosition,
+        expressId: meshExpressId,
+        confidence,
+        metadata: { vertices: [v0, v1] },
+      },
+      edgeLock: {
+        edge: { v0, v1 },
+        meshExpressId,
+        edgeT,
+        shouldLock: true,
+        shouldRelease: false,
+        isCorner: cornerInfo.isCorner,
+        cornerValence: cornerInfo.valence,
+      },
+    };
+  }
+
+  /**
+   * Detect if position is at a corner (vertex with multiple edges)
+   */
+  private detectCorner(
+    edge: { v0: Vec3; v1: Vec3; index: number },
+    t: number,
+    cache: MeshGeometryCache,
+    radius: number,
+    point: Vec3
+  ): { isCorner: boolean; valence: number; vertex: Vec3 | null } {
+    // Check if we're near either endpoint
+    const nearV0 = t < MAGNETIC_CONFIG.CORNER_THRESHOLD;
+    const nearV1 = t > 1 - MAGNETIC_CONFIG.CORNER_THRESHOLD;
+
+    if (!nearV0 && !nearV1) {
+      return { isCorner: false, valence: 0, vertex: null };
+    }
+
+    const vertex = nearV0 ? edge.v0 : edge.v1;
+    const vertexKey = `${vertex.x.toFixed(4)}_${vertex.y.toFixed(4)}_${vertex.z.toFixed(4)}`;
+
+    // Get valence from cache
+    const valence = cache.vertexValence.get(vertexKey) || 0;
+
+    // Also check distance to vertex
+    const distToVertex = this.distance(point, vertex);
+    const isCloseEnough = distToVertex < radius;
+
+    return {
+      isCorner: isCloseEnough && valence >= MAGNETIC_CONFIG.MIN_CORNER_VALENCE,
+      valence,
+      vertex,
+    };
+  }
+
+  /**
+   * Get closest point on edge segment with parameter t (0-1)
+   */
+  private closestPointOnEdgeWithT(
+    point: Vec3,
+    v0: Vec3,
+    v1: Vec3
+  ): { point: Vec3; distance: number; t: number } {
+    const dx = v1.x - v0.x;
+    const dy = v1.y - v0.y;
+    const dz = v1.z - v0.z;
+
+    const lengthSq = dx * dx + dy * dy + dz * dz;
+    if (lengthSq < 0.0000001) {
+      // Degenerate edge
+      return { point: v0, distance: this.distance(point, v0), t: 0 };
+    }
+
+    // Project point onto line
+    const t = Math.max(0, Math.min(1,
+      ((point.x - v0.x) * dx + (point.y - v0.y) * dy + (point.z - v0.z) * dz) / lengthSq
+    ));
+
+    const closest: Vec3 = {
+      x: v0.x + dx * t,
+      y: v0.y + dy * t,
+      z: v0.z + dz * t,
+    };
+
+    return {
+      point: closest,
+      distance: this.distance(point, closest),
+      t,
+    };
+  }
+
+  /**
+   * Check if two vectors are approximately equal
+   */
+  private vecEquals(a: Vec3, b: Vec3, epsilon: number = 0.0001): boolean {
+    return (
+      Math.abs(a.x - b.x) < epsilon &&
+      Math.abs(a.y - b.y) < epsilon &&
+      Math.abs(a.z - b.z) < epsilon
+    );
+  }
+
+  /**
    * Get or compute geometry cache for a mesh
    */
   private getGeometryCache(mesh: MeshData): MeshGeometryCache {
@@ -115,7 +560,12 @@ export class SnapDetector {
 
     // Validate input
     if (!positions || positions.length === 0) {
-      const emptyCache: MeshGeometryCache = { vertices: [], edges: [] };
+      const emptyCache: MeshGeometryCache = {
+        vertices: [],
+        edges: [],
+        vertexValence: new Map(),
+        vertexEdges: new Map(),
+      };
       this.geometryCache.set(mesh.expressId, emptyCache);
       return emptyCache;
     }
@@ -141,8 +591,10 @@ export class SnapDetector {
 
     const vertices = Array.from(vertexMap.values());
 
-    // Compute and cache edges
+    // Compute and cache edges + vertex valence for corner detection
     const edges: Array<{ v0: Vec3; v1: Vec3; index: number }> = [];
+    const vertexValence = new Map<string, number>();
+    const vertexEdges = new Map<string, number[]>();
     const indices = mesh.indices;
 
     if (indices) {
@@ -174,7 +626,21 @@ export class SnapDetector {
           const key = idx0 < idx1 ? `${idx0}_${idx1}` : `${idx1}_${idx0}`;
 
           if (!edgeMap.has(key)) {
-            edgeMap.set(key, { v0, v1, index: edgeMap.size });
+            const edgeIndex = edgeMap.size;
+            edgeMap.set(key, { v0, v1, index: edgeIndex });
+
+            // Track vertex valence (how many edges connect to each vertex)
+            const v0Key = `${v0.x.toFixed(4)}_${v0.y.toFixed(4)}_${v0.z.toFixed(4)}`;
+            const v1Key = `${v1.x.toFixed(4)}_${v1.y.toFixed(4)}_${v1.z.toFixed(4)}`;
+
+            vertexValence.set(v0Key, (vertexValence.get(v0Key) || 0) + 1);
+            vertexValence.set(v1Key, (vertexValence.get(v1Key) || 0) + 1);
+
+            // Track which edges connect to each vertex
+            if (!vertexEdges.has(v0Key)) vertexEdges.set(v0Key, []);
+            if (!vertexEdges.has(v1Key)) vertexEdges.set(v1Key, []);
+            vertexEdges.get(v0Key)!.push(edgeIndex);
+            vertexEdges.get(v1Key)!.push(edgeIndex);
           }
         }
       }
@@ -182,7 +648,7 @@ export class SnapDetector {
       edges.push(...edgeMap.values());
     }
 
-    const cache: MeshGeometryCache = { vertices, edges };
+    const cache: MeshGeometryCache = { vertices, edges, vertexValence, vertexEdges };
     this.geometryCache.set(mesh.expressId, cache);
 
     return cache;

@@ -18,7 +18,7 @@ export { SnapDetector, SnapType } from './snap-detector.js';
 export { BVH } from './bvh.js';
 export * from './types.js';
 export type { Ray, Vec3, Intersection } from './raycaster.js';
-export type { SnapTarget, SnapOptions } from './snap-detector.js';
+export type { SnapTarget, SnapOptions, EdgeLockInput, MagneticSnapResult } from './snap-detector.js';
 
 // Zero-copy GPU upload (new - faster, less memory)
 export {
@@ -45,7 +45,7 @@ import { deduplicateMeshes } from '@ifc-lite/geometry';
 import type { InstancedGeometry } from '@ifc-lite/wasm';
 import { MathUtils } from './math.js';
 import { Raycaster, type Intersection, type Ray } from './raycaster.js';
-import { SnapDetector, type SnapTarget, type SnapOptions } from './snap-detector.js';
+import { SnapDetector, type SnapTarget, type SnapOptions, type EdgeLockInput, type MagneticSnapResult } from './snap-detector.js';
 import { BVH } from './bvh.js';
 
 /**
@@ -1313,6 +1313,135 @@ export class Renderer {
         } catch (error) {
             console.error('Raycast error:', error);
             return null;
+        }
+    }
+
+    /**
+     * Raycast with magnetic edge snapping behavior
+     * This provides the "stick and slide along edges" experience
+     */
+    raycastSceneMagnetic(
+        x: number,
+        y: number,
+        currentEdgeLock: EdgeLockInput,
+        options?: PickOptions & { snapOptions?: Partial<SnapOptions> }
+    ): MagneticSnapResult & { intersection: Intersection | null } {
+        try {
+            // Create ray from screen coordinates
+            const ray = this.camera.unprojectToRay(x, y, this.canvas.width, this.canvas.height);
+
+            // Get all mesh data from scene
+            const allMeshData: MeshData[] = [];
+            const meshes = this.scene.getMeshes();
+            const batchedMeshes = this.scene.getBatchedMeshes();
+
+            // Collect mesh data from regular meshes
+            for (const mesh of meshes) {
+                const meshData = this.scene.getMeshData(mesh.expressId);
+                if (meshData) {
+                    if (options?.hiddenIds?.has(meshData.expressId)) continue;
+                    if (
+                        options?.isolatedIds !== null &&
+                        options?.isolatedIds !== undefined &&
+                        !options.isolatedIds.has(meshData.expressId)
+                    ) {
+                        continue;
+                    }
+                    allMeshData.push(meshData);
+                }
+            }
+
+            // Collect mesh data from batched meshes
+            for (const batch of batchedMeshes) {
+                for (const expressId of batch.expressIds) {
+                    const meshData = this.scene.getMeshData(expressId);
+                    if (meshData) {
+                        if (options?.hiddenIds?.has(meshData.expressId)) continue;
+                        if (
+                            options?.isolatedIds !== null &&
+                            options?.isolatedIds !== undefined &&
+                            !options.isolatedIds.has(meshData.expressId)
+                        ) {
+                            continue;
+                        }
+                        allMeshData.push(meshData);
+                    }
+                }
+            }
+
+            if (allMeshData.length === 0) {
+                return {
+                    intersection: null,
+                    snapTarget: null,
+                    edgeLock: {
+                        edge: null,
+                        meshExpressId: null,
+                        edgeT: 0,
+                        shouldLock: false,
+                        shouldRelease: true,
+                        isCorner: false,
+                        cornerValence: 0,
+                    },
+                };
+            }
+
+            // Use BVH for performance if we have many meshes
+            let meshesToTest = allMeshData;
+            if (allMeshData.length > this.BVH_THRESHOLD) {
+                const needsRebuild =
+                    !this.bvhCache ||
+                    !this.bvhCache.isBuilt ||
+                    this.bvhCache.meshCount !== allMeshData.length;
+
+                if (needsRebuild) {
+                    this.bvh.build(allMeshData);
+                    this.bvhCache = {
+                        meshCount: allMeshData.length,
+                        meshData: allMeshData,
+                        isBuilt: true,
+                    };
+                }
+
+                const meshIndices = this.bvh.getMeshesForRay(ray, allMeshData);
+                meshesToTest = meshIndices.map(i => allMeshData[i]);
+            }
+
+            // Perform raycasting
+            const intersection = this.raycaster.raycast(ray, meshesToTest);
+
+            // Use magnetic snap detection
+            const cameraPos = this.camera.getPosition();
+            const cameraFov = this.camera.getFOV();
+
+            const magneticResult = this.snapDetector.detectMagneticSnap(
+                ray,
+                meshesToTest,
+                intersection,
+                { position: cameraPos, fov: cameraFov },
+                this.canvas.height,
+                currentEdgeLock,
+                options?.snapOptions || {}
+            );
+
+            return {
+                intersection,
+                ...magneticResult,
+            };
+        } catch (error) {
+            console.error('Magnetic raycast error:', error);
+            return {
+                intersection: null,
+                snapTarget: null,
+                edgeLock: {
+                    edge: null,
+                    meshExpressId: null,
+                    edgeT: 0,
+                    shouldLock: false,
+                    shouldRelease: true,
+                    isCorner: false,
+                    cornerValence: 0,
+                },
+            };
         }
     }
 

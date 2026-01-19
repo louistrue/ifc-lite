@@ -54,6 +54,12 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   const snapEnabled = useViewerStore((state) => state.snapEnabled);
   const updateMeasurementScreenCoords = useViewerStore((state) => state.updateMeasurementScreenCoords);
   const measurements = useViewerStore((state) => state.measurements);
+
+  // Edge lock state for magnetic snapping
+  const edgeLockState = useViewerStore((state) => state.edgeLockState);
+  const setEdgeLock = useViewerStore((state) => state.setEdgeLock);
+  const updateEdgeLockPosition = useViewerStore((state) => state.updateEdgeLockPosition);
+  const clearEdgeLock = useViewerStore((state) => state.clearEdgeLock);
   
   // Color update subscriptions
   const pendingColorUpdates = useViewerStore((state) => state.pendingColorUpdates);
@@ -132,6 +138,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   const pendingMeasurePointRef = useRef<MeasurePoint | null>(pendingMeasurePoint);
   const activeMeasurementRef = useRef(activeMeasurement);
   const snapEnabledRef = useRef(snapEnabled);
+  const edgeLockStateRef = useRef(edgeLockState);
   const sectionPlaneRef = useRef(sectionPlane);
   const geometryRef = useRef<MeshData[] | null>(geometry);
 
@@ -172,6 +179,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   useEffect(() => { pendingMeasurePointRef.current = pendingMeasurePoint; }, [pendingMeasurePoint]);
   useEffect(() => { activeMeasurementRef.current = activeMeasurement; }, [activeMeasurement]);
   useEffect(() => { snapEnabledRef.current = snapEnabled; }, [snapEnabled]);
+  useEffect(() => { edgeLockStateRef.current = edgeLockState; }, [edgeLockState]);
   useEffect(() => { sectionPlaneRef.current = sectionPlane; }, [sectionPlane]);
   useEffect(() => {
     geometryRef.current = geometry;
@@ -251,8 +259,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
         };
       }
 
-      // Helper function to compute snap visualization (edge highlights, plane indicators)
-      function updateSnapVisualization(snapTarget: any) {
+      // Helper function to compute snap visualization (edge highlights, sliding dot, corner rings, plane indicators)
+      function updateSnapVisualization(snapTarget: any, edgeLockInfo?: { edgeT: number; isCorner: boolean; cornerValence: number }) {
         if (!snapTarget || !canvas) {
           setSnapVisualization(null);
           return;
@@ -261,17 +269,51 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
         const viz: any = {};
 
         // For edge snaps: project edge vertices to screen space and draw line
-        if ((snapTarget.type === 'edge' || snapTarget.type === 'edge_midpoint') && snapTarget.metadata?.vertices) {
+        if ((snapTarget.type === 'edge' || snapTarget.type === 'edge_midpoint' || snapTarget.type === 'vertex') && snapTarget.metadata?.vertices) {
           const [v0, v1] = snapTarget.metadata.vertices;
           const start = camera.projectToScreen(v0, canvas.width, canvas.height);
           const end = camera.projectToScreen(v1, canvas.width, canvas.height);
 
           if (start && end) {
-            // Keep canvas-relative coords (SVG overlay is absolute inset-0 within viewport)
             viz.edgeLine = {
               start: { x: start.x, y: start.y },
               end: { x: end.x, y: end.y }
             };
+
+            // Add sliding dot position along the edge
+            if (edgeLockInfo) {
+              const t = edgeLockInfo.edgeT;
+              viz.slidingDot = {
+                x: start.x + (end.x - start.x) * t,
+                y: start.y + (end.y - start.y) * t,
+                t: t,
+              };
+
+              // Add corner rings if at a corner with high valence
+              if (edgeLockInfo.isCorner && edgeLockInfo.cornerValence >= 2) {
+                const cornerPos = t < 0.5 ? start : end;
+                viz.cornerRings = {
+                  x: cornerPos.x,
+                  y: cornerPos.y,
+                  valence: edgeLockInfo.cornerValence,
+                };
+              }
+            } else {
+              // No edge lock info - show snap position as sliding dot
+              const snapPos = camera.projectToScreen(snapTarget.position, canvas.width, canvas.height);
+              if (snapPos) {
+                // Calculate t from snap position
+                const dx = end.x - start.x;
+                const dy = end.y - start.y;
+                const len = Math.sqrt(dx * dx + dy * dy);
+                const t = len > 0 ? ((snapPos.x - start.x) * dx + (snapPos.y - start.y) * dy) / (len * len) : 0.5;
+                viz.slidingDot = {
+                  x: snapPos.x,
+                  y: snapPos.y,
+                  t: Math.max(0, Math.min(1, t)),
+                };
+              }
+            }
           }
         }
 
@@ -279,7 +321,6 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
         if ((snapTarget.type === 'face' || snapTarget.type === 'face_center') && snapTarget.normal) {
           const pos = camera.projectToScreen(snapTarget.position, canvas.width, canvas.height);
           if (pos) {
-            // Keep canvas-relative coords (SVG overlay is absolute inset-0 within viewport)
             viz.planeIndicator = {
               x: pos.x,
               y: pos.y,
@@ -591,34 +632,53 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
 
-            // Raycast to get start point
-            const result = renderer.raycastScene(x, y, {
+            // Use magnetic snap for better edge locking
+            const currentLock = edgeLockStateRef.current;
+            const result = renderer.raycastSceneMagnetic(x, y, {
+              edge: currentLock.edge,
+              meshExpressId: currentLock.meshExpressId,
+              lockStrength: currentLock.lockStrength,
+            }, {
               hiddenIds: hiddenEntitiesRef.current,
               isolatedIds: isolatedEntitiesRef.current,
               snapOptions: snapEnabled ? {
                 snapToVertices: true,
                 snapToEdges: true,
                 snapToFaces: true,
-                screenSnapRadius: 60, // Increased for easier edge detection
+                screenSnapRadius: 60,
               } : undefined,
             });
 
-            if (result) {
-              const snapPoint = result.snap || result.intersection;
-              // Extract position from either SnapTarget (has .position) or Intersection (has .point)
-              const pos = 'position' in snapPoint ? snapPoint.position : snapPoint.point;
-              const measurePoint: MeasurePoint = {
-                x: pos.x,
-                y: pos.y,
-                z: pos.z,
-                screenX: x, // Use canvas-relative coordinates (consistent with mousemove)
-                screenY: y,
-              };
+            if (result.intersection || result.snapTarget) {
+              const snapPoint = result.snapTarget || result.intersection;
+              const pos = snapPoint ? ('position' in snapPoint ? snapPoint.position : snapPoint.point) : null;
 
-              startMeasurement(measurePoint);
-              if (result.snap) {
-                setSnapTarget(result.snap);
-                updateSnapVisualization(result.snap);
+              if (pos) {
+                const measurePoint: MeasurePoint = {
+                  x: pos.x,
+                  y: pos.y,
+                  z: pos.z,
+                  screenX: x,
+                  screenY: y,
+                };
+
+                startMeasurement(measurePoint);
+
+                if (result.snapTarget) {
+                  setSnapTarget(result.snapTarget);
+                }
+
+                // Update edge lock state
+                if (result.edgeLock.shouldLock && result.edgeLock.edge) {
+                  setEdgeLock(result.edgeLock.edge, result.edgeLock.meshExpressId, result.edgeLock.edgeT);
+                  updateSnapVisualization(result.snapTarget, {
+                    edgeT: result.edgeLock.edgeT,
+                    isCorner: result.edgeLock.isCorner,
+                    cornerValence: result.edgeLock.cornerValence,
+                  });
+                } else {
+                  updateSnapVisualization(result.snapTarget);
+                }
               }
             }
             return; // Early return for measure tool (non-shift)
@@ -663,8 +723,13 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
                 measureRaycastPendingRef.current = false;
                 measureRaycastFrameRef.current = null;
 
-                // Raycast to get current position
-                const result = renderer.raycastScene(x, y, {
+                // Use magnetic snap for edge sliding behavior
+                const currentLock = edgeLockStateRef.current;
+                const result = renderer.raycastSceneMagnetic(x, y, {
+                  edge: currentLock.edge,
+                  meshExpressId: currentLock.meshExpressId,
+                  lockStrength: currentLock.lockStrength,
+                }, {
                   hiddenIds: hiddenEntitiesRef.current,
                   isolatedIds: isolatedEntitiesRef.current,
                   snapOptions: snapEnabledRef.current ? {
@@ -675,21 +740,41 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
                   } : undefined,
                 });
 
-                if (result) {
-                  const snapPoint = result.snap || result.intersection;
-                  // Normalize position access: SnapTarget has 'position', Intersection has 'point'
-                  const pos = 'position' in snapPoint ? snapPoint.position : snapPoint.point;
-                  const measurePoint: MeasurePoint = {
-                    x: pos.x,
-                    y: pos.y,
-                    z: pos.z,
-                    screenX: x, // Use canvas-relative coordinates
-                    screenY: y,
-                  };
+                if (result.intersection || result.snapTarget) {
+                  const snapPoint = result.snapTarget || result.intersection;
+                  const pos = snapPoint ? ('position' in snapPoint ? snapPoint.position : snapPoint.point) : null;
 
-                  updateMeasurement(measurePoint);
-                  setSnapTarget(result.snap || null);
-                  updateSnapVisualization(result.snap || null);
+                  if (pos) {
+                    const measurePoint: MeasurePoint = {
+                      x: pos.x,
+                      y: pos.y,
+                      z: pos.z,
+                      screenX: x,
+                      screenY: y,
+                    };
+
+                    updateMeasurement(measurePoint);
+                    setSnapTarget(result.snapTarget || null);
+
+                    // Update edge lock state
+                    if (result.edgeLock.shouldRelease) {
+                      clearEdgeLock();
+                    } else if (result.edgeLock.shouldLock && result.edgeLock.edge) {
+                      setEdgeLock(result.edgeLock.edge, result.edgeLock.meshExpressId, result.edgeLock.edgeT);
+                      updateEdgeLockPosition(result.edgeLock.edgeT, result.edgeLock.isCorner, result.edgeLock.cornerValence);
+                    }
+
+                    // Update visualization with edge lock info
+                    if (result.edgeLock.edge) {
+                      updateSnapVisualization(result.snapTarget, {
+                        edgeT: result.edgeLock.edgeT,
+                        isCorner: result.edgeLock.isCorner,
+                        cornerValence: result.edgeLock.cornerValence,
+                      });
+                    } else {
+                      updateSnapVisualization(result.snapTarget || null);
+                    }
+                  }
                 }
               });
             }
@@ -710,7 +795,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             return; // Skip hover snap detection if throttled
           }
           lastHoverSnapTimeRef.current = now;
-          
+
           // Throttle raycasting to avoid performance issues
           if (!measureRaycastPendingRef.current) {
             measureRaycastPendingRef.current = true;
@@ -719,24 +804,41 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
               measureRaycastPendingRef.current = false;
               measureRaycastFrameRef.current = null;
 
-              // Raycast to detect snap targets on hover
-              const result = renderer.raycastScene(x, y, {
+              // Use magnetic snap for hover preview
+              const currentLock = edgeLockStateRef.current;
+              const result = renderer.raycastSceneMagnetic(x, y, {
+                edge: currentLock.edge,
+                meshExpressId: currentLock.meshExpressId,
+                lockStrength: currentLock.lockStrength,
+              }, {
                 hiddenIds: hiddenEntitiesRef.current,
                 isolatedIds: isolatedEntitiesRef.current,
                 snapOptions: {
                   snapToVertices: true,
                   snapToEdges: true,
                   snapToFaces: true,
-                  screenSnapRadius: 30, // Larger radius for easier snap detection
-                }, // Enable snapping
+                  screenSnapRadius: 40, // Good radius for hover snap detection
+                },
               });
 
               // Update snap target for visual feedback
-              if (result && result.snap) {
-                setSnapTarget(result.snap);
-                updateSnapVisualization(result.snap);
+              if (result.snapTarget) {
+                setSnapTarget(result.snapTarget);
+
+                // Update edge lock state for hover
+                if (result.edgeLock.shouldLock && result.edgeLock.edge) {
+                  setEdgeLock(result.edgeLock.edge, result.edgeLock.meshExpressId, result.edgeLock.edgeT);
+                  updateSnapVisualization(result.snapTarget, {
+                    edgeT: result.edgeLock.edgeT,
+                    isCorner: result.edgeLock.isCorner,
+                    cornerValence: result.edgeLock.cornerValence,
+                  });
+                } else {
+                  updateSnapVisualization(result.snapTarget);
+                }
               } else {
                 setSnapTarget(null);
+                clearEdgeLock();
                 updateSnapVisualization(null);
               }
             });
@@ -833,6 +935,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
         // Handle measure tool completion
         if (tool === 'measure' && activeMeasurementRef.current) {
           finalizeMeasurement();
+          clearEdgeLock(); // Clear edge lock after measurement complete
           mouseState.isDragging = false;
           mouseState.didDrag = false;
           canvas.style.cursor = 'crosshair';
