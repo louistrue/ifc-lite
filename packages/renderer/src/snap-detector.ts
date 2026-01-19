@@ -274,14 +274,17 @@ export class SnapDetector {
       }
     }
 
-    // No nearby edges - return face snap or null
+    // No nearby edges - use best available snap (faces/vertices)
     if (nearbyEdges.length === 0) {
-      const targets: SnapTarget[] = [];
+      const candidates: SnapTarget[] = [];
       if (opts.snapToFaces) {
-        targets.push(...this.findFaces(intersectedMesh, intersection, worldSnapRadius));
+        candidates.push(...this.findFaces(intersectedMesh, intersection, worldSnapRadius));
+      }
+      if (opts.snapToVertices) {
+        candidates.push(...this.findVertices(intersectedMesh, intersection.point, worldSnapRadius));
       }
       return {
-        snapTarget: targets.length > 0 ? targets[0] : null,
+        snapTarget: this.getBestSnapTarget(candidates, intersection.point),
         edgeLock: {
           edge: null,
           meshExpressId: null,
@@ -470,7 +473,9 @@ export class SnapDetector {
       snapPosition.z = (v0.z + v1.z) / 2;
     } else {
       snapType = SnapType.EDGE;
-      confidence = 0.999 * (1.0 - perpDistance / (worldSnapRadius * MAGNETIC_CONFIG.EDGE_ATTRACTION_MULTIPLIER));
+      // Clamp confidence to 0-1 range (can go negative if perpDistance exceeds attraction radius)
+      const rawConfidence = 0.999 * (1.0 - perpDistance / (worldSnapRadius * MAGNETIC_CONFIG.EDGE_ATTRACTION_MULTIPLIER));
+      confidence = Math.max(0, Math.min(1, rawConfidence));
     }
 
     return {

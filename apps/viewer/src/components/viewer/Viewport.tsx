@@ -675,7 +675,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
                 }
 
                 // Update edge lock state
-                if (result.edgeLock.shouldLock && result.edgeLock.edge) {
+                if (result.edgeLock.shouldRelease) {
+                  // Clear stale lock when release is signaled
+                  clearEdgeLock();
+                  updateSnapVisualization(result.snapTarget || null);
+                } else if (result.edgeLock.shouldLock && result.edgeLock.edge) {
                   setEdgeLock(result.edgeLock.edge, result.edgeLock.meshExpressId, result.edgeLock.edgeT);
                   updateSnapVisualization(result.snapTarget, {
                     edgeT: result.edgeLock.edgeT,
@@ -769,7 +773,9 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
 
                     // Update edge lock state
                     if (result.edgeLock.shouldRelease) {
+                      // Clear stale lock when release is signaled
                       clearEdgeLock();
+                      updateSnapVisualization(result.snapTarget || null);
                     } else if (result.edgeLock.shouldLock && result.edgeLock.edge) {
                       // Check if we're on the same edge to preserve lock strength (hysteresis)
                       const isSameEdge = currentLock.edge &&
@@ -790,10 +796,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
                         setEdgeLock(result.edgeLock.edge, result.edgeLock.meshExpressId, result.edgeLock.edgeT);
                         updateEdgeLockPosition(result.edgeLock.edgeT, result.edgeLock.isCorner, result.edgeLock.cornerValence);
                       }
-                    }
-
-                    // Update visualization with edge lock info
-                    if (result.edgeLock.edge) {
+                      // Update visualization with edge lock info
                       updateSnapVisualization(result.snapTarget, {
                         edgeT: result.edgeLock.edgeT,
                         isCorner: result.edgeLock.isCorner,
@@ -854,7 +857,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
                 setSnapTarget(result.snapTarget);
 
                 // Update edge lock state for hover
-                if (result.edgeLock.shouldLock && result.edgeLock.edge) {
+                if (result.edgeLock.shouldRelease) {
+                  // Clear stale lock when release is signaled
+                  clearEdgeLock();
+                  updateSnapVisualization(result.snapTarget);
+                } else if (result.edgeLock.shouldLock && result.edgeLock.edge) {
                   setEdgeLock(result.edgeLock.edge, result.edgeLock.meshExpressId, result.edgeLock.edgeT);
                   updateSnapVisualization(result.snapTarget, {
                     edgeT: result.edgeLock.edgeT,
