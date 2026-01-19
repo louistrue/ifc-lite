@@ -10,7 +10,7 @@ use_directory_urls: true
 theme:
   name: material
   custom_dir: docs/overrides
-  logo: assets/logo.svg
+  logo: assets/logo.png
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
