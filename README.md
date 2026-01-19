@@ -119,12 +119,16 @@ For contributing or running the full demo app:
 ```bash
 git clone https://github.com/louistrue/ifc-lite.git
 cd ifc-lite
-pnpm install && pnpm dev
+pnpm install
+pnpm build    # Build all packages first
+pnpm dev      # Start the viewer
 ```
 
 Open http://localhost:5173 and load an IFC file.
 
 > **Note:** Requires Node.js 18+ and pnpm 8+. No Rust toolchain needed - WASM is pre-built.
+>
+> **Important:** The `pnpm build` step is required before running `pnpm dev` because the viewer depends on local packages that need to be compiled first.
 >
 > **📖 Full Guide**: See [Installation](docs/guide/installation.md) for detailed setup options including troubleshooting.
 
