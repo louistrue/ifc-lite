@@ -100,8 +100,28 @@ export class NativeBridge implements IPlatformBridge {
     content: string,
     options: StreamingOptions
   ): Promise<GeometryStats> {
-    if (!this.initialized || !this.invoke || !this.listen) {
+    if (!this.initialized || !this.invoke) {
       await this.init();
+    }
+
+    // If event API not available, fall back to non-streaming processing
+    if (!this.listen) {
+      console.warn('[NativeBridge] Event API unavailable, falling back to non-streaming mode');
+      const result = await this.processGeometry(content);
+      const stats: GeometryStats = {
+        totalMeshes: result.meshes.length,
+        totalVertices: result.totalVertices,
+        totalTriangles: result.totalTriangles,
+        parseTimeMs: 0,
+        geometryTimeMs: 0,
+      };
+      // Emit single batch with all meshes
+      options.onBatch?.({
+        meshes: result.meshes,
+        progress: { processed: result.meshes.length, total: result.meshes.length, currentType: 'complete' },
+      });
+      options.onComplete?.(stats);
+      return stats;
     }
 
     // Convert string to buffer for Tauri command
@@ -109,7 +129,7 @@ export class NativeBridge implements IPlatformBridge {
     const buffer = Array.from(encoder.encode(content));
 
     // Listen for geometry batch events
-    const unlisten = await this.listen!<{
+    const unlisten = await this.listen<{
       meshes: NativeMeshData[];
       progress: { processed: number; total: number; currentType: string };
     }>('geometry-batch', (event) => {

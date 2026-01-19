@@ -1,18 +1,15 @@
 {
   "permissions": {
     "allow": [
-      "Bash(wc:*)",
       "Bash(cargo check:*)",
-      "Bash(where cargo:*)",
-      "Bash(cmd /c \"where cargo\")",
-      "Bash(cmd /c:*)",
-      "Bash(/c/Users/louistrue/.cargo/bin/cargo.exe check)",
+      "Bash(cargo build:*)",
       "Bash(npx tauri:*)",
       "Bash(pnpm tauri icon:*)",
       "Bash(pnpm install)",
       "Bash(pnpm exec tauri:*)",
       "Bash(pnpm build:packages:*)",
-      "Bash(pnpm build:*)"
+      "Bash(pnpm build:*)",
+      "Bash(pnpm dev:*)"
     ]
   }
 }

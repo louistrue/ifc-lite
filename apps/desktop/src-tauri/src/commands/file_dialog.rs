@@ -10,7 +10,7 @@ use super::types::FileInfo;
 use tauri_plugin_dialog::DialogExt;
 
 /// Open a native file dialog to select an IFC file
-/// Returns file info including path and contents
+/// Returns file info including path, name, and size (not contents)
 #[tauri::command]
 pub async fn open_ifc_file(app: tauri::AppHandle) -> Result<Option<FileInfo>, String> {
     let file_path = app

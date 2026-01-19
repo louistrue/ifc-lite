@@ -21,11 +21,34 @@ fn get_cache_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .map_err(|e| format!("Failed to get cache directory: {}", e))
 }
 
+/// Validate cache key to prevent path traversal attacks
+fn validate_cache_key(key: &str) -> Result<(), String> {
+    // Reject empty keys
+    if key.is_empty() {
+        return Err("Cache key cannot be empty".to_string());
+    }
+    // Reject keys with path separators or parent directory references
+    if key.contains('/') || key.contains('\\') || key.contains("..") {
+        return Err("Invalid cache key: contains path separators or parent references".to_string());
+    }
+    // Only allow alphanumeric, hyphen, underscore (typical hash characters)
+    if !key.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        return Err("Invalid cache key: contains disallowed characters".to_string());
+    }
+    Ok(())
+}
+
+/// Get the cache file path for a validated key
+fn get_cache_file_path(cache_dir: &PathBuf, cache_key: &str) -> Result<PathBuf, String> {
+    validate_cache_key(cache_key)?;
+    Ok(cache_dir.join(format!("{}.bin", cache_key)))
+}
+
 /// Get cached geometry by key
 #[tauri::command]
 pub async fn get_cached(app: tauri::AppHandle, cache_key: String) -> Result<Option<Vec<u8>>, String> {
     let cache_dir = get_cache_dir(&app)?;
-    let cache_file = cache_dir.join(format!("{}.bin", cache_key));
+    let cache_file = get_cache_file_path(&cache_dir, &cache_key)?;
 
     if cache_file.exists() {
         tokio::fs::read(&cache_file)
@@ -45,13 +68,12 @@ pub async fn set_cached(
     data: Vec<u8>,
 ) -> Result<(), String> {
     let cache_dir = get_cache_dir(&app)?;
+    let cache_file = get_cache_file_path(&cache_dir, &cache_key)?;
 
     // Ensure cache directory exists
     tokio::fs::create_dir_all(&cache_dir)
         .await
         .map_err(|e| format!("Failed to create cache directory: {}", e))?;
-
-    let cache_file = cache_dir.join(format!("{}.bin", cache_key));
 
     tokio::fs::write(&cache_file, &data)
         .await

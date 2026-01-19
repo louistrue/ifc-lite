@@ -157,7 +157,7 @@ pub async fn get_geometry_streaming(
 
                     // Emit batch every 50 meshes
                     if batch.len() >= 50 {
-                        let _ = window.emit(
+                        if let Err(e) = window.emit(
                             "geometry-batch",
                             GeometryBatch {
                                 meshes: std::mem::take(&mut batch),
@@ -167,7 +167,9 @@ pub async fn get_geometry_streaming(
                                     current_type: type_name.to_string(),
                                 },
                             },
-                        );
+                        ) {
+                            eprintln!("[Native] Failed to emit geometry batch: {}", e);
+                        }
                         batch = Vec::with_capacity(50);
                     }
                 }
@@ -177,7 +179,7 @@ pub async fn get_geometry_streaming(
 
     // Emit final batch
     if !batch.is_empty() {
-        let _ = window.emit(
+        if let Err(e) = window.emit(
             "geometry-batch",
             GeometryBatch {
                 meshes: batch,
@@ -187,7 +189,9 @@ pub async fn get_geometry_streaming(
                     current_type: "complete".to_string(),
                 },
             },
-        );
+        ) {
+            eprintln!("[Native] Failed to emit final geometry batch: {}", e);
+        }
     }
 
     let geometry_time = geometry_start.elapsed();
