@@ -231,7 +231,27 @@ pub fn extract_length_unit_scale(decoder: &mut EntityDecoder, project_id: u32) -
 
             // If we got a valid conversion value, use it
             if conversion_value > 0.0 {
-                return Ok(conversion_value);
+                // IMPORTANT: ValueComponent is expressed in UnitComponent's units.
+                // If UnitComponent is a prefixed SI unit (e.g., millimeters),
+                // we must multiply by that unit's scale factor.
+                let mut unit_component_scale = 1.0;
+
+                if let Some(unit_component_ref) = measure_with_unit.get_ref(1) {
+                    if let Ok(unit_component) = decoder.decode_by_id(unit_component_ref) {
+                        if unit_component.ifc_type.as_str() == "IFCSIUNIT" {
+                            // IFCSIUNIT: [0] Dimensions, [1] UnitType, [2] Prefix, [3] Name
+                            if let Some(prefix_attr) = unit_component.get(2) {
+                                if !prefix_attr.is_null() {
+                                    if let Some(prefix) = prefix_attr.as_enum() {
+                                        unit_component_scale = get_si_prefix_multiplier(prefix);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return Ok(conversion_value * unit_component_scale);
             }
         }
     }

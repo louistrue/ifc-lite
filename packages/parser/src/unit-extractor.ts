@@ -186,6 +186,7 @@ export function extractLengthUnitScale(
           if (measureEntity) {
             // IFCMEASUREWITHUNIT: [0] ValueComponent, [1] UnitComponent
             const valueAttr = measureEntity.attributes[0];
+            const unitComponentRef = measureEntity.attributes[1];
             let conversionValue: number | undefined;
 
             if (typeof valueAttr === 'number') {
@@ -196,8 +197,35 @@ export function extractLengthUnitScale(
             }
 
             if (conversionValue !== undefined && conversionValue > 0) {
-              console.log(`[UnitExtractor] Found conversion factor ${conversionValue} from IFCMEASUREWITHUNIT`);
-              return conversionValue;
+              // IMPORTANT: ValueComponent is expressed in UnitComponent's units.
+              // If UnitComponent is a prefixed SI unit (e.g., millimeters),
+              // we must multiply by that unit's scale factor.
+              let unitComponentScale = 1.0;
+
+              if (typeof unitComponentRef === 'number') {
+                const unitCompEntityRef = entityIndex.byId.get(unitComponentRef);
+                if (unitCompEntityRef) {
+                  const unitCompEntity = extractor.extractEntity(unitCompEntityRef);
+                  if (unitCompEntity && unitCompEntity.type.toUpperCase() === 'IFCSIUNIT') {
+                    // IFCSIUNIT: [0] Dimensions, [1] UnitType, [2] Prefix, [3] Name
+                    const unitCompAttrs = unitCompEntity.attributes || [];
+                    const prefix = unitCompAttrs[2];
+                    if (prefix !== null && prefix !== undefined && prefix !== '$') {
+                      const prefixStr = typeof prefix === 'string'
+                        ? prefix.replace(/\./g, '').toUpperCase()
+                        : '';
+                      const prefixMultiplier = SI_PREFIX_MULTIPLIERS[prefixStr];
+                      if (prefixMultiplier !== undefined) {
+                        unitComponentScale = prefixMultiplier;
+                      }
+                    }
+                  }
+                }
+              }
+
+              const finalScale = conversionValue * unitComponentScale;
+              console.log(`[UnitExtractor] Found conversion factor ${conversionValue} * ${unitComponentScale} = ${finalScale} from IFCMEASUREWITHUNIT`);
+              return finalScale;
             }
           }
         }
