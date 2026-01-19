@@ -599,19 +599,27 @@ export class Renderer {
                     boundsMax.x = boundsMax.y = boundsMax.z = 100;
                 }
 
-                // Add 10% padding to bounds so section plane can go slightly beyond building
+                // Store TRUE building bounds for clipping (0% = bottom, 100% = top)
+                const trueBoundsMin = { ...boundsMin };
+                const trueBoundsMax = { ...boundsMax };
+
+                // Add padding to bounds for plane VISUALIZATION only (extends beyond building)
                 const paddingX = (boundsMax.x - boundsMin.x) * 0.1;
                 const paddingY = (boundsMax.y - boundsMin.y) * 0.1;
                 const paddingZ = (boundsMax.z - boundsMin.z) * 0.1;
-                boundsMin.x -= paddingX;
-                boundsMin.y -= paddingY;
-                boundsMin.z -= paddingZ;
-                boundsMax.x += paddingX;
-                boundsMax.y += paddingY;
-                boundsMax.z += paddingZ;
+                const visualBoundsMin = {
+                    x: boundsMin.x - paddingX,
+                    y: boundsMin.y - paddingY,
+                    z: boundsMin.z - paddingZ,
+                };
+                const visualBoundsMax = {
+                    x: boundsMax.x + paddingX,
+                    y: boundsMax.y + paddingY,
+                    z: boundsMax.z + paddingZ,
+                };
 
-                // Store bounds for section plane visual
-                this.modelBounds = { min: boundsMin, max: boundsMax };
+                // Store padded bounds for section plane visual
+                this.modelBounds = { min: visualBoundsMin, max: visualBoundsMax };
 
                 // Only calculate clipping data if section is enabled
                 if (options.sectionPlane.enabled) {
@@ -622,12 +630,12 @@ export class Renderer {
                     else if (options.sectionPlane.axis === 'down') normal[1] = 1;   // Y axis (horizontal)
                     else normal[2] = 1;                                              // Z axis (front)
 
-                    // Get axis-specific range based on semantic axis
+                    // Get axis-specific range based on TRUE building bounds (not padded)
                     const axisIdx = options.sectionPlane.axis === 'side' ? 'x' : options.sectionPlane.axis === 'down' ? 'y' : 'z';
-                    const minVal = boundsMin[axisIdx];
-                    const maxVal = boundsMax[axisIdx];
+                    const minVal = trueBoundsMin[axisIdx];
+                    const maxVal = trueBoundsMax[axisIdx];
 
-                    // Calculate plane distance from position percentage
+                    // Calculate plane distance from position percentage using TRUE bounds
                     const range = maxVal - minVal;
                     const distance = minVal + (options.sectionPlane.position / 100) * range;
 

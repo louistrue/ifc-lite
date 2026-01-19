@@ -775,97 +775,83 @@ function SectionOverlay() {
     setSectionPlanePosition(Number(e.target.value));
   }, [setSectionPlanePosition]);
 
-  // Axis colors
+  // Axis colors - subtle, professional
   const axisColors = {
     down: '#03A9F4',
     front: '#4CAF50',
     side: '#FF9800',
   };
   const currentColor = axisColors[sectionPlane.axis];
+  const axes = ['down', 'front', 'side'] as const;
 
   return (
     <>
-      {/* Elegant corner section control */}
-      <div className="pointer-events-auto absolute top-4 left-4 z-30 flex gap-3">
-        {/* Direction switcher - compact pill design */}
-        <div className="bg-background/95 backdrop-blur-sm rounded-xl border shadow-lg p-1 flex flex-col gap-0.5">
-          {(['down', 'front', 'side'] as const).map((axis) => {
+      {/* Minimal section control - top left */}
+      <div className="pointer-events-auto absolute top-4 left-4 z-30 flex flex-col items-start gap-2">
+        {/* Carousel direction switcher - round buttons */}
+        <div className="flex items-center gap-1">
+          {axes.map((axis) => {
             const isActive = sectionPlane.axis === axis;
             const color = axisColors[axis];
             return (
               <button
                 key={axis}
                 onClick={() => handleAxisChange(axis)}
-                className={`relative w-12 h-10 rounded-lg font-mono text-[10px] uppercase tracking-wider transition-all duration-200 ${
-                  isActive
-                    ? 'text-white font-bold'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
-                }`}
-                style={isActive ? { backgroundColor: color } : {}}
+                className="relative w-9 h-9 rounded-full transition-all duration-200 flex items-center justify-center"
+                style={{
+                  border: `2px solid ${isActive ? color : 'hsl(var(--border))'}`,
+                  backgroundColor: isActive ? `${color}15` : 'transparent',
+                  color: isActive ? color : 'hsl(var(--muted-foreground))',
+                }}
                 title={AXIS_INFO[axis].description}
               >
-                {axis.charAt(0).toUpperCase()}
+                <span className="font-mono text-xs font-semibold">
+                  {axis.charAt(0).toUpperCase()}
+                </span>
               </button>
             );
           })}
 
-          {/* Divider */}
-          <div className="h-px bg-border mx-1 my-1" />
-
           {/* Close button */}
           <button
             onClick={handleClose}
-            className="w-12 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors flex items-center justify-center"
+            className="w-7 h-7 rounded-full border border-border text-muted-foreground hover:text-foreground hover:border-foreground/50 transition-colors flex items-center justify-center ml-1"
             title="Exit section mode"
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-3 w-3" />
           </button>
         </div>
 
-        {/* Vertical position slider */}
-        <div
-          className="bg-background/95 backdrop-blur-sm rounded-xl border shadow-lg p-2 flex flex-col items-center gap-2"
-          style={{ borderColor: sectionPlane.enabled ? currentColor : undefined }}
-        >
-          {/* Position label */}
+        {/* Horizontal slider - clean, minimal */}
+        <div className="flex items-center gap-2 pl-1">
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={sectionPlane.position}
+            onChange={handlePositionChange}
+            className="w-24 h-1 cursor-pointer appearance-none rounded-full bg-border"
+            style={{
+              accentColor: currentColor,
+            }}
+          />
           <span
-            className="font-mono text-[10px] font-bold tabular-nums"
+            className="font-mono text-[10px] tabular-nums w-8"
             style={{ color: currentColor }}
           >
             {sectionPlane.position}%
           </span>
-
-          {/* Vertical slider */}
-          <div className="relative h-32 w-6 flex items-center justify-center">
-            <input
-              type="range"
-              min="0"
-              max="100"
-              value={sectionPlane.position}
-              onChange={handlePositionChange}
-              className="absolute h-28 w-2 cursor-pointer appearance-none rounded-full"
-              style={{
-                writingMode: 'vertical-lr',
-                direction: 'rtl',
-                background: `linear-gradient(to top, ${currentColor} ${sectionPlane.position}%, hsl(var(--muted)) ${sectionPlane.position}%)`,
-              }}
-            />
-          </div>
-
-          {/* Toggle cut/preview */}
-          <button
-            onClick={toggleSectionPlane}
-            className={`w-full px-1.5 py-1 rounded-md font-mono text-[8px] uppercase tracking-wider transition-all ${
-              sectionPlane.enabled
-                ? 'text-white font-bold'
-                : 'bg-muted text-muted-foreground hover:text-foreground'
-            }`}
-            style={sectionPlane.enabled ? { backgroundColor: currentColor } : {}}
-            title={sectionPlane.enabled ? 'Switch to preview' : 'Enable cutting'}
-          >
-            {sectionPlane.enabled ? 'Cut' : 'Preview'}
-          </button>
         </div>
+
+        {/* Cut/Preview toggle - minimal text button */}
+        <button
+          onClick={toggleSectionPlane}
+          className="font-mono text-[10px] uppercase tracking-wider pl-1 transition-colors"
+          style={{ color: sectionPlane.enabled ? currentColor : 'hsl(var(--muted-foreground))' }}
+          title={sectionPlane.enabled ? 'Switch to preview' : 'Enable cutting'}
+        >
+          {sectionPlane.enabled ? '● Cutting' : '○ Preview'}
+        </button>
       </div>
     </>
   );

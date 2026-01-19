@@ -260,8 +260,8 @@ export class SectionPlaneRenderer {
       uniforms[17] = 0.596; // G
       uniforms[18] = 0.0;   // B
     }
-    // Preview mode opacity
-    uniforms[19] = 0.35;
+    // Preview mode opacity - very subtle so model is clearly visible
+    uniforms[19] = 0.12;
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
 
     // Draw section plane with preview pipeline (respects depth)
@@ -312,8 +312,8 @@ export class SectionPlaneRenderer {
       uniforms[17] = 0.596; // G
       uniforms[18] = 0.0;   // B
     }
-    // Preview mode opacity
-    uniforms[19] = 0.35;
+    // Preview mode opacity - very subtle so model is clearly visible
+    uniforms[19] = 0.12;
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
 
     // Render the section plane in its own pass (legacy - may cause MSAA issues)
