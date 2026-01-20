@@ -103,7 +103,9 @@ async function main() {
   });
 
   // Load file (input element or drag-drop)
-  const file = document.getElementById('file-input').files[0];
+  const fileInput = document.getElementById('file-input') as HTMLInputElement;
+  const file = fileInput?.files?.[0];
+  if (!file) return;
 
   // Parse with Parquet format (15x smaller than JSON)
   const result = await client.parseParquet(file);

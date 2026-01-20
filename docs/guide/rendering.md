@@ -589,7 +589,7 @@ console.log(`GPU memory: ${stats.gpuMemoryMB} MB`);
 
 ```typescript
 import { Renderer } from '@ifc-lite/renderer';
-import { IfcServerClient, decodeParquetGeometry } from '@ifc-lite/server-client';
+import { IfcServerClient } from '@ifc-lite/server-client';
 
 async function createViewer() {
   const canvas = document.getElementById('viewer') as HTMLCanvasElement;

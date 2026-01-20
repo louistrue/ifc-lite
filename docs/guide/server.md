@@ -482,7 +482,7 @@ services:
     volumes:
       - ifc-cache:/app/.cache
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/health"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/api/v1/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -548,7 +548,7 @@ sequenceDiagram
 
 ```typescript
 // Using callback
-await client.parseParquetStream(file, (batch) => {
+await client.parseParquetStream(file, async (batch) => {
   const meshes = await decodeParquetGeometry(batch.data);
   renderer.addMeshes(meshes);
 });
