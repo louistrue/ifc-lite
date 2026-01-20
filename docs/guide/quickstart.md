@@ -24,7 +24,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000 and drag an IFC file onto the viewer.
+Open `http://localhost:3000` and drag an IFC file onto the viewer.
 
 ### 2. Or Add to Existing Project
 
@@ -126,7 +126,7 @@ For files over 50MB, use streaming for progressive rendering:
 
 ```typescript
 // Stream geometry batches
-for await (const event of client.parseParquetStream(file)) {
+for await (const event of client.parseStream(file)) {
   switch (event.type) {
     case 'start':
       console.log(`Processing ~${event.total_estimate} entities`);

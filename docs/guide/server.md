@@ -360,7 +360,7 @@ The server uses Apache Parquet for efficient binary serialization.
 
 ### Standard Format (15x Smaller)
 
-```
+```text
 [mesh_table][vertex_table][index_table]
 ```
 
@@ -370,7 +370,7 @@ The server uses Apache Parquet for efficient binary serialization.
 
 ### Optimized Format (50x Smaller)
 
-```
+```text
 [instance_table][mesh_table][material_table][vertex_table][index_table]
 ```
 
