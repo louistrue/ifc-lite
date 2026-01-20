@@ -9,7 +9,7 @@
 use crate::{
     extrusion::{apply_transform, extrude_profile},
     profiles::ProfileProcessor,
-    Error, Mesh, Point2, Point3, Result, Vector3,
+    Error, Mesh, Point3, Result, Vector3,
 };
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcSchema, IfcType};
 use nalgebra::Matrix4;
@@ -1268,234 +1268,6 @@ impl BooleanClippingProcessor {
         Ok((location, normal, agreement))
     }
 
-    /// Parse IfcPolygonalBoundedHalfSpace and create a clipping wedge mesh
-    ///
-    /// IfcPolygonalBoundedHalfSpace defines a bounded half-space by:
-    /// - BaseSurface (IfcPlane): The clipping plane surface
-    /// - AgreementFlag: Which side of the plane to keep (true = positive side has material)
-    /// - Position: Coordinate system for the boundary polygon
-    /// - PolygonalBoundary: 2D polygon limiting WHERE the half-space applies
-    ///
-    /// The correct interpretation is:
-    /// 1. Create a prism by extruding the polygon in Position's Z direction
-    /// 2. Clip this prism with the BaseSurface plane
-    /// 3. The resulting wedge is what gets subtracted from the wall
-    fn parse_polygonal_bounded_half_space(
-        &self,
-        half_space: &DecodedEntity,
-        decoder: &mut EntityDecoder,
-    ) -> Result<Mesh> {
-        use crate::csg::{ClippingProcessor, Plane};
-        use crate::extrusion::extrude_profile;
-        use crate::profile::Profile2D;
-
-        // IfcPolygonalBoundedHalfSpace inherits from IfcHalfSpaceSolid:
-        // 0: BaseSurface (IfcPlane)
-        // 1: AgreementFlag
-        // And adds:
-        // 2: Position (IfcAxis2Placement3D - coordinate system for boundary)
-        // 3: PolygonalBoundary (IfcBoundedCurve - usually IfcPolyline)
-
-        // Parse the base plane to get the clipping plane
-        let (plane_point, plane_normal, agreement) =
-            self.parse_half_space_solid(half_space, decoder)?;
-
-        // Parse Position for the boundary polygon coordinate system
-        let position_attr = half_space.get(2).ok_or_else(|| {
-            Error::geometry("PolygonalBoundedHalfSpace missing Position".to_string())
-        })?;
-
-        let position_entity = decoder.resolve_ref(position_attr)?.ok_or_else(|| {
-            Error::geometry("Failed to resolve PolygonalBoundedHalfSpace Position".to_string())
-        })?;
-
-        // Parse position transform - this defines where the polygon sits
-        let position_transform = self.parse_position_transform(&position_entity, decoder)?;
-
-        // Parse PolygonalBoundary
-        let boundary_attr = half_space.get(3).ok_or_else(|| {
-            Error::geometry("PolygonalBoundedHalfSpace missing PolygonalBoundary".to_string())
-        })?;
-
-        let boundary_entity = decoder.resolve_ref(boundary_attr)?.ok_or_else(|| {
-            Error::geometry("Failed to resolve PolygonalBoundary".to_string())
-        })?;
-
-        // Extract 2D points from the polyline
-        let points_2d = self.parse_polyline_2d(&boundary_entity, decoder)?;
-
-        if points_2d.len() < 3 {
-            return Ok(Mesh::new());
-        }
-
-        // Create a profile from the 2D points
-        let profile = Profile2D::new(points_2d);
-
-        // Step 1: Create a tall prism by extruding the polygon in Z direction
-        // The prism extends far in both directions to ensure complete coverage
-        let extrusion_depth = 100.0; // Tall enough for any building element
-
-        // Extrude in +Z direction (no rotation needed, Z is default)
-        let mut prism = extrude_profile(&profile, extrusion_depth, None)?;
-
-        // Offset the prism so it extends in both directions from the plane
-        // Move it down by half the depth
-        let offset = Matrix4::new_translation(&Vector3::new(0.0, 0.0, -extrusion_depth / 2.0));
-        apply_transform(&mut prism, &offset);
-
-        // Apply position transform to place the prism in world coordinates
-        apply_transform(&mut prism, &position_transform);
-
-        // Step 2: Clip the prism with the BaseSurface plane
-        // For DIFFERENCE with agreement=true: we want to remove material on POSITIVE side
-        // So we keep the part of the prism that's on the positive side of the plane
-        // (this part will be subtracted from the wall)
-        let clip_normal = if agreement {
-            plane_normal // Keep positive side of prism (to subtract)
-        } else {
-            -plane_normal // Keep negative side
-        };
-
-        let plane = Plane::new(plane_point, clip_normal);
-        let clipper = ClippingProcessor::new();
-        let clipped_prism = clipper.clip_mesh(&prism, &plane)?;
-
-        Ok(clipped_prism)
-    }
-
-    /// Parse IfcAxis2Placement3D for PolygonalBoundedHalfSpace
-    fn parse_position_transform(
-        &self,
-        position: &DecodedEntity,
-        decoder: &mut EntityDecoder,
-    ) -> Result<Matrix4<f64>> {
-        // Helper to extract float from list
-        fn get_coord(coords: Option<&[ifc_lite_core::AttributeValue]>, idx: usize, default: f64) -> f64 {
-            coords
-                .and_then(|c| c.get(idx))
-                .and_then(|v| v.as_float())
-                .unwrap_or(default)
-        }
-
-        // Location
-        let location = if let Some(loc_attr) = position.get(0) {
-            if !loc_attr.is_null() {
-                if let Some(loc_entity) = decoder.resolve_ref(loc_attr)? {
-                    let coords = loc_entity.get(0).and_then(|v| v.as_list());
-                    Point3::new(
-                        get_coord(coords, 0, 0.0),
-                        get_coord(coords, 1, 0.0),
-                        get_coord(coords, 2, 0.0),
-                    )
-                } else {
-                    Point3::origin()
-                }
-            } else {
-                Point3::origin()
-            }
-        } else {
-            Point3::origin()
-        };
-
-        // Axis (Z direction)
-        let z_axis = if let Some(axis_attr) = position.get(1) {
-            if !axis_attr.is_null() {
-                if let Some(axis_entity) = decoder.resolve_ref(axis_attr)? {
-                    let coords = axis_entity.get(0).and_then(|v| v.as_list());
-                    Vector3::new(
-                        get_coord(coords, 0, 0.0),
-                        get_coord(coords, 1, 0.0),
-                        get_coord(coords, 2, 1.0),
-                    )
-                    .normalize()
-                } else {
-                    Vector3::new(0.0, 0.0, 1.0)
-                }
-            } else {
-                Vector3::new(0.0, 0.0, 1.0)
-            }
-        } else {
-            Vector3::new(0.0, 0.0, 1.0)
-        };
-
-        // RefDirection (X direction)
-        let x_axis = if let Some(ref_attr) = position.get(2) {
-            if !ref_attr.is_null() {
-                if let Some(ref_entity) = decoder.resolve_ref(ref_attr)? {
-                    let coords = ref_entity.get(0).and_then(|v| v.as_list());
-                    Vector3::new(
-                        get_coord(coords, 0, 1.0),
-                        get_coord(coords, 1, 0.0),
-                        get_coord(coords, 2, 0.0),
-                    )
-                    .normalize()
-                } else {
-                    Vector3::new(1.0, 0.0, 0.0)
-                }
-            } else {
-                Vector3::new(1.0, 0.0, 0.0)
-            }
-        } else {
-            Vector3::new(1.0, 0.0, 0.0)
-        };
-
-        // Orthogonalize X axis
-        let dot = x_axis.dot(&z_axis);
-        let x_orth = (x_axis - z_axis * dot).normalize();
-        let y_axis = z_axis.cross(&x_orth).normalize();
-
-        let mut transform = Matrix4::identity();
-        transform[(0, 0)] = x_orth.x;
-        transform[(1, 0)] = x_orth.y;
-        transform[(2, 0)] = x_orth.z;
-        transform[(0, 1)] = y_axis.x;
-        transform[(1, 1)] = y_axis.y;
-        transform[(2, 1)] = y_axis.z;
-        transform[(0, 2)] = z_axis.x;
-        transform[(1, 2)] = z_axis.y;
-        transform[(2, 2)] = z_axis.z;
-        transform[(0, 3)] = location.x;
-        transform[(1, 3)] = location.y;
-        transform[(2, 3)] = location.z;
-
-        Ok(transform)
-    }
-
-    /// Parse a 2D polyline for the polygon boundary
-    fn parse_polyline_2d(
-        &self,
-        polyline: &DecodedEntity,
-        decoder: &mut EntityDecoder,
-    ) -> Result<Vec<Point2<f64>>> {
-        // IfcPolyline has attribute 0: Points (list of IfcCartesianPoint)
-        let points_attr = polyline.get(0).ok_or_else(|| {
-            Error::geometry("Polyline missing Points attribute".to_string())
-        })?;
-
-        let points_list = points_attr.as_list().ok_or_else(|| {
-            Error::geometry("Polyline Points not a list".to_string())
-        })?;
-
-        let mut points = Vec::with_capacity(points_list.len());
-
-        for point_ref in points_list {
-            if let Some(point_entity) = decoder.resolve_ref(point_ref)? {
-                if let Some(coords) = point_entity.get(0).and_then(|v| v.as_list()) {
-                    let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0);
-                    let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
-                    points.push(Point2::new(x, y));
-                }
-            }
-        }
-
-        // Remove duplicate closing point if present
-        if points.len() > 1 && points.first() == points.last() {
-            points.pop();
-        }
-
-        Ok(points)
-    }
-
     /// Apply half-space clipping to mesh
     fn clip_mesh_with_half_space(
         &self,
@@ -1570,52 +1342,16 @@ impl GeometryProcessor for BooleanClippingProcessor {
 
         // Handle DIFFERENCE operation
         if operator == ".DIFFERENCE." {
-            // Check if second operand is a half-space solid
-            if second_operand.ifc_type == IfcType::IfcHalfSpaceSolid {
-                // Simple infinite half-space - use efficient plane clipping
+            // Check if second operand is a half-space solid (simple or polygonally bounded)
+            // For both types, the BaseSurface plane defines the clipping surface
+            // The polygon boundary in PolygonalBoundedHalfSpace limits the region but
+            // for wall-roof clipping, plane clipping is sufficient and more reliable
+            if second_operand.ifc_type == IfcType::IfcHalfSpaceSolid
+                || second_operand.ifc_type == IfcType::IfcPolygonalBoundedHalfSpace
+            {
                 let (plane_point, plane_normal, agreement) =
                     self.parse_half_space_solid(&second_operand, decoder)?;
                 return self.clip_mesh_with_half_space(&mesh, plane_point, plane_normal, agreement);
-            }
-
-            if second_operand.ifc_type == IfcType::IfcPolygonalBoundedHalfSpace {
-                // Bounded half-space - create clipping prism from polygon boundary
-                match self.parse_polygonal_bounded_half_space(&second_operand, decoder) {
-                    Ok(clipping_mesh) if !clipping_mesh.is_empty() => {
-                        use crate::csg::ClippingProcessor;
-                        let csg = ClippingProcessor::new();
-                        match csg.subtract_mesh(&mesh, &clipping_mesh) {
-                            Ok(result) => return Ok(result),
-                            Err(_e) => {
-                                #[cfg(debug_assertions)]
-                                eprintln!(
-                                    "[WARN] PolygonalBoundedHalfSpace CSG failed: {}",
-                                    _e
-                                );
-                                // Fall back to simple plane clip
-                                let (plane_point, plane_normal, agreement) =
-                                    self.parse_half_space_solid(&second_operand, decoder)?;
-                                return self.clip_mesh_with_half_space(
-                                    &mesh,
-                                    plane_point,
-                                    plane_normal,
-                                    agreement,
-                                );
-                            }
-                        }
-                    }
-                    _ => {
-                        // Fall back to simple plane clip if parsing fails
-                        let (plane_point, plane_normal, agreement) =
-                            self.parse_half_space_solid(&second_operand, decoder)?;
-                        return self.clip_mesh_with_half_space(
-                            &mesh,
-                            plane_point,
-                            plane_normal,
-                            agreement,
-                        );
-                    }
-                }
             }
 
             // Solid-solid difference: use full CSG (e.g., wall clipped by roof/slab)
