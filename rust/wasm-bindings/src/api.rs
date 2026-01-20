@@ -1153,19 +1153,34 @@ impl IfcAPI {
                 // Track processed simple geometry IDs for color updates
                 let mut processed_simple_ids: Vec<u32> = Vec::new();
 
-                // SINGLE PASS: Process elements as we find them
+                // PRE-PASS: Build void relationship index (host → openings)
+                let mut scanner = EntityScanner::new(&content);
+                let mut faceted_brep_ids: Vec<u32> = Vec::new();
+                let mut void_index: rustc_hash::FxHashMap<u32, Vec<u32>> =
+                    rustc_hash::FxHashMap::default();
+
+                while let Some((id, type_name, start, end)) = scanner.next_entity() {
+                    if type_name == "IFCFACETEDBREP" {
+                        faceted_brep_ids.push(id);
+                    } else if type_name == "IFCRELVOIDSELEMENT" {
+                        // IfcRelVoidsElement: Attr 4 = RelatingBuildingElement, Attr 5 = RelatedOpeningElement
+                        if let Ok(entity) = decoder.decode_at(start, end) {
+                            if let (Some(host_id), Some(opening_id)) =
+                                (entity.get_ref(4), entity.get_ref(5))
+                            {
+                                void_index.entry(host_id).or_default().push(opening_id);
+                            }
+                        }
+                    }
+                }
+
+                // PROCESS PASS: Process elements with void subtraction
                 let mut scanner = EntityScanner::new(&content);
                 let mut deferred_complex: Vec<(u32, usize, usize, ifc_lite_core::IfcType)> =
                     Vec::new();
-                let mut faceted_brep_ids: Vec<u32> = Vec::new(); // Collect for batch preprocessing
 
-                // First pass - process simple geometry immediately, defer complex
+                // Process elements - simple geometry immediately, defer complex
                 while let Some((id, type_name, start, end)) = scanner.next_entity() {
-                    // Track FacetedBrep IDs for batch preprocessing
-                    if type_name == "IFCFACETEDBREP" {
-                        faceted_brep_ids.push(id);
-                    }
-
                     if !ifc_lite_core::has_geometry_by_name(type_name) {
                         continue;
                     }
@@ -1195,8 +1210,12 @@ impl IfcAPI {
                             let has_representation =
                                 entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
                             if has_representation {
-                                if let Ok(mut mesh) = router.process_element(&entity, &mut decoder)
-                                {
+                                // Use process_element_with_voids to subtract openings
+                                if let Ok(mut mesh) = router.process_element_with_voids(
+                                    &entity,
+                                    &mut decoder,
+                                    &void_index,
+                                ) {
                                     if !mesh.is_empty() {
                                         if mesh.normals.is_empty() {
                                             calculate_normals(&mut mesh);
@@ -1305,11 +1324,15 @@ impl IfcAPI {
                     router.preprocess_faceted_breps(&faceted_brep_ids, &mut decoder);
                 }
 
-                // Process deferred complex geometry with proper styles
+                // Process deferred complex geometry with proper styles and void subtraction
 
                 for (id, start, end, ifc_type) in deferred_complex {
                     if let Ok(entity) = decoder.decode_at(start, end) {
-                        if let Ok(mut mesh) = router.process_element(&entity, &mut decoder) {
+                        if let Ok(mut mesh) = router.process_element_with_voids(
+                            &entity,
+                            &mut decoder,
+                            &void_index,
+                        ) {
                             if !mesh.is_empty() {
                                 if mesh.normals.is_empty() {
                                     calculate_normals(&mut mesh);

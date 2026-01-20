@@ -252,57 +252,49 @@ impl GeometryProcessor for ExtrudedAreaSolidProcessor {
             None
         };
 
-        // ExtrudedDirection is in the local coordinate system defined by Position.
-        // Transform it to world coordinates by applying Position's rotation (not translation).
-        let world_direction = if let Some(ref pos) = pos_transform {
-            // Extract rotation part of Position matrix and apply to local_direction
-            let rot_x = Vector3::new(pos[(0, 0)], pos[(1, 0)], pos[(2, 0)]);
-            let rot_y = Vector3::new(pos[(0, 1)], pos[(1, 1)], pos[(2, 1)]);
-            let rot_z = Vector3::new(pos[(0, 2)], pos[(1, 2)], pos[(2, 2)]);
+        // ExtrudedDirection is in the LOCAL coordinate system (before Position transform).
+        // We need to determine when to add an extrusion rotation vs. letting Position handle it.
+        //
+        // Two key cases:
+        // 1. Opening: local_direction=(0,0,-1), Position rotates local Z to world Y
+        //    -> local_direction IS along Z, so no rotation needed; Position handles orientation
+        // 2. Roof slab: local_direction=(0,-0.5,0.866), Position tilts the profile
+        //    -> world_direction = Position.rotation * local_direction = (0,0,1) (along world Z!)
+        //    -> No extra rotation needed; Position handles the tilt
+        //
+        // Check if local direction is along Z axis
+        // Note: We only check local direction because extrusion happens in LOCAL coordinates
+        // before the Position transform is applied. What the direction becomes in world
+        // space is irrelevant to the extrusion operation.
+        let is_local_z_aligned = local_direction.x.abs() < 0.001 && local_direction.y.abs() < 0.001;
 
-            // world_dir = local_dir.x * rot_x + local_dir.y * rot_y + local_dir.z * rot_z
-            (rot_x * local_direction.x + rot_y * local_direction.y + rot_z * local_direction.z)
-                .normalize()
-        } else {
-            local_direction
-        };
-
-        // Now check the WORLD direction to determine extrusion handling
-        let transform = if world_direction.x.abs() < 0.001 && world_direction.y.abs() < 0.001 {
-            // World extrusion direction is along Z axis - simple vertical extrusion
-            // No additional rotation needed beyond Position transform
-            if world_direction.z < 0.0 {
+        let transform = if is_local_z_aligned {
+            // Local direction is along Z - no extra rotation needed.
+            // Position transform will handle the correct orientation.
+            // Only need translation if extruding in negative direction.
+            if local_direction.z < 0.0 {
                 // Downward extrusion: shift the extrusion down by depth
                 Some(Matrix4::new_translation(&Vector3::new(0.0, 0.0, -depth)))
             } else {
                 None
             }
         } else {
-            // Non-Z-aligned world extrusion: construct rotation to align with world direction
-            let new_z = world_direction;
-
-            // Choose up vector (world Z, unless direction is nearly vertical)
-            let up = if new_z.z.abs() > 0.9 {
-                Vector3::new(0.0, 1.0, 0.0) // Use Y when nearly vertical
-            } else {
-                Vector3::new(0.0, 0.0, 1.0) // Use Z otherwise
-            };
-
-            let new_x = up.cross(&new_z).normalize();
-            let new_y = new_z.cross(&new_x).normalize();
-
-            let mut transform_mat = Matrix4::identity();
-            transform_mat[(0, 0)] = new_x.x;
-            transform_mat[(1, 0)] = new_x.y;
-            transform_mat[(2, 0)] = new_x.z;
-            transform_mat[(0, 1)] = new_y.x;
-            transform_mat[(1, 1)] = new_y.y;
-            transform_mat[(2, 1)] = new_y.z;
-            transform_mat[(0, 2)] = new_z.x;
-            transform_mat[(1, 2)] = new_z.y;
-            transform_mat[(2, 2)] = new_z.z;
-
-            Some(transform_mat)
+            // Local direction is NOT along Z - use SHEAR matrix (not rotation!)
+            // A shear preserves the profile plane orientation while redirecting extrusion.
+            //
+            // For ExtrudedDirection (dx, dy, dz), the shear matrix is:
+            // | 1    0    dx |
+            // | 0    1    dy |
+            // | 0    0    dz |
+            //
+            // This transforms (x, y, depth) to (x + dx*depth, y + dy*depth, dz*depth)
+            // while keeping (x, y, 0) unchanged.
+            let mut shear_mat = Matrix4::identity();
+            shear_mat[(0, 2)] = local_direction.x;  // X shear from Z
+            shear_mat[(1, 2)] = local_direction.y;  // Y shear from Z
+            shear_mat[(2, 2)] = local_direction.z;  // Z scale
+            
+            Some(shear_mat)
         };
 
         // Extrude the profile
@@ -1222,48 +1214,26 @@ impl BooleanClippingProcessor {
             .resolve_ref(position_attr)?
             .ok_or_else(|| Error::geometry("Failed to resolve Plane position".to_string()))?;
 
-        // Parse IfcAxis2Placement3D
-        // Location (Point), Axis (Direction - Z), RefDirection (Direction - X)
-        let location = {
-            let loc_attr = position
-                .get(0)
-                .ok_or_else(|| Error::geometry("Axis2Placement3D missing Location".to_string()))?;
-            let loc = decoder
-                .resolve_ref(loc_attr)?
-                .ok_or_else(|| Error::geometry("Failed to resolve plane location".to_string()))?;
-            let coords = loc
-                .get(0)
-                .and_then(|v| v.as_list())
-                .ok_or_else(|| Error::geometry("Location missing coordinates".to_string()))?;
-            Point3::new(
-                coords.first().and_then(|v| v.as_float()).unwrap_or(0.0),
-                coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0),
-                coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0),
-            )
-        };
+        // Parse IfcAxis2Placement3D to get transformation matrix
+        // The Position defines the plane's coordinate system:
+        // - Location = plane point (in world coordinates)
+        // - Z-axis (Axis) = plane normal (in local coordinates, needs transformation)
+        let position_transform = self.parse_axis2_placement_3d(&position, decoder)?;
 
-        let normal = {
-            if let Some(axis_attr) = position.get(1) {
-                if !axis_attr.is_null() {
-                    let axis = decoder.resolve_ref(axis_attr)?.ok_or_else(|| {
-                        Error::geometry("Failed to resolve plane axis".to_string())
-                    })?;
-                    let coords = axis.get(0).and_then(|v| v.as_list()).ok_or_else(|| {
-                        Error::geometry("Axis missing direction ratios".to_string())
-                    })?;
-                    Vector3::new(
-                        coords.first().and_then(|v| v.as_float()).unwrap_or(0.0),
-                        coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0),
-                        coords.get(2).and_then(|v| v.as_float()).unwrap_or(1.0),
-                    )
-                    .normalize()
-                } else {
-                    Vector3::new(0.0, 0.0, 1.0)
-                }
-            } else {
-                Vector3::new(0.0, 0.0, 1.0)
-            }
-        };
+        // Plane point is the Position's Location (translation part of transform)
+        let location = Point3::new(
+            position_transform[(0, 3)],
+            position_transform[(1, 3)],
+            position_transform[(2, 3)],
+        );
+
+        // Plane normal is the Position's Z-axis transformed to world coordinates
+        // Extract Z-axis from transform matrix (third column)
+        let normal = Vector3::new(
+            position_transform[(0, 2)],
+            position_transform[(1, 2)],
+            position_transform[(2, 2)],
+        ).normalize();
 
         Ok((location, normal, agreement))
     }
@@ -1279,18 +1249,164 @@ impl BooleanClippingProcessor {
         use crate::csg::{ClippingProcessor, Plane};
 
         // For DIFFERENCE operation with HalfSpaceSolid:
-        // - AgreementFlag=.T. means keep material on positive side of plane
-        // - AgreementFlag=.F. means keep material on negative side of plane
-        // But we're SUBTRACTING the half-space, so we invert
+        // - AgreementFlag=.T. means material is on positive side of plane normal
+        // - AgreementFlag=.F. means material is on negative side of plane normal
+        // Since we're SUBTRACTING the half-space, we keep the opposite side:
+        // - If material is on positive side (agreement=true), remove positive side → keep negative side → clip_normal = plane_normal
+        // - If material is on negative side (agreement=false), remove negative side → keep positive side → clip_normal = -plane_normal
         let clip_normal = if agreement {
-            -plane_normal // Subtract positive side = keep negative side
+            plane_normal // Material on positive side, remove it, keep negative side
         } else {
-            plane_normal // Subtract negative side = keep positive side
+            -plane_normal // Material on negative side, remove it, keep positive side
         };
 
         let plane = Plane::new(plane_point, clip_normal);
         let processor = ClippingProcessor::new();
         processor.clip_mesh(mesh, &plane)
+    }
+
+    /// Parse IfcAxis2Placement3D into transformation matrix
+    #[inline]
+    fn parse_axis2_placement_3d(
+        &self,
+        placement: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<Matrix4<f64>> {
+        // IfcAxis2Placement3D: Location, Axis, RefDirection
+        let location = self.parse_cartesian_point(placement, decoder, 0)?;
+
+        // Default axes if not specified
+        let z_axis = if let Some(axis_attr) = placement.get(1) {
+            if !axis_attr.is_null() {
+                if let Some(axis_entity) = decoder.resolve_ref(axis_attr)? {
+                    self.parse_direction(&axis_entity)?
+                } else {
+                    Vector3::new(0.0, 0.0, 1.0)
+                }
+            } else {
+                Vector3::new(0.0, 0.0, 1.0)
+            }
+        } else {
+            Vector3::new(0.0, 0.0, 1.0)
+        };
+
+        let x_axis = if let Some(ref_dir_attr) = placement.get(2) {
+            if !ref_dir_attr.is_null() {
+                if let Some(ref_dir_entity) = decoder.resolve_ref(ref_dir_attr)? {
+                    self.parse_direction(&ref_dir_entity)?
+                } else {
+                    Vector3::new(1.0, 0.0, 0.0)
+                }
+            } else {
+                Vector3::new(1.0, 0.0, 0.0)
+            }
+        } else {
+            Vector3::new(1.0, 0.0, 0.0)
+        };
+
+        // Normalize axes
+        let z_axis_final = z_axis.normalize();
+        let x_axis_normalized = x_axis.normalize();
+
+        // Ensure X is orthogonal to Z (project X onto plane perpendicular to Z)
+        let dot_product = x_axis_normalized.dot(&z_axis_final);
+        let x_axis_orthogonal = x_axis_normalized - z_axis_final * dot_product;
+        let x_axis_final = if x_axis_orthogonal.norm() > 1e-6 {
+            x_axis_orthogonal.normalize()
+        } else {
+            // X and Z are parallel or nearly parallel - use a default perpendicular direction
+            if z_axis_final.z.abs() < 0.9 {
+                Vector3::new(0.0, 0.0, 1.0).cross(&z_axis_final).normalize()
+            } else {
+                Vector3::new(1.0, 0.0, 0.0).cross(&z_axis_final).normalize()
+            }
+        };
+
+        // Y axis is cross product of Z and X (right-hand rule: Y = Z × X)
+        let y_axis = z_axis_final.cross(&x_axis_final).normalize();
+
+        // Build transformation matrix
+        // Columns represent world-space directions of local axes
+        let mut transform = Matrix4::identity();
+        transform[(0, 0)] = x_axis_final.x;
+        transform[(1, 0)] = x_axis_final.y;
+        transform[(2, 0)] = x_axis_final.z;
+        transform[(0, 1)] = y_axis.x;
+        transform[(1, 1)] = y_axis.y;
+        transform[(2, 1)] = y_axis.z;
+        transform[(0, 2)] = z_axis_final.x;
+        transform[(1, 2)] = z_axis_final.y;
+        transform[(2, 2)] = z_axis_final.z;
+        transform[(0, 3)] = location.x;
+        transform[(1, 3)] = location.y;
+        transform[(2, 3)] = location.z;
+
+        Ok(transform)
+    }
+
+    /// Parse IfcCartesianPoint
+    #[inline]
+    fn parse_cartesian_point(
+        &self,
+        parent: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+        attr_index: usize,
+    ) -> Result<Point3<f64>> {
+        let point_attr = parent
+            .get(attr_index)
+            .ok_or_else(|| Error::geometry("Missing cartesian point".to_string()))?;
+
+        let point_entity = decoder
+            .resolve_ref(point_attr)?
+            .ok_or_else(|| Error::geometry("Failed to resolve cartesian point".to_string()))?;
+
+        if point_entity.ifc_type != IfcType::IfcCartesianPoint {
+            return Err(Error::geometry(format!(
+                "Expected IfcCartesianPoint, got {}",
+                point_entity.ifc_type
+            )));
+        }
+
+        // Get coordinates list (attribute 0)
+        let coords_attr = point_entity
+            .get(0)
+            .ok_or_else(|| Error::geometry("IfcCartesianPoint missing coordinates".to_string()))?;
+
+        let coords = coords_attr
+            .as_list()
+            .ok_or_else(|| Error::geometry("Expected coordinate list".to_string()))?;
+
+        let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0);
+        let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
+        let z = coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
+
+        Ok(Point3::new(x, y, z))
+    }
+
+    /// Parse IfcDirection
+    #[inline]
+    fn parse_direction(&self, direction_entity: &DecodedEntity) -> Result<Vector3<f64>> {
+        if direction_entity.ifc_type != IfcType::IfcDirection {
+            return Err(Error::geometry(format!(
+                "Expected IfcDirection, got {}",
+                direction_entity.ifc_type
+            )));
+        }
+
+        // Get direction ratios (attribute 0)
+        let ratios_attr = direction_entity
+            .get(0)
+            .ok_or_else(|| Error::geometry("IfcDirection missing ratios".to_string()))?;
+
+        let ratios = ratios_attr
+            .as_list()
+            .ok_or_else(|| Error::geometry("Expected ratio list".to_string()))?;
+
+        let x = ratios.first().and_then(|v| v.as_float()).unwrap_or(0.0);
+        let y = ratios.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
+        let z = ratios.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
+
+        Ok(Vector3::new(x, y, z))
     }
 }
 
@@ -1341,14 +1457,19 @@ impl GeometryProcessor for BooleanClippingProcessor {
             .ok_or_else(|| Error::geometry("Failed to resolve SecondOperand".to_string()))?;
 
         // Handle DIFFERENCE operation
-        if operator == ".DIFFERENCE." {
+        // Note: Parser may strip dots from enum values, so check both forms
+        if operator == ".DIFFERENCE." || operator == "DIFFERENCE" {
             // Check if second operand is a half-space solid (simple or polygonally bounded)
-            // For both types, the BaseSurface plane defines the clipping surface
-            // The polygon boundary in PolygonalBoundedHalfSpace limits the region but
-            // for wall-roof clipping, plane clipping is sufficient and more reliable
-            if second_operand.ifc_type == IfcType::IfcHalfSpaceSolid
-                || second_operand.ifc_type == IfcType::IfcPolygonalBoundedHalfSpace
-            {
+            if second_operand.ifc_type == IfcType::IfcHalfSpaceSolid {
+                // Simple half-space: use plane clipping
+                let (plane_point, plane_normal, agreement) =
+                    self.parse_half_space_solid(&second_operand, decoder)?;
+                return self.clip_mesh_with_half_space(&mesh, plane_point, plane_normal, agreement);
+            }
+
+            // For PolygonalBoundedHalfSpace, use simple plane clipping (same as IfcHalfSpaceSolid)
+            // The polygon boundary defines the region but for wall-roof clipping, the plane is sufficient
+            if second_operand.ifc_type == IfcType::IfcPolygonalBoundedHalfSpace {
                 let (plane_point, plane_normal, agreement) =
                     self.parse_half_space_solid(&second_operand, decoder)?;
                 return self.clip_mesh_with_half_space(&mesh, plane_point, plane_normal, agreement);
@@ -1357,16 +1478,17 @@ impl GeometryProcessor for BooleanClippingProcessor {
             // Solid-solid difference: use full CSG (e.g., wall clipped by roof/slab)
             // Only process the second operand when we actually need it for CSG
             let second_mesh = self.process_operand(&second_operand, decoder)?;
+
             if !second_mesh.is_empty() {
                 // Lazy initialization of CSG processor - only invoked when needed
                 use crate::csg::ClippingProcessor;
                 let csg = ClippingProcessor::new();
                 match csg.subtract_mesh(&mesh, &second_mesh) {
-                    Ok(result) => return Ok(result),
-                    Err(_e) => {
+                    Ok(result) => {
+                        return Ok(result);
+                    }
+                    Err(_) => {
                         // CSG can fail on degenerate meshes - fall back to first operand
-                        #[cfg(debug_assertions)]
-                        eprintln!("[WARN] CSG difference failed, returning first operand: {}", _e);
                         return Ok(mesh);
                     }
                 }
@@ -1375,7 +1497,7 @@ impl GeometryProcessor for BooleanClippingProcessor {
         }
 
         // Handle UNION operation
-        if operator == ".UNION." {
+        if operator == ".UNION." || operator == "UNION" {
             let second_mesh = self.process_operand(&second_operand, decoder)?;
             if !second_mesh.is_empty() {
                 use crate::csg::ClippingProcessor;
@@ -1393,7 +1515,7 @@ impl GeometryProcessor for BooleanClippingProcessor {
         }
 
         // Handle INTERSECTION operation
-        if operator == ".INTERSECTION." {
+        if operator == ".INTERSECTION." || operator == "INTERSECTION" {
             let second_mesh = self.process_operand(&second_operand, decoder)?;
             if !second_mesh.is_empty() {
                 use crate::csg::ClippingProcessor;
