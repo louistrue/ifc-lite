@@ -11,3 +11,5 @@ import { ViewerLayout } from './components/viewer/ViewerLayout';
 export function App() {
   return <ViewerLayout />;
 }
+
+export default App;
