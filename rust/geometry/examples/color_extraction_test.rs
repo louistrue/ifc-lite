@@ -94,6 +94,71 @@ fn main() {
             break;
         }
     }
+
+    // Test window color separation (frame vs glass)
+    test_window_colors(&content, &mut decoder, &geometry_styles);
+}
+
+/// Test that window geometry items have different colors (frame = wood, glass = transparent)
+fn test_window_colors(
+    content: &str,
+    decoder: &mut EntityDecoder,
+    geometry_styles: &FxHashMap<u32, [f32; 4]>,
+) {
+    println!("\n=== Testing Window Color Separation ===");
+
+    // Window #23024 has geometry in MappedRepresentation
+    // The underlying geometry items are in ShapeRepresentation #22996:
+    // - #22506 (Frame) → style #17393 (Kiefer/wood brown)
+    // - #22746, #22992 (Glass) → style #22751 (Glas/transparent blue-green)
+
+    let frame_id = 22506u32;
+    let glass_id = 22746u32;
+
+    println!("\nFrame geometry #{}:", frame_id);
+    if let Some(color) = geometry_styles.get(&frame_id) {
+        println!("  Color: R={:.3}, G={:.3}, B={:.3}, A={:.3}", color[0], color[1], color[2], color[3]);
+        // Expected: Kiefer (wood) = R≈0.964, G≈0.754, B≈0.452, opaque
+        let is_opaque_wood = color[3] > 0.9 && color[0] > 0.9 && color[2] < 0.5;
+        if is_opaque_wood {
+            println!("  ✅ Frame is opaque wood color!");
+        } else {
+            println!("  ⚠️ Frame color unexpected");
+        }
+    } else {
+        println!("  ❌ No color found for frame!");
+    }
+
+    println!("\nGlass geometry #{}:", glass_id);
+    if let Some(color) = geometry_styles.get(&glass_id) {
+        println!("  Color: R={:.3}, G={:.3}, B={:.3}, A={:.3}", color[0], color[1], color[2], color[3]);
+        // Expected: Glas = transparency 0.88, so alpha ≈ 0.12
+        let is_transparent = color[3] < 0.2;
+        if is_transparent {
+            println!("  ✅ Glass is transparent (alpha={:.2})!", color[3]);
+        } else {
+            println!("  ❌ Glass should be transparent (alpha should be ~0.12, got {:.2})", color[3]);
+        }
+    } else {
+        println!("  ❌ No color found for glass!");
+    }
+
+    // Summary
+    let frame_color = geometry_styles.get(&frame_id);
+    let glass_color = geometry_styles.get(&glass_id);
+
+    if frame_color.is_some() && glass_color.is_some() {
+        let frame = frame_color.unwrap();
+        let glass = glass_color.unwrap();
+
+        if (frame[3] - glass[3]).abs() > 0.5 {
+            println!("\n✅ SUCCESS: Frame and glass have DIFFERENT transparency!");
+            println!("   Frame alpha: {:.2} (opaque)", frame[3]);
+            println!("   Glass alpha: {:.2} (transparent)", glass[3]);
+        } else {
+            println!("\n❌ FAIL: Frame and glass should have different transparency!");
+        }
+    }
 }
 
 /// Trace the representation chain to find where color should come from

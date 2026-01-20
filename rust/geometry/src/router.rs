@@ -18,7 +18,7 @@ use crate::void_analysis::{
     extract_coplanar_voids, extract_nonplanar_voids, VoidAnalyzer, VoidClassification,
 };
 use crate::void_index::VoidIndex;
-use crate::{Error, Mesh, Point3, Result, Vector3};
+use crate::{Error, Mesh, Point3, Result, SubMeshCollection, Vector3};
 use ifc_lite_core::{DecodedEntity, EntityDecoder, GeometryCategory, IfcSchema, IfcType};
 use nalgebra::{Matrix4, Point2};
 use rustc_hash::FxHashMap;
@@ -358,6 +358,204 @@ impl GeometryRouter {
         self.apply_placement(element, decoder, &mut combined_mesh)?;
 
         Ok(combined_mesh)
+    }
+
+    /// Process element and return sub-meshes with their geometry item IDs.
+    /// This preserves per-item identity for color/style lookup.
+    ///
+    /// For elements with multiple styled geometry items (like windows with frames + glass),
+    /// this returns separate sub-meshes that can receive different colors.
+    pub fn process_element_with_submeshes(
+        &self,
+        element: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<SubMeshCollection> {
+        // Get representation (attribute 6 for most building elements)
+        let representation_attr = element.get(6).ok_or_else(|| {
+            Error::geometry(format!(
+                "Element #{} has no representation attribute",
+                element.id
+            ))
+        })?;
+
+        if representation_attr.is_null() {
+            return Ok(SubMeshCollection::new()); // No geometry
+        }
+
+        let representation = decoder
+            .resolve_ref(representation_attr)?
+            .ok_or_else(|| Error::geometry("Failed to resolve representation".to_string()))?;
+
+        if representation.ifc_type != IfcType::IfcProductDefinitionShape {
+            return Err(Error::geometry(format!(
+                "Expected IfcProductDefinitionShape, got {}",
+                representation.ifc_type
+            )));
+        }
+
+        // Get representations list (attribute 2)
+        let representations_attr = representation.get(2).ok_or_else(|| {
+            Error::geometry("IfcProductDefinitionShape missing Representations".to_string())
+        })?;
+
+        let representations = decoder.resolve_ref_list(representations_attr)?;
+
+        let mut sub_meshes = SubMeshCollection::new();
+
+        // Check if we have direct geometry
+        let has_direct_geometry = representations.iter().any(|rep| {
+            if rep.ifc_type != IfcType::IfcShapeRepresentation {
+                return false;
+            }
+            if let Some(rep_type_attr) = rep.get(2) {
+                if let Some(rep_type) = rep_type_attr.as_string() {
+                    matches!(
+                        rep_type,
+                        "Body"
+                            | "SweptSolid"
+                            | "Brep"
+                            | "CSG"
+                            | "Clipping"
+                            | "SurfaceModel"
+                            | "Tessellation"
+                            | "AdvancedSweptSolid"
+                            | "AdvancedBrep"
+                    )
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        });
+
+        for shape_rep in representations {
+            if shape_rep.ifc_type != IfcType::IfcShapeRepresentation {
+                continue;
+            }
+
+            if let Some(rep_type_attr) = shape_rep.get(2) {
+                if let Some(rep_type) = rep_type_attr.as_string() {
+                    // Skip MappedRepresentation if we have direct geometry
+                    if rep_type == "MappedRepresentation" && has_direct_geometry {
+                        continue;
+                    }
+
+                    // Only process solid geometry representations
+                    if !matches!(
+                        rep_type,
+                        "Body"
+                            | "SweptSolid"
+                            | "Brep"
+                            | "CSG"
+                            | "Clipping"
+                            | "SurfaceModel"
+                            | "Tessellation"
+                            | "MappedRepresentation"
+                            | "AdvancedSweptSolid"
+                            | "AdvancedBrep"
+                    ) {
+                        continue;
+                    }
+                }
+            }
+
+            // Get items list (attribute 3)
+            let items_attr = shape_rep.get(3).ok_or_else(|| {
+                Error::geometry("IfcShapeRepresentation missing Items".to_string())
+            })?;
+
+            let items = decoder.resolve_ref_list(items_attr)?;
+
+            // Process each representation item, preserving geometry IDs
+            for item in items {
+                self.collect_submeshes_from_item(&item, decoder, &mut sub_meshes)?;
+            }
+        }
+
+        // Apply placement transformation to all sub-meshes
+        if let Some(placement_attr) = element.get(5) {
+            if !placement_attr.is_null() {
+                if let Some(placement) = decoder.resolve_ref(placement_attr)? {
+                    let transform = self.get_placement_transform(&placement, decoder)?;
+                    for sub in &mut sub_meshes.sub_meshes {
+                        self.transform_mesh(&mut sub.mesh, &transform);
+                    }
+                }
+            }
+        }
+
+        Ok(sub_meshes)
+    }
+
+    /// Collect sub-meshes from a representation item, following MappedItem references.
+    fn collect_submeshes_from_item(
+        &self,
+        item: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+        sub_meshes: &mut SubMeshCollection,
+    ) -> Result<()> {
+        // For MappedItem, recurse into the mapped representation
+        if item.ifc_type == IfcType::IfcMappedItem {
+            // Get MappingSource (RepresentationMap)
+            let source_attr = item
+                .get(0)
+                .ok_or_else(|| Error::geometry("MappedItem missing MappingSource".to_string()))?;
+
+            let source_entity = decoder
+                .resolve_ref(source_attr)?
+                .ok_or_else(|| Error::geometry("Failed to resolve MappingSource".to_string()))?;
+
+            // Get MappedRepresentation from RepresentationMap (attribute 1)
+            let mapped_repr_attr = source_entity
+                .get(1)
+                .ok_or_else(|| Error::geometry("RepresentationMap missing MappedRepresentation".to_string()))?;
+
+            let mapped_repr = decoder
+                .resolve_ref(mapped_repr_attr)?
+                .ok_or_else(|| Error::geometry("Failed to resolve MappedRepresentation".to_string()))?;
+
+            // Get MappingTarget transformation
+            let mapping_transform = if let Some(target_attr) = item.get(1) {
+                if !target_attr.is_null() {
+                    if let Some(target_entity) = decoder.resolve_ref(target_attr)? {
+                        Some(self.parse_cartesian_transformation_operator(&target_entity, decoder)?)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // Get items from the mapped representation
+            if let Some(items_attr) = mapped_repr.get(3) {
+                let items = decoder.resolve_ref_list(items_attr)?;
+                for nested_item in items {
+                    // Recursively collect sub-meshes
+                    let count_before = sub_meshes.len();
+                    self.collect_submeshes_from_item(&nested_item, decoder, sub_meshes)?;
+
+                    // Apply MappedItem transform to newly added sub-meshes
+                    if let Some(mut transform) = mapping_transform.clone() {
+                        self.scale_transform(&mut transform);
+                        for sub in &mut sub_meshes.sub_meshes[count_before..] {
+                            self.transform_mesh(&mut sub.mesh, &transform);
+                        }
+                    }
+                }
+            }
+        } else {
+            // Regular geometry item - process and record with its ID
+            let mesh = self.process_representation_item(item, decoder)?;
+            if !mesh.is_empty() {
+                sub_meshes.add(item.id, mesh);
+            }
+        }
+
+        Ok(())
     }
 
     /// Process element with void subtraction (openings)

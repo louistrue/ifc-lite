@@ -448,25 +448,61 @@ impl IfcAPI {
                     continue;
                 }
 
-                if let Ok(mut mesh) =
-                    router.process_element_with_voids(&entity, &mut decoder, &void_index)
-                {
-                    if !mesh.is_empty() {
-                        // Calculate normals if not present
-                        if mesh.normals.is_empty() {
-                            calculate_normals(&mut mesh);
+                let ifc_type_name = entity.ifc_type.name().to_string();
+                let default_color = get_default_color_for_type(&entity.ifc_type);
+
+                // Check if this element has openings that need to be cut
+                let has_voids = void_index.contains_key(&id);
+
+                if has_voids {
+                    // Element has openings - use combined mesh approach for CSG
+                    if let Ok(mut mesh) =
+                        router.process_element_with_voids(&entity, &mut decoder, &void_index)
+                    {
+                        if !mesh.is_empty() {
+                            if mesh.normals.is_empty() {
+                                calculate_normals(&mut mesh);
+                            }
+
+                            let color = style_index
+                                .get(&id)
+                                .copied()
+                                .unwrap_or(default_color);
+
+                            let mesh_data = MeshDataJs::new(id, ifc_type_name.clone(), mesh, color);
+                            mesh_collection.add(mesh_data);
+                        }
+                    }
+                } else {
+                    // No openings - use sub-mesh approach for per-item colors
+                    if let Ok(sub_meshes) =
+                        router.process_element_with_submeshes(&entity, &mut decoder)
+                    {
+                        if sub_meshes.is_empty() {
+                            continue;
                         }
 
-                        // Try to get color from style index, otherwise use default
-                        let color = style_index
-                            .get(&id)
-                            .copied()
-                            .unwrap_or_else(|| get_default_color_for_type(&entity.ifc_type));
+                        // Create separate MeshDataJs for each sub-mesh with its own color
+                        for sub in sub_meshes.sub_meshes {
+                            let mut mesh = sub.mesh;
+                            if mesh.is_empty() {
+                                continue;
+                            }
+                            if mesh.normals.is_empty() {
+                                calculate_normals(&mut mesh);
+                            }
 
-                        // Create mesh data with express ID, IFC type, and color
-                        let ifc_type_name = entity.ifc_type.name().to_string();
-                        let mesh_data = MeshDataJs::new(id, ifc_type_name, mesh, color);
-                        mesh_collection.add(mesh_data);
+                            // Look up color by geometry item ID, then by element ID, then default
+                            let color = geometry_styles
+                                .get(&sub.geometry_id)
+                                .copied()
+                                .or_else(|| style_index.get(&id).copied())
+                                .unwrap_or(default_color);
+
+                            let mesh_data =
+                                MeshDataJs::new(id, ifc_type_name.clone(), mesh, color);
+                            mesh_collection.add(mesh_data);
+                        }
                     }
                 }
             }
