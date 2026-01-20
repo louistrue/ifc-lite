@@ -225,36 +225,61 @@ impl GeometryProcessor for ExtrudedAreaSolidProcessor {
             .and_then(|v: &AttributeValue| v.as_float())
             .unwrap_or(1.0);
 
-        let direction = Vector3::new(dir_x, dir_y, dir_z).normalize();
+        let local_direction = Vector3::new(dir_x, dir_y, dir_z).normalize();
 
         // Get depth
         let depth = entity
             .get_float(3)
             .ok_or_else(|| Error::geometry("ExtrudedAreaSolid missing Depth".to_string()))?;
 
+        // Parse Position transform first (attribute 1: IfcAxis2Placement3D)
+        // We need Position's rotation to transform ExtrudedDirection to world coordinates
+        let pos_transform = if let Some(pos_attr) = entity.get(1) {
+            if !pos_attr.is_null() {
+                if let Some(pos_entity) = decoder.resolve_ref(pos_attr)? {
+                    if pos_entity.ifc_type == IfcType::IfcAxis2Placement3D {
+                        Some(self.parse_axis2_placement_3d(&pos_entity, decoder)?)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         // ExtrudedDirection is in the local coordinate system defined by Position.
-        // Most IFC files use (0,0,1) or (0,0,-1) for vertical extrusions.
-        // We should NOT apply a separate rotation for the extrusion direction when it's
-        // aligned with Z, as Position will handle the full orientation.
-        // Only apply additional rotation when ExtrudedDirection has X or Y components
-        // (i.e., non-vertical extrusion in local space).
-        let transform = if direction.x.abs() < 0.001 && direction.y.abs() < 0.001 {
-            // ExtrudedDirection is along local Z axis - no additional rotation needed
-            // Position transform will handle the orientation
-            //
-            // However, if ExtrudedDirection is (0,0,-1), we need to offset the extrusion
-            // so it goes from Z=-depth to Z=0 instead of Z=0 to Z=+depth.
-            // This is because extrude_profile always extrudes in +Z, but IFC expects
-            // the solid to extend in the ExtrudedDirection from the profile plane.
-            if direction.z < 0.0 {
-                // Shift the extrusion down by depth so it extends in -Z from the profile plane
+        // Transform it to world coordinates by applying Position's rotation (not translation).
+        let world_direction = if let Some(ref pos) = pos_transform {
+            // Extract rotation part of Position matrix and apply to local_direction
+            let rot_x = Vector3::new(pos[(0, 0)], pos[(1, 0)], pos[(2, 0)]);
+            let rot_y = Vector3::new(pos[(0, 1)], pos[(1, 1)], pos[(2, 1)]);
+            let rot_z = Vector3::new(pos[(0, 2)], pos[(1, 2)], pos[(2, 2)]);
+
+            // world_dir = local_dir.x * rot_x + local_dir.y * rot_y + local_dir.z * rot_z
+            (rot_x * local_direction.x + rot_y * local_direction.y + rot_z * local_direction.z)
+                .normalize()
+        } else {
+            local_direction
+        };
+
+        // Now check the WORLD direction to determine extrusion handling
+        let transform = if world_direction.x.abs() < 0.001 && world_direction.y.abs() < 0.001 {
+            // World extrusion direction is along Z axis - simple vertical extrusion
+            // No additional rotation needed beyond Position transform
+            if world_direction.z < 0.0 {
+                // Downward extrusion: shift the extrusion down by depth
                 Some(Matrix4::new_translation(&Vector3::new(0.0, 0.0, -depth)))
             } else {
                 None
             }
         } else {
-            // Non-Z-aligned extrusion: construct rotation to align with extrusion direction
-            let new_z = direction.normalize();
+            // Non-Z-aligned world extrusion: construct rotation to align with world direction
+            let new_z = world_direction;
 
             // Choose up vector (world Z, unless direction is nearly vertical)
             let up = if new_z.z.abs() > 0.9 {
@@ -283,16 +308,9 @@ impl GeometryProcessor for ExtrudedAreaSolidProcessor {
         // Extrude the profile
         let mut mesh = extrude_profile(&profile, depth, transform)?;
 
-        // Apply Position transform (attribute 1: IfcAxis2Placement3D)
-        if let Some(pos_attr) = entity.get(1) {
-            if !pos_attr.is_null() {
-                if let Some(pos_entity) = decoder.resolve_ref(pos_attr)? {
-                    if pos_entity.ifc_type == IfcType::IfcAxis2Placement3D {
-                        let pos_transform = self.parse_axis2_placement_3d(&pos_entity, decoder)?;
-                        apply_transform(&mut mesh, &pos_transform);
-                    }
-                }
-            }
+        // Apply Position transform
+        if let Some(pos) = pos_transform {
+            apply_transform(&mut mesh, &pos);
         }
 
         Ok(mesh)

@@ -635,7 +635,7 @@ impl GeometryRouter {
             None => return Ok(None),
         };
 
-        let extrusion_direction = self.parse_direction(&direction_entity)?;
+        let local_extrusion_direction = self.parse_direction(&direction_entity)?;
 
         // Get position transform (attribute 1)
         let position_transform = if let Some(pos_attr) = extrusion.get(1) {
@@ -650,6 +650,30 @@ impl GeometryRouter {
             }
         } else {
             Matrix4::identity()
+        };
+
+        // Transform extrusion direction from local to world coordinates
+        // ExtrudedDirection is specified in Position's local coordinate system
+        let extrusion_direction = {
+            let rot_x = Vector3::new(
+                position_transform[(0, 0)],
+                position_transform[(1, 0)],
+                position_transform[(2, 0)],
+            );
+            let rot_y = Vector3::new(
+                position_transform[(0, 1)],
+                position_transform[(1, 1)],
+                position_transform[(2, 1)],
+            );
+            let rot_z = Vector3::new(
+                position_transform[(0, 2)],
+                position_transform[(1, 2)],
+                position_transform[(2, 2)],
+            );
+            (rot_x * local_extrusion_direction.x
+                + rot_y * local_extrusion_direction.y
+                + rot_z * local_extrusion_direction.z)
+                .normalize()
         };
 
         // Get element placement transform
