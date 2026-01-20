@@ -100,11 +100,6 @@ export function ViewportContainer() {
       const isSpace = ifcType === 'IfcSpace';
       const isOpening = ifcType === 'IfcOpeningElement';
 
-      // Guard against undefined color
-      if (!mesh.color) {
-        return mesh;
-      }
-
       if (isSpace || isOpening) {
         // Create a new color array with reduced opacity
         const newColor: [number, number, number, number] = [

@@ -80,34 +80,14 @@ export class Scene {
 
   /**
    * Get MeshData by expressId (for lazy buffer creation)
-   * Returns merged MeshData if element has multiple pieces with same color,
-   * or first piece if colors differ (to preserve correct per-piece colors)
+   * Returns merged MeshData if element has multiple pieces
    */
   getMeshData(expressId: number): MeshData | undefined {
     const pieces = this.meshDataMap.get(expressId);
     if (!pieces || pieces.length === 0) return undefined;
     if (pieces.length === 1) return pieces[0];
 
-    // Check if all pieces have the same color (within tolerance)
-    // This handles multi-material elements like windows (frame vs glass)
-    const firstColor = pieces[0].color;
-    const colorTolerance = 0.01; // Allow small floating point differences
-    const allSameColor = pieces.every(piece => {
-      const c = piece.color;
-      return Math.abs(c[0] - firstColor[0]) < colorTolerance &&
-             Math.abs(c[1] - firstColor[1]) < colorTolerance &&
-             Math.abs(c[2] - firstColor[2]) < colorTolerance &&
-             Math.abs(c[3] - firstColor[3]) < colorTolerance;
-    });
-
-    // If colors differ, return first piece without merging
-    // This preserves correct per-piece colors for multi-material elements
-    // Callers can use getMeshDataPieces() if they need all pieces
-    if (!allSameColor) {
-      return pieces[0];
-    }
-
-    // All pieces have same color - safe to merge
+    // Merge multiple pieces into one MeshData
     // Calculate total sizes
     let totalPositions = 0;
     let totalIndices = 0;
@@ -140,13 +120,13 @@ export class Scene {
       vertexOffset += piece.positions.length / 3;
     }
 
-    // Return merged MeshData (all pieces have same color)
+    // Return merged MeshData (use first piece's metadata)
     return {
       expressId,
       positions: mergedPositions,
       normals: mergedNormals,
       indices: mergedIndices,
-      color: firstColor,
+      color: pieces[0].color,
       ifcType: pieces[0].ifcType,
     };
   }

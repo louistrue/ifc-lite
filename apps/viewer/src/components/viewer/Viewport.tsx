@@ -1466,8 +1466,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   }, [setSelectedEntityId]);
 
   // Track processed meshes for incremental updates
-  // Uses string keys to support compound keys (expressId:color) for submeshes
-  const processedMeshIdsRef = useRef<Set<string>>(new Set());
+  const processedMeshIdsRef = useRef<Set<number>>(new Set());
   const lastGeometryLengthRef = useRef<number>(0);
   const lastGeometryRef = useRef<MeshData[] | null>(null);
   const cameraFittedRef = useRef<boolean>(false);
@@ -1626,21 +1625,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
       : geometry;  // Post-streaming: scan entire array for unprocessed meshes
 
     // Filter out already processed meshes
-    // NOTE: Multiple meshes can share the same expressId (e.g., window frame + glass submeshes),
-    // so we use expressId + color as a compound key to distinguish submeshes.
     const newMeshes: MeshData[] = [];
-    for (let i = 0; i < meshesToAdd.length; i++) {
-      const meshData = meshesToAdd[i];
-      // Use expressId + color as a compound key to distinguish submeshes
-      // Guard against undefined color (can happen with some server responses)
-      const colorKey = meshData.color
-        ? meshData.color.map(c => c.toFixed(3)).join(',')
-        : 'no-color';
-      const compoundKey = `${meshData.expressId}:${colorKey}`;
-
-      if (!processedMeshIdsRef.current.has(compoundKey)) {
+    for (const meshData of meshesToAdd) {
+      if (!processedMeshIdsRef.current.has(meshData.expressId)) {
         newMeshes.push(meshData);
-        processedMeshIdsRef.current.add(compoundKey);
+        processedMeshIdsRef.current.add(meshData.expressId);
       }
     }
 
