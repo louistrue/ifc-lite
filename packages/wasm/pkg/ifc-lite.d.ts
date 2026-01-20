@@ -842,9 +842,9 @@ export interface InitOutput {
   readonly instancedgeometry_geometryId: (a: number) => bigint;
   readonly __wasm_bindgen_func_elem_393: (a: number, b: number) => void;
   readonly __wasm_bindgen_func_elem_389: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_725: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_720: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_756: (a: number, b: number, c: number, d: number) => void;
+  readonly __wasm_bindgen_func_elem_733: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_728: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_764: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_export: (a: number, b: number) => number;
   readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_export3: (a: number) => void;

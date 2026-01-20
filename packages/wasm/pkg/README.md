@@ -26,6 +26,7 @@
 <p align="center">
   <a href="#features">Features</a> ·
   <a href="#quick-start">Quick Start</a> ·
+  <a href="#desktop-app-tauri">Desktop App</a> ·
   <a href="#architecture">Architecture</a> ·
   <a href="#server-paradigm">Server</a> ·
   <a href="#performance">Performance</a> ·
@@ -118,14 +119,39 @@ For contributing or running the full demo app:
 ```bash
 git clone https://github.com/louistrue/ifc-lite.git
 cd ifc-lite
-pnpm install && pnpm dev
+pnpm install
+pnpm build    # Build all packages first
+pnpm dev      # Start the viewer
 ```
 
 Open http://localhost:5173 and load an IFC file.
 
 > **Note:** Requires Node.js 18+ and pnpm 8+. No Rust toolchain needed - WASM is pre-built.
-> 
+>
+> **Important:** The `pnpm build` step is required before running `pnpm dev` because the viewer depends on local packages that need to be compiled first.
+>
 > **📖 Full Guide**: See [Installation](docs/guide/installation.md) for detailed setup options including troubleshooting.
+
+### Option 5: Desktop App (Tauri)
+
+Run IFClite as a native desktop application with enhanced performance:
+
+```bash
+cd apps/desktop
+pnpm install
+pnpm dev          # Development mode
+pnpm build        # Build for current platform
+```
+
+Build for specific platforms:
+
+```bash
+pnpm build:windows   # Windows (.exe, .msi)
+pnpm build:macos     # macOS (.app, .dmg)
+pnpm build:linux     # Linux (.deb, .AppImage)
+```
+
+> **Note:** Requires Rust toolchain for building. See [Tauri Prerequisites](https://v2.tauri.app/start/prerequisites/).
 
 ### Basic Usage
 
@@ -272,7 +298,8 @@ ifc-lite/
 │
 ├── apps/
 │   ├── viewer/                # React web application
-│   └── server/                # Rust HTTP server (Axum)
+│   ├── server/                # Rust HTTP server (Axum)
+│   └── desktop/               # Tauri desktop application
 │
 └── docs/                      # Documentation (MkDocs)
 ```
@@ -354,6 +381,67 @@ Results saved to `tests/benchmark/benchmark-results/` with automatic regression 
 | Safari | 18+ | ✅ |
 
 > **More Info**: See [Browser Requirements](docs/guide/browser-requirements.md) for WebGPU feature detection and fallbacks.
+
+## Desktop App (Tauri)
+
+IFClite includes a native desktop application built with [Tauri v2](https://v2.tauri.app/), providing enhanced performance over the web version.
+
+### Why Desktop?
+
+| Feature | Web (WASM) | Desktop (Native) |
+|---------|-----------|------------------|
+| **Parsing** | Single-threaded | Multi-threaded (Rayon) |
+| **Memory** | WASM 4GB limit | System RAM |
+| **File Access** | User upload only | Direct filesystem |
+| **Startup** | Download WASM | Instant |
+| **Large Files** | ~100MB practical limit | 500MB+ supported |
+
+### Architecture
+
+The desktop app reuses the same Rust crates (`ifc-lite-core`, `ifc-lite-geometry`) as the WASM build, but compiled natively:
+
+```
+apps/desktop/
+├── src/                    # React frontend (shared with web)
+├── src-tauri/
+│   ├── src/
+│   │   ├── commands/       # Tauri IPC commands
+│   │   │   ├── ifc.rs      # parse_ifc_buffer, get_geometry
+│   │   │   ├── cache.rs    # Binary caching system
+│   │   │   └── file_dialog.rs
+│   │   └── lib.rs          # Tauri app setup
+│   └── Cargo.toml          # Native dependencies
+└── package.json
+```
+
+### Native Commands
+
+The desktop app exposes these Tauri commands to the frontend:
+
+| Command | Description |
+|---------|-------------|
+| `parse_ifc_buffer` | Parse IFC with native multi-threading |
+| `get_geometry` | Process geometry in parallel batches |
+| `get_geometry_streaming` | Stream geometry progressively |
+| `open_ifc_file` | Native file dialog integration |
+| `get_cached` / `set_cached` | Binary cache for instant reload |
+
+### Building Releases
+
+```bash
+cd apps/desktop
+
+# Development
+pnpm dev
+
+# Production builds
+pnpm build              # Current platform
+pnpm build:windows      # x86_64-pc-windows-msvc
+pnpm build:macos        # universal-apple-darwin (Intel + Apple Silicon)
+pnpm build:linux        # x86_64-unknown-linux-gnu
+```
+
+Output binaries are placed in `apps/desktop/src-tauri/target/release/bundle/`.
 
 ## Development (Contributors)
 
