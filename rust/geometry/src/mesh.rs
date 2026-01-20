@@ -17,68 +17,6 @@ pub struct Mesh {
     pub indices: Vec<u32>,
 }
 
-/// A sub-mesh with its source geometry item ID.
-/// Used to track which geometry items contribute to an element's mesh,
-/// allowing per-item color/style lookup.
-#[derive(Debug, Clone)]
-pub struct SubMesh {
-    /// The geometry item ID (e.g., IfcFacetedBrep ID) for style lookup
-    pub geometry_id: u32,
-    /// The triangulated mesh data
-    pub mesh: Mesh,
-}
-
-impl SubMesh {
-    /// Create a new sub-mesh
-    pub fn new(geometry_id: u32, mesh: Mesh) -> Self {
-        Self { geometry_id, mesh }
-    }
-}
-
-/// Collection of sub-meshes from an element, preserving per-item identity
-#[derive(Debug, Clone, Default)]
-pub struct SubMeshCollection {
-    pub sub_meshes: Vec<SubMesh>,
-}
-
-impl SubMeshCollection {
-    /// Create a new empty collection
-    pub fn new() -> Self {
-        Self { sub_meshes: Vec::new() }
-    }
-
-    /// Add a sub-mesh
-    pub fn add(&mut self, geometry_id: u32, mesh: Mesh) {
-        if !mesh.is_empty() {
-            self.sub_meshes.push(SubMesh::new(geometry_id, mesh));
-        }
-    }
-
-    /// Check if collection is empty
-    pub fn is_empty(&self) -> bool {
-        self.sub_meshes.is_empty()
-    }
-
-    /// Get number of sub-meshes
-    pub fn len(&self) -> usize {
-        self.sub_meshes.len()
-    }
-
-    /// Merge all sub-meshes into a single mesh (loses per-item identity)
-    pub fn into_combined_mesh(self) -> Mesh {
-        let mut combined = Mesh::new();
-        for sub in self.sub_meshes {
-            combined.merge(&sub.mesh);
-        }
-        combined
-    }
-
-    /// Iterate over sub-meshes
-    pub fn iter(&self) -> impl Iterator<Item = &SubMesh> {
-        self.sub_meshes.iter()
-    }
-}
-
 impl Mesh {
     /// Create a new empty mesh
     pub fn new() -> Self {

@@ -14,7 +14,7 @@
 //! - **Profile Handling**: Extract and process 2D profiles (rectangle, circle, arbitrary)
 //! - **Extrusion**: Generate 3D meshes from extruded profiles
 //! - **Triangulation**: Polygon triangulation with hole support via earcutr
-//! - **CSG Operations**: Full boolean operations (difference, union, intersection)
+//! - **CSG Operations**: Boolean clipping for wall openings
 //! - **Mesh Processing**: Normal calculation and coordinate transformations
 //!
 //! ## Supported Geometry Types
@@ -24,7 +24,7 @@
 //! | `IfcExtrudedAreaSolid` | Full | Most common - extruded profiles |
 //! | `IfcFacetedBrep` | Full | Boundary representation meshes |
 //! | `IfcTriangulatedFaceSet` | Full | Pre-triangulated (IFC4) |
-//! | `IfcBooleanClippingResult` | Full | CSG operations (difference, union, intersection) |
+//! | `IfcBooleanClippingResult` | Partial | CSG difference operations |
 //! | `IfcMappedItem` | Full | Instanced geometry |
 //! | `IfcSweptDiskSolid` | Full | Pipe/tube geometry |
 //!
@@ -90,7 +90,7 @@ pub use bool2d::{
 pub use csg::{calculate_normals, ClippingProcessor, Plane, Triangle};
 pub use error::{Error, Result};
 pub use extrusion::{extrude_profile, extrude_profile_with_voids};
-pub use mesh::{Mesh, SubMesh, SubMeshCollection};
+pub use mesh::Mesh;
 pub use processors::{
     AdvancedBrepProcessor, BooleanClippingProcessor, ExtrudedAreaSolidProcessor,
     FacetedBrepProcessor, MappedItemProcessor, RevolvedAreaSolidProcessor, SweptDiskSolidProcessor,
