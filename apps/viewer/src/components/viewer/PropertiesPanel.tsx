@@ -42,6 +42,15 @@ export function PropertiesPanel() {
   const isEntityVisible = useViewerStore((s) => s.isEntityVisible);
   const { query, ifcDataStore } = useIfc();
 
+  // Copy feedback state - must be before any early returns (Rules of Hooks)
+  const [copied, setCopied] = useState(false);
+
+  const copyToClipboard = useCallback((text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }, []);
+
   // Get spatial location info
   const spatialInfo = useMemo(() => {
     if (!selectedEntityId || !ifcDataStore?.spatialHierarchy) return null;
@@ -167,15 +176,6 @@ export function PropertiesPanel() {
   const entityGlobalId = entityNode!.globalId;
   const entityDescription = entityNode!.description;
   const entityObjectType = entityNode!.objectType;
-
-  // Copy feedback state
-  const [copied, setCopied] = useState(false);
-
-  const copyToClipboard = useCallback((text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  }, []);
 
   return (
     <div className="h-full flex flex-col border-l-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
