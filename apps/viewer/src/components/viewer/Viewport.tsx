@@ -1632,22 +1632,15 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
     for (let i = 0; i < meshesToAdd.length; i++) {
       const meshData = meshesToAdd[i];
       // Use expressId + color as a compound key to distinguish submeshes
-      const colorKey = meshData.color.map(c => c.toFixed(3)).join(',');
+      // Guard against undefined color (can happen with some server responses)
+      const colorKey = meshData.color
+        ? meshData.color.map(c => c.toFixed(3)).join(',')
+        : 'no-color';
       const compoundKey = `${meshData.expressId}:${colorKey}`;
-      
-      if (isStreaming) {
-        // During streaming, all sliced meshes are new by definition, but we still need to track them
-        // so they don't get re-processed when streaming completes and the effect re-runs
-        if (!processedMeshIdsRef.current.has(compoundKey)) {
-          newMeshes.push(meshData);
-          processedMeshIdsRef.current.add(compoundKey);
-        }
-      } else {
-        // Post-streaming: need to track which specific mesh instances were processed
-        if (!processedMeshIdsRef.current.has(compoundKey)) {
-          newMeshes.push(meshData);
-          processedMeshIdsRef.current.add(compoundKey);
-        }
+
+      if (!processedMeshIdsRef.current.has(compoundKey)) {
+        newMeshes.push(meshData);
+        processedMeshIdsRef.current.add(compoundKey);
       }
     }
 
