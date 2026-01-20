@@ -245,29 +245,22 @@ export function PropertiesPanel() {
             <code className="flex-1 text-[10px] bg-white dark:bg-zinc-950 px-2 py-1 truncate font-mono select-all text-zinc-900 dark:text-zinc-100">
               {entityGlobalId}
             </code>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  className={`h-6 w-6 rounded-none border-l transition-all duration-200 ${
-                    copied
-                      ? 'border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400'
-                      : 'border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-950'
-                  }`}
-                  onClick={() => copyToClipboard(entityGlobalId)}
-                >
-                  {copied ? (
-                    <Check className="h-3 w-3" />
-                  ) : (
-                    <Copy className="h-3 w-3 text-zinc-600 dark:text-zinc-400" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {copied ? 'Copied!' : 'Copy GlobalId'}
-              </TooltipContent>
-            </Tooltip>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className={`h-6 w-6 rounded-none border-l transition-all duration-200 ${
+                copied
+                  ? 'border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400'
+                  : 'border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-950'
+              }`}
+              onClick={() => copyToClipboard(entityGlobalId)}
+            >
+              {copied ? (
+                <Check className="h-3 w-3" />
+              ) : (
+                <Copy className="h-3 w-3 text-zinc-600 dark:text-zinc-400" />
+              )}
+            </Button>
           </div>
         )}
 
