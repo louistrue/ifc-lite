@@ -45,9 +45,8 @@ theme:
 
 plugins:
   - search
-  - mermaid2
   - minify:
-      minify_html: true
+      minify_html: false
 
 markdown_extensions:
   - abbr
@@ -104,6 +103,10 @@ extra:
 
 extra_css:
   - stylesheets/extra.css
+
+extra_javascript:
+  - https://unpkg.com/mermaid@10/dist/mermaid.min.js
+  - javascripts/mermaid-init.js
 
 nav:
   - Home: index.md

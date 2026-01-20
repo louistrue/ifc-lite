@@ -4,24 +4,12 @@ Get up and running with IFClite in under 5 minutes. Choose your path based on yo
 
 ## Choose Your Approach
 
-```mermaid
-flowchart LR
-    Start[Start] --> Q{Need server<br/>caching?}
-    Q -->|No| Client[Client-Side]
-    Q -->|Yes| Server[Server + Client]
-
-    Client --> ClientCode[Parse in Browser]
-    Server --> ServerCode[Parse on Server]
-
-    style Start fill:#6366f1,stroke:#312e81,color:#fff
-    style Client fill:#10b981,stroke:#064e3b,color:#fff
-    style Server fill:#f59e0b,stroke:#7c2d12,color:#fff
-```
-
-| Approach | Best For |
-|----------|----------|
-| **Client-Side** | Single files, offline use, privacy-sensitive data |
-| **Server + Client** | Team collaboration, large files, repeat access |
+| | Client-Side | Server + Client |
+|---|-------------|-----------------|
+| **Setup** | `npm install @ifc-lite/parser` | Start server + install client SDK |
+| **Processing** | Browser (WASM) | Server (native Rust) |
+| **Caching** | IndexedDB (local) | Shared across team |
+| **Best for** | Offline, privacy, simple apps | Teams, large files, production |
 
 ## Option 1: Client-Side Parsing
 

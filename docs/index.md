@@ -38,46 +38,30 @@
 
 ## What is IFClite?
 
-**IFClite** is a high-performance IFC (Industry Foundation Classes) platform that runs in browsers, on servers, and as native desktop applications. It provides:
+**IFClite** is a high-performance IFC (Industry Foundation Classes) platform that runs in browsers, on servers, and as native desktop applications.
 
-| Feature | Description |
-|---------|-------------|
-| **Two Paradigms** | Client-side WASM parsing for offline use, or server-based processing with intelligent caching |
-| **IFC4 + IFC5** | Full IFC4X3 support (876 entities) plus native IFC5 (IFCX) JSON format parsing |
-| **Streaming Pipeline** | Progressive geometry processing with first triangles in 300-500ms |
-| **WebGPU Rendering** | Modern GPU-accelerated 3D with section planes, snap detection, and selection |
-| **Tiny Bundle** | ~650 KB WASM (~260 KB gzipped) - 40% smaller than alternatives |
-| **Cross-Platform** | Browser, Node.js, native Rust, and Tauri desktop applications |
+- **Two Paradigms** - Client-side WASM or server-based processing with caching
+- **Full IFC Support** - IFC4X3 (876 entities) + native IFC5 (IFCX) JSON format
+- **Fast Rendering** - WebGPU with first triangles in 300-500ms
+- **Tiny Bundle** - ~260 KB gzipped, 40% smaller than alternatives
 
 ## Choose Your Path
 
 ```mermaid
-flowchart TD
-    Start[Start Here] --> Q1{Single file,<br/>one-time view?}
-
-    Q1 -->|Yes| Client[Client-Side<br/>@ifc-lite/parser]
-    Q1 -->|No| Q2{Need caching for<br/>repeat access?}
-
-    Q2 -->|Yes| Server[Server + Client<br/>@ifc-lite/server-client]
-    Q2 -->|No| Q3{Large files<br/>>100MB?}
-
-    Q3 -->|Yes| ServerStream[Server with Streaming]
+flowchart LR
+    Start[Start] --> Q1{One-time view?}
+    Q1 -->|Yes| Client[Client-Side]
+    Q1 -->|No| Q2{Team/shared cache?}
+    Q2 -->|Yes| Server[Server]
+    Q2 -->|No| Q3{Large files?}
+    Q3 -->|Yes| Stream[Server + Streaming]
     Q3 -->|No| Client
-
-    Client --> Desktop{Native desktop<br/>app needed?}
-    Desktop -->|Yes| Tauri[Tauri Desktop App]
-    Desktop -->|No| Done[Ready to Build!]
-
+    Client --> Q4{Desktop app?}
+    Q4 -->|Yes| Tauri[Tauri]
+    Q4 -->|No| Done[Ready!]
     Server --> Done
-    ServerStream --> Done
+    Stream --> Done
     Tauri --> Done
-
-    style Start fill:#6366f1,stroke:#312e81,color:#fff
-    style Client fill:#10b981,stroke:#064e3b,color:#fff
-    style Server fill:#f59e0b,stroke:#7c2d12,color:#fff
-    style ServerStream fill:#f59e0b,stroke:#7c2d12,color:#fff
-    style Tauri fill:#a855f7,stroke:#581c87,color:#fff
-    style Done fill:#22c55e,stroke:#14532d,color:#fff
 ```
 
 ## System Overview
@@ -95,13 +79,6 @@ IFClite supports two processing paradigms:
         WASM --> Geometry[Geometry Buffers]
         Tables --> Query[Query API]
         Geometry --> Renderer[WebGPU Renderer]
-
-        style IFC fill:#6366f1,stroke:#312e81,color:#fff
-        style WASM fill:#2563eb,stroke:#1e3a8a,color:#fff
-        style Tables fill:#16a34a,stroke:#14532d,color:#fff
-        style Geometry fill:#16a34a,stroke:#14532d,color:#fff
-        style Query fill:#ea580c,stroke:#7c2d12,color:#fff
-        style Renderer fill:#c026d3,stroke:#701a75,color:#fff
     ```
 
 === "Server-Side (Rust)"
@@ -110,26 +87,10 @@ IFClite supports two processing paradigms:
 
     ```mermaid
     flowchart LR
-        subgraph Client
-            Upload[Upload IFC]
-            Viewer[WebGPU Viewer]
-        end
-
-        subgraph Server
-            Parse[Parallel Parse]
-            Cache[(Content Cache)]
-        end
-
-        Upload -->|hash check| Cache
-        Cache -->|hit| Viewer
-        Upload -->|miss| Parse
+        Upload[Upload IFC] --> Cache[(Cache)]
+        Cache -->|hit| Viewer[Viewer]
+        Upload -->|miss| Parse[Parse]
         Parse --> Cache
-        Cache --> Viewer
-
-        style Upload fill:#6366f1,stroke:#312e81,color:#fff
-        style Parse fill:#10b981,stroke:#064e3b,color:#fff
-        style Cache fill:#f59e0b,stroke:#7c2d12,color:#fff
-        style Viewer fill:#a855f7,stroke:#581c87,color:#fff
     ```
 
 ## Quick Examples
@@ -208,109 +169,17 @@ IFClite supports two processing paradigms:
     }
     ```
 
-## Key Features
+## Packages
 
-### Parsing & Data
+**TypeScript:** `@ifc-lite/parser` · `@ifc-lite/geometry` · `@ifc-lite/renderer` · `@ifc-lite/server-client` · `@ifc-lite/cache` · `@ifc-lite/query` · `@ifc-lite/export`
 
-| Feature | Description |
-|---------|-------------|
-| **Zero-Copy Parsing** | Direct memory access at ~1,259 MB/s tokenization |
-| **100% Schema Coverage** | All 876 IFC4X3 entities with full TypeScript types |
-| **IFC5 (IFCX) Support** | Native JSON-based format with ECS composition and USD geometry |
-| **On-Demand Properties** | Lazy property extraction for responsive large file handling |
-| **Streaming Pipeline** | Progressive geometry with first triangles in 300-500ms |
+**Rust:** `ifc-lite-core` · `ifc-lite-geometry` · `ifc-lite-wasm` · `ifc-lite-server`
 
-### Server Architecture
-
-| Feature | Description |
-|---------|-------------|
-| **Content-Addressable Cache** | SHA-256 file hashing - skip upload on cache hit |
-| **Parallel Processing** | Rayon thread pool for multi-core geometry extraction |
-| **Parquet Format** | 15-50x smaller payloads than JSON |
-| **SSE Streaming** | Progressive geometry batches for instant rendering |
-| **Full Data Model** | Properties, quantities, and hierarchy computed upfront |
-
-### Rendering & Interaction
-
-| Feature | Description |
-|---------|-------------|
-| **WebGPU Renderer** | Modern GPU acceleration with depth testing and frustum culling |
-| **Section Planes** | Interactive model slicing with semantic axes (down/front/side) |
-| **Magnetic Snapping** | Vertex, edge, and face snapping with "stick and slide" behavior |
-| **GPU Picking** | Depth-aware object selection supporting 100K+ meshes |
-| **Zero-Copy Upload** | Direct WASM-to-GPU buffers, 60-70% less RAM |
-
-### Desktop & Export
-
-| Feature | Description |
-|---------|-------------|
-| **Tauri Desktop** | Native app with multi-threaded parsing (no 4GB WASM limit) |
-| **Binary Cache** | `.ifc-lite` format for 5-10x faster reload |
-| **Export Formats** | glTF/GLB, Apache Parquet, JSON-LD, CSV |
-
-## Package Ecosystem
-
-### TypeScript Packages
-
-| Package | Description | Status |
-|---------|-------------|--------|
-| `create-ifc-lite` | Project scaffolding CLI | :material-check-circle: Stable |
-| `@ifc-lite/parser` | STEP tokenizer & entity extraction | :material-check-circle: Stable |
-| `@ifc-lite/ifcx` | IFC5 (IFCX) parser | :material-progress-clock: Beta |
-| `@ifc-lite/geometry` | Geometry processing bridge | :material-check-circle: Stable |
-| `@ifc-lite/renderer` | WebGPU rendering pipeline | :material-check-circle: Stable |
-| `@ifc-lite/cache` | Binary cache for instant loading | :material-check-circle: Stable |
-| `@ifc-lite/server-client` | Server SDK with caching & streaming | :material-check-circle: Stable |
-| `@ifc-lite/server-bin` | Native server binary wrapper | :material-check-circle: Stable |
-| `@ifc-lite/query` | Fluent & SQL query system | :material-progress-clock: Beta |
-| `@ifc-lite/data` | Columnar data structures | :material-check-circle: Stable |
-| `@ifc-lite/spatial` | Spatial indexing & culling | :material-progress-clock: Beta |
-| `@ifc-lite/export` | Export (glTF, Parquet, etc.) | :material-progress-clock: Beta |
-
-### Rust Crates
-
-| Crate | Description | Status |
-|-------|-------------|--------|
-| `ifc-lite-core` | STEP/IFC parsing | :material-check-circle: Stable |
-| `ifc-lite-geometry` | Mesh triangulation | :material-check-circle: Stable |
-| `ifc-lite-wasm` | WASM bindings | :material-check-circle: Stable |
-| `ifc-lite-server` | HTTP server (Axum) | :material-check-circle: Stable |
-
-## Performance
-
-### Bundle Size
-
-| Library | WASM Size | Gzipped |
-|---------|-----------|---------|
-| **IFClite** | **0.65 MB** | **0.26 MB** |
-| web-ifc | 1.1 MB | 0.4 MB |
-| IfcOpenShell | 15 MB | - |
-
-### Parse Performance
-
-| Model Size | Client (WASM) | Server (Native) |
-|------------|---------------|-----------------|
-| 10 MB | ~100-200ms | ~50-100ms |
-| 50 MB | ~600-700ms | ~300-400ms |
-| 100+ MB | ~1.5-2s | ~600-800ms |
-| 327 MB | ~17s (first batch 1.2s) | ~5-7s |
-
-### Server Caching Impact
-
-| Scenario | First Load | Cached Load |
-|----------|------------|-------------|
-| 50 MB file | ~800ms | ~50ms (cache hit) |
-| 169 MB file | ~7s | ~100ms (cache hit) |
-| Skip upload | - | Yes (hash check) |
+**CLI:** `npx create-ifc-lite` to scaffold a new project
 
 ## Browser Support
 
-| Browser | Version | WebGPU |
-|---------|---------|--------|
-| Chrome | 113+ | :material-check: |
-| Edge | 113+ | :material-check: |
-| Firefox | 127+ | :material-check: |
-| Safari | 18+ | :material-check: |
+Chrome 113+ · Edge 113+ · Firefox 127+ · Safari 18+ (all with WebGPU)
 
 ## Next Steps
 
