@@ -465,11 +465,24 @@ impl GeometryRouter {
         let clipper = ClippingProcessor::new();
         let mut result = wall_mesh;
         
+        // Get wall bounds for clamping opening faces (from result before cutting)
+        let (wall_min_f32, wall_max_f32) = result.bounds();
+        let wall_min = Point3::new(
+            wall_min_f32.x as f64,
+            wall_min_f32.y as f64,
+            wall_min_f32.z as f64,
+        );
+        let wall_max = Point3::new(
+            wall_max_f32.x as f64,
+            wall_max_f32.y as f64,
+            wall_max_f32.z as f64,
+        );
+        
         for (_idx, opening) in openings.iter().enumerate() {
             match opening {
                 OpeningType::Rectangular(open_min, open_max) => {
                     // Use optimized rectangular opening cut
-                    result = self.cut_rectangular_opening(&result, *open_min, *open_max);
+                    result = self.cut_rectangular_opening(&result, *open_min, *open_max, wall_min, wall_max);
                 }
                 OpeningType::NonRectangular(opening_mesh) => {
                     // Use full CSG subtraction for non-rectangular shapes
@@ -520,8 +533,13 @@ impl GeometryRouter {
         mesh: &Mesh,
         open_min: Point3<f64>,
         open_max: Point3<f64>,
+        wall_min: Point3<f64>,
+        wall_max: Point3<f64>,
     ) -> Mesh {
         use nalgebra::Vector3;
+        
+        // Tolerance for floating-point boundary comparisons
+        const EPSILON: f64 = 1e-6;
         
         let mut result = Mesh::with_capacity(
             mesh.positions.len() / 3 + 24, // Original + opening faces
@@ -565,10 +583,10 @@ impl GeometryRouter {
             let tri_min_z = v0.z.min(v1.z).min(v2.z);
             let tri_max_z = v0.z.max(v1.z).max(v2.z);
             
-            // If triangle is completely outside opening, keep it as-is
-            if tri_max_x <= open_min.x || tri_min_x >= open_max.x ||
-               tri_max_y <= open_min.y || tri_min_y >= open_max.y ||
-               tri_max_z <= open_min.z || tri_min_z >= open_max.z {
+            // If triangle is completely outside opening, keep it as-is (with epsilon tolerance)
+            if tri_max_x <= open_min.x - EPSILON || tri_min_x >= open_max.x + EPSILON ||
+               tri_max_y <= open_min.y - EPSILON || tri_min_y >= open_max.y + EPSILON ||
+               tri_max_z <= open_min.z - EPSILON || tri_min_z >= open_max.z + EPSILON {
                 // Triangle is outside opening - keep it
                 let base = result.vertex_count() as u32;
                 result.add_vertex(v0, n0);
@@ -578,10 +596,10 @@ impl GeometryRouter {
                 continue;
             }
             
-            // Check if triangle is completely inside opening (remove it)
-            if tri_min_x >= open_min.x && tri_max_x <= open_max.x &&
-               tri_min_y >= open_min.y && tri_max_y <= open_max.y &&
-               tri_min_z >= open_min.z && tri_max_z <= open_max.z {
+            // Check if triangle is completely inside opening (remove it) (with epsilon tolerance)
+            if tri_min_x >= open_min.x - EPSILON && tri_max_x <= open_max.x + EPSILON &&
+               tri_min_y >= open_min.y - EPSILON && tri_max_y <= open_max.y + EPSILON &&
+               tri_min_z >= open_min.z - EPSILON && tri_max_z <= open_max.z + EPSILON {
                 // Triangle is inside opening - remove it
                 continue;
             }
@@ -602,7 +620,7 @@ impl GeometryRouter {
         }
         
         // Generate internal faces for the opening
-        self.generate_opening_faces(&mut result, &open_min, &open_max);
+        self.generate_opening_faces(&mut result, &open_min, &open_max, &wall_min, &wall_max);
         
         result
     }
@@ -817,11 +835,14 @@ impl GeometryRouter {
     }
     
     /// Generate internal faces for an opening (the 4 sides of the hole)
+    /// Clamps faces to wall bounds to prevent extending outside the wall surface
     fn generate_opening_faces(
         &self,
         mesh: &mut Mesh,
         open_min: &Point3<f64>,
         open_max: &Point3<f64>,
+        wall_min: &Point3<f64>,
+        wall_max: &Point3<f64>,
     ) {
         use nalgebra::Vector3;
         
@@ -835,84 +856,97 @@ impl GeometryRouter {
         
         // Assume the wall thickness (smallest dimension) is the through direction
         // Generate faces perpendicular to the other two axes
+        // Clamp the through-direction coordinates to wall bounds
         
         if dy <= dx && dy <= dz {
             // Y is through direction - generate X and Z faces
+            // Clamp Y coordinates to wall bounds
+            let clamped_y_min = wall_min.y.max(open_min.y);
+            let clamped_y_max = wall_max.y.min(open_max.y);
+            
             self.add_quad_to_mesh(mesh, 
-                &Point3::new(open_min.x, open_min.y, open_min.z),
-                &Point3::new(open_min.x, open_max.y, open_min.z),
-                &Point3::new(open_min.x, open_max.y, open_max.z),
-                &Point3::new(open_min.x, open_min.y, open_max.z),
+                &Point3::new(open_min.x, clamped_y_min, open_min.z),
+                &Point3::new(open_min.x, clamped_y_max, open_min.z),
+                &Point3::new(open_min.x, clamped_y_max, open_max.z),
+                &Point3::new(open_min.x, clamped_y_min, open_max.z),
                 &Vector3::new(-1.0, 0.0, 0.0)); // Left face
             self.add_quad_to_mesh(mesh,
-                &Point3::new(open_max.x, open_min.y, open_min.z),
-                &Point3::new(open_max.x, open_min.y, open_max.z),
-                &Point3::new(open_max.x, open_max.y, open_max.z),
-                &Point3::new(open_max.x, open_max.y, open_min.z),
+                &Point3::new(open_max.x, clamped_y_min, open_min.z),
+                &Point3::new(open_max.x, clamped_y_min, open_max.z),
+                &Point3::new(open_max.x, clamped_y_max, open_max.z),
+                &Point3::new(open_max.x, clamped_y_max, open_min.z),
                 &Vector3::new(1.0, 0.0, 0.0)); // Right face
             self.add_quad_to_mesh(mesh,
-                &Point3::new(open_min.x, open_min.y, open_min.z),
-                &Point3::new(open_max.x, open_min.y, open_min.z),
-                &Point3::new(open_max.x, open_max.y, open_min.z),
-                &Point3::new(open_min.x, open_max.y, open_min.z),
+                &Point3::new(open_min.x, clamped_y_min, open_min.z),
+                &Point3::new(open_max.x, clamped_y_min, open_min.z),
+                &Point3::new(open_max.x, clamped_y_max, open_min.z),
+                &Point3::new(open_min.x, clamped_y_max, open_min.z),
                 &Vector3::new(0.0, 0.0, -1.0)); // Bottom face
             self.add_quad_to_mesh(mesh,
-                &Point3::new(open_min.x, open_min.y, open_max.z),
-                &Point3::new(open_min.x, open_max.y, open_max.z),
-                &Point3::new(open_max.x, open_max.y, open_max.z),
-                &Point3::new(open_max.x, open_min.y, open_max.z),
+                &Point3::new(open_min.x, clamped_y_min, open_max.z),
+                &Point3::new(open_min.x, clamped_y_max, open_max.z),
+                &Point3::new(open_max.x, clamped_y_max, open_max.z),
+                &Point3::new(open_max.x, clamped_y_min, open_max.z),
                 &Vector3::new(0.0, 0.0, 1.0)); // Top face
         } else if dx <= dy && dx <= dz {
             // X is through direction - generate Y and Z faces
+            // Clamp X coordinates to wall bounds
+            let clamped_x_min = wall_min.x.max(open_min.x);
+            let clamped_x_max = wall_max.x.min(open_max.x);
+            
             self.add_quad_to_mesh(mesh,
-                &Point3::new(open_min.x, open_min.y, open_min.z),
-                &Point3::new(open_min.x, open_min.y, open_max.z),
-                &Point3::new(open_max.x, open_min.y, open_max.z),
-                &Point3::new(open_max.x, open_min.y, open_min.z),
+                &Point3::new(clamped_x_min, open_min.y, open_min.z),
+                &Point3::new(clamped_x_min, open_min.y, open_max.z),
+                &Point3::new(clamped_x_max, open_min.y, open_max.z),
+                &Point3::new(clamped_x_max, open_min.y, open_min.z),
                 &Vector3::new(0.0, -1.0, 0.0)); // Front face
             self.add_quad_to_mesh(mesh,
-                &Point3::new(open_min.x, open_max.y, open_min.z),
-                &Point3::new(open_max.x, open_max.y, open_min.z),
-                &Point3::new(open_max.x, open_max.y, open_max.z),
-                &Point3::new(open_min.x, open_max.y, open_max.z),
+                &Point3::new(clamped_x_min, open_max.y, open_min.z),
+                &Point3::new(clamped_x_max, open_max.y, open_min.z),
+                &Point3::new(clamped_x_max, open_max.y, open_max.z),
+                &Point3::new(clamped_x_min, open_max.y, open_max.z),
                 &Vector3::new(0.0, 1.0, 0.0)); // Back face
             self.add_quad_to_mesh(mesh,
-                &Point3::new(open_min.x, open_min.y, open_min.z),
-                &Point3::new(open_max.x, open_min.y, open_min.z),
-                &Point3::new(open_max.x, open_max.y, open_min.z),
-                &Point3::new(open_min.x, open_max.y, open_min.z),
+                &Point3::new(clamped_x_min, open_min.y, open_min.z),
+                &Point3::new(clamped_x_max, open_min.y, open_min.z),
+                &Point3::new(clamped_x_max, open_max.y, open_min.z),
+                &Point3::new(clamped_x_min, open_max.y, open_min.z),
                 &Vector3::new(0.0, 0.0, -1.0)); // Bottom face
             self.add_quad_to_mesh(mesh,
-                &Point3::new(open_min.x, open_min.y, open_max.z),
-                &Point3::new(open_min.x, open_max.y, open_max.z),
-                &Point3::new(open_max.x, open_max.y, open_max.z),
-                &Point3::new(open_max.x, open_min.y, open_max.z),
+                &Point3::new(clamped_x_min, open_min.y, open_max.z),
+                &Point3::new(clamped_x_min, open_max.y, open_max.z),
+                &Point3::new(clamped_x_max, open_max.y, open_max.z),
+                &Point3::new(clamped_x_max, open_min.y, open_max.z),
                 &Vector3::new(0.0, 0.0, 1.0)); // Top face
         } else {
             // Z is through direction - generate X and Y faces
+            // Clamp Z coordinates to wall bounds
+            let clamped_z_min = wall_min.z.max(open_min.z);
+            let clamped_z_max = wall_max.z.min(open_max.z);
+            
             self.add_quad_to_mesh(mesh,
-                &Point3::new(open_min.x, open_min.y, open_min.z),
-                &Point3::new(open_min.x, open_max.y, open_min.z),
-                &Point3::new(open_min.x, open_max.y, open_max.z),
-                &Point3::new(open_min.x, open_min.y, open_max.z),
+                &Point3::new(open_min.x, open_min.y, clamped_z_min),
+                &Point3::new(open_min.x, open_max.y, clamped_z_min),
+                &Point3::new(open_min.x, open_max.y, clamped_z_max),
+                &Point3::new(open_min.x, open_min.y, clamped_z_max),
                 &Vector3::new(-1.0, 0.0, 0.0)); // Left face
             self.add_quad_to_mesh(mesh,
-                &Point3::new(open_max.x, open_min.y, open_min.z),
-                &Point3::new(open_max.x, open_min.y, open_max.z),
-                &Point3::new(open_max.x, open_max.y, open_max.z),
-                &Point3::new(open_max.x, open_max.y, open_min.z),
+                &Point3::new(open_max.x, open_min.y, clamped_z_min),
+                &Point3::new(open_max.x, open_min.y, clamped_z_max),
+                &Point3::new(open_max.x, open_max.y, clamped_z_max),
+                &Point3::new(open_max.x, open_max.y, clamped_z_min),
                 &Vector3::new(1.0, 0.0, 0.0)); // Right face
             self.add_quad_to_mesh(mesh,
-                &Point3::new(open_min.x, open_min.y, open_min.z),
-                &Point3::new(open_min.x, open_min.y, open_max.z),
-                &Point3::new(open_max.x, open_min.y, open_max.z),
-                &Point3::new(open_max.x, open_min.y, open_min.z),
+                &Point3::new(open_min.x, open_min.y, clamped_z_min),
+                &Point3::new(open_min.x, open_min.y, clamped_z_max),
+                &Point3::new(open_max.x, open_min.y, clamped_z_max),
+                &Point3::new(open_max.x, open_min.y, clamped_z_min),
                 &Vector3::new(0.0, -1.0, 0.0)); // Front face
             self.add_quad_to_mesh(mesh,
-                &Point3::new(open_min.x, open_max.y, open_min.z),
-                &Point3::new(open_max.x, open_max.y, open_min.z),
-                &Point3::new(open_max.x, open_max.y, open_max.z),
-                &Point3::new(open_min.x, open_max.y, open_max.z),
+                &Point3::new(open_min.x, open_max.y, clamped_z_min),
+                &Point3::new(open_max.x, open_max.y, clamped_z_min),
+                &Point3::new(open_max.x, open_max.y, clamped_z_max),
+                &Point3::new(open_min.x, open_max.y, clamped_z_max),
                 &Vector3::new(0.0, 1.0, 0.0)); // Back face
         }
     }
