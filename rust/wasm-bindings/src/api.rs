@@ -2555,8 +2555,10 @@ fn build_element_style_index(
                     None => continue,
                 };
 
-                // Check if this geometry has a style
-                if let Some(&color) = geometry_styles.get(&geom_id) {
+                // Check if this geometry has a style, following MappedItem references if needed
+                if let Some(color) =
+                    find_color_for_geometry(geom_id, geometry_styles, decoder)
+                {
                     element_styles.insert(element_id, color);
                     break; // Found a color for this element
                 }
@@ -2570,6 +2572,58 @@ fn build_element_style_index(
     }
 
     element_styles
+}
+
+/// Find color for a geometry item, following MappedItem references if needed.
+/// This handles the case where IfcStyledItem points to geometry inside a MappedRepresentation,
+/// not to the MappedItem itself.
+fn find_color_for_geometry(
+    geom_id: u32,
+    geometry_styles: &rustc_hash::FxHashMap<u32, [f32; 4]>,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+) -> Option<[f32; 4]> {
+    use ifc_lite_core::IfcType;
+
+    // First check if this geometry ID directly has a color
+    if let Some(&color) = geometry_styles.get(&geom_id) {
+        return Some(color);
+    }
+
+    // If not, check if it's an IfcMappedItem and follow the reference
+    let geom = decoder.decode_by_id(geom_id).ok()?;
+
+    if geom.ifc_type == IfcType::IfcMappedItem {
+        // IfcMappedItem: MappingSource (IfcRepresentationMap ref), MappingTarget
+        let map_source_id = geom.get_ref(0)?;
+
+        // Decode the IfcRepresentationMap
+        let rep_map = decoder.decode_by_id(map_source_id).ok()?;
+
+        // IfcRepresentationMap: MappingOrigin (IfcAxis2Placement), MappedRepresentation (IfcShapeRepresentation)
+        let mapped_repr_id = rep_map.get_ref(1)?;
+
+        // Decode the mapped IfcShapeRepresentation
+        let mapped_repr = decoder.decode_by_id(mapped_repr_id).ok()?;
+
+        // IfcShapeRepresentation: ContextOfItems, RepresentationIdentifier, RepresentationType, Items
+        // Attribute 3: Items (list of geometry items)
+        let items_attr = mapped_repr.get(3)?;
+        let items_list = items_attr.as_list()?;
+
+        // Check each underlying geometry item for a color
+        for item in items_list {
+            if let Some(underlying_geom_id) = item.as_entity_ref() {
+                // Recursively find color (handles nested MappedItems)
+                if let Some(color) =
+                    find_color_for_geometry(underlying_geom_id, geometry_styles, decoder)
+                {
+                    return Some(color);
+                }
+            }
+        }
+    }
+
+    None
 }
 
 /// Extract RGBA color from IfcStyledItem.Styles attribute

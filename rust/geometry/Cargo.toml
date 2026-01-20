@@ -42,3 +42,7 @@ thiserror = "1.0"
 
 [dev-dependencies]
 approx = "0.5"
+
+[[example]]
+name = "color_extraction_test"
+path = "examples/color_extraction_test.rs"
