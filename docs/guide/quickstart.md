@@ -383,7 +383,7 @@ try {
 
 1. **Use columnar parsing** - `parseColumnar()` is faster than `parse()`
 2. **Use Web Workers** - Import from `@ifc-lite/parser/browser` for non-blocking parsing
-3. **Stream large files** - Use `parseStreaming()` for progressive geometry
+3. **Track progress** - Use `onProgress` callback with `parseColumnar()` for loading feedback
 
 ### Server-Side
 
