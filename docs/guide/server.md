@@ -483,16 +483,22 @@ services:
       - CACHE_MAX_AGE_DAYS=30
     volumes:
       - ifc-cache:/app/.cache
-    # Note: healthcheck requires wget in the image (included in official image)
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/api/v1/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
 volumes:
   ifc-cache:
 ```
+
+!!! tip "Adding Health Checks"
+    For orchestration systems requiring health checks, the server exposes
+    `GET /api/v1/health`. If your runtime image includes `curl` or `wget`:
+
+    ```yaml
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/api/v1/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    ```
 
 ### Production Deployment
 
