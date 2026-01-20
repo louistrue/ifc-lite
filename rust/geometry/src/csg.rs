@@ -643,6 +643,28 @@ impl ClippingProcessor {
         Self::csgrs_to_mesh(&result_csg)
     }
 
+    /// Intersect two meshes using csgrs CSG boolean operations
+    ///
+    /// Returns the intersection of two meshes (the volume where both overlap).
+    pub fn intersection_mesh(&self, mesh_a: &Mesh, mesh_b: &Mesh) -> Result<Mesh> {
+        use csgrs::traits::CSG;
+
+        // Fast paths: intersection with empty mesh is empty
+        if mesh_a.is_empty() || mesh_b.is_empty() {
+            return Ok(Mesh::new());
+        }
+
+        // Convert meshes to csgrs format
+        let csg_a = Self::mesh_to_csgrs(mesh_a)?;
+        let csg_b = Self::mesh_to_csgrs(mesh_b)?;
+
+        // Perform CSG intersection
+        let result_csg = csg_a.intersection(&csg_b);
+
+        // Convert back to our Mesh format
+        Self::csgrs_to_mesh(&result_csg)
+    }
+
     /// Union multiple meshes together
     ///
     /// Convenience method that sequentially unions all non-empty meshes.

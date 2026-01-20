@@ -14,7 +14,7 @@
 //! - **Profile Handling**: Extract and process 2D profiles (rectangle, circle, arbitrary)
 //! - **Extrusion**: Generate 3D meshes from extruded profiles
 //! - **Triangulation**: Polygon triangulation with hole support via earcutr
-//! - **CSG Operations**: Boolean clipping for wall openings
+//! - **CSG Operations**: Full boolean operations (difference, union, intersection)
 //! - **Mesh Processing**: Normal calculation and coordinate transformations
 //!
 //! ## Supported Geometry Types
@@ -24,7 +24,7 @@
 //! | `IfcExtrudedAreaSolid` | Full | Most common - extruded profiles |
 //! | `IfcFacetedBrep` | Full | Boundary representation meshes |
 //! | `IfcTriangulatedFaceSet` | Full | Pre-triangulated (IFC4) |
-//! | `IfcBooleanClippingResult` | Partial | CSG difference operations |
+//! | `IfcBooleanClippingResult` | Full | CSG operations (difference, union, intersection) |
 //! | `IfcMappedItem` | Full | Instanced geometry |
 //! | `IfcSweptDiskSolid` | Full | Pipe/tube geometry |
 //!

@@ -1100,7 +1100,18 @@ impl Default for FacetedBrepProcessor {
 
 /// BooleanResult processor
 /// Handles IfcBooleanResult and IfcBooleanClippingResult - CSG operations
-/// Supports half-space clipping for DIFFERENCE operations
+///
+/// Supports all IFC boolean operations:
+/// - DIFFERENCE: Subtracts second operand from first (wall clipped by roof, openings, etc.)
+///   - Uses efficient plane clipping for IfcHalfSpaceSolid operands
+///   - Uses full 3D CSG for solid-solid operations (e.g., roof/slab clipping)
+/// - UNION: Combines two solids into one
+/// - INTERSECTION: Returns the overlapping volume of two solids
+///
+/// Performance notes:
+/// - HalfSpaceSolid clipping is very fast (simple plane-based triangle clipping)
+/// - Solid-solid CSG only invoked when actually needed (no overhead for simple geometry)
+/// - Graceful fallback to first operand if CSG fails on degenerate meshes
 pub struct BooleanClippingProcessor {
     schema: IfcSchema,
 }
@@ -1313,7 +1324,7 @@ impl GeometryProcessor for BooleanClippingProcessor {
 
         // Handle DIFFERENCE operation
         if operator == ".DIFFERENCE." {
-            // Check if second operand is a half-space solid (can clip efficiently)
+            // Check if second operand is a half-space solid (can clip efficiently with plane clipping)
             if second_operand.ifc_type == IfcType::IfcHalfSpaceSolid
                 || second_operand.ifc_type == IfcType::IfcPolygonalBoundedHalfSpace
             {
@@ -1322,24 +1333,66 @@ impl GeometryProcessor for BooleanClippingProcessor {
                 return self.clip_mesh_with_half_space(&mesh, plane_point, plane_normal, agreement);
             }
 
-            // For solid-solid difference, we can't do proper CSG without a full boolean library
-            // Just return the first operand for now - this gives approximate geometry
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "[WARN] CSG operation {} not fully supported, returning first operand only",
-                operator
-            );
+            // Solid-solid difference: use full CSG (e.g., wall clipped by roof/slab)
+            // Only process the second operand when we actually need it for CSG
+            let second_mesh = self.process_operand(&second_operand, decoder)?;
+            if !second_mesh.is_empty() {
+                // Lazy initialization of CSG processor - only invoked when needed
+                use crate::csg::ClippingProcessor;
+                let csg = ClippingProcessor::new();
+                match csg.subtract_mesh(&mesh, &second_mesh) {
+                    Ok(result) => return Ok(result),
+                    Err(_e) => {
+                        // CSG can fail on degenerate meshes - fall back to first operand
+                        #[cfg(debug_assertions)]
+                        eprintln!("[WARN] CSG difference failed, returning first operand: {}", _e);
+                        return Ok(mesh);
+                    }
+                }
+            }
+            return Ok(mesh);
         }
 
-        // For UNION and INTERSECTION, and solid-solid DIFFERENCE,
-        // just return the first operand for now
-        #[cfg(debug_assertions)]
-        if operator != ".DIFFERENCE." {
-            eprintln!(
-                "[WARN] CSG operation {} not fully supported, returning first operand only",
-                operator
-            );
+        // Handle UNION operation
+        if operator == ".UNION." {
+            let second_mesh = self.process_operand(&second_operand, decoder)?;
+            if !second_mesh.is_empty() {
+                use crate::csg::ClippingProcessor;
+                let csg = ClippingProcessor::new();
+                match csg.union_mesh(&mesh, &second_mesh) {
+                    Ok(result) => return Ok(result),
+                    Err(_e) => {
+                        #[cfg(debug_assertions)]
+                        eprintln!("[WARN] CSG union failed, returning first operand: {}", _e);
+                        return Ok(mesh);
+                    }
+                }
+            }
+            return Ok(mesh);
         }
+
+        // Handle INTERSECTION operation
+        if operator == ".INTERSECTION." {
+            let second_mesh = self.process_operand(&second_operand, decoder)?;
+            if !second_mesh.is_empty() {
+                use crate::csg::ClippingProcessor;
+                let csg = ClippingProcessor::new();
+                match csg.intersection_mesh(&mesh, &second_mesh) {
+                    Ok(result) => return Ok(result),
+                    Err(_e) => {
+                        #[cfg(debug_assertions)]
+                        eprintln!("[WARN] CSG intersection failed, returning first operand: {}", _e);
+                        return Ok(mesh);
+                    }
+                }
+            }
+            // Intersection with empty = empty
+            return Ok(Mesh::new());
+        }
+
+        // Unknown operator - return first operand
+        #[cfg(debug_assertions)]
+        eprintln!("[WARN] Unknown CSG operator {}, returning first operand", operator);
         Ok(mesh)
     }
 
