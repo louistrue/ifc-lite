@@ -389,7 +389,9 @@ try {
 
 1. **Enable caching** - Same file = instant response on repeat loads
 2. **Use Parquet format** - 15x smaller payloads than JSON
-3. **Stream large files** - Use `parseParquetStream()` for files >50MB
+3. **Stream large files** - Two options for files >50MB:
+    - `parseStream()` - Async iterator pattern, JSON batches
+    - `parseParquetStream()` - Callback pattern, Parquet format (recommended for best compression)
 4. **Check cache first** - Client SDK automatically checks before upload
 
 ## Next Steps

@@ -68,6 +68,7 @@ flowchart TB
 
 ### 1. Start the Server
 
+<!-- markdownlint-disable MD046 -->
 === "Docker (Recommended)"
 
     ```bash
@@ -88,6 +89,7 @@ flowchart TB
     cd apps/server
     cargo run --release
     ```
+<!-- markdownlint-enable MD046 -->
 
 ### 2. Connect from Client
 
@@ -481,6 +483,7 @@ services:
       - CACHE_MAX_AGE_DAYS=30
     volumes:
       - ifc-cache:/app/.cache
+    # Note: healthcheck requires wget in the image (included in official image)
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/api/v1/health || exit 1"]
       interval: 30s
