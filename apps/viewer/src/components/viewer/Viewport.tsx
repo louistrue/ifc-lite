@@ -1466,7 +1466,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   }, [setSelectedEntityId]);
 
   // Track processed meshes for incremental updates
-  const processedMeshIdsRef = useRef<Set<number>>(new Set());
+  // Uses string keys to support compound keys (expressId:color) for submeshes
+  const processedMeshIdsRef = useRef<Set<string>>(new Set());
   const lastGeometryLengthRef = useRef<number>(0);
   const lastGeometryRef = useRef<MeshData[] | null>(null);
   const cameraFittedRef = useRef<boolean>(false);
@@ -1625,11 +1626,28 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
       : geometry;  // Post-streaming: scan entire array for unprocessed meshes
 
     // Filter out already processed meshes
+    // NOTE: Multiple meshes can share the same expressId (e.g., window frame + glass submeshes),
+    // so we use expressId + color as a compound key to distinguish submeshes.
     const newMeshes: MeshData[] = [];
-    for (const meshData of meshesToAdd) {
-      if (!processedMeshIdsRef.current.has(meshData.expressId)) {
-        newMeshes.push(meshData);
-        processedMeshIdsRef.current.add(meshData.expressId);
+    for (let i = 0; i < meshesToAdd.length; i++) {
+      const meshData = meshesToAdd[i];
+      // Use expressId + color as a compound key to distinguish submeshes
+      const colorKey = meshData.color.map(c => c.toFixed(3)).join(',');
+      const compoundKey = `${meshData.expressId}:${colorKey}`;
+      
+      if (isStreaming) {
+        // During streaming, all sliced meshes are new by definition, but we still need to track them
+        // so they don't get re-processed when streaming completes and the effect re-runs
+        if (!processedMeshIdsRef.current.has(compoundKey)) {
+          newMeshes.push(meshData);
+          processedMeshIdsRef.current.add(compoundKey);
+        }
+      } else {
+        // Post-streaming: need to track which specific mesh instances were processed
+        if (!processedMeshIdsRef.current.has(compoundKey)) {
+          newMeshes.push(meshData);
+          processedMeshIdsRef.current.add(compoundKey);
+        }
       }
     }
 

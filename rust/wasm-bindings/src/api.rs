@@ -1364,27 +1364,93 @@ impl IfcAPI {
 
                 for (id, start, end, ifc_type) in deferred_complex {
                     if let Ok(entity) = decoder.decode_at(start, end) {
-                        if let Ok(mut mesh) = router.process_element_with_voids(
-                            &entity,
-                            &mut decoder,
-                            &void_index,
-                        ) {
-                            if !mesh.is_empty() {
-                                if mesh.normals.is_empty() {
-                                    calculate_normals(&mut mesh);
+                        let has_openings = void_index.contains_key(&id);
+                        let ifc_type_name = ifc_type.name().to_string();
+                        let default_color = get_default_color_for_type(&ifc_type);
+
+                        if has_openings {
+                            // Element has openings - use void subtraction (merged mesh)
+                            if let Ok(mut mesh) = router.process_element_with_voids(
+                                &entity,
+                                &mut decoder,
+                                &void_index,
+                            ) {
+                                if !mesh.is_empty() {
+                                    if mesh.normals.is_empty() {
+                                        calculate_normals(&mut mesh);
+                                    }
+
+                                    let color = style_index
+                                        .get(&id)
+                                        .copied()
+                                        .unwrap_or(default_color);
+
+                                    total_vertices += mesh.positions.len() / 3;
+                                    total_triangles += mesh.indices.len() / 3;
+
+                                    let mesh_data = MeshDataJs::new(id, ifc_type_name, mesh, color);
+                                    batch_meshes.push(mesh_data);
                                 }
+                            }
+                        } else {
+                            // No openings - try sub-mesh approach for per-item colors
+                            let sub_meshes_result =
+                                router.process_element_with_submeshes(&entity, &mut decoder);
 
-                                let color = style_index
-                                    .get(&id)
-                                    .copied()
-                                    .unwrap_or_else(|| get_default_color_for_type(&ifc_type));
+                            let has_submeshes = sub_meshes_result
+                                .as_ref()
+                                .map(|s| !s.is_empty())
+                                .unwrap_or(false);
 
-                                total_vertices += mesh.positions.len() / 3;
-                                total_triangles += mesh.indices.len() / 3;
+                            if has_submeshes {
+                                // Use sub-meshes for multi-material elements (windows, doors, etc.)
+                                let sub_meshes = sub_meshes_result.unwrap();
+                                for sub in sub_meshes.sub_meshes {
+                                    let mut mesh = sub.mesh;
+                                    if mesh.is_empty() {
+                                        continue;
+                                    }
+                                    if mesh.normals.is_empty() {
+                                        calculate_normals(&mut mesh);
+                                    }
 
-                                let ifc_type_name = ifc_type.name().to_string();
-                                let mesh_data = MeshDataJs::new(id, ifc_type_name, mesh, color);
-                                batch_meshes.push(mesh_data);
+                                    // Look up color by geometry item ID, then by element ID, then default
+                                    let color = geometry_styles
+                                        .get(&sub.geometry_id)
+                                        .copied()
+                                        .or_else(|| style_index.get(&id).copied())
+                                        .unwrap_or(default_color);
+
+                                    total_vertices += mesh.positions.len() / 3;
+                                    total_triangles += mesh.indices.len() / 3;
+
+                                    let mesh_data =
+                                        MeshDataJs::new(id, ifc_type_name.clone(), mesh, color);
+                                    batch_meshes.push(mesh_data);
+                                }
+                            } else {
+                                // Fallback: use simple single-mesh approach
+                                // This handles elements without IfcStyledItem references
+                                if let Ok(mut mesh) = router.process_element(&entity, &mut decoder)
+                                {
+                                    if !mesh.is_empty() {
+                                        if mesh.normals.is_empty() {
+                                            calculate_normals(&mut mesh);
+                                        }
+
+                                        let color = style_index
+                                            .get(&id)
+                                            .copied()
+                                            .unwrap_or(default_color);
+
+                                        total_vertices += mesh.positions.len() / 3;
+                                        total_triangles += mesh.indices.len() / 3;
+
+                                        let mesh_data =
+                                            MeshDataJs::new(id, ifc_type_name, mesh, color);
+                                        batch_meshes.push(mesh_data);
+                                    }
+                                }
                             }
                         }
                     }
