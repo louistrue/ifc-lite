@@ -110,6 +110,7 @@ nav:
   - Getting Started:
     - Installation: guide/installation.md
     - Quick Start: guide/quickstart.md
+    - Server Guide: guide/server.md
     - Browser Requirements: guide/browser-requirements.md
   - User Guide:
     - Parsing IFC Files: guide/parsing.md

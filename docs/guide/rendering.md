@@ -1,6 +1,6 @@
 # Rendering
 
-Guide to the WebGPU rendering pipeline in IFClite.
+Guide to the WebGPU rendering pipeline in IFClite, including section planes, snap detection, and GPU picking.
 
 ## Overview
 
@@ -11,30 +11,32 @@ flowchart TB
     subgraph Input["Input Data"]
         Meshes["Mesh Buffers"]
         Camera["Camera State"]
-        Lights["Lighting"]
     end
 
     subgraph Pipeline["Render Pipeline"]
         Cull["Frustum Culling"]
-        Sort["Depth Sorting<br/>(Transparent)"]
+        Sort["Depth Sorting"]
         Upload["GPU Upload"]
         Render["Draw Calls"]
+    end
+
+    subgraph Features["Interactive Features"]
+        Section["Section Planes"]
+        Snap["Snap Detection"]
+        Pick["GPU Picking"]
     end
 
     subgraph Output["Output"]
         Canvas["WebGPU Canvas"]
     end
 
-    Meshes --> Cull
-    Camera --> Cull
-    Cull --> Sort
-    Sort --> Upload
-    Lights --> Render
-    Upload --> Render
-    Render --> Canvas
+    Input --> Pipeline
+    Pipeline --> Features
+    Features --> Output
 
     style Input fill:#6366f1,stroke:#312e81,color:#fff
     style Pipeline fill:#2563eb,stroke:#1e3a8a,color:#fff
+    style Features fill:#10b981,stroke:#064e3b,color:#fff
     style Output fill:#a855f7,stroke:#581c87,color:#fff
 ```
 
@@ -50,12 +52,18 @@ const renderer = new Renderer(canvas);
 // Initialize WebGPU
 await renderer.init();
 
-// Load geometry
-const result = await parser.parse(buffer);
-await renderer.loadGeometry(result.geometry);
+// Add meshes (from parser or server)
+renderer.addMeshes(meshes);
 
-// Start rendering
-renderer.render();
+// Fit camera to model
+renderer.fitToView();
+
+// Start render loop
+function animate() {
+  renderer.render();
+  requestAnimationFrame(animate);
+}
+animate();
 ```
 
 ## Renderer Configuration
@@ -74,7 +82,6 @@ interface RendererOptions {
 
   // Features
   enablePicking?: boolean;
-  enableShadows?: boolean;
   enableSectionPlanes?: boolean;
 }
 
@@ -83,75 +90,14 @@ const renderer = new Renderer(canvas, {
   sampleCount: 4,
   backgroundColor: [0.95, 0.95, 0.95, 1.0],
   powerPreference: 'high-performance',
-  enablePicking: true
+  enablePicking: true,
+  enableSectionPlanes: true
 });
-```
-
-## Render Pipeline
-
-```mermaid
-flowchart LR
-    subgraph Frame["Frame Rendering"]
-        Begin["Begin Frame"]
-        Clear["Clear Buffers"]
-        Opaque["Render Opaque"]
-        Trans["Render Transparent"]
-        UI["Render UI"]
-        End["End Frame"]
-    end
-
-    Begin --> Clear --> Opaque --> Trans --> UI --> End
-```
-
-### Pipeline Stages
-
-```typescript
-class Renderer {
-  render(): void {
-    // Begin frame
-    const commandEncoder = this.device.createCommandEncoder();
-    const passEncoder = commandEncoder.beginRenderPass(this.renderPassDescriptor);
-
-    // Set camera uniforms
-    this.updateCameraUniforms();
-
-    // Render opaque objects (front to back)
-    this.renderOpaque(passEncoder);
-
-    // Render transparent objects (back to front)
-    this.renderTransparent(passEncoder);
-
-    // Render UI elements
-    this.renderUI(passEncoder);
-
-    // End frame
-    passEncoder.end();
-    this.device.queue.submit([commandEncoder.finish()]);
-  }
-}
 ```
 
 ## Camera Controls
 
-```mermaid
-stateDiagram-v2
-    [*] --> Idle
-    Idle --> Orbiting: Left Mouse Down
-    Idle --> Panning: Middle Mouse Down
-    Idle --> Zooming: Wheel Scroll
-
-    Orbiting --> Idle: Mouse Up
-    Panning --> Idle: Mouse Up
-    Zooming --> Idle: Scroll Stop
-
-    state Orbiting {
-        [*] --> RotateX
-        RotateX --> RotateY
-        RotateY --> RotateX
-    }
-```
-
-### Camera Configuration
+### Configuration
 
 ```typescript
 interface CameraOptions {
@@ -205,113 +151,353 @@ renderer.animateTo({
 });
 ```
 
-## Selection and Picking
+## Section Planes
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant Canvas
-    participant Picker
-    participant Renderer
+Interactive model slicing with semantic axis names.
 
-    User->>Canvas: Click at (x, y)
-    Canvas->>Picker: pick(x, y)
-    Picker->>Picker: Read pixel from ID buffer
-    Picker->>Picker: Decode entity ID
-    Picker-->>Canvas: Entity ID or null
-    Canvas->>Renderer: highlightEntity(id)
-    Renderer->>Renderer: Update highlight uniform
-```
+### Section Plane Types
 
-### Selection API
+| Axis | Direction | Color | Use Case |
+|------|-----------|-------|----------|
+| `down` | Y-axis | Light Blue | Floor plans |
+| `front` | Z-axis | Green | Elevation views |
+| `side` | X-axis | Orange | Cross sections |
+
+### Creating Section Planes
 
 ```typescript
-// Enable picking
-const renderer = new Renderer(canvas, { enablePicking: true });
+// Add a section plane
+const sectionPlane = {
+  axis: 'down' as const,    // 'down', 'front', or 'side'
+  position: 50,              // 0-100 percentage of model bounds
+  enabled: true,             // Active cutting (vs preview)
+  flipped: false             // Show opposite side
+};
 
-// Handle click events
-canvas.addEventListener('click', async (event) => {
+// Set in render options
+renderer.render({
+  sectionPlane: sectionPlane
+});
+```
+
+### Section Plane Controls
+
+```typescript
+// Update plane position
+sectionPlane.position = 75;  // Move to 75% of model height
+
+// Toggle between preview and cut modes
+sectionPlane.enabled = false;  // Preview mode (transparent)
+sectionPlane.enabled = true;   // Cut mode (active clipping)
+
+// Flip to show opposite side
+sectionPlane.flipped = true;
+
+// Storey-based range override
+sectionPlane.min = storeyElevation;
+sectionPlane.max = storeyElevation + storeyHeight;
+```
+
+### Section Plane Visualization
+
+```mermaid
+graph TD
+    subgraph SectionPlane["Section Plane Rendering"]
+        Preview["Preview Pipeline"]
+        Cut["Cut Pipeline"]
+        Grid["Grid Visualization"]
+    end
+
+    Preview -->|"Respects depth"| Behind["Behind geometry"]
+    Cut -->|"Always visible"| Front["In front"]
+    Grid --> Minor["100 divisions"]
+    Grid --> Major["10 major cells"]
+    Grid --> Edge["Soft edge fade"]
+```
+
+### Section Plane Example
+
+```typescript
+// Interactive section plane control
+let sectionPlane = {
+  axis: 'down' as const,
+  position: 50,
+  enabled: true,
+  flipped: false
+};
+
+// Slider control
+slider.addEventListener('input', (e) => {
+  sectionPlane.position = parseFloat(e.target.value);
+});
+
+// Axis toggle
+axisButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    sectionPlane.axis = btn.dataset.axis as 'down' | 'front' | 'side';
+  });
+});
+
+// Flip toggle
+flipBtn.addEventListener('click', () => {
+  sectionPlane.flipped = !sectionPlane.flipped;
+});
+
+// Render with section plane
+function animate() {
+  renderer.render({ sectionPlane });
+  requestAnimationFrame(animate);
+}
+```
+
+## Snap Detection
+
+Advanced "magnetic" edge snapping for precision measurement and interaction.
+
+### Snap Types
+
+| Type | Description | Priority |
+|------|-------------|----------|
+| `vertex` | Snap to mesh vertices | Highest |
+| `edge` | Snap to edge lines | High |
+| `face` | Snap to face surfaces | Medium |
+| `face_center` | Snap to face centroids | Medium |
+
+### Basic Snap Detection
+
+```typescript
+// Raycast with snap detection
+canvas.addEventListener('mousemove', (e) => {
   const rect = canvas.getBoundingClientRect();
-  const x = event.clientX - rect.left;
-  const y = event.clientY - rect.top;
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
 
-  const result = await renderer.pick(x, y);
+  const result = renderer.raycastScene(x, y, {
+    snapOptions: {
+      snapToVertices: true,
+      snapToEdges: true,
+      snapToFaces: true,
+      snapRadius: 0.1,           // 10cm world units
+      screenSnapRadius: 20       // 20 pixels
+    }
+  });
 
-  if (result) {
-    console.log(`Clicked entity #${result.expressId}`);
-    renderer.select(result.expressId);
+  if (result?.snap) {
+    // Draw snap indicator at snap position
+    drawSnapIndicator(result.snap.position, result.snap.type);
+    console.log(`Snapped to ${result.snap.type} on entity #${result.snap.expressId}`);
+  }
+});
+```
+
+### Magnetic Edge Snapping
+
+"Stick and slide" behavior for precision edge measurement:
+
+```typescript
+let edgeLock = {
+  edge: null,
+  meshExpressId: null,
+  lockStrength: 0
+};
+
+canvas.addEventListener('mousemove', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+
+  // Use magnetic snapping
+  const result = renderer.raycastSceneMagnetic(x, y, edgeLock, {
+    snapOptions: {
+      snapToVertices: true,
+      snapToEdges: true,
+      snapRadius: 0.1,
+      screenSnapRadius: 20
+    }
+  });
+
+  if (result.edgeLock.shouldLock) {
+    // Lock to this edge
+    edgeLock = {
+      edge: result.edgeLock.edge,
+      meshExpressId: result.edgeLock.meshExpressId,
+      lockStrength: result.edgeLock.lockStrength
+    };
+  } else if (result.edgeLock.shouldRelease) {
+    // Release the lock
+    edgeLock = { edge: null, meshExpressId: null, lockStrength: 0 };
+  }
+
+  if (result.snapTarget) {
+    const snap = result.snapTarget;
+
+    // Corner detection (vertex at edge intersection)
+    if (result.edgeLock.isCorner) {
+      console.log(`Corner with ${result.edgeLock.cornerValence} edges`);
+    }
+
+    // Position along edge (0-1)
+    console.log(`Edge position: ${result.edgeLock.edgeT}`);
+  }
+});
+```
+
+### Magnetic Snap Configuration
+
+```typescript
+const magneticConfig = {
+  // Attraction radius multipliers
+  EDGE_ATTRACTION_MULTIPLIER: 3.0,     // 3x base snap radius
+  CORNER_ATTRACTION_MULTIPLIER: 2.0,   // 2x edge radius
+
+  // Confidence boosts
+  CORNER_CONFIDENCE_BOOST: 0.15,
+
+  // Lock escape thresholds
+  EDGE_ESCAPE_MULTIPLIER: 2.5,         // Movement to escape edge lock
+  CORNER_ESCAPE_MULTIPLIER: 3.5,       // Movement to escape corner lock
+
+  // Lock strength
+  LOCK_STRENGTH_GROWTH: 0.05,          // Per frame growth
+  MAX_LOCK_STRENGTH: 1.5,
+
+  // Corner detection
+  MIN_CORNER_VALENCE: 2,               // Minimum edges at vertex
+  CORNER_THRESHOLD: 0.08               // % of edge length
+};
+```
+
+### Snap Target Structure
+
+```typescript
+interface SnapTarget {
+  type: 'vertex' | 'edge' | 'face' | 'face_center';
+  position: { x: number; y: number; z: number };
+  normal?: { x: number; y: number; z: number };
+  expressId: number;
+  confidence: number;  // 0-1, higher is better
+  metadata?: {
+    vertices?: Vec3[];     // For edges/faces
+    edgeIndex?: number;
+    faceIndex?: number;
+  };
+}
+```
+
+## GPU Picking
+
+Depth-aware object selection supporting 100K+ meshes.
+
+### Basic Picking
+
+```typescript
+canvas.addEventListener('click', async (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+
+  const expressId = await renderer.pick(x, y);
+
+  if (expressId !== null) {
+    console.log(`Selected entity #${expressId}`);
+
+    // Highlight selection
+    renderer.setSelection(new Set([expressId]));
+
+    // Get entity data
+    const props = extractPropertiesOnDemand(store, expressId);
+    displayProperties(props);
   } else {
     renderer.clearSelection();
   }
 });
+```
 
-// Multi-selection
-renderer.select([id1, id2, id3]);
+### Multi-Selection
 
-// Get selected entities
+```typescript
+// Select multiple entities
+renderer.setSelection(new Set([id1, id2, id3]));
+
+// Get current selection
 const selected = renderer.getSelection();
+
+// Clear selection
+renderer.clearSelection();
+```
+
+### Raycasting
+
+```typescript
+// Full raycast with intersection details
+const result = renderer.raycastScene(x, y);
+
+if (result) {
+  const { intersection } = result;
+
+  console.log(`Hit point: ${intersection.point.x}, ${intersection.point.y}, ${intersection.point.z}`);
+  console.log(`Normal: ${intersection.normal.x}, ${intersection.normal.y}, ${intersection.normal.z}`);
+  console.log(`Distance: ${intersection.distance}`);
+  console.log(`Entity: #${intersection.expressId}`);
+  console.log(`Triangle: ${intersection.triangleIndex}`);
+}
 ```
 
 ## Visibility Control
 
 ```typescript
 // Hide specific entities
-renderer.hide([entity1.expressId, entity2.expressId]);
+renderer.setHiddenIds(new Set([entity1.expressId, entity2.expressId]));
 
-// Show hidden entities
-renderer.show([entity1.expressId]);
+// Isolate (show only these)
+renderer.setIsolatedIds(new Set([wallId, doorId]));
 
-// Show only specific entities (isolate)
-renderer.isolate([wallId, doorId]);
+// Clear isolation (show all)
+renderer.setIsolatedIds(null);
 
-// Reset visibility
-renderer.showAll();
-
-// Hide by entity type
-renderer.hideByType('IFCSPACE');
-renderer.hideByType('IFCOPENINGELEMENT');
-
-// Set transparency
-renderer.setTransparency(entityId, 0.5);
+// Hide by entity type (combine with parser data)
+const spaceIds = store.entityIndex.byType.get('IFCSPACE') ?? [];
+renderer.setHiddenIds(new Set(spaceIds));
 ```
 
-## Section Planes
-
-```mermaid
-graph TD
-    subgraph SectionPlane["Section Plane"]
-        Plane["Plane Definition<br/>(point + normal)"]
-        Clip["GPU Clipping"]
-        Fill["Section Fill"]
-    end
-
-    Geometry["Scene Geometry"] --> Plane
-    Plane --> Clip
-    Clip --> Fill
-    Fill --> Output["Rendered View"]
-```
-
-### Section Plane API
+## Render Options
 
 ```typescript
-// Add a section plane
-const plane = renderer.addSectionPlane({
-  point: [0, 0, 5],      // Point on plane
-  normal: [0, 0, -1],    // Normal direction
-  color: [1, 0.5, 0, 1], // Section fill color
-  showFill: true
+interface RenderOptions {
+  // Clear color
+  clearColor?: [number, number, number, number];
+
+  // Performance
+  enableDepthTest?: boolean;
+  enableFrustumCulling?: boolean;
+  spatialIndex?: SpatialIndex;
+
+  // Visibility filtering
+  hiddenIds?: Set<number>;           // Hide these meshes
+  isolatedIds?: Set<number> | null;  // Only show these (null = show all)
+
+  // Selection
+  selectedId?: number | null;        // Single selection
+  selectedIds?: Set<number>;         // Multi-selection
+
+  // Section planes
+  sectionPlane?: SectionPlane;
+
+  // Streaming mode
+  isStreaming?: boolean;             // Skip expensive ops during load
+}
+
+renderer.render({
+  clearColor: [0.9, 0.9, 0.9, 1.0],
+  enableFrustumCulling: true,
+  hiddenIds: new Set([123, 456]),
+  selectedIds: new Set([789]),
+  sectionPlane: {
+    axis: 'down',
+    position: 50,
+    enabled: true
+  }
 });
-
-// Update plane position
-renderer.updateSectionPlane(plane.id, {
-  point: [0, 0, 8]
-});
-
-// Remove plane
-renderer.removeSectionPlane(plane.id);
-
-// Toggle section planes
-renderer.setSectionPlanesVisible(false);
 ```
 
 ## Materials and Colors
@@ -349,15 +535,16 @@ const stats = renderer.getCullingStats();
 console.log(`Visible: ${stats.visible} / ${stats.total} meshes`);
 ```
 
-### Level of Detail
+### BVH Acceleration
+
+The renderer uses a Bounding Volume Hierarchy for fast raycasting:
 
 ```typescript
-// Configure LOD distances
-renderer.setLODDistances({
-  high: 0,      // Full detail when close
-  medium: 50,   // Simplified at 50 units
-  low: 100      // Very simplified at 100 units
-});
+// BVH is built automatically when meshes are added
+// For large models, ray intersection is O(log n) instead of O(n)
+
+// Clear caches when geometry changes
+renderer.clearCaches();
 ```
 
 ### Instance Batching
@@ -370,6 +557,18 @@ renderer.setBatching(true);
 const instanceStats = renderer.getInstanceStats();
 console.log(`Unique meshes: ${instanceStats.uniqueMeshes}`);
 console.log(`Total instances: ${instanceStats.totalInstances}`);
+```
+
+### Zero-Copy GPU Upload
+
+Direct WASM-to-GPU buffer streaming for 60-70% less RAM:
+
+```typescript
+// Zero-copy is automatic when using server responses
+// or WASM geometry processing
+
+// For manual control:
+renderer.addMeshZeroCopy(wasmMemoryHandle, gpuGeometryData);
 ```
 
 ## Rendering Statistics
@@ -386,33 +585,90 @@ console.log(`Triangles: ${stats.triangles}`);
 console.log(`GPU memory: ${stats.gpuMemoryMB} MB`);
 ```
 
-## Shader Architecture
+## Complete Example
 
-```mermaid
-graph TB
-    subgraph Vertex["Vertex Shader"]
-        Position["Position Transform"]
-        Normal["Normal Transform"]
-        UV["UV Passthrough"]
-    end
+```typescript
+import { Renderer } from '@ifc-lite/renderer';
+import { IfcServerClient, decodeParquetGeometry } from '@ifc-lite/server-client';
 
-    subgraph Fragment["Fragment Shader"]
-        Lighting["Lighting Calculation"]
-        Color["Color/Material"]
-        Section["Section Clipping"]
-        Output["Final Color"]
-    end
+async function createViewer() {
+  const canvas = document.getElementById('viewer') as HTMLCanvasElement;
+  const renderer = new Renderer(canvas, {
+    antialias: true,
+    enablePicking: true,
+    enableSectionPlanes: true
+  });
+  await renderer.init();
 
-    Position --> Lighting
-    Normal --> Lighting
-    UV --> Color
-    Lighting --> Section
-    Color --> Section
-    Section --> Output
+  // Load from server
+  const client = new IfcServerClient({ baseUrl: 'http://localhost:3001' });
+  const result = await client.parseParquet(file);
+
+  // Add meshes
+  renderer.addMeshes(result.meshes);
+  renderer.fitToView();
+
+  // Section plane state
+  let sectionPlane = null;
+
+  // Selection state
+  let selectedId = null;
+
+  // Edge lock state for magnetic snapping
+  let edgeLock = { edge: null, meshExpressId: null, lockStrength: 0 };
+
+  // Click handler with picking
+  canvas.addEventListener('click', async (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const id = await renderer.pick(e.clientX - rect.left, e.clientY - rect.top);
+
+    if (id !== null) {
+      selectedId = id;
+      renderer.setSelection(new Set([id]));
+    } else {
+      selectedId = null;
+      renderer.clearSelection();
+    }
+  });
+
+  // Mousemove handler with magnetic snapping
+  canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    const result = renderer.raycastSceneMagnetic(x, y, edgeLock, {
+      snapOptions: { snapToVertices: true, snapToEdges: true }
+    });
+
+    if (result.edgeLock.shouldLock) {
+      edgeLock = result.edgeLock;
+    } else if (result.edgeLock.shouldRelease) {
+      edgeLock = { edge: null, meshExpressId: null, lockStrength: 0 };
+    }
+
+    if (result.snapTarget) {
+      showSnapIndicator(result.snapTarget);
+    }
+  });
+
+  // Render loop
+  function animate() {
+    renderer.render({
+      sectionPlane,
+      selectedIds: selectedId ? new Set([selectedId]) : undefined
+    });
+    requestAnimationFrame(animate);
+  }
+  animate();
+
+  return { renderer, setSectionPlane: (p) => { sectionPlane = p; } };
+}
 ```
 
 ## Next Steps
 
-- [Query Guide](querying.md) - Query entity data
 - [Geometry Guide](geometry.md) - Geometry processing
+- [Query Guide](querying.md) - Query entity data
+- [Server Guide](server.md) - Server-based rendering
 - [API Reference](../api/typescript.md) - Complete API docs

@@ -1,48 +1,73 @@
 # Architecture Overview
 
-This document describes the high-level architecture of IFClite.
+This document describes the high-level architecture of IFClite, including both client-side and server-side processing paradigms.
 
 ## System Architecture
+
+IFClite supports two processing paradigms:
 
 ```mermaid
 flowchart TB
     subgraph Client["Client Layer"]
-        App["Web Application"]
+        Web["Web Application"]
+        Desktop["Desktop (Tauri)"]
         CLI["CLI Tools"]
-        Scripts["Scripts/Automation"]
     end
 
     subgraph API["API Layer"]
-        TSApi["TypeScript API"]
-        RustApi["Rust API"]
+        TSApi["TypeScript Packages"]
+        ServerSDK["Server Client SDK"]
         WasmApi["WASM Bindings"]
+        RustApi["Native Rust API"]
     end
 
-    subgraph Core["Core Layer"]
-        Parser["Parser"]
-        Geometry["Geometry"]
-        Query["Query Engine"]
-        Export["Export"]
+    subgraph Processing["Processing Layer"]
+        subgraph ClientSide["Client-Side (WASM)"]
+            Parser["Parser"]
+            Geometry["Geometry"]
+            Renderer["Renderer"]
+        end
+
+        subgraph ServerSide["Server-Side (Native)"]
+            ServerParser["Parser"]
+            ServerGeo["Geometry"]
+            Parquet["Parquet Encoder"]
+            Cache["Content Cache"]
+        end
     end
 
     subgraph Storage["Storage Layer"]
         Columnar["Columnar Tables"]
         Graph["Relationship Graph"]
-        Buffers["GPU Buffers"]
+        GPU["GPU Buffers"]
     end
 
     Client --> API
-    API --> Core
-    Core --> Storage
+    API --> Processing
+    Processing --> Storage
 
+    Web --> TSApi
+    Web --> ServerSDK
+    Desktop --> RustApi
     TSApi --> WasmApi
-    WasmApi --> RustApi
+    ServerSDK --> ServerSide
 
     style Client fill:#6366f1,stroke:#312e81,color:#fff
     style API fill:#2563eb,stroke:#1e3a8a,color:#fff
-    style Core fill:#10b981,stroke:#064e3b,color:#fff
-    style Storage fill:#f59e0b,stroke:#7c2d12,color:#fff
+    style ClientSide fill:#10b981,stroke:#064e3b,color:#fff
+    style ServerSide fill:#f59e0b,stroke:#7c2d12,color:#fff
+    style Storage fill:#a855f7,stroke:#581c87,color:#fff
 ```
+
+## Client vs Server Paradigm
+
+| Aspect | Client-Side (WASM) | Server-Side (Rust) |
+|--------|-------------------|-------------------|
+| **Processing** | Single-threaded | Multi-threaded (Rayon) |
+| **Memory** | 4GB WASM limit | System RAM |
+| **Caching** | Browser storage | Content-addressable disk |
+| **Format** | Raw geometry | Parquet (15-50x smaller) |
+| **Best For** | Privacy, offline | Teams, large files |
 
 ## Design Principles
 
@@ -71,12 +96,10 @@ flowchart LR
     style Traditional fill:#dc2626,stroke:#7f1d1d,color:#fff
     style IFCLite fill:#16a34a,stroke:#14532d,color:#fff
 ```
-<｜tool▁call▁begin｜>
-read_file
 
 ### 2. Streaming First
 
-Process data incrementally:
+Process data incrementally for responsive UIs:
 
 ```mermaid
 sequenceDiagram
@@ -89,25 +112,51 @@ sequenceDiagram
     File->>Parser: Chunk 1
     Parser->>Processor: Entities 1-100
     Processor->>Renderer: Meshes 1-50
-    Renderer->>User: First render
+    Renderer->>User: First render (300ms)
 
     File->>Parser: Chunk 2
     Parser->>Processor: Entities 101-200
     Processor->>Renderer: Meshes 51-100
-    Note over User: User sees progressive loading
+    Note over User: Progressive loading
 
     File->>Parser: Chunk N
     Parser->>Processor: All entities
     Processor->>Renderer: All meshes
-    Renderer->>User: Complete render
+    Renderer->>User: Complete
 ```
 
-### 3. Columnar Storage
+### 3. On-Demand Property Extraction
+
+Properties parsed lazily for faster initial load:
+
+```mermaid
+flowchart LR
+    subgraph TraditionalParsing["Traditional"]
+        T1["Parse All Entities"]
+        T2["Parse All Properties"]
+        T3["Build All Tables"]
+        T1 --> T2 --> T3
+    end
+
+    subgraph OnDemand["IFClite On-Demand"]
+        O1["Parse Entities"]
+        O2["Build Index"]
+        O3["Map: entityId → psetIds"]
+        O4["Parse on Access"]
+        O1 --> O2 --> O3
+        O3 -.->|"lazy"| O4
+    end
+
+    style TraditionalParsing fill:#dc2626,stroke:#7f1d1d,color:#fff
+    style OnDemand fill:#16a34a,stroke:#14532d,color:#fff
+```
+
+### 4. Columnar Storage
 
 Store data in columnar format for cache-efficient access:
 
 ```mermaid
-graph LR
+graph TB
     subgraph RowBased["Row-Based (Traditional)"]
         R1["Entity 1: id=1, type=WALL, name='A'"]
         R2["Entity 2: id=2, type=DOOR, name='B'"]
@@ -115,13 +164,13 @@ graph LR
     end
 
     subgraph Columnar["Columnar (IFClite)"]
-        C1["IDs: [1, 2, 3, ...]"]
-        C2["Types: [WALL, DOOR, WALL, ...]"]
-        C3["Names: ['A', 'B', 'C', ...]"]
+        C1["IDs: Uint32Array [1, 2, 3, ...]"]
+        C2["Types: Uint16Array [WALL, DOOR, WALL, ...]"]
+        C3["Names: StringTable ['A', 'B', 'C', ...]"]
     end
 ```
 
-### 4. Hybrid Data Model
+### 5. Hybrid Data Model
 
 Combine the best of different data structures:
 
@@ -129,7 +178,8 @@ Combine the best of different data structures:
 |----------------|----------|----------------|
 | Columnar Tables | Bulk queries, filtering | Sequential scan |
 | CSR Graph | Relationship traversal | Adjacency lookup |
-| Lazy Parsing | On-demand attribute access | Random access |
+| On-Demand Maps | Property access | Hash lookup |
+| BVH | Raycasting | Tree traversal |
 
 ## Package Architecture
 
@@ -139,12 +189,17 @@ graph TB
         Core["ifc-lite-core<br/>Parsing"]
         Geo["ifc-lite-geometry<br/>Triangulation"]
         Wasm["ifc-lite-wasm<br/>Bindings"]
+        Server["ifc-lite-server<br/>HTTP API"]
     end
 
     subgraph TS["TypeScript Packages"]
         Parser["@ifc-lite/parser"]
+        IFCX["@ifc-lite/ifcx"]
         Geometry["@ifc-lite/geometry"]
         Renderer["@ifc-lite/renderer"]
+        ServerClient["@ifc-lite/server-client"]
+        ServerBin["@ifc-lite/server-bin"]
+        Cache["@ifc-lite/cache"]
         Query["@ifc-lite/query"]
         Data["@ifc-lite/data"]
         Export["@ifc-lite/export"]
@@ -152,6 +207,8 @@ graph TB
 
     subgraph Apps["Applications"]
         Viewer["Viewer App"]
+        Desktop["Desktop (Tauri)"]
+        CLI["create-ifc-lite"]
     end
 
     Wasm --> Core
@@ -159,16 +216,83 @@ graph TB
     Parser --> Wasm
     Geometry --> Wasm
     Renderer --> Geometry
+    ServerClient --> Server
     Query --> Data
     Export --> Data
     Viewer --> Parser
     Viewer --> Renderer
-    Viewer --> Query
+    Viewer --> ServerClient
+    Desktop --> Core
+    Desktop --> Geo
+```
+
+## Server Architecture
+
+```mermaid
+flowchart TB
+    subgraph Client["Browser Client"]
+        Hash["SHA-256 Hash"]
+        Upload["File Upload"]
+        Decode["Parquet Decoder"]
+        Render["WebGPU Renderer"]
+    end
+
+    subgraph Server["Rust Server (Axum)"]
+        Router["API Router"]
+        Parser["IFC Parser"]
+        GeoProc["Geometry Processor"]
+        DataModel["Data Model Extractor"]
+        Serializer["Parquet Serializer"]
+    end
+
+    subgraph Cache["Cache Layer"]
+        DiskCache[(Disk Cache)]
+    end
+
+    Hash -->|"check"| Router
+    Router -->|"hit"| DiskCache
+    DiskCache --> Decode
+    Upload -->|"miss"| Parser
+    Parser --> GeoProc
+    Parser --> DataModel
+    GeoProc --> Serializer
+    DataModel --> Serializer
+    Serializer --> DiskCache
+    Serializer --> Decode
+    Decode --> Render
+
+    style Client fill:#6366f1,stroke:#312e81,color:#fff
+    style Server fill:#10b981,stroke:#064e3b,color:#fff
+    style Cache fill:#f59e0b,stroke:#7c2d12,color:#fff
+```
+
+### Server Cache Strategy
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Server
+    participant Cache
+
+    Client->>Client: Compute SHA-256 hash
+    Client->>Server: GET /cache/check/{hash}
+
+    alt Cache Hit
+        Server->>Cache: Lookup
+        Cache-->>Server: Parquet data
+        Server-->>Client: 200 (skip upload!)
+    else Cache Miss
+        Server-->>Client: 404
+        Client->>Server: POST /parse/parquet
+        Server->>Server: Parse (parallel)
+        Server->>Cache: Store
+        Server-->>Client: Parquet response
+    end
 ```
 
 ## Data Flow
 
-### Parse Flow
+### Client-Side Parse Flow
 
 ```mermaid
 flowchart TB
@@ -192,9 +316,10 @@ flowchart TB
     subgraph Store["4. Store"]
         Tables["Columnar Tables"]
         Graph["Relationship Graph"]
+        OnDemand["On-Demand Maps"]
     end
 
-    Output["ParseResult"]
+    Output["IfcDataStore"]
 
     Input --> Tokenize
     Tokenize --> Scan
@@ -209,8 +334,48 @@ flowchart TB
     style Store fill:#a855f7,stroke:#581c87,color:#fff
     style Output fill:#16a34a,stroke:#14532d,color:#fff
 ```
-<｜tool▁call▁begin｜>
-read_file
+
+### Server-Side Parse Flow
+
+```mermaid
+flowchart TB
+    Input["IFC File"]
+
+    subgraph Parse["1. Parse (Parallel)"]
+        Tokenize["STEP Tokenizer"]
+        Extract["Entity Extractor"]
+    end
+
+    subgraph Process["2. Process (Parallel)"]
+        Geo["Geometry Extraction"]
+        Data["Data Model Extraction"]
+    end
+
+    subgraph Serialize["3. Serialize"]
+        ParquetGeo["Parquet Geometry"]
+        ParquetData["Parquet Data Model"]
+    end
+
+    subgraph Cache["4. Cache"]
+        Store["Disk Cache"]
+    end
+
+    Output["Parquet Response"]
+
+    Input --> Parse
+    Parse --> Process
+    Geo --> ParquetGeo
+    Data --> ParquetData
+    ParquetGeo --> Store
+    ParquetData --> Store
+    Store --> Output
+
+    style Input fill:#6366f1,stroke:#312e81,color:#fff
+    style Parse fill:#2563eb,stroke:#1e3a8a,color:#fff
+    style Process fill:#10b981,stroke:#064e3b,color:#fff
+    style Serialize fill:#f59e0b,stroke:#7c2d12,color:#fff
+    style Cache fill:#a855f7,stroke:#581c87,color:#fff
+```
 
 ### Render Flow
 
@@ -235,6 +400,7 @@ flowchart TB
 
     subgraph Render["Render"]
         Pass["Render Pass"]
+        Section["Section Planes"]
         Draw["Draw Calls"]
     end
 
@@ -260,6 +426,7 @@ graph TB
         Strings["String Table"]
         Metadata["Entity Metadata"]
         Query["Query Results"]
+        OnDemand["On-Demand Maps"]
     end
 
     subgraph Wasm["WASM Linear Memory"]
@@ -272,6 +439,7 @@ graph TB
         VBO["Vertex Buffers"]
         IBO["Index Buffers"]
         UBO["Uniform Buffers"]
+        ID["ID Buffer (Picking)"]
     end
 
     Wasm -->|"Zero-copy view"| JS
@@ -285,10 +453,13 @@ graph TB
 | Strings | Deduplicated string table (30% reduction) |
 | Entity IDs | Uint32Array (fixed-size) |
 | Types | Uint16Array enum (2 bytes vs ~20 for string) |
-| Properties | Lazy parsing (on-demand) |
+| Properties | On-demand parsing (not pre-loaded) |
 | Geometry | Streaming + dispose after upload |
+| Server | Parquet (15-50x smaller transfer) |
 
 ## Threading Model
+
+### Client-Side
 
 ```mermaid
 flowchart LR
@@ -298,7 +469,7 @@ flowchart LR
         Query["Queries"]
     end
 
-    subgraph Worker["Web Worker (Optional)"]
+    subgraph Worker["Web Worker"]
         Parse["Parsing"]
         Geo["Geometry"]
     end
@@ -306,17 +477,69 @@ flowchart LR
     Main <-->|"Transferable"| Worker
 ```
 
-### Current Implementation
+### Server-Side
 
-- **Parsing**: Main thread (streaming reduces blocking)
-- **Geometry**: Main thread (batched processing)
-- **Rendering**: Main thread (WebGPU)
+```mermaid
+flowchart TB
+    subgraph Axum["Axum Runtime"]
+        Router["Async Router"]
+        Handlers["Request Handlers"]
+    end
 
-### Planned
+    subgraph Rayon["Rayon Thread Pool"]
+        Parser1["Parser Thread 1"]
+        Parser2["Parser Thread 2"]
+        ParserN["Parser Thread N"]
+    end
 
-- **Parsing**: Web Worker with streaming
-- **Geometry**: Worker pool for parallel processing
-- **Rendering**: Main thread (required for WebGPU)
+    subgraph Tokio["Tokio Runtime"]
+        Cache["Cache I/O"]
+        Response["Response Stream"]
+    end
+
+    Router --> Handlers
+    Handlers -->|"spawn_blocking"| Rayon
+    Handlers --> Tokio
+```
+
+## IFC5 (IFCX) Architecture
+
+```mermaid
+flowchart TB
+    subgraph Input["IFCX File"]
+        JSON["JSON Structure"]
+        Header["Header"]
+        Schemas["Schemas"]
+        Data["Data Nodes"]
+    end
+
+    subgraph Composition["ECS Composition"]
+        Flatten["Flatten Layers"]
+        Inherit["Resolve Inheritance"]
+        Tree["Build Tree"]
+    end
+
+    subgraph Extract["Extraction"]
+        Entities["Entity Extractor"]
+        Props["Property Extractor"]
+        Geo["Geometry Extractor"]
+        Hierarchy["Hierarchy Builder"]
+    end
+
+    subgraph Output["Output"]
+        Store["IfcxParseResult"]
+        Meshes["Pre-tessellated Meshes"]
+    end
+
+    Input --> Composition
+    Composition --> Extract
+    Extract --> Output
+
+    style Input fill:#6366f1,stroke:#312e81,color:#fff
+    style Composition fill:#10b981,stroke:#064e3b,color:#fff
+    style Extract fill:#f59e0b,stroke:#7c2d12,color:#fff
+    style Output fill:#a855f7,stroke:#581c87,color:#fff
+```
 
 ## Extension Points
 
@@ -329,15 +552,15 @@ graph TB
     end
 
     subgraph Extensions["Extension Points"]
-        CustomParser["Custom Parsers"]
+        CustomExtractor["Custom Extractors"]
         CustomProcessor["Custom Processors"]
-        CustomRenderer["Custom Renderers"]
+        CustomShaders["Custom Shaders"]
         Plugins["Plugins"]
     end
 
-    CustomParser -.->|extends| Parser
+    CustomExtractor -.->|extends| Parser
     CustomProcessor -.->|extends| Geometry
-    CustomRenderer -.->|extends| Renderer
+    CustomShaders -.->|extends| Renderer
     Plugins -.->|hooks| Core
 ```
 
@@ -374,20 +597,34 @@ graph TB
         WASM["WebAssembly"]
         WebGPU["WebGPU"]
         Browser["Browser"]
+        Node["Node.js"]
+        Tauri["Tauri"]
     end
 
     subgraph Build["Build Tools"]
         Cargo["Cargo"]
         Vite["Vite"]
         WasmPack["wasm-pack"]
+        Turborepo["Turborepo"]
+    end
+
+    subgraph Formats["Data Formats"]
+        STEP["STEP (IFC4)"]
+        IFCX["IFCX (IFC5)"]
+        Parquet["Apache Parquet"]
+        Cache["Binary Cache"]
     end
 
     Rust --> WASM
+    Rust --> Tauri
     TS --> Browser
+    TS --> Node
     WGSL --> WebGPU
-    Cargo --> Rust
-    Vite --> TS
-    WasmPack --> WASM
+
+    style Languages fill:#6366f1,stroke:#312e81,color:#fff
+    style Runtime fill:#10b981,stroke:#064e3b,color:#fff
+    style Build fill:#f59e0b,stroke:#7c2d12,color:#fff
+    style Formats fill:#a855f7,stroke:#581c87,color:#fff
 ```
 
 ## Next Steps
