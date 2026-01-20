@@ -1268,18 +1268,24 @@ impl BooleanClippingProcessor {
         Ok((location, normal, agreement))
     }
 
-    /// Parse IfcPolygonalBoundedHalfSpace and create a clipping prism mesh
+    /// Parse IfcPolygonalBoundedHalfSpace and create a clipping wedge mesh
     ///
-    /// IfcPolygonalBoundedHalfSpace defines a bounded region by:
-    /// - BaseSurface (IfcPlane): The clipping plane
-    /// - AgreementFlag: Which side to clip
+    /// IfcPolygonalBoundedHalfSpace defines a bounded half-space by:
+    /// - BaseSurface (IfcPlane): The clipping plane surface
+    /// - AgreementFlag: Which side of the plane to keep (true = positive side has material)
     /// - Position: Coordinate system for the boundary polygon
-    /// - PolygonalBoundary: 2D polygon limiting the half-space
+    /// - PolygonalBoundary: 2D polygon limiting WHERE the half-space applies
+    ///
+    /// The correct interpretation is:
+    /// 1. Create a prism by extruding the polygon in Position's Z direction
+    /// 2. Clip this prism with the BaseSurface plane
+    /// 3. The resulting wedge is what gets subtracted from the wall
     fn parse_polygonal_bounded_half_space(
         &self,
         half_space: &DecodedEntity,
         decoder: &mut EntityDecoder,
     ) -> Result<Mesh> {
+        use crate::csg::{ClippingProcessor, Plane};
         use crate::extrusion::extrude_profile;
         use crate::profile::Profile2D;
 
@@ -1290,7 +1296,7 @@ impl BooleanClippingProcessor {
         // 2: Position (IfcAxis2Placement3D - coordinate system for boundary)
         // 3: PolygonalBoundary (IfcBoundedCurve - usually IfcPolyline)
 
-        // Parse the base plane first to get the clipping plane orientation
+        // Parse the base plane to get the clipping plane
         let (plane_point, plane_normal, agreement) =
             self.parse_half_space_solid(half_space, decoder)?;
 
@@ -1303,7 +1309,7 @@ impl BooleanClippingProcessor {
             Error::geometry("Failed to resolve PolygonalBoundedHalfSpace Position".to_string())
         })?;
 
-        // Parse position transform
+        // Parse position transform - this defines where the polygon sits
         let position_transform = self.parse_position_transform(&position_entity, decoder)?;
 
         // Parse PolygonalBoundary
@@ -1325,47 +1331,36 @@ impl BooleanClippingProcessor {
         // Create a profile from the 2D points
         let profile = Profile2D::new(points_2d);
 
-        // Extrude the polygon along the plane normal to create the clipping prism
-        // The prism needs to be thick enough to fully clip through the geometry
-        // We extrude in both directions from the plane to ensure complete coverage
-        let extrusion_depth = 1000.0; // Large enough to clip any building element
+        // Step 1: Create a tall prism by extruding the polygon in Z direction
+        // The prism extends far in both directions to ensure complete coverage
+        let extrusion_depth = 100.0; // Tall enough for any building element
 
-        // Determine extrusion direction based on agreement flag
-        // If agreement=true, material is on positive side, so we clip positive side
-        // If agreement=false, material is on negative side, so we clip negative side
-        let extrusion_dir = if agreement {
-            plane_normal
+        // Extrude in +Z direction (no rotation needed, Z is default)
+        let mut prism = extrude_profile(&profile, extrusion_depth, None)?;
+
+        // Offset the prism so it extends in both directions from the plane
+        // Move it down by half the depth
+        let offset = Matrix4::new_translation(&Vector3::new(0.0, 0.0, -extrusion_depth / 2.0));
+        apply_transform(&mut prism, &offset);
+
+        // Apply position transform to place the prism in world coordinates
+        apply_transform(&mut prism, &position_transform);
+
+        // Step 2: Clip the prism with the BaseSurface plane
+        // For DIFFERENCE with agreement=true: we want to remove material on POSITIVE side
+        // So we keep the part of the prism that's on the positive side of the plane
+        // (this part will be subtracted from the wall)
+        let clip_normal = if agreement {
+            plane_normal // Keep positive side of prism (to subtract)
         } else {
-            -plane_normal
+            -plane_normal // Keep negative side
         };
 
-        // Create rotation matrix to align Z with extrusion direction
-        let up = if extrusion_dir.z.abs() > 0.9 {
-            Vector3::new(0.0, 1.0, 0.0)
-        } else {
-            Vector3::new(0.0, 0.0, 1.0)
-        };
-        let new_x = up.cross(&extrusion_dir).normalize();
-        let new_y = extrusion_dir.cross(&new_x).normalize();
+        let plane = Plane::new(plane_point, clip_normal);
+        let clipper = ClippingProcessor::new();
+        let clipped_prism = clipper.clip_mesh(&prism, &plane)?;
 
-        let mut extrusion_transform = Matrix4::identity();
-        extrusion_transform[(0, 0)] = new_x.x;
-        extrusion_transform[(1, 0)] = new_x.y;
-        extrusion_transform[(2, 0)] = new_x.z;
-        extrusion_transform[(0, 1)] = new_y.x;
-        extrusion_transform[(1, 1)] = new_y.y;
-        extrusion_transform[(2, 1)] = new_y.z;
-        extrusion_transform[(0, 2)] = extrusion_dir.x;
-        extrusion_transform[(1, 2)] = extrusion_dir.y;
-        extrusion_transform[(2, 2)] = extrusion_dir.z;
-
-        // Extrude the profile
-        let mut mesh = extrude_profile(&profile, extrusion_depth, Some(extrusion_transform))?;
-
-        // Apply position transform to place the prism correctly
-        apply_transform(&mut mesh, &position_transform);
-
-        Ok(mesh)
+        Ok(clipped_prism)
     }
 
     /// Parse IfcAxis2Placement3D for PolygonalBoundedHalfSpace
