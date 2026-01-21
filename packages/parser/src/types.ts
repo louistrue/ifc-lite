@@ -19,10 +19,21 @@ export interface EntityIndex {
   byType: Map<string, number[]>;
 }
 
+/**
+ * IFC attribute value - can be primitive, reference, or nested list
+ * Uses `unknown` for runtime type checking in extractors
+ */
+export type IfcAttributeValue =
+  | string
+  | number
+  | boolean
+  | null
+  | IfcAttributeValue[];
+
 export interface IfcEntity {
   expressId: number;
   type: string;
-  attributes: any[];
+  attributes: IfcAttributeValue[];
 }
 
 export interface PropertyValue {

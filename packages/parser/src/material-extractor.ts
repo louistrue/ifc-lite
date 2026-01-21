@@ -345,20 +345,23 @@ function extractMaterialAssociation(
 
 // Helper functions to parse attribute values
 
-function getString(value: any): string | undefined {
+function getString(value: unknown): string | undefined {
   if (value === null || value === undefined) return undefined;
   if (typeof value === 'string') return value;
   return String(value);
 }
 
-function getNumber(value: any): number | undefined {
+function getNumber(value: unknown): number | undefined {
   if (value === null || value === undefined) return undefined;
   if (typeof value === 'number') return value;
-  const num = parseFloat(value);
-  return isNaN(num) ? undefined : num;
+  if (typeof value === 'string') {
+    const num = parseFloat(value);
+    return isNaN(num) ? undefined : num;
+  }
+  return undefined;
 }
 
-function getBoolean(value: any): boolean | undefined {
+function getBoolean(value: unknown): boolean | undefined {
   if (value === null || value === undefined) return undefined;
   if (typeof value === 'boolean') return value;
   if (value === '.T.' || value === 'T' || value === 'true') return true;
@@ -366,7 +369,7 @@ function getBoolean(value: any): boolean | undefined {
   return undefined;
 }
 
-function getReference(value: any): number | undefined {
+function getReference(value: unknown): number | undefined {
   if (value === null || value === undefined) return undefined;
   if (typeof value === 'number') return value;
   if (typeof value === 'string' && value.startsWith('#')) {
@@ -375,11 +378,11 @@ function getReference(value: any): number | undefined {
   return undefined;
 }
 
-function getReferences(value: any): number[] | undefined {
+function getReferences(value: unknown): number[] | undefined {
   if (!Array.isArray(value)) return undefined;
   return value
     .map(v => getReference(v))
-    .filter(ref => ref !== undefined) as number[];
+    .filter((ref): ref is number => ref !== undefined);
 }
 
 /**

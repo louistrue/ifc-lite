@@ -263,20 +263,23 @@ export function getCoordinateSystemDescription(georef: GeoreferenceInfo): string
 
 // Helper functions
 
-function getString(value: any): string | undefined {
+function getString(value: unknown): string | undefined {
   if (value === null || value === undefined) return undefined;
   if (typeof value === 'string') return value;
   return String(value);
 }
 
-function getNumber(value: any): number | undefined {
+function getNumber(value: unknown): number | undefined {
   if (value === null || value === undefined) return undefined;
   if (typeof value === 'number') return value;
-  const num = parseFloat(value);
-  return isNaN(num) ? undefined : num;
+  if (typeof value === 'string') {
+    const num = parseFloat(value);
+    return isNaN(num) ? undefined : num;
+  }
+  return undefined;
 }
 
-function getReference(value: any): number | undefined {
+function getReference(value: unknown): number | undefined {
   if (value === null || value === undefined) return undefined;
   if (typeof value === 'number') return value;
   if (typeof value === 'string' && value.startsWith('#')) {

@@ -287,13 +287,13 @@ export function getClassificationSystemName(
 
 // Helper functions
 
-function getString(value: any): string | undefined {
+function getString(value: unknown): string | undefined {
   if (value === null || value === undefined) return undefined;
   if (typeof value === 'string') return value;
   return String(value);
 }
 
-function getReference(value: any): number | undefined {
+function getReference(value: unknown): number | undefined {
   if (value === null || value === undefined) return undefined;
   if (typeof value === 'number') return value;
   if (typeof value === 'string' && value.startsWith('#')) {
@@ -302,16 +302,16 @@ function getReference(value: any): number | undefined {
   return undefined;
 }
 
-function getReferences(value: any): number[] | undefined {
+function getReferences(value: unknown): number[] | undefined {
   if (!Array.isArray(value)) return undefined;
   return value
     .map(v => getReference(v))
-    .filter(ref => ref !== undefined) as number[];
+    .filter((ref): ref is number => ref !== undefined);
 }
 
-function getStringList(value: any): string[] | undefined {
+function getStringList(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   return value
     .map(v => getString(v))
-    .filter(str => str !== undefined) as string[];
+    .filter((str): str is string => str !== undefined);
 }
