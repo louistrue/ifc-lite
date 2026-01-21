@@ -9,23 +9,21 @@
 
 import { useMemo, useCallback, useRef } from 'react';
 import { useViewerStore } from '../store.js';
-import { IfcParser, detectFormat, parseIfcx, SpatialHierarchyBuilder, extractLengthUnitScale } from '@ifc-lite/parser';
+import { IfcParser, detectFormat, parseIfcx } from '@ifc-lite/parser';
 import { GeometryProcessor, GeometryQuality, type MeshData } from '@ifc-lite/geometry';
 import { IfcQuery } from '@ifc-lite/query';
 import { buildSpatialIndex } from '@ifc-lite/spatial';
-import {
-  BinaryCacheWriter,
-  BinaryCacheReader,
-  type IfcDataStore as CacheDataStore,
-  type GeometryData,
-} from '@ifc-lite/cache';
+import { type GeometryData } from '@ifc-lite/cache';
 import { IfcTypeEnum, RelationshipType, IfcTypeEnumFromString, IfcTypeEnumToString, EntityFlags, type SpatialHierarchy, type SpatialNode, type EntityTable, type RelationshipGraph } from '@ifc-lite/data';
 import { StringTable } from '@ifc-lite/data';
 import { IfcServerClient, decodeDataModel, type ParquetBatch, type DataModel } from '@ifc-lite/server-client';
 
 // Extracted utilities
-import { SERVER_URL, USE_SERVER, CACHE_SIZE_THRESHOLD, isTauri, getDynamicBatchConfig } from '../utils/ifcConfig.js';
+import { SERVER_URL, USE_SERVER, CACHE_SIZE_THRESHOLD, getDynamicBatchConfig } from '../utils/ifcConfig.js';
 import { rebuildSpatialHierarchy, rebuildOnDemandMaps } from '../utils/spatialHierarchy.js';
+
+// Cache hook
+import { useIfcCache, getCached, type CacheResult } from './useIfcCache.js';
 
 // Define QuantitySet type inline (matches server-client's QuantitySet interface)
 interface ServerQuantitySet {
@@ -33,43 +31,6 @@ interface ServerQuantitySet {
   qset_name: string;
   method_of_measurement?: string;
   quantities: Array<{ quantity_name: string; quantity_value: number; quantity_type: string }>;
-}
-
-// Type definitions for cache functions
-type GetCachedFn = (key: string) => Promise<CacheResult | null>;
-type SetCachedFn = (key: string, data: ArrayBuffer, fileName: string, fileSize: number, sourceBuffer?: ArrayBuffer) => Promise<void>;
-
-// Cache result type (matches ifc-cache.ts export)
-interface CacheResult {
-  buffer: ArrayBuffer;
-  sourceBuffer?: ArrayBuffer;
-}
-
-// Cache service functions - loaded dynamically based on platform
-let cacheService: { getCached: GetCachedFn; setCached: SetCachedFn } | null = null;
-
-async function getCacheService() {
-  if (cacheService) return cacheService;
-
-  if (isTauri) {
-    const mod = await import('../services/desktop-cache.js');
-    cacheService = { getCached: mod.getCached, setCached: mod.setCached };
-  } else {
-    const mod = await import('../services/ifc-cache.js');
-    cacheService = { getCached: mod.getCached, setCached: mod.setCached };
-  }
-  return cacheService;
-}
-
-// Convenience wrappers
-async function getCached(key: string): Promise<CacheResult | null> {
-  const service = await getCacheService();
-  return service.getCached(key);
-}
-
-async function setCached(key: string, data: ArrayBuffer, fileName: string, fileSize: number, sourceBuffer?: ArrayBuffer): Promise<void> {
-  const service = await getCacheService();
-  return service.setCached(key, data, fileName, fileSize, sourceBuffer);
 }
 
 export function useIfc() {
@@ -92,166 +53,8 @@ export function useIfc() {
   // Track if we've already logged for this ifcDataStore
   const lastLoggedDataStoreRef = useRef<typeof ifcDataStore>(null);
 
-  /**
-   * Load from binary cache - INSTANT load for maximum speed
-   * Large cached models load all geometry at once for fastest total time
-   */
-  const loadFromCache = useCallback(async (
-    cacheResult: CacheResult,
-    fileName: string
-  ): Promise<boolean> => {
-    try {
-      const cacheLoadStart = performance.now();
-      setProgress({ phase: 'Loading from cache', percent: 10 });
-
-      // Reset geometry first so Viewport detects this as a new file
-      setGeometryResult(null);
-
-      const reader = new BinaryCacheReader();
-      const result = await reader.read(cacheResult.buffer);
-      const cacheReadTime = performance.now() - cacheLoadStart;
-
-      // Convert cache data store to viewer data store format
-      const dataStore = result.dataStore as any;
-
-      // Restore source buffer for on-demand property extraction
-      if (cacheResult.sourceBuffer) {
-        dataStore.source = new Uint8Array(cacheResult.sourceBuffer);
-
-        // Quick scan to rebuild entity index with byte offsets (needed for on-demand extraction)
-        const { StepTokenizer } = await import('@ifc-lite/parser');
-        const tokenizer = new StepTokenizer(dataStore.source);
-        const entityIndex = {
-          byId: new Map<number, any>(),
-          byType: new Map<string, number[]>(),
-        };
-
-        for (const ref of tokenizer.scanEntitiesFast()) {
-          entityIndex.byId.set(ref.expressId, {
-            expressId: ref.expressId,
-            type: ref.type,
-            byteOffset: ref.offset,
-            byteLength: ref.length,
-            lineNumber: ref.line,
-          });
-          let typeList = entityIndex.byType.get(ref.type);
-          if (!typeList) { typeList = []; entityIndex.byType.set(ref.type, typeList); }
-          typeList.push(ref.expressId);
-        }
-        dataStore.entityIndex = entityIndex;
-
-        // Rebuild on-demand maps from relationships
-        // Pass entityIndex which contains ALL entity types including IfcPropertySet/IfcElementQuantity
-        // (the entity table may not include these since they're filtered during fresh parse)
-        const { onDemandPropertyMap, onDemandQuantityMap } = rebuildOnDemandMaps(
-          dataStore.entities,
-          dataStore.relationships,
-          dataStore.entityIndex
-        );
-        dataStore.onDemandPropertyMap = onDemandPropertyMap;
-        dataStore.onDemandQuantityMap = onDemandQuantityMap;
-        console.log('[useIfc] Restored source buffer and on-demand maps from cache');
-      } else {
-        console.warn('[useIfc] No source buffer in cache - on-demand property extraction disabled');
-        dataStore.source = new Uint8Array(0);
-      }
-
-      // Rebuild spatial hierarchy from cache data (cache doesn't serialize it)
-      // Use SpatialHierarchyBuilder to extract elevations from source buffer
-      if (!dataStore.spatialHierarchy && dataStore.entities && dataStore.relationships) {
-        // Ensure we have source buffer and entityIndex for elevation extraction
-        if (dataStore.source && dataStore.source.length > 0 && dataStore.entityIndex && dataStore.strings) {
-          console.log('[useIfc] Building spatial hierarchy with elevation extraction from source buffer');
-          // Extract unit scale for elevation conversion
-          const lengthUnitScale = extractLengthUnitScale(dataStore.source, dataStore.entityIndex);
-          console.log(`[useIfc] Length unit scale: ${lengthUnitScale}`);
-          const builder = new SpatialHierarchyBuilder();
-          dataStore.spatialHierarchy = builder.build(
-            dataStore.entities,
-            dataStore.relationships,
-            dataStore.strings,
-            dataStore.source,
-            dataStore.entityIndex,
-            lengthUnitScale
-          );
-          console.log(`[useIfc] Spatial hierarchy built: ${dataStore.spatialHierarchy.storeyElevations.size} storey elevations extracted`);
-          
-          // Calculate storey heights from elevation differences (fallback if no property data)
-          if (dataStore.spatialHierarchy.storeyHeights.size === 0 && dataStore.spatialHierarchy.storeyElevations.size > 1) {
-            const entries = Array.from(dataStore.spatialHierarchy.storeyElevations.entries()) as Array<[number, number]>;
-            const sortedStoreys = entries.sort((a, b) => a[1] - b[1]); // Sort by elevation ascending
-            for (let i = 0; i < sortedStoreys.length - 1; i++) {
-              const [storeyId, elevation] = sortedStoreys[i];
-              const nextElevation = sortedStoreys[i + 1][1];
-              const height = nextElevation - elevation;
-              if (height > 0) {
-                dataStore.spatialHierarchy.storeyHeights.set(storeyId, height);
-              }
-            }
-            console.log(`[useIfc] Calculated ${dataStore.spatialHierarchy.storeyHeights.size} storey heights from elevation differences`);
-          }
-        } else {
-          console.warn('[useIfc] Missing data for elevation extraction:', {
-            hasSource: !!dataStore.source,
-            sourceLength: dataStore.source?.length ?? 0,
-            hasEntityIndex: !!dataStore.entityIndex,
-            hasStrings: !!dataStore.strings
-          });
-          // Fallback: use simplified rebuild if source data not available
-          dataStore.spatialHierarchy = rebuildSpatialHierarchy(
-            dataStore.entities,
-            dataStore.relationships
-          );
-        }
-      }
-
-      if (result.geometry) {
-        const { meshes, coordinateInfo, totalVertices, totalTriangles } = result.geometry;
-
-        // INSTANT: Set ALL geometry in ONE call - fastest for cached models
-        setGeometryResult({
-          meshes,
-          totalVertices,
-          totalTriangles,
-          coordinateInfo,
-        });
-
-        // Set data store
-        setIfcDataStore(dataStore);
-
-        // Build spatial index in background (non-blocking)
-        if (meshes.length > 0) {
-          if ('requestIdleCallback' in window) {
-            (window as any).requestIdleCallback(() => {
-              try {
-                const spatialIndex = buildSpatialIndex(meshes);
-                dataStore.spatialIndex = spatialIndex;
-                setIfcDataStore({ ...dataStore });
-              } catch (err) {
-                console.warn('[useIfc] Failed to build spatial index:', err);
-              }
-            }, { timeout: 2000 });
-          }
-        }
-      } else {
-        setIfcDataStore(dataStore);
-      }
-
-      setProgress({ phase: 'Complete (from cache)', percent: 100 });
-      const totalCacheTime = performance.now() - cacheLoadStart;
-      console.log(
-        `[useIfc] INSTANT cache load: ${fileName} (${result.geometry?.meshes.length || 0} meshes)\n` +
-        `  Cache read: ${cacheReadTime.toFixed(0)}ms\n` +
-        `  Total time: ${totalCacheTime.toFixed(0)}ms\n` +
-        `  Expected: <2000ms for instant feel`
-      );
-
-      return true;
-    } catch (err) {
-      console.error('[useIfc] Failed to load from cache:', err);
-      return false;
-    }
-  }, [setProgress, setIfcDataStore, setGeometryResult]);
+  // Cache operations from extracted hook
+  const { loadFromCache, saveToCache } = useIfcCache();
 
   /**
    * Load from server - uses server-side PARALLEL parsing for maximum speed
@@ -1083,46 +886,6 @@ export function useIfc() {
       return false;
     }
   }, [setProgress, setIfcDataStore, setGeometryResult]);
-
-  /**
-   * Save to binary cache (background operation)
-   */
-  const saveToCache = useCallback(async (
-    cacheKey: string,
-    dataStore: any,
-    geometry: GeometryData,
-    sourceBuffer: ArrayBuffer,
-    fileName: string
-  ): Promise<void> => {
-    try {
-      const writer = new BinaryCacheWriter();
-
-      // Adapt dataStore to cache format
-      const cacheDataStore: CacheDataStore = {
-        schema: dataStore.schemaVersion === 'IFC4' ? 1 : dataStore.schemaVersion === 'IFC4X3' ? 2 : 0,
-        entityCount: dataStore.entityCount || dataStore.entities?.count || 0,
-        strings: dataStore.strings,
-        entities: dataStore.entities,
-        properties: dataStore.properties,
-        quantities: dataStore.quantities,
-        relationships: dataStore.relationships,
-        spatialHierarchy: dataStore.spatialHierarchy,
-      };
-
-      const cacheBuffer = await writer.write(
-        cacheDataStore,
-        geometry,
-        sourceBuffer,
-        { includeGeometry: true }
-      );
-
-      await setCached(cacheKey, cacheBuffer, fileName, sourceBuffer.byteLength, sourceBuffer);
-
-      console.log(`[useIfc] Cached ${fileName} (${(cacheBuffer.byteLength / 1024 / 1024).toFixed(2)}MB cache)`);
-    } catch (err) {
-      console.warn('[useIfc] Failed to cache model:', err);
-    }
-  }, []);
 
   const loadFile = useCallback(async (file: File) => {
     const { resetViewerState } = useViewerStore.getState();
