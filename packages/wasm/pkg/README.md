@@ -124,7 +124,7 @@ pnpm build    # Build all packages first
 pnpm dev      # Start the viewer
 ```
 
-Open <http://localhost:5173> and load an IFC file.
+Open http://localhost:5173 and load an IFC file.
 
 > **Note:** Requires Node.js 18+ and pnpm 8+. No Rust toolchain needed - WASM is pre-built.
 >
@@ -400,7 +400,7 @@ IFClite includes a native desktop application built with [Tauri v2](https://v2.t
 
 The desktop app reuses the same Rust crates (`ifc-lite-core`, `ifc-lite-geometry`) as the WASM build, but compiled natively:
 
-```text
+```
 apps/desktop/
 ├── src/                    # React frontend (shared with web)
 ├── src-tauri/

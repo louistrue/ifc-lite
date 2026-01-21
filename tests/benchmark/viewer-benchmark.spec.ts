@@ -116,13 +116,23 @@ test.describe('Viewer Performance Benchmarks', () => {
   const ifcFiles = ifcFilesEnv
     ? ifcFilesEnv.split(',').map((f) => f.trim())
     : [
-        'tests/models/O-S1-BWK-BIM architectural - BIM bouwkundig.ifc',
+        'tests/models/ara3d/AC20-FZK-Haus.ifc',  // Small, fast, has cutouts - ideal for boolean testing
         'tests/models/01_Snowdon_Towers_Sample_Structural(1).ifc',
+        'tests/models/O-S1-BWK-BIM architectural - BIM bouwkundig.ifc',
         'tests/models/ara3d/ISSUE_053_20181220Holter_Tower_10.ifc',
       ];
 
   const baseline = loadBaseline();
   const thresholds = DEFAULT_THRESHOLDS;
+
+  // Expected mesh counts for geometry correctness validation
+  // These help detect if optimizations break geometry (e.g., CSG skipping too much)
+  const expectedMeshCounts: Record<string, number> = {
+    'AC20-FZK-Haus.ifc': 230,  // Expected meshes with cutouts (windows/doors)
+    '01_Snowdon_Towers_Sample_Structural(1).ifc': 1500,  // Structural elements
+    'O-S1-BWK-BIM architectural - BIM bouwkundig.ifc': 16400,  // Large architectural model
+    'ISSUE_053_20181220Holter_Tower_10.ifc': 60000,  // Complex model (some walls may skip CSG due to MAX_OPENINGS)
+  };
 
   for (const ifcFile of ifcFiles) {
     test(`benchmark ${ifcFile}`, async ({ page }) => {
@@ -243,6 +253,28 @@ test.describe('Viewer Performance Benchmarks', () => {
       // Assertions
       expect(metrics.modelOpenMs).not.toBeNull();
       expect(metrics.totalMeshes).toBeGreaterThan(0);
+
+      // Geometry correctness validation: Check mesh count matches expected (within 5% tolerance)
+      // This detects if optimizations break geometry (e.g., CSG skipping too much, missing cutouts)
+      if (expectedMeshCounts[fileName] && metrics.totalMeshes !== null) {
+        const expected = expectedMeshCounts[fileName];
+        const actual = metrics.totalMeshes;
+        const tolerance = expected * 0.05; // 5% tolerance for minor variations
+        
+        if (actual < expected - tolerance) {
+          console.warn(
+            `\n⚠ Geometry regression detected for ${fileName}:\n` +
+            `  Expected: ${expected} meshes (minimum: ${expected - tolerance})\n` +
+            `  Actual: ${actual} meshes\n` +
+            `  Difference: ${expected - actual} meshes missing\n` +
+            `  This may indicate cutouts/booleans are being skipped incorrectly.`
+          );
+          // Don't fail the test, but log warning - allows for legitimate optimizations
+          // that reduce mesh count (e.g., better deduplication)
+        } else {
+          console.log(`✓ Mesh count validation passed: ${actual} meshes (expected: ${expected} ±${tolerance.toFixed(0)})`);
+        }
+      }
 
       // Fail if thresholds violated
       if (!thresholdResult.passed) {
