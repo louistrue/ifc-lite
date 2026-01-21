@@ -1416,8 +1416,15 @@ impl IfcAPI {
                             }
                         } else {
                             // No openings - try sub-mesh approach for per-item colors
-                            let sub_meshes_result =
-                                router.process_element_with_submeshes(&entity, &mut decoder);
+                            // Skip submesh approach for IfcSite (terrain) - use process_element
+                            // which correctly scales ObjectPlacement
+                            let skip_submesh = matches!(ifc_type, ifc_lite_core::IfcType::IfcSite);
+
+                            let sub_meshes_result = if skip_submesh {
+                                Err(ifc_lite_geometry::Error::geometry("Skip submesh for IfcSite".to_string()))
+                            } else {
+                                router.process_element_with_submeshes(&entity, &mut decoder)
+                            };
 
                             let has_submeshes = sub_meshes_result
                                 .as_ref()
