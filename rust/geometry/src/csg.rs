@@ -626,23 +626,10 @@ impl ClippingProcessor {
             return Ok(host_mesh.clone());
         }
 
-        // Check bounds overlap
+        // Check bounds overlap - early exit if no intersection possible
         if !Self::bounds_overlap(host_mesh, opening_mesh) {
             return Ok(host_mesh.clone());
         }
-
-        // Get opening bounds for cleanup
-        let (open_min_f32, open_max_f32) = opening_mesh.bounds();
-        let open_min = Point3::new(
-            open_min_f32.x as f64,
-            open_min_f32.y as f64,
-            open_min_f32.z as f64,
-        );
-        let open_max = Point3::new(
-            open_max_f32.x as f64,
-            open_max_f32.y as f64,
-            open_max_f32.z as f64,
-        );
 
         // Convert meshes to csgrs format
         let host_csg = match Self::mesh_to_csgrs(host_mesh) {
@@ -667,10 +654,11 @@ impl ClippingProcessor {
         match Self::csgrs_to_mesh(&result_csg) {
             Ok(result) => {
                 // Clean up degenerate triangles (thin slivers from CSG numerical issues)
+                // Note: We don't use remove_triangles_inside_bounds here because it uses
+                // the opening's bounding box, which can incorrectly remove valid triangles
+                // for complex non-rectangular openings.
                 let cleaned = Self::remove_degenerate_triangles(&result, host_mesh);
-                // Also remove triangles inside opening bounds (removes artifact faces)
-                let final_mesh = Self::remove_triangles_inside_bounds(&cleaned, open_min, open_max);
-                Ok(final_mesh)
+                Ok(cleaned)
             }
             Err(_) => Ok(host_mesh.clone())
         }
@@ -791,9 +779,11 @@ impl ClippingProcessor {
     }
 
     /// Remove triangles that are completely inside the opening bounds
-    /// 
+    ///
     /// This removes artifact faces that CSG operations may leave inside circular/curved openings.
-    /// Mirrors the logic from cut_rectangular_opening for rectangular openings.
+    /// Note: Currently unused because it can incorrectly remove valid triangles for complex
+    /// non-rectangular openings. Kept for potential future use with simple rectangular openings.
+    #[allow(dead_code)]
     fn remove_triangles_inside_bounds(
         mesh: &Mesh,
         open_min: Point3<f64>,
