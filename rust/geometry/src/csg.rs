@@ -80,8 +80,12 @@ impl Triangle {
         edge1.cross(&edge2).normalize()
     }
 
-    /// Calculate the cross product of edges (2x area vector)
-    /// Returns None if the triangle is degenerate (zero area)
+    /// Calculate the cross product of edges, which is twice the area vector.
+    ///
+    /// Returns a `Vector3<f64>` perpendicular to the triangle plane.
+    /// For degenerate/collinear triangles, returns the zero vector.
+    /// Use `is_degenerate()` or `try_normalize()` on the result if you need
+    /// to detect and handle degenerate cases.
     #[inline]
     pub fn cross_product(&self) -> Vector3<f64> {
         let edge1 = self.v1 - self.v0;
@@ -89,14 +93,16 @@ impl Triangle {
         edge1.cross(&edge2)
     }
 
-    /// Calculate triangle area
+    /// Calculate triangle area (half the magnitude of the cross product).
     #[inline]
     pub fn area(&self) -> f64 {
         self.cross_product().norm() * 0.5
     }
 
-    /// Check if triangle is degenerate (zero area, collinear vertices)
-    /// Uses the specified epsilon for the normalization check
+    /// Check if triangle is degenerate (zero area, collinear vertices).
+    ///
+    /// Uses `try_normalize` on the cross product with the specified epsilon.
+    /// Returns `true` if the cross product cannot be normalized (i.e., degenerate).
     #[inline]
     pub fn is_degenerate(&self, epsilon: f64) -> bool {
         self.cross_product().try_normalize(epsilon).is_none()
@@ -509,12 +515,12 @@ impl ClippingProcessor {
         // Pre-allocate for expected number of triangles (avoids reallocations)
         let mut polygons = Vec::with_capacity(triangle_count);
 
-        // Process each triangle
-        // Note: step_by(3) handles the case where indices.len() is not divisible by 3
-        for i in (0..mesh.indices.len()).step_by(3) {
-            let i0 = mesh.indices[i] as usize;
-            let i1 = mesh.indices[i + 1] as usize;
-            let i2 = mesh.indices[i + 2] as usize;
+        // Process each triangle using chunks_exact to ensure bounds safety
+        // (handles the case where indices.len() is not divisible by 3)
+        for chunk in mesh.indices.chunks_exact(3) {
+            let i0 = chunk[0] as usize;
+            let i1 = chunk[1] as usize;
+            let i2 = chunk[2] as usize;
 
             // Bounds check for vertex indices - skip invalid triangles
             if i0 >= vertex_count || i1 >= vertex_count || i2 >= vertex_count {

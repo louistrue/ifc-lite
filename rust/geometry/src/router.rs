@@ -947,11 +947,11 @@ impl GeometryRouter {
         // Create reusable buffers for clipping operations (avoids 6+ allocations per triangle)
         let mut clip_buffers = ClipBuffers::new();
 
-        // Process each triangle
-        for i in (0..mesh.indices.len()).step_by(3) {
-            let i0 = mesh.indices[i] as usize;
-            let i1 = mesh.indices[i + 1] as usize;
-            let i2 = mesh.indices[i + 2] as usize;
+        // Process each triangle using chunks_exact to ensure bounds safety
+        for chunk in mesh.indices.chunks_exact(3) {
+            let i0 = chunk[0] as usize;
+            let i1 = chunk[1] as usize;
+            let i2 = chunk[2] as usize;
             
             let v0 = Point3::new(
                 mesh.positions[i0 * 3] as f64,
