@@ -305,8 +305,9 @@ impl<'a> EntityScanner<'a> {
             type_end += 1;
         }
 
-        // Safe because IFC files are ASCII
-        let type_name = unsafe { std::str::from_utf8_unchecked(&self.bytes[type_start..type_end]) };
+        // Use safe UTF-8 conversion - malformed input should not cause UB
+        let type_name = std::str::from_utf8(&self.bytes[type_start..type_end])
+            .unwrap_or("UNKNOWN");
 
         // Move position past this entity
         self.position = line_end;

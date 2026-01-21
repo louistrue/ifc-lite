@@ -31,10 +31,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use tower_http::{
     compression::CompressionLayer,
-    cors::CorsLayer,
+    cors::{Any, CorsLayer},
     timeout::TimeoutLayer,
     trace::TraceLayer,
 };
+use axum::http::{header, HeaderValue, Method};
 
 mod config;
 mod error;
@@ -45,6 +46,30 @@ mod types;
 
 use config::Config;
 use services::cache::DiskCache;
+
+/// Build CORS layer based on configuration.
+///
+/// If CORS_ORIGINS env var contains "*", allows any origin (use only in development).
+/// Otherwise, only allows specified origins.
+fn build_cors_layer(config: &Config) -> CorsLayer {
+    let is_permissive = config.cors_origins.iter().any(|o| o == "*");
+
+    if is_permissive {
+        tracing::warn!("CORS is set to permissive mode - use only in development");
+        CorsLayer::permissive()
+    } else {
+        tracing::info!("CORS configured for origins: {:?}", config.cors_origins);
+        let origins: Vec<HeaderValue> = config.cors_origins.iter()
+            .filter_map(|o| o.parse::<HeaderValue>().ok())
+            .collect();
+
+        CorsLayer::new()
+            .allow_origin(origins)
+            .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+            .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::ACCEPT])
+            .max_age(Duration::from_secs(3600))
+    }
+}
 
 /// Application state shared across handlers.
 #[derive(Clone)]
@@ -114,7 +139,7 @@ async fn main() {
             config.request_timeout_secs,
         )))
         .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::permissive())
+        .layer(build_cors_layer(&config))
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));

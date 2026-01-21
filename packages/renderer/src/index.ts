@@ -75,6 +75,10 @@ export class Renderer {
     // Performance constants
     private readonly BVH_THRESHOLD = 100;
 
+    // Error rate limiting (log at most once per second)
+    private lastRenderErrorTime: number = 0;
+    private readonly RENDER_ERROR_THROTTLE_MS = 1000;
+
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
         this.device = new WebGPUDevice();
@@ -1194,8 +1198,10 @@ export class Renderer {
             // Handle WebGPU errors (e.g., device lost, invalid state)
             // Mark context as invalid so it gets reconfigured next frame
             this.device.invalidateContext();
-            // Only log occasional errors to avoid spam
-            if (Math.random() < 0.01) {
+            // Rate-limit error logging to avoid spam (max once per second)
+            const now = performance.now();
+            if (now - this.lastRenderErrorTime > this.RENDER_ERROR_THROTTLE_MS) {
+                this.lastRenderErrorTime = now;
                 console.warn('Render error (context will be reconfigured):', error);
             }
         }

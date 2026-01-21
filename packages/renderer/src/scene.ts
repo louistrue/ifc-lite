@@ -612,16 +612,41 @@ export class Scene {
   }
 
   /**
-   * Calculate bounding box
+   * Calculate bounding box from actual mesh vertex data
    */
   getBounds(): { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | null {
-    if (this.meshes.length === 0) return null;
+    if (this.meshDataMap.size === 0) return null;
 
-    // For MVP, return a simple bounding box
-    // In production, this would compute from actual vertex data
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    let hasValidData = false;
+
+    // Compute bounds from all mesh data
+    for (const pieces of this.meshDataMap.values()) {
+      for (const piece of pieces) {
+        const positions = piece.positions;
+        for (let i = 0; i < positions.length; i += 3) {
+          const x = positions[i];
+          const y = positions[i + 1];
+          const z = positions[i + 2];
+          if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+            hasValidData = true;
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (z < minZ) minZ = z;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+            if (z > maxZ) maxZ = z;
+          }
+        }
+      }
+    }
+
+    if (!hasValidData) return null;
+
     return {
-      min: { x: -10, y: -10, z: -10 },
-      max: { x: 10, y: 10, z: 10 },
+      min: { x: minX, y: minY, z: minZ },
+      max: { x: maxX, y: maxY, z: maxZ },
     };
   }
 

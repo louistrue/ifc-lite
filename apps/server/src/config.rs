@@ -25,6 +25,8 @@ pub struct Config {
     pub batch_size: usize,
     /// Maximum cache age in days.
     pub cache_max_age_days: u64,
+    /// Allowed CORS origins (comma-separated, or "*" for all in development).
+    pub cors_origins: Vec<String>,
 }
 
 impl Config {
@@ -77,6 +79,15 @@ impl Config {
                 .unwrap_or_else(|_| "7".into())
                 .parse()
                 .unwrap_or(7),
+            cors_origins: std::env::var("CORS_ORIGINS")
+                .unwrap_or_else(|_| {
+                    // Default: allow common development origins
+                    "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173".into()
+                })
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
         }
     }
 }

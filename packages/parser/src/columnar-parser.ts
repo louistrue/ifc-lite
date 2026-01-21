@@ -140,15 +140,18 @@ const PROPERTY_ENTITY_TYPES = new Set([
     'IFCQUANTITYCOUNT', 'IFCQUANTITYWEIGHT', 'IFCQUANTITYTIME',
 ]);
 
-// Yield helper - batched to reduce overhead
+// Yield helper factory - creates a batched yield function with its own counter
+// Each parse call gets its own counter to avoid cross-contamination between concurrent parses
 const YIELD_INTERVAL = 5000;
-let yieldCounter = 0;
-async function maybeYield(): Promise<void> {
-    yieldCounter++;
-    if (yieldCounter >= YIELD_INTERVAL) {
-        yieldCounter = 0;
-        await new Promise(resolve => setTimeout(resolve, 0));
-    }
+function createYieldHelper(): () => Promise<void> {
+    let counter = 0;
+    return async function maybeYield(): Promise<void> {
+        counter++;
+        if (counter >= YIELD_INTERVAL) {
+            counter = 0;
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+    };
 }
 
 export class ColumnarParser {
@@ -167,6 +170,9 @@ export class ColumnarParser {
         const startTime = performance.now();
         const uint8Buffer = new Uint8Array(buffer);
         const totalEntities = entityRefs.length;
+
+        // Create a yield helper with its own counter for this parse operation
+        const maybeYield = createYieldHelper();
 
         options.onProgress?.({ phase: 'building', percent: 0 });
 

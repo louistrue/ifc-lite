@@ -250,12 +250,12 @@ impl IfcAPI {
 
                     // Check if this is the completion event
                     if matches!(event, ParseEvent::Completed { .. }) {
-                        resolve.call0(&JsValue::NULL).unwrap();
+                        let _ = resolve.call0(&JsValue::NULL);
                         return;
                     }
                 }
 
-                resolve.call0(&JsValue::NULL).unwrap();
+                let _ = resolve.call0(&JsValue::NULL);
             });
         });
 
@@ -293,7 +293,7 @@ impl IfcAPI {
                 js_sys::Reflect::set(&result, &"entityTypes".into(), &counts_to_js(&counts))
                     .unwrap();
 
-                resolve.call1(&JsValue::NULL, &result).unwrap();
+                let _ = resolve.call1(&JsValue::NULL, &result);
             });
         });
 
@@ -1132,7 +1132,7 @@ impl IfcAPI {
                     let _ = callback.call1(&JsValue::NULL, &stats);
                 }
 
-                resolve.call0(&JsValue::NULL).unwrap();
+                let _ = resolve.call0(&JsValue::NULL);
             });
         });
 
@@ -1561,7 +1561,7 @@ impl IfcAPI {
                     let _ = callback.call1(&JsValue::NULL, &stats);
                 }
 
-                resolve.call0(&JsValue::NULL).unwrap();
+                let _ = resolve.call0(&JsValue::NULL);
             });
         });
 
@@ -2240,7 +2240,7 @@ impl IfcAPI {
                     let _ = callback.call1(&JsValue::NULL, &stats);
                 }
 
-                resolve.call0(&JsValue::NULL).unwrap();
+                let _ = resolve.call0(&JsValue::NULL);
             });
         });
 
