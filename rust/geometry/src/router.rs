@@ -825,7 +825,7 @@ impl GeometryRouter {
         use crate::csg::ClippingProcessor;
         let clipper = ClippingProcessor::new();
         let mut result = wall_mesh;
-        
+
         // Get wall bounds for clamping opening faces (from result before cutting)
         let (wall_min_f32, wall_max_f32) = result.bounds();
         let wall_min = Point3::new(
@@ -838,11 +838,22 @@ impl GeometryRouter {
             wall_max_f32.y as f64,
             wall_max_f32.z as f64,
         );
-        
+
+        // Validate wall mesh ONCE before CSG operations (not per-iteration)
+        // This avoids O(n) validation on every loop iteration
+        let wall_valid = !result.is_empty()
+            && result.positions.iter().all(|&v| v.is_finite())
+            && result.triangle_count() >= 4;
+
+        if !wall_valid {
+            // Wall mesh is invalid, return as-is
+            return Ok(result);
+        }
+
         // Track CSG operations to prevent excessive complexity
         let mut csg_operation_count = 0;
         const MAX_CSG_OPERATIONS: usize = 10; // Limit to prevent runaway CSG
-        
+
         for (_idx, opening) in openings.iter().enumerate() {
             match opening {
                 OpeningType::Rectangular(open_min, open_max) => {
@@ -855,23 +866,19 @@ impl GeometryRouter {
                         // Skip remaining CSG operations
                         continue;
                     }
-                    
-                    // Validate opening mesh before CSG
-                    let opening_valid = !opening_mesh.is_empty() 
+
+                    // Validate opening mesh before CSG (only once per opening)
+                    let opening_valid = !opening_mesh.is_empty()
                         && opening_mesh.positions.iter().all(|&v| v.is_finite())
                         && opening_mesh.positions.len() >= 9; // At least 3 vertices
-                    
-                    // Validate result mesh before CSG
-                    let result_valid = !result.is_empty()
-                        && result.positions.iter().all(|&v| v.is_finite())
-                        && result.triangle_count() >= 4; // At least a tetrahedron
-                    
-                    if !opening_valid || !result_valid {
-                        // Skip invalid meshes
+
+                    if !opening_valid {
+                        // Skip invalid opening
                         continue;
                     }
-                    
+
                     // Use full CSG subtraction for non-rectangular shapes
+                    // Note: mesh_to_csgrs validates and filters invalid triangles internally
                     match clipper.subtract_mesh(&result, opening_mesh) {
                         Ok(csg_result) => {
                             // Validate result is not degenerate

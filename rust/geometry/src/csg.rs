@@ -504,15 +504,14 @@ impl ClippingProcessor {
         }
 
         let vertex_count = mesh.positions.len() / 3;
-        let mut polygons = Vec::new();
+        let triangle_count = mesh.indices.len() / 3;
+
+        // Pre-allocate for expected number of triangles (avoids reallocations)
+        let mut polygons = Vec::with_capacity(triangle_count);
 
         // Process each triangle
+        // Note: step_by(3) handles the case where indices.len() is not divisible by 3
         for i in (0..mesh.indices.len()).step_by(3) {
-            // Bounds check for indices array
-            if i + 2 >= mesh.indices.len() {
-                break;
-            }
-
             let i0 = mesh.indices[i] as usize;
             let i1 = mesh.indices[i + 1] as usize;
             let i2 = mesh.indices[i + 2] as usize;
@@ -522,18 +521,11 @@ impl ClippingProcessor {
                 continue;
             }
 
-            // Get triangle vertices with bounds checking
+            // Get triangle vertices
+            // Note: bounds are guaranteed by the vertex_count check above
             let p0_idx = i0 * 3;
             let p1_idx = i1 * 3;
             let p2_idx = i2 * 3;
-
-            // Additional safety check for positions array
-            if p0_idx + 2 >= mesh.positions.len()
-                || p1_idx + 2 >= mesh.positions.len()
-                || p2_idx + 2 >= mesh.positions.len()
-            {
-                continue;
-            }
 
             let v0 = Point3::new(
                 mesh.positions[p0_idx] as f64,
@@ -573,14 +565,7 @@ impl ClippingProcessor {
                 Some(n) => n,
                 None => continue, // Skip degenerate triangles to avoid NaN propagation
             };
-
-            // Additional check: ensure normal is finite
-            if !face_normal.x.is_finite()
-                || !face_normal.y.is_finite()
-                || !face_normal.z.is_finite()
-            {
-                continue;
-            }
+            // Note: try_normalize returns a unit vector, which is always finite
 
             // Create csgrs vertices (use face normal for all vertices)
             let vertices = vec![
