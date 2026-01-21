@@ -360,6 +360,111 @@ impl GeometryRouter {
         Ok(combined_mesh)
     }
 
+    /// Get individual bounding boxes for each representation item in an opening element.
+    /// This handles disconnected geometry (e.g., two separate window openings in one IfcOpeningElement)
+    /// by returning separate bounds for each item instead of one combined bounding box.
+    fn get_opening_item_bounds(
+        &self,
+        element: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<Vec<(Point3<f64>, Point3<f64>)>> {
+        // Get representation (attribute 6 for most building elements)
+        let representation_attr = element.get(6).ok_or_else(|| {
+            Error::geometry("Element has no representation attribute".to_string())
+        })?;
+
+        if representation_attr.is_null() {
+            return Ok(vec![]);
+        }
+
+        let representation = decoder
+            .resolve_ref(representation_attr)?
+            .ok_or_else(|| Error::geometry("Failed to resolve representation".to_string()))?;
+
+        // Get representations list
+        let representations_attr = representation.get(2).ok_or_else(|| {
+            Error::geometry("ProductDefinitionShape missing Representations".to_string())
+        })?;
+
+        let representations = decoder.resolve_ref_list(representations_attr)?;
+
+        // Get placement transform
+        let mut placement_transform = self.get_placement_transform_from_element(element, decoder)
+            .unwrap_or_else(|_| Matrix4::identity());
+        self.scale_transform(&mut placement_transform);
+
+        let mut bounds_list = Vec::new();
+
+        for shape_rep in representations {
+            if shape_rep.ifc_type != IfcType::IfcShapeRepresentation {
+                continue;
+            }
+
+            // Check representation type
+            if let Some(rep_type_attr) = shape_rep.get(2) {
+                if let Some(rep_type) = rep_type_attr.as_string() {
+                    if !matches!(rep_type, "Body" | "SweptSolid" | "Brep" | "CSG" | "Clipping" | "Tessellation") {
+                        continue;
+                    }
+                }
+            }
+
+            // Get items list
+            let items_attr = match shape_rep.get(3) {
+                Some(attr) => attr,
+                None => continue,
+            };
+
+            let items = match decoder.resolve_ref_list(items_attr) {
+                Ok(items) => items,
+                Err(_) => continue,
+            };
+
+            // Process each item separately to get individual bounds
+            for item in items {
+                let mesh = match self.process_representation_item(&item, decoder) {
+                    Ok(m) if !m.is_empty() => m,
+                    _ => continue,
+                };
+
+                // Get bounds and transform to world coordinates
+                let (mesh_min, mesh_max) = mesh.bounds();
+
+                // Transform corner points to world coordinates
+                let corners = [
+                    Point3::new(mesh_min.x as f64, mesh_min.y as f64, mesh_min.z as f64),
+                    Point3::new(mesh_max.x as f64, mesh_min.y as f64, mesh_min.z as f64),
+                    Point3::new(mesh_min.x as f64, mesh_max.y as f64, mesh_min.z as f64),
+                    Point3::new(mesh_max.x as f64, mesh_max.y as f64, mesh_min.z as f64),
+                    Point3::new(mesh_min.x as f64, mesh_min.y as f64, mesh_max.z as f64),
+                    Point3::new(mesh_max.x as f64, mesh_min.y as f64, mesh_max.z as f64),
+                    Point3::new(mesh_min.x as f64, mesh_max.y as f64, mesh_max.z as f64),
+                    Point3::new(mesh_max.x as f64, mesh_max.y as f64, mesh_max.z as f64),
+                ];
+
+                // Transform all corners and compute new AABB
+                let transformed: Vec<Point3<f64>> = corners.iter()
+                    .map(|p| placement_transform.transform_point(p))
+                    .collect();
+
+                let world_min = Point3::new(
+                    transformed.iter().map(|p| p.x).fold(f64::INFINITY, f64::min),
+                    transformed.iter().map(|p| p.y).fold(f64::INFINITY, f64::min),
+                    transformed.iter().map(|p| p.z).fold(f64::INFINITY, f64::min),
+                );
+                let world_max = Point3::new(
+                    transformed.iter().map(|p| p.x).fold(f64::NEG_INFINITY, f64::max),
+                    transformed.iter().map(|p| p.y).fold(f64::NEG_INFINITY, f64::max),
+                    transformed.iter().map(|p| p.z).fold(f64::NEG_INFINITY, f64::max),
+                );
+
+                bounds_list.push((world_min, world_max));
+            }
+        }
+
+        Ok(bounds_list)
+    }
+
     /// Process element and return sub-meshes with their geometry item IDs.
     /// This preserves per-item identity for color/style lookup.
     ///
@@ -626,34 +731,44 @@ impl GeometryRouter {
             .collect();
         
         // STEP 5: Collect opening info (bounds for rectangular, full mesh for non-rectangular)
+        // For rectangular openings, get individual bounds per representation item to handle
+        // disconnected geometry (e.g., two separate window openings in one IfcOpeningElement)
         enum OpeningType {
             Rectangular(Point3<f64>, Point3<f64>),  // min, max bounds
             NonRectangular(Mesh),                    // full mesh for CSG
         }
-        
+
         let mut openings: Vec<OpeningType> = Vec::new();
-        for (_idx, &opening_id) in opening_ids.iter().enumerate() {
+        for &opening_id in opening_ids.iter() {
             let opening_entity = match decoder.decode_by_id(opening_id) {
                 Ok(e) => e,
                 Err(_) => continue,
             };
-            
+
             let opening_mesh = match self.process_element(&opening_entity, decoder) {
                 Ok(m) if !m.is_empty() => m,
                 _ => continue,
             };
-            
+
             let vertex_count = opening_mesh.positions.len() / 3;
-            let (open_min, open_max) = opening_mesh.bounds();
-            
+
             if vertex_count > 100 {
                 // Non-rectangular (circular, arched, etc.) - use full CSG
                 openings.push(OpeningType::NonRectangular(opening_mesh));
             } else {
-                // Rectangular - use optimized approach
-                let min_f64 = Point3::new(open_min.x as f64, open_min.y as f64, open_min.z as f64);
-                let max_f64 = Point3::new(open_max.x as f64, open_max.y as f64, open_max.z as f64);
-                openings.push(OpeningType::Rectangular(min_f64, max_f64));
+                // Rectangular - get individual bounds for each representation item
+                // This handles disconnected geometry (multiple boxes with gaps between them)
+                if let Ok(item_bounds) = self.get_opening_item_bounds(&opening_entity, decoder) {
+                    for (min_pt, max_pt) in item_bounds {
+                        openings.push(OpeningType::Rectangular(min_pt, max_pt));
+                    }
+                } else {
+                    // Fallback to combined mesh bounds
+                    let (open_min, open_max) = opening_mesh.bounds();
+                    let min_f64 = Point3::new(open_min.x as f64, open_min.y as f64, open_min.z as f64);
+                    let max_f64 = Point3::new(open_max.x as f64, open_max.y as f64, open_max.z as f64);
+                    openings.push(OpeningType::Rectangular(min_f64, max_f64));
+                }
             }
         }
 
