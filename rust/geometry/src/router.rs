@@ -474,13 +474,13 @@ impl GeometryRouter {
         }
 
         // Apply placement transformation to all sub-meshes
-        // Note: Do NOT scale ObjectPlacement here - MappedItem transforms are already scaled
-        // in collect_submeshes_from_item, and process_representation_item returns scaled geometry.
-        // The ObjectPlacement positions the element in file units, matching the scaled geometry.
+        // ObjectPlacement translation is in file units (e.g., mm) but geometry is scaled to meters,
+        // so we MUST scale the transform to match. Same as apply_placement does.
         if let Some(placement_attr) = element.get(5) {
             if !placement_attr.is_null() {
                 if let Some(placement) = decoder.resolve_ref(placement_attr)? {
-                    let transform = self.get_placement_transform(&placement, decoder)?;
+                    let mut transform = self.get_placement_transform(&placement, decoder)?;
+                    self.scale_transform(&mut transform);
                     for sub in &mut sub_meshes.sub_meshes {
                         self.transform_mesh(&mut sub.mesh, &transform);
                     }
