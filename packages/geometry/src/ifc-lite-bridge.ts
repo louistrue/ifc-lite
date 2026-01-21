@@ -7,8 +7,11 @@
  * Replaces web-ifc-bridge.ts with native IFC-Lite implementation (1.9x faster)
  */
 
+import { createLogger } from '@ifc-lite/data';
 import init, { IfcAPI, MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData } from '@ifc-lite/wasm';
 export type { MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData };
+
+const log = createLogger('Geometry');
 
 export interface StreamingProgress {
   percent: number;
@@ -53,12 +56,20 @@ export class IfcLiteBridge {
   async init(_wasmPath?: string): Promise<void> {
     if (this.initialized) return;
 
-    // Initialize WASM module - wasm-bindgen automatically resolves the WASM URL
-    // from import.meta.url, no need to manually construct paths
-    await init();
-    
-    this.ifcApi = new IfcAPI();
-    this.initialized = true;
+    try {
+      // Initialize WASM module - wasm-bindgen automatically resolves the WASM URL
+      // from import.meta.url, no need to manually construct paths
+      await init();
+
+      this.ifcApi = new IfcAPI();
+      this.initialized = true;
+      log.info('WASM geometry engine initialized');
+    } catch (error) {
+      log.error('Failed to initialize WASM geometry engine', error, {
+        operation: 'init',
+      });
+      throw error;
+    }
   }
 
   /**
@@ -69,7 +80,17 @@ export class IfcLiteBridge {
     if (!this.ifcApi) {
       throw new Error('IFC-Lite not initialized. Call init() first.');
     }
-    return this.ifcApi.parseMeshes(content);
+    try {
+      const collection = this.ifcApi.parseMeshes(content);
+      log.debug(`Parsed ${collection.length} meshes`, { operation: 'parseMeshes' });
+      return collection;
+    } catch (error) {
+      log.error('Failed to parse IFC geometry', error, {
+        operation: 'parseMeshes',
+        data: { contentLength: content.length },
+      });
+      throw error;
+    }
   }
 
   /**
@@ -81,7 +102,17 @@ export class IfcLiteBridge {
     if (!this.ifcApi) {
       throw new Error('IFC-Lite not initialized. Call init() first.');
     }
-    return this.ifcApi.parseMeshesInstanced(content);
+    try {
+      const collection = this.ifcApi.parseMeshesInstanced(content);
+      log.debug(`Parsed ${collection.length} instanced geometries`, { operation: 'parseMeshesInstanced' });
+      return collection;
+    } catch (error) {
+      log.error('Failed to parse instanced IFC geometry', error, {
+        operation: 'parseMeshesInstanced',
+        data: { contentLength: content.length },
+      });
+      throw error;
+    }
   }
 
   /**
@@ -93,7 +124,15 @@ export class IfcLiteBridge {
     if (!this.ifcApi) {
       throw new Error('IFC-Lite not initialized. Call init() first.');
     }
-    return this.ifcApi.parseMeshesAsync(content, options);
+    try {
+      return await this.ifcApi.parseMeshesAsync(content, options);
+    } catch (error) {
+      log.error('Failed to parse IFC geometry (streaming)', error, {
+        operation: 'parseMeshesAsync',
+        data: { contentLength: content.length },
+      });
+      throw error;
+    }
   }
 
   /**
@@ -106,7 +145,15 @@ export class IfcLiteBridge {
     if (!this.ifcApi) {
       throw new Error('IFC-Lite not initialized. Call init() first.');
     }
-    return this.ifcApi.parseMeshesInstancedAsync(content, options);
+    try {
+      return await this.ifcApi.parseMeshesInstancedAsync(content, options);
+    } catch (error) {
+      log.error('Failed to parse instanced IFC geometry (streaming)', error, {
+        operation: 'parseMeshesInstancedAsync',
+        data: { contentLength: content.length },
+      });
+      throw error;
+    }
   }
 
   /**

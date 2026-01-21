@@ -7,9 +7,11 @@
  */
 
 import type { EntityTable, StringTable, RelationshipGraph, SpatialHierarchy, SpatialNode } from '@ifc-lite/data';
-import { IfcTypeEnum, RelationshipType } from '@ifc-lite/data';
+import { IfcTypeEnum, RelationshipType, createLogger } from '@ifc-lite/data';
 import type { EntityRef } from './types.js';
 import { EntityExtractor } from './entity-extractor.js';
+
+const log = createLogger('SpatialHierarchy');
 
 export class SpatialHierarchyBuilder {
   /**
@@ -303,7 +305,12 @@ export class SpatialHierarchyBuilder {
         }
       }
     } catch (error) {
-      // Silently fail - elevation is optional
+      // Elevation extraction is optional - log for debugging but don't fail
+      log.caught('Failed to extract elevation', error, {
+        operation: 'extractElevation',
+        entityId: expressId,
+        entityType: 'IfcBuildingStorey',
+      });
     }
 
     return undefined;

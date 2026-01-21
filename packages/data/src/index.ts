@@ -19,3 +19,6 @@ export * from './types.js';
 // Explicitly export const enums for runtime use
 export { IfcTypeEnum, PropertyValueType, QuantityType, RelationshipType, EntityFlags } from './types.js';
 export type { SpatialNode, SpatialHierarchy } from './types.js';
+
+// Logging utilities
+export { createLogger, logger, type LogLevel, type LogContext } from './logger.js';

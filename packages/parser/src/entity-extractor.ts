@@ -6,9 +6,15 @@
  * Entity extractor - parses full entity content from STEP format
  */
 
+import { createLogger } from '@ifc-lite/data';
 import type { IfcEntity, EntityRef } from './types.js';
 
 export type { IfcEntity };
+
+const log = createLogger('EntityExtractor');
+
+/** Maximum recursion depth for parsing nested structures (prevents DoS via deeply nested data) */
+const MAX_PARSE_DEPTH = 100;
 
 export class EntityExtractor {
   private buffer: Uint8Array;
@@ -43,7 +49,11 @@ export class EntityExtractor {
         attributes,
       };
     } catch (error) {
-      console.warn(`Failed to extract entity #${ref.expressId}:`, error);
+      log.error('Failed to extract entity', error, {
+        operation: 'extractEntity',
+        entityId: ref.expressId,
+        entityType: ref.type,
+      });
       return null;
     }
   }
@@ -97,7 +107,16 @@ export class EntityExtractor {
     return attributes;
   }
 
-  private parseAttributeValue(value: string): any {
+  private parseAttributeValue(value: string, depth: number = 0): any {
+    // Guard against deeply nested structures (potential DoS vector)
+    if (depth > MAX_PARSE_DEPTH) {
+      log.warn('Maximum parse depth exceeded - truncating nested structure', {
+        operation: 'parseAttributeValue',
+        data: { depth, valuePreview: value.slice(0, 50) },
+      });
+      return null;
+    }
+
     value = value.trim();
 
     if (!value || value === '$') {
@@ -111,7 +130,7 @@ export class EntityExtractor {
       const typeName = typedValueMatch[1];
       const innerValue = typedValueMatch[2].trim();
       // Return as array [typeName, parsedValue] to match Rust structure
-      return [typeName, this.parseAttributeValue(innerValue)];
+      return [typeName, this.parseAttributeValue(innerValue, depth + 1)];
     }
 
     // List/Array: (#123) or (#123, #456) or ()
@@ -120,38 +139,38 @@ export class EntityExtractor {
       if (!listContent) {
         return []; // Empty list
       }
-      
+
       // Parse list items (comma-separated)
       const items: any[] = [];
-      let depth = 0;
+      let parenDepth = 0;
       let current = '';
-      
+
       for (let i = 0; i < listContent.length; i++) {
         const char = listContent[i];
-        
+
         if (char === '(') {
-          depth++;
+          parenDepth++;
           current += char;
         } else if (char === ')') {
-          depth--;
+          parenDepth--;
           current += char;
-        } else if (char === ',' && depth === 0) {
+        } else if (char === ',' && parenDepth === 0) {
           // End of item
           const itemValue = current.trim();
           if (itemValue) {
-            items.push(this.parseAttributeValue(itemValue));
+            items.push(this.parseAttributeValue(itemValue, depth + 1));
           }
           current = '';
         } else {
           current += char;
         }
       }
-      
+
       // Add last item
       if (current.trim()) {
-        items.push(this.parseAttributeValue(current.trim()));
+        items.push(this.parseAttributeValue(current.trim(), depth + 1));
       }
-      
+
       return items;
     }
 

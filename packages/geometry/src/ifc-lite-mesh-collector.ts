@@ -7,8 +7,11 @@
  * Replaces mesh-collector.ts - uses native Rust geometry processing (1.9x faster)
  */
 
+import { createLogger } from '@ifc-lite/data';
 import type { IfcAPI, MeshDataJs, InstancedGeometry } from '@ifc-lite/wasm';
 import type { MeshData } from './types.js';
+
+const log = createLogger('MeshCollector');
 
 export interface StreamingProgress {
   percent: number;
@@ -68,59 +71,69 @@ export class IfcLiteMeshCollector {
    * Much faster than web-ifc (~1.9x speedup)
    */
   collectMeshes(): MeshData[] {
-    // const totalStart = performance.now();
-
-    // const parseStart = performance.now();
-    const collection = this.ifcApi.parseMeshes(this.content);
-    // const parseTime = performance.now() - parseStart;
+    let collection;
+    try {
+      collection = this.ifcApi.parseMeshes(this.content);
+    } catch (error) {
+      log.error('WASM mesh parsing failed', error, { operation: 'collectMeshes' });
+      throw error;
+    }
 
     const meshes: MeshData[] = [];
-    // const conversionStart = performance.now();
+    let failedMeshes = 0;
 
     // Convert MeshCollection to MeshData[]
     for (let i = 0; i < collection.length; i++) {
-      const mesh = collection.get(i);
-      if (!mesh) continue;
+      try {
+        const mesh = collection.get(i);
+        if (!mesh) {
+          failedMeshes++;
+          continue;
+        }
 
-      // Get color array [r, g, b, a]
-      const colorArray = mesh.color;
-      const color: [number, number, number, number] = [
-        colorArray[0],
-        colorArray[1],
-        colorArray[2],
-        colorArray[3],
-      ];
+        // Get color array [r, g, b, a]
+        const colorArray = mesh.color;
+        const color: [number, number, number, number] = [
+          colorArray[0],
+          colorArray[1],
+          colorArray[2],
+          colorArray[3],
+        ];
 
-      // Capture arrays once (WASM creates new copies on each access)
-      const positions = mesh.positions;
-      const normals = mesh.normals;
-      const indices = mesh.indices;
+        // Capture arrays once (WASM creates new copies on each access)
+        const positions = mesh.positions;
+        const normals = mesh.normals;
+        const indices = mesh.indices;
 
-      // Convert IFC Z-up to WebGL Y-up (modify captured arrays)
-      this.convertZUpToYUp(positions);
-      this.convertZUpToYUp(normals);
+        // Convert IFC Z-up to WebGL Y-up (modify captured arrays)
+        this.convertZUpToYUp(positions);
+        this.convertZUpToYUp(normals);
 
-      meshes.push({
-        expressId: mesh.expressId,
-        ifcType: mesh.ifcType,
-        positions,
-        normals,
-        indices,
-        color,
-      });
+        meshes.push({
+          expressId: mesh.expressId,
+          ifcType: mesh.ifcType,
+          positions,
+          normals,
+          indices,
+          color,
+        });
 
-      // Free the individual mesh to avoid memory leaks
-      mesh.free();
+        // Free the individual mesh to avoid memory leaks
+        mesh.free();
+      } catch (error) {
+        failedMeshes++;
+        log.caught(`Failed to process mesh ${i}`, error, { operation: 'collectMeshes' });
+      }
     }
-
-    // Store stats before freeing
-    // const totalVertices = collection.totalVertices;
-    // const totalTriangles = collection.totalTriangles;
 
     // Free the collection
     collection.free();
 
-    // const conversionTime = performance.now() - conversionStart;
+    if (failedMeshes > 0) {
+      log.warn(`Skipped ${failedMeshes} meshes due to errors`, { operation: 'collectMeshes' });
+    }
+
+    log.debug(`Collected ${meshes.length} meshes`, { operation: 'collectMeshes' });
     return meshes;
   }
 
@@ -134,8 +147,11 @@ export class IfcLiteMeshCollector {
     const batchQueue: (MeshData[] | StreamingColorUpdateEvent)[] = [];
     let resolveWaiting: (() => void) | null = null;
     let isComplete = false;
+    let processingError: Error | null = null;
     // Map to store color updates for pending batches
     const colorUpdates = new Map<number, [number, number, number, number]>();
+    let totalMeshesProcessed = 0;
+    let failedMeshCount = 0;
 
     // Start async processing
     // NOTE: WASM now automatically defers style building for faster first frame
@@ -157,44 +173,60 @@ export class IfcLiteMeshCollector {
           resolveWaiting = null;
         }
       },
-      onBatch: (meshes: MeshDataJs[], progress: StreamingProgress) => {
+      onBatch: (meshes: MeshDataJs[], _progress: StreamingProgress) => {
         // Convert WASM meshes to MeshData[]
         const convertedBatch: MeshData[] = [];
 
         for (const mesh of meshes) {
-          // Use updated color if available, otherwise use mesh color
-          const expressId = mesh.expressId;
-          const color: [number, number, number, number] = colorUpdates.get(expressId) ?? [
-            mesh.color[0],
-            mesh.color[1],
-            mesh.color[2],
-            mesh.color[3],
-          ];
+          try {
+            // Use updated color if available, otherwise use mesh color
+            const expressId = mesh.expressId;
+            const color: [number, number, number, number] = colorUpdates.get(expressId) ?? [
+              mesh.color[0],
+              mesh.color[1],
+              mesh.color[2],
+              mesh.color[3],
+            ];
 
-          // Capture arrays once
-          const positions = mesh.positions;
-          const normals = mesh.normals;
-          const indices = mesh.indices;
+            // Capture arrays once
+            const positions = mesh.positions;
+            const normals = mesh.normals;
+            const indices = mesh.indices;
 
-          // Convert IFC Z-up to WebGL Y-up
-          this.convertZUpToYUp(positions);
-          this.convertZUpToYUp(normals);
+            // Convert IFC Z-up to WebGL Y-up
+            this.convertZUpToYUp(positions);
+            this.convertZUpToYUp(normals);
 
-          convertedBatch.push({
-            expressId,
-            ifcType: mesh.ifcType,
-            positions,
-            normals,
-            indices,
-            color,
-          });
+            convertedBatch.push({
+              expressId,
+              ifcType: mesh.ifcType,
+              positions,
+              normals,
+              indices,
+              color,
+            });
 
-          // Free the mesh to avoid memory leaks
-          mesh.free();
+            // Free the mesh to avoid memory leaks
+            mesh.free();
+            totalMeshesProcessed++;
+          } catch (error) {
+            failedMeshCount++;
+            log.caught(`Failed to process mesh #${mesh.expressId}`, error, {
+              operation: 'collectMeshesStreaming',
+              entityId: mesh.expressId,
+            });
+            try {
+              mesh.free();
+            } catch {
+              // Ignore free errors
+            }
+          }
         }
 
         // Add batch to queue
-        batchQueue.push(convertedBatch);
+        if (convertedBatch.length > 0) {
+          batchQueue.push(convertedBatch);
+        }
 
         // Wake up the generator if it's waiting
         if (resolveWaiting) {
@@ -202,14 +234,28 @@ export class IfcLiteMeshCollector {
           resolveWaiting = null;
         }
       },
-      onComplete: (_stats: { totalMeshes: number; totalVertices: number; totalTriangles: number }) => {
+      onComplete: (stats: { totalMeshes: number; totalVertices: number; totalTriangles: number }) => {
         isComplete = true;
+        log.debug(`Streaming complete: ${stats.totalMeshes} meshes, ${stats.totalVertices} vertices, ${stats.totalTriangles} triangles`, {
+          operation: 'collectMeshesStreaming',
+        });
+        if (failedMeshCount > 0) {
+          log.warn(`Skipped ${failedMeshCount} meshes due to errors`, { operation: 'collectMeshesStreaming' });
+        }
         // Wake up the generator if it's waiting
         if (resolveWaiting) {
           resolveWaiting();
           resolveWaiting = null;
         }
       },
+    }).catch((error) => {
+      processingError = error instanceof Error ? error : new Error(String(error));
+      log.error('WASM streaming parsing failed', processingError, { operation: 'collectMeshesStreaming' });
+      isComplete = true;
+      if (resolveWaiting) {
+        resolveWaiting();
+        resolveWaiting = null;
+      }
     });
 
     // Yield batches as they become available
@@ -217,6 +263,11 @@ export class IfcLiteMeshCollector {
       // Yield any queued batches
       while (batchQueue.length > 0) {
         yield batchQueue.shift()!;
+      }
+
+      // Check for errors
+      if (processingError) {
+        throw processingError;
       }
 
       // Check if we're done
