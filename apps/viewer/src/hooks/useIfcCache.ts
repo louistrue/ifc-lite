@@ -23,6 +23,7 @@ import type { MeshData } from '@ifc-lite/geometry';
 import { useViewerStore } from '../store.js';
 import { getCached, setCached, type CacheResult } from '../services/cacheService.js';
 import { rebuildSpatialHierarchy, rebuildOnDemandMaps } from '../utils/spatialHierarchy.js';
+import { calculateStoreyHeights } from '../utils/localParsingUtils.js';
 
 // Re-export types for convenience
 export type { CacheResult } from '../services/cacheService.js';
@@ -156,15 +157,9 @@ export function useIfcCache() {
 
           // Calculate storey heights from elevation differences (fallback if no property data)
           if (dataStore.spatialHierarchy.storeyHeights.size === 0 && dataStore.spatialHierarchy.storeyElevations.size > 1) {
-            const entries = Array.from(dataStore.spatialHierarchy.storeyElevations.entries()) as Array<[number, number]>;
-            const sortedStoreys = entries.sort((a, b) => a[1] - b[1]); // Sort by elevation ascending
-            for (let i = 0; i < sortedStoreys.length - 1; i++) {
-              const [storeyId, elevation] = sortedStoreys[i];
-              const nextElevation = sortedStoreys[i + 1][1];
-              const height = nextElevation - elevation;
-              if (height > 0) {
-                dataStore.spatialHierarchy.storeyHeights.set(storeyId, height);
-              }
+            const calculatedHeights = calculateStoreyHeights(dataStore.spatialHierarchy.storeyElevations);
+            for (const [storeyId, height] of calculatedHeights) {
+              dataStore.spatialHierarchy.storeyHeights.set(storeyId, height);
             }
             console.log(`[useIfcCache] Calculated ${dataStore.spatialHierarchy.storeyHeights.size} storey heights from elevation differences`);
           }

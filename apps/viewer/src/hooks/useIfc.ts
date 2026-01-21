@@ -21,6 +21,17 @@ import { IfcServerClient, decodeDataModel, type ParquetBatch, type DataModel } f
 // Extracted utilities
 import { SERVER_URL, USE_SERVER, CACHE_SIZE_THRESHOLD, getDynamicBatchConfig } from '../utils/ifcConfig.js';
 import { rebuildSpatialHierarchy, rebuildOnDemandMaps } from '../utils/spatialHierarchy.js';
+import {
+  createEmptyBounds,
+  updateBoundsFromPositions,
+  calculateMeshBounds,
+  createCoordinateInfo,
+  getRenderIntervalMs,
+  getServerStreamIntervalMs,
+  calculateStoreyHeights,
+  normalizeColor,
+  convertFloatColorToBytes,
+} from '../utils/localParsingUtils.js';
 
 // Cache hook
 import { useIfcCache, getCached, type CacheResult } from './useIfcCache.js';
@@ -115,16 +126,13 @@ export function useIfc() {
         let batchCount = 0;
 
         // Progressive bounds calculation
-        const bounds = {
-          min: { x: Infinity, y: Infinity, z: Infinity },
-          max: { x: -Infinity, y: -Infinity, z: -Infinity },
-        };
+        const bounds = createEmptyBounds();
 
         const parseStart = performance.now();
 
         // Throttle server streaming updates - large files get less frequent UI updates
         let lastServerStreamRenderTime = 0;
-        const SERVER_STREAM_INTERVAL_MS = fileSizeMB > 100 ? 200 : 100;
+        const SERVER_STREAM_INTERVAL_MS = getServerStreamIntervalMs(fileSizeMB);
 
         // Use streaming endpoint with batch callback
         const streamResult = await client.parseParquetStream(file, (batch: ParquetBatch) => {
@@ -142,21 +150,8 @@ export function useIfc() {
 
           // Update bounds incrementally
           for (const mesh of batchMeshes) {
-            const positions = mesh.positions;
-            for (let i = 0; i < positions.length; i += 3) {
-              const x = positions[i];
-              const y = positions[i + 1];
-              const z = positions[i + 2];
-              if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
-                bounds.min.x = Math.min(bounds.min.x, x);
-                bounds.min.y = Math.min(bounds.min.y, y);
-                bounds.min.z = Math.min(bounds.min.z, z);
-                bounds.max.x = Math.max(bounds.max.x, x);
-                bounds.max.y = Math.max(bounds.max.y, y);
-                bounds.max.z = Math.max(bounds.max.z, z);
-              }
-            }
-            totalVertices += positions.length / 3;
+            updateBoundsFromPositions(bounds, mesh.positions);
+            totalVertices += mesh.positions.length / 3;
             totalTriangles += mesh.indices.length / 3;
           }
 
@@ -296,37 +291,14 @@ export function useIfc() {
       if (!wasStreaming) {
         // Calculate bounds from mesh positions for camera fitting
         // Server sends origin_shift but not shiftedBounds - we need to calculate them
-        const bounds = {
-          min: { x: Infinity, y: Infinity, z: Infinity },
-          max: { x: -Infinity, y: -Infinity, z: -Infinity },
-        };
-        for (const mesh of allMeshes) {
-          const positions = mesh.positions;
-          for (let i = 0; i < positions.length; i += 3) {
-            const x = positions[i];
-            const y = positions[i + 1];
-            const z = positions[i + 2];
-            if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
-              bounds.min.x = Math.min(bounds.min.x, x);
-              bounds.min.y = Math.min(bounds.min.y, y);
-              bounds.min.z = Math.min(bounds.min.z, z);
-              bounds.max.x = Math.max(bounds.max.x, x);
-              bounds.max.y = Math.max(bounds.max.y, y);
-              bounds.max.z = Math.max(bounds.max.z, z);
-            }
-          }
-        }
+        const { bounds } = calculateMeshBounds(allMeshes);
 
         // Create proper CoordinateInfo with shiftedBounds for camera fitting
         const serverCoordInfo = result.metadata.coordinate_info;
-        const coordinateInfo = {
-          originShift: serverCoordInfo?.origin_shift
-            ? { x: serverCoordInfo.origin_shift[0], y: serverCoordInfo.origin_shift[1], z: serverCoordInfo.origin_shift[2] }
-            : { x: 0, y: 0, z: 0 },
-          originalBounds: bounds,
-          shiftedBounds: bounds, // Positions are already shifted by server
-          isGeoReferenced: serverCoordInfo?.is_geo_referenced ?? false,
-        };
+        const originShift = serverCoordInfo?.origin_shift
+          ? { x: serverCoordInfo.origin_shift[0], y: serverCoordInfo.origin_shift[1], z: serverCoordInfo.origin_shift[2] }
+          : { x: 0, y: 0, z: 0 };
+        const coordinateInfo = createCoordinateInfo(bounds, originShift, serverCoordInfo?.is_geo_referenced ?? false);
 
         console.log(`[useIfc] Calculated bounds:`, {
           min: `(${bounds.min.x.toFixed(1)}, ${bounds.min.y.toFixed(1)}, ${bounds.min.z.toFixed(1)})`,
@@ -458,12 +430,7 @@ export function useIfc() {
             const normals = m.normals instanceof Float32Array ? m.normals : new Float32Array(m.normals || []);
             
             // Normalize color to RGBA format (4 elements)
-            let color: [number, number, number, number];
-            if (m.color) {
-              color = m.color.length === 4 ? m.color as [number, number, number, number] : [m.color[0], m.color[1], m.color[2], 1.0];
-            } else {
-              color = [0.7, 0.7, 0.7, 1.0];
-            }
+            const color = normalizeColor(m.color);
 
             return {
               expressId: m.expressId || m.express_id || m.id || 0,
@@ -475,44 +442,14 @@ export function useIfc() {
             };
           }).filter((m: MeshData) => m.positions.length > 0 && m.indices.length > 0); // Filter out empty meshes
 
-          // Calculate bounds
-          const bounds = {
-            min: { x: Infinity, y: Infinity, z: Infinity },
-            max: { x: -Infinity, y: -Infinity, z: -Infinity },
-          };
-          let totalVertices = 0;
-          let totalTriangles = 0;
-
-          for (const mesh of meshes) {
-            const positions = mesh.positions;
-            for (let i = 0; i < positions.length; i += 3) {
-              const x = positions[i];
-              const y = positions[i + 1];
-              const z = positions[i + 2];
-              if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
-                bounds.min.x = Math.min(bounds.min.x, x);
-                bounds.min.y = Math.min(bounds.min.y, y);
-                bounds.min.z = Math.min(bounds.min.z, z);
-                bounds.max.x = Math.max(bounds.max.x, x);
-                bounds.max.y = Math.max(bounds.max.y, y);
-                bounds.max.z = Math.max(bounds.max.z, z);
-              }
-            }
-            totalVertices += positions.length / 3;
-            totalTriangles += mesh.indices.length / 3;
-          }
-
-          const coordinateInfo = {
-            originShift: { x: 0, y: 0, z: 0 },
-            originalBounds: bounds,
-            shiftedBounds: bounds,
-            isGeoReferenced: false,
-          };
+          // Calculate bounds and statistics
+          const { bounds, stats } = calculateMeshBounds(meshes);
+          const coordinateInfo = createCoordinateInfo(bounds);
 
           setGeometryResult({
             meshes,
-            totalVertices,
-            totalTriangles,
+            totalVertices: stats.totalVertices,
+            totalTriangles: stats.totalTriangles,
             coordinateInfo,
           });
 
@@ -620,15 +557,9 @@ export function useIfc() {
           
           // Calculate storey heights from elevation differences if not already populated
           if (dataStore.spatialHierarchy && dataStore.spatialHierarchy.storeyHeights.size === 0 && dataStore.spatialHierarchy.storeyElevations.size > 1) {
-            const sortedStoreys = Array.from(dataStore.spatialHierarchy.storeyElevations.entries())
-              .sort((a, b) => a[1] - b[1]);
-            for (let i = 0; i < sortedStoreys.length - 1; i++) {
-              const [storeyId, elevation] = sortedStoreys[i];
-              const nextElevation = sortedStoreys[i + 1][1];
-              const height = nextElevation - elevation;
-              if (height > 0) {
-                dataStore.spatialHierarchy.storeyHeights.set(storeyId, height);
-              }
+            const calculatedHeights = calculateStoreyHeights(dataStore.spatialHierarchy.storeyElevations);
+            for (const [storeyId, height] of calculatedHeights) {
+              dataStore.spatialHierarchy.storeyHeights.set(storeyId, height);
             }
           }
           
@@ -663,10 +594,7 @@ export function useIfc() {
       // Adaptive interval: larger files get less frequent updates to reduce React re-render overhead
       let pendingMeshes: MeshData[] = [];
       let lastRenderTime = 0;
-      const RENDER_INTERVAL_MS = fileSizeMB > 100 ? 200  // Huge files: 5 updates/sec
-        : fileSizeMB > 50 ? 100   // Large files: 10 updates/sec
-        : fileSizeMB > 20 ? 75    // Medium files: ~13 updates/sec
-        : 50;                      // Small files: 20 updates/sec
+      const RENDER_INTERVAL_MS = getRenderIntervalMs(fileSizeMB);
 
       try {
         console.log(`[useIfc] Starting geometry streaming IMMEDIATELY (file size: ${fileSizeMB.toFixed(2)}MB)...`);
