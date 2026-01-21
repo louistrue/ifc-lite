@@ -969,12 +969,19 @@ impl GeometryRouter {
                 mesh.positions[i2 * 3 + 2] as f64,
             );
             
-            // Get triangle normal
-            let n0 = Vector3::new(
-                mesh.normals[i0 * 3] as f64,
-                mesh.normals[i0 * 3 + 1] as f64,
-                mesh.normals[i0 * 3 + 2] as f64,
-            );
+            // Get triangle normal - use per-vertex normals if available, otherwise compute face normal
+            let n0 = if mesh.normals.len() >= mesh.positions.len() {
+                Vector3::new(
+                    mesh.normals[i0 * 3] as f64,
+                    mesh.normals[i0 * 3 + 1] as f64,
+                    mesh.normals[i0 * 3 + 2] as f64,
+                )
+            } else {
+                // Compute face normal from triangle vertices
+                let edge1 = v1 - v0;
+                let edge2 = v2 - v0;
+                edge1.cross(&edge2).try_normalize(1e-10).unwrap_or(Vector3::new(0.0, 0.0, 1.0))
+            };
             
             // Check if triangle is completely outside opening bounds
             let tri_min_x = v0.x.min(v1.x).min(v2.x);

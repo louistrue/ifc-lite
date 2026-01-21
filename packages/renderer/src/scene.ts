@@ -487,10 +487,18 @@ export class Scene {
     device: GPUDevice,
     pipeline: any
   ): BatchedMesh | undefined {
-    // Create cache key from colorKey + sorted visible IDs
-    // Using a simple hash of sorted IDs for efficiency
+    // Create cache key from colorKey + deterministic hash of all visible IDs
+    // Using a proper hash over all IDs to avoid collisions when middle IDs differ
     const sortedIds = Array.from(visibleIds).sort((a, b) => a - b);
-    const idsHash = sortedIds.length + ':' + sortedIds.slice(0, 5).join(',') + ':' + sortedIds.slice(-5).join(',');
+
+    // Compute a stable hash over all IDs using FNV-1a algorithm
+    let hash = 2166136261; // FNV offset basis
+    for (const id of sortedIds) {
+      hash ^= id;
+      hash = Math.imul(hash, 16777619); // FNV prime
+      hash = hash >>> 0; // Convert to unsigned 32-bit
+    }
+    const idsHash = `${sortedIds.length}:${hash.toString(16)}`;
     const cacheKey = `${colorKey}:${idsHash}`;
 
     // Check if we already have this exact partial batch cached

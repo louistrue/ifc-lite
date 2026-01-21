@@ -400,7 +400,7 @@ IFClite includes a native desktop application built with [Tauri v2](https://v2.t
 
 The desktop app reuses the same Rust crates (`ifc-lite-core`, `ifc-lite-geometry`) as the WASM build, but compiled natively:
 
-```
+```text
 apps/desktop/
 ├── src/                    # React frontend (shared with web)
 ├── src-tauri/

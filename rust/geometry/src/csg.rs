@@ -796,7 +796,7 @@ impl ClippingProcessor {
             let edge1 = v1 - v0;
             let edge2 = v2 - v0;
             let cross = edge1.cross(&edge2);
-            let area = cross.magnitude() / 2.0;
+            let area = cross.norm() / 2.0;
             
             // Check if triangle is degenerate (very small area)
             if area < min_area {

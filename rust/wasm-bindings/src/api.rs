@@ -494,10 +494,9 @@ impl IfcAPI {
                                 calculate_normals(&mut mesh);
                             }
 
-                            // Look up color by geometry item ID, then by element ID, then default
-                            let color = geometry_styles
-                                .get(&sub.geometry_id)
-                                .copied()
+                            // Look up color by geometry item ID (resolving MappedItem chains),
+                            // then by element ID, then default
+                            let color = find_color_for_geometry(sub.geometry_id, &geometry_styles, &mut decoder)
                                 .or_else(|| style_index.get(&id).copied())
                                 .unwrap_or(default_color);
 
@@ -1443,10 +1442,9 @@ impl IfcAPI {
                                         calculate_normals(&mut mesh);
                                     }
 
-                                    // Look up color by geometry item ID, then by element ID, then default
-                                    let color = geometry_styles
-                                        .get(&sub.geometry_id)
-                                        .copied()
+                                    // Look up color by geometry item ID (resolving MappedItem chains),
+                                    // then by element ID, then default
+                                    let color = find_color_for_geometry(sub.geometry_id, &geometry_styles, &mut decoder)
                                         .or_else(|| style_index.get(&id).copied())
                                         .unwrap_or(default_color);
 
