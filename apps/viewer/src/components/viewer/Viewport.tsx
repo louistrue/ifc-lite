@@ -1626,28 +1626,20 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
       : geometry;  // Post-streaming: scan entire array for unprocessed meshes
 
     // Filter out already processed meshes
-    // NOTE: Multiple meshes can share the same expressId (e.g., window frame + glass submeshes),
-    // so we use expressId + color as a compound key to distinguish submeshes.
+    // NOTE: Multiple meshes can share the same expressId AND same color (e.g., door inner framing pieces),
+    // so we use expressId + array index as a compound key to ensure all submeshes are processed.
     const newMeshes: MeshData[] = [];
+    const startIndex = isStreaming ? lastGeometryLengthRef.current : 0;
     for (let i = 0; i < meshesToAdd.length; i++) {
       const meshData = meshesToAdd[i];
-      // Use expressId + color as a compound key to distinguish submeshes
-      const colorKey = meshData.color.map(c => c.toFixed(3)).join(',');
-      const compoundKey = `${meshData.expressId}:${colorKey}`;
-      
-      if (isStreaming) {
-        // During streaming, all sliced meshes are new by definition, but we still need to track them
-        // so they don't get re-processed when streaming completes and the effect re-runs
-        if (!processedMeshIdsRef.current.has(compoundKey)) {
-          newMeshes.push(meshData);
-          processedMeshIdsRef.current.add(compoundKey);
-        }
-      } else {
-        // Post-streaming: need to track which specific mesh instances were processed
-        if (!processedMeshIdsRef.current.has(compoundKey)) {
-          newMeshes.push(meshData);
-          processedMeshIdsRef.current.add(compoundKey);
-        }
+      // Use expressId + global array index as key to ensure each mesh is unique
+      // (same expressId can have multiple submeshes with same color, e.g., door framing)
+      const globalIndex = startIndex + i;
+      const compoundKey = `${meshData.expressId}:${globalIndex}`;
+
+      if (!processedMeshIdsRef.current.has(compoundKey)) {
+        newMeshes.push(meshData);
+        processedMeshIdsRef.current.add(compoundKey);
       }
     }
 
