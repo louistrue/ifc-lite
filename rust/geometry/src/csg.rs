@@ -637,12 +637,13 @@ impl ClippingProcessor {
     /// Subtract opening mesh from host mesh using csgrs CSG boolean operations
     pub fn subtract_mesh(&self, host_mesh: &Mesh, opening_mesh: &Mesh) -> Result<Mesh> {
         use csgrs::traits::CSG;
+        use std::panic::{catch_unwind, AssertUnwindSafe};
 
         // Validate input meshes - early exit for empty host (no clone needed)
         if host_mesh.is_empty() {
             return Ok(Mesh::new());
         }
-        
+
         if opening_mesh.is_empty() {
             return Ok(host_mesh.clone());
         }
@@ -657,14 +658,23 @@ impl ClippingProcessor {
             Ok(csg) => csg,
             Err(_) => return Ok(host_mesh.clone()),
         };
-        
+
         let opening_csg = match Self::mesh_to_csgrs(opening_mesh) {
             Ok(csg) => csg,
             Err(_) => return Ok(host_mesh.clone()),
         };
 
-        // Perform CSG difference (host - opening)
-        let result_csg = host_csg.difference(&opening_csg);
+        // Perform CSG difference (host - opening) with panic protection
+        // The csgrs library can panic on certain degenerate geometry inputs
+        let result_csg = match catch_unwind(AssertUnwindSafe(|| {
+            host_csg.difference(&opening_csg)
+        })) {
+            Ok(result) => result,
+            Err(_) => {
+                // CSG operation panicked - return original mesh without opening
+                return Ok(host_mesh.clone());
+            }
+        };
 
         // Check if result is empty
         if result_csg.polygons.is_empty() {
@@ -881,6 +891,7 @@ impl ClippingProcessor {
     /// Union two meshes together using csgrs CSG boolean operations
     pub fn union_mesh(&self, mesh_a: &Mesh, mesh_b: &Mesh) -> Result<Mesh> {
         use csgrs::traits::CSG;
+        use std::panic::{catch_unwind, AssertUnwindSafe};
 
         // Fast paths
         if mesh_a.is_empty() {
@@ -894,8 +905,18 @@ impl ClippingProcessor {
         let csg_a = Self::mesh_to_csgrs(mesh_a)?;
         let csg_b = Self::mesh_to_csgrs(mesh_b)?;
 
-        // Perform CSG union
-        let result_csg = csg_a.union(&csg_b);
+        // Perform CSG union with panic protection
+        let result_csg = match catch_unwind(AssertUnwindSafe(|| {
+            csg_a.union(&csg_b)
+        })) {
+            Ok(result) => result,
+            Err(_) => {
+                // CSG operation panicked - return simple merge as fallback
+                let mut merged = mesh_a.clone();
+                merged.merge(mesh_b);
+                return Ok(merged);
+            }
+        };
 
         // Convert back to our Mesh format
         Self::csgrs_to_mesh(&result_csg)
@@ -906,6 +927,7 @@ impl ClippingProcessor {
     /// Returns the intersection of two meshes (the volume where both overlap).
     pub fn intersection_mesh(&self, mesh_a: &Mesh, mesh_b: &Mesh) -> Result<Mesh> {
         use csgrs::traits::CSG;
+        use std::panic::{catch_unwind, AssertUnwindSafe};
 
         // Fast paths: intersection with empty mesh is empty
         if mesh_a.is_empty() || mesh_b.is_empty() {
@@ -916,8 +938,16 @@ impl ClippingProcessor {
         let csg_a = Self::mesh_to_csgrs(mesh_a)?;
         let csg_b = Self::mesh_to_csgrs(mesh_b)?;
 
-        // Perform CSG intersection
-        let result_csg = csg_a.intersection(&csg_b);
+        // Perform CSG intersection with panic protection
+        let result_csg = match catch_unwind(AssertUnwindSafe(|| {
+            csg_a.intersection(&csg_b)
+        })) {
+            Ok(result) => result,
+            Err(_) => {
+                // CSG operation panicked - return empty mesh as fallback
+                return Ok(Mesh::new());
+            }
+        };
 
         // Convert back to our Mesh format
         Self::csgrs_to_mesh(&result_csg)
@@ -1138,14 +1168,30 @@ pub fn calculate_normals(mesh: &mut Mesh) {
         return;
     }
 
+    let positions_len = mesh.positions.len();
+
     // Initialize normals to zero
     let mut normals = vec![Vector3::zeros(); vertex_count];
 
     // Accumulate face normals
     for i in (0..mesh.indices.len()).step_by(3) {
+        // Bounds check for indices array
+        if i + 2 >= mesh.indices.len() {
+            break;
+        }
+
         let i0 = mesh.indices[i] as usize;
         let i1 = mesh.indices[i + 1] as usize;
         let i2 = mesh.indices[i + 2] as usize;
+
+        // Bounds check for vertex indices - skip invalid triangles
+        if i0 >= vertex_count || i1 >= vertex_count || i2 >= vertex_count {
+            continue;
+        }
+        if i0 * 3 + 2 >= positions_len || i1 * 3 + 2 >= positions_len || i2 * 3 + 2 >= positions_len
+        {
+            continue;
+        }
 
         // Get triangle vertices
         let v0 = Point3::new(
