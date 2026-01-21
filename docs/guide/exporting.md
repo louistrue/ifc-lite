@@ -307,24 +307,30 @@ Create custom export formats:
 ```typescript
 import { ExportPipeline } from '@ifc-lite/export';
 
+import { extractPropertiesOnDemand, extractQuantitiesOnDemand } from '@ifc-lite/parser';
+
 // Define custom exporter
 class CustomExporter {
-  export(parseResult: ParseResult): CustomFormat {
+  export(store: IfcDataStore, buffer: Uint8Array): CustomFormat {
     const output: CustomFormat = {
       metadata: {
-        schema: parseResult.schema,
+        schema: store.schemaVersion,
         timestamp: new Date().toISOString()
       },
       elements: []
     };
 
-    for (const entity of parseResult.entities) {
-      if (entity.type.startsWith('IFCWALL')) {
+    // Get all wall expressIds
+    const wallIds = store.entityIndex.byType.get('IFCWALL') ?? [];
+
+    for (const expressId of wallIds) {
+      const entityRef = store.entityIndex.byId.get(expressId);
+      if (entityRef) {
         output.elements.push({
-          id: entity.expressId,
-          name: entity.name,
-          properties: parseResult.getProperties(entity.expressId),
-          quantities: parseResult.getQuantities(entity.expressId)
+          id: expressId,
+          name: entityRef.name,
+          properties: extractPropertiesOnDemand(store, expressId, buffer),
+          quantities: extractQuantitiesOnDemand(store, expressId, buffer)
         });
       }
     }
@@ -335,7 +341,7 @@ class CustomExporter {
 
 // Use custom exporter
 const exporter = new CustomExporter();
-const custom = exporter.export(parseResult);
+const custom = exporter.export(store, buffer);
 ```
 
 ## Filtered Export

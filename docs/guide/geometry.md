@@ -55,19 +55,16 @@ flowchart TB
 | `HIGH` | 32 | Maximum quality, detailed models |
 
 ```typescript
-import { IfcParser, GeometryQuality } from '@ifc-lite/parser';
+import { GeometryProcessor } from '@ifc-lite/geometry';
 
-const parser = new IfcParser();
+const geometry = new GeometryProcessor();
+await geometry.init();
 
-// Fast mode for quick loading
-const fastResult = await parser.parse(buffer, {
-  geometryQuality: GeometryQuality.FAST
-});
+// Process with default quality
+const result = await geometry.process(new Uint8Array(buffer));
 
-// High quality for detailed viewing
-const highResult = await parser.parse(buffer, {
-  geometryQuality: GeometryQuality.HIGH
-});
+// Note: Quality settings are configured in the WASM module
+// For custom quality, rebuild with different curve subdivision settings
 ```
 
 ## Mesh Data Structure
@@ -105,22 +102,27 @@ classDiagram
 ### Accessing Mesh Data
 
 ```typescript
-const result = await parser.parse(buffer);
+import { GeometryProcessor } from '@ifc-lite/geometry';
+
+const geometry = new GeometryProcessor();
+await geometry.init();
+
+const result = await geometry.process(new Uint8Array(buffer));
 
 // Get all meshes
-for (const mesh of result.geometry.meshes) {
+for (const mesh of result.meshes) {
   console.log(`Entity #${mesh.expressId}:`);
   console.log(`  Vertices: ${mesh.positions.length / 3}`);
   console.log(`  Triangles: ${mesh.indices.length / 3}`);
   console.log(`  Color: rgba(${mesh.color.join(', ')})`);
 }
 
-// Get mesh by entity ID
-const wallMesh = result.geometry.getMesh(wallEntity.expressId);
+// Find mesh by entity ID
+const wallMesh = result.meshes.find(m => m.expressId === wallId);
 
-// Access bounds
-console.log(`Model bounds:`, result.geometry.bounds);
-console.log(`Center:`, result.geometry.bounds.center);
+// Calculate bounds from meshes
+const bounds = calculateBounds(result.meshes);
+console.log(`Model bounds:`, bounds);
 ```
 
 ## Streaming Geometry
@@ -146,33 +148,38 @@ sequenceDiagram
 ### Streaming Example
 
 ```typescript
-import { IfcParser, GeometryBatch } from '@ifc-lite/parser';
+import { GeometryProcessor } from '@ifc-lite/geometry';
+import { Renderer } from '@ifc-lite/renderer';
 
-const parser = new IfcParser();
+const geometry = new GeometryProcessor();
+await geometry.init();
+
 const renderer = new Renderer(canvas);
+await renderer.init();
 
-await parser.parseStreaming(buffer, {
-  batchSize: 100,
+// Stream geometry progressively
+for await (const event of geometry.processStreaming(new Uint8Array(buffer))) {
+  switch (event.type) {
+    case 'start':
+      console.log('Starting geometry extraction');
+      break;
 
-  onBatch: async (batch: GeometryBatch) => {
-    // Upload meshes to GPU
-    for (const mesh of batch.meshes) {
-      await renderer.addMesh(mesh);
-    }
+    case 'batch':
+      // Upload meshes to GPU as they arrive
+      renderer.addMeshes(event.meshes, true);  // isStreaming = true
 
-    // Update bounds
-    if (batch.bounds) {
-      renderer.updateBounds(batch.bounds);
-    }
+      // Render current state
+      renderer.render();
+      console.log(`Progress: ${event.progress}%`);
+      break;
 
-    // Render current state
-    renderer.render();
-  },
-
-  onComplete: () => {
-    renderer.fitToView();
+    case 'complete':
+      // Finalize rendering
+      renderer.fitToView();
+      console.log(`Complete: ${event.totalMeshes} meshes`);
+      break;
   }
-});
+}
 ```
 
 ## Coordinate Handling
@@ -203,23 +210,29 @@ flowchart LR
 
 ### Auto Origin Shift
 
-```typescript
-const result = await parser.parse(buffer, {
-  autoOriginShift: true
-});
+The geometry processor automatically handles large coordinates:
 
-// Access the computed shift
-if (result.coordinateShift) {
-  console.log(`Origin shifted by:`, result.coordinateShift);
+```typescript
+import { GeometryProcessor } from '@ifc-lite/geometry';
+
+const geometry = new GeometryProcessor();
+await geometry.init();
+
+const result = await geometry.process(new Uint8Array(buffer));
+
+// Access the computed shift from coordinate info
+const coordInfo = geometry.getCoordinateInfo();
+if (coordInfo?.shift) {
+  console.log(`Origin shifted by:`, coordInfo.shift);
   // { x: 487234.5, y: 5234891.2, z: 0 }
 }
 
 // Convert local coordinates back to world
-function toWorldCoords(localPos: Vector3): Vector3 {
+function toWorldCoords(localPos: Vector3, shift: Vector3): Vector3 {
   return {
-    x: localPos.x + result.coordinateShift.x,
-    y: localPos.y + result.coordinateShift.y,
-    z: localPos.z + result.coordinateShift.z
+    x: localPos.x + shift.x,
+    y: localPos.y + shift.y,
+    z: localPos.z + shift.z
   };
 }
 ```
@@ -322,73 +335,97 @@ ProcessorRegistry.register(new CustomProfileProcessor());
 
 ## Instancing
 
-IFC often uses mapped representations for repeated elements:
+IFC often uses mapped representations for repeated elements. The renderer handles instancing automatically:
 
 ```typescript
-// Detect instanced geometry
-const instances = result.geometry.getInstances(mesh.expressId);
+import { GeometryProcessor } from '@ifc-lite/geometry';
+import { Renderer } from '@ifc-lite/renderer';
 
-if (instances.length > 1) {
-  console.log(`Mesh is instanced ${instances.length} times`);
+const geometry = new GeometryProcessor();
+await geometry.init();
 
-  // Get transformation matrices for each instance
-  const transforms = instances.map(i => i.transform);
+const result = await geometry.process(new Uint8Array(buffer));
 
-  // Use GPU instancing for efficient rendering
-  renderer.addInstancedMesh(mesh, transforms);
-}
+// Load geometry - renderer automatically batches by color
+// and can use instancing for repeated elements
+renderer.loadGeometry(result);
+
+// For advanced instancing control:
+renderer.convertToInstanced(result.meshes);
 ```
 
 ## Performance Optimization
 
 ### Memory-Efficient Processing
 
+Use streaming for large files:
+
 ```typescript
-// Process in chunks to limit memory
-await parser.parseStreaming(buffer, {
-  batchSize: 50,
-  memoryLimit: 512, // MB
+import { GeometryProcessor } from '@ifc-lite/geometry';
 
-  onBatch: async (batch) => {
-    // Process and upload
-    await renderer.addMeshes(batch.meshes);
+const geometry = new GeometryProcessor();
+await geometry.init();
 
-    // Clear batch from memory
-    batch.dispose();
+// Stream geometry in batches
+for await (const event of geometry.processStreaming(new Uint8Array(buffer), undefined, 50)) {
+  if (event.type === 'batch') {
+    renderer.addMeshes(event.meshes, true);
+    console.log(`Progress: ${event.progress}%`);
   }
-});
+}
 ```
 
-### Skip Unnecessary Geometry
+### Filtering Geometry
+
+To only render specific entity types, filter the meshes after processing:
 
 ```typescript
-// Skip spaces and openings for faster loading
-const result = await parser.parse(buffer, {
-  excludeTypes: [
-    'IFCSPACE',
-    'IFCOPENINGELEMENT',
-    'IFCFLOWSEGMENT' // Skip MEP if not needed
-  ]
-});
+import { IfcParser } from '@ifc-lite/parser';
+import { GeometryProcessor } from '@ifc-lite/geometry';
+
+const parser = new IfcParser();
+const store = await parser.parseColumnar(buffer);
+
+// Get expressIds for types you want
+const wantedIds = new Set([
+  ...(store.entityIndex.byType.get('IFCWALL') ?? []),
+  ...(store.entityIndex.byType.get('IFCDOOR') ?? []),
+  ...(store.entityIndex.byType.get('IFCWINDOW') ?? [])
+]);
+
+// Process all geometry
+const geometry = new GeometryProcessor();
+await geometry.init();
+const result = await geometry.process(new Uint8Array(buffer));
+
+// Filter meshes
+const filteredMeshes = result.meshes.filter(m => wantedIds.has(m.expressId));
+renderer.loadGeometry({ meshes: filteredMeshes });
 ```
 
 ## Geometry Statistics
 
 ```typescript
-const result = await parser.parse(buffer);
-const stats = result.geometry.getStatistics();
+import { GeometryProcessor } from '@ifc-lite/geometry';
+
+const geometry = new GeometryProcessor();
+await geometry.init();
+
+const result = await geometry.process(new Uint8Array(buffer));
+
+// Calculate statistics from meshes
+let totalTriangles = 0;
+let totalVertices = 0;
+
+for (const mesh of result.meshes) {
+  totalTriangles += mesh.indices.length / 3;
+  totalVertices += mesh.positions.length / 3;
+}
 
 console.log('Geometry Statistics:');
-console.log(`  Total meshes: ${stats.meshCount}`);
-console.log(`  Total triangles: ${stats.triangleCount}`);
-console.log(`  Total vertices: ${stats.vertexCount}`);
-console.log(`  Instanced meshes: ${stats.instancedCount}`);
-console.log(`  Memory usage: ${stats.memoryMB.toFixed(1)} MB`);
-
-// Breakdown by entity type
-for (const [type, count] of Object.entries(stats.byType)) {
-  console.log(`  ${type}: ${count} meshes`);
-}
+console.log(`  Total meshes: ${result.meshes.length}`);
+console.log(`  Total triangles: ${totalTriangles}`);
+console.log(`  Total vertices: ${totalVertices}`);
 ```
 
 ## Next Steps

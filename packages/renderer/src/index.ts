@@ -115,6 +115,117 @@ export class Renderer {
     }
 
     /**
+     * Load geometry from GeometryResult or MeshData array
+     * This is the main entry point for loading IFC geometry into the renderer
+     * 
+     * @param geometry - Either a GeometryResult from geometry.process() or an array of MeshData
+     */
+    loadGeometry(geometry: import('@ifc-lite/geometry').GeometryResult | import('@ifc-lite/geometry').MeshData[]): void {
+        if (!this.device.isInitialized() || !this.pipeline) {
+            throw new Error('Renderer not initialized. Call init() first.');
+        }
+
+        const meshes = Array.isArray(geometry) ? geometry : geometry.meshes;
+        
+        if (meshes.length === 0) {
+            console.warn('[Renderer] loadGeometry called with empty mesh array');
+            return;
+        }
+
+        // Use batched rendering for optimal performance
+        const device = this.device.getDevice();
+        this.scene.appendToBatches(meshes, device, this.pipeline, false);
+
+        // Calculate and store model bounds for fitToView
+        this.updateModelBounds(meshes);
+
+        console.log(`[Renderer] Loaded ${meshes.length} meshes`);
+    }
+
+    /**
+     * Add multiple meshes to the scene (convenience method for streaming)
+     * 
+     * @param meshes - Array of MeshData to add
+     * @param isStreaming - If true, throttles batch rebuilding for better streaming performance
+     */
+    addMeshes(meshes: import('@ifc-lite/geometry').MeshData[], isStreaming: boolean = false): void {
+        if (!this.device.isInitialized() || !this.pipeline) {
+            throw new Error('Renderer not initialized. Call init() first.');
+        }
+
+        if (meshes.length === 0) return;
+
+        const device = this.device.getDevice();
+        this.scene.appendToBatches(meshes, device, this.pipeline, isStreaming);
+
+        // Update model bounds incrementally
+        this.updateModelBounds(meshes);
+    }
+
+    /**
+     * Update model bounds from mesh data
+     */
+    private updateModelBounds(meshes: import('@ifc-lite/geometry').MeshData[]): void {
+        if (!this.modelBounds) {
+            this.modelBounds = {
+                min: { x: Infinity, y: Infinity, z: Infinity },
+                max: { x: -Infinity, y: -Infinity, z: -Infinity }
+            };
+        }
+
+        for (const mesh of meshes) {
+            const positions = mesh.positions;
+            for (let i = 0; i < positions.length; i += 3) {
+                const x = positions[i];
+                const y = positions[i + 1];
+                const z = positions[i + 2];
+                if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+                    this.modelBounds.min.x = Math.min(this.modelBounds.min.x, x);
+                    this.modelBounds.min.y = Math.min(this.modelBounds.min.y, y);
+                    this.modelBounds.min.z = Math.min(this.modelBounds.min.z, z);
+                    this.modelBounds.max.x = Math.max(this.modelBounds.max.x, x);
+                    this.modelBounds.max.y = Math.max(this.modelBounds.max.y, y);
+                    this.modelBounds.max.z = Math.max(this.modelBounds.max.z, z);
+                }
+            }
+        }
+    }
+
+    /**
+     * Fit camera to view all loaded geometry
+     */
+    fitToView(): void {
+        if (!this.modelBounds) {
+            console.warn('[Renderer] fitToView called but no geometry loaded');
+            return;
+        }
+
+        const { min, max } = this.modelBounds;
+        
+        // Calculate center and size
+        const center = {
+            x: (min.x + max.x) / 2,
+            y: (min.y + max.y) / 2,
+            z: (min.z + max.z) / 2
+        };
+        
+        const size = Math.max(
+            max.x - min.x,
+            max.y - min.y,
+            max.z - min.z
+        );
+
+        // Position camera to see entire model
+        const distance = size * 1.5;
+        this.camera.setPosition(
+            center.x + distance * 0.5,
+            center.y + distance * 0.5,
+            center.z + distance
+        );
+        this.camera.setTarget(center.x, center.y, center.z);
+    }
+
+    /**
      * Add mesh to scene with per-mesh GPU resources for unique colors
      */
     addMesh(mesh: Mesh): void {

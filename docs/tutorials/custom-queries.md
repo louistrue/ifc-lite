@@ -233,39 +233,46 @@ const floorAreaByStorey = await query.sql(`
 
 ### Color by Query
 
+!!! note "Color Support"
+    Dynamic per-entity coloring is not yet supported in the public API.
+    This example shows the concept - actual implementation requires extending the renderer.
+
 ```typescript
-// Color walls by fire rating
+import { extractPropertiesOnDemand } from '@ifc-lite/parser';
+
+// Get walls and their fire ratings
 const walls = query.walls().toArray();
 
+// Create color map based on fire rating
+const colorMap = new Map<number, string>();
+
 for (const wall of walls) {
-  const props = parseResult.getPropertySets(wall.expressId);
+  const props = extractPropertiesOnDemand(store, wall.expressId, buffer);
   const fireRating = props?.['Pset_WallCommon']?.FireRating || 0;
 
-  let color: [number, number, number, number];
   if (fireRating >= 90) {
-    color = [1, 0, 0, 1]; // Red
+    colorMap.set(wall.expressId, 'red');
   } else if (fireRating >= 60) {
-    color = [1, 0.5, 0, 1]; // Orange
+    colorMap.set(wall.expressId, 'orange');
   } else if (fireRating >= 30) {
-    color = [1, 1, 0, 1]; // Yellow
-  } else {
-    color = [0.5, 0.5, 0.5, 1]; // Gray
+    colorMap.set(wall.expressId, 'yellow');
   }
-
-  renderer.setColor(wall.expressId, color);
 }
+
+console.log('Fire rating analysis:', colorMap);
 ```
 
 ### Isolate Query Results
 
 ```typescript
-// Isolate external walls
+// Isolate external walls (show only these)
 const externalWalls = query
   .walls()
   .whereProperty('Pset_WallCommon', 'IsExternal', '=', true)
   .toArray();
 
-renderer.isolate(externalWalls.map(w => w.expressId));
+const isolatedIds = new Set(externalWalls.map(w => w.expressId));
+renderer.render({ isolatedIds });
 ```
 
 ### Selection from Query
@@ -277,7 +284,8 @@ const fireRated = query
   .whereProperty('Pset_*Common', 'FireRating', '>', 0)
   .toArray();
 
-renderer.select(fireRated.map(e => e.expressId));
+const selectedIds = new Set(fireRated.map(e => e.expressId));
+renderer.render({ selectedIds });
 ```
 
 ## Performance Tips

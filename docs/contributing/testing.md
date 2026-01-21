@@ -117,16 +117,17 @@ describe('IfcParser', () => {
       expect(wall?.globalId).toMatch(/^[0-9a-zA-Z_$]+$/);
     });
 
-    it('should handle streaming parse', async () => {
+    it('should handle streaming geometry', async () => {
       const buffer = await loadTestFile('large-model.ifc');
-      const batches: number[] = [];
+      const geometry = new GeometryProcessor();
+      await geometry.init();
 
-      await parser.parseStreaming(buffer, {
-        batchSize: 100,
-        onBatch: (batch) => {
-          batches.push(batch.entities.length);
+      const batches: number[] = [];
+      for await (const event of geometry.processStreaming(new Uint8Array(buffer))) {
+        if (event.type === 'batch') {
+          batches.push(event.meshes.length);
         }
-      });
+      }
 
       expect(batches.length).toBeGreaterThan(0);
       expect(batches.reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
@@ -245,19 +246,23 @@ describe('Full Parse Integration', () => {
 
   it('should handle large files with streaming', async () => {
     const filePath = join(__dirname, '../fixtures/large-model.ifc');
-    const buffer = readFileSync(filePath).buffer;
+    const buffer = readFileSync(filePath);
 
     const parser = new IfcParser();
-    let totalEntities = 0;
+    const store = await parser.parseColumnar(buffer.buffer);
 
-    const result = await parser.parseStreaming(buffer, {
-      batchSize: 100,
-      onBatch: (batch) => {
-        totalEntities += batch.entities.length;
+    const geometry = new GeometryProcessor();
+    await geometry.init();
+
+    let totalMeshes = 0;
+    for await (const event of geometry.processStreaming(new Uint8Array(buffer))) {
+      if (event.type === 'batch') {
+        totalMeshes += event.meshes.length;
       }
-    });
+    }
 
-    expect(result.entityCount).toBe(totalEntities);
+    expect(totalMeshes).toBeGreaterThan(0);
+    expect(store.entityCount).toBeGreaterThan(0);
   });
 });
 ```
@@ -399,22 +404,26 @@ import { IfcParser } from '@ifc-lite/parser';
 import { readFileSync } from 'fs';
 
 describe('Parser Performance', () => {
-  const smallFile = readFileSync('fixtures/small.ifc').buffer;
-  const largeFile = readFileSync('fixtures/large.ifc').buffer;
+  const smallFile = readFileSync('fixtures/small.ifc');
+  const largeFile = readFileSync('fixtures/large.ifc');
 
-  bench('parse small file', async () => {
+  bench('parse small file (columnar)', async () => {
     const parser = new IfcParser();
-    await parser.parse(smallFile);
+    await parser.parseColumnar(smallFile.buffer);
   });
 
-  bench('parse large file', async () => {
+  bench('parse large file (columnar)', async () => {
     const parser = new IfcParser();
-    await parser.parse(largeFile);
+    await parser.parseColumnar(largeFile.buffer);
   });
 
-  bench('streaming parse large file', async () => {
-    const parser = new IfcParser();
-    await parser.parseStreaming(largeFile, { batchSize: 100 });
+  bench('streaming geometry large file', async () => {
+    const geometry = new GeometryProcessor();
+    await geometry.init();
+
+    for await (const event of geometry.processStreaming(new Uint8Array(largeFile))) {
+      // Process batches
+    }
   });
 });
 ```

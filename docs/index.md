@@ -115,7 +115,14 @@ IFClite supports two processing paradigms:
 
     ```typescript
     import { IfcParser } from '@ifc-lite/parser';
+    import { GeometryProcessor } from '@ifc-lite/geometry';
     import { Renderer } from '@ifc-lite/renderer';
+
+    // Initialize renderer and geometry processor
+    const renderer = new Renderer(canvas);
+    await renderer.init();
+    const geometry = new GeometryProcessor();
+    await geometry.init();
 
     // Parse IFC file in browser
     const parser = new IfcParser();
@@ -127,10 +134,11 @@ IFClite supports two processing paradigms:
     const walls = store.entityIndex.byType.get('IFCWALL') ?? [];
     console.log(`Found ${walls.length} walls`);
 
-    // Render geometry
-    const renderer = new Renderer(canvas);
-    await renderer.init();
-    // ... load geometry and render
+    // Process and render geometry
+    const geometryResult = await geometry.process(new Uint8Array(buffer));
+    renderer.loadGeometry(geometryResult);
+    renderer.fitToView();
+    renderer.render();
     ```
 
 === "Server + Client"

@@ -121,34 +121,48 @@ interface CameraOptions {
   maxDistance?: number;
 }
 
-renderer.setCamera({
-  position: [10, 10, 10],
-  target: [0, 0, 0],
-  fov: 45,
-  orbitSpeed: 0.5,
-  minDistance: 1,
-  maxDistance: 1000
-});
+// Access camera directly
+const camera = renderer.getCamera();
+
+camera.setPosition(10, 10, 10);
+camera.setTarget(0, 0, 0);
 ```
 
 ### Camera Operations
 
 ```typescript
+const camera = renderer.getCamera();
+
 // Fit camera to view all geometry
 renderer.fitToView();
 
-// Fit to specific entities
-renderer.fitToEntities([wall.expressId, door.expressId]);
+// Fit to specific bounds
+camera.fitToBounds(
+  { x: 0, y: 0, z: 0 },      // min
+  { x: 10, y: 5, z: 10 }     // max
+);
 
-// Set view preset
-renderer.setViewPreset('front');  // front, back, left, right, top, bottom, iso
+// Animated fit to bounds
+await camera.frameBounds(
+  { x: 0, y: 0, z: 0 },
+  { x: 10, y: 5, z: 10 },
+  300  // duration in ms
+);
 
-// Animate camera
-renderer.animateTo({
-  position: [20, 15, 20],
-  target: [0, 0, 5],
-  duration: 500
-});
+// Set view preset (with model bounds)
+camera.setPresetView('front', modelBounds);  // 'front', 'back', 'left', 'right', 'top', 'bottom'
+
+// Animated camera movement
+await camera.animateTo(
+  { x: 20, y: 15, z: 20 },   // position
+  { x: 0, y: 0, z: 5 },      // target
+  500                         // duration
+);
+
+// Interactive controls
+camera.orbit(deltaX, deltaY);   // Rotate around target
+camera.pan(deltaX, deltaY);     // Move camera sideways
+camera.zoom(delta);             // Zoom in/out
 ```
 
 ## Section Planes
@@ -391,6 +405,11 @@ Depth-aware object selection supporting 100K+ meshes.
 ### Basic Picking
 
 ```typescript
+import { extractPropertiesOnDemand } from '@ifc-lite/parser';
+
+// Track selection state
+let selectedIds = new Set<number>();
+
 canvas.addEventListener('click', async (e) => {
   const rect = canvas.getBoundingClientRect();
   const x = e.clientX - rect.left;
@@ -400,30 +419,41 @@ canvas.addEventListener('click', async (e) => {
 
   if (expressId !== null) {
     console.log(`Selected entity #${expressId}`);
+    selectedIds = new Set([expressId]);
 
-    // Highlight selection
-    renderer.setSelection(new Set([expressId]));
-
-    // Get entity data
+    // Get entity data using on-demand extraction
     const props = extractPropertiesOnDemand(store, expressId);
     displayProperties(props);
   } else {
-    renderer.clearSelection();
+    selectedIds.clear();
   }
+
+  // Re-render with selection highlighting
+  renderer.render({ selectedIds });
 });
 ```
 
 ### Multi-Selection
 
 ```typescript
-// Select multiple entities
-renderer.setSelection(new Set([id1, id2, id3]));
+// Track selection state
+let selectedIds = new Set<number>();
 
-// Get current selection
-const selected = renderer.getSelection();
+// Add to selection (Ctrl+click)
+function addToSelection(expressId: number) {
+  selectedIds.add(expressId);
+  renderer.render({ selectedIds });
+}
 
 // Clear selection
-renderer.clearSelection();
+function clearSelection() {
+  selectedIds.clear();
+  renderer.render({ selectedIds });
+}
+
+// Select multiple entities
+selectedIds = new Set([id1, id2, id3]);
+renderer.render({ selectedIds });
 ```
 
 ### Raycasting
@@ -445,19 +475,36 @@ if (result) {
 
 ## Visibility Control
 
+Visibility is controlled through `render()` options:
+
 ```typescript
+// Track visibility state
+let hiddenIds = new Set<number>();
+let isolatedIds: Set<number> | null = null;
+
 // Hide specific entities
-renderer.setHiddenIds(new Set([entity1.expressId, entity2.expressId]));
+hiddenIds = new Set([entity1.expressId, entity2.expressId]);
+renderer.render({ hiddenIds });
 
 // Isolate (show only these)
-renderer.setIsolatedIds(new Set([wallId, doorId]));
+isolatedIds = new Set([wallId, doorId]);
+renderer.render({ isolatedIds });
 
 // Clear isolation (show all)
-renderer.setIsolatedIds(null);
+isolatedIds = null;
+renderer.render({ isolatedIds });
 
 // Hide by entity type (combine with parser data)
 const spaceIds = store.entityIndex.byType.get('IFCSPACE') ?? [];
-renderer.setHiddenIds(new Set(spaceIds));
+hiddenIds = new Set(spaceIds);
+renderer.render({ hiddenIds });
+
+// Combined visibility + selection
+renderer.render({
+  hiddenIds,
+  isolatedIds,
+  selectedIds
+});
 ```
 
 ## Render Options
@@ -502,37 +549,41 @@ renderer.render({
 
 ## Materials and Colors
 
+IFClite uses colors from the IFC file. Mesh colors are determined during geometry processing based on IFC styles and material definitions.
+
 ```typescript
-// Set entity color
-renderer.setColor(entityId, [1, 0, 0, 1]); // Red
+// Colors are set when loading geometry
+// Each mesh has a color property: [r, g, b, a] (0-1 range)
+const geometryResult = await geometry.process(new Uint8Array(buffer));
 
-// Set color by type
-renderer.setColorByType('IFCWALL', [0.8, 0.8, 0.8, 1]);
-renderer.setColorByType('IFCDOOR', [0.6, 0.4, 0.2, 1]);
-renderer.setColorByType('IFCWINDOW', [0.7, 0.9, 1.0, 0.5]);
-
-// Reset to IFC materials
-renderer.resetColors();
-
-// Color by property
-renderer.colorByProperty('Pset_WallCommon', 'FireRating', {
-  '30': [0.2, 0.8, 0.2, 1],  // Green for 30 min
-  '60': [1.0, 0.8, 0.0, 1],  // Yellow for 60 min
-  '90': [1.0, 0.0, 0.0, 1],  // Red for 90 min
-});
+// Meshes include colors from IFC materials/styles
+for (const mesh of geometryResult.meshes) {
+  console.log(`Entity #${mesh.expressId} color:`, mesh.color);
+}
 ```
+
+!!! note "Custom Colors"
+    Dynamic color changes per-entity are not currently supported in the public API.
+    Colors are baked into geometry at load time. For advanced use cases,
+    see the viewer app source code for how batch rendering handles colors.
 
 ## Performance Optimization
 
 ### Frustum Culling
 
-```typescript
-// Enable frustum culling (default: on)
-renderer.setFrustumCulling(true);
+Frustum culling is enabled by passing a spatial index to render options:
 
-// Get culling statistics
-const stats = renderer.getCullingStats();
-console.log(`Visible: ${stats.visible} / ${stats.total} meshes`);
+```typescript
+import { buildSpatialIndex } from '@ifc-lite/spatial';
+
+// Build spatial index from meshes
+const spatialIndex = buildSpatialIndex(geometryResult.meshes);
+
+// Enable frustum culling in render
+renderer.render({
+  enableFrustumCulling: true,
+  spatialIndex
+});
 ```
 
 ### BVH Acceleration
@@ -540,50 +591,44 @@ console.log(`Visible: ${stats.visible} / ${stats.total} meshes`);
 The renderer uses a Bounding Volume Hierarchy for fast raycasting:
 
 ```typescript
-// BVH is built automatically when meshes are added
-// For large models, ray intersection is O(log n) instead of O(n)
+// BVH is built automatically for CPU raycasting
+// For large models (100K+ meshes), ray intersection is O(log n)
 
-// Clear caches when geometry changes
+// Clear BVH cache when geometry changes significantly
+renderer.invalidateBVHCache();
 renderer.clearCaches();
 ```
 
-### Instance Batching
+### Color Batching
+
+Meshes are automatically grouped by color for efficient rendering:
 
 ```typescript
-// Automatically batch repeated geometry
-renderer.setBatching(true);
+// Batching happens internally in loadGeometry() and addMeshes()
+// Multiple meshes with the same color = single draw call
 
-// Check instancing stats
-const instanceStats = renderer.getInstanceStats();
-console.log(`Unique meshes: ${instanceStats.uniqueMeshes}`);
-console.log(`Total instances: ${instanceStats.totalInstances}`);
+// For streaming, use isStreaming flag to throttle batch rebuilding
+renderer.addMeshes(meshes, true);  // isStreaming = true
 ```
 
 ### Zero-Copy GPU Upload
 
-Direct WASM-to-GPU buffer streaming for 60-70% less RAM:
+For advanced use cases, the renderer supports zero-copy GPU upload from WASM memory:
 
 ```typescript
-// Zero-copy is automatic when using server responses
-// or WASM geometry processing
+import { ZeroCopyGpuUploader, createZeroCopyUploader } from '@ifc-lite/renderer';
 
-// For manual control:
-renderer.addMeshZeroCopy(wasmMemoryHandle, gpuGeometryData);
+// Create uploader with GPU device
+const device = renderer.getGPUDevice();
+const uploader = createZeroCopyUploader(device, wasmApi);
+
+// Upload geometry directly from WASM memory to GPU
+const result = uploader.uploadGeometry(gpuGeometryData);
 ```
 
-## Rendering Statistics
-
-```typescript
-// Enable stats display
-renderer.showStats(true);
-
-// Get stats programmatically
-const stats = renderer.getStats();
-console.log(`FPS: ${stats.fps}`);
-console.log(`Draw calls: ${stats.drawCalls}`);
-console.log(`Triangles: ${stats.triangles}`);
-console.log(`GPU memory: ${stats.gpuMemoryMB} MB`);
-```
+!!! note "Advanced Feature"
+    Zero-copy upload is an advanced optimization. For most use cases,
+    `loadGeometry()` and `addMeshes()` provide excellent performance.
 
 ## Complete Example
 
@@ -593,11 +638,7 @@ import { IfcServerClient } from '@ifc-lite/server-client';
 
 async function createViewer() {
   const canvas = document.getElementById('viewer') as HTMLCanvasElement;
-  const renderer = new Renderer(canvas, {
-    antialias: true,
-    enablePicking: true,
-    enableSectionPlanes: true
-  });
+  const renderer = new Renderer(canvas);
   await renderer.init();
 
   // Load from server
@@ -608,11 +649,10 @@ async function createViewer() {
   renderer.addMeshes(result.meshes);
   renderer.fitToView();
 
-  // Section plane state
-  let sectionPlane = null;
-
-  // Selection state
-  let selectedId = null;
+  // Visibility and selection state
+  let selectedIds = new Set<number>();
+  let hiddenIds = new Set<number>();
+  let sectionPlane: { axis: 'down' | 'front' | 'side'; position: number; enabled: boolean } | undefined;
 
   // Edge lock state for magnetic snapping
   let edgeLock = { edge: null, meshExpressId: null, lockStrength: 0 };
@@ -623,12 +663,13 @@ async function createViewer() {
     const id = await renderer.pick(e.clientX - rect.left, e.clientY - rect.top);
 
     if (id !== null) {
-      selectedId = id;
-      renderer.setSelection(new Set([id]));
+      selectedIds = new Set([id]);
     } else {
-      selectedId = null;
-      renderer.clearSelection();
+      selectedIds.clear();
     }
+
+    // Re-render with updated selection
+    renderer.render({ selectedIds, hiddenIds, sectionPlane });
   });
 
   // Mousemove handler with magnetic snapping
@@ -656,13 +697,19 @@ async function createViewer() {
   function animate() {
     renderer.render({
       sectionPlane,
-      selectedIds: selectedId ? new Set([selectedId]) : undefined
+      selectedIds,
+      hiddenIds
     });
     requestAnimationFrame(animate);
   }
   animate();
 
-  return { renderer, setSectionPlane: (p) => { sectionPlane = p; } };
+  return { 
+    renderer, 
+    setSectionPlane: (p: typeof sectionPlane) => { sectionPlane = p; },
+    hide: (ids: number[]) => { ids.forEach(id => hiddenIds.add(id)); },
+    show: (ids: number[]) => { ids.forEach(id => hiddenIds.delete(id)); }
+  };
 }
 ```
 

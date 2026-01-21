@@ -12,14 +12,11 @@ Main class for parsing IFC files.
 class IfcParser {
   constructor(options?: ParserOptions);
 
-  // Parse from ArrayBuffer
+  // Parse from ArrayBuffer (returns entities as objects)
   parse(buffer: ArrayBuffer, options?: ParseOptions): Promise<ParseResult>;
 
-  // Stream parse for large files
-  parseStreaming(buffer: ArrayBuffer, options?: StreamOptions): Promise<ParseResult>;
-
-  // Get parser version
-  readonly version: string;
+  // Columnar parse (returns IfcDataStore - recommended)
+  parseColumnar(buffer: ArrayBuffer, options?: ParseOptions): Promise<IfcDataStore>;
 }
 ```
 
@@ -64,51 +61,95 @@ interface ParseOptions {
 }
 ```
 
-#### StreamOptions
+### parseAuto
+
+Standalone function that auto-detects parser based on environment.
 
 ```typescript
-interface StreamOptions extends ParseOptions {
-  // Entities per batch
-  batchSize?: number;
+import { parseAuto } from '@ifc-lite/parser';
 
-  // Batch callback
-  onBatch?: (batch: EntityBatch) => Promise<void>;
-
-  // Error handler (for non-fatal errors)
-  onError?: (error: ParseError) => void;
-}
+// Auto-selects best parser for current environment
+const store = await parseAuto(buffer);
 ```
 
 ### ParseResult
 
-Result object returned from parsing.
+Result object returned from `parse()` method.
 
 ```typescript
 interface ParseResult {
-  // File metadata
-  readonly header: IfcHeader;
-  readonly schema: 'IFC2X3' | 'IFC4' | 'IFC4X3';
-
-  // Entity data
-  readonly entities: Entity[];
+  // Entity data as Map
+  readonly entities: Map<number, any>;
   readonly entityCount: number;
 
-  // Geometry data
-  readonly geometry: GeometryResult;
+  // Property sets
+  readonly propertySets: Map<number, any>;
 
   // Relationships
-  readonly relationships: RelationshipGraph;
+  readonly relationships: any[];
 
-  // Coordinate info
-  readonly coordinateShift?: Vector3;
+  // Entity index
+  readonly entityIndex: EntityIndex;
 
-  // Helper methods
-  getEntity(expressId: number): Entity | undefined;
-  getProperties(expressId: number): PropertyMap;
-  getPropertySets(expressId: number): PropertySetMap;
-  getQuantities(expressId: number): QuantityMap;
-  getRelated(expressId: number, relType: string): Entity[];
+  // File info
+  readonly fileSize: number;
 }
+```
+
+### IfcDataStore
+
+Result object returned from `parseColumnar()` method (recommended).
+
+```typescript
+interface IfcDataStore {
+  // Entity index for fast lookups
+  readonly entityIndex: EntityIndex;
+
+  // Schema version: 'IFC2X3' | 'IFC4' | 'IFC4X3'
+  readonly schemaVersion: string;
+
+  // Statistics
+  readonly entityCount: number;
+  readonly parseTime: number;
+
+  // Length unit scale (e.g., 0.001 for mm files)
+  readonly lengthUnitScale: number;
+
+  // Spatial hierarchy
+  readonly spatialHierarchy: SpatialHierarchy;
+}
+
+interface EntityIndex {
+  // Lookup by expressId
+  byId: Map<number, EntityRef>;
+
+  // Lookup by type (e.g., 'IFCWALL' -> [expressId1, expressId2, ...])
+  byType: Map<string, number[]>;
+}
+```
+
+### On-Demand Property Extraction
+
+Properties are extracted lazily for memory efficiency.
+
+```typescript
+import { 
+  extractPropertiesOnDemand, 
+  extractQuantitiesOnDemand,
+  extractEntityAttributesOnDemand 
+} from '@ifc-lite/parser';
+
+// Extract properties for a single entity
+const props = extractPropertiesOnDemand(store, expressId, buffer);
+// Returns: { 'Pset_WallCommon': { LoadBearing: true, ... }, ... }
+
+// Extract quantities for a single entity
+const quantities = extractQuantitiesOnDemand(store, expressId, buffer);
+// Returns: { Volume: { value: 1.5, unit: 'm³' }, ... }
+
+// Extract entity attributes
+const attrs = extractEntityAttributesOnDemand(store, expressId, buffer);
+// Returns: { Name: 'Wall 1', GlobalId: '...' }
 ```
 
 ### Entity
@@ -128,65 +169,69 @@ interface Entity {
 
 ## @ifc-lite/geometry
 
-### IfcLiteBridge
+### GeometryProcessor
 
-Bridge to the Rust/WASM geometry processor.
+Main class for extracting geometry from IFC files.
 
 ```typescript
-class IfcLiteBridge {
-  // Initialize WASM module
-  static init(wasmUrl?: string): Promise<IfcLiteBridge>;
+class GeometryProcessor {
+  constructor();
 
-  // Process geometry
-  processGeometry(
-    entities: Entity[],
-    options?: GeometryOptions
-  ): Promise<GeometryResult>;
+  // Initialize WASM (required before processing)
+  init(): Promise<void>;
 
-  // Get mesh for entity
-  getMesh(expressId: number): Mesh | undefined;
+  // Check if initialized
+  isInitialized(): boolean;
 
-  // Dispose resources
-  dispose(): void;
+  // Process IFC buffer and extract geometry
+  process(buffer: Uint8Array): Promise<GeometryResult>;
+
+  // Stream geometry for large files
+  processStreaming(
+    buffer: Uint8Array,
+    entityIndex?: Map<number, any>,
+    batchSize?: number
+  ): AsyncGenerator<StreamEvent>;
+
+  // Coordinate handling
+  getCoordinateInfo(): CoordinateInfo | null;
 }
 ```
 
-#### GeometryOptions
+#### StreamEvent
 
 ```typescript
-interface GeometryOptions {
-  quality?: 'FAST' | 'BALANCED' | 'HIGH';
-  autoOriginShift?: boolean;
-  customOrigin?: Vector3;
-}
+type StreamEvent =
+  | { type: 'start' }
+  | { type: 'batch'; meshes: MeshData[]; progress: number }
+  | { type: 'complete'; totalMeshes: number; coordinateInfo: CoordinateInfo };
 ```
 
 ### GeometryResult
 
 ```typescript
 interface GeometryResult {
-  readonly meshes: Mesh[];
-  readonly bounds: BoundingBox;
-  readonly triangleCount: number;
-  readonly vertexCount: number;
+  readonly meshes: MeshData[];
+  readonly coordinateInfo?: CoordinateInfo;
+}
 
-  getMesh(expressId: number): Mesh | undefined;
-  getStatistics(): GeometryStats;
+interface CoordinateInfo {
+  shift?: { x: number; y: number; z: number };
+  bounds: BoundingBox;
 }
 ```
 
-### Mesh
+### MeshData
+
+Raw geometry data (Float32Arrays, not GPU buffers).
 
 ```typescript
-interface Mesh {
+interface MeshData {
   readonly expressId: number;
-  readonly positions: Float32Array;
-  readonly normals: Float32Array;
-  readonly indices: Uint32Array;
-  readonly uvs?: Float32Array;
-  readonly color: [number, number, number, number];
-  readonly transform: Matrix4;
-  readonly bounds: BoundingBox;
+  readonly positions: Float32Array;  // [x, y, z, x, y, z, ...]
+  readonly normals: Float32Array;    // [nx, ny, nz, ...]
+  readonly indices: Uint32Array;     // Triangle indices
+  readonly color: [number, number, number, number];  // RGBA (0-1)
 }
 ```
 
@@ -200,56 +245,39 @@ WebGPU-based 3D renderer.
 
 ```typescript
 class Renderer {
-  constructor(canvas: HTMLCanvasElement, options?: RendererOptions);
+  constructor(canvas: HTMLCanvasElement);
 
   // Initialize WebGPU
   init(): Promise<void>;
 
-  // Load geometry
-  loadGeometry(geometry: GeometryResult): Promise<void>;
-  addMesh(mesh: Mesh): Promise<void>;
-  addMeshes(meshes: Mesh[]): Promise<void>;
+  // Load geometry (main entry point for IFC geometry)
+  loadGeometry(geometry: GeometryResult | MeshData[]): void;
+  
+  // Add meshes incrementally (for streaming)
+  addMeshes(meshes: MeshData[], isStreaming?: boolean): void;
 
   // Rendering
-  render(): void;
-  startRenderLoop(): void;
-  stopRenderLoop(): void;
+  render(options?: RenderOptions): void;
 
   // Camera controls
-  setCamera(options: CameraOptions): void;
   fitToView(): void;
-  fitToEntities(expressIds: number[]): void;
-  setViewPreset(preset: ViewPreset): void;
-  animateTo(options: AnimateOptions): Promise<void>;
+  getCamera(): Camera;
 
-  // Selection
-  pick(x: number, y: number): Promise<PickResult | null>;
-  select(expressIds: number | number[]): void;
-  clearSelection(): void;
-  getSelection(): number[];
+  // Selection (GPU picking)
+  pick(x: number, y: number, options?: PickOptions): Promise<number | null>;
 
-  // Visibility
-  hide(expressIds: number[]): void;
-  show(expressIds: number[]): void;
-  isolate(expressIds: number[]): void;
-  showAll(): void;
-  hideByType(type: string): void;
+  // Visibility (pass to render() options)
+  // hiddenIds?: Set<number>;
+  // isolatedIds?: Set<number> | null;
 
-  // Section planes
-  addSectionPlane(options: SectionPlaneOptions): SectionPlane;
-  updateSectionPlane(id: string, options: Partial<SectionPlaneOptions>): void;
-  removeSectionPlane(id: string): void;
+  // Scene access
+  getScene(): Scene;
+  getPipeline(): RenderPipeline | null;
+  getGPUDevice(): GPUDevice | null;
+  isReady(): boolean;
 
-  // Colors
-  setColor(expressId: number, color: Color): void;
-  setColorByType(type: string, color: Color): void;
-  resetColors(): void;
-
-  // Statistics
-  getStats(): RenderStats;
-
-  // Cleanup
-  dispose(): void;
+  // Resize handling
+  resize(width: number, height: number): void;
 }
 ```
 

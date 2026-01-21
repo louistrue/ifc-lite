@@ -101,23 +101,37 @@ const store = await parser.parseColumnar(buffer, {
 parser.terminate();
 ```
 
-### Streaming Parser
+### Streaming Geometry
 
-For large files, stream geometry progressively:
+For large files, stream geometry progressively using `GeometryProcessor.processStreaming()`:
 
 ```typescript
-await parser.parseStreaming(buffer, {
-  batchSize: 100,
+import { GeometryProcessor } from '@ifc-lite/geometry';
 
-  onBatch: async (batch) => {
-    // Add meshes to renderer as they arrive
-    await renderer.addMeshes(batch.meshes);
-  },
+const parser = new IfcParser();
+const geometry = new GeometryProcessor();
+await geometry.init();
 
-  onProgress: (progress) => {
-    progressBar.value = progress.percent;
+// Parse first (fast, metadata only)
+const store = await parser.parseColumnar(buffer);
+
+// Stream geometry progressively
+for await (const event of geometry.processStreaming(new Uint8Array(buffer))) {
+  switch (event.type) {
+    case 'start':
+      console.log(`Starting geometry extraction`);
+      break;
+    case 'batch':
+      // Add meshes to renderer as they arrive
+      renderer.addMeshes(event.meshes, true);  // isStreaming = true
+      progressBar.value = event.progress;
+      break;
+    case 'complete':
+      console.log(`Done: ${event.totalMeshes} meshes`);
+      renderer.fitToView();
+      break;
   }
-});
+}
 ```
 
 ## On-Demand Property Extraction

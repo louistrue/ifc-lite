@@ -147,44 +147,60 @@ Create the main viewer class:
 
 ```typescript
 // src/viewer.ts
-import { IfcParser, ParseResult } from '@ifc-lite/parser';
-import { Renderer, PickResult } from '@ifc-lite/renderer';
+import { IfcParser, type IfcDataStore, extractPropertiesOnDemand } from '@ifc-lite/parser';
+import { GeometryProcessor, type GeometryResult } from '@ifc-lite/geometry';
+import { Renderer } from '@ifc-lite/renderer';
 
 export class IfcViewer {
   private parser: IfcParser;
+  private geometry: GeometryProcessor;
   private renderer: Renderer;
-  private result: ParseResult | null = null;
+  private dataStore: IfcDataStore | null = null;
+  private buffer: Uint8Array | null = null;
+  private animationId: number | null = null;
 
   constructor(private canvas: HTMLCanvasElement) {
     this.parser = new IfcParser();
-    this.renderer = new Renderer(canvas, {
-      antialias: true,
-      backgroundColor: [0.15, 0.15, 0.15, 1],
-      enablePicking: true
-    });
+    this.geometry = new GeometryProcessor();
+    this.renderer = new Renderer(canvas);
   }
 
   async init(): Promise<void> {
     await this.renderer.init();
+    await this.geometry.init();
     this.setupControls();
   }
 
-  async loadFile(file: File): Promise<ParseResult> {
-    const buffer = await file.arrayBuffer();
+  async loadFile(file: File): Promise<{ entityCount: number }> {
+    const arrayBuffer = await file.arrayBuffer();
+    this.buffer = new Uint8Array(arrayBuffer);
 
-    this.result = await this.parser.parse(buffer, {
-      geometryQuality: 'BALANCED',
-      autoOriginShift: true,
-      onProgress: (p) => {
-        this.onProgress?.(p.percent);
+    // Parse data model (entities, properties, relationships)
+    this.dataStore = await this.parser.parseColumnar(arrayBuffer, {
+      onProgress: ({ phase, percent }) => {
+        this.onProgress?.(`${phase}: ${percent}%`);
       }
     });
 
-    await this.renderer.loadGeometry(this.result.geometry);
-    this.renderer.fitToView();
-    this.renderer.startRenderLoop();
+    // Process geometry
+    const geometryResult = await this.geometry.process(this.buffer);
 
-    return this.result;
+    // Load into renderer
+    this.renderer.loadGeometry(geometryResult);
+    this.renderer.fitToView();
+    
+    // Start render loop
+    this.startRenderLoop();
+
+    return { entityCount: this.dataStore.entityCount };
+  }
+
+  private startRenderLoop(): void {
+    const animate = () => {
+      this.renderer.render();
+      this.animationId = requestAnimationFrame(animate);
+    };
+    animate();
   }
 
   private setupControls(): void {
@@ -194,28 +210,38 @@ export class IfcViewer {
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
 
-      const result = await this.renderer.pick(x, y);
-      if (result) {
-        this.renderer.select(result.expressId);
-        this.onSelect?.(result.expressId);
+      const expressId = await this.renderer.pick(x, y);
+      if (expressId !== null) {
+        this.onSelect?.(expressId);
       } else {
-        this.renderer.clearSelection();
         this.onSelect?.(null);
       }
     });
   }
 
   // Callbacks
-  onProgress?: (percent: number) => void;
+  onProgress?: (message: string) => void;
   onSelect?: (expressId: number | null) => void;
 
   // Public methods
-  getEntity(expressId: number) {
-    return this.result?.getEntity(expressId);
+  getDataStore(): IfcDataStore | null {
+    return this.dataStore;
   }
 
-  getProperties(expressId: number) {
-    return this.result?.getPropertySets(expressId);
+  getEntity(expressId: number): any | null {
+    if (!this.dataStore) return null;
+    return this.dataStore.entityIndex.byId.get(expressId) ?? null;
+  }
+
+  getProperties(expressId: number): Record<string, Record<string, any>> | null {
+    if (!this.dataStore || !this.buffer) return null;
+    return extractPropertiesOnDemand(this.dataStore, expressId, this.buffer);
+  }
+
+  dispose(): void {
+    if (this.animationId !== null) {
+      cancelAnimationFrame(this.animationId);
+    }
   }
 }
 ```
@@ -404,6 +430,11 @@ main();
 
 ```typescript
 // Add to viewer.ts
+private selectedId: number | null = null;
+private hiddenIds = new Set<number>();
+private isolatedIds: Set<number> | null = null;
+private selectedIds = new Set<number>();
+
 private setupKeyboardShortcuts(): void {
   document.addEventListener('keydown', (e) => {
     switch (e.key) {
@@ -412,19 +443,30 @@ private setupKeyboardShortcuts(): void {
         break;
       case 'h':
         if (this.selectedId) {
-          this.renderer.hide([this.selectedId]);
+          this.hiddenIds.add(this.selectedId);
+          this.render();
         }
         break;
       case 'i':
         if (this.selectedId) {
-          this.renderer.isolate([this.selectedId]);
+          this.isolatedIds = new Set([this.selectedId]);
+          this.render();
         }
         break;
       case 'Escape':
-        this.renderer.showAll();
-        this.renderer.clearSelection();
+        this.isolatedIds = null;
+        this.selectedIds.clear();
+        this.render();
         break;
     }
+  });
+}
+
+private render(): void {
+  this.renderer.render({
+    hiddenIds: this.hiddenIds,
+    isolatedIds: this.isolatedIds,
+    selectedIds: this.selectedIds
   });
 }
 ```
@@ -433,12 +475,15 @@ private setupKeyboardShortcuts(): void {
 
 ```typescript
 // Add toolbar buttons
-const presets = ['front', 'back', 'left', 'right', 'top', 'iso'];
+const presets = ['front', 'back', 'left', 'right', 'top'] as const;
 
 presets.forEach(preset => {
   const button = document.createElement('button');
   button.textContent = preset;
-  button.onclick = () => viewer.setViewPreset(preset);
+  button.onclick = () => {
+    const camera = viewer.renderer.getCamera();
+    camera.setPresetView(preset, viewer.getModelBounds());
+  };
   toolbar.appendChild(button);
 });
 ```
@@ -455,16 +500,14 @@ const query = new IfcQuery(result);
 const walls = query.walls().toArray();
 console.log(`Found ${walls.length} walls`);
 
-// Highlight external walls
+// Isolate external walls (show only these)
 const externalWalls = query
   .walls()
   .whereProperty('Pset_WallCommon', 'IsExternal', '=', true)
   .toArray();
 
-renderer.setColor(
-  externalWalls.map(w => w.expressId),
-  [1, 0, 0, 1] // Red
-);
+const isolatedIds = new Set(externalWalls.map(w => w.expressId));
+renderer.render({ isolatedIds });
 ```
 
 ## Running the Viewer

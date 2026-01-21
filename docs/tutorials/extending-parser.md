@@ -44,11 +44,15 @@ interface CustomDoorData {
 
 // Create custom decoder
 class DoorDecoder {
-  constructor(private parser: ParseResult) {}
+  constructor(
+    private store: IfcDataStore,
+    private buffer: Uint8Array
+  ) {}
 
-  decode(entity: DecodedEntity): CustomDoorData {
-    const props = this.parser.getPropertySets(entity.expressId);
-    const quantities = this.parser.getQuantities(entity.expressId);
+  decode(entity: EntityRef): CustomDoorData {
+    // Use on-demand extraction for properties
+    const props = extractPropertiesOnDemand(this.store, entity.expressId, this.buffer);
+    const quantities = extractQuantitiesOnDemand(this.store, entity.expressId, this.buffer);
 
     return {
       expressId: entity.expressId,
@@ -62,36 +66,52 @@ class DoorDecoder {
   }
 
   decodeAll(): CustomDoorData[] {
-    return this.parser.entities
-      .filter(e => e.type === 'IFCDOOR')
-      .map(e => this.decode(e));
+    const doorIds = this.store.entityIndex.byType.get('IFCDOOR') ?? [];
+    return doorIds.map(id => {
+      const ref = this.store.entityIndex.byId.get(id)!;
+      return this.decode(ref);
+    });
   }
 }
 
 // Usage
-const doorDecoder = new DoorDecoder(parseResult);
+import { extractPropertiesOnDemand, extractQuantitiesOnDemand } from '@ifc-lite/parser';
+
+const buffer = new Uint8Array(arrayBuffer);
+const doorDecoder = new DoorDecoder(store, buffer);
 const doors = doorDecoder.decodeAll();
 ```
 
 ### Streaming Decoder
 
-```typescript
-class StreamingDecoder<T> {
-  private handlers = new Map<string, (entity: Entity) => T>();
+Stream and decode entities as geometry is processed:
 
-  register(type: string, handler: (entity: Entity) => T): void {
+```typescript
+import { GeometryProcessor } from '@ifc-lite/geometry';
+import { IfcParser, type IfcDataStore, extractPropertiesOnDemand } from '@ifc-lite/parser';
+
+class StreamingDecoder<T> {
+  private handlers = new Map<string, (expressId: number, store: IfcDataStore, buffer: Uint8Array) => T>();
+
+  register(type: string, handler: (expressId: number, store: IfcDataStore, buffer: Uint8Array) => T): void {
     this.handlers.set(type, handler);
   }
 
   async *decode(
-    parser: IfcParser,
-    buffer: ArrayBuffer
+    store: IfcDataStore,
+    buffer: Uint8Array,
+    geometry: GeometryProcessor
   ): AsyncGenerator<T> {
-    for await (const batch of parser.parseStreaming(buffer)) {
-      for (const entity of batch.entities) {
-        const handler = this.handlers.get(entity.type);
-        if (handler) {
-          yield handler(entity);
+    for await (const event of geometry.processStreaming(buffer)) {
+      if (event.type === 'batch') {
+        for (const mesh of event.meshes) {
+          const entityRef = store.entityIndex.byId.get(mesh.expressId);
+          if (entityRef) {
+            const handler = this.handlers.get(entityRef.type);
+            if (handler) {
+              yield handler(mesh.expressId, store, buffer);
+            }
+          }
         }
       }
     }
@@ -100,12 +120,16 @@ class StreamingDecoder<T> {
 
 // Usage
 const decoder = new StreamingDecoder<CustomDoorData>();
-decoder.register('IFCDOOR', (entity) => ({
-  expressId: entity.expressId,
-  // ... decode door
-}));
+decoder.register('IFCDOOR', (expressId, store, buffer) => {
+  const props = extractPropertiesOnDemand(store, expressId, buffer);
+  return {
+    expressId,
+    fireRating: props?.['Pset_DoorCommon']?.FireRating || 0,
+    // ... decode door
+  };
+});
 
-for await (const door of decoder.decode(parser, buffer)) {
+for await (const door of decoder.decode(store, buffer, geometry)) {
   console.log(door);
 }
 ```
@@ -261,43 +285,55 @@ const customFragmentShader = `
   }
 `;
 
-// Create custom pipeline
-const renderer = new Renderer(canvas);
-renderer.registerShader('custom', {
-  vertex: customVertexShader,
-  fragment: customFragmentShader
-});
-
-// Use for specific entities
-renderer.setShader(entityIds, 'custom');
+// Note: Custom shader registration is an advanced feature
+// Requires extending the renderer's pipeline
 ```
 
-### Custom Material System
+!!! note "Custom Rendering"
+    Custom shaders and dynamic per-entity coloring are advanced features
+    not exposed in the current public API. For custom rendering needs,
+    consider extending the Renderer class or contributing to the project.
+
+### Visibility-Based Highlighting
+
+For highlighting specific entities, use visibility controls:
 
 ```typescript
-interface CustomMaterial {
-  baseColor: [number, number, number, number];
-  metallic: number;
-  roughness: number;
-  emission: [number, number, number];
+interface HighlightManager {
+  isolated: Set<number>;
+  hidden: Set<number>;
+  selected: Set<number>;
 }
 
-class MaterialManager {
-  private materials = new Map<number, CustomMaterial>();
+class HighlightManager {
+  isolated: Set<number> | null = null;
+  hidden = new Set<number>();
+  selected = new Set<number>();
 
-  setMaterial(expressId: number, material: CustomMaterial): void {
-    this.materials.set(expressId, material);
+  isolate(expressIds: number[]): void {
+    this.isolated = new Set(expressIds);
   }
 
-  getMaterial(expressId: number): CustomMaterial | undefined {
-    return this.materials.get(expressId);
+  hide(expressIds: number[]): void {
+    expressIds.forEach(id => this.hidden.add(id));
+  }
+
+  select(expressIds: number[]): void {
+    this.selected = new Set(expressIds);
+  }
+
+  clearAll(): void {
+    this.isolated = null;
+    this.hidden.clear();
+    this.selected.clear();
   }
 
   applyToRenderer(renderer: Renderer): void {
-    for (const [expressId, material] of this.materials) {
-      renderer.setColor(expressId, material.baseColor);
-      // Apply additional material properties via uniforms
-    }
+    renderer.render({
+      isolatedIds: this.isolated,
+      hiddenIds: this.hidden,
+      selectedIds: this.selected
+    });
   }
 }
 ```
