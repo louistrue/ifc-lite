@@ -24,6 +24,12 @@ export class Scene {
   private meshDataMap: Map<number, MeshData[]> = new Map(); // Map expressId -> MeshData[] (for lazy buffer creation, accumulates multiple pieces)
   private boundingBoxes: Map<number, BoundingBox> = new Map(); // Map expressId -> bounding box (computed lazily)
 
+  // Sub-batch cache for partially visible batches (PERFORMANCE FIX)
+  // Key = colorKey + ":" + sorted visible expressIds hash
+  // This allows rendering partially visible batches as single draw calls instead of 10,000+ individual draws
+  private partialBatchCache: Map<string, BatchedMesh> = new Map();
+  private partialBatchCacheKeys: Map<string, string> = new Map(); // colorKey -> current cache key (for invalidation)
+
   // Streaming optimization: track pending batch rebuilds
   private pendingBatchKeys: Set<string> = new Set();
   private lastBatchRebuildTime: number = 0;
@@ -463,6 +469,81 @@ export class Scene {
   }
 
   /**
+   * Get or create a partial batch for a subset of visible elements from a batch
+   *
+   * PERFORMANCE FIX: Instead of creating 10,000+ individual meshes for partially visible batches,
+   * this creates a single sub-batch containing only the visible elements.
+   * The sub-batch is cached and reused until visibility changes.
+   *
+   * @param colorKey - The color key of the original batch
+   * @param visibleIds - Set of visible expressIds from this batch
+   * @param device - GPU device for buffer creation
+   * @param pipeline - Rendering pipeline
+   * @returns BatchedMesh containing only visible elements, or undefined if no visible elements
+   */
+  getOrCreatePartialBatch(
+    colorKey: string,
+    visibleIds: Set<number>,
+    device: GPUDevice,
+    pipeline: any
+  ): BatchedMesh | undefined {
+    // Create cache key from colorKey + sorted visible IDs
+    // Using a simple hash of sorted IDs for efficiency
+    const sortedIds = Array.from(visibleIds).sort((a, b) => a - b);
+    const idsHash = sortedIds.length + ':' + sortedIds.slice(0, 5).join(',') + ':' + sortedIds.slice(-5).join(',');
+    const cacheKey = `${colorKey}:${idsHash}`;
+
+    // Check if we already have this exact partial batch cached
+    const currentCacheKey = this.partialBatchCacheKeys.get(colorKey);
+    if (currentCacheKey === cacheKey) {
+      const cached = this.partialBatchCache.get(cacheKey);
+      if (cached) return cached;
+    }
+
+    // Invalidate old cache for this colorKey if visibility changed
+    if (currentCacheKey && currentCacheKey !== cacheKey) {
+      const oldBatch = this.partialBatchCache.get(currentCacheKey);
+      if (oldBatch) {
+        oldBatch.vertexBuffer.destroy();
+        oldBatch.indexBuffer.destroy();
+        if (oldBatch.uniformBuffer) {
+          oldBatch.uniformBuffer.destroy();
+        }
+        this.partialBatchCache.delete(currentCacheKey);
+      }
+    }
+
+    // Collect MeshData for visible elements
+    const visibleMeshData: MeshData[] = [];
+    for (const expressId of visibleIds) {
+      const pieces = this.meshDataMap.get(expressId);
+      if (pieces) {
+        // Add all pieces for this element
+        for (const piece of pieces) {
+          // Only include pieces that match this batch's color
+          if (this.colorKey(piece.color) === colorKey) {
+            visibleMeshData.push(piece);
+          }
+        }
+      }
+    }
+
+    if (visibleMeshData.length === 0) {
+      return undefined;
+    }
+
+    // Create the partial batch
+    const color = visibleMeshData[0].color;
+    const partialBatch = this.createBatchedMesh(visibleMeshData, color, device, pipeline);
+
+    // Cache it
+    this.partialBatchCache.set(cacheKey, partialBatch);
+    this.partialBatchCacheKeys.set(colorKey, cacheKey);
+
+    return partialBatch;
+  }
+
+  /**
    * Clear regular meshes only (used when converting to instanced rendering)
    */
   clearRegularMeshes(): void {
@@ -501,6 +582,14 @@ export class Scene {
         batch.uniformBuffer.destroy();
       }
     }
+    // Clear partial batch cache
+    for (const batch of this.partialBatchCache.values()) {
+      batch.vertexBuffer.destroy();
+      batch.indexBuffer.destroy();
+      if (batch.uniformBuffer) {
+        batch.uniformBuffer.destroy();
+      }
+    }
     this.meshes = [];
     this.instancedMeshes = [];
     this.batchedMeshes = [];
@@ -509,6 +598,8 @@ export class Scene {
     this.meshDataMap.clear();
     this.boundingBoxes.clear();
     this.pendingBatchKeys.clear();
+    this.partialBatchCache.clear();
+    this.partialBatchCacheKeys.clear();
     this.lastBatchRebuildTime = 0;
   }
 
