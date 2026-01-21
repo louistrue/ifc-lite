@@ -448,25 +448,83 @@ impl IfcAPI {
                     continue;
                 }
 
-                if let Ok(mut mesh) =
-                    router.process_element_with_voids(&entity, &mut decoder, &void_index)
-                {
-                    if !mesh.is_empty() {
-                        // Calculate normals if not present
-                        if mesh.normals.is_empty() {
-                            calculate_normals(&mut mesh);
+                let ifc_type_name = entity.ifc_type.name().to_string();
+                let default_color = get_default_color_for_type(&entity.ifc_type);
+
+                // Check if this element has openings that need to be cut
+                let has_voids = void_index.contains_key(&id);
+
+                if has_voids {
+                    // Element has openings - use combined mesh approach for CSG
+                    if let Ok(mut mesh) =
+                        router.process_element_with_voids(&entity, &mut decoder, &void_index)
+                    {
+                        if !mesh.is_empty() {
+                            if mesh.normals.is_empty() {
+                                calculate_normals(&mut mesh);
+                            }
+
+                            let color = style_index
+                                .get(&id)
+                                .copied()
+                                .unwrap_or(default_color);
+
+                            let mesh_data = MeshDataJs::new(id, ifc_type_name.clone(), mesh, color);
+                            mesh_collection.add(mesh_data);
                         }
+                    }
+                } else {
+                    // No openings - try sub-mesh approach for per-item colors
+                    let sub_meshes_result =
+                        router.process_element_with_submeshes(&entity, &mut decoder);
+                    let has_submeshes = sub_meshes_result
+                        .as_ref()
+                        .map(|s| !s.is_empty())
+                        .unwrap_or(false);
 
-                        // Try to get color from style index, otherwise use default
-                        let color = style_index
-                            .get(&id)
-                            .copied()
-                            .unwrap_or_else(|| get_default_color_for_type(&entity.ifc_type));
+                    if has_submeshes {
+                        // Use sub-meshes for multi-material elements (windows, doors, etc.)
+                        let sub_meshes = sub_meshes_result.unwrap();
+                        for sub in sub_meshes.sub_meshes {
+                            let mut mesh = sub.mesh;
+                            if mesh.is_empty() {
+                                continue;
+                            }
+                            if mesh.normals.is_empty() {
+                                calculate_normals(&mut mesh);
+                            }
 
-                        // Create mesh data with express ID, IFC type, and color
-                        let ifc_type_name = entity.ifc_type.name().to_string();
-                        let mesh_data = MeshDataJs::new(id, ifc_type_name, mesh, color);
-                        mesh_collection.add(mesh_data);
+                            // Look up color by geometry item ID, then by element ID, then default
+                            let color = geometry_styles
+                                .get(&sub.geometry_id)
+                                .copied()
+                                .or_else(|| style_index.get(&id).copied())
+                                .unwrap_or(default_color);
+
+                            let mesh_data =
+                                MeshDataJs::new(id, ifc_type_name.clone(), mesh, color);
+                            mesh_collection.add(mesh_data);
+                        }
+                    } else {
+                        // Fallback: Use standard processing when submesh approach fails
+                        if let Ok(mut mesh) =
+                            router.process_element_with_voids(&entity, &mut decoder, &void_index)
+                        {
+                            if !mesh.is_empty() {
+                                if mesh.normals.is_empty() {
+                                    calculate_normals(&mut mesh);
+                                }
+
+                                let color = style_index
+                                    .get(&id)
+                                    .copied()
+                                    .unwrap_or(default_color);
+
+                                let mesh_data =
+                                    MeshDataJs::new(id, ifc_type_name.clone(), mesh, color);
+                                mesh_collection.add(mesh_data);
+                            }
+                        }
                     }
                 }
             }
@@ -1153,19 +1211,34 @@ impl IfcAPI {
                 // Track processed simple geometry IDs for color updates
                 let mut processed_simple_ids: Vec<u32> = Vec::new();
 
-                // SINGLE PASS: Process elements as we find them
+                // PRE-PASS: Build void relationship index (host → openings)
+                let mut scanner = EntityScanner::new(&content);
+                let mut faceted_brep_ids: Vec<u32> = Vec::new();
+                let mut void_index: rustc_hash::FxHashMap<u32, Vec<u32>> =
+                    rustc_hash::FxHashMap::default();
+
+                while let Some((id, type_name, start, end)) = scanner.next_entity() {
+                    if type_name == "IFCFACETEDBREP" {
+                        faceted_brep_ids.push(id);
+                    } else if type_name == "IFCRELVOIDSELEMENT" {
+                        // IfcRelVoidsElement: Attr 4 = RelatingBuildingElement, Attr 5 = RelatedOpeningElement
+                        if let Ok(entity) = decoder.decode_at(start, end) {
+                            if let (Some(host_id), Some(opening_id)) =
+                                (entity.get_ref(4), entity.get_ref(5))
+                            {
+                                void_index.entry(host_id).or_default().push(opening_id);
+                            }
+                        }
+                    }
+                }
+
+                // PROCESS PASS: Process elements with void subtraction
                 let mut scanner = EntityScanner::new(&content);
                 let mut deferred_complex: Vec<(u32, usize, usize, ifc_lite_core::IfcType)> =
                     Vec::new();
-                let mut faceted_brep_ids: Vec<u32> = Vec::new(); // Collect for batch preprocessing
 
-                // First pass - process simple geometry immediately, defer complex
+                // Process elements - simple geometry immediately, defer complex
                 while let Some((id, type_name, start, end)) = scanner.next_entity() {
-                    // Track FacetedBrep IDs for batch preprocessing
-                    if type_name == "IFCFACETEDBREP" {
-                        faceted_brep_ids.push(id);
-                    }
-
                     if !ifc_lite_core::has_geometry_by_name(type_name) {
                         continue;
                     }
@@ -1195,8 +1268,12 @@ impl IfcAPI {
                             let has_representation =
                                 entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
                             if has_representation {
-                                if let Ok(mut mesh) = router.process_element(&entity, &mut decoder)
-                                {
+                                // Use process_element_with_voids to subtract openings
+                                if let Ok(mut mesh) = router.process_element_with_voids(
+                                    &entity,
+                                    &mut decoder,
+                                    &void_index,
+                                ) {
                                     if !mesh.is_empty() {
                                         if mesh.normals.is_empty() {
                                             calculate_normals(&mut mesh);
@@ -1305,27 +1382,97 @@ impl IfcAPI {
                     router.preprocess_faceted_breps(&faceted_brep_ids, &mut decoder);
                 }
 
-                // Process deferred complex geometry with proper styles
+                // Process deferred complex geometry with proper styles and void subtraction
 
                 for (id, start, end, ifc_type) in deferred_complex {
                     if let Ok(entity) = decoder.decode_at(start, end) {
-                        if let Ok(mut mesh) = router.process_element(&entity, &mut decoder) {
-                            if !mesh.is_empty() {
-                                if mesh.normals.is_empty() {
-                                    calculate_normals(&mut mesh);
+                        let has_openings = void_index.contains_key(&id);
+                        let ifc_type_name = ifc_type.name().to_string();
+                        let default_color = get_default_color_for_type(&ifc_type);
+
+                        if has_openings {
+                            // Element has openings - use void subtraction (merged mesh)
+                            if let Ok(mut mesh) = router.process_element_with_voids(
+                                &entity,
+                                &mut decoder,
+                                &void_index,
+                            ) {
+                                if !mesh.is_empty() {
+                                    if mesh.normals.is_empty() {
+                                        calculate_normals(&mut mesh);
+                                    }
+
+                                    let color = style_index
+                                        .get(&id)
+                                        .copied()
+                                        .unwrap_or(default_color);
+
+                                    total_vertices += mesh.positions.len() / 3;
+                                    total_triangles += mesh.indices.len() / 3;
+
+                                    let mesh_data = MeshDataJs::new(id, ifc_type_name, mesh, color);
+                                    batch_meshes.push(mesh_data);
                                 }
+                            }
+                        } else {
+                            // No openings - try sub-mesh approach for per-item colors
+                            let sub_meshes_result =
+                                router.process_element_with_submeshes(&entity, &mut decoder);
 
-                                let color = style_index
-                                    .get(&id)
-                                    .copied()
-                                    .unwrap_or_else(|| get_default_color_for_type(&ifc_type));
+                            let has_submeshes = sub_meshes_result
+                                .as_ref()
+                                .map(|s| !s.is_empty())
+                                .unwrap_or(false);
 
-                                total_vertices += mesh.positions.len() / 3;
-                                total_triangles += mesh.indices.len() / 3;
+                            if has_submeshes {
+                                // Use sub-meshes for multi-material elements (windows, doors, etc.)
+                                let sub_meshes = sub_meshes_result.unwrap();
+                                for sub in sub_meshes.sub_meshes {
+                                    let mut mesh = sub.mesh;
+                                    if mesh.is_empty() {
+                                        continue;
+                                    }
+                                    if mesh.normals.is_empty() {
+                                        calculate_normals(&mut mesh);
+                                    }
 
-                                let ifc_type_name = ifc_type.name().to_string();
-                                let mesh_data = MeshDataJs::new(id, ifc_type_name, mesh, color);
-                                batch_meshes.push(mesh_data);
+                                    // Look up color by geometry item ID, then by element ID, then default
+                                    let color = geometry_styles
+                                        .get(&sub.geometry_id)
+                                        .copied()
+                                        .or_else(|| style_index.get(&id).copied())
+                                        .unwrap_or(default_color);
+
+                                    total_vertices += mesh.positions.len() / 3;
+                                    total_triangles += mesh.indices.len() / 3;
+
+                                    let mesh_data =
+                                        MeshDataJs::new(id, ifc_type_name.clone(), mesh, color);
+                                    batch_meshes.push(mesh_data);
+                                }
+                            } else {
+                                // Fallback: use simple single-mesh approach
+                                // This handles elements without IfcStyledItem references
+                                if let Ok(mut mesh) = router.process_element(&entity, &mut decoder)
+                                {
+                                    if !mesh.is_empty() {
+                                        if mesh.normals.is_empty() {
+                                            calculate_normals(&mut mesh);
+                                        }
+
+                                        let color = style_index
+                                            .get(&id)
+                                            .copied()
+                                            .unwrap_or(default_color);
+
+                                        total_vertices += mesh.positions.len() / 3;
+                                        total_triangles += mesh.indices.len() / 3;
+
+                                        let mesh_data =
+                                            MeshDataJs::new(id, ifc_type_name, mesh, color);
+                                        batch_meshes.push(mesh_data);
+                                    }
+                                }
                             }
                         }
                     }
@@ -2532,8 +2679,10 @@ fn build_element_style_index(
                     None => continue,
                 };
 
-                // Check if this geometry has a style
-                if let Some(&color) = geometry_styles.get(&geom_id) {
+                // Check if this geometry has a style, following MappedItem references if needed
+                if let Some(color) =
+                    find_color_for_geometry(geom_id, geometry_styles, decoder)
+                {
                     element_styles.insert(element_id, color);
                     break; // Found a color for this element
                 }
@@ -2547,6 +2696,58 @@ fn build_element_style_index(
     }
 
     element_styles
+}
+
+/// Find color for a geometry item, following MappedItem references if needed.
+/// This handles the case where IfcStyledItem points to geometry inside a MappedRepresentation,
+/// not to the MappedItem itself.
+fn find_color_for_geometry(
+    geom_id: u32,
+    geometry_styles: &rustc_hash::FxHashMap<u32, [f32; 4]>,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+) -> Option<[f32; 4]> {
+    use ifc_lite_core::IfcType;
+
+    // First check if this geometry ID directly has a color
+    if let Some(&color) = geometry_styles.get(&geom_id) {
+        return Some(color);
+    }
+
+    // If not, check if it's an IfcMappedItem and follow the reference
+    let geom = decoder.decode_by_id(geom_id).ok()?;
+
+    if geom.ifc_type == IfcType::IfcMappedItem {
+        // IfcMappedItem: MappingSource (IfcRepresentationMap ref), MappingTarget
+        let map_source_id = geom.get_ref(0)?;
+
+        // Decode the IfcRepresentationMap
+        let rep_map = decoder.decode_by_id(map_source_id).ok()?;
+
+        // IfcRepresentationMap: MappingOrigin (IfcAxis2Placement), MappedRepresentation (IfcShapeRepresentation)
+        let mapped_repr_id = rep_map.get_ref(1)?;
+
+        // Decode the mapped IfcShapeRepresentation
+        let mapped_repr = decoder.decode_by_id(mapped_repr_id).ok()?;
+
+        // IfcShapeRepresentation: ContextOfItems, RepresentationIdentifier, RepresentationType, Items
+        // Attribute 3: Items (list of geometry items)
+        let items_attr = mapped_repr.get(3)?;
+        let items_list = items_attr.as_list()?;
+
+        // Check each underlying geometry item for a color
+        for item in items_list {
+            if let Some(underlying_geom_id) = item.as_entity_ref() {
+                // Recursively find color (handles nested MappedItems)
+                if let Some(color) =
+                    find_color_for_geometry(underlying_geom_id, geometry_styles, decoder)
+                {
+                    return Some(color);
+                }
+            }
+        }
+    }
+
+    None
 }
 
 /// Extract RGBA color from IfcStyledItem.Styles attribute
