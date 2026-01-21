@@ -7,9 +7,9 @@
  */
 
 import { useEffect, useRef, useState, useMemo } from 'react';
-import { Renderer, MathUtils } from '@ifc-lite/renderer';
+import { Renderer, MathUtils, type SnapTarget } from '@ifc-lite/renderer';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
-import { useViewerStore, type MeasurePoint } from '@/store';
+import { useViewerStore, type MeasurePoint, type SnapVisualization } from '@/store';
 import {
   useSelectionState,
   useVisibilityState,
@@ -315,13 +315,13 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
 
       // Helper function to compute snap visualization (edge highlights, sliding dot, corner rings, plane indicators)
       // Stores 3D coordinates so edge highlights stay positioned correctly during camera rotation
-      function updateSnapVisualization(snapTarget: any, edgeLockInfo?: { edgeT: number; isCorner: boolean; cornerValence: number }) {
+      function updateSnapVisualization(snapTarget: SnapTarget | null, edgeLockInfo?: { edgeT: number; isCorner: boolean; cornerValence: number }) {
         if (!snapTarget || !canvas) {
           setSnapVisualization(null);
           return;
         }
 
-        const viz: any = {};
+        const viz: Partial<SnapVisualization> = {};
 
         // For edge snaps: store 3D world coordinates (will be projected to screen by ToolOverlays)
         if ((snapTarget.type === 'edge' || snapTarget.type === 'vertex') && snapTarget.metadata?.vertices) {

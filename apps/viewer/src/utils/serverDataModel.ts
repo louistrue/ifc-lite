@@ -24,7 +24,7 @@ import {
   type RelationshipGraph,
 } from '@ifc-lite/data';
 import { StringTable } from '@ifc-lite/data';
-import { buildSpatialIndex } from '@ifc-lite/spatial';
+import { buildSpatialIndex, type SpatialIndex } from '@ifc-lite/spatial';
 
 // ============================================================================
 // Types
@@ -82,11 +82,64 @@ export interface ViewerDataStore {
   };
   strings: StringTable;
   entities: EntityTable;
-  properties: any;
-  quantities: any;
+  /** Server-converted property table with getForEntity method */
+  properties: ServerPropertyTable;
+  /** Server-converted quantity table with getForEntity method */
+  quantities: ViewerQuantityTable;
   relationships: RelationshipGraph;
   spatialHierarchy: SpatialHierarchy;
-  spatialIndex?: any;
+  spatialIndex?: SpatialIndex;
+}
+
+/** Property set returned by server conversion */
+interface ServerPropertySet {
+  name: string;
+  globalId?: string;
+  properties: Array<{ name: string; type: number; value: string | number | boolean | null }>;
+}
+
+/** Property table interface for server-converted data */
+interface ServerPropertyTable {
+  count: number;
+  entityId: Uint32Array;
+  psetName: Uint32Array;
+  psetGlobalId: Uint32Array;
+  propName: Uint32Array;
+  propType: Uint8Array;
+  valueString: Uint32Array;
+  valueReal: Float64Array;
+  valueInt: Int32Array;
+  entityIndex: Map<number, number[]>;
+  psetIndex: Map<number, number[]>;
+  propIndex: Map<number, number[]>;
+  getForEntity(expressId: number): ServerPropertySet[];
+  getPropertyValue(expressId: number, psetName: string, propName: string): string | number | boolean | null;
+  findByProperty(psetName: string, propName: string, value: string | number | boolean): number[];
+}
+
+/** Quantity set returned by getForEntity (viewer format with camelCase) */
+interface ViewerQuantitySet {
+  name: string;
+  methodOfMeasurement?: string;
+  quantities: Array<{ name: string; type: string; value: number }>;
+}
+
+/** Quantity table interface for server-converted data */
+interface ViewerQuantityTable {
+  count: number;
+  entityId: Uint32Array;
+  qsetName: Uint32Array;
+  quantityName: Uint32Array;
+  quantityType: Uint8Array;
+  value: Float64Array;
+  unitId: Int32Array;
+  formula: Uint32Array;
+  entityIndex: Map<number, number[]>;
+  qsetIndex: Map<number, number[]>;
+  quantityIndex: Map<number, number[]>;
+  getForEntity(expressId: number): ViewerQuantitySet[];
+  getQuantityValue(expressId: number, qsetName: string, quantName: string): number | null;
+  sumByType(quantityName: string, elementType?: number): number;
 }
 
 // ============================================================================
@@ -534,14 +587,14 @@ export function convertServerDataModel(
     entityIndex: new Map<number, number[]>(),
     psetIndex: new Map<number, number[]>(),
     propIndex: new Map<number, number[]>(),
-    getForEntity: (exprId: number) => {
+    getForEntity: (exprId: number): ServerPropertySet[] => {
       const psets = entityToPsets.get(exprId) || [];
       return psets.map((pset) => ({
         name: pset.pset_name,
         globalId: '',
-        properties: pset.properties.map((p: any) => ({
+        properties: pset.properties.map((p: { property_name: string; property_value: string | number | boolean | null }) => ({
           name: p.property_name,
-          type: 0 as const,
+          type: 0,
           value: p.property_value,
         })),
       }));
@@ -562,14 +615,14 @@ export function convertServerDataModel(
     entityIndex: new Map<number, number[]>(),
     qsetIndex: new Map<number, number[]>(),
     quantityIndex: new Map<number, number[]>(),
-    getForEntity: (exprId: number) => {
+    getForEntity: (exprId: number): ViewerQuantitySet[] => {
       const qsets = entityToQsets.get(exprId) || [];
       return qsets.map((qset) => ({
         name: qset.qset_name,
         methodOfMeasurement: qset.method_of_measurement,
         quantities: qset.quantities.map((q) => ({
           name: q.quantity_name,
-          type: q.quantity_type as 'length' | 'area' | 'volume' | 'count' | 'weight' | 'time',
+          type: q.quantity_type,
           value: q.quantity_value,
         })),
       }));

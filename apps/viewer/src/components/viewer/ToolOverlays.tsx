@@ -9,8 +9,8 @@
 import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { X, Trash2, Ruler, Slice, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useViewerStore, type Measurement } from '@/store';
-import { SnapType } from '@ifc-lite/renderer';
+import { useViewerStore, type Measurement, type SnapVisualization } from '@/store';
+import { SnapType, type SnapTarget } from '@ifc-lite/renderer';
 
 export function ToolOverlays() {
   const activeTool = useViewerStore((s) => s.activeTool);
@@ -232,14 +232,8 @@ interface MeasurementOverlaysProps {
   measurements: Measurement[];
   pending: { screenX: number; screenY: number } | null;
   activeMeasurement: { start: { screenX: number; screenY: number }; current: { screenX: number; screenY: number }; distance: number } | null;
-  snapTarget: { position: { x: number; y: number; z: number }; type: SnapType; metadata?: any } | null;
-  snapVisualization: {
-    // 3D world coordinates for edge (projected to screen dynamically)
-    edgeLine3D?: { v0: { x: number; y: number; z: number }; v1: { x: number; y: number; z: number } };
-    planeIndicator?: { x: number; y: number; normal: { x: number; y: number; z: number } };
-    slidingDot?: { t: number }; // Position on edge (t = 0-1)
-    cornerRings?: { atStart: boolean; valence: number }; // Corner at v0 (true) or v1 (false)
-  } | null;
+  snapTarget: SnapTarget | null;
+  snapVisualization: SnapVisualization | null;
   hoverPosition?: { x: number; y: number } | null;
   projectToScreen?: (worldPos: { x: number; y: number; z: number }) => { x: number; y: number } | null;
 }
