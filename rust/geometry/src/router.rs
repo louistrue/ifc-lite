@@ -797,10 +797,11 @@ impl GeometryRouter {
                 continue;
             }
             
-            // Check if triangle is completely inside opening (remove it) (with epsilon tolerance)
-            if tri_min_x >= open_min.x - EPSILON && tri_max_x <= open_max.x + EPSILON &&
-               tri_min_y >= open_min.y - EPSILON && tri_max_y <= open_max.y + EPSILON &&
-               tri_min_z >= open_min.z - EPSILON && tri_max_z <= open_max.z + EPSILON {
+            // Check if triangle is completely inside opening (remove it)
+            // Use INWARD epsilon to be conservative - only remove triangles clearly inside
+            if tri_min_x >= open_min.x + EPSILON && tri_max_x <= open_max.x - EPSILON &&
+               tri_min_y >= open_min.y + EPSILON && tri_max_y <= open_max.y - EPSILON &&
+               tri_min_z >= open_min.z + EPSILON && tri_max_z <= open_max.z - EPSILON {
                 // Triangle is inside opening - remove it
                 continue;
             }
