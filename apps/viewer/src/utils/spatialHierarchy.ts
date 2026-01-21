@@ -159,9 +159,9 @@ export function rebuildSpatialHierarchy(
 
     getPath(elementId: number): SpatialNode[] {
       const path: SpatialNode[] = [];
-      const storeyId = elementToStorey.get(elementId);
-      if (!storeyId) return path;
 
+      // DFS to find element in spatial tree
+      // Elements can be in SpatialNode.elements (e.g., IfcSpace) even if not in elementToStorey
       const findPath = (node: SpatialNode, targetId: number): boolean => {
         path.push(node);
         if (node.elements.includes(targetId)) {

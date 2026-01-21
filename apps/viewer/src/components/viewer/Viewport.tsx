@@ -47,8 +47,9 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   const { selectedEntityId, selectedEntityIds, setSelectedEntityId, toggleSelection } = useSelectionState();
 
   // Visibility state - use computedIsolatedIds from parent (includes storey selection)
-  const { hiddenEntities } = useVisibilityState();
-  const isolatedEntities = computedIsolatedIds ?? null;
+  // Fall back to store isolation if computedIsolatedIds is not provided
+  const { hiddenEntities, isolatedEntities: storeIsolatedEntities } = useVisibilityState();
+  const isolatedEntities = computedIsolatedIds ?? storeIsolatedEntities ?? null;
 
   // Tool state
   const { activeTool, sectionPlane } = useToolState();

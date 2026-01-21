@@ -84,8 +84,9 @@ export class IfcLiteMeshCollector {
 
     // Convert MeshCollection to MeshData[]
     for (let i = 0; i < collection.length; i++) {
+      let mesh: ReturnType<typeof collection.get> | null = null;
       try {
-        const mesh = collection.get(i);
+        mesh = collection.get(i);
         if (!mesh) {
           failedMeshes++;
           continue;
@@ -120,9 +121,18 @@ export class IfcLiteMeshCollector {
 
         // Free the individual mesh to avoid memory leaks
         mesh.free();
+        mesh = null; // Mark as freed
       } catch (error) {
         failedMeshes++;
         log.caught(`Failed to process mesh ${i}`, error, { operation: 'collectMeshes' });
+        // Ensure mesh is freed even on error
+        if (mesh) {
+          try {
+            mesh.free();
+          } catch {
+            // Ignore errors during cleanup
+          }
+        }
       }
     }
 

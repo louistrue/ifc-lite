@@ -83,8 +83,12 @@ export function getEntityBounds(
     return null;
   }
 
-  const mesh = geometry.find((m) => m.expressId === entityId);
-  if (!mesh || mesh.positions.length < 3) {
+  // Find ALL meshes for this entity (entities can have multiple submeshes)
+  const matchingMeshes = geometry.filter(
+    (m) => m.expressId === entityId && m.positions.length >= 3
+  );
+
+  if (matchingMeshes.length === 0) {
     return null;
   }
 
@@ -95,16 +99,19 @@ export function getEntityBounds(
     maxY = -Infinity,
     maxZ = -Infinity;
 
-  for (let i = 0; i < mesh.positions.length; i += 3) {
-    const x = mesh.positions[i];
-    const y = mesh.positions[i + 1];
-    const z = mesh.positions[i + 2];
-    minX = Math.min(minX, x);
-    minY = Math.min(minY, y);
-    minZ = Math.min(minZ, z);
-    maxX = Math.max(maxX, x);
-    maxY = Math.max(maxY, y);
-    maxZ = Math.max(maxZ, z);
+  // Aggregate bounds across all submeshes
+  for (const mesh of matchingMeshes) {
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      const x = mesh.positions[i];
+      const y = mesh.positions[i + 1];
+      const z = mesh.positions[i + 2];
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      minZ = Math.min(minZ, z);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+      maxZ = Math.max(maxZ, z);
+    }
   }
 
   return {
@@ -169,8 +176,15 @@ export function calculateGeometryBounds(meshes: MeshData[]): BoundingBox3D {
     }
   }
 
-  // Handle case where all coordinates are the same (degenerate)
-  if (!Number.isFinite(minX) || minX === maxX) {
+  // Handle degenerate cases:
+  // - Non-finite values (no valid positions found)
+  // - All three axes degenerate (single point)
+  // Note: Planar/linear geometry (only 1-2 axes equal) is valid and should NOT fall back
+  const isNonFinite = !Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(minZ) ||
+                      !Number.isFinite(maxX) || !Number.isFinite(maxY) || !Number.isFinite(maxZ);
+  const isFullyDegenerate = minX === maxX && minY === maxY && minZ === maxZ;
+
+  if (isNonFinite || isFullyDegenerate) {
     return {
       min: { x: -100, y: -100, z: -100 },
       max: { x: 100, y: 100, z: 100 },

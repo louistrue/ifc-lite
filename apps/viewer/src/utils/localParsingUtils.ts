@@ -209,8 +209,12 @@ export function calculateStreamingProgress(
   maxPercent: number = 95
 ): number {
   const denominator = Math.max(estimatedTotal / 10, currentMeshes);
+  // Guard against division by zero (both currentMeshes and estimatedTotal are 0)
+  if (denominator === 0) {
+    return basePercent;
+  }
   const progressRange = maxPercent - basePercent;
-  return basePercent + Math.min(progressRange, (currentMeshes / denominator) * progressRange);
+  return Math.min(maxPercent, basePercent + (currentMeshes / denominator) * progressRange);
 }
 
 // ============================================================================

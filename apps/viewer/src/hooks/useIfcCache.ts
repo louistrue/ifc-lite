@@ -194,19 +194,21 @@ export function useIfcCache() {
 
         // Build spatial index in background (non-blocking)
         if (meshes.length > 0) {
+          const buildIndex = () => {
+            try {
+              const spatialIndex = buildSpatialIndex(meshes);
+              dataStore.spatialIndex = spatialIndex;
+              setIfcDataStore({ ...dataStore });
+            } catch (err) {
+              console.warn('[useIfcCache] Failed to build spatial index:', err);
+            }
+          };
+
           if ('requestIdleCallback' in window) {
-            (window as any).requestIdleCallback(
-              () => {
-                try {
-                  const spatialIndex = buildSpatialIndex(meshes);
-                  dataStore.spatialIndex = spatialIndex;
-                  setIfcDataStore({ ...dataStore });
-                } catch (err) {
-                  console.warn('[useIfcCache] Failed to build spatial index:', err);
-                }
-              },
-              { timeout: 2000 }
-            );
+            (window as any).requestIdleCallback(buildIndex, { timeout: 2000 });
+          } else {
+            // Fallback for browsers without requestIdleCallback
+            setTimeout(buildIndex, 100);
           }
         }
       } else {

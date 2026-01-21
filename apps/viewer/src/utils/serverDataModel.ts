@@ -326,14 +326,6 @@ function buildEntityTable(
     idx++;
   }
 
-  // Build type ranges
-  const typeRanges = new Map<IfcTypeEnum, { start: number; end: number }>();
-  let rangeIdx = 0;
-  for (const [type, indices] of Array.from(typeGroups.entries()).sort((a, b) => a[0] - b[0])) {
-    typeRanges.set(type, { start: rangeIdx, end: rangeIdx + indices.length });
-    rangeIdx += indices.length;
-  }
-
   const indexOfId = (id: number): number => idToIndex.get(id) ?? -1;
 
   const entities: EntityTable = {
@@ -348,7 +340,7 @@ function buildEntityTable(
     containedInStorey: containedInStoreyArr,
     definedByType: definedByTypeArr,
     geometryIndex: geometryIndexArr,
-    typeRanges,
+    typeRanges: new Map(), // Deprecated - use getByType which uses typeGroups directly
     getGlobalId: (id) => {
       const i = indexOfId(id);
       return i >= 0 ? strings.get(globalIdArr[i]) : '';
@@ -374,13 +366,10 @@ function buildEntityTable(
       return i >= 0 ? (flagsArr[i] & EntityFlags.HAS_GEOMETRY) !== 0 : false;
     },
     getByType: (type) => {
-      const range = typeRanges.get(type);
-      if (!range) return [];
-      const ids: number[] = [];
-      for (let j = range.start; j < range.end; j++) {
-        ids.push(expressId[j]);
-      }
-      return ids;
+      // Use typeGroups directly - indices stored there map to expressId array
+      const indices = typeGroups.get(type);
+      if (!indices) return [];
+      return indices.map(idx => expressId[idx]);
     },
   };
 
