@@ -1249,13 +1249,15 @@ impl BooleanClippingProcessor {
         use crate::csg::{ClippingProcessor, Plane};
 
         // For DIFFERENCE operation with HalfSpaceSolid:
-        // - AgreementFlag=.T. means keep material on positive side of plane
-        // - AgreementFlag=.F. means keep material on negative side of plane
-        // But we're SUBTRACTING the half-space, so we invert
+        // - AgreementFlag=.T. means material is on positive side of plane normal
+        // - AgreementFlag=.F. means material is on negative side of plane normal
+        // Since we're SUBTRACTING the half-space, we keep the opposite side:
+        // - If material is on positive side (agreement=true), remove positive side → keep negative side → clip_normal = plane_normal
+        // - If material is on negative side (agreement=false), remove negative side → keep positive side → clip_normal = -plane_normal
         let clip_normal = if agreement {
-            -plane_normal // Subtract positive side = keep negative side
+            plane_normal // Material on positive side, remove it, keep negative side
         } else {
-            plane_normal // Subtract negative side = keep positive side
+            -plane_normal // Material on negative side, remove it, keep positive side
         };
 
         let plane = Plane::new(plane_point, clip_normal);
