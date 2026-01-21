@@ -35,6 +35,7 @@ npm install @ifc-lite/parser @ifc-lite/geometry @ifc-lite/renderer
 ```typescript
 // main.ts
 import { IfcParser } from '@ifc-lite/parser';
+import { GeometryProcessor } from '@ifc-lite/geometry';
 import { Renderer } from '@ifc-lite/renderer';
 
 async function main() {
@@ -45,6 +46,10 @@ async function main() {
   const renderer = new Renderer(canvas);
   await renderer.init();
 
+  // Initialize the geometry processor (loads WASM)
+  const geometry = new GeometryProcessor();
+  await geometry.init();
+
   // Load an IFC file
   const response = await fetch('model.ifc');
   const buffer = await response.arrayBuffer();
@@ -53,14 +58,33 @@ async function main() {
   const parser = new IfcParser();
   const store = await parser.parseColumnar(buffer, {
     onProgress: ({ phase, percent }) => {
-      console.log(`${phase}: ${percent}%`);
+      console.log(`Parsing: ${phase} ${percent}%`);
     }
   });
 
   console.log(`Parsed ${store.entityCount} entities`);
-  console.log(`Schema: ${store.schemaVersion}`);
 
-  // Get walls
+  // Process geometry from the IFC buffer
+  const result = await geometry.process(new Uint8Array(buffer));
+
+  console.log(`Extracted ${result.meshes.length} meshes`);
+
+  // Add meshes to renderer
+  for (const mesh of result.meshes) {
+    renderer.addMesh(mesh);
+  }
+
+  // Fit camera to model bounds
+  renderer.fitToView();
+
+  // Start render loop
+  function animate() {
+    renderer.render();
+    requestAnimationFrame(animate);
+  }
+  animate();
+
+  // Example: Get walls from parsed data
   const wallIds = store.entityIndex.byType.get('IFCWALL') ?? [];
   console.log(`Found ${wallIds.length} walls`);
 }
