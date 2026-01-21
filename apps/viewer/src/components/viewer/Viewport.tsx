@@ -22,6 +22,15 @@ import {
   useColorUpdateState,
   useIfcDataState,
 } from '../../hooks/useViewerSelectors.js';
+import {
+  getEntityBounds,
+  getEntityCenter,
+  buildRenderOptions,
+  getRenderThrottleMs,
+  getThemeClearColor,
+  calculateScaleBarSize,
+  type ViewportStateRefs,
+} from '../../utils/viewportUtils.js';
 
 interface ViewportProps {
   geometry: MeshData[] | null;
@@ -117,11 +126,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
 
   useEffect(() => {
     // Update clear color when theme changes
-    if (theme === 'light') {
-      clearColorRef.current = [0.96, 0.96, 0.97, 1]; // Light gray for light mode
-    } else {
-      clearColorRef.current = [0.102, 0.106, 0.149, 1]; // Tokyo Night storm (#1a1b26)
-    }
+    clearColorRef.current = getThemeClearColor(theme as 'light' | 'dark');
     // Re-render with new clear color
     const renderer = rendererRef.current;
     if (renderer && isInitialized) {
@@ -363,61 +368,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
         setSnapVisualization(viz);
       }
 
-      // Helper function to get entity bounds (min/max) - defined early for callbacks
-      function getEntityBounds(
-        geom: MeshData[] | null,
-        entityId: number
-      ): { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | null {
-        if (!geom) {
-          console.warn('[Viewport] getEntityBounds: geometry is null');
-          return null;
-        }
-        const mesh = geom.find(m => m.expressId === entityId);
-        if (!mesh) {
-          console.warn(`[Viewport] getEntityBounds: mesh not found for entityId ${entityId}`);
-          return null;
-        }
-        if (mesh.positions.length < 3) {
-          console.warn(`[Viewport] getEntityBounds: mesh has insufficient positions for entityId ${entityId}`);
-          return null;
-        }
-
-        let minX = Infinity, minY = Infinity, minZ = Infinity;
-        let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-
-        for (let i = 0; i < mesh.positions.length; i += 3) {
-          const x = mesh.positions[i];
-          const y = mesh.positions[i + 1];
-          const z = mesh.positions[i + 2];
-          minX = Math.min(minX, x);
-          minY = Math.min(minY, y);
-          minZ = Math.min(minZ, z);
-          maxX = Math.max(maxX, x);
-          maxY = Math.max(maxY, y);
-          maxZ = Math.max(maxZ, z);
-        }
-
-        return {
-          min: { x: minX, y: minY, z: minZ },
-          max: { x: maxX, y: maxY, z: maxZ },
-        };
-      }
-
-      // Helper function to get entity center from geometry (uses bounding box center)
-      function getEntityCenter(
-        geom: MeshData[] | null,
-        entityId: number
-      ): { x: number; y: number; z: number } | null {
-        const bounds = getEntityBounds(geom, entityId);
-        if (bounds) {
-          return {
-            x: (bounds.min.x + bounds.max.x) / 2,
-            y: (bounds.min.y + bounds.max.y) / 2,
-            z: (bounds.min.z + bounds.max.z) / 2,
-          };
-        }
-        return null;
-      }
+      // Note: getEntityBounds and getEntityCenter are now imported from viewportUtils.ts
 
       // Register camera callbacks for ViewCube and other controls
       setCameraCallbacks({
