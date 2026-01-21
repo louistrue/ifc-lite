@@ -7,7 +7,7 @@
 //! Routes IFC representation entities to appropriate processors based on type.
 
 use crate::bool2d::subtract_multiple_2d;
-use crate::csg::ClippingProcessor;
+use crate::csg::{ClippingProcessor, Triangle, TriangleVec};
 use crate::processors::{
     AdvancedBrepProcessor, BooleanClippingProcessor, ExtrudedAreaSolidProcessor,
     FacetedBrepProcessor, MappedItemProcessor, RevolvedAreaSolidProcessor, SweptDiskSolidProcessor,
@@ -26,6 +26,38 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+
+/// Reusable buffers for triangle clipping operations
+///
+/// This struct eliminates per-triangle allocations in clip_triangle_against_box
+/// by reusing Vec buffers across multiple clipping operations.
+struct ClipBuffers {
+    /// Triangles to output (outside the box)
+    result: TriangleVec,
+    /// Triangles remaining to be processed
+    remaining: TriangleVec,
+    /// Next iteration's remaining triangles (swap buffer)
+    next_remaining: TriangleVec,
+}
+
+impl ClipBuffers {
+    /// Create new empty buffers
+    fn new() -> Self {
+        Self {
+            result: TriangleVec::new(),
+            remaining: TriangleVec::new(),
+            next_remaining: TriangleVec::new(),
+        }
+    }
+
+    /// Clear all buffers for reuse
+    #[inline]
+    fn clear(&mut self) {
+        self.result.clear();
+        self.remaining.clear();
+        self.next_remaining.clear();
+    }
+}
 
 /// Geometry processor trait
 /// Each processor handles one type of IFC representation
@@ -742,15 +774,18 @@ impl GeometryRouter {
         wall_max: Point3<f64>,
     ) -> Mesh {
         use nalgebra::Vector3;
-        
+
         // Tolerance for floating-point boundary comparisons
         const EPSILON: f64 = 1e-6;
-        
+
         let mut result = Mesh::with_capacity(
             mesh.positions.len() / 3 + 24, // Original + opening faces
             mesh.indices.len() / 3 + 8,    // Original + opening triangles
         );
-        
+
+        // Create reusable buffers for clipping operations (avoids 6+ allocations per triangle)
+        let mut clip_buffers = ClipBuffers::new();
+
         // Process each triangle
         for i in (0..mesh.indices.len()).step_by(3) {
             let i0 = mesh.indices[i] as usize;
@@ -814,7 +849,7 @@ impl GeometryRouter {
             // A triangle can have all vertices outside a box but still pass through it
             if self.triangle_intersects_box(&v0, &v1, &v2, &open_min, &open_max) {
                 // Triangle intersects the opening box - clip it to remove the intersecting part
-                self.clip_triangle_against_box(&mut result, &v0, &v1, &v2, &n0, &open_min, &open_max);
+                self.clip_triangle_against_box(&mut result, &mut clip_buffers, &v0, &v1, &v2, &n0, &open_min, &open_max);
             } else {
                 // Triangle truly doesn't intersect - safe to keep as-is
                 let base = result.vertex_count() as u32;
@@ -954,9 +989,13 @@ impl GeometryRouter {
     /// Clip a triangle against an opening box using clip-and-collect algorithm
     /// Removes the part of the triangle that's inside the box
     /// Collects "outside" parts directly to result, continues processing "inside" parts
+    ///
+    /// Uses reusable ClipBuffers to avoid per-triangle allocations (6+ Vec allocations
+    /// per intersecting triangle without buffers).
     fn clip_triangle_against_box(
         &self,
         result: &mut Mesh,
+        buffers: &mut ClipBuffers,
         v0: &Point3<f64>,
         v1: &Point3<f64>,
         v2: &Point3<f64>,
@@ -964,10 +1003,13 @@ impl GeometryRouter {
         open_min: &Point3<f64>,
         open_max: &Point3<f64>,
     ) {
-        use crate::csg::{ClippingProcessor, Plane, Triangle, ClipResult};
-        
+        use crate::csg::{ClippingProcessor, Plane, ClipResult};
+
         let clipper = ClippingProcessor::new();
-        
+
+        // Clear buffers for reuse (retains capacity)
+        buffers.clear();
+
         // Planes with INWARD normals (so "front" = inside box, "behind" = outside box)
         // We clip to keep geometry OUTSIDE the box (behind these planes)
         let planes = [
@@ -984,38 +1026,38 @@ impl GeometryRouter {
             // -Z inward: inside box where z <= open_max.z
             Plane::new(Point3::new(0.0, 0.0, open_max.z), Vector3::new(0.0, 0.0, -1.0)),
         ];
-        
+
+        // Initialize remaining with the input triangle
+        buffers.remaining.push(Triangle::new(*v0, *v1, *v2));
+
         // Clip-and-collect: collect "outside" parts, continue processing "inside" parts
-        let mut result_triangles = Vec::new();
-        let mut remaining = vec![Triangle::new(*v0, *v1, *v2)];
-        
         for plane in &planes {
-            let mut next_remaining = Vec::new();
+            buffers.next_remaining.clear();
             let flipped_plane = Plane::new(plane.point, -plane.normal);
-            
-            for tri in &remaining {
+
+            for tri in &buffers.remaining {
                 match clipper.clip_triangle(tri, plane) {
                     ClipResult::AllFront(_) => {
                         // Triangle is completely inside this plane - continue checking
-                        next_remaining.push(tri.clone());
+                        buffers.next_remaining.push(tri.clone());
                     }
                     ClipResult::AllBehind => {
                         // Triangle is completely outside this plane - it's outside the box
-                        result_triangles.push(tri.clone());
+                        buffers.result.push(tri.clone());
                     }
                     ClipResult::Split(inside_tris) => {
                         // Triangle was split - inside parts continue, get outside parts
-                        next_remaining.extend(inside_tris);
-                        
+                        buffers.next_remaining.extend(inside_tris);
+
                         // Get the outside parts using flipped plane (behind inward = front of outward)
                         match clipper.clip_triangle(tri, &flipped_plane) {
                             ClipResult::AllFront(outside_tri) => {
                                 // All outside - add to result
-                                result_triangles.push(outside_tri);
+                                buffers.result.push(outside_tri);
                             }
                             ClipResult::Split(outside_tris) => {
                                 // Split - these are the outside parts
-                                result_triangles.extend(outside_tris);
+                                buffers.result.extend(outside_tris);
                             }
                             ClipResult::AllBehind => {
                                 // This shouldn't happen if original was split
@@ -1025,13 +1067,14 @@ impl GeometryRouter {
                     }
                 }
             }
-            
-            remaining = next_remaining;
+
+            // Swap buffers instead of reallocating
+            std::mem::swap(&mut buffers.remaining, &mut buffers.next_remaining);
         }
-        
+
         // 'remaining' triangles are inside ALL planes = inside box = discard
         // Add collected result_triangles to mesh
-        for tri in result_triangles {
+        for tri in &buffers.result {
             let base = result.vertex_count() as u32;
             result.add_vertex(tri.v0, *normal);
             result.add_vertex(tri.v1, *normal);
@@ -3021,16 +3064,21 @@ mod wall_profile_research {
         // Opening bounds
         let open_min = Point3::new(6.495, -0.3, 0.8);
         let open_max = Point3::new(8.495, 0.0, 2.0);
-        
+
+        // Get wall bounds for the optimized function
+        let (wall_min_f32, wall_max_f32) = wall_mesh.bounds();
+        let wall_min = Point3::new(wall_min_f32.x as f64, wall_min_f32.y as f64, wall_min_f32.z as f64);
+        let wall_max = Point3::new(wall_max_f32.x as f64, wall_max_f32.y as f64, wall_max_f32.z as f64);
+
         // Test CSG approach (old)
         let clipper = ClippingProcessor::new();
         let csg_result = clipper.subtract_box(&wall_mesh, open_min, open_max).unwrap();
         let csg_verts = csg_result.vertex_count();
         let csg_tris = csg_result.triangle_count();
-        
+
         // Test optimized approach (new)
         let router = GeometryRouter::new();
-        let opt_result = router.cut_rectangular_opening(&wall_mesh, open_min, open_max);
+        let opt_result = router.cut_rectangular_opening(&wall_mesh, open_min, open_max, wall_min, wall_max);
         let opt_verts = opt_result.vertex_count();
         let opt_tris = opt_result.triangle_count();
         

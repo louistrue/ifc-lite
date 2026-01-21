@@ -11,6 +11,10 @@ use crate::mesh::Mesh;
 use crate::triangulation::{calculate_polygon_normal, project_to_2d, triangulate_polygon};
 use nalgebra::{Point3, Vector3};
 use rustc_hash::FxHashMap;
+use smallvec::SmallVec;
+
+/// Type alias for small triangle collections (typically 1-2 triangles from clipping)
+pub type TriangleVec = SmallVec<[Triangle; 4]>;
 
 /// Plane definition for clipping
 #[derive(Debug, Clone, Copy)]
@@ -49,8 +53,8 @@ pub enum ClipResult {
     AllFront(Triangle),
     /// Triangle is completely behind (discard it)
     AllBehind,
-    /// Triangle intersects plane - returns new triangles
-    Split(Vec<Triangle>),
+    /// Triangle intersects plane - returns new triangles (uses SmallVec to avoid heap allocation)
+    Split(TriangleVec),
 }
 
 /// Triangle definition
@@ -63,22 +67,39 @@ pub struct Triangle {
 
 impl Triangle {
     /// Create a new triangle
+    #[inline]
     pub fn new(v0: Point3<f64>, v1: Point3<f64>, v2: Point3<f64>) -> Self {
         Self { v0, v1, v2 }
     }
 
     /// Calculate triangle normal
+    #[inline]
     pub fn normal(&self) -> Vector3<f64> {
         let edge1 = self.v1 - self.v0;
         let edge2 = self.v2 - self.v0;
         edge1.cross(&edge2).normalize()
     }
 
-    /// Calculate triangle area
-    pub fn area(&self) -> f64 {
+    /// Calculate the cross product of edges (2x area vector)
+    /// Returns None if the triangle is degenerate (zero area)
+    #[inline]
+    pub fn cross_product(&self) -> Vector3<f64> {
         let edge1 = self.v1 - self.v0;
         let edge2 = self.v2 - self.v0;
-        edge1.cross(&edge2).norm() * 0.5
+        edge1.cross(&edge2)
+    }
+
+    /// Calculate triangle area
+    #[inline]
+    pub fn area(&self) -> f64 {
+        self.cross_product().norm() * 0.5
+    }
+
+    /// Check if triangle is degenerate (zero area, collinear vertices)
+    /// Uses the specified epsilon for the normalization check
+    #[inline]
+    pub fn is_degenerate(&self, epsilon: f64) -> bool {
+        self.cross_product().try_normalize(epsilon).is_none()
     }
 }
 
@@ -203,7 +224,7 @@ impl ClippingProcessor {
                 let p1 = front + (back1 - front) * t1;
                 let p2 = front + (back2 - front) * t2;
 
-                ClipResult::Split(vec![Triangle::new(front, p1, p2)])
+                ClipResult::Split(smallvec::smallvec![Triangle::new(front, p1, p2)])
             }
 
             // Two vertices in front - create 2 triangles
@@ -245,7 +266,7 @@ impl ClippingProcessor {
                 let p1 = front1 + (back - front1) * t1;
                 let p2 = front2 + (back - front2) * t2;
 
-                ClipResult::Split(vec![
+                ClipResult::Split(smallvec::smallvec![
                     Triangle::new(front1, front2, p1),
                     Triangle::new(front2, p2, p1),
                 ])
@@ -617,9 +638,9 @@ impl ClippingProcessor {
     pub fn subtract_mesh(&self, host_mesh: &Mesh, opening_mesh: &Mesh) -> Result<Mesh> {
         use csgrs::traits::CSG;
 
-        // Validate input meshes
+        // Validate input meshes - early exit for empty host (no clone needed)
         if host_mesh.is_empty() {
-            return Ok(host_mesh.clone());
+            return Ok(Mesh::new());
         }
         
         if opening_mesh.is_empty() {
