@@ -24,6 +24,12 @@ export class Scene {
   private meshDataMap: Map<number, MeshData[]> = new Map(); // Map expressId -> MeshData[] (for lazy buffer creation, accumulates multiple pieces)
   private boundingBoxes: Map<number, BoundingBox> = new Map(); // Map expressId -> bounding box (computed lazily)
 
+  // Sub-batch cache for partially visible batches (PERFORMANCE FIX)
+  // Key = colorKey + ":" + sorted visible expressIds hash
+  // This allows rendering partially visible batches as single draw calls instead of 10,000+ individual draws
+  private partialBatchCache: Map<string, BatchedMesh> = new Map();
+  private partialBatchCacheKeys: Map<string, string> = new Map(); // colorKey -> current cache key (for invalidation)
+
   // Streaming optimization: track pending batch rebuilds
   private pendingBatchKeys: Set<string> = new Set();
   private lastBatchRebuildTime: number = 0;
@@ -80,14 +86,34 @@ export class Scene {
 
   /**
    * Get MeshData by expressId (for lazy buffer creation)
-   * Returns merged MeshData if element has multiple pieces
+   * Returns merged MeshData if element has multiple pieces with same color,
+   * or first piece if colors differ (to preserve correct per-piece colors)
    */
   getMeshData(expressId: number): MeshData | undefined {
     const pieces = this.meshDataMap.get(expressId);
     if (!pieces || pieces.length === 0) return undefined;
     if (pieces.length === 1) return pieces[0];
 
-    // Merge multiple pieces into one MeshData
+    // Check if all pieces have the same color (within tolerance)
+    // This handles multi-material elements like windows (frame vs glass)
+    const firstColor = pieces[0].color;
+    const colorTolerance = 0.01; // Allow small floating point differences
+    const allSameColor = pieces.every(piece => {
+      const c = piece.color;
+      return Math.abs(c[0] - firstColor[0]) < colorTolerance &&
+             Math.abs(c[1] - firstColor[1]) < colorTolerance &&
+             Math.abs(c[2] - firstColor[2]) < colorTolerance &&
+             Math.abs(c[3] - firstColor[3]) < colorTolerance;
+    });
+
+    // If colors differ, return first piece without merging
+    // This preserves correct per-piece colors for multi-material elements
+    // Callers can use getMeshDataPieces() if they need all pieces
+    if (!allSameColor) {
+      return pieces[0];
+    }
+
+    // All pieces have same color - safe to merge
     // Calculate total sizes
     let totalPositions = 0;
     let totalIndices = 0;
@@ -120,13 +146,13 @@ export class Scene {
       vertexOffset += piece.positions.length / 3;
     }
 
-    // Return merged MeshData (use first piece's metadata)
+    // Return merged MeshData (all pieces have same color)
     return {
       expressId,
       positions: mergedPositions,
       normals: mergedNormals,
       indices: mergedIndices,
-      color: pieces[0].color,
+      color: firstColor,
       ifcType: pieces[0].ifcType,
     };
   }
@@ -443,6 +469,89 @@ export class Scene {
   }
 
   /**
+   * Get or create a partial batch for a subset of visible elements from a batch
+   *
+   * PERFORMANCE FIX: Instead of creating 10,000+ individual meshes for partially visible batches,
+   * this creates a single sub-batch containing only the visible elements.
+   * The sub-batch is cached and reused until visibility changes.
+   *
+   * @param colorKey - The color key of the original batch
+   * @param visibleIds - Set of visible expressIds from this batch
+   * @param device - GPU device for buffer creation
+   * @param pipeline - Rendering pipeline
+   * @returns BatchedMesh containing only visible elements, or undefined if no visible elements
+   */
+  getOrCreatePartialBatch(
+    colorKey: string,
+    visibleIds: Set<number>,
+    device: GPUDevice,
+    pipeline: any
+  ): BatchedMesh | undefined {
+    // Create cache key from colorKey + deterministic hash of all visible IDs
+    // Using a proper hash over all IDs to avoid collisions when middle IDs differ
+    const sortedIds = Array.from(visibleIds).sort((a, b) => a - b);
+
+    // Compute a stable hash over all IDs using FNV-1a algorithm
+    let hash = 2166136261; // FNV offset basis
+    for (const id of sortedIds) {
+      hash ^= id;
+      hash = Math.imul(hash, 16777619); // FNV prime
+      hash = hash >>> 0; // Convert to unsigned 32-bit
+    }
+    const idsHash = `${sortedIds.length}:${hash.toString(16)}`;
+    const cacheKey = `${colorKey}:${idsHash}`;
+
+    // Check if we already have this exact partial batch cached
+    const currentCacheKey = this.partialBatchCacheKeys.get(colorKey);
+    if (currentCacheKey === cacheKey) {
+      const cached = this.partialBatchCache.get(cacheKey);
+      if (cached) return cached;
+    }
+
+    // Invalidate old cache for this colorKey if visibility changed
+    if (currentCacheKey && currentCacheKey !== cacheKey) {
+      const oldBatch = this.partialBatchCache.get(currentCacheKey);
+      if (oldBatch) {
+        oldBatch.vertexBuffer.destroy();
+        oldBatch.indexBuffer.destroy();
+        if (oldBatch.uniformBuffer) {
+          oldBatch.uniformBuffer.destroy();
+        }
+        this.partialBatchCache.delete(currentCacheKey);
+      }
+    }
+
+    // Collect MeshData for visible elements
+    const visibleMeshData: MeshData[] = [];
+    for (const expressId of visibleIds) {
+      const pieces = this.meshDataMap.get(expressId);
+      if (pieces) {
+        // Add all pieces for this element
+        for (const piece of pieces) {
+          // Only include pieces that match this batch's color
+          if (this.colorKey(piece.color) === colorKey) {
+            visibleMeshData.push(piece);
+          }
+        }
+      }
+    }
+
+    if (visibleMeshData.length === 0) {
+      return undefined;
+    }
+
+    // Create the partial batch
+    const color = visibleMeshData[0].color;
+    const partialBatch = this.createBatchedMesh(visibleMeshData, color, device, pipeline);
+
+    // Cache it
+    this.partialBatchCache.set(cacheKey, partialBatch);
+    this.partialBatchCacheKeys.set(colorKey, cacheKey);
+
+    return partialBatch;
+  }
+
+  /**
    * Clear regular meshes only (used when converting to instanced rendering)
    */
   clearRegularMeshes(): void {
@@ -481,6 +590,14 @@ export class Scene {
         batch.uniformBuffer.destroy();
       }
     }
+    // Clear partial batch cache
+    for (const batch of this.partialBatchCache.values()) {
+      batch.vertexBuffer.destroy();
+      batch.indexBuffer.destroy();
+      if (batch.uniformBuffer) {
+        batch.uniformBuffer.destroy();
+      }
+    }
     this.meshes = [];
     this.instancedMeshes = [];
     this.batchedMeshes = [];
@@ -489,6 +606,8 @@ export class Scene {
     this.meshDataMap.clear();
     this.boundingBoxes.clear();
     this.pendingBatchKeys.clear();
+    this.partialBatchCache.clear();
+    this.partialBatchCacheKeys.clear();
     this.lastBatchRebuildTime = 0;
   }
 

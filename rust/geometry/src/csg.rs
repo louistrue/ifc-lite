@@ -11,6 +11,10 @@ use crate::mesh::Mesh;
 use crate::triangulation::{calculate_polygon_normal, project_to_2d, triangulate_polygon};
 use nalgebra::{Point3, Vector3};
 use rustc_hash::FxHashMap;
+use smallvec::SmallVec;
+
+/// Type alias for small triangle collections (typically 1-2 triangles from clipping)
+pub type TriangleVec = SmallVec<[Triangle; 4]>;
 
 /// Plane definition for clipping
 #[derive(Debug, Clone, Copy)]
@@ -49,8 +53,8 @@ pub enum ClipResult {
     AllFront(Triangle),
     /// Triangle is completely behind (discard it)
     AllBehind,
-    /// Triangle intersects plane - returns new triangles
-    Split(Vec<Triangle>),
+    /// Triangle intersects plane - returns new triangles (uses SmallVec to avoid heap allocation)
+    Split(TriangleVec),
 }
 
 /// Triangle definition
@@ -63,22 +67,45 @@ pub struct Triangle {
 
 impl Triangle {
     /// Create a new triangle
+    #[inline]
     pub fn new(v0: Point3<f64>, v1: Point3<f64>, v2: Point3<f64>) -> Self {
         Self { v0, v1, v2 }
     }
 
     /// Calculate triangle normal
+    #[inline]
     pub fn normal(&self) -> Vector3<f64> {
         let edge1 = self.v1 - self.v0;
         let edge2 = self.v2 - self.v0;
         edge1.cross(&edge2).normalize()
     }
 
-    /// Calculate triangle area
-    pub fn area(&self) -> f64 {
+    /// Calculate the cross product of edges, which is twice the area vector.
+    ///
+    /// Returns a `Vector3<f64>` perpendicular to the triangle plane.
+    /// For degenerate/collinear triangles, returns the zero vector.
+    /// Use `is_degenerate()` or `try_normalize()` on the result if you need
+    /// to detect and handle degenerate cases.
+    #[inline]
+    pub fn cross_product(&self) -> Vector3<f64> {
         let edge1 = self.v1 - self.v0;
         let edge2 = self.v2 - self.v0;
-        edge1.cross(&edge2).norm() * 0.5
+        edge1.cross(&edge2)
+    }
+
+    /// Calculate triangle area (half the magnitude of the cross product).
+    #[inline]
+    pub fn area(&self) -> f64 {
+        self.cross_product().norm() * 0.5
+    }
+
+    /// Check if triangle is degenerate (zero area, collinear vertices).
+    ///
+    /// Uses `try_normalize` on the cross product with the specified epsilon.
+    /// Returns `true` if the cross product cannot be normalized (i.e., degenerate).
+    #[inline]
+    pub fn is_degenerate(&self, epsilon: f64) -> bool {
+        self.cross_product().try_normalize(epsilon).is_none()
     }
 }
 
@@ -203,7 +230,7 @@ impl ClippingProcessor {
                 let p1 = front + (back1 - front) * t1;
                 let p2 = front + (back2 - front) * t2;
 
-                ClipResult::Split(vec![Triangle::new(front, p1, p2)])
+                ClipResult::Split(smallvec::smallvec![Triangle::new(front, p1, p2)])
             }
 
             // Two vertices in front - create 2 triangles
@@ -245,7 +272,7 @@ impl ClippingProcessor {
                 let p1 = front1 + (back - front1) * t1;
                 let p2 = front2 + (back - front2) * t2;
 
-                ClipResult::Split(vec![
+                ClipResult::Split(smallvec::smallvec![
                     Triangle::new(front1, front2, p1),
                     Triangle::new(front2, p2, p1),
                 ])
@@ -473,30 +500,68 @@ impl ClippingProcessor {
             });
         }
 
-        let mut polygons = Vec::new();
+        // Validate mesh has enough indices for at least one triangle
+        if mesh.indices.len() < 3 {
+            return Ok(CSGMesh {
+                polygons: Vec::new(),
+                bounding_box: OnceLock::new(),
+                metadata: None,
+            });
+        }
 
-        // Process each triangle
-        for i in (0..mesh.indices.len()).step_by(3) {
-            let i0 = mesh.indices[i] as usize;
-            let i1 = mesh.indices[i + 1] as usize;
-            let i2 = mesh.indices[i + 2] as usize;
+        let vertex_count = mesh.positions.len() / 3;
+        let triangle_count = mesh.indices.len() / 3;
+
+        // Pre-allocate for expected number of triangles (avoids reallocations)
+        let mut polygons = Vec::with_capacity(triangle_count);
+
+        // Process each triangle using chunks_exact to ensure bounds safety
+        // (handles the case where indices.len() is not divisible by 3)
+        for chunk in mesh.indices.chunks_exact(3) {
+            let i0 = chunk[0] as usize;
+            let i1 = chunk[1] as usize;
+            let i2 = chunk[2] as usize;
+
+            // Bounds check for vertex indices - skip invalid triangles
+            if i0 >= vertex_count || i1 >= vertex_count || i2 >= vertex_count {
+                continue;
+            }
 
             // Get triangle vertices
+            // Note: bounds are guaranteed by the vertex_count check above
+            let p0_idx = i0 * 3;
+            let p1_idx = i1 * 3;
+            let p2_idx = i2 * 3;
+
             let v0 = Point3::new(
-                mesh.positions[i0 * 3] as f64,
-                mesh.positions[i0 * 3 + 1] as f64,
-                mesh.positions[i0 * 3 + 2] as f64,
+                mesh.positions[p0_idx] as f64,
+                mesh.positions[p0_idx + 1] as f64,
+                mesh.positions[p0_idx + 2] as f64,
             );
             let v1 = Point3::new(
-                mesh.positions[i1 * 3] as f64,
-                mesh.positions[i1 * 3 + 1] as f64,
-                mesh.positions[i1 * 3 + 2] as f64,
+                mesh.positions[p1_idx] as f64,
+                mesh.positions[p1_idx + 1] as f64,
+                mesh.positions[p1_idx + 2] as f64,
             );
             let v2 = Point3::new(
-                mesh.positions[i2 * 3] as f64,
-                mesh.positions[i2 * 3 + 1] as f64,
-                mesh.positions[i2 * 3 + 2] as f64,
+                mesh.positions[p2_idx] as f64,
+                mesh.positions[p2_idx + 1] as f64,
+                mesh.positions[p2_idx + 2] as f64,
             );
+
+            // Skip triangles with NaN or Infinity values
+            if !v0.x.is_finite()
+                || !v0.y.is_finite()
+                || !v0.z.is_finite()
+                || !v1.x.is_finite()
+                || !v1.y.is_finite()
+                || !v1.z.is_finite()
+                || !v2.x.is_finite()
+                || !v2.y.is_finite()
+                || !v2.z.is_finite()
+            {
+                continue;
+            }
 
             // Calculate face normal from triangle edges
             // Use try_normalize to handle degenerate (zero-area/collinear) triangles
@@ -506,6 +571,7 @@ impl ClippingProcessor {
                 Some(n) => n,
                 None => continue, // Skip degenerate triangles to avoid NaN propagation
             };
+            // Note: try_normalize returns a unit vector, which is always finite
 
             // Create csgrs vertices (use face normal for all vertices)
             let vertices = vec![
@@ -600,24 +666,274 @@ impl ClippingProcessor {
         Ok(mesh)
     }
 
+    /// Check if two meshes' bounding boxes overlap
+    fn bounds_overlap(host_mesh: &Mesh, opening_mesh: &Mesh) -> bool {
+        let (host_min, host_max) = host_mesh.bounds();
+        let (open_min, open_max) = opening_mesh.bounds();
+
+        // Check for overlap in all three dimensions
+        let overlap_x = open_min.x < host_max.x && open_max.x > host_min.x;
+        let overlap_y = open_min.y < host_max.y && open_max.y > host_min.y;
+        let overlap_z = open_min.z < host_max.z && open_max.z > host_min.z;
+
+        overlap_x && overlap_y && overlap_z
+    }
+
     /// Subtract opening mesh from host mesh using csgrs CSG boolean operations
     pub fn subtract_mesh(&self, host_mesh: &Mesh, opening_mesh: &Mesh) -> Result<Mesh> {
         use csgrs::traits::CSG;
 
-        // Fast path: if opening is empty, return host unchanged
+        // Validate input meshes - early exit for empty host (no clone needed)
+        if host_mesh.is_empty() {
+            return Ok(Mesh::new());
+        }
+
         if opening_mesh.is_empty() {
             return Ok(host_mesh.clone());
         }
 
+        // Check bounds overlap - early exit if no intersection possible
+        if !Self::bounds_overlap(host_mesh, opening_mesh) {
+            return Ok(host_mesh.clone());
+        }
+
         // Convert meshes to csgrs format
-        let host_csg = Self::mesh_to_csgrs(host_mesh)?;
-        let opening_csg = Self::mesh_to_csgrs(opening_mesh)?;
+        let host_csg = match Self::mesh_to_csgrs(host_mesh) {
+            Ok(csg) => csg,
+            Err(_) => return Ok(host_mesh.clone()),
+        };
+
+        let opening_csg = match Self::mesh_to_csgrs(opening_mesh) {
+            Ok(csg) => csg,
+            Err(_) => return Ok(host_mesh.clone()),
+        };
+
+        // Validate CSG meshes have enough polygons for a valid operation
+        // Empty or near-empty meshes can cause panics in csgrs
+        if host_csg.polygons.is_empty() || opening_csg.polygons.is_empty() {
+            return Ok(host_mesh.clone());
+        }
+
+        // Additional validation: check for degenerate polygons that could cause panics
+        // Skip CSG if either mesh has suspicious polygon counts (too few for a solid)
+        if host_csg.polygons.len() < 4 || opening_csg.polygons.len() < 4 {
+            return Ok(host_mesh.clone());
+        }
 
         // Perform CSG difference (host - opening)
+        // Note: catch_unwind doesn't work with panic_abort, so we rely on input validation
         let result_csg = host_csg.difference(&opening_csg);
 
+        // Check if result is empty
+        if result_csg.polygons.is_empty() {
+            return Ok(host_mesh.clone());
+        }
+
         // Convert back to our Mesh format
-        Self::csgrs_to_mesh(&result_csg)
+        match Self::csgrs_to_mesh(&result_csg) {
+            Ok(result) => {
+                // Clean up degenerate triangles (thin slivers from CSG numerical issues)
+                // Note: We don't use remove_triangles_inside_bounds here because it uses
+                // the opening's bounding box, which can incorrectly remove valid triangles
+                // for complex non-rectangular openings.
+                let cleaned = Self::remove_degenerate_triangles(&result, host_mesh);
+                Ok(cleaned)
+            }
+            Err(_) => Ok(host_mesh.clone())
+        }
+    }
+    
+    /// Remove degenerate triangles from CSG result
+    /// 
+    /// CSG operations can create thin "sliver" triangles at intersection boundaries
+    /// due to numerical precision issues. This function removes triangles that:
+    /// 1. Have very small area (thin slivers)
+    /// 2. Are located inside the original host mesh bounds (not on the surface)
+    fn remove_degenerate_triangles(mesh: &Mesh, host_mesh: &Mesh) -> Mesh {
+        let (host_min, host_max) = host_mesh.bounds();
+        
+        // Convert host bounds to f64 for calculations
+        let host_min_x = host_min.x as f64;
+        let host_min_y = host_min.y as f64;
+        let host_min_z = host_min.z as f64;
+        let host_max_x = host_max.x as f64;
+        let host_max_y = host_max.y as f64;
+        let host_max_z = host_max.z as f64;
+        
+        // Calculate host dimensions to determine appropriate thresholds
+        let host_size_x = (host_max_x - host_min_x).abs();
+        let host_size_y = (host_max_y - host_min_y).abs();
+        let host_size_z = (host_max_z - host_min_z).abs();
+        let min_dim = host_size_x.min(host_size_y).min(host_size_z);
+        
+        // Minimum area threshold - triangles smaller than this are likely artifacts
+        // Use 0.1% of the smallest host dimension squared
+        let min_area = (min_dim * 0.001).powi(2);
+        
+        // Distance threshold for "inside" detection
+        let epsilon = min_dim * 0.01;
+        
+        let mut cleaned = Mesh::new();
+        
+        // Process each triangle
+        for i in (0..mesh.indices.len()).step_by(3) {
+            let i0 = mesh.indices[i] as usize;
+            let i1 = mesh.indices[i + 1] as usize;
+            let i2 = mesh.indices[i + 2] as usize;
+            
+            // Get vertex positions
+            let v0 = Point3::new(
+                mesh.positions[i0 * 3] as f64,
+                mesh.positions[i0 * 3 + 1] as f64,
+                mesh.positions[i0 * 3 + 2] as f64,
+            );
+            let v1 = Point3::new(
+                mesh.positions[i1 * 3] as f64,
+                mesh.positions[i1 * 3 + 1] as f64,
+                mesh.positions[i1 * 3 + 2] as f64,
+            );
+            let v2 = Point3::new(
+                mesh.positions[i2 * 3] as f64,
+                mesh.positions[i2 * 3 + 1] as f64,
+                mesh.positions[i2 * 3 + 2] as f64,
+            );
+            
+            // Calculate triangle area using cross product
+            let edge1 = v1 - v0;
+            let edge2 = v2 - v0;
+            let cross = edge1.cross(&edge2);
+            let area = cross.norm() / 2.0;
+            
+            // Check if triangle is degenerate (very small area)
+            if area < min_area {
+                continue;
+            }
+            
+            // Check if triangle center is strictly inside the host bounds
+            // (not on the surface) - these are likely CSG artifacts
+            let center = Point3::new(
+                (v0.x + v1.x + v2.x) / 3.0,
+                (v0.y + v1.y + v2.y) / 3.0,
+                (v0.z + v1.z + v2.z) / 3.0,
+            );
+            
+            // Check if center is inside host bounds (with epsilon margin)
+            let inside_x = center.x > (host_min_x + epsilon) && center.x < (host_max_x - epsilon);
+            let inside_y = center.y > (host_min_y + epsilon) && center.y < (host_max_y - epsilon);
+            let inside_z = center.z > (host_min_z + epsilon) && center.z < (host_max_z - epsilon);
+            
+            // If triangle is strictly inside the host in ALL dimensions, it's likely an artifact
+            // Only remove if it's also relatively small
+            let max_area = min_dim * min_dim * 0.1; // 10% of smallest dimension squared
+            if inside_x && inside_y && inside_z && area < max_area {
+                continue;
+            }
+            
+            // Get normals
+            let n0 = Vector3::new(
+                mesh.normals[i0 * 3] as f64,
+                mesh.normals[i0 * 3 + 1] as f64,
+                mesh.normals[i0 * 3 + 2] as f64,
+            );
+            let n1 = Vector3::new(
+                mesh.normals[i1 * 3] as f64,
+                mesh.normals[i1 * 3 + 1] as f64,
+                mesh.normals[i1 * 3 + 2] as f64,
+            );
+            let n2 = Vector3::new(
+                mesh.normals[i2 * 3] as f64,
+                mesh.normals[i2 * 3 + 1] as f64,
+                mesh.normals[i2 * 3 + 2] as f64,
+            );
+            
+            // Add valid triangle to cleaned mesh
+            let base_idx = cleaned.vertex_count() as u32;
+            cleaned.add_vertex(v0, n0);
+            cleaned.add_vertex(v1, n1);
+            cleaned.add_vertex(v2, n2);
+            cleaned.add_triangle(base_idx, base_idx + 1, base_idx + 2);
+        }
+        
+        cleaned
+    }
+
+    /// Remove triangles that are completely inside the opening bounds
+    ///
+    /// This removes artifact faces that CSG operations may leave inside circular/curved openings.
+    /// Note: Currently unused because it can incorrectly remove valid triangles for complex
+    /// non-rectangular openings. Kept for potential future use with simple rectangular openings.
+    #[allow(dead_code)]
+    fn remove_triangles_inside_bounds(
+        mesh: &Mesh,
+        open_min: Point3<f64>,
+        open_max: Point3<f64>,
+    ) -> Mesh {
+        let mut cleaned = Mesh::new();
+        
+        // Process each triangle
+        for i in (0..mesh.indices.len()).step_by(3) {
+            let i0 = mesh.indices[i] as usize;
+            let i1 = mesh.indices[i + 1] as usize;
+            let i2 = mesh.indices[i + 2] as usize;
+            
+            // Get vertex positions
+            let v0 = Point3::new(
+                mesh.positions[i0 * 3] as f64,
+                mesh.positions[i0 * 3 + 1] as f64,
+                mesh.positions[i0 * 3 + 2] as f64,
+            );
+            let v1 = Point3::new(
+                mesh.positions[i1 * 3] as f64,
+                mesh.positions[i1 * 3 + 1] as f64,
+                mesh.positions[i1 * 3 + 2] as f64,
+            );
+            let v2 = Point3::new(
+                mesh.positions[i2 * 3] as f64,
+                mesh.positions[i2 * 3 + 1] as f64,
+                mesh.positions[i2 * 3 + 2] as f64,
+            );
+            
+            // Calculate triangle bounding box
+            let tri_min_x = v0.x.min(v1.x).min(v2.x);
+            let tri_max_x = v0.x.max(v1.x).max(v2.x);
+            let tri_min_y = v0.y.min(v1.y).min(v2.y);
+            let tri_max_y = v0.y.max(v1.y).max(v2.y);
+            let tri_min_z = v0.z.min(v1.z).min(v2.z);
+            let tri_max_z = v0.z.max(v1.z).max(v2.z);
+            
+            // Check if triangle is completely inside opening bounds (remove it)
+            if tri_min_x >= open_min.x && tri_max_x <= open_max.x &&
+               tri_min_y >= open_min.y && tri_max_y <= open_max.y &&
+               tri_min_z >= open_min.z && tri_max_z <= open_max.z {
+                // Triangle is inside opening - remove it
+                continue;
+            }
+            
+            // Triangle is not completely inside - keep it
+            let n0 = Vector3::new(
+                mesh.normals[i0 * 3] as f64,
+                mesh.normals[i0 * 3 + 1] as f64,
+                mesh.normals[i0 * 3 + 2] as f64,
+            );
+            let n1 = Vector3::new(
+                mesh.normals[i1 * 3] as f64,
+                mesh.normals[i1 * 3 + 1] as f64,
+                mesh.normals[i1 * 3 + 2] as f64,
+            );
+            let n2 = Vector3::new(
+                mesh.normals[i2 * 3] as f64,
+                mesh.normals[i2 * 3 + 1] as f64,
+                mesh.normals[i2 * 3 + 2] as f64,
+            );
+            
+            let base_idx = cleaned.vertex_count() as u32;
+            cleaned.add_vertex(v0, n0);
+            cleaned.add_vertex(v1, n1);
+            cleaned.add_vertex(v2, n2);
+            cleaned.add_triangle(base_idx, base_idx + 1, base_idx + 2);
+        }
+        
+        cleaned
     }
 
     /// Union two meshes together using csgrs CSG boolean operations
@@ -636,8 +952,54 @@ impl ClippingProcessor {
         let csg_a = Self::mesh_to_csgrs(mesh_a)?;
         let csg_b = Self::mesh_to_csgrs(mesh_b)?;
 
+        // Validate CSG meshes - fall back to simple merge if invalid
+        if csg_a.polygons.is_empty() || csg_b.polygons.is_empty() {
+            let mut merged = mesh_a.clone();
+            merged.merge(mesh_b);
+            return Ok(merged);
+        }
+
+        // Skip CSG if either mesh has too few polygons for a valid solid
+        if csg_a.polygons.len() < 4 || csg_b.polygons.len() < 4 {
+            let mut merged = mesh_a.clone();
+            merged.merge(mesh_b);
+            return Ok(merged);
+        }
+
         // Perform CSG union
         let result_csg = csg_a.union(&csg_b);
+
+        // Convert back to our Mesh format
+        Self::csgrs_to_mesh(&result_csg)
+    }
+
+    /// Intersect two meshes using csgrs CSG boolean operations
+    ///
+    /// Returns the intersection of two meshes (the volume where both overlap).
+    pub fn intersection_mesh(&self, mesh_a: &Mesh, mesh_b: &Mesh) -> Result<Mesh> {
+        use csgrs::traits::CSG;
+
+        // Fast paths: intersection with empty mesh is empty
+        if mesh_a.is_empty() || mesh_b.is_empty() {
+            return Ok(Mesh::new());
+        }
+
+        // Convert meshes to csgrs format
+        let csg_a = Self::mesh_to_csgrs(mesh_a)?;
+        let csg_b = Self::mesh_to_csgrs(mesh_b)?;
+
+        // Validate CSG meshes - return empty if invalid
+        if csg_a.polygons.is_empty() || csg_b.polygons.is_empty() {
+            return Ok(Mesh::new());
+        }
+
+        // Skip CSG if either mesh has too few polygons for a valid solid
+        if csg_a.polygons.len() < 4 || csg_b.polygons.len() < 4 {
+            return Ok(Mesh::new());
+        }
+
+        // Perform CSG intersection
+        let result_csg = csg_a.intersection(&csg_b);
 
         // Convert back to our Mesh format
         Self::csgrs_to_mesh(&result_csg)
@@ -858,14 +1220,30 @@ pub fn calculate_normals(mesh: &mut Mesh) {
         return;
     }
 
+    let positions_len = mesh.positions.len();
+
     // Initialize normals to zero
     let mut normals = vec![Vector3::zeros(); vertex_count];
 
     // Accumulate face normals
     for i in (0..mesh.indices.len()).step_by(3) {
+        // Bounds check for indices array
+        if i + 2 >= mesh.indices.len() {
+            break;
+        }
+
         let i0 = mesh.indices[i] as usize;
         let i1 = mesh.indices[i + 1] as usize;
         let i2 = mesh.indices[i + 2] as usize;
+
+        // Bounds check for vertex indices - skip invalid triangles
+        if i0 >= vertex_count || i1 >= vertex_count || i2 >= vertex_count {
+            continue;
+        }
+        if i0 * 3 + 2 >= positions_len || i1 * 3 + 2 >= positions_len || i2 * 3 + 2 >= positions_len
+        {
+            continue;
+        }
 
         // Get triangle vertices
         let v0 = Point3::new(

@@ -846,9 +846,13 @@ export class Renderer {
                 const opaqueBatches: typeof allBatchedMeshes = [];
                 const transparentBatches: typeof allBatchedMeshes = [];
 
-                // Collect visible expressIds from partially visible batches
-                // These need individual mesh rendering instead of batch rendering
-                const partiallyVisibleExpressIds = new Set<number>();
+                // PERFORMANCE FIX: Track partially visible batches for sub-batch rendering
+                // Instead of creating 10,000+ individual meshes, we create cached sub-batches
+                const partiallyVisibleBatches: Array<{
+                    colorKey: string;
+                    visibleIds: Set<number>;
+                    color: [number, number, number, number];
+                }> = [];
 
                 for (const batch of allBatchedMeshes) {
                     // Check visibility
@@ -856,16 +860,23 @@ export class Renderer {
                         const vis = batchVisibility.get(batch.colorKey);
                         if (!vis || !vis.visible) continue; // Skip completely hidden batches
 
-                        // FIX: Skip partially visible batches - their visible elements
-                        // will be rendered individually below
+                        // Handle partially visible batches - create sub-batches instead of individual meshes
                         if (!vis.fullyVisible) {
                             // Collect the visible expressIds from this batch
+                            const visibleIds = new Set<number>();
                             for (const expressId of batch.expressIds) {
                                 const isHidden = options.hiddenIds?.has(expressId) ?? false;
                                 const isIsolated = !hasIsolatedFilter || options.isolatedIds!.has(expressId);
                                 if (!isHidden && isIsolated) {
-                                    partiallyVisibleExpressIds.add(expressId);
+                                    visibleIds.add(expressId);
                                 }
+                            }
+                            if (visibleIds.size > 0) {
+                                partiallyVisibleBatches.push({
+                                    colorKey: batch.colorKey,
+                                    visibleIds,
+                                    color: batch.color,
+                                });
                             }
                             continue; // Don't add batch to render list
                         }
@@ -939,88 +950,36 @@ export class Renderer {
                     renderBatch(batch);
                 }
 
-                // Render partially visible elements individually (from batches that had mixed visibility)
-                // This is the FIX for hide/isolate showing wrong batches
+                // PERFORMANCE FIX: Render partially visible batches as sub-batches (not individual meshes!)
+                // This is the key optimization: instead of 10,000+ individual draw calls,
+                // we create cached sub-batches with only visible elements and render them as single draw calls
                 const allMeshes = this.scene.getMeshes();
                 const existingMeshIds = new Set(allMeshes.map(m => m.expressId));
 
-                if (partiallyVisibleExpressIds.size > 0) {
-                    // Create GPU resources lazily for partially visible meshes
-                    for (const pvId of partiallyVisibleExpressIds) {
-                        if (!existingMeshIds.has(pvId) && this.scene.hasMeshData(pvId)) {
-                            const meshData = this.scene.getMeshData(pvId)!;
-                            this.createMeshFromData(meshData);
-                            existingMeshIds.add(pvId);
+                if (partiallyVisibleBatches.length > 0) {
+                    for (const { colorKey, visibleIds, color } of partiallyVisibleBatches) {
+                        // Get or create a cached sub-batch for this visibility state
+                        const subBatch = this.scene.getOrCreatePartialBatch(
+                            colorKey,
+                            visibleIds,
+                            device,
+                            this.pipeline
+                        );
+
+                        if (subBatch) {
+                            // Use opaque or transparent pipeline based on alpha
+                            const isTransparent = color[3] < 0.99;
+                            if (isTransparent) {
+                                pass.setPipeline(this.pipeline.getTransparentPipeline());
+                            } else {
+                                pass.setPipeline(this.pipeline.getPipeline());
+                            }
+                            // Render the sub-batch as a single draw call
+                            renderBatch(subBatch);
                         }
                     }
-
-                    // Get partially visible meshes and render them
-                    const partialMeshes = this.scene.getMeshes().filter(mesh =>
-                        partiallyVisibleExpressIds.has(mesh.expressId)
-                    );
-
-                    // Ensure partial meshes have uniform buffers and bind groups
-                    for (const mesh of partialMeshes) {
-                        if (!mesh.uniformBuffer && this.pipeline) {
-                            mesh.uniformBuffer = device.createBuffer({
-                                size: this.pipeline.getUniformBufferSize(),
-                                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-                            });
-                            mesh.bindGroup = device.createBindGroup({
-                                layout: this.pipeline.getBindGroupLayout(),
-                                entries: [
-                                    {
-                                        binding: 0,
-                                        resource: { buffer: mesh.uniformBuffer },
-                                    },
-                                ],
-                            });
-                        }
-                    }
-
-                    // Render partially visible meshes (not selected, normal rendering)
-                    for (const mesh of partialMeshes) {
-                        if (!mesh.bindGroup || !mesh.uniformBuffer) {
-                            continue;
-                        }
-
-                        const buffer = new Float32Array(48);
-                        const flagBuffer = new Uint32Array(buffer.buffer, 176, 4);
-
-                        buffer.set(viewProj, 0);
-                        buffer.set(mesh.transform.m, 16);
-                        buffer.set(mesh.color, 32);
-                        buffer[36] = mesh.material?.metallic ?? 0.0;
-                        buffer[37] = mesh.material?.roughness ?? 0.6;
-
-                        // Section plane data
-                        if (sectionPlaneData) {
-                            buffer[40] = sectionPlaneData.normal[0];
-                            buffer[41] = sectionPlaneData.normal[1];
-                            buffer[42] = sectionPlaneData.normal[2];
-                            buffer[43] = sectionPlaneData.distance;
-                        }
-
-                        // Flags (not selected)
-                        flagBuffer[0] = 0;
-                        flagBuffer[1] = sectionPlaneData?.enabled ? 1 : 0;
-                        flagBuffer[2] = 0;
-                        flagBuffer[3] = 0;
-
-                        device.queue.writeBuffer(mesh.uniformBuffer, 0, buffer);
-
-                        // Use opaque or transparent pipeline based on alpha
-                        const isTransparent = mesh.color[3] < 0.99;
-                        if (isTransparent) {
-                            pass.setPipeline(this.pipeline.getTransparentPipeline());
-                        } else {
-                            pass.setPipeline(this.pipeline.getPipeline());
-                        }
-                        pass.setBindGroup(0, mesh.bindGroup);
-                        pass.setVertexBuffer(0, mesh.vertexBuffer);
-                        pass.setIndexBuffer(mesh.indexBuffer, 'uint32');
-                        pass.drawIndexed(mesh.indexCount, 1, 0, 0, 0);
-                    }
+                    // Reset to opaque pipeline for subsequent rendering
+                    pass.setPipeline(this.pipeline.getPipeline());
                 }
 
                 // Render selected meshes individually for proper highlighting

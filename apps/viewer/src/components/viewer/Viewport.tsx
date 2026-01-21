@@ -1466,7 +1466,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   }, [setSelectedEntityId]);
 
   // Track processed meshes for incremental updates
-  const processedMeshIdsRef = useRef<Set<number>>(new Set());
+  // Uses string keys to support compound keys (expressId:color) for submeshes
+  const processedMeshIdsRef = useRef<Set<string>>(new Set());
   const lastGeometryLengthRef = useRef<number>(0);
   const lastGeometryRef = useRef<MeshData[] | null>(null);
   const cameraFittedRef = useRef<boolean>(false);
@@ -1625,11 +1626,20 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
       : geometry;  // Post-streaming: scan entire array for unprocessed meshes
 
     // Filter out already processed meshes
+    // NOTE: Multiple meshes can share the same expressId AND same color (e.g., door inner framing pieces),
+    // so we use expressId + array index as a compound key to ensure all submeshes are processed.
     const newMeshes: MeshData[] = [];
-    for (const meshData of meshesToAdd) {
-      if (!processedMeshIdsRef.current.has(meshData.expressId)) {
+    const startIndex = isStreaming ? lastGeometryLengthRef.current : 0;
+    for (let i = 0; i < meshesToAdd.length; i++) {
+      const meshData = meshesToAdd[i];
+      // Use expressId + global array index as key to ensure each mesh is unique
+      // (same expressId can have multiple submeshes with same color, e.g., door framing)
+      const globalIndex = startIndex + i;
+      const compoundKey = `${meshData.expressId}:${globalIndex}`;
+
+      if (!processedMeshIdsRef.current.has(compoundKey)) {
         newMeshes.push(meshData);
-        processedMeshIdsRef.current.add(meshData.expressId);
+        processedMeshIdsRef.current.add(compoundKey);
       }
     }
 

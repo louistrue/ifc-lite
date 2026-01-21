@@ -1,0 +1,29 @@
+{
+  "file": "AC20-FZK-Haus.ifc",
+  "sizeMB": 2.41,
+  "timestamp": "2026-01-21T12:51:09.535Z",
+  "metrics": {
+    "totalWallClockMs": 275,
+    "fileReadMs": 16,
+    "modelOpenMs": 51,
+    "firstBatchWaitMs": 107,
+    "firstBatchNumber": 1,
+    "firstBatchMeshes": 24,
+    "totalBatches": 4,
+    "totalMeshes": 244,
+    "geometryStreamingMs": 134,
+    "wasmWaitMs": 134,
+    "jsProcessMs": 0,
+    "entityScanMs": 31,
+    "entityCount": 44249,
+    "dataModelParseMs": 12,
+    "dataModelEntityCount": 44249,
+    "fileSizeMB": 2.41,
+    "renderCompleteMs": 1049,
+    "canvasHasContent": true
+  },
+  "thresholds": {
+    "passed": true,
+    "violations": []
+  }
+}
