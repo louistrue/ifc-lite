@@ -9,6 +9,7 @@
 import type { Mesh, InstancedMesh, BatchedMesh, Vec3 } from './types.js';
 import type { MeshData } from '@ifc-lite/geometry';
 import { MathUtils } from './math.js';
+import type { RenderPipeline } from './pipeline.js';
 
 interface BoundingBox {
   min: Vec3;
@@ -191,7 +192,7 @@ export class Scene {
    * - Mesh data is accumulated immediately (fast)
    * - GPU buffers are rebuilt at most every batchRebuildThrottleMs (expensive)
    */
-  appendToBatches(meshDataArray: MeshData[], device: GPUDevice, pipeline: any, isStreaming: boolean = false): void {
+  appendToBatches(meshDataArray: MeshData[], device: GPUDevice, pipeline: RenderPipeline, isStreaming: boolean = false): void {
     // Track which color keys received new data in THIS call
     for (const meshData of meshDataArray) {
       const key = this.colorKey(meshData.color);
@@ -225,7 +226,7 @@ export class Scene {
   /**
    * Rebuild all pending batches (call this after streaming completes)
    */
-  rebuildPendingBatches(device: GPUDevice, pipeline: any): void {
+  rebuildPendingBatches(device: GPUDevice, pipeline: RenderPipeline): void {
     if (this.pendingBatchKeys.size === 0) return;
 
     for (const key of this.pendingBatchKeys) {
@@ -275,7 +276,7 @@ export class Scene {
   updateMeshColors(
     updates: Map<number, [number, number, number, number]>,
     device: GPUDevice,
-    pipeline: any
+    pipeline: RenderPipeline
   ): void {
     if (updates.size === 0) return;
 
@@ -361,7 +362,7 @@ export class Scene {
     meshDataArray: MeshData[],
     color: [number, number, number, number],
     device: GPUDevice,
-    pipeline: any
+    pipeline: RenderPipeline
   ): BatchedMesh {
     const merged = this.mergeGeometry(meshDataArray);
     const expressIds = meshDataArray.map(m => m.expressId);
@@ -485,7 +486,7 @@ export class Scene {
     colorKey: string,
     visibleIds: Set<number>,
     device: GPUDevice,
-    pipeline: any
+    pipeline: RenderPipeline
   ): BatchedMesh | undefined {
     // Create cache key from colorKey + deterministic hash of all visible IDs
     // Using a proper hash over all IDs to avoid collisions when middle IDs differ

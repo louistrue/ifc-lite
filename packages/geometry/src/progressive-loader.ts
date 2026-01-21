@@ -15,11 +15,28 @@ export enum GeometryQuality {
   High = 'high'        // Full quality + mesh repair
 }
 
+/**
+ * web-ifc FlatMesh type (from LoadAllGeometry result)
+ * Using interface since web-ifc doesn't provide TypeScript definitions
+ */
+export interface WebIfcFlatMesh {
+  geometries: { size: () => number };
+  expressID: number;
+}
+
+/**
+ * web-ifc LoadAllGeometry result type
+ */
+export interface WebIfcGeometryResult {
+  size: () => number;
+  get: (index: number) => WebIfcFlatMesh;
+}
+
 export interface PriorityMesh {
   index: number;
   expressId: number;
   priority: number;
-  flatMesh: any; // web-ifc FlatMesh type
+  flatMesh: WebIfcFlatMesh;
 }
 
 /**
@@ -27,7 +44,7 @@ export interface PriorityMesh {
  * Higher score = load sooner
  */
 export function calculateMeshPriority(
-  flatMesh: any,
+  flatMesh: WebIfcFlatMesh,
   expressId: number,
   entityIndex?: Map<number, any>
 ): number {
@@ -78,8 +95,8 @@ export class ProgressiveMeshLoader {
    * Sort meshes by priority and return sorted array
    */
   prioritizeMeshes(
-    geometries: any, // web-ifc LoadAllGeometry result
-    entityIndex?: Map<number, any>
+    geometries: WebIfcGeometryResult,
+    entityIndex?: Map<number, unknown>
   ): PriorityMesh[] {
     const geomCount = geometries.size();
     const priorityMeshes: PriorityMesh[] = [];
@@ -106,7 +123,7 @@ export class ProgressiveMeshLoader {
   /**
    * Check if mesh should be skipped based on quality mode
    */
-  shouldSkipMesh(priorityMesh: PriorityMesh, flatMesh: any): boolean {
+  shouldSkipMesh(priorityMesh: PriorityMesh, flatMesh: WebIfcFlatMesh): boolean {
     if (this.quality === GeometryQuality.Balanced || this.quality === GeometryQuality.High) {
       return false; // Don't skip anything
     }

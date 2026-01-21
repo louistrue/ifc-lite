@@ -180,7 +180,7 @@ export class CSVExporter {
   /**
    * Escape a value for CSV (handles quotes, commas, newlines)
    */
-  private escapeValue(value: any): string {
+  private escapeValue(value: unknown): string {
     if (value === null || value === undefined) {
       return '';
     }

@@ -396,14 +396,14 @@ export class ParquetExporter {
                 }
 
                 // Infer type from first non-null element
-                const sample = data.find((v: any) => v !== null && v !== undefined);
+                const sample = data.find((v) => v !== null && v !== undefined);
 
                 if (sample === undefined) {
                     // All nulls - create string vector with nulls
                     vectors[name] = arrow.vectorFromArray(data);
                 } else if (typeof sample === 'number') {
                     // Check if it's integer or float
-                    const isFloat = data.some((v: any) => v !== null && !Number.isInteger(v));
+                    const isFloat = data.some((v) => typeof v === 'number' && !Number.isInteger(v));
                     if (isFloat) {
                         vectors[name] = arrow.vectorFromArray(data, new arrow.Float64());
                     } else {
@@ -414,7 +414,7 @@ export class ParquetExporter {
                     vectors[name] = arrow.vectorFromArray(data, new arrow.Bool());
                 } else {
                     // String or other - convert to string
-                    vectors[name] = arrow.vectorFromArray(data.map((v: any) => v === null ? null : String(v)));
+                    vectors[name] = arrow.vectorFromArray(data.map((v) => v === null ? null : String(v)));
                 }
             }
 
@@ -464,8 +464,8 @@ export class ParquetExporter {
 }
 
 // Helper functions
-function mapTypedArray<T extends TypedArray>(arr: T, fn: (v: number) => any): any[] {
-    const result: any[] = new Array(arr.length);
+function mapTypedArray<T extends TypedArray, R>(arr: T, fn: (v: number) => R): R[] {
+    const result: R[] = new Array(arr.length);
     for (let i = 0; i < arr.length; i++) {
         result[i] = fn(arr[i]);
     }

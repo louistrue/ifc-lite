@@ -11,6 +11,44 @@ import type { PropertyValue } from '@ifc-lite/data';
 
 const DEFAULT_CONTEXT = 'https://standards.buildingsmart.org/IFC/DEV/IFC4/ADD2/OWL';
 
+// JSON-LD node types
+interface JSONLDNode {
+  '@id': string;
+  '@type': string;
+  name?: string;
+  hasPropertySets?: JSONLDPropertySetNode[];
+  hasQuantitySets?: JSONLDQuantitySetNode[];
+  [key: string]: unknown;
+}
+
+interface JSONLDPropertySetNode {
+  '@id': string;
+  '@type': string;
+  name: string;
+  hasProperties: JSONLDPropertyNode[];
+}
+
+interface JSONLDPropertyNode {
+  '@type': string;
+  name: string;
+  hasValue: string | number | boolean | null;
+}
+
+interface JSONLDQuantitySetNode {
+  '@id': string;
+  '@type': string;
+  name: string;
+  quantities: JSONLDQuantityNode[];
+}
+
+interface JSONLDQuantityNode {
+  '@type': string;
+  name: string;
+  value: number;
+}
+
+type JSONLDValue = string | number | boolean | null;
+
 export interface JSONLDExportOptions {
   context?: string;
   includeGeometry?: boolean;
@@ -35,10 +73,10 @@ export class JSONLDExporter {
     const includeQuantities = options.includeQuantities ?? false;
     const entityIds = options.entityIds ?? this.getAllEntityIds();
 
-    const graph: any[] = [];
+    const graph: Record<string, unknown>[] = [];
 
     for (const id of entityIds) {
-      const node: any = {
+      const node: Record<string, unknown> = {
         '@id': `ifc:${id}`,
         '@type': `ifc:${this.store.entities.getTypeName(id)}`,
         'ifc:expressId': id,
@@ -57,9 +95,9 @@ export class JSONLDExporter {
       if (includeProperties) {
         const properties = this.store.properties.getForEntity(id);
         if (properties.length > 0) {
-          const propertySets: any[] = [];
+          const propertySets: Record<string, unknown>[] = [];
           for (const pset of properties) {
-            const psetNode: any = {
+            const psetNode: Record<string, unknown> = {
               '@type': 'ifc:IfcPropertySet',
               'ifc:name': pset.name,
             };
@@ -68,9 +106,9 @@ export class JSONLDExporter {
               psetNode['ifc:globalId'] = pset.globalId;
             }
 
-            const props: any[] = [];
+            const props: Record<string, unknown>[] = [];
             for (const prop of pset.properties) {
-              const propNode: any = {
+              const propNode: Record<string, unknown> = {
                 '@type': `ifc:${this.getPropertyTypeName(prop.type)}`,
                 'ifc:name': prop.name,
               };
@@ -103,16 +141,16 @@ export class JSONLDExporter {
       if (includeQuantities && this.store.quantities) {
         const quantities = this.store.quantities.getForEntity(id);
         if (quantities.length > 0) {
-          const quantitySets: any[] = [];
+          const quantitySets: Record<string, unknown>[] = [];
           for (const qset of quantities) {
-            const qsetNode: any = {
+            const qsetNode: Record<string, unknown> = {
               '@type': 'ifc:IfcElementQuantity',
               'ifc:name': qset.name,
             };
 
-            const quants: any[] = [];
+            const quants: Record<string, unknown>[] = [];
             for (const quant of qset.quantities) {
-              const quantNode: any = {
+              const quantNode: Record<string, unknown> = {
                 '@type': `ifc:${this.getQuantityTypeName(quant.type)}`,
                 'ifc:name': quant.name,
                 'ifc:value': quant.value,
@@ -168,13 +206,13 @@ export class JSONLDExporter {
   /**
    * Format property value for JSON-LD
    */
-  private formatPropertyValue(value: PropertyValue): any {
+  private formatPropertyValue(value: PropertyValue): JSONLDValue | JSONLDValue[] {
     if (value === null || value === undefined) {
       return null;
     }
 
     if (Array.isArray(value)) {
-      return value.map(v => this.formatPropertyValue(v));
+      return value.map(v => this.formatPropertyValue(v)) as JSONLDValue[];
     }
 
     if (typeof value === 'object') {

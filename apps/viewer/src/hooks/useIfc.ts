@@ -9,14 +9,14 @@
 
 import { useMemo, useCallback, useRef } from 'react';
 import { useViewerStore } from '../store.js';
-import { IfcParser, detectFormat, parseIfcx } from '@ifc-lite/parser';
-import { GeometryProcessor, GeometryQuality, type MeshData } from '@ifc-lite/geometry';
+import { IfcParser, detectFormat, parseIfcx, type IfcDataStore } from '@ifc-lite/parser';
+import { GeometryProcessor, GeometryQuality, type MeshData, type CoordinateInfo } from '@ifc-lite/geometry';
 import { IfcQuery } from '@ifc-lite/query';
 import { buildSpatialIndex } from '@ifc-lite/spatial';
 import { type GeometryData } from '@ifc-lite/cache';
 import { IfcTypeEnum, RelationshipType, IfcTypeEnumFromString, IfcTypeEnumToString, EntityFlags, type SpatialHierarchy, type SpatialNode, type EntityTable, type RelationshipGraph } from '@ifc-lite/data';
 import { StringTable } from '@ifc-lite/data';
-import { IfcServerClient, decodeDataModel, type ParquetBatch, type DataModel } from '@ifc-lite/server-client';
+import { IfcServerClient, decodeDataModel, type ParquetBatch, type DataModel, type ParquetParseResponse, type ParquetStreamResult, type ParseResponse, type ModelMetadata, type ProcessingStats, type MeshData as ServerMeshData } from '@ifc-lite/server-client';
 
 // Extracted utilities
 import { SERVER_URL, USE_SERVER, CACHE_SIZE_THRESHOLD, getDynamicBatchConfig } from '../utils/ifcConfig.js';
@@ -46,6 +46,21 @@ interface ServerQuantitySet {
   method_of_measurement?: string;
   quantities: Array<{ quantity_name: string; quantity_value: number; quantity_type: string }>;
 }
+
+/** Convert server mesh data (snake_case) to viewer format (camelCase) */
+function convertServerMesh(m: ServerMeshData): MeshData {
+  return {
+    expressId: m.express_id,
+    positions: new Float32Array(m.positions),
+    indices: new Uint32Array(m.indices),
+    normals: new Float32Array(m.normals),
+    color: m.color,
+    ifcType: m.ifc_type,
+  };
+}
+
+/** Server parse result type - union of streaming and non-streaming responses */
+type ServerParseResultType = ParquetParseResponse | ParquetStreamResult | ParseResponse;
 
 export function useIfc() {
   const {
@@ -101,7 +116,7 @@ export function useIfc() {
       const parquetSupported = await client.isParquetSupported();
 
       let allMeshes: MeshData[];
-      let result: any;
+      let result: ServerParseResultType;
       let parseTime: number;
       let convertTime: number;
 
@@ -121,8 +136,8 @@ export function useIfc() {
         let totalVertices = 0;
         let totalTriangles = 0;
         let cacheKey = '';
-        let streamMetadata: any = null;
-        let streamStats: any = null;
+        let streamMetadata: ModelMetadata | null = null;
+        let streamStats: ProcessingStats | null = null;
         let batchCount = 0;
 
         // Progressive bounds calculation
@@ -138,8 +153,8 @@ export function useIfc() {
         const streamResult = await client.parseParquetStream(file, (batch: ParquetBatch) => {
           batchCount++;
 
-          // Convert batch meshes to viewer format
-          const batchMeshes = batch.meshes.map((m: any) => ({
+          // Convert batch meshes to viewer format (snake_case to camelCase)
+          const batchMeshes = batch.meshes.map((m: ServerMeshData) => ({
             expressId: m.express_id,
             positions: m.positions,
             indices: m.indices,
@@ -244,7 +259,8 @@ export function useIfc() {
 
         // Parquet decoder already returns the correct format
         const convertStart = performance.now();
-        allMeshes = result.meshes.map((m: any) => ({
+        const parquetResult = result as ParquetParseResponse;
+        allMeshes = parquetResult.meshes.map((m: ServerMeshData) => ({
           expressId: m.express_id,
           positions: m.positions,
           indices: m.indices,
@@ -273,12 +289,13 @@ export function useIfc() {
         // Convert server mesh format to viewer format
         // NOTE: Server sends colors as floats [0-1], viewer expects bytes [0-255]
         const convertStart = performance.now();
-        allMeshes = result.meshes.map((m: any) => ({
+        const jsonResult = result as ParseResponse;
+        allMeshes = jsonResult.meshes.map((m: ServerMeshData) => ({
           expressId: m.express_id,
           positions: new Float32Array(m.positions),
           indices: new Uint32Array(m.indices),
-          normals: m.normals ? new Float32Array(m.normals) : undefined,
-          color: m.color ? new Uint8Array(m.color.map((c: number) => Math.round(c * 255))) : undefined,
+          normals: m.normals ? new Float32Array(m.normals) : new Float32Array(0),
+          color: m.color,
         }));
         convertTime = performance.now() - convertStart;
         console.log(`[useIfc] Mesh conversion: ${convertTime.toFixed(0)}ms for ${allMeshes.length} meshes`);
@@ -478,9 +495,10 @@ export function useIfc() {
           setProgress({ phase: 'Complete', percent: 100 });
           setLoading(false);
           return;
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('[useIfc] IFCX parsing failed:', err);
-          setError(`IFCX parsing failed: ${err.message}`);
+          const message = err instanceof Error ? err.message : String(err);
+          setError(`IFCX parsing failed: ${message}`);
           setLoading(false);
           return;
         }
@@ -536,8 +554,8 @@ export function useIfc() {
       // DEFER data model parsing - start it AFTER geometry streaming begins
       // This ensures geometry gets first crack at the CPU for fast first frame
       // Data model parsing is lower priority - UI can work without it initially
-      let resolveDataStore: (dataStore: any) => void;
-      const dataStorePromise = new Promise<any>((resolve) => {
+      let resolveDataStore: (dataStore: IfcDataStore) => void;
+      const dataStorePromise = new Promise<IfcDataStore>((resolve) => {
         resolveDataStore = resolve;
       });
 
@@ -577,7 +595,7 @@ export function useIfc() {
       let estimatedTotal = 0;
       let totalMeshes = 0;
       const allMeshes: MeshData[] = []; // Collect all meshes for BVH building
-      let finalCoordinateInfo: any = null;
+      let finalCoordinateInfo: CoordinateInfo | null = null;
 
       // Clear existing geometry result
       setGeometryResult(null);

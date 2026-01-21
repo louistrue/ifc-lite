@@ -6,7 +6,72 @@
  * glTF/GLB exporter
  */
 
-import type { GeometryResult } from '@ifc-lite/geometry';
+import type { GeometryResult, MeshData } from '@ifc-lite/geometry';
+
+// GLTF 2.0 type definitions (subset needed for export)
+interface GLTFAsset {
+    version: string;
+    generator: string;
+    extras?: Record<string, unknown>;
+}
+
+interface GLTFScene {
+    nodes: number[];
+}
+
+interface GLTFNode {
+    mesh?: number;
+    name?: string;
+    extras?: Record<string, unknown>;
+}
+
+interface GLTFMesh {
+    primitives: GLTFPrimitive[];
+    name?: string;
+}
+
+interface GLTFPrimitive {
+    attributes: {
+        POSITION: number;
+        NORMAL?: number;
+    };
+    indices?: number;
+    mode?: number;
+}
+
+interface GLTFAccessor {
+    bufferView: number;
+    byteOffset?: number;
+    componentType: number;
+    count: number;
+    type: 'SCALAR' | 'VEC2' | 'VEC3' | 'VEC4' | 'MAT2' | 'MAT3' | 'MAT4';
+    min?: number[];
+    max?: number[];
+}
+
+interface GLTFBufferView {
+    buffer: number;
+    byteOffset: number;
+    byteLength: number;
+    byteStride?: number;
+    target?: number;
+}
+
+interface GLTFBuffer {
+    byteLength: number;
+    uri?: string;
+}
+
+interface GLTFDocument {
+    asset: GLTFAsset;
+    scene: number;
+    scenes: GLTFScene[];
+    nodes: GLTFNode[];
+    meshes: GLTFMesh[];
+    accessors: GLTFAccessor[];
+    bufferViews: GLTFBufferView[];
+    buffers: GLTFBuffer[];
+}
 
 export interface GLTFExportOptions {
     useInstancing?: boolean;
@@ -39,10 +104,10 @@ export class GLTFExporter {
         };
     }
 
-    private buildGLTF(options: GLTFExportOptions): { json: any; buffers: Uint8Array[] } {
+    private buildGLTF(options: GLTFExportOptions): { json: GLTFDocument; buffers: Uint8Array[] } {
         const meshes = this.geometryResult.meshes;
 
-        const gltf: any = {
+        const gltf: GLTFDocument = {
             asset: {
                 version: '2.0',
                 generator: 'IFC-Lite',
@@ -102,10 +167,10 @@ export class GLTFExporter {
         };
 
         for (let i = 0; i < meshes.length; i++) {
-            const mesh = meshes[i] as any;
-            const meshPositions = (mesh.positions || []) as Float32Array | number[];
-            const meshNormals = (mesh.normals || []) as Float32Array | number[];
-            const meshIndices = (mesh.indices || []) as Uint32Array | number[];
+            const mesh = meshes[i];
+            const meshPositions = mesh.positions;
+            const meshNormals = mesh.normals;
+            const meshIndices = mesh.indices;
 
             // Skip empty meshes
             if (!meshPositions.length || !meshNormals.length || !meshIndices.length) {
@@ -186,7 +251,7 @@ export class GLTFExporter {
 
             // Node
             const nodeIdx = gltf.nodes.length;
-            const node: any = {
+            const node: GLTFNode = {
                 mesh: meshIdx,
             };
 
@@ -301,7 +366,7 @@ export class GLTFExporter {
         return combined;
     }
 
-    private packGLB(gltfJson: any, buffers: Uint8Array[]): Uint8Array {
+    private packGLB(gltfJson: GLTFDocument, buffers: Uint8Array[]): Uint8Array {
         const jsonString = JSON.stringify(gltfJson);
         const jsonBuffer = new TextEncoder().encode(jsonString);
 

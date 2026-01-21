@@ -16,7 +16,7 @@ import {
   type IfcDataStore as CacheDataStore,
   type GeometryData,
 } from '@ifc-lite/cache';
-import { SpatialHierarchyBuilder, extractLengthUnitScale } from '@ifc-lite/parser';
+import { SpatialHierarchyBuilder, extractLengthUnitScale, type IfcDataStore } from '@ifc-lite/parser';
 import { buildSpatialIndex } from '@ifc-lite/spatial';
 import type { MeshData } from '@ifc-lite/geometry';
 
@@ -236,7 +236,7 @@ export function useIfcCache() {
    */
   const saveToCache = useCallback(async (
     cacheKey: string,
-    dataStore: any,
+    dataStore: IfcDataStore,
     geometry: GeometryData,
     sourceBuffer: ArrayBuffer,
     fileName: string
