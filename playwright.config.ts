@@ -94,5 +94,35 @@ export default defineConfig({
         baseURL: 'http://localhost:3333',
       },
     },
+    {
+      name: 'holter-debug',
+      testMatch: /holter-tower-debug\.spec\.ts/,
+      timeout: 600000, // 10 min for large file
+      webServer: {
+        command: 'pnpm --filter viewer dev --port 3000',
+        port: 3000,
+        reuseExistingServer: true,
+        timeout: 60000,
+        env: {
+          BROWSER: 'none',
+        },
+      },
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: 'http://localhost:3000',
+        actionTimeout: 300000,
+        headless: false,
+        channel: 'chrome',
+        launchOptions: {
+          args: [
+            '--enable-gpu',
+            '--enable-webgpu',
+            '--enable-unsafe-webgpu',
+            '--use-angle=default',
+            '--ignore-gpu-blocklist',
+          ],
+        },
+      },
+    },
   ],
 });

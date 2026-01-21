@@ -494,30 +494,76 @@ impl ClippingProcessor {
             });
         }
 
+        // Validate mesh has enough indices for at least one triangle
+        if mesh.indices.len() < 3 {
+            return Ok(CSGMesh {
+                polygons: Vec::new(),
+                bounding_box: OnceLock::new(),
+                metadata: None,
+            });
+        }
+
+        let vertex_count = mesh.positions.len() / 3;
         let mut polygons = Vec::new();
 
         // Process each triangle
         for i in (0..mesh.indices.len()).step_by(3) {
+            // Bounds check for indices array
+            if i + 2 >= mesh.indices.len() {
+                break;
+            }
+
             let i0 = mesh.indices[i] as usize;
             let i1 = mesh.indices[i + 1] as usize;
             let i2 = mesh.indices[i + 2] as usize;
 
-            // Get triangle vertices
+            // Bounds check for vertex indices - skip invalid triangles
+            if i0 >= vertex_count || i1 >= vertex_count || i2 >= vertex_count {
+                continue;
+            }
+
+            // Get triangle vertices with bounds checking
+            let p0_idx = i0 * 3;
+            let p1_idx = i1 * 3;
+            let p2_idx = i2 * 3;
+
+            // Additional safety check for positions array
+            if p0_idx + 2 >= mesh.positions.len()
+                || p1_idx + 2 >= mesh.positions.len()
+                || p2_idx + 2 >= mesh.positions.len()
+            {
+                continue;
+            }
+
             let v0 = Point3::new(
-                mesh.positions[i0 * 3] as f64,
-                mesh.positions[i0 * 3 + 1] as f64,
-                mesh.positions[i0 * 3 + 2] as f64,
+                mesh.positions[p0_idx] as f64,
+                mesh.positions[p0_idx + 1] as f64,
+                mesh.positions[p0_idx + 2] as f64,
             );
             let v1 = Point3::new(
-                mesh.positions[i1 * 3] as f64,
-                mesh.positions[i1 * 3 + 1] as f64,
-                mesh.positions[i1 * 3 + 2] as f64,
+                mesh.positions[p1_idx] as f64,
+                mesh.positions[p1_idx + 1] as f64,
+                mesh.positions[p1_idx + 2] as f64,
             );
             let v2 = Point3::new(
-                mesh.positions[i2 * 3] as f64,
-                mesh.positions[i2 * 3 + 1] as f64,
-                mesh.positions[i2 * 3 + 2] as f64,
+                mesh.positions[p2_idx] as f64,
+                mesh.positions[p2_idx + 1] as f64,
+                mesh.positions[p2_idx + 2] as f64,
             );
+
+            // Skip triangles with NaN or Infinity values
+            if !v0.x.is_finite()
+                || !v0.y.is_finite()
+                || !v0.z.is_finite()
+                || !v1.x.is_finite()
+                || !v1.y.is_finite()
+                || !v1.z.is_finite()
+                || !v2.x.is_finite()
+                || !v2.y.is_finite()
+                || !v2.z.is_finite()
+            {
+                continue;
+            }
 
             // Calculate face normal from triangle edges
             // Use try_normalize to handle degenerate (zero-area/collinear) triangles
@@ -527,6 +573,14 @@ impl ClippingProcessor {
                 Some(n) => n,
                 None => continue, // Skip degenerate triangles to avoid NaN propagation
             };
+
+            // Additional check: ensure normal is finite
+            if !face_normal.x.is_finite()
+                || !face_normal.y.is_finite()
+                || !face_normal.z.is_finite()
+            {
+                continue;
+            }
 
             // Create csgrs vertices (use face normal for all vertices)
             let vertices = vec![
@@ -637,7 +691,6 @@ impl ClippingProcessor {
     /// Subtract opening mesh from host mesh using csgrs CSG boolean operations
     pub fn subtract_mesh(&self, host_mesh: &Mesh, opening_mesh: &Mesh) -> Result<Mesh> {
         use csgrs::traits::CSG;
-        use std::panic::{catch_unwind, AssertUnwindSafe};
 
         // Validate input meshes - early exit for empty host (no clone needed)
         if host_mesh.is_empty() {
@@ -664,17 +717,21 @@ impl ClippingProcessor {
             Err(_) => return Ok(host_mesh.clone()),
         };
 
-        // Perform CSG difference (host - opening) with panic protection
-        // The csgrs library can panic on certain degenerate geometry inputs
-        let result_csg = match catch_unwind(AssertUnwindSafe(|| {
-            host_csg.difference(&opening_csg)
-        })) {
-            Ok(result) => result,
-            Err(_) => {
-                // CSG operation panicked - return original mesh without opening
-                return Ok(host_mesh.clone());
-            }
-        };
+        // Validate CSG meshes have enough polygons for a valid operation
+        // Empty or near-empty meshes can cause panics in csgrs
+        if host_csg.polygons.is_empty() || opening_csg.polygons.is_empty() {
+            return Ok(host_mesh.clone());
+        }
+
+        // Additional validation: check for degenerate polygons that could cause panics
+        // Skip CSG if either mesh has suspicious polygon counts (too few for a solid)
+        if host_csg.polygons.len() < 4 || opening_csg.polygons.len() < 4 {
+            return Ok(host_mesh.clone());
+        }
+
+        // Perform CSG difference (host - opening)
+        // Note: catch_unwind doesn't work with panic_abort, so we rely on input validation
+        let result_csg = host_csg.difference(&opening_csg);
 
         // Check if result is empty
         if result_csg.polygons.is_empty() {
@@ -891,7 +948,6 @@ impl ClippingProcessor {
     /// Union two meshes together using csgrs CSG boolean operations
     pub fn union_mesh(&self, mesh_a: &Mesh, mesh_b: &Mesh) -> Result<Mesh> {
         use csgrs::traits::CSG;
-        use std::panic::{catch_unwind, AssertUnwindSafe};
 
         // Fast paths
         if mesh_a.is_empty() {
@@ -905,18 +961,22 @@ impl ClippingProcessor {
         let csg_a = Self::mesh_to_csgrs(mesh_a)?;
         let csg_b = Self::mesh_to_csgrs(mesh_b)?;
 
-        // Perform CSG union with panic protection
-        let result_csg = match catch_unwind(AssertUnwindSafe(|| {
-            csg_a.union(&csg_b)
-        })) {
-            Ok(result) => result,
-            Err(_) => {
-                // CSG operation panicked - return simple merge as fallback
-                let mut merged = mesh_a.clone();
-                merged.merge(mesh_b);
-                return Ok(merged);
-            }
-        };
+        // Validate CSG meshes - fall back to simple merge if invalid
+        if csg_a.polygons.is_empty() || csg_b.polygons.is_empty() {
+            let mut merged = mesh_a.clone();
+            merged.merge(mesh_b);
+            return Ok(merged);
+        }
+
+        // Skip CSG if either mesh has too few polygons for a valid solid
+        if csg_a.polygons.len() < 4 || csg_b.polygons.len() < 4 {
+            let mut merged = mesh_a.clone();
+            merged.merge(mesh_b);
+            return Ok(merged);
+        }
+
+        // Perform CSG union
+        let result_csg = csg_a.union(&csg_b);
 
         // Convert back to our Mesh format
         Self::csgrs_to_mesh(&result_csg)
@@ -927,7 +987,6 @@ impl ClippingProcessor {
     /// Returns the intersection of two meshes (the volume where both overlap).
     pub fn intersection_mesh(&self, mesh_a: &Mesh, mesh_b: &Mesh) -> Result<Mesh> {
         use csgrs::traits::CSG;
-        use std::panic::{catch_unwind, AssertUnwindSafe};
 
         // Fast paths: intersection with empty mesh is empty
         if mesh_a.is_empty() || mesh_b.is_empty() {
@@ -938,16 +997,18 @@ impl ClippingProcessor {
         let csg_a = Self::mesh_to_csgrs(mesh_a)?;
         let csg_b = Self::mesh_to_csgrs(mesh_b)?;
 
-        // Perform CSG intersection with panic protection
-        let result_csg = match catch_unwind(AssertUnwindSafe(|| {
-            csg_a.intersection(&csg_b)
-        })) {
-            Ok(result) => result,
-            Err(_) => {
-                // CSG operation panicked - return empty mesh as fallback
-                return Ok(Mesh::new());
-            }
-        };
+        // Validate CSG meshes - return empty if invalid
+        if csg_a.polygons.is_empty() || csg_b.polygons.is_empty() {
+            return Ok(Mesh::new());
+        }
+
+        // Skip CSG if either mesh has too few polygons for a valid solid
+        if csg_a.polygons.len() < 4 || csg_b.polygons.len() < 4 {
+            return Ok(Mesh::new());
+        }
+
+        // Perform CSG intersection
+        let result_csg = csg_a.intersection(&csg_b);
 
         // Convert back to our Mesh format
         Self::csgrs_to_mesh(&result_csg)

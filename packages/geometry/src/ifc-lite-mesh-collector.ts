@@ -157,7 +157,7 @@ export class IfcLiteMeshCollector {
           resolveWaiting = null;
         }
       },
-      onBatch: (meshes: MeshDataJs[], _progress: StreamingProgress) => {
+      onBatch: (meshes: MeshDataJs[], progress: StreamingProgress) => {
         // Convert WASM meshes to MeshData[]
         const convertedBatch: MeshData[] = [];
 

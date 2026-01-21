@@ -720,6 +720,15 @@ impl GeometryRouter {
                 return self.process_element(element, decoder);
             }
         };
+        
+        // SAFETY: Skip void subtraction for elements with too many openings
+        // This prevents CSG operations from causing panics or excessive processing time
+        // Elements with many openings (like curtain walls) are better handled without CSG
+        const MAX_OPENINGS: usize = 15;
+        if opening_ids.len() > MAX_OPENINGS {
+            // Just return the base mesh without void subtraction
+            return self.process_element(element, decoder);
+        }
 
         // STEP 1: Get chamfered wall mesh (preserves chamfered corners at intersections)
         let wall_mesh = match self.process_element(element, decoder) {
@@ -830,22 +839,52 @@ impl GeometryRouter {
             wall_max_f32.z as f64,
         );
         
+        // Track CSG operations to prevent excessive complexity
+        let mut csg_operation_count = 0;
+        const MAX_CSG_OPERATIONS: usize = 10; // Limit to prevent runaway CSG
+        
         for (_idx, opening) in openings.iter().enumerate() {
             match opening {
                 OpeningType::Rectangular(open_min, open_max) => {
-                    // Use optimized rectangular opening cut
+                    // Use optimized rectangular opening cut (safe, doesn't use csgrs)
                     result = self.cut_rectangular_opening(&result, *open_min, *open_max, wall_min, wall_max);
                 }
                 OpeningType::NonRectangular(opening_mesh) => {
+                    // Safety: limit total CSG operations to prevent crashes on complex geometry
+                    if csg_operation_count >= MAX_CSG_OPERATIONS {
+                        // Skip remaining CSG operations
+                        continue;
+                    }
+                    
+                    // Validate opening mesh before CSG
+                    let opening_valid = !opening_mesh.is_empty() 
+                        && opening_mesh.positions.iter().all(|&v| v.is_finite())
+                        && opening_mesh.positions.len() >= 9; // At least 3 vertices
+                    
+                    // Validate result mesh before CSG
+                    let result_valid = !result.is_empty()
+                        && result.positions.iter().all(|&v| v.is_finite())
+                        && result.triangle_count() >= 4; // At least a tetrahedron
+                    
+                    if !opening_valid || !result_valid {
+                        // Skip invalid meshes
+                        continue;
+                    }
+                    
                     // Use full CSG subtraction for non-rectangular shapes
                     match clipper.subtract_mesh(&result, opening_mesh) {
                         Ok(csg_result) => {
-                            result = csg_result;
+                            // Validate result is not degenerate
+                            if !csg_result.is_empty() && csg_result.triangle_count() >= 4 {
+                                result = csg_result;
+                            }
+                            // If result is degenerate, keep previous result
                         }
                         Err(_) => {
                             // Keep original result if CSG fails
                         }
                     }
+                    csg_operation_count += 1;
                 }
             }
         }
