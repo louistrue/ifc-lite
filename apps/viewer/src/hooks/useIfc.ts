@@ -12,7 +12,6 @@ import { useViewerStore } from '../store.js';
 import { IfcParser, detectFormat, parseIfcx, SpatialHierarchyBuilder, extractLengthUnitScale } from '@ifc-lite/parser';
 import { GeometryProcessor, GeometryQuality, type MeshData } from '@ifc-lite/geometry';
 import { IfcQuery } from '@ifc-lite/query';
-import { BufferBuilder } from '@ifc-lite/geometry';
 import { buildSpatialIndex } from '@ifc-lite/spatial';
 import {
   BinaryCacheWriter,
@@ -24,6 +23,10 @@ import { IfcTypeEnum, RelationshipType, IfcTypeEnumFromString, IfcTypeEnumToStri
 import { StringTable } from '@ifc-lite/data';
 import { IfcServerClient, decodeDataModel, type ParquetBatch, type DataModel } from '@ifc-lite/server-client';
 
+// Extracted utilities
+import { SERVER_URL, USE_SERVER, CACHE_SIZE_THRESHOLD, isTauri, getDynamicBatchConfig } from '../utils/ifcConfig.js';
+import { rebuildSpatialHierarchy, rebuildOnDemandMaps } from '../utils/spatialHierarchy.js';
+
 // Define QuantitySet type inline (matches server-client's QuantitySet interface)
 interface ServerQuantitySet {
   qset_id: number;
@@ -31,11 +34,6 @@ interface ServerQuantitySet {
   method_of_measurement?: string;
   quantities: Array<{ quantity_name: string; quantity_value: number; quantity_type: string }>;
 }
-import type { DynamicBatchConfig } from '@ifc-lite/geometry';
-
-// Platform-aware cache service
-// Tauri uses native file system cache, browser uses IndexedDB
-const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 // Type definitions for cache functions
 type GetCachedFn = (key: string) => Promise<CacheResult | null>;
@@ -74,191 +72,6 @@ async function setCached(key: string, data: ArrayBuffer, fileName: string, fileS
   return service.setCached(key, data, fileName, fileSize, sourceBuffer);
 }
 
-// Minimum file size to cache (10MB) - smaller files parse quickly anyway
-const CACHE_SIZE_THRESHOLD = 10 * 1024 * 1024;
-
-// Server URL - can be set via environment variable or use default localhost
-const SERVER_URL = import.meta.env.VITE_IFC_SERVER_URL || import.meta.env.VITE_SERVER_URL || 'http://localhost:8080';
-// Enable server by default (with graceful fallback if unavailable)
-// Set VITE_USE_SERVER=false to disable server parsing
-const USE_SERVER = import.meta.env.VITE_USE_SERVER !== 'false';
-
-/**
- * Calculate dynamic batch config based on file size
- */
-function getDynamicBatchConfig(fileSizeMB: number): DynamicBatchConfig {
-  if (fileSizeMB < 10) {
-    return { initialBatchSize: 50, maxBatchSize: 200, fileSizeMB };
-  } else if (fileSizeMB < 50) {
-    return { initialBatchSize: 100, maxBatchSize: 500, fileSizeMB };
-  } else if (fileSizeMB < 100) {
-    return { initialBatchSize: 100, maxBatchSize: 1000, fileSizeMB };
-  } else {
-    // HUGE files (100MB+): aggressive batching for maximum throughput
-    return { initialBatchSize: 100, maxBatchSize: 3000, fileSizeMB };
-  }
-}
-
-/**
- * Rebuild spatial hierarchy from cache data (entities + relationships)
- * OPTIMIZED: Uses index maps for O(1) lookups instead of O(n) linear searches
- */
-function rebuildSpatialHierarchy(
-  entities: EntityTable,
-  relationships: RelationshipGraph
-): SpatialHierarchy | undefined {
-  // PRE-BUILD INDEX MAP: O(n) once, then O(1) lookups
-  // This eliminates the O(n²) nested loops from before
-  const entityTypeMap = new Map<number, IfcTypeEnum>();
-  for (let i = 0; i < entities.count; i++) {
-    entityTypeMap.set(entities.expressId[i], entities.typeEnum[i]);
-  }
-
-  const spatialTypes = new Set([
-    IfcTypeEnum.IfcProject,
-    IfcTypeEnum.IfcSite,
-    IfcTypeEnum.IfcBuilding,
-    IfcTypeEnum.IfcBuildingStorey,
-    IfcTypeEnum.IfcSpace
-  ]);
-
-  const byStorey = new Map<number, number[]>();
-  const byBuilding = new Map<number, number[]>();
-  const bySite = new Map<number, number[]>();
-  const bySpace = new Map<number, number[]>();
-  const storeyElevations = new Map<number, number>();
-  const storeyHeights = new Map<number, number>();
-  const elementToStorey = new Map<number, number>();
-
-  // Find IfcProject
-  const projectIds = entities.getByType(IfcTypeEnum.IfcProject);
-  if (projectIds.length === 0) {
-    console.warn('[rebuildSpatialHierarchy] No IfcProject found');
-    return undefined;
-  }
-  const projectId = projectIds[0];
-
-  // Build node tree recursively - NOW O(1) lookups!
-  function buildNode(expressId: number): SpatialNode {
-    // O(1) lookup instead of O(n) linear search
-    const typeEnum = entityTypeMap.get(expressId) ?? IfcTypeEnum.Unknown;
-    const name = entities.getName(expressId) || `Entity #${expressId}`;
-
-    // Get contained elements via IfcRelContainedInSpatialStructure
-    const rawContainedElements = relationships.getRelated(
-      expressId,
-      RelationshipType.ContainsElements,
-      'forward'
-    );
-
-    // Filter out spatial structure elements - O(1) per element now!
-    const containedElements = rawContainedElements.filter(id => {
-      const elemType = entityTypeMap.get(id);
-      return elemType !== undefined && !spatialTypes.has(elemType);
-    });
-
-    // Get aggregated children via IfcRelAggregates
-    const aggregatedChildren = relationships.getRelated(
-      expressId,
-      RelationshipType.Aggregates,
-      'forward'
-    );
-
-    // Filter to spatial structure types and recurse - O(1) per child now!
-    const childNodes: SpatialNode[] = [];
-    for (const childId of aggregatedChildren) {
-      const childType = entityTypeMap.get(childId);
-      if (childType && spatialTypes.has(childType) && childType !== IfcTypeEnum.IfcProject) {
-        childNodes.push(buildNode(childId));
-      }
-    }
-
-    // Add elements to appropriate maps
-    if (typeEnum === IfcTypeEnum.IfcBuildingStorey) {
-      byStorey.set(expressId, containedElements);
-    } else if (typeEnum === IfcTypeEnum.IfcBuilding) {
-      byBuilding.set(expressId, containedElements);
-    } else if (typeEnum === IfcTypeEnum.IfcSite) {
-      bySite.set(expressId, containedElements);
-    } else if (typeEnum === IfcTypeEnum.IfcSpace) {
-      bySpace.set(expressId, containedElements);
-    }
-
-    return {
-      expressId,
-      type: typeEnum,
-      name,
-      children: childNodes,
-      elements: containedElements,
-    };
-  }
-
-  const projectNode = buildNode(projectId);
-
-  // Build reverse lookup map: elementId -> storeyId
-  for (const [storeyId, elementIds] of byStorey) {
-    for (const elementId of elementIds) {
-      elementToStorey.set(elementId, storeyId);
-    }
-  }
-
-  // Pre-build space lookup for O(1) getContainingSpace
-  const elementToSpace = new Map<number, number>();
-  for (const [spaceId, elementIds] of bySpace) {
-    for (const elementId of elementIds) {
-      elementToSpace.set(elementId, spaceId);
-    }
-  }
-
-  // Note: storeyHeights remains empty for cache path - client uses on-demand property extraction
-
-  return {
-    project: projectNode,
-    byStorey,
-    byBuilding,
-    bySite,
-    bySpace,
-    storeyElevations,
-    storeyHeights,
-    elementToStorey,
-
-    getStoreyElements(storeyId: number): number[] {
-      return byStorey.get(storeyId) ?? [];
-    },
-
-    getStoreyByElevation(): number | null {
-      return null;
-    },
-
-    getContainingSpace(elementId: number): number | null {
-      return elementToSpace.get(elementId) ?? null;
-    },
-
-    getPath(elementId: number): SpatialNode[] {
-      const path: SpatialNode[] = [];
-      const storeyId = elementToStorey.get(elementId);
-      if (!storeyId) return path;
-
-      const findPath = (node: SpatialNode, targetId: number): boolean => {
-        path.push(node);
-        if (node.elements.includes(targetId)) {
-          return true;
-        }
-        for (const child of node.children) {
-          if (findPath(child, targetId)) {
-            return true;
-          }
-        }
-        path.pop();
-        return false;
-      };
-
-      findPath(projectNode, elementId);
-      return path;
-    },
-  };
-}
-
 export function useIfc() {
   const {
     loading,
@@ -278,67 +91,6 @@ export function useIfc() {
 
   // Track if we've already logged for this ifcDataStore
   const lastLoggedDataStoreRef = useRef<typeof ifcDataStore>(null);
-
-  /**
-   * Rebuild on-demand property/quantity maps from relationships and entity types
-   * Uses FORWARD direction: pset -> elements (more efficient than inverse lookup)
-   * OPTIMIZED: Uses entityIndex.byType for property/quantity set lookup since
-   * the entity table may not include these types (filtered during fresh parse)
-   */
-  const rebuildOnDemandMaps = (
-    entities: EntityTable,
-    relationships: RelationshipGraph,
-    entityIndex?: { byId: Map<number, any>; byType: Map<string, number[]> }
-  ): { onDemandPropertyMap: Map<number, number[]>; onDemandQuantityMap: Map<number, number[]> } => {
-    const onDemandPropertyMap = new Map<number, number[]>();
-    const onDemandQuantityMap = new Map<number, number[]>();
-
-    // Use entityIndex.byType if available (needed for cache loads where entity table
-    // doesn't include IfcPropertySet/IfcElementQuantity entities)
-    // Fall back to entities.getByType() for fresh parses where entity table has these types
-    let propertySets: number[];
-    let quantitySets: number[];
-
-    if (entityIndex?.byType) {
-      // entityIndex.byType keys are the original type strings from the IFC file
-      // Check both common casings (STEP files may use either)
-      propertySets = entityIndex.byType.get('IFCPROPERTYSET') ||
-                     entityIndex.byType.get('IfcPropertySet') || [];
-      quantitySets = entityIndex.byType.get('IFCELEMENTQUANTITY') ||
-                     entityIndex.byType.get('IfcElementQuantity') || [];
-    } else {
-      // Fallback for when entityIndex is not provided
-      propertySets = entities.getByType(IfcTypeEnum.IfcPropertySet);
-      quantitySets = entities.getByType(IfcTypeEnum.IfcElementQuantity);
-    }
-
-    // Process property sets
-    for (const psetId of propertySets) {
-      // Get elements defined by this pset (FORWARD: pset -> elements)
-      const definedElements = relationships.getRelated(psetId, RelationshipType.DefinesByProperties, 'forward');
-
-      for (const entityId of definedElements) {
-        let list = onDemandPropertyMap.get(entityId);
-        if (!list) { list = []; onDemandPropertyMap.set(entityId, list); }
-        list.push(psetId);
-      }
-    }
-
-    // Process quantity sets
-    for (const qsetId of quantitySets) {
-      // Get elements defined by this qset (FORWARD: qset -> elements)
-      const definedElements = relationships.getRelated(qsetId, RelationshipType.DefinesByProperties, 'forward');
-
-      for (const entityId of definedElements) {
-        let list = onDemandQuantityMap.get(entityId);
-        if (!list) { list = []; onDemandQuantityMap.set(entityId, list); }
-        list.push(qsetId);
-      }
-    }
-
-    console.log(`[useIfc] Rebuilt on-demand maps: ${propertySets.length} psets, ${quantitySets.length} qsets -> ${onDemandPropertyMap.size} entities with properties, ${onDemandQuantityMap.size} with quantities`);
-    return { onDemandPropertyMap, onDemandQuantityMap };
-  };
 
   /**
    * Load from binary cache - INSTANT load for maximum speed

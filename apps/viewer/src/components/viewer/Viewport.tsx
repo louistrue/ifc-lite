@@ -10,6 +10,18 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import { Renderer, MathUtils } from '@ifc-lite/renderer';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 import { useViewerStore, type MeasurePoint } from '@/store';
+import {
+  useSelectionState,
+  useVisibilityState,
+  useToolState,
+  useMeasurementState,
+  useCameraState,
+  useHoverState,
+  useThemeState,
+  useContextMenuState,
+  useColorUpdateState,
+  useIfcDataState,
+} from '../../hooks/useViewerSelectors.js';
 
 interface ViewportProps {
   geometry: MeshData[] | null;
@@ -21,52 +33,56 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<Renderer | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
-  const selectedEntityId = useViewerStore((state) => state.selectedEntityId);
-  const setSelectedEntityId = useViewerStore((state) => state.setSelectedEntityId);
-  const hiddenEntities = useViewerStore((state) => state.hiddenEntities);
-  // Use computedIsolatedIds from parent (includes storey selection) instead of store's isolatedEntities
+
+  // Selection state
+  const { selectedEntityId, selectedEntityIds, setSelectedEntityId, toggleSelection } = useSelectionState();
+
+  // Visibility state - use computedIsolatedIds from parent (includes storey selection)
+  const { hiddenEntities } = useVisibilityState();
   const isolatedEntities = computedIsolatedIds ?? null;
-  const activeTool = useViewerStore((state) => state.activeTool);
-  const updateCameraRotationRealtime = useViewerStore((state) => state.updateCameraRotationRealtime);
-  const updateScaleRealtime = useViewerStore((state) => state.updateScaleRealtime);
-  const setCameraCallbacks = useViewerStore((state) => state.setCameraCallbacks);
-  const theme = useViewerStore((state) => state.theme);
 
-  // New store subscriptions for enhanced features
-  const setHoverState = useViewerStore((state) => state.setHoverState);
-  const clearHover = useViewerStore((state) => state.clearHover);
-  const hoverTooltipsEnabled = useViewerStore((state) => state.hoverTooltipsEnabled);
-  const openContextMenu = useViewerStore((state) => state.openContextMenu);
-  const toggleSelection = useViewerStore((state) => state.toggleSelection);
-  const pendingMeasurePoint = useViewerStore((state) => state.pendingMeasurePoint);
-  const addMeasurePoint = useViewerStore((state) => state.addMeasurePoint);
-  const completeMeasurement = useViewerStore((state) => state.completeMeasurement);
-  const sectionPlane = useViewerStore((state) => state.sectionPlane);
+  // Tool state
+  const { activeTool, sectionPlane } = useToolState();
 
-  // New drag-based measurement store subscriptions
-  const activeMeasurement = useViewerStore((state) => state.activeMeasurement);
-  const startMeasurement = useViewerStore((state) => state.startMeasurement);
-  const updateMeasurement = useViewerStore((state) => state.updateMeasurement);
-  const finalizeMeasurement = useViewerStore((state) => state.finalizeMeasurement);
-  const cancelMeasurement = useViewerStore((state) => state.cancelMeasurement);
-  const setSnapTarget = useViewerStore((state) => state.setSnapTarget);
-  const setSnapVisualization = useViewerStore((state) => state.setSnapVisualization);
-  const snapEnabled = useViewerStore((state) => state.snapEnabled);
-  const updateMeasurementScreenCoords = useViewerStore((state) => state.updateMeasurementScreenCoords);
-  const measurements = useViewerStore((state) => state.measurements);
+  // Camera state
+  const { updateCameraRotationRealtime, updateScaleRealtime, setCameraCallbacks } = useCameraState();
 
-  // Edge lock state for magnetic snapping
-  const edgeLockState = useViewerStore((state) => state.edgeLockState);
-  const setEdgeLock = useViewerStore((state) => state.setEdgeLock);
-  const updateEdgeLockPosition = useViewerStore((state) => state.updateEdgeLockPosition);
-  const clearEdgeLock = useViewerStore((state) => state.clearEdgeLock);
-  const incrementEdgeLockStrength = useViewerStore((state) => state.incrementEdgeLockStrength);
+  // Theme state
+  const { theme } = useThemeState();
 
-  // Color update subscriptions
-  const pendingColorUpdates = useViewerStore((state) => state.pendingColorUpdates);
-  const clearPendingColorUpdates = useViewerStore((state) => state.clearPendingColorUpdates);
+  // Hover state
+  const { hoverTooltipsEnabled, setHoverState, clearHover } = useHoverState();
 
-  const ifcDataStore = useViewerStore((state) => state.ifcDataStore);
+  // Context menu state
+  const { openContextMenu } = useContextMenuState();
+
+  // Measurement state
+  const {
+    measurements,
+    pendingMeasurePoint,
+    activeMeasurement,
+    addMeasurePoint,
+    completeMeasurement,
+    startMeasurement,
+    updateMeasurement,
+    finalizeMeasurement,
+    cancelMeasurement,
+    updateMeasurementScreenCoords,
+    snapEnabled,
+    setSnapTarget,
+    setSnapVisualization,
+    edgeLockState,
+    setEdgeLock,
+    updateEdgeLockPosition,
+    clearEdgeLock,
+    incrementEdgeLockStrength,
+  } = useMeasurementState();
+
+  // Color update state
+  const { pendingColorUpdates, clearPendingColorUpdates } = useColorUpdateState();
+
+  // IFC data state
+  const { ifcDataStore } = useIfcDataState();
 
   // Calculate section plane range based on storey heights only
   const sectionRange = useMemo(() => {
@@ -1815,9 +1831,6 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
       clearPendingColorUpdates();
     }
   }, [pendingColorUpdates, isInitialized, clearPendingColorUpdates]);
-
-  // Get selectedEntityIds from store for multi-selection
-  const selectedEntityIds = useViewerStore((state) => state.selectedEntityIds);
 
   // Re-render when visibility, selection, or section plane changes
   useEffect(() => {
