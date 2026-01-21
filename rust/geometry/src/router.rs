@@ -790,12 +790,16 @@ impl GeometryRouter {
             } else {
                 // Rectangular - get individual bounds for each representation item
                 // This handles disconnected geometry (multiple boxes with gaps between them)
-                if let Ok(item_bounds) = self.get_opening_item_bounds(&opening_entity, decoder) {
+                let item_bounds = self.get_opening_item_bounds(&opening_entity, decoder)
+                    .unwrap_or_default();
+
+                if !item_bounds.is_empty() {
+                    // Use individual item bounds for disconnected geometry
                     for (min_pt, max_pt) in item_bounds {
                         openings.push(OpeningType::Rectangular(min_pt, max_pt));
                     }
                 } else {
-                    // Fallback to combined mesh bounds
+                    // Fallback to combined mesh bounds when individual bounds unavailable
                     let (open_min, open_max) = opening_mesh.bounds();
                     let min_f64 = Point3::new(open_min.x as f64, open_min.y as f64, open_min.z as f64);
                     let max_f64 = Point3::new(open_max.x as f64, open_max.y as f64, open_max.z as f64);
@@ -2456,11 +2460,31 @@ impl GeometryRouter {
     }
 
     /// Recursively resolve placement hierarchy
+    ///
+    /// Uses a depth limit (100) to prevent stack overflow on malformed files
+    /// with circular placement references or extremely deep hierarchies.
     fn get_placement_transform(
         &self,
         placement: &DecodedEntity,
         decoder: &mut EntityDecoder,
     ) -> Result<Matrix4<f64>> {
+        self.get_placement_transform_with_depth(placement, decoder, 0)
+    }
+
+    /// Internal helper with depth tracking to prevent stack overflow
+    const MAX_PLACEMENT_DEPTH: usize = 100;
+
+    fn get_placement_transform_with_depth(
+        &self,
+        placement: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+        depth: usize,
+    ) -> Result<Matrix4<f64>> {
+        // Depth limit to prevent stack overflow on circular references or deep hierarchies
+        if depth > Self::MAX_PLACEMENT_DEPTH {
+            return Ok(Matrix4::identity());
+        }
+
         if placement.ifc_type != IfcType::IfcLocalPlacement {
             return Ok(Matrix4::identity());
         }
@@ -2469,7 +2493,7 @@ impl GeometryRouter {
         let parent_transform = if let Some(parent_attr) = placement.get(0) {
             if !parent_attr.is_null() {
                 if let Some(parent) = decoder.resolve_ref(parent_attr)? {
-                    self.get_placement_transform(&parent, decoder)?
+                    self.get_placement_transform_with_depth(&parent, decoder, depth + 1)?
                 } else {
                     Matrix4::identity()
                 }
