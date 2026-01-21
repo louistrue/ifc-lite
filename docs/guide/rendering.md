@@ -586,6 +586,110 @@ renderer.render({
 });
 ```
 
+## Spatial Indexing API
+
+The `@ifc-lite/spatial` package provides spatial indexing utilities for efficient geometry queries and frustum culling.
+
+### buildSpatialIndex
+
+Builds a BVH (Bounding Volume Hierarchy) spatial index from geometry meshes for fast spatial queries.
+
+```typescript
+import { buildSpatialIndex, type SpatialIndex } from '@ifc-lite/spatial';
+import type { MeshData } from '@ifc-lite/geometry';
+
+/**
+ * Builds a spatial index from an array of mesh data
+ * @param meshes - Array of MeshData objects from GeometryProcessor
+ * @returns BVH spatial index that implements SpatialIndex interface
+ */
+function buildSpatialIndex(meshes: MeshData[]): SpatialIndex;
+```
+
+**Parameters:**
+- `meshes: MeshData[]` - Array of mesh data objects, typically from `GeometryProcessor.process()` result
+
+**Returns:**
+- `SpatialIndex` - A BVH spatial index with methods for AABB queries, raycasting, and frustum queries
+
+**Usage Example:**
+
+```typescript
+import { GeometryProcessor } from '@ifc-lite/geometry';
+import { buildSpatialIndex } from '@ifc-lite/spatial';
+import { Renderer } from '@ifc-lite/renderer';
+
+const geometry = new GeometryProcessor();
+await geometry.init();
+
+// Process geometry
+const geometryResult = await geometry.process(new Uint8Array(buffer));
+
+// Build spatial index for frustum culling
+const spatialIndex = buildSpatialIndex(geometryResult.meshes);
+
+// Load geometry into renderer
+const renderer = new Renderer(canvas);
+await renderer.init();
+renderer.loadGeometry(geometryResult);
+
+// Render with frustum culling enabled
+renderer.render({
+  enableFrustumCulling: true,
+  spatialIndex
+});
+```
+
+### SpatialIndex Interface
+
+The spatial index provides efficient spatial queries:
+
+```typescript
+interface SpatialIndex {
+  /**
+   * Query AABB - returns expressIds of meshes that intersect the query bounds
+   * @param bounds - Axis-aligned bounding box to query
+   * @returns Array of expressIds for meshes intersecting the bounds
+   */
+  queryAABB(bounds: AABB): number[];
+
+  /**
+   * Raycast - returns expressIds of meshes hit by ray
+   * @param origin - Ray origin point [x, y, z]
+   * @param direction - Ray direction vector [x, y, z] (normalized)
+   * @returns Array of expressIds for meshes hit by the ray
+   */
+  raycast(origin: [number, number, number], direction: [number, number, number]): number[];
+
+  /**
+   * Query frustum - returns expressIds of meshes visible in frustum
+   * @param frustum - Camera frustum planes
+   * @returns Array of expressIds for meshes visible in the frustum
+   */
+  queryFrustum(frustum: Frustum): number[];
+}
+```
+
+### Exported Types
+
+```typescript
+// AABB (Axis-Aligned Bounding Box)
+interface AABB {
+  min: [number, number, number];
+  max: [number, number, number];
+}
+
+// Frustum planes
+interface Frustum {
+  planes: Plane[];
+}
+
+interface Plane {
+  normal: [number, number, number];
+  distance: number;
+}
+```
+
 ### BVH Acceleration
 
 The renderer uses a Bounding Volume Hierarchy for fast raycasting:

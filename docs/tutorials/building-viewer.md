@@ -238,6 +238,12 @@ export class IfcViewer {
     return extractPropertiesOnDemand(this.dataStore, expressId, this.buffer);
   }
 
+  getModelBounds(): { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | null {
+    // Get bounds from renderer's scene
+    const scene = this.renderer.getScene();
+    return scene.getBounds();
+  }
+
   dispose(): void {
     if (this.animationId !== null) {
       cancelAnimationFrame(this.animationId);

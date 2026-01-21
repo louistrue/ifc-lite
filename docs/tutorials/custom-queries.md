@@ -238,7 +238,17 @@ const floorAreaByStorey = await query.sql(`
     This example shows the concept - actual implementation requires extending the renderer.
 
 ```typescript
-import { extractPropertiesOnDemand } from '@ifc-lite/parser';
+import { IfcParser, extractPropertiesOnDemand } from '@ifc-lite/parser';
+import { IfcQuery } from '@ifc-lite/query';
+
+// First, parse the IFC file to get store and buffer
+const parser = new IfcParser();
+const response = await fetch('model.ifc');
+const buffer = new Uint8Array(await response.arrayBuffer());
+const store = await parser.parseColumnar(buffer.buffer);
+
+// Create query from parsed store
+const query = new IfcQuery(store);
 
 // Get walls and their fire ratings
 const walls = query.walls().toArray();
@@ -247,6 +257,7 @@ const walls = query.walls().toArray();
 const colorMap = new Map<number, string>();
 
 for (const wall of walls) {
+  // Extract properties on-demand using the store and buffer from parseColumnar
   const props = extractPropertiesOnDemand(store, wall.expressId, buffer);
   const fireRating = props?.['Pset_WallCommon']?.FireRating || 0;
 

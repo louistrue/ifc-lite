@@ -75,16 +75,17 @@ async function main() {
   // Fit camera to model bounds
   renderer.fitToView();
 
+  // Example: Query entities from the parsed store
+  // The store variable from parser.parseColumnar() is available here in the same scope
+  const wallIds = store.entityIndex.byType.get('IFCWALL') ?? [];
+  console.log(`Found ${wallIds.length} walls`);
+
   // Start render loop
   function animate() {
     renderer.render();
     requestAnimationFrame(animate);
   }
   animate();
-
-  // Example: Get walls from parsed data
-  const wallIds = store.entityIndex.byType.get('IFCWALL') ?? [];
-  console.log(`Found ${wallIds.length} walls`);
 
   // Add camera controls (see below)
   setupCameraControls(canvas, renderer);
