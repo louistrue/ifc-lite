@@ -250,7 +250,8 @@ export function calculateStreamingProgress(
 export function normalizeColor(
   color?: [number, number, number, number] | [number, number, number] | number[]
 ): [number, number, number, number] {
-  if (!color) {
+  // Return default color if no color provided or array is too short
+  if (!color || color.length < 3) {
     return [0.7, 0.7, 0.7, 1.0];
   }
   if (color.length === 4) {

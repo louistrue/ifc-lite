@@ -485,14 +485,7 @@ function buildRelationships(
     const upperType = rel.rel_type.toUpperCase();
     const relType = REL_TYPE_MAP.get(upperType);
 
-    if (relType === undefined && !unmappedRelTypes.has(upperType)) {
-      unmappedRelTypes.add(upperType);
-      console.debug(`[serverDataModel] Unmapped relationship type: ${rel.rel_type}`);
-    }
-
-    const finalRelType = relType ?? RelationshipType.Aggregates;
-
-    // Build property set and quantity set mappings
+    // Build property set and quantity set mappings (regardless of relType mapping)
     if (upperType === 'IFCRELDEFINESBYPROPERTIES') {
       const pset = dataModel.propertySets.get(rel.relating_id);
       if (pset) {
@@ -510,17 +503,27 @@ function buildRelationships(
       }
     }
 
+    // Only add relationship edges for known/mapped relationship types
+    // Don't coerce unknown types to Aggregates as it corrupts semantics
+    if (relType === undefined) {
+      if (!unmappedRelTypes.has(upperType)) {
+        unmappedRelTypes.add(upperType);
+        console.debug(`[serverDataModel] Unmapped relationship type: ${rel.rel_type}`);
+      }
+      continue;
+    }
+
     // Forward: relating -> related
     if (!forwardEdges.has(rel.relating_id)) {
       forwardEdges.set(rel.relating_id, []);
     }
-    forwardEdges.get(rel.relating_id)!.push({ target: rel.related_id, type: finalRelType, relationshipId: 0 });
+    forwardEdges.get(rel.relating_id)!.push({ target: rel.related_id, type: relType, relationshipId: 0 });
 
     // Inverse: related -> relating
     if (!inverseEdges.has(rel.related_id)) {
       inverseEdges.set(rel.related_id, []);
     }
-    inverseEdges.get(rel.related_id)!.push({ target: rel.relating_id, type: finalRelType, relationshipId: 0 });
+    inverseEdges.get(rel.related_id)!.push({ target: rel.relating_id, type: relType, relationshipId: 0 });
   }
 
   if (unmappedRelTypes.size > 0) {
@@ -599,10 +602,12 @@ export function convertServerDataModel(
   // Build entity table
   const { entities, entityByIdMap, typeGroups } = buildEntityTable(dataModel, strings);
 
-  // Convert typeGroups (IfcTypeEnum keyed) to string-keyed Map for entityIndex.byType
+  // Convert typeGroups (IfcTypeEnum keyed, contains indices) to string-keyed Map with express IDs
   const byType = new Map<string, number[]>();
-  for (const [typeEnum, expressIds] of typeGroups) {
+  for (const [typeEnum, indices] of typeGroups) {
     const typeName = IfcTypeEnumToString(typeEnum);
+    // Map indices to actual express IDs using the entities.expressId array
+    const expressIds = indices.map(idx => entities.expressId[idx]);
     byType.set(typeName, expressIds);
   }
 
