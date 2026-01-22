@@ -742,9 +742,21 @@ export function convertServerDataModel(
   // Build spatial index
   const spatialIndex = allMeshes.length > 0 ? buildSpatialIndex(allMeshes) : undefined;
 
+  // Validate schemaVersion against allowed values
+  const VALID_SCHEMA_VERSIONS = ['IFC2X3', 'IFC4', 'IFC4X3'] as const;
+  type SchemaVersion = typeof VALID_SCHEMA_VERSIONS[number];
+  const rawSchemaVersion = parseResult.metadata.schema_version;
+  let schemaVersion: SchemaVersion;
+  if (VALID_SCHEMA_VERSIONS.includes(rawSchemaVersion as SchemaVersion)) {
+    schemaVersion = rawSchemaVersion as SchemaVersion;
+  } else {
+    console.warn(`[serverDataModel] Unknown schema version "${rawSchemaVersion}", defaulting to IFC4`);
+    schemaVersion = 'IFC4';
+  }
+
   return {
     fileSize: file.size,
-    schemaVersion: parseResult.metadata.schema_version as 'IFC2X3' | 'IFC4' | 'IFC4X3',
+    schemaVersion,
     entityCount: dataModel.entities.size,
     parseTime: parseResult.stats.total_time_ms,
     source: new Uint8Array(0),
