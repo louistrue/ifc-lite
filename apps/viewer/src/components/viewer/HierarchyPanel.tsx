@@ -81,7 +81,9 @@ export function HierarchyPanel() {
   const hideEntities = useViewerStore((s) => s.hideEntities);
   const showEntities = useViewerStore((s) => s.showEntities);
   const toggleEntityVisibility = useViewerStore((s) => s.toggleEntityVisibility);
-  const isEntityVisible = useViewerStore((s) => s.isEntityVisible);
+  // Note: We use hiddenEntities directly instead of isEntityVisible
+  // because isEntityVisible combines hidden AND isolation state, but the
+  // hide/show toggle UI should only reflect the hidden state.
 
   const clearSelection = useViewerStore((s) => s.clearSelection);
 
@@ -226,7 +228,7 @@ export function HierarchyPanel() {
                   depth: 3,
                   hasChildren: false,
                   isExpanded: false,
-                  isVisible: isEntityVisible(elementId),
+                  isVisible: !hiddenEntities.has(elementId),
                 });
               }
             }
@@ -291,7 +293,7 @@ export function HierarchyPanel() {
               depth: 2,
               hasChildren: false,
               isExpanded: false,
-              isVisible: isEntityVisible(elementId),
+              isVisible: !hiddenEntities.has(elementId),
             });
           }
         }
@@ -299,7 +301,7 @@ export function HierarchyPanel() {
     }
 
     return nodes;
-  }, [models, ifcDataStore, expandedNodes, isEntityVisible, hiddenEntities]);
+  }, [models, ifcDataStore, expandedNodes, hiddenEntities]);
 
   // Filter nodes based on search
   const filteredNodes = useMemo(() => {
@@ -333,42 +335,48 @@ export function HierarchyPanel() {
   }, []);
 
   // Toggle visibility for a node - if storey, toggle all elements
+  // Note: We check hiddenEntities directly, NOT isEntityVisible, because
+  // isEntityVisible combines hidden AND isolation state. The hide toggle
+  // should only care about the hidden state - isolation is separate.
   const handleVisibilityToggle = useCallback((node: TreeNode) => {
     if (node.type === 'IfcBuildingStorey') {
       const elements = storeyElementsMap.get(node.id) || [];
       if (elements.length === 0) return;
 
-      // Check if all elements are visible
-      const allVisible = elements.every(id => isEntityVisible(id));
+      // Check if NONE of the elements are explicitly hidden
+      // (Don't use isEntityVisible which includes isolation logic)
+      const noneHidden = elements.every(id => !hiddenEntities.has(id));
 
-      if (allVisible) {
-        // Hide all elements in storey
+      if (noneHidden) {
+        // None are hidden, so hide all elements in storey
         hideEntities(elements);
         // Clear selection if selected element is being hidden
         if (selectedEntityId !== null && elements.includes(selectedEntityId)) {
           clearSelection();
         }
       } else {
-        // Show all elements in storey
+        // Some are hidden, so show all elements in storey (remove from hidden)
         showEntities(elements);
       }
     } else {
-      // Single element toggle
-      const wasVisible = isEntityVisible(node.id);
+      // Single element toggle - check only hidden state
+      const isHidden = hiddenEntities.has(node.id);
       toggleEntityVisibility(node.id);
       // Clear selection if we just hid the selected element
-      if (wasVisible && selectedEntityId === node.id) {
+      if (!isHidden && selectedEntityId === node.id) {
         clearSelection();
       }
     }
-  }, [storeyElementsMap, isEntityVisible, hideEntities, showEntities, toggleEntityVisibility, selectedEntityId, clearSelection]);
+  }, [storeyElementsMap, hiddenEntities, hideEntities, showEntities, toggleEntityVisibility, selectedEntityId, clearSelection]);
 
-  // Check if storey has any visible elements (show as hidden only when ALL are hidden)
+  // Check if storey has any non-hidden elements (for UI icon display)
+  // Only checks hiddenEntities, not isolation state
   const isStoreyVisible = useCallback((storeyId: number) => {
     const elements = storeyElementsMap.get(storeyId) || [];
     if (elements.length === 0) return true;
-    return elements.some(id => isEntityVisible(id));
-  }, [storeyElementsMap, isEntityVisible]);
+    // Return true if at least one element is NOT in hiddenEntities
+    return elements.some(id => !hiddenEntities.has(id));
+  }, [storeyElementsMap, hiddenEntities]);
 
   // Toggle model collapse state
   const handleModelToggle = useCallback((modelId: string) => {
@@ -486,12 +494,13 @@ export function HierarchyPanel() {
               : node.type === 'IfcBuildingStorey'
                 ? selectedStoreys.has(node.id)
                 : selectedEntityId === node.id;
-            // For storeys, check if all elements are visible
+            // For storeys, check if all elements are hidden (using hiddenEntities only, not isolation)
+            // The eye icon shows hidden state, not combined visibility with isolation
             const nodeVisible = node.isModelRoot
               ? node.isVisible
               : node.type === 'IfcBuildingStorey'
                 ? isStoreyVisible(node.id)
-                : isEntityVisible(node.id);
+                : !hiddenEntities.has(node.id);
             const nodeHidden = !nodeVisible;
 
             // Special rendering for model root nodes
@@ -650,30 +659,32 @@ export function HierarchyPanel() {
                     <div className="w-5" />
                   )}
 
-                  {/* Visibility Toggle */}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleVisibilityToggle(node);
-                        }}
-                        className={cn(
-                          'p-0.5 opacity-0 group-hover:opacity-100 transition-opacity mr-1',
-                          nodeHidden && 'opacity-100'
-                        )}
-                      >
-                        {nodeVisible ? (
-                          <Eye className="h-3 w-3 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
-                        ) : (
-                          <EyeOff className="h-3 w-3 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
-                        )}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="text-xs">{nodeVisible ? 'Hide' : 'Show'}</p>
-                    </TooltipContent>
-                  </Tooltip>
+                  {/* Visibility Toggle - only for storey and element nodes, not IfcProject */}
+                  {node.type !== 'IfcProject' && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleVisibilityToggle(node);
+                          }}
+                          className={cn(
+                            'p-0.5 opacity-0 group-hover:opacity-100 transition-opacity mr-1',
+                            nodeHidden && 'opacity-100'
+                          )}
+                        >
+                          {nodeVisible ? (
+                            <Eye className="h-3 w-3 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
+                          ) : (
+                            <EyeOff className="h-3 w-3 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
+                          )}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">{nodeVisible ? 'Hide' : 'Show'}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
 
                   {/* Type Icon */}
                   <Tooltip>

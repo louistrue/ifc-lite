@@ -163,13 +163,25 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   }, [geometryResult]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      loadFile(file);
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      // First file is loaded as primary, rest are added as additional models
+      const firstFile = files[0];
+      if (firstFile.name.endsWith('.ifc') || firstFile.name.endsWith('.ifcx')) {
+        loadFile(firstFile);
+      }
+      // Add remaining files as additional models
+      for (let i = 1; i < files.length; i++) {
+        const file = files[i];
+        if (file.name.endsWith('.ifc') || file.name.endsWith('.ifcx')) {
+          // Slight delay to let first file start loading
+          setTimeout(() => addModel(file), 100 * i);
+        }
+      }
     }
-    // Reset input so same file can be selected again
+    // Reset input so same files can be selected again
     e.target.value = '';
-  }, [loadFile]);
+  }, [loadFile, addModel]);
 
   const handleAddModelSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -303,6 +315,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
         ref={fileInputRef}
         type="file"
         accept=".ifc,.ifcx"
+        multiple
         onChange={handleFileSelect}
         className="hidden"
       />
