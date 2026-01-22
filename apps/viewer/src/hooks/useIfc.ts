@@ -67,10 +67,39 @@ let serverAvailabilityCache: { available: boolean; checkedAt: number } | null = 
 const SERVER_CHECK_CACHE_MS = 30000; // Re-check server availability every 30 seconds
 
 /**
+ * Check if server URL is reachable from current origin
+ * Returns false immediately if localhost server from non-localhost origin (would cause CORS)
+ */
+function isServerReachable(serverUrl: string): boolean {
+  try {
+    const server = new URL(serverUrl);
+    const isServerLocalhost = server.hostname === 'localhost' || server.hostname === '127.0.0.1';
+
+    // In browser, check if we're on localhost
+    if (typeof window !== 'undefined') {
+      const isClientLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+      // Skip localhost server when running from remote origin (avoids CORS error in console)
+      if (isServerLocalhost && !isClientLocalhost) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Silently check if server is available (no console logging on failure)
  * Returns cached result if recently checked
  */
-async function isServerAvailable(client: IfcServerClient): Promise<boolean> {
+async function isServerAvailable(serverUrl: string, client: IfcServerClient): Promise<boolean> {
+  // First check if server is even reachable (prevents CORS errors)
+  if (!isServerReachable(serverUrl)) {
+    return false;
+  }
+
   const now = Date.now();
 
   // Use cached result if recent
@@ -128,7 +157,7 @@ export function useIfc() {
       const client = new IfcServerClient({ baseUrl: SERVER_URL });
 
       // Silent server availability check (cached, no error logging)
-      const serverAvailable = await isServerAvailable(client);
+      const serverAvailable = await isServerAvailable(SERVER_URL, client);
       if (!serverAvailable) {
         return false; // Silently fall back - caller handles logging
       }
@@ -565,7 +594,6 @@ export function useIfc() {
       }
 
       // Using local WASM parsing
-      console.log(`[useIfc] Using local WASM parsing for ${file.name} (${fileSizeMB.toFixed(2)}MB)`);
       setProgress({ phase: 'Starting geometry streaming', percent: 10 });
 
       // Initialize geometry processor first (WASM init is fast if already loaded)
@@ -588,13 +616,7 @@ export function useIfc() {
         const wasmApi = geometryProcessor.getApi();
         parser.parseColumnar(buffer, {
           wasmApi, // Pass WASM API for 5-10x faster entity scanning
-          onProgress: (prog) => {
-            if (prog.percent === 0 || prog.percent === 50 || prog.percent === 100) {
-              console.log(`[useIfc] Data model: ${prog.phase} ${prog.percent.toFixed(0)}%`);
-            }
-          },
         }).then(dataStore => {
-          console.log('[useIfc] Data model parsing complete - properties available via on-demand extraction');
           
           // Calculate storey heights from elevation differences if not already populated
           if (dataStore.spatialHierarchy && dataStore.spatialHierarchy.storeyHeights.size === 0 && dataStore.spatialHierarchy.storeyElevations.size > 1) {
@@ -638,8 +660,6 @@ export function useIfc() {
       const RENDER_INTERVAL_MS = getRenderIntervalMs(fileSizeMB);
 
       try {
-        console.log(`[useIfc] Starting geometry streaming IMMEDIATELY (file size: ${fileSizeMB.toFixed(2)}MB)...`);
-
         // Use dynamic batch sizing for optimal throughput
         const dynamicBatchConfig = getDynamicBatchConfig(fileSizeMB);
 
@@ -653,11 +673,9 @@ export function useIfc() {
           switch (event.type) {
             case 'start':
               estimatedTotal = event.totalEstimate;
-              console.log(`[useIfc] Processing started, estimated: ${estimatedTotal}`);
               break;
             case 'model-open':
               setProgress({ phase: 'Processing geometry', percent: 50 });
-              console.log(`[useIfc] Model opened at ${(eventReceived - processingStart).toFixed(0)}ms`);
               break;
             case 'colorUpdate': {
               // Update colors for already-rendered meshes
@@ -698,15 +716,6 @@ export function useIfc() {
 
               const processTime = performance.now() - processStart;
               totalProcessTime += processTime;
-
-              // Log batch timing (first 5, then every 20th)
-              if (batchCount <= 5 || batchCount % 20 === 0) {
-                console.log(
-                  `[useIfc] Batch #${batchCount}: ${event.meshes.length} meshes, ` +
-                  `wait: ${waitTime.toFixed(0)}ms, process: ${processTime.toFixed(0)}ms, ` +
-                  `total: ${totalMeshes} meshes at ${(eventReceived - processingStart).toFixed(0)}ms`
-                );
-              }
               break;
             }
             case 'complete':
@@ -715,13 +724,6 @@ export function useIfc() {
                 appendGeometryBatch(pendingMeshes, event.coordinateInfo);
                 pendingMeshes = [];
               }
-
-              console.log(
-                `[useIfc] Geometry streaming complete: ${batchCount} batches, ${event.totalMeshes} meshes\n` +
-                `  Total wait (WASM): ${totalWaitTime.toFixed(0)}ms\n` +
-                `  Total process (JS): ${totalProcessTime.toFixed(0)}ms\n` +
-                `  First batch at: ${batchCount > 0 ? '(see Batch #1 above)' : 'N/A'}`
-              );
 
               finalCoordinateInfo = event.coordinateInfo ?? null;
 
@@ -774,9 +776,9 @@ export function useIfc() {
         setError(err instanceof Error ? err.message : 'Unknown error during geometry processing');
       }
 
-      // Log total elapsed time for complete user experience
+      // Log concise summary
       const totalElapsedMs = performance.now() - totalStartTime;
-      console.log(`[useIfc] TOTAL LOAD TIME: ${totalElapsedMs.toFixed(0)}ms (${(totalElapsedMs / 1000).toFixed(1)}s)`);
+      console.log(`[useIfc] Loaded ${allMeshes.length} meshes in ${totalElapsedMs.toFixed(0)}ms`);
       
       setLoading(false);
     } catch (err) {

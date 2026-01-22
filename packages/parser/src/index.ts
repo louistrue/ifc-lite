@@ -149,8 +149,6 @@ export class IfcParser {
     const startTime = performance.now();
     const fileSizeMB = buffer.byteLength / (1024 * 1024);
 
-    console.log(`[IfcParser] Parsing ${fileSizeMB.toFixed(1)}MB file with on-demand property extraction`);
-
     // Fast scan: try WASM scanner first (5-10x faster), fallback to TypeScript
     options.onProgress?.({ phase: 'scanning', percent: 0 });
     
@@ -180,7 +178,6 @@ export class IfcParser {
         }));
         
         processed = entityRefs.length;
-        console.log(`[IfcParser] WASM scan: ${processed} entities`);
       } catch (error) {
         console.warn('[IfcParser] WASM scan failed, falling back to TypeScript:', error);
         // Fall through to TypeScript scanner
@@ -217,8 +214,6 @@ export class IfcParser {
       }
     }
 
-    const scanTime = performance.now() - startTime;
-    console.log(`[IfcParser] Fast scan: ${processed} entities in ${scanTime.toFixed(0)}ms`);
     options.onProgress?.({ phase: 'scanning', percent: 100 });
 
     // Build columnar structures with on-demand property extraction

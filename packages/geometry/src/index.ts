@@ -126,10 +126,7 @@ export class GeometryProcessor {
     // Note: options accepted for API compatibility
     void options.quality;
 
-    if (this.isNative) {
-      console.log('[GeometryProcessor] Running in Tauri - using NATIVE Rust processing');
-    } else {
-      console.log('[GeometryProcessor] Running in browser - using WASM processing');
+    if (!this.isNative) {
       this.bridge = new IfcLiteBridge();
     }
   }

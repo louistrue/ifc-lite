@@ -218,8 +218,6 @@ export class ColumnarParser {
             }
         }
 
-        console.log(`[ColumnarParser] Parsed ${spatialRefs.length} spatial entities`);
-
         // Parse relationship entities (typically < 10k entities)
         options.onProgress?.({ phase: 'parsing relationships', percent: 20 });
 
@@ -242,8 +240,6 @@ export class ColumnarParser {
                 }
             }
         }
-
-        console.log(`[ColumnarParser] Parsed ${relationshipRefs.length} relationship entities, ${relationships.length} valid relationships`);
 
         // === PARSE PROPERTY RELATIONSHIPS for on-demand loading ===
         options.onProgress?.({ phase: 'parsing property refs', percent: 25 });
@@ -293,8 +289,6 @@ export class ColumnarParser {
                 }
             }
         }
-
-        console.log(`[ColumnarParser] On-demand: ${onDemandPropertyMap.size} entities with properties, ${onDemandQuantityMap.size} with quantities`);
 
         // === BUILD ENTITY TABLE with spatial data included ===
         options.onProgress?.({ phase: 'building entities', percent: 30 });
@@ -357,8 +351,6 @@ export class ColumnarParser {
             }
         }
         
-        console.log(`[ColumnarParser] Added ${added} relevant entities (skipped ${totalEntities - added} primitives)`);
-
         const entityTable = entityTableBuilder.build();
 
         // Empty property/quantity tables - use on-demand extraction instead
@@ -369,7 +361,6 @@ export class ColumnarParser {
         // === EXTRACT LENGTH UNIT SCALE ===
         options.onProgress?.({ phase: 'extracting units', percent: 85 });
         const lengthUnitScale = extractLengthUnitScale(uint8Buffer, entityIndex);
-        console.log(`[ColumnarParser] Length unit scale: ${lengthUnitScale}`);
 
         // === BUILD SPATIAL HIERARCHY ===
         options.onProgress?.({ phase: 'building hierarchy', percent: 90 });
@@ -385,13 +376,11 @@ export class ColumnarParser {
                 entityIndex,
                 lengthUnitScale
             );
-            console.log(`[ColumnarParser] Built spatial hierarchy with ${spatialHierarchy.byStorey.size} storeys`);
         } catch (error) {
             console.warn('[ColumnarParser] Failed to build spatial hierarchy:', error);
         }
 
         const parseTime = performance.now() - startTime;
-        console.log(`[ColumnarParser] Parsed ${totalEntities} entities in ${parseTime.toFixed(0)}ms`);
         options.onProgress?.({ phase: 'complete', percent: 100 });
 
         return {

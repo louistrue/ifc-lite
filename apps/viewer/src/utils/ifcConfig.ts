@@ -13,11 +13,11 @@ import type { DynamicBatchConfig } from '@ifc-lite/geometry';
 // Server Configuration
 // ============================================================================
 
-/** IFC server URL - configurable via environment variable */
-export const SERVER_URL = import.meta.env.VITE_IFC_SERVER_URL || import.meta.env.VITE_SERVER_URL || 'http://localhost:8080';
+/** IFC server URL - only set via environment variable, no default (pure client-side by default) */
+export const SERVER_URL = import.meta.env.VITE_IFC_SERVER_URL || import.meta.env.VITE_SERVER_URL || '';
 
-/** Enable server parsing (with graceful fallback if unavailable) */
-export const USE_SERVER = import.meta.env.VITE_USE_SERVER !== 'false';
+/** Enable server parsing - only if server URL is explicitly configured */
+export const USE_SERVER = SERVER_URL !== '' && import.meta.env.VITE_USE_SERVER !== 'false';
 
 // ============================================================================
 // File Size Thresholds (in bytes unless noted)
