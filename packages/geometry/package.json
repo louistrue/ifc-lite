@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc || true",
     "dev": "tsc --watch",
-    "test": "tsx --test src/**/*.test.ts"
+    "test": "tsx --test src/*.test.ts"
   },
   "dependencies": {
     "@ifc-lite/wasm": "workspace:^"
