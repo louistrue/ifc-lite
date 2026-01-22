@@ -27,23 +27,55 @@ import { cn } from '@/lib/utils';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 
+// Node types for the unified tree
+type NodeType =
+  | 'unified-storey'      // Grouped storey across models
+  | 'model-contribution'  // Model's contribution to a unified storey
+  | 'model-header'        // Model visibility control
+  | 'element'             // Individual element
+  | 'IfcProject'          // Project node (legacy)
+  | 'IfcBuildingStorey';  // Single-model storey (legacy)
+
 interface TreeNode {
-  id: number;
-  /** Model ID this node belongs to */
-  modelId: string;
+  id: string;  // Unique ID for the node (can be composite)
+  /** Express IDs this node represents (for elements/storeys) */
+  expressIds: number[];
+  /** Model IDs this node belongs to */
+  modelIds: string[];
   name: string;
-  type: string;
+  type: NodeType;
   depth: number;
   hasChildren: boolean;
   isExpanded: boolean;
   isVisible: boolean;
   elementCount?: number;
   storeyElevation?: number;
-  /** True for model header nodes */
-  isModelRoot?: boolean;
+  /** For model-contribution nodes, the model name */
+  modelName?: string;
+}
+
+/** Data for a storey from a single model */
+interface StoreyData {
+  modelId: string;
+  storeyId: number;
+  name: string;
+  elevation: number;
+  elements: number[];
+}
+
+/** Unified storey grouping storeys from multiple models */
+interface UnifiedStorey {
+  key: string;  // Elevation-based key for matching
+  name: string;
+  elevation: number;
+  storeys: StoreyData[];
+  totalElements: number;
 }
 
 const TYPE_ICONS: Record<string, React.ElementType> = {
+  'unified-storey': Layers,
+  'model-contribution': FileBox,
+  'model-header': FileBox,
   IfcProject: FolderKanban,
   IfcSite: MapPin,
   IfcBuilding: Building2,
@@ -52,8 +84,14 @@ const TYPE_ICONS: Record<string, React.ElementType> = {
   IfcWall: Square,
   IfcWallStandardCase: Square,
   IfcDoor: DoorOpen,
+  element: Box,
   default: Box,
 };
+
+// Helper to create elevation key (with 0.5m tolerance for matching)
+function elevationKey(elevation: number): string {
+  return (Math.round(elevation * 2) / 2).toFixed(2);
+}
 
 export function HierarchyPanel() {
   const {
@@ -64,168 +102,162 @@ export function HierarchyPanel() {
     setModelVisibility,
     setModelCollapsed,
     removeModel,
-    hasModels,
   } = useIfc();
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
   const setSelectedEntity = useViewerStore((s) => s.setSelectedEntity);
   const selectedStoreys = useViewerStore((s) => s.selectedStoreys);
-  const toggleStoreySelection = useViewerStore((s) => s.toggleStoreySelection);
   const setStoreySelection = useViewerStore((s) => s.setStoreySelection);
   const setStoreysSelection = useViewerStore((s) => s.setStoreysSelection);
   const clearStoreySelection = useViewerStore((s) => s.clearStoreySelection);
+  const isolateEntities = useViewerStore((s) => s.isolateEntities);
 
-  // Track anchor for shift-click range selection
-  const lastClickedStoreyRef = useRef<number | null>(null);
   const hiddenEntities = useViewerStore((s) => s.hiddenEntities);
   const hideEntities = useViewerStore((s) => s.hideEntities);
   const showEntities = useViewerStore((s) => s.showEntities);
   const toggleEntityVisibility = useViewerStore((s) => s.toggleEntityVisibility);
-  // Note: We use hiddenEntities directly instead of isEntityVisible
-  // because isEntityVisible combines hidden AND isolation state, but the
-  // hide/show toggle UI should only reflect the hidden state.
-
   const clearSelection = useViewerStore((s) => s.clearSelection);
 
-  // Track expanded models (by model ID)
-  const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
-
   const [searchQuery, setSearchQuery] = useState('');
-  const [expandedNodes, setExpandedNodes] = useState<Set<number>>(new Set());
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
 
   // Check if we have multiple models loaded
   const isMultiModel = models.size > 1;
 
-  // Get storey elements mapping for visibility toggle (uses active model for legacy compat)
-  const storeyElementsMap = useMemo(() => {
-    if (!ifcDataStore?.spatialHierarchy) return new Map<number, number[]>();
-    return ifcDataStore.spatialHierarchy.byStorey;
-  }, [ifcDataStore]);
+  // Build unified storey data - groups storeys by elevation across all models
+  const unifiedStoreys = useMemo((): UnifiedStorey[] => {
+    if (models.size === 0) return [];
 
-  // Ordered list of storey IDs (for shift-click range selection)
-  const orderedStoreyIds = useMemo(() => {
-    if (!ifcDataStore?.spatialHierarchy) return [];
-    const hierarchy = ifcDataStore.spatialHierarchy;
-    const storeysArray = Array.from(hierarchy.byStorey.entries()) as [number, number[]][];
-    return storeysArray
-      .map(([id]) => ({
-        id,
-        elevation: hierarchy.storeyElevations.get(id) ?? 0,
-      }))
-      .sort((a, b) => b.elevation - a.elevation)
-      .map(s => s.id);
-  }, [ifcDataStore]);
+    const storeysByElevation = new Map<string, UnifiedStorey>();
 
-  // Build spatial tree data - supports multi-model with collapsible sections
+    for (const [modelId, model] of models) {
+      const dataStore = model.ifcDataStore;
+      if (!dataStore?.spatialHierarchy) continue;
+
+      const hierarchy = dataStore.spatialHierarchy;
+      const { byStorey, storeyElevations } = hierarchy;
+
+      for (const [storeyId, elements] of byStorey.entries()) {
+        const elevation = storeyElevations.get(storeyId) ?? 0;
+        const name = dataStore.entities.getName(storeyId) || `Storey #${storeyId}`;
+        const key = elevationKey(elevation);
+
+        const storeyData: StoreyData = {
+          modelId,
+          storeyId,
+          name,
+          elevation,
+          elements: elements as number[],
+        };
+
+        if (storeysByElevation.has(key)) {
+          const unified = storeysByElevation.get(key)!;
+          unified.storeys.push(storeyData);
+          unified.totalElements += elements.length;
+          // Use the first storey's name or pick the shorter one
+          if (name.length < unified.name.length) {
+            unified.name = name;
+          }
+        } else {
+          storeysByElevation.set(key, {
+            key,
+            name,
+            elevation,
+            storeys: [storeyData],
+            totalElements: elements.length,
+          });
+        }
+      }
+    }
+
+    // Sort by elevation descending (top to bottom)
+    return Array.from(storeysByElevation.values())
+      .sort((a, b) => b.elevation - a.elevation);
+  }, [models]);
+
+  // Get all element IDs for a unified storey (across all models)
+  const getUnifiedStoreyElements = useCallback((unifiedStorey: UnifiedStorey): number[] => {
+    const allElements: number[] = [];
+    for (const storey of unifiedStorey.storeys) {
+      allElements.push(...storey.elements);
+    }
+    return allElements;
+  }, []);
+
+  // Get all storey IDs for a unified storey (for isolation/filtering)
+  const getUnifiedStoreyIds = useCallback((unifiedStorey: UnifiedStorey): number[] => {
+    return unifiedStorey.storeys.map(s => s.storeyId);
+  }, []);
+
+  // Build the tree data structure
   const treeData = useMemo((): TreeNode[] => {
     const nodes: TreeNode[] = [];
 
-    // If we have models in the Map, iterate over them
-    if (models.size > 0) {
-      for (const [modelId, model] of models) {
-        const dataStore = model.ifcDataStore;
-        const isModelExpanded = !model.collapsed;
+    // Multi-model mode: show unified storeys first, then models
+    if (isMultiModel && unifiedStoreys.length > 0) {
+      // Add unified storeys
+      for (const unified of unifiedStoreys) {
+        const storeyNodeId = `unified-${unified.key}`;
+        const isExpanded = expandedNodes.has(storeyNodeId);
+        const allElements = getUnifiedStoreyElements(unified);
+        const allStoreyIds = getUnifiedStoreyIds(unified);
 
-        // Add model header node
+        // Check visibility - visible if any element is not hidden
+        const isVisible = allElements.some(id => !hiddenEntities.has(id));
+
         nodes.push({
-          id: -1, // Special ID for model headers
-          modelId,
-          name: model.name,
-          type: 'Model',
+          id: storeyNodeId,
+          expressIds: allStoreyIds,
+          modelIds: unified.storeys.map(s => s.modelId),
+          name: unified.name,
+          type: 'unified-storey',
           depth: 0,
-          hasChildren: true,
-          isExpanded: isModelExpanded,
-          isVisible: model.visible,
-          elementCount: dataStore?.entityCount,
-          isModelRoot: true,
+          hasChildren: unified.storeys.length > 0,
+          isExpanded,
+          isVisible,
+          elementCount: unified.totalElements,
+          storeyElevation: unified.elevation,
         });
 
-        // If model is collapsed, don't add its children
-        if (!isModelExpanded) continue;
+        // Add model contributions if expanded
+        if (isExpanded) {
+          for (const storey of unified.storeys) {
+            const model = models.get(storey.modelId);
+            const modelName = model?.name || storey.modelId;
+            const contributionNodeId = `contribution-${storey.modelId}-${storey.storeyId}`;
+            const contribExpanded = expandedNodes.has(contributionNodeId);
 
-        // Add model's spatial hierarchy
-        if (dataStore?.spatialHierarchy) {
-          const hierarchy = dataStore.spatialHierarchy;
-          const { byStorey, storeyElevations, storeyHeights } = hierarchy;
-
-          // Add project (depth 1)
-          nodes.push({
-            id: hierarchy.project.expressId,
-            modelId,
-            name: hierarchy.project.name || 'Project',
-            type: 'IfcProject',
-            depth: 1,
-            hasChildren: byStorey.size > 0,
-            isExpanded: true,
-            isVisible: true,
-          });
-
-          // Add storeys sorted by elevation
-          const storeysArray = Array.from(byStorey.entries()) as [number, number[]][];
-
-          const storeysWithData = storeysArray
-            .map(([id, elements]: [number, number[]]) => {
-              const height = storeyHeights?.get(id);
-              const elevation = storeyElevations.get(id);
-
-              return {
-                id,
-                name: dataStore.entities.getName(id) || `Storey #${id}`,
-                elevation: elevation !== undefined ? elevation : 0,
-                height,
-                elements,
-              };
-            })
-            .sort((a, b) => a.elevation - b.elevation);
-
-          // Calculate heights from elevation differences
-          const heightsFromElevation = new Map<number, number>();
-          for (let i = 0; i < storeysWithData.length - 1; i++) {
-            const current = storeysWithData[i];
-            const next = storeysWithData[i + 1];
-            if (current.height === undefined) {
-              const calculatedHeight = next.elevation - current.elevation;
-              if (calculatedHeight > 0) {
-                heightsFromElevation.set(current.id, calculatedHeight);
-              }
-            }
-          }
-
-          const storeys = storeysWithData
-            .map(s => ({
-              ...s,
-              height: s.height ?? heightsFromElevation.get(s.id),
-            }))
-            .sort((a, b) => b.elevation - a.elevation);
-
-          for (const storey of storeys) {
-            const isStoreyExpanded = expandedNodes.has(storey.id);
+            // Check visibility for this model's contribution
+            const contribVisible = storey.elements.some(id => !hiddenEntities.has(id));
 
             nodes.push({
-              id: storey.id,
-              modelId,
-              name: storey.name,
-              type: 'IfcBuildingStorey',
-              depth: 2,
+              id: contributionNodeId,
+              expressIds: [storey.storeyId],
+              modelIds: [storey.modelId],
+              name: modelName,
+              type: 'model-contribution',
+              depth: 1,
               hasChildren: storey.elements.length > 0,
-              isExpanded: isStoreyExpanded,
-              isVisible: true,
+              isExpanded: contribExpanded,
+              isVisible: contribVisible,
               elementCount: storey.elements.length,
-              storeyElevation: storey.elevation,
+              modelName,
             });
 
-            // Add storey elements if expanded
-            if (isStoreyExpanded && storey.elements.length > 0) {
+            // Add elements if contribution is expanded
+            if (contribExpanded) {
+              const dataStore = model?.ifcDataStore;
               for (const elementId of storey.elements) {
-                const entityType = dataStore.entities.getTypeName(elementId) || 'Unknown';
-                const entityName = dataStore.entities.getName(elementId) || `${entityType} #${elementId}`;
+                const entityType = dataStore?.entities.getTypeName(elementId) || 'Unknown';
+                const entityName = dataStore?.entities.getName(elementId) || `${entityType} #${elementId}`;
 
                 nodes.push({
-                  id: elementId,
-                  modelId,
+                  id: `element-${storey.modelId}-${elementId}`,
+                  expressIds: [elementId],
+                  modelIds: [storey.modelId],
                   name: entityName,
-                  type: entityType,
-                  depth: 3,
+                  type: 'element',
+                  depth: 2,
                   hasChildren: false,
                   isExpanded: false,
                   isVisible: !hiddenEntities.has(elementId),
@@ -235,62 +267,140 @@ export function HierarchyPanel() {
           }
         }
       }
-    } else if (ifcDataStore?.spatialHierarchy) {
-      // Fallback: single model without Map (legacy mode)
-      const hierarchy = ifcDataStore.spatialHierarchy;
-      const { byStorey, storeyElevations, storeyHeights } = hierarchy;
 
-      // Add project
+      // Add separator and model controls
       nodes.push({
-        id: hierarchy.project.expressId,
-        modelId: 'legacy',
-        name: hierarchy.project.name || 'Project',
-        type: 'IfcProject',
+        id: 'models-header',
+        expressIds: [],
+        modelIds: [],
+        name: 'Models',
+        type: 'model-header',
         depth: 0,
-        hasChildren: byStorey.size > 0,
-        isExpanded: true,
+        hasChildren: false,
+        isExpanded: false,
         isVisible: true,
       });
 
-      // Add storeys
+      // Add model entries for visibility control
+      for (const [modelId, model] of models) {
+        nodes.push({
+          id: `model-${modelId}`,
+          expressIds: [],
+          modelIds: [modelId],
+          name: model.name,
+          type: 'model-header',
+          depth: 0,
+          hasChildren: false,
+          isExpanded: false,
+          isVisible: model.visible,
+          elementCount: model.ifcDataStore?.entityCount,
+        });
+      }
+    } else if (models.size === 1) {
+      // Single model mode - simpler view
+      const [modelId, model] = Array.from(models.entries())[0];
+      const dataStore = model.ifcDataStore;
+
+      if (dataStore?.spatialHierarchy) {
+        const hierarchy = dataStore.spatialHierarchy;
+        const { byStorey, storeyElevations } = hierarchy;
+
+        // Sort storeys by elevation descending
+        const storeysArray = Array.from(byStorey.entries()) as [number, number[]][];
+        const sortedStoreys = storeysArray
+          .map(([id, elements]) => ({
+            id,
+            name: dataStore.entities.getName(id) || `Storey #${id}`,
+            elevation: storeyElevations.get(id) ?? 0,
+            elements,
+          }))
+          .sort((a, b) => b.elevation - a.elevation);
+
+        for (const storey of sortedStoreys) {
+          const storeyNodeId = `storey-${storey.id}`;
+          const isExpanded = expandedNodes.has(storeyNodeId);
+          const isVisible = storey.elements.some(id => !hiddenEntities.has(id));
+
+          nodes.push({
+            id: storeyNodeId,
+            expressIds: [storey.id],
+            modelIds: [modelId],
+            name: storey.name,
+            type: 'IfcBuildingStorey',
+            depth: 0,
+            hasChildren: storey.elements.length > 0,
+            isExpanded,
+            isVisible,
+            elementCount: storey.elements.length,
+            storeyElevation: storey.elevation,
+          });
+
+          if (isExpanded) {
+            for (const elementId of storey.elements) {
+              const entityType = dataStore.entities.getTypeName(elementId) || 'Unknown';
+              const entityName = dataStore.entities.getName(elementId) || `${entityType} #${elementId}`;
+
+              nodes.push({
+                id: `element-${modelId}-${elementId}`,
+                expressIds: [elementId],
+                modelIds: [modelId],
+                name: entityName,
+                type: 'element',
+                depth: 1,
+                hasChildren: false,
+                isExpanded: false,
+                isVisible: !hiddenEntities.has(elementId),
+              });
+            }
+          }
+        }
+      }
+    } else if (ifcDataStore?.spatialHierarchy) {
+      // Legacy single-model mode (no federation)
+      const hierarchy = ifcDataStore.spatialHierarchy;
+      const { byStorey, storeyElevations } = hierarchy;
+
       const storeysArray = Array.from(byStorey.entries()) as [number, number[]][];
-      const storeysWithData = storeysArray
-        .map(([id, elements]: [number, number[]]) => ({
+      const sortedStoreys = storeysArray
+        .map(([id, elements]) => ({
           id,
           name: ifcDataStore.entities.getName(id) || `Storey #${id}`,
           elevation: storeyElevations.get(id) ?? 0,
-          height: storeyHeights?.get(id),
           elements,
         }))
         .sort((a, b) => b.elevation - a.elevation);
 
-      for (const storey of storeysWithData) {
-        const isStoreyExpanded = expandedNodes.has(storey.id);
+      for (const storey of sortedStoreys) {
+        const storeyNodeId = `storey-${storey.id}`;
+        const isExpanded = expandedNodes.has(storeyNodeId);
+        const isVisible = storey.elements.some(id => !hiddenEntities.has(id));
 
         nodes.push({
-          id: storey.id,
-          modelId: 'legacy',
+          id: storeyNodeId,
+          expressIds: [storey.id],
+          modelIds: ['legacy'],
           name: storey.name,
           type: 'IfcBuildingStorey',
-          depth: 1,
+          depth: 0,
           hasChildren: storey.elements.length > 0,
-          isExpanded: isStoreyExpanded,
-          isVisible: true,
+          isExpanded,
+          isVisible,
           elementCount: storey.elements.length,
           storeyElevation: storey.elevation,
         });
 
-        if (isStoreyExpanded && storey.elements.length > 0) {
+        if (isExpanded) {
           for (const elementId of storey.elements) {
             const entityType = ifcDataStore.entities.getTypeName(elementId) || 'Unknown';
             const entityName = ifcDataStore.entities.getName(elementId) || `${entityType} #${elementId}`;
 
             nodes.push({
-              id: elementId,
-              modelId: 'legacy',
+              id: `element-legacy-${elementId}`,
+              expressIds: [elementId],
+              modelIds: ['legacy'],
               name: entityName,
-              type: entityType,
-              depth: 2,
+              type: 'element',
+              depth: 1,
               hasChildren: false,
               isExpanded: false,
               isVisible: !hiddenEntities.has(elementId),
@@ -301,7 +411,7 @@ export function HierarchyPanel() {
     }
 
     return nodes;
-  }, [models, ifcDataStore, expandedNodes, hiddenEntities]);
+  }, [models, ifcDataStore, unifiedStoreys, expandedNodes, hiddenEntities, isMultiModel, getUnifiedStoreyElements, getUnifiedStoreyIds]);
 
   // Filter nodes based on search
   const filteredNodes = useMemo(() => {
@@ -322,72 +432,72 @@ export function HierarchyPanel() {
     overscan: 10,
   });
 
-  const toggleExpand = useCallback((id: number) => {
+  const toggleExpand = useCallback((nodeId: string) => {
     setExpandedNodes(prev => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
+      if (next.has(nodeId)) {
+        next.delete(nodeId);
       } else {
-        next.add(id);
+        next.add(nodeId);
       }
       return next;
     });
   }, []);
 
-  // Toggle visibility for a node - if storey, toggle all elements
-  // Note: We check hiddenEntities directly, NOT isEntityVisible, because
-  // isEntityVisible combines hidden AND isolation state. The hide toggle
-  // should only care about the hidden state - isolation is separate.
-  const handleVisibilityToggle = useCallback((node: TreeNode) => {
-    if (node.type === 'IfcBuildingStorey') {
-      const elements = storeyElementsMap.get(node.id) || [];
-      if (elements.length === 0) return;
-
-      // Check if NONE of the elements are explicitly hidden
-      // (Don't use isEntityVisible which includes isolation logic)
-      const noneHidden = elements.every(id => !hiddenEntities.has(id));
-
-      if (noneHidden) {
-        // None are hidden, so hide all elements in storey
-        hideEntities(elements);
-        // Clear selection if selected element is being hidden
-        if (selectedEntityId !== null && elements.includes(selectedEntityId)) {
-          clearSelection();
-        }
-      } else {
-        // Some are hidden, so show all elements in storey (remove from hidden)
-        showEntities(elements);
+  // Get all elements for a node (handles unified storeys, contributions, and single elements)
+  const getNodeElements = useCallback((node: TreeNode): number[] => {
+    if (node.type === 'unified-storey') {
+      // Get elements from all contributing storeys
+      const unified = unifiedStoreys.find(u => `unified-${u.key}` === node.id);
+      if (unified) {
+        return getUnifiedStoreyElements(unified);
       }
-    } else {
-      // Single element toggle - check only hidden state
-      const isHidden = hiddenEntities.has(node.id);
-      toggleEntityVisibility(node.id);
-      // Clear selection if we just hid the selected element
-      if (!isHidden && selectedEntityId === node.id) {
+    } else if (node.type === 'model-contribution') {
+      // Get elements from this model's storey contribution
+      const parts = node.id.split('-');
+      const modelId = parts[1];
+      const storeyId = parseInt(parts[2], 10);
+      const model = models.get(modelId);
+      if (model?.ifcDataStore?.spatialHierarchy) {
+        return (model.ifcDataStore.spatialHierarchy.byStorey.get(storeyId) as number[]) || [];
+      }
+    } else if (node.type === 'IfcBuildingStorey') {
+      // Single model storey
+      const storeyId = node.expressIds[0];
+      if (ifcDataStore?.spatialHierarchy) {
+        return (ifcDataStore.spatialHierarchy.byStorey.get(storeyId) as number[]) || [];
+      }
+      // Or from the model in federation
+      const modelId = node.modelIds[0];
+      const model = models.get(modelId);
+      if (model?.ifcDataStore?.spatialHierarchy) {
+        return (model.ifcDataStore.spatialHierarchy.byStorey.get(storeyId) as number[]) || [];
+      }
+    } else if (node.type === 'element') {
+      return node.expressIds;
+    }
+    return [];
+  }, [unifiedStoreys, models, ifcDataStore, getUnifiedStoreyElements]);
+
+  // Toggle visibility for a node
+  const handleVisibilityToggle = useCallback((node: TreeNode) => {
+    const elements = getNodeElements(node);
+    if (elements.length === 0) return;
+
+    // Check if all elements are currently visible (not hidden)
+    const allVisible = elements.every(id => !hiddenEntities.has(id));
+
+    if (allVisible) {
+      hideEntities(elements);
+      if (selectedEntityId !== null && elements.includes(selectedEntityId)) {
         clearSelection();
       }
+    } else {
+      showEntities(elements);
     }
-  }, [storeyElementsMap, hiddenEntities, hideEntities, showEntities, toggleEntityVisibility, selectedEntityId, clearSelection]);
+  }, [getNodeElements, hiddenEntities, hideEntities, showEntities, selectedEntityId, clearSelection]);
 
-  // Check if storey has any non-hidden elements (for UI icon display)
-  // Only checks hiddenEntities, not isolation state
-  const isStoreyVisible = useCallback((storeyId: number) => {
-    const elements = storeyElementsMap.get(storeyId) || [];
-    if (elements.length === 0) return true;
-    // Return true if at least one element is NOT in hiddenEntities
-    return elements.some(id => !hiddenEntities.has(id));
-  }, [storeyElementsMap, hiddenEntities]);
-
-  // Toggle model collapse state
-  const handleModelToggle = useCallback((modelId: string) => {
-    const model = models.get(modelId);
-    if (model) {
-      setModelCollapsed(modelId, !model.collapsed);
-      setActiveModel(modelId);
-    }
-  }, [models, setModelCollapsed, setActiveModel]);
-
-  // Toggle model visibility
+  // Handle model visibility toggle
   const handleModelVisibilityToggle = useCallback((modelId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const model = models.get(modelId);
@@ -402,47 +512,40 @@ export function HierarchyPanel() {
     removeModel(modelId);
   }, [removeModel]);
 
+  // Handle node click - for selection/isolation
   const handleNodeClick = useCallback((node: TreeNode, e: React.MouseEvent) => {
-    // Handle model root node clicks
-    if (node.isModelRoot) {
-      handleModelToggle(node.modelId);
+    if (node.type === 'model-header' && node.id !== 'models-header') {
+      // Clicking model header - no action needed (visibility via eye icon)
       return;
     }
 
-    if (node.type === 'IfcBuildingStorey') {
-      if (e.shiftKey && lastClickedStoreyRef.current !== null) {
-        // Shift+click: select range from anchor to clicked item
-        const anchorIdx = orderedStoreyIds.indexOf(lastClickedStoreyRef.current);
-        const clickedIdx = orderedStoreyIds.indexOf(node.id);
+    if (node.type === 'unified-storey' || node.type === 'IfcBuildingStorey') {
+      // Get all storey IDs for filtering
+      const storeyIds = node.type === 'unified-storey'
+        ? (unifiedStoreys.find(u => `unified-${u.key}` === node.id)?.storeys.map(s => s.storeyId) || [])
+        : node.expressIds;
 
-        if (anchorIdx !== -1 && clickedIdx !== -1) {
-          const startIdx = Math.min(anchorIdx, clickedIdx);
-          const endIdx = Math.max(anchorIdx, clickedIdx);
-          const rangeIds = orderedStoreyIds.slice(startIdx, endIdx + 1);
-          setStoreysSelection(rangeIds);
-        } else {
-          // Fallback if indices not found
-          setStoreySelection(node.id);
-          lastClickedStoreyRef.current = node.id;
-        }
-      } else if (e.ctrlKey || e.metaKey) {
-        // Ctrl/Cmd+click: toggle individual item in selection
-        toggleStoreySelection(node.id);
-        lastClickedStoreyRef.current = node.id;
+      if (e.ctrlKey || e.metaKey) {
+        // Add to selection
+        setStoreysSelection([...Array.from(selectedStoreys), ...storeyIds]);
       } else {
-        // Normal click: single select (or deselect if already only selected)
-        setStoreySelection(node.id);
-        lastClickedStoreyRef.current = node.id;
+        // Single selection (toggle if already selected)
+        if (storeyIds.length === 1 && selectedStoreys.has(storeyIds[0]) && selectedStoreys.size === 1) {
+          clearStoreySelection();
+        } else {
+          setStoreysSelection(storeyIds);
+        }
       }
-    } else {
-      // Set both legacy and multi-model selection
-      setSelectedEntityId(node.id);
-      if (node.modelId !== 'legacy') {
-        setSelectedEntity({ modelId: node.modelId, expressId: node.id });
-        setActiveModel(node.modelId);
+    } else if (node.type === 'element') {
+      const elementId = node.expressIds[0];
+      const modelId = node.modelIds[0];
+      setSelectedEntityId(elementId);
+      if (modelId !== 'legacy') {
+        setSelectedEntity({ modelId, expressId: elementId });
+        setActiveModel(modelId);
       }
     }
-  }, [handleModelToggle, toggleStoreySelection, setStoreySelection, setStoreysSelection, setSelectedEntityId, setSelectedEntity, setActiveModel, orderedStoreyIds]);
+  }, [unifiedStoreys, selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntity, setActiveModel]);
 
   if (!ifcDataStore && models.size === 0) {
     return (
@@ -467,7 +570,9 @@ export function HierarchyPanel() {
     <div className="h-full flex flex-col border-r-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
       {/* Header */}
       <div className="p-3 border-b-2 border-zinc-200 dark:border-zinc-800 space-y-3 bg-zinc-50 dark:bg-black">
-        <h2 className="font-bold uppercase tracking-wider text-xs text-zinc-900 dark:text-zinc-100">Hierarchy</h2>
+        <h2 className="font-bold uppercase tracking-wider text-xs text-zinc-900 dark:text-zinc-100">
+          {isMultiModel ? 'Building Storeys' : 'Hierarchy'}
+        </h2>
         <Input
           placeholder="Search..."
           value={searchQuery}
@@ -488,27 +593,51 @@ export function HierarchyPanel() {
         >
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const node = filteredNodes[virtualRow.index];
-            const Icon = node.isModelRoot ? FileBox : (TYPE_ICONS[node.type] || TYPE_ICONS.default);
-            const isSelected = node.isModelRoot
-              ? node.modelId === activeModelId
-              : node.type === 'IfcBuildingStorey'
-                ? selectedStoreys.has(node.id)
-                : selectedEntityId === node.id;
-            // For storeys, check if all elements are hidden (using hiddenEntities only, not isolation)
-            // The eye icon shows hidden state, not combined visibility with isolation
-            const nodeVisible = node.isModelRoot
-              ? node.isVisible
-              : node.type === 'IfcBuildingStorey'
-                ? isStoreyVisible(node.id)
-                : !hiddenEntities.has(node.id);
-            const nodeHidden = !nodeVisible;
+            const Icon = TYPE_ICONS[node.type] || TYPE_ICONS.default;
 
-            // Special rendering for model root nodes
-            if (node.isModelRoot) {
-              const model = models.get(node.modelId);
+            // Determine if node is selected
+            const isSelected = node.type === 'unified-storey'
+              ? node.expressIds.some(id => selectedStoreys.has(id))
+              : node.type === 'IfcBuildingStorey'
+                ? selectedStoreys.has(node.expressIds[0])
+                : node.type === 'element'
+                  ? selectedEntityId === node.expressIds[0]
+                  : false;
+
+            const nodeHidden = !node.isVisible;
+
+            // Special rendering for "Models" section header
+            if (node.id === 'models-header') {
               return (
                 <div
-                  key={`model-${node.modelId}`}
+                  key={node.id}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: `${virtualRow.size}px`,
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <div className="flex items-center gap-2 px-2 py-2 bg-zinc-100 dark:bg-zinc-900 border-t-2 border-b border-zinc-200 dark:border-zinc-800 mt-2">
+                    <FileBox className="h-3.5 w-3.5 text-zinc-500" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                      Models
+                    </span>
+                  </div>
+                </div>
+              );
+            }
+
+            // Model header nodes (for visibility control)
+            if (node.type === 'model-header' && node.id.startsWith('model-')) {
+              const modelId = node.modelIds[0];
+              const model = models.get(modelId);
+
+              return (
+                <div
+                  key={node.id}
                   style={{
                     position: 'absolute',
                     top: 0,
@@ -520,53 +649,28 @@ export function HierarchyPanel() {
                 >
                   <div
                     className={cn(
-                      'flex items-center gap-1 px-2 py-1.5 cursor-pointer border-l-4 transition-all group',
-                      'bg-zinc-100 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800',
-                      isSelected ? 'border-l-primary' : 'border-transparent',
-                      nodeHidden && 'opacity-50'
+                      'flex items-center gap-1 px-2 py-1.5 cursor-default border-l-4 transition-all group',
+                      'hover:bg-zinc-50 dark:hover:bg-zinc-900',
+                      'border-transparent',
+                      !model?.visible && 'opacity-50'
                     )}
-                    onClick={(e) => {
-                      if ((e.target as HTMLElement).closest('button') === null) {
-                        handleNodeClick(node, e);
-                      }
-                    }}
+                    style={{ paddingLeft: '24px' }}
                   >
-                    {/* Expand/Collapse */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleModelToggle(node.modelId);
-                      }}
-                      className="p-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-none mr-1"
-                    >
-                      <ChevronRight
-                        className={cn(
-                          'h-3.5 w-3.5 transition-transform duration-200',
-                          node.isExpanded && 'rotate-90'
-                        )}
-                      />
-                    </button>
-
-                    {/* Model Icon */}
-                    <FileBox className="h-4 w-4 text-primary shrink-0" />
-
-                    {/* Model Name */}
-                    <span className="flex-1 text-sm font-bold truncate ml-1.5 text-zinc-900 dark:text-zinc-100">
+                    <FileBox className="h-3.5 w-3.5 text-primary shrink-0" />
+                    <span className="flex-1 text-sm truncate ml-1.5 text-zinc-900 dark:text-zinc-100">
                       {node.name}
                     </span>
 
-                    {/* Entity Count */}
                     {node.elementCount !== undefined && (
-                      <span className="text-[10px] font-mono bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 text-zinc-600 dark:text-zinc-400 rounded-none">
+                      <span className="text-[10px] font-mono bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 text-zinc-500 dark:text-zinc-400 rounded-none">
                         {node.elementCount.toLocaleString()}
                       </span>
                     )}
 
-                    {/* Visibility Toggle */}
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <button
-                          onClick={(e) => handleModelVisibilityToggle(node.modelId, e)}
+                          onClick={(e) => handleModelVisibilityToggle(modelId, e)}
                           className="p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
                         >
                           {model?.visible ? (
@@ -581,12 +685,11 @@ export function HierarchyPanel() {
                       </TooltipContent>
                     </Tooltip>
 
-                    {/* Remove Model */}
                     {models.size > 1 && (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <button
-                            onClick={(e) => handleRemoveModel(node.modelId, e)}
+                            onClick={(e) => handleRemoveModel(modelId, e)}
                             className="p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
                           >
                             <X className="h-3.5 w-3.5 text-zinc-400 hover:text-red-500" />
@@ -602,10 +705,10 @@ export function HierarchyPanel() {
               );
             }
 
-            // Regular node rendering
+            // Regular node rendering (unified storeys, contributions, elements)
             return (
               <div
-                key={`${node.modelId}-${node.id}`}
+                key={node.id}
                 style={{
                   position: 'absolute',
                   top: 0,
@@ -619,21 +722,21 @@ export function HierarchyPanel() {
                   className={cn(
                     'flex items-center gap-1 px-2 py-1.5 cursor-pointer border-l-4 transition-all group hierarchy-item',
                     isSelected ? 'border-l-primary font-medium selected' : 'border-transparent',
-                    nodeHidden && 'opacity-50 grayscale'
+                    nodeHidden && 'opacity-50 grayscale',
+                    node.type === 'unified-storey' && 'bg-zinc-50/50 dark:bg-zinc-900/30',
+                    node.type === 'model-contribution' && 'text-zinc-600 dark:text-zinc-400'
                   )}
                   style={{
                     paddingLeft: `${node.depth * 16 + 8}px`,
                     backgroundColor: isSelected ? 'var(--hierarchy-selected-bg)' : undefined,
-                    color: isSelected ? 'var(--hierarchy-selected-text)' : 'var(--hierarchy-text)'
+                    color: isSelected ? 'var(--hierarchy-selected-text)' : undefined,
                   }}
                   onClick={(e) => {
-                    // Only handle click if not clicking on a button
                     if ((e.target as HTMLElement).closest('button') === null) {
                       handleNodeClick(node, e);
                     }
                   }}
                   onMouseDown={(e) => {
-                    // Prevent text selection when clicking
                     if ((e.target as HTMLElement).closest('button') === null) {
                       e.preventDefault();
                     }
@@ -659,40 +762,48 @@ export function HierarchyPanel() {
                     <div className="w-5" />
                   )}
 
-                  {/* Visibility Toggle - only for storey and element nodes, not IfcProject */}
-                  {node.type !== 'IfcProject' && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleVisibilityToggle(node);
-                          }}
-                          className={cn(
-                            'p-0.5 opacity-0 group-hover:opacity-100 transition-opacity mr-1',
-                            nodeHidden && 'opacity-100'
-                          )}
-                        >
-                          {nodeVisible ? (
-                            <Eye className="h-3 w-3 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
-                          ) : (
-                            <EyeOff className="h-3 w-3 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
-                          )}
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="text-xs">{nodeVisible ? 'Hide' : 'Show'}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
+                  {/* Visibility Toggle */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleVisibilityToggle(node);
+                        }}
+                        className={cn(
+                          'p-0.5 opacity-0 group-hover:opacity-100 transition-opacity mr-1',
+                          nodeHidden && 'opacity-100'
+                        )}
+                      >
+                        {node.isVisible ? (
+                          <Eye className="h-3 w-3 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
+                        ) : (
+                          <EyeOff className="h-3 w-3 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">
+                        {node.isVisible ? 'Hide' : 'Show'}
+                        {node.type === 'unified-storey' && ' (all models)'}
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
 
                   {/* Type Icon */}
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Icon className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400 shrink-0" />
+                      <Icon className={cn(
+                        'h-3.5 w-3.5 shrink-0',
+                        node.type === 'unified-storey' ? 'text-primary' : 'text-zinc-500 dark:text-zinc-400'
+                      )} />
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p className="text-xs">{node.type}</p>
+                      <p className="text-xs">
+                        {node.type === 'unified-storey' ? 'Building Storey (all models)' :
+                         node.type === 'model-contribution' ? 'Model contribution' :
+                         node.type}
+                      </p>
                     </TooltipContent>
                   </Tooltip>
 
@@ -700,7 +811,10 @@ export function HierarchyPanel() {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span className={cn(
-                        'flex-1 text-sm truncate ml-1.5 text-zinc-900 dark:text-zinc-200',
+                        'flex-1 text-sm truncate ml-1.5',
+                        node.type === 'unified-storey'
+                          ? 'font-medium text-zinc-900 dark:text-zinc-100'
+                          : 'text-zinc-700 dark:text-zinc-300',
                         nodeHidden && 'line-through decoration-zinc-400 dark:decoration-zinc-600'
                       )}>{node.name}</span>
                     </TooltipTrigger>
@@ -708,6 +822,13 @@ export function HierarchyPanel() {
                       <p className="text-xs">{node.name}</p>
                     </TooltipContent>
                   </Tooltip>
+
+                  {/* Model badges for unified storeys */}
+                  {node.type === 'unified-storey' && node.modelIds.length > 1 && (
+                    <span className="text-[9px] font-mono bg-primary/20 text-primary px-1 py-0.5 rounded-none">
+                      {node.modelIds.length}M
+                    </span>
+                  )}
 
                   {/* Storey Elevation */}
                   {node.storeyElevation !== undefined && (
@@ -718,7 +839,7 @@ export function HierarchyPanel() {
                         </span>
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p className="text-xs">Elevation: {node.storeyElevation >= 0 ? '+' : ''}{node.storeyElevation.toFixed(2)}m from ground</p>
+                        <p className="text-xs">Elevation: {node.storeyElevation >= 0 ? '+' : ''}{node.storeyElevation.toFixed(2)}m</p>
                       </TooltipContent>
                     </Tooltip>
                   )}
@@ -743,7 +864,7 @@ export function HierarchyPanel() {
         </div>
       </div>
 
-      {/* Quick Filter / Model Count */}
+      {/* Footer status */}
       {selectedStoreys.size > 0 ? (
         <div className="p-2 border-t-2 border-zinc-200 dark:border-zinc-800 bg-primary text-white dark:bg-primary">
           <div className="flex items-center justify-between text-xs font-medium">
@@ -763,13 +884,13 @@ export function HierarchyPanel() {
             </div>
           </div>
         </div>
-      ) : models.size > 1 ? (
+      ) : isMultiModel ? (
         <div className="p-2 border-t-2 border-zinc-200 dark:border-zinc-800 text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-500 text-center bg-zinc-50 dark:bg-black font-mono">
-          {models.size} models loaded · Drop to add more
+          {models.size} models · Click storey to filter all
         </div>
-      ) : ifcDataStore?.spatialHierarchy?.byStorey && ifcDataStore.spatialHierarchy.byStorey.size > 1 && (
+      ) : (
         <div className="p-2 border-t-2 border-zinc-200 dark:border-zinc-800 text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-500 text-center bg-zinc-50 dark:bg-black font-mono">
-          Click to filter · Shift range · Ctrl toggle
+          Click to filter · Ctrl toggle
         </div>
       )}
     </div>

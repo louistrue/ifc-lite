@@ -173,6 +173,7 @@ export function ViewportContainer() {
 
   // Compute combined isolation set (storeys + manual isolation)
   // This is passed to the renderer for batch-level visibility filtering
+  // Now supports multi-model: aggregates elements from all models for selected storeys
   const computedIsolatedIds = useMemo(() => {
     // If manual isolation is active, use that
     if (isolatedEntities !== null) {
@@ -180,15 +181,34 @@ export function ViewportContainer() {
     }
 
     // If storeys are selected, compute combined element IDs from all selected storeys
-    if (ifcDataStore?.spatialHierarchy && selectedStoreys.size > 0) {
-      const hierarchy = ifcDataStore.spatialHierarchy;
+    // across ALL models (multi-model support)
+    if (selectedStoreys.size > 0) {
       const combinedIds = new Set<number>();
 
-      for (const storeyId of selectedStoreys) {
-        const storeyElementIds = hierarchy.byStorey.get(storeyId);
-        if (storeyElementIds) {
-          for (const id of storeyElementIds) {
-            combinedIds.add(id);
+      // Check each federated model's storeys
+      for (const model of storeModels.values()) {
+        const hierarchy = model.ifcDataStore?.spatialHierarchy;
+        if (!hierarchy) continue;
+
+        for (const storeyId of selectedStoreys) {
+          const storeyElementIds = hierarchy.byStorey.get(storeyId);
+          if (storeyElementIds) {
+            for (const id of storeyElementIds) {
+              combinedIds.add(id);
+            }
+          }
+        }
+      }
+
+      // Also check legacy ifcDataStore (for single-model mode without federation)
+      if (ifcDataStore?.spatialHierarchy && storeModels.size === 0) {
+        const hierarchy = ifcDataStore.spatialHierarchy;
+        for (const storeyId of selectedStoreys) {
+          const storeyElementIds = hierarchy.byStorey.get(storeyId);
+          if (storeyElementIds) {
+            for (const id of storeyElementIds) {
+              combinedIds.add(id);
+            }
           }
         }
       }
@@ -200,7 +220,7 @@ export function ViewportContainer() {
 
     // No isolation active
     return null;
-  }, [ifcDataStore, selectedStoreys, isolatedEntities]);
+  }, [storeModels, ifcDataStore, selectedStoreys, isolatedEntities]);
 
   // Grid Pattern
   const GridPattern = () => (
