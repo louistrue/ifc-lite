@@ -292,15 +292,8 @@ impl IfcAPI {
 
                 // Create result object
                 let result = js_sys::Object::new();
-                js_sys::Reflect::set(
-                    &result,
-                    &"entityCount".into(),
-                    &JsValue::from_f64(total_entities as f64),
-                )
-                .unwrap();
-
-                js_sys::Reflect::set(&result, &"entityTypes".into(), &counts_to_js(&counts))
-                    .unwrap();
+                set_js_prop(&result, "entityCount", &JsValue::from_f64(total_entities as f64));
+                set_js_prop(&result, "entityTypes", &counts_to_js(&counts));
 
                 if let Err(e) = resolve.call1(&JsValue::NULL, &result) {
                     let _ = reject.call1(&JsValue::NULL, &e);
@@ -898,16 +891,9 @@ impl IfcAPI {
                                 }
 
                                 let progress = js_sys::Object::new();
-                                js_sys::Reflect::set(&progress, &"percent".into(), &0u32.into())
-                                    .unwrap();
-                                js_sys::Reflect::set(
-                                    &progress,
-                                    &"processed".into(),
-                                    &(processed as f64).into(),
-                                )
-                                .unwrap();
-                                js_sys::Reflect::set(&progress, &"phase".into(), &"simple".into())
-                                    .unwrap();
+                                set_js_prop(&progress, "percent", &0u32.into());
+                                set_js_prop(&progress, "processed", &(processed as f64).into());
+                                set_js_prop(&progress, "phase", &"simple".into());
 
                                 let _ = callback.call2(&JsValue::NULL, &js_geometries, &progress);
                             }
@@ -954,8 +940,7 @@ impl IfcAPI {
                         }
 
                         let progress = js_sys::Object::new();
-                        js_sys::Reflect::set(&progress, &"phase".into(), &"simple_complete".into())
-                            .unwrap();
+                        set_js_prop(&progress, "phase", &"simple_complete".into());
 
                         let _ = callback.call2(&JsValue::NULL, &js_geometries, &progress);
                     }
@@ -1060,22 +1045,10 @@ impl IfcAPI {
 
                             let progress = js_sys::Object::new();
                             let percent = (processed as f64 / total_elements as f64 * 100.0) as u32;
-                            js_sys::Reflect::set(&progress, &"percent".into(), &percent.into())
-                                .unwrap();
-                            js_sys::Reflect::set(
-                                &progress,
-                                &"processed".into(),
-                                &(processed as f64).into(),
-                            )
-                            .unwrap();
-                            js_sys::Reflect::set(
-                                &progress,
-                                &"total".into(),
-                                &(total_elements as f64).into(),
-                            )
-                            .unwrap();
-                            js_sys::Reflect::set(&progress, &"phase".into(), &"complex".into())
-                                .unwrap();
+                            set_js_prop(&progress, "percent", &percent.into());
+                            set_js_prop(&progress, "processed", &(processed as f64).into());
+                            set_js_prop(&progress, "total", &(total_elements as f64).into());
+                            set_js_prop(&progress, "phase", &"complex".into());
 
                             let _ = callback.call2(&JsValue::NULL, &js_geometries, &progress);
                         }
@@ -1117,9 +1090,8 @@ impl IfcAPI {
                         }
 
                         let progress = js_sys::Object::new();
-                        js_sys::Reflect::set(&progress, &"percent".into(), &100u32.into()).unwrap();
-                        js_sys::Reflect::set(&progress, &"phase".into(), &"complete".into())
-                            .unwrap();
+                        set_js_prop(&progress, "percent", &100u32.into());
+                        set_js_prop(&progress, "phase", &"complete".into());
 
                         let _ = callback.call2(&JsValue::NULL, &js_geometries, &progress);
                     }
@@ -1128,18 +1100,8 @@ impl IfcAPI {
                 // Call completion callback
                 if let Some(ref callback) = on_complete {
                     let stats = js_sys::Object::new();
-                    js_sys::Reflect::set(
-                        &stats,
-                        &"totalGeometries".into(),
-                        &(total_geometries as f64).into(),
-                    )
-                    .unwrap();
-                    js_sys::Reflect::set(
-                        &stats,
-                        &"totalInstances".into(),
-                        &(total_instances as f64).into(),
-                    )
-                    .unwrap();
+                    set_js_prop(&stats, "totalGeometries", &(total_geometries as f64).into());
+                    set_js_prop(&stats, "totalInstances", &(total_instances as f64).into());
                     let _ = callback.call1(&JsValue::NULL, &stats);
                 }
 
@@ -1317,16 +1279,9 @@ impl IfcAPI {
                                 }
 
                                 let progress = js_sys::Object::new();
-                                js_sys::Reflect::set(&progress, &"percent".into(), &0u32.into())
-                                    .unwrap();
-                                js_sys::Reflect::set(
-                                    &progress,
-                                    &"processed".into(),
-                                    &(processed as f64).into(),
-                                )
-                                .unwrap();
-                                js_sys::Reflect::set(&progress, &"phase".into(), &"simple".into())
-                                    .unwrap();
+                                set_js_prop(&progress, "percent", &0u32.into());
+                                set_js_prop(&progress, "processed", &(processed as f64).into());
+                                set_js_prop(&progress, "phase", &"simple".into());
 
                                 let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
                                 total_meshes += js_meshes.length() as usize;
@@ -1350,8 +1305,7 @@ impl IfcAPI {
                         }
 
                         let progress = js_sys::Object::new();
-                        js_sys::Reflect::set(&progress, &"phase".into(), &"simple_complete".into())
-                            .unwrap();
+                        set_js_prop(&progress, "phase", &"simple_complete".into());
 
                         let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
                         total_meshes += js_meshes.length() as usize;
@@ -1505,22 +1459,10 @@ impl IfcAPI {
 
                             let progress = js_sys::Object::new();
                             let percent = (processed as f64 / total_elements as f64 * 100.0) as u32;
-                            js_sys::Reflect::set(&progress, &"percent".into(), &percent.into())
-                                .unwrap();
-                            js_sys::Reflect::set(
-                                &progress,
-                                &"processed".into(),
-                                &(processed as f64).into(),
-                            )
-                            .unwrap();
-                            js_sys::Reflect::set(
-                                &progress,
-                                &"total".into(),
-                                &(total_elements as f64).into(),
-                            )
-                            .unwrap();
-                            js_sys::Reflect::set(&progress, &"phase".into(), &"complex".into())
-                                .unwrap();
+                            set_js_prop(&progress, "percent", &percent.into());
+                            set_js_prop(&progress, "processed", &(processed as f64).into());
+                            set_js_prop(&progress, "total", &(total_elements as f64).into());
+                            set_js_prop(&progress, "phase", &"complex".into());
 
                             let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
                             total_meshes += js_meshes.length() as usize;
@@ -1539,9 +1481,8 @@ impl IfcAPI {
                         }
 
                         let progress = js_sys::Object::new();
-                        js_sys::Reflect::set(&progress, &"percent".into(), &100u32.into()).unwrap();
-                        js_sys::Reflect::set(&progress, &"phase".into(), &"complete".into())
-                            .unwrap();
+                        set_js_prop(&progress, "percent", &100u32.into());
+                        set_js_prop(&progress, "phase", &"complete".into());
 
                         let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
                         total_meshes += js_meshes.length() as usize;
@@ -1551,24 +1492,9 @@ impl IfcAPI {
                 // Call completion callback
                 if let Some(ref callback) = on_complete {
                     let stats = js_sys::Object::new();
-                    js_sys::Reflect::set(
-                        &stats,
-                        &"totalMeshes".into(),
-                        &(total_meshes as f64).into(),
-                    )
-                    .unwrap();
-                    js_sys::Reflect::set(
-                        &stats,
-                        &"totalVertices".into(),
-                        &(total_vertices as f64).into(),
-                    )
-                    .unwrap();
-                    js_sys::Reflect::set(
-                        &stats,
-                        &"totalTriangles".into(),
-                        &(total_triangles as f64).into(),
-                    )
-                    .unwrap();
+                    set_js_prop(&stats, "totalMeshes", &(total_meshes as f64).into());
+                    set_js_prop(&stats, "totalVertices", &(total_vertices as f64).into());
+                    set_js_prop(&stats, "totalTriangles", &(total_triangles as f64).into());
                     let _ = callback.call1(&JsValue::NULL, &stats);
                 }
 
@@ -1633,7 +1559,7 @@ impl IfcAPI {
             last_position = end;
         }
 
-        to_value(&refs).unwrap()
+        to_value(&refs).unwrap_or_else(|_| js_sys::Array::new().into())
     }
 
     /// Fast geometry-only entity scanning
@@ -1669,7 +1595,7 @@ impl IfcAPI {
             }
         }
 
-        to_value(&refs).unwrap()
+        to_value(&refs).unwrap_or_else(|_| js_sys::Array::new().into())
     }
 
     /// Extract georeferencing information from IFC content
@@ -2129,16 +2055,9 @@ impl IfcAPI {
                         // Yield batch when full
                         if current_batch.mesh_count() >= batch_size {
                             let progress = js_sys::Object::new();
-                            js_sys::Reflect::set(&progress, &"percent".into(), &0u32.into())
-                                .unwrap();
-                            js_sys::Reflect::set(
-                                &progress,
-                                &"processed".into(),
-                                &(processed as f64).into(),
-                            )
-                            .unwrap();
-                            js_sys::Reflect::set(&progress, &"phase".into(), &"simple".into())
-                                .unwrap();
+                            set_js_prop(&progress, "percent", &0u32.into());
+                            set_js_prop(&progress, "processed", &(processed as f64).into());
+                            set_js_prop(&progress, "phase", &"simple".into());
 
                             flush_batch(&mut current_batch, &on_batch, &progress.into());
 
@@ -2154,8 +2073,7 @@ impl IfcAPI {
                 // Flush remaining simple geometry
                 if current_batch.mesh_count() > 0 {
                     let progress = js_sys::Object::new();
-                    js_sys::Reflect::set(&progress, &"phase".into(), &"simple_complete".into())
-                        .unwrap();
+                    set_js_prop(&progress, "phase", &"simple_complete".into());
                     flush_batch(&mut current_batch, &on_batch, &progress.into());
                     gloo_timers::future::TimeoutFuture::new(0).await;
                 }
@@ -2199,20 +2117,10 @@ impl IfcAPI {
                     if current_batch.mesh_count() >= batch_size {
                         let progress = js_sys::Object::new();
                         let percent = (processed as f64 / total_elements as f64 * 100.0) as u32;
-                        js_sys::Reflect::set(&progress, &"percent".into(), &percent.into()).unwrap();
-                        js_sys::Reflect::set(
-                            &progress,
-                            &"processed".into(),
-                            &(processed as f64).into(),
-                        )
-                        .unwrap();
-                        js_sys::Reflect::set(
-                            &progress,
-                            &"total".into(),
-                            &(total_elements as f64).into(),
-                        )
-                        .unwrap();
-                        js_sys::Reflect::set(&progress, &"phase".into(), &"complex".into()).unwrap();
+                        set_js_prop(&progress, "percent", &percent.into());
+                        set_js_prop(&progress, "processed", &(processed as f64).into());
+                        set_js_prop(&progress, "total", &(total_elements as f64).into());
+                        set_js_prop(&progress, "phase", &"complex".into());
 
                         flush_batch(&mut current_batch, &on_batch, &progress.into());
                         gloo_timers::future::TimeoutFuture::new(0).await;
@@ -2222,32 +2130,17 @@ impl IfcAPI {
                 // Final flush
                 if current_batch.mesh_count() > 0 {
                     let progress = js_sys::Object::new();
-                    js_sys::Reflect::set(&progress, &"percent".into(), &100u32.into()).unwrap();
-                    js_sys::Reflect::set(&progress, &"phase".into(), &"complete".into()).unwrap();
+                    set_js_prop(&progress, "percent", &100u32.into());
+                    set_js_prop(&progress, "phase", &"complete".into());
                     flush_batch(&mut current_batch, &on_batch, &progress.into());
                 }
 
                 // Call completion callback
                 if let Some(ref callback) = on_complete {
                     let stats = js_sys::Object::new();
-                    js_sys::Reflect::set(
-                        &stats,
-                        &"totalMeshes".into(),
-                        &(total_meshes as f64).into(),
-                    )
-                    .unwrap();
-                    js_sys::Reflect::set(
-                        &stats,
-                        &"totalVertices".into(),
-                        &(total_vertices as f64).into(),
-                    )
-                    .unwrap();
-                    js_sys::Reflect::set(
-                        &stats,
-                        &"totalTriangles".into(),
-                        &(total_triangles as f64).into(),
-                    )
-                    .unwrap();
+                    set_js_prop(&stats, "totalMeshes", &(total_meshes as f64).into());
+                    set_js_prop(&stats, "totalVertices", &(total_vertices as f64).into());
+                    set_js_prop(&stats, "totalTriangles", &(total_triangles as f64).into());
                     let _ = callback.call1(&JsValue::NULL, &stats);
                 }
 
@@ -2481,35 +2374,29 @@ fn parse_event_to_js(event: &ParseEvent) -> JsValue {
             file_size,
             timestamp,
         } => {
-            js_sys::Reflect::set(&obj, &"type".into(), &"started".into()).unwrap();
-            js_sys::Reflect::set(&obj, &"fileSize".into(), &(*file_size as f64).into()).unwrap();
-            js_sys::Reflect::set(&obj, &"timestamp".into(), &(*timestamp).into()).unwrap();
+            set_js_prop(&obj, "type", &"started".into());
+            set_js_prop(&obj, "fileSize", &(*file_size as f64).into());
+            set_js_prop(&obj, "timestamp", &(*timestamp).into());
         }
         ParseEvent::EntityScanned {
             id,
             ifc_type,
             position,
         } => {
-            js_sys::Reflect::set(&obj, &"type".into(), &"entityScanned".into()).unwrap();
-            js_sys::Reflect::set(&obj, &"id".into(), &(*id as f64).into()).unwrap();
-            js_sys::Reflect::set(&obj, &"ifcType".into(), &ifc_type.as_str().into()).unwrap();
-            js_sys::Reflect::set(&obj, &"position".into(), &(*position as f64).into()).unwrap();
+            set_js_prop(&obj, "type", &"entityScanned".into());
+            set_js_prop(&obj, "id", &(*id as f64).into());
+            set_js_prop(&obj, "ifcType", &ifc_type.as_str().into());
+            set_js_prop(&obj, "position", &(*position as f64).into());
         }
         ParseEvent::GeometryReady {
             id,
             vertex_count,
             triangle_count,
         } => {
-            js_sys::Reflect::set(&obj, &"type".into(), &"geometryReady".into()).unwrap();
-            js_sys::Reflect::set(&obj, &"id".into(), &(*id as f64).into()).unwrap();
-            js_sys::Reflect::set(&obj, &"vertexCount".into(), &(*vertex_count as f64).into())
-                .unwrap();
-            js_sys::Reflect::set(
-                &obj,
-                &"triangleCount".into(),
-                &(*triangle_count as f64).into(),
-            )
-            .unwrap();
+            set_js_prop(&obj, "type", &"geometryReady".into());
+            set_js_prop(&obj, "id", &(*id as f64).into());
+            set_js_prop(&obj, "vertexCount", &(*vertex_count as f64).into());
+            set_js_prop(&obj, "triangleCount", &(*triangle_count as f64).into());
         }
         ParseEvent::Progress {
             phase,
@@ -2517,43 +2404,27 @@ fn parse_event_to_js(event: &ParseEvent) -> JsValue {
             entities_processed,
             total_entities,
         } => {
-            js_sys::Reflect::set(&obj, &"type".into(), &"progress".into()).unwrap();
-            js_sys::Reflect::set(&obj, &"phase".into(), &phase.as_str().into()).unwrap();
-            js_sys::Reflect::set(&obj, &"percent".into(), &(*percent as f64).into()).unwrap();
-            js_sys::Reflect::set(
-                &obj,
-                &"entitiesProcessed".into(),
-                &(*entities_processed as f64).into(),
-            )
-            .unwrap();
-            js_sys::Reflect::set(
-                &obj,
-                &"totalEntities".into(),
-                &(*total_entities as f64).into(),
-            )
-            .unwrap();
+            set_js_prop(&obj, "type", &"progress".into());
+            set_js_prop(&obj, "phase", &phase.as_str().into());
+            set_js_prop(&obj, "percent", &(*percent as f64).into());
+            set_js_prop(&obj, "entitiesProcessed", &(*entities_processed as f64).into());
+            set_js_prop(&obj, "totalEntities", &(*total_entities as f64).into());
         }
         ParseEvent::Completed {
             duration_ms,
             entity_count,
             triangle_count,
         } => {
-            js_sys::Reflect::set(&obj, &"type".into(), &"completed".into()).unwrap();
-            js_sys::Reflect::set(&obj, &"durationMs".into(), &(*duration_ms).into()).unwrap();
-            js_sys::Reflect::set(&obj, &"entityCount".into(), &(*entity_count as f64).into())
-                .unwrap();
-            js_sys::Reflect::set(
-                &obj,
-                &"triangleCount".into(),
-                &(*triangle_count as f64).into(),
-            )
-            .unwrap();
+            set_js_prop(&obj, "type", &"completed".into());
+            set_js_prop(&obj, "durationMs", &(*duration_ms).into());
+            set_js_prop(&obj, "entityCount", &(*entity_count as f64).into());
+            set_js_prop(&obj, "triangleCount", &(*triangle_count as f64).into());
         }
         ParseEvent::Error { message, position } => {
-            js_sys::Reflect::set(&obj, &"type".into(), &"error".into()).unwrap();
-            js_sys::Reflect::set(&obj, &"message".into(), &message.as_str().into()).unwrap();
+            set_js_prop(&obj, "type", &"error".into());
+            set_js_prop(&obj, "message", &message.as_str().into());
             if let Some(pos) = position {
-                js_sys::Reflect::set(&obj, &"position".into(), &(*pos as f64).into()).unwrap();
+                set_js_prop(&obj, "position", &(*pos as f64).into());
             }
         }
     }
@@ -2969,6 +2840,21 @@ fn get_default_color_for_type(ifc_type: &ifc_lite_core::IfcType) -> [f32; 4] {
     }
 }
 
+/// Safely set a property on a JavaScript object.
+/// Returns true if successful, false otherwise.
+/// This avoids panicking on edge cases like non-extensible objects.
+#[inline]
+fn set_js_prop(obj: &JsValue, key: &str, value: &JsValue) -> bool {
+    js_sys::Reflect::set(obj, &JsValue::from_str(key), value).unwrap_or(false)
+}
+
+/// Safely set a property on a JavaScript object using JsValue key.
+/// Returns true if successful, false otherwise.
+#[inline]
+fn set_js_prop_jv(obj: &JsValue, key: &JsValue, value: &JsValue) -> bool {
+    js_sys::Reflect::set(obj, key, value).unwrap_or(false)
+}
+
 /// Convert entity counts map to JavaScript object
 fn counts_to_js(counts: &rustc_hash::FxHashMap<String, usize>) -> JsValue {
     let obj = js_sys::Object::new();
@@ -2976,7 +2862,7 @@ fn counts_to_js(counts: &rustc_hash::FxHashMap<String, usize>) -> JsValue {
     for (type_name, count) in counts {
         let key = JsValue::from_str(type_name.as_str());
         let value = JsValue::from_f64(*count as f64);
-        js_sys::Reflect::set(&obj, &key, &value).unwrap();
+        set_js_prop_jv(&obj, &key, &value);
     }
 
     obj.into()
