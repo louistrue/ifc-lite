@@ -470,12 +470,9 @@ export function useIfc() {
       setError(null);
       setProgress({ phase: 'Loading file', percent: 0 });
 
-      // Read file from disk (can take several seconds for large files)
-      const fileReadStart = performance.now();
+      // Read file from disk
       const buffer = await file.arrayBuffer();
-      const fileReadTime = performance.now() - fileReadStart;
       const fileSizeMB = buffer.byteLength / (1024 * 1024);
-      console.log(`[useIfc] File: ${file.name}, size: ${fileSizeMB.toFixed(2)}MB, read in ${fileReadTime.toFixed(0)}ms`);
 
       // Detect file format (IFCX/IFC5 vs IFC4 STEP)
       const format = detectFormat(buffer);
@@ -651,6 +648,7 @@ export function useIfc() {
       let lastBatchTime = processingStart;
       let totalWaitTime = 0; // Time waiting for WASM to yield batches
       let totalProcessTime = 0; // Time processing batches in JS
+      let firstGeometryTime = 0; // Time to first rendered geometry
 
       // OPTIMIZATION: Accumulate meshes and batch state updates
       // First batch renders immediately, then accumulate for throughput
@@ -685,6 +683,11 @@ export function useIfc() {
             case 'batch': {
               batchCount++;
               totalWaitTime += waitTime;
+
+              // Track time to first geometry
+              if (batchCount === 1) {
+                firstGeometryTime = performance.now() - totalStartTime;
+              }
 
               const processStart = performance.now();
 
@@ -776,9 +779,14 @@ export function useIfc() {
         setError(err instanceof Error ? err.message : 'Unknown error during geometry processing');
       }
 
-      // Log concise summary
+      // Log developer-friendly summary with key metrics
       const totalElapsedMs = performance.now() - totalStartTime;
-      console.log(`[useIfc] Loaded ${allMeshes.length} meshes in ${totalElapsedMs.toFixed(0)}ms`);
+      const totalVertices = allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0);
+      console.log(
+        `[useIfc] ✓ ${file.name} (${fileSizeMB.toFixed(1)}MB) → ` +
+        `${allMeshes.length} meshes, ${(totalVertices / 1000).toFixed(0)}k vertices | ` +
+        `first: ${firstGeometryTime.toFixed(0)}ms, total: ${totalElapsedMs.toFixed(0)}ms`
+      );
       
       setLoading(false);
     } catch (err) {
