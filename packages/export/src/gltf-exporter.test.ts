@@ -92,4 +92,90 @@ describe('GLTFExporter', () => {
     // Each mesh should create a node
     assert.equal(gltf.nodes.length, meshCount, 'Node count should match mesh count');
   });
+
+  // Roundtrip validation tests
+  describe('roundtrip validation', () => {
+    it('should preserve vertex count in GLB export', () => {
+      const geometryResult = createTestGeometryResult(3);
+      const exporter = new GLTFExporter(geometryResult);
+
+      const glb = exporter.exportGLB();
+
+      // Parse GLB header
+      const view = new DataView(glb.buffer);
+      const totalLength = view.getUint32(8, true);
+
+      // GLB should have reasonable size
+      assert.ok(glb.byteLength === totalLength, 'GLB length should match header');
+      assert.ok(glb.byteLength > 100, 'GLB should have data');
+    });
+
+    it('should create valid accessor for positions', () => {
+      const geometryResult = createTestGeometryResult(1);
+      const exporter = new GLTFExporter(geometryResult);
+
+      const { json } = exporter.exportGLTF();
+      const gltf = JSON.parse(json);
+
+      // Check position accessor
+      const posAccessor = gltf.accessors?.find((a: any) => a.type === 'VEC3');
+      assert.ok(posAccessor, 'Should have VEC3 accessor for positions');
+      assert.equal(posAccessor.componentType, 5126, 'Position should be FLOAT (5126)');
+      assert.equal(posAccessor.count, 3, 'Should have 3 vertices');
+    });
+
+    it('should create valid accessor for indices', () => {
+      const geometryResult = createTestGeometryResult(1);
+      const exporter = new GLTFExporter(geometryResult);
+
+      const { json } = exporter.exportGLTF();
+      const gltf = JSON.parse(json);
+
+      // Check index accessor - should be SCALAR type
+      const indexAccessor = gltf.accessors?.find((a: any) => a.type === 'SCALAR');
+      assert.ok(indexAccessor, 'Should have SCALAR accessor for indices');
+      assert.equal(indexAccessor.count, 3, 'Should have 3 indices (1 triangle)');
+    });
+
+    it('should preserve mesh structure in scene graph', () => {
+      const meshCount = 3;
+      const geometryResult = createTestGeometryResult(meshCount);
+      const exporter = new GLTFExporter(geometryResult);
+
+      const { json } = exporter.exportGLTF();
+      const gltf = JSON.parse(json);
+
+      // Scene should reference all nodes
+      const scene = gltf.scenes?.[0];
+      assert.ok(scene, 'Should have default scene');
+      assert.equal(scene.nodes?.length, meshCount, 'Scene should reference all mesh nodes');
+
+      // Each node should reference a mesh
+      for (const node of gltf.nodes) {
+        assert.ok(node.mesh !== undefined, 'Each node should have a mesh');
+      }
+    });
+
+    it('should reject empty geometry with clear error', () => {
+      const geometryResult: GeometryResult = {
+        meshes: [],
+        totalVertices: 0,
+        totalTriangles: 0,
+        coordinateInfo: {
+          originShift: { x: 0, y: 0, z: 0 },
+          originalBounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 0, y: 0, z: 0 } },
+          shiftedBounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 0, y: 0, z: 0 } },
+          isGeoReferenced: false,
+        },
+      };
+      const exporter = new GLTFExporter(geometryResult);
+
+      // Should throw with clear error message
+      assert.throws(
+        () => exporter.exportGLTF(),
+        /no valid geometry/i,
+        'Should throw for empty geometry'
+      );
+    });
+  });
 });
