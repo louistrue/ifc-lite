@@ -289,13 +289,35 @@ For quick prototyping without a build step:
 
 ```html
 <script type="module">
-  import { IfcParser } from 'https://esm.sh/@ifc-lite/parser';
-  import { Renderer } from 'https://esm.sh/@ifc-lite/renderer';
+  import { IfcParser } from 'https://cdn.jsdelivr.net/npm/@ifc-lite/parser@1.2.1/+esm';
 
   const parser = new IfcParser();
-  // ... your code
+  const response = await fetch('model.ifc');
+  const buffer = await response.arrayBuffer();
+  const store = await parser.parseColumnar(buffer);
+  console.log('Entities:', store.entityCount);
 </script>
 ```
+
+For geometry processing with WASM, you must initialize the WASM module explicitly:
+
+```html
+<script type="module">
+  import { GeometryProcessor } from 'https://cdn.jsdelivr.net/npm/@ifc-lite/geometry@1.2.1/+esm';
+  import initWasm from 'https://cdn.jsdelivr.net/npm/@ifc-lite/wasm@1.2.1/+esm';
+
+  // Initialize WASM with explicit path (required for CDN)
+  const wasmUrl = 'https://cdn.jsdelivr.net/npm/@ifc-lite/wasm@1.2.1/pkg/ifc-lite_bg.wasm';
+  await initWasm({ module_or_path: wasmUrl });
+
+  const processor = new GeometryProcessor();
+  await processor.init();
+  // ... process geometry
+</script>
+```
+
+!!! note "HTTP Server Required"
+    CDN examples must be served from an HTTP server (not `file://`). Use `npx serve .` or `python -m http.server`.
 
 !!! warning "Production Usage"
     For production applications, install packages locally rather than using CDN links.

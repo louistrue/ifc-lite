@@ -2,6 +2,67 @@
 
 Guide to exporting IFC data in various formats.
 
+## Quick Start: CDN Export (No Build Required)
+
+Export IFC to GLB directly in the browser with zero setup:
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>IFC to GLB Export</title>
+</head>
+<body>
+    <input type="file" id="file" accept=".ifc">
+    <div id="status"></div>
+
+    <script type="module">
+        import { GeometryProcessor } from "https://cdn.jsdelivr.net/npm/@ifc-lite/geometry@1.2.1/+esm";
+        import { GLTFExporter } from "https://cdn.jsdelivr.net/npm/@ifc-lite/export@1.2.1/+esm";
+        import initWasm from "https://cdn.jsdelivr.net/npm/@ifc-lite/wasm@1.2.1/+esm";
+
+        // Initialize WASM with explicit path for CDN
+        const wasmUrl = "https://cdn.jsdelivr.net/npm/@ifc-lite/wasm@1.2.1/pkg/ifc-lite_bg.wasm";
+        await initWasm({ module_or_path: wasmUrl });
+
+        document.getElementById("file").addEventListener("change", async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            try {
+                const processor = new GeometryProcessor();
+                await processor.init();
+
+                const buffer = new Uint8Array(await file.arrayBuffer());
+                const result = await processor.process(buffer);
+
+                const exporter = new GLTFExporter(result);
+                const glb = exporter.exportGLB();
+
+                // Download the GLB file
+                const blob = new Blob([glb], { type: "model/gltf-binary" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = file.name.replace(/\.ifc$/i, ".glb");
+                a.click();
+                URL.revokeObjectURL(url);
+
+                document.getElementById("status").textContent = "Done!";
+                processor.dispose();
+            } catch (error) {
+                document.getElementById("status").textContent = "Error: " + error.message;
+            }
+        });
+    </script>
+</body>
+</html>
+```
+
+!!! note "HTTP Server Required"
+    This file must be served from an HTTP server (not `file://`). Use `npx serve .` or `python -m http.server 8000`.
+
 ## Overview
 
 IFClite supports multiple export formats:

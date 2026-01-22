@@ -50,7 +50,7 @@ export class IfcLiteBridge {
    * Initialize IFC-Lite WASM
    * The WASM binary is automatically resolved from the same location as the JS module
    */
-  async init(_wasmPath?: string): Promise<void> {
+  async init(): Promise<void> {
     if (this.initialized) return;
 
     // Initialize WASM module - wasm-bindgen automatically resolves the WASM URL

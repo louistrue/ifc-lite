@@ -139,7 +139,7 @@ export class GeometryProcessor {
    * In Tauri: Creates platform bridge for native Rust processing
    * In browser: Loads WASM
    */
-  async init(_wasmPath?: string): Promise<void> {
+  async init(): Promise<void> {
     if (this.isNative) {
       // Create platform bridge for native processing
       this.platformBridge = await createPlatformBridge();
