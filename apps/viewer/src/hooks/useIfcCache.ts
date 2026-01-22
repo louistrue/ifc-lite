@@ -212,7 +212,7 @@ export function useIfcCache() {
       setProgress({ phase: 'Complete (from cache)', percent: 100 });
       const totalCacheTime = performance.now() - cacheLoadStart;
       const meshCount = result.geometry?.meshes.length || 0;
-      console.log(`[useIfc] ✓ ${fileName} (cached) → ${meshCount} meshes | ${totalCacheTime.toFixed(0)}ms`);
+      console.log(`[useIfcCache] ✓ ${fileName} (cached) → ${meshCount} meshes | ${totalCacheTime.toFixed(0)}ms`);
 
       return true;
     } catch (err) {
