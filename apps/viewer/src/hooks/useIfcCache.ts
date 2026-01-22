@@ -129,7 +129,6 @@ export function useIfcCache() {
         );
         dataStore.onDemandPropertyMap = onDemandPropertyMap;
         dataStore.onDemandQuantityMap = onDemandQuantityMap;
-        console.log('[useIfcCache] Restored source buffer and on-demand maps from cache');
       } else {
         console.warn('[useIfcCache] No source buffer in cache - on-demand property extraction disabled');
         dataStore.source = new Uint8Array(0);
@@ -140,10 +139,7 @@ export function useIfcCache() {
       if (!dataStore.spatialHierarchy && dataStore.entities && dataStore.relationships) {
         // Ensure we have source buffer and entityIndex for elevation extraction
         if (dataStore.source && dataStore.source.length > 0 && dataStore.entityIndex && dataStore.strings) {
-          console.log('[useIfcCache] Building spatial hierarchy with elevation extraction from source buffer');
-          // Extract unit scale for elevation conversion
           const lengthUnitScale = extractLengthUnitScale(dataStore.source, dataStore.entityIndex);
-          console.log(`[useIfcCache] Length unit scale: ${lengthUnitScale}`);
           const builder = new SpatialHierarchyBuilder();
           dataStore.spatialHierarchy = builder.build(
             dataStore.entities,
@@ -153,7 +149,6 @@ export function useIfcCache() {
             dataStore.entityIndex,
             lengthUnitScale
           );
-          console.log(`[useIfcCache] Spatial hierarchy built: ${dataStore.spatialHierarchy.storeyElevations.size} storey elevations extracted`);
 
           // Calculate storey heights from elevation differences (fallback if no property data)
           if (dataStore.spatialHierarchy.storeyHeights.size === 0 && dataStore.spatialHierarchy.storeyElevations.size > 1) {
@@ -161,7 +156,6 @@ export function useIfcCache() {
             for (const [storeyId, height] of calculatedHeights) {
               dataStore.spatialHierarchy.storeyHeights.set(storeyId, height);
             }
-            console.log(`[useIfcCache] Calculated ${dataStore.spatialHierarchy.storeyHeights.size} storey heights from elevation differences`);
           }
         } else {
           console.warn('[useIfcCache] Missing data for elevation extraction:', {
@@ -217,12 +211,8 @@ export function useIfcCache() {
 
       setProgress({ phase: 'Complete (from cache)', percent: 100 });
       const totalCacheTime = performance.now() - cacheLoadStart;
-      console.log(
-        `[useIfcCache] INSTANT cache load: ${fileName} (${result.geometry?.meshes.length || 0} meshes)\n` +
-          `  Cache read: ${cacheReadTime.toFixed(0)}ms\n` +
-          `  Total time: ${totalCacheTime.toFixed(0)}ms\n` +
-          `  Expected: <2000ms for instant feel`
-      );
+      const meshCount = result.geometry?.meshes.length || 0;
+      console.log(`[useIfc] ✓ ${fileName} (cached) → ${meshCount} meshes | ${totalCacheTime.toFixed(0)}ms`);
 
       return true;
     } catch (err) {
@@ -259,8 +249,6 @@ export function useIfcCache() {
       const cacheBuffer = await writer.write(cacheDataStore, geometry, sourceBuffer, { includeGeometry: true });
 
       await setCached(cacheKey, cacheBuffer, fileName, sourceBuffer.byteLength, sourceBuffer);
-
-      console.log(`[useIfcCache] Cached ${fileName} (${(cacheBuffer.byteLength / 1024 / 1024).toFixed(2)}MB cache)`);
     } catch (err) {
       console.warn('[useIfcCache] Failed to cache model:', err);
     }

@@ -1562,11 +1562,6 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
             const boundsExpanded = newMaxSize > oldMaxSize * 1.1;
 
             if (boundsExpanded) {
-              console.log('[Viewport] Refitting camera after streaming complete - bounds expanded:', {
-                oldMaxSize: oldMaxSize.toFixed(1),
-                newMaxSize: newMaxSize.toFixed(1),
-                expansion: ((newMaxSize / oldMaxSize - 1) * 100).toFixed(0) + '%'
-              });
               renderer.getCamera().fitToBounds(shiftedBounds.min, shiftedBounds.max);
             }
           }

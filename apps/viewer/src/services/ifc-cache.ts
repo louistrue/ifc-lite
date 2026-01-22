@@ -97,7 +97,6 @@ export async function getCached(key: string): Promise<CacheResult | null> {
       request.onsuccess = () => {
         const entry = request.result as CacheEntry | undefined;
         if (entry) {
-          console.log(`[IFC Cache] Cache hit for ${entry.fileName} (${(entry.fileSize / 1024 / 1024).toFixed(2)}MB)`);
           resolve({
             buffer: entry.buffer,
             sourceBuffer: entry.sourceBuffer,
@@ -146,8 +145,6 @@ export async function setCached(
       const request = store.put(entry);
 
       request.onsuccess = () => {
-        const totalSize = buffer.byteLength + (sourceBuffer?.byteLength || 0);
-        console.log(`[IFC Cache] Cached ${fileName} (${(totalSize / 1024 / 1024).toFixed(2)}MB total)`);
         resolve();
       };
 
@@ -216,7 +213,6 @@ export async function clearCache(): Promise<void> {
       const request = store.clear();
 
       request.onsuccess = () => {
-        console.log('[IFC Cache] Cache cleared');
         resolve();
       };
 

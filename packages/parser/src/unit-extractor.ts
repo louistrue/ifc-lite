@@ -154,7 +154,6 @@ export function extractLengthUnitScale(
 
       const multiplier = SI_PREFIX_MULTIPLIERS[prefixStr];
       if (multiplier !== undefined) {
-        console.log(`[UnitExtractor] Found SI unit with prefix ${prefixStr}, scale = ${multiplier}`);
         return multiplier;
       }
 
@@ -177,7 +176,6 @@ export function extractLengthUnitScale(
         const nameUpper = unitName.toUpperCase();
         const knownFactor = CONVERSION_BASED_UNIT_FACTORS[nameUpper];
         if (knownFactor !== undefined) {
-          console.log(`[UnitExtractor] Found conversion-based unit ${unitName}, scale = ${knownFactor}`);
           return knownFactor;
         }
       }
@@ -228,9 +226,7 @@ export function extractLengthUnitScale(
                 }
               }
 
-              const finalScale = conversionValue * unitComponentScale;
-              console.log(`[UnitExtractor] Found conversion factor ${conversionValue} * ${unitComponentScale} = ${finalScale} from IFCMEASUREWITHUNIT`);
-              return finalScale;
+              return conversionValue * unitComponentScale;
             }
           }
         }
@@ -239,6 +235,5 @@ export function extractLengthUnitScale(
   }
 
   // No length unit found, default to meters
-  console.warn('[UnitExtractor] No length unit found, defaulting to meters');
   return 1.0;
 }
