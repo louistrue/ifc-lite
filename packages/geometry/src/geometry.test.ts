@@ -9,8 +9,7 @@
  * Focus on contract/behavior testing, not implementation details.
  */
 
-import { describe, it, beforeEach } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, beforeEach, expect } from 'vitest';
 
 import { BufferBuilder } from './buffer-builder.js';
 import { CoordinateHandler } from './coordinate-handler.js';
@@ -41,15 +40,15 @@ describe('BufferBuilder', () => {
       const buffer = builder.buildInterleavedBuffer(mesh);
 
       // 3 vertices × 6 floats each (pos + normal)
-      assert.equal(buffer.length, 18);
+      expect(buffer.length).toBe(18);
 
       // First vertex: position (0,0,0) then normal (0,0,1)
-      assert.equal(buffer[0], 0); // x
-      assert.equal(buffer[1], 0); // y
-      assert.equal(buffer[2], 0); // z
-      assert.equal(buffer[3], 0); // nx
-      assert.equal(buffer[4], 0); // ny
-      assert.equal(buffer[5], 1); // nz
+      expect(buffer[0]).toBe(0); // x
+      expect(buffer[1]).toBe(0); // y
+      expect(buffer[2]).toBe(0); // z
+      expect(buffer[3]).toBe(0); // nx
+      expect(buffer[4]).toBe(0); // ny
+      expect(buffer[5]).toBe(1); // nz
     });
 
     it('should preserve all vertex data', () => {
@@ -62,23 +61,23 @@ describe('BufferBuilder', () => {
       const buffer = builder.buildInterleavedBuffer(mesh);
 
       // 2 vertices × 6 floats
-      assert.equal(buffer.length, 12);
+      expect(buffer.length).toBe(12);
 
       // Vertex 1
-      assert.equal(buffer[0], 1);
-      assert.equal(buffer[1], 2);
-      assert.equal(buffer[2], 3);
-      assert.equal(buffer[3], 0.5);
-      assert.equal(buffer[4], 0.5);
-      assert.equal(buffer[5], 0);
+      expect(buffer[0]).toBe(1);
+      expect(buffer[1]).toBe(2);
+      expect(buffer[2]).toBe(3);
+      expect(buffer[3]).toBe(0.5);
+      expect(buffer[4]).toBe(0.5);
+      expect(buffer[5]).toBe(0);
 
       // Vertex 2
-      assert.equal(buffer[6], 4);
-      assert.equal(buffer[7], 5);
-      assert.equal(buffer[8], 6);
-      assert.equal(buffer[9], 0);
-      assert.equal(buffer[10], 1);
-      assert.equal(buffer[11], 0);
+      expect(buffer[6]).toBe(4);
+      expect(buffer[7]).toBe(5);
+      expect(buffer[8]).toBe(6);
+      expect(buffer[9]).toBe(0);
+      expect(buffer[10]).toBe(1);
+      expect(buffer[11]).toBe(0);
     });
   });
 
@@ -96,17 +95,17 @@ describe('BufferBuilder', () => {
 
       const result = builder.processMeshes(meshes);
 
-      assert.equal(result.totalVertices, 7);
-      assert.equal(result.totalTriangles, 3);
-      assert.equal(result.meshes.length, 2);
+      expect(result.totalVertices).toBe(7);
+      expect(result.totalTriangles).toBe(3);
+      expect(result.meshes.length).toBe(2);
     });
 
     it('should handle empty mesh array', () => {
       const result = builder.processMeshes([]);
 
-      assert.equal(result.totalVertices, 0);
-      assert.equal(result.totalTriangles, 0);
-      assert.equal(result.meshes.length, 0);
+      expect(result.totalVertices).toBe(0);
+      expect(result.totalTriangles).toBe(0);
+      expect(result.meshes.length).toBe(0);
     });
   });
 });
@@ -133,12 +132,12 @@ describe('CoordinateHandler', () => {
 
       const bounds = handler.calculateBounds(meshes);
 
-      assert.equal(bounds.min.x, -5);
-      assert.equal(bounds.min.y, -10);
-      assert.equal(bounds.min.z, -2);
-      assert.equal(bounds.max.x, 20);
-      assert.equal(bounds.max.y, 15);
-      assert.equal(bounds.max.z, 8);
+      expect(bounds.min.x).toBe(-5);
+      expect(bounds.min.y).toBe(-10);
+      expect(bounds.min.z).toBe(-2);
+      expect(bounds.max.x).toBe(20);
+      expect(bounds.max.y).toBe(15);
+      expect(bounds.max.z).toBe(8);
     });
 
     it('should filter out corrupted values', () => {
@@ -152,9 +151,9 @@ describe('CoordinateHandler', () => {
       const bounds = handler.calculateBounds(meshes);
 
       // Corrupted vertex (1e8 > 1e7 threshold) should be excluded
-      assert.equal(bounds.max.x, 10);
-      assert.equal(bounds.max.y, 10);
-      assert.equal(bounds.max.z, 10);
+      expect(bounds.max.x).toBe(10);
+      expect(bounds.max.y).toBe(10);
+      expect(bounds.max.z).toBe(10);
     });
   });
 
@@ -165,7 +164,7 @@ describe('CoordinateHandler', () => {
         max: { x: 100, y: 100, z: 50 },
       };
 
-      assert.equal(handler.needsShift(bounds), false);
+      expect(handler.needsShift(bounds)).toBe(false);
     });
 
     it('should return true for large coordinates (>10km)', () => {
@@ -174,7 +173,7 @@ describe('CoordinateHandler', () => {
         max: { x: 500100, y: 5000100, z: 50 },
       };
 
-      assert.equal(handler.needsShift(bounds), true);
+      expect(handler.needsShift(bounds)).toBe(true);
     });
   });
 
@@ -189,10 +188,10 @@ describe('CoordinateHandler', () => {
 
       const info = handler.processMeshes(meshes);
 
-      assert.equal(info.isGeoReferenced, false);
-      assert.equal(info.originShift.x, 0);
-      assert.equal(info.originShift.y, 0);
-      assert.equal(info.originShift.z, 0);
+      expect(info.isGeoReferenced).toBe(false);
+      expect(info.originShift.x).toBe(0);
+      expect(info.originShift.y).toBe(0);
+      expect(info.originShift.z).toBe(0);
     });
 
     it('should shift large coordinate models to origin', () => {
@@ -206,28 +205,22 @@ describe('CoordinateHandler', () => {
       const originalPositions = new Float32Array(meshes[0].positions);
       const info = handler.processMeshes(meshes);
 
-      assert.equal(info.isGeoReferenced, true);
+      expect(info.isGeoReferenced).toBe(true);
 
       // Shift should be approximately the centroid
-      assert.ok(Math.abs(info.originShift.x - 500050) < 1);
-      assert.ok(Math.abs(info.originShift.y - 5000050) < 1);
+      expect(Math.abs(info.originShift.x - 500050)).toBeLessThan(1);
+      expect(Math.abs(info.originShift.y - 5000050)).toBeLessThan(1);
 
       // Positions should be shifted (mutated in-place)
-      assert.ok(
-        Math.abs(meshes[0].positions[0]) < 100,
-        'X should be shifted near origin'
-      );
-      assert.ok(
-        Math.abs(meshes[0].positions[1]) < 100,
-        'Y should be shifted near origin'
-      );
+      expect(Math.abs(meshes[0].positions[0])).toBeLessThan(100);
+      expect(Math.abs(meshes[0].positions[1])).toBeLessThan(100);
     });
 
     it('should handle empty mesh array', () => {
       const info = handler.processMeshes([]);
 
-      assert.equal(info.isGeoReferenced, false);
-      assert.equal(info.originShift.x, 0);
+      expect(info.isGeoReferenced).toBe(false);
+      expect(info.originShift.x).toBe(0);
     });
   });
 
@@ -246,9 +239,9 @@ describe('CoordinateHandler', () => {
       const worldPoint = handler.toWorldCoordinates(localPoint);
       const backToLocal = handler.toLocalCoordinates(worldPoint);
 
-      assert.ok(Math.abs(backToLocal.x - localPoint.x) < 0.001);
-      assert.ok(Math.abs(backToLocal.y - localPoint.y) < 0.001);
-      assert.ok(Math.abs(backToLocal.z - localPoint.z) < 0.001);
+      expect(Math.abs(backToLocal.x - localPoint.x)).toBeLessThan(0.001);
+      expect(Math.abs(backToLocal.y - localPoint.y)).toBeLessThan(0.001);
+      expect(Math.abs(backToLocal.z - localPoint.z)).toBeLessThan(0.001);
     });
   });
 
@@ -270,8 +263,8 @@ describe('CoordinateHandler', () => {
 
       const info = handler.getFinalCoordinateInfo();
 
-      assert.equal(info.originalBounds.min.x, -5);
-      assert.equal(info.originalBounds.max.x, 20);
+      expect(info.originalBounds.min.x).toBe(-5);
+      expect(info.originalBounds.max.x).toBe(20);
     });
 
     it('should reset state for new file', () => {
@@ -285,7 +278,7 @@ describe('CoordinateHandler', () => {
       handler.reset();
 
       const info = handler.getCurrentCoordinateInfo();
-      assert.equal(info, null);
+      expect(info).toBeNull();
     });
   });
 });
@@ -300,10 +293,10 @@ describe('GeometryDeduplicator', () => {
       const result = deduplicateMeshes([mesh1, mesh2]);
 
       // Should produce 1 unique geometry with 2 instances
-      assert.equal(result.length, 1);
-      assert.equal(result[0].instances.length, 2);
-      assert.equal(result[0].instances[0].expressId, 1);
-      assert.equal(result[0].instances[1].expressId, 2);
+      expect(result.length).toBe(1);
+      expect(result[0].instances.length).toBe(2);
+      expect(result[0].instances[0].expressId).toBe(1);
+      expect(result[0].instances[1].expressId).toBe(2);
     });
 
     it('should keep different geometries separate', () => {
@@ -319,9 +312,9 @@ describe('GeometryDeduplicator', () => {
       const result = deduplicateMeshes([mesh1, mesh2]);
 
       // Should produce 2 unique geometries
-      assert.equal(result.length, 2);
-      assert.equal(result[0].instances.length, 1);
-      assert.equal(result[1].instances.length, 1);
+      expect(result.length).toBe(2);
+      expect(result[0].instances.length).toBe(1);
+      expect(result[1].instances.length).toBe(1);
     });
 
     it('should preserve geometry data in result', () => {
@@ -334,14 +327,14 @@ describe('GeometryDeduplicator', () => {
 
       const result = deduplicateMeshes([mesh]);
 
-      assert.deepEqual(Array.from(result[0].positions), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
-      assert.deepEqual(Array.from(result[0].normals), [0, 0, 1, 0, 0, 1, 0, 0, 1]);
-      assert.deepEqual(Array.from(result[0].indices), [0, 1, 2]);
+      expect(Array.from(result[0].positions)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+      expect(Array.from(result[0].normals)).toEqual([0, 0, 1, 0, 0, 1, 0, 0, 1]);
+      expect(Array.from(result[0].indices)).toEqual([0, 1, 2]);
     });
 
     it('should handle empty input', () => {
       const result = deduplicateMeshes([]);
-      assert.equal(result.length, 0);
+      expect(result.length).toBe(0);
     });
   });
 
@@ -357,11 +350,11 @@ describe('GeometryDeduplicator', () => {
       const instanced = deduplicateMeshes([mesh1, mesh2, mesh3]);
       const stats = getDeduplicationStats(instanced);
 
-      assert.equal(stats.inputMeshes, 3);
-      assert.equal(stats.uniqueGeometries, 2);
-      assert.equal(stats.totalInstances, 3);
-      assert.equal(stats.maxInstancesPerGeometry, 2); // mesh1 and mesh2
-      assert.equal(stats.deduplicationRatio, 1.5); // 3/2
+      expect(stats.inputMeshes).toBe(3);
+      expect(stats.uniqueGeometries).toBe(2);
+      expect(stats.totalInstances).toBe(3);
+      expect(stats.maxInstancesPerGeometry).toBe(2); // mesh1 and mesh2
+      expect(stats.deduplicationRatio).toBe(1.5); // 3/2
     });
   });
 });

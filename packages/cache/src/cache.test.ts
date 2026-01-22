@@ -6,8 +6,7 @@
  * Tests for @ifc-lite/cache
  */
 
-import { describe, it, beforeEach } from 'node:test';
-import assert from 'node:assert';
+import { describe, it, beforeEach, expect } from 'vitest';
 import {
   StringTable,
   EntityTableBuilder,
@@ -25,14 +24,14 @@ import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 describe('xxhash64', () => {
   it('should hash empty buffer', () => {
     const hash = xxhash64(new Uint8Array(0));
-    assert.ok(typeof hash === 'bigint');
+    expect(typeof hash).toBe('bigint');
   });
 
   it('should produce consistent hashes', () => {
     const data = new TextEncoder().encode('Hello, World!');
     const hash1 = xxhash64(data);
     const hash2 = xxhash64(data);
-    assert.strictEqual(hash1, hash2);
+    expect(hash1).toBe(hash2);
   });
 
   it('should produce different hashes for different data', () => {
@@ -40,7 +39,7 @@ describe('xxhash64', () => {
     const data2 = new TextEncoder().encode('World');
     const hash1 = xxhash64(data1);
     const hash2 = xxhash64(data2);
-    assert.notStrictEqual(hash1, hash2);
+    expect(hash1).not.toBe(hash2);
   });
 });
 
@@ -125,15 +124,15 @@ describe('BinaryCacheWriter and BinaryCacheReader', () => {
       includeGeometry: false,
     });
 
-    assert.ok(cacheBuffer instanceof ArrayBuffer);
-    assert.ok(cacheBuffer.byteLength > 0);
+    expect(cacheBuffer).toBeInstanceOf(ArrayBuffer);
+    expect(cacheBuffer.byteLength).toBeGreaterThan(0);
 
     const reader = new BinaryCacheReader();
     const result = await reader.read(cacheBuffer);
 
-    assert.strictEqual(result.dataStore.entityCount, 5);
-    assert.strictEqual(result.dataStore.schema, SchemaVersion.IFC4);
-    assert.strictEqual(result.geometry, undefined);
+    expect(result.dataStore.entityCount).toBe(5);
+    expect(result.dataStore.schema).toBe(SchemaVersion.IFC4);
+    expect(result.geometry).toBeUndefined();
   });
 
   it('should write and read cache with geometry', async () => {
@@ -167,11 +166,11 @@ describe('BinaryCacheWriter and BinaryCacheReader', () => {
     const reader = new BinaryCacheReader();
     const result = await reader.read(cacheBuffer);
 
-    assert.ok(result.geometry);
-    assert.strictEqual(result.geometry.meshes.length, 1);
-    assert.strictEqual(result.geometry.meshes[0].expressId, 4);
-    assert.strictEqual(result.geometry.totalVertices, 3);
-    assert.strictEqual(result.geometry.totalTriangles, 1);
+    expect(result.geometry).toBeTruthy();
+    expect(result.geometry!.meshes.length).toBe(1);
+    expect(result.geometry!.meshes[0].expressId).toBe(4);
+    expect(result.geometry!.totalVertices).toBe(3);
+    expect(result.geometry!.totalTriangles).toBe(1);
   });
 
   it('should validate cache against source', async () => {
@@ -183,11 +182,11 @@ describe('BinaryCacheWriter and BinaryCacheReader', () => {
     const reader = new BinaryCacheReader();
 
     // Valid source
-    assert.ok(reader.validate(cacheBuffer, sourceBuffer));
+    expect(reader.validate(cacheBuffer, sourceBuffer)).toBe(true);
 
     // Modified source
     const modifiedSource = new TextEncoder().encode('MODIFIED IFC FILE').buffer;
-    assert.ok(!reader.validate(cacheBuffer, modifiedSource));
+    expect(reader.validate(cacheBuffer, modifiedSource)).toBe(false);
   });
 
   it('should read header only', async () => {
@@ -199,10 +198,10 @@ describe('BinaryCacheWriter and BinaryCacheReader', () => {
     const reader = new BinaryCacheReader();
     const header = reader.readHeader(cacheBuffer);
 
-    assert.strictEqual(header.version, 1);
-    assert.strictEqual(header.entityCount, 5);
-    assert.strictEqual(header.schema, SchemaVersion.IFC4);
-    assert.ok(header.sections.length > 0);
+    expect(header.version).toBe(1);
+    expect(header.entityCount).toBe(5);
+    expect(header.schema).toBe(SchemaVersion.IFC4);
+    expect(header.sections.length).toBeGreaterThan(0);
   });
 
   it('should preserve entity data through round-trip', async () => {
@@ -216,12 +215,12 @@ describe('BinaryCacheWriter and BinaryCacheReader', () => {
 
     // Check entities
     const { entities, strings } = result.dataStore;
-    assert.strictEqual(entities.count, 5);
+    expect(entities.count).toBe(5);
 
     // Check that we can retrieve entity names
-    assert.strictEqual(entities.getName(1), 'Test Project');
-    assert.strictEqual(entities.getName(4), 'Wall 1');
-    assert.strictEqual(entities.getTypeName(4), 'IfcWall');
+    expect(entities.getName(1)).toBe('Test Project');
+    expect(entities.getName(4)).toBe('Wall 1');
+    expect(entities.getTypeName(4)).toBe('IfcWall');
   });
 
   it('should preserve property data through round-trip', async () => {
@@ -236,16 +235,16 @@ describe('BinaryCacheWriter and BinaryCacheReader', () => {
     const { properties } = result.dataStore;
     const psets = properties.getForEntity(4);
 
-    assert.strictEqual(psets.length, 1);
-    assert.strictEqual(psets[0].name, 'Pset_WallCommon');
-    assert.strictEqual(psets[0].properties.length, 2);
+    expect(psets.length).toBe(1);
+    expect(psets[0].name).toBe('Pset_WallCommon');
+    expect(psets[0].properties.length).toBe(2);
 
     // Check property values
     const isExternal = properties.getPropertyValue(4, 'Pset_WallCommon', 'IsExternal');
-    assert.strictEqual(isExternal, true);
+    expect(isExternal).toBe(true);
 
     const fireRating = properties.getPropertyValue(4, 'Pset_WallCommon', 'FireRating');
-    assert.strictEqual(fireRating, 'REI60');
+    expect(fireRating).toBe('REI60');
   });
 
   it('should preserve quantity data through round-trip', async () => {
@@ -260,11 +259,11 @@ describe('BinaryCacheWriter and BinaryCacheReader', () => {
     const { quantities } = result.dataStore;
     const qsets = quantities.getForEntity(4);
 
-    assert.strictEqual(qsets.length, 1);
-    assert.strictEqual(qsets[0].name, 'Qto_WallBaseQuantities');
+    expect(qsets.length).toBe(1);
+    expect(qsets[0].name).toBe('Qto_WallBaseQuantities');
 
     const length = quantities.getQuantityValue(4, 'Qto_WallBaseQuantities', 'Length');
-    assert.strictEqual(length, 5.5);
+    expect(length).toBe(5.5);
   });
 
   it('should preserve relationship data through round-trip', async () => {
@@ -280,12 +279,12 @@ describe('BinaryCacheWriter and BinaryCacheReader', () => {
 
     // Check forward relationships
     const contained = relationships.getRelated(3, RelationshipType.ContainsElements, 'forward');
-    assert.ok(contained.includes(4));
-    assert.ok(contained.includes(5));
+    expect(contained).toContain(4);
+    expect(contained).toContain(5);
 
     // Check inverse relationships
     const containers = relationships.getRelated(4, RelationshipType.ContainsElements, 'inverse');
-    assert.ok(containers.includes(3));
+    expect(containers).toContain(3);
   });
 
   it('should skip geometry when requested', async () => {
@@ -317,7 +316,7 @@ describe('BinaryCacheWriter and BinaryCacheReader', () => {
     const reader = new BinaryCacheReader();
     const result = await reader.read(cacheBuffer, { skipGeometry: true });
 
-    assert.strictEqual(result.geometry, undefined);
-    assert.ok(result.dataStore.entities);
+    expect(result.geometry).toBeUndefined();
+    expect(result.dataStore.entities).toBeTruthy();
   });
 });

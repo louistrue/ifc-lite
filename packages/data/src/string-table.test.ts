@@ -2,15 +2,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { describe, it } from 'node:test';
-import { strict as assert } from 'node:assert';
+import { describe, it, expect } from 'vitest';
 import { StringTable } from './string-table.js';
 
 describe('StringTable', () => {
   it('should start with empty string at index 0', () => {
     const table = new StringTable();
-    assert.equal(table.count, 1);
-    assert.equal(table.get(0), '');
+    expect(table.count).toBe(1);
+    expect(table.get(0)).toBe('');
   });
 
   it('should intern new strings and return indices', () => {
@@ -18,9 +17,9 @@ describe('StringTable', () => {
     const idx1 = table.intern('hello');
     const idx2 = table.intern('world');
 
-    assert.equal(idx1, 1);
-    assert.equal(idx2, 2);
-    assert.equal(table.count, 3);
+    expect(idx1).toBe(1);
+    expect(idx2).toBe(2);
+    expect(table.count).toBe(3);
   });
 
   it('should deduplicate identical strings', () => {
@@ -28,16 +27,16 @@ describe('StringTable', () => {
     const idx1 = table.intern('hello');
     const idx2 = table.intern('hello');
 
-    assert.equal(idx1, idx2);
-    assert.equal(table.count, 2); // Empty string + 'hello'
+    expect(idx1).toBe(idx2);
+    expect(table.count).toBe(2); // Empty string + 'hello'
   });
 
   it('should return NULL_INDEX for null and undefined', () => {
     const table = new StringTable();
 
-    assert.equal(table.intern(null), table.NULL_INDEX);
-    assert.equal(table.intern(undefined), table.NULL_INDEX);
-    assert.equal(table.NULL_INDEX, -1);
+    expect(table.intern(null)).toBe(table.NULL_INDEX);
+    expect(table.intern(undefined)).toBe(table.NULL_INDEX);
+    expect(table.NULL_INDEX).toBe(-1);
   });
 
   it('should retrieve strings by index', () => {
@@ -45,31 +44,31 @@ describe('StringTable', () => {
     table.intern('hello');
     table.intern('world');
 
-    assert.equal(table.get(1), 'hello');
-    assert.equal(table.get(2), 'world');
+    expect(table.get(1)).toBe('hello');
+    expect(table.get(2)).toBe('world');
   });
 
   it('should return empty string for invalid indices', () => {
     const table = new StringTable();
 
-    assert.equal(table.get(-1), '');
-    assert.equal(table.get(999), '');
+    expect(table.get(-1)).toBe('');
+    expect(table.get(999)).toBe('');
   });
 
   it('should check if string exists', () => {
     const table = new StringTable();
     table.intern('hello');
 
-    assert.equal(table.has('hello'), true);
-    assert.equal(table.has('nonexistent'), false);
+    expect(table.has('hello')).toBe(true);
+    expect(table.has('nonexistent')).toBe(false);
   });
 
   it('should return indexOf for strings', () => {
     const table = new StringTable();
     table.intern('hello');
 
-    assert.equal(table.indexOf('hello'), 1);
-    assert.equal(table.indexOf('nonexistent'), -1);
+    expect(table.indexOf('hello')).toBe(1);
+    expect(table.indexOf('nonexistent')).toBe(-1);
   });
 
   it('should return all strings via getAll', () => {
@@ -78,6 +77,6 @@ describe('StringTable', () => {
     table.intern('world');
 
     const all = table.getAll();
-    assert.deepEqual(all, ['', 'hello', 'world']);
+    expect(all).toEqual(['', 'hello', 'world']);
   });
 });

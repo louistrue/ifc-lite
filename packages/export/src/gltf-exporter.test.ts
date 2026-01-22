@@ -2,8 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { describe, it } from 'node:test';
-import { strict as assert } from 'node:assert';
+import { describe, it, expect } from 'vitest';
 import { GLTFExporter } from './gltf-exporter.js';
 import type { GeometryResult, MeshData } from '@ifc-lite/geometry';
 
@@ -47,11 +46,11 @@ describe('GLTFExporter', () => {
 
     // GLB magic header is "glTF" (0x46546C67)
     const magic = new DataView(glb.buffer).getUint32(0, true);
-    assert.equal(magic, 0x46546C67, 'GLB should have correct magic header');
+    expect(magic).toBe(0x46546C67);
 
     // GLB version should be 2
     const version = new DataView(glb.buffer).getUint32(4, true);
-    assert.equal(version, 2, 'GLB version should be 2');
+    expect(version).toBe(2);
   });
 
   it('should export valid glTF JSON', () => {
@@ -62,11 +61,11 @@ describe('GLTFExporter', () => {
     const gltf = JSON.parse(json);
 
     // Check required glTF properties
-    assert.ok(gltf.asset, 'glTF should have asset');
-    assert.equal(gltf.asset.version, '2.0', 'glTF version should be 2.0');
-    assert.ok(Array.isArray(gltf.scenes), 'glTF should have scenes array');
-    assert.ok(Array.isArray(gltf.nodes), 'glTF should have nodes array');
-    assert.ok(Array.isArray(gltf.meshes), 'glTF should have meshes array');
+    expect(gltf.asset).toBeTruthy();
+    expect(gltf.asset.version).toBe('2.0');
+    expect(Array.isArray(gltf.scenes)).toBe(true);
+    expect(Array.isArray(gltf.nodes)).toBe(true);
+    expect(Array.isArray(gltf.meshes)).toBe(true);
   });
 
   it('should include metadata when option is enabled', () => {
@@ -77,8 +76,8 @@ describe('GLTFExporter', () => {
     const gltf = JSON.parse(json);
 
     // Check metadata in asset extras
-    assert.ok(gltf.asset.extras, 'glTF asset should have extras');
-    assert.equal(gltf.asset.extras.meshCount, 2, 'Mesh count should match');
+    expect(gltf.asset.extras).toBeTruthy();
+    expect(gltf.asset.extras.meshCount).toBe(2);
   });
 
   it('should handle multiple meshes', () => {
@@ -90,7 +89,7 @@ describe('GLTFExporter', () => {
     const gltf = JSON.parse(json);
 
     // Each mesh should create a node
-    assert.equal(gltf.nodes.length, meshCount, 'Node count should match mesh count');
+    expect(gltf.nodes.length).toBe(meshCount);
   });
 
   // Roundtrip validation tests
@@ -106,8 +105,8 @@ describe('GLTFExporter', () => {
       const totalLength = view.getUint32(8, true);
 
       // GLB should have reasonable size
-      assert.ok(glb.byteLength === totalLength, 'GLB length should match header');
-      assert.ok(glb.byteLength > 100, 'GLB should have data');
+      expect(glb.byteLength).toBe(totalLength);
+      expect(glb.byteLength).toBeGreaterThan(100);
     });
 
     it('should create valid accessor for positions', () => {
@@ -119,9 +118,9 @@ describe('GLTFExporter', () => {
 
       // Check position accessor
       const posAccessor = gltf.accessors?.find((a: any) => a.type === 'VEC3');
-      assert.ok(posAccessor, 'Should have VEC3 accessor for positions');
-      assert.equal(posAccessor.componentType, 5126, 'Position should be FLOAT (5126)');
-      assert.equal(posAccessor.count, 3, 'Should have 3 vertices');
+      expect(posAccessor).toBeTruthy();
+      expect(posAccessor.componentType).toBe(5126); // Position should be FLOAT (5126)
+      expect(posAccessor.count).toBe(3); // Should have 3 vertices
     });
 
     it('should create valid accessor for indices', () => {
@@ -133,8 +132,8 @@ describe('GLTFExporter', () => {
 
       // Check index accessor - should be SCALAR type
       const indexAccessor = gltf.accessors?.find((a: any) => a.type === 'SCALAR');
-      assert.ok(indexAccessor, 'Should have SCALAR accessor for indices');
-      assert.equal(indexAccessor.count, 3, 'Should have 3 indices (1 triangle)');
+      expect(indexAccessor).toBeTruthy();
+      expect(indexAccessor.count).toBe(3); // Should have 3 indices (1 triangle)
     });
 
     it('should preserve mesh structure in scene graph', () => {
@@ -147,12 +146,12 @@ describe('GLTFExporter', () => {
 
       // Scene should reference all nodes
       const scene = gltf.scenes?.[0];
-      assert.ok(scene, 'Should have default scene');
-      assert.equal(scene.nodes?.length, meshCount, 'Scene should reference all mesh nodes');
+      expect(scene).toBeTruthy();
+      expect(scene.nodes?.length).toBe(meshCount);
 
       // Each node should reference a mesh
       for (const node of gltf.nodes) {
-        assert.ok(node.mesh !== undefined, 'Each node should have a mesh');
+        expect(node.mesh).toBeDefined();
       }
     });
 
@@ -171,11 +170,7 @@ describe('GLTFExporter', () => {
       const exporter = new GLTFExporter(geometryResult);
 
       // Should throw with clear error message
-      assert.throws(
-        () => exporter.exportGLTF(),
-        /no valid geometry/i,
-        'Should throw for empty geometry'
-      );
+      expect(() => exporter.exportGLTF()).toThrow(/no valid geometry/i);
     });
   });
 });
