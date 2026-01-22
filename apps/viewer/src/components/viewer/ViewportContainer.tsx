@@ -9,31 +9,35 @@ import { ToolOverlays } from './ToolOverlays';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { useWebGPU } from '@/hooks/useWebGPU';
-import { Upload, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown, ExternalLink } from 'lucide-react';
+import { Upload, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown, ExternalLink, Plus, Replace } from 'lucide-react';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 
 export function ViewportContainer() {
-  const { geometryResult, ifcDataStore, loadFile, loading } = useIfc();
+  const { geometryResult, ifcDataStore, loadFile, loading, addModel, models } = useIfc();
   const selectedStoreys = useViewerStore((s) => s.selectedStoreys);
   const typeVisibility = useViewerStore((s) => s.typeVisibility);
   const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
-  // Multi-model support: get all loaded models
-  const models = useViewerStore((s) => s.models);
+  // Multi-model support: get all loaded models from store (for merged geometry)
+  const storeModels = useViewerStore((s) => s.models);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const addModelInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showTroubleshooting, setShowTroubleshooting] = useState(false);
   const webgpu = useWebGPU();
 
+  // Check if we have models loaded (for determining add vs replace behavior)
+  const hasModelsLoaded = models.size > 0 || (geometryResult?.meshes && geometryResult.meshes.length > 0);
+
   // Multi-model: merge geometries from all visible models
   const mergedGeometryResult = useMemo(() => {
     // If we have multiple models, merge their geometries
-    if (models.size > 1) {
+    if (storeModels.size > 1) {
       const allMeshes: MeshData[] = [];
       let totalVertices = 0;
       let totalTriangles = 0;
       let mergedCoordinateInfo: CoordinateInfo | undefined;
 
-      for (const model of models.values()) {
+      for (const model of storeModels.values()) {
         if (!model.visible) continue;
 
         const modelGeometry = model.geometryResult;
@@ -62,7 +66,7 @@ export function ViewportContainer() {
 
     // Single model or no multi-model: use original geometryResult
     return geometryResult;
-  }, [models, geometryResult]);
+  }, [storeModels, geometryResult]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -91,9 +95,15 @@ export function ViewportContainer() {
 
     const file = e.dataTransfer.files[0];
     if (file && (file.name.endsWith('.ifc') || file.name.endsWith('.ifcx'))) {
-      loadFile(file);
+      // If models are already loaded, ADD the new model to the scene
+      // Otherwise, load it as the first/primary model
+      if (hasModelsLoaded) {
+        addModel(file);
+      } else {
+        loadFile(file);
+      }
     }
-  }, [loadFile, webgpu.supported]);
+  }, [loadFile, addModel, webgpu.supported, hasModelsLoaded]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     // Block file loading if WebGPU not supported
@@ -104,7 +114,28 @@ export function ViewportContainer() {
     if (file) {
       loadFile(file);
     }
+    // Reset input so same file can be selected again
+    e.target.value = '';
   }, [loadFile, webgpu.supported]);
+
+  // Handler for adding additional models
+  const handleAddModelSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!webgpu.supported) {
+      return;
+    }
+    const files = e.target.files;
+    if (files) {
+      // Add each file as a new model
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.name.endsWith('.ifc') || file.name.endsWith('.ifcx')) {
+          addModel(file);
+        }
+      }
+    }
+    // Reset input so same files can be selected again
+    e.target.value = '';
+  }, [addModel, webgpu.supported]);
 
   const hasGeometry = mergedGeometryResult?.meshes && mergedGeometryResult.meshes.length > 0;
 
@@ -462,16 +493,47 @@ export function ViewportContainer() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Drop overlay for when a file is already loaded */}
+      {/* Hidden file input for adding more models */}
+      <input
+        ref={addModelInputRef}
+        type="file"
+        accept=".ifc,.ifcx"
+        multiple
+        onChange={handleAddModelSelect}
+        className="hidden"
+      />
+
+      {/* Drop overlay for when a file is already loaded - now shows "Add Model" */}
       {isDragging && (
-        <div className="absolute inset-0 z-50 bg-primary/10 backdrop-blur-[2px] flex items-center justify-center">
-          <div className="bg-white dark:bg-zinc-900 border-4 border-dashed border-primary p-8 shadow-2xl">
+        <div className="absolute inset-0 z-50 bg-[#9ece6a]/10 backdrop-blur-[2px] flex items-center justify-center">
+          <div className="bg-white dark:bg-[#1a1b26] border-4 border-dashed border-[#9ece6a] p-8 shadow-2xl">
             <div className="text-center">
-              <Upload className="h-12 w-12 mx-auto text-primary mb-4" />
-              <p className="text-xl font-bold uppercase text-primary">Replace current file</p>
+              <Plus className="h-12 w-12 mx-auto text-[#9ece6a] mb-4" />
+              <p className="text-xl font-black uppercase text-[#9ece6a]">Add Model to Scene</p>
+              <p className="text-sm font-mono text-zinc-500 dark:text-[#565f89] mt-2">
+                Drop to federate with {models.size} existing model{models.size !== 1 ? 's' : ''}
+              </p>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Add Model FAB button - shown when models are loaded */}
+      {hasModelsLoaded && !loading && (
+        <button
+          onClick={() => addModelInputRef.current?.click()}
+          className="absolute bottom-6 right-6 z-40 flex items-center gap-2 px-4 py-2.5
+                     bg-[#9ece6a] hover:bg-[#9ece6a]/90 text-[#1a1b26] font-bold text-sm uppercase tracking-wide
+                     border-2 border-[#1a1b26] dark:border-[#9ece6a]
+                     shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(158,206,106,0.3)]
+                     hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:hover:shadow-[2px_2px_0px_0px_rgba(158,206,106,0.3)]
+                     hover:translate-x-[2px] hover:translate-y-[2px]
+                     transition-all duration-100"
+          title="Add another IFC model to the scene"
+        >
+          <Plus className="h-4 w-4" />
+          <span>Add Model</span>
+        </button>
       )}
 
       <Viewport
