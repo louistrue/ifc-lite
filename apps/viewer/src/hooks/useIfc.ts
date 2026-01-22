@@ -924,12 +924,13 @@ export function useIfc() {
           batchSize: dynamicBatchConfig,
         })) {
           switch (event.type) {
-            case 'batch':
+            case 'batch': {
               allMeshes.push(...event.meshes);
               finalCoordinateInfo = event.coordinateInfo ?? null;
               const progressPercent = 10 + Math.min(80, (allMeshes.length / 1000) * 0.8);
               setProgress({ phase: `Processing geometry (${allMeshes.length} meshes)`, percent: progressPercent });
               break;
+            }
             case 'complete':
               finalCoordinateInfo = event.coordinateInfo ?? null;
               break;
@@ -1013,8 +1014,9 @@ export function useIfc() {
   const removeModel = useCallback((modelId: string) => {
     storeRemoveModel(modelId);
 
-    // Update legacy state if this was the active model
-    const remaining = Array.from(models.values());
+    // Read fresh state from store after removal to avoid stale closure
+    const freshModels = useViewerStore.getState().models;
+    const remaining = Array.from(freshModels.values());
     if (remaining.length > 0) {
       const newActive = remaining[0];
       setIfcDataStore(newActive.ifcDataStore);
@@ -1023,7 +1025,7 @@ export function useIfc() {
       setIfcDataStore(null);
       setGeometryResult(null);
     }
-  }, [storeRemoveModel, models, setIfcDataStore, setGeometryResult]);
+  }, [storeRemoveModel, setIfcDataStore, setGeometryResult]);
 
   /**
    * Get query instance for a specific model
