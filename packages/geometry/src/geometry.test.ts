@@ -89,6 +89,7 @@ describe('BufferBuilder', () => {
         createTestMesh({
           expressId: 2,
           positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0]),
+          normals: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1]), // 4 normals to match 4 vertices
           indices: new Uint32Array([0, 1, 2, 1, 2, 3]),
         }), // 4 vertices, 2 triangles
       ];

@@ -231,7 +231,7 @@ function buildSpatialNodeTree(
  */
 function buildSpatialHierarchy(
   dataModel: DataModel,
-  entityToPsets: Map<number, Array<{ pset_name: string; properties: Array<{ property_name: string; property_value: string }> }>>
+  entityToPsets: Map<number, Array<{ pset_name: string; properties: Array<{ property_name: string; property_value: string | number | boolean | null }> }>>
 ): SpatialHierarchy {
   const byStorey = new Map<number, number[]>();
   const byBuilding = new Map<number, number[]>();
@@ -267,7 +267,7 @@ function buildSpatialHierarchy(
       for (const prop of pset.properties) {
         const propName = prop.property_name.toLowerCase();
         if (propName === 'grossheight' || propName === 'netheight' || propName === 'height') {
-          const val = parseFloat(prop.property_value);
+          const val = typeof prop.property_value === 'number' ? prop.property_value : parseFloat(String(prop.property_value));
           if (!isNaN(val) && val > 0) {
             storeyHeights.set(storeyId, val);
             break;

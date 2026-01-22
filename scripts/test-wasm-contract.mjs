@@ -281,8 +281,7 @@ test('should return GeoReferenceJs for georeferenced files', () => {
     georefContent = readFileSync(GEOREF_IFC, 'utf-8');
   } catch {
     console.log('     (skipped - fixture not found)');
-    passed++; // Count as passed since it's optional
-    return;
+    return; // Test harness will count as passed
   }
 
   const georef = api.getGeoReference(georefContent);
