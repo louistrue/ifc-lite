@@ -21,12 +21,19 @@ import { createCameraSlice, type CameraSlice } from './slices/cameraSlice.js';
 import { createSectionSlice, type SectionSlice } from './slices/sectionSlice.js';
 import { createMeasurementSlice, type MeasurementSlice } from './slices/measurementSlice.js';
 import { createDataSlice, type DataSlice } from './slices/dataSlice.js';
+import { createModelSlice, type ModelSlice } from './slices/modelSlice.js';
 
 // Import constants for reset function
 import { CAMERA_DEFAULTS, SECTION_PLANE_DEFAULTS, UI_DEFAULTS, TYPE_VISIBILITY_DEFAULTS } from './constants.js';
 
 // Re-export types for consumers
 export type * from './types.js';
+
+// Explicitly re-export multi-model types that need to be imported by name
+export type { EntityRef, SchemaVersion, FederatedModel } from './types.js';
+
+// Re-export utility functions for entity references
+export { entityRefToString, stringToEntityRef, entityRefEquals } from './types.js';
 
 // Combined store type
 export type ViewerState = LoadingSlice &
@@ -37,7 +44,8 @@ export type ViewerState = LoadingSlice &
   CameraSlice &
   SectionSlice &
   MeasurementSlice &
-  DataSlice & {
+  DataSlice &
+  ModelSlice & {
     resetViewerState: () => void;
   };
 
@@ -55,17 +63,23 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
   ...createSectionSlice(...args),
   ...createMeasurementSlice(...args),
   ...createDataSlice(...args),
+  ...createModelSlice(...args),
 
   // Reset all viewer state when loading new file
+  // Note: Does NOT clear models - use clearAllModels() for that
   resetViewerState: () => {
     const [set] = args;
     set({
-      // Selection
+      // Selection (legacy)
       selectedEntityId: null,
       selectedEntityIds: new Set(),
       selectedStoreys: new Set(),
 
-      // Visibility
+      // Selection (multi-model)
+      selectedEntity: null,
+      selectedEntitiesSet: new Set(),
+
+      // Visibility (legacy)
       hiddenEntities: new Set(),
       isolatedEntities: null,
       typeVisibility: {
@@ -73,6 +87,10 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
         openings: TYPE_VISIBILITY_DEFAULTS.OPENINGS,
         site: TYPE_VISIBILITY_DEFAULTS.SITE,
       },
+
+      // Visibility (multi-model)
+      hiddenEntitiesByModel: new Map(),
+      isolatedEntitiesByModel: new Map(),
 
       // Data
       pendingColorUpdates: null,

@@ -4,17 +4,28 @@
 
 /**
  * Selection state slice
+ *
+ * Supports both single-model (legacy) and multi-model selection.
+ * Multi-model selection uses compound EntityRef identifiers.
  */
 
 import type { StateCreator } from 'zustand';
+import type { EntityRef } from '../types.js';
+import { entityRefToString, stringToEntityRef } from '../types.js';
 
 export interface SelectionSlice {
-  // State
+  // State (legacy - single model)
   selectedEntityId: number | null;
   selectedEntityIds: Set<number>;
   selectedStoreys: Set<number>;
 
-  // Actions
+  // State (multi-model)
+  /** Primary selected entity with model context */
+  selectedEntity: EntityRef | null;
+  /** Multi-selection across models: serialized EntityRef strings */
+  selectedEntitiesSet: Set<string>;
+
+  // Actions (legacy - single model, maintained for backward compatibility)
   setSelectedEntityId: (id: number | null) => void;
   toggleStoreySelection: (id: number) => void;
   setStoreySelection: (id: number) => void;
@@ -25,15 +36,35 @@ export interface SelectionSlice {
   toggleSelection: (id: number) => void;
   setSelectedEntityIds: (ids: number[]) => void;
   clearSelection: () => void;
+
+  // Actions (multi-model)
+  /** Set primary selection with model context */
+  setSelectedEntity: (ref: EntityRef | null) => void;
+  /** Add entity to multi-selection */
+  addEntityToSelection: (ref: EntityRef) => void;
+  /** Remove entity from multi-selection */
+  removeEntityFromSelection: (ref: EntityRef) => void;
+  /** Toggle entity in multi-selection */
+  toggleEntitySelection: (ref: EntityRef) => void;
+  /** Clear all entity selection (both single and multi) */
+  clearEntitySelection: () => void;
+  /** Check if entity is selected */
+  isEntitySelected: (ref: EntityRef) => boolean;
+  /** Get all selected entities for a specific model */
+  getSelectedEntitiesForModel: (modelId: string) => number[];
 }
 
-export const createSelectionSlice: StateCreator<SelectionSlice, [], [], SelectionSlice> = (set) => ({
-  // Initial state
+export const createSelectionSlice: StateCreator<SelectionSlice, [], [], SelectionSlice> = (set, get) => ({
+  // Initial state (legacy)
   selectedEntityId: null,
   selectedEntityIds: new Set(),
   selectedStoreys: new Set(),
 
-  // Actions
+  // Initial state (multi-model)
+  selectedEntity: null,
+  selectedEntitiesSet: new Set(),
+
+  // Actions (legacy - maintained for backward compatibility)
   setSelectedEntityId: (selectedEntityId) => set({ selectedEntityId }),
 
   toggleStoreySelection: (id) => set((state) => {
@@ -98,4 +129,94 @@ export const createSelectionSlice: StateCreator<SelectionSlice, [], [], Selectio
     selectedEntityIds: new Set(),
     selectedEntityId: null,
   }),
+
+  // Actions (multi-model)
+  setSelectedEntity: (ref) => set({
+    selectedEntity: ref,
+    // Update legacy state for backward compatibility
+    selectedEntityId: ref?.expressId ?? null,
+  }),
+
+  addEntityToSelection: (ref) => set((state) => {
+    const key = entityRefToString(ref);
+    const newSet = new Set(state.selectedEntitiesSet);
+    newSet.add(key);
+    return {
+      selectedEntitiesSet: newSet,
+      selectedEntity: ref,
+      // Update legacy state
+      selectedEntityId: ref.expressId,
+    };
+  }),
+
+  removeEntityFromSelection: (ref) => set((state) => {
+    const key = entityRefToString(ref);
+    const newSet = new Set(state.selectedEntitiesSet);
+    newSet.delete(key);
+
+    // Update primary selection if needed
+    let newPrimary: EntityRef | null = state.selectedEntity;
+    if (state.selectedEntity?.modelId === ref.modelId && state.selectedEntity?.expressId === ref.expressId) {
+      // Primary was removed, pick another if available
+      const remaining = Array.from(newSet);
+      newPrimary = remaining.length > 0 ? stringToEntityRef(remaining[remaining.length - 1]) : null;
+    }
+
+    return {
+      selectedEntitiesSet: newSet,
+      selectedEntity: newPrimary,
+      selectedEntityId: newPrimary?.expressId ?? null,
+    };
+  }),
+
+  toggleEntitySelection: (ref) => set((state) => {
+    const key = entityRefToString(ref);
+    const newSet = new Set(state.selectedEntitiesSet);
+
+    if (newSet.has(key)) {
+      newSet.delete(key);
+      // Update primary if this was it
+      let newPrimary: EntityRef | null = state.selectedEntity;
+      if (state.selectedEntity?.modelId === ref.modelId && state.selectedEntity?.expressId === ref.expressId) {
+        const remaining = Array.from(newSet);
+        newPrimary = remaining.length > 0 ? stringToEntityRef(remaining[remaining.length - 1]) : null;
+      }
+      return {
+        selectedEntitiesSet: newSet,
+        selectedEntity: newPrimary,
+        selectedEntityId: newPrimary?.expressId ?? null,
+      };
+    } else {
+      newSet.add(key);
+      return {
+        selectedEntitiesSet: newSet,
+        selectedEntity: ref,
+        selectedEntityId: ref.expressId,
+      };
+    }
+  }),
+
+  clearEntitySelection: () => set({
+    selectedEntity: null,
+    selectedEntitiesSet: new Set(),
+    selectedEntityId: null,
+    selectedEntityIds: new Set(),
+  }),
+
+  isEntitySelected: (ref) => {
+    const key = entityRefToString(ref);
+    return get().selectedEntitiesSet.has(key);
+  },
+
+  getSelectedEntitiesForModel: (modelId) => {
+    const state = get();
+    const result: number[] = [];
+    for (const key of state.selectedEntitiesSet) {
+      const ref = stringToEntityRef(key);
+      if (ref.modelId === modelId) {
+        result.push(ref.expressId);
+      }
+    }
+    return result;
+  },
 });

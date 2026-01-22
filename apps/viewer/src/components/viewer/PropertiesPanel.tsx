@@ -16,6 +16,7 @@ import {
   Tag,
   MousePointer2,
   ArrowUpDown,
+  FileBox,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -24,6 +25,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
+import { IfcQuery } from '@ifc-lite/query';
 
 interface PropertySet {
   name: string;
@@ -37,10 +39,30 @@ interface QuantitySet {
 
 export function PropertiesPanel() {
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
+  const selectedEntity = useViewerStore((s) => s.selectedEntity);
   const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
   const toggleEntityVisibility = useViewerStore((s) => s.toggleEntityVisibility);
   const isEntityVisible = useViewerStore((s) => s.isEntityVisible);
-  const { query, ifcDataStore } = useIfc();
+  const { query, ifcDataStore, models, getQueryForModel } = useIfc();
+
+  // Get model-aware query based on selectedEntity
+  const { modelQuery, model } = useMemo(() => {
+    // If we have a selectedEntity with modelId, use that model's query
+    if (selectedEntity && selectedEntity.modelId !== 'legacy') {
+      const m = models.get(selectedEntity.modelId);
+      if (m) {
+        return {
+          modelQuery: new IfcQuery(m.ifcDataStore),
+          model: m,
+        };
+      }
+    }
+    // Fallback to legacy query
+    return { modelQuery: query, model: null };
+  }, [selectedEntity, models, query]);
+
+  // Use model-aware data store
+  const activeDataStore = model?.ifcDataStore ?? ifcDataStore;
 
   // Copy feedback state - must be before any early returns (Rules of Hooks)
   const [copied, setCopied] = useState(false);
@@ -53,9 +75,9 @@ export function PropertiesPanel() {
 
   // Get spatial location info
   const spatialInfo = useMemo(() => {
-    if (!selectedEntityId || !ifcDataStore?.spatialHierarchy) return null;
+    if (!selectedEntityId || !activeDataStore?.spatialHierarchy) return null;
 
-    const hierarchy = ifcDataStore.spatialHierarchy;
+    const hierarchy = activeDataStore.spatialHierarchy;
     // Use O(1) lookup instead of O(n) includes() search
     const storeyId = hierarchy.elementToStorey.get(selectedEntityId);
 
@@ -64,8 +86,8 @@ export function PropertiesPanel() {
     // Get height: try pre-computed, then properties/quantities, then calculate from elevations
     let height = hierarchy.storeyHeights?.get(storeyId);
 
-    if (height === undefined && ifcDataStore.properties) {
-      for (const pset of ifcDataStore.properties.getForEntity(storeyId)) {
+    if (height === undefined && activeDataStore.properties) {
+      for (const pset of activeDataStore.properties.getForEntity(storeyId)) {
         for (const prop of pset.properties) {
           const propName = prop.name.toLowerCase();
           if (['grossheight', 'netheight', 'height'].includes(propName)) {
@@ -80,8 +102,8 @@ export function PropertiesPanel() {
       }
     }
 
-    if (height === undefined && ifcDataStore.quantities) {
-      for (const qto of ifcDataStore.quantities.getForEntity(storeyId)) {
+    if (height === undefined && activeDataStore.quantities) {
+      for (const qto of activeDataStore.quantities.getForEntity(storeyId)) {
         for (const qty of qto.quantities) {
           const qtyName = qty.name.toLowerCase();
           if (['grossheight', 'netheight', 'height'].includes(qtyName) && typeof qty.value === 'number' && qty.value > 0) {
@@ -112,17 +134,17 @@ export function PropertiesPanel() {
 
     return {
       storeyId,
-      storeyName: ifcDataStore.entities.getName(storeyId) || `Storey #${storeyId}`,
+      storeyName: activeDataStore.entities.getName(storeyId) || `Storey #${storeyId}`,
       elevation: hierarchy.storeyElevations.get(storeyId),
       height,
     };
-  }, [selectedEntityId, ifcDataStore]);
+  }, [selectedEntityId, activeDataStore]);
 
   // Get entity node - must be computed before early return to maintain hook order
   const entityNode = useMemo(() => {
-    if (!selectedEntityId || !query) return null;
-    return query.entity(selectedEntityId);
-  }, [selectedEntityId, query]);
+    if (!selectedEntityId || !modelQuery) return null;
+    return modelQuery.entity(selectedEntityId);
+  }, [selectedEntityId, modelQuery]);
 
   // Unified property/quantity access - EntityNode handles on-demand extraction automatically
   // These hooks must be called before any early return to maintain hook order
@@ -151,7 +173,7 @@ export function PropertiesPanel() {
     return attrs;
   }, [entityNode]);
 
-  if (!selectedEntityId || !query) {
+  if (!selectedEntityId || !modelQuery) {
     return (
       <div className="h-full flex flex-col border-l-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-black">
         <div className="p-3 border-b-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
@@ -261,6 +283,14 @@ export function PropertiesPanel() {
                 <Copy className="h-3 w-3 text-zinc-600 dark:text-zinc-400" />
               )}
             </Button>
+          </div>
+        )}
+
+        {/* Model Source (when multiple models loaded) */}
+        {models.size > 1 && model && (
+          <div className="flex items-center gap-2 text-xs border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 px-2 py-1.5 text-zinc-600 dark:text-zinc-400 min-w-0">
+            <FileBox className="h-3.5 w-3.5 shrink-0 text-primary" />
+            <span className="font-mono truncate min-w-0 flex-1">{model.name}</span>
           </div>
         )}
 

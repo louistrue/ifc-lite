@@ -131,3 +131,61 @@ export interface CameraCallbacks {
   orbit?: (deltaX: number, deltaY: number) => void;
   projectToScreen?: (worldPos: { x: number; y: number; z: number }) => { x: number; y: number } | null;
 }
+
+// ============================================================================
+// Multi-Model Federation Types
+// ============================================================================
+
+import type { IfcDataStore } from '@ifc-lite/parser';
+import type { GeometryResult } from '@ifc-lite/geometry';
+
+/** Compound identifier for entities across multiple models */
+export interface EntityRef {
+  modelId: string;
+  expressId: number;
+}
+
+/** IFC schema version enum for type safety */
+export type SchemaVersion = 'IFC2X3' | 'IFC4' | 'IFC4X3' | 'IFC5';
+
+/** Complete model container for federation */
+export interface FederatedModel {
+  /** Unique identifier (UUID generated on load) */
+  id: string;
+  /** Display name (filename by default, user can rename) */
+  name: string;
+  /** Parsed IFC data model */
+  ifcDataStore: IfcDataStore;
+  /** Pre-tessellated geometry */
+  geometryResult: GeometryResult;
+  /** Model-level visibility toggle */
+  visible: boolean;
+  /** UI collapse state in hierarchy panel */
+  collapsed: boolean;
+  /** IFC schema version */
+  schemaVersion: SchemaVersion;
+  /** Load timestamp */
+  loadedAt: number;
+  /** Original file size in bytes */
+  fileSize: number;
+}
+
+/** Convert EntityRef to string for use as Map/Set key */
+export function entityRefToString(ref: EntityRef): string {
+  return `${ref.modelId}:${ref.expressId}`;
+}
+
+/** Parse string back to EntityRef */
+export function stringToEntityRef(str: string): EntityRef {
+  const colonIndex = str.indexOf(':');
+  const modelId = str.substring(0, colonIndex);
+  const expressId = parseInt(str.substring(colonIndex + 1), 10);
+  return { modelId, expressId };
+}
+
+/** Check if two EntityRefs are equal */
+export function entityRefEquals(a: EntityRef | null, b: EntityRef | null): boolean {
+  if (a === null && b === null) return true;
+  if (a === null || b === null) return false;
+  return a.modelId === b.modelId && a.expressId === b.expressId;
+}

@@ -8,7 +8,7 @@
  */
 
 import { useMemo, useCallback, useRef } from 'react';
-import { useViewerStore } from '../store.js';
+import { useViewerStore, type FederatedModel, type SchemaVersion } from '../store.js';
 import { IfcParser, detectFormat, parseIfcx, type IfcDataStore } from '@ifc-lite/parser';
 import { GeometryProcessor, GeometryQuality, type MeshData, type CoordinateInfo } from '@ifc-lite/geometry';
 import { IfcQuery } from '@ifc-lite/query';
@@ -134,6 +134,19 @@ export function useIfc() {
     appendGeometryBatch,
     updateMeshColors,
     updateCoordinateInfo,
+    // Multi-model state and actions
+    models,
+    activeModelId,
+    addModel: storeAddModel,
+    removeModel: storeRemoveModel,
+    clearAllModels,
+    setActiveModel,
+    setModelVisibility,
+    setModelCollapsed,
+    getModel,
+    getActiveModel,
+    getAllVisibleModels,
+    hasModels,
   } = useViewerStore();
 
   // Track if we've already logged for this ifcDataStore
@@ -447,7 +460,7 @@ export function useIfc() {
       const totalServerTime = performance.now() - serverStart;
       console.log(`[useIfc] SERVER PARALLEL complete: ${file.name}`);
       console.log(`  Total time: ${totalServerTime.toFixed(0)}ms`);
-      console.log(`  Breakdown: health=${(healthStart - serverStart).toFixed(0)}ms, parse=${parseTime.toFixed(0)}ms, convert=${convertTime.toFixed(0)}ms`);
+      console.log(`  Breakdown: parse=${parseTime.toFixed(0)}ms, convert=${convertTime.toFixed(0)}ms`);
 
       return true;
     } catch (err) {
@@ -796,6 +809,7 @@ export function useIfc() {
   }, [setLoading, setError, setProgress, setIfcDataStore, setGeometryResult, appendGeometryBatch, updateCoordinateInfo, loadFromCache, saveToCache]);
 
   // Memoize query to prevent recreation on every render
+  // For single-model backward compatibility
   const query = useMemo(() => {
     if (!ifcDataStore) return null;
 
@@ -805,7 +819,223 @@ export function useIfc() {
     return new IfcQuery(ifcDataStore);
   }, [ifcDataStore]);
 
+  /**
+   * Add a model to the federation (multi-model support)
+   * Returns the model ID on success, null on failure
+   */
+  const addModel = useCallback(async (
+    file: File,
+    options?: { name?: string }
+  ): Promise<string | null> => {
+    const modelId = crypto.randomUUID();
+    const totalStartTime = performance.now();
+
+    try {
+      setLoading(true);
+      setError(null);
+      setProgress({ phase: 'Loading file', percent: 0 });
+
+      // Read file from disk
+      const buffer = await file.arrayBuffer();
+      const fileSizeMB = buffer.byteLength / (1024 * 1024);
+
+      // Detect file format
+      const format = detectFormat(buffer);
+
+      let parsedDataStore: IfcDataStore | null = null;
+      let parsedGeometry: { meshes: MeshData[]; totalVertices: number; totalTriangles: number; coordinateInfo: CoordinateInfo } | null = null;
+      let schemaVersion: SchemaVersion = 'IFC4';
+
+      // IFCX files must be parsed client-side
+      if (format === 'ifcx') {
+        setProgress({ phase: 'Parsing IFCX (client-side)', percent: 10 });
+
+        const ifcxResult = await parseIfcx(buffer, {
+          onProgress: (prog: { phase: string; percent: number }) => {
+            setProgress({ phase: `IFCX ${prog.phase}`, percent: 10 + (prog.percent * 0.8) });
+          },
+        });
+
+        // Convert IFCX meshes to viewer format
+        const meshes: MeshData[] = ifcxResult.meshes.map((m: { expressId?: number; express_id?: number; id?: number; positions: Float32Array | number[]; indices: Uint32Array | number[]; normals: Float32Array | number[]; color?: [number, number, number, number] | [number, number, number]; ifcType?: string; ifc_type?: string }) => {
+          const positions = m.positions instanceof Float32Array ? m.positions : new Float32Array(m.positions || []);
+          const indices = m.indices instanceof Uint32Array ? m.indices : new Uint32Array(m.indices || []);
+          const normals = m.normals instanceof Float32Array ? m.normals : new Float32Array(m.normals || []);
+          const color = normalizeColor(m.color);
+
+          return {
+            expressId: m.expressId || m.express_id || m.id || 0,
+            positions,
+            indices,
+            normals,
+            color,
+            ifcType: m.ifcType || m.ifc_type || 'IfcProduct',
+          };
+        }).filter((m: MeshData) => m.positions.length > 0 && m.indices.length > 0);
+
+        const { bounds, stats } = calculateMeshBounds(meshes);
+        const coordinateInfo = createCoordinateInfo(bounds);
+
+        parsedGeometry = {
+          meshes,
+          totalVertices: stats.totalVertices,
+          totalTriangles: stats.totalTriangles,
+          coordinateInfo,
+        };
+
+        parsedDataStore = {
+          fileSize: ifcxResult.fileSize,
+          schemaVersion: 'IFC5' as const,
+          entityCount: ifcxResult.entityCount,
+          parseTime: ifcxResult.parseTime,
+          source: new Uint8Array(buffer),
+          entityIndex: { byId: new Map(), byType: new Map() },
+          strings: ifcxResult.strings,
+          entities: ifcxResult.entities,
+          properties: ifcxResult.properties,
+          quantities: ifcxResult.quantities,
+          relationships: ifcxResult.relationships,
+          spatialHierarchy: ifcxResult.spatialHierarchy,
+        } as any;
+
+        schemaVersion = 'IFC5';
+
+      } else {
+        // IFC4/IFC2X3 STEP format - use WASM parsing
+        setProgress({ phase: 'Starting geometry streaming', percent: 10 });
+
+        const geometryProcessor = new GeometryProcessor({ quality: GeometryQuality.Balanced });
+        await geometryProcessor.init();
+
+        // Parse data model
+        const parser = new IfcParser();
+        const wasmApi = geometryProcessor.getApi();
+
+        const dataStorePromise = parser.parseColumnar(buffer, { wasmApi });
+
+        // Process geometry
+        const allMeshes: MeshData[] = [];
+        let finalCoordinateInfo: CoordinateInfo | null = null;
+
+        const dynamicBatchConfig = getDynamicBatchConfig(fileSizeMB);
+
+        for await (const event of geometryProcessor.processAdaptive(new Uint8Array(buffer), {
+          sizeThreshold: 2 * 1024 * 1024,
+          batchSize: dynamicBatchConfig,
+        })) {
+          switch (event.type) {
+            case 'batch':
+              allMeshes.push(...event.meshes);
+              finalCoordinateInfo = event.coordinateInfo ?? null;
+              const progressPercent = 10 + Math.min(80, (allMeshes.length / 1000) * 0.8);
+              setProgress({ phase: `Processing geometry (${allMeshes.length} meshes)`, percent: progressPercent });
+              break;
+            case 'complete':
+              finalCoordinateInfo = event.coordinateInfo ?? null;
+              break;
+          }
+        }
+
+        parsedDataStore = await dataStorePromise;
+
+        // Calculate storey heights
+        if (parsedDataStore.spatialHierarchy && parsedDataStore.spatialHierarchy.storeyHeights.size === 0 && parsedDataStore.spatialHierarchy.storeyElevations.size > 1) {
+          const calculatedHeights = calculateStoreyHeights(parsedDataStore.spatialHierarchy.storeyElevations);
+          for (const [storeyId, height] of calculatedHeights) {
+            parsedDataStore.spatialHierarchy.storeyHeights.set(storeyId, height);
+          }
+        }
+
+        // Build spatial index
+        if (allMeshes.length > 0) {
+          try {
+            const spatialIndex = buildSpatialIndex(allMeshes);
+            (parsedDataStore as any).spatialIndex = spatialIndex;
+          } catch (err) {
+            console.warn('[useIfc] Failed to build spatial index:', err);
+          }
+        }
+
+        parsedGeometry = {
+          meshes: allMeshes,
+          totalVertices: allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0),
+          totalTriangles: allMeshes.reduce((sum, m) => sum + m.indices.length / 3, 0),
+          coordinateInfo: finalCoordinateInfo || createCoordinateInfo(calculateMeshBounds(allMeshes).bounds),
+        };
+
+        schemaVersion = parsedDataStore.schemaVersion === 'IFC4X3' ? 'IFC4X3' :
+                        parsedDataStore.schemaVersion === 'IFC4' ? 'IFC4' : 'IFC2X3';
+      }
+
+      if (!parsedDataStore || !parsedGeometry) {
+        throw new Error('Failed to parse file');
+      }
+
+      // Create the federated model
+      const federatedModel: FederatedModel = {
+        id: modelId,
+        name: options?.name ?? file.name,
+        ifcDataStore: parsedDataStore,
+        geometryResult: parsedGeometry,
+        visible: true,
+        collapsed: hasModels(), // Collapse if not first model
+        schemaVersion,
+        loadedAt: Date.now(),
+        fileSize: buffer.byteLength,
+      };
+
+      // Add to store
+      storeAddModel(federatedModel);
+
+      // Also set legacy single-model state for backward compatibility
+      setIfcDataStore(parsedDataStore);
+      setGeometryResult(parsedGeometry);
+
+      setProgress({ phase: 'Complete', percent: 100 });
+      setLoading(false);
+
+      const totalElapsedMs = performance.now() - totalStartTime;
+      console.log(`[useIfc] ✓ Added model ${file.name} (${fileSizeMB.toFixed(1)}MB) | ${totalElapsedMs.toFixed(0)}ms`);
+
+      return modelId;
+
+    } catch (err) {
+      console.error('[useIfc] addModel failed:', err);
+      setError(err instanceof Error ? err.message : 'Unknown error');
+      setLoading(false);
+      return null;
+    }
+  }, [setLoading, setError, setProgress, setIfcDataStore, setGeometryResult, storeAddModel, hasModels]);
+
+  /**
+   * Remove a model from the federation
+   */
+  const removeModel = useCallback((modelId: string) => {
+    storeRemoveModel(modelId);
+
+    // Update legacy state if this was the active model
+    const remaining = Array.from(models.values());
+    if (remaining.length > 0) {
+      const newActive = remaining[0];
+      setIfcDataStore(newActive.ifcDataStore);
+      setGeometryResult(newActive.geometryResult);
+    } else {
+      setIfcDataStore(null);
+      setGeometryResult(null);
+    }
+  }, [storeRemoveModel, models, setIfcDataStore, setGeometryResult]);
+
+  /**
+   * Get query instance for a specific model
+   */
+  const getQueryForModel = useCallback((modelId: string): IfcQuery | null => {
+    const model = getModel(modelId);
+    if (!model) return null;
+    return new IfcQuery(model.ifcDataStore);
+  }, [getModel]);
+
   return {
+    // Legacy single-model API (backward compatibility)
     loading,
     progress,
     error,
@@ -813,5 +1043,20 @@ export function useIfc() {
     geometryResult,
     query,
     loadFile,
+
+    // Multi-model API
+    models,
+    activeModelId,
+    addModel,
+    removeModel,
+    clearAllModels,
+    setActiveModel,
+    setModelVisibility,
+    setModelCollapsed,
+    getModel,
+    getActiveModel,
+    getAllVisibleModels,
+    hasModels,
+    getQueryForModel,
   };
 }

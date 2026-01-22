@@ -10,16 +10,59 @@ import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { useWebGPU } from '@/hooks/useWebGPU';
 import { Upload, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown, ExternalLink } from 'lucide-react';
+import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 
 export function ViewportContainer() {
   const { geometryResult, ifcDataStore, loadFile, loading } = useIfc();
   const selectedStoreys = useViewerStore((s) => s.selectedStoreys);
   const typeVisibility = useViewerStore((s) => s.typeVisibility);
   const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
+  // Multi-model support: get all loaded models
+  const models = useViewerStore((s) => s.models);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showTroubleshooting, setShowTroubleshooting] = useState(false);
   const webgpu = useWebGPU();
+
+  // Multi-model: merge geometries from all visible models
+  const mergedGeometryResult = useMemo(() => {
+    // If we have multiple models, merge their geometries
+    if (models.size > 1) {
+      const allMeshes: MeshData[] = [];
+      let totalVertices = 0;
+      let totalTriangles = 0;
+      let mergedCoordinateInfo: CoordinateInfo | undefined;
+
+      for (const model of models.values()) {
+        if (!model.visible) continue;
+
+        const modelGeometry = model.geometryResult;
+        if (modelGeometry?.meshes) {
+          // Add meshes with model context (expressIds are unique within each model)
+          allMeshes.push(...modelGeometry.meshes);
+          totalVertices += modelGeometry.totalVertices || 0;
+          totalTriangles += modelGeometry.totalTriangles || 0;
+
+          // Use first model's coordinate info as base (could be improved to compute union)
+          if (!mergedCoordinateInfo && modelGeometry.coordinateInfo) {
+            mergedCoordinateInfo = modelGeometry.coordinateInfo;
+          }
+        }
+      }
+
+      if (allMeshes.length > 0) {
+        return {
+          meshes: allMeshes,
+          totalVertices,
+          totalTriangles,
+          coordinateInfo: mergedCoordinateInfo,
+        };
+      }
+    }
+
+    // Single model or no multi-model: use original geometryResult
+    return geometryResult;
+  }, [models, geometryResult]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -63,18 +106,18 @@ export function ViewportContainer() {
     }
   }, [loadFile, webgpu.supported]);
 
-  const hasGeometry = geometryResult?.meshes && geometryResult.meshes.length > 0;
+  const hasGeometry = mergedGeometryResult?.meshes && mergedGeometryResult.meshes.length > 0;
 
   // Filter geometry based on type visibility only
   // PERFORMANCE FIX: Don't filter by storey or hiddenEntities here
   // Instead, let the renderer handle visibility filtering at the batch level
   // This avoids expensive batch rebuilding when visibility changes
   const filteredGeometry = useMemo(() => {
-    if (!geometryResult?.meshes) {
+    if (!mergedGeometryResult?.meshes) {
       return null;
     }
 
-    let meshes = geometryResult.meshes;
+    let meshes = mergedGeometryResult.meshes;
 
     // Filter by type visibility (spatial elements)
     meshes = meshes.filter(mesh => {
@@ -115,7 +158,7 @@ export function ViewportContainer() {
     });
 
     return meshes;
-  }, [geometryResult, typeVisibility]);
+  }, [mergedGeometryResult, typeVisibility]);
 
   // Compute combined isolation set (storeys + manual isolation)
   // This is passed to the renderer for batch-level visibility filtering
@@ -433,7 +476,7 @@ export function ViewportContainer() {
 
       <Viewport
         geometry={filteredGeometry}
-        coordinateInfo={geometryResult?.coordinateInfo}
+        coordinateInfo={mergedGeometryResult?.coordinateInfo}
         computedIsolatedIds={computedIsolatedIds}
       />
       <ViewportOverlays />

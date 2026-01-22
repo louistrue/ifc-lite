@@ -37,4 +37,11 @@ export type {
   TypeVisibility,
   CameraRotation,
   CameraCallbacks,
+  // Multi-model federation types
+  EntityRef,
+  SchemaVersion,
+  FederatedModel,
 } from './store/types.js';
+
+// Re-export utility functions for multi-model federation
+export { entityRefToString, stringToEntityRef, entityRefEquals } from './store/types.js';
