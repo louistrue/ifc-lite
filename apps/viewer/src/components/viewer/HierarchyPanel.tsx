@@ -454,9 +454,9 @@ export function HierarchyPanel() {
       }
     } else if (node.type === 'model-contribution') {
       // Get elements from this model's storey contribution
-      const parts = node.id.split('-');
-      const modelId = parts[1];
-      const storeyId = parseInt(parts[2], 10);
+      // Use node.modelIds and node.expressIds (not string parsing - UUIDs have dashes!)
+      const modelId = node.modelIds[0];
+      const storeyId = node.expressIds[0];
       const model = models.get(modelId);
       if (model?.ifcDataStore?.spatialHierarchy) {
         return (model.ifcDataStore.spatialHierarchy.byStorey.get(storeyId) as number[]) || [];

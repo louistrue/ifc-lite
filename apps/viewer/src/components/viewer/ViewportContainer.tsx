@@ -29,14 +29,15 @@ export function ViewportContainer() {
 
   // Multi-model: merge geometries from all visible models
   const mergedGeometryResult = useMemo(() => {
-    // If we have multiple models, merge their geometries
-    if (storeModels.size > 1) {
+    // If we have federated models, merge their visible geometries
+    if (storeModels.size > 0) {
       const allMeshes: MeshData[] = [];
       let totalVertices = 0;
       let totalTriangles = 0;
       let mergedCoordinateInfo: CoordinateInfo | undefined;
 
       for (const model of storeModels.values()) {
+        // Skip hidden models - this is how model visibility works
         if (!model.visible) continue;
 
         const modelGeometry = model.geometryResult;
@@ -53,17 +54,16 @@ export function ViewportContainer() {
         }
       }
 
-      if (allMeshes.length > 0) {
-        return {
-          meshes: allMeshes,
-          totalVertices,
-          totalTriangles,
-          coordinateInfo: mergedCoordinateInfo,
-        };
-      }
+      // Return merged result (may be empty if all models hidden)
+      return {
+        meshes: allMeshes,
+        totalVertices,
+        totalTriangles,
+        coordinateInfo: mergedCoordinateInfo,
+      };
     }
 
-    // Single model or no multi-model: use original geometryResult
+    // Legacy mode (no federation): use original geometryResult
     return geometryResult;
   }, [storeModels, geometryResult]);
 
