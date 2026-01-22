@@ -17,6 +17,9 @@ import type {
 } from '../types.js';
 import { EDGE_LOCK_DEFAULTS } from '../constants.js';
 
+// Monotonic counter to prevent ID collisions under rapid measurement creation
+let measurementCounter = 0;
+
 export interface MeasurementSlice {
   // State
   measurements: Measurement[];
@@ -84,8 +87,10 @@ export const createMeasurementSlice: StateCreator<MeasurementSlice, [], [], Meas
       Math.pow(endPoint.y - start.y, 2) +
       Math.pow(endPoint.z - start.z, 2)
     );
+    // Use counter combined with timestamp to guarantee unique IDs
+    measurementCounter++;
     const measurement: Measurement = {
-      id: `m-${Date.now()}`,
+      id: `m-${Date.now()}-${measurementCounter}`,
       start,
       end: endPoint,
       distance,
@@ -124,8 +129,10 @@ export const createMeasurementSlice: StateCreator<MeasurementSlice, [], [], Meas
 
   finalizeMeasurement: () => set((state) => {
     if (!state.activeMeasurement) return {};
+    // Use counter combined with timestamp to guarantee unique IDs
+    measurementCounter++;
     const measurement: Measurement = {
-      id: `m-${Date.now()}`,
+      id: `m-${Date.now()}-${measurementCounter}`,
       start: state.activeMeasurement.start,
       end: state.activeMeasurement.current,
       distance: state.activeMeasurement.distance,

@@ -236,9 +236,10 @@ impl IfcAPI {
     pub fn parse_streaming(&self, content: String, callback: Function) -> Promise {
         use futures_util::StreamExt;
 
-        let promise = Promise::new(&mut |resolve, _reject| {
+        let promise = Promise::new(&mut |resolve, reject| {
             let content = content.clone();
             let callback = callback.clone();
+            let reject = reject.clone();
             spawn_local(async move {
                 let config = StreamConfig::default();
                 let mut stream = ifc_lite_core::parse_stream(&content, config);
@@ -246,16 +247,23 @@ impl IfcAPI {
                 while let Some(event) = stream.next().await {
                     // Convert event to JsValue and call callback
                     let event_obj = parse_event_to_js(&event);
-                    let _ = callback.call1(&JsValue::NULL, &event_obj);
+                    if let Err(e) = callback.call1(&JsValue::NULL, &event_obj) {
+                        let _ = reject.call1(&JsValue::NULL, &e);
+                        return;
+                    }
 
                     // Check if this is the completion event
                     if matches!(event, ParseEvent::Completed { .. }) {
-                        let _ = resolve.call0(&JsValue::NULL);
+                        if let Err(e) = resolve.call0(&JsValue::NULL) {
+                            let _ = reject.call1(&JsValue::NULL, &e);
+                        }
                         return;
                     }
                 }
 
-                let _ = resolve.call0(&JsValue::NULL);
+                if let Err(e) = resolve.call0(&JsValue::NULL) {
+                    let _ = reject.call1(&JsValue::NULL, &e);
+                }
             });
         });
 
@@ -272,8 +280,9 @@ impl IfcAPI {
     /// ```
     #[wasm_bindgen]
     pub fn parse(&self, content: String) -> Promise {
-        let promise = Promise::new(&mut |resolve, _reject| {
+        let promise = Promise::new(&mut |resolve, reject| {
             let content = content.clone();
+            let reject = reject.clone();
             spawn_local(async move {
                 // Quick scan to get entity count
                 let mut scanner = EntityScanner::new(&content);
@@ -293,7 +302,9 @@ impl IfcAPI {
                 js_sys::Reflect::set(&result, &"entityTypes".into(), &counts_to_js(&counts))
                     .unwrap();
 
-                let _ = resolve.call1(&JsValue::NULL, &result);
+                if let Err(e) = resolve.call1(&JsValue::NULL, &result) {
+                    let _ = reject.call1(&JsValue::NULL, &e);
+                }
             });
         });
 

@@ -8,7 +8,7 @@
  */
 
 import { createLogger } from '@ifc-lite/data';
-import type { IfcAPI, MeshDataJs, InstancedGeometry } from '@ifc-lite/wasm';
+import type { IfcAPI, MeshDataJs, InstancedGeometry, MeshCollection } from '@ifc-lite/wasm';
 import type { MeshData } from './types.js';
 
 const log = createLogger('MeshCollector');
@@ -71,7 +71,7 @@ export class IfcLiteMeshCollector {
    * Much faster than web-ifc (~1.9x speedup)
    */
   collectMeshes(): MeshData[] {
-    let collection;
+    let collection: MeshCollection;
     try {
       collection = this.ifcApi.parseMeshes(this.content);
     } catch (error) {

@@ -31,7 +31,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tower_http::{
     compression::CompressionLayer,
-    cors::{Any, CorsLayer},
+    cors::CorsLayer,
     timeout::TimeoutLayer,
     trace::TraceLayer,
 };

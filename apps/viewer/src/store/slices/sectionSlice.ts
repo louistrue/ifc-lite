@@ -38,9 +38,13 @@ export const createSectionSlice: StateCreator<SectionSlice, [], [], SectionSlice
     sectionPlane: { ...state.sectionPlane, axis },
   })),
 
-  setSectionPlanePosition: (position) => set((state) => ({
-    sectionPlane: { ...state.sectionPlane, position },
-  })),
+  setSectionPlanePosition: (position) => set((state) => {
+    // Clamp position to valid range [0, 100]
+    const clampedPosition = Math.min(100, Math.max(0, Number(position) || 0));
+    return {
+      sectionPlane: { ...state.sectionPlane, position: clampedPosition },
+    };
+  }),
 
   toggleSectionPlane: () => set((state) => ({
     sectionPlane: { ...state.sectionPlane, enabled: !state.sectionPlane.enabled },

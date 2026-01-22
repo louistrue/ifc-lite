@@ -108,17 +108,37 @@ export function calculateMeshBounds(meshes: MeshData[]): { bounds: Bounds3D; sta
  * @param bounds - Calculated geometry bounds
  * @param originShift - Optional origin shift (defaults to zero)
  * @param isGeoReferenced - Whether the model is geo-referenced
- * @returns Coordinate info object
+ * @returns Coordinate info object with cloned bounds and computed shiftedBounds
  */
 export function createCoordinateInfo(
   bounds: Bounds3D,
   originShift: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 },
   isGeoReferenced: boolean = false
 ): CoordinateInfo {
+  // Deep-clone the incoming bounds into originalBounds
+  const originalBounds: Bounds3D = {
+    min: { x: bounds.min.x, y: bounds.min.y, z: bounds.min.z },
+    max: { x: bounds.max.x, y: bounds.max.y, z: bounds.max.z },
+  };
+
+  // Compute shiftedBounds by subtracting originShift from each min/max
+  const shiftedBounds: Bounds3D = {
+    min: {
+      x: bounds.min.x - originShift.x,
+      y: bounds.min.y - originShift.y,
+      z: bounds.min.z - originShift.z,
+    },
+    max: {
+      x: bounds.max.x - originShift.x,
+      y: bounds.max.y - originShift.y,
+      z: bounds.max.z - originShift.z,
+    },
+  };
+
   return {
-    originShift,
-    originalBounds: bounds,
-    shiftedBounds: bounds,
+    originShift: { x: originShift.x, y: originShift.y, z: originShift.z },
+    originalBounds,
+    shiftedBounds,
     isGeoReferenced,
   };
 }

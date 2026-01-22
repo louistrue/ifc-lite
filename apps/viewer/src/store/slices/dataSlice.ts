@@ -27,14 +27,15 @@ export interface DataSlice {
 }
 
 const getDefaultCoordinateInfo = (): CoordinateInfo => ({
-  originShift: DATA_DEFAULTS.ORIGIN_SHIFT,
+  // Create fresh copies to avoid shared object references
+  originShift: { x: DATA_DEFAULTS.ORIGIN_SHIFT.x, y: DATA_DEFAULTS.ORIGIN_SHIFT.y, z: DATA_DEFAULTS.ORIGIN_SHIFT.z },
   originalBounds: {
-    min: DATA_DEFAULTS.ORIGIN_SHIFT,
-    max: DATA_DEFAULTS.ORIGIN_SHIFT,
+    min: { x: DATA_DEFAULTS.ORIGIN_SHIFT.x, y: DATA_DEFAULTS.ORIGIN_SHIFT.y, z: DATA_DEFAULTS.ORIGIN_SHIFT.z },
+    max: { x: DATA_DEFAULTS.ORIGIN_SHIFT.x, y: DATA_DEFAULTS.ORIGIN_SHIFT.y, z: DATA_DEFAULTS.ORIGIN_SHIFT.z },
   },
   shiftedBounds: {
-    min: DATA_DEFAULTS.ORIGIN_SHIFT,
-    max: DATA_DEFAULTS.ORIGIN_SHIFT,
+    min: { x: DATA_DEFAULTS.ORIGIN_SHIFT.x, y: DATA_DEFAULTS.ORIGIN_SHIFT.y, z: DATA_DEFAULTS.ORIGIN_SHIFT.z },
+    max: { x: DATA_DEFAULTS.ORIGIN_SHIFT.x, y: DATA_DEFAULTS.ORIGIN_SHIFT.y, z: DATA_DEFAULTS.ORIGIN_SHIFT.z },
   },
   isGeoReferenced: DATA_DEFAULTS.IS_GEO_REFERENCED,
 });
@@ -79,8 +80,10 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
 
   updateMeshColors: (updates) => set((state) => {
     if (!state.geometryResult) return {};
+    // Clone the Map to prevent external mutation of pendingColorUpdates
+    const clonedUpdates = new Map(updates);
     const updatedMeshes = state.geometryResult.meshes.map(mesh => {
-      const newColor = updates.get(mesh.expressId);
+      const newColor = clonedUpdates.get(mesh.expressId);
       if (newColor) {
         return { ...mesh, color: newColor };
       }
@@ -91,7 +94,7 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
         ...state.geometryResult,
         meshes: updatedMeshes,
       },
-      pendingColorUpdates: updates,
+      pendingColorUpdates: clonedUpdates,
     };
   }),
 

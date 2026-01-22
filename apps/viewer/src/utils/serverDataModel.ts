@@ -172,28 +172,58 @@ const REL_TYPE_MAP = new Map<string, RelationshipType>([
 // Spatial Hierarchy Building
 // ============================================================================
 
+/** Maximum recursion depth for spatial tree building */
+const MAX_SPATIAL_TREE_DEPTH = 100;
+
 /**
  * Build recursive SpatialNode tree from server data
+ *
+ * @param nodeId - Entity ID of the spatial node to build
+ * @param nodesMap - Map of all spatial nodes by entity ID
+ * @param depth - Current recursion depth (default 0)
+ * @param visited - Set of visited node IDs for cycle detection
  */
 function buildSpatialNodeTree(
   nodeId: number,
-  nodesMap: Map<number, DataModel['spatialHierarchy']['nodes'][0]>
+  nodesMap: Map<number, DataModel['spatialHierarchy']['nodes'][0]>,
+  depth: number = 0,
+  visited: Set<number> = new Set()
 ): SpatialNode {
+  // Guard against excessive depth
+  if (depth > MAX_SPATIAL_TREE_DEPTH) {
+    throw new Error(`Spatial tree max depth (${MAX_SPATIAL_TREE_DEPTH}) exceeded at node ${nodeId}`);
+  }
+
+  // Guard against cycles
+  if (visited.has(nodeId)) {
+    throw new Error(`Cycle detected in spatial tree at node ${nodeId}`);
+  }
+
   const node = nodesMap.get(nodeId);
   if (!node) {
     throw new Error(`Spatial node ${nodeId} not found`);
   }
 
+  // Add current node to visited set
+  visited.add(nodeId);
+
   const typeEnum = IfcTypeEnumFromString(node.type_name);
 
-  return {
+  const result: SpatialNode = {
     expressId: node.entity_id,
     type: typeEnum,
     name: node.name || node.type_name,
     elevation: node.elevation,
-    children: node.children_ids.map((childId) => buildSpatialNodeTree(childId, nodesMap)),
+    children: node.children_ids.map((childId) =>
+      buildSpatialNodeTree(childId, nodesMap, depth + 1, visited)
+    ),
     elements: node.element_ids,
   };
+
+  // Remove from visited after processing (allows node in different branches)
+  visited.delete(nodeId);
+
+  return result;
 }
 
 /**
@@ -567,7 +597,14 @@ export function convertServerDataModel(
   const { relationships, entityToPsets, entityToQsets } = buildRelationships(dataModel);
 
   // Build entity table
-  const { entities, entityByIdMap } = buildEntityTable(dataModel, strings);
+  const { entities, entityByIdMap, typeGroups } = buildEntityTable(dataModel, strings);
+
+  // Convert typeGroups (IfcTypeEnum keyed) to string-keyed Map for entityIndex.byType
+  const byType = new Map<string, number[]>();
+  for (const [typeEnum, expressIds] of typeGroups) {
+    const typeName = IfcTypeEnumToString(typeEnum);
+    byType.set(typeName, expressIds);
+  }
 
   // Build spatial hierarchy (needs entityToPsets for storey heights)
   const spatialHierarchy = buildSpatialHierarchy(dataModel, entityToPsets);
@@ -706,7 +743,7 @@ export function convertServerDataModel(
     entityCount: dataModel.entities.size,
     parseTime: parseResult.stats.total_time_ms,
     source: new Uint8Array(0),
-    entityIndex: { byId: entityByIdMap, byType: new Map() },
+    entityIndex: { byId: entityByIdMap, byType },
     strings,
     entities,
     properties,

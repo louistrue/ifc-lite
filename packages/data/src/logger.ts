@@ -80,9 +80,17 @@ export function createLogger(component: string) {
     error(message: string, error?: unknown, ctx?: Partial<LogContext>) {
       const prefix = formatContext({ component, ...ctx });
       if (error !== undefined) {
-        console.error(`${prefix} ${message}:`, formatError(error));
+        if (ctx?.data !== undefined) {
+          console.error(`${prefix} ${message}:`, formatError(error), ctx.data);
+        } else {
+          console.error(`${prefix} ${message}:`, formatError(error));
+        }
       } else {
-        console.error(`${prefix} ${message}`);
+        if (ctx?.data !== undefined) {
+          console.error(`${prefix} ${message}`, ctx.data);
+        } else {
+          console.error(`${prefix} ${message}`);
+        }
       }
     },
 
@@ -92,7 +100,11 @@ export function createLogger(component: string) {
      */
     warn(message: string, ctx?: Partial<LogContext>) {
       const prefix = formatContext({ component, ...ctx });
-      console.warn(`${prefix} ${message}`);
+      if (ctx?.data !== undefined) {
+        console.warn(`${prefix} ${message}`, ctx.data);
+      } else {
+        console.warn(`${prefix} ${message}`);
+      }
     },
 
     /**
@@ -102,7 +114,11 @@ export function createLogger(component: string) {
     info(message: string, ctx?: Partial<LogContext>) {
       if (!isDebugEnabled()) return;
       const prefix = formatContext({ component, ...ctx });
-      console.log(`${prefix} ${message}`);
+      if (ctx?.data !== undefined) {
+        console.log(`${prefix} ${message}`, ctx.data);
+      } else {
+        console.log(`${prefix} ${message}`);
+      }
     },
 
     /**
@@ -126,7 +142,11 @@ export function createLogger(component: string) {
     caught(message: string, error: unknown, ctx?: Partial<LogContext>) {
       if (!isDebugEnabled()) return;
       const prefix = formatContext({ component, ...ctx });
-      console.debug(`${prefix} ${message} (recovered):`, formatError(error));
+      if (ctx?.data !== undefined) {
+        console.debug(`${prefix} ${message} (recovered):`, formatError(error), ctx.data);
+      } else {
+        console.debug(`${prefix} ${message} (recovered):`, formatError(error));
+      }
     },
   };
 }
