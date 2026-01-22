@@ -62,6 +62,34 @@ function convertServerMesh(m: ServerMeshData): MeshData {
 /** Server parse result type - union of streaming and non-streaming responses */
 type ServerParseResultType = ParquetParseResponse | ParquetStreamResult | ParseResponse;
 
+// Module-level server availability cache - avoids repeated failed connection attempts
+let serverAvailabilityCache: { available: boolean; checkedAt: number } | null = null;
+const SERVER_CHECK_CACHE_MS = 30000; // Re-check server availability every 30 seconds
+
+/**
+ * Silently check if server is available (no console logging on failure)
+ * Returns cached result if recently checked
+ */
+async function isServerAvailable(client: IfcServerClient): Promise<boolean> {
+  const now = Date.now();
+
+  // Use cached result if recent
+  if (serverAvailabilityCache && (now - serverAvailabilityCache.checkedAt) < SERVER_CHECK_CACHE_MS) {
+    return serverAvailabilityCache.available;
+  }
+
+  // Perform silent health check
+  try {
+    await client.health();
+    serverAvailabilityCache = { available: true, checkedAt: now };
+    return true;
+  } catch {
+    // Silent failure - don't log network errors for unavailable server
+    serverAvailabilityCache = { available: false, checkedAt: now };
+    return false;
+  }
+}
+
 export function useIfc() {
   const {
     loading,
@@ -99,15 +127,10 @@ export function useIfc() {
 
       const client = new IfcServerClient({ baseUrl: SERVER_URL });
 
-      // Check server health first
-      const healthStart = performance.now();
-      try {
-        await client.health();
-        const healthTime = performance.now() - healthStart;
-        console.log(`[useIfc] Server health check: ${healthTime.toFixed(0)}ms`);
-      } catch (err) {
-        console.warn('[useIfc] Server not available, falling back to local parsing:', err);
-        return false;
+      // Silent server availability check (cached, no error logging)
+      const serverAvailable = await isServerAvailable(client);
+      if (!serverAvailable) {
+        return false; // Silently fall back - caller handles logging
       }
 
       setProgress({ phase: 'Processing on server (parallel)', percent: 15 });
@@ -528,8 +551,6 @@ export function useIfc() {
       // Try server parsing first (enabled by default for multi-core performance)
       // Only for IFC4 STEP files (server doesn't support IFCX)
       if (format === 'ifc' && USE_SERVER && SERVER_URL && SERVER_URL !== '') {
-        setProgress({ phase: 'Trying server', percent: 8 });
-        console.log(`[useIfc] Sending ${file.name} (${(buffer.byteLength / (1024 * 1024)).toFixed(2)}MB) to server at ${SERVER_URL}`);
         // Pass buffer directly - server uses File object for parsing, buffer is only for size checks
         const serverSuccess = await loadFromServer(file, buffer);
         if (serverSuccess) {
@@ -538,14 +559,13 @@ export function useIfc() {
           setLoading(false);
           return;
         }
-        // Fall back to local parsing if server fails
-        console.log('[useIfc] Falling back to local WASM parsing');
+        // Server not available - continue with local WASM (no error logging needed)
       } else if (format === 'unknown') {
         console.warn('[useIfc] Unknown file format - attempting to parse as IFC4 STEP');
       }
 
-      // Cache miss - start geometry streaming IMMEDIATELY
-      // Use original buffer (not detached)
+      // Using local WASM parsing
+      console.log(`[useIfc] Using local WASM parsing for ${file.name} (${fileSizeMB.toFixed(2)}MB)`);
       setProgress({ phase: 'Starting geometry streaming', percent: 10 });
 
       // Initialize geometry processor first (WASM init is fast if already loaded)
