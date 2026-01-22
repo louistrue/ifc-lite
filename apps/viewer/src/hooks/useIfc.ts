@@ -831,6 +831,32 @@ export function useIfc() {
     const totalStartTime = performance.now();
 
     try {
+      // IMPORTANT: Before adding a new model, check if there's a legacy model
+      // (loaded via loadFile) that's not in the Map yet. If so, migrate it first.
+      const currentModels = useViewerStore.getState().models;
+      const currentIfcDataStore = useViewerStore.getState().ifcDataStore;
+      const currentGeometryResult = useViewerStore.getState().geometryResult;
+
+      if (currentModels.size === 0 && currentIfcDataStore && currentGeometryResult) {
+        // Migrate the legacy model to the Map
+        const legacyModelId = crypto.randomUUID();
+        // Try to get file name from project name or fall back
+        const legacyName = currentIfcDataStore.spatialHierarchy?.project?.name || 'Model 1';
+        const legacyModel: FederatedModel = {
+          id: legacyModelId,
+          name: legacyName,
+          ifcDataStore: currentIfcDataStore,
+          geometryResult: currentGeometryResult,
+          visible: true,
+          collapsed: false,
+          schemaVersion: 'IFC4', // Assume IFC4 for legacy
+          loadedAt: Date.now() - 1000, // Slightly earlier
+          fileSize: 0,
+        };
+        storeAddModel(legacyModel);
+        console.log(`[useIfc] Migrated legacy model "${legacyModel.name}" to federation`);
+      }
+
       setLoading(true);
       setError(null);
       setProgress({ phase: 'Loading file', percent: 0 });

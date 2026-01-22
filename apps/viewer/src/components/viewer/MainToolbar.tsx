@@ -32,6 +32,7 @@ import {
   Layers,
   SquareX,
   Building2,
+  Plus,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -128,7 +129,11 @@ interface MainToolbarProps {
 
 export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { loadFile, loading, progress, geometryResult, ifcDataStore } = useIfc();
+  const addModelInputRef = useRef<HTMLInputElement>(null);
+  const { loadFile, loading, progress, geometryResult, ifcDataStore, addModel, models } = useIfc();
+
+  // Check if we have models loaded (for showing add model button)
+  const hasModelsLoaded = models.size > 0 || (geometryResult?.meshes && geometryResult.meshes.length > 0);
   const activeTool = useViewerStore((state) => state.activeTool);
   const setActiveTool = useViewerStore((state) => state.setActiveTool);
   const theme = useViewerStore((state) => state.theme);
@@ -162,7 +167,23 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     if (file) {
       loadFile(file);
     }
+    // Reset input so same file can be selected again
+    e.target.value = '';
   }, [loadFile]);
+
+  const handleAddModelSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files) {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.name.endsWith('.ifc') || file.name.endsWith('.ifcx')) {
+          addModel(file);
+        }
+      }
+    }
+    // Reset input so same files can be selected again
+    e.target.value = '';
+  }, [addModel]);
 
   const handleIsolate = useCallback(() => {
     if (selectedEntityId) {
@@ -285,6 +306,14 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
         onChange={handleFileSelect}
         className="hidden"
       />
+      <input
+        ref={addModelInputRef}
+        type="file"
+        accept=".ifc,.ifcx"
+        multiple
+        onChange={handleAddModelSelect}
+        className="hidden"
+      />
 
       <Tooltip>
         <TooltipTrigger asChild>
@@ -307,6 +336,27 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
         </TooltipTrigger>
         <TooltipContent>Open IFC File</TooltipContent>
       </Tooltip>
+
+      {/* Add Model button - only shown when models are loaded */}
+      {hasModelsLoaded && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={(e) => {
+                (e.currentTarget as HTMLButtonElement).blur();
+                addModelInputRef.current?.click();
+              }}
+              disabled={loading}
+              className="text-[#9ece6a] hover:text-[#9ece6a] hover:bg-[#9ece6a]/10"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Add Model to Scene (Multi-select supported)</TooltipContent>
+        </Tooltip>
+      )}
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
