@@ -15,7 +15,7 @@ describe('Georeferencing Extractor', () => {
     const entities = new Map<number, IfcEntity>();
 
     entities.set(100, {
-      id: 100,
+      expressId: 100,
       type: 'IfcMapConversion',
       attributes: [
         '#1',      // SourceCRS
@@ -46,7 +46,7 @@ describe('Georeferencing Extractor', () => {
     const entities = new Map<number, IfcEntity>();
 
     entities.set(200, {
-      id: 200,
+      expressId: 200,
       type: 'IfcProjectedCRS',
       attributes: [
         'EPSG:32610',     // Name (UTM Zone 10N)
@@ -76,7 +76,7 @@ describe('Georeferencing Extractor', () => {
     const entities = new Map<number, IfcEntity>();
 
     entities.set(100, {
-      id: 100,
+      expressId: 100,
       type: 'IfcMapConversion',
       attributes: [
         '#1', '#2',
@@ -107,7 +107,7 @@ describe('Georeferencing Extractor', () => {
     const entities = new Map<number, IfcEntity>();
 
     entities.set(100, {
-      id: 100,
+      expressId: 100,
       type: 'IfcMapConversion',
       attributes: [
         '#1', '#2',
@@ -139,7 +139,7 @@ describe('Georeferencing Extractor', () => {
     const entities = new Map<number, IfcEntity>();
 
     entities.set(100, {
-      id: 100,
+      expressId: 100,
       type: 'IfcMapConversion',
       attributes: [
         '#1', '#2',
@@ -172,7 +172,7 @@ describe('Georeferencing Extractor', () => {
 
     // 90 degree rotation (cos(90°) = 0, sin(90°) = 1)
     entities.set(100, {
-      id: 100,
+      expressId: 100,
       type: 'IfcMapConversion',
       attributes: [
         '#1', '#2',
@@ -204,13 +204,13 @@ describe('Georeferencing Extractor', () => {
     const entities = new Map<number, IfcEntity>();
 
     entities.set(100, {
-      id: 100,
+      expressId: 100,
       type: 'IfcMapConversion',
       attributes: ['#1', '#2', 500000, 4000000, 100, 1, 0, 1],
     });
 
     entities.set(200, {
-      id: 200,
+      expressId: 200,
       type: 'IfcProjectedCRS',
       attributes: ['EPSG:32610', null, 'WGS84', null, 'UTM', '10N', null],
     });

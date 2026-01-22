@@ -22,7 +22,7 @@ describe('Classification Extractor', () => {
     const entities = new Map<number, IfcEntity>();
 
     entities.set(100, {
-      id: 100,
+      expressId: 100,
       type: 'IfcClassification',
       attributes: [
         'BuildingSmart',  // Source
@@ -53,7 +53,7 @@ describe('Classification Extractor', () => {
     const entities = new Map<number, IfcEntity>();
 
     entities.set(200, {
-      id: 200,
+      expressId: 200,
       type: 'IfcClassificationReference',
       attributes: [
         'http://uniclass.thenbs.com/Pr_60_10_32',  // Location
@@ -84,21 +84,21 @@ describe('Classification Extractor', () => {
 
     // Classification reference
     entities.set(200, {
-      id: 200,
+      expressId: 200,
       type: 'IfcClassificationReference',
       attributes: [null, 'Pr_60_10_32', 'External wall', '#100', null, null],
     });
 
     // Wall
     entities.set(500, {
-      id: 500,
+      expressId: 500,
       type: 'IfcWall',
       attributes: ['GlobalId', null, 'Wall-001'],
     });
 
     // Association
     entities.set(600, {
-      id: 600,
+      expressId: 600,
       type: 'IfcRelAssociatesClassification',
       attributes: [
         'RelId',
@@ -127,25 +127,25 @@ describe('Classification Extractor', () => {
     const entities = new Map<number, IfcEntity>();
 
     entities.set(200, {
-      id: 200,
+      expressId: 200,
       type: 'IfcClassificationReference',
       attributes: [null, 'Pr_60_10_32', 'External wall', null, null, null],
     });
 
     entities.set(201, {
-      id: 201,
+      expressId: 201,
       type: 'IfcClassificationReference',
       attributes: [null, 'EF_25_10', 'Load bearing', null, null, null],
     });
 
     entities.set(600, {
-      id: 600,
+      expressId: 600,
       type: 'IfcRelAssociatesClassification',
       attributes: ['RelId', null, null, null, ['#500'], '#200'],
     });
 
     entities.set(601, {
-      id: 601,
+      expressId: 601,
       type: 'IfcRelAssociatesClassification',
       attributes: ['RelId', null, null, null, ['#500'], '#201'],
     });
@@ -167,13 +167,13 @@ describe('Classification Extractor', () => {
     const entities = new Map<number, IfcEntity>();
 
     entities.set(200, {
-      id: 200,
+      expressId: 200,
       type: 'IfcClassificationReference',
       attributes: [null, 'Pr_60_10_32', 'External wall', null, null, null],
     });
 
     entities.set(600, {
-      id: 600,
+      expressId: 600,
       type: 'IfcRelAssociatesClassification',
       attributes: ['RelId', null, null, null, ['#500'], '#200'],
     });
@@ -193,35 +193,35 @@ describe('Classification Extractor', () => {
 
     // Root classification
     entities.set(100, {
-      id: 100,
+      expressId: 100,
       type: 'IfcClassification',
       attributes: ['BuildingSmart', null, null, 'Uniclass 2015', null, null, null],
     });
 
     // Level 1: Pr (Products)
     entities.set(200, {
-      id: 200,
+      expressId: 200,
       type: 'IfcClassificationReference',
       attributes: [null, 'Pr', 'Products', '#100', null, null],
     });
 
     // Level 2: Pr_60 (Walls and barriers)
     entities.set(201, {
-      id: 201,
+      expressId: 201,
       type: 'IfcClassificationReference',
       attributes: [null, 'Pr_60', 'Walls and barriers', '#200', null, null],
     });
 
     // Level 3: Pr_60_10 (Walls)
     entities.set(202, {
-      id: 202,
+      expressId: 202,
       type: 'IfcClassificationReference',
       attributes: [null, 'Pr_60_10', 'Walls', '#201', null, null],
     });
 
     // Level 4: Pr_60_10_32 (External walls)
     entities.set(203, {
-      id: 203,
+      expressId: 203,
       type: 'IfcClassificationReference',
       attributes: [null, 'Pr_60_10_32', 'External walls', '#202', null, null],
     });
@@ -247,25 +247,25 @@ describe('Classification Extractor', () => {
     const entities = new Map<number, IfcEntity>();
 
     entities.set(200, {
-      id: 200,
+      expressId: 200,
       type: 'IfcClassificationReference',
       attributes: [null, 'Pr_60_10_32', 'External wall', null, null, null],
     });
 
     entities.set(201, {
-      id: 201,
+      expressId: 201,
       type: 'IfcClassificationReference',
       attributes: [null, 'Pr_60_10_36', 'Internal wall', null, null, null],
     });
 
     entities.set(600, {
-      id: 600,
+      expressId: 600,
       type: 'IfcRelAssociatesClassification',
       attributes: ['RelId', null, null, null, ['#500', '#501'], '#200'],
     });
 
     entities.set(601, {
-      id: 601,
+      expressId: 601,
       type: 'IfcRelAssociatesClassification',
       attributes: ['RelId', null, null, null, ['#502'], '#201'],
     });
@@ -287,13 +287,13 @@ describe('Classification Extractor', () => {
     const entities = new Map<number, IfcEntity>();
 
     entities.set(100, {
-      id: 100,
+      expressId: 100,
       type: 'IfcClassification',
       attributes: [null, null, null, 'Omniclass', null, null, null],
     });
 
     entities.set(200, {
-      id: 200,
+      expressId: 200,
       type: 'IfcClassificationReference',
       attributes: [null, '23-11 00 00', 'Columns', '#100', null, null],
     });

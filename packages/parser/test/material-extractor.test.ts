@@ -16,7 +16,7 @@ describe('Material Extractor', () => {
 
     // Create IfcMaterial
     entities.set(100, {
-      id: 100,
+      expressId: 100,
       type: 'IfcMaterial',
       attributes: ['Concrete', 'C30/37 Concrete', 'Structural'],
     });
@@ -40,14 +40,14 @@ describe('Material Extractor', () => {
 
     // Create IfcMaterial
     entities.set(100, {
-      id: 100,
+      expressId: 100,
       type: 'IfcMaterial',
       attributes: ['Concrete', null, null],
     });
 
     // Create IfcMaterialLayer
     entities.set(200, {
-      id: 200,
+      expressId: 200,
       type: 'IfcMaterialLayer',
       attributes: [
         '#100',  // Material reference
@@ -81,20 +81,20 @@ describe('Material Extractor', () => {
 
     // Create layers
     entities.set(200, {
-      id: 200,
+      expressId: 200,
       type: 'IfcMaterialLayer',
       attributes: ['#100', 0.15, null, 'Layer 1', null, null, null],
     });
 
     entities.set(201, {
-      id: 201,
+      expressId: 201,
       type: 'IfcMaterialLayer',
       attributes: ['#101', 0.10, null, 'Layer 2', null, null, null],
     });
 
     // Create IfcMaterialLayerSet
     entities.set(300, {
-      id: 300,
+      expressId: 300,
       type: 'IfcMaterialLayerSet',
       attributes: [
         ['#200', '#201'],  // Layers
@@ -123,21 +123,21 @@ describe('Material Extractor', () => {
 
     // Create material
     entities.set(100, {
-      id: 100,
+      expressId: 100,
       type: 'IfcMaterial',
       attributes: ['Steel', null, null],
     });
 
     // Create wall
     entities.set(500, {
-      id: 500,
+      expressId: 500,
       type: 'IfcWall',
       attributes: ['GlobalId', null, 'Wall-001'],
     });
 
     // Create material association
     entities.set(600, {
-      id: 600,
+      expressId: 600,
       type: 'IfcRelAssociatesMaterial',
       attributes: [
         'RelId',
@@ -168,13 +168,13 @@ describe('Material Extractor', () => {
     const entities = new Map<number, IfcEntity>();
 
     entities.set(100, {
-      id: 100,
+      expressId: 100,
       type: 'IfcMaterial',
       attributes: ['Concrete', null, null],
     });
 
     entities.set(600, {
-      id: 600,
+      expressId: 600,
       type: 'IfcRelAssociatesMaterial',
       attributes: ['RelId', null, null, null, ['#500', '#501'], '#100'],
     });
@@ -202,13 +202,13 @@ describe('Material Extractor', () => {
     const entities = new Map<number, IfcEntity>();
 
     entities.set(100, {
-      id: 100,
+      expressId: 100,
       type: 'IfcMaterial',
       attributes: ['Concrete C30/37', null, null],
     });
 
     entities.set(600, {
-      id: 600,
+      expressId: 600,
       type: 'IfcRelAssociatesMaterial',
       attributes: ['RelId', null, null, null, ['#500'], '#100'],
     });
