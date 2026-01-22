@@ -17,7 +17,7 @@ import {
   QuantityType,
   RelationshipType,
 } from '@ifc-lite/data';
-import { BinaryCacheWriter, BinaryCacheReader, xxhash64, SchemaVersion } from './index.js';
+import { BinaryCacheWriter, BinaryCacheReader, xxhash64, SchemaVersion, FORMAT_VERSION } from './index.js';
 import type { IfcDataStore } from './types.js';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 
@@ -198,7 +198,7 @@ describe('BinaryCacheWriter and BinaryCacheReader', () => {
     const reader = new BinaryCacheReader();
     const header = reader.readHeader(cacheBuffer);
 
-    expect(header.version).toBe(1);
+    expect(header.version).toBe(FORMAT_VERSION);
     expect(header.entityCount).toBe(5);
     expect(header.schema).toBe(SchemaVersion.IFC4);
     expect(header.sections.length).toBeGreaterThan(0);
