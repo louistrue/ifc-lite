@@ -45,11 +45,11 @@ export interface ServerQuantitySet {
 }
 
 /**
- * Server parse result metadata
+ * Server parse result metadata (used for convertServerDataModel)
+ * Note: meshes are passed separately as they're already converted to viewer format
  */
 export interface ServerParseResult {
   cache_key: string;
-  meshes: MeshData[];
   metadata: {
     schema_version: string;
     coordinate_info?: {
@@ -64,7 +64,6 @@ export interface ServerParseResult {
     total_vertices: number;
     total_triangles: number;
   };
-  data_model?: ArrayBuffer;
 }
 
 /**
@@ -109,6 +108,8 @@ interface ServerPropertyTable {
   valueString: Uint32Array;
   valueReal: Float64Array;
   valueInt: Int32Array;
+  valueBool: Uint8Array;
+  unitId: Int32Array;
   entityIndex: Map<number, number[]>;
   psetIndex: Map<number, number[]>;
   propIndex: Map<number, number[]>;
@@ -572,7 +573,7 @@ export function convertServerDataModel(
   const spatialHierarchy = buildSpatialHierarchy(dataModel, entityToPsets);
 
   // Build property and quantity tables
-  const properties = {
+  const properties: ServerPropertyTable = {
     count: 0,
     entityId: new Uint32Array(0),
     psetName: new Uint32Array(0),
@@ -599,11 +600,41 @@ export function convertServerDataModel(
         })),
       }));
     },
-    getPropertyValue: () => null,
-    findByProperty: () => [],
+    getPropertyValue: (expressId: number, psetName: string, propName: string): string | number | boolean | null => {
+      const psets = entityToPsets.get(expressId);
+      if (!psets) {
+        return null;
+      }
+      for (const pset of psets) {
+        if (pset.pset_name === psetName) {
+          for (const prop of pset.properties) {
+            if (prop.property_name === propName) {
+              return prop.property_value;
+            }
+          }
+        }
+      }
+      return null;
+    },
+    findByProperty: (psetName: string, propName: string, value: string | number | boolean): number[] => {
+      const matchingEntityIds: number[] = [];
+      for (const [entityId, psets] of entityToPsets) {
+        for (const pset of psets) {
+          if (pset.pset_name === psetName) {
+            for (const prop of pset.properties) {
+              if (prop.property_name === propName && prop.property_value === value) {
+                matchingEntityIds.push(entityId);
+                break;
+              }
+            }
+          }
+        }
+      }
+      return matchingEntityIds;
+    },
   };
 
-  const quantities = {
+  const quantities: ViewerQuantityTable = {
     count: 0,
     entityId: new Uint32Array(0),
     qsetName: new Uint32Array(0),
@@ -627,8 +658,43 @@ export function convertServerDataModel(
         })),
       }));
     },
-    getQuantityValue: () => null,
-    sumByType: () => 0,
+    getQuantityValue: (expressId: number, qsetName: string, quantName: string): number | null => {
+      const qsets = entityToQsets.get(expressId);
+      if (!qsets) {
+        return null;
+      }
+      for (const qset of qsets) {
+        if (qset.qset_name === qsetName) {
+          for (const quant of qset.quantities) {
+            if (quant.quantity_name === quantName) {
+              return quant.quantity_value;
+            }
+          }
+        }
+      }
+      return null;
+    },
+    sumByType: (quantityName: string, elementType?: number): number => {
+      let sum = 0;
+      // Pre-compute valid IDs set for efficient type filtering
+      const validIds = elementType !== undefined
+        ? new Set(entities.getByType(elementType))
+        : null;
+      for (const [entityId, qsets] of entityToQsets) {
+        // If elementType filter is specified, check entity type
+        if (validIds && !validIds.has(entityId)) {
+          continue;
+        }
+        for (const qset of qsets) {
+          for (const quant of qset.quantities) {
+            if (quant.quantity_name === quantityName) {
+              sum += quant.quantity_value;
+            }
+          }
+        }
+      }
+      return sum;
+    },
   };
 
   // Build spatial index

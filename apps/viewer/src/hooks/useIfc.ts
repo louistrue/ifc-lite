@@ -153,12 +153,12 @@ export function useIfc() {
         const streamResult = await client.parseParquetStream(file, (batch: ParquetBatch) => {
           batchCount++;
 
-          // Convert batch meshes to viewer format (snake_case to camelCase)
-          const batchMeshes = batch.meshes.map((m: ServerMeshData) => ({
+          // Convert batch meshes to viewer format (snake_case to camelCase, number[] to TypedArray)
+          const batchMeshes: MeshData[] = batch.meshes.map((m: ServerMeshData) => ({
             expressId: m.express_id,
-            positions: m.positions,
-            indices: m.indices,
-            normals: m.normals,
+            positions: new Float32Array(m.positions),
+            indices: new Uint32Array(m.indices),
+            normals: new Float32Array(m.normals),
             color: m.color,
             ifcType: m.ifc_type,
           }));
@@ -215,12 +215,12 @@ export function useIfc() {
         console.log(`  Cache key: ${cacheKey}`);
 
         // Build final result object for data model fetching
+        // Note: meshes field is omitted - allMeshes is passed separately to convertServerDataModel
         result = {
           cache_key: cacheKey,
-          meshes: allMeshes,
           metadata: streamMetadata,
           stats: streamStats,
-        };
+        } as ParquetStreamResult;
         convertTime = 0; // Already converted inline
 
         // Final geometry set with complete bounds
@@ -246,25 +246,25 @@ export function useIfc() {
 
         // Use Parquet endpoint - much smaller payload (~15x compression)
         const parseStart = performance.now();
-        result = await client.parseParquet(file);
+        const parquetResult = await client.parseParquet(file);
+        result = parquetResult;
         parseTime = performance.now() - parseStart;
 
         console.log(`[useIfc] Server parse response received in ${parseTime.toFixed(0)}ms`);
-        console.log(`  Server stats: ${result.stats.total_time_ms}ms total (parse: ${result.stats.parse_time_ms}ms, geometry: ${result.stats.geometry_time_ms}ms)`);
-        console.log(`  Parquet payload: ${(result.parquet_stats.payload_size / 1024 / 1024).toFixed(2)}MB, decode: ${result.parquet_stats.decode_time_ms}ms`);
-        console.log(`  Meshes: ${result.meshes.length}, Vertices: ${result.stats.total_vertices}, Triangles: ${result.stats.total_triangles}`);
-        console.log(`  Cache key: ${result.cache_key}`);
+        console.log(`  Server stats: ${parquetResult.stats.total_time_ms}ms total (parse: ${parquetResult.stats.parse_time_ms}ms, geometry: ${parquetResult.stats.geometry_time_ms}ms)`);
+        console.log(`  Parquet payload: ${(parquetResult.parquet_stats.payload_size / 1024 / 1024).toFixed(2)}MB, decode: ${parquetResult.parquet_stats.decode_time_ms}ms`);
+        console.log(`  Meshes: ${parquetResult.meshes.length}, Vertices: ${parquetResult.stats.total_vertices}, Triangles: ${parquetResult.stats.total_triangles}`);
+        console.log(`  Cache key: ${parquetResult.cache_key}`);
 
         setProgress({ phase: 'Converting meshes', percent: 70 });
 
-        // Parquet decoder already returns the correct format
+        // Convert server mesh format to viewer format (TypedArrays)
         const convertStart = performance.now();
-        const parquetResult = result as ParquetParseResponse;
-        allMeshes = parquetResult.meshes.map((m: ServerMeshData) => ({
+        allMeshes = parquetResult.meshes.map((m: ServerMeshData): MeshData => ({
           expressId: m.express_id,
-          positions: m.positions,
-          indices: m.indices,
-          normals: m.normals,
+          positions: new Float32Array(m.positions),
+          indices: new Uint32Array(m.indices),
+          normals: new Float32Array(m.normals),
           color: m.color,
           ifcType: m.ifc_type,
         }));
@@ -346,9 +346,12 @@ export function useIfc() {
         const dataModelStart = performance.now();
 
         try {
-          // If data model was included in response, use it directly
+          // If data model was included in response (ParquetParseResponse), use it directly
           // Otherwise, fetch from the data model endpoint
-          let dataModelBuffer = result.data_model;
+          let dataModelBuffer: ArrayBuffer | null = null;
+          if ('data_model' in result && result.data_model) {
+            dataModelBuffer = result.data_model;
+          }
 
           if (!dataModelBuffer || dataModelBuffer.byteLength === 0) {
             console.log('[useIfc] Fetching data model from server (background processing)...');
@@ -649,7 +652,7 @@ export function useIfc() {
 
               // Collect meshes for BVH building
               allMeshes.push(...event.meshes);
-              finalCoordinateInfo = event.coordinateInfo;
+              finalCoordinateInfo = event.coordinateInfo ?? null;
               totalMeshes = event.totalSoFar;
 
               // Accumulate meshes for batched rendering
@@ -700,7 +703,7 @@ export function useIfc() {
                 `  First batch at: ${batchCount > 0 ? '(see Batch #1 above)' : 'N/A'}`
               );
 
-              finalCoordinateInfo = event.coordinateInfo;
+              finalCoordinateInfo = event.coordinateInfo ?? null;
 
               // Update geometry result with final coordinate info
               updateCoordinateInfo(event.coordinateInfo);
