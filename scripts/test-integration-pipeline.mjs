@@ -81,7 +81,7 @@ test('wall with opening: parse handles boolean operations', () => {
   const collection = api.parseMeshes(content);
 
   // Wall with opening should still produce valid geometry
-  assert.ok(collection.length >= 0, 'Should handle boolean operations');
+  assert.ok(collection.length > 0, 'Wall fixture should produce at least one mesh');
 
   for (let i = 0; i < collection.length; i++) {
     const mesh = collection.get(i);

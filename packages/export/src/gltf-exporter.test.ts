@@ -95,7 +95,7 @@ describe('GLTFExporter', () => {
 
   // Roundtrip validation tests
   describe('roundtrip validation', () => {
-    it('should preserve vertex count in GLB export', () => {
+    it('should export GLB with valid header length', () => {
       const geometryResult = createTestGeometryResult(3);
       const exporter = new GLTFExporter(geometryResult);
 
