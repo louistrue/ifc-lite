@@ -2195,9 +2195,9 @@ impl GeometryRouter {
             }
         };
 
-        // Apply extrusion position transform
+        // Apply extrusion position transform (with RTC offset)
         if position_transform != Matrix4::identity() {
-            crate::extrusion::apply_transform(&mut mesh, &position_transform);
+            self.transform_mesh(&mut mesh, &position_transform);
         }
 
         // Scale mesh
@@ -2683,7 +2683,7 @@ impl GeometryRouter {
     ) -> Result<()> {
         let placement_attr = match element.get(5) {
             Some(attr) if !attr.is_null() => attr,
-            _ => return Ok(()), // No placement
+            _ => return Ok(()),
         };
 
         let placement = match decoder.resolve_ref(placement_attr)? {
@@ -2990,30 +2990,76 @@ impl GeometryRouter {
     }
 
     /// Transform mesh by matrix - optimized with chunk-based iteration
-    /// Applies RTC offset if set to preserve precision for large coordinates
+    /// Applies transformation with conditional RTC offset for large coordinates.
+    /// Only subtracts RTC if transformed coords are large (world space).
     #[inline]
     fn transform_mesh(&self, mesh: &mut Mesh, transform: &Matrix4<f64>) {
-        // Use chunks for better cache locality and less indexing overhead
-        // Key fix: subtract RTC offset in f64 BEFORE converting to f32
         let rtc = self.rtc_offset;
+        const LARGE_COORD_THRESHOLD: f64 = 1000.0;
+
+        // #region agent log
+        #[cfg(target_arch = "wasm32")]
+        let mut first_vertex_logged = false;
+        // #endregion
+
         mesh.positions.chunks_exact_mut(3).for_each(|chunk| {
             let point = Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
-            let transformed = transform.transform_point(&point);
-            // Subtract RTC offset in f64 before f32 conversion - preserves precision!
-            chunk[0] = (transformed.x - rtc.0) as f32;
-            chunk[1] = (transformed.y - rtc.1) as f32;
-            chunk[2] = (transformed.z - rtc.2) as f32;
+            let t = transform.transform_point(&point);
+            // Only subtract RTC if coordinates are large (world space)
+            let needs_rtc = t.x.abs() > LARGE_COORD_THRESHOLD || t.y.abs() > LARGE_COORD_THRESHOLD || t.z.abs() > LARGE_COORD_THRESHOLD;
+            
+            // #region agent log
+            #[cfg(target_arch = "wasm32")]
+            if !first_vertex_logged && mesh.positions.len() >= 3 {
+                let final_x = if needs_rtc { t.x - rtc.0 } else { t.x };
+                let final_y = if needs_rtc { t.y - rtc.1 } else { t.y };
+                let final_z = if needs_rtc { t.z - rtc.2 } else { t.z };
+                let _ = web_sys::window().and_then(|w| {
+                    w.fetch_with_str("http://127.0.0.1:7248/ingest/23432d39-3a37-4dd4-80fc-bbd61504cb4e").ok()
+                }).and_then(|_| {
+                    web_sys::window().and_then(|w| {
+                        w.fetch_with_init(
+                            "http://127.0.0.1:7248/ingest/23432d39-3a37-4dd4-80fc-bbd61504cb4e",
+                            &{
+                                let mut init = web_sys::RequestInit::new();
+                                init.method("POST");
+                                init.headers(&{
+                                    let headers = web_sys::Headers::new().unwrap();
+                                    headers.set("Content-Type", "application/json").unwrap();
+                                    headers
+                                });
+                                init.body(Some(&wasm_bindgen::JsValue::from_str(&format!(
+                                    r#"{{"location":"router.rs:{}","message":"transform_mesh coord","data":{{"input":[{:.2},{:.2},{:.2}],"transformed":[{:.2},{:.2},{:.2}],"needs_rtc":{},"rtc_offset":[{:.2},{:.2},{:.2}],"final":[{:.2},{:.2},{:.2}],"final_f32":[{:.2},{:.2},{:.2}]}},"timestamp":{},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}}"#,
+                                    line!(), point.x, point.y, point.z, t.x, t.y, t.z, needs_rtc, rtc.0, rtc.1, rtc.2, final_x, final_y, final_z, final_x as f32, final_y as f32, final_z as f32, js_sys::Date::now()
+                                ))));
+                                init
+                            }
+                        ).ok()
+                    })
+                });
+                first_vertex_logged = true;
+            }
+            // #endregion
+
+            if needs_rtc {
+                chunk[0] = (t.x - rtc.0) as f32;
+                chunk[1] = (t.y - rtc.1) as f32;
+                chunk[2] = (t.z - rtc.2) as f32;
+            } else {
+                chunk[0] = t.x as f32;
+                chunk[1] = t.y as f32;
+                chunk[2] = t.z as f32;
+            }
         });
 
-        // Transform normals (without translation) - optimized chunk iteration
-        // Normals don't need RTC offset - they're directions, not positions
+        // Transform normals (without translation)
         let rotation = transform.fixed_view::<3, 3>(0, 0);
         mesh.normals.chunks_exact_mut(3).for_each(|chunk| {
             let normal = Vector3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
-            let transformed = (rotation * normal).normalize();
-            chunk[0] = transformed.x as f32;
-            chunk[1] = transformed.y as f32;
-            chunk[2] = transformed.z as f32;
+            let t = (rotation * normal).normalize();
+            chunk[0] = t.x as f32;
+            chunk[1] = t.y as f32;
+            chunk[2] = t.z as f32;
         });
     }
 

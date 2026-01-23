@@ -1208,7 +1208,25 @@ impl IfcAPI {
                     rustc_hash::FxHashMap::default();
 
                 // Create geometry router
-                let router = GeometryRouter::with_units(&content, &mut decoder);
+                let mut router = GeometryRouter::with_units(&content, &mut decoder);
+
+                // DETECT RTC OFFSET from actual building element transforms (same as sync version)
+                let rtc_offset = router.detect_rtc_offset_from_first_element(&content, &mut decoder);
+                let needs_shift = rtc_offset.0.abs() > 10000.0
+                    || rtc_offset.1.abs() > 10000.0
+                    || rtc_offset.2.abs() > 10000.0;
+
+                if needs_shift {
+                    router.set_rtc_offset(rtc_offset);
+                }
+
+                // DEBUG: Log detected RTC offset (ASYNC path)
+                web_sys::console::log_1(&format!(
+                    "[WASM DEBUG ASYNC] Detected RTC from transform: needs_shift={}, rtc_offset=({:.2},{:.2},{:.2}), has_rtc={}",
+                    needs_shift,
+                    rtc_offset.0, rtc_offset.1, rtc_offset.2,
+                    router.has_rtc_offset()
+                ).into());
 
                 // Process counters
                 let mut processed = 0;
@@ -1287,7 +1305,6 @@ impl IfcAPI {
                                             calculate_normals(&mut mesh);
                                         }
 
-                                        // FIX: Use styled colors from IFC file, fallback to default
                                         let color = style_index
                                             .get(&id)
                                             .copied()
@@ -1299,7 +1316,7 @@ impl IfcAPI {
                                         let mesh_data =
                                             MeshDataJs::new(id, ifc_type_name, mesh, color);
                                         batch_meshes.push(mesh_data);
-                                        processed_simple_ids.push(id); // Track for color updates
+                                        processed_simple_ids.push(id);
                                         processed += 1;
                                     }
                                 }
