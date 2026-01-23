@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { useMemo, useState, useCallback, useRef } from 'react';
+import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Search,
@@ -124,6 +124,7 @@ export function HierarchyPanel() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+  const [hasInitializedExpansion, setHasInitializedExpansion] = useState(false);
 
   // Check if we have multiple models loaded
   const isMultiModel = models.size > 1;
@@ -139,7 +140,7 @@ export function HierarchyPanel() {
     }
   }, []);
 
-  // Build unified storey data for multi-model mode
+  // Build unified storey data for multi-model mode (moved before useEffect that depends on it)
   const unifiedStoreys = useMemo((): UnifiedStorey[] => {
     if (models.size <= 1) return [];
 
@@ -187,6 +188,64 @@ export function HierarchyPanel() {
     return Array.from(storeysByElevation.values())
       .sort((a, b) => b.elevation - a.elevation);
   }, [models]);
+
+  // Auto-expand nodes on initial load based on model count
+  useEffect(() => {
+    // Only run once when models are first loaded
+    if (hasInitializedExpansion || models.size === 0) return;
+
+    const newExpanded = new Set<string>();
+
+    if (models.size === 1) {
+      // Single model: expand full hierarchy to show all storeys
+      const [, model] = Array.from(models.entries())[0];
+      const hierarchy = model.ifcDataStore?.spatialHierarchy;
+      if (hierarchy?.project) {
+        // Expand Project → Site → Building to reveal storeys
+        const project = hierarchy.project;
+        const projectNodeId = `root-${project.expressId}`;
+        newExpanded.add(projectNodeId);
+
+        for (const site of project.children || []) {
+          const siteNodeId = `${projectNodeId}-${site.expressId}`;
+          newExpanded.add(siteNodeId);
+
+          for (const building of site.children || []) {
+            const buildingNodeId = `${siteNodeId}-${building.expressId}`;
+            newExpanded.add(buildingNodeId);
+          }
+        }
+      }
+    } else {
+      // Multi-model: expand all model entries in Models section
+      // But collapse if there are too many items (rough estimate based on viewport)
+      const totalItems = unifiedStoreys.length + models.size;
+      const estimatedRowHeight = 36;
+      const availableHeight = window.innerHeight * 0.6; // Estimate panel takes ~60% of viewport
+      const maxVisibleItems = Math.floor(availableHeight / estimatedRowHeight);
+
+      if (totalItems <= maxVisibleItems) {
+        // Enough space - expand all model entries
+        for (const [modelId] of models) {
+          newExpanded.add(`model-${modelId}`);
+        }
+      }
+      // If not enough space, leave collapsed (newExpanded stays empty for models)
+    }
+
+    if (newExpanded.size > 0) {
+      setExpandedNodes(newExpanded);
+    }
+    setHasInitializedExpansion(true);
+  }, [models, hasInitializedExpansion, unifiedStoreys.length]);
+
+  // Reset expansion state when all models are removed
+  useEffect(() => {
+    if (models.size === 0) {
+      setHasInitializedExpansion(false);
+      setExpandedNodes(new Set());
+    }
+  }, [models.size]);
 
   // Get all element IDs for a unified storey
   const getUnifiedStoreyElements = useCallback((unifiedStorey: UnifiedStorey): number[] => {
