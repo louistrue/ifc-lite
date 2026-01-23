@@ -130,7 +130,7 @@ interface MainToolbarProps {
 export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const addModelInputRef = useRef<HTMLInputElement>(null);
-  const { loadFile, loading, progress, geometryResult, ifcDataStore, models, clearAllModels, loadFilesSequentially } = useIfc();
+  const { loadFile, loading, progress, geometryResult, ifcDataStore, models, clearAllModels, loadFilesSequentially, loadFederatedIfcx, addModel } = useIfc();
 
   // Check if we have models loaded (for showing add model button)
   const hasModelsLoaded = models.size > 0 || (geometryResult?.meshes && geometryResult.meshes.length > 0);
@@ -179,15 +179,26 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       // Single file - use loadFile (simpler single-model path)
       loadFile(ifcFiles[0]);
     } else {
-      // Multiple files - clear and load sequentially
+      // Multiple files - check if ALL are IFCX (use federated loading for layer composition)
+      const allIfcx = ifcFiles.every(f => f.name.endsWith('.ifcx'));
+
       resetViewerState();
       clearAllModels();
-      loadFilesSequentially(ifcFiles);
+
+      if (allIfcx) {
+        // IFCX files use federated loading (layer composition - later files override earlier ones)
+        // This handles overlay files that add properties without geometry
+        console.log(`[MainToolbar] Loading ${ifcFiles.length} IFCX files with federated composition`);
+        loadFederatedIfcx(ifcFiles);
+      } else {
+        // Mixed or all IFC4 files - load sequentially as independent models
+        loadFilesSequentially(ifcFiles);
+      }
     }
 
     // Reset input so same files can be selected again
     e.target.value = '';
-  }, [loadFile, loadFilesSequentially, resetViewerState, clearAllModels]);
+  }, [loadFile, loadFilesSequentially, loadFederatedIfcx, resetViewerState, clearAllModels]);
 
   const handleAddModelSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -198,13 +209,33 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       f => f.name.endsWith('.ifc') || f.name.endsWith('.ifcx')
     );
 
-    if (ifcFiles.length > 0) {
+    if (ifcFiles.length === 0) return;
+
+    // Check if adding IFCX files
+    const newFilesAreIfcx = ifcFiles.every(f => f.name.endsWith('.ifcx'));
+    // Note: schemaVersion is 'IFC5' for IFCX files (type extended via `as any` in useIfc)
+    const existingIsIfcx = (ifcDataStore as any)?.schemaVersion === 'IFC5';
+
+    if (newFilesAreIfcx && existingIsIfcx) {
+      // Adding IFCX overlay(s) to existing IFCX model - need to re-compose
+      // Get all existing IFCX files from the store and combine with new ones
+      console.log(`[MainToolbar] Adding ${ifcFiles.length} IFCX overlay(s) to existing IFCX model - using federated composition`);
+
+      // For now, inform user that they need to load base + overlays together
+      // TODO: Implement re-composition with existing model
+      alert(`To add IFCX overlays, please load all files (base + overlays) together.\n\nSelect all files at once: base model + overlay files.`);
+    } else if (newFilesAreIfcx && !existingIsIfcx && ifcDataStore) {
+      // User trying to add IFCX to IFC4 model - won't work
+      console.warn('[MainToolbar] Cannot add IFCX files to non-IFCX model');
+      alert(`IFCX overlay files cannot be added to IFC4 models.\n\nPlease load IFCX files separately.`);
+    } else {
+      // Standard case - add as independent models
       loadFilesSequentially(ifcFiles);
     }
 
     // Reset input so same files can be selected again
     e.target.value = '';
-  }, [loadFilesSequentially]);
+  }, [loadFilesSequentially, ifcDataStore]);
 
   const handleIsolate = useCallback(() => {
     if (selectedEntityId) {

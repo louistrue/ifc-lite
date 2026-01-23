@@ -531,6 +531,20 @@ export function useIfc() {
             };
           }).filter((m: MeshData) => m.positions.length > 0 && m.indices.length > 0); // Filter out empty meshes
 
+          // Check if this is an overlay-only file (no geometry)
+          if (meshes.length === 0) {
+            console.warn(`[useIfc] IFCX file "${file.name}" has no geometry - this appears to be an overlay file that adds properties to a base model.`);
+            console.warn('[useIfc] To use this file, load it together with a base IFCX file (select both files at once).');
+
+            // Check if file has data references that suggest it's an overlay
+            const hasReferences = ifcxResult.entityCount > 0;
+            if (hasReferences) {
+              setError(`"${file.name}" is an overlay file with no geometry. Please load it together with a base IFCX file (select all files at once).`);
+              setLoading(false);
+              return;
+            }
+          }
+
           // Calculate bounds and statistics
           const { bounds, stats } = calculateMeshBounds(meshes);
           const coordinateInfo = createCoordinateInfo(bounds);
@@ -921,6 +935,14 @@ export function useIfc() {
             ifcType: m.ifcType || m.ifc_type || 'IfcProduct',
           };
         }).filter((m: MeshData) => m.positions.length > 0 && m.indices.length > 0);
+
+        // Check if this is an overlay-only IFCX file (no geometry)
+        if (meshes.length === 0 && ifcxResult.entityCount > 0) {
+          console.warn(`[useIfc] IFCX file "${file.name}" has no geometry - this is an overlay file.`);
+          setError(`"${file.name}" is an overlay file with no geometry. Please load it together with a base IFCX file (select all files at once for federated loading).`);
+          setLoading(false);
+          return null;
+        }
 
         const { bounds, stats } = calculateMeshBounds(meshes);
         const coordinateInfo = createCoordinateInfo(bounds);
