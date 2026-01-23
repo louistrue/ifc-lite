@@ -496,9 +496,31 @@ export class MeshCollection {
   free(): void;
   [Symbol.dispose](): void;
   /**
+   * Check if RTC offset is significant (>10km)
+   */
+  hasRtcOffset(): boolean;
+  /**
+   * Convert local coordinates to world coordinates
+   * Use this to convert mesh positions back to original IFC coordinates
+   */
+  localToWorld(x: number, y: number, z: number): Float64Array;
+  /**
    * Get mesh at index
    */
   get(index: number): MeshDataJs | undefined;
+  /**
+   * Get RTC offset X (for converting local coords back to world coords)
+   * Add this to local X coordinates to get world X coordinates
+   */
+  readonly rtcOffsetX: number;
+  /**
+   * Get RTC offset Y
+   */
+  readonly rtcOffsetY: number;
+  /**
+   * Get RTC offset Z
+   */
+  readonly rtcOffsetZ: number;
   /**
    * Get total vertex count across all meshes
    */
@@ -798,7 +820,12 @@ export interface InitOutput {
   readonly instancedmeshcollection_get: (a: number, b: number) => number;
   readonly instancedmeshcollection_totalInstances: (a: number) => number;
   readonly meshcollection_get: (a: number, b: number) => number;
+  readonly meshcollection_hasRtcOffset: (a: number) => number;
   readonly meshcollection_length: (a: number) => number;
+  readonly meshcollection_localToWorld: (a: number, b: number, c: number, d: number, e: number) => void;
+  readonly meshcollection_rtcOffsetX: (a: number) => number;
+  readonly meshcollection_rtcOffsetY: (a: number) => number;
+  readonly meshcollection_rtcOffsetZ: (a: number) => number;
   readonly meshcollection_totalTriangles: (a: number) => number;
   readonly meshcollection_totalVertices: (a: number) => number;
   readonly meshcollectionwithrtc_get: (a: number, b: number) => number;
@@ -812,7 +839,6 @@ export interface InitOutput {
   readonly meshdatajs_normals: (a: number) => number;
   readonly meshdatajs_positions: (a: number) => number;
   readonly meshdatajs_triangleCount: (a: number) => number;
-  readonly rtcoffsetjs_isSignificant: (a: number) => number;
   readonly rtcoffsetjs_toWorld: (a: number, b: number, c: number, d: number, e: number) => void;
   readonly version: (a: number) => void;
   readonly zerocopymesh_bounds_max: (a: number, b: number) => void;
@@ -835,20 +861,21 @@ export interface InitOutput {
   readonly zerocopymesh_indices_ptr: (a: number) => number;
   readonly zerocopymesh_normals_ptr: (a: number) => number;
   readonly zerocopymesh_positions_ptr: (a: number) => number;
+  readonly rtcoffsetjs_isSignificant: (a: number) => number;
   readonly zerocopymesh_is_empty: (a: number) => number;
   readonly __wbg_get_rtcoffsetjs_x: (a: number) => number;
   readonly __wbg_get_rtcoffsetjs_y: (a: number) => number;
   readonly __wbg_get_rtcoffsetjs_z: (a: number) => number;
   readonly instancedgeometry_geometryId: (a: number) => bigint;
+  readonly __wasm_bindgen_func_elem_780: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_775: (a: number, b: number) => void;
   readonly __wasm_bindgen_func_elem_399: (a: number, b: number) => void;
   readonly __wasm_bindgen_func_elem_395: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_782: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_777: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_813: (a: number, b: number, c: number, d: number) => void;
-  readonly __wbindgen_export: (a: number, b: number) => number;
-  readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
-  readonly __wbindgen_export3: (a: number) => void;
-  readonly __wbindgen_export4: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_811: (a: number, b: number, c: number, d: number) => void;
+  readonly __wbindgen_export: (a: number) => void;
+  readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
+  readonly __wbindgen_export3: (a: number, b: number) => number;
+  readonly __wbindgen_export4: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
   readonly __wbindgen_start: () => void;
 }

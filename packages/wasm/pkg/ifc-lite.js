@@ -13,71 +13,6 @@ const CLOSURE_DTORS = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(state => state.dtor(state.a, state.b));
 
-function debugString(val) {
-    // primitive types
-    const type = typeof val;
-    if (type == 'number' || type == 'boolean' || val == null) {
-        return  `${val}`;
-    }
-    if (type == 'string') {
-        return `"${val}"`;
-    }
-    if (type == 'symbol') {
-        const description = val.description;
-        if (description == null) {
-            return 'Symbol';
-        } else {
-            return `Symbol(${description})`;
-        }
-    }
-    if (type == 'function') {
-        const name = val.name;
-        if (typeof name == 'string' && name.length > 0) {
-            return `Function(${name})`;
-        } else {
-            return 'Function';
-        }
-    }
-    // objects
-    if (Array.isArray(val)) {
-        const length = val.length;
-        let debug = '[';
-        if (length > 0) {
-            debug += debugString(val[0]);
-        }
-        for(let i = 1; i < length; i++) {
-            debug += ', ' + debugString(val[i]);
-        }
-        debug += ']';
-        return debug;
-    }
-    // Test for built-in
-    const builtInMatches = /\[object ([^\]]+)\]/.exec(toString.call(val));
-    let className;
-    if (builtInMatches && builtInMatches.length > 1) {
-        className = builtInMatches[1];
-    } else {
-        // Failed to match the standard '[object ClassName]'
-        return toString.call(val);
-    }
-    if (className == 'Object') {
-        // we're a user defined class or Object
-        // JSON.stringify avoids problems with cycles, and is generally much
-        // easier than looping through ownProperties of `val`.
-        try {
-            return 'Object(' + JSON.stringify(val) + ')';
-        } catch (_) {
-            return 'Object';
-        }
-    }
-    // errors
-    if (val instanceof Error) {
-        return `${val.name}: ${val.message}\n${val.stack}`;
-    }
-    // TODO we could test for more things here, like `Set`s and `Map`s.
-    return className;
-}
-
 function dropObject(idx) {
     if (idx < 132) return;
     heap[idx] = heap_next;
@@ -150,7 +85,7 @@ function handleError(f, args) {
     try {
         return f.apply(this, args);
     } catch (e) {
-        wasm.__wbindgen_export3(addHeapObject(e));
+        wasm.__wbindgen_export(addHeapObject(e));
     }
 }
 
@@ -263,16 +198,16 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
+function __wasm_bindgen_func_elem_780(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_780(arg0, arg1, addHeapObject(arg2));
+}
+
 function __wasm_bindgen_func_elem_399(arg0, arg1) {
     wasm.__wasm_bindgen_func_elem_399(arg0, arg1);
 }
 
-function __wasm_bindgen_func_elem_782(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_782(arg0, arg1, addHeapObject(arg2));
-}
-
-function __wasm_bindgen_func_elem_813(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_813(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_811(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_811(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -460,7 +395,7 @@ export class GeoReferenceJs {
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var v1 = getArrayF64FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 8, 8);
+            wasm.__wbindgen_export2(r0, r1 * 8, 8);
             return v1;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
@@ -480,7 +415,7 @@ export class GeoReferenceJs {
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var v1 = getArrayF64FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 8, 8);
+            wasm.__wbindgen_export2(r0, r1 * 8, 8);
             return v1;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
@@ -499,7 +434,7 @@ export class GeoReferenceJs {
             let v1;
             if (r0 !== 0) {
                 v1 = getStringFromWasm0(r0, r1).slice();
-                wasm.__wbindgen_export4(r0, r1 * 1, 1);
+                wasm.__wbindgen_export2(r0, r1 * 1, 1);
             }
             return v1;
         } finally {
@@ -525,7 +460,7 @@ export class GeoReferenceJs {
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var v1 = getArrayF64FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 8, 8);
+            wasm.__wbindgen_export2(r0, r1 * 8, 8);
             return v1;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
@@ -619,7 +554,7 @@ export class GpuGeometry {
             let v1;
             if (r0 !== 0) {
                 v1 = getStringFromWasm0(r0, r1).slice();
-                wasm.__wbindgen_export4(r0, r1 * 1, 1);
+                wasm.__wbindgen_export2(r0, r1 * 1, 1);
             }
             return v1;
         } finally {
@@ -1061,7 +996,7 @@ export class GpuMeshMetadata {
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var v1 = getArrayF32FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 4, 4);
+            wasm.__wbindgen_export2(r0, r1 * 4, 4);
             return v1;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
@@ -1111,7 +1046,7 @@ export class IfcAPI {
      * @returns {MeshCollection}
      */
     parseMeshes(content) {
-        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.ifcapi_parseMeshes(this.__wbg_ptr, ptr0, len0);
         return MeshCollection.__wrap(ret);
@@ -1132,7 +1067,7 @@ export class IfcAPI {
      * @returns {Promise<any>}
      */
     parseStreaming(content, callback) {
-        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.ifcapi_parseStreaming(this.__wbg_ptr, ptr0, len0, addHeapObject(callback));
         return takeObject(ret);
@@ -1161,7 +1096,7 @@ export class IfcAPI {
      * @returns {ZeroCopyMesh}
      */
     parseZeroCopy(content) {
-        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.ifcapi_parseZeroCopy(this.__wbg_ptr, ptr0, len0);
         return ZeroCopyMesh.__wrap(ret);
@@ -1183,7 +1118,7 @@ export class IfcAPI {
      * @returns {GeoReferenceJs | undefined}
      */
     getGeoReference(content) {
-        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.ifcapi_getGeoReference(this.__wbg_ptr, ptr0, len0);
         return ret === 0 ? undefined : GeoReferenceJs.__wrap(ret);
@@ -1214,7 +1149,7 @@ export class IfcAPI {
      * @returns {Promise<any>}
      */
     parseMeshesAsync(content, options) {
-        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.ifcapi_parseMeshesAsync(this.__wbg_ptr, ptr0, len0, addHeapObject(options));
         return takeObject(ret);
@@ -1227,7 +1162,7 @@ export class IfcAPI {
      * @returns {any}
      */
     scanEntitiesFast(content) {
-        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.ifcapi_scanEntitiesFast(this.__wbg_ptr, ptr0, len0);
         return takeObject(ret);
@@ -1252,7 +1187,7 @@ export class IfcAPI {
      * @returns {MeshCollectionWithRtc}
      */
     parseMeshesWithRtc(content) {
-        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.ifcapi_parseMeshesWithRtc(this.__wbg_ptr, ptr0, len0);
         return MeshCollectionWithRtc.__wrap(ret);
@@ -1296,7 +1231,7 @@ export class IfcAPI {
      * @returns {GpuGeometry}
      */
     parseToGpuGeometry(content) {
-        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.ifcapi_parseToGpuGeometry(this.__wbg_ptr, ptr0, len0);
         return GpuGeometry.__wrap(ret);
@@ -1324,7 +1259,7 @@ export class IfcAPI {
      * @returns {InstancedMeshCollection}
      */
     parseMeshesInstanced(content) {
-        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.ifcapi_parseMeshesInstanced(this.__wbg_ptr, ptr0, len0);
         return InstancedMeshCollection.__wrap(ret);
@@ -1339,7 +1274,7 @@ export class IfcAPI {
         let deferred2_1;
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
             const len0 = WASM_VECTOR_LEN;
             wasm.ifcapi_debugProcessEntity953(retptr, this.__wbg_ptr, ptr0, len0);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -1349,7 +1284,7 @@ export class IfcAPI {
             return getStringFromWasm0(r0, r1);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export4(deferred2_0, deferred2_1, 1);
+            wasm.__wbindgen_export2(deferred2_0, deferred2_1, 1);
         }
     }
     /**
@@ -1362,7 +1297,7 @@ export class IfcAPI {
         let deferred2_1;
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
             const len0 = WASM_VECTOR_LEN;
             wasm.ifcapi_debugProcessFirstWall(retptr, this.__wbg_ptr, ptr0, len0);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -1372,7 +1307,7 @@ export class IfcAPI {
             return getStringFromWasm0(r0, r1);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export4(deferred2_0, deferred2_1, 1);
+            wasm.__wbindgen_export2(deferred2_0, deferred2_1, 1);
         }
     }
     /**
@@ -1412,7 +1347,7 @@ export class IfcAPI {
      * @returns {Promise<any>}
      */
     parseToGpuGeometryAsync(content, options) {
-        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.ifcapi_parseToGpuGeometryAsync(this.__wbg_ptr, ptr0, len0, addHeapObject(options));
         return takeObject(ret);
@@ -1426,7 +1361,7 @@ export class IfcAPI {
      * @returns {any}
      */
     scanGeometryEntitiesFast(content) {
-        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.ifcapi_scanGeometryEntitiesFast(this.__wbg_ptr, ptr0, len0);
         return takeObject(ret);
@@ -1456,7 +1391,7 @@ export class IfcAPI {
      * @returns {Promise<any>}
      */
     parseMeshesInstancedAsync(content, options) {
-        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.ifcapi_parseMeshesInstancedAsync(this.__wbg_ptr, ptr0, len0, addHeapObject(options));
         return takeObject(ret);
@@ -1470,7 +1405,7 @@ export class IfcAPI {
      * @returns {GpuInstancedGeometryCollection}
      */
     parseToGpuInstancedGeometry(content) {
-        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.ifcapi_parseToGpuInstancedGeometry(this.__wbg_ptr, ptr0, len0);
         return GpuInstancedGeometryCollection.__wrap(ret);
@@ -1497,7 +1432,7 @@ export class IfcAPI {
      * @returns {Promise<any>}
      */
     parse(content) {
-        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.ifcapi_parse(this.__wbg_ptr, ptr0, len0);
         return takeObject(ret);
@@ -1519,7 +1454,7 @@ export class IfcAPI {
             return getStringFromWasm0(r0, r1);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export4(deferred1_0, deferred1_1, 1);
+            wasm.__wbindgen_export2(deferred1_0, deferred1_1, 1);
         }
     }
     /**
@@ -1571,7 +1506,7 @@ export class InstanceData {
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var v1 = getArrayF32FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 4, 4);
+            wasm.__wbindgen_export2(r0, r1 * 4, 4);
             return v1;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
@@ -1729,6 +1664,60 @@ export class MeshCollection {
         wasm.__wbg_meshcollection_free(ptr, 0);
     }
     /**
+     * Get RTC offset X (for converting local coords back to world coords)
+     * Add this to local X coordinates to get world X coordinates
+     * @returns {number}
+     */
+    get rtcOffsetX() {
+        const ret = wasm.meshcollection_rtcOffsetX(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Get RTC offset Y
+     * @returns {number}
+     */
+    get rtcOffsetY() {
+        const ret = wasm.meshcollection_rtcOffsetY(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Get RTC offset Z
+     * @returns {number}
+     */
+    get rtcOffsetZ() {
+        const ret = wasm.meshcollection_rtcOffsetZ(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Check if RTC offset is significant (>10km)
+     * @returns {boolean}
+     */
+    hasRtcOffset() {
+        const ret = wasm.meshcollection_hasRtcOffset(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * Convert local coordinates to world coordinates
+     * Use this to convert mesh positions back to original IFC coordinates
+     * @param {number} x
+     * @param {number} y
+     * @param {number} z
+     * @returns {Float64Array}
+     */
+    localToWorld(x, y, z) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.meshcollection_localToWorld(retptr, this.__wbg_ptr, x, y, z);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayF64FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export2(r0, r1 * 8, 8);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * Get total vertex count across all meshes
      * @returns {number}
      */
@@ -1877,7 +1866,7 @@ export class MeshDataJs {
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var v1 = getArrayF32FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 4, 4);
+            wasm.__wbindgen_export2(r0, r1 * 4, 4);
             return v1;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
@@ -1916,7 +1905,7 @@ export class MeshDataJs {
             return getStringFromWasm0(r0, r1);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export4(deferred1_0, deferred1_1, 1);
+            wasm.__wbindgen_export2(deferred1_0, deferred1_1, 1);
         }
     }
     /**
@@ -2001,7 +1990,7 @@ export class RtcOffsetJs {
      * @returns {boolean}
      */
     isSignificant() {
-        const ret = wasm.rtcoffsetjs_isSignificant(this.__wbg_ptr);
+        const ret = wasm.meshcollection_hasRtcOffset(this.__wbg_ptr);
         return ret !== 0;
     }
     /**
@@ -2018,7 +2007,7 @@ export class RtcOffsetJs {
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var v1 = getArrayF64FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 8, 8);
+            wasm.__wbindgen_export2(r0, r1 * 8, 8);
             return v1;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
@@ -2059,7 +2048,7 @@ export class ZeroCopyMesh {
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var v1 = getArrayF32FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 4, 4);
+            wasm.__wbindgen_export2(r0, r1 * 4, 4);
             return v1;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
@@ -2076,7 +2065,7 @@ export class ZeroCopyMesh {
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var v1 = getArrayF32FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 4, 4);
+            wasm.__wbindgen_export2(r0, r1 * 4, 4);
             return v1;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
@@ -2213,7 +2202,7 @@ export function version() {
         return getStringFromWasm0(r0, r1);
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
-        wasm.__wbindgen_export4(deferred1_0, deferred1_1, 1);
+        wasm.__wbindgen_export2(deferred1_0, deferred1_1, 1);
     }
 }
 
@@ -2255,13 +2244,6 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_Error_52673b7de5a0ca89 = function(arg0, arg1) {
         const ret = Error(getStringFromWasm0(arg0, arg1));
         return addHeapObject(ret);
-    };
-    imports.wbg.__wbg___wbindgen_debug_string_adfb662ae34724b6 = function(arg0, arg1) {
-        const ret = debugString(getObject(arg1));
-        const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_export, wasm.__wbindgen_export2);
-        const len1 = WASM_VECTOR_LEN;
-        getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
-        getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
     };
     imports.wbg.__wbg___wbindgen_is_function_8d400b8b1af978cd = function(arg0) {
         const ret = typeof(getObject(arg0)) === 'function';
@@ -2311,7 +2293,7 @@ function __wbg_get_imports() {
             deferred0_1 = arg1;
             console.error(getStringFromWasm0(arg0, arg1));
         } finally {
-            wasm.__wbindgen_export4(deferred0_0, deferred0_1, 1);
+            wasm.__wbindgen_export2(deferred0_0, deferred0_1, 1);
         }
     };
     imports.wbg.__wbg_get_af9dab7e9603ea93 = function() { return handleError(function (arg0, arg1) {
@@ -2357,7 +2339,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wasm_bindgen_func_elem_813(a, state0.b, arg0, arg1);
+                    return __wasm_bindgen_func_elem_811(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -2419,7 +2401,7 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbg_stack_0ed75d68575b0f3c = function(arg0, arg1) {
         const ret = getObject(arg1).stack;
-        const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
         const len1 = WASM_VECTOR_LEN;
         getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
         getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
@@ -2449,19 +2431,19 @@ function __wbg_get_imports() {
         const ret = getStringFromWasm0(arg0, arg1);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_cast_2ead27b74a7138e7 = function(arg0, arg1) {
-        // Cast intrinsic for `Closure(Closure { dtor_idx: 48, function: Function { arguments: [], shim_idx: 49, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_395, __wasm_bindgen_func_elem_399);
-        return addHeapObject(ret);
-    };
     imports.wbg.__wbindgen_cast_4625c577ab2ec9ee = function(arg0) {
         // Cast intrinsic for `U64 -> Externref`.
         const ret = BigInt.asUintN(64, arg0);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_cast_902a70736b89c8fd = function(arg0, arg1) {
-        // Cast intrinsic for `Closure(Closure { dtor_idx: 119, function: Function { arguments: [Externref], shim_idx: 120, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_777, __wasm_bindgen_func_elem_782);
+    imports.wbg.__wbindgen_cast_6da2ad44da782ca3 = function(arg0, arg1) {
+        // Cast intrinsic for `Closure(Closure { dtor_idx: 43, function: Function { arguments: [], shim_idx: 44, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_395, __wasm_bindgen_func_elem_399);
+        return addHeapObject(ret);
+    };
+    imports.wbg.__wbindgen_cast_75d7d4cd7db9065b = function(arg0, arg1) {
+        // Cast intrinsic for `Closure(Closure { dtor_idx: 114, function: Function { arguments: [Externref], shim_idx: 115, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_775, __wasm_bindgen_func_elem_780);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {

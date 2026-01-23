@@ -7,11 +7,32 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 cd "$ROOT_DIR"
 
+# Source cargo environment if available (adds cargo to PATH)
+if [ -f "$HOME/.cargo/env" ]; then
+  source "$HOME/.cargo/env"
+fi
+
 echo "🦀 Building IFC-Lite WASM..."
 
 # Build with wasm-pack
 echo "📦 Running wasm-pack..."
-wasm-pack build rust/wasm-bindings \
+
+# Find wasm-pack - check PATH first, then cargo bin directory
+WASM_PACK="wasm-pack"
+if ! command -v wasm-pack &> /dev/null; then
+  # Try cargo's bin directory (common location for cargo-installed binaries)
+  CARGO_BIN="$HOME/.cargo/bin/wasm-pack"
+  if [ -f "$CARGO_BIN" ]; then
+    WASM_PACK="$CARGO_BIN"
+    echo "   Using wasm-pack from cargo bin: $WASM_PACK"
+  else
+    echo "❌ Error: wasm-pack not found in PATH or ~/.cargo/bin/"
+    echo "   Install with: cargo install wasm-pack"
+    exit 1
+  fi
+fi
+
+"$WASM_PACK" build rust/wasm-bindings \
   --target web \
   --out-dir ../../packages/wasm/pkg \
   --out-name ifc-lite \
