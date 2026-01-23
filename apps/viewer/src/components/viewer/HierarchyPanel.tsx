@@ -640,6 +640,8 @@ export function HierarchyPanel() {
             if (node.type === 'model-header' && node.id.startsWith('model-')) {
               const modelId = node.modelIds[0];
               const model = models.get(modelId);
+              // Check if this is the first model (for proper top padding after header)
+              const isFirstModel = virtualRow.index > 0 && filteredNodes[virtualRow.index - 1]?.id === 'models-header';
 
               return (
                 <div
@@ -658,7 +660,8 @@ export function HierarchyPanel() {
                       'flex items-center gap-1 px-2 py-1.5 cursor-default border-l-4 transition-all group',
                       'hover:bg-zinc-50 dark:hover:bg-zinc-900',
                       'border-transparent',
-                      !model?.visible && 'opacity-50'
+                      !model?.visible && 'opacity-50',
+                      isFirstModel && 'pt-2'
                     )}
                     style={{ paddingLeft: '24px' }}
                   >
