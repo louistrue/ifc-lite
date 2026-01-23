@@ -1161,30 +1161,20 @@ export function useIfc() {
    * ]);
    * ```
    */
-  const loadFederatedIfcx = useCallback(async (files: File[]): Promise<void> => {
+  /**
+   * Internal: Load federated IFCX from buffers (used by both initial load and add overlay)
+   */
+  const loadFederatedIfcxFromBuffers = useCallback(async (
+    buffers: Array<{ buffer: ArrayBuffer; name: string }>,
+    options: { resetState?: boolean } = {}
+  ): Promise<void> => {
     const { resetViewerState, clearAllModels } = useViewerStore.getState();
 
-    if (files.length === 0) {
-      setError('No files provided for federated loading');
-      return;
-    }
-
-    // Check that all files are IFCX format
-    const buffers: Array<{ buffer: ArrayBuffer; name: string }> = [];
-    for (const file of files) {
-      const buffer = await file.arrayBuffer();
-      const format = detectFormat(buffer);
-      if (format !== 'ifcx') {
-        setError(`File "${file.name}" is not an IFCX file. Federated loading only supports IFCX files.`);
-        return;
-      }
-      buffers.push({ buffer, name: file.name });
-    }
-
     try {
-      // Reset state for new load
-      resetViewerState();
-      clearAllModels();
+      if (options.resetState !== false) {
+        resetViewerState();
+        clearAllModels();
+      }
 
       setLoading(true);
       setError(null);
@@ -1218,12 +1208,17 @@ export function useIfc() {
       const { bounds, stats } = calculateMeshBounds(meshes);
       const coordinateInfo = createCoordinateInfo(bounds);
 
-      setGeometryResult({
+      const geometryResult = {
         meshes,
         totalVertices: stats.totalVertices,
         totalTriangles: stats.totalTriangles,
         coordinateInfo,
-      });
+      };
+
+      setGeometryResult(geometryResult);
+
+      // Get layer info with mesh counts
+      const layers = result.layerStack.getLayers();
 
       // Create data store from federated result
       const dataStore = {
@@ -1231,7 +1226,7 @@ export function useIfc() {
         schemaVersion: 'IFC5' as const,
         entityCount: result.entityCount,
         parseTime: result.parseTime,
-        source: new Uint8Array(buffers[0].buffer), // Use first buffer as source
+        source: new Uint8Array(buffers[0].buffer),
         entityIndex: {
           byId: new Map(),
           byType: new Map(),
@@ -1242,19 +1237,62 @@ export function useIfc() {
         quantities: result.quantities,
         relationships: result.relationships,
         spatialHierarchy: result.spatialHierarchy,
-        // Federated-specific: store layer info for UI
-        _federatedLayers: result.layerStack.getLayers().map(l => ({
+        // Federated-specific: store layer info and ORIGINAL BUFFERS for re-composition
+        _federatedLayers: layers.map(l => ({
           id: l.id,
           name: l.name,
           enabled: l.enabled,
+        })),
+        _federatedBuffers: buffers.map(b => ({
+          buffer: b.buffer.slice(0), // Clone buffer
+          name: b.name,
         })),
         _compositionStats: result.compositionStats,
       } as any;
 
       setIfcDataStore(dataStore);
 
-      console.log(`[useIfc] Federated IFCX loaded: ${result.layerStack.count} layers, ${result.entityCount} entities, ${meshes.length} meshes`);
+      // Clear existing models and add each layer as a "model" in the Models panel
+      // This shows users all the files that contributed to the composition
+      clearAllModels();
+
+      for (let i = 0; i < layers.length; i++) {
+        const layer = layers[i];
+        const layerBuffer = buffers.find(b => b.name === layer.name);
+
+        // Count how many meshes came from this layer
+        // For base layers: count meshes, for overlays: show as data-only
+        const isBaseLayer = i === layers.length - 1; // Last layer (weakest) is typically base
+        const meshCount = isBaseLayer ? meshes.length : 0;
+
+        const layerModel: FederatedModel = {
+          id: layer.id,
+          name: layer.name,
+          ifcDataStore: dataStore, // Share the composed data store
+          geometryResult: isBaseLayer ? geometryResult : {
+            meshes: [],
+            totalVertices: 0,
+            totalTriangles: 0,
+            coordinateInfo,
+          },
+          visible: true,
+          collapsed: i > 0, // Collapse overlays by default
+          schemaVersion: 'IFC5',
+          loadedAt: Date.now() - (layers.length - i) * 100, // Stagger timestamps
+          fileSize: layerBuffer?.buffer.byteLength || 0,
+          idOffset: 0,
+          maxExpressId: 0,
+          // Mark overlay-only layers
+          _isOverlay: !isBaseLayer,
+          _layerIndex: i,
+        } as FederatedModel & { _isOverlay?: boolean; _layerIndex?: number };
+
+        storeAddModel(layerModel);
+      }
+
+      console.log(`[useIfc] Federated IFCX loaded: ${layers.length} layers, ${result.entityCount} entities, ${meshes.length} meshes`);
       console.log(`[useIfc] Composition stats: ${result.compositionStats.inheritanceResolutions} inheritance resolutions, ${result.compositionStats.crossLayerReferences} cross-layer refs`);
+      console.log(`[useIfc] Layers in Models panel: ${layers.map(l => l.name).join(', ')}`);
 
       setProgress({ phase: 'Complete', percent: 100 });
       setLoading(false);
@@ -1264,7 +1302,64 @@ export function useIfc() {
       setError(`Federated IFCX loading failed: ${message}`);
       setLoading(false);
     }
-  }, [setLoading, setError, setProgress, setGeometryResult, setIfcDataStore]);
+  }, [setLoading, setError, setProgress, setGeometryResult, setIfcDataStore, storeAddModel, clearAllModels]);
+
+  const loadFederatedIfcx = useCallback(async (files: File[]): Promise<void> => {
+    if (files.length === 0) {
+      setError('No files provided for federated loading');
+      return;
+    }
+
+    // Check that all files are IFCX format and read buffers
+    const buffers: Array<{ buffer: ArrayBuffer; name: string }> = [];
+    for (const file of files) {
+      const buffer = await file.arrayBuffer();
+      const format = detectFormat(buffer);
+      if (format !== 'ifcx') {
+        setError(`File "${file.name}" is not an IFCX file. Federated loading only supports IFCX files.`);
+        return;
+      }
+      buffers.push({ buffer, name: file.name });
+    }
+
+    await loadFederatedIfcxFromBuffers(buffers);
+  }, [setError, loadFederatedIfcxFromBuffers]);
+
+  /**
+   * Add IFCX overlay files to existing federated model
+   * Re-composes all layers including new overlays
+   */
+  const addIfcxOverlays = useCallback(async (files: File[]): Promise<void> => {
+    const currentStore = useViewerStore.getState().ifcDataStore as any;
+
+    if (!currentStore?._federatedBuffers) {
+      setError('Cannot add overlays: no federated IFCX model loaded');
+      return;
+    }
+
+    // Get existing buffers
+    const existingBuffers = currentStore._federatedBuffers as Array<{ buffer: ArrayBuffer; name: string }>;
+
+    // Read new overlay buffers
+    const newBuffers: Array<{ buffer: ArrayBuffer; name: string }> = [];
+    for (const file of files) {
+      const buffer = await file.arrayBuffer();
+      const format = detectFormat(buffer);
+      if (format !== 'ifcx') {
+        setError(`File "${file.name}" is not an IFCX file.`);
+        return;
+      }
+      newBuffers.push({ buffer, name: file.name });
+    }
+
+    // Combine: existing layers + new overlays (new overlays are strongest = first in array)
+    const allBuffers = [...newBuffers, ...existingBuffers];
+
+    console.log(`[useIfc] Re-composing federated IFCX with ${newBuffers.length} new overlay(s)`);
+    console.log(`[useIfc] Total layers: ${allBuffers.length} (${existingBuffers.length} existing + ${newBuffers.length} new)`);
+
+    await loadFederatedIfcxFromBuffers(allBuffers, { resetState: false });
+  }, [setError, loadFederatedIfcxFromBuffers]);
 
   /**
    * Find which model contains a given globalId
@@ -1311,6 +1406,7 @@ export function useIfc() {
 
     // Federated IFCX API (IFC5 multi-file loading with layer composition)
     loadFederatedIfcx,  // Load multiple IFCX files as federated layers
+    addIfcxOverlays,    // Add overlay files to existing federated model
 
     // Federation Registry helpers
     findModelForEntity,  // Find model by globalId

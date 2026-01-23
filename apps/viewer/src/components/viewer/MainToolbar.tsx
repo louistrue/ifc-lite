@@ -130,7 +130,7 @@ interface MainToolbarProps {
 export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const addModelInputRef = useRef<HTMLInputElement>(null);
-  const { loadFile, loading, progress, geometryResult, ifcDataStore, models, clearAllModels, loadFilesSequentially, loadFederatedIfcx, addModel } = useIfc();
+  const { loadFile, loading, progress, geometryResult, ifcDataStore, models, clearAllModels, loadFilesSequentially, loadFederatedIfcx, addIfcxOverlays, addModel } = useIfc();
 
   // Check if we have models loaded (for showing add model button)
   const hasModelsLoaded = models.size > 0 || (geometryResult?.meshes && geometryResult.meshes.length > 0);
@@ -217,13 +217,9 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     const existingIsIfcx = (ifcDataStore as any)?.schemaVersion === 'IFC5';
 
     if (newFilesAreIfcx && existingIsIfcx) {
-      // Adding IFCX overlay(s) to existing IFCX model - need to re-compose
-      // Get all existing IFCX files from the store and combine with new ones
-      console.log(`[MainToolbar] Adding ${ifcFiles.length} IFCX overlay(s) to existing IFCX model - using federated composition`);
-
-      // For now, inform user that they need to load base + overlays together
-      // TODO: Implement re-composition with existing model
-      alert(`To add IFCX overlays, please load all files (base + overlays) together.\n\nSelect all files at once: base model + overlay files.`);
+      // Adding IFCX overlay(s) to existing IFCX model - re-compose with new layers
+      console.log(`[MainToolbar] Adding ${ifcFiles.length} IFCX overlay(s) to existing IFCX model - re-composing`);
+      addIfcxOverlays(ifcFiles);
     } else if (newFilesAreIfcx && !existingIsIfcx && ifcDataStore) {
       // User trying to add IFCX to IFC4 model - won't work
       console.warn('[MainToolbar] Cannot add IFCX files to non-IFCX model');
@@ -235,7 +231,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
     // Reset input so same files can be selected again
     e.target.value = '';
-  }, [loadFilesSequentially, ifcDataStore]);
+  }, [loadFilesSequentially, addIfcxOverlays, ifcDataStore]);
 
   const handleIsolate = useCallback(() => {
     if (selectedEntityId) {
