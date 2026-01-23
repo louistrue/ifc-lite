@@ -102,8 +102,9 @@ export function ViewportContainer() {
 
     if (hasModelsLoaded) {
       // Models already loaded - add new files to existing scene
-      ifcFiles.forEach((file, index) => {
-        setTimeout(() => addModel(file), 150 * index);
+      addModel(ifcFiles[0]);
+      ifcFiles.slice(1).forEach((file, index) => {
+        setTimeout(() => addModel(file), 200 * (index + 1));
       });
     } else if (ifcFiles.length === 1) {
       // Single file, no models loaded - use loadFile
@@ -112,8 +113,9 @@ export function ViewportContainer() {
       // Multiple files, no models loaded - use federation
       resetViewerState();
       clearAllModels();
-      ifcFiles.forEach((file, index) => {
-        setTimeout(() => addModel(file), 150 * index);
+      addModel(ifcFiles[0]);
+      ifcFiles.slice(1).forEach((file, index) => {
+        setTimeout(() => addModel(file), 200 * (index + 1));
       });
     }
   }, [loadFile, addModel, resetViewerState, clearAllModels, webgpu.supported, hasModelsLoaded]);
@@ -142,9 +144,10 @@ export function ViewportContainer() {
       // Clear everything and start fresh
       resetViewerState();
       clearAllModels();
-      // Add files with staggered delays to avoid race conditions
-      ifcFiles.forEach((file, index) => {
-        setTimeout(() => addModel(file), 150 * index);
+      // First file starts immediately, subsequent files staggered
+      addModel(ifcFiles[0]);
+      ifcFiles.slice(1).forEach((file, index) => {
+        setTimeout(() => addModel(file), 200 * (index + 1));
       });
     }
 
