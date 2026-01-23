@@ -393,15 +393,43 @@ export function useIfc() {
 
       if (!wasStreaming) {
         // Calculate bounds from mesh positions for camera fitting
-        // Server sends origin_shift but not shiftedBounds - we need to calculate them
+        // IMPORTANT: Server already applies RTC shift to mesh positions, so bounds calculated
+        // from mesh positions are ALREADY in shifted coordinates (small values near origin).
+        // We must NOT subtract originShift again - that would give huge negative bounds!
         const { bounds } = calculateMeshBounds(allMeshes);
 
-        // Create proper CoordinateInfo with shiftedBounds for camera fitting
+        // Build CoordinateInfo correctly for server-shifted meshes:
+        // - shiftedBounds = bounds (already shifted by server)
+        // - originalBounds = bounds + originShift (reconstruct original world coordinates)
         const serverCoordInfo = result.metadata.coordinate_info;
         const originShift = serverCoordInfo?.origin_shift
           ? { x: serverCoordInfo.origin_shift[0], y: serverCoordInfo.origin_shift[1], z: serverCoordInfo.origin_shift[2] }
           : { x: 0, y: 0, z: 0 };
-        const coordinateInfo = createCoordinateInfo(bounds, originShift, serverCoordInfo?.is_geo_referenced ?? false);
+
+        // When server already shifted meshes, shiftedBounds IS the calculated bounds
+        // (don't use createCoordinateInfo which would subtract originShift again)
+        const coordinateInfo: CoordinateInfo = {
+          originShift,
+          // Original bounds = shifted bounds + originShift (reconstruct world coordinates)
+          originalBounds: {
+            min: {
+              x: bounds.min.x + originShift.x,
+              y: bounds.min.y + originShift.y,
+              z: bounds.min.z + originShift.z,
+            },
+            max: {
+              x: bounds.max.x + originShift.x,
+              y: bounds.max.y + originShift.y,
+              z: bounds.max.z + originShift.z,
+            },
+          },
+          // Shifted bounds = bounds as-is (server already applied shift)
+          shiftedBounds: {
+            min: { x: bounds.min.x, y: bounds.min.y, z: bounds.min.z },
+            max: { x: bounds.max.x, y: bounds.max.y, z: bounds.max.z },
+          },
+          isGeoReferenced: serverCoordInfo?.is_geo_referenced ?? false,
+        };
 
         console.log(`[useIfc] Calculated bounds:`, {
           min: `(${bounds.min.x.toFixed(1)}, ${bounds.min.y.toFixed(1)}, ${bounds.min.z.toFixed(1)})`,
