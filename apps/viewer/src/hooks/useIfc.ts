@@ -9,7 +9,7 @@
 
 import { useMemo, useCallback, useRef } from 'react';
 import { useViewerStore, type FederatedModel, type SchemaVersion } from '../store.js';
-import { IfcParser, detectFormat, parseIfcx, type IfcDataStore } from '@ifc-lite/parser';
+import { IfcParser, detectFormat, parseIfcx, parseFederatedIfcx, type IfcDataStore, type FederatedIfcxParseResult } from '@ifc-lite/parser';
 import { GeometryProcessor, GeometryQuality, type MeshData, type CoordinateInfo } from '@ifc-lite/geometry';
 import { IfcQuery } from '@ifc-lite/query';
 import { buildSpatialIndex } from '@ifc-lite/spatial';
@@ -1124,6 +1124,127 @@ export function useIfc() {
   }, [addModel]);
 
   /**
+   * Load multiple IFCX files as federated layers
+   * Uses IFC5's layer composition system where later files override earlier ones.
+   * Properties from overlay files are merged with the base file(s).
+   *
+   * @param files - Array of IFCX files (first = base/weakest, last = strongest overlay)
+   *
+   * @example
+   * ```typescript
+   * // Load base model with property overlay
+   * await loadFederatedIfcx([
+   *   baseFile,           // hello-wall.ifcx
+   *   fireRatingFile,     // add-fire-rating.ifcx (adds FireRating property)
+   * ]);
+   * ```
+   */
+  const loadFederatedIfcx = useCallback(async (files: File[]): Promise<void> => {
+    const { resetViewerState, clearAllModels } = useViewerStore.getState();
+
+    if (files.length === 0) {
+      setError('No files provided for federated loading');
+      return;
+    }
+
+    // Check that all files are IFCX format
+    const buffers: Array<{ buffer: ArrayBuffer; name: string }> = [];
+    for (const file of files) {
+      const buffer = await file.arrayBuffer();
+      const format = detectFormat(buffer);
+      if (format !== 'ifcx') {
+        setError(`File "${file.name}" is not an IFCX file. Federated loading only supports IFCX files.`);
+        return;
+      }
+      buffers.push({ buffer, name: file.name });
+    }
+
+    try {
+      // Reset state for new load
+      resetViewerState();
+      clearAllModels();
+
+      setLoading(true);
+      setError(null);
+      setProgress({ phase: 'Parsing federated IFCX', percent: 0 });
+
+      // Parse federated IFCX files
+      const result = await parseFederatedIfcx(buffers, {
+        onProgress: (prog: { phase: string; percent: number }) => {
+          setProgress({ phase: `IFCX ${prog.phase}`, percent: prog.percent });
+        },
+      });
+
+      // Convert IFCX meshes to viewer format
+      const meshes: MeshData[] = result.meshes.map((m: { expressId?: number; express_id?: number; id?: number; positions: Float32Array | number[]; indices: Uint32Array | number[]; normals: Float32Array | number[]; color?: [number, number, number, number] | [number, number, number]; ifcType?: string; ifc_type?: string }) => {
+        const positions = m.positions instanceof Float32Array ? m.positions : new Float32Array(m.positions || []);
+        const indices = m.indices instanceof Uint32Array ? m.indices : new Uint32Array(m.indices || []);
+        const normals = m.normals instanceof Float32Array ? m.normals : new Float32Array(m.normals || []);
+        const color = normalizeColor(m.color);
+
+        return {
+          expressId: m.expressId || m.express_id || m.id || 0,
+          positions,
+          indices,
+          normals,
+          color,
+          ifcType: m.ifcType || m.ifc_type || 'IfcProduct',
+        };
+      }).filter((m: MeshData) => m.positions.length > 0 && m.indices.length > 0);
+
+      // Calculate bounds
+      const { bounds, stats } = calculateMeshBounds(meshes);
+      const coordinateInfo = createCoordinateInfo(bounds);
+
+      setGeometryResult({
+        meshes,
+        totalVertices: stats.totalVertices,
+        totalTriangles: stats.totalTriangles,
+        coordinateInfo,
+      });
+
+      // Create data store from federated result
+      const dataStore = {
+        fileSize: result.fileSize,
+        schemaVersion: 'IFC5' as const,
+        entityCount: result.entityCount,
+        parseTime: result.parseTime,
+        source: new Uint8Array(buffers[0].buffer), // Use first buffer as source
+        entityIndex: {
+          byId: new Map(),
+          byType: new Map(),
+        },
+        strings: result.strings,
+        entities: result.entities,
+        properties: result.properties,
+        quantities: result.quantities,
+        relationships: result.relationships,
+        spatialHierarchy: result.spatialHierarchy,
+        // Federated-specific: store layer info for UI
+        _federatedLayers: result.layerStack.getLayers().map(l => ({
+          id: l.id,
+          name: l.name,
+          enabled: l.enabled,
+        })),
+        _compositionStats: result.compositionStats,
+      } as any;
+
+      setIfcDataStore(dataStore);
+
+      console.log(`[useIfc] Federated IFCX loaded: ${result.layerStack.count} layers, ${result.entityCount} entities, ${meshes.length} meshes`);
+      console.log(`[useIfc] Composition stats: ${result.compositionStats.inheritanceResolutions} inheritance resolutions, ${result.compositionStats.crossLayerReferences} cross-layer refs`);
+
+      setProgress({ phase: 'Complete', percent: 100 });
+      setLoading(false);
+    } catch (err: unknown) {
+      console.error('[useIfc] Federated IFCX loading failed:', err);
+      const message = err instanceof Error ? err.message : String(err);
+      setError(`Federated IFCX loading failed: ${message}`);
+      setLoading(false);
+    }
+  }, [setLoading, setError, setProgress, setGeometryResult, setIfcDataStore]);
+
+  /**
    * Find which model contains a given globalId
    * Uses FederationRegistry for O(log N) lookup - BULLETPROOF
    * Returns the modelId or null if not found
@@ -1165,6 +1286,9 @@ export function useIfc() {
     hasModels,
     getQueryForModel,
     loadFilesSequentially,
+
+    // Federated IFCX API (IFC5 multi-file loading with layer composition)
+    loadFederatedIfcx,  // Load multiple IFCX files as federated layers
 
     // Federation Registry helpers
     findModelForEntity,  // Find model by globalId

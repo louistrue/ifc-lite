@@ -23,12 +23,25 @@ export { ColumnarParser, type IfcDataStore, extractPropertiesOnDemand, extractQu
 // IFC5 (IFCX) support - re-export from @ifc-lite/ifcx
 export {
   parseIfcx,
+  parseFederatedIfcx,
+  addIfcxOverlay,
   detectFormat,
   composeIfcx,
+  composeFederated,
+  createLayerStack,
+  createPathIndex,
+  parsePath,
   type IfcxParseResult,
+  type FederatedIfcxParseResult,
+  type FederatedFileInput,
+  type FederatedParseOptions,
   type IfcxFile,
   type IfcxNode,
   type ComposedNode,
+  type ComposedNodeWithSources,
+  type IfcxLayer,
+  type LayerStack,
+  type PathIndex,
   type MeshData as IfcxMeshData,
 } from '@ifc-lite/ifcx';
 
