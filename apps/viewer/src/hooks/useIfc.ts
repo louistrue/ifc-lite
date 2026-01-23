@@ -1064,6 +1064,29 @@ export function useIfc() {
     return new IfcQuery(model.ifcDataStore);
   }, [getModel]);
 
+  /**
+   * Load multiple files sequentially (WASM parser isn't thread-safe)
+   * Each file fully loads before the next one starts
+   */
+  const loadFilesSequentially = useCallback(async (files: File[]): Promise<void> => {
+    for (const file of files) {
+      await addModel(file);
+    }
+  }, [addModel]);
+
+  /**
+   * Find which model contains a given expressId
+   * Returns the modelId or null if not found
+   */
+  const findModelForEntity = useCallback((expressId: number): string | null => {
+    for (const [modelId, model] of models) {
+      if (model.ifcDataStore?.entities?.getTypeName(expressId)) {
+        return modelId;
+      }
+    }
+    return null;
+  }, [models]);
+
   return {
     // Legacy single-model API (backward compatibility)
     loading,
@@ -1088,5 +1111,7 @@ export function useIfc() {
     getAllVisibleModels,
     hasModels,
     getQueryForModel,
+    loadFilesSequentially,
+    findModelForEntity,
   };
 }

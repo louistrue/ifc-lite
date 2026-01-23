@@ -130,7 +130,7 @@ interface MainToolbarProps {
 export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const addModelInputRef = useRef<HTMLInputElement>(null);
-  const { loadFile, loading, progress, geometryResult, ifcDataStore, addModel, models, clearAllModels } = useIfc();
+  const { loadFile, loading, progress, geometryResult, ifcDataStore, models, clearAllModels, loadFilesSequentially } = useIfc();
 
   // Check if we have models loaded (for showing add model button)
   const hasModelsLoaded = models.size > 0 || (geometryResult?.meshes && geometryResult.meshes.length > 0);
@@ -193,23 +193,22 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     e.target.value = '';
   }, [loadFile, addModel, resetViewerState, clearAllModels]);
 
-  const handleAddModelSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAddModelSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    // Filter to only IFC files and load sequentially (WASM parser isn't thread-safe)
+    // Filter to only IFC files
     const ifcFiles = Array.from(files).filter(
       f => f.name.endsWith('.ifc') || f.name.endsWith('.ifcx')
     );
 
-    // Load files one by one, waiting for each to complete
-    for (const file of ifcFiles) {
-      await addModel(file);
+    if (ifcFiles.length > 0) {
+      loadFilesSequentially(ifcFiles);
     }
 
     // Reset input so same files can be selected again
     e.target.value = '';
-  }, [addModel]);
+  }, [loadFilesSequentially]);
 
   const handleIsolate = useCallback(() => {
     if (selectedEntityId) {

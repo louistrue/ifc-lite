@@ -13,7 +13,7 @@ import { Upload, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 
 export function ViewportContainer() {
-  const { geometryResult, ifcDataStore, loadFile, loading, addModel, models, clearAllModels } = useIfc();
+  const { geometryResult, ifcDataStore, loadFile, loading, models, clearAllModels, loadFilesSequentially } = useIfc();
   const selectedStoreys = useViewerStore((s) => s.selectedStoreys);
   const typeVisibility = useViewerStore((s) => s.typeVisibility);
   const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
@@ -82,13 +82,6 @@ export function ViewportContainer() {
     e.stopPropagation();
     setIsDragging(false);
   }, []);
-
-  // Helper to load multiple files sequentially (WASM parser isn't thread-safe)
-  const loadFilesSequentially = useCallback(async (files: File[]) => {
-    for (const file of files) {
-      await addModel(file);
-    }
-  }, [addModel]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();

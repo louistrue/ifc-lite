@@ -22,6 +22,7 @@ import {
   useColorUpdateState,
   useIfcDataState,
 } from '../../hooks/useViewerSelectors.js';
+import { useModelSelection } from '../../hooks/useModelSelection.js';
 import {
   getEntityBounds,
   getEntityCenter,
@@ -44,24 +45,10 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   const [isInitialized, setIsInitialized] = useState(false);
 
   // Selection state
-  const { selectedEntityId, selectedEntityIds, setSelectedEntityId, setSelectedEntity, toggleSelection, models } = useSelectionState();
+  const { selectedEntityId, selectedEntityIds, setSelectedEntityId, toggleSelection } = useSelectionState();
 
-  // When selectedEntityId changes, find which model it belongs to and update selectedEntity
-  useEffect(() => {
-    if (selectedEntityId === null) {
-      setSelectedEntity(null);
-      return;
-    }
-    // Find which model contains this expressId
-    for (const [modelId, model] of models) {
-      if (model.ifcDataStore?.entities?.getTypeName(selectedEntityId)) {
-        setSelectedEntity({ modelId, expressId: selectedEntityId });
-        return;
-      }
-    }
-    // Not found in any model (legacy single-model or not found)
-    setSelectedEntity(null);
-  }, [selectedEntityId, models, setSelectedEntity]);
+  // Sync selectedEntityId with model-aware selectedEntity for PropertiesPanel
+  useModelSelection();
 
   // Visibility state - use computedIsolatedIds from parent (includes storey selection)
   // Fall back to store isolation if computedIsolatedIds is not provided
