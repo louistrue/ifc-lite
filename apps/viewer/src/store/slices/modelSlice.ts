@@ -60,6 +60,12 @@ export interface ModelSlice {
   findModelForGlobalId: (globalId: number) => string | null;
   /** Get the offset for a model */
   getModelOffset: (modelId: string) => number | null;
+
+  /**
+   * BULLETPROOF: Resolve globalId using model store data instead of singleton registry
+   * This is more reliable because it uses Zustand state which is always in sync with React
+   */
+  resolveGlobalIdFromModels: (globalId: number) => GlobalIdLookup | null;
 }
 
 export const createModelSlice: StateCreator<ModelSlice, [], [], ModelSlice> = (set, get) => ({
@@ -175,5 +181,31 @@ export const createModelSlice: StateCreator<ModelSlice, [], [], ModelSlice> = (s
 
   getModelOffset: (modelId: string) => {
     return federationRegistry.getOffset(modelId);
+  },
+
+  /**
+   * BULLETPROOF: Resolve globalId using model store data instead of singleton registry
+   * This iterates through all models and checks if the globalId falls within their range.
+   * More reliable than the singleton because it uses Zustand state which is always in sync.
+   */
+  resolveGlobalIdFromModels: (globalId: number) => {
+    const models = get().models;
+
+    // Sort models by offset for correct range checking
+    const sortedModels = Array.from(models.values()).sort((a, b) => a.idOffset - b.idOffset);
+
+    // Find the model that contains this globalId
+    // A model contains a globalId if: offset <= globalId <= offset + maxExpressId
+    for (const model of sortedModels) {
+      const localId = globalId - model.idOffset;
+      if (localId >= 0 && localId <= model.maxExpressId) {
+        return {
+          modelId: model.id,
+          expressId: localId,
+        };
+      }
+    }
+
+    return null;
   },
 });

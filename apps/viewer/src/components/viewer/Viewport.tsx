@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useRef, useState, useMemo } from 'react';
-import { Renderer, MathUtils, federationRegistry, type SnapTarget, type PickResult } from '@ifc-lite/renderer';
+import { Renderer, MathUtils, type SnapTarget, type PickResult } from '@ifc-lite/renderer';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 import { useViewerStore, type MeasurePoint, type SnapVisualization } from '@/store';
 import {
@@ -48,6 +48,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   // Selection state
   const { selectedEntityId, selectedEntityIds, setSelectedEntityId, setSelectedEntity, toggleSelection, models } = useSelectionState();
   const selectedEntity = useViewerStore((s) => s.selectedEntity);
+  // Get the bulletproof store-based resolver (more reliable than singleton)
+  const resolveGlobalIdFromModels = useViewerStore((s) => s.resolveGlobalIdFromModels);
 
   // Sync selectedEntityId with model-aware selectedEntity for PropertiesPanel
   useModelSelection();
@@ -69,7 +71,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
 
   // Helper to handle pick result and set selection properly
   // IMPORTANT: pickResult.expressId is now a globalId (transformed at load time)
-  // We use FederationRegistry to resolve it back to (modelId, originalExpressId)
+  // We use the store-based resolver to find (modelId, originalExpressId)
+  // This is more reliable than the singleton registry which can have bundling issues
   const handlePickForSelection = (pickResult: PickResult | null) => {
     if (!pickResult) {
       setSelectedEntityId(null);
@@ -82,7 +85,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     setSelectedEntityId(globalId);
 
     // Resolve globalId -> (modelId, originalExpressId) for property panel
-    const resolved = federationRegistry.fromGlobalId(globalId);
+    // Use store-based resolver instead of singleton for reliability
+    const resolved = resolveGlobalIdFromModels(globalId);
     if (resolved) {
       // Set the EntityRef with ORIGINAL expressId (for property lookup in IfcDataStore)
       setSelectedEntity({ modelId: resolved.modelId, expressId: resolved.expressId });
