@@ -454,13 +454,21 @@ export function HierarchyPanel() {
     });
   }, []);
 
-  // Get all elements for a node (handles unified storeys, single storeys, and elements)
+  // Get all elements for a node (handles unified storeys, single storeys, model contributions, and elements)
   const getNodeElements = useCallback((node: TreeNode): number[] => {
     if (node.type === 'unified-storey') {
       // Get all elements from all models for this unified storey
       const unified = unifiedStoreys.find(u => `unified-${u.key}` === node.id);
       if (unified) {
         return getUnifiedStoreyElements(unified);
+      }
+    } else if (node.type === 'model-header' && node.id.startsWith('contrib-')) {
+      // Model contribution header inside a unified storey - get elements for this model's storey
+      const storeyId = node.expressIds[0];
+      const modelId = node.modelIds[0];
+      const model = models.get(modelId);
+      if (model?.ifcDataStore?.spatialHierarchy) {
+        return (model.ifcDataStore.spatialHierarchy.byStorey.get(storeyId) as number[]) || [];
       }
     } else if (node.type === 'IfcBuildingStorey') {
       // Get storey elements
@@ -481,7 +489,7 @@ export function HierarchyPanel() {
     } else if (node.type === 'element') {
       return node.expressIds;
     }
-    // Spatial containers (Project, Site, Building) don't have direct element visibility toggle
+    // Spatial containers (Project, Site, Building) and top-level models don't have direct element visibility toggle
     return [];
   }, [models, ifcDataStore, unifiedStoreys, getUnifiedStoreyElements]);
 
@@ -810,32 +818,36 @@ export function HierarchyPanel() {
                     <div className="w-5" />
                   )}
 
-                  {/* Visibility Toggle */}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleVisibilityToggle(node);
-                        }}
-                        className={cn(
-                          'p-0.5 opacity-0 group-hover:opacity-100 transition-opacity mr-1',
-                          nodeHidden && 'opacity-100'
-                        )}
-                      >
-                        {node.isVisible ? (
-                          <Eye className="h-3 w-3 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
-                        ) : (
-                          <EyeOff className="h-3 w-3 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
-                        )}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="text-xs">
-                        {node.isVisible ? 'Hide' : 'Show'}
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
+                  {/* Visibility Toggle - hide for spatial containers (Project/Site/Building) in multi-model mode */}
+                  {isMultiModel && (node.type === 'IfcProject' || node.type === 'IfcSite' || node.type === 'IfcBuilding') ? (
+                    <div className="w-4 mr-1" /> // Placeholder to maintain layout
+                  ) : (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleVisibilityToggle(node);
+                          }}
+                          className={cn(
+                            'p-0.5 opacity-0 group-hover:opacity-100 transition-opacity mr-1',
+                            nodeHidden && 'opacity-100'
+                          )}
+                        >
+                          {node.isVisible ? (
+                            <Eye className="h-3 w-3 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
+                          ) : (
+                            <EyeOff className="h-3 w-3 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
+                          )}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">
+                          {node.isVisible ? 'Hide' : 'Show'}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
 
                   {/* Type Icon */}
                   <Tooltip>
