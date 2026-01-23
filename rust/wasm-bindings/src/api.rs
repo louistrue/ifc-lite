@@ -483,86 +483,91 @@ impl IfcAPI {
                     continue;
                 }
 
-                let ifc_type_name = entity.ifc_type.name().to_string();
-                let default_color = get_default_color_for_type(&entity.ifc_type);
-
-                // Check if this element has openings that need to be cut
-                let has_voids = void_index.contains_key(&id);
-
-                if has_voids {
-                    // Element has openings - use combined mesh approach for CSG
-                    if let Ok(mut mesh) =
-                        router.process_element_with_voids(&entity, &mut decoder, &void_index)
-                    {
-                        if !mesh.is_empty() {
-                            if mesh.normals.is_empty() {
-                                calculate_normals(&mut mesh);
-                            }
-
-                            let color = style_index
-                                .get(&id)
-                                .copied()
-                                .unwrap_or(default_color);
-
-                            let mesh_data = MeshDataJs::new(id, ifc_type_name.clone(), mesh, color);
-                            mesh_collection.add(mesh_data);
+                // Use process_element_with_voids for ALL elements (simplified from separate paths)
+                // This ensures RTC offset is consistently applied via transform_mesh
+                if let Ok(mut mesh) =
+                    router.process_element_with_voids(&entity, &mut decoder, &void_index)
+                {
+                    if !mesh.is_empty() {
+                        // Log sample of element types and their coordinates for debugging
+                        let element_type = entity.ifc_type.name();
+                        if mesh_collection.len() < 10 && mesh.positions.len() >= 3 {
+                            web_sys::console::log_1(&format!(
+                                "[ELEMENT DEBUG] #{} ({}) - first vertex: ({:.2},{:.2},{:.2}), {} vertices",
+                                id, element_type, mesh.positions[0], mesh.positions[1], mesh.positions[2],
+                                mesh.positions.len() / 3
+                            ).into());
                         }
-                    }
-                } else {
-                    // No openings - try sub-mesh approach for per-item colors
-                    let sub_meshes_result =
-                        router.process_element_with_submeshes(&entity, &mut decoder);
-                    let has_submeshes = sub_meshes_result
-                        .as_ref()
-                        .map(|s| !s.is_empty())
-                        .unwrap_or(false);
 
-                    if has_submeshes {
-                        // Use sub-meshes for multi-material elements (windows, doors, etc.)
-                        let sub_meshes = sub_meshes_result.unwrap();
-                        for sub in sub_meshes.sub_meshes {
-                            let mut mesh = sub.mesh;
-                            if mesh.is_empty() {
-                                continue;
-                            }
-                            if mesh.normals.is_empty() {
-                                calculate_normals(&mut mesh);
-                            }
-
-                            // Look up color by geometry item ID (resolving MappedItem chains),
-                            // then by element ID, then default
-                            let color = find_color_for_geometry(sub.geometry_id, &geometry_styles, &mut decoder)
-                                .or_else(|| style_index.get(&id).copied())
-                                .unwrap_or(default_color);
-
-                            let mesh_data =
-                                MeshDataJs::new(id, ifc_type_name.clone(), mesh, color);
-                            mesh_collection.add(mesh_data);
+                        // Calculate normals if not present
+                        if mesh.normals.is_empty() {
+                            calculate_normals(&mut mesh);
                         }
-                    } else {
-                        // Fallback: Use standard processing when submesh approach fails
-                        if let Ok(mut mesh) =
-                            router.process_element_with_voids(&entity, &mut decoder, &void_index)
-                        {
-                            if !mesh.is_empty() {
-                                if mesh.normals.is_empty() {
-                                    calculate_normals(&mut mesh);
-                                }
 
-                                let color = style_index
-                                    .get(&id)
-                                    .copied()
-                                    .unwrap_or(default_color);
+                        // Try to get color from style index, otherwise use default
+                        let color = style_index
+                            .get(&id)
+                            .copied()
+                            .unwrap_or_else(|| get_default_color_for_type(&entity.ifc_type));
 
-                                let mesh_data =
-                                    MeshDataJs::new(id, ifc_type_name.clone(), mesh, color);
-                                mesh_collection.add(mesh_data);
+                        // Safety filter: exclude meshes with unreasonable coordinates after RTC
+                        const MAX_REASONABLE_OFFSET: f32 = 50_000.0; // 50km from RTC center
+                        let mut max_coord = 0.0f32;
+                        let mut outlier_vertex_count = 0;
+
+                        for chunk in mesh.positions.chunks_exact(3) {
+                            let coord_mag = chunk[0].abs().max(chunk[1].abs()).max(chunk[2].abs());
+                            max_coord = max_coord.max(coord_mag);
+                            if coord_mag > MAX_REASONABLE_OFFSET {
+                                outlier_vertex_count += 1;
                             }
                         }
+
+                        // Skip meshes where >90% of vertices are outliers (likely corrupted)
+                        let total_vertices = mesh.positions.len() / 3;
+                        let outlier_ratio = if total_vertices > 0 {
+                            outlier_vertex_count as f32 / total_vertices as f32
+                        } else {
+                            0.0
+                        };
+
+                        // Only filter if >90% outliers OR if max coord is extremely large (>200km)
+                        if outlier_ratio > 0.9 || max_coord > MAX_REASONABLE_OFFSET * 4.0 {
+                            web_sys::console::warn_1(&format!(
+                                "[WASM FILTER] Excluding mesh #{} ({}) - {:.1}% outliers, max coord: {:.2}m",
+                                id, entity.ifc_type.name(), outlier_ratio * 100.0, max_coord
+                            ).into());
+                            continue; // Skip this mesh
+                        }
+
+                        // Create mesh data with express ID, IFC type, and color
+                        let ifc_type_name = entity.ifc_type.name().to_string();
+
+                        // DEBUG: Log first mesh's first vertex to verify RTC was applied
+                        if mesh_collection.len() == 0 && mesh.positions.len() >= 3 {
+                            web_sys::console::log_1(&format!(
+                                "[WASM DEBUG] First mesh (id={}) first vertex AFTER transform: ({:.4},{:.4},{:.4})",
+                                id,
+                                mesh.positions[0], mesh.positions[1], mesh.positions[2]
+                            ).into());
+                        }
+
+                        let mesh_data = MeshDataJs::new(id, ifc_type_name, mesh, color);
+                        mesh_collection.add(mesh_data);
                     }
                 }
             }
         }
+
+        // DEBUG: Summary of mesh collection
+        web_sys::console::log_1(&format!(
+            "[WASM DEBUG] MeshCollection complete: {} meshes, rtc_offset=({:.2},{:.2},{:.2}), has_rtc={}",
+            mesh_collection.len(),
+            mesh_collection.rtc_offset_x(),
+            mesh_collection.rtc_offset_y(),
+            mesh_collection.rtc_offset_z(),
+            mesh_collection.has_rtc_offset()
+        ).into());
 
         mesh_collection
     }
