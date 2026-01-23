@@ -47,6 +47,22 @@ interface ServerQuantitySet {
   quantities: Array<{ quantity_name: string; quantity_value: number; quantity_type: string }>;
 }
 
+/**
+ * Extended data store type for IFCX (IFC5) files.
+ * IFCX uses schemaVersion 'IFC5' and may include federated composition metadata.
+ */
+interface IfcxDataStore extends Omit<IfcDataStore, 'schemaVersion'> {
+  schemaVersion: 'IFC5';
+  /** Federated layer info for re-composition */
+  _federatedLayers?: Array<{ id: string; name: string; enabled: boolean }>;
+  /** Original buffers for re-composition when adding overlays */
+  _federatedBuffers?: Array<{ buffer: ArrayBuffer; name: string }>;
+  /** Composition statistics */
+  _compositionStats?: { totalNodes: number; layersUsed: number; inheritanceResolutions: number; crossLayerReferences: number };
+  /** Layer info for display */
+  _layerInfo?: Array<{ id: string; name: string; meshCount: number }>;
+}
+
 /** Convert server mesh data (snake_case) to viewer format (camelCase) */
 function convertServerMesh(m: ServerMeshData): MeshData {
   return {
@@ -444,12 +460,13 @@ export function useIfc() {
           console.log(`  Spatial nodes: ${dataModel.spatialHierarchy.nodes.length}`);
 
           // Convert server data model to viewer data store format using utility
+          // ViewerDataStore is structurally compatible with IfcDataStore
           const dataStore = convertServerDataModel(
             dataModel,
             result as ServerParseResult,
             file,
             allMeshes
-          ) as any;
+          ) as unknown as IfcDataStore;
 
           setIfcDataStore(dataStore);
           console.log('[useIfc] ✅ Property panel ready with server data model');
@@ -574,9 +591,10 @@ export function useIfc() {
             quantities: ifcxResult.quantities,
             relationships: ifcxResult.relationships,
             spatialHierarchy: ifcxResult.spatialHierarchy,
-          } as any; // Type assertion - IFCX format is compatible but schemaVersion differs
+          } as IfcxDataStore;
 
-          setIfcDataStore(dataStore);
+          // Cast to IfcDataStore for store compatibility (IFC5 schema extension)
+          setIfcDataStore(dataStore as unknown as IfcDataStore);
 
           setProgress({ phase: 'Complete', percent: 100 });
           setLoading(false);
@@ -777,16 +795,16 @@ export function useIfc() {
                   const buildIndex = () => {
                     try {
                       const spatialIndex = buildSpatialIndex(allMeshes);
-                      (dataStore as any).spatialIndex = spatialIndex;
+                      dataStore.spatialIndex = spatialIndex;
                       setIfcDataStore({ ...dataStore });
                     } catch (err) {
                       console.warn('[useIfc] Failed to build spatial index:', err);
                     }
                   };
 
-                  // Use requestIdleCallback if available
+                  // Use requestIdleCallback if available (type assertion for optional browser API)
                   if ('requestIdleCallback' in window) {
-                    (window as any).requestIdleCallback(buildIndex, { timeout: 2000 });
+                    (window as { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => void }).requestIdleCallback(buildIndex, { timeout: 2000 });
                   } else {
                     setTimeout(buildIndex, 100);
                   }
@@ -967,7 +985,7 @@ export function useIfc() {
           quantities: ifcxResult.quantities,
           relationships: ifcxResult.relationships,
           spatialHierarchy: ifcxResult.spatialHierarchy,
-        } as any;
+        } as unknown as IfcDataStore; // IFC5 schema extension
 
         schemaVersion = 'IFC5';
 
@@ -1022,7 +1040,7 @@ export function useIfc() {
         if (allMeshes.length > 0) {
           try {
             const spatialIndex = buildSpatialIndex(allMeshes);
-            (parsedDataStore as any).spatialIndex = spatialIndex;
+            parsedDataStore.spatialIndex = spatialIndex;
           } catch (err) {
             console.warn('[useIfc] Failed to build spatial index:', err);
           }
@@ -1256,7 +1274,7 @@ export function useIfc() {
           name: b.name,
         })),
         _compositionStats: result.compositionStats,
-      } as any;
+      } as unknown as IfcDataStore; // IFC5 schema extension
 
       setIfcDataStore(dataStore);
 
@@ -1350,7 +1368,7 @@ export function useIfc() {
    * Also handles adding overlays to a single IFCX file that wasn't loaded via federated loading
    */
   const addIfcxOverlays = useCallback(async (files: File[]): Promise<void> => {
-    const currentStore = useViewerStore.getState().ifcDataStore as any;
+    const currentStore = useViewerStore.getState().ifcDataStore as IfcxDataStore | null;
     const currentModels = useViewerStore.getState().models;
 
     // Get existing buffers - either from federated loading or from single file load
@@ -1364,7 +1382,8 @@ export function useIfc() {
       // Get the model name from the models map
       let modelName = 'base.ifcx';
       for (const [, model] of currentModels) {
-        if (model.ifcDataStore === currentStore || model.schemaVersion === 'IFC5') {
+        // Compare object identity (cast needed due to IFC5 schema extension)
+        if ((model.ifcDataStore as unknown) === currentStore || model.schemaVersion === 'IFC5') {
           modelName = model.name;
           break;
         }
@@ -1374,7 +1393,7 @@ export function useIfc() {
       const sourceBuffer = currentStore.source.buffer.slice(
         currentStore.source.byteOffset,
         currentStore.source.byteOffset + currentStore.source.byteLength
-      );
+      ) as ArrayBuffer;
 
       existingBuffers = [{ buffer: sourceBuffer, name: modelName }];
       console.log(`[useIfc] Converting single IFCX file "${modelName}" to federated mode`);

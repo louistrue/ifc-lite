@@ -33,7 +33,7 @@ export type * from './types.js';
 export type { EntityRef, SchemaVersion, FederatedModel } from './types.js';
 
 // Re-export utility functions for entity references
-export { entityRefToString, stringToEntityRef, entityRefEquals } from './types.js';
+export { entityRefToString, stringToEntityRef, entityRefEquals, isIfcxDataStore } from './types.js';
 
 // Combined store type
 export type ViewerState = LoadingSlice &

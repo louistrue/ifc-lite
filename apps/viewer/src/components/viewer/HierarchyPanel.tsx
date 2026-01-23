@@ -27,7 +27,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
-import { IfcTypeEnum } from '@ifc-lite/data';
+import { IfcTypeEnum, type SpatialNode } from '@ifc-lite/data';
+import type { IfcDataStore } from '@ifc-lite/parser';
 
 // Node types for the tree
 type NodeType =
@@ -296,9 +297,9 @@ export function HierarchyPanel() {
     // Helper to recursively build spatial nodes (Project → Site → Building)
     // stopAtBuilding: if true, don't include storeys (for multi-model mode)
     const buildSpatialNodes = (
-      spatialNode: { expressId: number; type: IfcTypeEnum; name: string; elevation?: number; children: any[]; elements: number[] },
+      spatialNode: SpatialNode,
       modelId: string,
-      dataStore: any,
+      dataStore: IfcDataStore,
       depth: number,
       parentNodeId: string,
       stopAtBuilding: boolean,
@@ -325,7 +326,7 @@ export function HierarchyPanel() {
       // Check if has children
       // In stopAtBuilding mode, buildings have no children (storeys shown separately)
       const hasNonStoreyChildren = spatialNode.children?.some(
-        (c: any) => getNodeType(c.type) !== 'IfcBuildingStorey'
+        (c: SpatialNode) => getNodeType(c.type) !== 'IfcBuildingStorey'
       );
       const hasChildren = stopAtBuilding
         ? (nodeType !== 'IfcBuilding' && hasNonStoreyChildren)

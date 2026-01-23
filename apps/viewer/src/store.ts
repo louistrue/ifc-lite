@@ -44,4 +44,4 @@ export type {
 } from './store/types.js';
 
 // Re-export utility functions for multi-model federation
-export { entityRefToString, stringToEntityRef, entityRefEquals } from './store/types.js';
+export { entityRefToString, stringToEntityRef, entityRefEquals, isIfcxDataStore } from './store/types.js';

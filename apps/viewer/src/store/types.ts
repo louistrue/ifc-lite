@@ -205,3 +205,16 @@ export function entityRefEquals(a: EntityRef | null, b: EntityRef | null): boole
   if (a === null || b === null) return false;
   return a.modelId === b.modelId && a.expressId === b.expressId;
 }
+
+/**
+ * Type guard to check if a data store has IFC5 schema version.
+ * IFCX files are stored with schemaVersion: 'IFC5' which extends the parser's IfcDataStore type.
+ */
+export function isIfcxDataStore(dataStore: unknown): boolean {
+  return (
+    dataStore !== null &&
+    typeof dataStore === 'object' &&
+    'schemaVersion' in dataStore &&
+    dataStore.schemaVersion === 'IFC5'
+  );
+}

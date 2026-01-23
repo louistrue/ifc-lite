@@ -46,7 +46,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Progress } from '@/components/ui/progress';
-import { useViewerStore } from '@/store';
+import { useViewerStore, isIfcxDataStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { cn } from '@/lib/utils';
 import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
@@ -213,8 +213,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
     // Check if adding IFCX files
     const newFilesAreIfcx = ifcFiles.every(f => f.name.endsWith('.ifcx'));
-    // Note: schemaVersion is 'IFC5' for IFCX files (type extended via `as any` in useIfc)
-    const existingIsIfcx = (ifcDataStore as any)?.schemaVersion === 'IFC5';
+    const existingIsIfcx = isIfcxDataStore(ifcDataStore);
 
     if (newFilesAreIfcx && existingIsIfcx) {
       // Adding IFCX overlay(s) to existing IFCX model - re-compose with new layers
