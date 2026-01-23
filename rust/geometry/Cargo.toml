@@ -13,6 +13,7 @@ readme = "../../README.md"
 [features]
 default = []
 # csg = ["dep:manifold3d"]
+debug_geometry = []
 
 [dependencies]
 

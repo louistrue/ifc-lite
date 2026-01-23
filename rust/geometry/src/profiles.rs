@@ -8,7 +8,7 @@
 
 use crate::profile::Profile2D;
 use crate::{Error, Point2, Point3, Result, Vector3};
-use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcSchema, IfcType, ProfileCategory};
+use ifc_lite_core::{AttributeValue, DecodedEntity, EntityDecoder, IfcSchema, IfcType, ProfileCategory};
 use std::f64::consts::PI;
 
 /// Profile processor - processes IFC profiles into 2D contours
@@ -1116,11 +1116,31 @@ impl ProfileProcessor {
             })
             .collect();
 
+        #[cfg(all(feature = "debug_geometry", target_arch = "wasm32"))]
+        {
+            if all_points.is_empty() {
+                web_sys::console::warn_1(&format!(
+                    "[PROFILE DEBUG] IndexedPolyCurve #{} produced 0 points from {} coords",
+                    curve.id, coord_list.len()
+                ).into());
+            } else {
+                web_sys::console::log_1(&format!(
+                    "[PROFILE DEBUG] IndexedPolyCurve #{}: parsed {} points from {} coords",
+                    curve.id, all_points.len(), coord_list.len()
+                ).into());
+            }
+        }
+
         // Get segments (attribute 1) - optional, if not present use all points in order
         let segments_attr = curve.get(1);
 
         if segments_attr.is_none() || segments_attr.map(|a| a.is_null()).unwrap_or(true) {
             // No segments specified - use all points in order
+            #[cfg(all(feature = "debug_geometry", target_arch = "wasm32"))]
+            web_sys::console::log_1(&format!(
+                "[PROFILE DEBUG] IndexedPolyCurve #{}: no segments, returning {} points",
+                curve.id, all_points.len()
+            ).into());
             return Ok(all_points);
         }
 
@@ -1130,16 +1150,61 @@ impl ProfileProcessor {
             .as_list()
             .ok_or_else(|| Error::geometry("Expected segments list".to_string()))?;
 
+        #[cfg(all(feature = "debug_geometry", target_arch = "wasm32"))]
+        web_sys::console::log_1(&format!(
+            "[PROFILE DEBUG] IndexedPolyCurve #{}: processing {} segments",
+            curve.id, segments.len()
+        ).into());
+
         let mut result_points = Vec::new();
+        let mut segments_processed = 0;
+        let mut segments_failed = 0;
 
         for segment in segments {
             // Each segment is either IFCLINEINDEX((i1,i2,...)) or IFCARCINDEX((i1,i2,i3))
-            // The segment itself contains a list of indices
-            if let Some(indices) = segment.as_list() {
+            // Typed values are stored as List([String("IFCLINEINDEX"), List([indices...])])
+            // So we need to extract the inner list (skip the type name)
+            let indices = if let Some(segment_list) = segment.as_list() {
+                // Check if this is a typed value: List([String(type_name), List([indices...])])
+                // Typed values like IFCLINEINDEX((1,2)) are stored as:
+                // List([String("IFCLINEINDEX"), List([Integer(1), Integer(2)])])
+                if segment_list.len() >= 2 {
+                    // First element is type name (String), second is the actual indices list
+                    if let Some(AttributeValue::List(indices_list)) = segment_list.get(1) {
+                        Some(indices_list.as_slice())
+                    } else {
+                        // Fallback: maybe it's a direct list of indices (not typed)
+                        Some(segment_list)
+                    }
+                } else {
+                    // Single element or empty - treat as direct list
+                    Some(segment_list)
+                }
+            } else {
+                None
+            };
+
+            #[cfg(all(feature = "debug_geometry", target_arch = "wasm32"))]
+            {
+                if indices.is_none() {
+                    web_sys::console::warn_1(&format!(
+                        "[PROFILE DEBUG] IndexedPolyCurve #{}: segment {} is not a list",
+                        curve.id, segments_processed
+                    ).into());
+                }
+            }
+
+            if let Some(indices) = indices {
                 let idx_values: Vec<usize> = indices
                     .iter()
                     .filter_map(|v| v.as_float().map(|f| f as usize - 1)) // 1-indexed to 0-indexed
                     .collect();
+
+                #[cfg(all(feature = "debug_geometry", target_arch = "wasm32"))]
+                web_sys::console::log_1(&format!(
+                    "[PROFILE DEBUG] IndexedPolyCurve #{}: segment {} parsed {} indices: {:?}",
+                    curve.id, segments_processed, idx_values.len(), idx_values
+                ).into());
 
                 if idx_values.len() == 3 {
                     // Arc segment - 3 points define an arc
@@ -1181,8 +1246,24 @@ impl ProfileProcessor {
                         }
                     }
                 }
+            } else {
+                #[cfg(all(feature = "debug_geometry", target_arch = "wasm32"))]
+                {
+                    segments_failed += 1;
+                    web_sys::console::warn_1(&format!(
+                        "[PROFILE DEBUG] IndexedPolyCurve #{}: segment {} is not a list",
+                        curve.id, segments_processed
+                    ).into());
+                }
             }
+            segments_processed += 1;
         }
+
+        #[cfg(all(feature = "debug_geometry", target_arch = "wasm32"))]
+        web_sys::console::log_1(&format!(
+            "[PROFILE DEBUG] IndexedPolyCurve #{}: {} segments processed, {} failed -> {} result points",
+            curve.id, segments_processed, segments_failed, result_points.len()
+        ).into());
 
         Ok(result_points)
     }

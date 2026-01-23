@@ -32,11 +32,19 @@ if ! command -v wasm-pack &> /dev/null; then
   fi
 fi
 
+# Check if debug_geometry feature should be enabled
+FEATURES=""
+if [ "${DEBUG_GEOMETRY:-}" = "1" ]; then
+  FEATURES="--features debug_geometry"
+  echo "🔍 Building with debug_geometry feature enabled"
+fi
+
 "$WASM_PACK" build rust/wasm-bindings \
   --target web \
   --out-dir ../../packages/wasm/pkg \
   --out-name ifc-lite \
-  --release
+  --release \
+  $FEATURES
 
 # Optimize with wasm-opt
 echo "⚡ Optimizing with wasm-opt..."
