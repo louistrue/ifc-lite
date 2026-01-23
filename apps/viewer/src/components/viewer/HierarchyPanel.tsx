@@ -776,16 +776,23 @@ export function HierarchyPanel() {
               >
                 <div
                   className={cn(
-                    'flex items-center gap-1 px-2 py-1.5 cursor-pointer border-l-4 transition-all group hierarchy-item',
-                    isSelected ? 'border-l-primary font-medium selected' : 'border-transparent',
-                    nodeHidden && 'opacity-50 grayscale',
-                    // Subtle background for spatial container nodes
-                    (node.type === 'IfcProject' || node.type === 'IfcSite' || node.type === 'IfcBuilding') && 'bg-zinc-50/30 dark:bg-zinc-900/20'
+                    'flex items-center gap-1 px-2 py-1.5 border-l-4 transition-all group hierarchy-item',
+                    // No selection styling for spatial containers in multi-model mode
+                    isMultiModel && (node.type === 'IfcProject' || node.type === 'IfcSite' || node.type === 'IfcBuilding')
+                      ? 'border-transparent cursor-default'
+                      : cn(
+                          'cursor-pointer',
+                          isSelected ? 'border-l-primary font-medium selected' : 'border-transparent'
+                        ),
+                    nodeHidden && 'opacity-50 grayscale'
                   )}
                   style={{
                     paddingLeft: `${node.depth * 16 + 8}px`,
-                    backgroundColor: isSelected ? 'var(--hierarchy-selected-bg)' : undefined,
-                    color: isSelected ? 'var(--hierarchy-selected-text)' : undefined,
+                    // No selection highlighting for spatial containers in multi-model mode
+                    backgroundColor: isSelected && !(isMultiModel && (node.type === 'IfcProject' || node.type === 'IfcSite' || node.type === 'IfcBuilding'))
+                      ? 'var(--hierarchy-selected-bg)' : undefined,
+                    color: isSelected && !(isMultiModel && (node.type === 'IfcProject' || node.type === 'IfcSite' || node.type === 'IfcBuilding'))
+                      ? 'var(--hierarchy-selected-text)' : undefined,
                   }}
                   onClick={(e) => {
                     if ((e.target as HTMLElement).closest('button') === null) {
@@ -819,9 +826,7 @@ export function HierarchyPanel() {
                   )}
 
                   {/* Visibility Toggle - hide for spatial containers (Project/Site/Building) in multi-model mode */}
-                  {isMultiModel && (node.type === 'IfcProject' || node.type === 'IfcSite' || node.type === 'IfcBuilding') ? (
-                    <div className="w-4 mr-1" /> // Placeholder to maintain layout
-                  ) : (
+                  {!(isMultiModel && (node.type === 'IfcProject' || node.type === 'IfcSite' || node.type === 'IfcBuilding')) && (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <button
@@ -860,20 +865,13 @@ export function HierarchyPanel() {
                   </Tooltip>
 
                   {/* Name */}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className={cn(
-                        'flex-1 text-sm truncate ml-1.5',
-                        (node.type === 'IfcProject' || node.type === 'IfcSite' || node.type === 'IfcBuilding')
-                          ? 'font-medium text-zinc-900 dark:text-zinc-100'
-                          : 'text-zinc-700 dark:text-zinc-300',
-                        nodeHidden && 'line-through decoration-zinc-400 dark:decoration-zinc-600'
-                      )}>{node.name}</span>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="text-xs">{node.name}</p>
-                    </TooltipContent>
-                  </Tooltip>
+                  <span className={cn(
+                    'flex-1 text-sm truncate ml-1.5',
+                    (node.type === 'IfcProject' || node.type === 'IfcSite' || node.type === 'IfcBuilding')
+                      ? 'font-medium text-zinc-900 dark:text-zinc-100'
+                      : 'text-zinc-700 dark:text-zinc-300',
+                    nodeHidden && 'line-through decoration-zinc-400 dark:decoration-zinc-600'
+                  )}>{node.name}</span>
 
                   {/* Storey Elevation */}
                   {node.storeyElevation !== undefined && (
