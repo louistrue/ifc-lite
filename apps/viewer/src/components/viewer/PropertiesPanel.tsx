@@ -205,7 +205,7 @@ export function PropertiesPanel() {
     );
   }
 
-  if (!selectedEntityId || !modelQuery) {
+  if (!selectedEntityId || !modelQuery || !entityNode) {
     return (
       <div className="h-full flex flex-col border-l-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-black">
         <div className="p-3 border-b-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
@@ -224,12 +224,12 @@ export function PropertiesPanel() {
     );
   }
 
-  // These are safe to access after the early return check
-  const entityType = entityNode!.type;
-  const entityName = entityNode!.name;
-  const entityGlobalId = entityNode!.globalId;
-  const entityDescription = entityNode!.description;
-  const entityObjectType = entityNode!.objectType;
+  // These are safe to access after the early return check (entityNode is confirmed non-null above)
+  const entityType = entityNode.type;
+  const entityName = entityNode.name;
+  const entityGlobalId = entityNode.globalId;
+  const entityDescription = entityNode.description;
+  const entityObjectType = entityNode.objectType;
 
   return (
     <div className="h-full flex flex-col border-l-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
