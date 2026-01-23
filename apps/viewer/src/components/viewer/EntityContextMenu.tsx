@@ -6,7 +6,7 @@
  * Context menu for entity interactions
  */
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useMemo } from 'react';
 import {
   Focus,
   EyeOff,
@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
+import { federationRegistry } from '@ifc-lite/renderer';
 
 export function EntityContextMenu() {
   const contextMenu = useViewerStore((s) => s.contextMenu);
@@ -29,7 +30,27 @@ export function EntityContextMenu() {
   const setSelectedEntityIds = useViewerStore((s) => s.setSelectedEntityIds);
   const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
   const menuRef = useRef<HTMLDivElement>(null);
-  const { ifcDataStore } = useIfc();
+  const { ifcDataStore, models } = useIfc();
+
+  // Resolve contextMenu.entityId (globalId) to original expressId and model
+  // This is needed because IfcDataStore uses original expressIds, not globalIds
+  const { resolvedExpressId, activeDataStore } = useMemo(() => {
+    if (!contextMenu.entityId) {
+      return { resolvedExpressId: null, activeDataStore: ifcDataStore };
+    }
+
+    const resolved = federationRegistry.fromGlobalId(contextMenu.entityId);
+    if (resolved) {
+      const model = models.get(resolved.modelId);
+      return {
+        resolvedExpressId: resolved.expressId,
+        activeDataStore: model?.ifcDataStore ?? ifcDataStore,
+      };
+    }
+
+    // Fallback for single-model mode (offset = 0)
+    return { resolvedExpressId: contextMenu.entityId, activeDataStore: ifcDataStore };
+  }, [contextMenu.entityId, models, ifcDataStore]);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -87,24 +108,26 @@ export function EntityContextMenu() {
   }, [showAll, closeContextMenu]);
 
   const handleSelectSimilar = useCallback(() => {
-    if (!contextMenu.entityId || !ifcDataStore) {
+    // Use resolvedExpressId (original ID) for IfcDataStore lookups
+    if (!resolvedExpressId || !activeDataStore) {
       closeContextMenu();
       return;
     }
 
     // Get the type of the selected entity
-    const entity = ifcDataStore.entities;
+    const entity = activeDataStore.entities;
     let entityType: string | null = null;
 
     for (let i = 0; i < entity.count; i++) {
-      if (entity.expressId[i] === contextMenu.entityId) {
-        entityType = entity.getTypeName(contextMenu.entityId);
+      if (entity.expressId[i] === resolvedExpressId) {
+        entityType = entity.getTypeName(resolvedExpressId);
         break;
       }
     }
 
     if (entityType) {
       // Select all entities of the same type
+      // NOTE: These are original expressIds - for multi-model, should transform to globalIds
       const sameTypeIds: number[] = [];
       for (let i = 0; i < entity.count; i++) {
         if (entity.getTypeName(entity.expressId[i]) === entityType) {
@@ -115,45 +138,49 @@ export function EntityContextMenu() {
     }
 
     closeContextMenu();
-  }, [contextMenu.entityId, ifcDataStore, setSelectedEntityIds, closeContextMenu]);
+  }, [resolvedExpressId, activeDataStore, setSelectedEntityIds, closeContextMenu]);
 
   const handleSelectSameStorey = useCallback(() => {
-    if (!contextMenu.entityId || !ifcDataStore?.spatialHierarchy) {
+    // Use resolvedExpressId (original ID) for IfcDataStore lookups
+    if (!resolvedExpressId || !activeDataStore?.spatialHierarchy) {
       closeContextMenu();
       return;
     }
 
-    const storeyId = ifcDataStore.spatialHierarchy.elementToStorey.get(contextMenu.entityId);
+    const storeyId = activeDataStore.spatialHierarchy.elementToStorey.get(resolvedExpressId);
     if (storeyId) {
-      const storeyElements = ifcDataStore.spatialHierarchy.byStorey.get(storeyId);
+      const storeyElements = activeDataStore.spatialHierarchy.byStorey.get(storeyId);
       if (storeyElements) {
+        // NOTE: These are original expressIds - for multi-model, should transform to globalIds
         setSelectedEntityIds(Array.from(storeyElements));
       }
     }
 
     closeContextMenu();
-  }, [contextMenu.entityId, ifcDataStore, setSelectedEntityIds, closeContextMenu]);
+  }, [resolvedExpressId, activeDataStore, setSelectedEntityIds, closeContextMenu]);
 
   const handleCopyId = useCallback(() => {
-    if (contextMenu.entityId && ifcDataStore) {
-      const globalId = ifcDataStore.entities.getGlobalId(contextMenu.entityId);
+    // Use resolvedExpressId (original ID) for IfcDataStore lookups
+    if (resolvedExpressId && activeDataStore) {
+      const globalId = activeDataStore.entities.getGlobalId(resolvedExpressId);
       if (globalId) {
         navigator.clipboard.writeText(globalId);
       }
     }
     closeContextMenu();
-  }, [contextMenu.entityId, ifcDataStore, closeContextMenu]);
+  }, [resolvedExpressId, activeDataStore, closeContextMenu]);
 
   if (!contextMenu.isOpen) {
     return null;
   }
 
   // Get entity info for display
+  // Use resolvedExpressId (original ID) for IfcDataStore lookups
   let entityName = '';
   let entityType = '';
-  if (contextMenu.entityId && ifcDataStore) {
-    entityName = ifcDataStore.entities.getName(contextMenu.entityId) || '';
-    entityType = ifcDataStore.entities.getTypeName(contextMenu.entityId) || '';
+  if (resolvedExpressId && activeDataStore) {
+    entityName = activeDataStore.entities.getName(resolvedExpressId) || '';
+    entityType = activeDataStore.entities.getTypeName(resolvedExpressId) || '';
   }
 
   return (

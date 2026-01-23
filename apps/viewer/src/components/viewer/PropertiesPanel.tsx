@@ -74,12 +74,15 @@ export function PropertiesPanel() {
   }, []);
 
   // Get spatial location info
+  // IMPORTANT: Use selectedEntity.expressId (original ID) for IfcDataStore lookups
+  // selectedEntityId is a globalId which only works with offset=0 (first model)
   const spatialInfo = useMemo(() => {
-    if (!selectedEntityId || !activeDataStore?.spatialHierarchy) return null;
+    const originalExpressId = selectedEntity?.expressId;
+    if (!originalExpressId || !activeDataStore?.spatialHierarchy) return null;
 
     const hierarchy = activeDataStore.spatialHierarchy;
     // Use O(1) lookup instead of O(n) includes() search
-    const storeyId = hierarchy.elementToStorey.get(selectedEntityId);
+    const storeyId = hierarchy.elementToStorey.get(originalExpressId);
 
     if (!storeyId) return null;
 
@@ -138,13 +141,15 @@ export function PropertiesPanel() {
       elevation: hierarchy.storeyElevations.get(storeyId),
       height,
     };
-  }, [selectedEntityId, activeDataStore]);
+  }, [selectedEntity, activeDataStore]);
 
   // Get entity node - must be computed before early return to maintain hook order
+  // IMPORTANT: Use selectedEntity.expressId (original ID) for IfcDataStore lookups
   const entityNode = useMemo(() => {
-    if (!selectedEntityId || !modelQuery) return null;
-    return modelQuery.entity(selectedEntityId);
-  }, [selectedEntityId, modelQuery]);
+    const originalExpressId = selectedEntity?.expressId;
+    if (!originalExpressId || !modelQuery) return null;
+    return modelQuery.entity(originalExpressId);
+  }, [selectedEntity, modelQuery]);
 
   // Unified property/quantity access - EntityNode handles on-demand extraction automatically
   // These hooks must be called before any early return to maintain hook order
