@@ -17,13 +17,17 @@ export function useSelectionState() {
   const selectedEntityId = useViewerStore((state) => state.selectedEntityId);
   const selectedEntityIds = useViewerStore((state) => state.selectedEntityIds);
   const setSelectedEntityId = useViewerStore((state) => state.setSelectedEntityId);
+  const setSelectedEntity = useViewerStore((state) => state.setSelectedEntity);
   const toggleSelection = useViewerStore((state) => state.toggleSelection);
+  const models = useViewerStore((state) => state.models);
 
   return {
     selectedEntityId,
     selectedEntityIds,
     setSelectedEntityId,
+    setSelectedEntity,
     toggleSelection,
+    models,
   };
 }
 
