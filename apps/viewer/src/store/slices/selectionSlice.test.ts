@@ -46,11 +46,15 @@ describe('SelectionSlice', () => {
       assert.deepStrictEqual(state.selectedEntity, ref);
     });
 
-    it('should update legacy selectedEntityId for backward compatibility', () => {
+    it('should NOT update selectedEntityId (caller must use setSelectedEntityId for global ID)', () => {
+      // NOTE: selectedEntityId holds the GLOBAL ID for renderer highlighting,
+      // while selectedEntity.expressId holds the ORIGINAL express ID for property lookup.
+      // The caller should use setSelectedEntityId(globalId) separately.
       const ref: EntityRef = { modelId: 'model-1', expressId: 456 };
       state.setSelectedEntity(ref);
 
-      assert.strictEqual(state.selectedEntityId, 456);
+      // selectedEntityId should remain null - caller must set it separately with globalId
+      assert.strictEqual(state.selectedEntityId, null);
     });
 
     it('should allow clearing selection with null', () => {

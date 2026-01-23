@@ -65,8 +65,8 @@ describe('EntityRef utilities', () => {
       const result = stringToEntityRef('model:with:colons:123');
       assert.strictEqual(result.modelId, 'model');
       // The rest including colons becomes part of what's parsed as expressId
-      // "with:colons:123" parsed as Number results in NaN
-      assert.ok(Number.isNaN(result.expressId), 'expressId should be NaN when parsing invalid number');
+      // "with:colons:123" parsed as Number results in NaN, which is converted to -1
+      assert.strictEqual(result.expressId, -1, 'expressId should be -1 when parsing invalid number');
     });
   });
 
