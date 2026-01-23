@@ -781,14 +781,15 @@ export class Scene {
 
   /**
    * CPU raycast against all mesh data
-   * Returns expressId of closest hit or null
+   * Returns expressId and modelIndex of closest hit, or null
+   * For multi-model support: tracks which model's geometry was hit
    */
   raycast(
     rayOrigin: Vec3,
     rayDir: Vec3,
     hiddenIds?: Set<number>,
     isolatedIds?: Set<number> | null
-  ): { expressId: number; distance: number } | null {
+  ): { expressId: number; distance: number; modelIndex?: number } | null {
     // Precompute ray direction inverse and signs for box tests
     const rayDirInv: Vec3 = {
       x: rayDir.x !== 0 ? 1.0 / rayDir.x : Infinity,
@@ -801,7 +802,7 @@ export class Scene {
       rayDirInv.z < 0 ? 1 : 0,
     ];
 
-    let closestHit: { expressId: number; distance: number } | null = null;
+    let closestHit: { expressId: number; distance: number; modelIndex?: number } | null = null;
     let closestDistance = Infinity;
 
     // First pass: filter by bounding box (fast)
@@ -843,7 +844,8 @@ export class Scene {
           const t = this.rayTriangleIntersect(rayOrigin, rayDir, v0, v1, v2);
           if (t !== null && t < closestDistance) {
             closestDistance = t;
-            closestHit = { expressId, distance: t };
+            // Track modelIndex from the piece that was actually hit
+            closestHit = { expressId, distance: t, modelIndex: piece.modelIndex };
           }
         }
       }

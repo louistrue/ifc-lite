@@ -963,7 +963,9 @@ export class Renderer {
                 // This is the key optimization: instead of 10,000+ individual draw calls,
                 // we create cached sub-batches with only visible elements and render them as single draw calls
                 const allMeshes = this.scene.getMeshes();
-                const existingMeshIds = new Set(allMeshes.map(m => m.expressId));
+                // Track existing meshes by (expressId:modelIndex) to handle multi-model expressId collisions
+                // E.g., door #535 in model 0 vs beam #535 in model 1 need separate tracking
+                const existingMeshKeys = new Set(allMeshes.map(m => `${m.expressId}:${m.modelIndex ?? 'any'}`));
 
                 if (partiallyVisibleBatches.length > 0) {
                     for (const { colorKey, visibleIds, color } of partiallyVisibleBatches) {
@@ -1008,11 +1010,13 @@ export class Renderer {
 
                 // Create GPU resources lazily for visible selected meshes that don't have them yet
                 // Pass selectedModelIndex to get mesh data from the correct model (for multi-model support)
+                // Use composite key to handle expressId collisions between models
                 for (const selId of visibleSelectedIds) {
-                    if (!existingMeshIds.has(selId) && this.scene.hasMeshData(selId, selectedModelIndex)) {
+                    const meshKey = `${selId}:${selectedModelIndex ?? 'any'}`;
+                    if (!existingMeshKeys.has(meshKey) && this.scene.hasMeshData(selId, selectedModelIndex)) {
                         const meshData = this.scene.getMeshData(selId, selectedModelIndex)!;
                         this.createMeshFromData(meshData);
-                        existingMeshIds.add(selId);
+                        existingMeshKeys.add(meshKey);
                     }
                 }
 
@@ -1248,16 +1252,27 @@ export class Renderer {
                 }
             }
 
-            // Track existing expressIds to avoid duplicates (using Set for O(1) lookup)
-            const existingExpressIds = new Set(meshes.map(m => m.expressId));
+            // Track existing meshes by (expressId:modelIndex) for multi-model support
+            // This handles expressId collisions (e.g., door #535 in model 0 vs beam #535 in model 1)
+            const existingMeshKeys = new Set(meshes.map(m => `${m.expressId}:${m.modelIndex ?? 'any'}`));
 
             // Count how many meshes we'd need to create for full GPU picking
+            // For multi-model, count all pieces with unique (expressId, modelIndex) pairs
             let toCreate = 0;
             for (const expressId of expressIds) {
-                if (existingExpressIds.has(expressId)) continue;
                 if (options?.hiddenIds?.has(expressId)) continue;
                 if (options?.isolatedIds !== null && options?.isolatedIds !== undefined && !options.isolatedIds.has(expressId)) continue;
-                if (this.scene.hasMeshData(expressId)) toCreate++;
+
+                // Get all pieces for this expressId (handles multi-model)
+                const pieces = this.scene.getMeshDataPieces(expressId);
+                if (pieces) {
+                    for (const piece of pieces) {
+                        const meshKey = `${expressId}:${piece.modelIndex ?? 'any'}`;
+                        if (!existingMeshKeys.has(meshKey)) {
+                            toCreate++;
+                        }
+                    }
+                }
             }
 
             // PERFORMANCE FIX: Use CPU raycasting for large models instead of creating GPU meshes
@@ -1269,29 +1284,32 @@ export class Renderer {
                 const ray = this.camera.unprojectToRay(x, y, this.canvas.width, this.canvas.height);
                 const hit = this.scene.raycast(ray.origin, ray.direction, options?.hiddenIds, options?.isolatedIds);
                 if (!hit) return null;
-                // CPU raycasting returns expressId; try to get modelIndex from meshData
-                const meshData = this.scene.getMeshData(hit.expressId);
+                // CPU raycasting returns expressId and modelIndex
                 return {
                     expressId: hit.expressId,
-                    modelIndex: meshData?.modelIndex,
+                    modelIndex: hit.modelIndex,
                 };
             }
 
             // For smaller models, create GPU meshes for picking
             // Only create meshes for VISIBLE elements (not hidden, and either no isolation or in isolated set)
+            // For multi-model support: create meshes for ALL (expressId, modelIndex) pairs
             for (const expressId of expressIds) {
-                // Skip if already exists
-                if (existingExpressIds.has(expressId)) continue;
                 // Skip if hidden
                 if (options?.hiddenIds?.has(expressId)) continue;
                 // Skip if isolation is active and this entity is not isolated
                 if (options?.isolatedIds !== null && options?.isolatedIds !== undefined && !options.isolatedIds.has(expressId)) continue;
 
-                if (this.scene.hasMeshData(expressId)) {
-                    const meshData = this.scene.getMeshData(expressId);
-                    if (meshData) {
-                        this.createMeshFromData(meshData);
-                        existingExpressIds.add(expressId); // Track newly created mesh
+                // Get all pieces for this expressId (handles multi-model)
+                const pieces = this.scene.getMeshDataPieces(expressId);
+                if (pieces) {
+                    for (const piece of pieces) {
+                        const meshKey = `${piece.expressId}:${piece.modelIndex ?? 'any'}`;
+                        // Skip if mesh already exists for this (expressId, modelIndex) pair
+                        if (existingMeshKeys.has(meshKey)) continue;
+
+                        this.createMeshFromData(piece);
+                        existingMeshKeys.add(meshKey);
                     }
                 }
             }
