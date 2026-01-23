@@ -194,8 +194,8 @@ export function HierarchyPanel() {
     const nodes: TreeNode[] = [];
 
     // Multi-model mode: show unified storeys first, then models
-    if (isMultiModel && unifiedStoreys.length > 0) {
-      // Add unified storeys
+    if (isMultiModel) {
+      // Add unified storeys (if available)
       for (const unified of unifiedStoreys) {
         const storeyNodeId = `unified-${unified.key}`;
         const isExpanded = expandedNodes.has(storeyNodeId);
