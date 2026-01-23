@@ -149,6 +149,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const toggleHoverTooltips = useViewerStore((state) => state.toggleHoverTooltips);
   const typeVisibility = useViewerStore((state) => state.typeVisibility);
   const toggleTypeVisibility = useViewerStore((state) => state.toggleTypeVisibility);
+  const resetViewerState = useViewerStore((state) => state.resetViewerState);
 
   // Check which type geometries exist
   const typeGeometryExists = useMemo(() => {
@@ -165,35 +166,45 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (files && files.length > 0) {
-      // First file is loaded as primary, rest are added as additional models
-      const firstFile = files[0];
-      if (firstFile.name.endsWith('.ifc') || firstFile.name.endsWith('.ifcx')) {
-        loadFile(firstFile);
-      }
-      // Add remaining files as additional models
-      for (let i = 1; i < files.length; i++) {
-        const file = files[i];
-        if (file.name.endsWith('.ifc') || file.name.endsWith('.ifcx')) {
-          // Slight delay to let first file start loading
-          setTimeout(() => addModel(file), 100 * i);
-        }
-      }
+    if (!files || files.length === 0) return;
+
+    // Filter to only IFC files
+    const ifcFiles = Array.from(files).filter(
+      f => f.name.endsWith('.ifc') || f.name.endsWith('.ifcx')
+    );
+
+    if (ifcFiles.length === 0) return;
+
+    if (ifcFiles.length === 1) {
+      // Single file - use loadFile (simpler single-model path)
+      loadFile(ifcFiles[0]);
+    } else {
+      // Multiple files selected - use federation from the start
+      // Reset state once, then add ALL files as equal federated models
+      resetViewerState();
+      // Add files with staggered delays to avoid race conditions
+      ifcFiles.forEach((file, index) => {
+        setTimeout(() => addModel(file), 150 * index);
+      });
     }
+
     // Reset input so same files can be selected again
     e.target.value = '';
-  }, [loadFile, addModel]);
+  }, [loadFile, addModel, resetViewerState]);
 
   const handleAddModelSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (files) {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        if (file.name.endsWith('.ifc') || file.name.endsWith('.ifcx')) {
-          addModel(file);
-        }
-      }
-    }
+    if (!files || files.length === 0) return;
+
+    // Filter to only IFC files and add with staggered delays
+    const ifcFiles = Array.from(files).filter(
+      f => f.name.endsWith('.ifc') || f.name.endsWith('.ifcx')
+    );
+
+    ifcFiles.forEach((file, index) => {
+      setTimeout(() => addModel(file), 150 * index);
+    });
+
     // Reset input so same files can be selected again
     e.target.value = '';
   }, [addModel]);
