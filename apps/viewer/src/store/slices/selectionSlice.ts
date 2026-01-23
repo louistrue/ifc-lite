@@ -131,10 +131,14 @@ export const createSelectionSlice: StateCreator<SelectionSlice, [], [], Selectio
   }),
 
   // Actions (multi-model)
+  // NOTE: This ONLY sets selectedEntity, NOT selectedEntityId.
+  // In multi-model mode, selectedEntityId is the GLOBAL ID (for renderer highlighting)
+  // and selectedEntity.expressId is the ORIGINAL express ID (for property lookup).
+  // The caller should use setSelectedEntityId(globalId) separately for highlighting.
   setSelectedEntity: (ref) => set({
     selectedEntity: ref,
-    // Update legacy state for backward compatibility
-    selectedEntityId: ref?.expressId ?? null,
+    // DO NOT update selectedEntityId here - it would overwrite the globalId with expressId!
+    // The renderer needs the globalId in selectedEntityId for highlighting.
   }),
 
   addEntityToSelection: (ref) => set((state) => {
@@ -144,8 +148,7 @@ export const createSelectionSlice: StateCreator<SelectionSlice, [], [], Selectio
     return {
       selectedEntitiesSet: newSet,
       selectedEntity: ref,
-      // Update legacy state
-      selectedEntityId: ref.expressId,
+      // NOTE: Don't update selectedEntityId here - caller should use setSelectedEntityId(globalId)
     };
   }),
 
@@ -165,7 +168,9 @@ export const createSelectionSlice: StateCreator<SelectionSlice, [], [], Selectio
     return {
       selectedEntitiesSet: newSet,
       selectedEntity: newPrimary,
-      selectedEntityId: newPrimary?.expressId ?? null,
+      // NOTE: Don't update selectedEntityId here - caller should manage it separately
+      // Clear it only if nothing is selected
+      selectedEntityId: newPrimary ? state.selectedEntityId : null,
     };
   }),
 
@@ -184,14 +189,15 @@ export const createSelectionSlice: StateCreator<SelectionSlice, [], [], Selectio
       return {
         selectedEntitiesSet: newSet,
         selectedEntity: newPrimary,
-        selectedEntityId: newPrimary?.expressId ?? null,
+        // NOTE: Don't update selectedEntityId here - caller should manage it separately
+        selectedEntityId: newPrimary ? state.selectedEntityId : null,
       };
     } else {
       newSet.add(key);
       return {
         selectedEntitiesSet: newSet,
         selectedEntity: ref,
-        selectedEntityId: ref.expressId,
+        // NOTE: Don't update selectedEntityId here - caller should use setSelectedEntityId(globalId)
       };
     }
   }),

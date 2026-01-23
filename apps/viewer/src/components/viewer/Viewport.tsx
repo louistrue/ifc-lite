@@ -80,7 +80,6 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     }
 
     const globalId = pickResult.expressId;
-    console.log(`[handlePickForSelection] Picked globalId=${globalId}, modelIndex=${pickResult.modelIndex}`);
 
     // Set globalId for renderer (highlighting uses globalIds directly)
     setSelectedEntityId(globalId);
@@ -88,18 +87,14 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     // Resolve globalId -> (modelId, originalExpressId) for property panel
     // Use store-based resolver instead of singleton for reliability
     const resolved = resolveGlobalIdFromModels(globalId);
-    console.log(`[handlePickForSelection] Resolved:`, resolved);
     if (resolved) {
       // Set the EntityRef with ORIGINAL expressId (for property lookup in IfcDataStore)
       setSelectedEntity({ modelId: resolved.modelId, expressId: resolved.expressId });
-      console.log(`[handlePickForSelection] Set selectedEntity: modelId=${resolved.modelId}, expressId=${resolved.expressId}`);
     } else {
       // Fallback for single-model mode (offset = 0, globalId = expressId)
       // Try to find model from the old modelIndex if available
-      console.log(`[handlePickForSelection] Resolution failed, trying fallback with modelIndex=${pickResult.modelIndex}`);
       if (pickResult.modelIndex !== undefined && modelIndexToId) {
         const modelId = modelIndexToId.get(pickResult.modelIndex);
-        console.log(`[handlePickForSelection] Fallback modelId=${modelId}`);
         if (modelId) {
           setSelectedEntity({ modelId, expressId: globalId });
         }

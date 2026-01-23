@@ -1023,26 +1023,17 @@ export function useIfc() {
 
       // Step 1: Find max expressId in this model
       const maxExpressId = parsedGeometry.meshes.reduce((max, m) => Math.max(max, m.expressId), 0);
-      console.log(`[useIfc] Model ${file.name}: maxExpressId=${maxExpressId}, meshCount=${parsedGeometry.meshes.length}`);
 
       // Step 2: Register with federation registry to get unique offset
       const idOffset = registerModelOffset(modelId, maxExpressId);
-      console.log(`[useIfc] Model ${file.name}: registered with idOffset=${idOffset}`);
 
       // Step 3: Transform ALL mesh expressIds to globalIds
       // globalId = originalExpressId + offset
       // This ensures no two models can have the same ID
       if (idOffset > 0) {
-        // Sample some IDs before transformation
-        const sampleBefore = parsedGeometry.meshes.slice(0, 3).map(m => m.expressId);
         for (const mesh of parsedGeometry.meshes) {
           mesh.expressId = mesh.expressId + idOffset;
         }
-        const sampleAfter = parsedGeometry.meshes.slice(0, 3).map(m => m.expressId);
-        console.log(`[useIfc] Transformed ${parsedGeometry.meshes.length} mesh IDs with offset ${idOffset}`);
-        console.log(`[useIfc] Sample IDs before: [${sampleBefore.join(', ')}] → after: [${sampleAfter.join(', ')}]`);
-      } else {
-        console.log(`[useIfc] Model ${file.name}: idOffset=0, no transformation needed`);
       }
 
       // Create the federated model with offset info
