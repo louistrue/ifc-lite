@@ -1256,6 +1256,16 @@ export function useIfc() {
       // This shows users all the files that contributed to the composition
       clearAllModels();
 
+      // Find max expressId for proper ID range tracking
+      // This is needed for resolveGlobalIdFromModels to work correctly
+      let maxExpressId = 0;
+      if (result.entities?.expressId) {
+        for (let i = 0; i < result.entities.count; i++) {
+          const id = result.entities.expressId[i];
+          if (id > maxExpressId) maxExpressId = id;
+        }
+      }
+
       for (let i = 0; i < layers.length; i++) {
         const layer = layers[i];
         const layerBuffer = buffers.find(b => b.name === layer.name);
@@ -1263,7 +1273,6 @@ export function useIfc() {
         // Count how many meshes came from this layer
         // For base layers: count meshes, for overlays: show as data-only
         const isBaseLayer = i === layers.length - 1; // Last layer (weakest) is typically base
-        const meshCount = isBaseLayer ? meshes.length : 0;
 
         const layerModel: FederatedModel = {
           id: layer.id,
@@ -1280,8 +1289,10 @@ export function useIfc() {
           schemaVersion: 'IFC5',
           loadedAt: Date.now() - (layers.length - i) * 100, // Stagger timestamps
           fileSize: layerBuffer?.buffer.byteLength || 0,
+          // For base layer: set proper ID range for resolveGlobalIdFromModels
+          // Overlays share the same data store so they don't need their own range
           idOffset: 0,
-          maxExpressId: 0,
+          maxExpressId: isBaseLayer ? maxExpressId : 0,
           // Mark overlay-only layers
           _isOverlay: !isBaseLayer,
           _layerIndex: i,
