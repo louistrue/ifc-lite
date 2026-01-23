@@ -142,6 +142,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const isolateEntity = useViewerStore((state) => state.isolateEntity);
   const hideEntity = useViewerStore((state) => state.hideEntity);
   const showAll = useViewerStore((state) => state.showAll);
+  const clearStoreySelection = useViewerStore((state) => state.clearStoreySelection);
   const error = useViewerStore((state) => state.error);
   const cameraCallbacks = useViewerStore((state) => state.cameraCallbacks);
   const hoverTooltipsEnabled = useViewerStore((state) => state.hoverTooltipsEnabled);
@@ -212,6 +213,11 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       clearSelection();
     }
   }, [selectedEntityId, hideEntity, clearSelection]);
+
+  const handleShowAll = useCallback(() => {
+    showAll();
+    clearStoreySelection(); // Also clear storey filtering (matches 'A' keyboard shortcut)
+  }, [showAll, clearStoreySelection]);
 
   const handleExportGLB = useCallback(() => {
     if (!geometryResult) return;
@@ -426,7 +432,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       {/* Visibility */}
       <ActionButton icon={Focus} label="Isolate Selection" onClick={handleIsolate} shortcut="I" disabled={!selectedEntityId} />
       <ActionButton icon={EyeOff} label="Hide Selection" onClick={handleHide} shortcut="Del" disabled={!selectedEntityId} />
-      <ActionButton icon={Eye} label="Show All (Reset Filters)" onClick={showAll} shortcut="A" />
+      <ActionButton icon={Eye} label="Show All (Reset Filters)" onClick={handleShowAll} shortcut="A" />
 
       <DropdownMenu>
         <Tooltip>
