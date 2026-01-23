@@ -147,6 +147,8 @@ export function useIfc() {
     getActiveModel,
     getAllVisibleModels,
     hasModels,
+    registerEntityIds,
+    findModelForEntity: storeFindModelForEntity,
   } = useViewerStore();
 
   // Track if we've already logged for this ifcDataStore
@@ -856,6 +858,9 @@ export function useIfc() {
           fileSize: 0,
         };
         storeAddModel(legacyModel);
+        // Register entity IDs for the migrated model
+        const legacyExpressIds = currentGeometryResult.meshes?.map(m => m.expressId) || [];
+        registerEntityIds(legacyModelId, legacyExpressIds);
         console.log(`[useIfc] Migrated legacy model "${legacyModel.name}" to federation`);
       }
 
@@ -1016,6 +1021,11 @@ export function useIfc() {
       // Add to store
       storeAddModel(federatedModel);
 
+      // Register entity IDs for fast model lookup during selection
+      // Extract all unique expressIds from the meshes
+      const expressIds = parsedGeometry.meshes.map(m => m.expressId);
+      registerEntityIds(modelId, expressIds);
+
       // Also set legacy single-model state for backward compatibility
       setIfcDataStore(parsedDataStore);
       setGeometryResult(parsedGeometry);
@@ -1076,16 +1086,13 @@ export function useIfc() {
 
   /**
    * Find which model contains a given expressId
+   * Uses the entityToModelMap for O(1) lookup (expressIds can overlap between models)
    * Returns the modelId or null if not found
    */
   const findModelForEntity = useCallback((expressId: number): string | null => {
-    for (const [modelId, model] of models) {
-      if (model.ifcDataStore?.entities?.getTypeName(expressId)) {
-        return modelId;
-      }
-    }
-    return null;
-  }, [models]);
+    // Use the store's entityToModelMap for fast O(1) lookup
+    return storeFindModelForEntity(expressId);
+  }, [storeFindModelForEntity]);
 
   return {
     // Legacy single-model API (backward compatibility)

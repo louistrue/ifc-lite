@@ -15,12 +15,13 @@
 
 import { useEffect } from 'react';
 import { useViewerStore } from '../store.js';
-import { useIfc } from './useIfc.js';
 
 export function useModelSelection() {
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
   const setSelectedEntity = useViewerStore((s) => s.setSelectedEntity);
-  const { findModelForEntity, models } = useIfc();
+  const findModelForEntity = useViewerStore((s) => s.findModelForEntity);
+  // Subscribe to entityToModelMap changes for reactivity
+  const entityToModelMap = useViewerStore((s) => s.entityToModelMap);
 
   useEffect(() => {
     if (selectedEntityId === null) {
@@ -35,5 +36,5 @@ export function useModelSelection() {
       // Entity not found in any model (legacy single-model or orphaned)
       setSelectedEntity(null);
     }
-  }, [selectedEntityId, findModelForEntity, setSelectedEntity, models]);
+  }, [selectedEntityId, findModelForEntity, setSelectedEntity, entityToModelMap]);
 }

@@ -16,6 +16,8 @@ export interface ModelSlice {
   models: Map<string, FederatedModel>;
   /** ID of the currently active model (for property panel focus) */
   activeModelId: string | null;
+  /** Map expressId to modelId for fast lookup during selection */
+  entityToModelMap: Map<number, string>;
 
   // Actions
   /** Add a new model to the federation */
@@ -40,12 +42,17 @@ export interface ModelSlice {
   getAllVisibleModels: () => FederatedModel[];
   /** Check if any models are loaded */
   hasModels: () => boolean;
+  /** Register entity IDs to a model for fast lookup */
+  registerEntityIds: (modelId: string, expressIds: number[]) => void;
+  /** Find which model contains an entity */
+  findModelForEntity: (expressId: number) => string | null;
 }
 
 export const createModelSlice: StateCreator<ModelSlice, [], [], ModelSlice> = (set, get) => ({
   // Initial state
   models: new Map(),
   activeModelId: null,
+  entityToModelMap: new Map(),
 
   // Actions
   addModel: (model) => set((state) => {
@@ -78,12 +85,21 @@ export const createModelSlice: StateCreator<ModelSlice, [], [], ModelSlice> = (s
       newActiveId = remaining.length > 0 ? remaining[0] : null;
     }
 
-    return { models: newModels, activeModelId: newActiveId };
+    // Clean up entityToModelMap for removed model
+    const newEntityMap = new Map(state.entityToModelMap);
+    for (const [expressId, mId] of newEntityMap) {
+      if (mId === modelId) {
+        newEntityMap.delete(expressId);
+      }
+    }
+
+    return { models: newModels, activeModelId: newActiveId, entityToModelMap: newEntityMap };
   }),
 
   clearAllModels: () => set({
     models: new Map(),
     activeModelId: null,
+    entityToModelMap: new Map(),
   }),
 
   setActiveModel: (modelId) => set({ activeModelId: modelId }),
@@ -128,4 +144,16 @@ export const createModelSlice: StateCreator<ModelSlice, [], [], ModelSlice> = (s
   },
 
   hasModels: () => get().models.size > 0,
+
+  registerEntityIds: (modelId, expressIds) => set((state) => {
+    const newEntityMap = new Map(state.entityToModelMap);
+    for (const expressId of expressIds) {
+      newEntityMap.set(expressId, modelId);
+    }
+    return { entityToModelMap: newEntityMap };
+  }),
+
+  findModelForEntity: (expressId) => {
+    return get().entityToModelMap.get(expressId) ?? null;
+  },
 });
