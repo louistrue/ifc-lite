@@ -89,6 +89,11 @@ impl MeshDataJs {
 #[wasm_bindgen]
 pub struct MeshCollection {
     meshes: Vec<MeshDataJs>,
+    /// RTC (Relative-to-Center) offset applied to all positions
+    /// This is subtracted from world coordinates to improve Float32 precision
+    rtc_offset_x: f64,
+    rtc_offset_y: f64,
+    rtc_offset_z: f64,
 }
 
 #[wasm_bindgen]
@@ -123,18 +128,65 @@ impl MeshCollection {
     pub fn total_triangles(&self) -> usize {
         self.meshes.iter().map(|m| m.indices.len() / 3).sum()
     }
+
+    /// Get RTC offset X (for converting local coords back to world coords)
+    /// Add this to local X coordinates to get world X coordinates
+    #[wasm_bindgen(getter, js_name = rtcOffsetX)]
+    pub fn rtc_offset_x(&self) -> f64 {
+        self.rtc_offset_x
+    }
+
+    /// Get RTC offset Y
+    #[wasm_bindgen(getter, js_name = rtcOffsetY)]
+    pub fn rtc_offset_y(&self) -> f64 {
+        self.rtc_offset_y
+    }
+
+    /// Get RTC offset Z
+    #[wasm_bindgen(getter, js_name = rtcOffsetZ)]
+    pub fn rtc_offset_z(&self) -> f64 {
+        self.rtc_offset_z
+    }
+
+    /// Check if RTC offset is significant (>10km)
+    #[wasm_bindgen(js_name = hasRtcOffset)]
+    pub fn has_rtc_offset(&self) -> bool {
+        const THRESHOLD: f64 = 10000.0;
+        self.rtc_offset_x.abs() > THRESHOLD
+            || self.rtc_offset_y.abs() > THRESHOLD
+            || self.rtc_offset_z.abs() > THRESHOLD
+    }
+
+    /// Convert local coordinates to world coordinates
+    /// Use this to convert mesh positions back to original IFC coordinates
+    #[wasm_bindgen(js_name = localToWorld)]
+    pub fn local_to_world(&self, x: f32, y: f32, z: f32) -> Vec<f64> {
+        vec![
+            x as f64 + self.rtc_offset_x,
+            y as f64 + self.rtc_offset_y,
+            z as f64 + self.rtc_offset_z,
+        ]
+    }
 }
 
 impl MeshCollection {
     /// Create new empty collection
     pub fn new() -> Self {
-        Self { meshes: Vec::new() }
+        Self {
+            meshes: Vec::new(),
+            rtc_offset_x: 0.0,
+            rtc_offset_y: 0.0,
+            rtc_offset_z: 0.0,
+        }
     }
 
     /// Create new collection with capacity hint
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             meshes: Vec::with_capacity(capacity),
+            rtc_offset_x: 0.0,
+            rtc_offset_y: 0.0,
+            rtc_offset_z: 0.0,
         }
     }
 
@@ -146,7 +198,12 @@ impl MeshCollection {
 
     /// Create from vec of meshes
     pub fn from_vec(meshes: Vec<MeshDataJs>) -> Self {
-        Self { meshes }
+        Self {
+            meshes,
+            rtc_offset_x: 0.0,
+            rtc_offset_y: 0.0,
+            rtc_offset_z: 0.0,
+        }
     }
 
     /// Get number of meshes (internal)
@@ -159,8 +216,19 @@ impl MeshCollection {
         self.meshes.is_empty()
     }
 
+    /// Set the RTC offset (called during parsing when large coordinates are detected)
+    pub fn set_rtc_offset(&mut self, x: f64, y: f64, z: f64) {
+        self.rtc_offset_x = x;
+        self.rtc_offset_y = y;
+        self.rtc_offset_z = z;
+    }
+
     /// Apply RTC offset to all meshes (shift coordinates)
+    /// This is used when meshes are collected first and then shifted
     pub fn apply_rtc_offset(&mut self, x: f64, y: f64, z: f64) {
+        self.rtc_offset_x = x;
+        self.rtc_offset_y = y;
+        self.rtc_offset_z = z;
         for mesh in &mut self.meshes {
             for chunk in mesh.positions.chunks_exact_mut(3) {
                 chunk[0] = (chunk[0] as f64 - x) as f32;
@@ -186,6 +254,9 @@ impl Clone for MeshCollection {
                     color: m.color,
                 })
                 .collect(),
+            rtc_offset_x: self.rtc_offset_x,
+            rtc_offset_y: self.rtc_offset_y,
+            rtc_offset_z: self.rtc_offset_z,
         }
     }
 }

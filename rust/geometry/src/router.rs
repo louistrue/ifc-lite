@@ -92,6 +92,10 @@ pub struct GeometryRouter {
     /// Unit scale factor (e.g., 0.001 for millimeters -> meters)
     /// Applied to all mesh positions after processing
     unit_scale: f64,
+    /// RTC (Relative-to-Center) offset for handling large coordinates
+    /// Subtracted from all world positions in f64 before converting to f32
+    /// This preserves precision for georeferenced models (e.g., Swiss UTM)
+    rtc_offset: (f64, f64, f64),
 }
 
 impl GeometryRouter {
@@ -106,6 +110,7 @@ impl GeometryRouter {
             faceted_brep_cache: RefCell::new(FxHashMap::default()),
             geometry_hash_cache: RefCell::new(FxHashMap::default()),
             unit_scale: 1.0, // Default to base meters
+            rtc_offset: (0.0, 0.0, 0.0), // Default to no offset
         };
 
         // Register default P0 processors
@@ -144,11 +149,71 @@ impl GeometryRouter {
         Self::with_scale(scale)
     }
 
+    /// Create router with unit scale extracted from IFC file AND RTC offset for large coordinates
+    /// This is the recommended method for georeferenced models (Swiss UTM, etc.)
+    ///
+    /// # Arguments
+    /// * `content` - IFC file content
+    /// * `decoder` - Entity decoder
+    /// * `rtc_offset` - RTC offset to subtract from world coordinates (typically model centroid)
+    pub fn with_units_and_rtc(
+        content: &str,
+        decoder: &mut ifc_lite_core::EntityDecoder,
+        rtc_offset: (f64, f64, f64),
+    ) -> Self {
+        let mut scanner = ifc_lite_core::EntityScanner::new(content);
+        let mut scale = 1.0;
+
+        // Scan through file to find IFCPROJECT
+        while let Some((id, type_name, _, _)) = scanner.next_entity() {
+            if type_name == "IFCPROJECT" {
+                if let Ok(s) = ifc_lite_core::extract_length_unit_scale(decoder, id) {
+                    scale = s;
+                }
+                break;
+            }
+        }
+
+        Self::with_scale_and_rtc(scale, rtc_offset)
+    }
+
     /// Create router with pre-calculated unit scale
     pub fn with_scale(unit_scale: f64) -> Self {
         let mut router = Self::new();
         router.unit_scale = unit_scale;
         router
+    }
+
+    /// Create router with RTC offset for large coordinate handling
+    /// Use this for georeferenced models (e.g., Swiss UTM coordinates)
+    pub fn with_rtc(rtc_offset: (f64, f64, f64)) -> Self {
+        let mut router = Self::new();
+        router.rtc_offset = rtc_offset;
+        router
+    }
+
+    /// Create router with both unit scale and RTC offset
+    pub fn with_scale_and_rtc(unit_scale: f64, rtc_offset: (f64, f64, f64)) -> Self {
+        let mut router = Self::new();
+        router.unit_scale = unit_scale;
+        router.rtc_offset = rtc_offset;
+        router
+    }
+
+    /// Set the RTC offset for large coordinate handling
+    pub fn set_rtc_offset(&mut self, offset: (f64, f64, f64)) {
+        self.rtc_offset = offset;
+    }
+
+    /// Get the current RTC offset
+    pub fn rtc_offset(&self) -> (f64, f64, f64) {
+        self.rtc_offset
+    }
+
+    /// Check if RTC offset is active (non-zero)
+    #[inline]
+    pub fn has_rtc_offset(&self) -> bool {
+        self.rtc_offset.0 != 0.0 || self.rtc_offset.1 != 0.0 || self.rtc_offset.2 != 0.0
     }
 
     /// Get the current unit scale factor
@@ -2805,18 +2870,23 @@ impl GeometryRouter {
     }
 
     /// Transform mesh by matrix - optimized with chunk-based iteration
+    /// Applies RTC offset if set to preserve precision for large coordinates
     #[inline]
     fn transform_mesh(&self, mesh: &mut Mesh, transform: &Matrix4<f64>) {
         // Use chunks for better cache locality and less indexing overhead
+        // Key fix: subtract RTC offset in f64 BEFORE converting to f32
+        let rtc = self.rtc_offset;
         mesh.positions.chunks_exact_mut(3).for_each(|chunk| {
             let point = Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
             let transformed = transform.transform_point(&point);
-            chunk[0] = transformed.x as f32;
-            chunk[1] = transformed.y as f32;
-            chunk[2] = transformed.z as f32;
+            // Subtract RTC offset in f64 before f32 conversion - preserves precision!
+            chunk[0] = (transformed.x - rtc.0) as f32;
+            chunk[1] = (transformed.y - rtc.1) as f32;
+            chunk[2] = (transformed.z - rtc.2) as f32;
         });
 
         // Transform normals (without translation) - optimized chunk iteration
+        // Normals don't need RTC offset - they're directions, not positions
         let rotation = transform.fixed_view::<3, 3>(0, 0);
         mesh.normals.chunks_exact_mut(3).for_each(|chunk| {
             let normal = Vector3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);

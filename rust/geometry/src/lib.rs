@@ -90,7 +90,7 @@ pub use bool2d::{
 pub use csg::{calculate_normals, ClippingProcessor, Plane, Triangle};
 pub use error::{Error, Result};
 pub use extrusion::{extrude_profile, extrude_profile_with_voids};
-pub use mesh::{Mesh, SubMesh, SubMeshCollection};
+pub use mesh::{CoordinateShift, Mesh, SubMesh, SubMeshCollection};
 pub use processors::{
     AdvancedBrepProcessor, BooleanClippingProcessor, ExtrudedAreaSolidProcessor,
     FacetedBrepProcessor, MappedItemProcessor, RevolvedAreaSolidProcessor, SweptDiskSolidProcessor,

@@ -387,8 +387,14 @@ impl IfcAPI {
     /// ```
     #[wasm_bindgen(js_name = parseMeshes)]
     pub fn parse_meshes(&self, content: String) -> MeshCollection {
-        use ifc_lite_core::{build_entity_index, EntityDecoder, EntityScanner};
+        use ifc_lite_core::{build_entity_index, scan_model_bounds, EntityDecoder, EntityScanner};
         use ifc_lite_geometry::{calculate_normals, GeometryRouter};
+
+        // FIRST PASS: Scan model bounds in f64 precision for RTC offset calculation
+        // This is crucial for large coordinates (Swiss UTM, etc.) to avoid Float32 precision loss
+        let model_bounds = scan_model_bounds(&content);
+        let rtc_offset = model_bounds.rtc_offset();
+        let needs_shift = model_bounds.has_large_coordinates();
 
         // Build entity index once upfront for O(1) lookups
         let entity_index = build_entity_index(&content);
@@ -421,8 +427,10 @@ impl IfcAPI {
             }
         }
 
-        // Create geometry router (reuses processor instances)
-        let router = GeometryRouter::with_units(&content, &mut decoder);
+        // Create geometry router with RTC offset for precision preservation
+        // The router will apply the RTC offset DURING transformation (in f64, before f32 conversion)
+        // This is the key fix for large coordinate precision!
+        let router = GeometryRouter::with_units_and_rtc(&content, &mut decoder, rtc_offset);
 
         // Batch preprocess FacetedBrep entities for maximum parallelism
         // This triangulates ALL faces from ALL BREPs in one parallel batch
@@ -436,6 +444,11 @@ impl IfcAPI {
         // Estimate capacity: typical IFC files have ~5-10% building elements
         let estimated_elements = content.len() / 500;
         let mut mesh_collection = MeshCollection::with_capacity(estimated_elements);
+
+        // Store RTC offset in collection for JavaScript to use (for camera/world coordinate display)
+        if needs_shift {
+            mesh_collection.set_rtc_offset(rtc_offset.0, rtc_offset.1, rtc_offset.2);
+        }
 
         // Process all building elements
         while let Some((id, type_name, start, end)) = scanner.next_entity() {
@@ -1775,8 +1788,12 @@ impl IfcAPI {
     /// ```
     #[wasm_bindgen(js_name = parseToGpuGeometry)]
     pub fn parse_to_gpu_geometry(&self, content: String) -> GpuGeometry {
-        use ifc_lite_core::{build_entity_index, EntityDecoder, EntityScanner};
+        use ifc_lite_core::{build_entity_index, scan_model_bounds, EntityDecoder, EntityScanner};
         use ifc_lite_geometry::{calculate_normals, GeometryRouter};
+
+        // FIRST PASS: Scan model bounds for RTC offset calculation
+        let model_bounds = scan_model_bounds(&content);
+        let rtc_offset = model_bounds.rtc_offset();
 
         // Build entity index once upfront for O(1) lookups
         let entity_index = build_entity_index(&content);
@@ -1805,8 +1822,8 @@ impl IfcAPI {
             }
         }
 
-        // Create geometry router
-        let router = GeometryRouter::with_units(&content, &mut decoder);
+        // Create geometry router with RTC offset for precision preservation
+        let router = GeometryRouter::with_units_and_rtc(&content, &mut decoder, rtc_offset);
 
         // Batch preprocess FacetedBreps
         if !faceted_brep_ids.is_empty() {
