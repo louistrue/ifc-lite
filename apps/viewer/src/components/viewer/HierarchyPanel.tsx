@@ -51,9 +51,11 @@ interface TreeNode {
   depth: number;
   hasChildren: boolean;
   isExpanded: boolean;
-  isVisible: boolean;
+  isVisible: boolean; // Note: For storeys, computed lazily during render for performance
   elementCount?: number;
   storeyElevation?: number;
+  /** Internal: ID offset for lazy visibility computation */
+  _idOffset?: number;
 }
 
 /** Data for a storey from a single model */
@@ -278,14 +280,19 @@ export function HierarchyPanel() {
     }
   }, [models.size, ifcDataStore]);
 
-  // Get all element IDs for a unified storey (as global IDs)
+  // Get all element IDs for a unified storey (as global IDs) - optimized to avoid spread operator
   const getUnifiedStoreyElements = useCallback((unifiedStorey: UnifiedStorey): number[] => {
-    const allElements: number[] = [];
+    // Pre-calculate total length for single allocation
+    const totalLength = unifiedStorey.storeys.reduce((sum, s) => sum + s.elements.length, 0);
+    const allElements = new Array<number>(totalLength);
+    let idx = 0;
     for (const storey of unifiedStorey.storeys) {
       const model = models.get(storey.modelId);
       const offset = model?.idOffset ?? 0;
-      // Convert local expressIds to global IDs
-      allElements.push(...storey.elements.map(id => id + offset));
+      // Direct assignment instead of spread for better performance
+      for (const id of storey.elements) {
+        allElements[idx++] = id + offset;
+      }
     }
     return allElements;
   }, [models]);
@@ -320,8 +327,9 @@ export function HierarchyPanel() {
         elements = (dataStore.spatialHierarchy?.byStorey.get(spatialNode.expressId) as number[]) || [];
       }
 
-      // Check visibility - convert to global IDs for check
-      const isVisible = elements.length === 0 || elements.some((id: number) => !hiddenEntities.has(id + idOffset));
+      // Note: isVisible is computed lazily during render for performance
+      // We just need to know if there ARE elements (for empty check)
+      const hasElements = elements.length > 0;
 
       // Check if has children
       // In stopAtBuilding mode, buildings have no children (storeys shown separately)
@@ -341,9 +349,11 @@ export function HierarchyPanel() {
         depth,
         hasChildren,
         isExpanded: isNodeExpanded,
-        isVisible,
+        isVisible: true, // Visibility computed lazily during render
         elementCount: nodeType === 'IfcBuildingStorey' ? elements.length : undefined,
         storeyElevation: spatialNode.elevation,
+        // Store idOffset for lazy visibility computation
+        _idOffset: idOffset,
       });
 
       if (isNodeExpanded) {
@@ -372,7 +382,7 @@ export function HierarchyPanel() {
               depth: depth + 1,
               hasChildren: false,
               isExpanded: false,
-              isVisible: !hiddenEntities.has(globalId),
+              isVisible: true, // Computed lazily during render
             });
           }
         }
@@ -385,9 +395,7 @@ export function HierarchyPanel() {
       for (const unified of unifiedStoreys) {
         const storeyNodeId = `unified-${unified.key}`;
         const isExpanded = expandedNodes.has(storeyNodeId);
-        const allElements = getUnifiedStoreyElements(unified);
         const allStoreyIds = unified.storeys.map(s => s.storeyId);
-        const isVisible = allElements.some(id => !hiddenEntities.has(id));
 
         nodes.push({
           id: storeyNodeId,
@@ -396,9 +404,9 @@ export function HierarchyPanel() {
           name: unified.name,
           type: 'unified-storey',
           depth: 0,
-          hasChildren: allElements.length > 0,
+          hasChildren: unified.totalElements > 0,
           isExpanded,
-          isVisible,
+          isVisible: true, // Computed lazily during render
           elementCount: unified.totalElements,
           storeyElevation: unified.elevation,
         });
@@ -408,11 +416,11 @@ export function HierarchyPanel() {
           for (const storey of unified.storeys) {
             const model = models.get(storey.modelId);
             const modelName = model?.name || storey.modelId;
+            const offset = model?.idOffset ?? 0;
 
             // Add model contribution header
             const contribNodeId = `contrib-${storey.modelId}-${storey.storeyId}`;
             const contribExpanded = expandedNodes.has(contribNodeId);
-            const contribVisible = storey.elements.some(id => !hiddenEntities.has(id));
 
             nodes.push({
               id: contribNodeId,
@@ -423,14 +431,14 @@ export function HierarchyPanel() {
               depth: 1,
               hasChildren: storey.elements.length > 0,
               isExpanded: contribExpanded,
-              isVisible: contribVisible,
+              isVisible: true, // Computed lazily during render
               elementCount: storey.elements.length,
+              _idOffset: offset,
             });
 
             // If contribution expanded, show elements
             if (contribExpanded) {
               const dataStore = model?.ifcDataStore;
-              const offset = model?.idOffset ?? 0;
               for (const elementId of storey.elements) {
                 const globalId = elementId + offset;
                 const entityType = dataStore?.entities?.getTypeName(elementId) || 'Unknown';
@@ -445,7 +453,7 @@ export function HierarchyPanel() {
                   depth: 2,
                   hasChildren: false,
                   isExpanded: false,
-                  isVisible: !hiddenEntities.has(globalId),
+                  isVisible: true, // Computed lazily during render
                 });
               }
             }
@@ -526,7 +534,8 @@ export function HierarchyPanel() {
     }
 
     return nodes;
-  }, [models, ifcDataStore, expandedNodes, hiddenEntities, isMultiModel, getNodeType, unifiedStoreys, getUnifiedStoreyElements]);
+  // Note: hiddenEntities intentionally NOT in deps - visibility computed lazily for performance
+  }, [models, ifcDataStore, expandedNodes, isMultiModel, getNodeType, unifiedStoreys, getUnifiedStoreyElements]);
 
   // Filter nodes based on search
   const filteredNodes = useMemo(() => {
@@ -828,6 +837,24 @@ export function HierarchyPanel() {
     );
   }
 
+  // Compute node visibility lazily (avoids expensive recomputation on every hide/show)
+  const isNodeVisible = useCallback((node: TreeNode): boolean => {
+    // Spatial containers are always "visible"
+    if (isSpatialContainer(node.type) || node.type === 'model-header' && node.id.startsWith('model-')) {
+      return true;
+    }
+    // For elements, check hiddenEntities directly
+    if (node.type === 'element') {
+      return !hiddenEntities.has(node.expressIds[0]);
+    }
+    // For storeys, check if ANY element is visible
+    if (node.type === 'IfcBuildingStorey' || node.type === 'unified-storey' || (node.type === 'model-header' && node.id.startsWith('contrib-'))) {
+      const nodeElements = getNodeElements(node);
+      return nodeElements.length === 0 || nodeElements.some(id => !hiddenEntities.has(id));
+    }
+    return true;
+  }, [hiddenEntities, getNodeElements]);
+
   // Helper function to render a node
   const renderNode = (node: TreeNode, virtualRow: { index: number; size: number; start: number }, nodeList: TreeNode[]) => {
     const Icon = TYPE_ICONS[node.type] || TYPE_ICONS.default;
@@ -841,7 +868,8 @@ export function HierarchyPanel() {
           ? selectedEntityId === node.expressIds[0]
           : false;
 
-    const nodeHidden = !node.isVisible;
+    // Compute visibility lazily for performance
+    const nodeHidden = !isNodeVisible(node);
 
     // Model header nodes (for visibility control and expansion)
     if (node.type === 'model-header' && node.id.startsWith('model-')) {
