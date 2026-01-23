@@ -7,7 +7,7 @@
  */
 
 import { WebGPUDevice } from './device.js';
-import type { Mesh } from './types.js';
+import type { Mesh, PickResult } from './types.js';
 
 export class Picker {
   private device: GPUDevice;
@@ -134,6 +134,7 @@ export class Picker {
 
   /**
    * Pick object at screen coordinates
+   * Returns PickResult with expressId and modelIndex for multi-model support
    */
   async pick(
     x: number,
@@ -142,7 +143,7 @@ export class Picker {
     height: number,
     meshes: Mesh[],
     viewProj: Float32Array
-  ): Promise<number | null> {
+  ): Promise<PickResult | null> {
     // Resize textures if needed
     if (this.colorTexture.width !== width || this.colorTexture.height !== height) {
       this.colorTexture.destroy();
@@ -193,15 +194,15 @@ export class Picker {
     // Upload viewProj matrix to uniform buffer (once for all meshes)
     this.device.queue.writeBuffer(this.uniformBuffer, 0, viewProj);
 
-    // Build expressId array for all meshes (expressId + 1, so 0 = no hit)
-    const expressIdArray = new Uint32Array(meshes.length);
+    // Build mesh index array (index + 1, so 0 = no hit)
+    // Using mesh index instead of expressId to properly support multi-model with overlapping expressIds
+    const meshIndexArray = new Uint32Array(meshes.length);
     for (let i = 0; i < meshes.length; i++) {
-      const mesh = meshes[i];
-      if (mesh) {
-        expressIdArray[i] = mesh.expressId + 1;
+      if (meshes[i]) {
+        meshIndexArray[i] = i + 1;  // +1 so 0 means no hit
       }
     }
-    this.device.queue.writeBuffer(this.expressIdBuffer, 0, expressIdArray);
+    this.device.queue.writeBuffer(this.expressIdBuffer, 0, meshIndexArray);
 
     pass.setPipeline(this.pipeline);
     pass.setBindGroup(0, this.bindGroup);
@@ -245,13 +246,21 @@ export class Picker {
     // GPUMapMode.READ = 1 (WebGPU spec)
     await readBuffer.mapAsync(1); // GPUMapMode.READ
     const data = new Uint32Array(readBuffer.getMappedRange());
-    const objectId = data[0];
+    const meshIndex = data[0];
     readBuffer.unmap();
     readBuffer.destroy();
 
-    // objectId is expressId + 1 (so 0 = no hit)
-    // Return expressId directly
-    return objectId > 0 ? objectId - 1 : null;
+    // meshIndex is (actual index + 1), so 0 = no hit
+    if (meshIndex === 0) return null;
+
+    // Look up the mesh to get both expressId and modelIndex
+    const mesh = meshes[meshIndex - 1];
+    if (!mesh) return null;
+
+    return {
+      expressId: mesh.expressId,
+      modelIndex: mesh.modelIndex,
+    };
   }
 
   updateUniforms(viewProj: Float32Array): void {

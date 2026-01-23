@@ -38,7 +38,7 @@ import { Camera } from './camera.js';
 import { Scene } from './scene.js';
 import { Picker } from './picker.js';
 import { FrustumUtils } from '@ifc-lite/spatial';
-import type { RenderOptions, PickOptions, Mesh, InstancedMesh, SectionPlaneAxis } from './types.js';
+import type { RenderOptions, PickOptions, PickResult, Mesh, InstancedMesh, SectionPlaneAxis } from './types.js';
 import { SectionPlaneRenderer } from './section-plane.js';
 import type { MeshData } from '@ifc-lite/geometry';
 import { deduplicateMeshes } from '@ifc-lite/geometry';
@@ -1219,8 +1219,9 @@ export class Renderer {
     /**
      * Pick object at screen coordinates
      * Respects visibility filtering so users can only select visible elements
+     * Returns PickResult with expressId and modelIndex for multi-model support
      */
-    async pick(x: number, y: number, options?: PickOptions): Promise<number | null> {
+    async pick(x: number, y: number, options?: PickOptions): Promise<PickResult | null> {
         if (!this.picker) {
             return null;
         }
@@ -1266,7 +1267,13 @@ export class Renderer {
                 // Use CPU raycasting fallback - works regardless of how many individual meshes exist
                 const ray = this.camera.unprojectToRay(x, y, this.canvas.width, this.canvas.height);
                 const hit = this.scene.raycast(ray.origin, ray.direction, options?.hiddenIds, options?.isolatedIds);
-                return hit ? hit.expressId : null;
+                if (!hit) return null;
+                // CPU raycasting returns expressId; try to get modelIndex from meshData
+                const meshData = this.scene.getMeshData(hit.expressId);
+                return {
+                    expressId: hit.expressId,
+                    modelIndex: meshData?.modelIndex,
+                };
             }
 
             // For smaller models, create GPU meshes for picking

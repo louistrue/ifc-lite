@@ -125,3 +125,12 @@ export interface PickOptions {
   hiddenIds?: Set<number>;        // Hidden elements (can't be picked)
   isolatedIds?: Set<number> | null; // Only these elements can be picked (null = all pickable)
 }
+
+/**
+ * Result from GPU picking
+ * For multi-model support, includes both expressId and modelIndex
+ */
+export interface PickResult {
+  expressId: number;
+  modelIndex?: number;  // Index of the model this entity belongs to
+}

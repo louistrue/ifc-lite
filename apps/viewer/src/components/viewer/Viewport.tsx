@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useRef, useState, useMemo } from 'react';
-import { Renderer, MathUtils, type SnapTarget } from '@ifc-lite/renderer';
+import { Renderer, MathUtils, type SnapTarget, type PickResult } from '@ifc-lite/renderer';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 import { useViewerStore, type MeasurePoint, type SnapVisualization } from '@/store';
 import {
@@ -46,16 +46,43 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   const [isInitialized, setIsInitialized] = useState(false);
 
   // Selection state
-  const { selectedEntityId, selectedEntityIds, setSelectedEntityId, toggleSelection } = useSelectionState();
+  const { selectedEntityId, selectedEntityIds, setSelectedEntityId, setSelectedEntity, toggleSelection, models } = useSelectionState();
   const selectedEntity = useViewerStore((s) => s.selectedEntity);
 
   // Sync selectedEntityId with model-aware selectedEntity for PropertiesPanel
   useModelSelection();
 
+  // Create reverse mapping from modelIndex to modelId for selection
+  const modelIndexToId = useMemo(() => {
+    if (!modelIdToIndex) return new Map<number, string>();
+    const reverse = new Map<number, string>();
+    for (const [modelId, index] of modelIdToIndex) {
+      reverse.set(index, modelId);
+    }
+    return reverse;
+  }, [modelIdToIndex]);
+
   // Compute selectedModelIndex for renderer (multi-model selection highlighting)
   const selectedModelIndex = selectedEntity && modelIdToIndex
     ? modelIdToIndex.get(selectedEntity.modelId) ?? undefined
     : undefined;
+
+  // Helper to handle pick result and set selection properly
+  const handlePickForSelection = (pickResult: PickResult | null) => {
+    if (!pickResult) {
+      setSelectedEntityId(null);
+      return;
+    }
+    // Set expressId for backward compatibility
+    setSelectedEntityId(pickResult.expressId);
+    // If we have modelIndex, directly set the selectedEntity (bypasses entityToModelMap lookup)
+    if (pickResult.modelIndex !== undefined) {
+      const modelId = modelIndexToId.get(pickResult.modelIndex);
+      if (modelId) {
+        setSelectedEntity({ modelId, expressId: pickResult.expressId });
+      }
+    }
+  };
 
   // Visibility state - use computedIsolatedIds from parent (includes storey selection)
   // Fall back to store isolation if computedIsolatedIds is not provided
@@ -618,9 +645,9 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
 
           // Pick at cursor position - orbit around what user is clicking on
           // Uses visibility filtering so hidden elements don't affect orbit pivot
-          const pickedId = await renderer.pick(x, y, getPickOptions());
-          if (pickedId !== null) {
-            const center = getEntityCenter(geometryRef.current, pickedId);
+          const pickResult = await renderer.pick(x, y, getPickOptions());
+          if (pickResult !== null) {
+            const center = getEntityCenter(geometryRef.current, pickResult.expressId);
             if (center) {
               camera.setOrbitPivot(center);
             } else {
@@ -1005,9 +1032,9 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
           if (now - lastHoverCheckRef.current > hoverThrottleMs) {
             lastHoverCheckRef.current = now;
             // Uses visibility filtering so hidden elements don't show hover tooltips
-            const pickedId = await renderer.pick(x, y, getPickOptions());
-            if (pickedId) {
-              setHoverState({ entityId: pickedId, screenX: e.clientX, screenY: e.clientY });
+            const pickResult = await renderer.pick(x, y, getPickOptions());
+            if (pickResult) {
+              setHoverState({ entityId: pickResult.expressId, screenX: e.clientX, screenY: e.clientY });
             } else {
               clearHover();
             }
@@ -1058,8 +1085,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
         // Uses visibility filtering so hidden elements don't appear in context menu
-        const pickedId = await renderer.pick(x, y, getPickOptions());
-        openContextMenu(pickedId, e.clientX, e.clientY);
+        const pickResult = await renderer.pick(x, y, getPickOptions());
+        openContextMenu(pickResult?.expressId ?? null, e.clientX, e.clientY);
       });
 
       canvas.addEventListener('wheel', (e) => {
@@ -1135,23 +1162,23 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
           Math.abs(clickPos.y - lastClickPosRef.current.y) < 5) {
           // Double-click - isolate element
           // Uses visibility filtering so only visible elements can be selected
-          const pickedId = await renderer.pick(x, y, getPickOptions());
-          if (pickedId) {
-            setSelectedEntityId(pickedId);
+          const pickResult = await renderer.pick(x, y, getPickOptions());
+          if (pickResult) {
+            handlePickForSelection(pickResult);
           }
           lastClickTimeRef.current = 0;
           lastClickPosRef.current = null;
         } else {
           // Single click - uses visibility filtering so only visible elements can be selected
-          const pickedId = await renderer.pick(x, y, getPickOptions());
+          const pickResult = await renderer.pick(x, y, getPickOptions());
 
           // Multi-selection with Ctrl/Cmd
           if (e.ctrlKey || e.metaKey) {
-            if (pickedId) {
-              toggleSelection(pickedId);
+            if (pickResult) {
+              toggleSelection(pickResult.expressId);
             }
           } else {
-            setSelectedEntityId(pickedId);
+            handlePickForSelection(pickResult);
           }
 
           lastClickTimeRef.current = now;
@@ -1189,9 +1216,9 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
           const y = touchState.touches[0].clientY - rect.top;
 
           // Uses visibility filtering so hidden elements don't affect orbit pivot
-          const pickedId = await renderer.pick(x, y, getPickOptions());
-          if (pickedId !== null) {
-            const center = getEntityCenter(geometryRef.current, pickedId);
+          const pickResult = await renderer.pick(x, y, getPickOptions());
+          if (pickResult !== null) {
+            const center = getEntityCenter(geometryRef.current, pickResult.expressId);
             if (center) {
               camera.setOrbitPivot(center);
             } else {
