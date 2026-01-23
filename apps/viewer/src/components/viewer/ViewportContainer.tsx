@@ -28,6 +28,16 @@ export function ViewportContainer() {
   // Check if we have models loaded (for determining add vs replace behavior)
   const hasModelsLoaded = models.size > 0 || (geometryResult?.meshes && geometryResult.meshes.length > 0);
 
+  // Multi-model: create mapping from modelId to modelIndex (stable order)
+  const modelIdToIndex = useMemo(() => {
+    const map = new Map<string, number>();
+    let index = 0;
+    for (const modelId of storeModels.keys()) {
+      map.set(modelId, index++);
+    }
+    return map;
+  }, [storeModels]);
+
   // Multi-model: merge geometries from all visible models
   const mergedGeometryResult = useMemo(() => {
     // If we have federated models, merge their visible geometries
@@ -37,14 +47,17 @@ export function ViewportContainer() {
       let totalTriangles = 0;
       let mergedCoordinateInfo: CoordinateInfo | undefined;
 
-      for (const model of storeModels.values()) {
+      for (const [modelId, model] of storeModels) {
         // Skip hidden models - this is how model visibility works
         if (!model.visible) continue;
 
         const modelGeometry = model.geometryResult;
+        const modelIndex = modelIdToIndex.get(modelId) ?? 0;
         if (modelGeometry?.meshes) {
-          // Add meshes with model context (expressIds are unique within each model)
-          allMeshes.push(...modelGeometry.meshes);
+          // Tag each mesh with its modelIndex for selection/highlighting
+          for (const mesh of modelGeometry.meshes) {
+            allMeshes.push({ ...mesh, modelIndex });
+          }
           totalVertices += modelGeometry.totalVertices || 0;
           totalTriangles += modelGeometry.totalTriangles || 0;
 
@@ -66,7 +79,7 @@ export function ViewportContainer() {
 
     // Legacy mode (no federation): use original geometryResult
     return geometryResult;
-  }, [storeModels, geometryResult]);
+  }, [storeModels, geometryResult, modelIdToIndex]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -545,6 +558,7 @@ export function ViewportContainer() {
         geometry={filteredGeometry}
         coordinateInfo={mergedGeometryResult?.coordinateInfo}
         computedIsolatedIds={computedIsolatedIds}
+        modelIdToIndex={modelIdToIndex}
       />
       <ViewportOverlays />
       <ToolOverlays />

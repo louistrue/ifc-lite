@@ -502,6 +502,7 @@ export class Renderer {
         // Add to scene with identity transform (positions already in world space)
         this.scene.addMesh({
             expressId: meshData.expressId,
+            modelIndex: meshData.modelIndex,  // Preserve modelIndex for multi-model selection
             vertexBuffer,
             indexBuffer,
             indexCount: meshData.indices.length,
@@ -674,6 +675,7 @@ export class Renderer {
             const allMeshes = [...opaqueMeshes, ...transparentMeshes];
             const selectedId = options.selectedId;
             const selectedIds = options.selectedIds;
+            const selectedModelIndex = options.selectedModelIndex;
 
             // Calculate section plane parameters and model bounds
             // Always calculate bounds when sectionPlane is provided (for preview and active mode)
@@ -750,7 +752,10 @@ export class Renderer {
                     buffer.set(mesh.transform.m, 16);
 
                     // Check if mesh is selected (single or multi-selection)
-                    const isSelected = (selectedId !== undefined && selectedId !== null && mesh.expressId === selectedId)
+                    // For multi-model support: also check modelIndex if provided
+                    const expressIdMatch = mesh.expressId === selectedId;
+                    const modelIndexMatch = selectedModelIndex === undefined || mesh.modelIndex === selectedModelIndex;
+                    const isSelected = (selectedId !== undefined && selectedId !== null && expressIdMatch && modelIndexMatch)
                         || (selectedIds !== undefined && selectedIds.has(mesh.expressId));
 
                     // Apply selection highlight effect
@@ -1011,9 +1016,13 @@ export class Renderer {
                 }
 
                 // Now get selected meshes (only visible ones)
-                const selectedMeshes = this.scene.getMeshes().filter(mesh =>
-                    visibleSelectedIds.has(mesh.expressId)
-                );
+                // For multi-model support: also filter by modelIndex if provided
+                const selectedMeshes = this.scene.getMeshes().filter(mesh => {
+                    if (!visibleSelectedIds.has(mesh.expressId)) return false;
+                    // If selectedModelIndex is provided, also match modelIndex
+                    if (selectedModelIndex !== undefined && mesh.modelIndex !== selectedModelIndex) return false;
+                    return true;
+                });
 
                 // Ensure selected meshes have uniform buffers and bind groups
                 for (const mesh of selectedMeshes) {
