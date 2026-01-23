@@ -1007,9 +1007,10 @@ export class Renderer {
                 }
 
                 // Create GPU resources lazily for visible selected meshes that don't have them yet
+                // Pass selectedModelIndex to get mesh data from the correct model (for multi-model support)
                 for (const selId of visibleSelectedIds) {
-                    if (!existingMeshIds.has(selId) && this.scene.hasMeshData(selId)) {
-                        const meshData = this.scene.getMeshData(selId)!;
+                    if (!existingMeshIds.has(selId) && this.scene.hasMeshData(selId, selectedModelIndex)) {
+                        const meshData = this.scene.getMeshData(selId, selectedModelIndex)!;
                         this.createMeshFromData(meshData);
                         existingMeshIds.add(selId);
                     }

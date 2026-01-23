@@ -89,10 +89,19 @@ export class Scene {
    * Get MeshData by expressId (for lazy buffer creation)
    * Returns merged MeshData if element has multiple pieces with same color,
    * or first piece if colors differ (to preserve correct per-piece colors)
+   * @param expressId - The expressId to look up
+   * @param modelIndex - Optional modelIndex to filter by (for multi-model support)
    */
-  getMeshData(expressId: number): MeshData | undefined {
-    const pieces = this.meshDataMap.get(expressId);
+  getMeshData(expressId: number, modelIndex?: number): MeshData | undefined {
+    let pieces = this.meshDataMap.get(expressId);
     if (!pieces || pieces.length === 0) return undefined;
+
+    // Filter by modelIndex if provided (for multi-model support)
+    if (modelIndex !== undefined) {
+      pieces = pieces.filter(p => p.modelIndex === modelIndex);
+      if (pieces.length === 0) return undefined;
+    }
+
     if (pieces.length === 1) return pieces[0];
 
     // Check if all pieces have the same color (within tolerance)
@@ -150,6 +159,7 @@ export class Scene {
     // Return merged MeshData (all pieces have same color)
     return {
       expressId,
+      modelIndex: pieces[0].modelIndex,  // Preserve modelIndex for multi-model support
       positions: mergedPositions,
       normals: mergedNormals,
       indices: mergedIndices,
@@ -160,9 +170,15 @@ export class Scene {
 
   /**
    * Check if MeshData exists for an expressId
+   * @param expressId - The expressId to look up
+   * @param modelIndex - Optional modelIndex to filter by (for multi-model support)
    */
-  hasMeshData(expressId: number): boolean {
-    return this.meshDataMap.has(expressId);
+  hasMeshData(expressId: number, modelIndex?: number): boolean {
+    const pieces = this.meshDataMap.get(expressId);
+    if (!pieces || pieces.length === 0) return false;
+    if (modelIndex === undefined) return true;
+    // Check if any piece matches the modelIndex
+    return pieces.some(p => p.modelIndex === modelIndex);
   }
 
   /**
