@@ -109,6 +109,7 @@ export function HierarchyPanel() {
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
   const setSelectedEntity = useViewerStore((s) => s.setSelectedEntity);
+  const setSelectedEntities = useViewerStore((s) => s.setSelectedEntities);
   const selectedStoreys = useViewerStore((s) => s.selectedStoreys);
   const setStoreySelection = useViewerStore((s) => s.setStoreySelection);
   const setStoreysSelection = useViewerStore((s) => s.setStoreysSelection);
@@ -537,8 +538,25 @@ export function HierarchyPanel() {
       return;
     }
 
-    // Spatial container nodes - toggle expand/collapse
+    // Spatial container nodes (IfcProject/IfcSite/IfcBuilding) - select for property panel + expand
     if (isSpatialContainer(node.type)) {
+      const entityId = node.expressIds[0];
+      const modelId = node.modelIds[0];
+
+      if (modelId && modelId !== 'legacy') {
+        // Multi-model: convert to globalId for renderer, set entity for property panel
+        const model = models.get(modelId);
+        const globalId = entityId + (model?.idOffset ?? 0);
+        setSelectedEntityId(globalId);
+        setSelectedEntity({ modelId, expressId: entityId });
+        setActiveModel(modelId);
+      } else if (entityId) {
+        // Legacy single-model
+        setSelectedEntityId(entityId);
+        setSelectedEntity({ modelId: 'legacy', expressId: entityId });
+      }
+
+      // Also toggle expand if has children
       if (node.hasChildren) {
         toggleExpand(node.id);
       }
@@ -547,12 +565,40 @@ export function HierarchyPanel() {
 
     if (node.type === 'unified-storey' || node.type === 'IfcBuildingStorey') {
       // Storey click - select/isolate (unified or single)
-      const storeyIds = node.type === 'unified-storey'
-        ? (unifiedStoreys.find(u => `unified-${u.key}` === node.id)?.storeys.map(s => s.storeyId) || [])
+      const unified = node.type === 'unified-storey'
+        ? unifiedStoreys.find(u => `unified-${u.key}` === node.id)
+        : null;
+      const storeyIds = unified
+        ? unified.storeys.map(s => s.storeyId)
         : node.expressIds;
 
+      // Set entity refs for property panel display
+      if (unified && unified.storeys.length > 1) {
+        // Multi-model unified storey: show all storeys combined in property panel
+        const entityRefs = unified.storeys.map(s => ({
+          modelId: s.modelId,
+          expressId: s.storeyId,
+        }));
+        setSelectedEntities(entityRefs);
+        // Clear single entity selection (property panel will use selectedEntities)
+        setSelectedEntityId(null);
+      } else {
+        // Single storey: show in property panel like any entity
+        const storeyId = storeyIds[0];
+        const modelId = node.modelIds[0];
+        if (modelId && modelId !== 'legacy') {
+          const model = models.get(modelId);
+          const globalId = storeyId + (model?.idOffset ?? 0);
+          setSelectedEntityId(globalId);
+          setSelectedEntity({ modelId, expressId: storeyId });
+        } else {
+          setSelectedEntityId(storeyId);
+          setSelectedEntity({ modelId: 'legacy', expressId: storeyId });
+        }
+      }
+
       if (e.ctrlKey || e.metaKey) {
-        // Add to selection
+        // Add to storey filter selection
         setStoreysSelection([...Array.from(selectedStoreys), ...storeyIds]);
       } else {
         // Single selection - toggle if already selected
@@ -585,7 +631,7 @@ export function HierarchyPanel() {
         setSelectedEntityId(elementId);
       }
     }
-  }, [selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntity, setActiveModel, toggleExpand, unifiedStoreys]);
+  }, [selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntity, setSelectedEntities, setActiveModel, toggleExpand, unifiedStoreys, models]);
 
   if (!ifcDataStore && models.size === 0) {
     return (

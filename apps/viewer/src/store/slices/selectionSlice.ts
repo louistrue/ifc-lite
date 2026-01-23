@@ -24,6 +24,8 @@ export interface SelectionSlice {
   selectedEntity: EntityRef | null;
   /** Multi-selection across models: serialized EntityRef strings */
   selectedEntitiesSet: Set<string>;
+  /** Array of selected entities for property panel display (e.g., unified storeys) */
+  selectedEntities: EntityRef[];
 
   // Actions (legacy - single model, maintained for backward compatibility)
   setSelectedEntityId: (id: number | null) => void;
@@ -52,6 +54,8 @@ export interface SelectionSlice {
   isEntitySelected: (ref: EntityRef) => boolean;
   /** Get all selected entities for a specific model */
   getSelectedEntitiesForModel: (modelId: string) => number[];
+  /** Set multiple entities for property panel display (e.g., unified storeys) */
+  setSelectedEntities: (refs: EntityRef[]) => void;
 }
 
 export const createSelectionSlice: StateCreator<SelectionSlice, [], [], SelectionSlice> = (set, get) => ({
@@ -63,6 +67,7 @@ export const createSelectionSlice: StateCreator<SelectionSlice, [], [], Selectio
   // Initial state (multi-model)
   selectedEntity: null,
   selectedEntitiesSet: new Set(),
+  selectedEntities: [],
 
   // Actions (legacy - maintained for backward compatibility)
   setSelectedEntityId: (selectedEntityId) => set({ selectedEntityId }),
@@ -137,6 +142,7 @@ export const createSelectionSlice: StateCreator<SelectionSlice, [], [], Selectio
   // The caller should use setSelectedEntityId(globalId) separately for highlighting.
   setSelectedEntity: (ref) => set({
     selectedEntity: ref,
+    selectedEntities: [], // Clear multi-entity selection when setting single entity
     // DO NOT update selectedEntityId here - it would overwrite the globalId with expressId!
     // The renderer needs the globalId in selectedEntityId for highlighting.
   }),
@@ -205,6 +211,7 @@ export const createSelectionSlice: StateCreator<SelectionSlice, [], [], Selectio
   clearEntitySelection: () => set({
     selectedEntity: null,
     selectedEntitiesSet: new Set(),
+    selectedEntities: [],
     selectedEntityId: null,
     selectedEntityIds: new Set(),
   }),
@@ -225,4 +232,10 @@ export const createSelectionSlice: StateCreator<SelectionSlice, [], [], Selectio
     }
     return result;
   },
+
+  setSelectedEntities: (refs) => set({
+    selectedEntities: refs,
+    // Also set the primary selected entity to the first one
+    selectedEntity: refs.length > 0 ? refs[0] : null,
+  }),
 });

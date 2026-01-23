@@ -26,6 +26,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { IfcQuery } from '@ifc-lite/query';
+import type { EntityRef, FederatedModel } from '@/store/types';
+import type { IfcDataStore } from '@ifc-lite/parser';
 
 interface PropertySet {
   name: string;
@@ -40,6 +42,7 @@ interface QuantitySet {
 export function PropertiesPanel() {
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
   const selectedEntity = useViewerStore((s) => s.selectedEntity);
+  const selectedEntities = useViewerStore((s) => s.selectedEntities);
   const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
   const toggleEntityVisibility = useViewerStore((s) => s.toggleEntityVisibility);
   const isEntityVisible = useViewerStore((s) => s.isEntityVisible);
@@ -177,6 +180,17 @@ export function PropertiesPanel() {
     if (entityNode.objectType) attrs.push({ name: 'ObjectType', value: entityNode.objectType });
     return attrs;
   }, [entityNode]);
+
+  // Multi-entity selection (unified storeys) - render combined view
+  if (selectedEntities.length > 1) {
+    return (
+      <MultiEntityPanel
+        entities={selectedEntities}
+        models={models}
+        ifcDataStore={ifcDataStore}
+      />
+    );
+  }
 
   if (!selectedEntityId || !modelQuery) {
     return (
@@ -404,6 +418,208 @@ export function PropertiesPanel() {
           </TabsContent>
         </ScrollArea>
       </Tabs>
+    </div>
+  );
+}
+
+/** Multi-entity panel for unified storeys - shows data from multiple entities stacked */
+function MultiEntityPanel({
+  entities,
+  models,
+  ifcDataStore,
+}: {
+  entities: EntityRef[];
+  models: Map<string, FederatedModel>;
+  ifcDataStore: IfcDataStore | null;
+}) {
+  return (
+    <div className="h-full flex flex-col border-l-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
+      {/* Header */}
+      <div className="p-3 border-b-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-black">
+        <div className="flex items-center gap-2">
+          <Layers className="h-4 w-4 text-emerald-600" />
+          <h2 className="font-bold uppercase tracking-wider text-xs text-zinc-900 dark:text-zinc-100">
+            Unified Storey
+          </h2>
+          <span className="text-[10px] font-mono bg-emerald-100 dark:bg-emerald-900 px-1.5 py-0.5 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+            {entities.length} models
+          </span>
+        </div>
+      </div>
+
+      {/* Scrollable content with each entity's data */}
+      <ScrollArea className="flex-1">
+        <div className="divide-y-2 divide-zinc-200 dark:divide-zinc-800">
+          {entities.map((entityRef, index) => (
+            <EntityDataSection
+              key={`${entityRef.modelId}-${entityRef.expressId}`}
+              entityRef={entityRef}
+              models={models}
+              ifcDataStore={ifcDataStore}
+              showModelName={true}
+            />
+          ))}
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}
+
+/** Renders data for a single entity (used in multi-entity panel) */
+function EntityDataSection({
+  entityRef,
+  models,
+  ifcDataStore,
+  showModelName,
+}: {
+  entityRef: EntityRef;
+  models: Map<string, FederatedModel>;
+  ifcDataStore: IfcDataStore | null;
+  showModelName: boolean;
+}) {
+  // Get the appropriate data store and query
+  const { dataStore, model } = useMemo(() => {
+    if (entityRef.modelId !== 'legacy') {
+      const m = models.get(entityRef.modelId);
+      if (m) {
+        return { dataStore: m.ifcDataStore, model: m };
+      }
+    }
+    return { dataStore: ifcDataStore, model: null };
+  }, [entityRef.modelId, models, ifcDataStore]);
+
+  const query = useMemo(() => {
+    return dataStore ? new IfcQuery(dataStore) : null;
+  }, [dataStore]);
+
+  const entityNode = useMemo(() => {
+    if (!query) return null;
+    return query.entity(entityRef.expressId);
+  }, [query, entityRef.expressId]);
+
+  // Get properties and quantities
+  const properties: PropertySet[] = useMemo(() => {
+    if (!entityNode) return [];
+    const rawProps = entityNode.properties();
+    return rawProps.map(pset => ({
+      name: pset.name,
+      properties: pset.properties.map(p => ({ name: p.name, value: p.value })),
+    }));
+  }, [entityNode]);
+
+  const quantities: QuantitySet[] = useMemo(() => {
+    if (!entityNode) return [];
+    return entityNode.quantities();
+  }, [entityNode]);
+
+  // Get attributes
+  const attributes = useMemo(() => {
+    if (!entityNode) return [];
+    const attrs: Array<{ name: string; value: string }> = [];
+    if (entityNode.globalId) attrs.push({ name: 'GlobalId', value: entityNode.globalId });
+    if (entityNode.name) attrs.push({ name: 'Name', value: entityNode.name });
+    if (entityNode.description) attrs.push({ name: 'Description', value: entityNode.description });
+    if (entityNode.objectType) attrs.push({ name: 'ObjectType', value: entityNode.objectType });
+    return attrs;
+  }, [entityNode]);
+
+  // Get elevation info
+  const elevationInfo = useMemo(() => {
+    if (!dataStore?.spatialHierarchy) return null;
+    const elevation = dataStore.spatialHierarchy.storeyElevations.get(entityRef.expressId);
+    return elevation !== undefined ? elevation : null;
+  }, [dataStore, entityRef.expressId]);
+
+  if (!entityNode) {
+    return (
+      <div className="p-4 text-center text-zinc-500 text-sm">
+        Unable to load entity data
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white dark:bg-black">
+      {/* Entity Header with model name */}
+      <div className="p-3 bg-zinc-50 dark:bg-zinc-900/50 space-y-2">
+        {showModelName && model && (
+          <div className="flex items-center gap-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+            <FileBox className="h-3 w-3" />
+            <span className="font-mono truncate">{model.name}</span>
+          </div>
+        )}
+        <div className="flex items-center gap-2">
+          <Layers className="h-4 w-4 text-emerald-600" />
+          <div className="flex-1 min-w-0">
+            <h3 className="font-bold text-sm truncate text-zinc-900 dark:text-zinc-100">
+              {entityNode.name || `${entityNode.type} #${entityRef.expressId}`}
+            </h3>
+            <p className="text-xs font-mono text-zinc-500">{entityNode.type}</p>
+          </div>
+          {elevationInfo !== null && (
+            <span className="text-[10px] font-mono bg-emerald-100 dark:bg-emerald-950 px-1.5 py-0.5 border border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400">
+              {elevationInfo >= 0 ? '+' : ''}{elevationInfo.toFixed(2)}m
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Attributes */}
+      {attributes.length > 0 && (
+        <Collapsible defaultOpen className="border-b border-zinc-200 dark:border-zinc-800">
+          <CollapsibleTrigger className="flex items-center gap-2 w-full p-2 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-left text-xs">
+            <Tag className="h-3 w-3 text-zinc-400" />
+            <span className="font-medium">Attributes</span>
+            <span className="text-[10px] text-zinc-400 ml-auto">{attributes.length}</span>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="divide-y divide-zinc-100 dark:divide-zinc-900 border-t border-zinc-100 dark:border-zinc-900">
+              {attributes.map((attr) => (
+                <div key={attr.name} className="flex justify-between gap-2 px-3 py-1.5 text-xs">
+                  <span className="text-zinc-500">{attr.name}</span>
+                  <span className="text-right truncate font-medium max-w-[60%]">{attr.value}</span>
+                </div>
+              ))}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+
+      {/* Properties */}
+      {properties.length > 0 && (
+        <Collapsible defaultOpen className="border-b border-zinc-200 dark:border-zinc-800">
+          <CollapsibleTrigger className="flex items-center gap-2 w-full p-2 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-left text-xs">
+            <FileText className="h-3 w-3 text-zinc-400" />
+            <span className="font-medium">Properties</span>
+            <span className="text-[10px] text-zinc-400 ml-auto">{properties.length} sets</span>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="p-2 pt-0 space-y-2">
+              {properties.map((pset) => (
+                <PropertySetCard key={pset.name} pset={pset} />
+              ))}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+
+      {/* Quantities */}
+      {quantities.length > 0 && (
+        <Collapsible defaultOpen className="border-b border-zinc-200 dark:border-zinc-800">
+          <CollapsibleTrigger className="flex items-center gap-2 w-full p-2 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-left text-xs">
+            <Calculator className="h-3 w-3 text-zinc-400" />
+            <span className="font-medium">Quantities</span>
+            <span className="text-[10px] text-zinc-400 ml-auto">{quantities.length} sets</span>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="p-2 pt-0 space-y-2">
+              {quantities.map((qset) => (
+                <QuantitySetCard key={qset.name} qset={qset} />
+              ))}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
     </div>
   );
 }
