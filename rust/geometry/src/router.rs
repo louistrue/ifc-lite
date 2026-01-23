@@ -221,6 +221,126 @@ impl GeometryRouter {
         self.unit_scale
     }
 
+    /// Detect RTC offset by sampling multiple building elements and computing centroid
+    /// This handles federated models where different elements may be in different world locations
+    /// Returns the centroid of sampled element positions if coordinates are large (>10km)
+    pub fn detect_rtc_offset_from_first_element(
+        &self,
+        content: &str,
+        decoder: &mut EntityDecoder,
+    ) -> (f64, f64, f64) {
+        use ifc_lite_core::EntityScanner;
+
+        let mut scanner = EntityScanner::new(content);
+        #[allow(unused_variables)]
+        let mut elements_checked = 0;
+
+        // Collect translations from multiple elements to compute centroid
+        let mut translations: Vec<(f64, f64, f64)> = Vec::new();
+        const MAX_SAMPLES: usize = 50; // Sample up to 50 elements for centroid calculation
+
+        // List of actual building element types that have placements
+        const BUILDING_ELEMENT_TYPES: &[&str] = &[
+            "IFCWALL", "IFCWALLSTANDARDCASE", "IFCSLAB", "IFCBEAM", "IFCCOLUMN",
+            "IFCPLATE", "IFCROOF", "IFCCOVERING", "IFCFOOTING", "IFCRAILING",
+            "IFCSTAIR", "IFCSTAIRFLIGHT", "IFCRAMP", "IFCRAMPFLIGHT",
+            "IFCDOOR", "IFCWINDOW", "IFCFURNISHINGELEMENT", "IFCBUILDINGELEMENTPROXY",
+            "IFCMEMBER", "IFCCURTAINWALL", "IFCPILE", "IFCSHADINGDEVICE",
+        ];
+
+        // Sample building elements to collect their world positions
+        while let Some((id, type_name, start, end)) = scanner.next_entity() {
+            if translations.len() >= MAX_SAMPLES {
+                break;
+            }
+
+            // Check if this is an actual building element type
+            if !BUILDING_ELEMENT_TYPES.iter().any(|&t| t == type_name) {
+                continue;
+            }
+
+            elements_checked += 1;
+
+            // Decode the element
+            if let Ok(entity) = decoder.decode_at(start, end) {
+                // Check if it has representation
+                let has_rep = entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
+                if !has_rep {
+                    continue;
+                }
+
+                // Get placement transform - this contains the world offset
+                if let Ok(transform) = self.get_placement_transform_from_element(&entity, decoder) {
+                    let tx = transform[(0, 3)];
+                    let ty = transform[(1, 3)];
+                    let tz = transform[(2, 3)];
+
+                    // Only collect if coordinates are valid
+                    if tx.is_finite() && ty.is_finite() && tz.is_finite() {
+                        translations.push((tx, ty, tz));
+
+                        // Log first element found (WASM only)
+                        #[cfg(target_arch = "wasm32")]
+                        if translations.len() == 1 {
+                            web_sys::console::log_1(&format!(
+                                "[RTC DETECT] First element #{} ({}): ({:.2},{:.2},{:.2})",
+                                id, type_name, tx, ty, tz
+                            ).into());
+                        }
+                    }
+                }
+            }
+        }
+
+        if translations.is_empty() {
+            #[cfg(target_arch = "wasm32")]
+            web_sys::console::log_1(&format!(
+                "[RTC DETECT] Checked {} elements, no valid transforms found",
+                elements_checked
+            ).into());
+            return (0.0, 0.0, 0.0);
+        }
+
+        // Compute median-based centroid for robustness against outliers
+        // Sort each coordinate dimension separately and take median
+        let mut x_coords: Vec<f64> = translations.iter().map(|(x, _, _)| *x).collect();
+        let mut y_coords: Vec<f64> = translations.iter().map(|(_, y, _)| *y).collect();
+        let mut z_coords: Vec<f64> = translations.iter().map(|(_, _, z)| *z).collect();
+
+        x_coords.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        y_coords.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        z_coords.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        let median_idx = x_coords.len() / 2;
+        let centroid = (
+            x_coords[median_idx],
+            y_coords[median_idx],
+            z_coords[median_idx],
+        );
+
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!(
+            "[RTC DETECT] Sampled {} elements, median=({:.2},{:.2},{:.2})",
+            translations.len(), centroid.0, centroid.1, centroid.2
+        ).into());
+
+        // Check if centroid is large (>10km from origin)
+        const THRESHOLD: f64 = 10000.0;
+        if centroid.0.abs() > THRESHOLD || centroid.1.abs() > THRESHOLD || centroid.2.abs() > THRESHOLD {
+            #[cfg(target_arch = "wasm32")]
+            web_sys::console::log_1(&format!(
+                "[RTC DETECT] Large coords detected! Using median as RTC offset: ({:.2},{:.2},{:.2})",
+                centroid.0, centroid.1, centroid.2
+            ).into());
+            return centroid;
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&"[RTC DETECT] Coordinates within normal range, no RTC needed".into());
+
+        (0.0, 0.0, 0.0)
+    }
+
     /// Scale mesh positions from file units to meters
     /// Only applies scaling if unit_scale != 1.0
     #[inline]

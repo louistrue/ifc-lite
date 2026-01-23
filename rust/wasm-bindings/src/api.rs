@@ -387,14 +387,8 @@ impl IfcAPI {
     /// ```
     #[wasm_bindgen(js_name = parseMeshes)]
     pub fn parse_meshes(&self, content: String) -> MeshCollection {
-        use ifc_lite_core::{build_entity_index, scan_model_bounds, EntityDecoder, EntityScanner};
+        use ifc_lite_core::{build_entity_index, EntityDecoder, EntityScanner};
         use ifc_lite_geometry::{calculate_normals, GeometryRouter};
-
-        // FIRST PASS: Scan model bounds in f64 precision for RTC offset calculation
-        // This is crucial for large coordinates (Swiss UTM, etc.) to avoid Float32 precision loss
-        let model_bounds = scan_model_bounds(&content);
-        let rtc_offset = model_bounds.rtc_offset();
-        let needs_shift = model_bounds.has_large_coordinates();
 
         // Build entity index once upfront for O(1) lookups
         let entity_index = build_entity_index(&content);
@@ -427,10 +421,28 @@ impl IfcAPI {
             }
         }
 
-        // Create geometry router with RTC offset for precision preservation
-        // The router will apply the RTC offset DURING transformation (in f64, before f32 conversion)
-        // This is the key fix for large coordinate precision!
-        let router = GeometryRouter::with_units_and_rtc(&content, &mut decoder, rtc_offset);
+        // Create geometry router (without RTC offset initially)
+        let mut router = GeometryRouter::with_units(&content, &mut decoder);
+
+        // DETECT RTC OFFSET from actual building element transforms
+        // This is more reliable than scanning cartesian points because it uses
+        // the actual transform chain (which accumulates to world coordinates)
+        let rtc_offset = router.detect_rtc_offset_from_first_element(&content, &mut decoder);
+        let needs_shift = rtc_offset.0.abs() > 10000.0
+            || rtc_offset.1.abs() > 10000.0
+            || rtc_offset.2.abs() > 10000.0;
+
+        if needs_shift {
+            router.set_rtc_offset(rtc_offset);
+        }
+
+        // DEBUG: Log detected RTC offset
+        web_sys::console::log_1(&format!(
+            "[WASM DEBUG] Detected RTC from transform: needs_shift={}, rtc_offset=({:.2},{:.2},{:.2}), has_rtc={}",
+            needs_shift,
+            rtc_offset.0, rtc_offset.1, rtc_offset.2,
+            router.has_rtc_offset()
+        ).into());
 
         // Batch preprocess FacetedBrep entities for maximum parallelism
         // This triangulates ALL faces from ALL BREPs in one parallel batch
@@ -448,6 +460,12 @@ impl IfcAPI {
         // Store RTC offset in collection for JavaScript to use (for camera/world coordinate display)
         if needs_shift {
             mesh_collection.set_rtc_offset(rtc_offset.0, rtc_offset.1, rtc_offset.2);
+            web_sys::console::log_1(&format!(
+                "[WASM DEBUG] Setting RTC offset on MeshCollection: ({:.2},{:.2},{:.2})",
+                rtc_offset.0, rtc_offset.1, rtc_offset.2
+            ).into());
+        } else {
+            web_sys::console::log_1(&"[WASM DEBUG] No RTC offset needed (small coordinates)".into());
         }
 
         // Process all building elements
@@ -1788,12 +1806,8 @@ impl IfcAPI {
     /// ```
     #[wasm_bindgen(js_name = parseToGpuGeometry)]
     pub fn parse_to_gpu_geometry(&self, content: String) -> GpuGeometry {
-        use ifc_lite_core::{build_entity_index, scan_model_bounds, EntityDecoder, EntityScanner};
+        use ifc_lite_core::{build_entity_index, EntityDecoder, EntityScanner};
         use ifc_lite_geometry::{calculate_normals, GeometryRouter};
-
-        // FIRST PASS: Scan model bounds for RTC offset calculation
-        let model_bounds = scan_model_bounds(&content);
-        let rtc_offset = model_bounds.rtc_offset();
 
         // Build entity index once upfront for O(1) lookups
         let entity_index = build_entity_index(&content);
@@ -1822,8 +1836,18 @@ impl IfcAPI {
             }
         }
 
-        // Create geometry router with RTC offset for precision preservation
-        let router = GeometryRouter::with_units_and_rtc(&content, &mut decoder, rtc_offset);
+        // Create geometry router (without RTC offset initially)
+        let mut router = GeometryRouter::with_units(&content, &mut decoder);
+
+        // DETECT RTC OFFSET from actual building element transforms
+        let rtc_offset = router.detect_rtc_offset_from_first_element(&content, &mut decoder);
+        let needs_shift = rtc_offset.0.abs() > 10000.0
+            || rtc_offset.1.abs() > 10000.0
+            || rtc_offset.2.abs() > 10000.0;
+
+        if needs_shift {
+            router.set_rtc_offset(rtc_offset);
+        }
 
         // Batch preprocess FacetedBreps
         if !faceted_brep_ids.is_empty() {
