@@ -470,14 +470,16 @@ export function useIfc() {
   }, [setProgress, setIfcDataStore, setGeometryResult]);
 
   const loadFile = useCallback(async (file: File) => {
-    const { resetViewerState } = useViewerStore.getState();
+    const { resetViewerState, clearAllModels } = useViewerStore.getState();
 
     // Track total elapsed time for complete user experience
     const totalStartTime = performance.now();
-    
+
     try {
       // Reset all viewer state before loading new file
+      // Also clear models Map to ensure clean single-file state
       resetViewerState();
+      clearAllModels();
 
       setLoading(true);
       setError(null);
