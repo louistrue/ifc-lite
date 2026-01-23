@@ -640,7 +640,7 @@ export function HierarchyPanel() {
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >
-                  <div className="flex items-center gap-2 px-2 pt-2 pb-3 bg-zinc-100 dark:bg-zinc-900 border-t-2 border-b border-zinc-200 dark:border-zinc-800 mt-2">
+                  <div className="flex items-center gap-2 px-2 h-full bg-zinc-100 dark:bg-zinc-900 border-t-2 border-b border-zinc-200 dark:border-zinc-800">
                     <FileBox className="h-3.5 w-3.5 text-zinc-500" />
                     <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
                       Models

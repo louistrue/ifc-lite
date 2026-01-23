@@ -286,14 +286,6 @@ export function PropertiesPanel() {
           </div>
         )}
 
-        {/* Model Source (when multiple models loaded) */}
-        {models.size > 1 && model && (
-          <div className="flex items-center gap-2 text-xs border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 px-2 py-1.5 text-zinc-600 dark:text-zinc-400 min-w-0">
-            <FileBox className="h-3.5 w-3.5 shrink-0 text-primary" />
-            <span className="font-mono truncate min-w-0 flex-1">{model.name}</span>
-          </div>
-        )}
-
         {/* Spatial Location */}
         {spatialInfo && (
           <div className="flex items-center gap-2 text-xs border border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-900/10 px-2 py-1.5 text-emerald-800 dark:text-emerald-400 min-w-0">
@@ -327,6 +319,14 @@ export function PropertiesPanel() {
                 </Tooltip>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Model Source (when multiple models loaded) - below storey, less prominent */}
+        {models.size > 1 && model && (
+          <div className="flex items-center gap-2 text-[11px] px-2 py-1 text-zinc-400 dark:text-zinc-500 min-w-0">
+            <FileBox className="h-3 w-3 shrink-0" />
+            <span className="font-mono truncate min-w-0 flex-1">{model.name}</span>
           </div>
         )}
       </div>
