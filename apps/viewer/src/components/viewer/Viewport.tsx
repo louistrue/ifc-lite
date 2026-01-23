@@ -46,21 +46,22 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
   // Selection state
   const { selectedEntityId, selectedEntityIds, setSelectedEntityId, setSelectedEntity, toggleSelection, models } = useSelectionState();
 
-  // Helper to find which model contains an expressId and set selection properly
-  const selectEntityWithModel = (expressId: number | null) => {
-    setSelectedEntityId(expressId);
-    if (expressId !== null && models.size > 0) {
-      // Find which model contains this expressId
-      for (const [modelId, model] of models) {
-        if (model.ifcDataStore?.entities?.getTypeName(expressId)) {
-          setSelectedEntity({ modelId, expressId });
-          return;
-        }
+  // When selectedEntityId changes, find which model it belongs to and update selectedEntity
+  useEffect(() => {
+    if (selectedEntityId === null) {
+      setSelectedEntity(null);
+      return;
+    }
+    // Find which model contains this expressId
+    for (const [modelId, model] of models) {
+      if (model.ifcDataStore?.entities?.getTypeName(selectedEntityId)) {
+        setSelectedEntity({ modelId, expressId: selectedEntityId });
+        return;
       }
     }
-    // Clear entity selection if no expressId or not found in any model
+    // Not found in any model (legacy single-model or not found)
     setSelectedEntity(null);
-  };
+  }, [selectedEntityId, models, setSelectedEntity]);
 
   // Visibility state - use computedIsolatedIds from parent (includes storey selection)
   // Fall back to store isolation if computedIsolatedIds is not provided
@@ -1131,7 +1132,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
           // Uses visibility filtering so only visible elements can be selected
           const pickedId = await renderer.pick(x, y, getPickOptions());
           if (pickedId) {
-            selectEntityWithModel(pickedId);
+            setSelectedEntityId(pickedId);
           }
           lastClickTimeRef.current = 0;
           lastClickPosRef.current = null;
@@ -1145,7 +1146,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
               toggleSelection(pickedId);
             }
           } else {
-            selectEntityWithModel(pickedId);
+            setSelectedEntityId(pickedId);
           }
 
           lastClickTimeRef.current = now;
