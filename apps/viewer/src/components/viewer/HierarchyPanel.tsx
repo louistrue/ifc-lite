@@ -19,6 +19,7 @@ import {
   LayoutTemplate,
   FileBox,
   X,
+  GripHorizontal,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -126,6 +127,11 @@ export function HierarchyPanel() {
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [hasInitializedExpansion, setHasInitializedExpansion] = useState(false);
+
+  // Resizable panel split (percentage for storeys section, 0.5 = 50%)
+  const [splitRatio, setSplitRatio] = useState(0.5);
+  const [isDragging, setIsDragging] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Check if we have multiple models loaded
   const isMultiModel = models.size > 1;
@@ -521,14 +527,85 @@ export function HierarchyPanel() {
     );
   }, [treeData, searchQuery]);
 
-  const parentRef = useRef<HTMLDivElement>(null);
+  // Split filtered nodes into storeys and models sections (for multi-model mode)
+  const { storeysNodes, modelsNodes } = useMemo(() => {
+    if (!isMultiModel) {
+      // Single model mode - all nodes go in storeys section (which is the full hierarchy)
+      return { storeysNodes: filteredNodes, modelsNodes: [] };
+    }
 
+    // Find the models-header index to split
+    const modelsHeaderIdx = filteredNodes.findIndex(n => n.id === 'models-header');
+    if (modelsHeaderIdx === -1) {
+      return { storeysNodes: filteredNodes, modelsNodes: [] };
+    }
+
+    return {
+      storeysNodes: filteredNodes.slice(0, modelsHeaderIdx),
+      modelsNodes: filteredNodes.slice(modelsHeaderIdx + 1), // Skip the models-header itself
+    };
+  }, [filteredNodes, isMultiModel]);
+
+  // Refs for both scroll areas
+  const storeysRef = useRef<HTMLDivElement>(null);
+  const modelsRef = useRef<HTMLDivElement>(null);
+  const parentRef = useRef<HTMLDivElement>(null); // Legacy single-model mode
+
+  // Virtualizers for both sections
+  const storeysVirtualizer = useVirtualizer({
+    count: storeysNodes.length,
+    getScrollElement: () => storeysRef.current,
+    estimateSize: () => 36,
+    overscan: 10,
+  });
+
+  const modelsVirtualizer = useVirtualizer({
+    count: modelsNodes.length,
+    getScrollElement: () => modelsRef.current,
+    estimateSize: () => 36,
+    overscan: 10,
+  });
+
+  // Legacy virtualizer for single-model mode
   const virtualizer = useVirtualizer({
     count: filteredNodes.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 36,
     overscan: 10,
   });
+
+  // Resize handler for draggable divider
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!containerRef.current) return;
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const relativeY = e.clientY - containerRect.top;
+      // Account for the search header height (~70px)
+      const headerHeight = 70;
+      const availableHeight = containerRect.height - headerHeight;
+      const newRatio = Math.max(0.15, Math.min(0.85, (relativeY - headerHeight) / availableHeight));
+      setSplitRatio(newRatio);
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
 
   const toggleExpand = useCallback((nodeId: string) => {
     setExpandedNodes(prev => {
@@ -735,13 +812,379 @@ export function HierarchyPanel() {
     );
   }
 
+  // Helper function to render a node
+  const renderNode = (node: TreeNode, virtualRow: { index: number; size: number; start: number }, nodeList: TreeNode[]) => {
+    const Icon = TYPE_ICONS[node.type] || TYPE_ICONS.default;
+
+    // Determine if node is selected
+    const isSelected = node.type === 'unified-storey'
+      ? node.expressIds.some(id => selectedStoreys.has(id))
+      : node.type === 'IfcBuildingStorey'
+        ? selectedStoreys.has(node.expressIds[0])
+        : node.type === 'element'
+          ? selectedEntityId === node.expressIds[0]
+          : false;
+
+    const nodeHidden = !node.isVisible;
+
+    // Model header nodes (for visibility control and expansion)
+    if (node.type === 'model-header' && node.id.startsWith('model-')) {
+      const modelId = node.modelIds[0];
+      const model = models.get(modelId);
+
+      return (
+        <div
+          key={node.id}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: `${virtualRow.size}px`,
+            transform: `translateY(${virtualRow.start}px)`,
+          }}
+        >
+          <div
+            className={cn(
+              'flex items-center gap-1 px-2 py-1.5 border-l-4 transition-all group',
+              'hover:bg-zinc-50 dark:hover:bg-zinc-900',
+              'border-transparent',
+              !model?.visible && 'opacity-50',
+              node.hasChildren && 'cursor-pointer'
+            )}
+            style={{ paddingLeft: '8px' }}
+            onClick={() => {
+              setSelectedModelId(modelId);
+              if (node.hasChildren) toggleExpand(node.id);
+            }}
+          >
+            {/* Expand/collapse chevron */}
+            {node.hasChildren ? (
+              <ChevronRight
+                className={cn(
+                  'h-3.5 w-3.5 text-zinc-400 transition-transform shrink-0',
+                  node.isExpanded && 'rotate-90'
+                )}
+              />
+            ) : (
+              <div className="w-3.5" />
+            )}
+
+            <FileBox className="h-3.5 w-3.5 text-primary shrink-0" />
+            <span className="flex-1 text-sm truncate ml-1.5 text-zinc-900 dark:text-zinc-100">
+              {node.name}
+            </span>
+
+            {node.elementCount !== undefined && (
+              <span className="text-[10px] font-mono bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 text-zinc-500 dark:text-zinc-400 rounded-none">
+                {node.elementCount.toLocaleString()}
+              </span>
+            )}
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleModelVisibilityToggle(modelId, e);
+                  }}
+                  className="p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  {model?.visible ? (
+                    <Eye className="h-3.5 w-3.5 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
+                  ) : (
+                    <EyeOff className="h-3.5 w-3.5 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">{model?.visible ? 'Hide model' : 'Show model'}</p>
+              </TooltipContent>
+            </Tooltip>
+
+            {models.size > 1 && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemoveModel(modelId, e);
+                    }}
+                    className="p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <X className="h-3.5 w-3.5 text-zinc-400 hover:text-red-500" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">Remove model</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // Regular node rendering (spatial hierarchy nodes and elements)
+    return (
+      <div
+        key={node.id}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: `${virtualRow.size}px`,
+          transform: `translateY(${virtualRow.start}px)`,
+        }}
+      >
+        <div
+          className={cn(
+            'flex items-center gap-1 px-2 py-1.5 border-l-4 transition-all group hierarchy-item',
+            // No selection styling for spatial containers in multi-model mode
+            isMultiModel && isSpatialContainer(node.type)
+              ? 'border-transparent cursor-default'
+              : cn(
+                  'cursor-pointer',
+                  isSelected ? 'border-l-primary font-medium selected' : 'border-transparent'
+                ),
+            nodeHidden && 'opacity-50 grayscale'
+          )}
+          style={{
+            paddingLeft: `${node.depth * 16 + 8}px`,
+            // No selection highlighting for spatial containers in multi-model mode
+            backgroundColor: isSelected && !(isMultiModel && isSpatialContainer(node.type))
+              ? 'var(--hierarchy-selected-bg)' : undefined,
+            color: isSelected && !(isMultiModel && isSpatialContainer(node.type))
+              ? 'var(--hierarchy-selected-text)' : undefined,
+          }}
+          onClick={(e) => {
+            if ((e.target as HTMLElement).closest('button') === null) {
+              handleNodeClick(node, e);
+            }
+          }}
+          onMouseDown={(e) => {
+            if ((e.target as HTMLElement).closest('button') === null) {
+              e.preventDefault();
+            }
+          }}
+        >
+          {/* Expand/Collapse */}
+          {node.hasChildren ? (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleExpand(node.id);
+              }}
+              className="p-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-none mr-1"
+            >
+              <ChevronRight
+                className={cn(
+                  'h-3.5 w-3.5 transition-transform duration-200',
+                  node.isExpanded && 'rotate-90'
+                )}
+              />
+            </button>
+          ) : (
+            <div className="w-5" />
+          )}
+
+          {/* Visibility Toggle - hide for spatial containers (Project/Site/Building) in multi-model mode */}
+          {!(isMultiModel && isSpatialContainer(node.type)) && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleVisibilityToggle(node);
+                  }}
+                  className={cn(
+                    'p-0.5 opacity-0 group-hover:opacity-100 transition-opacity mr-1',
+                    nodeHidden && 'opacity-100'
+                  )}
+                >
+                  {node.isVisible ? (
+                    <Eye className="h-3 w-3 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
+                  ) : (
+                    <EyeOff className="h-3 w-3 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">
+                  {node.isVisible ? 'Hide' : 'Show'}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+
+          {/* Type Icon */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Icon className="h-3.5 w-3.5 shrink-0 text-zinc-500 dark:text-zinc-400" />
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="text-xs">{node.type}</p>
+            </TooltipContent>
+          </Tooltip>
+
+          {/* Name */}
+          <span className={cn(
+            'flex-1 text-sm truncate ml-1.5',
+            isSpatialContainer(node.type)
+              ? 'font-medium text-zinc-900 dark:text-zinc-100'
+              : 'text-zinc-700 dark:text-zinc-300',
+            nodeHidden && 'line-through decoration-zinc-400 dark:decoration-zinc-600'
+          )}>{node.name}</span>
+
+          {/* Storey Elevation */}
+          {node.storeyElevation !== undefined && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="text-[10px] font-mono bg-emerald-100 dark:bg-emerald-950 px-1.5 py-0.5 border border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 rounded-none">
+                  {node.storeyElevation >= 0 ? '+' : ''}{node.storeyElevation.toFixed(2)}m
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Elevation: {node.storeyElevation >= 0 ? '+' : ''}{node.storeyElevation.toFixed(2)}m</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+
+          {/* Element Count */}
+          {node.elementCount !== undefined && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="text-[10px] font-mono bg-zinc-100 dark:bg-zinc-950 px-1.5 py-0.5 border border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 rounded-none">
+                  {node.elementCount}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">{node.elementCount} {node.elementCount === 1 ? 'element' : 'elements'}</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Section header component
+  const SectionHeader = ({ icon: IconComponent, title, count }: { icon: React.ElementType; title: string; count?: number }) => (
+    <div className="flex items-center gap-2 px-3 py-2 bg-zinc-100 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800">
+      <IconComponent className="h-3.5 w-3.5 text-zinc-500" />
+      <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-400">
+        {title}
+      </span>
+      {count !== undefined && (
+        <span className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500 ml-auto">
+          {count}
+        </span>
+      )}
+    </div>
+  );
+
+  // Multi-model layout with resizable split
+  if (isMultiModel) {
+    return (
+      <div ref={containerRef} className="h-full flex flex-col border-r-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
+        {/* Search Header */}
+        <div className="p-3 border-b-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-black">
+          <Input
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            leftIcon={<Search className="h-4 w-4" />}
+            className="h-9 text-sm rounded-none border-2 border-zinc-200 dark:border-zinc-800 focus:border-primary focus:ring-0 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600"
+          />
+        </div>
+
+        {/* Resizable content area */}
+        <div className="flex-1 flex flex-col min-h-0">
+          {/* Storeys Section */}
+          <div style={{ height: `${splitRatio * 100}%` }} className="flex flex-col min-h-0">
+            <SectionHeader icon={Layers} title="Building Storeys" count={storeysNodes.length} />
+            <div ref={storeysRef} className="flex-1 overflow-auto scrollbar-thin bg-white dark:bg-black">
+              <div
+                style={{
+                  height: `${storeysVirtualizer.getTotalSize()}px`,
+                  width: '100%',
+                  position: 'relative',
+                }}
+              >
+                {storeysVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const node = storeysNodes[virtualRow.index];
+                  return renderNode(node, virtualRow, storeysNodes);
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Resizable Divider */}
+          <div
+            className={cn(
+              'flex items-center justify-center h-2 cursor-ns-resize border-y border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors',
+              isDragging && 'bg-primary/20'
+            )}
+            onMouseDown={handleResizeStart}
+          >
+            <GripHorizontal className="h-3 w-3 text-zinc-400" />
+          </div>
+
+          {/* Models Section */}
+          <div style={{ height: `${(1 - splitRatio) * 100}%` }} className="flex flex-col min-h-0">
+            <SectionHeader icon={FileBox} title="Models" count={models.size} />
+            <div ref={modelsRef} className="flex-1 overflow-auto scrollbar-thin bg-white dark:bg-black">
+              <div
+                style={{
+                  height: `${modelsVirtualizer.getTotalSize()}px`,
+                  width: '100%',
+                  position: 'relative',
+                }}
+              >
+                {modelsVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const node = modelsNodes[virtualRow.index];
+                  return renderNode(node, virtualRow, modelsNodes);
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer status */}
+        {selectedStoreys.size > 0 ? (
+          <div className="p-2 border-t-2 border-zinc-200 dark:border-zinc-800 bg-primary text-white dark:bg-primary">
+            <div className="flex items-center justify-between text-xs font-medium">
+              <span className="uppercase tracking-wide">
+                {selectedStoreys.size} {selectedStoreys.size === 1 ? 'STOREY' : 'STOREYS'} FILTERED
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="opacity-70 text-[10px] font-mono">ESC</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-[10px] uppercase border border-white/20 hover:bg-white/20 hover:text-white rounded-none px-2"
+                  onClick={clearStoreySelection}
+                >
+                  Clear
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="p-2 border-t-2 border-zinc-200 dark:border-zinc-800 text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-500 text-center bg-zinc-50 dark:bg-black font-mono">
+            {models.size} models · Drag divider to resize
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Single model layout
   return (
     <div className="h-full flex flex-col border-r-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
       {/* Header */}
-      <div className="p-3 border-b-2 border-zinc-200 dark:border-zinc-800 space-y-3 bg-zinc-50 dark:bg-black">
-        <h2 className="font-bold uppercase tracking-wider text-xs text-zinc-900 dark:text-zinc-100">
-          {isMultiModel ? 'Building Storeys' : 'Hierarchy'}
-        </h2>
+      <div className="p-3 border-b-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-black">
         <Input
           placeholder="Search..."
           value={searchQuery}
@@ -750,6 +1193,9 @@ export function HierarchyPanel() {
           className="h-9 text-sm rounded-none border-2 border-zinc-200 dark:border-zinc-800 focus:border-primary focus:ring-0 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600"
         />
       </div>
+
+      {/* Section Header */}
+      <SectionHeader icon={Building2} title="Hierarchy" count={filteredNodes.length} />
 
       {/* Tree */}
       <div ref={parentRef} className="flex-1 overflow-auto scrollbar-thin bg-white dark:bg-black">
@@ -762,283 +1208,7 @@ export function HierarchyPanel() {
         >
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const node = filteredNodes[virtualRow.index];
-            const Icon = TYPE_ICONS[node.type] || TYPE_ICONS.default;
-
-            // Determine if node is selected
-            const isSelected = node.type === 'unified-storey'
-              ? node.expressIds.some(id => selectedStoreys.has(id))
-              : node.type === 'IfcBuildingStorey'
-                ? selectedStoreys.has(node.expressIds[0])
-                : node.type === 'element'
-                  ? selectedEntityId === node.expressIds[0]
-                  : false;
-
-            const nodeHidden = !node.isVisible;
-
-            // Special rendering for "Models" section header
-            if (node.id === 'models-header') {
-              return (
-                <div
-                  key={node.id}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: `${virtualRow.size}px`,
-                    transform: `translateY(${virtualRow.start}px)`,
-                  }}
-                >
-                  <div className="flex items-center gap-2 px-2 h-full bg-zinc-100 dark:bg-zinc-900 border-t-2 border-b border-zinc-200 dark:border-zinc-800">
-                    <FileBox className="h-3.5 w-3.5 text-zinc-500" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                      Models
-                    </span>
-                  </div>
-                </div>
-              );
-            }
-
-            // Model header nodes (for visibility control and expansion)
-            if (node.type === 'model-header' && node.id.startsWith('model-')) {
-              const modelId = node.modelIds[0];
-              const model = models.get(modelId);
-
-              return (
-                <div
-                  key={node.id}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: `${virtualRow.size}px`,
-                    transform: `translateY(${virtualRow.start}px)`,
-                  }}
-                >
-                  <div
-                    className={cn(
-                      'flex items-center gap-1 px-2 py-1.5 border-l-4 transition-all group',
-                      'hover:bg-zinc-50 dark:hover:bg-zinc-900',
-                      'border-transparent',
-                      !model?.visible && 'opacity-50',
-                      node.hasChildren && 'cursor-pointer'
-                    )}
-                    style={{ paddingLeft: '8px' }}
-                    onClick={() => {
-                      setSelectedModelId(modelId);
-                      if (node.hasChildren) toggleExpand(node.id);
-                    }}
-                  >
-                    {/* Expand/collapse chevron */}
-                    {node.hasChildren ? (
-                      <ChevronRight
-                        className={cn(
-                          'h-3.5 w-3.5 text-zinc-400 transition-transform shrink-0',
-                          node.isExpanded && 'rotate-90'
-                        )}
-                      />
-                    ) : (
-                      <div className="w-3.5" />
-                    )}
-
-                    <FileBox className="h-3.5 w-3.5 text-primary shrink-0" />
-                    <span className="flex-1 text-sm truncate ml-1.5 text-zinc-900 dark:text-zinc-100">
-                      {node.name}
-                    </span>
-
-                    {node.elementCount !== undefined && (
-                      <span className="text-[10px] font-mono bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 text-zinc-500 dark:text-zinc-400 rounded-none">
-                        {node.elementCount.toLocaleString()}
-                      </span>
-                    )}
-
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleModelVisibilityToggle(modelId, e);
-                          }}
-                          className="p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          {model?.visible ? (
-                            <Eye className="h-3.5 w-3.5 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
-                          ) : (
-                            <EyeOff className="h-3.5 w-3.5 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
-                          )}
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="text-xs">{model?.visible ? 'Hide model' : 'Show model'}</p>
-                      </TooltipContent>
-                    </Tooltip>
-
-                    {models.size > 1 && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRemoveModel(modelId, e);
-                            }}
-                            className="p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <X className="h-3.5 w-3.5 text-zinc-400 hover:text-red-500" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p className="text-xs">Remove model</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
-                  </div>
-                </div>
-              );
-            }
-
-            // Regular node rendering (spatial hierarchy nodes and elements)
-            return (
-              <div
-                key={node.id}
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '100%',
-                  height: `${virtualRow.size}px`,
-                  transform: `translateY(${virtualRow.start}px)`,
-                }}
-              >
-                <div
-                  className={cn(
-                    'flex items-center gap-1 px-2 py-1.5 border-l-4 transition-all group hierarchy-item',
-                    // No selection styling for spatial containers in multi-model mode
-                    isMultiModel && isSpatialContainer(node.type)
-                      ? 'border-transparent cursor-default'
-                      : cn(
-                          'cursor-pointer',
-                          isSelected ? 'border-l-primary font-medium selected' : 'border-transparent'
-                        ),
-                    nodeHidden && 'opacity-50 grayscale'
-                  )}
-                  style={{
-                    paddingLeft: `${node.depth * 16 + 8}px`,
-                    // No selection highlighting for spatial containers in multi-model mode
-                    backgroundColor: isSelected && !(isMultiModel && isSpatialContainer(node.type))
-                      ? 'var(--hierarchy-selected-bg)' : undefined,
-                    color: isSelected && !(isMultiModel && isSpatialContainer(node.type))
-                      ? 'var(--hierarchy-selected-text)' : undefined,
-                  }}
-                  onClick={(e) => {
-                    if ((e.target as HTMLElement).closest('button') === null) {
-                      handleNodeClick(node, e);
-                    }
-                  }}
-                  onMouseDown={(e) => {
-                    if ((e.target as HTMLElement).closest('button') === null) {
-                      e.preventDefault();
-                    }
-                  }}
-                >
-                  {/* Expand/Collapse */}
-                  {node.hasChildren ? (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleExpand(node.id);
-                      }}
-                      className="p-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-none mr-1"
-                    >
-                      <ChevronRight
-                        className={cn(
-                          'h-3.5 w-3.5 transition-transform duration-200',
-                          node.isExpanded && 'rotate-90'
-                        )}
-                      />
-                    </button>
-                  ) : (
-                    <div className="w-5" />
-                  )}
-
-                  {/* Visibility Toggle - hide for spatial containers (Project/Site/Building) in multi-model mode */}
-                  {!(isMultiModel && isSpatialContainer(node.type)) && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleVisibilityToggle(node);
-                          }}
-                          className={cn(
-                            'p-0.5 opacity-0 group-hover:opacity-100 transition-opacity mr-1',
-                            nodeHidden && 'opacity-100'
-                          )}
-                        >
-                          {node.isVisible ? (
-                            <Eye className="h-3 w-3 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
-                          ) : (
-                            <EyeOff className="h-3 w-3 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100" />
-                          )}
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="text-xs">
-                          {node.isVisible ? 'Hide' : 'Show'}
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-
-                  {/* Type Icon */}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Icon className="h-3.5 w-3.5 shrink-0 text-zinc-500 dark:text-zinc-400" />
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="text-xs">{node.type}</p>
-                    </TooltipContent>
-                  </Tooltip>
-
-                  {/* Name */}
-                  <span className={cn(
-                    'flex-1 text-sm truncate ml-1.5',
-                    isSpatialContainer(node.type)
-                      ? 'font-medium text-zinc-900 dark:text-zinc-100'
-                      : 'text-zinc-700 dark:text-zinc-300',
-                    nodeHidden && 'line-through decoration-zinc-400 dark:decoration-zinc-600'
-                  )}>{node.name}</span>
-
-                  {/* Storey Elevation */}
-                  {node.storeyElevation !== undefined && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="text-[10px] font-mono bg-emerald-100 dark:bg-emerald-950 px-1.5 py-0.5 border border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 rounded-none">
-                          {node.storeyElevation >= 0 ? '+' : ''}{node.storeyElevation.toFixed(2)}m
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="text-xs">Elevation: {node.storeyElevation >= 0 ? '+' : ''}{node.storeyElevation.toFixed(2)}m</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-
-                  {/* Element Count */}
-                  {node.elementCount !== undefined && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="text-[10px] font-mono bg-zinc-100 dark:bg-zinc-950 px-1.5 py-0.5 border border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 rounded-none">
-                          {node.elementCount}
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="text-xs">{node.elementCount} {node.elementCount === 1 ? 'element' : 'elements'}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                </div>
-              </div>
-            );
+            return renderNode(node, virtualRow, filteredNodes);
           })}
         </div>
       </div>
@@ -1062,10 +1232,6 @@ export function HierarchyPanel() {
               </Button>
             </div>
           </div>
-        </div>
-      ) : isMultiModel ? (
-        <div className="p-2 border-t-2 border-zinc-200 dark:border-zinc-800 text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-500 text-center bg-zinc-50 dark:bg-black font-mono">
-          {models.size} models · Click storey to filter all
         </div>
       ) : (
         <div className="p-2 border-t-2 border-zinc-200 dark:border-zinc-800 text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-500 text-center bg-zinc-50 dark:bg-black font-mono">
