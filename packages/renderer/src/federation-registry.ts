@@ -46,6 +46,14 @@ export class FederationRegistry {
    * @returns The offset to add to all expressIds for this model
    */
   registerModel(modelId: string, maxExpressId: number): number {
+    // Validate inputs
+    if (!modelId || typeof modelId !== 'string') {
+      throw new Error(`[FederationRegistry] Invalid modelId: ${modelId}`);
+    }
+    if (typeof maxExpressId !== 'number' || !Number.isFinite(maxExpressId) || maxExpressId < 0) {
+      throw new Error(`[FederationRegistry] Invalid maxExpressId: ${maxExpressId} for model ${modelId}`);
+    }
+
     // Check for duplicate registration
     if (this.modelRanges.has(modelId)) {
       const existing = this.modelRanges.get(modelId)!;

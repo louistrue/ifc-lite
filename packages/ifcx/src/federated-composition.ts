@@ -162,7 +162,7 @@ export function composeFederated(
 
   for (const [path] of preComposed) {
     if (!composed.has(path)) {
-      composeNode(path, preComposed, composed, new Set(), layers);
+      composeNode(path, preComposed, composed, new Set(), layers, pathIndex);
     }
   }
 
@@ -346,7 +346,8 @@ function composeNode(
   preComposed: Map<string, PreComposedNode>,
   composed: Map<string, ComposedNodeWithSources>,
   visiting: Set<string>,
-  layers: IfcxLayer[]
+  layers: IfcxLayer[],
+  pathIndex: PathIndex
 ): ComposedNodeWithSources {
   // Already composed?
   const existing = composed.get(path);
@@ -399,10 +400,11 @@ function composeNode(
     for (const [name, childPath] of Object.entries(pre.children)) {
       if (!childPath) continue;
 
-      // Child path might be hierarchical - use it directly as the key
-      const childPre = preComposed.get(childPath);
+      // Child path might be hierarchical (uuid/ChildName) - resolve via pathIndex
+      const resolvedChildPath = pathIndex.resolvePath(childPath) || childPath;
+      const childPre = preComposed.get(resolvedChildPath);
       if (childPre) {
-        const child = composeNode(childPath, preComposed, composed, visiting, layers);
+        const child = composeNode(resolvedChildPath, preComposed, composed, visiting, layers, pathIndex);
         child.parent = node;
         node.children.set(name, child);
       }

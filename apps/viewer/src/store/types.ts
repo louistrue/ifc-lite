@@ -186,8 +186,16 @@ export function entityRefToString(ref: EntityRef): string {
 /** Parse string back to EntityRef */
 export function stringToEntityRef(str: string): EntityRef {
   const colonIndex = str.indexOf(':');
+  if (colonIndex === -1) {
+    // Invalid format - return a sentinel value
+    return { modelId: '', expressId: -1 };
+  }
   const modelId = str.substring(0, colonIndex);
   const expressId = parseInt(str.substring(colonIndex + 1), 10);
+  // Handle NaN case (malformed expressId)
+  if (Number.isNaN(expressId)) {
+    return { modelId, expressId: -1 };
+  }
   return { modelId, expressId };
 }
 
