@@ -26,6 +26,8 @@ export interface SelectionSlice {
   selectedEntitiesSet: Set<string>;
   /** Array of selected entities for property panel display (e.g., unified storeys) */
   selectedEntities: EntityRef[];
+  /** Selected model ID for metadata display (when clicking top-level model in hierarchy) */
+  selectedModelId: string | null;
 
   // Actions (legacy - single model, maintained for backward compatibility)
   setSelectedEntityId: (id: number | null) => void;
@@ -56,6 +58,8 @@ export interface SelectionSlice {
   getSelectedEntitiesForModel: (modelId: string) => number[];
   /** Set multiple entities for property panel display (e.g., unified storeys) */
   setSelectedEntities: (refs: EntityRef[]) => void;
+  /** Set selected model for metadata display */
+  setSelectedModelId: (modelId: string | null) => void;
 }
 
 export const createSelectionSlice: StateCreator<SelectionSlice, [], [], SelectionSlice> = (set, get) => ({
@@ -68,9 +72,14 @@ export const createSelectionSlice: StateCreator<SelectionSlice, [], [], Selectio
   selectedEntity: null,
   selectedEntitiesSet: new Set(),
   selectedEntities: [],
+  selectedModelId: null,
 
   // Actions (legacy - maintained for backward compatibility)
-  setSelectedEntityId: (selectedEntityId) => set({ selectedEntityId }),
+  setSelectedEntityId: (selectedEntityId) => set((state) => ({
+    selectedEntityId,
+    // Clear model selection when an entity is selected (but not when clearing selection)
+    selectedModelId: selectedEntityId !== null ? null : state.selectedModelId,
+  })),
 
   toggleStoreySelection: (id) => set((state) => {
     const newSelection = new Set(state.selectedStoreys);
@@ -143,6 +152,7 @@ export const createSelectionSlice: StateCreator<SelectionSlice, [], [], Selectio
   setSelectedEntity: (ref) => set({
     selectedEntity: ref,
     selectedEntities: [], // Clear multi-entity selection when setting single entity
+    selectedModelId: null, // Clear model selection when selecting an entity
     // DO NOT update selectedEntityId here - it would overwrite the globalId with expressId!
     // The renderer needs the globalId in selectedEntityId for highlighting.
   }),
@@ -214,6 +224,7 @@ export const createSelectionSlice: StateCreator<SelectionSlice, [], [], Selectio
     selectedEntities: [],
     selectedEntityId: null,
     selectedEntityIds: new Set(),
+    selectedModelId: null,
   }),
 
   isEntitySelected: (ref) => {
@@ -237,5 +248,14 @@ export const createSelectionSlice: StateCreator<SelectionSlice, [], [], Selectio
     selectedEntities: refs,
     // Also set the primary selected entity to the first one
     selectedEntity: refs.length > 0 ? refs[0] : null,
+    selectedModelId: null, // Clear model selection when selecting entities
+  }),
+
+  setSelectedModelId: (modelId) => set({
+    selectedModelId: modelId,
+    // Clear other selection when selecting a model
+    selectedEntity: null,
+    selectedEntities: [],
+    selectedEntityId: null,
   }),
 });

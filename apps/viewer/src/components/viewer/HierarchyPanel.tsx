@@ -110,6 +110,7 @@ export function HierarchyPanel() {
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
   const setSelectedEntity = useViewerStore((s) => s.setSelectedEntity);
   const setSelectedEntities = useViewerStore((s) => s.setSelectedEntities);
+  const setSelectedModelId = useViewerStore((s) => s.setSelectedModelId);
   const selectedStoreys = useViewerStore((s) => s.selectedStoreys);
   const setStoreySelection = useViewerStore((s) => s.setStoreySelection);
   const setStoreysSelection = useViewerStore((s) => s.setStoreysSelection);
@@ -200,20 +201,24 @@ export function HierarchyPanel() {
       // Single model: expand full hierarchy to show all storeys
       const [, model] = Array.from(models.entries())[0];
       const hierarchy = model.ifcDataStore?.spatialHierarchy;
-      if (hierarchy?.project) {
-        // Expand Project → Site → Building to reveal storeys
-        const project = hierarchy.project;
-        const projectNodeId = `root-${project.expressId}`;
-        newExpanded.add(projectNodeId);
 
-        for (const site of project.children || []) {
-          const siteNodeId = `${projectNodeId}-${site.expressId}`;
-          newExpanded.add(siteNodeId);
+      // Wait until spatial hierarchy is computed before initializing
+      if (!hierarchy?.project) {
+        return; // Don't mark as initialized - will retry when hierarchy is ready
+      }
 
-          for (const building of site.children || []) {
-            const buildingNodeId = `${siteNodeId}-${building.expressId}`;
-            newExpanded.add(buildingNodeId);
-          }
+      // Expand Project → Site → Building to reveal storeys
+      const project = hierarchy.project;
+      const projectNodeId = `root-${project.expressId}`;
+      newExpanded.add(projectNodeId);
+
+      for (const site of project.children || []) {
+        const siteNodeId = `${projectNodeId}-${site.expressId}`;
+        newExpanded.add(siteNodeId);
+
+        for (const building of site.children || []) {
+          const buildingNodeId = `${siteNodeId}-${building.expressId}`;
+          newExpanded.add(buildingNodeId);
         }
       }
     } else {
@@ -801,7 +806,10 @@ export function HierarchyPanel() {
                       node.hasChildren && 'cursor-pointer'
                     )}
                     style={{ paddingLeft: '8px' }}
-                    onClick={() => node.hasChildren && toggleExpand(node.id)}
+                    onClick={() => {
+                      setSelectedModelId(modelId);
+                      if (node.hasChildren) toggleExpand(node.id);
+                    }}
                   >
                     {/* Expand/collapse chevron */}
                     {node.hasChildren ? (
