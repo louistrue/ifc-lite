@@ -837,24 +837,6 @@ export function HierarchyPanel() {
     );
   }
 
-  // Compute node visibility lazily (avoids expensive recomputation on every hide/show)
-  const isNodeVisible = useCallback((node: TreeNode): boolean => {
-    // Spatial containers are always "visible"
-    if (isSpatialContainer(node.type) || node.type === 'model-header' && node.id.startsWith('model-')) {
-      return true;
-    }
-    // For elements, check hiddenEntities directly
-    if (node.type === 'element') {
-      return !hiddenEntities.has(node.expressIds[0]);
-    }
-    // For storeys, check if ANY element is visible
-    if (node.type === 'IfcBuildingStorey' || node.type === 'unified-storey' || (node.type === 'model-header' && node.id.startsWith('contrib-'))) {
-      const nodeElements = getNodeElements(node);
-      return nodeElements.length === 0 || nodeElements.some(id => !hiddenEntities.has(id));
-    }
-    return true;
-  }, [hiddenEntities, getNodeElements]);
-
   // Helper function to render a node
   const renderNode = (node: TreeNode, virtualRow: { index: number; size: number; start: number }, nodeList: TreeNode[]) => {
     const Icon = TYPE_ICONS[node.type] || TYPE_ICONS.default;
@@ -868,8 +850,16 @@ export function HierarchyPanel() {
           ? selectedEntityId === node.expressIds[0]
           : false;
 
-    // Compute visibility lazily for performance
-    const nodeHidden = !isNodeVisible(node);
+    // Compute visibility inline - for elements check directly, for storeys use getNodeElements
+    // This avoids a useCallback dependency that was causing infinite re-renders
+    let nodeHidden = false;
+    if (node.type === 'element') {
+      nodeHidden = hiddenEntities.has(node.expressIds[0]);
+    } else if (node.type === 'IfcBuildingStorey' || node.type === 'unified-storey' ||
+               (node.type === 'model-header' && node.id.startsWith('contrib-'))) {
+      const elements = getNodeElements(node);
+      nodeHidden = elements.length > 0 && elements.every(id => hiddenEntities.has(id));
+    }
 
     // Model header nodes (for visibility control and expansion)
     if (node.type === 'model-header' && node.id.startsWith('model-')) {
