@@ -6,22 +6,23 @@
  * Hook to sync selectedEntityId with selectedEntity (model-aware selection)
  *
  * When an entity is selected (via click or other means), this hook:
- * 1. Watches for changes to selectedEntityId
- * 2. Finds which model contains that entity
- * 3. Updates selectedEntity with { modelId, expressId }
+ * 1. Watches for changes to selectedEntityId (which is now a globalId)
+ * 2. Uses FederationRegistry to resolve globalId -> (modelId, originalExpressId)
+ * 3. Updates selectedEntity with { modelId, expressId } for PropertiesPanel
  *
- * This enables the PropertiesPanel to look up the correct model's data store.
+ * IMPORTANT: selectedEntityId is a globalId (transformed at load time)
+ * The EntityRef.expressId is the ORIGINAL expressId for property lookup
  */
 
 import { useEffect } from 'react';
 import { useViewerStore } from '../store.js';
+import { federationRegistry } from '@ifc-lite/renderer';
 
 export function useModelSelection() {
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
   const setSelectedEntity = useViewerStore((s) => s.setSelectedEntity);
-  const findModelForEntity = useViewerStore((s) => s.findModelForEntity);
-  // Subscribe to entityToModelMap changes for reactivity
-  const entityToModelMap = useViewerStore((s) => s.entityToModelMap);
+  // Subscribe to models for reactivity (when models are added/removed)
+  const models = useViewerStore((s) => s.models);
 
   useEffect(() => {
     if (selectedEntityId === null) {
@@ -29,12 +30,22 @@ export function useModelSelection() {
       return;
     }
 
-    const modelId = findModelForEntity(selectedEntityId);
-    if (modelId) {
-      setSelectedEntity({ modelId, expressId: selectedEntityId });
+    // selectedEntityId is now a globalId
+    // Resolve it back to (modelId, originalExpressId) using the registry
+    const resolved = federationRegistry.fromGlobalId(selectedEntityId);
+    if (resolved) {
+      // Set EntityRef with ORIGINAL expressId (for property lookup in IfcDataStore)
+      setSelectedEntity({ modelId: resolved.modelId, expressId: resolved.expressId });
     } else {
-      // Entity not found in any model (legacy single-model or orphaned)
-      setSelectedEntity(null);
+      // Fallback for single-model mode (offset = 0, globalId = expressId)
+      // In this case, try to find the first model and use the globalId as expressId
+      if (models.size > 0) {
+        const firstModelId = Array.from(models.keys())[0];
+        setSelectedEntity({ modelId: firstModelId, expressId: selectedEntityId });
+      } else {
+        // No models loaded, can't resolve
+        setSelectedEntity(null);
+      }
     }
-  }, [selectedEntityId, findModelForEntity, setSelectedEntity, entityToModelMap]);
+  }, [selectedEntityId, setSelectedEntity, models]);
 }

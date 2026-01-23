@@ -16,6 +16,8 @@ export { SectionPlaneRenderer } from './section-plane.js';
 export { Raycaster } from './raycaster.js';
 export { SnapDetector, SnapType } from './snap-detector.js';
 export { BVH } from './bvh.js';
+export { FederationRegistry, federationRegistry } from './federation-registry.js';
+export type { ModelRange, GlobalIdLookup } from './federation-registry.js';
 export * from './types.js';
 export type { Ray, Vec3, Intersection } from './raycaster.js';
 export type { SnapTarget, SnapOptions, EdgeLockInput, MagneticSnapResult } from './snap-detector.js';

@@ -147,8 +147,11 @@ export function useIfc() {
     getActiveModel,
     getAllVisibleModels,
     hasModels,
-    registerEntityIds,
-    findModelForEntity: storeFindModelForEntity,
+    // Federation Registry helpers
+    registerModelOffset,
+    toGlobalId,
+    fromGlobalId,
+    findModelForGlobalId,
   } = useViewerStore();
 
   // Track if we've already logged for this ifcDataStore
@@ -825,6 +828,7 @@ export function useIfc() {
 
   /**
    * Add a model to the federation (multi-model support)
+   * Uses FederationRegistry to assign unique ID offsets - BULLETPROOF against ID collisions
    * Returns the model ID on success, null on failure
    */
   const addModel = useCallback(async (
@@ -843,9 +847,17 @@ export function useIfc() {
 
       if (currentModels.size === 0 && currentIfcDataStore && currentGeometryResult) {
         // Migrate the legacy model to the Map
+        // Legacy model has offset 0 (IDs are unchanged)
         const legacyModelId = crypto.randomUUID();
-        // Try to get file name from project name or fall back
         const legacyName = currentIfcDataStore.spatialHierarchy?.project?.name || 'Model 1';
+
+        // Find max expressId in legacy model for registry
+        const legacyMeshes = currentGeometryResult.meshes || [];
+        const legacyMaxExpressId = legacyMeshes.reduce((max, m) => Math.max(max, m.expressId), 0);
+
+        // Register legacy model with offset 0 (IDs already in use as-is)
+        const legacyOffset = registerModelOffset(legacyModelId, legacyMaxExpressId);
+
         const legacyModel: FederatedModel = {
           id: legacyModelId,
           name: legacyName,
@@ -853,15 +865,14 @@ export function useIfc() {
           geometryResult: currentGeometryResult,
           visible: true,
           collapsed: false,
-          schemaVersion: 'IFC4', // Assume IFC4 for legacy
-          loadedAt: Date.now() - 1000, // Slightly earlier
+          schemaVersion: 'IFC4',
+          loadedAt: Date.now() - 1000,
           fileSize: 0,
+          idOffset: legacyOffset,
+          maxExpressId: legacyMaxExpressId,
         };
         storeAddModel(legacyModel);
-        // Register entity IDs for the migrated model
-        const legacyExpressIds = currentGeometryResult.meshes?.map(m => m.expressId) || [];
-        registerEntityIds(legacyModelId, legacyExpressIds);
-        console.log(`[useIfc] Migrated legacy model "${legacyModel.name}" to federation`);
+        console.log(`[useIfc] Migrated legacy model "${legacyModel.name}" to federation (offset: ${legacyOffset}, maxId: ${legacyMaxExpressId})`);
       }
 
       setLoading(true);
@@ -1005,7 +1016,28 @@ export function useIfc() {
         throw new Error('Failed to parse file');
       }
 
-      // Create the federated model
+      // =========================================================================
+      // FEDERATION REGISTRY: Transform expressIds to globally unique IDs
+      // This is the BULLETPROOF fix for multi-model ID collisions
+      // =========================================================================
+
+      // Step 1: Find max expressId in this model
+      const maxExpressId = parsedGeometry.meshes.reduce((max, m) => Math.max(max, m.expressId), 0);
+
+      // Step 2: Register with federation registry to get unique offset
+      const idOffset = registerModelOffset(modelId, maxExpressId);
+
+      // Step 3: Transform ALL mesh expressIds to globalIds
+      // globalId = originalExpressId + offset
+      // This ensures no two models can have the same ID
+      if (idOffset > 0) {
+        for (const mesh of parsedGeometry.meshes) {
+          mesh.expressId = mesh.expressId + idOffset;
+        }
+        console.log(`[useIfc] Transformed ${parsedGeometry.meshes.length} mesh IDs with offset ${idOffset}`);
+      }
+
+      // Create the federated model with offset info
       const federatedModel: FederatedModel = {
         id: modelId,
         name: options?.name ?? file.name,
@@ -1016,15 +1048,12 @@ export function useIfc() {
         schemaVersion,
         loadedAt: Date.now(),
         fileSize: buffer.byteLength,
+        idOffset,
+        maxExpressId,
       };
 
       // Add to store
       storeAddModel(federatedModel);
-
-      // Register entity IDs for fast model lookup during selection
-      // Extract all unique expressIds from the meshes
-      const expressIds = parsedGeometry.meshes.map(m => m.expressId);
-      registerEntityIds(modelId, expressIds);
 
       // Also set legacy single-model state for backward compatibility
       setIfcDataStore(parsedDataStore);
@@ -1085,14 +1114,21 @@ export function useIfc() {
   }, [addModel]);
 
   /**
-   * Find which model contains a given expressId
-   * Uses the entityToModelMap for O(1) lookup (expressIds can overlap between models)
+   * Find which model contains a given globalId
+   * Uses FederationRegistry for O(log N) lookup - BULLETPROOF
    * Returns the modelId or null if not found
    */
-  const findModelForEntity = useCallback((expressId: number): string | null => {
-    // Use the store's entityToModelMap for fast O(1) lookup
-    return storeFindModelForEntity(expressId);
-  }, [storeFindModelForEntity]);
+  const findModelForEntity = useCallback((globalId: number): string | null => {
+    return findModelForGlobalId(globalId);
+  }, [findModelForGlobalId]);
+
+  /**
+   * Convert a globalId back to the original (modelId, expressId) pair
+   * Use this when you need to look up properties in the IfcDataStore
+   */
+  const resolveGlobalId = useCallback((globalId: number): { modelId: string; expressId: number } | null => {
+    return fromGlobalId(globalId);
+  }, [fromGlobalId]);
 
   return {
     // Legacy single-model API (backward compatibility)
@@ -1119,6 +1155,10 @@ export function useIfc() {
     hasModels,
     getQueryForModel,
     loadFilesSequentially,
-    findModelForEntity,
+
+    // Federation Registry helpers
+    findModelForEntity,  // Find model by globalId
+    resolveGlobalId,     // Convert globalId -> (modelId, originalExpressId)
+    toGlobalId,          // Convert (modelId, expressId) -> globalId
   };
 }

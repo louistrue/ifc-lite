@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useRef, useState, useMemo } from 'react';
-import { Renderer, MathUtils, type SnapTarget, type PickResult } from '@ifc-lite/renderer';
+import { Renderer, MathUtils, federationRegistry, type SnapTarget, type PickResult } from '@ifc-lite/renderer';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 import { useViewerStore, type MeasurePoint, type SnapVisualization } from '@/store';
 import {
@@ -68,18 +68,32 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     : undefined;
 
   // Helper to handle pick result and set selection properly
+  // IMPORTANT: pickResult.expressId is now a globalId (transformed at load time)
+  // We use FederationRegistry to resolve it back to (modelId, originalExpressId)
   const handlePickForSelection = (pickResult: PickResult | null) => {
     if (!pickResult) {
       setSelectedEntityId(null);
       return;
     }
-    // Set expressId for backward compatibility
-    setSelectedEntityId(pickResult.expressId);
-    // If we have modelIndex, directly set the selectedEntity (bypasses entityToModelMap lookup)
-    if (pickResult.modelIndex !== undefined) {
-      const modelId = modelIndexToId.get(pickResult.modelIndex);
-      if (modelId) {
-        setSelectedEntity({ modelId, expressId: pickResult.expressId });
+
+    const globalId = pickResult.expressId;
+
+    // Set globalId for renderer (highlighting uses globalIds directly)
+    setSelectedEntityId(globalId);
+
+    // Resolve globalId -> (modelId, originalExpressId) for property panel
+    const resolved = federationRegistry.fromGlobalId(globalId);
+    if (resolved) {
+      // Set the EntityRef with ORIGINAL expressId (for property lookup in IfcDataStore)
+      setSelectedEntity({ modelId: resolved.modelId, expressId: resolved.expressId });
+    } else {
+      // Fallback for single-model mode (offset = 0, globalId = expressId)
+      // Try to find model from the old modelIndex if available
+      if (pickResult.modelIndex !== undefined && modelIndexToId) {
+        const modelId = modelIndexToId.get(pickResult.modelIndex);
+        if (modelId) {
+          setSelectedEntity({ modelId, expressId: globalId });
+        }
       }
     }
   };

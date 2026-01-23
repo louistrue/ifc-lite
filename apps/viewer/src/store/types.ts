@@ -156,7 +156,7 @@ export interface FederatedModel {
   name: string;
   /** Parsed IFC data model */
   ifcDataStore: IfcDataStore;
-  /** Pre-tessellated geometry */
+  /** Pre-tessellated geometry (with globalIds, not original expressIds) */
   geometryResult: GeometryResult;
   /** Model-level visibility toggle */
   visible: boolean;
@@ -168,6 +168,14 @@ export interface FederatedModel {
   loadedAt: number;
   /** Original file size in bytes */
   fileSize: number;
+  /**
+   * ID offset for this model (from FederationRegistry)
+   * All mesh expressIds are globalIds = originalExpressId + idOffset
+   * Use this to convert back to original IDs for property lookup
+   */
+  idOffset: number;
+  /** Maximum original expressId in this model (for range validation) */
+  maxExpressId: number;
 }
 
 /** Convert EntityRef to string for use as Map/Set key */

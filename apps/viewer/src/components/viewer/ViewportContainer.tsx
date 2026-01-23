@@ -11,6 +11,7 @@ import { useIfc } from '@/hooks/useIfc';
 import { useWebGPU } from '@/hooks/useWebGPU';
 import { Upload, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown, ExternalLink, Plus } from 'lucide-react';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
+import { federationRegistry } from '@ifc-lite/renderer';
 
 export function ViewportContainer() {
   const { geometryResult, ifcDataStore, loadFile, loading, models, clearAllModels, loadFilesSequentially } = useIfc();
@@ -218,47 +219,59 @@ export function ViewportContainer() {
   // Compute combined isolation set (storeys + manual isolation)
   // This is passed to the renderer for batch-level visibility filtering
   // Now supports multi-model: aggregates elements from all models for selected storeys
+  // IMPORTANT: Returns globalIds (meshes use globalIds after federation registry transformation)
   const computedIsolatedIds = useMemo(() => {
-    // If manual isolation is active, use that
+    // If manual isolation is active, use that (already contains globalIds)
     if (isolatedEntities !== null) {
       return isolatedEntities;
     }
 
     // If storeys are selected, compute combined element IDs from all selected storeys
     // across ALL models (multi-model support)
+    // NOTE: Storey hierarchy uses original expressIds, but meshes use globalIds
+    // We must transform expressIds -> globalIds using the model's offset
     if (selectedStoreys.size > 0) {
-      const combinedIds = new Set<number>();
+      const combinedGlobalIds = new Set<number>();
 
       // Check each federated model's storeys
-      for (const model of storeModels.values()) {
+      for (const [modelId, model] of storeModels) {
         const hierarchy = model.ifcDataStore?.spatialHierarchy;
         if (!hierarchy) continue;
 
+        // Get this model's offset from the registry
+        const offset = federationRegistry.getOffset(modelId) ?? 0;
+
         for (const storeyId of selectedStoreys) {
-          const storeyElementIds = hierarchy.byStorey.get(storeyId);
+          // Note: storeyId itself might be a globalId if the user selected via mesh click,
+          // or an original ID if selected via hierarchy panel. The byStorey map uses original IDs.
+          // For now, try both the storeyId and storeyId - offset
+          const storeyElementIds = hierarchy.byStorey.get(storeyId) || hierarchy.byStorey.get(storeyId - offset);
           if (storeyElementIds) {
-            for (const id of storeyElementIds) {
-              combinedIds.add(id);
+            for (const originalExpressId of storeyElementIds) {
+              // Transform to globalId
+              const globalId = originalExpressId + offset;
+              combinedGlobalIds.add(globalId);
             }
           }
         }
       }
 
       // Also check legacy ifcDataStore (for single-model mode without federation)
+      // In this case, offset is 0, so globalId = expressId
       if (ifcDataStore?.spatialHierarchy && storeModels.size === 0) {
         const hierarchy = ifcDataStore.spatialHierarchy;
         for (const storeyId of selectedStoreys) {
           const storeyElementIds = hierarchy.byStorey.get(storeyId);
           if (storeyElementIds) {
             for (const id of storeyElementIds) {
-              combinedIds.add(id);
+              combinedGlobalIds.add(id); // offset = 0 for legacy single-model
             }
           }
         }
       }
 
-      if (combinedIds.size > 0) {
-        return combinedIds;
+      if (combinedGlobalIds.size > 0) {
+        return combinedGlobalIds;
       }
     }
 

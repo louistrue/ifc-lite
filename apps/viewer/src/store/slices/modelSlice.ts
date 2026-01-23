@@ -4,11 +4,16 @@
 
 /**
  * Model state slice for multi-model federation
- * Manages the collection of loaded IFC models
+ *
+ * Uses FederationRegistry for bulletproof ID handling:
+ * - Each model gets a unique ID offset at load time
+ * - All meshes use globalIds (originalExpressId + offset)
+ * - No ID collisions possible between models
  */
 
 import type { StateCreator } from 'zustand';
 import type { FederatedModel } from '../types.js';
+import { federationRegistry, type GlobalIdLookup } from '@ifc-lite/renderer';
 
 export interface ModelSlice {
   // State
@@ -16,8 +21,6 @@ export interface ModelSlice {
   models: Map<string, FederatedModel>;
   /** ID of the currently active model (for property panel focus) */
   activeModelId: string | null;
-  /** Map expressId to modelId for fast lookup during selection */
-  entityToModelMap: Map<number, string>;
 
   // Actions
   /** Add a new model to the federation */
@@ -42,17 +45,27 @@ export interface ModelSlice {
   getAllVisibleModels: () => FederatedModel[];
   /** Check if any models are loaded */
   hasModels: () => boolean;
-  /** Register entity IDs to a model for fast lookup */
-  registerEntityIds: (modelId: string, expressIds: number[]) => void;
-  /** Find which model contains an entity */
-  findModelForEntity: (expressId: number) => string | null;
+
+  // Federation Registry helpers (wraps the singleton for convenience)
+  /**
+   * Register a model with the federation registry and get its offset
+   * Call this BEFORE adding meshes, passing the max expressId in the model
+   */
+  registerModelOffset: (modelId: string, maxExpressId: number) => number;
+  /** Convert local expressId to globalId */
+  toGlobalId: (modelId: string, expressId: number) => number;
+  /** Convert globalId back to (modelId, expressId) */
+  fromGlobalId: (globalId: number) => GlobalIdLookup | null;
+  /** Find which model contains a globalId */
+  findModelForGlobalId: (globalId: number) => string | null;
+  /** Get the offset for a model */
+  getModelOffset: (modelId: string) => number | null;
 }
 
 export const createModelSlice: StateCreator<ModelSlice, [], [], ModelSlice> = (set, get) => ({
   // Initial state
   models: new Map(),
   activeModelId: null,
-  entityToModelMap: new Map(),
 
   // Actions
   addModel: (model) => set((state) => {
@@ -78,6 +91,9 @@ export const createModelSlice: StateCreator<ModelSlice, [], [], ModelSlice> = (s
     const newModels = new Map(state.models);
     newModels.delete(modelId);
 
+    // Unregister from federation registry
+    federationRegistry.unregisterModel(modelId);
+
     // Update activeModelId if removed model was active
     let newActiveId = state.activeModelId;
     if (state.activeModelId === modelId) {
@@ -85,22 +101,17 @@ export const createModelSlice: StateCreator<ModelSlice, [], [], ModelSlice> = (s
       newActiveId = remaining.length > 0 ? remaining[0] : null;
     }
 
-    // Clean up entityToModelMap for removed model
-    const newEntityMap = new Map(state.entityToModelMap);
-    for (const [expressId, mId] of newEntityMap) {
-      if (mId === modelId) {
-        newEntityMap.delete(expressId);
-      }
-    }
-
-    return { models: newModels, activeModelId: newActiveId, entityToModelMap: newEntityMap };
+    return { models: newModels, activeModelId: newActiveId };
   }),
 
-  clearAllModels: () => set({
-    models: new Map(),
-    activeModelId: null,
-    entityToModelMap: new Map(),
-  }),
+  clearAllModels: () => {
+    // Clear the federation registry
+    federationRegistry.clear();
+    return set({
+      models: new Map(),
+      activeModelId: null,
+    });
+  },
 
   setActiveModel: (modelId) => set({ activeModelId: modelId }),
 
@@ -145,15 +156,24 @@ export const createModelSlice: StateCreator<ModelSlice, [], [], ModelSlice> = (s
 
   hasModels: () => get().models.size > 0,
 
-  registerEntityIds: (modelId, expressIds) => set((state) => {
-    const newEntityMap = new Map(state.entityToModelMap);
-    for (const expressId of expressIds) {
-      newEntityMap.set(expressId, modelId);
-    }
-    return { entityToModelMap: newEntityMap };
-  }),
+  // Federation Registry helpers
+  registerModelOffset: (modelId: string, maxExpressId: number) => {
+    return federationRegistry.registerModel(modelId, maxExpressId);
+  },
 
-  findModelForEntity: (expressId) => {
-    return get().entityToModelMap.get(expressId) ?? null;
+  toGlobalId: (modelId: string, expressId: number) => {
+    return federationRegistry.toGlobalId(modelId, expressId);
+  },
+
+  fromGlobalId: (globalId: number) => {
+    return federationRegistry.fromGlobalId(globalId);
+  },
+
+  findModelForGlobalId: (globalId: number) => {
+    return federationRegistry.getModelForGlobalId(globalId);
+  },
+
+  getModelOffset: (modelId: string) => {
+    return federationRegistry.getOffset(modelId);
   },
 });
