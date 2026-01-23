@@ -374,11 +374,13 @@ export function PropertiesPanel() {
           <CollapsibleContent>
             <div className="divide-y border-t">
               {attributes.map((attr) => (
-                <div key={attr.name} className="flex justify-between gap-2 px-3 py-1.5 text-sm">
-                  <span className="text-muted-foreground">{attr.name}</span>
-                  <span className="text-right truncate font-medium max-w-[60%]" title={attr.value}>
-                    {attr.value}
-                  </span>
+                <div key={attr.name} className="grid grid-cols-[minmax(80px,1fr)_minmax(0,2fr)] gap-2 px-3 py-1.5 text-sm">
+                  <span className="text-muted-foreground truncate" title={attr.name}>{attr.name}</span>
+                  <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700 min-w-0">
+                    <span className="font-medium whitespace-nowrap" title={attr.value}>
+                      {attr.value}
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -588,9 +590,11 @@ function EntityDataSection({
           <CollapsibleContent>
             <div className="divide-y divide-zinc-100 dark:divide-zinc-900 border-t border-zinc-100 dark:border-zinc-900">
               {attributes.map((attr) => (
-                <div key={attr.name} className="flex justify-between gap-2 px-3 py-1.5 text-xs">
-                  <span className="text-zinc-500">{attr.name}</span>
-                  <span className="text-right truncate font-medium max-w-[60%]">{attr.value}</span>
+                <div key={attr.name} className="grid grid-cols-[minmax(60px,1fr)_minmax(0,2fr)] gap-2 px-3 py-1.5 text-xs">
+                  <span className="text-zinc-500 truncate" title={attr.name}>{attr.name}</span>
+                  <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700 min-w-0">
+                    <span className="font-medium whitespace-nowrap">{attr.value}</span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -641,17 +645,19 @@ function PropertySetCard({ pset }: { pset: PropertySet }) {
   return (
     <Collapsible defaultOpen className="border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 group">
       <CollapsibleTrigger className="flex items-center justify-between w-full p-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-left transition-colors">
-        <span className="font-bold text-xs uppercase tracking-wide text-zinc-900 dark:text-zinc-100">{pset.name}</span>
-        <span className="text-[10px] font-mono bg-zinc-100 dark:bg-zinc-900 px-1.5 py-0.5 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400">{pset.properties.length}</span>
+        <span className="font-bold text-xs uppercase tracking-wide text-zinc-900 dark:text-zinc-100 truncate min-w-0">{pset.name}</span>
+        <span className="text-[10px] font-mono bg-zinc-100 dark:bg-zinc-900 px-1.5 py-0.5 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 shrink-0 ml-2">{pset.properties.length}</span>
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="border-t-2 border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-100 dark:divide-zinc-900">
           {pset.properties.map((prop: { name: string; value: unknown }) => (
-            <div key={prop.name} className="flex justify-between gap-4 px-3 py-2 text-xs hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50">
-              <span className="text-zinc-500 dark:text-zinc-400 font-medium truncate">{prop.name}</span>
-              <span className="text-right truncate font-mono text-zinc-900 dark:text-zinc-100 select-all">
-                {prop.value !== null && prop.value !== undefined ? String(prop.value) : '—'}
-              </span>
+            <div key={prop.name} className="grid grid-cols-[minmax(80px,1fr)_minmax(0,2fr)] gap-2 px-3 py-2 text-xs hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50">
+              <span className="text-zinc-500 dark:text-zinc-400 font-medium truncate" title={prop.name}>{prop.name}</span>
+              <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700 min-w-0">
+                <span className="font-mono text-zinc-900 dark:text-zinc-100 select-all whitespace-nowrap">
+                  {prop.value !== null && prop.value !== undefined ? String(prop.value) : '—'}
+                </span>
+              </div>
             </div>
           ))}
         </div>
@@ -677,17 +683,19 @@ function QuantitySetCard({ qset }: { qset: QuantitySet }) {
   return (
     <Collapsible defaultOpen className="border-2 border-blue-200 dark:border-blue-800 bg-blue-50/20 dark:bg-blue-950/20">
       <CollapsibleTrigger className="flex items-center justify-between w-full p-2.5 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-left transition-colors">
-        <span className="font-bold text-xs uppercase tracking-wide text-blue-700 dark:text-blue-400">{qset.name}</span>
-        <span className="text-[10px] font-mono bg-blue-100 dark:bg-blue-900/50 px-1.5 py-0.5 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300">{qset.quantities.length}</span>
+        <span className="font-bold text-xs uppercase tracking-wide text-blue-700 dark:text-blue-400 truncate min-w-0">{qset.name}</span>
+        <span className="text-[10px] font-mono bg-blue-100 dark:bg-blue-900/50 px-1.5 py-0.5 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 shrink-0 ml-2">{qset.quantities.length}</span>
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="border-t-2 border-blue-200 dark:border-blue-800 divide-y divide-blue-100 dark:divide-blue-900/30">
           {qset.quantities.map((q: { name: string; value: number; type: number }) => (
-            <div key={q.name} className="flex justify-between gap-4 px-3 py-2 text-xs hover:bg-blue-50/50 dark:hover:bg-blue-900/20">
-              <span className="text-zinc-500 dark:text-zinc-400 font-medium truncate">{q.name}</span>
-              <span className="text-right font-mono text-blue-700 dark:text-blue-400 select-all">
-                {formatValue(q.value, q.type)}
-              </span>
+            <div key={q.name} className="grid grid-cols-[minmax(80px,1fr)_minmax(0,2fr)] gap-2 px-3 py-2 text-xs hover:bg-blue-50/50 dark:hover:bg-blue-900/20">
+              <span className="text-zinc-500 dark:text-zinc-400 font-medium truncate" title={q.name}>{q.name}</span>
+              <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-blue-300 dark:scrollbar-thumb-blue-700 min-w-0 text-right">
+                <span className="font-mono text-blue-700 dark:text-blue-400 select-all whitespace-nowrap">
+                  {formatValue(q.value, q.type)}
+                </span>
+              </div>
             </div>
           ))}
         </div>
