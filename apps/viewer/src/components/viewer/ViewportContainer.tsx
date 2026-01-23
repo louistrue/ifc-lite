@@ -11,7 +11,6 @@ import { useIfc } from '@/hooks/useIfc';
 import { useWebGPU } from '@/hooks/useWebGPU';
 import { Upload, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown, ExternalLink, Plus } from 'lucide-react';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
-import { federationRegistry } from '@ifc-lite/renderer';
 
 export function ViewportContainer() {
   const { geometryResult, ifcDataStore, loadFile, loading, models, clearAllModels, loadFilesSequentially } = useIfc();
@@ -234,12 +233,12 @@ export function ViewportContainer() {
       const combinedGlobalIds = new Set<number>();
 
       // Check each federated model's storeys
-      for (const [modelId, model] of storeModels) {
+      for (const [, model] of storeModels) {
         const hierarchy = model.ifcDataStore?.spatialHierarchy;
         if (!hierarchy) continue;
 
-        // Get this model's offset from the registry
-        const offset = federationRegistry.getOffset(modelId) ?? 0;
+        // Get this model's offset directly from the model (no need for registry)
+        const offset = model.idOffset ?? 0;
 
         for (const storeyId of selectedStoreys) {
           // Note: storeyId itself might be a globalId if the user selected via mesh click,

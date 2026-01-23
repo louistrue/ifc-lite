@@ -18,7 +18,6 @@ import {
 } from 'lucide-react';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
-import { federationRegistry } from '@ifc-lite/renderer';
 
 export function EntityContextMenu() {
   const contextMenu = useViewerStore((s) => s.contextMenu);
@@ -29,6 +28,7 @@ export function EntityContextMenu() {
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
   const setSelectedEntityIds = useViewerStore((s) => s.setSelectedEntityIds);
   const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
+  const resolveGlobalIdFromModels = useViewerStore((s) => s.resolveGlobalIdFromModels);
   const menuRef = useRef<HTMLDivElement>(null);
   const { ifcDataStore, models } = useIfc();
 
@@ -39,7 +39,8 @@ export function EntityContextMenu() {
       return { resolvedExpressId: null, activeDataStore: ifcDataStore };
     }
 
-    const resolved = federationRegistry.fromGlobalId(contextMenu.entityId);
+    // Use store-based resolver (more reliable than singleton)
+    const resolved = resolveGlobalIdFromModels(contextMenu.entityId);
     if (resolved) {
       const model = models.get(resolved.modelId);
       return {
@@ -50,7 +51,7 @@ export function EntityContextMenu() {
 
     // Fallback for single-model mode (offset = 0)
     return { resolvedExpressId: contextMenu.entityId, activeDataStore: ifcDataStore };
-  }, [contextMenu.entityId, models, ifcDataStore]);
+  }, [contextMenu.entityId, models, ifcDataStore, resolveGlobalIdFromModels]);
 
   // Close menu when clicking outside
   useEffect(() => {

@@ -557,12 +557,20 @@ export function HierarchyPanel() {
         }
       }
     } else if (node.type === 'element') {
-      const elementId = node.expressIds[0];
+      // Element click - select it
+      const elementId = node.expressIds[0];  // Original expressId
       const modelId = node.modelIds[0];
-      setSelectedEntityId(elementId);
+
       if (modelId !== 'legacy') {
+        // Multi-model: need to convert to globalId for renderer
+        const model = models.get(modelId);
+        const globalId = elementId + (model?.idOffset ?? 0);
+        setSelectedEntityId(globalId);
         setSelectedEntity({ modelId, expressId: elementId });
         setActiveModel(modelId);
+      } else {
+        // Legacy single-model: expressId = globalId (offset is 0)
+        setSelectedEntityId(elementId);
       }
     }
   }, [selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntity, setActiveModel, toggleExpand, unifiedStoreys]);
