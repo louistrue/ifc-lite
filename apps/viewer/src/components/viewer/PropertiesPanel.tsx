@@ -176,10 +176,10 @@ export function PropertiesPanel() {
   }, [entityNode]);
 
   // Build attributes array for display - must be before early return to maintain hook order
+  // Note: GlobalId is intentionally excluded since it's shown in the dedicated GUID field above
   const attributes = useMemo(() => {
     if (!entityNode) return [];
     const attrs: Array<{ name: string; value: string }> = [];
-    if (entityNode.globalId) attrs.push({ name: 'GlobalId', value: entityNode.globalId });
     if (entityNode.name) attrs.push({ name: 'Name', value: entityNode.name });
     if (entityNode.description) attrs.push({ name: 'Description', value: entityNode.description });
     if (entityNode.objectType) attrs.push({ name: 'ObjectType', value: entityNode.objectType });
@@ -528,10 +528,10 @@ function EntityDataSection({
   }, [entityNode]);
 
   // Get attributes
+  // Note: GlobalId is intentionally excluded since it's shown in the dedicated GUID field above
   const attributes = useMemo(() => {
     if (!entityNode) return [];
     const attrs: Array<{ name: string; value: string }> = [];
-    if (entityNode.globalId) attrs.push({ name: 'GlobalId', value: entityNode.globalId });
     if (entityNode.name) attrs.push({ name: 'Name', value: entityNode.name });
     if (entityNode.description) attrs.push({ name: 'Description', value: entityNode.description });
     if (entityNode.objectType) attrs.push({ name: 'ObjectType', value: entityNode.objectType });
