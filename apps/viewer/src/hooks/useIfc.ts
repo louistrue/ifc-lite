@@ -1174,6 +1174,11 @@ export function useIfc() {
       // Always reset viewer state when geometry changes (selection, hidden entities, etc.)
       // This ensures 3D highlighting works correctly after re-composition
       resetViewerState();
+
+      // Clear legacy geometry BEFORE clearing models to prevent stale fallback
+      // This avoids a race condition where mergedGeometryResult uses old geometry
+      // during the brief moment when storeModels.size === 0
+      setGeometryResult(null);
       clearAllModels();
 
       setLoading(true);
@@ -1215,7 +1220,10 @@ export function useIfc() {
         coordinateInfo,
       };
 
-      setGeometryResult(geometryResult);
+      // NOTE: Do NOT call setGeometryResult() here!
+      // For federated loading, geometry comes from the models Map via mergedGeometryResult.
+      // Calling setGeometryResult() before models are added causes a race condition where
+      // meshes are added to the scene WITHOUT modelIndex, breaking selection highlighting.
 
       // Get layer info with mesh counts
       const layers = result.layerStack.getLayers();
