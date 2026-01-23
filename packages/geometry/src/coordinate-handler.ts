@@ -45,8 +45,8 @@ export class CoordinateHandler {
 
     // WASM RTC detection - if WASM already applied RTC, skip TypeScript shift
     private wasmRtcDetected: boolean = false;
-    // Threshold for "normal" coordinates when WASM RTC is active (1km = reasonable building size)
-    private readonly NORMAL_COORD_THRESHOLD = 1000;
+    // Threshold for "normal" coordinates when WASM RTC is active (10km = reasonable campus/site size)
+    private readonly NORMAL_COORD_THRESHOLD = 10000;
 
     /**
      * Check if a coordinate value is reasonable (not corrupted garbage)
@@ -78,7 +78,8 @@ export class CoordinateHandler {
                 const z = positions[i + 2];
 
                 // Only include values within threshold (filter out outliers/garbage)
-                const withinThreshold = Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z) &&
+                const isFinite = Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z);
+                const withinThreshold = isFinite &&
                     Math.abs(x) < threshold && Math.abs(y) < threshold && Math.abs(z) < threshold;
 
                 if (withinThreshold) {
@@ -344,7 +345,7 @@ export class CoordinateHandler {
                 // If majority of meshes have small coordinates, WASM already shifted them
                 let smallCoordCount = 0;
                 let largeCoordCount = 0;
-                const SMALL_COORD_THRESHOLD = 1000; // 1km - reasonable building size
+                const SMALL_COORD_THRESHOLD = 10000; // 10km - reasonable campus/site size
 
                 for (const mesh of batch) {
                     const positions = mesh.positions;

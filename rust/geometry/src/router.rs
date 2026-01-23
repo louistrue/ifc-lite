@@ -270,7 +270,9 @@ impl GeometryRouter {
                 }
 
                 // Get placement transform - this contains the world offset
-                if let Ok(transform) = self.get_placement_transform_from_element(&entity, decoder) {
+                // CRITICAL: Apply unit scaling BEFORE reading translation, same as transform_mesh does
+                if let Ok(mut transform) = self.get_placement_transform_from_element(&entity, decoder) {
+                    self.scale_transform(&mut transform);
                     let tx = transform[(0, 3)];
                     let ty = transform[(1, 3)];
                     let tz = transform[(2, 3)];
@@ -2997,49 +2999,11 @@ impl GeometryRouter {
         let rtc = self.rtc_offset;
         const LARGE_COORD_THRESHOLD: f64 = 1000.0;
 
-        // #region agent log
-        #[cfg(target_arch = "wasm32")]
-        let mut first_vertex_logged = false;
-        // #endregion
-
         mesh.positions.chunks_exact_mut(3).for_each(|chunk| {
             let point = Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
             let t = transform.transform_point(&point);
             // Only subtract RTC if coordinates are large (world space)
             let needs_rtc = t.x.abs() > LARGE_COORD_THRESHOLD || t.y.abs() > LARGE_COORD_THRESHOLD || t.z.abs() > LARGE_COORD_THRESHOLD;
-            
-            // #region agent log
-            #[cfg(target_arch = "wasm32")]
-            if !first_vertex_logged && mesh.positions.len() >= 3 {
-                let final_x = if needs_rtc { t.x - rtc.0 } else { t.x };
-                let final_y = if needs_rtc { t.y - rtc.1 } else { t.y };
-                let final_z = if needs_rtc { t.z - rtc.2 } else { t.z };
-                let _ = web_sys::window().and_then(|w| {
-                    w.fetch_with_str("http://127.0.0.1:7248/ingest/23432d39-3a37-4dd4-80fc-bbd61504cb4e").ok()
-                }).and_then(|_| {
-                    web_sys::window().and_then(|w| {
-                        w.fetch_with_init(
-                            "http://127.0.0.1:7248/ingest/23432d39-3a37-4dd4-80fc-bbd61504cb4e",
-                            &{
-                                let mut init = web_sys::RequestInit::new();
-                                init.method("POST");
-                                init.headers(&{
-                                    let headers = web_sys::Headers::new().unwrap();
-                                    headers.set("Content-Type", "application/json").unwrap();
-                                    headers
-                                });
-                                init.body(Some(&wasm_bindgen::JsValue::from_str(&format!(
-                                    r#"{{"location":"router.rs:{}","message":"transform_mesh coord","data":{{"input":[{:.2},{:.2},{:.2}],"transformed":[{:.2},{:.2},{:.2}],"needs_rtc":{},"rtc_offset":[{:.2},{:.2},{:.2}],"final":[{:.2},{:.2},{:.2}],"final_f32":[{:.2},{:.2},{:.2}]}},"timestamp":{},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}}"#,
-                                    line!(), point.x, point.y, point.z, t.x, t.y, t.z, needs_rtc, rtc.0, rtc.1, rtc.2, final_x, final_y, final_z, final_x as f32, final_y as f32, final_z as f32, js_sys::Date::now()
-                                ))));
-                                init
-                            }
-                        ).ok()
-                    })
-                });
-                first_vertex_logged = true;
-            }
-            // #endregion
 
             if needs_rtc {
                 chunk[0] = (t.x - rtc.0) as f32;

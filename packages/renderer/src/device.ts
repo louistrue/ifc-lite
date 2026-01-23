@@ -112,7 +112,9 @@ export class WebGPUDevice {
    * Returns null if texture is not available (context needs reconfiguration)
    */
   getCurrentTexture(): GPUTexture | null {
-    if (!this.context || !this.contextConfigured) return null;
+    if (!this.context || !this.contextConfigured) {
+      return null;
+    }
     
     try {
       const texture = this.context.getCurrentTexture();
