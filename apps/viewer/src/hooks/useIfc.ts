@@ -852,8 +852,13 @@ export function useIfc() {
         const legacyName = currentIfcDataStore.spatialHierarchy?.project?.name || 'Model 1';
 
         // Find max expressId in legacy model for registry
+        // IMPORTANT: Include ALL entities, not just meshes, for proper globalId resolution
         const legacyMeshes = currentGeometryResult.meshes || [];
-        const legacyMaxExpressId = legacyMeshes.reduce((max, m) => Math.max(max, m.expressId), 0);
+        const legacyMaxExpressIdFromMeshes = legacyMeshes.reduce((max, m) => Math.max(max, m.expressId), 0);
+        const legacyMaxExpressIdFromEntities = currentIfcDataStore.entityIndex?.byId
+          ? Math.max(0, ...Array.from(currentIfcDataStore.entityIndex.byId.keys()))
+          : 0;
+        const legacyMaxExpressId = Math.max(legacyMaxExpressIdFromMeshes, legacyMaxExpressIdFromEntities);
 
         // Register legacy model with offset 0 (IDs already in use as-is)
         const legacyOffset = registerModelOffset(legacyModelId, legacyMaxExpressId);
@@ -1022,7 +1027,13 @@ export function useIfc() {
       // =========================================================================
 
       // Step 1: Find max expressId in this model
-      const maxExpressId = parsedGeometry.meshes.reduce((max, m) => Math.max(max, m.expressId), 0);
+      // IMPORTANT: Use ALL entities from data store, not just meshes
+      // Spatial containers (IfcProject, IfcSite, etc.) don't have geometry but need valid globalId resolution
+      const maxExpressIdFromMeshes = parsedGeometry.meshes.reduce((max, m) => Math.max(max, m.expressId), 0);
+      const maxExpressIdFromEntities = parsedDataStore.entityIndex?.byId
+        ? Math.max(0, ...Array.from(parsedDataStore.entityIndex.byId.keys()))
+        : 0;
+      const maxExpressId = Math.max(maxExpressIdFromMeshes, maxExpressIdFromEntities);
 
       // Step 2: Register with federation registry to get unique offset
       const idOffset = registerModelOffset(modelId, maxExpressId);
