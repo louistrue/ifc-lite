@@ -1116,31 +1116,11 @@ impl ProfileProcessor {
             })
             .collect();
 
-        #[cfg(all(feature = "debug_geometry", target_arch = "wasm32"))]
-        {
-            if all_points.is_empty() {
-                web_sys::console::warn_1(&format!(
-                    "[PROFILE DEBUG] IndexedPolyCurve #{} produced 0 points from {} coords",
-                    curve.id, coord_list.len()
-                ).into());
-            } else {
-                web_sys::console::log_1(&format!(
-                    "[PROFILE DEBUG] IndexedPolyCurve #{}: parsed {} points from {} coords",
-                    curve.id, all_points.len(), coord_list.len()
-                ).into());
-            }
-        }
-
         // Get segments (attribute 1) - optional, if not present use all points in order
         let segments_attr = curve.get(1);
 
         if segments_attr.is_none() || segments_attr.map(|a| a.is_null()).unwrap_or(true) {
             // No segments specified - use all points in order
-            #[cfg(all(feature = "debug_geometry", target_arch = "wasm32"))]
-            web_sys::console::log_1(&format!(
-                "[PROFILE DEBUG] IndexedPolyCurve #{}: no segments, returning {} points",
-                curve.id, all_points.len()
-            ).into());
             return Ok(all_points);
         }
 
@@ -1150,15 +1130,7 @@ impl ProfileProcessor {
             .as_list()
             .ok_or_else(|| Error::geometry("Expected segments list".to_string()))?;
 
-        #[cfg(all(feature = "debug_geometry", target_arch = "wasm32"))]
-        web_sys::console::log_1(&format!(
-            "[PROFILE DEBUG] IndexedPolyCurve #{}: processing {} segments",
-            curve.id, segments.len()
-        ).into());
-
         let mut result_points = Vec::new();
-        let mut segments_processed = 0;
-        let mut segments_failed = 0;
 
         for segment in segments {
             // Each segment is either IFCLINEINDEX((i1,i2,...)) or IFCARCINDEX((i1,i2,i3))
@@ -1184,27 +1156,11 @@ impl ProfileProcessor {
                 None
             };
 
-            #[cfg(all(feature = "debug_geometry", target_arch = "wasm32"))]
-            {
-                if indices.is_none() {
-                    web_sys::console::warn_1(&format!(
-                        "[PROFILE DEBUG] IndexedPolyCurve #{}: segment {} is not a list",
-                        curve.id, segments_processed
-                    ).into());
-                }
-            }
-
             if let Some(indices) = indices {
                 let idx_values: Vec<usize> = indices
                     .iter()
                     .filter_map(|v| v.as_float().map(|f| f as usize - 1)) // 1-indexed to 0-indexed
                     .collect();
-
-                #[cfg(all(feature = "debug_geometry", target_arch = "wasm32"))]
-                web_sys::console::log_1(&format!(
-                    "[PROFILE DEBUG] IndexedPolyCurve #{}: segment {} parsed {} indices: {:?}",
-                    curve.id, segments_processed, idx_values.len(), idx_values
-                ).into());
 
                 if idx_values.len() == 3 {
                     // Arc segment - 3 points define an arc
@@ -1246,24 +1202,9 @@ impl ProfileProcessor {
                         }
                     }
                 }
-            } else {
-                #[cfg(all(feature = "debug_geometry", target_arch = "wasm32"))]
-                {
-                    segments_failed += 1;
-                    web_sys::console::warn_1(&format!(
-                        "[PROFILE DEBUG] IndexedPolyCurve #{}: segment {} is not a list",
-                        curve.id, segments_processed
-                    ).into());
-                }
             }
-            segments_processed += 1;
+            // else: segment is not a list, skip it
         }
-
-        #[cfg(all(feature = "debug_geometry", target_arch = "wasm32"))]
-        web_sys::console::log_1(&format!(
-            "[PROFILE DEBUG] IndexedPolyCurve #{}: {} segments processed, {} failed -> {} result points",
-            curve.id, segments_processed, segments_failed, result_points.len()
-        ).into());
 
         Ok(result_points)
     }

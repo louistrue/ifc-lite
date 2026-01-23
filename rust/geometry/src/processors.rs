@@ -182,18 +182,7 @@ impl GeometryProcessor for ExtrudedAreaSolidProcessor {
 
         let profile = self.profile_processor.process(&profile_entity, decoder)?;
 
-        #[cfg(all(feature = "debug_geometry", target_arch = "wasm32"))]
-        web_sys::console::log_1(&format!(
-            "[EXTRUSION DEBUG] #{}: profile has {} outer points, {} holes",
-            entity.id, profile.outer.len(), profile.holes.len()
-        ).into());
-
         if profile.outer.is_empty() {
-            #[cfg(all(feature = "debug_geometry", target_arch = "wasm32"))]
-            web_sys::console::warn_1(&format!(
-                "[EXTRUSION DEBUG] Empty profile for ExtrudedAreaSolid #{}",
-                entity.id
-            ).into());
             return Ok(Mesh::new());
         }
 
@@ -242,12 +231,6 @@ impl GeometryProcessor for ExtrudedAreaSolidProcessor {
         let depth = entity
             .get_float(3)
             .ok_or_else(|| Error::geometry("ExtrudedAreaSolid missing Depth".to_string()))?;
-
-        #[cfg(all(feature = "debug_geometry", target_arch = "wasm32"))]
-        web_sys::console::log_1(&format!(
-            "[EXTRUSION DEBUG] #{}: depth={}, direction=({:.3},{:.3},{:.3})",
-            entity.id, depth, dir_x, dir_y, dir_z
-        ).into());
 
         // Parse Position transform first (attribute 1: IfcAxis2Placement3D)
         // We need Position's rotation to transform ExtrudedDirection to world coordinates
@@ -315,30 +298,7 @@ impl GeometryProcessor for ExtrudedAreaSolidProcessor {
         };
 
         // Extrude the profile
-        #[cfg(all(feature = "debug_geometry", target_arch = "wasm32"))]
-        web_sys::console::log_1(&format!(
-            "[EXTRUSION DEBUG] #{}: calling extrude_profile with {} outer points, depth={}",
-            entity.id, profile.outer.len(), depth
-        ).into());
-
-        let mut mesh = match extrude_profile(&profile, depth, transform) {
-            Ok(m) => {
-                #[cfg(all(feature = "debug_geometry", target_arch = "wasm32"))]
-                web_sys::console::log_1(&format!(
-                    "[EXTRUSION DEBUG] #{}: extrude_profile succeeded: {} vertices, {} triangles",
-                    entity.id, m.positions.len() / 3, m.indices.len() / 3
-                ).into());
-                m
-            }
-            Err(e) => {
-                #[cfg(all(feature = "debug_geometry", target_arch = "wasm32"))]
-                web_sys::console::error_1(&format!(
-                    "[EXTRUSION DEBUG] #{}: extrude_profile failed: {}",
-                    entity.id, e
-                ).into());
-                return Err(e);
-            }
-        };
+        let mut mesh = extrude_profile(&profile, depth, transform)?;
 
         // Apply Position transform
         if let Some(pos) = pos_transform {

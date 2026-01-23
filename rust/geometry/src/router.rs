@@ -2541,29 +2541,8 @@ impl GeometryRouter {
 
         // Check if we have a processor for this type
         if let Some(processor) = self.processors.get(&item.ifc_type) {
-            #[cfg(all(feature = "debug_geometry", target_arch = "wasm32"))]
-            web_sys::console::log_1(&format!(
-                "[GEOM DEBUG] Processing #{} ({})",
-                item.id, item.ifc_type
-            ).into());
-
             let mut mesh = processor.process(item, decoder, &self.schema)?;
             self.scale_mesh(&mut mesh);
-
-            #[cfg(all(feature = "debug_geometry", target_arch = "wasm32"))]
-            if mesh.positions.is_empty() {
-                web_sys::console::warn_1(&format!(
-                    "[GEOM DEBUG] Empty mesh from processor for #{} ({})",
-                    item.id, item.ifc_type
-                ).into());
-            } else {
-                web_sys::console::log_1(&format!(
-                    "[GEOM DEBUG] Successfully processed #{}: {} vertices, {} triangles",
-                    item.id,
-                    mesh.positions.len() / 3,
-                    mesh.indices.len() / 3
-                ).into());
-            }
 
             // Deduplicate by hash - buildings with repeated floors have identical geometry
             if !mesh.positions.is_empty() {

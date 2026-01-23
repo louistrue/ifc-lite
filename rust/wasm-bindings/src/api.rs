@@ -166,6 +166,18 @@ impl From<RtcOffset> for RtcOffsetJs {
     }
 }
 
+/// Statistics tracking for geometry parsing
+#[derive(Default)]
+struct GeometryStats {
+    total: u32,
+    success: u32,
+    decode_failed: u32,
+    no_representation: u32,
+    process_failed: u32,
+    empty_mesh: u32,
+    outlier_filtered: u32,
+}
+
 /// Mesh collection with RTC offset for large coordinates
 #[wasm_bindgen]
 pub struct MeshCollectionWithRtc {
@@ -468,6 +480,9 @@ impl IfcAPI {
             web_sys::console::log_1(&"[WASM DEBUG] No RTC offset needed (small coordinates)".into());
         }
 
+        // Track geometry parsing statistics
+        let mut stats = GeometryStats::default();
+
         // Process all building elements
         while let Some((id, type_name, start, end)) = scanner.next_entity() {
             // Check if this is a building element type
@@ -475,11 +490,14 @@ impl IfcAPI {
                 continue;
             }
 
+            stats.total += 1;
+
             // Decode and process the entity
             if let Ok(entity) = decoder.decode_at(start, end) {
                 // Check if entity actually has representation (attribute index 6 for IfcProduct)
                 let has_representation = entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
                 if !has_representation {
+                    stats.no_representation += 1;
                     continue;
                 }
 
@@ -537,6 +555,7 @@ impl IfcAPI {
                                 "[WASM FILTER] Excluding mesh #{} ({}) - {:.1}% outliers, max coord: {:.2}m",
                                 id, entity.ifc_type.name(), outlier_ratio * 100.0, max_coord
                             ).into());
+                            stats.outlier_filtered += 1;
                             continue; // Skip this mesh
                         }
 
@@ -554,8 +573,29 @@ impl IfcAPI {
 
                         let mesh_data = MeshDataJs::new(id, ifc_type_name, mesh, color);
                         mesh_collection.add(mesh_data);
+                        stats.success += 1;
+                    } else {
+                        stats.empty_mesh += 1;
                     }
+                } else {
+                    stats.process_failed += 1;
                 }
+            } else {
+                stats.decode_failed += 1;
+            }
+        }
+
+        // Emit warning if significant failures occurred
+        if stats.total > 0 {
+            let success_rate = stats.success as f64 / stats.total as f64;
+            if success_rate < 0.5 {
+                web_sys::console::warn_1(&format!(
+                    "[IFC-LITE] Low geometry success rate: {:.1}% ({}/{} elements). \
+                     Decode failed: {}, No representation: {}, Process failed: {}, Empty: {}, Filtered: {}",
+                    success_rate * 100.0, stats.success, stats.total,
+                    stats.decode_failed, stats.no_representation, stats.process_failed,
+                    stats.empty_mesh, stats.outlier_filtered
+                ).into());
             }
         }
 

@@ -17,6 +17,7 @@
     "build:desktop:macos": "pnpm --filter @ifc-lite/desktop build:macos",
     "build:desktop:linux": "pnpm --filter @ifc-lite/desktop build:linux",
     "test": "pnpm -r test",
+    "test:regression": "node scripts/test-geometry-regression.mjs",
     "lint": "pnpm -r lint",
     "docs:serve": "python3 -m mkdocs serve",
     "docs:build": "python3 -m mkdocs build",
