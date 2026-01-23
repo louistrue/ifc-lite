@@ -119,6 +119,9 @@ export function ViewportContainer() {
 
   const hasGeometry = mergedGeometryResult?.meshes && mergedGeometryResult.meshes.length > 0;
 
+  // Check if any models are loaded (even if hidden) - used to show empty 3D vs starting UI
+  const hasLoadedModels = storeModels.size > 0 || (geometryResult?.meshes && geometryResult.meshes.length > 0);
+
   // Filter geometry based on type visibility only
   // PERFORMANCE FIX: Don't filter by storey or hiddenEntities here
   // Instead, let the renderer handle visibility filtering at the batch level
@@ -246,8 +249,9 @@ export function ViewportContainer() {
     </>
   );
 
-  // Empty state when no file is loaded
-  if (!hasGeometry && !loading) {
+  // Empty state when no file is loaded at all (show starting UI)
+  // But NOT when models are loaded but just hidden - in that case show empty 3D canvas
+  if (!hasLoadedModels && !loading) {
     return (
       <div
         className="relative h-full w-full bg-white dark:bg-black text-zinc-900 dark:text-zinc-50 overflow-hidden"

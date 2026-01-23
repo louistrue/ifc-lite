@@ -23,6 +23,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
   const isolateEntity = useViewerStore((s) => s.isolateEntity);
   const hideEntity = useViewerStore((s) => s.hideEntity);
   const showAll = useViewerStore((s) => s.showAll);
+  const clearStoreySelection = useViewerStore((s) => s.clearStoreySelection);
   const toggleTheme = useViewerStore((s) => s.toggleTheme);
 
   // Measure tool specific actions
@@ -85,6 +86,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
     if (key === 'a' && !ctrl && !shift) {
       e.preventDefault();
       showAll();
+      clearStoreySelection(); // Also clear storey filtering
     }
 
     // Measure tool shortcuts
@@ -120,6 +122,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       e.preventDefault();
       setSelectedEntityId(null);
       showAll();
+      clearStoreySelection(); // Also clear storey filtering
       setActiveTool('select');
     }
 
@@ -139,6 +142,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
     isolateEntity,
     hideEntity,
     showAll,
+    clearStoreySelection,
     toggleTheme,
     activeMeasurement,
     cancelMeasurement,

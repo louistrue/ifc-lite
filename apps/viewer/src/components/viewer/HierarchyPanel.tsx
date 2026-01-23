@@ -529,10 +529,16 @@ export function HierarchyPanel() {
         // Add to selection
         setStoreysSelection([...Array.from(selectedStoreys), ...storeyIds]);
       } else {
-        // Single selection (toggle if already selected)
-        if (storeyIds.length === 1 && selectedStoreys.has(storeyIds[0]) && selectedStoreys.size === 1) {
+        // Single selection - toggle if ALL these storeys are already the only selected ones
+        const allAlreadySelected = storeyIds.length > 0 &&
+          storeyIds.every(id => selectedStoreys.has(id)) &&
+          selectedStoreys.size === storeyIds.length;
+
+        if (allAlreadySelected) {
+          // Toggle off - clear selection to show all
           clearStoreySelection();
         } else {
+          // Select this storey (replaces any existing selection)
           setStoreysSelection(storeyIds);
         }
       }

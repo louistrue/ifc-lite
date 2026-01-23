@@ -1489,20 +1489,14 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
     const isCleared = currentLength === 0;
 
     if (isCleared) {
-      // Geometry cleared - reset camera and bounds
+      // Geometry cleared (could be visibility change or file unload)
+      // Clear scene but DON'T reset camera - user may just be hiding models
       scene.clear();
       processedMeshIdsRef.current.clear();
-      cameraFittedRef.current = false;
-      finalBoundsRefittedRef.current = false;
+      // Keep cameraFittedRef to preserve camera position when models are shown again
       lastGeometryLengthRef.current = 0;
       lastGeometryRef.current = null;
-      // Reset camera state
-      renderer.getCamera().reset();
-      // Reset geometry bounds to default
-      geometryBoundsRef.current = {
-        min: { x: -100, y: -100, z: -100 },
-        max: { x: 100, y: 100, z: 100 },
-      };
+      // Note: Don't reset camera or bounds - preserve user's view
       return;
     } else if (isNewFile) {
       // New file loaded - reset camera and bounds
@@ -1520,20 +1514,35 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds }: View
         max: { x: 100, y: 100, z: 100 },
       };
     } else if (!isIncremental && currentLength !== lastLength) {
-      // Length decreased (shouldn't happen during streaming) - reset
-      scene.clear();
-      processedMeshIdsRef.current.clear();
-      cameraFittedRef.current = false;
-      finalBoundsRefittedRef.current = false;
-      lastGeometryLengthRef.current = 0;
-      lastGeometryRef.current = geometry;
-      // Reset camera state
-      renderer.getCamera().reset();
-      // Reset geometry bounds to default
-      geometryBoundsRef.current = {
-        min: { x: -100, y: -100, z: -100 },
-        max: { x: 100, y: 100, z: 100 },
-      };
+      // Length changed but not incremental - could be:
+      // 1. Length decreased (model hidden) - DON'T reset camera
+      // 2. Length increased but lastLength > 0 (new file loaded while another was open) - DO reset
+      const isLengthDecrease = currentLength < lastLength;
+
+      if (isLengthDecrease) {
+        // Model visibility changed (hidden) - rebuild scene but keep camera
+        scene.clear();
+        processedMeshIdsRef.current.clear();
+        // Don't reset cameraFittedRef - keep current camera position
+        lastGeometryLengthRef.current = 0; // Reset so meshes get re-added
+        lastGeometryRef.current = geometry;
+        // Note: Don't reset camera or bounds - user wants to keep their view
+      } else {
+        // New file loaded while another was open - full reset
+        scene.clear();
+        processedMeshIdsRef.current.clear();
+        cameraFittedRef.current = false;
+        finalBoundsRefittedRef.current = false;
+        lastGeometryLengthRef.current = 0;
+        lastGeometryRef.current = geometry;
+        // Reset camera state
+        renderer.getCamera().reset();
+        // Reset geometry bounds to default
+        geometryBoundsRef.current = {
+          min: { x: -100, y: -100, z: -100 },
+          max: { x: 100, y: 100, z: 100 },
+        };
+      }
     } else if (currentLength === lastLength) {
       // No geometry change - but check if we need to update bounds when streaming completes
       if (cameraFittedRef.current && !isStreaming && !finalBoundsRefittedRef.current && coordinateInfo?.shiftedBounds) {
