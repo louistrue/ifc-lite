@@ -130,7 +130,7 @@ interface MainToolbarProps {
 export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const addModelInputRef = useRef<HTMLInputElement>(null);
-  const { loadFile, loading, progress, geometryResult, ifcDataStore, addModel, models } = useIfc();
+  const { loadFile, loading, progress, geometryResult, ifcDataStore, addModel, models, clearAllModels } = useIfc();
 
   // Check if we have models loaded (for showing add model button)
   const hasModelsLoaded = models.size > 0 || (geometryResult?.meshes && geometryResult.meshes.length > 0);
@@ -180,8 +180,9 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       loadFile(ifcFiles[0]);
     } else {
       // Multiple files selected - use federation from the start
-      // Reset state once, then add ALL files as equal federated models
+      // Clear everything (including any existing models) and start fresh
       resetViewerState();
+      clearAllModels();
       // Add files with staggered delays to avoid race conditions
       ifcFiles.forEach((file, index) => {
         setTimeout(() => addModel(file), 150 * index);
@@ -190,7 +191,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
     // Reset input so same files can be selected again
     e.target.value = '';
-  }, [loadFile, addModel, resetViewerState]);
+  }, [loadFile, addModel, resetViewerState, clearAllModels]);
 
   const handleAddModelSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
