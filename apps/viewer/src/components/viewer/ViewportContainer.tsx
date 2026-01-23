@@ -13,12 +13,13 @@ import { Upload, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 
 export function ViewportContainer() {
-  const { geometryResult, ifcDataStore, loadFile, loading, addModel, models } = useIfc();
+  const { geometryResult, ifcDataStore, loadFile, loading, addModel, models, clearAllModels } = useIfc();
   const selectedStoreys = useViewerStore((s) => s.selectedStoreys);
   const typeVisibility = useViewerStore((s) => s.typeVisibility);
   const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
   // Multi-model support: get all loaded models from store (for merged geometry)
   const storeModels = useViewerStore((s) => s.models);
+  const resetViewerState = useViewerStore((s) => s.resetViewerState);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showTroubleshooting, setShowTroubleshooting] = useState(false);
@@ -92,30 +93,64 @@ export function ViewportContainer() {
       return;
     }
 
-    const file = e.dataTransfer.files[0];
-    if (file && (file.name.endsWith('.ifc') || file.name.endsWith('.ifcx'))) {
-      // If models are already loaded, ADD the new model to the scene
-      // Otherwise, load it as the first/primary model
-      if (hasModelsLoaded) {
-        addModel(file);
-      } else {
-        loadFile(file);
-      }
+    // Filter to only IFC files
+    const ifcFiles = Array.from(e.dataTransfer.files).filter(
+      f => f.name.endsWith('.ifc') || f.name.endsWith('.ifcx')
+    );
+
+    if (ifcFiles.length === 0) return;
+
+    if (hasModelsLoaded) {
+      // Models already loaded - add new files to existing scene
+      ifcFiles.forEach((file, index) => {
+        setTimeout(() => addModel(file), 150 * index);
+      });
+    } else if (ifcFiles.length === 1) {
+      // Single file, no models loaded - use loadFile
+      loadFile(ifcFiles[0]);
+    } else {
+      // Multiple files, no models loaded - use federation
+      resetViewerState();
+      clearAllModels();
+      ifcFiles.forEach((file, index) => {
+        setTimeout(() => addModel(file), 150 * index);
+      });
     }
-  }, [loadFile, addModel, webgpu.supported, hasModelsLoaded]);
+  }, [loadFile, addModel, resetViewerState, clearAllModels, webgpu.supported, hasModelsLoaded]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     // Block file loading if WebGPU not supported
     if (!webgpu.supported) {
       return;
     }
-    const file = e.target.files?.[0];
-    if (file) {
-      loadFile(file);
+
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    // Filter to only IFC files
+    const ifcFiles = Array.from(files).filter(
+      f => f.name.endsWith('.ifc') || f.name.endsWith('.ifcx')
+    );
+
+    if (ifcFiles.length === 0) return;
+
+    if (ifcFiles.length === 1) {
+      // Single file - use loadFile (simpler single-model path)
+      loadFile(ifcFiles[0]);
+    } else {
+      // Multiple files selected - use federation from the start
+      // Clear everything and start fresh
+      resetViewerState();
+      clearAllModels();
+      // Add files with staggered delays to avoid race conditions
+      ifcFiles.forEach((file, index) => {
+        setTimeout(() => addModel(file), 150 * index);
+      });
     }
+
     // Reset input so same file can be selected again
     e.target.value = '';
-  }, [loadFile, webgpu.supported]);
+  }, [loadFile, addModel, resetViewerState, clearAllModels, webgpu.supported]);
 
   const hasGeometry = mergedGeometryResult?.meshes && mergedGeometryResult.meshes.length > 0;
 
@@ -265,6 +300,7 @@ export function ViewportContainer() {
           ref={fileInputRef}
           type="file"
           accept=".ifc,.ifcx"
+          multiple
           onChange={handleFileSelect}
           className="hidden"
         />
