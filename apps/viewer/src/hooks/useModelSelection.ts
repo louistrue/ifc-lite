@@ -31,7 +31,10 @@ export function useModelSelection() {
 
   useEffect(() => {
     if (selectedEntityId === null) {
-      setSelectedEntity(null);
+      // Don't clear selectedEntity when selectedEntityId is null
+      // This allows selectedModelId to remain set when clicking model headers
+      // The model selection flow: setSelectedModelId -> sets selectedEntityId=null
+      // If we called setSelectedEntity(null) here, it would clear selectedModelId
       return;
     }
 
@@ -49,8 +52,9 @@ export function useModelSelection() {
         const firstModelId = Array.from(models.keys())[0];
         setSelectedEntity({ modelId: firstModelId, expressId: selectedEntityId });
       } else {
-        // No models loaded, can't resolve
-        setSelectedEntity(null);
+        // Legacy single-model mode: use 'legacy' as modelId
+        // This allows PropertiesPanel to fall back to the legacy query
+        setSelectedEntity({ modelId: 'legacy', expressId: selectedEntityId });
       }
     }
   }, [selectedEntityId, setSelectedEntity, models, resolveGlobalIdFromModels]);

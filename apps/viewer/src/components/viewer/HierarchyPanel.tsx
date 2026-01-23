@@ -192,13 +192,13 @@ export function HierarchyPanel() {
 
   // Auto-expand nodes on initial load based on model count
   useEffect(() => {
-    // Only run once when models are first loaded
-    if (hasInitializedExpansion || models.size === 0) return;
+    // Only run once when data is first loaded
+    if (hasInitializedExpansion) return;
 
     const newExpanded = new Set<string>();
 
     if (models.size === 1) {
-      // Single model: expand full hierarchy to show all storeys
+      // Single model in federation: expand full hierarchy to show all storeys
       const [, model] = Array.from(models.entries())[0];
       const hierarchy = model.ifcDataStore?.spatialHierarchy;
 
@@ -221,7 +221,7 @@ export function HierarchyPanel() {
           newExpanded.add(buildingNodeId);
         }
       }
-    } else {
+    } else if (models.size > 1) {
       // Multi-model: expand all model entries in Models section
       // But collapse if there are too many items (rough estimate based on viewport)
       const totalItems = unifiedStoreys.length + models.size;
@@ -236,21 +236,40 @@ export function HierarchyPanel() {
         }
       }
       // If not enough space, leave collapsed (newExpanded stays empty for models)
+    } else if (models.size === 0 && ifcDataStore?.spatialHierarchy?.project) {
+      // Legacy single-model mode (loaded via loadFile, not in models Map)
+      const hierarchy = ifcDataStore.spatialHierarchy;
+      const project = hierarchy.project;
+      const projectNodeId = `root-${project.expressId}`;
+      newExpanded.add(projectNodeId);
+
+      for (const site of project.children || []) {
+        const siteNodeId = `${projectNodeId}-${site.expressId}`;
+        newExpanded.add(siteNodeId);
+
+        for (const building of site.children || []) {
+          const buildingNodeId = `${siteNodeId}-${building.expressId}`;
+          newExpanded.add(buildingNodeId);
+        }
+      }
+    } else {
+      // No data loaded yet
+      return;
     }
 
     if (newExpanded.size > 0) {
       setExpandedNodes(newExpanded);
     }
     setHasInitializedExpansion(true);
-  }, [models, hasInitializedExpansion, unifiedStoreys.length]);
+  }, [models, ifcDataStore, hasInitializedExpansion, unifiedStoreys.length]);
 
-  // Reset expansion state when all models are removed
+  // Reset expansion state when all data is cleared
   useEffect(() => {
-    if (models.size === 0) {
+    if (models.size === 0 && !ifcDataStore) {
       setHasInitializedExpansion(false);
       setExpandedNodes(new Set());
     }
-  }, [models.size]);
+  }, [models.size, ifcDataStore]);
 
   // Get all element IDs for a unified storey
   const getUnifiedStoreyElements = useCallback((unifiedStorey: UnifiedStorey): number[] => {

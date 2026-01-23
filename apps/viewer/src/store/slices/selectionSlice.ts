@@ -152,7 +152,9 @@ export const createSelectionSlice: StateCreator<SelectionSlice, [], [], Selectio
   setSelectedEntity: (ref) => set({
     selectedEntity: ref,
     selectedEntities: [], // Clear multi-entity selection when setting single entity
-    selectedModelId: null, // Clear model selection when selecting an entity
+    // NOTE: Don't clear selectedModelId here - it's cleared by setSelectedEntityId
+    // when an entity is actually selected. This prevents race conditions with
+    // useModelSelection which calls setSelectedEntity when selectedEntityId changes.
     // DO NOT update selectedEntityId here - it would overwrite the globalId with expressId!
     // The renderer needs the globalId in selectedEntityId for highlighting.
   }),
