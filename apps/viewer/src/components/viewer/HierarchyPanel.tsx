@@ -277,14 +277,17 @@ export function HierarchyPanel() {
     }
   }, [models.size, ifcDataStore]);
 
-  // Get all element IDs for a unified storey
+  // Get all element IDs for a unified storey (as global IDs)
   const getUnifiedStoreyElements = useCallback((unifiedStorey: UnifiedStorey): number[] => {
     const allElements: number[] = [];
     for (const storey of unifiedStorey.storeys) {
-      allElements.push(...storey.elements);
+      const model = models.get(storey.modelId);
+      const offset = model?.idOffset ?? 0;
+      // Convert local expressIds to global IDs
+      allElements.push(...storey.elements.map(id => id + offset));
     }
     return allElements;
-  }, []);
+  }, [models]);
 
   // Build the tree data structure
   const treeData = useMemo((): TreeNode[] => {
@@ -298,7 +301,8 @@ export function HierarchyPanel() {
       dataStore: any,
       depth: number,
       parentNodeId: string,
-      stopAtBuilding: boolean
+      stopAtBuilding: boolean,
+      idOffset: number = 0
     ) => {
       const nodeId = `${parentNodeId}-${spatialNode.expressId}`;
       const nodeType = getNodeType(spatialNode.type);
@@ -315,8 +319,8 @@ export function HierarchyPanel() {
         elements = (dataStore.spatialHierarchy?.byStorey.get(spatialNode.expressId) as number[]) || [];
       }
 
-      // Check visibility
-      const isVisible = elements.length === 0 || elements.some((id: number) => !hiddenEntities.has(id));
+      // Check visibility - convert to global IDs for check
+      const isVisible = elements.length === 0 || elements.some((id: number) => !hiddenEntities.has(id + idOffset));
 
       // Check if has children
       // In stopAtBuilding mode, buildings have no children (storeys shown separately)
@@ -348,25 +352,26 @@ export function HierarchyPanel() {
           : spatialNode.children || [];
 
         for (const child of sortedChildren) {
-          buildSpatialNodes(child, modelId, dataStore, depth + 1, nodeId, stopAtBuilding);
+          buildSpatialNodes(child, modelId, dataStore, depth + 1, nodeId, stopAtBuilding, idOffset);
         }
 
         // For storeys (single-model only), add elements
         if (!stopAtBuilding && nodeType === 'IfcBuildingStorey' && elements.length > 0) {
           for (const elementId of elements) {
+            const globalId = elementId + idOffset;
             const entityType = dataStore.entities?.getTypeName(elementId) || 'Unknown';
             const entityName = dataStore.entities?.getName(elementId) || `${entityType} #${elementId}`;
 
             nodes.push({
               id: `element-${modelId}-${elementId}`,
-              expressIds: [elementId],
+              expressIds: [globalId],  // Store global ID for visibility operations
               modelIds: [modelId],
               name: entityName,
               type: 'element',
               depth: depth + 1,
               hasChildren: false,
               isExpanded: false,
-              isVisible: !hiddenEntities.has(elementId),
+              isVisible: !hiddenEntities.has(globalId),
             });
           }
         }
@@ -424,20 +429,22 @@ export function HierarchyPanel() {
             // If contribution expanded, show elements
             if (contribExpanded) {
               const dataStore = model?.ifcDataStore;
+              const offset = model?.idOffset ?? 0;
               for (const elementId of storey.elements) {
+                const globalId = elementId + offset;
                 const entityType = dataStore?.entities?.getTypeName(elementId) || 'Unknown';
                 const entityName = dataStore?.entities?.getName(elementId) || `${entityType} #${elementId}`;
 
                 nodes.push({
                   id: `element-${storey.modelId}-${elementId}`,
-                  expressIds: [elementId],
+                  expressIds: [globalId],  // Store global ID for visibility operations
                   modelIds: [storey.modelId],
                   name: entityName,
                   type: 'element',
                   depth: 2,
                   hasChildren: false,
                   isExpanded: false,
-                  isVisible: !hiddenEntities.has(elementId),
+                  isVisible: !hiddenEntities.has(globalId),
                 });
               }
             }
@@ -485,7 +492,8 @@ export function HierarchyPanel() {
             model.ifcDataStore,
             1,
             modelNodeId,
-            true  // stopAtBuilding = true
+            true,  // stopAtBuilding = true
+            model.idOffset ?? 0
           );
         }
       }
@@ -499,18 +507,20 @@ export function HierarchyPanel() {
           model.ifcDataStore,
           0,
           'root',
-          false  // stopAtBuilding = false (show full hierarchy)
+          false,  // stopAtBuilding = false (show full hierarchy)
+          model.idOffset ?? 0
         );
       }
     } else if (ifcDataStore?.spatialHierarchy?.project) {
-      // Legacy single-model mode
+      // Legacy single-model mode (no offset)
       buildSpatialNodes(
         ifcDataStore.spatialHierarchy.project,
         'legacy',
         ifcDataStore,
         0,
         'root',
-        false
+        false,
+        0
       );
     }
 
@@ -633,23 +643,28 @@ export function HierarchyPanel() {
       const modelId = node.modelIds[0];
       const model = models.get(modelId);
       if (model?.ifcDataStore?.spatialHierarchy) {
-        return (model.ifcDataStore.spatialHierarchy.byStorey.get(storeyId) as number[]) || [];
+        const localIds = (model.ifcDataStore.spatialHierarchy.byStorey.get(storeyId) as number[]) || [];
+        // Convert local expressIds to global IDs using model's idOffset
+        const offset = model.idOffset ?? 0;
+        return localIds.map(id => id + offset);
       }
     } else if (node.type === 'IfcBuildingStorey') {
       // Get storey elements
       const storeyId = node.expressIds[0];
       const modelId = node.modelIds[0];
 
-      // Try legacy dataStore first
+      // Try legacy dataStore first (no offset needed, IDs are already global)
       if (ifcDataStore?.spatialHierarchy) {
         const elements = ifcDataStore.spatialHierarchy.byStorey.get(storeyId);
         if (elements) return elements as number[];
       }
 
-      // Or from the model in federation
+      // Or from the model in federation - need to apply idOffset
       const model = models.get(modelId);
       if (model?.ifcDataStore?.spatialHierarchy) {
-        return (model.ifcDataStore.spatialHierarchy.byStorey.get(storeyId) as number[]) || [];
+        const localIds = (model.ifcDataStore.spatialHierarchy.byStorey.get(storeyId) as number[]) || [];
+        const offset = model.idOffset ?? 0;
+        return localIds.map(id => id + offset);
       }
     } else if (node.type === 'element') {
       return node.expressIds;
