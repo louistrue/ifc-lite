@@ -30,6 +30,7 @@ import { IfcTypeEnum } from '@ifc-lite/data';
 
 // Node types for the tree
 type NodeType =
+  | 'unified-storey'      // Grouped storey across models (multi-model only)
   | 'model-header'        // Model visibility control (section header or individual model)
   | 'IfcProject'          // Project node
   | 'IfcSite'             // Site node
@@ -53,7 +54,26 @@ interface TreeNode {
   storeyElevation?: number;
 }
 
+/** Data for a storey from a single model */
+interface StoreyData {
+  modelId: string;
+  storeyId: number;
+  name: string;
+  elevation: number;
+  elements: number[];
+}
+
+/** Unified storey grouping storeys from multiple models */
+interface UnifiedStorey {
+  key: string;  // Elevation-based key for matching
+  name: string;
+  elevation: number;
+  storeys: StoreyData[];
+  totalElements: number;
+}
+
 const TYPE_ICONS: Record<string, React.ElementType> = {
+  'unified-storey': Layers,
   'model-header': FileBox,
   IfcProject: FolderKanban,
   IfcSite: MapPin,
@@ -66,6 +86,11 @@ const TYPE_ICONS: Record<string, React.ElementType> = {
   element: Box,
   default: Box,
 };
+
+// Helper to create elevation key (with 0.5m tolerance for matching)
+function elevationKey(elevation: number): string {
+  return (Math.round(elevation * 2) / 2).toFixed(2);
+}
 
 export function HierarchyPanel() {
   const {
@@ -109,23 +134,88 @@ export function HierarchyPanel() {
     }
   }, []);
 
+  // Build unified storey data for multi-model mode
+  const unifiedStoreys = useMemo((): UnifiedStorey[] => {
+    if (models.size <= 1) return [];
+
+    const storeysByElevation = new Map<string, UnifiedStorey>();
+
+    for (const [modelId, model] of models) {
+      const dataStore = model.ifcDataStore;
+      if (!dataStore?.spatialHierarchy) continue;
+
+      const hierarchy = dataStore.spatialHierarchy;
+      const { byStorey, storeyElevations } = hierarchy;
+
+      for (const [storeyId, elements] of byStorey.entries()) {
+        const elevation = storeyElevations.get(storeyId) ?? 0;
+        const name = dataStore.entities.getName(storeyId) || `Storey #${storeyId}`;
+        const key = elevationKey(elevation);
+
+        const storeyData: StoreyData = {
+          modelId,
+          storeyId,
+          name,
+          elevation,
+          elements: elements as number[],
+        };
+
+        if (storeysByElevation.has(key)) {
+          const unified = storeysByElevation.get(key)!;
+          unified.storeys.push(storeyData);
+          unified.totalElements += elements.length;
+          if (name.length < unified.name.length) {
+            unified.name = name;
+          }
+        } else {
+          storeysByElevation.set(key, {
+            key,
+            name,
+            elevation,
+            storeys: [storeyData],
+            totalElements: elements.length,
+          });
+        }
+      }
+    }
+
+    return Array.from(storeysByElevation.values())
+      .sort((a, b) => b.elevation - a.elevation);
+  }, [models]);
+
+  // Get all element IDs for a unified storey
+  const getUnifiedStoreyElements = useCallback((unifiedStorey: UnifiedStorey): number[] => {
+    const allElements: number[] = [];
+    for (const storey of unifiedStorey.storeys) {
+      allElements.push(...storey.elements);
+    }
+    return allElements;
+  }, []);
+
   // Build the tree data structure
   const treeData = useMemo((): TreeNode[] => {
     const nodes: TreeNode[] = [];
 
-    // Helper to recursively build nodes from spatial hierarchy
+    // Helper to recursively build spatial nodes (Project → Site → Building)
+    // stopAtBuilding: if true, don't include storeys (for multi-model mode)
     const buildSpatialNodes = (
       spatialNode: { expressId: number; type: IfcTypeEnum; name: string; elevation?: number; children: any[]; elements: number[] },
       modelId: string,
       dataStore: any,
       depth: number,
-      parentNodeId: string
+      parentNodeId: string,
+      stopAtBuilding: boolean
     ) => {
       const nodeId = `${parentNodeId}-${spatialNode.expressId}`;
       const nodeType = getNodeType(spatialNode.type);
       const isNodeExpanded = expandedNodes.has(nodeId);
 
-      // For storeys, get elements from byStorey map (more accurate)
+      // Skip storeys in multi-model mode (they're shown in unified list)
+      if (stopAtBuilding && nodeType === 'IfcBuildingStorey') {
+        return;
+      }
+
+      // For storeys, get elements from byStorey map
       let elements: number[] = [];
       if (nodeType === 'IfcBuildingStorey') {
         elements = (dataStore.spatialHierarchy?.byStorey.get(spatialNode.expressId) as number[]) || [];
@@ -134,8 +224,14 @@ export function HierarchyPanel() {
       // Check visibility
       const isVisible = elements.length === 0 || elements.some((id: number) => !hiddenEntities.has(id));
 
-      // Check if has children (spatial children or storey elements)
-      const hasChildren = (spatialNode.children?.length > 0) || (nodeType === 'IfcBuildingStorey' && elements.length > 0);
+      // Check if has children
+      // In stopAtBuilding mode, buildings have no children (storeys shown separately)
+      const hasNonStoreyChildren = spatialNode.children?.some(
+        (c: any) => getNodeType(c.type) !== 'IfcBuildingStorey'
+      );
+      const hasChildren = stopAtBuilding
+        ? (nodeType !== 'IfcBuilding' && hasNonStoreyChildren)
+        : (spatialNode.children?.length > 0) || (nodeType === 'IfcBuildingStorey' && elements.length > 0);
 
       nodes.push({
         id: nodeId,
@@ -152,18 +248,17 @@ export function HierarchyPanel() {
       });
 
       if (isNodeExpanded) {
-        // Add spatial children (sites under project, buildings under site, storeys under building)
         // Sort storeys by elevation descending
         const sortedChildren = nodeType === 'IfcBuilding'
           ? [...(spatialNode.children || [])].sort((a, b) => (b.elevation || 0) - (a.elevation || 0))
           : spatialNode.children || [];
 
         for (const child of sortedChildren) {
-          buildSpatialNodes(child, modelId, dataStore, depth + 1, nodeId);
+          buildSpatialNodes(child, modelId, dataStore, depth + 1, nodeId, stopAtBuilding);
         }
 
-        // For storeys, add elements
-        if (nodeType === 'IfcBuildingStorey' && elements.length > 0) {
+        // For storeys (single-model only), add elements
+        if (!stopAtBuilding && nodeType === 'IfcBuildingStorey' && elements.length > 0) {
           for (const elementId of elements) {
             const entityType = dataStore.entities?.getTypeName(elementId) || 'Unknown';
             const entityName = dataStore.entities?.getName(elementId) || `${entityType} #${elementId}`;
@@ -184,9 +279,79 @@ export function HierarchyPanel() {
       }
     };
 
-    // Multi-model mode: show MODELS section with expandable models
+    // Multi-model mode: unified storeys + MODELS section
     if (isMultiModel) {
-      // Add models header
+      // 1. Add unified storeys at the top
+      for (const unified of unifiedStoreys) {
+        const storeyNodeId = `unified-${unified.key}`;
+        const isExpanded = expandedNodes.has(storeyNodeId);
+        const allElements = getUnifiedStoreyElements(unified);
+        const allStoreyIds = unified.storeys.map(s => s.storeyId);
+        const isVisible = allElements.some(id => !hiddenEntities.has(id));
+
+        nodes.push({
+          id: storeyNodeId,
+          expressIds: allStoreyIds,
+          modelIds: unified.storeys.map(s => s.modelId),
+          name: unified.name,
+          type: 'unified-storey',
+          depth: 0,
+          hasChildren: allElements.length > 0,
+          isExpanded,
+          isVisible,
+          elementCount: unified.totalElements,
+          storeyElevation: unified.elevation,
+        });
+
+        // If expanded, show elements grouped by model
+        if (isExpanded) {
+          for (const storey of unified.storeys) {
+            const model = models.get(storey.modelId);
+            const modelName = model?.name || storey.modelId;
+
+            // Add model contribution header
+            const contribNodeId = `contrib-${storey.modelId}-${storey.storeyId}`;
+            const contribExpanded = expandedNodes.has(contribNodeId);
+            const contribVisible = storey.elements.some(id => !hiddenEntities.has(id));
+
+            nodes.push({
+              id: contribNodeId,
+              expressIds: [storey.storeyId],
+              modelIds: [storey.modelId],
+              name: modelName,
+              type: 'model-header',
+              depth: 1,
+              hasChildren: storey.elements.length > 0,
+              isExpanded: contribExpanded,
+              isVisible: contribVisible,
+              elementCount: storey.elements.length,
+            });
+
+            // If contribution expanded, show elements
+            if (contribExpanded) {
+              const dataStore = model?.ifcDataStore;
+              for (const elementId of storey.elements) {
+                const entityType = dataStore?.entities?.getTypeName(elementId) || 'Unknown';
+                const entityName = dataStore?.entities?.getName(elementId) || `${entityType} #${elementId}`;
+
+                nodes.push({
+                  id: `element-${storey.modelId}-${elementId}`,
+                  expressIds: [elementId],
+                  modelIds: [storey.modelId],
+                  name: entityName,
+                  type: 'element',
+                  depth: 2,
+                  hasChildren: false,
+                  isExpanded: false,
+                  isVisible: !hiddenEntities.has(elementId),
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // 2. Add MODELS section header
       nodes.push({
         id: 'models-header',
         expressIds: [],
@@ -199,7 +364,7 @@ export function HierarchyPanel() {
         isVisible: true,
       });
 
-      // Add each model as expandable
+      // 3. Add each model with Project → Site → Building (NO storeys)
       for (const [modelId, model] of models) {
         const modelNodeId = `model-${modelId}`;
         const isModelExpanded = expandedNodes.has(modelNodeId);
@@ -218,42 +383,45 @@ export function HierarchyPanel() {
           elementCount: model.ifcDataStore?.entityCount,
         });
 
-        // If model is expanded, show its spatial hierarchy
+        // If expanded, show Project → Site → Building (stop at building, no storeys)
         if (isModelExpanded && model.ifcDataStore?.spatialHierarchy?.project) {
           buildSpatialNodes(
             model.ifcDataStore.spatialHierarchy.project,
             modelId,
             model.ifcDataStore,
-            1,  // Start at depth 1 (under model)
-            modelNodeId
+            1,
+            modelNodeId,
+            true  // stopAtBuilding = true
           );
         }
       }
     } else if (models.size === 1) {
-      // Single model: show full spatial hierarchy directly (no MODELS section)
+      // Single model: show full spatial hierarchy (including storeys)
       const [modelId, model] = Array.from(models.entries())[0];
       if (model.ifcDataStore?.spatialHierarchy?.project) {
         buildSpatialNodes(
           model.ifcDataStore.spatialHierarchy.project,
           modelId,
           model.ifcDataStore,
-          0,  // Start at depth 0
-          'root'
+          0,
+          'root',
+          false  // stopAtBuilding = false (show full hierarchy)
         );
       }
     } else if (ifcDataStore?.spatialHierarchy?.project) {
-      // Legacy single-model mode (no federation)
+      // Legacy single-model mode
       buildSpatialNodes(
         ifcDataStore.spatialHierarchy.project,
         'legacy',
         ifcDataStore,
         0,
-        'root'
+        'root',
+        false
       );
     }
 
     return nodes;
-  }, [models, ifcDataStore, expandedNodes, hiddenEntities, isMultiModel, getNodeType]);
+  }, [models, ifcDataStore, expandedNodes, hiddenEntities, isMultiModel, getNodeType, unifiedStoreys, getUnifiedStoreyElements]);
 
   // Filter nodes based on search
   const filteredNodes = useMemo(() => {
@@ -286,9 +454,15 @@ export function HierarchyPanel() {
     });
   }, []);
 
-  // Get all elements for a node (handles storeys and single elements)
+  // Get all elements for a node (handles unified storeys, single storeys, and elements)
   const getNodeElements = useCallback((node: TreeNode): number[] => {
-    if (node.type === 'IfcBuildingStorey') {
+    if (node.type === 'unified-storey') {
+      // Get all elements from all models for this unified storey
+      const unified = unifiedStoreys.find(u => `unified-${u.key}` === node.id);
+      if (unified) {
+        return getUnifiedStoreyElements(unified);
+      }
+    } else if (node.type === 'IfcBuildingStorey') {
       // Get storey elements
       const storeyId = node.expressIds[0];
       const modelId = node.modelIds[0];
@@ -309,7 +483,7 @@ export function HierarchyPanel() {
     }
     // Spatial containers (Project, Site, Building) don't have direct element visibility toggle
     return [];
-  }, [models, ifcDataStore]);
+  }, [models, ifcDataStore, unifiedStoreys, getUnifiedStoreyElements]);
 
   // Toggle visibility for a node
   const handleVisibilityToggle = useCallback((node: TreeNode) => {
@@ -359,9 +533,11 @@ export function HierarchyPanel() {
       return;
     }
 
-    if (node.type === 'IfcBuildingStorey') {
-      // Storey click - select/isolate
-      const storeyIds = node.expressIds;
+    if (node.type === 'unified-storey' || node.type === 'IfcBuildingStorey') {
+      // Storey click - select/isolate (unified or single)
+      const storeyIds = node.type === 'unified-storey'
+        ? (unifiedStoreys.find(u => `unified-${u.key}` === node.id)?.storeys.map(s => s.storeyId) || [])
+        : node.expressIds;
 
       if (e.ctrlKey || e.metaKey) {
         // Add to selection
@@ -389,7 +565,7 @@ export function HierarchyPanel() {
         setActiveModel(modelId);
       }
     }
-  }, [selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntity, setActiveModel, toggleExpand]);
+  }, [selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntity, setActiveModel, toggleExpand, unifiedStoreys]);
 
   if (!ifcDataStore && models.size === 0) {
     return (
@@ -440,11 +616,13 @@ export function HierarchyPanel() {
             const Icon = TYPE_ICONS[node.type] || TYPE_ICONS.default;
 
             // Determine if node is selected
-            const isSelected = node.type === 'IfcBuildingStorey'
-              ? selectedStoreys.has(node.expressIds[0])
-              : node.type === 'element'
-                ? selectedEntityId === node.expressIds[0]
-                : false;
+            const isSelected = node.type === 'unified-storey'
+              ? node.expressIds.some(id => selectedStoreys.has(id))
+              : node.type === 'IfcBuildingStorey'
+                ? selectedStoreys.has(node.expressIds[0])
+                : node.type === 'element'
+                  ? selectedEntityId === node.expressIds[0]
+                  : false;
 
             const nodeHidden = !node.isVisible;
 
