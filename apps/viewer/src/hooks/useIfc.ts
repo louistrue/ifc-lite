@@ -1328,17 +1328,41 @@ export function useIfc() {
   /**
    * Add IFCX overlay files to existing federated model
    * Re-composes all layers including new overlays
+   * Also handles adding overlays to a single IFCX file that wasn't loaded via federated loading
    */
   const addIfcxOverlays = useCallback(async (files: File[]): Promise<void> => {
     const currentStore = useViewerStore.getState().ifcDataStore as any;
+    const currentModels = useViewerStore.getState().models;
 
-    if (!currentStore?._federatedBuffers) {
-      setError('Cannot add overlays: no federated IFCX model loaded');
+    // Get existing buffers - either from federated loading or from single file load
+    let existingBuffers: Array<{ buffer: ArrayBuffer; name: string }> = [];
+
+    if (currentStore?._federatedBuffers) {
+      // Already federated - use stored buffers
+      existingBuffers = currentStore._federatedBuffers as Array<{ buffer: ArrayBuffer; name: string }>;
+    } else if (currentStore?.source && currentStore.schemaVersion === 'IFC5') {
+      // Single IFCX file loaded via loadFile() - reconstruct buffer from source
+      // Get the model name from the models map
+      let modelName = 'base.ifcx';
+      for (const [, model] of currentModels) {
+        if (model.ifcDataStore === currentStore || model.schemaVersion === 'IFC5') {
+          modelName = model.name;
+          break;
+        }
+      }
+
+      // Convert Uint8Array source back to ArrayBuffer
+      const sourceBuffer = currentStore.source.buffer.slice(
+        currentStore.source.byteOffset,
+        currentStore.source.byteOffset + currentStore.source.byteLength
+      );
+
+      existingBuffers = [{ buffer: sourceBuffer, name: modelName }];
+      console.log(`[useIfc] Converting single IFCX file "${modelName}" to federated mode`);
+    } else {
+      setError('Cannot add overlays: no IFCX model loaded');
       return;
     }
-
-    // Get existing buffers
-    const existingBuffers = currentStore._federatedBuffers as Array<{ buffer: ArrayBuffer; name: string }>;
 
     // Read new overlay buffers
     const newBuffers: Array<{ buffer: ArrayBuffer; name: string }> = [];
