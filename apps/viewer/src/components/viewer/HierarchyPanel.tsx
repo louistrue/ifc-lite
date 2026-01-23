@@ -87,6 +87,10 @@ const TYPE_ICONS: Record<string, React.ElementType> = {
   default: Box,
 };
 
+// Spatial container types (Project/Site/Building) - these don't have direct visibility toggles
+const SPATIAL_CONTAINER_TYPES: Set<NodeType> = new Set(['IfcProject', 'IfcSite', 'IfcBuilding']);
+const isSpatialContainer = (type: NodeType): boolean => SPATIAL_CONTAINER_TYPES.has(type);
+
 // Helper to create elevation key (with 0.5m tolerance for matching)
 function elevationKey(elevation: number): string {
   return (Math.round(elevation * 2) / 2).toFixed(2);
@@ -534,7 +538,7 @@ export function HierarchyPanel() {
     }
 
     // Spatial container nodes - toggle expand/collapse
-    if (node.type === 'IfcProject' || node.type === 'IfcSite' || node.type === 'IfcBuilding') {
+    if (isSpatialContainer(node.type)) {
       if (node.hasChildren) {
         toggleExpand(node.id);
       }
@@ -778,7 +782,7 @@ export function HierarchyPanel() {
                   className={cn(
                     'flex items-center gap-1 px-2 py-1.5 border-l-4 transition-all group hierarchy-item',
                     // No selection styling for spatial containers in multi-model mode
-                    isMultiModel && (node.type === 'IfcProject' || node.type === 'IfcSite' || node.type === 'IfcBuilding')
+                    isMultiModel && isSpatialContainer(node.type)
                       ? 'border-transparent cursor-default'
                       : cn(
                           'cursor-pointer',
@@ -789,9 +793,9 @@ export function HierarchyPanel() {
                   style={{
                     paddingLeft: `${node.depth * 16 + 8}px`,
                     // No selection highlighting for spatial containers in multi-model mode
-                    backgroundColor: isSelected && !(isMultiModel && (node.type === 'IfcProject' || node.type === 'IfcSite' || node.type === 'IfcBuilding'))
+                    backgroundColor: isSelected && !(isMultiModel && isSpatialContainer(node.type))
                       ? 'var(--hierarchy-selected-bg)' : undefined,
-                    color: isSelected && !(isMultiModel && (node.type === 'IfcProject' || node.type === 'IfcSite' || node.type === 'IfcBuilding'))
+                    color: isSelected && !(isMultiModel && isSpatialContainer(node.type))
                       ? 'var(--hierarchy-selected-text)' : undefined,
                   }}
                   onClick={(e) => {
@@ -826,7 +830,7 @@ export function HierarchyPanel() {
                   )}
 
                   {/* Visibility Toggle - hide for spatial containers (Project/Site/Building) in multi-model mode */}
-                  {!(isMultiModel && (node.type === 'IfcProject' || node.type === 'IfcSite' || node.type === 'IfcBuilding')) && (
+                  {!(isMultiModel && isSpatialContainer(node.type)) && (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <button
@@ -867,7 +871,7 @@ export function HierarchyPanel() {
                   {/* Name */}
                   <span className={cn(
                     'flex-1 text-sm truncate ml-1.5',
-                    (node.type === 'IfcProject' || node.type === 'IfcSite' || node.type === 'IfcBuilding')
+                    isSpatialContainer(node.type)
                       ? 'font-medium text-zinc-900 dark:text-zinc-100'
                       : 'text-zinc-700 dark:text-zinc-300',
                     nodeHidden && 'line-through decoration-zinc-400 dark:decoration-zinc-600'
