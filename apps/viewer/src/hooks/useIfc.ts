@@ -1171,10 +1171,10 @@ export function useIfc() {
     const { resetViewerState, clearAllModels } = useViewerStore.getState();
 
     try {
-      if (options.resetState !== false) {
-        resetViewerState();
-        clearAllModels();
-      }
+      // Always reset viewer state when geometry changes (selection, hidden entities, etc.)
+      // This ensures 3D highlighting works correctly after re-composition
+      resetViewerState();
+      clearAllModels();
 
       setLoading(true);
       setError(null);
