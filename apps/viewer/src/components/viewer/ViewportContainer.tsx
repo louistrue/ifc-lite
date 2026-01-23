@@ -83,6 +83,13 @@ export function ViewportContainer() {
     setIsDragging(false);
   }, []);
 
+  // Helper to load multiple files sequentially (WASM parser isn't thread-safe)
+  const loadFilesSequentially = useCallback(async (files: File[]) => {
+    for (const file of files) {
+      await addModel(file);
+    }
+  }, [addModel]);
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -101,11 +108,8 @@ export function ViewportContainer() {
     if (ifcFiles.length === 0) return;
 
     if (hasModelsLoaded) {
-      // Models already loaded - add new files to existing scene
-      addModel(ifcFiles[0]);
-      ifcFiles.slice(1).forEach((file, index) => {
-        setTimeout(() => addModel(file), 200 * (index + 1));
-      });
+      // Models already loaded - add new files sequentially
+      loadFilesSequentially(ifcFiles);
     } else if (ifcFiles.length === 1) {
       // Single file, no models loaded - use loadFile
       loadFile(ifcFiles[0]);
@@ -113,12 +117,9 @@ export function ViewportContainer() {
       // Multiple files, no models loaded - use federation
       resetViewerState();
       clearAllModels();
-      addModel(ifcFiles[0]);
-      ifcFiles.slice(1).forEach((file, index) => {
-        setTimeout(() => addModel(file), 200 * (index + 1));
-      });
+      loadFilesSequentially(ifcFiles);
     }
-  }, [loadFile, addModel, resetViewerState, clearAllModels, webgpu.supported, hasModelsLoaded]);
+  }, [loadFile, loadFilesSequentially, resetViewerState, clearAllModels, webgpu.supported, hasModelsLoaded]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     // Block file loading if WebGPU not supported
@@ -141,19 +142,15 @@ export function ViewportContainer() {
       loadFile(ifcFiles[0]);
     } else {
       // Multiple files selected - use federation from the start
-      // Clear everything and start fresh
+      // Clear everything and start fresh, then load sequentially
       resetViewerState();
       clearAllModels();
-      // First file starts immediately, subsequent files staggered
-      addModel(ifcFiles[0]);
-      ifcFiles.slice(1).forEach((file, index) => {
-        setTimeout(() => addModel(file), 200 * (index + 1));
-      });
+      loadFilesSequentially(ifcFiles);
     }
 
     // Reset input so same file can be selected again
     e.target.value = '';
-  }, [loadFile, addModel, resetViewerState, clearAllModels, webgpu.supported]);
+  }, [loadFile, loadFilesSequentially, resetViewerState, clearAllModels, webgpu.supported]);
 
   const hasGeometry = mergedGeometryResult?.meshes && mergedGeometryResult.meshes.length > 0;
 

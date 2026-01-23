@@ -193,18 +193,19 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     e.target.value = '';
   }, [loadFile, addModel, resetViewerState, clearAllModels]);
 
-  const handleAddModelSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAddModelSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    // Filter to only IFC files and add with staggered delays
+    // Filter to only IFC files and load sequentially (WASM parser isn't thread-safe)
     const ifcFiles = Array.from(files).filter(
       f => f.name.endsWith('.ifc') || f.name.endsWith('.ifcx')
     );
 
-    ifcFiles.forEach((file, index) => {
-      setTimeout(() => addModel(file), 150 * index);
-    });
+    // Load files one by one, waiting for each to complete
+    for (const file of ifcFiles) {
+      await addModel(file);
+    }
 
     // Reset input so same files can be selected again
     e.target.value = '';
