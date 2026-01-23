@@ -191,6 +191,12 @@ export const createModelSlice: StateCreator<ModelSlice, [], [], ModelSlice> = (s
   resolveGlobalIdFromModels: (globalId: number) => {
     const models = get().models;
 
+    // DEBUG: Log state for troubleshooting
+    console.log(`[resolveGlobalIdFromModels] globalId=${globalId}, models.size=${models.size}`);
+    for (const [id, m] of models) {
+      console.log(`  Model ${m.name}: id=${id}, offset=${m.idOffset}, maxExpressId=${m.maxExpressId}`);
+    }
+
     // Sort models by offset for correct range checking
     const sortedModels = Array.from(models.values()).sort((a, b) => a.idOffset - b.idOffset);
 
@@ -198,7 +204,10 @@ export const createModelSlice: StateCreator<ModelSlice, [], [], ModelSlice> = (s
     // A model contains a globalId if: offset <= globalId <= offset + maxExpressId
     for (const model of sortedModels) {
       const localId = globalId - model.idOffset;
-      if (localId >= 0 && localId <= model.maxExpressId) {
+      const inRange = localId >= 0 && localId <= model.maxExpressId;
+      console.log(`  Checking ${model.name}: localId=${localId}, inRange=${inRange}`);
+      if (inRange) {
+        console.log(`  → MATCH: modelId=${model.id}, expressId=${localId}`);
         return {
           modelId: model.id,
           expressId: localId,
@@ -206,6 +215,7 @@ export const createModelSlice: StateCreator<ModelSlice, [], [], ModelSlice> = (s
       }
     }
 
+    console.log(`  → NO MATCH found!`);
     return null;
   },
 });
