@@ -179,19 +179,15 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       // Single file - use loadFile (simpler single-model path)
       loadFile(ifcFiles[0]);
     } else {
-      // Multiple files selected - use federation from the start
-      // Clear everything (including any existing models) and start fresh
+      // Multiple files - clear and load sequentially
       resetViewerState();
       clearAllModels();
-      // Add files with staggered delays to avoid race conditions
-      ifcFiles.forEach((file, index) => {
-        setTimeout(() => addModel(file), 150 * index);
-      });
+      loadFilesSequentially(ifcFiles);
     }
 
     // Reset input so same files can be selected again
     e.target.value = '';
-  }, [loadFile, addModel, resetViewerState, clearAllModels]);
+  }, [loadFile, loadFilesSequentially, resetViewerState, clearAllModels]);
 
   const handleAddModelSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
