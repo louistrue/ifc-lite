@@ -198,16 +198,16 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_903(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_903(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_912(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_912(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_399(arg0, arg1) {
-    wasm.__wasm_bindgen_func_elem_399(arg0, arg1);
+function __wasm_bindgen_func_elem_408(arg0, arg1) {
+    wasm.__wasm_bindgen_func_elem_408(arg0, arg1);
 }
 
-function __wasm_bindgen_func_elem_934(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_934(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_943(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_943(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -522,6 +522,47 @@ export class GpuGeometry {
         return ret >>> 0;
     }
     /**
+     * Get X component of RTC offset
+     * @returns {number}
+     */
+    get rtcOffsetX() {
+        const ret = wasm.gpugeometry_rtcOffsetX(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Get Y component of RTC offset
+     * @returns {number}
+     */
+    get rtcOffsetY() {
+        const ret = wasm.gpugeometry_rtcOffsetY(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Get Z component of RTC offset
+     * @returns {number}
+     */
+    get rtcOffsetZ() {
+        const ret = wasm.gpugeometry_rtcOffsetZ(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Check if RTC offset is active (non-zero)
+     * @returns {boolean}
+     */
+    get hasRtcOffset() {
+        const ret = wasm.gpugeometry_hasRtcOffset(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * Set the RTC (Relative To Center) offset applied to coordinates
+     * @param {number} x
+     * @param {number} y
+     * @param {number} z
+     */
+    set_rtc_offset(x, y, z) {
+        wasm.gpugeometry_set_rtc_offset(this.__wbg_ptr, x, y, z);
+    }
+    /**
      * Get length of vertex data array (in f32 elements, not bytes)
      * @returns {number}
      */
@@ -701,7 +742,7 @@ export class GpuInstancedGeometry {
      * @returns {number}
      */
     get vertexDataPtr() {
-        const ret = wasm.gpugeometry_indicesPtr(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_vertexDataPtr(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -1682,7 +1723,7 @@ export class MeshCollection {
      * @returns {number}
      */
     get rtcOffsetX() {
-        const ret = wasm.meshcollection_rtcOffsetX(this.__wbg_ptr);
+        const ret = wasm.gpugeometry_rtcOffsetX(this.__wbg_ptr);
         return ret;
     }
     /**
@@ -1690,7 +1731,7 @@ export class MeshCollection {
      * @returns {number}
      */
     get rtcOffsetY() {
-        const ret = wasm.meshcollection_rtcOffsetY(this.__wbg_ptr);
+        const ret = wasm.gpugeometry_rtcOffsetY(this.__wbg_ptr);
         return ret;
     }
     /**
@@ -1698,7 +1739,7 @@ export class MeshCollection {
      * @returns {number}
      */
     get rtcOffsetZ() {
-        const ret = wasm.meshcollection_rtcOffsetZ(this.__wbg_ptr);
+        const ret = wasm.gpugeometry_rtcOffsetZ(this.__wbg_ptr);
         return ret;
     }
     /**
@@ -1857,7 +1898,7 @@ export class MeshDataJs {
      * @returns {number}
      */
     get vertexCount() {
-        const ret = wasm.gpugeometry_totalTriangleCount(this.__wbg_ptr);
+        const ret = wasm.meshdatajs_vertexCount(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -2105,7 +2146,7 @@ export class ZeroCopyMesh {
      * @returns {number}
      */
     get normals_len() {
-        const ret = wasm.gpugeometry_indicesLen(this.__wbg_ptr);
+        const ret = wasm.zerocopymesh_normals_len(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -2113,7 +2154,7 @@ export class ZeroCopyMesh {
      * @returns {number}
      */
     get normals_ptr() {
-        const ret = wasm.gpugeometry_indicesPtr(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_vertexDataPtr(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -2129,7 +2170,7 @@ export class ZeroCopyMesh {
      * @returns {number}
      */
     get positions_len() {
-        const ret = wasm.gpugeometry_vertexDataLen(this.__wbg_ptr);
+        const ret = wasm.zerocopymesh_positions_len(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -2138,7 +2179,7 @@ export class ZeroCopyMesh {
      * @returns {number}
      */
     get positions_ptr() {
-        const ret = wasm.gpugeometry_vertexDataPtr(this.__wbg_ptr);
+        const ret = wasm.zerocopymesh_positions_ptr(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -2163,7 +2204,7 @@ export class ZeroCopyMesh {
      * @returns {boolean}
      */
     get is_empty() {
-        const ret = wasm.gpugeometry_isEmpty(this.__wbg_ptr);
+        const ret = wasm.zerocopymesh_is_empty(this.__wbg_ptr);
         return ret !== 0;
     }
 }
@@ -2352,7 +2393,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wasm_bindgen_func_elem_934(a, state0.b, arg0, arg1);
+                    return __wasm_bindgen_func_elem_943(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -2459,12 +2500,12 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbindgen_cast_f2cc0f2a96e2ef5b = function(arg0, arg1) {
         // Cast intrinsic for `Closure(Closure { dtor_idx: 115, function: Function { arguments: [Externref], shim_idx: 116, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_898, __wasm_bindgen_func_elem_903);
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_907, __wasm_bindgen_func_elem_912);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_cast_fa504d1cec41bd0d = function(arg0, arg1) {
         // Cast intrinsic for `Closure(Closure { dtor_idx: 45, function: Function { arguments: [], shim_idx: 46, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_395, __wasm_bindgen_func_elem_399);
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_404, __wasm_bindgen_func_elem_408);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_object_clone_ref = function(arg0) {
