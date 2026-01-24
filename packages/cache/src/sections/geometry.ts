@@ -76,8 +76,8 @@ function writeCoordinateInfo(writer: BufferWriter, info: CoordinateInfo): void {
   // Shifted bounds
   writeAABB(writer, info.shiftedBounds);
 
-  // Is geo-referenced flag
-  writer.writeUint8(info.isGeoReferenced ? 1 : 0);
+  // Has large coordinates flag (was misnamed isGeoReferenced)
+  writer.writeUint8(info.hasLargeCoordinates ? 1 : 0);
 }
 
 function writeVec3(writer: BufferWriter, v: Vec3): void {
@@ -152,13 +152,13 @@ function readCoordinateInfo(reader: BufferReader): CoordinateInfo {
   const originShift = readVec3(reader);
   const originalBounds = readAABB(reader);
   const shiftedBounds = readAABB(reader);
-  const isGeoReferenced = reader.readUint8() === 1;
+  const hasLargeCoordinates = reader.readUint8() === 1;
 
   return {
     originShift,
     originalBounds,
     shiftedBounds,
-    isGeoReferenced,
+    hasLargeCoordinates,
   };
 }
 

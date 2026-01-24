@@ -95,13 +95,13 @@ describe('DataSlice', () => {
         originShift: { x: 10, y: 20, z: 30 },
         originalBounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 100, y: 100, z: 100 } },
         shiftedBounds: { min: { x: -10, y: -20, z: -30 }, max: { x: 90, y: 80, z: 70 } },
-        isGeoReferenced: true,
+        hasLargeCoordinates: true,
       };
 
       state.appendGeometryBatch(meshes as any, coordInfo);
 
       assert.deepStrictEqual(state.geometryResult?.coordinateInfo.originShift, { x: 10, y: 20, z: 30 });
-      assert.strictEqual(state.geometryResult?.coordinateInfo.isGeoReferenced, true);
+      assert.strictEqual(state.geometryResult?.coordinateInfo.hasLargeCoordinates, true);
     });
 
     it('should use default coordinate info when not provided', () => {
@@ -110,7 +110,7 @@ describe('DataSlice', () => {
 
       // Should have fresh copies, not shared references
       assert.deepStrictEqual(state.geometryResult?.coordinateInfo.originShift, DATA_DEFAULTS.ORIGIN_SHIFT);
-      assert.strictEqual(state.geometryResult?.coordinateInfo.isGeoReferenced, DATA_DEFAULTS.IS_GEO_REFERENCED);
+      assert.strictEqual(state.geometryResult?.coordinateInfo.hasLargeCoordinates, DATA_DEFAULTS.HAS_LARGE_COORDINATES);
     });
 
     it('should create fresh coordinate info copies (not shared references)', () => {
@@ -202,7 +202,7 @@ describe('DataSlice', () => {
         originShift: { x: 100, y: 200, z: 300 },
         originalBounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 50, y: 50, z: 50 } },
         shiftedBounds: { min: { x: -100, y: -200, z: -300 }, max: { x: -50, y: -150, z: -250 } },
-        isGeoReferenced: true,
+        hasLargeCoordinates: true,
       };
 
       state.updateCoordinateInfo(newCoordInfo);
@@ -215,7 +215,7 @@ describe('DataSlice', () => {
         originShift: { x: 100, y: 200, z: 300 },
         originalBounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 50, y: 50, z: 50 } },
         shiftedBounds: { min: { x: -100, y: -200, z: -300 }, max: { x: -50, y: -150, z: -250 } },
-        isGeoReferenced: true,
+        hasLargeCoordinates: true,
       };
 
       state.updateCoordinateInfo(newCoordInfo);

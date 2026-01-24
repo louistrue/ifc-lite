@@ -37,7 +37,7 @@ const getDefaultCoordinateInfo = (): CoordinateInfo => ({
     min: { x: DATA_DEFAULTS.ORIGIN_SHIFT.x, y: DATA_DEFAULTS.ORIGIN_SHIFT.y, z: DATA_DEFAULTS.ORIGIN_SHIFT.z },
     max: { x: DATA_DEFAULTS.ORIGIN_SHIFT.x, y: DATA_DEFAULTS.ORIGIN_SHIFT.y, z: DATA_DEFAULTS.ORIGIN_SHIFT.z },
   },
-  isGeoReferenced: DATA_DEFAULTS.IS_GEO_REFERENCED,
+  hasLargeCoordinates: DATA_DEFAULTS.HAS_LARGE_COORDINATES,
 });
 
 export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set) => ({

@@ -279,7 +279,7 @@ export function useIfc() {
               originShift: { x: 0, y: 0, z: 0 },
               originalBounds: bounds,
               shiftedBounds: bounds,
-              isGeoReferenced: false,
+              hasLargeCoordinates: false,
             };
 
             setGeometryResult({
@@ -332,7 +332,8 @@ export function useIfc() {
           },
           // Shifted bounds = bounds as-is (server already applied shift)
           shiftedBounds: bounds,
-          isGeoReferenced: streamMetadata?.coordinate_info?.is_geo_referenced ?? false,
+          // Note: server returns is_geo_referenced but it really means "had large coordinates"
+          hasLargeCoordinates: streamMetadata?.coordinate_info?.is_geo_referenced ?? false,
         };
 
         setGeometryResult({
@@ -444,7 +445,8 @@ export function useIfc() {
             min: { x: bounds.min.x, y: bounds.min.y, z: bounds.min.z },
             max: { x: bounds.max.x, y: bounds.max.y, z: bounds.max.z },
           },
-          isGeoReferenced: serverCoordInfo?.is_geo_referenced ?? false,
+          // Note: server returns is_geo_referenced but it really means "had large coordinates"
+          hasLargeCoordinates: serverCoordInfo?.is_geo_referenced ?? false,
         };
 
         console.log(`[useIfc] Calculated bounds:`, {

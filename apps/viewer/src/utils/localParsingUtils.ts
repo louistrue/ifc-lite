@@ -30,7 +30,8 @@ export interface CoordinateInfo {
   originShift: { x: number; y: number; z: number };
   originalBounds: Bounds3D;
   shiftedBounds: Bounds3D;
-  isGeoReferenced: boolean;
+  /** True if model had large coordinates requiring RTC shift. NOT the same as proper georeferencing via IfcMapConversion. */
+  hasLargeCoordinates: boolean;
 }
 
 /**
@@ -122,13 +123,13 @@ export function calculateMeshBounds(meshes: MeshData[]): { bounds: Bounds3D; sta
  *
  * @param bounds - Calculated geometry bounds
  * @param originShift - Optional origin shift (defaults to zero)
- * @param isGeoReferenced - Whether the model is geo-referenced
+ * @param hasLargeCoordinates - Whether model had large coordinates requiring RTC shift
  * @returns Coordinate info object with cloned bounds and computed shiftedBounds
  */
 export function createCoordinateInfo(
   bounds: Bounds3D,
   originShift: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 },
-  isGeoReferenced: boolean = false
+  hasLargeCoordinates: boolean = false
 ): CoordinateInfo {
   // Deep-clone the incoming bounds into originalBounds
   const originalBounds: Bounds3D = {
@@ -154,7 +155,7 @@ export function createCoordinateInfo(
     originShift: { x: originShift.x, y: originShift.y, z: originShift.z },
     originalBounds,
     shiftedBounds,
-    isGeoReferenced,
+    hasLargeCoordinates,
   };
 }
 

@@ -32,7 +32,7 @@ function createTestGeometryResult(meshCount: number = 1): GeometryResult {
       originShift: { x: 0, y: 0, z: 0 },
       originalBounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 1, z: 0 } },
       shiftedBounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 1, z: 0 } },
-      isGeoReferenced: false,
+      hasLargeCoordinates: false,
     },
   };
 }
@@ -164,7 +164,7 @@ describe('GLTFExporter', () => {
           originShift: { x: 0, y: 0, z: 0 },
           originalBounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 0, y: 0, z: 0 } },
           shiftedBounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 0, y: 0, z: 0 } },
-          isGeoReferenced: false,
+          hasLargeCoordinates: false,
         },
       };
       const exporter = new GLTFExporter(geometryResult);

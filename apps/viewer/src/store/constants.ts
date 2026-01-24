@@ -80,6 +80,6 @@ export const TYPE_VISIBILITY_DEFAULTS = {
 export const DATA_DEFAULTS = {
   /** Default origin shift (no shift) */
   ORIGIN_SHIFT: { x: 0, y: 0, z: 0 },
-  /** Default geo-referenced state */
-  IS_GEO_REFERENCED: false,
+  /** Default large coordinates state (false = normal coordinates, no RTC needed) */
+  HAS_LARGE_COORDINATES: false,
 } as const;

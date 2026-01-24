@@ -188,7 +188,7 @@ describe('CoordinateHandler', () => {
 
       const info = handler.processMeshes(meshes);
 
-      expect(info.isGeoReferenced).toBe(false);
+      expect(info.hasLargeCoordinates).toBe(false);
       expect(info.originShift.x).toBe(0);
       expect(info.originShift.y).toBe(0);
       expect(info.originShift.z).toBe(0);
@@ -205,7 +205,7 @@ describe('CoordinateHandler', () => {
       const originalPositions = new Float32Array(meshes[0].positions);
       const info = handler.processMeshes(meshes);
 
-      expect(info.isGeoReferenced).toBe(true);
+      expect(info.hasLargeCoordinates).toBe(true);
 
       // Shift should be approximately the centroid
       expect(Math.abs(info.originShift.x - 500050)).toBeLessThan(1);
@@ -219,7 +219,7 @@ describe('CoordinateHandler', () => {
     it('should handle empty mesh array', () => {
       const info = handler.processMeshes([]);
 
-      expect(info.isGeoReferenced).toBe(false);
+      expect(info.hasLargeCoordinates).toBe(false);
       expect(info.originShift.x).toBe(0);
     });
   });

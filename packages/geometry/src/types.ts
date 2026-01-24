@@ -63,7 +63,8 @@ export interface CoordinateInfo {
   originShift: Vec3;        // Shift applied to positions
   originalBounds: AABB;     // Bounds before shift
   shiftedBounds: AABB;      // Bounds after shift
-  isGeoReferenced: boolean; // True if large coords detected
+  /** True if model had large coordinates requiring RTC shift. NOT the same as proper georeferencing via IfcMapConversion. */
+  hasLargeCoordinates: boolean;
 }
 
 export interface GeometryResult {

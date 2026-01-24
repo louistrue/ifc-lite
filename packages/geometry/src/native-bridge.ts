@@ -203,7 +203,7 @@ interface NativeCoordinateInfo {
   originShift: NativePoint3;
   originalBounds: NativeBounds;
   shiftedBounds: NativeBounds;
-  isGeoReferenced: boolean;
+  hasLargeCoordinates: boolean;
 }
 
 // Conversion functions
@@ -222,6 +222,6 @@ function convertNativeCoordinateInfo(native: NativeCoordinateInfo): CoordinateIn
     originShift: native.originShift,
     originalBounds: native.originalBounds,
     shiftedBounds: native.shiftedBounds,
-    isGeoReferenced: native.isGeoReferenced,
+    hasLargeCoordinates: native.hasLargeCoordinates,
   };
 }

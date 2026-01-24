@@ -29,7 +29,8 @@ export interface CoordinateInfo {
     originShift: Vec3;
     originalBounds: AABB;
     shiftedBounds: AABB;
-    isGeoReferenced: boolean;
+    /** True if model had large coordinates requiring RTC shift. NOT the same as proper georeferencing via IfcMapConversion. */
+    hasLargeCoordinates: boolean;
 }
 
 export class CoordinateHandler {
@@ -192,7 +193,7 @@ export class CoordinateHandler {
                 min: { x: 0, y: 0, z: 0 },
                 max: { x: 0, y: 0, z: 0 },
             },
-            isGeoReferenced: false,
+            hasLargeCoordinates: false,
         };
 
         if (meshes.length === 0) {
@@ -240,7 +241,7 @@ export class CoordinateHandler {
                 originShift: zeroShift,
                 originalBounds,
                 shiftedBounds: originalBounds,
-                isGeoReferenced: false,
+                hasLargeCoordinates: false,
             };
         }
 
@@ -275,7 +276,7 @@ export class CoordinateHandler {
             originShift: centroid,
             originalBounds,
             shiftedBounds,
-            isGeoReferenced: true,
+            hasLargeCoordinates: true,
         };
     }
 
@@ -429,7 +430,7 @@ export class CoordinateHandler {
         }
 
         const shiftedBounds = this.shiftBounds(this.accumulatedBounds, this.originShift);
-        const isGeoReferenced =
+        const hasLargeCoordinates =
             this.originShift.x !== 0 ||
             this.originShift.y !== 0 ||
             this.originShift.z !== 0;
@@ -438,7 +439,7 @@ export class CoordinateHandler {
             originShift: { ...this.originShift },
             originalBounds: { ...this.accumulatedBounds },
             shiftedBounds,
-            isGeoReferenced,
+            hasLargeCoordinates,
         };
     }
 
@@ -462,7 +463,7 @@ export class CoordinateHandler {
                 min: { x: 0, y: 0, z: 0 },
                 max: { x: 0, y: 0, z: 0 },
             },
-            isGeoReferenced: false,
+            hasLargeCoordinates: false,
         };
     }
 

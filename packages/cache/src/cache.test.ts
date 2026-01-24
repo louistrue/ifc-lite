@@ -150,7 +150,7 @@ describe('BinaryCacheWriter and BinaryCacheReader', () => {
       originShift: { x: 0, y: 0, z: 0 },
       originalBounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 1, z: 0 } },
       shiftedBounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 1, z: 0 } },
-      isGeoReferenced: false,
+      hasLargeCoordinates: false,
     };
 
     const geometry = {
@@ -306,7 +306,7 @@ describe('BinaryCacheWriter and BinaryCacheReader', () => {
         originShift: { x: 0, y: 0, z: 0 },
         originalBounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 1, z: 0 } },
         shiftedBounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 1, z: 0 } },
-        isGeoReferenced: false,
+        hasLargeCoordinates: false,
       },
     };
 

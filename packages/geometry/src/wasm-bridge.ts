@@ -69,7 +69,7 @@ export class WasmBridge implements IPlatformBridge {
         min: { x: 0, y: 0, z: 0 },
         max: { x: 0, y: 0, z: 0 },
       },
-      isGeoReferenced: false,
+      hasLargeCoordinates: false,
     };
 
     return {
