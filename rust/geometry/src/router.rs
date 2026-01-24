@@ -10,8 +10,9 @@ use crate::bool2d::subtract_multiple_2d;
 use crate::csg::{ClippingProcessor, Triangle, TriangleVec};
 use crate::processors::{
     AdvancedBrepProcessor, BooleanClippingProcessor, ExtrudedAreaSolidProcessor,
-    FacetedBrepProcessor, MappedItemProcessor, PolygonalFaceSetProcessor,
-    RevolvedAreaSolidProcessor, SweptDiskSolidProcessor, TriangulatedFaceSetProcessor,
+    FaceBasedSurfaceModelProcessor, FacetedBrepProcessor, MappedItemProcessor,
+    PolygonalFaceSetProcessor, RevolvedAreaSolidProcessor, ShellBasedSurfaceModelProcessor,
+    SweptDiskSolidProcessor, TriangulatedFaceSetProcessor,
 };
 use crate::profile::{Profile2D, Profile2DWithVoids, VoidInfo};
 use crate::void_analysis::{
@@ -127,6 +128,8 @@ impl GeometryRouter {
             schema_clone.clone(),
         )));
         router.register(Box::new(AdvancedBrepProcessor::new()));
+        router.register(Box::new(ShellBasedSurfaceModelProcessor::new()));
+        router.register(Box::new(FaceBasedSurfaceModelProcessor::new()));
 
         router
     }

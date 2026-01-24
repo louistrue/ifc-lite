@@ -29,7 +29,6 @@ fn main() {
                 if !matches!(ifc_type, ifc_lite_core::IfcType::Unknown(_)) {
                     let schema = ifc_lite_core::IfcSchema::new();
                     println!("  Has geometry: {}", schema.has_geometry(&ifc_type));
-                    println!("  Is building element: {}", ifc_type.is_building_element());
 
                     // Try to decode and process
                     let mut decoder = ifc_lite_core::EntityDecoder::new(&content);

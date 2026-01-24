@@ -1347,6 +1347,147 @@ impl Default for FaceBasedSurfaceModelProcessor {
     }
 }
 
+/// ShellBasedSurfaceModel processor
+/// Handles IfcShellBasedSurfaceModel - surface model made of shells
+/// Structure: ShellBasedSurfaceModel -> Shell[] -> Face[] -> FaceBound -> PolyLoop
+pub struct ShellBasedSurfaceModelProcessor;
+
+impl ShellBasedSurfaceModelProcessor {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl GeometryProcessor for ShellBasedSurfaceModelProcessor {
+    fn process(
+        &self,
+        entity: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+        _schema: &IfcSchema,
+    ) -> Result<Mesh> {
+        // IfcShellBasedSurfaceModel attributes:
+        // 0: SbsmBoundary (SET of IfcShell - either IfcOpenShell or IfcClosedShell)
+
+        let shells_attr = entity
+            .get(0)
+            .ok_or_else(|| Error::geometry("ShellBasedSurfaceModel missing SbsmBoundary".to_string()))?;
+
+        let shell_refs = shells_attr
+            .as_list()
+            .ok_or_else(|| Error::geometry("Expected shell list".to_string()))?;
+
+        let mut all_positions = Vec::new();
+        let mut all_indices = Vec::new();
+
+        // Process each shell
+        for shell_ref in shell_refs {
+            let shell_id = shell_ref.as_entity_ref().ok_or_else(|| {
+                Error::geometry("Expected entity reference for shell".to_string())
+            })?;
+
+            // Get face IDs from Shell (IfcOpenShell or IfcClosedShell)
+            // Both have CfsFaces as attribute 0
+            let face_ids = match decoder.get_entity_ref_list_fast(shell_id) {
+                Some(ids) => ids,
+                None => continue,
+            };
+
+            // Process each face in the shell
+            for face_id in face_ids {
+                // Get bound IDs from Face
+                let bound_ids = match decoder.get_entity_ref_list_fast(face_id) {
+                    Some(ids) => ids,
+                    None => continue,
+                };
+
+                let mut outer_points: Option<Vec<Point3<f64>>> = None;
+                let mut hole_points: Vec<Vec<Point3<f64>>> = Vec::new();
+
+                for bound_id in bound_ids {
+                    // FAST PATH: Extract loop_id, orientation, is_outer from raw bytes
+                    let (loop_id, orientation, is_outer) =
+                        match decoder.get_face_bound_fast(bound_id) {
+                            Some(data) => data,
+                            None => continue,
+                        };
+
+                    // Get loop points
+                    let mut points = match Self::extract_loop_points(loop_id, decoder) {
+                        Some(p) => p,
+                        None => continue,
+                    };
+
+                    if !orientation {
+                        points.reverse();
+                    }
+
+                    if is_outer || outer_points.is_none() {
+                        outer_points = Some(points);
+                    } else {
+                        hole_points.push(points);
+                    }
+                }
+
+                // Triangulate the face
+                if let Some(outer) = outer_points {
+                    if outer.len() >= 3 {
+                        let base_idx = (all_positions.len() / 3) as u32;
+
+                        // Add positions
+                        for p in &outer {
+                            all_positions.push(p.x as f32);
+                            all_positions.push(p.y as f32);
+                            all_positions.push(p.z as f32);
+                        }
+
+                        // Simple fan triangulation (works for convex faces)
+                        for i in 1..outer.len() - 1 {
+                            all_indices.push(base_idx);
+                            all_indices.push(base_idx + i as u32);
+                            all_indices.push(base_idx + i as u32 + 1);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(Mesh {
+            positions: all_positions,
+            normals: Vec::new(),
+            indices: all_indices,
+        })
+    }
+
+    fn supported_types(&self) -> Vec<IfcType> {
+        vec![IfcType::IfcShellBasedSurfaceModel]
+    }
+}
+
+impl ShellBasedSurfaceModelProcessor {
+    /// Extract points from a PolyLoop entity
+    fn extract_loop_points(loop_id: u32, decoder: &mut EntityDecoder) -> Option<Vec<Point3<f64>>> {
+        let point_ids = decoder.get_polyloop_point_ids_fast(loop_id)?;
+
+        let mut points = Vec::with_capacity(point_ids.len());
+        for point_id in point_ids {
+            let (x, y, z) = decoder.get_cartesian_point_fast(point_id)?;
+            points.push(Point3::new(x, y, z));
+        }
+
+        if points.len() >= 3 {
+            Some(points)
+        } else {
+            None
+        }
+    }
+}
+
+impl Default for ShellBasedSurfaceModelProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// SurfaceOfLinearExtrusion processor
 /// Handles IfcSurfaceOfLinearExtrusion - surface created by sweeping a curve along a direction
 pub struct SurfaceOfLinearExtrusionProcessor;
@@ -2866,34 +3007,35 @@ impl AdvancedBrepProcessor {
                         if let Some(edge_id) = edge_ref.as_entity_ref() {
                             let oriented_edge = decoder.decode_by_id(edge_id)?;
 
-                            // IfcOrientedEdge: EdgeStart, EdgeEnd, EdgeElement, Orientation
-                            // We need EdgeStart vertex
-                            let start_attr = oriented_edge.get(0).ok_or_else(|| {
-                                Error::geometry("OrientedEdge missing EdgeStart".to_string())
-                            })?;
+                            // IfcOrientedEdge: EdgeStart(0), EdgeEnd(1), EdgeElement(2), Orientation(3)
+                            // EdgeStart/EdgeEnd can be * (derived), get from EdgeElement if needed
 
-                            if let Some(vertex) = decoder.resolve_ref(start_attr)? {
+                            // Try to get start vertex from OrientedEdge first
+                            let vertex = oriented_edge.get(0)
+                                .and_then(|attr| decoder.resolve_ref(attr).ok().flatten())
+                                .or_else(|| {
+                                    // If EdgeStart is *, get from EdgeElement (IfcEdgeCurve)
+                                    oriented_edge.get(2)
+                                        .and_then(|attr| decoder.resolve_ref(attr).ok().flatten())
+                                        .and_then(|edge_curve| {
+                                            // IfcEdgeCurve: EdgeStart(0), EdgeEnd(1), EdgeGeometry(2)
+                                            edge_curve.get(0)
+                                                .and_then(|attr| decoder.resolve_ref(attr).ok().flatten())
+                                        })
+                                });
+
+                            if let Some(vertex) = vertex {
                                 // IfcVertexPoint has VertexGeometry (IfcCartesianPoint)
-                                let point_attr = vertex.get(0).ok_or_else(|| {
-                                    Error::geometry("VertexPoint missing geometry".to_string())
-                                })?;
+                                if let Some(point_attr) = vertex.get(0) {
+                                    if let Some(point) = decoder.resolve_ref(point_attr).ok().flatten() {
+                                        if let Some(coords) = point.get(0).and_then(|v| v.as_list()) {
+                                            let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0);
+                                            let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
+                                            let z = coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
 
-                                if let Some(point) = decoder.resolve_ref(point_attr)? {
-                                    let coords = point
-                                        .get(0)
-                                        .and_then(|v| v.as_list())
-                                        .ok_or_else(|| {
-                                            Error::geometry(
-                                                "CartesianPoint missing coords".to_string(),
-                                            )
-                                        })?;
-
-                                    let x =
-                                        coords.first().and_then(|v| v.as_float()).unwrap_or(0.0);
-                                    let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
-                                    let z = coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
-
-                                    polygon_points.push(Point3::new(x, y, z));
+                                            polygon_points.push(Point3::new(x, y, z));
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -2962,6 +3104,244 @@ impl AdvancedBrepProcessor {
 
         Ok((positions, indices))
     }
+
+    /// Process a cylindrical surface face
+    fn process_cylindrical_face(
+        &self,
+        face: &DecodedEntity,
+        surface: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<(Vec<f32>, Vec<u32>)> {
+        // Get the radius from IfcCylindricalSurface (attribute 1)
+        let radius = surface
+            .get(1)
+            .and_then(|v| v.as_float())
+            .ok_or_else(|| Error::geometry("CylindricalSurface missing Radius".to_string()))?;
+
+        // Get position/axis from IfcCylindricalSurface (attribute 0)
+        let position_attr = surface.get(0);
+        let axis_transform = if let Some(attr) = position_attr {
+            if let Some(pos_id) = attr.as_entity_ref() {
+                self.get_axis2_placement_transform(pos_id, decoder)?
+            } else {
+                Matrix4::identity()
+            }
+        } else {
+            Matrix4::identity()
+        };
+
+        // Extract boundary edges to determine angular and height extent
+        let bounds_attr = face
+            .get(0)
+            .ok_or_else(|| Error::geometry("AdvancedFace missing Bounds".to_string()))?;
+
+        let bounds = bounds_attr
+            .as_list()
+            .ok_or_else(|| Error::geometry("Expected bounds list".to_string()))?;
+
+        // Collect all boundary points to determine the extent
+        let mut boundary_points: Vec<Point3<f64>> = Vec::new();
+
+        for bound in bounds {
+            if let Some(bound_id) = bound.as_entity_ref() {
+                let bound_entity = decoder.decode_by_id(bound_id)?;
+                let loop_attr = bound_entity.get(0).ok_or_else(|| {
+                    Error::geometry("FaceBound missing Bound".to_string())
+                })?;
+
+                if let Some(loop_entity) = decoder.resolve_ref(loop_attr)? {
+                    if loop_entity.ifc_type.as_str().eq_ignore_ascii_case("IFCEDGELOOP") {
+                        if let Some(edges_attr) = loop_entity.get(0) {
+                            if let Some(edges) = edges_attr.as_list() {
+                                for edge_ref in edges {
+                                    if let Some(edge_id) = edge_ref.as_entity_ref() {
+                                        if let Ok(oriented_edge) = decoder.decode_by_id(edge_id) {
+                                            // IfcOrientedEdge: 0=EdgeStart, 1=EdgeEnd, 2=EdgeElement, 3=Orientation
+                                            // EdgeStart/EdgeEnd can be * (null), get from EdgeElement if needed
+
+                                            // Try to get start vertex from OrientedEdge first
+                                            let start_vertex = oriented_edge.get(0)
+                                                .and_then(|attr| decoder.resolve_ref(attr).ok().flatten());
+
+                                            // If null, get from EdgeElement (attribute 2)
+                                            let vertex = if start_vertex.is_some() {
+                                                start_vertex
+                                            } else if let Some(edge_elem_attr) = oriented_edge.get(2) {
+                                                // Get EdgeElement (IfcEdgeCurve)
+                                                if let Some(edge_curve) = decoder.resolve_ref(edge_elem_attr).ok().flatten() {
+                                                    // IfcEdgeCurve: 0=EdgeStart, 1=EdgeEnd, 2=EdgeGeometry
+                                                    edge_curve.get(0)
+                                                        .and_then(|attr| decoder.resolve_ref(attr).ok().flatten())
+                                                } else {
+                                                    None
+                                                }
+                                            } else {
+                                                None
+                                            };
+
+                                            if let Some(vertex) = vertex {
+                                                // IfcVertexPoint: 0=VertexGeometry (IfcCartesianPoint)
+                                                if let Some(point_attr) = vertex.get(0) {
+                                                    if let Some(point) = decoder.resolve_ref(point_attr).ok().flatten() {
+                                                        if let Some(coords) = point.get(0).and_then(|v| v.as_list()) {
+                                                            let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0);
+                                                            let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
+                                                            let z = coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
+                                                            boundary_points.push(Point3::new(x, y, z));
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if boundary_points.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
+        }
+
+        // Transform boundary points to local cylinder coordinates
+        let inv_transform = axis_transform.try_inverse().unwrap_or(Matrix4::identity());
+        let local_points: Vec<Point3<f64>> = boundary_points
+            .iter()
+            .map(|p| inv_transform.transform_point(p))
+            .collect();
+
+        // Determine angular extent (from local x,y) and height extent (from local z)
+        let mut min_angle = f64::MAX;
+        let mut max_angle = f64::MIN;
+        let mut min_z = f64::MAX;
+        let mut max_z = f64::MIN;
+
+        for p in &local_points {
+            let angle = p.y.atan2(p.x);
+            min_angle = min_angle.min(angle);
+            max_angle = max_angle.max(angle);
+            min_z = min_z.min(p.z);
+            max_z = max_z.max(p.z);
+        }
+
+        // Handle angle wrapping (if angles span across -π/π boundary)
+        if max_angle - min_angle > std::f64::consts::PI * 1.5 {
+            // Likely wraps around, recalculate with positive angles
+            let positive_angles: Vec<f64> = local_points.iter()
+                .map(|p| {
+                    let a = p.y.atan2(p.x);
+                    if a < 0.0 { a + 2.0 * std::f64::consts::PI } else { a }
+                })
+                .collect();
+            min_angle = positive_angles.iter().cloned().fold(f64::MAX, f64::min);
+            max_angle = positive_angles.iter().cloned().fold(f64::MIN, f64::max);
+        }
+
+        // Tessellation parameters
+        let angle_span = max_angle - min_angle;
+        let height = max_z - min_z;
+
+        // Balance between accuracy and matching web-ifc's output
+        // Use ~15 degrees per segment (π/12) for good curvature approximation
+        let angle_segments = ((angle_span / (std::f64::consts::PI / 12.0)).ceil() as usize).clamp(3, 16);
+        // Height segments based on aspect ratio - at least 1, more for tall cylinders
+        let height_segments = ((height / (radius * 2.0)).ceil() as usize).clamp(1, 4);
+
+        let mut positions = Vec::new();
+        let mut indices = Vec::new();
+
+        // Generate cylinder patch vertices
+        for h in 0..=height_segments {
+            let z = min_z + (height * h as f64 / height_segments as f64);
+            for a in 0..=angle_segments {
+                let angle = min_angle + (angle_span * a as f64 / angle_segments as f64);
+                let x = radius * angle.cos();
+                let y = radius * angle.sin();
+
+                // Transform back to world coordinates
+                let local_point = Point3::new(x, y, z);
+                let world_point = axis_transform.transform_point(&local_point);
+
+                positions.push(world_point.x as f32);
+                positions.push(world_point.y as f32);
+                positions.push(world_point.z as f32);
+            }
+        }
+
+        // Generate indices for quad strip
+        let cols = angle_segments + 1;
+        for h in 0..height_segments {
+            for a in 0..angle_segments {
+                let base = (h * cols + a) as u32;
+                let next_row = base + cols as u32;
+
+                // Two triangles per quad
+                indices.push(base);
+                indices.push(base + 1);
+                indices.push(next_row + 1);
+
+                indices.push(base);
+                indices.push(next_row + 1);
+                indices.push(next_row);
+            }
+        }
+
+        Ok((positions, indices))
+    }
+
+    /// Get transform from IfcAxis2Placement3D
+    fn get_axis2_placement_transform(
+        &self,
+        placement_id: u32,
+        decoder: &mut EntityDecoder,
+    ) -> Result<Matrix4<f64>> {
+        let placement = decoder.decode_by_id(placement_id)?;
+
+        // Get location
+        let location = placement
+            .get(0)
+            .and_then(|a| a.as_entity_ref())
+            .and_then(|id| decoder.get_cartesian_point_fast(id))
+            .unwrap_or((0.0, 0.0, 0.0));
+
+        // Get axis (Z direction) - attribute 1
+        let z_axis = placement
+            .get(1)
+            .and_then(|a| a.as_entity_ref())
+            .and_then(|id| Self::get_direction_impl(id, decoder))
+            .unwrap_or(Vector3::new(0.0, 0.0, 1.0));
+
+        // Get ref direction (X direction) - attribute 2
+        let x_axis = placement
+            .get(2)
+            .and_then(|a| a.as_entity_ref())
+            .and_then(|id| Self::get_direction_impl(id, decoder))
+            .unwrap_or(Vector3::new(1.0, 0.0, 0.0));
+
+        // Compute Y axis as Z cross X
+        let y_axis = z_axis.cross(&x_axis).normalize();
+        let x_axis = y_axis.cross(&z_axis).normalize();
+
+        Ok(Matrix4::new(
+            x_axis.x, y_axis.x, z_axis.x, location.0,
+            x_axis.y, y_axis.y, z_axis.y, location.1,
+            x_axis.z, y_axis.z, z_axis.z, location.2,
+            0.0, 0.0, 0.0, 1.0,
+        ))
+    }
+
+    fn get_direction_impl(dir_id: u32, decoder: &mut EntityDecoder) -> Option<Vector3<f64>> {
+        let dir = decoder.decode_by_id(dir_id).ok()?;
+        // IfcDirection has a single attribute: DirectionRatios (list of floats)
+        let ratios = dir.get(0)?.as_list()?;
+        let x = ratios.first()?.as_float().unwrap_or(0.0);
+        let y = ratios.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
+        let z = ratios.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
+        Some(Vector3::new(x, y, z).normalize())
+    }
 }
 
 impl GeometryProcessor for AdvancedBrepProcessor {
@@ -3021,6 +3401,9 @@ impl GeometryProcessor for AdvancedBrepProcessor {
                 {
                     // B-spline surface - tessellate
                     self.process_bspline_face(&surface, decoder)?
+                } else if surface_type == "IFCCYLINDRICALSURFACE" {
+                    // Cylindrical surface - tessellate
+                    self.process_cylindrical_face(&face, &surface, decoder)?
                 } else {
                     // Unsupported surface type - skip
                     continue;
@@ -3063,7 +3446,7 @@ mod tests {
 
         // Read the actual advanced_brep.ifc file
         let content =
-            std::fs::read_to_string("../../tests/benchmark/models/ifcopenshell/advanced_brep.ifc")
+            std::fs::read_to_string("../../tests/models/ifcopenshell/advanced_brep.ifc")
                 .expect("Failed to read test file");
 
         let entity_index = ifc_lite_core::build_entity_index(&content);
@@ -3171,7 +3554,7 @@ mod tests {
 
         // Read the actual 764 column file
         let content = std::fs::read_to_string(
-            "../../tests/benchmark/models/ifcopenshell/764--column--no-materials-or-surface-styles-found--augmented.ifc"
+            "../../tests/models/ifcopenshell/764--column--no-materials-or-surface-styles-found--augmented.ifc"
         ).expect("Failed to read test file");
 
         let entity_index = ifc_lite_core::build_entity_index(&content);
@@ -3208,7 +3591,7 @@ mod tests {
 
         // Read the wall-with-opening file
         let content = std::fs::read_to_string(
-            "../../tests/benchmark/models/buildingsmart/wall-with-opening-and-window.ifc",
+            "../../tests/models/buildingsmart/wall-with-opening-and-window.ifc",
         )
         .expect("Failed to read test file");
 

@@ -318,6 +318,10 @@ impl IfcSchema {
             IfcType::IfcSurfaceOfLinearExtrusion,
             GeometryCategory::Surface,
         );
+        geometry_types.insert(
+            IfcType::IfcShellBasedSurfaceModel,
+            GeometryCategory::Surface,
+        );
 
         // Instancing (P0)
         geometry_types.insert(IfcType::IfcMappedItem, GeometryCategory::MappedItem);
