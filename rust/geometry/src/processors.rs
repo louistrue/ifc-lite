@@ -9,7 +9,7 @@
 use crate::{
     extrusion::{apply_transform, extrude_profile},
     profiles::ProfileProcessor,
-    Error, Mesh, Point3, Result, Vector3,
+    Error, Mesh, Point2, Point3, Result, Vector3,
 };
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcSchema, IfcType};
 use nalgebra::Matrix4;
@@ -759,26 +759,25 @@ impl FacetedBrepProcessor {
         }
     }
 
-    /// Extract polygon points using fast path from loop entity ID
-    /// Bypasses full entity decoding for ~2x speedup on BREP-heavy files
+    /// Extract polygon points using ultra-fast path from loop entity ID
+    /// Uses cached coordinate extraction - points are cached across faces
+    /// This is the fastest path for files with shared cartesian points
     #[inline]
     fn extract_loop_points_fast(
         &self,
         loop_entity_id: u32,
         decoder: &mut EntityDecoder,
     ) -> Option<Vec<Point3<f64>>> {
-        // Get point IDs directly from raw bytes
-        let point_ids = decoder.get_polyloop_point_ids_fast(loop_entity_id)?;
+        // ULTRA-FAST PATH with CACHING: Get coordinates with point cache
+        // Many faces share the same cartesian points, so caching avoids
+        // re-parsing the same point data multiple times
+        let coords = decoder.get_polyloop_coords_cached(loop_entity_id)?;
 
-        // Pre-allocate with known size
-        let mut polygon_points = Vec::with_capacity(point_ids.len());
-
-        for point_id in point_ids {
-            // Use fast path to extract coordinates directly from raw bytes
-            // Return None if ANY point fails - ensures complete polygon or nothing
-            let (x, y, z) = decoder.get_cartesian_point_fast(point_id)?;
-            polygon_points.push(Point3::new(x, y, z));
-        }
+        // Convert to Point3 - pre-allocated in get_polyloop_coords_cached
+        let polygon_points: Vec<Point3<f64>> = coords
+            .into_iter()
+            .map(|(x, y, z)| Point3::new(x, y, z))
+            .collect();
 
         if polygon_points.len() >= 3 {
             Some(polygon_points)
@@ -941,6 +940,7 @@ impl FacetedBrepProcessor {
         brep_ids: &[u32],
         decoder: &mut EntityDecoder,
     ) -> Vec<(usize, Mesh)> {
+        #[cfg(not(target_arch = "wasm32"))]
         use rayon::prelude::*;
 
         // PHASE 1: Sequential - Extract all face data from all BREPs
@@ -948,19 +948,13 @@ impl FacetedBrepProcessor {
         let mut all_faces: Vec<(usize, FaceData)> = Vec::with_capacity(brep_ids.len() * 10);
 
         for (brep_idx, &brep_id) in brep_ids.iter().enumerate() {
-            // Decode the BREP entity
-            let brep_entity = match decoder.decode_by_id(brep_id) {
-                Ok(e) => e,
-                Err(_) => continue,
-            };
-
-            // Get closed shell ID
-            let shell_id = match brep_entity.get(0).and_then(|a| a.as_entity_ref()) {
+            // FAST PATH: Get shell ID directly from raw bytes (avoids full entity decode)
+            let shell_id = match decoder.get_first_entity_ref_fast(brep_id) {
                 Some(id) => id,
                 None => continue,
             };
 
-            // Get face IDs from shell
+            // FAST PATH: Get face IDs from shell using raw bytes
             let face_ids = match decoder.get_entity_ref_list_fast(shell_id) {
                 Some(ids) => ids,
                 None => continue,
@@ -977,43 +971,23 @@ impl FacetedBrepProcessor {
                 let mut hole_points: Vec<Vec<Point3<f64>>> = Vec::new();
 
                 for bound_id in bound_ids {
-                    let bound = match decoder.decode_by_id(bound_id) {
-                        Ok(b) => b,
-                        Err(_) => continue,
-                    };
-
-                    let loop_attr = match bound.get(0) {
-                        Some(attr) => attr,
-                        None => continue,
-                    };
-
-                    let orientation = bound
-                        .get(1)
-                        .map(|v| match v {
-                            // Parser strips dots, so enum value is "T" or "F", not ".T." or ".F."
-                            ifc_lite_core::AttributeValue::Enum(e) => e != "F" && e != ".F.",
-                            _ => true,
-                        })
-                        .unwrap_or(true);
-
-                    let mut points = if let Some(loop_id) = loop_attr.as_entity_ref() {
-                        match self.extract_loop_points_fast(loop_id, decoder) {
-                            Some(p) => p,
+                    // FAST PATH: Extract loop_id, orientation, is_outer from raw bytes
+                    // get_face_bound_fast returns (loop_id, orientation, is_outer)
+                    let (loop_id, orientation, is_outer) =
+                        match decoder.get_face_bound_fast(bound_id) {
+                            Some(data) => data,
                             None => continue,
-                        }
-                    } else {
-                        continue;
+                        };
+
+                    // FAST PATH: Get loop points directly from entity ID
+                    let mut points = match self.extract_loop_points_fast(loop_id, decoder) {
+                        Some(p) => p,
+                        None => continue,
                     };
 
                     if !orientation {
                         points.reverse();
                     }
-
-                    let is_outer = match bound.ifc_type {
-                        IfcType::IfcFaceOuterBound => true,
-                        IfcType::IfcFaceBound => false,
-                        _ => bound.ifc_type.as_str().contains("OUTER"),
-                    };
 
                     if is_outer || outer_bound_points.is_none() {
                         if outer_bound_points.is_some() && is_outer {
@@ -1039,9 +1013,18 @@ impl FacetedBrepProcessor {
             }
         }
 
-        // PHASE 2: Parallel - Triangulate ALL faces from ALL BREPs in one batch
+        // PHASE 2: Triangulate ALL faces from ALL BREPs in one batch
+        // On native: use parallel iteration for multi-core speedup
+        // On WASM: use sequential iteration (no threads available, par_iter adds overhead)
+        #[cfg(not(target_arch = "wasm32"))]
         let face_results: Vec<(usize, FaceResult)> = all_faces
             .par_iter()
+            .map(|(brep_idx, face)| (*brep_idx, Self::triangulate_face(face)))
+            .collect();
+
+        #[cfg(target_arch = "wasm32")]
+        let face_results: Vec<(usize, FaceResult)> = all_faces
+            .iter()
             .map(|(brep_idx, face)| (*brep_idx, Self::triangulate_face(face)))
             .collect();
 
@@ -1099,6 +1082,7 @@ impl GeometryProcessor for FacetedBrepProcessor {
         decoder: &mut EntityDecoder,
         _schema: &IfcSchema,
     ) -> Result<Mesh> {
+        #[cfg(not(target_arch = "wasm32"))]
         use rayon::prelude::*;
 
         // IfcFacetedBrep attributes:
@@ -1133,46 +1117,23 @@ impl GeometryProcessor for FacetedBrepProcessor {
             let mut hole_points: Vec<Vec<Point3<f64>>> = Vec::new();
 
             for bound_id in bound_ids {
-                // Get bound entity to check type and get loop ref (uses cache)
-                let bound = match decoder.decode_by_id(bound_id) {
-                    Ok(b) => b,
-                    Err(_) => continue,
-                };
-
-                let loop_attr = match bound.get(0) {
-                    Some(attr) => attr,
-                    None => continue,
-                };
-
-                // Get orientation
-                let orientation = bound
-                    .get(1)
-                    .map(|v| match v {
-                        // Parser strips dots, so enum value is "T" or "F", not ".T." or ".F."
-                        ifc_lite_core::AttributeValue::Enum(e) => e != "F" && e != ".F.",
-                        _ => true,
-                    })
-                    .unwrap_or(true);
+                // FAST PATH: Extract loop_id, orientation, is_outer from raw bytes
+                // get_face_bound_fast returns (loop_id, orientation, is_outer)
+                let (loop_id, orientation, is_outer) =
+                    match decoder.get_face_bound_fast(bound_id) {
+                        Some(data) => data,
+                        None => continue,
+                    };
 
                 // FAST PATH: Get loop points directly from entity ID
-                let mut points = if let Some(loop_id) = loop_attr.as_entity_ref() {
-                    match self.extract_loop_points_fast(loop_id, decoder) {
-                        Some(p) => p,
-                        None => continue,
-                    }
-                } else {
-                    continue;
+                let mut points = match self.extract_loop_points_fast(loop_id, decoder) {
+                    Some(p) => p,
+                    None => continue,
                 };
 
                 if !orientation {
                     points.reverse();
                 }
-
-                let is_outer = match bound.ifc_type {
-                    IfcType::IfcFaceOuterBound => true,
-                    IfcType::IfcFaceBound => false,
-                    _ => bound.ifc_type.as_str().contains("OUTER"),
-                };
 
                 if is_outer || outer_bound_points.is_none() {
                     if outer_bound_points.is_some() && is_outer {
@@ -1194,10 +1155,18 @@ impl GeometryProcessor for FacetedBrepProcessor {
             }
         }
 
-        // PHASE 2: Parallel - Triangulate all faces concurrently
-        // Always use parallel for faces (rayon handles small workloads efficiently)
+        // PHASE 2: Triangulate all faces
+        // On native: use parallel iteration for multi-core speedup
+        // On WASM: use sequential iteration (no threads available)
+        #[cfg(not(target_arch = "wasm32"))]
         let face_results: Vec<FaceResult> = face_data_list
             .par_iter()
+            .map(Self::triangulate_face)
+            .collect();
+
+        #[cfg(target_arch = "wasm32")]
+        let face_results: Vec<FaceResult> = face_data_list
+            .iter()
             .map(Self::triangulate_face)
             .collect();
 
@@ -1232,6 +1201,430 @@ impl GeometryProcessor for FacetedBrepProcessor {
 }
 
 impl Default for FacetedBrepProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// FaceBasedSurfaceModel processor
+/// Handles IfcFaceBasedSurfaceModel - surface model made of connected face sets
+/// Structure: FaceBasedSurfaceModel -> ConnectedFaceSet[] -> Face[] -> FaceBound -> PolyLoop
+pub struct FaceBasedSurfaceModelProcessor;
+
+impl FaceBasedSurfaceModelProcessor {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl GeometryProcessor for FaceBasedSurfaceModelProcessor {
+    fn process(
+        &self,
+        entity: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+        _schema: &IfcSchema,
+    ) -> Result<Mesh> {
+        // IfcFaceBasedSurfaceModel attributes:
+        // 0: FbsmFaces (SET of IfcConnectedFaceSet)
+
+        let faces_attr = entity
+            .get(0)
+            .ok_or_else(|| Error::geometry("FaceBasedSurfaceModel missing FbsmFaces".to_string()))?;
+
+        let face_set_refs = faces_attr
+            .as_list()
+            .ok_or_else(|| Error::geometry("Expected face set list".to_string()))?;
+
+        let mut all_positions = Vec::new();
+        let mut all_indices = Vec::new();
+
+        // Process each connected face set
+        for face_set_ref in face_set_refs {
+            let face_set_id = face_set_ref.as_entity_ref().ok_or_else(|| {
+                Error::geometry("Expected entity reference for face set".to_string())
+            })?;
+
+            // Get face IDs from ConnectedFaceSet
+            let face_ids = match decoder.get_entity_ref_list_fast(face_set_id) {
+                Some(ids) => ids,
+                None => continue,
+            };
+
+            // Process each face in the set
+            for face_id in face_ids {
+                // Get bound IDs from Face
+                let bound_ids = match decoder.get_entity_ref_list_fast(face_id) {
+                    Some(ids) => ids,
+                    None => continue,
+                };
+
+                let mut outer_points: Option<Vec<Point3<f64>>> = None;
+                let mut hole_points: Vec<Vec<Point3<f64>>> = Vec::new();
+
+                for bound_id in bound_ids {
+                    // FAST PATH: Extract loop_id, orientation, is_outer from raw bytes
+                    // get_face_bound_fast returns (loop_id, orientation, is_outer)
+                    let (loop_id, orientation, is_outer) =
+                        match decoder.get_face_bound_fast(bound_id) {
+                            Some(data) => data,
+                            None => continue,
+                        };
+
+                    // Get loop points
+                    let mut points = match Self::extract_loop_points(loop_id, decoder) {
+                        Some(p) => p,
+                        None => continue,
+                    };
+
+                    if !orientation {
+                        points.reverse();
+                    }
+
+                    if is_outer || outer_points.is_none() {
+                        outer_points = Some(points);
+                    } else {
+                        hole_points.push(points);
+                    }
+                }
+
+                // Triangulate the face
+                if let Some(outer) = outer_points {
+                    if outer.len() >= 3 {
+                        let base_idx = (all_positions.len() / 3) as u32;
+
+                        // Add positions
+                        for p in &outer {
+                            all_positions.push(p.x as f32);
+                            all_positions.push(p.y as f32);
+                            all_positions.push(p.z as f32);
+                        }
+
+                        // Simple fan triangulation (works for convex faces)
+                        for i in 1..outer.len() - 1 {
+                            all_indices.push(base_idx);
+                            all_indices.push(base_idx + i as u32);
+                            all_indices.push(base_idx + i as u32 + 1);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(Mesh {
+            positions: all_positions,
+            normals: Vec::new(),
+            indices: all_indices,
+        })
+    }
+
+    fn supported_types(&self) -> Vec<IfcType> {
+        vec![IfcType::IfcFaceBasedSurfaceModel]
+    }
+}
+
+impl FaceBasedSurfaceModelProcessor {
+    /// Extract points from a PolyLoop entity
+    fn extract_loop_points(loop_id: u32, decoder: &mut EntityDecoder) -> Option<Vec<Point3<f64>>> {
+        let point_ids = decoder.get_polyloop_point_ids_fast(loop_id)?;
+
+        let mut points = Vec::with_capacity(point_ids.len());
+        for point_id in point_ids {
+            let (x, y, z) = decoder.get_cartesian_point_fast(point_id)?;
+            points.push(Point3::new(x, y, z));
+        }
+
+        if points.len() >= 3 {
+            Some(points)
+        } else {
+            None
+        }
+    }
+}
+
+impl Default for FaceBasedSurfaceModelProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// SurfaceOfLinearExtrusion processor
+/// Handles IfcSurfaceOfLinearExtrusion - surface created by sweeping a curve along a direction
+pub struct SurfaceOfLinearExtrusionProcessor;
+
+impl SurfaceOfLinearExtrusionProcessor {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl GeometryProcessor for SurfaceOfLinearExtrusionProcessor {
+    fn process(
+        &self,
+        entity: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+        _schema: &IfcSchema,
+    ) -> Result<Mesh> {
+        // IfcSurfaceOfLinearExtrusion attributes:
+        // 0: SweptCurve (IfcProfileDef - usually IfcArbitraryOpenProfileDef)
+        // 1: Position (IfcAxis2Placement3D)
+        // 2: ExtrudedDirection (IfcDirection)
+        // 3: Depth (length)
+
+        // Get the swept curve (profile)
+        let curve_attr = entity
+            .get(0)
+            .ok_or_else(|| Error::geometry("SurfaceOfLinearExtrusion missing SweptCurve".to_string()))?;
+
+        let curve_id = curve_attr
+            .as_entity_ref()
+            .ok_or_else(|| Error::geometry("Expected entity reference for SweptCurve".to_string()))?;
+
+        // Get position
+        let position_attr = entity.get(1);
+        let position_transform = if let Some(attr) = position_attr {
+            if let Some(pos_id) = attr.as_entity_ref() {
+                Self::get_axis2_placement_transform(pos_id, decoder)?
+            } else {
+                Matrix4::identity()
+            }
+        } else {
+            Matrix4::identity()
+        };
+
+        // Get extrusion direction
+        let direction_attr = entity
+            .get(2)
+            .ok_or_else(|| Error::geometry("SurfaceOfLinearExtrusion missing ExtrudedDirection".to_string()))?;
+
+        let direction = if let Some(dir_id) = direction_attr.as_entity_ref() {
+            Self::get_direction(dir_id, decoder)?
+        } else {
+            Vector3::new(0.0, 0.0, 1.0) // Default to Z-up
+        };
+
+        // Get depth
+        let depth = entity
+            .get(3)
+            .and_then(|v| v.as_float())
+            .ok_or_else(|| Error::geometry("SurfaceOfLinearExtrusion missing Depth".to_string()))?;
+
+        // Get curve points from the profile
+        let curve_points = Self::get_profile_curve_points(curve_id, decoder)?;
+
+        if curve_points.len() < 2 {
+            return Ok(Mesh::new());
+        }
+
+        // Extrude the curve to create a surface (quad strip)
+        let extrusion = direction.normalize() * depth;
+
+        let mut positions = Vec::with_capacity(curve_points.len() * 2 * 3);
+        let mut indices = Vec::with_capacity((curve_points.len() - 1) * 6);
+
+        // Create vertices: bottom row, then top row
+        for point in &curve_points {
+            // Transform 2D point to 3D using position
+            let p3d = position_transform.transform_point(&Point3::new(point.x, point.y, 0.0));
+            positions.push(p3d.x as f32);
+            positions.push(p3d.y as f32);
+            positions.push(p3d.z as f32);
+        }
+
+        for point in &curve_points {
+            // Extruded point
+            let p3d = position_transform.transform_point(&Point3::new(point.x, point.y, 0.0));
+            let p_extruded = p3d + extrusion;
+            positions.push(p_extruded.x as f32);
+            positions.push(p_extruded.y as f32);
+            positions.push(p_extruded.z as f32);
+        }
+
+        // Create quad strip triangles
+        let n = curve_points.len() as u32;
+        for i in 0..n - 1 {
+            // Two triangles per quad
+            // Triangle 1: bottom-left, bottom-right, top-left
+            indices.push(i);
+            indices.push(i + 1);
+            indices.push(i + n);
+
+            // Triangle 2: bottom-right, top-right, top-left
+            indices.push(i + 1);
+            indices.push(i + n + 1);
+            indices.push(i + n);
+        }
+
+        Ok(Mesh {
+            positions,
+            normals: Vec::new(),
+            indices,
+        })
+    }
+
+    fn supported_types(&self) -> Vec<IfcType> {
+        vec![IfcType::IfcSurfaceOfLinearExtrusion]
+    }
+}
+
+impl SurfaceOfLinearExtrusionProcessor {
+    /// Get transform from IfcAxis2Placement3D
+    fn get_axis2_placement_transform(
+        placement_id: u32,
+        decoder: &mut EntityDecoder,
+    ) -> Result<Matrix4<f64>> {
+        let placement = decoder.decode_by_id(placement_id)?;
+
+        // Get location
+        let location = placement
+            .get(0)
+            .and_then(|a| a.as_entity_ref())
+            .and_then(|id| decoder.get_cartesian_point_fast(id))
+            .unwrap_or((0.0, 0.0, 0.0));
+
+        // Get axis (Z direction)
+        let z_axis = placement
+            .get(1)
+            .and_then(|a| a.as_entity_ref())
+            .and_then(|id| Self::get_direction_impl(id, decoder))
+            .unwrap_or(Vector3::new(0.0, 0.0, 1.0));
+
+        // Get ref direction (X direction)
+        let x_axis = placement
+            .get(2)
+            .and_then(|a| a.as_entity_ref())
+            .and_then(|id| Self::get_direction_impl(id, decoder))
+            .unwrap_or(Vector3::new(1.0, 0.0, 0.0));
+
+        // Compute Y axis as Z cross X
+        let y_axis = z_axis.cross(&x_axis).normalize();
+        let x_axis = y_axis.cross(&z_axis).normalize();
+
+        Ok(Matrix4::new(
+            x_axis.x, y_axis.x, z_axis.x, location.0,
+            x_axis.y, y_axis.y, z_axis.y, location.1,
+            x_axis.z, y_axis.z, z_axis.z, location.2,
+            0.0, 0.0, 0.0, 1.0,
+        ))
+    }
+
+    fn get_direction(dir_id: u32, decoder: &mut EntityDecoder) -> Result<Vector3<f64>> {
+        Self::get_direction_impl(dir_id, decoder)
+            .ok_or_else(|| Error::geometry("Failed to get direction".to_string()))
+    }
+
+    fn get_direction_impl(dir_id: u32, decoder: &mut EntityDecoder) -> Option<Vector3<f64>> {
+        let dir = decoder.decode_by_id(dir_id).ok()?;
+        // IfcDirection has a single attribute: DirectionRatios (list of floats)
+        let ratios = dir.get(0)?.as_list()?;
+        let x = ratios.first()?.as_float().unwrap_or(0.0);
+        let y = ratios.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
+        let z = ratios.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
+        Some(Vector3::new(x, y, z))
+    }
+
+    /// Extract curve points from a profile definition
+    fn get_profile_curve_points(
+        profile_id: u32,
+        decoder: &mut EntityDecoder,
+    ) -> Result<Vec<Point2<f64>>> {
+        let profile = decoder.decode_by_id(profile_id)?;
+
+        // IfcArbitraryOpenProfileDef: 0=ProfileType, 1=ProfileName, 2=Curve
+        // IfcArbitraryClosedProfileDef: 0=ProfileType, 1=ProfileName, 2=OuterCurve
+        let curve_attr = profile
+            .get(2)
+            .ok_or_else(|| Error::geometry("Profile missing curve".to_string()))?;
+
+        let curve_id = curve_attr
+            .as_entity_ref()
+            .ok_or_else(|| Error::geometry("Expected entity reference for curve".to_string()))?;
+
+        // Get curve entity to determine type
+        let curve = decoder.decode_by_id(curve_id)?;
+
+        match curve.ifc_type {
+            IfcType::IfcPolyline => {
+                // IfcPolyline: attribute 0 is Points (list of IfcCartesianPoint)
+                let point_ids = decoder
+                    .get_polyloop_point_ids_fast(curve_id)
+                    .ok_or_else(|| Error::geometry("Failed to get polyline points".to_string()))?;
+
+                let mut points = Vec::with_capacity(point_ids.len());
+                for point_id in point_ids {
+                    if let Some((x, y, _z)) = decoder.get_cartesian_point_fast(point_id) {
+                        points.push(Point2::new(x, y));
+                    }
+                }
+                Ok(points)
+            }
+            IfcType::IfcCompositeCurve => {
+                // Handle composite curves by extracting segments
+                Self::extract_composite_curve_points(curve_id, decoder)
+            }
+            _ => {
+                // Fallback: try to get points directly
+                if let Some(point_ids) = decoder.get_polyloop_point_ids_fast(curve_id) {
+                    let mut points = Vec::with_capacity(point_ids.len());
+                    for point_id in point_ids {
+                        if let Some((x, y, _z)) = decoder.get_cartesian_point_fast(point_id) {
+                            points.push(Point2::new(x, y));
+                        }
+                    }
+                    Ok(points)
+                } else {
+                    Ok(Vec::new())
+                }
+            }
+        }
+    }
+
+    /// Extract points from a composite curve
+    fn extract_composite_curve_points(
+        curve_id: u32,
+        decoder: &mut EntityDecoder,
+    ) -> Result<Vec<Point2<f64>>> {
+        let curve = decoder.decode_by_id(curve_id)?;
+
+        // IfcCompositeCurve: attribute 0 is Segments (list of IfcCompositeCurveSegment)
+        let segments_attr = curve
+            .get(0)
+            .ok_or_else(|| Error::geometry("CompositeCurve missing Segments".to_string()))?;
+
+        let segment_refs = segments_attr
+            .as_list()
+            .ok_or_else(|| Error::geometry("Expected segment list".to_string()))?;
+
+        let mut all_points = Vec::new();
+
+        for seg_ref in segment_refs {
+            let seg_id = seg_ref.as_entity_ref().ok_or_else(|| {
+                Error::geometry("Expected entity reference for segment".to_string())
+            })?;
+
+            let segment = decoder.decode_by_id(seg_id)?;
+
+            // IfcCompositeCurveSegment: 0=Transition, 1=SameSense, 2=ParentCurve
+            let parent_curve_attr = segment
+                .get(2)
+                .ok_or_else(|| Error::geometry("Segment missing ParentCurve".to_string()))?;
+
+            let parent_curve_id = parent_curve_attr
+                .as_entity_ref()
+                .ok_or_else(|| Error::geometry("Expected entity reference for parent curve".to_string()))?;
+
+            // Recursively get points from the parent curve
+            if let Ok(segment_points) = Self::get_profile_curve_points(parent_curve_id, decoder) {
+                // Skip first point if we already have points (to avoid duplicates at joints)
+                let start_idx = if all_points.is_empty() { 0 } else { 1 };
+                all_points.extend(segment_points.into_iter().skip(start_idx));
+            }
+        }
+
+        Ok(all_points)
+    }
+}
+
+impl Default for SurfaceOfLinearExtrusionProcessor {
     fn default() -> Self {
         Self::new()
     }

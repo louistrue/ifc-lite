@@ -310,6 +310,14 @@ impl IfcSchema {
             GeometryCategory::ExplicitMesh,
         );
         geometry_types.insert(IfcType::IfcPolygonalFaceSet, GeometryCategory::ExplicitMesh);
+        geometry_types.insert(
+            IfcType::IfcFaceBasedSurfaceModel,
+            GeometryCategory::Surface,
+        );
+        geometry_types.insert(
+            IfcType::IfcSurfaceOfLinearExtrusion,
+            GeometryCategory::Surface,
+        );
 
         // Instancing (P0)
         geometry_types.insert(IfcType::IfcMappedItem, GeometryCategory::MappedItem);

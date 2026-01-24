@@ -401,6 +401,102 @@ impl<'a> EntityScanner<'a> {
     pub fn reset(&mut self) {
         self.position = 0;
     }
+
+    /// Fast check if attribute at given index is non-null (not '$')
+    /// This is used to filter building elements that don't have representation
+    /// without full entity decode. Index 0 is first attribute after '('.
+    ///
+    /// Returns true if attribute exists and is not '$', false otherwise.
+    #[inline]
+    pub fn has_non_null_attribute(&self, start: usize, end: usize, attr_index: usize) -> bool {
+        let content = &self.bytes[start..end];
+
+        // Find the opening parenthesis
+        let paren_pos = match memchr::memchr(b'(', content) {
+            Some(p) => p + 1,
+            None => return false,
+        };
+
+        let mut pos = paren_pos;
+        let mut current_attr = 0;
+        let mut depth = 0; // Track nested parentheses
+        let mut in_string = false;
+
+        // Helper to check if we're at target attribute and return result
+        let check_target = |pos: usize, current_attr: usize, depth: usize| -> Option<bool> {
+            if current_attr == attr_index && depth == 0 {
+                // Skip whitespace
+                let mut p = pos;
+                while p < content.len() && content[p].is_ascii_whitespace() {
+                    p += 1;
+                }
+                // Check if it's '$' (null)
+                if p < content.len() {
+                    return Some(content[p] != b'$');
+                }
+                return Some(false);
+            }
+            None
+        };
+
+        // Check if target is first attribute (index 0)
+        if let Some(result) = check_target(pos, current_attr, depth) {
+            return result;
+        }
+
+        while pos < content.len() {
+            let b = content[pos];
+
+            if in_string {
+                if b == b'\'' {
+                    // Check for escaped quote ('')
+                    if pos + 1 < content.len() && content[pos + 1] == b'\'' {
+                        pos += 2;
+                        continue;
+                    }
+                    in_string = false;
+                }
+                pos += 1;
+                continue;
+            }
+
+            match b {
+                b'\'' => {
+                    in_string = true;
+                    pos += 1;
+                }
+                b'(' => {
+                    depth += 1;
+                    pos += 1;
+                }
+                b')' => {
+                    if depth == 0 {
+                        // End of entity - attribute not found
+                        return false;
+                    }
+                    depth -= 1;
+                    pos += 1;
+                }
+                b',' if depth == 0 => {
+                    current_attr += 1;
+                    pos += 1;
+                    // Skip whitespace after comma
+                    while pos < content.len() && content[pos].is_ascii_whitespace() {
+                        pos += 1;
+                    }
+                    // Check if we're now at target attribute
+                    if let Some(result) = check_target(pos, current_attr, depth) {
+                        return result;
+                    }
+                }
+                _ => {
+                    pos += 1;
+                }
+            }
+        }
+
+        false
+    }
 }
 
 #[cfg(test)]

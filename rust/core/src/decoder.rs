@@ -90,6 +90,9 @@ pub struct EntityDecoder<'a> {
     /// Can be pre-built or built lazily
     /// Using Arc to allow sharing across threads without cloning the HashMap
     entity_index: Option<Arc<EntityIndex>>,
+    /// Cache of cartesian point coordinates for FacetedBrep optimization
+    /// Only populated when using get_polyloop_coords_cached
+    point_cache: FxHashMap<u32, (f64, f64, f64)>,
 }
 
 impl<'a> EntityDecoder<'a> {
@@ -99,6 +102,7 @@ impl<'a> EntityDecoder<'a> {
             content,
             cache: FxHashMap::default(),
             entity_index: None,
+            point_cache: FxHashMap::default(),
         }
     }
 
@@ -108,6 +112,7 @@ impl<'a> EntityDecoder<'a> {
             content,
             cache: FxHashMap::default(),
             entity_index: Some(Arc::new(index)),
+            point_cache: FxHashMap::default(),
         }
     }
 
@@ -117,6 +122,7 @@ impl<'a> EntityDecoder<'a> {
             content,
             cache: FxHashMap::default(),
             entity_index: Some(index),
+            point_cache: FxHashMap::default(),
         }
     }
 
@@ -229,6 +235,7 @@ impl<'a> EntityDecoder<'a> {
     /// Clear cache to free memory
     pub fn clear_cache(&mut self) {
         self.cache.clear();
+        self.point_cache.clear();
     }
 
     /// Get cache size
@@ -251,6 +258,57 @@ impl<'a> EntityDecoder<'a> {
         self.build_index();
         let (start, end) = self.entity_index.as_ref()?.get(&entity_id).copied()?;
         Some(&self.content[start..end])
+    }
+
+    /// Fast extraction of first entity ref from raw bytes
+    /// Useful for BREP -> shell ID, Face -> FaceBound, etc.
+    /// Returns the first entity reference ID found in the entity
+    #[inline]
+    pub fn get_first_entity_ref_fast(&mut self, entity_id: u32) -> Option<u32> {
+        let bytes = self.get_raw_bytes(entity_id)?;
+        let len = bytes.len();
+        let mut i = 0;
+
+        // Skip to first '(' after '='
+        while i < len && bytes[i] != b'(' {
+            i += 1;
+        }
+        if i >= len {
+            return None;
+        }
+        i += 1; // Skip first '('
+
+        // Find first '#' which is the entity ref
+        while i < len {
+            // Skip whitespace
+            while i < len
+                && (bytes[i] == b' ' || bytes[i] == b'\n' || bytes[i] == b'\r')
+            {
+                i += 1;
+            }
+
+            if i >= len {
+                return None;
+            }
+
+            if bytes[i] == b'#' {
+                i += 1;
+                let start = i;
+                while i < len && bytes[i].is_ascii_digit() {
+                    i += 1;
+                }
+                if i > start {
+                    let mut id = 0u32;
+                    for &b in &bytes[start..i] {
+                        id = id.wrapping_mul(10).wrapping_add((b - b'0') as u32);
+                    }
+                    return Some(id);
+                }
+            }
+            i += 1;
+        }
+
+        None
     }
 
     /// Fast extraction of entity reference IDs from a list attribute in raw bytes
@@ -514,6 +572,250 @@ impl<'a> EntityDecoder<'a> {
         };
 
         Some((loop_id, orientation, is_outer))
+    }
+
+    /// Fast extraction of PolyLoop COORDINATES directly from raw bytes
+    /// This is the ultimate fast path - extracts all coordinates in one go
+    /// Avoids N+1 HashMap lookups by batching point extraction
+    /// Returns Vec of (x, y, z) coordinate tuples
+    #[inline]
+    pub fn get_polyloop_coords_fast(&mut self, entity_id: u32) -> Option<Vec<(f64, f64, f64)>> {
+        // Ensure index is built once
+        self.build_index();
+        let index = self.entity_index.as_ref()?;
+        let bytes_full = self.content.as_bytes();
+
+        // Get polyloop raw bytes
+        let (start, end) = index.get(&entity_id).copied()?;
+        let bytes = &bytes_full[start..end];
+
+        // IFCPOLYLOOP((#id1,#id2,#id3,...));
+        let mut i = 0;
+        let len = bytes.len();
+
+        // Skip to first '(' after '='
+        while i < len && bytes[i] != b'(' {
+            i += 1;
+        }
+        if i >= len {
+            return None;
+        }
+        i += 1; // Skip first '('
+
+        // Skip to second '(' for the point list
+        while i < len && bytes[i] != b'(' {
+            i += 1;
+        }
+        if i >= len {
+            return None;
+        }
+        i += 1; // Skip second '('
+
+        // Parse point IDs and immediately fetch coordinates
+        let mut coords = Vec::with_capacity(8); // Most faces have 3-8 vertices
+
+        while i < len {
+            // Skip whitespace and commas
+            while i < len
+                && (bytes[i] == b' ' || bytes[i] == b',' || bytes[i] == b'\n' || bytes[i] == b'\r')
+            {
+                i += 1;
+            }
+
+            if i >= len || bytes[i] == b')' {
+                break;
+            }
+
+            // Expect '#' followed by number
+            if bytes[i] == b'#' {
+                i += 1;
+                let id_start = i;
+                while i < len && bytes[i].is_ascii_digit() {
+                    i += 1;
+                }
+                if i > id_start {
+                    // Fast integer parsing directly from ASCII digits
+                    let mut point_id = 0u32;
+                    for &b in &bytes[id_start..i] {
+                        point_id = point_id.wrapping_mul(10).wrapping_add((b - b'0') as u32);
+                    }
+
+                    // INLINE: Get cartesian point coordinates directly
+                    // This avoids the overhead of calling get_cartesian_point_fast for each point
+                    if let Some((pt_start, pt_end)) = index.get(&point_id).copied() {
+                        if let Some(coord) =
+                            parse_cartesian_point_inline(&bytes_full[pt_start..pt_end])
+                        {
+                            coords.push(coord);
+                        }
+                    }
+                }
+            } else {
+                i += 1; // Skip unknown character
+            }
+        }
+
+        if coords.len() >= 3 {
+            Some(coords)
+        } else {
+            None
+        }
+    }
+
+    /// Fast extraction of PolyLoop COORDINATES with point caching
+    /// Uses a cache to avoid re-parsing the same cartesian points
+    /// For files with many faces sharing points, this can be 2-3x faster
+    #[inline]
+    pub fn get_polyloop_coords_cached(&mut self, entity_id: u32) -> Option<Vec<(f64, f64, f64)>> {
+        // Ensure index is built once
+        self.build_index();
+        let index = self.entity_index.as_ref()?;
+        let bytes_full = self.content.as_bytes();
+
+        // Get polyloop raw bytes
+        let (start, end) = index.get(&entity_id).copied()?;
+        let bytes = &bytes_full[start..end];
+
+        // IFCPOLYLOOP((#id1,#id2,#id3,...));
+        let mut i = 0;
+        let len = bytes.len();
+
+        // Skip to first '(' after '='
+        while i < len && bytes[i] != b'(' {
+            i += 1;
+        }
+        if i >= len {
+            return None;
+        }
+        i += 1; // Skip first '('
+
+        // Skip to second '(' for the point list
+        while i < len && bytes[i] != b'(' {
+            i += 1;
+        }
+        if i >= len {
+            return None;
+        }
+        i += 1; // Skip second '('
+
+        // Parse point IDs and fetch coordinates (with caching)
+        let mut coords = Vec::with_capacity(8);
+
+        while i < len {
+            // Skip whitespace and commas
+            while i < len
+                && (bytes[i] == b' ' || bytes[i] == b',' || bytes[i] == b'\n' || bytes[i] == b'\r')
+            {
+                i += 1;
+            }
+
+            if i >= len || bytes[i] == b')' {
+                break;
+            }
+
+            // Expect '#' followed by number
+            if bytes[i] == b'#' {
+                i += 1;
+                let id_start = i;
+                while i < len && bytes[i].is_ascii_digit() {
+                    i += 1;
+                }
+                if i > id_start {
+                    // Fast integer parsing directly from ASCII digits
+                    let mut point_id = 0u32;
+                    for &b in &bytes[id_start..i] {
+                        point_id = point_id.wrapping_mul(10).wrapping_add((b - b'0') as u32);
+                    }
+
+                    // Check cache first
+                    if let Some(&coord) = self.point_cache.get(&point_id) {
+                        coords.push(coord);
+                    } else {
+                        // Not in cache - parse and cache
+                        if let Some((pt_start, pt_end)) = index.get(&point_id).copied() {
+                            if let Some(coord) =
+                                parse_cartesian_point_inline(&bytes_full[pt_start..pt_end])
+                            {
+                                self.point_cache.insert(point_id, coord);
+                                coords.push(coord);
+                            }
+                        }
+                    }
+                }
+            } else {
+                i += 1; // Skip unknown character
+            }
+        }
+
+        if coords.len() >= 3 {
+            Some(coords)
+        } else {
+            None
+        }
+    }
+}
+
+/// Parse cartesian point coordinates inline from raw bytes
+/// Used by get_polyloop_coords_fast for maximum performance
+#[inline]
+fn parse_cartesian_point_inline(bytes: &[u8]) -> Option<(f64, f64, f64)> {
+    let len = bytes.len();
+    let mut i = 0;
+
+    // Skip to first '(' after '='
+    while i < len && bytes[i] != b'(' {
+        i += 1;
+    }
+    if i >= len {
+        return None;
+    }
+    i += 1; // Skip first '('
+
+    // Skip to second '(' for the coordinate list
+    while i < len && bytes[i] != b'(' {
+        i += 1;
+    }
+    if i >= len {
+        return None;
+    }
+    i += 1; // Skip second '('
+
+    // Parse x coordinate
+    let x = parse_float_inline(&bytes[i..], &mut i)?;
+
+    // Parse y coordinate
+    let y = parse_float_inline(&bytes[i..], &mut i)?;
+
+    // Parse z coordinate (optional for 2D points, default to 0)
+    let z = parse_float_inline(&bytes[i..], &mut i).unwrap_or(0.0);
+
+    Some((x, y, z))
+}
+
+/// Parse float inline - simpler version for batch coordinate extraction
+#[inline]
+fn parse_float_inline(bytes: &[u8], offset: &mut usize) -> Option<f64> {
+    let len = bytes.len();
+    let mut i = 0;
+
+    // Skip whitespace and commas
+    while i < len
+        && (bytes[i] == b' ' || bytes[i] == b',' || bytes[i] == b'\n' || bytes[i] == b'\r')
+    {
+        i += 1;
+    }
+
+    if i >= len || bytes[i] == b')' {
+        return None;
+    }
+
+    // Parse float using fast_float
+    match fast_float::parse_partial::<f64, _>(&bytes[i..]) {
+        Ok((value, consumed)) if consumed > 0 => {
+            *offset += i + consumed;
+            Some(value)
+        }
+        _ => None,
     }
 }
 
