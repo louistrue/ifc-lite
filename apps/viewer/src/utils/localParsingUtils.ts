@@ -46,6 +46,13 @@ export interface GeometryStats {
 // ============================================================================
 
 /**
+ * Maximum coordinate threshold for valid geometry (10km)
+ * Matches CoordinateHandler's NORMAL_COORD_THRESHOLD
+ * Coordinates beyond this are likely corrupted or unshifted original coordinates
+ */
+export const MAX_VALID_COORD = 10000;
+
+/**
  * Create an initial bounds object with infinite values
  * Use this as a starting point for incremental bounds calculation
  */
@@ -62,13 +69,21 @@ export function createEmptyBounds(): Bounds3D {
  *
  * @param bounds - Bounds object to update (mutated)
  * @param positions - Float32Array of vertex positions (x,y,z triplets)
+ * @param maxCoord - Maximum valid coordinate value (default: 10km)
  */
-export function updateBoundsFromPositions(bounds: Bounds3D, positions: Float32Array | number[]): void {
+export function updateBoundsFromPositions(
+  bounds: Bounds3D,
+  positions: Float32Array | number[],
+  maxCoord: number = MAX_VALID_COORD
+): void {
   for (let i = 0; i < positions.length; i += 3) {
     const x = positions[i];
     const y = positions[i + 1];
     const z = positions[i + 2];
-    if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+    // Filter out corrupted/unshifted vertices (> threshold from origin)
+    const isValid = Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z) &&
+      Math.abs(x) < maxCoord && Math.abs(y) < maxCoord && Math.abs(z) < maxCoord;
+    if (isValid) {
       bounds.min.x = Math.min(bounds.min.x, x);
       bounds.min.y = Math.min(bounds.min.y, y);
       bounds.min.z = Math.min(bounds.min.z, z);
