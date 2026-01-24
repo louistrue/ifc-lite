@@ -893,38 +893,37 @@ impl GeometryRouter {
             }
         };
 
-        // STEP 2: Get element's ObjectPlacement transform (for clipping planes)
-        let mut object_placement_transform = match self.get_placement_transform_from_element(element, decoder) {
-            Ok(t) => t,
-            Err(_) => Matrix4::identity(),
-        };
-        self.scale_transform(&mut object_placement_transform);
-        
-        // STEP 3: Extract clipping planes (for roof clips)
-        let (_local_profile, _depth, _axis, _origin, _position_transform, clipping_planes) = 
-            match self.extract_base_profile_and_clips(element, decoder) {
-                Ok(result) => result,
-                Err(_) => {
-                    use crate::profile::Profile2D;
-                    use nalgebra::Point2;
-                    let fallback_profile = Profile2D::new(vec![Point2::new(0.0, 0.0)]);
-                    (fallback_profile, 0.0, 0, 0.0, None, Vec::new())
-                }
-            };
-        
-        // STEP 4: Transform clipping planes to world coordinates
+        // OPTIMIZATION: Only extract clipping planes if element actually has them
+        // This skips expensive profile extraction for ~95% of elements
         use nalgebra::Vector3;
-        let world_clipping_planes: Vec<(Point3<f64>, Vector3<f64>, bool)> = clipping_planes
-            .iter()
-            .map(|(point, normal, agreement)| {
-                // Transform point by ObjectPlacement
-                let world_point = object_placement_transform.transform_point(point);
-                // Transform normal (rotation only, no translation)
-                let rotation = object_placement_transform.fixed_view::<3, 3>(0, 0);
-                let world_normal = (rotation * normal).normalize();
-                (world_point, world_normal, *agreement)
-            })
-            .collect();
+        let world_clipping_planes: Vec<(Point3<f64>, Vector3<f64>, bool)> =
+            if self.has_clipping_planes(element, decoder) {
+                // Get element's ObjectPlacement transform (for clipping planes)
+                let mut object_placement_transform = match self.get_placement_transform_from_element(element, decoder) {
+                    Ok(t) => t,
+                    Err(_) => Matrix4::identity(),
+                };
+                self.scale_transform(&mut object_placement_transform);
+
+                // Extract clipping planes (for roof clips)
+                let clipping_planes = match self.extract_base_profile_and_clips(element, decoder) {
+                    Ok((_profile, _depth, _axis, _origin, _transform, clips)) => clips,
+                    Err(_) => Vec::new(),
+                };
+
+                // Transform clipping planes to world coordinates
+                clipping_planes
+                    .iter()
+                    .map(|(point, normal, agreement)| {
+                        let world_point = object_placement_transform.transform_point(point);
+                        let rotation = object_placement_transform.fixed_view::<3, 3>(0, 0);
+                        let world_normal = (rotation * normal).normalize();
+                        (world_point, world_normal, *agreement)
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
         
         // STEP 5: Collect opening info (bounds for rectangular, full mesh for non-rectangular)
         // For rectangular openings, get individual bounds per representation item to handle
@@ -1540,6 +1539,63 @@ impl GeometryRouter {
         mesh.add_vertex(*v3, *normal);
         mesh.add_triangle(base, base + 1, base + 2);
         mesh.add_triangle(base, base + 2, base + 3);
+    }
+
+    /// Quick check if an element has clipping planes (IfcBooleanClippingResult in representation)
+    /// This is much faster than extract_base_profile_and_clips and allows skipping expensive
+    /// extraction for the ~95% of elements that don't have clipping.
+    #[inline]
+    fn has_clipping_planes(
+        &self,
+        element: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> bool {
+        // Get representation
+        let representation_attr = match element.get(6) {
+            Some(attr) => attr,
+            None => return false,
+        };
+
+        let representation = match decoder.resolve_ref(representation_attr) {
+            Ok(Some(r)) if r.ifc_type == IfcType::IfcProductDefinitionShape => r,
+            _ => return false,
+        };
+
+        // Get representations list
+        let representations_attr = match representation.get(2) {
+            Some(attr) => attr,
+            None => return false,
+        };
+
+        let representations = match decoder.resolve_ref_list(representations_attr) {
+            Ok(r) => r,
+            Err(_) => return false,
+        };
+
+        // Check if any representation item is IfcBooleanClippingResult
+        for shape_rep in &representations {
+            if shape_rep.ifc_type != IfcType::IfcShapeRepresentation {
+                continue;
+            }
+
+            let items_attr = match shape_rep.get(3) {
+                Some(attr) => attr,
+                None => continue,
+            };
+
+            let items = match decoder.resolve_ref_list(items_attr) {
+                Ok(i) => i,
+                Err(_) => continue,
+            };
+
+            for item in &items {
+                if item.ifc_type == IfcType::IfcBooleanClippingResult {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     /// Extract base wall profile, depth, axis info, Position transform, and clipping planes
