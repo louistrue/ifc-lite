@@ -355,14 +355,14 @@ impl IfcAPI {
         let mut meshes: Vec<Mesh> = Vec::with_capacity(2000);
 
         // Process all building elements
-        while let Some((_id, type_name, start, end)) = scanner.next_entity() {
+        while let Some((id, type_name, start, end)) = scanner.next_entity() {
             // Check if this is a building element type
             if !ifc_lite_core::has_geometry_by_name(type_name) {
                 continue;
             }
 
             // Decode and process the entity
-            if let Ok(entity) = decoder.decode_at(start, end) {
+            if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                 if let Ok(mesh) = router.process_element(&entity, &mut decoder) {
                     if !mesh.is_empty() {
                         meshes.push(mesh);
@@ -423,7 +423,7 @@ impl IfcAPI {
                 faceted_brep_ids.push(id);
             } else if type_name == "IFCRELVOIDSELEMENT" {
                 // IfcRelVoidsElement: Attr 4 = RelatingBuildingElement, Attr 5 = RelatedOpeningElement
-                if let Ok(entity) = decoder.decode_at(start, end) {
+                if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                     if let (Some(host_id), Some(opening_id)) =
                         (entity.get_ref(4), entity.get_ref(5))
                     {
@@ -479,7 +479,7 @@ impl IfcAPI {
             stats.total += 1;
 
             // Decode and process the entity
-            if let Ok(entity) = decoder.decode_at(start, end) {
+            if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                 // Check if entity actually has representation (attribute index 6 for IfcProduct)
                 let has_representation = entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
                 if !has_representation {
@@ -659,7 +659,7 @@ impl IfcAPI {
             }
 
             // Decode and process the entity
-            if let Ok(entity) = decoder.decode_at(start, end) {
+            if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                 if let Ok((mut mesh, transform)) =
                     router.process_element_with_transform(&entity, &mut decoder)
                 {
@@ -847,7 +847,7 @@ impl IfcAPI {
                             | "IFCRAMP"
                             | "IFCRAMPFLIGHT"
                     ) {
-                        if let Ok(entity) = decoder.decode_at(start, end) {
+                        if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                             if let Ok((mut mesh, transform)) =
                                 router.process_element_with_transform(&entity, &mut decoder)
                             {
@@ -1003,7 +1003,7 @@ impl IfcAPI {
                 // Process deferred complex geometry
                 let total_elements = processed + deferred_complex.len();
                 for (id, start, end, ifc_type) in deferred_complex {
-                    if let Ok(entity) = decoder.decode_at(start, end) {
+                    if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                         if let Ok((mut mesh, transform)) =
                             router.process_element_with_transform(&entity, &mut decoder)
                         {
@@ -1283,7 +1283,7 @@ impl IfcAPI {
                         faceted_brep_ids.push(id);
                     } else if type_name == "IFCRELVOIDSELEMENT" {
                         // IfcRelVoidsElement: Attr 4 = RelatingBuildingElement, Attr 5 = RelatedOpeningElement
-                        if let Ok(entity) = decoder.decode_at(start, end) {
+                        if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                             if let (Some(host_id), Some(opening_id)) =
                                 (entity.get_ref(4), entity.get_ref(5))
                             {
@@ -1324,7 +1324,7 @@ impl IfcAPI {
                             | "IFCRAMP"
                             | "IFCRAMPFLIGHT"
                     ) {
-                        if let Ok(entity) = decoder.decode_at(start, end) {
+                        if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                             // Check if entity actually has representation
                             let has_representation =
                                 entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
@@ -1437,7 +1437,7 @@ impl IfcAPI {
                 // Process deferred complex geometry with proper styles and void subtraction
 
                 for (id, start, end, ifc_type) in deferred_complex {
-                    if let Ok(entity) = decoder.decode_at(start, end) {
+                    if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                         let has_openings = void_index.contains_key(&id);
                         let ifc_type_name = ifc_type.name().to_string();
                         let default_color = get_default_color_for_type(&ifc_type);
@@ -1790,7 +1790,7 @@ impl IfcAPI {
                 continue;
             }
 
-            if let Ok(entity) = decoder.decode_at(start, end) {
+            if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                 // Check if entity actually has representation (attribute index 6 for IfcProduct)
                 let has_representation = entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
                 if !has_representation {
@@ -1890,7 +1890,7 @@ impl IfcAPI {
             if type_name == "IFCFACETEDBREP" {
                 faceted_brep_ids.push(id);
             } else if type_name == "IFCRELVOIDSELEMENT" {
-                if let Ok(entity) = decoder.decode_at(start, end) {
+                if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                     if let (Some(host_id), Some(opening_id)) =
                         (entity.get_ref(4), entity.get_ref(5))
                     {
@@ -1932,7 +1932,7 @@ impl IfcAPI {
                 continue;
             }
 
-            if let Ok(entity) = decoder.decode_at(start, end) {
+            if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                 // Check if entity has representation
                 let has_representation = entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
                 if !has_representation {
@@ -2046,7 +2046,7 @@ impl IfcAPI {
                     if type_name == "IFCFACETEDBREP" {
                         faceted_brep_ids.push(id);
                     } else if type_name == "IFCRELVOIDSELEMENT" {
-                        if let Ok(entity) = decoder.decode_at(start, end) {
+                        if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                             if let (Some(host_id), Some(opening_id)) =
                                 (entity.get_ref(4), entity.get_ref(5))
                             {
@@ -2120,7 +2120,7 @@ impl IfcAPI {
                             | "IFCRAMP"
                             | "IFCRAMPFLIGHT"
                     ) {
-                        if let Ok(entity) = decoder.decode_at(start, end) {
+                        if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                             let has_representation =
                                 entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
                             if has_representation {
@@ -2186,7 +2186,7 @@ impl IfcAPI {
                 // Process deferred complex geometry
                 let total_elements = processed + deferred_complex.len();
                 for (id, start, end, ifc_type) in deferred_complex {
-                    if let Ok(entity) = decoder.decode_at(start, end) {
+                    if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                         if let Ok(mut mesh) =
                             router.process_element_with_voids(&entity, &mut decoder, &void_index)
                         {
@@ -2308,7 +2308,7 @@ impl IfcAPI {
                 continue;
             }
 
-            if let Ok(entity) = decoder.decode_at(start, end) {
+            if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                 if let Ok((mut mesh, transform)) =
                     router.process_element_with_transform(&entity, &mut decoder)
                 {
@@ -2396,7 +2396,7 @@ impl IfcAPI {
         // Find entity 953
         while let Some((id, _type_name, start, end)) = scanner.next_entity() {
             if id == 953 {
-                match decoder.decode_at(start, end) {
+                match decoder.decode_at_with_id(id, start, end) {
                     Ok(entity) => match router.process_element(&entity, &mut decoder) {
                         Ok(mesh) => {
                             return format!(
@@ -2435,7 +2435,7 @@ impl IfcAPI {
                 let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
                 if router.schema().has_geometry(&ifc_type) {
                     // Try to decode and process
-                    match decoder.decode_at(start, end) {
+                    match decoder.decode_at_with_id(id, start, end) {
                         Ok(entity) => match router.process_element(&entity, &mut decoder) {
                             Ok(mesh) => {
                                 return format!(
@@ -2550,13 +2550,13 @@ fn build_geometry_style_index(
     let mut scanner = EntityScanner::new(content);
 
     // First pass: find all IfcStyledItem entities
-    while let Some((_id, type_name, start, end)) = scanner.next_entity() {
+    while let Some((id, type_name, start, end)) = scanner.next_entity() {
         if type_name != "IFCSTYLEDITEM" {
             continue;
         }
 
         // Decode the IfcStyledItem
-        let styled_item = match decoder.decode_at(start, end) {
+        let styled_item = match decoder.decode_at_with_id(id, start, end) {
             Ok(entity) => entity,
             Err(_) => continue,
         };
@@ -2609,7 +2609,7 @@ fn build_element_style_index(
         }
 
         // Decode the element
-        let element = match decoder.decode_at(start, end) {
+        let element = match decoder.decode_at_with_id(element_id, start, end) {
             Ok(entity) => entity,
             Err(_) => continue,
         };
