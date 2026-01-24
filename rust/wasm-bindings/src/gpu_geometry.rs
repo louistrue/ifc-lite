@@ -115,6 +115,12 @@ pub struct GpuGeometry {
 
     /// IFC type names (deduplicated)
     ifc_type_names: Vec<String>,
+
+    /// RTC (Relative To Center) offset applied to coordinates
+    /// Used for models with large world coordinates (>10km from origin)
+    rtc_offset_x: f64,
+    rtc_offset_y: f64,
+    rtc_offset_z: f64,
 }
 
 #[wasm_bindgen]
@@ -127,7 +133,41 @@ impl GpuGeometry {
             indices: Vec::new(),
             mesh_metadata: Vec::new(),
             ifc_type_names: Vec::new(),
+            rtc_offset_x: 0.0,
+            rtc_offset_y: 0.0,
+            rtc_offset_z: 0.0,
         }
+    }
+
+    /// Set the RTC (Relative To Center) offset applied to coordinates
+    pub fn set_rtc_offset(&mut self, x: f64, y: f64, z: f64) {
+        self.rtc_offset_x = x;
+        self.rtc_offset_y = y;
+        self.rtc_offset_z = z;
+    }
+
+    /// Get X component of RTC offset
+    #[wasm_bindgen(getter, js_name = rtcOffsetX)]
+    pub fn rtc_offset_x(&self) -> f64 {
+        self.rtc_offset_x
+    }
+
+    /// Get Y component of RTC offset
+    #[wasm_bindgen(getter, js_name = rtcOffsetY)]
+    pub fn rtc_offset_y(&self) -> f64 {
+        self.rtc_offset_y
+    }
+
+    /// Get Z component of RTC offset
+    #[wasm_bindgen(getter, js_name = rtcOffsetZ)]
+    pub fn rtc_offset_z(&self) -> f64 {
+        self.rtc_offset_z
+    }
+
+    /// Check if RTC offset is active (non-zero)
+    #[wasm_bindgen(getter, js_name = hasRtcOffset)]
+    pub fn has_rtc_offset(&self) -> bool {
+        self.rtc_offset_x != 0.0 || self.rtc_offset_y != 0.0 || self.rtc_offset_z != 0.0
     }
 
     /// Get pointer to vertex data for zero-copy view
@@ -214,6 +254,9 @@ impl GpuGeometry {
             indices: Vec::with_capacity(index_capacity),
             mesh_metadata: Vec::with_capacity(256),
             ifc_type_names: Vec::with_capacity(64),
+            rtc_offset_x: 0.0,
+            rtc_offset_y: 0.0,
+            rtc_offset_z: 0.0,
         }
     }
 

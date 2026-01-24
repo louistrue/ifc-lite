@@ -3016,29 +3016,40 @@ impl GeometryRouter {
     }
 
     /// Transform mesh by matrix - optimized with chunk-based iteration
-    /// Applies transformation with conditional RTC offset for large coordinates.
-    /// Only subtracts RTC if transformed coords are large (world space).
+    /// Applies transformation with uniform RTC offset decision for the whole mesh.
+    /// Determines once whether RTC is needed (based on transform translation) and applies uniformly.
     #[inline]
     fn transform_mesh(&self, mesh: &mut Mesh, transform: &Matrix4<f64>) {
         let rtc = self.rtc_offset;
         const LARGE_COORD_THRESHOLD: f64 = 1000.0;
 
-        mesh.positions.chunks_exact_mut(3).for_each(|chunk| {
-            let point = Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
-            let t = transform.transform_point(&point);
-            // Only subtract RTC if coordinates are large (world space)
-            let needs_rtc = t.x.abs() > LARGE_COORD_THRESHOLD || t.y.abs() > LARGE_COORD_THRESHOLD || t.z.abs() > LARGE_COORD_THRESHOLD;
+        // Determine RTC need ONCE for the whole mesh based on transform's translation component
+        // This ensures all vertices in the mesh use consistent RTC subtraction
+        let tx = transform[(0, 3)];
+        let ty = transform[(1, 3)];
+        let tz = transform[(2, 3)];
+        let needs_rtc = self.has_rtc_offset() &&
+            (tx.abs() > LARGE_COORD_THRESHOLD || ty.abs() > LARGE_COORD_THRESHOLD || tz.abs() > LARGE_COORD_THRESHOLD);
 
-            if needs_rtc {
+        if needs_rtc {
+            // Apply RTC offset to all vertices uniformly
+            mesh.positions.chunks_exact_mut(3).for_each(|chunk| {
+                let point = Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
+                let t = transform.transform_point(&point);
                 chunk[0] = (t.x - rtc.0) as f32;
                 chunk[1] = (t.y - rtc.1) as f32;
                 chunk[2] = (t.z - rtc.2) as f32;
-            } else {
+            });
+        } else {
+            // No RTC offset - just transform
+            mesh.positions.chunks_exact_mut(3).for_each(|chunk| {
+                let point = Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
+                let t = transform.transform_point(&point);
                 chunk[0] = t.x as f32;
                 chunk[1] = t.y as f32;
                 chunk[2] = t.z as f32;
-            }
-        });
+            });
+        }
 
         // Transform normals (without translation)
         let rotation = transform.fixed_view::<3, 3>(0, 0);

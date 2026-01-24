@@ -310,11 +310,27 @@ export function useIfc() {
         convertTime = 0; // Already converted inline
 
         // Final geometry set with complete bounds
+        // Server already applies RTC shift to mesh positions, so bounds are shifted
+        // Reconstruct originalBounds by adding originShift back to shifted bounds
+        const originShift = streamMetadata?.coordinate_info?.origin_shift
+          ? { x: streamMetadata.coordinate_info.origin_shift[0], y: streamMetadata.coordinate_info.origin_shift[1], z: streamMetadata.coordinate_info.origin_shift[2] }
+          : { x: 0, y: 0, z: 0 };
         const finalCoordinateInfo = {
-          originShift: streamMetadata?.coordinate_info?.origin_shift
-            ? { x: streamMetadata.coordinate_info.origin_shift[0], y: streamMetadata.coordinate_info.origin_shift[1], z: streamMetadata.coordinate_info.origin_shift[2] }
-            : { x: 0, y: 0, z: 0 },
-          originalBounds: bounds,
+          originShift,
+          // Original bounds = shifted bounds + originShift (reconstruct world coordinates)
+          originalBounds: {
+            min: {
+              x: bounds.min.x + originShift.x,
+              y: bounds.min.y + originShift.y,
+              z: bounds.min.z + originShift.z,
+            },
+            max: {
+              x: bounds.max.x + originShift.x,
+              y: bounds.max.y + originShift.y,
+              z: bounds.max.z + originShift.z,
+            },
+          },
+          // Shifted bounds = bounds as-is (server already applied shift)
           shiftedBounds: bounds,
           isGeoReferenced: streamMetadata?.coordinate_info?.is_geo_referenced ?? false,
         };

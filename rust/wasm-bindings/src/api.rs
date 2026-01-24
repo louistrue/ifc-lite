@@ -1968,6 +1968,11 @@ impl IfcAPI {
             }
         }
 
+        // Set RTC offset on the GPU geometry so callers can apply it
+        if needs_shift {
+            gpu_geometry.set_rtc_offset(rtc_offset.0, rtc_offset.1, rtc_offset.2);
+        }
+
         gpu_geometry
     }
 
@@ -2057,7 +2062,17 @@ impl IfcAPI {
                 }
 
                 // Create geometry router
-                let router = GeometryRouter::with_units(&content, &mut decoder);
+                let mut router = GeometryRouter::with_units(&content, &mut decoder);
+
+                // DETECT RTC OFFSET from actual building element transforms
+                let rtc_offset = router.detect_rtc_offset_from_first_element(&content, &mut decoder);
+                let needs_shift = rtc_offset.0.abs() > 10000.0
+                    || rtc_offset.1.abs() > 10000.0
+                    || rtc_offset.2.abs() > 10000.0;
+
+                if needs_shift {
+                    router.set_rtc_offset(rtc_offset);
+                }
 
                 // Batch preprocess FacetedBreps
                 if !faceted_brep_ids.is_empty() {
@@ -2076,7 +2091,7 @@ impl IfcAPI {
                 let mut deferred_complex: Vec<(u32, usize, usize, ifc_lite_core::IfcType)> =
                     Vec::new();
 
-                // Helper to flush current batch
+                // Helper to flush current batch (captures RTC offset for each batch)
                 let flush_batch = |batch: &mut GpuGeometry,
                                    on_batch: &Option<Function>,
                                    progress: &JsValue| {
@@ -2085,9 +2100,12 @@ impl IfcAPI {
                     }
 
                     if let Some(ref callback) = on_batch {
-                        // Swap out the batch
-                        let to_send =
+                        // Swap out the batch and set RTC offset before sending
+                        let mut to_send =
                             std::mem::replace(batch, GpuGeometry::with_capacity(1000, 3000));
+                        if needs_shift {
+                            to_send.set_rtc_offset(rtc_offset.0, rtc_offset.1, rtc_offset.2);
+                        }
                         let _ = callback.call2(&JsValue::NULL, &to_send.into(), progress);
                     } else {
                         batch.clear();
@@ -2246,6 +2264,16 @@ impl IfcAPI {
                     set_js_prop(&stats, "totalMeshes", &(total_meshes as f64).into());
                     set_js_prop(&stats, "totalVertices", &(total_vertices as f64).into());
                     set_js_prop(&stats, "totalTriangles", &(total_triangles as f64).into());
+
+                    // Include RTC offset if applied
+                    if needs_shift {
+                        let rtc_obj = js_sys::Object::new();
+                        set_js_prop(&rtc_obj, "x", &rtc_offset.0.into());
+                        set_js_prop(&rtc_obj, "y", &rtc_offset.1.into());
+                        set_js_prop(&rtc_obj, "z", &rtc_offset.2.into());
+                        set_js_prop(&stats, "rtcOffset", &rtc_obj);
+                    }
+
                     let _ = callback.call1(&JsValue::NULL, &stats);
                 }
 
