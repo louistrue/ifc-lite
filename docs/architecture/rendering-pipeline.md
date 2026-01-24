@@ -580,5 +580,6 @@ gantt
 
 ## Next Steps
 
+- [Coordinate Handling](coordinate-handling.md) - RTC handling for large coordinates
 - [Overview](overview.md) - System architecture
 - [API Reference](../api/typescript.md) - Renderer API

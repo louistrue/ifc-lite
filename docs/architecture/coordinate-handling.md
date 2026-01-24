@@ -468,6 +468,7 @@ When adding a new geometry processing path:
 
 ## Related Documentation
 
+- [Rendering Pipeline](rendering-pipeline.md) - WebGPU rendering architecture
 - [Geometry Pipeline](geometry-pipeline.md) - Overall geometry processing
 - [Data Flow](data-flow.md) - How data moves through the system
 - [API Reference: WASM](../api/wasm.md) - WASM API details
