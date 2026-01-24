@@ -511,15 +511,26 @@ impl<'a> EntityDecoder<'a> {
             return None;
         }
 
-        // Check if this is an outer bound - just scan the type name part
+        // Check if this is an outer bound by looking for "OUTER" in the type name
         // IFCFACEOUTERBOUND vs IFCFACEBOUND
         // The type name is between '=' and '('
         let mut is_outer = false;
         let mut i = eq_pos + 1;
-        while i < len && bytes[i] != b'(' {
-            if bytes[i] == b'O' {
+        // Look for "OUTER" pattern (must check for the full word, not just 'O')
+        while i + 4 < len && bytes[i] != b'(' {
+            if bytes[i] == b'O'
+                && bytes[i + 1] == b'U'
+                && bytes[i + 2] == b'T'
+                && bytes[i + 3] == b'E'
+                && bytes[i + 4] == b'R'
+            {
                 is_outer = true;
+                break;
             }
+            i += 1;
+        }
+        // Continue to find the '(' if we haven't already
+        while i < len && bytes[i] != b'(' {
             i += 1;
         }
         if i >= len {
@@ -699,7 +710,9 @@ impl<'a> EntityDecoder<'a> {
         i += 1; // Skip second '('
 
         // Parse point IDs and fetch coordinates (with caching)
+        // CRITICAL: Track expected count to ensure all points are resolved
         let mut coords = Vec::with_capacity(8);
+        let mut expected_count = 0u32;
 
         while i < len {
             // Skip whitespace and commas
@@ -721,6 +734,8 @@ impl<'a> EntityDecoder<'a> {
                     i += 1;
                 }
                 if i > id_start {
+                    expected_count += 1; // Count every point ID we encounter
+
                     // Fast integer parsing directly from ASCII digits
                     let mut point_id = 0u32;
                     for &b in &bytes[id_start..i] {
@@ -747,7 +762,9 @@ impl<'a> EntityDecoder<'a> {
             }
         }
 
-        if coords.len() >= 3 {
+        // CRITICAL: Return None if ANY point failed to resolve
+        // This matches the old behavior where missing points invalidated the whole polygon
+        if coords.len() >= 3 && coords.len() == expected_count as usize {
             Some(coords)
         } else {
             None
