@@ -73,7 +73,16 @@ export class IfcLiteMeshCollector {
    * ensuring triangles face the correct direction after transformation.
    */
   private reverseWindingOrder(indices: Uint32Array): void {
-    for (let i = 0; i < indices.length; i += 3) {
+    // Calculate last valid triangle index to avoid out-of-bounds access
+    const remainder = indices.length % 3;
+    const end = indices.length - remainder;
+
+    // Warn if indices array has trailing non-triangle entries
+    if (remainder !== 0) {
+      console.warn(`[reverseWindingOrder] Index buffer has ${remainder} trailing entries (not divisible by 3)`);
+    }
+
+    for (let i = 0; i < end; i += 3) {
       // Swap second and third vertex of each triangle
       const temp = indices[i + 1];
       indices[i + 1] = indices[i + 2];

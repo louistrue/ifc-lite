@@ -1770,12 +1770,19 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         max: { x: -Infinity, y: -Infinity, z: -Infinity },
       };
 
+      // Max coordinate threshold - matches CoordinateHandler's NORMAL_COORD_THRESHOLD
+      // Coordinates beyond this are likely corrupted or unshifted original coordinates
+      const MAX_VALID_COORD = 10000;
+
       for (const meshData of geometry) {
         for (let i = 0; i < meshData.positions.length; i += 3) {
           const x = meshData.positions[i];
           const y = meshData.positions[i + 1];
           const z = meshData.positions[i + 2];
-          if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+          // Filter out corrupted/unshifted vertices (> 10km from origin)
+          const isValid = Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z) &&
+            Math.abs(x) < MAX_VALID_COORD && Math.abs(y) < MAX_VALID_COORD && Math.abs(z) < MAX_VALID_COORD;
+          if (isValid) {
             fallbackBounds.min.x = Math.min(fallbackBounds.min.x, x);
             fallbackBounds.min.y = Math.min(fallbackBounds.min.y, y);
             fallbackBounds.min.z = Math.min(fallbackBounds.min.z, z);

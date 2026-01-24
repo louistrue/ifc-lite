@@ -9,6 +9,7 @@
 //! to avoid Float32 precision loss with large coordinates (e.g., Swiss UTM).
 
 use crate::EntityScanner;
+use std::collections::HashSet;
 
 /// Model bounds in f64 precision
 #[derive(Debug, Clone, Default)]
@@ -180,8 +181,8 @@ pub fn scan_placement_bounds(content: &str) -> ModelBounds {
     let mut bounds = ModelBounds::new();
     let mut scanner = EntityScanner::new(content);
 
-    // Track which cartesian point IDs are referenced by placements
-    let mut placement_point_ids: Vec<u32> = Vec::new();
+    // Track which cartesian point IDs are referenced by placements (HashSet for O(1) lookups)
+    let mut placement_point_ids: HashSet<u32> = HashSet::new();
 
     // First pass: find cartesian points referenced by Axis2Placement3D
     while let Some((_id, type_name, start, end)) = scanner.next_entity() {
@@ -189,7 +190,7 @@ pub fn scan_placement_bounds(content: &str) -> ModelBounds {
             let entity_text = &content[start..end];
             // Extract the Location reference (first attribute)
             if let Some(ref_id) = extract_first_reference(entity_text) {
-                placement_point_ids.push(ref_id);
+                placement_point_ids.insert(ref_id);
             }
         }
         // Also include IfcSite coordinates which often have real-world coords
@@ -225,8 +226,8 @@ pub fn scan_placement_bounds(content: &str) -> ModelBounds {
                     continue;
                 }
 
-                // Include placement points and points with large coordinates
-                if is_placement_point || x.abs() > 1000.0 || y.abs() > 1000.0 {
+                // Include placement points and points with large coordinates (including Z axis)
+                if is_placement_point || x.abs() > 1000.0 || y.abs() > 1000.0 || z.abs() > 1000.0 {
                     bounds.expand(x, y, z);
                 }
             }

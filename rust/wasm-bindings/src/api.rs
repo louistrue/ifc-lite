@@ -532,13 +532,33 @@ impl IfcAPI {
                         const MAX_REASONABLE_OFFSET: f32 = 50_000.0; // 50km from RTC center
                         let mut max_coord = 0.0f32;
                         let mut outlier_vertex_count = 0;
+                        let mut has_non_finite = false;
 
                         for chunk in mesh.positions.chunks_exact(3) {
-                            let coord_mag = chunk[0].abs().max(chunk[1].abs()).max(chunk[2].abs());
+                            let x = chunk[0];
+                            let y = chunk[1];
+                            let z = chunk[2];
+
+                            // Check for NaN/inf coordinates - treat as outliers
+                            if !x.is_finite() || !y.is_finite() || !z.is_finite() {
+                                outlier_vertex_count += 1;
+                                has_non_finite = true;
+                                continue; // Don't update max_coord with non-finite values
+                            }
+
+                            let coord_mag = x.abs().max(y.abs()).max(z.abs());
                             max_coord = max_coord.max(coord_mag);
                             if coord_mag > MAX_REASONABLE_OFFSET {
                                 outlier_vertex_count += 1;
                             }
+                        }
+
+                        // Warn about non-finite coordinates
+                        if has_non_finite {
+                            web_sys::console::warn_1(&format!(
+                                "[WASM FILTER] Mesh #{} ({}) contains NaN/Inf coordinates",
+                                id, entity.ifc_type.name()
+                            ).into());
                         }
 
                         // Skip meshes where >90% of vertices are outliers (likely corrupted)

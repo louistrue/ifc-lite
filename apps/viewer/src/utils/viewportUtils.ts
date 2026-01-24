@@ -70,6 +70,23 @@ export interface ViewportStateRefs {
 // ============================================================================
 
 /**
+ * Maximum coordinate threshold for valid geometry
+ * Matches CoordinateHandler's NORMAL_COORD_THRESHOLD (10km)
+ * Coordinates beyond this are likely corrupted or unshifted original coordinates
+ */
+const MAX_VALID_COORD = 10000;
+
+/**
+ * Check if a vertex coordinate is valid (finite and within reasonable bounds)
+ */
+function isValidCoord(x: number, y: number, z: number): boolean {
+  return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z) &&
+    Math.abs(x) < MAX_VALID_COORD &&
+    Math.abs(y) < MAX_VALID_COORD &&
+    Math.abs(z) < MAX_VALID_COORD;
+}
+
+/**
  * Get bounding box for a specific entity from geometry
  * @param geometry - Array of mesh data
  * @param entityId - Express ID of the entity
@@ -100,11 +117,16 @@ export function getEntityBounds(
     maxZ = -Infinity;
 
   // Aggregate bounds across all submeshes
+  // Filter out corrupted/unshifted vertices (> 10km from origin)
   for (const mesh of matchingMeshes) {
     for (let i = 0; i < mesh.positions.length; i += 3) {
       const x = mesh.positions[i];
       const y = mesh.positions[i + 1];
       const z = mesh.positions[i + 2];
+      // Skip corrupted vertices (NaN, Inf, or huge coordinates from unshifted data)
+      if (!isValidCoord(x, y, z)) {
+        continue;
+      }
       minX = Math.min(minX, x);
       minY = Math.min(minY, y);
       minZ = Math.min(minZ, z);
@@ -112,6 +134,11 @@ export function getEntityBounds(
       maxY = Math.max(maxY, y);
       maxZ = Math.max(maxZ, z);
     }
+  }
+
+  // If no valid vertices found, return null
+  if (!Number.isFinite(minX) || !Number.isFinite(maxX)) {
+    return null;
   }
 
   return {
@@ -162,11 +189,16 @@ export function calculateGeometryBounds(meshes: MeshData[]): BoundingBox3D {
     maxY = -Infinity,
     maxZ = -Infinity;
 
+  // Filter out corrupted/unshifted vertices (> 10km from origin)
   for (const mesh of meshes) {
     for (let i = 0; i < mesh.positions.length; i += 3) {
       const x = mesh.positions[i];
       const y = mesh.positions[i + 1];
       const z = mesh.positions[i + 2];
+      // Skip corrupted vertices (NaN, Inf, or huge coordinates from unshifted data)
+      if (!isValidCoord(x, y, z)) {
+        continue;
+      }
       minX = Math.min(minX, x);
       minY = Math.min(minY, y);
       minZ = Math.min(minZ, z);
