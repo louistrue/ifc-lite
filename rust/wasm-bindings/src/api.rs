@@ -448,14 +448,6 @@ impl IfcAPI {
             router.set_rtc_offset(rtc_offset);
         }
 
-        // DEBUG: Log detected RTC offset
-        web_sys::console::log_1(&format!(
-            "[WASM DEBUG] Detected RTC from transform: needs_shift={}, rtc_offset=({:.2},{:.2},{:.2}), has_rtc={}",
-            needs_shift,
-            rtc_offset.0, rtc_offset.1, rtc_offset.2,
-            router.has_rtc_offset()
-        ).into());
-
         // Batch preprocess FacetedBrep entities for maximum parallelism
         // This triangulates ALL faces from ALL BREPs in one parallel batch
         if !faceted_brep_ids.is_empty() {
@@ -472,12 +464,6 @@ impl IfcAPI {
         // Store RTC offset in collection for JavaScript to use (for camera/world coordinate display)
         if needs_shift {
             mesh_collection.set_rtc_offset(rtc_offset.0, rtc_offset.1, rtc_offset.2);
-            web_sys::console::log_1(&format!(
-                "[WASM DEBUG] Setting RTC offset on MeshCollection: ({:.2},{:.2},{:.2})",
-                rtc_offset.0, rtc_offset.1, rtc_offset.2
-            ).into());
-        } else {
-            web_sys::console::log_1(&"[WASM DEBUG] No RTC offset needed (small coordinates)".into());
         }
 
         // Track geometry parsing statistics
@@ -507,16 +493,6 @@ impl IfcAPI {
                     router.process_element_with_voids(&entity, &mut decoder, &void_index)
                 {
                     if !mesh.is_empty() {
-                        // Log sample of element types and their coordinates for debugging
-                        let element_type = entity.ifc_type.name();
-                        if mesh_collection.len() < 10 && mesh.positions.len() >= 3 {
-                            web_sys::console::log_1(&format!(
-                                "[ELEMENT DEBUG] #{} ({}) - first vertex: ({:.2},{:.2},{:.2}), {} vertices",
-                                id, element_type, mesh.positions[0], mesh.positions[1], mesh.positions[2],
-                                mesh.positions.len() / 3
-                            ).into());
-                        }
-
                         // Calculate normals if not present
                         if mesh.normals.is_empty() {
                             calculate_normals(&mut mesh);
@@ -581,16 +557,6 @@ impl IfcAPI {
 
                         // Create mesh data with express ID, IFC type, and color
                         let ifc_type_name = entity.ifc_type.name().to_string();
-
-                        // DEBUG: Log first mesh's first vertex to verify RTC was applied
-                        if mesh_collection.len() == 0 && mesh.positions.len() >= 3 {
-                            web_sys::console::log_1(&format!(
-                                "[WASM DEBUG] First mesh (id={}) first vertex AFTER transform: ({:.4},{:.4},{:.4})",
-                                id,
-                                mesh.positions[0], mesh.positions[1], mesh.positions[2]
-                            ).into());
-                        }
-
                         let mesh_data = MeshDataJs::new(id, ifc_type_name, mesh, color);
                         mesh_collection.add(mesh_data);
                         stats.success += 1;
@@ -618,16 +584,6 @@ impl IfcAPI {
                 ).into());
             }
         }
-
-        // DEBUG: Summary of mesh collection
-        web_sys::console::log_1(&format!(
-            "[WASM DEBUG] MeshCollection complete: {} meshes, rtc_offset=({:.2},{:.2},{:.2}), has_rtc={}",
-            mesh_collection.len(),
-            mesh_collection.rtc_offset_x(),
-            mesh_collection.rtc_offset_y(),
-            mesh_collection.rtc_offset_z(),
-            mesh_collection.has_rtc_offset()
-        ).into());
 
         mesh_collection
     }
@@ -1211,13 +1167,25 @@ impl IfcAPI {
     /// Parse IFC file with streaming mesh batches for progressive rendering
     /// Calls the callback with batches of meshes, yielding to browser between batches
     ///
+    /// Options:
+    /// - `batchSize`: Number of meshes per batch (default: 25)
+    /// - `onBatch(meshes, progress)`: Called for each batch of meshes
+    /// - `onRtcOffset({x, y, z, hasRtc})`: Called early with RTC offset for camera/world setup
+    /// - `onColorUpdate(Map<id, color>)`: Called with style updates after initial render
+    /// - `onComplete(stats)`: Called when parsing completes with stats including rtcOffset
+    ///
     /// Example:
     /// ```javascript
     /// const api = new IfcAPI();
     /// await api.parseMeshesAsync(ifcData, {
     ///   batchSize: 100,
+    ///   onRtcOffset: (rtc) => {
+    ///     if (rtc.hasRtc) {
+    ///       // Model uses large coordinates - adjust camera/world origin
+    ///       viewer.setWorldOffset(rtc.x, rtc.y, rtc.z);
+    ///     }
+    ///   },
     ///   onBatch: (meshes, progress) => {
-    ///     // Add meshes to scene
     ///     for (const mesh of meshes) {
     ///       scene.add(createThreeMesh(mesh));
     ///     }
@@ -1225,6 +1193,7 @@ impl IfcAPI {
     ///   },
     ///   onComplete: (stats) => {
     ///     console.log(`Done! ${stats.totalMeshes} meshes`);
+    ///     // stats.rtcOffset also available here: {x, y, z, hasRtc}
     ///   }
     /// });
     /// ```
@@ -1257,6 +1226,10 @@ impl IfcAPI {
                     .ok()
                     .and_then(|v| v.dyn_into::<Function>().ok());
 
+                let on_rtc_offset = js_sys::Reflect::get(&options, &"onRtcOffset".into())
+                    .ok()
+                    .and_then(|v| v.dyn_into::<Function>().ok());
+
                 // Build entity index for lookups
                 let entity_index = ifc_lite_core::build_entity_index(&content);
                 let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
@@ -1280,13 +1253,15 @@ impl IfcAPI {
                     router.set_rtc_offset(rtc_offset);
                 }
 
-                // DEBUG: Log detected RTC offset (ASYNC path)
-                web_sys::console::log_1(&format!(
-                    "[WASM DEBUG ASYNC] Detected RTC from transform: needs_shift={}, rtc_offset=({:.2},{:.2},{:.2}), has_rtc={}",
-                    needs_shift,
-                    rtc_offset.0, rtc_offset.1, rtc_offset.2,
-                    router.has_rtc_offset()
-                ).into());
+                // Surface RTC offset to JavaScript callers early so they can prepare camera/world state
+                if let Some(ref callback) = on_rtc_offset {
+                    let rtc_info = js_sys::Object::new();
+                    set_js_prop(&rtc_info, "x", &rtc_offset.0.into());
+                    set_js_prop(&rtc_info, "y", &rtc_offset.1.into());
+                    set_js_prop(&rtc_info, "z", &rtc_offset.2.into());
+                    set_js_prop(&rtc_info, "hasRtc", &needs_shift.into());
+                    let _ = callback.call1(&JsValue::NULL, &rtc_info);
+                }
 
                 // Process counters
                 let mut processed = 0;
@@ -1608,6 +1583,13 @@ impl IfcAPI {
                     set_js_prop(&stats, "totalMeshes", &(total_meshes as f64).into());
                     set_js_prop(&stats, "totalVertices", &(total_vertices as f64).into());
                     set_js_prop(&stats, "totalTriangles", &(total_triangles as f64).into());
+                    // Include RTC offset info in completion stats
+                    let rtc_info = js_sys::Object::new();
+                    set_js_prop(&rtc_info, "x", &rtc_offset.0.into());
+                    set_js_prop(&rtc_info, "y", &rtc_offset.1.into());
+                    set_js_prop(&rtc_info, "z", &rtc_offset.2.into());
+                    set_js_prop(&rtc_info, "hasRtc", &needs_shift.into());
+                    set_js_prop(&stats, "rtcOffset", &rtc_info);
                     let _ = callback.call1(&JsValue::NULL, &stats);
                 }
 

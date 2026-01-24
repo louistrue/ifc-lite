@@ -12,7 +12,7 @@ use crate::EntityScanner;
 use std::collections::HashSet;
 
 /// Model bounds in f64 precision
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ModelBounds {
     /// Minimum X coordinate found
     pub min_x: f64,
@@ -98,6 +98,12 @@ impl ModelBounds {
         } else {
             (0.0, 0.0, 0.0)
         }
+    }
+}
+
+impl Default for ModelBounds {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

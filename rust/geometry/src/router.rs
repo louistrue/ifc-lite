@@ -232,8 +232,6 @@ impl GeometryRouter {
         use ifc_lite_core::EntityScanner;
 
         let mut scanner = EntityScanner::new(content);
-        #[allow(unused_variables)]
-        let mut elements_checked = 0;
 
         // Collect translations from multiple elements to compute centroid
         let mut translations: Vec<(f64, f64, f64)> = Vec::new();
@@ -249,7 +247,7 @@ impl GeometryRouter {
         ];
 
         // Sample building elements to collect their world positions
-        while let Some((id, type_name, start, end)) = scanner.next_entity() {
+        while let Some((_id, type_name, start, end)) = scanner.next_entity() {
             if translations.len() >= MAX_SAMPLES {
                 break;
             }
@@ -258,8 +256,6 @@ impl GeometryRouter {
             if !BUILDING_ELEMENT_TYPES.iter().any(|&t| t == type_name) {
                 continue;
             }
-
-            elements_checked += 1;
 
             // Decode the element
             if let Ok(entity) = decoder.decode_at(start, end) {
@@ -280,26 +276,12 @@ impl GeometryRouter {
                     // Only collect if coordinates are valid
                     if tx.is_finite() && ty.is_finite() && tz.is_finite() {
                         translations.push((tx, ty, tz));
-
-                        // Log first element found (WASM only)
-                        #[cfg(target_arch = "wasm32")]
-                        if translations.len() == 1 {
-                            web_sys::console::log_1(&format!(
-                                "[RTC DETECT] First element #{} ({}): ({:.2},{:.2},{:.2})",
-                                id, type_name, tx, ty, tz
-                            ).into());
-                        }
                     }
                 }
             }
         }
 
         if translations.is_empty() {
-            #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&format!(
-                "[RTC DETECT] Checked {} elements, no valid transforms found",
-                elements_checked
-            ).into());
             return (0.0, 0.0, 0.0);
         }
 
@@ -320,25 +302,11 @@ impl GeometryRouter {
             z_coords[median_idx],
         );
 
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!(
-            "[RTC DETECT] Sampled {} elements, median=({:.2},{:.2},{:.2})",
-            translations.len(), centroid.0, centroid.1, centroid.2
-        ).into());
-
         // Check if centroid is large (>10km from origin)
         const THRESHOLD: f64 = 10000.0;
         if centroid.0.abs() > THRESHOLD || centroid.1.abs() > THRESHOLD || centroid.2.abs() > THRESHOLD {
-            #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&format!(
-                "[RTC DETECT] Large coords detected! Using median as RTC offset: ({:.2},{:.2},{:.2})",
-                centroid.0, centroid.1, centroid.2
-            ).into());
             return centroid;
         }
-
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"[RTC DETECT] Coordinates within normal range, no RTC needed".into());
 
         (0.0, 0.0, 0.0)
     }
