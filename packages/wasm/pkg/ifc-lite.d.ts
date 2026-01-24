@@ -256,13 +256,25 @@ export class IfcAPI {
    * Parse IFC file with streaming mesh batches for progressive rendering
    * Calls the callback with batches of meshes, yielding to browser between batches
    *
+   * Options:
+   * - `batchSize`: Number of meshes per batch (default: 25)
+   * - `onBatch(meshes, progress)`: Called for each batch of meshes
+   * - `onRtcOffset({x, y, z, hasRtc})`: Called early with RTC offset for camera/world setup
+   * - `onColorUpdate(Map<id, color>)`: Called with style updates after initial render
+   * - `onComplete(stats)`: Called when parsing completes with stats including rtcOffset
+   *
    * Example:
    * ```javascript
    * const api = new IfcAPI();
    * await api.parseMeshesAsync(ifcData, {
    *   batchSize: 100,
+   *   onRtcOffset: (rtc) => {
+   *     if (rtc.hasRtc) {
+   *       // Model uses large coordinates - adjust camera/world origin
+   *       viewer.setWorldOffset(rtc.x, rtc.y, rtc.z);
+   *     }
+   *   },
    *   onBatch: (meshes, progress) => {
-   *     // Add meshes to scene
    *     for (const mesh of meshes) {
    *       scene.add(createThreeMesh(mesh));
    *     }
@@ -270,6 +282,7 @@ export class IfcAPI {
    *   },
    *   onComplete: (stats) => {
    *     console.log(`Done! ${stats.totalMeshes} meshes`);
+   *     // stats.rtcOffset also available here: {x, y, z, hasRtc}
    *   }
    * });
    * ```
@@ -867,11 +880,11 @@ export interface InitOutput {
   readonly __wbg_get_rtcoffsetjs_y: (a: number) => number;
   readonly __wbg_get_rtcoffsetjs_z: (a: number) => number;
   readonly instancedgeometry_geometryId: (a: number) => bigint;
-  readonly __wasm_bindgen_func_elem_399: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_395: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_905: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_900: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_936: (a: number, b: number, c: number, d: number) => void;
+  readonly __wasm_bindgen_func_elem_398: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_394: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_902: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_897: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_933: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_export: (a: number) => void;
   readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
   readonly __wbindgen_export3: (a: number, b: number) => number;

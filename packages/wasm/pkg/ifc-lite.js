@@ -198,16 +198,16 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_399(arg0, arg1) {
-    wasm.__wasm_bindgen_func_elem_399(arg0, arg1);
+function __wasm_bindgen_func_elem_398(arg0, arg1) {
+    wasm.__wasm_bindgen_func_elem_398(arg0, arg1);
 }
 
-function __wasm_bindgen_func_elem_905(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_905(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_902(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_902(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_936(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_936(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_933(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_933(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -1127,13 +1127,25 @@ export class IfcAPI {
      * Parse IFC file with streaming mesh batches for progressive rendering
      * Calls the callback with batches of meshes, yielding to browser between batches
      *
+     * Options:
+     * - `batchSize`: Number of meshes per batch (default: 25)
+     * - `onBatch(meshes, progress)`: Called for each batch of meshes
+     * - `onRtcOffset({x, y, z, hasRtc})`: Called early with RTC offset for camera/world setup
+     * - `onColorUpdate(Map<id, color>)`: Called with style updates after initial render
+     * - `onComplete(stats)`: Called when parsing completes with stats including rtcOffset
+     *
      * Example:
      * ```javascript
      * const api = new IfcAPI();
      * await api.parseMeshesAsync(ifcData, {
      *   batchSize: 100,
+     *   onRtcOffset: (rtc) => {
+     *     if (rtc.hasRtc) {
+     *       // Model uses large coordinates - adjust camera/world origin
+     *       viewer.setWorldOffset(rtc.x, rtc.y, rtc.z);
+     *     }
+     *   },
      *   onBatch: (meshes, progress) => {
-     *     // Add meshes to scene
      *     for (const mesh of meshes) {
      *       scene.add(createThreeMesh(mesh));
      *     }
@@ -1141,6 +1153,7 @@ export class IfcAPI {
      *   },
      *   onComplete: (stats) => {
      *     console.log(`Done! ${stats.totalMeshes} meshes`);
+     *     // stats.rtcOffset also available here: {x, y, z, hasRtc}
      *   }
      * });
      * ```
@@ -2312,9 +2325,6 @@ function __wbg_get_imports() {
         const ret = getObject(arg0).length;
         return ret;
     };
-    imports.wbg.__wbg_log_1d990106d99dacb7 = function(arg0) {
-        console.log(getObject(arg0));
-    };
     imports.wbg.__wbg_meshdatajs_new = function(arg0) {
         const ret = MeshDataJs.__wrap(arg0);
         return addHeapObject(ret);
@@ -2342,7 +2352,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wasm_bindgen_func_elem_936(a, state0.b, arg0, arg1);
+                    return __wasm_bindgen_func_elem_933(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -2442,19 +2452,19 @@ function __wbg_get_imports() {
         const ret = BigInt.asUintN(64, arg0);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_cast_a6fbb6d048a25a09 = function(arg0, arg1) {
-        // Cast intrinsic for `Closure(Closure { dtor_idx: 117, function: Function { arguments: [Externref], shim_idx: 118, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_900, __wasm_bindgen_func_elem_905);
-        return addHeapObject(ret);
-    };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {
         // Cast intrinsic for `F64 -> Externref`.
         const ret = arg0;
         return addHeapObject(ret);
     };
+    imports.wbg.__wbindgen_cast_f2cc0f2a96e2ef5b = function(arg0, arg1) {
+        // Cast intrinsic for `Closure(Closure { dtor_idx: 115, function: Function { arguments: [Externref], shim_idx: 116, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_897, __wasm_bindgen_func_elem_902);
+        return addHeapObject(ret);
+    };
     imports.wbg.__wbindgen_cast_fa504d1cec41bd0d = function(arg0, arg1) {
         // Cast intrinsic for `Closure(Closure { dtor_idx: 45, function: Function { arguments: [], shim_idx: 46, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_395, __wasm_bindgen_func_elem_399);
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_394, __wasm_bindgen_func_elem_398);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_object_clone_ref = function(arg0) {
