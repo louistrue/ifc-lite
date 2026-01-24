@@ -2,27 +2,24 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-// Initialize Mermaid diagrams
+// Initialize Mermaid diagrams for MkDocs Material
+// Using fence_div_format, so mermaid elements are already <div class="mermaid">
 document.addEventListener('DOMContentLoaded', function() {
-  // Find all mermaid code blocks and convert them
-  document.querySelectorAll('pre.mermaid code, pre > code.language-mermaid').forEach(function(code) {
-    const pre = code.parentElement;
-    const div = document.createElement('div');
-    div.className = 'mermaid';
-    div.textContent = code.textContent;
-    pre.parentElement.replaceChild(div, pre);
-  });
+  if (typeof mermaid === 'undefined') {
+    return;
+  }
+
+  // Detect color scheme for theme
+  const isDark = document.body.getAttribute('data-md-color-scheme') === 'slate';
 
   // Initialize mermaid
-  if (typeof mermaid !== 'undefined') {
-    mermaid.initialize({
-      startOnLoad: true,
-      theme: 'dark',
-      flowchart: {
-        useMaxWidth: true,
-        htmlLabels: true
-      }
-    });
-    mermaid.run();
-  }
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: isDark ? 'dark' : 'default',
+    flowchart: {
+      useMaxWidth: true,
+      htmlLabels: true
+    },
+    securityLevel: 'loose'
+  });
 });

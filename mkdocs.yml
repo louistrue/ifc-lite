@@ -84,7 +84,7 @@ markdown_extensions:
       custom_fences:
         - name: mermaid
           class: mermaid
-          format: !!python/name:pymdownx.superfences.fence_code_format
+          format: !!python/name:pymdownx.superfences.fence_div_format
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.tasklist:
@@ -127,6 +127,7 @@ nav:
     - Parsing Pipeline: architecture/parsing-pipeline.md
     - Geometry Pipeline: architecture/geometry-pipeline.md
     - Rendering Pipeline: architecture/rendering-pipeline.md
+    - Coordinate Handling: architecture/coordinate-handling.md
   - API Reference:
     - TypeScript API: api/typescript.md
     - Rust API: api/rust.md
