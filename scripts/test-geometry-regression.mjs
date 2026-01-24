@@ -267,31 +267,33 @@ console.log('\n📋 IFCLINEINDEX Regression Test');
 test('IFCLINEINDEX elements produce geometry (regression)', () => {
   const content = readFileSync(join(FIXTURES_DIR, 'ara3d/duplex.ifc'), 'utf-8');
   const collection = api.parseMeshes(content);
-  
-  const meshExpressIds = new Set();
-  for (let i = 0; i < collection.length; i++) {
-    const mesh = collection.get(i);
-    meshExpressIds.add(mesh.expressId);
-    mesh.free();
-  }
-  
-  const geometryEntities = api.scanGeometryEntitiesFast(content);
-  
-  let geometryEntitiesWithMeshes = 0;
-  for (const entity of geometryEntities) {
-    if (meshExpressIds.has(entity.express_id)) {
-      geometryEntitiesWithMeshes++;
+
+  try {
+    const meshExpressIds = new Set();
+    for (let i = 0; i < collection.length; i++) {
+      const mesh = collection.get(i);
+      meshExpressIds.add(mesh.expressId);
+      mesh.free();
     }
+
+    const geometryEntities = api.scanGeometryEntitiesFast(content);
+
+    let geometryEntitiesWithMeshes = 0;
+    for (const entity of geometryEntities) {
+      if (meshExpressIds.has(entity.express_id)) {
+        geometryEntitiesWithMeshes++;
+      }
+    }
+
+    const successRate = geometryEntitiesWithMeshes / geometryEntities.length;
+    assert.ok(successRate >= 0.005,
+      `Very low geometry success rate: ${(successRate * 100).toFixed(1)}%`);
+
+    assert.ok(geometryEntitiesWithMeshes >= 100,
+      `Expected >= 100 entities to produce meshes, got ${geometryEntitiesWithMeshes}`);
+  } finally {
+    collection.free();
   }
-  
-  const successRate = geometryEntitiesWithMeshes / geometryEntities.length;
-  assert.ok(successRate >= 0.005, 
-    `Very low geometry success rate: ${(successRate * 100).toFixed(1)}%`);
-  
-  assert.ok(geometryEntitiesWithMeshes >= 100, 
-    `Expected >= 100 entities to produce meshes, got ${geometryEntitiesWithMeshes}`);
-  
-  collection.free();
 });
 
 // ===== Stress Test with Large File =====
@@ -300,16 +302,18 @@ console.log('\n📋 Stress Test');
 test('AC20-FZK-Haus processes without crash', () => {
   const content = readFileSync(join(FIXTURES_DIR, 'ara3d/AC20-FZK-Haus.ifc'), 'utf-8');
   const collection = api.parseMeshes(content);
-  
-  // Should produce substantial geometry
-  assert.ok(collection.length >= 50, `Expected >= 50 meshes, got ${collection.length}`);
-  assert.ok(collection.totalVertices >= 5000, `Expected >= 5000 vertices`);
-  
-  // Verify no infinite loops or crashes by checking reasonable bounds
-  assert.ok(collection.totalVertices < 10_000_000, 'Vertex count should be reasonable');
-  assert.ok(collection.totalTriangles < 5_000_000, 'Triangle count should be reasonable');
-  
-  collection.free();
+
+  try {
+    // Should produce substantial geometry
+    assert.ok(collection.length >= 50, `Expected >= 50 meshes, got ${collection.length}`);
+    assert.ok(collection.totalVertices >= 5000, `Expected >= 5000 vertices`);
+
+    // Verify no infinite loops or crashes by checking reasonable bounds
+    assert.ok(collection.totalVertices < 10_000_000, 'Vertex count should be reasonable');
+    assert.ok(collection.totalTriangles < 5_000_000, 'Triangle count should be reasonable');
+  } finally {
+    collection.free();
+  }
 });
 
 // ===== Summary =====
