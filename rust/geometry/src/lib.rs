@@ -93,8 +93,8 @@ pub use extrusion::{extrude_profile, extrude_profile_with_voids};
 pub use mesh::{CoordinateShift, Mesh, SubMesh, SubMeshCollection};
 pub use processors::{
     AdvancedBrepProcessor, BooleanClippingProcessor, ExtrudedAreaSolidProcessor,
-    FacetedBrepProcessor, MappedItemProcessor, RevolvedAreaSolidProcessor, SweptDiskSolidProcessor,
-    TriangulatedFaceSetProcessor,
+    FacetedBrepProcessor, MappedItemProcessor, PolygonalFaceSetProcessor,
+    RevolvedAreaSolidProcessor, SweptDiskSolidProcessor, TriangulatedFaceSetProcessor,
 };
 pub use profile::{Profile2D, Profile2DWithVoids, ProfileType, VoidInfo};
 pub use profiles::ProfileProcessor;
