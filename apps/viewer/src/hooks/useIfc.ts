@@ -19,7 +19,7 @@ import { StringTable } from '@ifc-lite/data';
 import { IfcServerClient, decodeDataModel, type ParquetBatch, type DataModel, type ParquetParseResponse, type ParquetStreamResult, type ParseResponse, type ModelMetadata, type ProcessingStats, type MeshData as ServerMeshData } from '@ifc-lite/server-client';
 
 // Extracted utilities
-import { SERVER_URL, USE_SERVER, CACHE_SIZE_THRESHOLD, getDynamicBatchConfig } from '../utils/ifcConfig.js';
+import { SERVER_URL, USE_SERVER, CACHE_SIZE_THRESHOLD, getDynamicBatchConfig, FRONT_TO_BACK_ENABLED, DEFAULT_CAMERA_POSITION, THRESHOLDS } from '../utils/ifcConfig.js';
 import { rebuildSpatialHierarchy, rebuildOnDemandMaps } from '../utils/spatialHierarchy.js';
 import {
   createEmptyBounds,
@@ -759,10 +759,40 @@ export function useIfc() {
         // Use dynamic batch sizing for optimal throughput
         const dynamicBatchConfig = getDynamicBatchConfig(fileSizeMB);
 
-        for await (const event of geometryProcessor.processAdaptive(new Uint8Array(buffer), {
-          sizeThreshold: 2 * 1024 * 1024, // 2MB threshold
-          batchSize: dynamicBatchConfig, // Dynamic batches: small first, then large
-        })) {
+        // Choose geometry processing method based on file size and configuration
+        // Front-to-back: Loads geometry nearest to camera first for faster perceived loading
+        // This is a gamechanger for large files - users see "complete" model much sooner
+        const useFrontToBack = FRONT_TO_BACK_ENABLED && fileSizeMB >= THRESHOLDS.FRONT_TO_BACK_MB;
+
+        if (useFrontToBack) {
+          console.log(`[useIfc] Using FRONT-TO-BACK loading for ${fileSizeMB.toFixed(1)}MB file`);
+        }
+
+        // Calculate defer distance based on file size
+        // For FAST perceived loading, we want to show shell geometry ASAP
+        // then defer everything else for background processing
+        const deferDistance = fileSizeMB >= 20 ? 500 : undefined;
+        // VERY small threshold = fast first paint
+        // Show just ~50-100 elements immediately, defer everything else
+        const minMeshesBeforeDefer = fileSizeMB >= 100 ? 50 : fileSizeMB >= 50 ? 100 : 200;
+
+        // Create the appropriate geometry stream
+        // Use small batch size (10) for fast first paint - yield frequently to keep UI responsive
+        const frontToBackBatchSize = 10;
+        const geometryStream = useFrontToBack
+          ? geometryProcessor.processFrontToBack(
+              new Uint8Array(buffer),
+              DEFAULT_CAMERA_POSITION,
+              frontToBackBatchSize,
+              deferDistance,
+              minMeshesBeforeDefer
+            )
+          : geometryProcessor.processAdaptive(new Uint8Array(buffer), {
+              sizeThreshold: 2 * 1024 * 1024, // 2MB threshold
+              batchSize: dynamicBatchConfig, // Dynamic batches: small first, then large
+            });
+
+        for await (const event of geometryStream) {
           const eventReceived = performance.now();
           const waitTime = eventReceived - lastBatchTime;
 
@@ -817,6 +847,104 @@ export function useIfc() {
 
               const processTime = performance.now() - processStart;
               totalProcessTime += processTime;
+              break;
+            }
+            case 'deferred': {
+              // Store deferred elements for background processing
+              // These are elements that were beyond the defer distance and not processed
+              console.log(`[useIfc] ${event.deferredCount} elements deferred for background processing`);
+
+              // Process deferred elements in the background using requestIdleCallback
+              // This ensures main thread stays responsive
+              if (event.elements.length > 0 && geometryProcessor) {
+                const processDeferred = async () => {
+                  const api = geometryProcessor.getApi();
+                  if (!api) return;
+
+                  const bridge = new (await import('@ifc-lite/geometry')).IfcLiteBridge();
+                  await bridge.init();
+
+                  // Decode buffer to string for deferred processing
+                  const decoder = new TextDecoder();
+                  const content = decoder.decode(buffer);
+
+                  // Process in small batches to avoid blocking
+                  const BATCH_SIZE = 50;
+                  for (let i = 0; i < event.elements.length; i += BATCH_SIZE) {
+                    const batch = event.elements.slice(i, i + BATCH_SIZE);
+                    const collection = bridge.processDeferred(content, batch);
+
+                    // Convert and add to scene
+                    const meshes: Array<{
+                      expressId: number;
+                      ifcType?: string;
+                      positions: Float32Array;
+                      normals: Float32Array;
+                      indices: Uint32Array;
+                      color: [number, number, number, number];
+                    }> = [];
+
+                    for (let j = 0; j < collection.length; j++) {
+                      const m = collection.get(j);
+                      if (m) {
+                        const colorArr = m.color;
+                        const positions = m.positions;
+                        const normals = m.normals;
+                        const indices = m.indices;
+
+                        // Convert IFC Z-up to WebGL Y-up
+                        for (let k = 0; k < positions.length; k += 3) {
+                          const y = positions[k + 1];
+                          const z = positions[k + 2];
+                          positions[k + 1] = z;
+                          positions[k + 2] = -y;
+                        }
+                        for (let k = 0; k < normals.length; k += 3) {
+                          const y = normals[k + 1];
+                          const z = normals[k + 2];
+                          normals[k + 1] = z;
+                          normals[k + 2] = -y;
+                        }
+                        // Reverse winding order
+                        for (let k = 0; k < indices.length; k += 3) {
+                          const temp = indices[k + 1];
+                          indices[k + 1] = indices[k + 2];
+                          indices[k + 2] = temp;
+                        }
+
+                        meshes.push({
+                          expressId: m.expressId,
+                          ifcType: m.ifcType,
+                          positions,
+                          normals,
+                          indices,
+                          color: [colorArr[0], colorArr[1], colorArr[2], colorArr[3]],
+                        });
+                      }
+                    }
+
+                    if (meshes.length > 0) {
+                      allMeshes.push(...meshes);
+                      appendGeometryBatch(meshes, finalCoordinateInfo ?? undefined);
+                    }
+
+                    // Yield to main thread between batches
+                    await new Promise(r => setTimeout(r, 0));
+                  }
+
+                  console.log(`[useIfc] Finished processing ${event.deferredCount} deferred elements`);
+                };
+
+                // Use requestIdleCallback for background processing
+                if ('requestIdleCallback' in window) {
+                  (window as unknown as { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => void }).requestIdleCallback(
+                    () => { void processDeferred(); },
+                    { timeout: 5000 }
+                  );
+                } else {
+                  setTimeout(() => { void processDeferred(); }, 100);
+                }
+              }
               break;
             }
             case 'complete':

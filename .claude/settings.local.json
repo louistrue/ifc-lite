@@ -39,7 +39,27 @@
       "Bash(pnpm run build:wasm:*)",
       "Bash(node:*)",
       "Bash(cargo test:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(~/.cargo/bin/cargo build:*)",
+      "Bash(~/.cargo/bin/wasm-pack build:*)",
+      "Bash(PATH=\"$HOME/.cargo/bin:$PATH\" ~/.cargo/bin/wasm-pack build:*)",
+      "Bash(pnpm --filter @ifc-lite/wasm build:*)",
+      "Bash(git stash:*)",
+      "Bash(git restore:*)",
+      "Bash(pnpm --filter viewer build:*)",
+      "Bash(pnpm --filter @ifc-lite/geometry build:*)",
+      "Bash(git reset:*)",
+      "Bash(git checkout:*)",
+      "Bash(npm run build:*)",
+      "Bash(pnpm -r build:*)",
+      "Bash(npm run build:packages:*)",
+      "Bash(source $HOME/.cargo/env)",
+      "Bash($HOME/.cargo/bin/wasm-pack build:*)",
+      "Bash(PATH=\"/Users/louistrue/.cargo/bin:$PATH\" /Users/louistrue/.cargo/bin/wasm-pack build:*)",
+      "Bash(PATH=\"/Users/louistrue/.cargo/bin:$PATH\" /Users/louistrue/.cargo/bin/cargo check:*)",
+      "Bash(PATH=\"/Users/louistrue/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Library/Developer/CommandLineTools/usr/bin:$PATH\" /Users/louistrue/.cargo/bin/wasm-pack build:*)",
+      "Bash(PATH=\"/Users/louistrue/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Library/Developer/CommandLineTools/usr/bin:$PATH\" /Users/louistrue/.cargo/bin/cargo clean:*)"
     ]
   }
 }

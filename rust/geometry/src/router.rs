@@ -2524,8 +2524,10 @@ impl GeometryRouter {
         Ok((combined_mesh, transform))
     }
 
-    /// Get placement transform from element without applying it
-    fn get_placement_transform_from_element(
+    /// Get placement transform from element without applying it.
+    /// Returns the world-space transform matrix from the ObjectPlacement hierarchy.
+    /// This is a CHEAP operation (O(5) ops) compared to geometry processing (O(1000+) ops).
+    pub fn get_placement_transform_from_element(
         &self,
         element: &DecodedEntity,
         decoder: &mut EntityDecoder,

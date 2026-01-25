@@ -198,16 +198,16 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_847(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_847(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_429(arg0, arg1) {
+    wasm.__wasm_bindgen_func_elem_429(arg0, arg1);
 }
 
-function __wasm_bindgen_func_elem_408(arg0, arg1) {
-    wasm.__wasm_bindgen_func_elem_408(arg0, arg1);
+function __wasm_bindgen_func_elem_869(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_869(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_878(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_878(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_900(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_900(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -1143,6 +1143,26 @@ export class IfcAPI {
         return ZeroCopyMesh.__wrap(ret);
     }
     /**
+     * Process deferred elements by their byte ranges
+     * Used after front-to-back loading to process elements that were deferred
+     *
+     * # Arguments
+     * * `content` - IFC file content as string (must be the same file)
+     * * `deferred_elements` - Array of {id, byteStart, byteEnd} objects from parseMeshesFrontToBack
+     *
+     * # Returns
+     * MeshCollection with the processed meshes
+     * @param {string} content
+     * @param {any} deferred_elements
+     * @returns {MeshCollection}
+     */
+    processDeferred(content, deferred_elements) {
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.ifcapi_processDeferred(this.__wbg_ptr, ptr0, len0, addHeapObject(deferred_elements));
+        return MeshCollection.__wrap(ret);
+    }
+    /**
      * Extract georeferencing information from IFC content
      * Returns null if no georeferencing is present
      *
@@ -1363,6 +1383,52 @@ export class IfcAPI {
             wasm.__wbindgen_add_to_stack_pointer(16);
             wasm.__wbindgen_export2(deferred2_0, deferred2_1, 1);
         }
+    }
+    /**
+     * Parse IFC file with front-to-back ordering based on camera position
+     * Elements nearest to camera are processed first, enabling progressive rendering
+     * where front geometry appears first and occludes what's behind.
+     *
+     * Supports **occlusion-based deferral**: elements beyond `defer_distance` are
+     * returned as deferred (position + ID only) rather than fully processed.
+     * This enables fast initial load with background completion.
+     *
+     * # Arguments
+     * * `content` - IFC file content as string
+     * * `camera_x`, `camera_y`, `camera_z` - Camera position in world coordinates
+     * * `on_batch` - Callback function called with each batch of meshes
+     * * `batch_size` - Number of meshes per batch (default: 100)
+     * * `defer_distance` - Distance beyond which elements are deferred (default: None = no deferral)
+     * * `min_meshes_before_defer` - Minimum meshes to process before deferring (default: 500)
+     *
+     * # Example
+     * ```javascript
+     * const api = new IfcAPI();
+     * await api.parseMeshesFrontToBack(ifcData, 50, 50, 100, (batch) => {
+     *   for (const mesh of batch.meshes) {
+     *     scene.add(mesh); // Add to scene progressively
+     *   }
+     *   if (batch.deferred) {
+     *     // Store deferred elements for later processing
+     *     deferredQueue.push(...batch.deferred);
+     *   }
+     * }, 100, 200.0, 500);
+     * ```
+     * @param {string} content
+     * @param {number} camera_x
+     * @param {number} camera_y
+     * @param {number} camera_z
+     * @param {Function} on_batch
+     * @param {number | null} [batch_size]
+     * @param {number | null} [defer_distance]
+     * @param {number | null} [min_meshes_before_defer]
+     * @returns {Promise<any>}
+     */
+    parseMeshesFrontToBack(content, camera_x, camera_y, camera_z, on_batch, batch_size, defer_distance, min_meshes_before_defer) {
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.ifcapi_parseMeshesFrontToBack(this.__wbg_ptr, ptr0, len0, camera_x, camera_y, camera_z, addHeapObject(on_batch), isLikeNone(batch_size) ? 0x100000001 : (batch_size) >>> 0, !isLikeNone(defer_distance), isLikeNone(defer_distance) ? 0 : defer_distance, isLikeNone(min_meshes_before_defer) ? 0x100000001 : (min_meshes_before_defer) >>> 0);
+        return takeObject(ret);
     }
     /**
      * Parse IFC file with streaming GPU-ready geometry batches
@@ -2350,6 +2416,10 @@ function __wbg_get_imports() {
             wasm.__wbindgen_export2(deferred0_0, deferred0_1, 1);
         }
     };
+    imports.wbg.__wbg_get_6b7bd52aca3f9671 = function(arg0, arg1) {
+        const ret = getObject(arg0)[arg1 >>> 0];
+        return addHeapObject(ret);
+    };
     imports.wbg.__wbg_get_af9dab7e9603ea93 = function() { return handleError(function (arg0, arg1) {
         const ret = Reflect.get(getObject(arg0), getObject(arg1));
         return addHeapObject(ret);
@@ -2365,6 +2435,9 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_length_d45040a40c570362 = function(arg0) {
         const ret = getObject(arg0).length;
         return ret;
+    };
+    imports.wbg.__wbg_log_1d990106d99dacb7 = function(arg0) {
+        console.log(getObject(arg0));
     };
     imports.wbg.__wbg_meshdatajs_new = function(arg0) {
         const ret = MeshDataJs.__wrap(arg0);
@@ -2393,7 +2466,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wasm_bindgen_func_elem_878(a, state0.b, arg0, arg1);
+                    return __wasm_bindgen_func_elem_900(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -2483,6 +2556,11 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_warn_6e567d0d926ff881 = function(arg0) {
         console.warn(getObject(arg0));
     };
+    imports.wbg.__wbindgen_cast_17394fe312e66a04 = function(arg0, arg1) {
+        // Cast intrinsic for `Closure(Closure { dtor_idx: 49, function: Function { arguments: [], shim_idx: 50, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_427, __wasm_bindgen_func_elem_429);
+        return addHeapObject(ret);
+    };
     imports.wbg.__wbindgen_cast_2241b6af4c4b2941 = function(arg0, arg1) {
         // Cast intrinsic for `Ref(String) -> Externref`.
         const ret = getStringFromWasm0(arg0, arg1);
@@ -2493,19 +2571,14 @@ function __wbg_get_imports() {
         const ret = BigInt.asUintN(64, arg0);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_cast_7f089052c998c143 = function(arg0, arg1) {
-        // Cast intrinsic for `Closure(Closure { dtor_idx: 105, function: Function { arguments: [Externref], shim_idx: 106, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_845, __wasm_bindgen_func_elem_847);
+    imports.wbg.__wbindgen_cast_77878eef07e6a99a = function(arg0, arg1) {
+        // Cast intrinsic for `Closure(Closure { dtor_idx: 109, function: Function { arguments: [Externref], shim_idx: 110, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_867, __wasm_bindgen_func_elem_869);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {
         // Cast intrinsic for `F64 -> Externref`.
         const ret = arg0;
-        return addHeapObject(ret);
-    };
-    imports.wbg.__wbindgen_cast_fa504d1cec41bd0d = function(arg0, arg1) {
-        // Cast intrinsic for `Closure(Closure { dtor_idx: 45, function: Function { arguments: [], shim_idx: 46, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_406, __wasm_bindgen_func_elem_408);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_object_clone_ref = function(arg0) {

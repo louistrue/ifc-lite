@@ -38,7 +38,30 @@ export const THRESHOLDS = {
   HUGE_FILE_MB: 100,
   /** Don't cache files smaller than this (10MB) */
   CACHE_MIN_MB: 10,
+  /** Use front-to-back loading above this (5MB) - enables faster perceived loading */
+  FRONT_TO_BACK_MB: 5,
 } as const;
+
+// ============================================================================
+// Front-to-Back Loading Configuration
+// ============================================================================
+
+/**
+ * Enable front-to-back geometry loading for faster perceived load times.
+ * When enabled, geometry nearest to camera loads first, occluding what's behind.
+ * ENABLED BY DEFAULT - set VITE_FRONT_TO_BACK_LOADING=false to disable.
+ */
+export const FRONT_TO_BACK_ENABLED = import.meta.env.VITE_FRONT_TO_BACK_LOADING !== 'false';
+
+/**
+ * Default camera position for front-to-back sorting (isometric view).
+ * Can be overridden with VITE_CAMERA_X, VITE_CAMERA_Y, VITE_CAMERA_Z env vars.
+ */
+export const DEFAULT_CAMERA_POSITION: [number, number, number] = [
+  parseFloat(import.meta.env.VITE_CAMERA_X as string) || 50,
+  parseFloat(import.meta.env.VITE_CAMERA_Y as string) || 50,
+  parseFloat(import.meta.env.VITE_CAMERA_Z as string) || 100,
+];
 
 // ============================================================================
 // Platform Detection

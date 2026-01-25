@@ -258,6 +258,18 @@ export class IfcAPI {
    */
   parseZeroCopy(content: string): ZeroCopyMesh;
   /**
+   * Process deferred elements by their byte ranges
+   * Used after front-to-back loading to process elements that were deferred
+   *
+   * # Arguments
+   * * `content` - IFC file content as string (must be the same file)
+   * * `deferred_elements` - Array of {id, byteStart, byteEnd} objects from parseMeshesFrontToBack
+   *
+   * # Returns
+   * MeshCollection with the processed meshes
+   */
+  processDeferred(content: string, deferred_elements: any): MeshCollection;
+  /**
    * Extract georeferencing information from IFC content
    * Returns null if no georeferencing is present
    *
@@ -398,6 +410,38 @@ export class IfcAPI {
    * Debug: Test processing a single wall
    */
   debugProcessFirstWall(content: string): string;
+  /**
+   * Parse IFC file with front-to-back ordering based on camera position
+   * Elements nearest to camera are processed first, enabling progressive rendering
+   * where front geometry appears first and occludes what's behind.
+   *
+   * Supports **occlusion-based deferral**: elements beyond `defer_distance` are
+   * returned as deferred (position + ID only) rather than fully processed.
+   * This enables fast initial load with background completion.
+   *
+   * # Arguments
+   * * `content` - IFC file content as string
+   * * `camera_x`, `camera_y`, `camera_z` - Camera position in world coordinates
+   * * `on_batch` - Callback function called with each batch of meshes
+   * * `batch_size` - Number of meshes per batch (default: 100)
+   * * `defer_distance` - Distance beyond which elements are deferred (default: None = no deferral)
+   * * `min_meshes_before_defer` - Minimum meshes to process before deferring (default: 500)
+   *
+   * # Example
+   * ```javascript
+   * const api = new IfcAPI();
+   * await api.parseMeshesFrontToBack(ifcData, 50, 50, 100, (batch) => {
+   *   for (const mesh of batch.meshes) {
+   *     scene.add(mesh); // Add to scene progressively
+   *   }
+   *   if (batch.deferred) {
+   *     // Store deferred elements for later processing
+   *     deferredQueue.push(...batch.deferred);
+   *   }
+   * }, 100, 200.0, 500);
+   * ```
+   */
+  parseMeshesFrontToBack(content: string, camera_x: number, camera_y: number, camera_z: number, on_batch: Function, batch_size?: number | null, defer_distance?: number | null, min_meshes_before_defer?: number | null): Promise<any>;
   /**
    * Parse IFC file with streaming GPU-ready geometry batches
    *
@@ -837,6 +881,7 @@ export interface InitOutput {
   readonly ifcapi_parse: (a: number, b: number, c: number) => number;
   readonly ifcapi_parseMeshes: (a: number, b: number, c: number) => number;
   readonly ifcapi_parseMeshesAsync: (a: number, b: number, c: number, d: number) => number;
+  readonly ifcapi_parseMeshesFrontToBack: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => number;
   readonly ifcapi_parseMeshesInstanced: (a: number, b: number, c: number) => number;
   readonly ifcapi_parseMeshesInstancedAsync: (a: number, b: number, c: number, d: number) => number;
   readonly ifcapi_parseMeshesWithRtc: (a: number, b: number, c: number) => number;
@@ -845,6 +890,7 @@ export interface InitOutput {
   readonly ifcapi_parseToGpuGeometryAsync: (a: number, b: number, c: number, d: number) => number;
   readonly ifcapi_parseToGpuInstancedGeometry: (a: number, b: number, c: number) => number;
   readonly ifcapi_parseZeroCopy: (a: number, b: number, c: number) => number;
+  readonly ifcapi_processDeferred: (a: number, b: number, c: number, d: number) => number;
   readonly ifcapi_scanEntitiesFast: (a: number, b: number, c: number) => number;
   readonly ifcapi_scanGeometryEntitiesFast: (a: number, b: number, c: number) => number;
   readonly ifcapi_version: (a: number, b: number) => void;
@@ -905,11 +951,11 @@ export interface InitOutput {
   readonly meshcollection_rtcOffsetX: (a: number) => number;
   readonly meshcollection_rtcOffsetY: (a: number) => number;
   readonly meshcollection_rtcOffsetZ: (a: number) => number;
-  readonly __wasm_bindgen_func_elem_847: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_845: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_408: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_406: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_878: (a: number, b: number, c: number, d: number) => void;
+  readonly __wasm_bindgen_func_elem_429: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_427: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_869: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_867: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_900: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_export: (a: number) => void;
   readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
   readonly __wbindgen_export3: (a: number, b: number) => number;

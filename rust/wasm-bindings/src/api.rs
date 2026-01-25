@@ -588,6 +588,556 @@ impl IfcAPI {
         mesh_collection
     }
 
+    /// Parse IFC file with front-to-back ordering based on camera position
+    /// Elements nearest to camera are processed first, enabling progressive rendering
+    /// where front geometry appears first and occludes what's behind.
+    ///
+    /// Supports **occlusion-based deferral**: elements beyond `defer_distance` are
+    /// returned as deferred (position + ID only) rather than fully processed.
+    /// This enables fast initial load with background completion.
+    ///
+    /// # Arguments
+    /// * `content` - IFC file content as string
+    /// * `camera_x`, `camera_y`, `camera_z` - Camera position in world coordinates
+    /// * `on_batch` - Callback function called with each batch of meshes
+    /// * `batch_size` - Number of meshes per batch (default: 100)
+    /// * `defer_distance` - Distance beyond which elements are deferred (default: None = no deferral)
+    /// * `min_meshes_before_defer` - Minimum meshes to process before deferring (default: 500)
+    ///
+    /// # Example
+    /// ```javascript
+    /// const api = new IfcAPI();
+    /// await api.parseMeshesFrontToBack(ifcData, 50, 50, 100, (batch) => {
+    ///   for (const mesh of batch.meshes) {
+    ///     scene.add(mesh); // Add to scene progressively
+    ///   }
+    ///   if (batch.deferred) {
+    ///     // Store deferred elements for later processing
+    ///     deferredQueue.push(...batch.deferred);
+    ///   }
+    /// }, 100, 200.0, 500);
+    /// ```
+    #[wasm_bindgen(js_name = parseMeshesFrontToBack)]
+    pub fn parse_meshes_front_to_back(
+        &self,
+        content: String,
+        camera_x: f64,
+        camera_y: f64,
+        camera_z: f64,
+        on_batch: Function,
+        batch_size: Option<usize>,
+        defer_distance: Option<f64>,
+        min_meshes_before_defer: Option<usize>,
+    ) -> Promise {
+        use ifc_lite_core::{build_entity_index, EntityDecoder, EntityScanner};
+        use ifc_lite_geometry::{calculate_normals, GeometryRouter};
+
+        let batch_size = batch_size.unwrap_or(100);
+        let defer_distance_sq = defer_distance.map(|d| d * d); // Square for comparison
+        let min_meshes_before_defer = min_meshes_before_defer.unwrap_or(500);
+
+        Promise::new(&mut |resolve, reject| {
+            let content = content.clone();
+            let on_batch = on_batch.clone();
+            let reject_clone = reject.clone();
+
+            spawn_local(async move {
+                // PHASE 1: Build indices (same as parse_meshes)
+                let entity_index = build_entity_index(&content);
+                let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+
+                let geometry_styles = build_geometry_style_index(&content, &mut decoder);
+                let style_index = build_element_style_index(&content, &geometry_styles, &mut decoder);
+
+                // Collect FacetedBrep IDs and void relationships
+                let mut scanner = EntityScanner::new(&content);
+                let mut faceted_brep_ids: Vec<u32> = Vec::new();
+                let mut void_index: rustc_hash::FxHashMap<u32, Vec<u32>> =
+                    rustc_hash::FxHashMap::default();
+
+                while let Some((id, type_name, start, end)) = scanner.next_entity() {
+                    if type_name == "IFCFACETEDBREP" {
+                        faceted_brep_ids.push(id);
+                    } else if type_name == "IFCRELVOIDSELEMENT" {
+                        if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                            if let (Some(host_id), Some(opening_id)) =
+                                (entity.get_ref(4), entity.get_ref(5))
+                            {
+                                void_index.entry(host_id).or_default().push(opening_id);
+                            }
+                        }
+                    }
+                }
+
+                // Create geometry router and detect RTC offset
+                let mut router = GeometryRouter::with_units(&content, &mut decoder);
+                let rtc_offset = router.detect_rtc_offset_from_first_element(&content, &mut decoder);
+                let needs_shift = rtc_offset.0.abs() > 10000.0
+                    || rtc_offset.1.abs() > 10000.0
+                    || rtc_offset.2.abs() > 10000.0;
+
+                if needs_shift {
+                    router.set_rtc_offset(rtc_offset);
+                }
+
+                // Preprocess FacetedBreps
+                if !faceted_brep_ids.is_empty() {
+                    router.preprocess_faceted_breps(&faceted_brep_ids, &mut decoder);
+                }
+
+                // PHASE 2: Collect elements with TYPE-BASED PRIORITY ordering
+                //
+                // Key insight: Distance-based sorting doesn't work because element origins
+                // don't reflect visual position. Instead, sort by IFC TYPE PRIORITY:
+                //
+                // Priority 0 (Exterior shell - load FIRST):
+                //   IFCROOF, IFCSLAB, IFCCURTAINWALL, IFCPLATE
+                // Priority 1 (Exterior walls):
+                //   IFCWALL, IFCWALLSTANDARDCASE
+                // Priority 2 (Structure):
+                //   IFCBEAM, IFCCOLUMN, IFCMEMBER, IFCSTAIR, IFCRAMP
+                // Priority 3 (Openings):
+                //   IFCWINDOW, IFCDOOR
+                // Priority 4 (Interior/other):
+                //   Everything else (furniture, equipment, etc.)
+                //
+                // Within each priority group, sort by Z elevation (top-down for roofs, bottom-up for floors)
+
+                scanner = EntityScanner::new(&content);
+
+                struct ElementWithPriority {
+                    id: u32,
+                    start: usize,
+                    end: usize,
+                    priority: u8,        // 0 = highest priority (exterior shell)
+                    elevation: f64,      // Z position for secondary sorting
+                    type_name: String,   // For debugging
+                    pos: (f64, f64, f64), // Element position for deferred info
+                }
+
+                // Helper function to get element priority based on IFC type
+                fn get_element_priority(type_name: &str) -> u8 {
+                    match type_name {
+                        // Priority 0: Exterior shell (roofs, slabs, curtain walls)
+                        "IFCROOF" | "IFCSLAB" | "IFCCURTAINWALL" | "IFCPLATE" => 0,
+
+                        // Priority 1: Exterior walls
+                        "IFCWALL" | "IFCWALLSTANDARDCASE" => 1,
+
+                        // Priority 2: Structure (beams, columns, stairs)
+                        "IFCBEAM" | "IFCCOLUMN" | "IFCMEMBER" | "IFCSTAIR" |
+                        "IFCSTAIRFLIGHT" | "IFCRAMP" | "IFCRAMPFLIGHT" | "IFCRAILING" => 2,
+
+                        // Priority 3: Openings (windows, doors)
+                        "IFCWINDOW" | "IFCDOOR" => 3,
+
+                        // Priority 4: Interior/other (furniture, equipment, etc.)
+                        _ => 4,
+                    }
+                }
+
+                let mut elements: Vec<ElementWithPriority> = Vec::new();
+
+                while let Some((id, type_name, start, end)) = scanner.next_entity() {
+                    if !ifc_lite_core::has_geometry_by_name(type_name) {
+                        continue;
+                    }
+
+                    // Decode entity and extract position from ObjectPlacement
+                    if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                        // Check if entity has representation
+                        let has_representation =
+                            entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
+                        if !has_representation {
+                            continue;
+                        }
+
+                        // Extract position from placement transform (CHEAP operation)
+                        let pos = if let Ok(transform) =
+                            router.get_placement_transform_from_element(&entity, &mut decoder)
+                        {
+                            // Position is in the translation column (column 3)
+                            (transform[(0, 3)], transform[(1, 3)], transform[(2, 3)])
+                        } else {
+                            continue; // Skip elements without valid placement
+                        };
+
+                        let priority = get_element_priority(type_name);
+                        let elevation = pos.2; // Z coordinate (IFC is Z-up)
+
+                        elements.push(ElementWithPriority {
+                            id,
+                            start,
+                            end,
+                            priority,
+                            elevation,
+                            type_name: type_name.to_string(),
+                            pos,
+                        });
+                    }
+                }
+
+                let count = elements.len();
+                if count == 0 {
+                    let _ = resolve.call0(&JsValue::NULL);
+                    return;
+                }
+
+                // Count elements by priority for logging
+                let mut priority_counts = [0u32; 5];
+                for elem in &elements {
+                    if (elem.priority as usize) < 5 {
+                        priority_counts[elem.priority as usize] += 1;
+                    }
+                }
+
+                web_sys::console::log_1(&format!(
+                    "[IFC-LITE] Type-priority loading: {} elements [P0-shell:{}, P1-walls:{}, P2-struct:{}, P3-openings:{}, P4-other:{}]",
+                    count,
+                    priority_counts[0], priority_counts[1], priority_counts[2],
+                    priority_counts[3], priority_counts[4]
+                ).into());
+
+                // PHASE 3: Sort elements by PRIORITY first, then by ELEVATION
+                //
+                // Primary sort: priority (0=exterior shell first, 4=interior last)
+                // Secondary sort: elevation (higher Z first for roofs/slabs, gives top-down appearance)
+                //
+                // This ensures:
+                // 1. Roofs and slabs load FIRST (the "shell" of the building)
+                // 2. Exterior walls load SECOND
+                // 3. Structure (beams, columns) load THIRD
+                // 4. Windows/doors load FOURTH
+                // 5. Interior elements load LAST
+                elements.sort_by(|a, b| {
+                    // First compare by priority (lower = higher priority = loads first)
+                    match a.priority.cmp(&b.priority) {
+                        std::cmp::Ordering::Equal => {
+                            // Within same priority, sort by elevation (higher Z first)
+                            // This gives a "top-down" appearance as geometry loads
+                            b.elevation.partial_cmp(&a.elevation)
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        }
+                        other => other,
+                    }
+                });
+
+                let total_elements = elements.len();
+
+                // PHASE 4: Process geometry in sorted order, yielding batches
+                // With optional deferral for elements beyond defer_distance
+                let mut batch_meshes: Vec<MeshDataJs> = Vec::with_capacity(batch_size);
+                let mut processed = 0;
+                let mut mesh_count = 0;
+                let mut deferring = false;
+
+                // Deferred elements: store position + ID for later processing
+                struct DeferredElement {
+                    id: u32,
+                    start: usize,
+                    end: usize,
+                    pos: (f64, f64, f64),
+                    distance: f64,
+                }
+                let mut deferred_elements: Vec<DeferredElement> = Vec::new();
+
+                // Helper function to emit a batch
+                let emit_batch = |batch_meshes: &mut Vec<MeshDataJs>,
+                                  deferred: &[DeferredElement],
+                                  processed: usize,
+                                  total: usize,
+                                  needs_shift: bool,
+                                  rtc_offset: (f64, f64, f64),
+                                  on_batch: &Function,
+                                  is_final: bool| -> Result<(), JsValue> {
+                    let js_meshes = js_sys::Array::new();
+                    for mesh in batch_meshes.drain(..) {
+                        js_meshes.push(&mesh.into());
+                    }
+
+                    let batch_obj = js_sys::Object::new();
+                    set_js_prop(&batch_obj, "meshes", &js_meshes.into());
+
+                    let progress = js_sys::Object::new();
+                    let percent = if is_final {
+                        100u32
+                    } else {
+                        (processed as f64 / total as f64 * 100.0) as u32
+                    };
+                    set_js_prop(&progress, "processed", &(processed as f64).into());
+                    set_js_prop(&progress, "total", &(total as f64).into());
+                    set_js_prop(&progress, "percent", &percent.into());
+                    set_js_prop(&batch_obj, "progress", &progress.into());
+
+                    if needs_shift {
+                        let rtc = js_sys::Object::new();
+                        set_js_prop(&rtc, "x", &rtc_offset.0.into());
+                        set_js_prop(&rtc, "y", &rtc_offset.1.into());
+                        set_js_prop(&rtc, "z", &rtc_offset.2.into());
+                        set_js_prop(&batch_obj, "rtcOffset", &rtc.into());
+                    }
+
+                    // Include deferred elements in the final batch
+                    if is_final && !deferred.is_empty() {
+                        let js_deferred = js_sys::Array::new();
+                        for d in deferred {
+                            let obj = js_sys::Object::new();
+                            set_js_prop(&obj, "id", &(d.id as f64).into());
+                            set_js_prop(&obj, "byteStart", &(d.start as f64).into());
+                            set_js_prop(&obj, "byteEnd", &(d.end as f64).into());
+                            set_js_prop(&obj, "distance", &d.distance.into());
+
+                            // Position as array (converted to Y-up for TypeScript)
+                            let pos_arr = js_sys::Array::new();
+                            pos_arr.push(&d.pos.0.into()); // X stays
+                            pos_arr.push(&d.pos.2.into()); // Y = old Z (up)
+                            pos_arr.push(&(-d.pos.1).into()); // Z = -old Y (depth)
+                            set_js_prop(&obj, "position", &pos_arr.into());
+
+                            js_deferred.push(&obj);
+                        }
+                        set_js_prop(&batch_obj, "deferred", &js_deferred.into());
+                    }
+
+                    on_batch.call1(&JsValue::NULL, &batch_obj.into())?;
+                    Ok(())
+                };
+
+                for elem in elements {
+                    // Check if we should defer this element
+                    // For FAST perceived loading, we want to show ~50-100 meshes ASAP,
+                    // then defer EVERYTHING else for background processing.
+                    //
+                    // Deferral strategy:
+                    // - Process first min_meshes elements regardless of type
+                    // - After threshold: defer ALL remaining elements (even P0 shell)
+                    // - This gives user SOMETHING to see quickly, rest loads in background
+                    let should_defer = defer_distance_sq.is_some() &&
+                        mesh_count >= min_meshes_before_defer;
+                    // Note: We now defer ALL elements after threshold, not just low-priority ones
+
+                    if should_defer {
+                        if !deferring {
+                            deferring = true;
+                            web_sys::console::log_1(&format!(
+                                "[IFC-LITE] Deferring elements beyond distance threshold after {} meshes",
+                                mesh_count
+                            ).into());
+                        }
+
+                        // Store deferred element info (position + byte range)
+                        // Use priority as "distance" proxy (higher priority = processed first)
+                        deferred_elements.push(DeferredElement {
+                            id: elem.id,
+                            start: elem.start,
+                            end: elem.end,
+                            pos: elem.pos,
+                            distance: elem.priority as f64 * 1000.0 + elem.elevation, // Encode priority+elevation
+                        });
+
+                        processed += 1;
+                        continue;
+                    }
+
+                    // Process geometry normally
+                    if let Ok(entity) = decoder.decode_at_with_id(elem.id, elem.start, elem.end) {
+                        if let Ok(mut mesh) =
+                            router.process_element_with_voids(&entity, &mut decoder, &void_index)
+                        {
+                            if !mesh.is_empty() {
+                                // Calculate normals if not present
+                                if mesh.normals.is_empty() {
+                                    calculate_normals(&mut mesh);
+                                }
+
+                                // Get color
+                                let color = style_index
+                                    .get(&elem.id)
+                                    .copied()
+                                    .unwrap_or_else(|| get_default_color_for_type(&entity.ifc_type));
+
+                                // Safety filter (same as parse_meshes)
+                                const MAX_REASONABLE_OFFSET: f32 = 50_000.0;
+                                let mut max_coord = 0.0f32;
+                                let mut outlier_vertex_count = 0;
+                                let total_vertices = mesh.positions.len() / 3;
+
+                                for chunk in mesh.positions.chunks_exact(3) {
+                                    let x = chunk[0];
+                                    let y = chunk[1];
+                                    let z = chunk[2];
+
+                                    if !x.is_finite() || !y.is_finite() || !z.is_finite() {
+                                        outlier_vertex_count += 1;
+                                        continue;
+                                    }
+
+                                    let coord_mag = x.abs().max(y.abs()).max(z.abs());
+                                    max_coord = max_coord.max(coord_mag);
+                                    if coord_mag > MAX_REASONABLE_OFFSET {
+                                        outlier_vertex_count += 1;
+                                    }
+                                }
+
+                                let outlier_ratio = if total_vertices > 0 {
+                                    outlier_vertex_count as f32 / total_vertices as f32
+                                } else {
+                                    0.0
+                                };
+
+                                if outlier_ratio > 0.9 || max_coord > MAX_REASONABLE_OFFSET * 4.0 {
+                                    continue; // Skip outlier mesh
+                                }
+
+                                let ifc_type_name = entity.ifc_type.name().to_string();
+                                let mesh_data = MeshDataJs::new(elem.id, ifc_type_name, mesh, color);
+                                batch_meshes.push(mesh_data);
+                                mesh_count += 1;
+                            }
+                        }
+                    }
+
+                    processed += 1;
+
+                    // Yield batch when full
+                    if batch_meshes.len() >= batch_size {
+                        if let Err(e) = emit_batch(
+                            &mut batch_meshes,
+                            &[],
+                            processed,
+                            total_elements,
+                            needs_shift,
+                            rtc_offset,
+                            &on_batch,
+                            false,
+                        ) {
+                            let _ = reject_clone.call1(&JsValue::NULL, &e);
+                            return;
+                        }
+
+                        // CRITICAL: Yield to JavaScript event loop after each batch
+                        // This allows the browser to render the batch before processing more
+                        gloo_timers::future::TimeoutFuture::new(0).await;
+                    }
+                }
+
+                // Yield final batch (includes deferred elements info)
+                if !batch_meshes.is_empty() || !deferred_elements.is_empty() {
+                    if let Err(e) = emit_batch(
+                        &mut batch_meshes,
+                        &deferred_elements,
+                        processed,
+                        total_elements,
+                        needs_shift,
+                        rtc_offset,
+                        &on_batch,
+                        true,
+                    ) {
+                        let _ = reject_clone.call1(&JsValue::NULL, &e);
+                        return;
+                    }
+                }
+
+                if !deferred_elements.is_empty() {
+                    web_sys::console::log_1(&format!(
+                        "[IFC-LITE] Deferred {} elements for background processing",
+                        deferred_elements.len()
+                    ).into());
+                }
+
+                // Resolve promise when complete
+                let _ = resolve.call0(&JsValue::NULL);
+            });
+        })
+    }
+
+    /// Process deferred elements by their byte ranges
+    /// Used after front-to-back loading to process elements that were deferred
+    ///
+    /// # Arguments
+    /// * `content` - IFC file content as string (must be the same file)
+    /// * `deferred_elements` - Array of {id, byteStart, byteEnd} objects from parseMeshesFrontToBack
+    ///
+    /// # Returns
+    /// MeshCollection with the processed meshes
+    #[wasm_bindgen(js_name = processDeferred)]
+    pub fn process_deferred(&self, content: String, deferred_elements: JsValue) -> MeshCollection {
+        use ifc_lite_core::{build_entity_index, EntityDecoder, EntityScanner};
+        use ifc_lite_geometry::{calculate_normals, GeometryRouter};
+
+        let mut mesh_collection = MeshCollection::new();
+
+        // Parse deferred elements from JS array
+        let arr: js_sys::Array = deferred_elements.into();
+        let elements: Vec<(u32, usize, usize)> = arr.iter().filter_map(|elem| {
+            let id = js_sys::Reflect::get(&elem, &"id".into()).ok()?.as_f64()? as u32;
+            let start = js_sys::Reflect::get(&elem, &"byteStart".into()).ok()?.as_f64()? as usize;
+            let end = js_sys::Reflect::get(&elem, &"byteEnd".into()).ok()?.as_f64()? as usize;
+            Some((id, start, end))
+        }).collect();
+
+        if elements.is_empty() {
+            return mesh_collection;
+        }
+
+        // Build indices
+        let entity_index = build_entity_index(&content);
+        let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+
+        // Build style index
+        let geometry_styles = build_geometry_style_index(&content, &mut decoder);
+        let style_index = build_element_style_index(&content, &geometry_styles, &mut decoder);
+
+        // Build void relationships
+        let mut scanner = EntityScanner::new(&content);
+        let mut void_index: rustc_hash::FxHashMap<u32, Vec<u32>> = rustc_hash::FxHashMap::default();
+
+        while let Some((id, type_name, start, end)) = scanner.next_entity() {
+            if type_name == "IFCRELVOIDSELEMENT" {
+                if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                    if let (Some(host_id), Some(opening_id)) = (entity.get_ref(4), entity.get_ref(5)) {
+                        void_index.entry(host_id).or_default().push(opening_id);
+                    }
+                }
+            }
+        }
+
+        // Create geometry router
+        let mut router = GeometryRouter::with_units(&content, &mut decoder);
+        let rtc_offset = router.detect_rtc_offset_from_first_element(&content, &mut decoder);
+        let needs_shift = rtc_offset.0.abs() > 10000.0
+            || rtc_offset.1.abs() > 10000.0
+            || rtc_offset.2.abs() > 10000.0;
+
+        if needs_shift {
+            router.set_rtc_offset(rtc_offset);
+        }
+
+        // Process each deferred element
+        for (id, start, end) in elements {
+            if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                if let Ok(mut mesh) = router.process_element_with_voids(&entity, &mut decoder, &void_index) {
+                    if !mesh.is_empty() {
+                        if mesh.normals.is_empty() {
+                            calculate_normals(&mut mesh);
+                        }
+
+                        let color = style_index
+                            .get(&id)
+                            .copied()
+                            .unwrap_or_else(|| get_default_color_for_type(&entity.ifc_type));
+
+                        let ifc_type_name = entity.ifc_type.name().to_string();
+                        let mesh_data = MeshDataJs::new(id, ifc_type_name, mesh, color);
+                        mesh_collection.add(mesh_data);
+                    }
+                }
+            }
+        }
+
+        mesh_collection
+    }
+
     /// Parse IFC file and return instanced geometry grouped by geometry hash
     /// This reduces draw calls by grouping identical geometries with different transforms
     ///
