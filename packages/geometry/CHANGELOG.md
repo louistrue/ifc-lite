@@ -1,5 +1,70 @@
 # @ifc-lite/geometry
 
+## 1.3.0
+
+### Minor Changes
+
+- [#139](https://github.com/louistrue/ifc-lite/pull/139) [`0c1a262`](https://github.com/louistrue/ifc-lite/commit/0c1a262d971af4a1bc2c97d41258aa6745fef857) Thanks [@louistrue](https://github.com/louistrue)! - Add PolygonalFaceSetProcessor and surface model processors for improved geometry support
+
+  ### New Geometry Processors
+
+  - **PolygonalFaceSetProcessor**: Handle IfcPolygonalFaceSet with triangulation of arbitrary polygons
+  - **FaceBasedSurfaceModelProcessor**: Process IfcFaceBasedSurfaceModel geometry
+  - **SurfaceOfLinearExtrusionProcessor**: Handle IfcSurfaceOfLinearExtrusion surfaces
+  - **ShellBasedSurfaceModelProcessor**: Process IfcShellBasedSurfaceModel geometry
+
+  ### Performance Optimizations
+
+  - Add fast-path decoder functions with point caching for BREP-heavy files (~2x faster)
+  - Add `get_first_entity_ref_fast`, `get_polyloop_coords_fast`, `get_polyloop_coords_cached`
+  - Add `has_non_null_attribute()` for fast attribute filtering
+  - Optimize FacetedBrep with fast-path using `get_face_bound_fast`
+  - Add WASM-specific sequential iteration to avoid threading overhead
+
+- [#135](https://github.com/louistrue/ifc-lite/pull/135) [`07558fc`](https://github.com/louistrue/ifc-lite/commit/07558fc4aa91245ef0f9c31681ec84444ec5d80e) Thanks [@louistrue](https://github.com/louistrue)! - Fix RTC (Relative To Center) coordinate handling consistency
+
+  **BREAKING**: Rename `isGeoReferenced` to `hasLargeCoordinates` in CoordinateInfo interface.
+  Large coordinates do NOT mean a model is georeferenced. Proper georeferencing uses IfcMapConversion.
+
+  - Rename isGeoReferenced → hasLargeCoordinates across all packages (geometry, cache, export, viewer)
+  - Fix transform_mesh to apply RTC uniformly per-mesh (not per-vertex) preventing mixed coordinates
+  - Fix coordinate-handler.ts threshold consistency between bounds calculation and vertex cleanup
+  - Fix streaming path originalBounds reconstruction by undoing server-applied shift
+  - Surface RTC offset in GpuGeometry struct with JS-accessible getters (rtcOffsetX/Y/Z, hasRtcOffset)
+  - Add RTC detection and offset handling to parseToGpuGeometryAsync
+  - Include RTC offset in GPU async completion stats
+  - Add comprehensive coordinate handling documentation
+
+### Patch Changes
+
+- [#119](https://github.com/louistrue/ifc-lite/pull/119) [`fe4f7ac`](https://github.com/louistrue/ifc-lite/commit/fe4f7aca0e7927d12905d5d86ded7e06f41cb3b3) Thanks [@louistrue](https://github.com/louistrue)! - Fix WASM safety, improve DX, and add test infrastructure
+
+  - Replace 60+ unsafe unwrap() calls with safe JS interop helpers in WASM bindings
+  - Clean console output with single summary line per file load
+  - Pure client-side by default (no CORS errors in production)
+  - Add unit tests for StringTable, GLTFExporter, store slices
+  - Add WASM contract tests and integration pipeline tests
+  - Fix TypeScript any types and data corruption bugs
+
+- [#117](https://github.com/louistrue/ifc-lite/pull/117) [`4bf4931`](https://github.com/louistrue/ifc-lite/commit/4bf4931181d1c9867a5f0f4803972fa5a3178490) Thanks [@louistrue](https://github.com/louistrue)! - Fix multi-material rendering and enhance CSG operations
+
+  ### Multi-Material Rendering
+
+  - Windows now correctly render with transparent glass panels and opaque frames
+  - Doors now render all submeshes including inner framing with correct colors
+  - Fixed mesh deduplication in Viewport that was filtering out submeshes sharing the same expressId
+  - Added SubMesh and SubMeshCollection types to track per-geometry-item meshes for style lookup
+
+  ### CSG Operations
+
+  - Added union and intersection mesh operations for full boolean CSG support
+  - Improved CSG clipping with degenerate triangle removal to eliminate artifacts
+  - Enhanced bounds overlap detection for better performance
+  - Added cleanup of triangles inside opening bounds to remove CSG artifacts
+
+- Updated dependencies [[`0c1a262`](https://github.com/louistrue/ifc-lite/commit/0c1a262d971af4a1bc2c97d41258aa6745fef857), [`fe4f7ac`](https://github.com/louistrue/ifc-lite/commit/fe4f7aca0e7927d12905d5d86ded7e06f41cb3b3), [`4bf4931`](https://github.com/louistrue/ifc-lite/commit/4bf4931181d1c9867a5f0f4803972fa5a3178490), [`07558fc`](https://github.com/louistrue/ifc-lite/commit/07558fc4aa91245ef0f9c31681ec84444ec5d80e)]:
+  - @ifc-lite/wasm@1.3.0
+
 ## 1.2.1
 
 ### Patch Changes

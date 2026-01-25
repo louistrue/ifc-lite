@@ -3,7 +3,7 @@ members = ["rust/core", "rust/geometry", "rust/wasm-bindings", "apps/server", "a
 resolver = "2"
 
 [workspace.package]
-version = "1.1.7"
+version = "1.2.1"
 edition = "2021"
 authors = ["IFC-Lite Contributors"]
 license = "MPL-2.0"
