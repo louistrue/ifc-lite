@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 
 /**
- * Syncs version from package.json to Cargo.toml workspace
+ * Syncs version from @ifc-lite/wasm package.json to Cargo.toml workspace and root package.json
  * Run this after `changeset version` to keep Rust and npm versions in sync
+ *
+ * Why @ifc-lite/wasm? Because changesets updates individual package versions but not the
+ * private workspace root. We use @ifc-lite/wasm as the source of truth since it's the npm
+ * package that wraps the Rust WASM bindings.
  */
 
 import { readFileSync, writeFileSync } from 'fs';
@@ -14,10 +18,11 @@ const __dirname = dirname(__filename);
 const rootDir = join(__dirname, '..');
 
 function syncVersions() {
-  // Read version from package.json
-  const packageJsonPath = join(rootDir, 'package.json');
-  const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
-  const version = packageJson.version;
+  // Read version from @ifc-lite/wasm (the npm package for Rust WASM bindings)
+  // This is the authoritative source since changesets updates it but not the root package.json
+  const wasmPackageJsonPath = join(rootDir, 'packages', 'wasm', 'package.json');
+  const wasmPackageJson = JSON.parse(readFileSync(wasmPackageJsonPath, 'utf8'));
+  const version = wasmPackageJson.version;
 
   console.log(`📦 Syncing version: ${version}`);
 
@@ -34,10 +39,12 @@ function syncVersions() {
   writeFileSync(cargoTomlPath, cargoToml);
   console.log(`✅ Updated Cargo.toml workspace version to ${version}`);
 
-  // Also update root package.json if needed (in case changesets didn't update it)
-  if (packageJson.version !== version) {
-    packageJson.version = version;
-    writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2) + '\n');
+  // Also update root package.json to keep it in sync
+  const rootPackageJsonPath = join(rootDir, 'package.json');
+  const rootPackageJson = JSON.parse(readFileSync(rootPackageJsonPath, 'utf8'));
+  if (rootPackageJson.version !== version) {
+    rootPackageJson.version = version;
+    writeFileSync(rootPackageJsonPath, JSON.stringify(rootPackageJson, null, 2) + '\n');
     console.log(`✅ Updated root package.json version to ${version}`);
   }
 }
