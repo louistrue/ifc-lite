@@ -4,59 +4,59 @@ This document describes the high-level architecture of IFClite, including both c
 
 ## System Architecture
 
-IFClite supports two processing paradigms:
+IFClite supports two processing paradigms: **client-side** (WASM in browser) and **server-side** (native Rust).
+
+### Layer Overview
 
 ```mermaid
 flowchart TB
-    subgraph Client["Client Layer"]
-        Web["Web Application"]
-        Desktop["Desktop (Tauri)"]
-        CLI["CLI Tools"]
+    subgraph Clients["Clients"]
+        direction LR
+        Web["Web App"]
+        Desktop["Desktop"]
+        CLI["CLI"]
     end
 
-    subgraph API["API Layer"]
-        TSApi["TypeScript Packages"]
-        ServerSDK["Server Client SDK"]
-        WasmApi["WASM Bindings"]
-        RustApi["Native Rust API"]
+    subgraph APIs["APIs"]
+        direction LR
+        TS["TypeScript"]
+        WASM["WASM"]
+        Rust["Rust"]
     end
 
-    subgraph Processing["Processing Layer"]
-        subgraph ClientSide["Client-Side (WASM)"]
-            Parser["Parser"]
-            Geometry["Geometry"]
-            Renderer["Renderer"]
-        end
-
-        subgraph ServerSide["Server-Side (Native)"]
-            ServerParser["Parser"]
-            ServerGeo["Geometry"]
-            Parquet["Parquet Encoder"]
-            Cache["Content Cache"]
-        end
-    end
-
-    subgraph Storage["Storage Layer"]
-        Columnar["Columnar Tables"]
+    subgraph Storage["Storage"]
+        direction LR
+        Tables["Columnar Tables"]
         Graph["Relationship Graph"]
         GPU["GPU Buffers"]
     end
 
-    Client --> API
-    API --> Processing
-    Processing --> Storage
+    Clients --> APIs
+    APIs --> Storage
+```
 
-    Web --> TSApi
-    Web --> ServerSDK
-    Desktop --> RustApi
-    TSApi --> WasmApi
-    ServerSDK --> ServerSide
+### Processing Paradigms
 
-    style Client fill:#6366f1,stroke:#312e81,color:#fff
-    style API fill:#2563eb,stroke:#1e3a8a,color:#fff
-    style ClientSide fill:#10b981,stroke:#064e3b,color:#fff
-    style ServerSide fill:#f59e0b,stroke:#7c2d12,color:#fff
-    style Storage fill:#a855f7,stroke:#581c87,color:#fff
+The system offers two processing paths depending on your needs:
+
+```mermaid
+flowchart LR
+    subgraph ClientPath["Client-Side (WASM)"]
+        direction TB
+        C1["Parser"]
+        C2["Geometry"]
+        C3["Renderer"]
+        C1 --> C2 --> C3
+    end
+
+    subgraph ServerPath["Server-Side (Native)"]
+        direction TB
+        S1["Parser"]
+        S2["Geometry"]
+        S3["Parquet Encoder"]
+        S4["Content Cache"]
+        S1 --> S2 --> S3 --> S4
+    end
 ```
 
 ## Client vs Server Paradigm
