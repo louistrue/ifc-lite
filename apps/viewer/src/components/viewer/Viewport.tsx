@@ -1409,17 +1409,17 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         const zoomSpeed = 0.1;
 
         if (firstPersonModeRef.current) {
-          // Arrow keys only for first-person navigation
-          if (keyState['arrowup']) { camera.moveFirstPerson(1, 0, 0); moved = true; }
-          if (keyState['arrowdown']) { camera.moveFirstPerson(-1, 0, 0); moved = true; }
-          if (keyState['arrowleft']) { camera.moveFirstPerson(0, -1, 0); moved = true; }
-          if (keyState['arrowright']) { camera.moveFirstPerson(0, 1, 0); moved = true; }
+          // Arrow keys for first-person navigation (camera-relative)
+          if (keyState['arrowup']) { camera.moveFirstPerson(-1, 0, 0); moved = true; }
+          if (keyState['arrowdown']) { camera.moveFirstPerson(1, 0, 0); moved = true; }
+          if (keyState['arrowleft']) { camera.moveFirstPerson(0, 1, 0); moved = true; }
+          if (keyState['arrowright']) { camera.moveFirstPerson(0, -1, 0); moved = true; }
         } else {
-          // Arrow keys only for panning
-          if (keyState['arrowup']) { camera.pan(0, panSpeed, false); moved = true; }
-          if (keyState['arrowdown']) { camera.pan(0, -panSpeed, false); moved = true; }
-          if (keyState['arrowleft']) { camera.pan(-panSpeed, 0, false); moved = true; }
-          if (keyState['arrowright']) { camera.pan(panSpeed, 0, false); moved = true; }
+          // Arrow keys for panning (camera-relative: arrow direction = camera movement)
+          if (keyState['arrowup']) { camera.pan(0, -panSpeed, false); moved = true; }
+          if (keyState['arrowdown']) { camera.pan(0, panSpeed, false); moved = true; }
+          if (keyState['arrowleft']) { camera.pan(panSpeed, 0, false); moved = true; }
+          if (keyState['arrowright']) { camera.pan(-panSpeed, 0, false); moved = true; }
         }
 
         if (moved) {
