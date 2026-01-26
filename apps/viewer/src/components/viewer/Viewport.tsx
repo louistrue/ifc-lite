@@ -981,7 +981,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
 
           // Always update camera state immediately (feels responsive)
           if (mouseState.isPanning || tool === 'pan') {
-            camera.pan(dx, dy, false);
+            // Negate dy: mouse Y increases downward, but we want upward drag to pan up
+            camera.pan(dx, -dy, false);
           } else if (tool === 'walk') {
             // Walk mode: left/right rotates, up/down moves forward/backward
             camera.orbit(dx * 0.5, 0, false); // Only horizontal rotation
@@ -1408,19 +1409,17 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         const zoomSpeed = 0.1;
 
         if (firstPersonModeRef.current) {
-          if (keyState['w'] || keyState['arrowup']) { camera.moveFirstPerson(1, 0, 0); moved = true; }
-          if (keyState['s'] || keyState['arrowdown']) { camera.moveFirstPerson(-1, 0, 0); moved = true; }
-          if (keyState['a'] || keyState['arrowleft']) { camera.moveFirstPerson(0, -1, 0); moved = true; }
-          if (keyState['d'] || keyState['arrowright']) { camera.moveFirstPerson(0, 1, 0); moved = true; }
-          if (keyState['q']) { camera.moveFirstPerson(0, 0, -1); moved = true; }
-          if (keyState['e']) { camera.moveFirstPerson(0, 0, 1); moved = true; }
+          // Arrow keys for first-person navigation (camera-relative)
+          if (keyState['arrowup']) { camera.moveFirstPerson(-1, 0, 0); moved = true; }
+          if (keyState['arrowdown']) { camera.moveFirstPerson(1, 0, 0); moved = true; }
+          if (keyState['arrowleft']) { camera.moveFirstPerson(0, 1, 0); moved = true; }
+          if (keyState['arrowright']) { camera.moveFirstPerson(0, -1, 0); moved = true; }
         } else {
-          if (keyState['w'] || keyState['arrowup']) { camera.pan(0, panSpeed, false); moved = true; }
-          if (keyState['s'] || keyState['arrowdown']) { camera.pan(0, -panSpeed, false); moved = true; }
-          if (keyState['a'] || keyState['arrowleft']) { camera.pan(-panSpeed, 0, false); moved = true; }
-          if (keyState['d'] || keyState['arrowright']) { camera.pan(panSpeed, 0, false); moved = true; }
-          if (keyState['q']) { camera.zoom(-zoomSpeed * 100, false); moved = true; }
-          if (keyState['e']) { camera.zoom(zoomSpeed * 100, false); moved = true; }
+          // Arrow keys for panning (camera-relative: arrow direction = camera movement)
+          if (keyState['arrowup']) { camera.pan(0, -panSpeed, false); moved = true; }
+          if (keyState['arrowdown']) { camera.pan(0, panSpeed, false); moved = true; }
+          if (keyState['arrowleft']) { camera.pan(panSpeed, 0, false); moved = true; }
+          if (keyState['arrowright']) { camera.pan(-panSpeed, 0, false); moved = true; }
         }
 
         if (moved) {
