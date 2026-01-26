@@ -6,57 +6,48 @@ This document describes the high-level architecture of IFClite, including both c
 
 IFClite supports two processing paradigms:
 
-```mermaid
-flowchart TB
-    subgraph Client["Client Layer"]
-        Web["Web Application"]
-        Desktop["Desktop (Tauri)"]
-        CLI["CLI Tools"]
-    end
-
-    subgraph API["API Layer"]
-        TSApi["TypeScript Packages"]
-        ServerSDK["Server Client SDK"]
-        WasmApi["WASM Bindings"]
-        RustApi["Native Rust API"]
-    end
-
-    subgraph Processing["Processing Layer"]
-        subgraph ClientSide["Client-Side (WASM)"]
-            Parser["Parser"]
-            Geometry["Geometry"]
-            Renderer["Renderer"]
-        end
-
-        subgraph ServerSide["Server-Side (Native)"]
-            ServerParser["Parser"]
-            ServerGeo["Geometry"]
-            Parquet["Parquet Encoder"]
-            Cache["Content Cache"]
-        end
-    end
-
-    subgraph Storage["Storage Layer"]
-        Columnar["Columnar Tables"]
-        Graph["Relationship Graph"]
-        GPU["GPU Buffers"]
-    end
-
-    Client --> API
-    API --> Processing
-    Processing --> Storage
-
-    Web --> TSApi
-    Web --> ServerSDK
-    Desktop --> RustApi
-    TSApi --> WasmApi
-    ServerSDK --> ServerSide
-
-    style Client fill:#6366f1,stroke:#312e81,color:#fff
-    style API fill:#2563eb,stroke:#1e3a8a,color:#fff
-    style ClientSide fill:#10b981,stroke:#064e3b,color:#fff
-    style ServerSide fill:#f59e0b,stroke:#7c2d12,color:#fff
-    style Storage fill:#a855f7,stroke:#581c87,color:#fff
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                            CLIENT LAYER                                 │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐      │
+│  │  Web Application │  │  Desktop (Tauri) │  │    CLI Tools     │      │
+│  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘      │
+└───────────┼─────────────────────┼─────────────────────┼─────────────────┘
+            │                     │                     │
+            ▼                     ▼                     ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                             API LAYER                                   │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐      │
+│  │ TypeScript Pkgs  │  │ Server Client SDK│  │  Native Rust API │      │
+│  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘      │
+│           │                     │                     │                 │
+│           ▼                     │                     │                 │
+│  ┌──────────────────┐           │                     │                 │
+│  │  WASM Bindings   │           │                     │                 │
+│  └────────┬─────────┘           │                     │                 │
+└───────────┼─────────────────────┼─────────────────────┼─────────────────┘
+            │                     │                     │
+            ▼                     ▼                     ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          PROCESSING LAYER                               │
+│                                                                         │
+│  ┌─────────────────────────┐      ┌─────────────────────────────────┐  │
+│  │   Client-Side (WASM)    │      │      Server-Side (Native)       │  │
+│  │                         │      │                                 │  │
+│  │  • Parser               │      │  • Parser (multi-threaded)      │  │
+│  │  • Geometry             │      │  • Geometry                     │  │
+│  │  • Renderer             │      │  • Parquet Encoder              │  │
+│  │                         │      │  • Content Cache                │  │
+│  └────────────┬────────────┘      └────────────────┬────────────────┘  │
+└───────────────┼────────────────────────────────────┼────────────────────┘
+                │                                    │
+                ▼                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           STORAGE LAYER                                 │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐      │
+│  │  Columnar Tables │  │ Relationship Graph│  │   GPU Buffers    │      │
+│  └──────────────────┘  └──────────────────┘  └──────────────────┘      │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Client vs Server Paradigm
