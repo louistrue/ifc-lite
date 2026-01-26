@@ -4,50 +4,59 @@ This document describes the high-level architecture of IFClite, including both c
 
 ## System Architecture
 
-IFClite supports two processing paradigms:
+IFClite supports two processing paradigms: **client-side** (WASM in browser) and **server-side** (native Rust).
 
+### Layer Overview
+
+```mermaid
+flowchart TB
+    subgraph Clients["Clients"]
+        direction LR
+        Web["Web App"]
+        Desktop["Desktop"]
+        CLI["CLI"]
+    end
+
+    subgraph APIs["APIs"]
+        direction LR
+        TS["TypeScript"]
+        WASM["WASM"]
+        Rust["Rust"]
+    end
+
+    subgraph Storage["Storage"]
+        direction LR
+        Tables["Columnar Tables"]
+        Graph["Relationship Graph"]
+        GPU["GPU Buffers"]
+    end
+
+    Clients --> APIs
+    APIs --> Storage
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                            CLIENT LAYER                                 │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐      │
-│  │  Web Application │  │  Desktop (Tauri) │  │    CLI Tools     │      │
-│  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘      │
-└───────────┼─────────────────────┼─────────────────────┼─────────────────┘
-            │                     │                     │
-            ▼                     ▼                     ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                             API LAYER                                   │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐      │
-│  │ TypeScript Pkgs  │  │ Server Client SDK│  │  Native Rust API │      │
-│  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘      │
-│           │                     │                     │                 │
-│           ▼                     │                     │                 │
-│  ┌──────────────────┐           │                     │                 │
-│  │  WASM Bindings   │           │                     │                 │
-│  └────────┬─────────┘           │                     │                 │
-└───────────┼─────────────────────┼─────────────────────┼─────────────────┘
-            │                     │                     │
-            ▼                     ▼                     ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          PROCESSING LAYER                               │
-│                                                                         │
-│  ┌─────────────────────────┐      ┌─────────────────────────────────┐  │
-│  │   Client-Side (WASM)    │      │      Server-Side (Native)       │  │
-│  │                         │      │                                 │  │
-│  │  • Parser               │      │  • Parser (multi-threaded)      │  │
-│  │  • Geometry             │      │  • Geometry                     │  │
-│  │  • Renderer             │      │  • Parquet Encoder              │  │
-│  │                         │      │  • Content Cache                │  │
-│  └────────────┬────────────┘      └────────────────┬────────────────┘  │
-└───────────────┼────────────────────────────────────┼────────────────────┘
-                │                                    │
-                ▼                                    ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           STORAGE LAYER                                 │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐      │
-│  │  Columnar Tables │  │ Relationship Graph│  │   GPU Buffers    │      │
-│  └──────────────────┘  └──────────────────┘  └──────────────────┘      │
-└─────────────────────────────────────────────────────────────────────────┘
+
+### Processing Paradigms
+
+The system offers two processing paths depending on your needs:
+
+```mermaid
+flowchart LR
+    subgraph ClientPath["Client-Side (WASM)"]
+        direction TB
+        C1["Parser"]
+        C2["Geometry"]
+        C3["Renderer"]
+        C1 --> C2 --> C3
+    end
+
+    subgraph ServerPath["Server-Side (Native)"]
+        direction TB
+        S1["Parser"]
+        S2["Geometry"]
+        S3["Parquet Encoder"]
+        S4["Content Cache"]
+        S1 --> S2 --> S3 --> S4
+    end
 ```
 
 ## Client vs Server Paradigm
