@@ -44,11 +44,17 @@ export type SetCachedFn = (
 ) => Promise<void>;
 
 /**
+ * Function signature for deleting cached data
+ */
+export type DeleteCachedFn = (key: string) => Promise<void>;
+
+/**
  * Cache service interface
  */
 export interface ICacheService {
   getCached: GetCachedFn;
   setCached: SetCachedFn;
+  deleteCached: DeleteCachedFn;
 }
 
 // ============================================================================
@@ -71,6 +77,7 @@ export async function getCacheService(): Promise<ICacheService> {
     cacheService = {
       getCached: mod.getCached,
       setCached: mod.setCached,
+      deleteCached: mod.deleteCached,
     };
   } else {
     // Web: Use IndexedDB
@@ -78,6 +85,7 @@ export async function getCacheService(): Promise<ICacheService> {
     cacheService = {
       getCached: mod.getCached,
       setCached: mod.setCached,
+      deleteCached: mod.deleteCached,
     };
   }
 
@@ -115,6 +123,15 @@ export async function setCached(
 ): Promise<void> {
   const service = await getCacheService();
   return service.setCached(key, data, fileName, fileSize, sourceBuffer);
+}
+
+/**
+ * Delete a cache entry by key
+ * @param key - Cache key to delete
+ */
+export async function deleteCached(key: string): Promise<void> {
+  const service = await getCacheService();
+  return service.deleteCached(key);
 }
 
 /**

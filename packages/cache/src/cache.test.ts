@@ -287,6 +287,52 @@ describe('BinaryCacheWriter and BinaryCacheReader', () => {
     expect(containers).toContain(3);
   });
 
+  it('should preserve ifcType in geometry through round-trip', async () => {
+    const meshes: MeshData[] = [
+      {
+        expressId: 4,
+        positions: new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 0]),
+        normals: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]),
+        indices: new Uint32Array([0, 1, 2]),
+        color: [0.8, 0.8, 0.8, 1.0],
+        ifcType: 'IfcWall',
+      },
+      {
+        expressId: 5,
+        positions: new Float32Array([0, 0, 0, 2, 0, 0, 2, 2, 0]),
+        normals: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]),
+        indices: new Uint32Array([0, 1, 2]),
+        color: [0.6, 0.6, 0.6, 1.0],
+        ifcType: 'IfcSlab',
+      },
+    ];
+
+    const coordinateInfo: CoordinateInfo = {
+      originShift: { x: 0, y: 0, z: 0 },
+      originalBounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 2, y: 2, z: 0 } },
+      shiftedBounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 2, y: 2, z: 0 } },
+      hasLargeCoordinates: false,
+    };
+
+    const geometry = {
+      meshes,
+      totalVertices: 6,
+      totalTriangles: 2,
+      coordinateInfo,
+    };
+
+    const writer = new BinaryCacheWriter();
+    const cacheBuffer = await writer.write(dataStore, geometry, sourceBuffer);
+
+    const reader = new BinaryCacheReader();
+    const result = await reader.read(cacheBuffer);
+
+    expect(result.geometry).toBeTruthy();
+    expect(result.geometry!.meshes.length).toBe(2);
+    expect(result.geometry!.meshes[0].ifcType).toBe('IfcWall');
+    expect(result.geometry!.meshes[1].ifcType).toBe('IfcSlab');
+  });
+
   it('should skip geometry when requested', async () => {
     const meshes: MeshData[] = [
       {

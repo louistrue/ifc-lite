@@ -21,13 +21,13 @@ import { buildSpatialIndex } from '@ifc-lite/spatial';
 import type { MeshData } from '@ifc-lite/geometry';
 
 import { useViewerStore } from '../store.js';
-import { getCached, setCached, type CacheResult } from '../services/cacheService.js';
+import { getCached, setCached, deleteCached, type CacheResult } from '../services/cacheService.js';
 import { rebuildSpatialHierarchy, rebuildOnDemandMaps } from '../utils/spatialHierarchy.js';
 import { calculateStoreyHeights } from '../utils/localParsingUtils.js';
 
 // Re-export types for convenience
 export type { CacheResult } from '../services/cacheService.js';
-export { getCached, setCached } from '../services/cacheService.js';
+export { getCached, setCached, deleteCached } from '../services/cacheService.js';
 
 // ============================================================================
 // Types
@@ -74,7 +74,8 @@ export function useIfcCache() {
    */
   const loadFromCache = useCallback(async (
     cacheResult: CacheResult,
-    fileName: string
+    fileName: string,
+    cacheKey?: string
   ): Promise<boolean> => {
     try {
       const cacheLoadStart = performance.now();
@@ -217,6 +218,15 @@ export function useIfcCache() {
       return true;
     } catch (err) {
       console.error('[useIfcCache] Failed to load from cache:', err);
+      // Clear corrupted cache entry if we have the key
+      if (cacheKey) {
+        try {
+          await deleteCached(cacheKey);
+          console.log('[useIfcCache] Cleared corrupted cache entry:', cacheKey);
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
       return false;
     }
   }, [setProgress, setIfcDataStore, setGeometryResult]);

@@ -5,19 +5,19 @@
     "IFC-Lite Contributors"
   ],
   "description": "WebAssembly bindings for IFC-Lite",
-  "version": "1.1.7",
+  "version": "1.3.0",
   "license": "MPL-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/louistrue/ifc-lite"
   },
   "files": [
-    "ifc-lite_bg.wasm",
-    "ifc-lite.js",
-    "ifc-lite.d.ts"
+    "ifc_lite_wasm_bg.wasm",
+    "ifc_lite_wasm.js",
+    "ifc_lite_wasm.d.ts"
   ],
-  "main": "ifc-lite.js",
-  "types": "ifc-lite.d.ts",
+  "main": "ifc_lite_wasm.js",
+  "types": "ifc_lite_wasm.d.ts",
   "sideEffects": [
     "./snippets/*"
   ],

@@ -32,15 +32,44 @@ export function writeGeometry(
   totalTriangles: number,
   coordinateInfo: CoordinateInfo
 ): void {
-  writer.writeUint32(meshes.length);
-  writer.writeUint32(totalVertices);
-  writer.writeUint32(totalTriangles);
+  // First pass: validate and filter meshes, recalculate totals
+  const validMeshes: MeshData[] = [];
+  let actualTotalVertices = 0;
+  let actualTotalTriangles = 0;
+
+  for (let i = 0; i < meshes.length; i++) {
+    const mesh = meshes[i];
+    const vertexCount = mesh.positions.length / 3;
+    const indexCount = mesh.indices.length;
+
+    // Sanity check: vertex/index counts should be reasonable
+    if (vertexCount > MAX_VERTEX_COUNT || indexCount > MAX_INDEX_COUNT) {
+      console.warn(`[writeGeometry] Skipping mesh ${i} (expressId=${mesh.expressId}): unreasonable counts`);
+      continue;
+    }
+
+    // Verify array integrity (check for detached buffers or size mismatches)
+    // Note: Some WASM-generated meshes may have mismatched array sizes - skip them
+    if (mesh.normals.length !== mesh.positions.length) {
+      console.warn(`[writeGeometry] Skipping mesh ${i} (expressId=${mesh.expressId}): normals/positions size mismatch (${mesh.normals.length} vs ${mesh.positions.length})`);
+      continue;
+    }
+
+    validMeshes.push(mesh);
+    actualTotalVertices += vertexCount;
+    actualTotalTriangles += indexCount / 3;
+  }
+
+  // Write header with actual counts
+  writer.writeUint32(validMeshes.length);
+  writer.writeUint32(actualTotalVertices);
+  writer.writeUint32(actualTotalTriangles);
 
   // Write coordinate info
   writeCoordinateInfo(writer, coordinateInfo);
 
-  // Write each mesh
-  for (const mesh of meshes) {
+  // Write each valid mesh
+  for (const mesh of validMeshes) {
     writer.writeUint32(mesh.expressId);
 
     const vertexCount = mesh.positions.length / 3;
@@ -63,6 +92,10 @@ export function writeGeometry(
     writer.writeTypedArray(mesh.positions);
     writer.writeTypedArray(mesh.normals);
     writer.writeTypedArray(mesh.indices);
+  }
+
+  if (validMeshes.length < meshes.length) {
+    console.warn(`[writeGeometry] Wrote ${validMeshes.length}/${meshes.length} meshes (${meshes.length - validMeshes.length} skipped due to data issues)`);
   }
 }
 
@@ -94,6 +127,11 @@ function writeAABB(writer: BufferWriter, aabb: AABB): void {
 /**
  * Read geometry data from buffer
  */
+// Maximum reasonable values for sanity checking
+const MAX_MESH_COUNT = 10_000_000; // 10M meshes max
+const MAX_VERTEX_COUNT = 100_000_000; // 100M vertices max per mesh
+const MAX_INDEX_COUNT = 300_000_000; // 300M indices max per mesh
+
 export function readGeometry(reader: BufferReader, version: number = 2): {
   meshes: MeshData[];
   totalVertices: number;
@@ -104,6 +142,11 @@ export function readGeometry(reader: BufferReader, version: number = 2): {
   const totalVertices = reader.readUint32();
   const totalTriangles = reader.readUint32();
 
+  // Sanity check mesh count
+  if (meshCount > MAX_MESH_COUNT) {
+    throw new Error(`Invalid cache: meshCount ${meshCount} exceeds maximum ${MAX_MESH_COUNT}. Cache may be corrupted or from incompatible version.`);
+  }
+
   const coordinateInfo = readCoordinateInfo(reader);
 
   const meshes: MeshData[] = [];
@@ -112,6 +155,14 @@ export function readGeometry(reader: BufferReader, version: number = 2): {
     const expressId = reader.readUint32();
     const vertexCount = reader.readUint32();
     const indexCount = reader.readUint32();
+
+    // Sanity check vertex/index counts
+    if (vertexCount > MAX_VERTEX_COUNT) {
+      throw new Error(`Invalid cache: vertexCount ${vertexCount} exceeds maximum ${MAX_VERTEX_COUNT} at mesh ${i}. Cache may be corrupted or from incompatible version.`);
+    }
+    if (indexCount > MAX_INDEX_COUNT) {
+      throw new Error(`Invalid cache: indexCount ${indexCount} exceeds maximum ${MAX_INDEX_COUNT} at mesh ${i}. Cache may be corrupted or from incompatible version.`);
+    }
 
     const color: [number, number, number, number] = [
       reader.readFloat32(),

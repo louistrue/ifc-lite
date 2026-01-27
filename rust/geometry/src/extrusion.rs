@@ -192,6 +192,7 @@ fn create_void_side_walls(
     mesh: &mut Mesh,
 ) {
     let base_index = mesh.vertex_count() as u32;
+    let mut quad_count = 0u32;
 
     for i in 0..contour.len() {
         let j = (i + 1) % contour.len();
@@ -200,9 +201,13 @@ fn create_void_side_walls(
         let p1 = &contour[j];
 
         // Calculate normal for this edge (pointing inward for voids)
+        // Use try_normalize to handle degenerate edges (duplicate consecutive points)
         let edge = Vector3::new(p1.x - p0.x, p1.y - p0.y, 0.0);
         // Reverse normal direction for holes (pointing inward)
-        let normal = Vector3::new(edge.y, -edge.x, 0.0).normalize();
+        let normal = match Vector3::new(edge.y, -edge.x, 0.0).try_normalize(1e-10) {
+            Some(n) => n,
+            None => continue, // Skip degenerate edge (duplicate points in contour)
+        };
 
         // Bottom vertices (at z_start)
         let v0_bottom = Point3::new(p0.x, p0.y, z_start);
@@ -213,7 +218,7 @@ fn create_void_side_walls(
         let v1_top = Point3::new(p1.x, p1.y, z_end);
 
         // Add 4 vertices for this quad
-        let idx = base_index + (i * 4) as u32;
+        let idx = base_index + (quad_count * 4);
         mesh.add_vertex(v0_bottom, normal);
         mesh.add_vertex(v1_bottom, normal);
         mesh.add_vertex(v1_top, normal);
@@ -222,6 +227,8 @@ fn create_void_side_walls(
         // Add 2 triangles for the quad (reversed winding for inward-facing)
         mesh.add_triangle(idx, idx + 2, idx + 1);
         mesh.add_triangle(idx, idx + 3, idx + 2);
+
+        quad_count += 1;
     }
 }
 
@@ -254,6 +261,7 @@ fn create_cap_mesh(triangulation: &Triangulation, z: f64, normal: Vector3<f64>, 
 #[inline]
 fn create_side_walls(boundary: &[nalgebra::Point2<f64>], depth: f64, mesh: &mut Mesh) {
     let base_index = mesh.vertex_count() as u32;
+    let mut quad_count = 0u32;
 
     for i in 0..boundary.len() {
         let j = (i + 1) % boundary.len();
@@ -262,8 +270,12 @@ fn create_side_walls(boundary: &[nalgebra::Point2<f64>], depth: f64, mesh: &mut 
         let p1 = &boundary[j];
 
         // Calculate normal for this edge
+        // Use try_normalize to handle degenerate edges (duplicate consecutive points)
         let edge = Vector3::new(p1.x - p0.x, p1.y - p0.y, 0.0);
-        let normal = Vector3::new(-edge.y, edge.x, 0.0).normalize();
+        let normal = match Vector3::new(-edge.y, edge.x, 0.0).try_normalize(1e-10) {
+            Some(n) => n,
+            None => continue, // Skip degenerate edge (duplicate points in profile)
+        };
 
         // Bottom vertices
         let v0_bottom = Point3::new(p0.x, p0.y, 0.0);
@@ -274,7 +286,7 @@ fn create_side_walls(boundary: &[nalgebra::Point2<f64>], depth: f64, mesh: &mut 
         let v1_top = Point3::new(p1.x, p1.y, depth);
 
         // Add 4 vertices for this quad
-        let idx = base_index + (i * 4) as u32;
+        let idx = base_index + (quad_count * 4);
         mesh.add_vertex(v0_bottom, normal);
         mesh.add_vertex(v1_bottom, normal);
         mesh.add_vertex(v1_top, normal);
@@ -283,6 +295,8 @@ fn create_side_walls(boundary: &[nalgebra::Point2<f64>], depth: f64, mesh: &mut 
         // Add 2 triangles for the quad
         mesh.add_triangle(idx, idx + 1, idx + 2);
         mesh.add_triangle(idx, idx + 2, idx + 3);
+
+        quad_count += 1;
     }
 }
 

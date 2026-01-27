@@ -662,7 +662,7 @@ export function useIfc() {
         setProgress({ phase: 'Checking cache', percent: 5 });
         const cacheResult = await getCached(cacheKey);
         if (cacheResult) {
-          const success = await loadFromCache(cacheResult, file.name);
+          const success = await loadFromCache(cacheResult, file.name, cacheKey);
           if (success) {
             const totalElapsedMs = performance.now() - totalStartTime;
             console.log(`[useIfc] TOTAL LOAD TIME (from cache): ${totalElapsedMs.toFixed(0)}ms (${(totalElapsedMs / 1000).toFixed(1)}s)`);

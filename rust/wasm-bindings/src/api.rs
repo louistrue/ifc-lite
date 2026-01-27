@@ -376,7 +376,7 @@ impl IfcAPI {
         combined_mesh.merge_all(&meshes);
 
         // Calculate normals if not present
-        if combined_mesh.normals.is_empty() && !combined_mesh.positions.is_empty() {
+        if combined_mesh.normals.len() != combined_mesh.positions.len() {
             calculate_normals(&mut combined_mesh);
         }
 
@@ -493,8 +493,9 @@ impl IfcAPI {
                     router.process_element_with_voids(&entity, &mut decoder, &void_index)
                 {
                     if !mesh.is_empty() {
-                        // Calculate normals if not present
-                        if mesh.normals.is_empty() {
+                        // Calculate normals if not present or incomplete
+                        // CSG operations may produce partial normals, so check for matching count
+                        if mesh.normals.len() != mesh.positions.len() {
                             calculate_normals(&mut mesh);
                         }
 
@@ -664,8 +665,9 @@ impl IfcAPI {
                     router.process_element_with_transform(&entity, &mut decoder)
                 {
                     if !mesh.is_empty() {
-                        // Calculate normals if not present
-                        if mesh.normals.is_empty() {
+                        // Calculate normals if not present or incomplete
+                        // CSG operations may produce partial normals, so check for matching count
+                        if mesh.normals.len() != mesh.positions.len() {
                             calculate_normals(&mut mesh);
                         }
 
@@ -1008,7 +1010,7 @@ impl IfcAPI {
                             router.process_element_with_transform(&entity, &mut decoder)
                         {
                             if !mesh.is_empty() {
-                                if mesh.normals.is_empty() {
+                                if mesh.normals.len() != mesh.positions.len() {
                                     calculate_normals(&mut mesh);
                                 }
 
@@ -1336,7 +1338,7 @@ impl IfcAPI {
                                     &void_index,
                                 ) {
                                     if !mesh.is_empty() {
-                                        if mesh.normals.is_empty() {
+                                        if mesh.normals.len() != mesh.positions.len() {
                                             calculate_normals(&mut mesh);
                                         }
 
@@ -1514,7 +1516,7 @@ impl IfcAPI {
                                 if let Ok(mut mesh) = router.process_element(&entity, &mut decoder)
                                 {
                                     if !mesh.is_empty() {
-                                        if mesh.normals.is_empty() {
+                                        if mesh.normals.len() != mesh.positions.len() {
                                             calculate_normals(&mut mesh);
                                         }
 
@@ -1943,8 +1945,9 @@ impl IfcAPI {
                     router.process_element_with_voids(&entity, &mut decoder, &void_index)
                 {
                     if !mesh.is_empty() {
-                        // Calculate normals if not present
-                        if mesh.normals.is_empty() {
+                        // Calculate normals if not present or incomplete
+                        // CSG operations may produce partial normals, so check for matching count
+                        if mesh.normals.len() != mesh.positions.len() {
                             calculate_normals(&mut mesh);
                         }
 
@@ -2148,7 +2151,7 @@ impl IfcAPI {
                                     &void_index,
                                 ) {
                                     if !mesh.is_empty() {
-                                        if mesh.normals.is_empty() {
+                                        if mesh.normals.len() != mesh.positions.len() {
                                             calculate_normals(&mut mesh);
                                         }
 
@@ -2209,7 +2212,7 @@ impl IfcAPI {
                             router.process_element_with_voids(&entity, &mut decoder, &void_index)
                         {
                             if !mesh.is_empty() {
-                                if mesh.normals.is_empty() {
+                                if mesh.normals.len() != mesh.positions.len() {
                                     calculate_normals(&mut mesh);
                                 }
 
