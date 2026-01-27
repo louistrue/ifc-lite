@@ -218,6 +218,10 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     touches: [] as Touch[],
     lastDistance: 0,
     lastCenter: { x: 0, y: 0 },
+    // Tap detection for mobile selection
+    tapStartTime: 0,
+    tapStartPos: { x: 0, y: 0 },
+    didMove: false,
   });
 
   // Double-click detection
@@ -1228,6 +1232,13 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
             x: touchState.touches[0].clientX,
             y: touchState.touches[0].clientY,
           };
+          // Record tap start for tap-to-select detection
+          touchState.tapStartTime = Date.now();
+          touchState.tapStartPos = {
+            x: touchState.touches[0].clientX,
+            y: touchState.touches[0].clientY,
+          };
+          touchState.didMove = false;
 
           // Set orbit pivot to what user touches (same as mouse click behavior)
           const rect = canvas.getBoundingClientRect();
@@ -1264,6 +1275,14 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         if (touchState.touches.length === 1) {
           const dx = touchState.touches[0].clientX - touchState.lastCenter.x;
           const dy = touchState.touches[0].clientY - touchState.lastCenter.y;
+
+          // Mark as moved if significant movement (prevents tap-select during drag)
+          const totalDx = touchState.touches[0].clientX - touchState.tapStartPos.x;
+          const totalDy = touchState.touches[0].clientY - touchState.tapStartPos.y;
+          if (Math.abs(totalDx) > 10 || Math.abs(totalDy) > 10) {
+            touchState.didMove = true;
+          }
+
           camera.orbit(dx, dy, false);
           touchState.lastCenter = {
             x: touchState.touches[0].clientX,
@@ -1313,12 +1332,40 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         }
       });
 
-      canvas.addEventListener('touchend', (e) => {
+      canvas.addEventListener('touchend', async (e) => {
         e.preventDefault();
+        const previousTouchCount = touchState.touches.length;
         touchState.touches = Array.from(e.touches);
+
         if (touchState.touches.length === 0) {
           camera.stopInertia();
           camera.setOrbitPivot(null);
+
+          // Tap-to-select: detect quick tap without significant movement
+          const tapDuration = Date.now() - touchState.tapStartTime;
+          const tool = activeToolRef.current;
+
+          // Only select if:
+          // - Was a single-finger touch
+          // - Tap was quick (< 300ms)
+          // - Didn't move significantly
+          // - Tool supports selection (not orbit/pan/walk/measure)
+          if (
+            previousTouchCount === 1 &&
+            tapDuration < 300 &&
+            !touchState.didMove &&
+            tool !== 'orbit' &&
+            tool !== 'pan' &&
+            tool !== 'walk' &&
+            tool !== 'measure'
+          ) {
+            const rect = canvas.getBoundingClientRect();
+            const x = touchState.tapStartPos.x - rect.left;
+            const y = touchState.tapStartPos.y - rect.top;
+
+            const pickResult = await renderer.pick(x, y, getPickOptions());
+            handlePickForSelection(pickResult);
+          }
         }
       });
 
