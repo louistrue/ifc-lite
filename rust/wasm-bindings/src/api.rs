@@ -1169,6 +1169,7 @@ impl IfcAPI {
     ///
     /// Options:
     /// - `batchSize`: Number of meshes per batch (default: 25)
+    /// - `cameraPosition`: [x, y, z] - Camera position for front-to-back streaming
     /// - `onBatch(meshes, progress)`: Called for each batch of meshes
     /// - `onRtcOffset({x, y, z, hasRtc})`: Called early with RTC offset for camera/world setup
     /// - `onColorUpdate(Map<id, color>)`: Called with style updates after initial render
@@ -1229,6 +1230,44 @@ impl IfcAPI {
                 let on_rtc_offset = js_sys::Reflect::get(&options, &"onRtcOffset".into())
                     .ok()
                     .and_then(|v| v.dyn_into::<Function>().ok());
+
+                // Parse camera position for front-to-back streaming
+                let camera_position: Option<(f64, f64, f64)> = js_sys::Reflect::get(&options, &"cameraPosition".into())
+                    .ok()
+                    .and_then(|v| {
+                        let arr = js_sys::Array::from(&v);
+                        if arr.length() >= 3 {
+                            Some((
+                                arr.get(0).as_f64().unwrap_or(0.0),
+                                arr.get(1).as_f64().unwrap_or(0.0),
+                                arr.get(2).as_f64().unwrap_or(0.0),
+                            ))
+                        } else {
+                            None
+                        }
+                    });
+
+                // Parse camera direction for back-side culling during streaming
+                let camera_direction: Option<(f64, f64, f64)> = js_sys::Reflect::get(&options, &"cameraDirection".into())
+                    .ok()
+                    .and_then(|v| {
+                        let arr = js_sys::Array::from(&v);
+                        if arr.length() >= 3 {
+                            Some((
+                                arr.get(0).as_f64().unwrap_or(0.0),
+                                arr.get(1).as_f64().unwrap_or(0.0),
+                                arr.get(2).as_f64().unwrap_or(0.0),
+                            ))
+                        } else {
+                            None
+                        }
+                    });
+
+                // Option to skip back-side elements during initial streaming
+                let skip_back_side: bool = js_sys::Reflect::get(&options, &"skipBackSide".into())
+                    .ok()
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
 
                 // Build entity index for lookups
                 let entity_index = ifc_lite_core::build_entity_index(&content);
@@ -1295,7 +1334,8 @@ impl IfcAPI {
 
                 // PROCESS PASS: Process elements with void subtraction
                 let mut scanner = EntityScanner::new(&content);
-                let mut deferred_complex: Vec<(u32, usize, usize, ifc_lite_core::IfcType)> =
+                // Deferred geometry: (id, start, end, ifc_type, optional_position_for_sorting)
+                let mut deferred_complex: Vec<(u32, usize, usize, ifc_lite_core::IfcType, Option<(f64, f64, f64)>)> =
                     Vec::new();
 
                 // Process elements - simple geometry immediately, defer complex
@@ -1306,8 +1346,8 @@ impl IfcAPI {
 
                     let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
 
-                    // Simple geometry: process immediately
-                    if matches!(
+                    // Check if this is simple geometry (walls, slabs, etc.)
+                    let is_simple = matches!(
                         type_name,
                         "IFCWALL"
                             | "IFCWALLSTANDARDCASE"
@@ -1323,7 +1363,41 @@ impl IfcAPI {
                             | "IFCSTAIRFLIGHT"
                             | "IFCRAMP"
                             | "IFCRAMPFLIGHT"
-                    ) {
+                    );
+
+                    // For ALL geometry (simple and complex), check if on back side when skipBackSide is enabled
+                    let mut is_back_side = false;
+                    let mut element_position: Option<(f64, f64, f64)> = None;
+
+                    if skip_back_side {
+                        if let Some((dir_x, dir_y, dir_z)) = camera_direction {
+                            // Extract element position for visibility check
+                            if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                                if let Ok(transform) = router.get_placement_transform_from_element(&entity, &mut decoder) {
+                                    let scale = router.unit_scale();
+                                    let tx = transform[(0, 3)] * scale;
+                                    let ty = transform[(1, 3)] * scale;
+                                    let tz = transform[(2, 3)] * scale;
+                                    let pos = if needs_shift {
+                                        (tx - rtc_offset.0, ty - rtc_offset.1, tz - rtc_offset.2)
+                                    } else {
+                                        (tx, ty, tz)
+                                    };
+                                    element_position = Some(pos);
+
+                                    // Check if on back side (negative dot product with camera direction)
+                                    let dot = pos.0 * dir_x + pos.1 * dir_y + pos.2 * dir_z;
+                                    is_back_side = dot < 0.0;
+                                }
+                            }
+                        }
+                    }
+
+                    // If on back side, defer this element (even if it's simple geometry)
+                    if is_back_side {
+                        deferred_complex.push((id, start, end, ifc_type, element_position));
+                    } else if is_simple {
+                        // Front-side simple geometry: process immediately
                         if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                             // Check if entity actually has representation
                             let has_representation =
@@ -1379,10 +1453,42 @@ impl IfcAPI {
                             gloo_timers::future::TimeoutFuture::new(0).await;
                         }
                     } else {
-                        // Defer complex geometry
-                        deferred_complex.push((id, start, end, ifc_type));
+                        // Defer complex geometry - extract position for visibility-based streaming
+                        // IMPORTANT: Use PRE-RTC positions for visibility test!
+                        // After RTC offset, all positions are centered around (0,0,0), which breaks
+                        // the half-space visibility test. We need original IFC coordinates.
+                        let element_position = if camera_direction.is_some() || camera_position.is_some() {
+                            // Try to extract element position for visibility check
+                            if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                                if let Ok(transform) = router.get_placement_transform_from_element(&entity, &mut decoder) {
+                                    // Apply unit scaling to get world coordinates
+                                    let scale = router.unit_scale();
+                                    let tx = transform[(0, 3)] * scale;
+                                    let ty = transform[(1, 3)] * scale;
+                                    let tz = transform[(2, 3)] * scale;
+                                    // DO NOT apply RTC offset - use original IFC coordinates
+                                    // for visibility test (they have meaningful spatial distribution)
+                                    Some((tx, ty, tz))
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+                        deferred_complex.push((id, start, end, ifc_type, element_position));
                     }
                 }
+
+                // Log simple geometry stats - count actual geometry elements
+                let actual_geometry_count = deferred_complex.iter().filter(|e| e.4.is_some()).count();
+                let no_position_count = deferred_complex.iter().filter(|e| e.4.is_none()).count();
+                web_sys::console::log_1(&format!(
+                    "[WASM] Simple geometry: {} processed, {} deferred ({} with position, {} without)",
+                    processed, deferred_complex.len(), actual_geometry_count, no_position_count
+                ).into());
 
                 // Flush remaining simple elements
                 if !batch_meshes.is_empty() {
@@ -1434,9 +1540,90 @@ impl IfcAPI {
                     router.preprocess_faceted_breps(&faceted_brep_ids, &mut decoder);
                 }
 
-                // Process deferred complex geometry with proper styles and void subtraction
+                // VISIBILITY-AWARE STREAMING: Sort elements by dot product with camera direction
+                //
+                // Elements with HIGHER dot product are more "toward" the camera, so they should
+                // be loaded FIRST. This ensures front-facing geometry appears before back-facing.
+                //
+                // NOTE: We no longer SKIP any elements - we load ALL of them, just in a better order.
+                // This ensures we never lose facade elements.
+                if camera_direction.is_some() {
+                    let (dir_x, dir_y, dir_z) = camera_direction.unwrap();
 
-                for (id, start, end, ifc_type) in deferred_complex {
+                    // Compute bounding box for logging
+                    let mut min_x = f64::MAX;
+                    let mut min_y = f64::MAX;
+                    let mut min_z = f64::MAX;
+                    let mut max_x = f64::MIN;
+                    let mut max_y = f64::MIN;
+                    let mut max_z = f64::MIN;
+
+                    for elem in &deferred_complex {
+                        if let Some((x, y, z)) = elem.4 {
+                            min_x = min_x.min(x);
+                            min_y = min_y.min(y);
+                            min_z = min_z.min(z);
+                            max_x = max_x.max(x);
+                            max_y = max_y.max(y);
+                            max_z = max_z.max(z);
+                        }
+                    }
+
+                    // Sort ALL elements by dot product (highest first = most toward camera)
+                    deferred_complex.sort_by(|a, b| {
+                        let dot_a = match a.4 {
+                            Some((x, y, z)) => x * dir_x + y * dir_y + z * dir_z,
+                            None => f64::MIN, // Elements without position go last
+                        };
+                        let dot_b = match b.4 {
+                            Some((x, y, z)) => x * dir_x + y * dir_y + z * dir_z,
+                            None => f64::MIN,
+                        };
+                        // Sort descending: highest dot product first (most toward camera)
+                        dot_b.partial_cmp(&dot_a).unwrap_or(std::cmp::Ordering::Equal)
+                    });
+
+                    // Log statistics
+                    let center_x = (min_x + max_x) / 2.0;
+                    let center_y = (min_y + max_y) / 2.0;
+                    let center_z = (min_z + max_z) / 2.0;
+
+                    // Get dot range from sorted array
+                    let first_dot = deferred_complex.first()
+                        .and_then(|e| e.4.map(|(x,y,z)| x * dir_x + y * dir_y + z * dir_z))
+                        .unwrap_or(0.0);
+                    let last_dot = deferred_complex.last()
+                        .and_then(|e| e.4.map(|(x,y,z)| x * dir_x + y * dir_y + z * dir_z))
+                        .unwrap_or(0.0);
+
+                    web_sys::console::log_1(&format!(
+                        "[WASM] Model bbox: ({:.1},{:.1},{:.1}) to ({:.1},{:.1},{:.1})",
+                        min_x, min_y, min_z, max_x, max_y, max_z
+                    ).into());
+                    web_sys::console::log_1(&format!(
+                        "[WASM] Bbox center: ({:.1},{:.1},{:.1}), size: ({:.1},{:.1},{:.1})",
+                        center_x, center_y, center_z, max_x - min_x, max_y - min_y, max_z - min_z
+                    ).into());
+                    web_sys::console::log_1(&format!(
+                        "[WASM] Sorted {} elements by dot product (front-to-back)",
+                        deferred_complex.len()
+                    ).into());
+                    web_sys::console::log_1(&format!(
+                        "[WASM] Dot product range: {:.1} (front) to {:.1} (back)",
+                        first_dot, last_dot
+                    ).into());
+                    web_sys::console::log_1(&format!(
+                        "[WASM] Camera dir: ({:.2},{:.2},{:.2})",
+                        dir_x, dir_y, dir_z
+                    ).into());
+                }
+
+                // NOTE: Elements are already sorted by dot product (front-to-back) above.
+                // We don't re-sort by distance because dot product is better for initial visibility.
+
+                // Process deferred complex geometry (now sorted front-to-back)
+
+                for (id, start, end, ifc_type, _pos) in deferred_complex {
                     if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                         let has_openings = void_index.contains_key(&id);
                         let ifc_type_name = ifc_type.name().to_string();
@@ -1560,6 +1747,25 @@ impl IfcAPI {
                     }
                 }
 
+                // Flush front-side geometry before processing back-side
+                if !batch_meshes.is_empty() {
+                    if let Some(ref callback) = on_batch {
+                        let js_meshes = js_sys::Array::new();
+                        for mesh in batch_meshes.drain(..) {
+                            js_meshes.push(&mesh.into());
+                        }
+
+                        let progress = js_sys::Object::new();
+                        set_js_prop(&progress, "percent", &90u32.into());
+                        set_js_prop(&progress, "phase", &"front_complete".into());
+
+                        let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
+                        total_meshes += js_meshes.length() as usize;
+                    }
+                }
+
+                // All elements are now processed in a single pass (sorted front-to-back)
+
                 // Final flush
                 if !batch_meshes.is_empty() {
                     if let Some(ref callback) = on_batch {
@@ -1583,6 +1789,7 @@ impl IfcAPI {
                     set_js_prop(&stats, "totalMeshes", &(total_meshes as f64).into());
                     set_js_prop(&stats, "totalVertices", &(total_vertices as f64).into());
                     set_js_prop(&stats, "totalTriangles", &(total_triangles as f64).into());
+                    set_js_prop(&stats, "skippedBackside", &(0.0f64).into()); // No longer skipping - just sorting
                     // Include RTC offset info in completion stats
                     let rtc_info = js_sys::Object::new();
                     set_js_prop(&rtc_info, "x", &rtc_offset.0.into());
@@ -1981,6 +2188,13 @@ impl IfcAPI {
     /// Yields batches of GPU-ready geometry for progressive rendering with zero-copy upload.
     /// Uses fast-first-frame streaming: simple geometry (walls, slabs) first.
     ///
+    /// Options:
+    /// - `batchSize`: Number of meshes per batch (default: 25)
+    /// - `cameraPosition`: [x, y, z] - Camera position for front-to-back streaming
+    /// - `cameraDirection`: [x, y, z] - Camera direction for visibility-aware streaming
+    /// - `onBatch`: Callback for each batch
+    /// - `onComplete`: Callback when done
+    ///
     /// Example:
     /// ```javascript
     /// const api = new IfcAPI();
@@ -1988,6 +2202,7 @@ impl IfcAPI {
     ///
     /// await api.parseToGpuGeometryAsync(ifcData, {
     ///   batchSize: 25,
+    ///   cameraPosition: [0, 10, 50], // Stream front-facing geometry first
     ///   onBatch: (gpuGeom, progress) => {
     ///     // Create zero-copy views
     ///     const vertexView = new Float32Array(
@@ -2031,6 +2246,22 @@ impl IfcAPI {
                 let on_complete = js_sys::Reflect::get(&options, &"onComplete".into())
                     .ok()
                     .and_then(|v| v.dyn_into::<Function>().ok());
+
+                // Parse camera position for front-to-back streaming
+                let camera_position: Option<(f64, f64, f64)> = js_sys::Reflect::get(&options, &"cameraPosition".into())
+                    .ok()
+                    .and_then(|v| {
+                        let arr = js_sys::Array::from(&v);
+                        if arr.length() >= 3 {
+                            Some((
+                                arr.get(0).as_f64().unwrap_or(0.0),
+                                arr.get(1).as_f64().unwrap_or(0.0),
+                                arr.get(2).as_f64().unwrap_or(0.0),
+                            ))
+                        } else {
+                            None
+                        }
+                    });
 
                 // Build entity index
                 let entity_index = build_entity_index(&content);
@@ -2088,7 +2319,8 @@ impl IfcAPI {
                 let mut total_meshes = 0;
                 let mut total_vertices = 0;
                 let mut total_triangles = 0;
-                let mut deferred_complex: Vec<(u32, usize, usize, ifc_lite_core::IfcType)> =
+                // Deferred geometry: (id, start, end, ifc_type, optional_position_for_sorting)
+                let mut deferred_complex: Vec<(u32, usize, usize, ifc_lite_core::IfcType, Option<(f64, f64, f64)>)> =
                     Vec::new();
 
                 // Helper to flush current batch (captures RTC offset for each batch)
@@ -2188,8 +2420,32 @@ impl IfcAPI {
                             gloo_timers::future::TimeoutFuture::new(0).await;
                         }
                     } else {
-                        // Defer complex geometry
-                        deferred_complex.push((id, start, end, ifc_type));
+                        // Defer complex geometry - extract position if camera-relative streaming enabled
+                        let element_position = if camera_position.is_some() {
+                            // Try to extract element position for sorting
+                            if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                                if let Ok(transform) = router.get_placement_transform_from_element(&entity, &mut decoder) {
+                                    // Apply unit scaling to get world coordinates
+                                    let scale = router.unit_scale();
+                                    let tx = transform[(0, 3)] * scale;
+                                    let ty = transform[(1, 3)] * scale;
+                                    let tz = transform[(2, 3)] * scale;
+                                    // Apply RTC offset if needed
+                                    if needs_shift {
+                                        Some((tx - rtc_offset.0, ty - rtc_offset.1, tz - rtc_offset.2))
+                                    } else {
+                                        Some((tx, ty, tz))
+                                    }
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+                        deferred_complex.push((id, start, end, ifc_type, element_position));
                     }
                 }
 
@@ -2201,9 +2457,34 @@ impl IfcAPI {
                     gloo_timers::future::TimeoutFuture::new(0).await;
                 }
 
+                // Sort deferred geometry by distance to camera (front-to-back)
+                if let Some((cam_x, cam_y, cam_z)) = camera_position {
+                    deferred_complex.sort_by(|a, b| {
+                        let dist_a = match a.4 {
+                            Some((x, y, z)) => {
+                                let dx = x - cam_x;
+                                let dy = y - cam_y;
+                                let dz = z - cam_z;
+                                dx * dx + dy * dy + dz * dz
+                            }
+                            None => f64::MAX, // Elements without position go last
+                        };
+                        let dist_b = match b.4 {
+                            Some((x, y, z)) => {
+                                let dx = x - cam_x;
+                                let dy = y - cam_y;
+                                let dz = z - cam_z;
+                                dx * dx + dy * dy + dz * dz
+                            }
+                            None => f64::MAX,
+                        };
+                        dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
+                    });
+                }
+
                 // Process deferred complex geometry
                 let total_elements = processed + deferred_complex.len();
-                for (id, start, end, ifc_type) in deferred_complex {
+                for (id, start, end, ifc_type, _pos) in deferred_complex {
                     if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                         if let Ok(mut mesh) =
                             router.process_element_with_voids(&entity, &mut decoder, &void_index)

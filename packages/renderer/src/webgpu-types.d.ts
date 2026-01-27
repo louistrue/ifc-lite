@@ -65,12 +65,14 @@ interface GPUDevice extends EventTarget {
   readonly queue: GPUQueue;
   createShaderModule(descriptor: GPUShaderModuleDescriptor): GPUShaderModule;
   createRenderPipeline(descriptor: GPURenderPipelineDescriptor): GPURenderPipeline;
+  createComputePipeline(descriptor: GPUComputePipelineDescriptor): GPUComputePipeline;
   createPipelineLayout(descriptor: GPUPipelineLayoutDescriptor): GPUPipelineLayout;
   createCommandEncoder(descriptor?: GPUCommandEncoderDescriptor): GPUCommandEncoder;
   createBuffer(descriptor: GPUBufferDescriptor): GPUBuffer;
   createTexture(descriptor: GPUTextureDescriptor): GPUTexture;
   createBindGroup(descriptor: GPUBindGroupDescriptor): GPUBindGroup;
   createBindGroupLayout(descriptor: GPUBindGroupLayoutDescriptor): GPUBindGroupLayout;
+  createSampler(descriptor?: GPUSamplerDescriptor): GPUSampler;
 }
 
 interface GPUTextureDescriptor {
@@ -120,8 +122,45 @@ interface GPURenderPipeline {
 
 interface GPUCommandEncoder {
   beginRenderPass(descriptor: GPURenderPassDescriptor): GPURenderPassEncoder;
+  beginComputePass(descriptor?: GPUComputePassDescriptor): GPUComputePassEncoder;
   finish(): GPUCommandBuffer;
   copyTextureToBuffer(source: GPUImageCopyTexture, destination: GPUImageCopyBuffer, copySize: GPUExtent3D): void;
+  copyBufferToBuffer(source: GPUBuffer, sourceOffset: number, destination: GPUBuffer, destinationOffset: number, size: number): void;
+}
+
+interface GPUComputePassDescriptor {
+  label?: string;
+  timestampWrites?: GPUComputePassTimestampWrites;
+}
+
+interface GPUComputePassTimestampWrites {
+  querySet: GPUQuerySet;
+  beginningOfPassWriteIndex?: number;
+  endOfPassWriteIndex?: number;
+}
+
+interface GPUComputePassEncoder {
+  setPipeline(pipeline: GPUComputePipeline): void;
+  setBindGroup(index: number, bindGroup: GPUBindGroup | null, dynamicOffsets?: number[]): void;
+  dispatchWorkgroups(workgroupCountX: number, workgroupCountY?: number, workgroupCountZ?: number): void;
+  end(): void;
+}
+
+interface GPUComputePipeline {
+  readonly label?: string;
+  getBindGroupLayout(index: number): GPUBindGroupLayout;
+}
+
+interface GPUComputePipelineDescriptor {
+  layout?: GPUPipelineLayout | 'auto';
+  compute: GPUProgrammableStage;
+  label?: string;
+}
+
+interface GPUProgrammableStage {
+  module: GPUShaderModule;
+  entryPoint: string;
+  constants?: Record<string, number>;
 }
 
 interface GPURenderPassEncoder {
@@ -297,6 +336,24 @@ interface GPUBufferBinding {
 interface GPUSampler {
   readonly label?: string;
 }
+
+interface GPUSamplerDescriptor {
+  addressModeU?: GPUAddressMode;
+  addressModeV?: GPUAddressMode;
+  addressModeW?: GPUAddressMode;
+  magFilter?: GPUFilterMode;
+  minFilter?: GPUFilterMode;
+  mipmapFilter?: GPUMipmapFilterMode;
+  lodMinClamp?: number;
+  lodMaxClamp?: number;
+  compare?: GPUCompareFunction;
+  maxAnisotropy?: number;
+  label?: string;
+}
+
+type GPUAddressMode = 'clamp-to-edge' | 'repeat' | 'mirror-repeat';
+type GPUFilterMode = 'nearest' | 'linear';
+type GPUMipmapFilterMode = 'nearest' | 'linear';
 
 interface GPUBindGroupLayoutDescriptor {
   entries: GPUBindGroupLayoutEntry[];

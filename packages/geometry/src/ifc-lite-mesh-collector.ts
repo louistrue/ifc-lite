@@ -179,8 +179,16 @@ export class IfcLiteMeshCollector {
    * Collect meshes incrementally, yielding batches for progressive rendering
    * Uses fast-first-frame streaming: simple geometry (walls, slabs) first
    * @param batchSize Number of meshes per batch (default: 25 for faster first frame)
+   * @param cameraPosition Optional camera position for front-to-back streaming
+   * @param cameraDirection Optional camera direction for back-side culling during streaming
+   * @param skipBackSide If true, skip elements behind the camera for faster initial load
    */
-  async *collectMeshesStreaming(batchSize: number = 25): AsyncGenerator<MeshData[] | StreamingColorUpdateEvent> {
+  async *collectMeshesStreaming(
+    batchSize: number = 25,
+    cameraPosition?: [number, number, number],
+    cameraDirection?: [number, number, number],
+    skipBackSide: boolean = false
+  ): AsyncGenerator<MeshData[] | StreamingColorUpdateEvent> {
     // Queue to hold batches produced by async callback
     const batchQueue: (MeshData[] | StreamingColorUpdateEvent)[] = [];
     let resolveWaiting: (() => void) | null = null;
@@ -195,6 +203,9 @@ export class IfcLiteMeshCollector {
     // NOTE: WASM now automatically defers style building for faster first frame
     const processingPromise = this.ifcApi.parseMeshesAsync(this.content, {
       batchSize,
+      cameraPosition,
+      cameraDirection,
+      skipBackSide,
       onColorUpdate: (updates: Map<number, [number, number, number, number]>) => {
         // Store color updates
         for (const [expressId, color] of updates) {

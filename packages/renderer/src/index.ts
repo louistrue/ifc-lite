@@ -16,6 +16,10 @@ export { SectionPlaneRenderer } from './section-plane.js';
 export { Raycaster } from './raycaster.js';
 export { SnapDetector, SnapType } from './snap-detector.js';
 export { BVH } from './bvh.js';
+export { OcclusionCuller } from './occlusion-culler.js';
+export type { OcclusionCullerOptions, ElementBounds } from './occlusion-culler.js';
+export { HiZOcclusionCuller } from './hiz-occlusion-culler.js';
+export type { OcclusionAABB, OcclusionResult } from './hiz-occlusion-culler.js';
 export { FederationRegistry, federationRegistry } from './federation-registry.js';
 export type { ModelRange, GlobalIdLookup } from './federation-registry.js';
 export * from './types.js';
@@ -49,6 +53,7 @@ import { MathUtils } from './math.js';
 import { Raycaster, type Intersection, type Ray } from './raycaster.js';
 import { SnapDetector, type SnapTarget, type SnapOptions, type EdgeLockInput, type MagneticSnapResult } from './snap-detector.js';
 import { BVH } from './bvh.js';
+import { HiZOcclusionCuller } from './hiz-occlusion-culler.js';
 
 /**
  * Main renderer class
@@ -66,6 +71,9 @@ export class Renderer {
     private raycaster: Raycaster;
     private snapDetector: SnapDetector;
     private bvh: BVH;
+    private hiZCuller: HiZOcclusionCuller | null = null;
+    private hiZEnabled: boolean = false;
+    private lastHiZVisibleIds: Set<number> | null = null;
 
     // BVH cache
     private bvhCache: {
@@ -557,6 +565,9 @@ export class Renderer {
     render(options: RenderOptions = {}): void {
         if (!this.device.isInitialized() || !this.pipeline) return;
 
+        // Start timing for visibility stats
+        const measureStart = options.measureVisibility ? performance.now() : 0;
+
         // Validate canvas dimensions
         const rect = this.canvas.getBoundingClientRect();
         const width = Math.max(1, Math.floor(rect.width));
@@ -826,28 +837,90 @@ export class Renderer {
             // Apply visibility filtering at the BATCH level instead of creating individual meshes
             // This keeps draw calls at ~50-200 instead of 60K+
             if (allBatchedMeshes.length > 0) {
+                // BVH-based frustum culling + occlusion culling
+                // Frustum: O(log n) queries via BVH
+                // Occlusion: back-side culling based on camera direction OR Hi-Z GPU culling
+                let culledVisibleIds: Set<number> | null = null;
+                if (options.enableFrustumCulling && this.scene.hasBVH()) {
+                    const frustum = FrustumUtils.fromViewProjMatrix(viewProj);
+
+                    // If Hi-Z occlusion culling is enabled and available, use cached results
+                    if (options.enableHiZOcclusion && this.lastHiZVisibleIds) {
+                        // Combine frustum culling with Hi-Z results
+                        const frustumVisible = this.scene.queryVisibleElements(frustum);
+                        culledVisibleIds = new Set<number>();
+                        for (const id of frustumVisible) {
+                            if (this.lastHiZVisibleIds.has(id)) {
+                                culledVisibleIds.add(id);
+                            }
+                        }
+                    }
+                    // If CPU occlusion culling is enabled, combine with frustum culling
+                    else if (options.enableOcclusionCulling &&
+                        options.cameraDirection &&
+                        options.cameraPosition &&
+                        this.scene.hasOcclusionCuller()) {
+                        culledVisibleIds = this.scene.queryVisibleElementsWithOcclusion(
+                            frustum,
+                            options.cameraDirection,
+                            options.cameraPosition,
+                        );
+                    } else {
+                        culledVisibleIds = this.scene.queryVisibleElements(frustum);
+                    }
+                }
+
+                // For backwards compatibility, use the combined results
+                const frustumVisibleIds = culledVisibleIds;
+
                 // Pre-compute visibility for each batch (only when filtering is active)
                 // A batch is visible if ANY of its elements are visible
                 // A batch is fully visible if ALL of its elements are visible
-                const batchVisibility = new Map<string, { visible: boolean; fullyVisible: boolean }>();
+                const batchVisibility = new Map<string, { visible: boolean; fullyVisible: boolean; visibleIds?: Set<number> }>();
 
-                if (hasVisibilityFiltering) {
+                // Include frustum culling in visibility filtering check
+                const hasAnyFiltering = hasVisibilityFiltering || frustumVisibleIds !== null;
+
+                // OPTIMIZATION: Only iterate elements when necessary
+                // If only frustum culling (no hidden/isolated), we just need to know if ANY element is visible
+                // We don't need sub-batches for frustum culling - GPU clips automatically
+                const frustumOnlyFiltering = frustumVisibleIds !== null && !hasVisibilityFiltering;
+
+                if (hasAnyFiltering) {
                     for (const batch of allBatchedMeshes) {
-                        let visibleCount = 0;
                         const total = batch.expressIds.length;
 
-                        for (const expressId of batch.expressIds) {
-                            const isHidden = options.hiddenIds?.has(expressId) ?? false;
-                            const isIsolated = !hasIsolatedFilter || options.isolatedIds!.has(expressId);
-                            if (!isHidden && isIsolated) {
-                                visibleCount++;
+                        if (frustumOnlyFiltering) {
+                            // Fast path: only frustum filtering - just check if any element is visible
+                            // Don't collect visibleIds since we won't create sub-batches
+                            let hasAnyVisible = false;
+                            for (const expressId of batch.expressIds) {
+                                if (frustumVisibleIds!.has(expressId)) {
+                                    hasAnyVisible = true;
+                                    break; // Early exit - we only need to know if ANY is visible
+                                }
                             }
+                            batchVisibility.set(batch.colorKey, {
+                                visible: hasAnyVisible,
+                                fullyVisible: true, // Treat as fully visible to skip sub-batch creation
+                            });
+                        } else {
+                            // Slow path: multiple filters - need to track which elements are visible
+                            const visibleIds = new Set<number>();
+                            for (const expressId of batch.expressIds) {
+                                const isHidden = options.hiddenIds?.has(expressId) ?? false;
+                                const isIsolated = !hasIsolatedFilter || options.isolatedIds!.has(expressId);
+                                const isInFrustum = frustumVisibleIds === null || frustumVisibleIds.has(expressId);
+                                if (!isHidden && isIsolated && isInFrustum) {
+                                    visibleIds.add(expressId);
+                                }
+                            }
+                            batchVisibility.set(batch.colorKey, {
+                                visible: visibleIds.size > 0,
+                                fullyVisible: visibleIds.size === total,
+                                visibleIds: visibleIds.size < total ? visibleIds : undefined,
+                            });
                         }
-
-                        batchVisibility.set(batch.colorKey, {
-                            visible: visibleCount > 0,
-                            fullyVisible: visibleCount === total,
-                        });
                     }
                 }
 
@@ -866,29 +939,22 @@ export class Renderer {
                 }> = [];
 
                 for (const batch of allBatchedMeshes) {
-                    // Check visibility
-                    if (hasVisibilityFiltering) {
+                    // Check visibility (includes hidden/isolated filters AND frustum culling)
+                    if (hasAnyFiltering) {
                         const vis = batchVisibility.get(batch.colorKey);
                         if (!vis || !vis.visible) continue; // Skip completely hidden batches
 
                         // Handle partially visible batches - create sub-batches instead of individual meshes
-                        if (!vis.fullyVisible) {
-                            // Collect the visible expressIds from this batch
-                            const visibleIds = new Set<number>();
-                            for (const expressId of batch.expressIds) {
-                                const isHidden = options.hiddenIds?.has(expressId) ?? false;
-                                const isIsolated = !hasIsolatedFilter || options.isolatedIds!.has(expressId);
-                                if (!isHidden && isIsolated) {
-                                    visibleIds.add(expressId);
-                                }
-                            }
-                            if (visibleIds.size > 0) {
-                                partiallyVisibleBatches.push({
-                                    colorKey: batch.colorKey,
-                                    visibleIds,
-                                    color: batch.color,
-                                });
-                            }
+                        // OPTIMIZATION: Only create sub-batches for hidden/isolated filtering, NOT for frustum culling
+                        // Frustum culling changes every frame - sub-batch recreation would be too expensive
+                        // The GPU handles frustum clipping automatically via the projection matrix
+                        // We only skip fully invisible batches (vis.visible = false check above)
+                        if (!vis.fullyVisible && vis.visibleIds && hasVisibilityFiltering) {
+                            partiallyVisibleBatches.push({
+                                colorKey: batch.colorKey,
+                                visibleIds: vis.visibleIds,
+                                color: batch.color,
+                            });
                             continue; // Don't add batch to render list
                         }
                     }
@@ -1210,6 +1276,24 @@ export class Renderer {
             pass.end();
 
             device.queue.submit([encoder.finish()]);
+
+            // Collect and report visibility stats if requested
+            if (options.measureVisibility && options.onVisibilityStats) {
+                const frameTimeMs = performance.now() - measureStart;
+                const frustum = FrustumUtils.fromViewProjMatrix(viewProj);
+                const visStats = this.scene.computeVisibilityStats(frustum);
+
+                options.onVisibilityStats({
+                    totalElements: visStats.totalElements,
+                    totalTriangles: visStats.totalTriangles,
+                    visibleElements: visStats.visibleElements,
+                    visibleTriangles: visStats.visibleTriangles,
+                    culledByFrustum: visStats.culledByFrustum,
+                    potentialOccluded: visStats.potentiallyOccluded,
+                    frameTimeMs,
+                    batchCount: allBatchedMeshes.length,
+                });
+            }
         } catch (error) {
             // Handle WebGPU errors (e.g., device lost, invalid state)
             // Mark context as invalid so it gets reconfigured next frame
@@ -1649,5 +1733,147 @@ export class Renderer {
             return null;
         }
         return this.device.getDevice();
+    }
+
+    /**
+     * Initialize Hi-Z GPU occlusion culling
+     * Call this after streaming completes for optimal performance
+     *
+     * @returns true if Hi-Z culler was successfully initialized
+     */
+    initHiZOcclusionCulling(): boolean {
+        if (!this.device.isInitialized()) {
+            console.warn('[Renderer] Cannot init Hi-Z: renderer not initialized');
+            return false;
+        }
+
+        const device = this.device.getDevice();
+
+        // Create Hi-Z culler
+        this.hiZCuller = this.scene.buildHiZOcclusionCuller(device);
+
+        // Initialize pyramid with current canvas size
+        if (this.hiZCuller) {
+            this.hiZCuller.resizePyramid(this.canvas.width, this.canvas.height);
+            this.hiZEnabled = true;
+            console.log('[Renderer] Hi-Z occlusion culling initialized');
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if Hi-Z occlusion culling is available
+     */
+    hasHiZOcclusion(): boolean {
+        return this.hiZCuller !== null && this.hiZEnabled;
+    }
+
+    /**
+     * Enable or disable Hi-Z occlusion culling
+     */
+    setHiZOcclusionEnabled(enabled: boolean): void {
+        this.hiZEnabled = enabled && this.hiZCuller !== null;
+    }
+
+    /**
+     * Get Hi-Z culler stats for debugging
+     */
+    getHiZStats(): { pyramidSize: string; pyramidLevels: number; elementCount: number; lastQueryTimeMs: number } | null {
+        if (!this.hiZCuller) return null;
+        return this.hiZCuller.getStats();
+    }
+
+    /**
+     * Perform Hi-Z occlusion query with depth prepass
+     * This renders occluders, builds the depth pyramid, and tests AABBs
+     *
+     * @returns Promise resolving to visible expressIds, or null if Hi-Z not available
+     */
+    async queryHiZOcclusion(): Promise<Set<number> | null> {
+        if (!this.hiZCuller || !this.hiZEnabled || !this.device.isInitialized()) {
+            return null;
+        }
+
+        // Resize pyramid if needed
+        if (this.hiZCuller.needsResize(this.canvas.width, this.canvas.height)) {
+            this.hiZCuller.resizePyramid(this.canvas.width, this.canvas.height);
+        }
+
+        const device = this.device.getDevice();
+        const viewProj = this.camera.getViewProjMatrix().m;
+
+        // Get depth prepass resources
+        const prepassResources = this.hiZCuller.getDepthPrepassResources();
+        if (!prepassResources) {
+            console.warn('[Hi-Z] Depth prepass resources not available');
+            return null;
+        }
+
+        // Upload view-projection matrix for depth prepass
+        device.queue.writeBuffer(prepassResources.uniformBuffer, 0, viewProj);
+
+        const encoder = device.createCommandEncoder({ label: 'Hi-Z Full Query' });
+
+        // STEP 1: Render depth prepass (all batched meshes to depth buffer)
+        const depthPass = encoder.beginRenderPass({
+            colorAttachments: [],
+            depthStencilAttachment: {
+                view: prepassResources.depthView,
+                depthClearValue: 0.0, // Reverse-Z: 0 = far
+                depthLoadOp: 'clear',
+                depthStoreOp: 'store',
+            },
+        });
+
+        depthPass.setPipeline(prepassResources.pipeline);
+        depthPass.setBindGroup(0, prepassResources.bindGroup);
+
+        // Render all batched meshes to depth
+        for (const batch of this.scene.getBatchedMeshes()) {
+            depthPass.setVertexBuffer(0, batch.vertexBuffer);
+            depthPass.setIndexBuffer(batch.indexBuffer, 'uint32');
+            depthPass.drawIndexed(batch.indexCount);
+        }
+
+        depthPass.end();
+
+        // STEP 2: Build depth pyramid from prepass
+        this.hiZCuller.buildPyramidFromPrepass(encoder);
+
+        // STEP 3: Run occlusion tests
+        this.hiZCuller.testOcclusionSync(viewProj, encoder);
+
+        // Submit and wait for results
+        device.queue.submit([encoder.finish()]);
+
+        // STEP 4: Read back results
+        const result = await this.hiZCuller.readOcclusionResults();
+
+        this.lastHiZVisibleIds = result.visibleIds;
+
+        console.log(
+            `[Hi-Z] Tested ${result.totalTested} AABBs: ` +
+            `${result.visibleCount} visible, ${result.occludedCount} occluded ` +
+            `(${((result.occludedCount / result.totalTested) * 100).toFixed(1)}% culled) ` +
+            `in ${result.queryTimeMs.toFixed(2)}ms`
+        );
+
+        return result.visibleIds;
+    }
+
+    /**
+     * Get the last Hi-Z visibility result (cached)
+     */
+    getLastHiZVisibleIds(): Set<number> | null {
+        return this.lastHiZVisibleIds;
+    }
+
+    /**
+     * Get the Hi-Z culler instance (for advanced usage)
+     */
+    getHiZCuller(): HiZOcclusionCuller | null {
+        return this.hiZCuller;
     }
 }

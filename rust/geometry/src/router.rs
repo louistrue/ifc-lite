@@ -2525,7 +2525,8 @@ impl GeometryRouter {
     }
 
     /// Get placement transform from element without applying it
-    fn get_placement_transform_from_element(
+    /// Public so streaming can extract element positions for front-to-back sorting
+    pub fn get_placement_transform_from_element(
         &self,
         element: &DecodedEntity,
         decoder: &mut EntityDecoder,

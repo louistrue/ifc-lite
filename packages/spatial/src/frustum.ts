@@ -23,6 +23,12 @@ export class FrustumUtils {
    */
   static isAABBVisible(frustum: Frustum, aabb: AABB): boolean {
     for (const plane of frustum.planes) {
+      // Skip dummy planes (zero normal) - used for infinite far plane in reverse-Z
+      const normalLen = plane.normal[0] ** 2 + plane.normal[1] ** 2 + plane.normal[2] ** 2;
+      if (normalLen < 0.001) {
+        continue;
+      }
+
       // Find the "positive vertex" - the vertex of the AABB that is farthest
       // in the positive direction of the plane normal
       const positiveVertex: [number, number, number] = [
@@ -30,14 +36,14 @@ export class FrustumUtils {
         plane.normal[1] > 0 ? aabb.max[1] : aabb.min[1],
         plane.normal[2] > 0 ? aabb.max[2] : aabb.min[2],
       ];
-      
+
       // Check if positive vertex is behind the plane
       const distance = this.pointToPlaneDistance(positiveVertex, plane);
       if (distance < 0) {
         return false; // AABB is completely outside frustum
       }
     }
-    
+
     return true;
   }
   
@@ -55,14 +61,15 @@ export class FrustumUtils {
   
   /**
    * Create frustum from view-projection matrix
+   * Supports both regular and reverse-Z projections
    */
-  static fromViewProjMatrix(viewProj: Float32Array | number[]): Frustum {
+  static fromViewProjMatrix(viewProj: Float32Array | number[], reverseZ: boolean = true): Frustum {
     // Extract frustum planes from 4x4 view-projection matrix
     // Matrix is column-major: m[0-3] = col0, m[4-7] = col1, etc.
-    
+
     const m = viewProj;
     const planes: Plane[] = [];
-    
+
     // Left plane
     planes.push({
       normal: [
@@ -72,7 +79,7 @@ export class FrustumUtils {
       ],
       distance: m[15] + m[12],
     });
-    
+
     // Right plane
     planes.push({
       normal: [
@@ -82,7 +89,7 @@ export class FrustumUtils {
       ],
       distance: m[15] - m[12],
     });
-    
+
     // Bottom plane
     planes.push({
       normal: [
@@ -92,7 +99,7 @@ export class FrustumUtils {
       ],
       distance: m[15] + m[13],
     });
-    
+
     // Top plane
     planes.push({
       normal: [
@@ -102,42 +109,66 @@ export class FrustumUtils {
       ],
       distance: m[15] - m[13],
     });
-    
-    // Near plane
-    planes.push({
-      normal: [
-        m[3] + m[2],
-        m[7] + m[6],
-        m[11] + m[10],
-      ],
-      distance: m[15] + m[14],
-    });
-    
-    // Far plane
-    planes.push({
-      normal: [
-        m[3] - m[2],
-        m[7] - m[6],
-        m[11] - m[10],
-      ],
-      distance: m[15] - m[14],
-    });
-    
-    // Normalize all planes
+
+    // Near and far planes handling for reverse-Z
+    // In reverse-Z with infinite far: m[10]=0, m[14]=near
+    // The standard extraction formula produces a degenerate far plane
+    if (reverseZ) {
+      // For reverse-Z: near plane is at depth=1.0, far plane is at depth=0.0
+      // Near plane: row3 - row2 (points towards camera)
+      planes.push({
+        normal: [
+          m[3] - m[2],
+          m[7] - m[6],
+          m[11] - m[10],
+        ],
+        distance: m[15] - m[14],
+      });
+
+      // Skip far plane for reverse-Z with infinite far
+      // Everything is in front of an infinite far plane
+      // Add a dummy plane that never culls (normal pointing away, huge distance)
+      planes.push({
+        normal: [0, 0, 0],
+        distance: 1e10,
+      });
+    } else {
+      // Standard Z: near plane
+      planes.push({
+        normal: [
+          m[3] + m[2],
+          m[7] + m[6],
+          m[11] + m[10],
+        ],
+        distance: m[15] + m[14],
+      });
+
+      // Standard Z: far plane
+      planes.push({
+        normal: [
+          m[3] - m[2],
+          m[7] - m[6],
+          m[11] - m[10],
+        ],
+        distance: m[15] - m[14],
+      });
+    }
+
+    // Normalize all planes (skip dummy plane with zero normal)
     for (const plane of planes) {
       const len = Math.sqrt(
         plane.normal[0] ** 2 +
         plane.normal[1] ** 2 +
         plane.normal[2] ** 2
       );
-      if (len > 0) {
+      if (len > 0.001) {
         plane.normal[0] /= len;
         plane.normal[1] /= len;
         plane.normal[2] /= len;
         plane.distance /= len;
       }
     }
-    
+
     return { planes };
   }
 }

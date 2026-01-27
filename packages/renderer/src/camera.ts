@@ -947,6 +947,22 @@ export class Camera {
   }
 
   /**
+   * Get normalized camera direction (from position towards target)
+   */
+  getDirection(): [number, number, number] {
+    const dir = {
+      x: this.camera.target.x - this.camera.position.x,
+      y: this.camera.target.y - this.camera.position.y,
+      z: this.camera.target.z - this.camera.position.z,
+    };
+    const len = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+    if (len > 0.0001) {
+      return [dir.x / len, dir.y / len, dir.z / len];
+    }
+    return [0, 0, 1];
+  }
+
+  /**
    * Get camera FOV in radians
    */
   getFOV(): number {

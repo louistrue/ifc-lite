@@ -10,6 +10,9 @@ import type { Mesh, InstancedMesh, BatchedMesh, Vec3 } from './types.js';
 import type { MeshData } from '@ifc-lite/geometry';
 import { MathUtils } from './math.js';
 import type { RenderPipeline } from './pipeline.js';
+import { FrustumUtils, type Frustum, BVH, type MeshWithBounds } from '@ifc-lite/spatial';
+import { OcclusionCuller, type ElementBounds } from './occlusion-culler.js';
+import { HiZOcclusionCuller, type OcclusionAABB } from './hiz-occlusion-culler.js';
 
 interface BoundingBox {
   min: Vec3;
@@ -35,6 +38,14 @@ export class Scene {
   private pendingBatchKeys: Set<string> = new Set();
   private lastBatchRebuildTime: number = 0;
   private batchRebuildThrottleMs: number = 100; // Rebuild batches at most every 100ms during streaming
+
+  // BVH for hierarchical frustum culling (built after streaming completes)
+  private elementBVH: BVH | null = null;
+  private bvhNeedsRebuild: boolean = true;
+
+  // CPU-based occlusion culler for back-side culling
+  private occlusionCuller: OcclusionCuller = new OcclusionCuller({ backSideThreshold: 0.25 });
+  private occlusionCullerNeedsRebuild: boolean = true;
 
   /**
    * Add mesh to scene
@@ -83,6 +94,9 @@ export class Scene {
     } else {
       this.meshDataMap.set(meshData.expressId, [meshData]);
     }
+    // Mark BVH and occlusion culler as needing rebuild since we added new geometry
+    this.bvhNeedsRebuild = true;
+    this.occlusionCullerNeedsRebuild = true;
   }
 
   /**
@@ -852,5 +866,355 @@ export class Scene {
     }
 
     return closestHit;
+  }
+
+  /**
+   * Compute visibility statistics for performance analysis
+   * Tests which elements would pass frustum culling AND estimates occlusion potential
+   */
+  computeVisibilityStats(frustum: Frustum): {
+    totalElements: number;
+    totalTriangles: number;
+    visibleElements: number;
+    visibleTriangles: number;
+    culledByFrustum: number;
+    potentiallyOccluded: number;
+    potentiallyOccludedTriangles: number;
+  } {
+    let totalElements = 0;
+    let totalTriangles = 0;
+    let visibleElements = 0;
+    let visibleTriangles = 0;
+    let potentiallyOccluded = 0;
+    let potentiallyOccludedTriangles = 0;
+
+    // Debug: Track overall model bounds
+    let modelMin = { x: Infinity, y: Infinity, z: Infinity };
+    let modelMax = { x: -Infinity, y: -Infinity, z: -Infinity };
+
+    // First pass: compute model bounds
+    for (const [expressId] of this.meshDataMap) {
+      const bbox = this.getBoundingBox(expressId);
+      if (bbox) {
+        if (bbox.min.x < modelMin.x) modelMin.x = bbox.min.x;
+        if (bbox.min.y < modelMin.y) modelMin.y = bbox.min.y;
+        if (bbox.min.z < modelMin.z) modelMin.z = bbox.min.z;
+        if (bbox.max.x > modelMax.x) modelMax.x = bbox.max.x;
+        if (bbox.max.y > modelMax.y) modelMax.y = bbox.max.y;
+        if (bbox.max.z > modelMax.z) modelMax.z = bbox.max.z;
+      }
+    }
+
+    // Compute model center for backface estimation
+    const modelCenter = {
+      x: (modelMin.x + modelMax.x) / 2,
+      y: (modelMin.y + modelMax.y) / 2,
+      z: (modelMin.z + modelMax.z) / 2,
+    };
+
+    // Extract camera direction from near plane normal (points toward camera)
+    const nearPlane = frustum.planes[4]; // Near plane
+    const camDir = {
+      x: -nearPlane.normal[0],
+      y: -nearPlane.normal[1],
+      z: -nearPlane.normal[2],
+    };
+
+    for (const [expressId, pieces] of this.meshDataMap) {
+      totalElements++;
+      let elementTriangles = 0;
+      for (const piece of pieces) {
+        elementTriangles += piece.indices.length / 3;
+      }
+      totalTriangles += elementTriangles;
+
+      // Get bounding box and test against frustum
+      const bbox = this.getBoundingBox(expressId);
+      if (bbox) {
+        // Convert to AABB format for frustum test
+        const aabb = {
+          min: [bbox.min.x, bbox.min.y, bbox.min.z] as [number, number, number],
+          max: [bbox.max.x, bbox.max.y, bbox.max.z] as [number, number, number],
+        };
+
+        if (FrustumUtils.isAABBVisible(frustum, aabb)) {
+          visibleElements++;
+          visibleTriangles += elementTriangles;
+
+          // Estimate if element is on "back side" of model relative to camera
+          // This is a rough heuristic: if element center is behind model center
+          // (relative to camera direction), it might be occluded by front geometry
+          const elemCenter = {
+            x: (bbox.min.x + bbox.max.x) / 2,
+            y: (bbox.min.y + bbox.max.y) / 2,
+            z: (bbox.min.z + bbox.max.z) / 2,
+          };
+
+          // Vector from model center to element center
+          const toElem = {
+            x: elemCenter.x - modelCenter.x,
+            y: elemCenter.y - modelCenter.y,
+            z: elemCenter.z - modelCenter.z,
+          };
+
+          // Dot product: positive means element is on camera-facing side
+          // negative means element is on "back side" of model
+          const dot = toElem.x * camDir.x + toElem.y * camDir.y + toElem.z * camDir.z;
+
+          // If element is behind model center relative to view direction, it's potentially occluded
+          if (dot < -2) { // Small threshold to account for elements near center
+            potentiallyOccluded++;
+            potentiallyOccludedTriangles += elementTriangles;
+          }
+        }
+      } else {
+        // No bbox = assume visible
+        visibleElements++;
+        visibleTriangles += elementTriangles;
+      }
+    }
+
+    // Debug output
+    if (totalElements > 0) {
+      console.log(`[Scene.computeVisibilityStats] Model bounds: (${modelMin.x.toFixed(1)}, ${modelMin.y.toFixed(1)}, ${modelMin.z.toFixed(1)}) to (${modelMax.x.toFixed(1)}, ${modelMax.y.toFixed(1)}, ${modelMax.z.toFixed(1)})`);
+      console.log(`[Scene.computeVisibilityStats] Camera direction: (${camDir.x.toFixed(3)}, ${camDir.y.toFixed(3)}, ${camDir.z.toFixed(3)})`);
+    }
+
+    return {
+      totalElements,
+      totalTriangles,
+      visibleElements,
+      visibleTriangles,
+      culledByFrustum: totalElements - visibleElements,
+      potentiallyOccluded,
+      potentiallyOccludedTriangles,
+    };
+  }
+
+  /**
+   * Get total triangle count from all batched meshes
+   */
+  getTotalTriangleCount(): number {
+    let total = 0;
+    for (const batch of this.batchedMeshes) {
+      total += batch.indexCount / 3;
+    }
+    return total;
+  }
+
+  /**
+   * Get total element count from mesh data
+   */
+  getTotalElementCount(): number {
+    return this.meshDataMap.size;
+  }
+
+  /**
+   * Build BVH for hierarchical frustum culling
+   * Call this after streaming completes for best performance
+   */
+  buildElementBVH(): void {
+    const startTime = performance.now();
+    const meshesWithBounds: MeshWithBounds[] = [];
+
+    for (const [expressId] of this.meshDataMap) {
+      const bbox = this.getBoundingBox(expressId);
+      if (bbox) {
+        meshesWithBounds.push({
+          expressId,
+          bounds: {
+            min: [bbox.min.x, bbox.min.y, bbox.min.z],
+            max: [bbox.max.x, bbox.max.y, bbox.max.z],
+          },
+        });
+      }
+    }
+
+    if (meshesWithBounds.length > 0) {
+      this.elementBVH = BVH.build(meshesWithBounds);
+      this.bvhNeedsRebuild = false;
+      const buildTime = performance.now() - startTime;
+      console.log(`[Scene] Built element BVH with ${meshesWithBounds.length} elements in ${buildTime.toFixed(1)}ms`);
+    }
+  }
+
+  /**
+   * Check if BVH needs to be rebuilt (after new elements added)
+   */
+  needsBVHRebuild(): boolean {
+    return this.bvhNeedsRebuild;
+  }
+
+  /**
+   * Mark BVH as needing rebuild (called when elements are added)
+   */
+  invalidateBVH(): void {
+    this.bvhNeedsRebuild = true;
+  }
+
+  /**
+   * Query visible elements using BVH frustum culling
+   * Returns Set of expressIds that are visible in the frustum
+   * Falls back to all elements if BVH not built
+   */
+  queryVisibleElements(frustum: Frustum): Set<number> {
+    if (!this.elementBVH) {
+      // No BVH - return all elements
+      return new Set(this.meshDataMap.keys());
+    }
+
+    const visibleIds = this.elementBVH.queryFrustum(frustum);
+    return new Set(visibleIds);
+  }
+
+  /**
+   * Check if BVH is available
+   */
+  hasBVH(): boolean {
+    return this.elementBVH !== null;
+  }
+
+  /**
+   * Build occlusion culler data from mesh bounds
+   * Call this after streaming completes for best performance
+   */
+  buildOcclusionCuller(): void {
+    const startTime = performance.now();
+    const elements: ElementBounds[] = [];
+
+    for (const [expressId] of this.meshDataMap) {
+      const bbox = this.getBoundingBox(expressId);
+      if (bbox) {
+        const center: [number, number, number] = [
+          (bbox.min.x + bbox.max.x) / 2,
+          (bbox.min.y + bbox.max.y) / 2,
+          (bbox.min.z + bbox.max.z) / 2,
+        ];
+        elements.push({
+          expressId,
+          center,
+          min: [bbox.min.x, bbox.min.y, bbox.min.z],
+          max: [bbox.max.x, bbox.max.y, bbox.max.z],
+        });
+      }
+    }
+
+    if (elements.length > 0) {
+      this.occlusionCuller.setElements(elements);
+      this.occlusionCullerNeedsRebuild = false;
+      const buildTime = performance.now() - startTime;
+      console.log(`[Scene] Built occlusion culler with ${elements.length} elements in ${buildTime.toFixed(1)}ms`);
+    }
+  }
+
+  /**
+   * Check if occlusion culler needs rebuild
+   */
+  needsOcclusionCullerRebuild(): boolean {
+    return this.occlusionCullerNeedsRebuild;
+  }
+
+  /**
+   * Check if occlusion culler is available
+   */
+  hasOcclusionCuller(): boolean {
+    return this.occlusionCuller.hasElements();
+  }
+
+  /**
+   * Query visible elements using BOTH frustum AND occlusion culling
+   * This combines BVH frustum culling with back-side occlusion culling
+   *
+   * @param frustum - Camera frustum for frustum culling
+   * @param cameraDir - Camera direction for occlusion culling
+   * @param cameraPos - Camera position for occlusion culling
+   * @returns Set of visible expressIds
+   */
+  queryVisibleElementsWithOcclusion(
+    frustum: Frustum,
+    cameraDir: [number, number, number],
+    cameraPos: [number, number, number],
+  ): Set<number> {
+    // Start with frustum culling
+    let visibleIds: Set<number>;
+    if (this.elementBVH) {
+      visibleIds = new Set(this.elementBVH.queryFrustum(frustum));
+    } else {
+      visibleIds = new Set(this.meshDataMap.keys());
+    }
+
+    // Apply occlusion culling if available
+    if (this.occlusionCuller.hasElements()) {
+      const occlusionVisible = this.occlusionCuller.queryVisible(cameraDir, cameraPos);
+      // Intersection: element must pass BOTH frustum AND occlusion tests
+      const combined = new Set<number>();
+      for (const id of visibleIds) {
+        if (occlusionVisible.has(id)) {
+          combined.add(id);
+        }
+      }
+      return combined;
+    }
+
+    return visibleIds;
+  }
+
+  /**
+   * Get occlusion culler for stats/debugging
+   */
+  getOcclusionCuller(): OcclusionCuller {
+    return this.occlusionCuller;
+  }
+
+  /**
+   * Build Hi-Z occlusion culler data
+   * Call this after streaming completes for GPU-accelerated occlusion testing
+   *
+   * @param device - GPU device for creating the culler
+   */
+  buildHiZOcclusionCuller(device: GPUDevice): HiZOcclusionCuller {
+    const startTime = performance.now();
+    const elements: OcclusionAABB[] = [];
+
+    for (const [expressId] of this.meshDataMap) {
+      const bbox = this.getBoundingBox(expressId);
+      if (bbox) {
+        elements.push({
+          expressId,
+          min: [bbox.min.x, bbox.min.y, bbox.min.z],
+          max: [bbox.max.x, bbox.max.y, bbox.max.z],
+        });
+      }
+    }
+
+    const hiZCuller = new HiZOcclusionCuller(device);
+
+    if (elements.length > 0) {
+      hiZCuller.setElements(elements);
+      const buildTime = performance.now() - startTime;
+      console.log(`[Scene] Built Hi-Z occlusion culler with ${elements.length} elements in ${buildTime.toFixed(1)}ms`);
+    }
+
+    return hiZCuller;
+  }
+
+  /**
+   * Get element AABBs for Hi-Z occlusion testing
+   */
+  getElementAABBs(): OcclusionAABB[] {
+    const elements: OcclusionAABB[] = [];
+
+    for (const [expressId] of this.meshDataMap) {
+      const bbox = this.getBoundingBox(expressId);
+      if (bbox) {
+        elements.push({
+          expressId,
+          min: [bbox.min.x, bbox.min.y, bbox.min.z],
+          max: [bbox.max.x, bbox.max.y, bbox.max.z],
+        });
+      }
+    }
+
+    return elements;
   }
 }

@@ -97,10 +97,29 @@ export interface SectionPlane {
   max?: number;      // Optional override for max range value
 }
 
+/**
+ * Stats about visibility and culling for performance analysis
+ * Used to measure potential gains from occlusion/frustum culling
+ */
+export interface VisibilityStats {
+  totalElements: number;
+  totalTriangles: number;
+  visibleElements: number;        // Elements passing frustum test
+  visibleTriangles: number;       // Triangles in visible elements
+  culledByFrustum: number;        // Elements outside camera frustum
+  potentialOccluded: number;      // Elements that COULD be hidden (estimated)
+  frameTimeMs: number;            // Time to render this frame
+  batchCount: number;             // Number of draw calls
+}
+
 export interface RenderOptions {
   clearColor?: [number, number, number, number];
   enableDepthTest?: boolean;
   enableFrustumCulling?: boolean;
+  enableOcclusionCulling?: boolean;  // Enable back-side occlusion culling
+  enableHiZOcclusion?: boolean;      // Enable GPU Hi-Z occlusion culling
+  cameraDirection?: [number, number, number];  // Required for occlusion culling
+  cameraPosition?: [number, number, number];   // Required for occlusion culling
   spatialIndex?: import('@ifc-lite/spatial').SpatialIndex;
   // Visibility filtering
   hiddenIds?: Set<number>;        // Meshes to hide
@@ -112,6 +131,9 @@ export interface RenderOptions {
   sectionPlane?: SectionPlane;
   // Streaming state
   isStreaming?: boolean;          // If true, skip expensive operations like picker
+  // Performance measurement
+  measureVisibility?: boolean;    // If true, collect visibility stats
+  onVisibilityStats?: (stats: VisibilityStats) => void;  // Callback for stats
 }
 
 /**

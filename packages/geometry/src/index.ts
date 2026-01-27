@@ -218,11 +218,17 @@ export class GeometryProcessor {
    * @param buffer IFC file buffer
    * @param entityIndex Optional entity index for priority-based loading
    * @param batchConfig Dynamic batch configuration or fixed batch size
+   * @param cameraPosition Optional camera position for front-to-back streaming
+   * @param cameraDirection Optional camera direction for back-side culling
+   * @param skipBackSide If true, load front-facing geometry first, back-side last
    */
   async *processStreaming(
     buffer: Uint8Array,
     _entityIndex?: Map<number, any>,
-    batchConfig: number | DynamicBatchConfig = 25
+    batchConfig: number | DynamicBatchConfig = 25,
+    cameraPosition?: [number, number, number],
+    cameraDirection?: [number, number, number],
+    skipBackSide: boolean = false
   ): AsyncGenerator<StreamingGeometryEvent> {
     // Initialize if needed
     if (this.isNative) {
@@ -284,7 +290,8 @@ export class GeometryProcessor {
       const wasmBatchSize = fileSizeMB < 10 ? 100 : fileSizeMB < 50 ? 200 : fileSizeMB < 100 ? 300 : 500;
 
       // Use WASM batches directly for maximum throughput
-      for await (const item of collector.collectMeshesStreaming(wasmBatchSize)) {
+      // Pass camera position/direction for front-to-back streaming with back-side culling
+      for await (const item of collector.collectMeshesStreaming(wasmBatchSize, cameraPosition, cameraDirection, skipBackSide)) {
         // Handle color update events
         if (item && typeof item === 'object' && 'type' in item && (item as StreamingColorUpdateEvent).type === 'colorUpdate') {
           yield { type: 'colorUpdate', updates: (item as StreamingColorUpdateEvent).updates };
@@ -404,6 +411,9 @@ export class GeometryProcessor {
    * @param options.sizeThreshold File size threshold in bytes (default: 2MB)
    * @param options.batchSize Number of meshes per batch for streaming (default: 25)
    * @param options.entityIndex Optional entity index for priority-based loading
+   * @param options.cameraPosition Optional camera position for front-to-back streaming
+   * @param options.cameraDirection Optional camera direction for back-side culling
+   * @param options.skipBackSide If true, load front-facing geometry first
    */
   async *processAdaptive(
     buffer: Uint8Array,
@@ -411,10 +421,16 @@ export class GeometryProcessor {
       sizeThreshold?: number;
       batchSize?: number | DynamicBatchConfig;
       entityIndex?: Map<number, any>;
+      cameraPosition?: [number, number, number];
+      cameraDirection?: [number, number, number];
+      skipBackSide?: boolean;
     } = {}
   ): AsyncGenerator<StreamingGeometryEvent> {
     const sizeThreshold = options.sizeThreshold ?? 2 * 1024 * 1024; // Default 2MB
     const batchConfig = options.batchSize ?? 25;
+    const cameraPosition = options.cameraPosition;
+    const cameraDirection = options.cameraDirection;
+    const skipBackSide = options.skipBackSide ?? false;
 
     // Initialize if needed
     if (this.isNative) {
@@ -468,7 +484,7 @@ export class GeometryProcessor {
     } else {
       // Large files: Stream for fast first frame
       // processStreaming will emit its own start and model-open events
-      yield* this.processStreaming(buffer, options.entityIndex, batchConfig);
+      yield* this.processStreaming(buffer, options.entityIndex, batchConfig, cameraPosition, cameraDirection, skipBackSide);
     }
   }
 

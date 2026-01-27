@@ -233,6 +233,9 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   // First-person mode state
   const firstPersonModeRef = useRef<boolean>(false);
 
+  // Visibility stats measurement mode (for performance debugging)
+  const measureVisibilityRef = useRef<boolean>(false);
+
   // Geometry bounds for camera controls
   const geometryBoundsRef = useRef<{ min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } }>({
     min: { x: -100, y: -100, z: -100 },
@@ -281,6 +284,12 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     canvasWidth: number;
     canvasHeight: number;
   } | null>(null);
+
+  // Hi-Z occlusion culling update tracking
+  // We run Hi-Z queries asynchronously when camera stops moving
+  const hiZQueryPendingRef = useRef<boolean>(false);
+  const hiZQueryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const HIZ_QUERY_DELAY_MS = 150; // Delay after camera stops before running Hi-Z query
 
   // Keep refs in sync
   useEffect(() => { hiddenEntitiesRef.current = hiddenEntities; }, [hiddenEntities]);
@@ -560,12 +569,21 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
 
         const isAnimating = camera.update(deltaTime);
         if (isAnimating) {
+          // Get camera info for occlusion culling
+          const camPos = camera.getPosition();
+          const camDir = camera.getDirection();
+
           renderer.render({
             hiddenIds: hiddenEntitiesRef.current,
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             selectedModelIndex: selectedModelIndexRef.current,
             clearColor: clearColorRef.current,
+            enableFrustumCulling: true,  // Use BVH for per-element frustum culling
+            enableOcclusionCulling: true,  // Use CPU back-side culling
+            enableHiZOcclusion: renderer.hasHiZOcclusion(),  // Use GPU Hi-Z occlusion when available
+            cameraDirection: camDir,
+            cameraPosition: [camPos.x, camPos.y, camPos.z],
             sectionPlane: activeToolRef.current === 'section' ? {
               ...sectionPlaneRef.current,
               min: sectionRangeRef.current?.min,
@@ -1078,6 +1096,42 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         canvas.style.cursor = tool === 'pan' ? 'grab' : (tool === 'orbit' ? 'grab' : (tool === 'measure' ? 'crosshair' : 'default'));
         // Clear orbit pivot after each orbit operation
         camera.setOrbitPivot(null);
+
+        // Schedule Hi-Z occlusion query after camera stops
+        // This updates visibility for accurate culling in the new view
+        if (renderer.hasHiZOcclusion() && !hiZQueryPendingRef.current) {
+          if (hiZQueryTimeoutRef.current) {
+            clearTimeout(hiZQueryTimeoutRef.current);
+          }
+          hiZQueryTimeoutRef.current = setTimeout(async () => {
+            if (renderer.hasHiZOcclusion()) {
+              hiZQueryPendingRef.current = true;
+              await renderer.queryHiZOcclusion();
+              hiZQueryPendingRef.current = false;
+              // Re-render with updated Hi-Z results
+              const cam = renderer.getCamera();
+              const pos = cam.getPosition();
+              const dir = cam.getDirection();
+              renderer.render({
+                hiddenIds: hiddenEntitiesRef.current,
+                isolatedIds: isolatedEntitiesRef.current,
+                selectedId: selectedEntityIdRef.current,
+                selectedModelIndex: selectedModelIndexRef.current,
+                clearColor: clearColorRef.current,
+                enableFrustumCulling: true,
+                enableOcclusionCulling: true,
+                enableHiZOcclusion: true,
+                cameraDirection: dir,
+                cameraPosition: [pos.x, pos.y, pos.z],
+                sectionPlane: activeToolRef.current === 'section' ? {
+                  ...sectionPlaneRef.current,
+                  min: sectionRangeRef.current?.min,
+                  max: sectionRangeRef.current?.max,
+                } : undefined,
+              });
+            }
+          }, HIZ_QUERY_DELAY_MS);
+        }
       });
 
       canvas.addEventListener('mouseleave', () => {
@@ -1390,6 +1444,46 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         if (e.key === 'c' || e.key === 'C') {
           firstPersonModeRef.current = !firstPersonModeRef.current;
           camera.enableFirstPersonMode(firstPersonModeRef.current);
+        }
+
+        // Toggle visibility stats (V key) - for performance debugging
+        if (e.key === 'v' || e.key === 'V') {
+          measureVisibilityRef.current = !measureVisibilityRef.current;
+          console.log(`[Viewport] Visibility stats: ${measureVisibilityRef.current ? 'ENABLED' : 'DISABLED'}`);
+          if (measureVisibilityRef.current) {
+            // Get camera info for occlusion culling
+            const camPos = camera.getPosition();
+            const camDir = camera.getDirection();
+
+            // Trigger a render with stats enabled
+            renderer.render({
+              hiddenIds: hiddenEntitiesRef.current,
+              isolatedIds: isolatedEntitiesRef.current,
+              selectedId: selectedEntityIdRef.current,
+              selectedModelIndex: selectedModelIndexRef.current,
+              clearColor: clearColorRef.current,
+              enableFrustumCulling: true,  // Use BVH for per-element frustum culling
+              enableOcclusionCulling: true,  // Use CPU back-side culling
+              enableHiZOcclusion: renderer.hasHiZOcclusion(),  // Use GPU Hi-Z occlusion when available
+              cameraDirection: camDir,
+              cameraPosition: [camPos.x, camPos.y, camPos.z],
+              sectionPlane: activeToolRef.current === 'section' ? {
+                ...sectionPlaneRef.current,
+                min: sectionRangeRef.current?.min,
+                max: sectionRangeRef.current?.max,
+              } : undefined,
+              measureVisibility: true,
+              onVisibilityStats: (stats) => {
+                const culledPercent = ((stats.culledByFrustum / stats.totalElements) * 100).toFixed(1);
+                const occludedPercent = ((stats.potentialOccluded / stats.visibleElements) * 100).toFixed(1);
+                const totalSavingsPercent = (((stats.culledByFrustum + stats.potentialOccluded) / stats.totalElements) * 100).toFixed(1);
+                console.log(`[VisibilityStats] Frustum culling: ${stats.culledByFrustum}/${stats.totalElements} elements outside view (${culledPercent}%)`);
+                console.log(`[VisibilityStats] Occlusion estimate: ${stats.potentialOccluded}/${stats.visibleElements} elements on back side (${occludedPercent}%)`);
+                console.log(`[VisibilityStats] Total potential savings: ${totalSavingsPercent}% of ${stats.totalTriangles.toLocaleString()} triangles`);
+                console.log(`[VisibilityStats] Batches: ${stats.batchCount}, Frame time: ${stats.frameTimeMs.toFixed(2)}ms`);
+              },
+            });
+          }
         }
       };
 
@@ -1840,6 +1934,24 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         (scene as any).rebuildPendingBatches(device, pipeline);
       }
 
+      // Build BVH for hierarchical frustum culling after streaming completes
+      // This enables O(log n) frustum queries instead of O(n) per-element tests
+      if ((scene as any).needsBVHRebuild?.() && (scene as any).buildElementBVH) {
+        (scene as any).buildElementBVH();
+      }
+
+      // Build occlusion culler for back-side culling after streaming completes
+      // This culls elements on the opposite side of the model from the camera
+      if ((scene as any).needsOcclusionCullerRebuild?.() && (scene as any).buildOcclusionCuller) {
+        (scene as any).buildOcclusionCuller();
+      }
+
+      // Initialize Hi-Z GPU occlusion culling after streaming completes
+      // This provides accurate GPU-based occlusion culling for interior views
+      if (!renderer.hasHiZOcclusion()) {
+        renderer.initHiZOcclusionCulling();
+      }
+
       renderer.render();
       lastStreamRenderTimeRef.current = Date.now();
     }
@@ -1873,6 +1985,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     const renderer = rendererRef.current;
     if (!renderer || !isInitialized) return;
 
+    // Get camera from renderer for occlusion culling
+    const camera = renderer.getCamera();
+    const camPos = camera.getPosition();
+    const camDir = camera.getDirection();
+
     renderer.render({
       hiddenIds: hiddenEntities,
       isolatedIds: isolatedEntities,
@@ -1880,6 +1997,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
       selectedIds: selectedEntityIds,
       selectedModelIndex,
       clearColor: clearColorRef.current,
+      enableFrustumCulling: true,  // Use BVH for per-element frustum culling
+      enableOcclusionCulling: true,  // Use CPU back-side culling
+      enableHiZOcclusion: renderer.hasHiZOcclusion(),  // Use GPU Hi-Z occlusion when available
+      cameraDirection: camDir,
+      cameraPosition: [camPos.x, camPos.y, camPos.z],
       sectionPlane: activeTool === 'section' ? {
         ...sectionPlane,
         min: sectionRange?.min,

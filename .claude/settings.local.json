@@ -39,7 +39,24 @@
       "Bash(pnpm run build:wasm:*)",
       "Bash(node:*)",
       "Bash(cargo test:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(cargo publish:*)",
+      "Bash(~/.cargo/bin/cargo publish -p ifc-lite-core --allow-dirty)",
+      "Bash(git commit:*)",
+      "Bash(git reset:*)",
+      "Bash(gh pr create:*)",
+      "Bash(npm run build:*)",
+      "Bash(curl:*)",
+      "Bash(lsof:*)",
+      "Bash(npm run build:wasm:*)",
+      "Bash(npm run:*)",
+      "Bash(source ~/.zshrc)",
+      "Bash(PATH=\"$HOME/.cargo/bin:/usr/bin:/bin\" cargo check:*)",
+      "Bash(npx tsc:*)",
+      "Bash(wasm-pack:*)",
+      "Bash(cargo --version:*)",
+      "Bash(rustup:*)",
+      "Bash(bash:*)"
     ]
   }
 }

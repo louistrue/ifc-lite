@@ -114,9 +114,13 @@ export class ZeroCopyMeshCollector {
    * Stream geometry batches with zero-copy views into WASM memory
    *
    * @param batchSize Number of meshes per batch (default: 25)
+   * @param cameraPosition Optional camera position for front-to-back streaming
    * @yields Batches with views into WASM memory
    */
-  async *streamBatches(batchSize: number = 25): AsyncGenerator<ZeroCopyBatch> {
+  async *streamBatches(
+    batchSize: number = 25,
+    cameraPosition?: [number, number, number]
+  ): AsyncGenerator<ZeroCopyBatch> {
     // Queue to hold batches from async callback
     const batchQueue: GpuGeometryHandle[] = [];
     let resolveWaiting: (() => void) | null = null;
@@ -125,6 +129,7 @@ export class ZeroCopyMeshCollector {
     // Define parseToGpuGeometryAsync type
     type ParseOptions = {
       batchSize: number;
+      cameraPosition?: [number, number, number];
       onBatch: (gpuGeom: GpuGeometryHandle, progress: ZeroCopyStreamingProgress) => void;
       onComplete: (stats: ZeroCopyCompleteStats) => void;
     };
@@ -134,6 +139,7 @@ export class ZeroCopyMeshCollector {
       parseToGpuGeometryAsync: (content: string, options: ParseOptions) => Promise<void>;
     }).parseToGpuGeometryAsync(this.content, {
       batchSize,
+      cameraPosition,
       onBatch: (gpuGeom: GpuGeometryHandle, _progress: ZeroCopyStreamingProgress) => {
         batchQueue.push(gpuGeom);
 

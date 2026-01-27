@@ -198,16 +198,16 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_847(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_847(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_869(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_869(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_408(arg0, arg1) {
-    wasm.__wasm_bindgen_func_elem_408(arg0, arg1);
+function __wasm_bindgen_func_elem_429(arg0, arg1) {
+    wasm.__wasm_bindgen_func_elem_429(arg0, arg1);
 }
 
-function __wasm_bindgen_func_elem_878(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_878(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_900(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_900(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -1170,6 +1170,7 @@ export class IfcAPI {
      *
      * Options:
      * - `batchSize`: Number of meshes per batch (default: 25)
+     * - `cameraPosition`: [x, y, z] - Camera position for front-to-back streaming
      * - `onBatch(meshes, progress)`: Called for each batch of meshes
      * - `onRtcOffset({x, y, z, hasRtc})`: Called early with RTC offset for camera/world setup
      * - `onColorUpdate(Map<id, color>)`: Called with style updates after initial render
@@ -1370,6 +1371,13 @@ export class IfcAPI {
      * Yields batches of GPU-ready geometry for progressive rendering with zero-copy upload.
      * Uses fast-first-frame streaming: simple geometry (walls, slabs) first.
      *
+     * Options:
+     * - `batchSize`: Number of meshes per batch (default: 25)
+     * - `cameraPosition`: [x, y, z] - Camera position for front-to-back streaming
+     * - `cameraDirection`: [x, y, z] - Camera direction for visibility-aware streaming
+     * - `onBatch`: Callback for each batch
+     * - `onComplete`: Callback when done
+     *
      * Example:
      * ```javascript
      * const api = new IfcAPI();
@@ -1377,6 +1385,7 @@ export class IfcAPI {
      *
      * await api.parseToGpuGeometryAsync(ifcData, {
      *   batchSize: 25,
+     *   cameraPosition: [0, 10, 50], // Stream front-facing geometry first
      *   onBatch: (gpuGeom, progress) => {
      *     // Create zero-copy views
      *     const vertexView = new Float32Array(
@@ -2299,6 +2308,11 @@ function __wbg_get_imports() {
         const ret = Error(getStringFromWasm0(arg0, arg1));
         return addHeapObject(ret);
     };
+    imports.wbg.__wbg___wbindgen_boolean_get_dea25b33882b895b = function(arg0) {
+        const v = getObject(arg0);
+        const ret = typeof(v) === 'boolean' ? v : undefined;
+        return isLikeNone(ret) ? 0xFFFFFF : ret ? 1 : 0;
+    };
     imports.wbg.__wbg___wbindgen_is_function_8d400b8b1af978cd = function(arg0) {
         const ret = typeof(getObject(arg0)) === 'function';
         return ret;
@@ -2350,6 +2364,14 @@ function __wbg_get_imports() {
             wasm.__wbindgen_export2(deferred0_0, deferred0_1, 1);
         }
     };
+    imports.wbg.__wbg_from_29a8414a7a7cd19d = function(arg0) {
+        const ret = Array.from(getObject(arg0));
+        return addHeapObject(ret);
+    };
+    imports.wbg.__wbg_get_6b7bd52aca3f9671 = function(arg0, arg1) {
+        const ret = getObject(arg0)[arg1 >>> 0];
+        return addHeapObject(ret);
+    };
     imports.wbg.__wbg_get_af9dab7e9603ea93 = function() { return handleError(function (arg0, arg1) {
         const ret = Reflect.get(getObject(arg0), getObject(arg1));
         return addHeapObject(ret);
@@ -2365,6 +2387,9 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_length_d45040a40c570362 = function(arg0) {
         const ret = getObject(arg0).length;
         return ret;
+    };
+    imports.wbg.__wbg_log_1d990106d99dacb7 = function(arg0) {
+        console.log(getObject(arg0));
     };
     imports.wbg.__wbg_meshdatajs_new = function(arg0) {
         const ret = MeshDataJs.__wrap(arg0);
@@ -2393,7 +2418,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wasm_bindgen_func_elem_878(a, state0.b, arg0, arg1);
+                    return __wasm_bindgen_func_elem_900(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -2495,7 +2520,7 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbindgen_cast_7f089052c998c143 = function(arg0, arg1) {
         // Cast intrinsic for `Closure(Closure { dtor_idx: 105, function: Function { arguments: [Externref], shim_idx: 106, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_845, __wasm_bindgen_func_elem_847);
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_867, __wasm_bindgen_func_elem_869);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {
@@ -2505,7 +2530,7 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbindgen_cast_fa504d1cec41bd0d = function(arg0, arg1) {
         // Cast intrinsic for `Closure(Closure { dtor_idx: 45, function: Function { arguments: [], shim_idx: 46, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_406, __wasm_bindgen_func_elem_408);
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_427, __wasm_bindgen_func_elem_429);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_object_clone_ref = function(arg0) {

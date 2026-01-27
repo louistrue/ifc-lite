@@ -759,9 +759,31 @@ export function useIfc() {
         // Use dynamic batch sizing for optimal throughput
         const dynamicBatchConfig = getDynamicBatchConfig(fileSizeMB);
 
+        // Default camera matching zoomToFit's southeast isometric view
+        //
+        // VISIBILITY CULLING: We split elements into front-side (load first) and back-side (defer)
+        // using a plane through the MODEL CENTER, perpendicular to the camera direction.
+        //
+        // In WebGL Y-up: camera at (+0.6, +0.5, +0.6) from center, looking toward center
+        // Convert position to IFC Z-up: IFC.x = WebGL.x, IFC.y = -WebGL.z, IFC.z = WebGL.y
+        // So WebGL (0.6, 0.5, 0.6) -> IFC (0.6, -0.6, 0.5)
+        //
+        // Camera position (used for distance-based streaming sort, not visibility test):
+        const defaultCameraPosition: [number, number, number] = [30, -30, 25];
+        //
+        // Camera direction: points from model center TOWARD camera (IFC Z-up)
+        // This is the normal of the splitting plane. Elements with D·X >= D·C are "front-side".
+        // WebGL camera is at (+X, +Y, +Z) from center, so direction in WebGL is (0.58, 0.39, 0.58)
+        // Convert to IFC Z-up: IFC.x = WebGL.x, IFC.y = -WebGL.z, IFC.z = WebGL.y
+        // Result: (0.58, -0.58, 0.39) - points from center toward camera
+        const defaultCameraDirection: [number, number, number] = [0.58, -0.58, 0.39];
+
         for await (const event of geometryProcessor.processAdaptive(new Uint8Array(buffer), {
           sizeThreshold: 2 * 1024 * 1024, // 2MB threshold
           batchSize: dynamicBatchConfig, // Dynamic batches: small first, then large
+          cameraPosition: defaultCameraPosition, // Front-to-back streaming
+          cameraDirection: defaultCameraDirection, // For back-side culling
+          skipBackSide: true, // Skip back-facing geometry until front is done
         })) {
           const eventReceived = performance.now();
           const waitTime = eventReceived - lastBatchTime;
@@ -1054,9 +1076,16 @@ export function useIfc() {
 
         const dynamicBatchConfig = getDynamicBatchConfig(fileSizeMB);
 
+        // Default camera matching southeast isometric (IFC Z-up coords)
+        const defaultCameraPosition: [number, number, number] = [30, -30, 25];
+        const defaultCameraDirection: [number, number, number] = [0.58, -0.58, 0.48];
+
         for await (const event of geometryProcessor.processAdaptive(new Uint8Array(buffer), {
           sizeThreshold: 2 * 1024 * 1024,
           batchSize: dynamicBatchConfig,
+          cameraPosition: defaultCameraPosition, // Front-to-back streaming
+          cameraDirection: defaultCameraDirection,
+          skipBackSide: true,
         })) {
           switch (event.type) {
             case 'batch': {
