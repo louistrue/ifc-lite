@@ -25,6 +25,7 @@ pub fn run() {
             commands::cache::get_cached,
             commands::cache::set_cached,
             commands::cache::clear_cache,
+            commands::cache::delete_cache_entry,
             commands::cache::get_cache_stats,
             commands::file_dialog::open_ifc_file,
         ])

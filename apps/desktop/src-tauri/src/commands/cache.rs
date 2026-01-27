@@ -94,6 +94,21 @@ pub async fn clear_cache(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Delete a single cache entry
+#[tauri::command]
+pub async fn delete_cache_entry(app: tauri::AppHandle, cache_key: String) -> Result<(), String> {
+    let cache_dir = get_cache_dir(&app)?;
+    let cache_file = get_cache_file_path(&cache_dir, &cache_key)?;
+
+    if cache_file.exists() {
+        tokio::fs::remove_file(&cache_file)
+            .await
+            .map_err(|e| format!("Failed to delete cache entry: {}", e))?;
+    }
+
+    Ok(())
+}
+
 /// Get cache statistics
 #[tauri::command]
 pub async fn get_cache_stats(app: tauri::AppHandle) -> Result<CacheStats, String> {
