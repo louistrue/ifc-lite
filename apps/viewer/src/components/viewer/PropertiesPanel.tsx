@@ -590,11 +590,11 @@ export function PropertiesPanel() {
         </TabsList>
 
         <ScrollArea className="flex-1 bg-white dark:bg-black">
-          <TabsContent value="properties" className="m-0 p-4">
+          <TabsContent value="properties" className="m-0 p-3 overflow-hidden">
             {properties.length === 0 ? (
               <p className="text-sm text-zinc-500 dark:text-zinc-500 text-center py-8 font-mono">No property sets</p>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-3 w-full overflow-hidden">
                 {properties.map((pset: PropertySet) => (
                   <PropertySetCard key={pset.name} pset={pset} />
                 ))}
@@ -602,11 +602,11 @@ export function PropertiesPanel() {
             )}
           </TabsContent>
 
-          <TabsContent value="quantities" className="m-0 p-4">
+          <TabsContent value="quantities" className="m-0 p-3 overflow-hidden">
             {quantities.length === 0 ? (
               <p className="text-sm text-zinc-500 dark:text-zinc-500 text-center py-8 font-mono">No quantities</p>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-3 w-full overflow-hidden">
                 {quantities.map((qset: QuantitySet) => (
                   <QuantitySetCard key={qset.name} qset={qset} />
                 ))}
@@ -825,8 +825,8 @@ function EntityDataSection({
 
 function PropertySetCard({ pset }: { pset: PropertySet }) {
   return (
-    <Collapsible defaultOpen className="border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 group overflow-hidden">
-      <CollapsibleTrigger className="flex items-center gap-2 w-full p-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-left transition-colors overflow-hidden">
+    <Collapsible defaultOpen className="border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 group w-full max-w-full">
+      <CollapsibleTrigger className="flex items-center gap-2 w-full p-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-left transition-colors">
         <span className="font-bold text-xs uppercase tracking-wide text-zinc-900 dark:text-zinc-100 truncate flex-1 min-w-0">{decodeIfcString(pset.name)}</span>
         <span className="text-[10px] font-mono bg-zinc-100 dark:bg-zinc-900 px-1.5 py-0.5 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 shrink-0">{pset.properties.length}</span>
       </CollapsibleTrigger>
@@ -836,12 +836,12 @@ function PropertySetCard({ pset }: { pset: PropertySet }) {
             const parsed = parsePropertyValue(prop.value);
             const decodedName = decodeIfcString(prop.name);
             return (
-              <div key={prop.name} className="flex flex-col gap-0.5 px-3 py-2 text-xs hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50 overflow-hidden">
+              <div key={prop.name} className="flex flex-col gap-0.5 px-3 py-2 text-xs hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50">
                 {/* Property name with type tooltip */}
                 {parsed.ifcType ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <span className="text-zinc-500 dark:text-zinc-400 font-medium cursor-help truncate">
+                      <span className="text-zinc-500 dark:text-zinc-400 font-medium cursor-help break-words">
                         {decodedName}
                       </span>
                     </TooltipTrigger>
@@ -850,12 +850,12 @@ function PropertySetCard({ pset }: { pset: PropertySet }) {
                     </TooltipContent>
                   </Tooltip>
                 ) : (
-                  <span className="text-zinc-500 dark:text-zinc-400 font-medium truncate">
+                  <span className="text-zinc-500 dark:text-zinc-400 font-medium break-words">
                     {decodedName}
                   </span>
                 )}
                 {/* Property value */}
-                <span className="font-mono text-zinc-900 dark:text-zinc-100 select-all break-all">
+                <span className="font-mono text-zinc-900 dark:text-zinc-100 select-all break-words">
                   {parsed.displayValue}
                 </span>
               </div>
@@ -892,8 +892,8 @@ function QuantitySetCard({ qset }: { qset: QuantitySet }) {
   };
 
   return (
-    <Collapsible defaultOpen className="border-2 border-blue-200 dark:border-blue-800 bg-blue-50/20 dark:bg-blue-950/20 overflow-hidden">
-      <CollapsibleTrigger className="flex items-center gap-2 w-full p-2.5 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-left transition-colors overflow-hidden">
+    <Collapsible defaultOpen className="border-2 border-blue-200 dark:border-blue-800 bg-blue-50/20 dark:bg-blue-950/20 w-full max-w-full">
+      <CollapsibleTrigger className="flex items-center gap-2 w-full p-2.5 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-left transition-colors">
         <span className="font-bold text-xs uppercase tracking-wide text-blue-700 dark:text-blue-400 truncate flex-1 min-w-0">{decodeIfcString(qset.name)}</span>
         <span className="text-[10px] font-mono bg-blue-100 dark:bg-blue-900/50 px-1.5 py-0.5 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 shrink-0">{qset.quantities.length}</span>
       </CollapsibleTrigger>
@@ -903,12 +903,12 @@ function QuantitySetCard({ qset }: { qset: QuantitySet }) {
             const decodedName = decodeIfcString(q.name);
             const typeName = QUANTITY_TYPE_NAMES[q.type];
             return (
-              <div key={q.name} className="flex flex-col gap-0.5 px-3 py-2 text-xs hover:bg-blue-50/50 dark:hover:bg-blue-900/20 overflow-hidden">
+              <div key={q.name} className="flex flex-col gap-0.5 px-3 py-2 text-xs hover:bg-blue-50/50 dark:hover:bg-blue-900/20">
                 {/* Quantity name with type tooltip */}
                 {typeName ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <span className="text-zinc-500 dark:text-zinc-400 font-medium cursor-help truncate">
+                      <span className="text-zinc-500 dark:text-zinc-400 font-medium cursor-help break-words">
                         {decodedName}
                       </span>
                     </TooltipTrigger>
@@ -917,12 +917,12 @@ function QuantitySetCard({ qset }: { qset: QuantitySet }) {
                     </TooltipContent>
                   </Tooltip>
                 ) : (
-                  <span className="text-zinc-500 dark:text-zinc-400 font-medium truncate">
+                  <span className="text-zinc-500 dark:text-zinc-400 font-medium break-words">
                     {decodedName}
                   </span>
                 )}
                 {/* Quantity value */}
-                <span className="font-mono text-blue-700 dark:text-blue-400 select-all break-all">
+                <span className="font-mono text-blue-700 dark:text-blue-400 select-all break-words">
                   {formatValue(q.value, q.type)}
                 </span>
               </div>
