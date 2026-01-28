@@ -194,6 +194,7 @@ export class MutablePropertyView {
 
   /**
    * Set a property value
+   * If the property set doesn't exist, creates it automatically
    */
   setProperty(
     entityId: number,
@@ -208,6 +209,53 @@ export class MutablePropertyView {
     // Get old value for undo
     const oldValue = this.getPropertyValue(entityId, psetName, propName);
 
+    // Check if this pset exists in base
+    const basePsets = this.getBasePropertiesForEntity(entityId);
+    const psetExistsInBase = basePsets.some(p => p.name === psetName);
+    const psetExistsInNew = this.newPsets.get(entityId)?.has(psetName);
+
+    // If pset doesn't exist anywhere, create it in newPsets
+    if (!psetExistsInBase && !psetExistsInNew) {
+      let entityPsets = this.newPsets.get(entityId);
+      if (!entityPsets) {
+        entityPsets = new Map();
+        this.newPsets.set(entityId, entityPsets);
+      }
+      // Create new property set with this single property
+      const pset: PropertySet = {
+        name: psetName,
+        globalId: `new_${generateMutationId()}`,
+        properties: [{
+          name: propName,
+          type: valueType,
+          value: value,
+          unit: unit,
+        }],
+      };
+      entityPsets.set(psetName, pset);
+    } else if (psetExistsInNew) {
+      // If pset exists in newPsets, add/update the property there
+      const entityPsets = this.newPsets.get(entityId)!;
+      const pset = entityPsets.get(psetName)!;
+      const existingPropIndex = pset.properties.findIndex(p => p.name === propName);
+      if (existingPropIndex >= 0) {
+        pset.properties[existingPropIndex] = {
+          name: propName,
+          type: valueType,
+          value: value,
+          unit: unit,
+        };
+      } else {
+        pset.properties.push({
+          name: propName,
+          type: valueType,
+          value: value,
+          unit: unit,
+        });
+      }
+    }
+
+    // Always store in propertyMutations for tracking
     this.propertyMutations.set(key, {
       operation: 'SET',
       value,

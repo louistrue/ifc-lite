@@ -26,6 +26,8 @@ export interface MutationSlice {
   redoStacks: Map<string, Mutation[]>;
   /** Models with unsaved changes */
   dirtyModels: Set<string>;
+  /** Version counter to trigger re-renders when mutations change */
+  mutationVersion: number;
 
   // Actions - Mutation View Management
   /** Get or create mutation view for a model */
@@ -120,6 +122,7 @@ export const createMutationSlice: StateCreator<
   undoStacks: new Map(),
   redoStacks: new Map(),
   dirtyModels: new Set(),
+  mutationVersion: 0,
 
   // Mutation View Management
   getMutationView: (modelId) => {
@@ -169,6 +172,7 @@ export const createMutationSlice: StateCreator<
         undoStacks: newUndoStacks,
         redoStacks: newRedoStacks,
         dirtyModels: newDirty,
+        mutationVersion: state.mutationVersion + 1,
       };
     });
 
@@ -197,6 +201,7 @@ export const createMutationSlice: StateCreator<
         undoStacks: newUndoStacks,
         redoStacks: newRedoStacks,
         dirtyModels: newDirty,
+        mutationVersion: state.mutationVersion + 1,
       };
     });
 
@@ -224,6 +229,7 @@ export const createMutationSlice: StateCreator<
         undoStacks: newUndoStacks,
         redoStacks: newRedoStacks,
         dirtyModels: newDirty,
+        mutationVersion: state.mutationVersion + 1,
       };
     });
 
@@ -251,6 +257,7 @@ export const createMutationSlice: StateCreator<
         undoStacks: newUndoStacks,
         redoStacks: newRedoStacks,
         dirtyModels: newDirty,
+        mutationVersion: state.mutationVersion + 1,
       };
     });
 
@@ -303,6 +310,7 @@ export const createMutationSlice: StateCreator<
       return {
         undoStacks: newUndoStacks,
         redoStacks: newRedoStacks,
+        mutationVersion: s.mutationVersion + 1,
       };
     });
   },
@@ -344,6 +352,7 @@ export const createMutationSlice: StateCreator<
       return {
         undoStacks: newUndoStacks,
         redoStacks: newRedoStacks,
+        mutationVersion: s.mutationVersion + 1,
       };
     });
   },
@@ -459,6 +468,7 @@ export const createMutationSlice: StateCreator<
         undoStacks: newUndoStacks,
         redoStacks: newRedoStacks,
         dirtyModels: newDirty,
+        mutationVersion: state.mutationVersion + 1,
       };
     });
   },
@@ -468,10 +478,11 @@ export const createMutationSlice: StateCreator<
       view.clear();
     }
 
-    set({
+    set((state) => ({
       undoStacks: new Map(),
       redoStacks: new Map(),
       dirtyModels: new Set(),
-    });
+      mutationVersion: state.mutationVersion + 1,
+    }));
   },
 });

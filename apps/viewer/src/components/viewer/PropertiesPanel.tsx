@@ -261,8 +261,9 @@ export function PropertiesPanel() {
   // Use model-aware data store
   const activeDataStore = model?.ifcDataStore ?? ifcDataStore;
 
-  // Subscribe to mutation views to trigger re-render when mutations change
+  // Subscribe to mutation views and version to trigger re-render when mutations change
   const mutationViews = useViewerStore((s) => s.mutationViews);
+  const mutationVersion = useViewerStore((s) => s.mutationVersion);
   const getMutationView = useViewerStore((s) => s.getMutationView);
   const registerMutationView = useViewerStore((s) => s.registerMutationView);
 
@@ -452,7 +453,7 @@ export function PropertiesPanel() {
     }
 
     return mergedProperties;
-  }, [entityNode, selectedEntity, mutationViews]);
+  }, [entityNode, selectedEntity, mutationViews, mutationVersion]);
 
   const quantities: QuantitySet[] = useMemo(() => {
     if (!entityNode) return [];

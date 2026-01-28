@@ -111,7 +111,12 @@ export class StepExporter {
 
     // Collect entities that need to be modified or created
     const modifiedEntities = new Set<number>();
+    const modifiedPsets = new Map<number, Set<string>>(); // entityId -> psetNames being modified
     const newPropertySets: Array<{ entityId: number; psets: PropertySet[] }> = [];
+
+    // Track property set IDs and relationship IDs to skip
+    const skipPropertySetIds = new Set<number>();
+    const skipRelationshipIds = new Set<number>();
 
     // Process mutations if we have a mutation view
     if (this.mutationView && (options.applyMutations !== false)) {
@@ -128,17 +133,43 @@ export class StepExporter {
         }
       }
 
-      // Collect modified property sets
+      // Collect modified property sets and find original psets to skip
       for (const [entityId, psetNames] of entityMutations) {
         modifiedEntities.add(entityId);
+        modifiedPsets.set(entityId, psetNames);
         modifiedEntityCount++;
 
-        // Get the mutated property sets for this entity
+        // Get the FULL mutated property sets for this entity (merged base + mutations)
         const allPsets = this.mutationView.getForEntity(entityId);
         const relevantPsets = allPsets.filter(pset => psetNames.has(pset.name));
 
         if (relevantPsets.length > 0) {
           newPropertySets.push({ entityId, psets: relevantPsets });
+        }
+
+        // Find original property set IDs and relationship IDs to skip
+        // Look for IfcRelDefinesByProperties that reference this entity
+        for (const [relId, relRef] of this.dataStore.entityIndex.byId) {
+          const relType = relRef.type.toUpperCase();
+          if (relType === 'IFCRELDEFINESBYPROPERTIES') {
+            // Parse the relationship to check if it references our entity
+            const relatedEntities = this.getRelatedEntities(relId);
+            const relatedPsetId = this.getRelatedPropertySet(relId);
+
+            if (relatedEntities.includes(entityId) && relatedPsetId) {
+              // Check if this pset is one we're modifying
+              const psetName = this.getPropertySetName(relatedPsetId);
+              if (psetName && psetNames.has(psetName)) {
+                skipRelationshipIds.add(relId);
+                skipPropertySetIds.add(relatedPsetId);
+                // Also skip the individual properties in this pset
+                const propIds = this.getPropertyIdsInSet(relatedPsetId);
+                for (const propId of propIds) {
+                  skipPropertySetIds.add(propId);
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -156,13 +187,18 @@ export class StepExporter {
       };
     }
 
-    // Export original entities from source buffer
+    // Export original entities from source buffer, SKIPPING modified property sets
     if (!options.deltaOnly && this.dataStore.source) {
       const decoder = new TextDecoder();
       const source = this.dataStore.source;
 
       // Extract existing entities from source
       for (const [expressId, entityRef] of this.dataStore.entityIndex.byId) {
+        // Skip property sets/relationships that are being replaced
+        if (skipPropertySetIds.has(expressId) || skipRelationshipIds.has(expressId)) {
+          continue;
+        }
+
         // Skip if we're only doing geometry or specific types
         const entityType = entityRef.type.toUpperCase();
 
@@ -180,7 +216,7 @@ export class StepExporter {
       }
     }
 
-    // Generate new property entities for mutations
+    // Generate new property entities for mutations (these REPLACE the skipped ones)
     for (const { entityId, psets } of newPropertySets) {
       const newEntities = this.generatePropertySetEntities(entityId, psets);
       entities.push(...newEntities.lines);
@@ -388,6 +424,93 @@ export class StepExporter {
       'IFCCOLOURRGB',
     ]);
     return geometryTypes.has(type);
+  }
+
+  /**
+   * Get entity IDs related by IfcRelDefinesByProperties (the related objects)
+   */
+  private getRelatedEntities(relId: number): number[] {
+    const entityRef = this.dataStore.entityIndex.byId.get(relId);
+    if (!entityRef || !this.dataStore.source) return [];
+
+    const decoder = new TextDecoder();
+    const entityText = decoder.decode(
+      this.dataStore.source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength)
+    );
+
+    // Parse IfcRelDefinesByProperties: #ID=IFCRELDEFINESBYPROPERTIES('guid',$,$,$,(#objects),#pset);
+    // The 5th argument (index 4) is the list of related objects
+    const match = entityText.match(/\(([^)]+)\)\s*,\s*#(\d+)\s*\)\s*;/);
+    if (!match) return [];
+
+    const objectsList = match[1];
+    const refs: number[] = [];
+    const refMatches = objectsList.matchAll(/#(\d+)/g);
+    for (const m of refMatches) {
+      refs.push(parseInt(m[1], 10));
+    }
+    return refs;
+  }
+
+  /**
+   * Get the property set ID from IfcRelDefinesByProperties
+   */
+  private getRelatedPropertySet(relId: number): number | null {
+    const entityRef = this.dataStore.entityIndex.byId.get(relId);
+    if (!entityRef || !this.dataStore.source) return null;
+
+    const decoder = new TextDecoder();
+    const entityText = decoder.decode(
+      this.dataStore.source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength)
+    );
+
+    // Last #ID before the closing );
+    const match = entityText.match(/,\s*#(\d+)\s*\)\s*;$/);
+    if (!match) return null;
+    return parseInt(match[1], 10);
+  }
+
+  /**
+   * Get the name of a property set by parsing the entity
+   */
+  private getPropertySetName(psetId: number): string | null {
+    const entityRef = this.dataStore.entityIndex.byId.get(psetId);
+    if (!entityRef || !this.dataStore.source) return null;
+
+    const decoder = new TextDecoder();
+    const entityText = decoder.decode(
+      this.dataStore.source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength)
+    );
+
+    // Parse: IFCPROPERTYSET('guid',$,'Name',$,...) - Name is 3rd argument
+    const match = entityText.match(/IFCPROPERTYSET\s*\([^,]*,[^,]*,'([^']*)'/i);
+    if (!match) return null;
+    return match[1];
+  }
+
+  /**
+   * Get IDs of properties in a property set
+   */
+  private getPropertyIdsInSet(psetId: number): number[] {
+    const entityRef = this.dataStore.entityIndex.byId.get(psetId);
+    if (!entityRef || !this.dataStore.source) return [];
+
+    const decoder = new TextDecoder();
+    const entityText = decoder.decode(
+      this.dataStore.source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength)
+    );
+
+    // Parse: IFCPROPERTYSET(...,(#prop1,#prop2,...)); - Last argument is properties list
+    const match = entityText.match(/\(\s*(#[^)]+)\s*\)\s*\)\s*;$/);
+    if (!match) return [];
+
+    const propsList = match[1];
+    const ids: number[] = [];
+    const refMatches = propsList.matchAll(/#(\d+)/g);
+    for (const m of refMatches) {
+      ids.push(parseInt(m[1], 10));
+    }
+    return ids;
   }
 }
 
