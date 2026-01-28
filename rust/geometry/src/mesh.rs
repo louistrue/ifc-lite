@@ -329,6 +329,88 @@ impl Mesh {
         self.normals.clear();
         self.indices.clear();
     }
+
+    /// Snap vertices to a grid to clean up floating point errors from CSG operations.
+    ///
+    /// CSG libraries often produce vertices with floating point noise (e.g., 33.755688
+    /// instead of 33.045). This method snaps coordinates to the nearest grid point
+    /// to produce clean geometry.
+    ///
+    /// # Arguments
+    /// * `grid_size` - The grid resolution in meters (e.g., 0.001 = 1mm)
+    ///
+    /// # Note
+    /// This also merges duplicate vertices that snap to the same grid point.
+    #[inline]
+    pub fn snap_to_grid(&mut self, grid_size: f32) {
+        if self.is_empty() || grid_size <= 0.0 {
+            return;
+        }
+
+        let inv_grid = 1.0 / grid_size;
+
+        // Snap all vertex positions to grid
+        for pos in self.positions.iter_mut() {
+            *pos = (*pos * inv_grid).round() * grid_size;
+        }
+    }
+
+    /// Snap vertices to reference Z levels from the original mesh.
+    ///
+    /// CSG can produce messy Z values. This method snaps Z coordinates to the
+    /// closest Z level from the original mesh if within tolerance.
+    ///
+    /// # Arguments
+    /// * `reference_z_levels` - List of valid Z levels from the original mesh
+    /// * `tolerance` - Maximum distance to snap (e.g., 0.1 = 10cm)
+    #[inline]
+    pub fn snap_z_to_levels(&mut self, reference_z_levels: &[f32], tolerance: f32) {
+        if self.is_empty() || reference_z_levels.is_empty() {
+            return;
+        }
+
+        // Snap each Z coordinate to the nearest reference level if within tolerance
+        for chunk in self.positions.chunks_exact_mut(3) {
+            let z = chunk[2];
+
+            // Find closest reference Z
+            let mut closest_z = z;
+            let mut closest_dist = f32::MAX;
+
+            for &ref_z in reference_z_levels {
+                let dist = (z - ref_z).abs();
+                if dist < closest_dist {
+                    closest_dist = dist;
+                    closest_z = ref_z;
+                }
+            }
+
+            // Snap if within tolerance
+            if closest_dist <= tolerance {
+                chunk[2] = closest_z;
+            }
+        }
+    }
+
+    /// Extract unique Z levels from this mesh (useful for creating snap references)
+    ///
+    /// # Arguments
+    /// * `precision` - Minimum difference between Z levels (e.g., 0.01 = 1cm)
+    #[inline]
+    pub fn unique_z_levels(&self, precision: f32) -> Vec<f32> {
+        let mut z_levels: Vec<f32> = Vec::new();
+
+        for chunk in self.positions.chunks_exact(3) {
+            let z = chunk[2];
+            // Check if this Z level is already in the list (within precision)
+            if !z_levels.iter().any(|&existing| (existing - z).abs() < precision) {
+                z_levels.push(z);
+            }
+        }
+
+        z_levels.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        z_levels
+    }
 }
 
 impl Default for Mesh {

@@ -873,13 +873,13 @@ impl GeometryRouter {
     ) -> Result<Mesh> {
         // Check if this element has any openings
         let opening_ids = match void_index.get(&element.id) {
-            Some(ids) if !ids.is_empty() => ids,
+            Some(ids) if !ids.is_empty() => ids.as_slice(),
             _ => {
                 // No openings - just process normally
                 return self.process_element(element, decoder);
             }
         };
-        
+
         // SAFETY: Skip void subtraction for elements with too many openings
         // This prevents CSG operations from causing panics or excessive processing time
         // Elements with many openings (like curtain walls) are better handled without CSG
@@ -888,6 +888,29 @@ impl GeometryRouter {
             // Just return the base mesh without void subtraction
             return self.process_element(element, decoder);
         }
+
+        // STRATEGY 1: Try 2D profile-based void subtraction first (robust, fast)
+        // This works for extruded profiles with coplanar voids (most common case)
+        // Falls back to 3D CSG only if 2D approach fails
+        match self.try_process_extrusion_with_voids_2d(element, decoder, opening_ids) {
+            Ok(Some(mesh)) => {
+                #[cfg(not(target_arch = "wasm32"))]
+                eprintln!("[2D VOID] SUCCESS: Element #{} used 2D profile subtraction", element.id);
+                return Ok(mesh);
+            }
+            Ok(None) => {
+                #[cfg(not(target_arch = "wasm32"))]
+                eprintln!("[2D VOID] SKIP: Element #{} not suitable for 2D (not extrusion)", element.id);
+            }
+            Err(e) => {
+                #[cfg(not(target_arch = "wasm32"))]
+                eprintln!("[2D VOID] ERROR: Element #{} 2D failed: {:?}", element.id, e);
+            }
+        }
+
+        // STRATEGY 2: Fall back to 3D CSG (handles non-extruded geometry and non-coplanar voids)
+        #[cfg(not(target_arch = "wasm32"))]
+        eprintln!("[3D CSG] Using CSG for element #{}", element.id);
 
         // STEP 1: Get chamfered wall mesh (preserves chamfered corners at intersections)
         let wall_mesh = match self.process_element(element, decoder) {
@@ -929,15 +952,10 @@ impl GeometryRouter {
                 Vec::new()
             };
         
-        // STEP 5: Collect opening info (bounds for rectangular, full mesh for non-rectangular)
-        // For rectangular openings, get individual bounds per representation item to handle
-        // disconnected geometry (e.g., two separate window openings in one IfcOpeningElement)
-        enum OpeningType {
-            Rectangular(Point3<f64>, Point3<f64>),  // min, max bounds
-            NonRectangular(Mesh),                    // full mesh for CSG
-        }
+        // STEP 5: Collect opening meshes for CSG subtraction
+        // Always use full mesh CSG - AABB doesn't work for rotated openings
+        let mut opening_meshes: Vec<Mesh> = Vec::new();
 
-        let mut openings: Vec<OpeningType> = Vec::new();
         for &opening_id in opening_ids.iter() {
             let opening_entity = match decoder.decode_by_id(opening_id) {
                 Ok(e) => e,
@@ -949,53 +967,17 @@ impl GeometryRouter {
                 _ => continue,
             };
 
-            let vertex_count = opening_mesh.positions.len() / 3;
-
-            if vertex_count > 100 {
-                // Non-rectangular (circular, arched, etc.) - use full CSG
-                openings.push(OpeningType::NonRectangular(opening_mesh));
-            } else {
-                // Rectangular - get individual bounds for each representation item
-                // This handles disconnected geometry (multiple boxes with gaps between them)
-                let item_bounds = self.get_opening_item_bounds(&opening_entity, decoder)
-                    .unwrap_or_default();
-
-                if !item_bounds.is_empty() {
-                    // Use individual item bounds for disconnected geometry
-                    for (min_pt, max_pt) in item_bounds {
-                        openings.push(OpeningType::Rectangular(min_pt, max_pt));
-                    }
-                } else {
-                    // Fallback to combined mesh bounds when individual bounds unavailable
-                    let (open_min, open_max) = opening_mesh.bounds();
-                    let min_f64 = Point3::new(open_min.x as f64, open_min.y as f64, open_min.z as f64);
-                    let max_f64 = Point3::new(open_max.x as f64, open_max.y as f64, open_max.z as f64);
-                    openings.push(OpeningType::Rectangular(min_f64, max_f64));
-                }
-            }
+            opening_meshes.push(opening_mesh);
         }
 
-        if openings.is_empty() {
+        if opening_meshes.is_empty() {
             return self.process_element(element, decoder);
         }
 
         // STEP 6: Cut openings using appropriate method
         use crate::csg::ClippingProcessor;
         let clipper = ClippingProcessor::new();
-        let mut result = wall_mesh;
-
-        // Get wall bounds for clamping opening faces (from result before cutting)
-        let (wall_min_f32, wall_max_f32) = result.bounds();
-        let wall_min = Point3::new(
-            wall_min_f32.x as f64,
-            wall_min_f32.y as f64,
-            wall_min_f32.z as f64,
-        );
-        let wall_max = Point3::new(
-            wall_max_f32.x as f64,
-            wall_max_f32.y as f64,
-            wall_max_f32.z as f64,
-        );
+        let mut result = wall_mesh.clone();
 
         // Validate wall mesh ONCE before CSG operations (not per-iteration)
         // This avoids O(n) validation on every loop iteration
@@ -1008,49 +990,153 @@ impl GeometryRouter {
             return Ok(result);
         }
 
+        // Extract reference Z levels from original mesh AND all openings for snapping CSG results
+        // CSG often produces messy floating point Z values that should be snapped
+        // to clean values from the original geometry + opening geometry
+        let mut reference_z_levels = wall_mesh.unique_z_levels(0.01); // 1cm precision
+
+        // Add Z levels from all openings - these are valid intermediate levels after CSG
+        for opening_mesh in opening_meshes.iter() {
+            for z in opening_mesh.unique_z_levels(0.01) {
+                if !reference_z_levels.iter().any(|&existing| (existing - z).abs() < 0.01) {
+                    reference_z_levels.push(z);
+                }
+            }
+        }
+        reference_z_levels.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
         // Track CSG operations to prevent excessive complexity
         let mut csg_operation_count = 0;
-        const MAX_CSG_OPERATIONS: usize = 10; // Limit to prevent runaway CSG
+        const MAX_CSG_OPERATIONS: usize = 20; // Limit to prevent runaway CSG
 
-        for (_idx, opening) in openings.iter().enumerate() {
-            match opening {
-                OpeningType::Rectangular(open_min, open_max) => {
-                    // Use optimized rectangular opening cut (safe, doesn't use csgrs)
-                    result = self.cut_rectangular_opening(&result, *open_min, *open_max, wall_min, wall_max);
+        // DEBUG: Log before CSG
+        #[cfg(target_arch = "wasm32")]
+        let debug_id = element.id;
+        #[cfg(target_arch = "wasm32")]
+        let before_verts = result.positions.len() / 3;
+        #[cfg(target_arch = "wasm32")]
+        let before_tris = result.indices.len() / 3;
+
+        for opening_mesh in opening_meshes.iter() {
+            // Safety: limit total CSG operations to prevent crashes on complex geometry
+            if csg_operation_count >= MAX_CSG_OPERATIONS {
+                break;
+            }
+
+            // Validate opening mesh before CSG
+            let opening_valid = !opening_mesh.is_empty()
+                && opening_mesh.positions.iter().all(|&v| v.is_finite())
+                && opening_mesh.positions.len() >= 9; // At least 3 vertices
+
+            if !opening_valid {
+                continue;
+            }
+
+            // Use full CSG subtraction
+            let (pre_min, pre_max) = result.bounds();
+            let pre_csg_tris = result.triangle_count();
+            #[cfg(target_arch = "wasm32")]
+            let pre_csg_verts = result.positions.len() / 3;
+
+            match clipper.subtract_mesh(&result, opening_mesh) {
+                Ok(csg_result) => {
+                    // Validate result is not degenerate
+                    let has_nan = csg_result.positions.iter().any(|v| !v.is_finite());
+                    let post_csg_tris = csg_result.triangle_count();
+
+                    // Check if bounds are reasonable (not exploded/corrupted)
+                    // CSG should not significantly expand the bounding box
+                    let (post_min, post_max) = csg_result.bounds();
+                    let bounds_ok = if !csg_result.is_empty() {
+                        // Allow some tolerance for numerical precision
+                        let tolerance = 1.0; // 1 meter tolerance
+                        post_min.x >= pre_min.x - tolerance &&
+                        post_min.y >= pre_min.y - tolerance &&
+                        post_min.z >= pre_min.z - tolerance &&
+                        post_max.x <= pre_max.x + tolerance &&
+                        post_max.y <= pre_max.y + tolerance &&
+                        post_max.z <= pre_max.z + tolerance
+                    } else {
+                        false
+                    };
+
+                    // Check if CSG corrupted the geometry by adding spurious Z levels
+                    // A sign of CSG failure is when it introduces many new Z levels not present
+                    // in the original geometry or openings
+                    let csg_z_levels = csg_result.unique_z_levels(0.01);
+
+                    // Count how many CSG Z levels DON'T match any reference level (within tight tolerance)
+                    // Use 5cm tolerance - CSG should not significantly shift Z values
+                    let spurious_z_count = csg_z_levels.iter().filter(|&&csg_z| {
+                        !reference_z_levels.iter().any(|&ref_z| (csg_z - ref_z).abs() < 0.05)
+                    }).count();
+
+                    // CSG is considered valid if it doesn't introduce too many spurious Z levels
+                    // Allow up to 2 spurious levels for legitimate CSG artifacts at intersection edges
+                    let z_levels_ok = spurious_z_count <= 2;
+
+                    // Accept CSG result if:
+                    // - Not empty
+                    // - Has at least 4 triangles (minimum for a valid shape)
+                    // - No NaN values
+                    // - Bounds are reasonable (not exploded)
+                    // - Doesn't introduce too many spurious Z levels (not geometrically corrupted)
+                    // Note: We removed triangle loss check because legitimate void
+                    // subtraction can reduce triangles significantly (e.g., solid -> frame)
+                    if !csg_result.is_empty() && post_csg_tris >= 4 && !has_nan && bounds_ok && z_levels_ok {
+                        let mut snapped_result = csg_result;
+
+                        // Snap Z values to reference levels from original mesh + openings
+                        // This cleans up floating point errors from CSG (e.g., 33.755688 -> 33.045)
+                        // Use 10cm tolerance - enough to catch CSG drift but not merge distinct levels
+                        snapped_result.snap_z_to_levels(&reference_z_levels, 0.1);
+
+                        result = snapped_result;
+                    } else {
+                        // DEBUG: Log when CSG produces bad result
+                        #[cfg(target_arch = "wasm32")]
+                        web_sys::console::log_1(&format!(
+                            "🔴 CSG #{} op{}: rejected - empty={} tris={}->{} nan={} bounds={} z_ok={} (spurious={})",
+                            debug_id, csg_operation_count,
+                            csg_result.is_empty(), pre_csg_tris, post_csg_tris, has_nan, bounds_ok, z_levels_ok, spurious_z_count
+                        ).into());
+                    }
                 }
-                OpeningType::NonRectangular(opening_mesh) => {
-                    // Safety: limit total CSG operations to prevent crashes on complex geometry
-                    if csg_operation_count >= MAX_CSG_OPERATIONS {
-                        // Skip remaining CSG operations
-                        continue;
-                    }
-
-                    // Validate opening mesh before CSG (only once per opening)
-                    let opening_valid = !opening_mesh.is_empty()
-                        && opening_mesh.positions.iter().all(|&v| v.is_finite())
-                        && opening_mesh.positions.len() >= 9; // At least 3 vertices
-
-                    if !opening_valid {
-                        // Skip invalid opening
-                        continue;
-                    }
-
-                    // Use full CSG subtraction for non-rectangular shapes
-                    // Note: mesh_to_csgrs validates and filters invalid triangles internally
-                    match clipper.subtract_mesh(&result, opening_mesh) {
-                        Ok(csg_result) => {
-                            // Validate result is not degenerate
-                            if !csg_result.is_empty() && csg_result.triangle_count() >= 4 {
-                                result = csg_result;
-                            }
-                            // If result is degenerate, keep previous result
-                        }
-                        Err(_) => {
-                            // Keep original result if CSG fails
-                        }
-                    }
-                    csg_operation_count += 1;
+                Err(e) => {
+                    // DEBUG: Log CSG error
+                    #[cfg(target_arch = "wasm32")]
+                    web_sys::console::log_1(&format!(
+                        "🔴 CSG #{} op{}: error {:?}",
+                        debug_id, csg_operation_count, e
+                    ).into());
                 }
+            }
+
+            #[cfg(target_arch = "wasm32")]
+            {
+                let post_csg_verts = result.positions.len() / 3;
+                if post_csg_verts != pre_csg_verts {
+                    // Only log when geometry actually changes
+                    web_sys::console::log_1(&format!(
+                        "🟢 CSG #{} op{}: {} -> {} verts",
+                        debug_id, csg_operation_count, pre_csg_verts, post_csg_verts
+                    ).into());
+                }
+            }
+
+            csg_operation_count += 1;
+        }
+
+        // DEBUG: Log after all CSG
+        #[cfg(target_arch = "wasm32")]
+        {
+            let after_verts = result.positions.len() / 3;
+            let after_tris = result.indices.len() / 3;
+            if after_verts != before_verts {
+                web_sys::console::log_1(&format!(
+                    "🔵 CSG #{} TOTAL: {} verts/{} tris -> {} verts/{} tris ({} ops)",
+                    debug_id, before_verts, before_tris, after_verts, after_tris, csg_operation_count
+                ).into());
             }
         }
 

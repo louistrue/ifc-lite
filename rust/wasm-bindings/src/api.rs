@@ -1359,54 +1359,6 @@ impl IfcAPI {
                     }
                 }
 
-                // DEBUG: Log void_index statistics
-                let total_voids: usize = void_index.values().map(|v| v.len()).sum();
-                web_sys::console::log_1(&format!(
-                    "[VOID DEBUG] Built void_index: {} hosts with {} total void relationships",
-                    void_index.len(),
-                    total_voids
-                ).into());
-
-                // Check specific wall IDs for debugging (AR.ifc wall GlobalIds)
-                // #221277 = 3ZveCIVhf3exFdDUAllr1n, #683654 = 0bI$4rsfj9sPsgvuoSE7JG
-                for test_id in [221277u32, 683654u32] {
-                    if let Some(voids) = void_index.get(&test_id) {
-                        web_sys::console::log_1(&format!(
-                            "[VOID DEBUG] Wall #{} has {} voids: {:?}",
-                            test_id,
-                            voids.len(),
-                            voids
-                        ).into());
-
-                        // DEBUG: Check if opening elements have valid geometry
-                        for &opening_id in voids {
-                            if let Ok(opening_entity) = decoder.decode_by_id(opening_id) {
-                                let has_repr = opening_entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
-                                web_sys::console::log_1(&format!(
-                                    "[VOID DEBUG] Opening #{} type={} has_representation={}",
-                                    opening_id, opening_entity.ifc_type.name(), has_repr
-                                ).into());
-
-                                // Try to process opening geometry
-                                match router.process_element(&opening_entity, &mut decoder) {
-                                    Ok(mesh) => {
-                                        web_sys::console::log_1(&format!(
-                                            "[VOID DEBUG] Opening #{} mesh: {} vertices, {} triangles",
-                                            opening_id, mesh.positions.len() / 3, mesh.indices.len() / 3
-                                        ).into());
-                                    },
-                                    Err(e) => {
-                                        web_sys::console::log_1(&format!(
-                                            "[VOID DEBUG] Opening #{} FAILED: {:?}",
-                                            opening_id, e
-                                        ).into());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
                 // PROCESS PASS: Process elements with void subtraction
                 let mut scanner = EntityScanner::new(&content);
                 let mut deferred_complex: Vec<(u32, usize, usize, ifc_lite_core::IfcType)> =
@@ -1443,16 +1395,6 @@ impl IfcAPI {
                             let has_representation =
                                 entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
                             if has_representation {
-                                // DEBUG: Log when processing walls with voids
-                                let has_voids = void_index.get(&id).map(|v| !v.is_empty()).unwrap_or(false);
-                                if has_voids {
-                                    let voids = void_index.get(&id).unwrap();
-                                    web_sys::console::log_1(&format!(
-                                        "[VOID DEBUG] Processing {} #{} with {} voids",
-                                        type_name, id, voids.len()
-                                    ).into());
-                                }
-
                                 // Use process_element_with_voids to subtract openings
                                 if let Ok(mut mesh) = router.process_element_with_voids(
                                     &entity,
@@ -1460,13 +1402,6 @@ impl IfcAPI {
                                     &void_index,
                                 ) {
                                     if !mesh.is_empty() {
-                                        // DEBUG: Log mesh stats for walls with voids
-                                        if has_voids && id == 683654 {
-                                            web_sys::console::log_1(&format!(
-                                                "[VOID DEBUG] Wall #{} RESULT: {} vertices, {} triangles",
-                                                id, mesh.positions.len() / 3, mesh.indices.len() / 3
-                                            ).into());
-                                        }
                                         if mesh.normals.len() != mesh.positions.len() {
                                             calculate_normals(&mut mesh);
                                         }
@@ -1488,7 +1423,6 @@ impl IfcAPI {
                                 }
                             }
                         }
-
                         // Yield batch frequently for responsive UI
                         if batch_meshes.len() >= batch_size {
                             if let Some(ref callback) = on_batch {
