@@ -117,6 +117,8 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
   const { models } = useIfc();
   const getMutationView = useViewerStore((s) => s.getMutationView);
   const registerMutationView = useViewerStore((s) => s.registerMutationView);
+  // Subscribe to mutationViews directly to trigger re-render when views are registered
+  const mutationViews = useViewerStore((s) => s.mutationViews);
   // Also get legacy single-model state for backward compatibility
   const legacyIfcDataStore = useViewerStore((s) => s.ifcDataStore);
   const legacyGeometryResult = useViewerStore((s) => s.geometryResult);
@@ -246,10 +248,10 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
     registerMutationView(selectedModelId, mutationView);
   }, [selectedModel, selectedModelId, getMutationView, registerMutationView]);
 
-  // Create BulkQueryEngine instance
+  // Create BulkQueryEngine instance - depend on mutationViews to re-render when view is registered
   const queryEngine = useMemo(() => {
     if (!selectedModel?.ifcDataStore) return null;
-    const mutationView = getMutationView(selectedModelId);
+    const mutationView = mutationViews.get(selectedModelId);
     if (!mutationView) return null;
 
     const dataStore = selectedModel.ifcDataStore;
@@ -260,33 +262,10 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
       dataStore.properties || null,
       dataStore.strings || null
     );
-  }, [selectedModel, selectedModelId, getMutationView]);
+  }, [selectedModel, selectedModelId, mutationViews]);
 
-  // Add a new filter
-  const addFilter = useCallback(() => {
-    setFilters(prev => [...prev, {
-      id: `filter_${Date.now()}`,
-      psetName: '',
-      propName: '',
-      operator: '=' as FilterOperator,
-      value: '',
-    }]);
-  }, []);
-
-  // Remove a filter
-  const removeFilter = useCallback((id: string) => {
-    setFilters(prev => prev.filter(f => f.id !== id));
-  }, []);
-
-  // Update a filter
-  const updateFilter = useCallback((id: string, field: keyof PropertyFilterUI, value: string) => {
-    setFilters(prev => prev.map(f =>
-      f.id === id ? { ...f, [field]: value } : f
-    ));
-  }, []);
-
-  // Build selection criteria for the query engine
-  const buildCriteria = useCallback((): SelectionCriteria => {
+  // Build selection criteria for the query engine (memoized for live count)
+  const currentCriteria = useMemo((): SelectionCriteria => {
     const criteria: SelectionCriteria = {};
 
     // Filter by entity types - need to find type enum IDs
@@ -352,6 +331,99 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
     return criteria;
   }, [selectedTypes, selectedStoreys, namePattern, filters, selectedModel]);
 
+  // Live entity count based on current criteria
+  const liveMatchCount = useMemo(() => {
+    if (!queryEngine) return 0;
+    try {
+      const matchedIds = queryEngine.select(currentCriteria);
+      return matchedIds.length;
+    } catch {
+      return 0;
+    }
+  }, [queryEngine, currentCriteria]);
+
+  // Discover available properties from matched entities (sample first 100 for performance)
+  const discoveredProperties = useMemo(() => {
+    if (!selectedModel?.ifcDataStore || !queryEngine) return { psets: new Map<string, Set<string>>(), allProps: new Set<string>() };
+
+    const psets = new Map<string, Set<string>>();
+    const allProps = new Set<string>();
+    const dataStore = selectedModel.ifcDataStore;
+
+    try {
+      // Get matching entity IDs
+      let entityIds = queryEngine.select(currentCriteria);
+      // Sample first 100 entities for performance
+      if (entityIds.length > 100) {
+        entityIds = entityIds.slice(0, 100);
+      }
+
+      // Extract properties from each entity
+      for (const entityId of entityIds) {
+        let properties: Array<{ name: string; properties: Array<{ name: string }> }> = [];
+
+        // Use on-demand extraction if available
+        if (dataStore.onDemandPropertyMap && dataStore.source?.length > 0) {
+          properties = extractPropertiesOnDemand(dataStore as IfcDataStore, entityId);
+        } else if (dataStore.properties) {
+          properties = dataStore.properties.getForEntity(entityId);
+        }
+
+        for (const pset of properties) {
+          if (!psets.has(pset.name)) {
+            psets.set(pset.name, new Set());
+          }
+          const propSet = psets.get(pset.name)!;
+          for (const prop of pset.properties) {
+            propSet.add(prop.name);
+            allProps.add(prop.name);
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Error discovering properties:', e);
+    }
+
+    return { psets, allProps };
+  }, [selectedModel, queryEngine, currentCriteria]);
+
+  // Flatten discovered properties for selectors
+  const psetOptions = useMemo(() => {
+    return Array.from(discoveredProperties.psets.keys()).sort();
+  }, [discoveredProperties]);
+
+  const propOptions = useMemo(() => {
+    // If a property set is selected, show only properties from that set
+    if (targetPset && discoveredProperties.psets.has(targetPset)) {
+      return Array.from(discoveredProperties.psets.get(targetPset)!).sort();
+    }
+    // Otherwise show all properties
+    return Array.from(discoveredProperties.allProps).sort();
+  }, [discoveredProperties, targetPset]);
+
+  // Add a new filter
+  const addFilter = useCallback(() => {
+    setFilters(prev => [...prev, {
+      id: `filter_${Date.now()}`,
+      psetName: '',
+      propName: '',
+      operator: '=' as FilterOperator,
+      value: '',
+    }]);
+  }, []);
+
+  // Remove a filter
+  const removeFilter = useCallback((id: string) => {
+    setFilters(prev => prev.filter(f => f.id !== id));
+  }, []);
+
+  // Update a filter
+  const updateFilter = useCallback((id: string, field: keyof PropertyFilterUI, value: string) => {
+    setFilters(prev => prev.map(f =>
+      f.id === id ? { ...f, [field]: value } : f
+    ));
+  }, []);
+
   // Build action for the query engine
   const buildAction = useCallback((): BulkAction => {
     if (actionType === 'SET_PROPERTY') {
@@ -395,27 +467,25 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
     setExecuteResult(null);
 
     try {
-      const criteria = buildCriteria();
       const action = buildAction();
-      const result = queryEngine.preview({ select: criteria, action });
+      const result = queryEngine.preview({ select: currentCriteria, action });
       setPreviewResult(result);
     } catch (error) {
       console.error('Preview failed:', error);
       setPreviewResult({ matchedEntityIds: [], matchedCount: 0, estimatedMutations: 0 });
     }
-  }, [queryEngine, buildCriteria, buildAction]);
+  }, [queryEngine, currentCriteria, buildAction]);
 
   // Execute bulk update
   const handleExecute = useCallback(async () => {
-    if (!queryEngine || !previewResult || previewResult.matchedCount === 0) return;
+    if (!queryEngine || liveMatchCount === 0) return;
 
     setIsExecuting(true);
     setExecuteResult(null);
 
     try {
-      const criteria = buildCriteria();
       const action = buildAction();
-      const result = queryEngine.execute({ select: criteria, action });
+      const result = queryEngine.execute({ select: currentCriteria, action });
       setExecuteResult(result);
     } catch (error) {
       console.error('Execute failed:', error);
@@ -428,7 +498,7 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
     } finally {
       setIsExecuting(false);
     }
-  }, [queryEngine, previewResult, buildCriteria, buildAction]);
+  }, [queryEngine, liveMatchCount, currentCriteria, buildAction]);
 
   // Reset form
   const handleReset = useCallback(() => {
@@ -484,10 +554,15 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
 
           {/* Selection Criteria */}
           <div className="space-y-4">
-            <Label className="text-sm font-medium flex items-center gap-2">
-              <Search className="h-4 w-4" />
-              Selection Criteria
-            </Label>
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-medium flex items-center gap-2">
+                <Search className="h-4 w-4" />
+                Selection Criteria
+              </Label>
+              <Badge variant={liveMatchCount > 0 ? 'default' : 'secondary'} className="text-xs">
+                {liveMatchCount} {liveMatchCount === 1 ? 'entity' : 'entities'} matched
+              </Badge>
+            </div>
 
             {/* Entity type filter */}
             <div className="space-y-2">
@@ -637,12 +712,25 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
 
               {actionType !== 'SET_ATTRIBUTE' && (
                 <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground">Property Set</Label>
+                  <Label className="text-xs text-muted-foreground">
+                    Property Set
+                    {psetOptions.length > 0 && (
+                      <span className="ml-1 text-muted-foreground/60">
+                        ({psetOptions.length} found)
+                      </span>
+                    )}
+                  </Label>
                   <Input
+                    list="pset-options"
                     placeholder="e.g., Pset_WallCommon"
                     value={targetPset}
                     onChange={(e) => setTargetPset(e.target.value)}
                   />
+                  <datalist id="pset-options">
+                    {psetOptions.map((pset) => (
+                      <option key={pset} value={pset} />
+                    ))}
+                  </datalist>
                 </div>
               )}
             </div>
@@ -651,6 +739,11 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
               <div className="space-y-2">
                 <Label className="text-xs text-muted-foreground">
                   {actionType === 'SET_ATTRIBUTE' ? 'Attribute' : 'Property Name'}
+                  {actionType !== 'SET_ATTRIBUTE' && propOptions.length > 0 && (
+                    <span className="ml-1 text-muted-foreground/60">
+                      ({propOptions.length} found)
+                    </span>
+                  )}
                 </Label>
                 {actionType === 'SET_ATTRIBUTE' ? (
                   <Select value={targetProp} onValueChange={setTargetProp}>
@@ -664,11 +757,19 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
                     </SelectContent>
                   </Select>
                 ) : (
-                  <Input
-                    placeholder="e.g., FireRating"
-                    value={targetProp}
-                    onChange={(e) => setTargetProp(e.target.value)}
-                  />
+                  <>
+                    <Input
+                      list="prop-options"
+                      placeholder="e.g., FireRating"
+                      value={targetProp}
+                      onChange={(e) => setTargetProp(e.target.value)}
+                    />
+                    <datalist id="prop-options">
+                      {propOptions.map((prop) => (
+                        <option key={prop} value={prop} />
+                      ))}
+                    </datalist>
+                  </>
                 )}
               </div>
 
@@ -743,7 +844,7 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
           </Button>
           <Button
             onClick={handleExecute}
-            disabled={!previewResult || previewResult.matchedCount === 0 || !targetProp || (actionType !== 'SET_ATTRIBUTE' && !targetPset) || isExecuting}
+            disabled={liveMatchCount === 0 || !targetProp || (actionType !== 'SET_ATTRIBUTE' && !targetPset) || isExecuting}
           >
             {isExecuting ? (
               <>
@@ -753,7 +854,7 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
             ) : (
               <>
                 <Play className="h-4 w-4 mr-2" />
-                Apply to {previewResult?.matchedCount || 0} entities
+                Apply to {liveMatchCount} entities
               </>
             )}
           </Button>
