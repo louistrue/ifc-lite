@@ -43,6 +43,125 @@ interface QuantitySet {
   quantities: Array<{ name: string; value: number; type: number }>;
 }
 
+/**
+ * Result of parsing a property value.
+ * Contains the display value and optional IFC type for tooltip.
+ */
+interface ParsedPropertyValue {
+  displayValue: string;
+  ifcType?: string;
+}
+
+/**
+ * Map of IFC boolean enumeration values to human-readable text
+ */
+const BOOLEAN_MAP: Record<string, string> = {
+  '.T.': 'True',
+  '.F.': 'False',
+  '.U.': 'Unknown',
+};
+
+/**
+ * Friendly names for common IFC types (shown in tooltips)
+ */
+const IFC_TYPE_DISPLAY_NAMES: Record<string, string> = {
+  'IFCBOOLEAN': 'Boolean',
+  'IFCLOGICAL': 'Logical',
+  'IFCIDENTIFIER': 'Identifier',
+  'IFCLABEL': 'Label',
+  'IFCTEXT': 'Text',
+  'IFCREAL': 'Real',
+  'IFCINTEGER': 'Integer',
+  'IFCPOSITIVELENGTHMEASURE': 'Length',
+  'IFCLENGTHMEASURE': 'Length',
+  'IFCAREAMEASURE': 'Area',
+  'IFCVOLUMEMEASURE': 'Volume',
+  'IFCMASSMEASURE': 'Mass',
+  'IFCTHERMALTRANSMITTANCEMEASURE': 'Thermal Transmittance',
+  'IFCPRESSUREMEASURE': 'Pressure',
+  'IFCFORCEMEASURE': 'Force',
+  'IFCPLANEANGLEMEASURE': 'Angle',
+  'IFCTIMEMEASURE': 'Time',
+  'IFCNORMALISEDRATIOMEASURE': 'Ratio',
+  'IFCRATIOMEASURE': 'Ratio',
+  'IFCPOSITIVERATIOMEASURE': 'Ratio',
+  'IFCCOUNTMEASURE': 'Count',
+  'IFCMONETARYMEASURE': 'Currency',
+};
+
+/**
+ * Parse and format a property value for display.
+ * Handles:
+ * - TypedValues like [IFCIDENTIFIER, '100 x 150mm'] -> display '100 x 150mm', tooltip 'Identifier'
+ * - Boolean enums like '.T.' -> 'True'
+ * - Null/undefined -> '—'
+ * - Regular values -> string conversion
+ */
+function parsePropertyValue(value: unknown): ParsedPropertyValue {
+  // Handle null/undefined
+  if (value === null || value === undefined) {
+    return { displayValue: '—' };
+  }
+
+  // Handle typed value arrays [IFCTYPENAME, actualValue]
+  if (Array.isArray(value) && value.length === 2 && typeof value[0] === 'string') {
+    const [ifcType, innerValue] = value;
+    const typeName = ifcType.toUpperCase();
+    const friendlyType = IFC_TYPE_DISPLAY_NAMES[typeName] || typeName.replace(/^IFC/, '');
+
+    // Recursively parse the inner value
+    const parsed = parsePropertyValue(innerValue);
+    return {
+      displayValue: parsed.displayValue,
+      ifcType: friendlyType,
+    };
+  }
+
+  // Handle boolean enumeration values
+  if (typeof value === 'string') {
+    const upperVal = value.toUpperCase();
+    if (BOOLEAN_MAP[upperVal]) {
+      return { displayValue: BOOLEAN_MAP[upperVal], ifcType: 'Boolean' };
+    }
+
+    // Handle string that contains typed value pattern (from String(array) conversion)
+    // Pattern: "IFCTYPENAME,actualValue"
+    const typedMatch = value.match(/^(IFC[A-Z0-9_]+),(.+)$/i);
+    if (typedMatch) {
+      const [, ifcType, innerValue] = typedMatch;
+      const typeName = ifcType.toUpperCase();
+      const friendlyType = IFC_TYPE_DISPLAY_NAMES[typeName] || typeName.replace(/^IFC/, '');
+
+      // Check if the inner value is a boolean
+      const upperInner = innerValue.toUpperCase().trim();
+      if (BOOLEAN_MAP[upperInner]) {
+        return { displayValue: BOOLEAN_MAP[upperInner], ifcType: friendlyType };
+      }
+
+      return { displayValue: innerValue, ifcType: friendlyType };
+    }
+
+    return { displayValue: value };
+  }
+
+  // Handle native booleans
+  if (typeof value === 'boolean') {
+    return { displayValue: value ? 'True' : 'False', ifcType: 'Boolean' };
+  }
+
+  // Handle numbers
+  if (typeof value === 'number') {
+    // Format numbers nicely (limit decimal places, use locale formatting)
+    const formatted = Number.isInteger(value)
+      ? value.toLocaleString()
+      : value.toLocaleString(undefined, { maximumFractionDigits: 6 });
+    return { displayValue: formatted };
+  }
+
+  // Fallback for other types
+  return { displayValue: String(value) };
+}
+
 export function PropertiesPanel() {
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
   const selectedEntity = useViewerStore((s) => s.selectedEntity);
@@ -650,20 +769,51 @@ function PropertySetCard({ pset }: { pset: PropertySet }) {
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="border-t-2 border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-100 dark:divide-zinc-900">
-          {pset.properties.map((prop: { name: string; value: unknown }) => (
-            <div key={prop.name} className="grid grid-cols-[minmax(80px,1fr)_minmax(0,2fr)] gap-2 px-3 py-2 text-xs hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50">
-              <span className="text-zinc-500 dark:text-zinc-400 font-medium truncate" title={prop.name}>{prop.name}</span>
-              <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700 min-w-0">
-                <span className="font-mono text-zinc-900 dark:text-zinc-100 select-all whitespace-nowrap">
-                  {prop.value !== null && prop.value !== undefined ? String(prop.value) : '—'}
-                </span>
+          {pset.properties.map((prop: { name: string; value: unknown }) => {
+            const parsed = parsePropertyValue(prop.value);
+            return (
+              <div key={prop.name} className="grid grid-cols-[minmax(80px,1fr)_minmax(0,2fr)] gap-2 px-3 py-2 text-xs hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50">
+                <span className="text-zinc-500 dark:text-zinc-400 font-medium truncate" title={prop.name}>{prop.name}</span>
+                <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700 min-w-0">
+                  <PropertyValueDisplay value={parsed.displayValue} ifcType={parsed.ifcType} />
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </CollapsibleContent>
     </Collapsible>
   );
+}
+
+/**
+ * Displays a property value with optional IFC type tooltip.
+ * The tooltip is non-intrusive and only appears on hover.
+ */
+function PropertyValueDisplay({ value, ifcType }: { value: string; ifcType?: string }) {
+  const valueElement = (
+    <span className="font-mono text-zinc-900 dark:text-zinc-100 select-all whitespace-nowrap">
+      {value}
+    </span>
+  );
+
+  // Only wrap in tooltip if we have an IFC type to show
+  if (ifcType) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="cursor-help border-b border-dotted border-zinc-300 dark:border-zinc-700">
+            {valueElement}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="text-[10px]">
+          <span className="text-zinc-500">{ifcType}</span>
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return valueElement;
 }
 
 function QuantitySetCard({ qset }: { qset: QuantitySet }) {
