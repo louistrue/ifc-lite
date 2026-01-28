@@ -44,6 +44,9 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from '@/components/ui/dropdown-menu';
 import { Progress } from '@/components/ui/progress';
 import { useViewerStore, isIfcxDataStore } from '@/store';
@@ -288,7 +291,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     }
   }, []);
 
-  const handleExportCSV = useCallback((type: 'entities' | 'properties' | 'quantities') => {
+  const handleExportCSV = useCallback((type: 'entities' | 'properties' | 'quantities' | 'spatial') => {
     if (!ifcDataStore) return;
     try {
       const exporter = new CSVExporter(ifcDataStore);
@@ -307,6 +310,10 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
         case 'quantities':
           csv = exporter.exportQuantities();
           filename = 'quantities.csv';
+          break;
+        case 'spatial':
+          csv = exporter.exportSpatialHierarchy();
+          filename = 'spatial-hierarchy.csv';
           break;
       }
 
@@ -435,18 +442,31 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
             Export GLB (3D Model)
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => handleExportCSV('entities')} disabled={!ifcDataStore}>
-            <FileSpreadsheet className="h-4 w-4 mr-2" />
-            Export Entities (CSV)
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleExportCSV('properties')} disabled={!ifcDataStore}>
-            <FileSpreadsheet className="h-4 w-4 mr-2" />
-            Export Properties (CSV)
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleExportCSV('quantities')} disabled={!ifcDataStore}>
-            <FileSpreadsheet className="h-4 w-4 mr-2" />
-            Export Quantities (CSV)
-          </DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger disabled={!ifcDataStore}>
+              <FileSpreadsheet className="h-4 w-4 mr-2" />
+              Export CSV
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuItem onClick={() => handleExportCSV('entities')}>
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+                Entities
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExportCSV('properties')}>
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+                Properties
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExportCSV('quantities')}>
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+                Quantities
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => handleExportCSV('spatial')}>
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+                Spatial Hierarchy
+              </DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
           <DropdownMenuItem onClick={handleExportJSON} disabled={!ifcDataStore}>
             <FileJson className="h-4 w-4 mr-2" />
             Export JSON (All Data)
