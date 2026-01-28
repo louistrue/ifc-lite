@@ -90,7 +90,7 @@ export function ViewerLayout() {
             <PanelResizeHandle className="w-1.5 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-col-resize" />
 
             {/* Center - Viewport */}
-            <Panel id="viewport-panel" defaultSize={60} minSize={30}>
+            <Panel id="viewport-panel" defaultSize={58} minSize={30}>
               <div className="h-full w-full overflow-hidden">
                 <ViewportContainer />
               </div>
@@ -101,8 +101,8 @@ export function ViewerLayout() {
             {/* Right Panel - Properties */}
             <Panel
               id="right-panel"
-              defaultSize={20}
-              minSize={10}
+              defaultSize={22}
+              minSize={15}
               collapsible
               collapsedSize={0}
             >
