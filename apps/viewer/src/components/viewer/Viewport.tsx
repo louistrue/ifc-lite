@@ -222,6 +222,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     tapStartTime: 0,
     tapStartPos: { x: 0, y: 0 },
     didMove: false,
+    // Track if multi-touch occurred (prevents false tap-select after pinch/zoom)
+    multiTouch: false,
   });
 
   // Double-click detection
@@ -1227,7 +1229,12 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         e.preventDefault();
         touchState.touches = Array.from(e.touches);
 
-        if (touchState.touches.length === 1) {
+        // Track multi-touch to prevent false tap-select after pinch/zoom
+        if (touchState.touches.length > 1) {
+          touchState.multiTouch = true;
+        }
+
+        if (touchState.touches.length === 1 && !touchState.multiTouch) {
           touchState.lastCenter = {
             x: touchState.touches[0].clientX,
             y: touchState.touches[0].clientY,
@@ -1257,6 +1264,12 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
           } else {
             camera.setOrbitPivot(null);
           }
+        } else if (touchState.touches.length === 1) {
+          // Single touch after multi-touch - just update center for orbit
+          touchState.lastCenter = {
+            x: touchState.touches[0].clientX,
+            y: touchState.touches[0].clientY,
+          };
         } else if (touchState.touches.length === 2) {
           const dx = touchState.touches[1].clientX - touchState.touches[0].clientX;
           const dy = touchState.touches[1].clientY - touchState.touches[0].clientY;
@@ -1335,6 +1348,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
       canvas.addEventListener('touchend', async (e) => {
         e.preventDefault();
         const previousTouchCount = touchState.touches.length;
+        const wasMultiTouch = touchState.multiTouch;
         touchState.touches = Array.from(e.touches);
 
         if (touchState.touches.length === 0) {
@@ -1346,12 +1360,13 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
           const tool = activeToolRef.current;
 
           // Only select if:
-          // - Was a single-finger touch
+          // - Was a single-finger touch (not after multi-touch gesture)
           // - Tap was quick (< 300ms)
           // - Didn't move significantly
           // - Tool supports selection (not orbit/pan/walk/measure)
           if (
             previousTouchCount === 1 &&
+            !wasMultiTouch &&
             tapDuration < 300 &&
             !touchState.didMove &&
             tool !== 'orbit' &&
@@ -1366,6 +1381,9 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
             const pickResult = await renderer.pick(x, y, getPickOptions());
             handlePickForSelection(pickResult);
           }
+
+          // Reset multi-touch flag when all touches end
+          touchState.multiTouch = false;
         }
       });
 

@@ -100,13 +100,13 @@ pub async fn delete_cache_entry(app: tauri::AppHandle, cache_key: String) -> Res
     let cache_dir = get_cache_dir(&app)?;
     let cache_file = get_cache_file_path(&cache_dir, &cache_key)?;
 
-    if cache_file.exists() {
-        tokio::fs::remove_file(&cache_file)
-            .await
-            .map_err(|e| format!("Failed to delete cache entry: {}", e))?;
+    // Attempt to remove the file directly, treating NotFound as success
+    // (avoids TOCTOU race with exists() check)
+    match tokio::fs::remove_file(&cache_file).await {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("Failed to delete cache entry: {}", e)),
     }
-
-    Ok(())
 }
 
 /// Get cache statistics

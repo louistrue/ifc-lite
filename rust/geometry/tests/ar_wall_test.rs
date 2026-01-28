@@ -327,15 +327,28 @@ fn test_ar_wall_nan_normals_diagnosis() {
     println!("\n=== Diagnosing NaN normals ===");
     println!("Total vertices: {}", wall_mesh.vertex_count());
 
+    // Use safe vertex count to avoid panic if arrays diverge
+    let safe_vertex_count = std::cmp::min(
+        wall_mesh.normals.len() / 3,
+        wall_mesh.positions.len() / 3,
+    );
+
     let mut nan_count = 0;
-    for (i, chunk) in wall_mesh.normals.chunks_exact(3).enumerate() {
-        let has_nan = !chunk[0].is_finite() || !chunk[1].is_finite() || !chunk[2].is_finite();
+    for (i, (normal_chunk, pos_chunk)) in wall_mesh
+        .normals
+        .chunks_exact(3)
+        .zip(wall_mesh.positions.chunks_exact(3))
+        .enumerate()
+    {
+        if i >= safe_vertex_count {
+            break;
+        }
+        let has_nan = !normal_chunk[0].is_finite() || !normal_chunk[1].is_finite() || !normal_chunk[2].is_finite();
         if has_nan {
             nan_count += 1;
             if nan_count <= 10 {
-                let pos = &wall_mesh.positions[i * 3..i * 3 + 3];
                 println!("  Vertex {}: pos=({:.2}, {:.2}, {:.2}), normal=({}, {}, {})",
-                    i, pos[0], pos[1], pos[2], chunk[0], chunk[1], chunk[2]);
+                    i, pos_chunk[0], pos_chunk[1], pos_chunk[2], normal_chunk[0], normal_chunk[1], normal_chunk[2]);
             }
         }
     }

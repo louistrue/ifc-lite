@@ -111,6 +111,23 @@ fn test_csg_void_subtraction_basic() {
                 "CSG result should not be empty"
             );
 
+            // Positions and normals must be non-empty
+            assert!(
+                !result_mesh.positions.is_empty(),
+                "Result mesh positions should not be empty"
+            );
+            assert!(
+                !result_mesh.normals.is_empty(),
+                "Result mesh normals should not be empty"
+            );
+
+            // Normals and positions should have matching lengths (per-vertex normals)
+            assert_eq!(
+                result_mesh.normals.len(),
+                result_mesh.positions.len(),
+                "Normals and positions should have matching lengths"
+            );
+
             // All positions should be finite
             assert!(
                 result_mesh.positions.iter().all(|v| v.is_finite()),
