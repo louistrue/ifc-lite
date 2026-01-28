@@ -276,17 +276,19 @@ export const createMutationSlice: StateCreator<
     const view = state.mutationViews.get(modelId);
     if (!view) return;
 
-    // Apply inverse mutation
+    // Apply inverse mutation (skipHistory=true to avoid polluting mutation history)
     if (mutation.type === 'UPDATE_PROPERTY' || mutation.type === 'CREATE_PROPERTY') {
       if (mutation.oldValue === null && mutation.psetName && mutation.propName) {
-        view.deleteProperty(mutation.entityId, mutation.psetName, mutation.propName);
+        view.deleteProperty(mutation.entityId, mutation.psetName, mutation.propName, true);
       } else if (mutation.psetName && mutation.propName && mutation.oldValue !== undefined) {
         view.setProperty(
           mutation.entityId,
           mutation.psetName,
           mutation.propName,
           mutation.oldValue,
-          mutation.valueType
+          mutation.valueType,
+          undefined,
+          true // skipHistory
         );
       }
     } else if (mutation.type === 'DELETE_PROPERTY') {
@@ -296,7 +298,9 @@ export const createMutationSlice: StateCreator<
           mutation.psetName,
           mutation.propName,
           mutation.oldValue,
-          mutation.valueType
+          mutation.valueType,
+          undefined,
+          true // skipHistory
         );
       }
     }
@@ -326,7 +330,7 @@ export const createMutationSlice: StateCreator<
     const view = state.mutationViews.get(modelId);
     if (!view) return;
 
-    // Re-apply mutation
+    // Re-apply mutation (skipHistory=true to avoid polluting mutation history)
     if (mutation.type === 'UPDATE_PROPERTY' || mutation.type === 'CREATE_PROPERTY') {
       if (mutation.psetName && mutation.propName && mutation.newValue !== undefined) {
         view.setProperty(
@@ -334,12 +338,14 @@ export const createMutationSlice: StateCreator<
           mutation.psetName,
           mutation.propName,
           mutation.newValue,
-          mutation.valueType
+          mutation.valueType,
+          undefined,
+          true // skipHistory
         );
       }
     } else if (mutation.type === 'DELETE_PROPERTY') {
       if (mutation.psetName && mutation.propName) {
-        view.deleteProperty(mutation.entityId, mutation.psetName, mutation.propName);
+        view.deleteProperty(mutation.entityId, mutation.psetName, mutation.propName, true);
       }
     }
 

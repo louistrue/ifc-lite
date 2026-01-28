@@ -195,6 +195,7 @@ export class MutablePropertyView {
   /**
    * Set a property value
    * If the property set doesn't exist, creates it automatically
+   * @param skipHistory - If true, don't add to mutation history (used for undo/redo)
    */
   setProperty(
     entityId: number,
@@ -202,7 +203,8 @@ export class MutablePropertyView {
     propName: string,
     value: PropertyValue,
     valueType: PropertyValueType = PropertyValueType.String,
-    unit?: string
+    unit?: string,
+    skipHistory: boolean = false
   ): Mutation {
     const key = propertyKey(entityId, psetName, propName);
     console.log('[MutablePropertyView.setProperty] entityId:', entityId, 'pset:', psetName, 'prop:', propName, 'value:', value, 'key:', key);
@@ -278,14 +280,17 @@ export class MutablePropertyView {
       valueType,
     };
 
-    this.mutationHistory.push(mutation);
+    if (!skipHistory) {
+      this.mutationHistory.push(mutation);
+    }
     return mutation;
   }
 
   /**
    * Delete a property
+   * @param skipHistory - If true, don't add to mutation history (used for undo/redo)
    */
-  deleteProperty(entityId: number, psetName: string, propName: string): Mutation | null {
+  deleteProperty(entityId: number, psetName: string, propName: string, skipHistory: boolean = false): Mutation | null {
     const key = propertyKey(entityId, psetName, propName);
     const oldValue = this.getPropertyValue(entityId, psetName, propName);
 
@@ -307,7 +312,9 @@ export class MutablePropertyView {
       newValue: null,
     };
 
-    this.mutationHistory.push(mutation);
+    if (!skipHistory) {
+      this.mutationHistory.push(mutation);
+    }
     return mutation;
   }
 

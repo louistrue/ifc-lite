@@ -439,7 +439,6 @@ export function UndoRedoButtons({ modelId }: UndoRedoButtonsProps) {
   const canRedo = useViewerStore((s) => s.canRedo);
   const undo = useViewerStore((s) => s.undo);
   const redo = useViewerStore((s) => s.redo);
-  const bumpMutationVersion = useViewerStore((s) => s.bumpMutationVersion);
 
   // Normalize model ID for legacy models
   let normalizedModelId = modelId;
@@ -449,13 +448,11 @@ export function UndoRedoButtons({ modelId }: UndoRedoButtonsProps) {
 
   const handleUndo = useCallback(() => {
     undo(normalizedModelId);
-    bumpMutationVersion();
-  }, [normalizedModelId, undo, bumpMutationVersion]);
+  }, [normalizedModelId, undo]);
 
   const handleRedo = useCallback(() => {
     redo(normalizedModelId);
-    bumpMutationVersion();
-  }, [normalizedModelId, redo, bumpMutationVersion]);
+  }, [normalizedModelId, redo]);
 
   return (
     <div className="flex items-center gap-1">
