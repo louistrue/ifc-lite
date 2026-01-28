@@ -57,6 +57,7 @@ import { FileSpreadsheet, FileJson, FileText, Filter, Upload } from 'lucide-reac
 import { ExportDialog } from './ExportDialog';
 import { BulkPropertyEditor } from './BulkPropertyEditor';
 import { DataConnector } from './DataConnector';
+import { ExportChangesButton } from './ExportChangesButton';
 
 type Tool = 'select' | 'pan' | 'orbit' | 'walk' | 'measure' | 'section';
 
@@ -495,6 +496,9 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
           />
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {/* Export Changes Button - shows when there are pending mutations */}
+      <ExportChangesButton />
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 
