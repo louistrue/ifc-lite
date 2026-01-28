@@ -378,81 +378,66 @@ export function PropertiesPanel() {
 
   // Unified property/quantity access - EntityNode handles on-demand extraction automatically
   // These hooks must be called before any early return to maintain hook order
-  // Merge mutations from MutablePropertyView on top of base properties
+  // Use MutablePropertyView as primary source when available (it handles base + mutations)
   const properties: PropertySet[] = useMemo(() => {
+    const modelId = selectedEntity?.modelId;
+    const expressId = selectedEntity?.expressId;
+
+    // Try to get properties from mutation view first (handles both base and mutations)
+    const mutationView = modelId ? mutationViews.get(modelId) : null;
+
+    if (mutationView && expressId) {
+      // Get merged properties from mutation view (base + mutations applied)
+      const mergedProps = mutationView.getForEntity(expressId);
+
+      // Get list of actual mutations to track which properties changed
+      const mutations = mutationView.getMutationsForEntity(expressId);
+
+      // Build a set of mutated property keys for quick lookup
+      const mutatedKeys = new Set<string>();
+      const newPsetNames = new Set<string>();
+      for (const m of mutations) {
+        if (m.psetName && m.propName) {
+          mutatedKeys.add(`${m.psetName}:${m.propName}`);
+        }
+        // Track property sets that were created (not in original model)
+        if (m.type === 'CREATE_PROPERTY_SET' && m.psetName) {
+          newPsetNames.add(m.psetName);
+        }
+        // Also mark as new pset if this is a CREATE_PROPERTY for a pset that doesn't exist in base
+        if (m.type === 'CREATE_PROPERTY' && m.psetName) {
+          // Check if we have base properties to compare
+          const baseProps = entityNode?.properties() ?? [];
+          const existsInBase = baseProps.some(p => p.name === m.psetName);
+          if (!existsInBase) {
+            newPsetNames.add(m.psetName);
+          }
+        }
+      }
+
+      // If mutation view returned properties, use them
+      if (mergedProps.length > 0) {
+        return mergedProps.map(pset => ({
+          name: pset.name,
+          properties: pset.properties.map(p => ({
+            name: p.name,
+            value: p.value,
+            isMutated: mutatedKeys.has(`${pset.name}:${p.name}`),
+          })),
+          isNewPset: newPsetNames.has(pset.name),
+        }));
+      }
+    }
+
+    // Fallback to entity node properties (no mutations or mutation view not available)
     if (!entityNode) return [];
 
-    // Get base properties from entity node
     const rawProps = entityNode.properties();
-    const baseProperties: PropertySet[] = rawProps.map(pset => ({
+    return rawProps.map(pset => ({
       name: pset.name,
       properties: pset.properties.map(p => ({ name: p.name, value: p.value, isMutated: false })),
       isNewPset: false,
     }));
-
-    // Get mutations from the mutation view if available
-    const modelId = selectedEntity?.modelId;
-    if (!modelId) return baseProperties;
-
-    const mutationView = mutationViews.get(modelId);
-    if (!mutationView) return baseProperties;
-
-    // Get mutated properties for this entity
-    const expressId = selectedEntity?.expressId;
-    if (!expressId) return baseProperties;
-
-    const mutatedProps = mutationView.getForEntity(expressId);
-    if (mutatedProps.length === 0) return baseProperties;
-
-    // Build a map for fast lookup of mutations
-    const mutationMap = new Map<string, Map<string, unknown>>();
-    for (const pset of mutatedProps) {
-      const propMap = new Map<string, unknown>();
-      for (const prop of pset.properties) {
-        propMap.set(prop.name, prop.value);
-      }
-      mutationMap.set(pset.name, propMap);
-    }
-
-    // Track which psets we've seen
-    const seenPsets = new Set<string>();
-
-    // Merge mutations into base properties
-    const mergedProperties: PropertySet[] = baseProperties.map(pset => {
-      seenPsets.add(pset.name);
-      const mutatedPset = mutationMap.get(pset.name);
-      if (!mutatedPset) return pset;
-
-      // Merge mutated props into base
-      const mergedProps = pset.properties.map(prop => {
-        if (mutatedPset.has(prop.name)) {
-          return { name: prop.name, value: mutatedPset.get(prop.name), isMutated: true };
-        }
-        return prop;
-      });
-
-      // Add any new properties that don't exist in base
-      for (const [propName, propValue] of mutatedPset) {
-        if (!mergedProps.some(p => p.name === propName)) {
-          mergedProps.push({ name: propName, value: propValue, isMutated: true });
-        }
-      }
-
-      return { ...pset, properties: mergedProps };
-    });
-
-    // Add completely new property sets from mutations
-    for (const pset of mutatedProps) {
-      if (!seenPsets.has(pset.name)) {
-        mergedProperties.push({
-          name: pset.name,
-          properties: pset.properties.map(p => ({ name: p.name, value: p.value, isMutated: true })),
-          isNewPset: true,
-        });
-      }
-    }
-
-    return mergedProperties;
   }, [entityNode, selectedEntity, mutationViews, mutationVersion]);
 
   const quantities: QuantitySet[] = useMemo(() => {
