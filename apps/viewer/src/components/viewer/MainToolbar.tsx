@@ -53,7 +53,7 @@ import { useViewerStore, isIfcxDataStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { cn } from '@/lib/utils';
 import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
-import { FileSpreadsheet, FileJson, FileText, Filter, Upload } from 'lucide-react';
+import { FileSpreadsheet, FileJson, FileText, Filter, Upload, Pencil } from 'lucide-react';
 import { ExportDialog } from './ExportDialog';
 import { BulkPropertyEditor } from './BulkPropertyEditor';
 import { DataConnector } from './DataConnector';
@@ -477,7 +477,22 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
             <Camera className="h-4 w-4 mr-2" />
             Screenshot
           </DropdownMenuItem>
-          <DropdownMenuSeparator />
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {/* Edit Menu - Bulk editing and data import */}
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-sm" disabled={!ifcDataStore}>
+                <Pencil className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Edit Properties</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent>
           <BulkPropertyEditor
             trigger={
               <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
