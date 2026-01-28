@@ -825,9 +825,9 @@ function EntityDataSection({
 
 function PropertySetCard({ pset }: { pset: PropertySet }) {
   return (
-    <Collapsible defaultOpen className="border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 group w-full max-w-full">
-      <CollapsibleTrigger className="flex items-center gap-2 w-full p-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-left transition-colors">
-        <span className="font-bold text-xs uppercase tracking-wide text-zinc-900 dark:text-zinc-100 truncate flex-1 min-w-0">{decodeIfcString(pset.name)}</span>
+    <Collapsible defaultOpen className="border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 group w-full max-w-full overflow-hidden">
+      <CollapsibleTrigger className="flex items-center gap-2 w-full p-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-left transition-colors overflow-hidden">
+        <span className="font-bold text-xs text-zinc-900 dark:text-zinc-100 truncate flex-1 min-w-0">{decodeIfcString(pset.name)}</span>
         <span className="text-[10px] font-mono bg-zinc-100 dark:bg-zinc-900 px-1.5 py-0.5 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 shrink-0">{pset.properties.length}</span>
       </CollapsibleTrigger>
       <CollapsibleContent>
@@ -892,9 +892,9 @@ function QuantitySetCard({ qset }: { qset: QuantitySet }) {
   };
 
   return (
-    <Collapsible defaultOpen className="border-2 border-blue-200 dark:border-blue-800 bg-blue-50/20 dark:bg-blue-950/20 w-full max-w-full">
-      <CollapsibleTrigger className="flex items-center gap-2 w-full p-2.5 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-left transition-colors">
-        <span className="font-bold text-xs uppercase tracking-wide text-blue-700 dark:text-blue-400 truncate flex-1 min-w-0">{decodeIfcString(qset.name)}</span>
+    <Collapsible defaultOpen className="border-2 border-blue-200 dark:border-blue-800 bg-blue-50/20 dark:bg-blue-950/20 w-full max-w-full overflow-hidden">
+      <CollapsibleTrigger className="flex items-center gap-2 w-full p-2.5 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-left transition-colors overflow-hidden">
+        <span className="font-bold text-xs text-blue-700 dark:text-blue-400 truncate flex-1 min-w-0">{decodeIfcString(qset.name)}</span>
         <span className="text-[10px] font-mono bg-blue-100 dark:bg-blue-900/50 px-1.5 py-0.5 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 shrink-0">{qset.quantities.length}</span>
       </CollapsibleTrigger>
       <CollapsibleContent>
