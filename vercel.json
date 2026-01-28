@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "pnpm -r build",
+  "buildCommand": "pnpm --filter @ifc-lite/data build && pnpm --filter @ifc-lite/mutations build && pnpm -r build",
   "outputDirectory": "apps/viewer/dist",
   "installCommand": "pnpm install",
   "framework": "vite",

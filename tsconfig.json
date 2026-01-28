@@ -52,6 +52,12 @@
       ],
       "@ifc-lite/data/*": [
         "packages/data/dist/*"
+      ],
+      "@ifc-lite/mutations": [
+        "packages/mutations/dist/index.d.ts"
+      ],
+      "@ifc-lite/mutations/*": [
+        "packages/mutations/dist/*"
       ]
     }
   },
