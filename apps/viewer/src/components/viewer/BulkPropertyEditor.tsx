@@ -1,0 +1,714 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+/**
+ * Bulk Property Editor - Query builder UI for mass property updates
+ * Full integration with BulkQueryEngine
+ */
+
+import { useState, useCallback, useMemo } from 'react';
+import {
+  Search,
+  Play,
+  Eye,
+  Filter,
+  Plus,
+  Trash2,
+  Check,
+  AlertCircle,
+  Loader2,
+  Building2,
+  Layers,
+  Tag,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from '@/components/ui/alert';
+import { Separator } from '@/components/ui/separator';
+import { useViewerStore } from '@/store';
+import { useIfc } from '@/hooks/useIfc';
+import { PropertyValueType } from '@ifc-lite/data';
+import {
+  BulkQueryEngine,
+  type SelectionCriteria,
+  type BulkAction,
+  type FilterOperator,
+  type PropertyFilter as BulkPropertyFilter,
+  type BulkQueryPreview,
+  type BulkQueryResult,
+} from '@ifc-lite/mutations';
+
+// Common IFC type enum IDs (from IFC schema)
+// These correspond to the typeEnum values in EntityTable
+const IFC_TYPE_MAP: Record<string, { label: string; pattern: string }> = {
+  'IfcWall': { label: 'Wall', pattern: 'Wall' },
+  'IfcWallStandardCase': { label: 'Wall (Standard)', pattern: 'WallStandardCase' },
+  'IfcDoor': { label: 'Door', pattern: 'Door' },
+  'IfcWindow': { label: 'Window', pattern: 'Window' },
+  'IfcSlab': { label: 'Slab', pattern: 'Slab' },
+  'IfcColumn': { label: 'Column', pattern: 'Column' },
+  'IfcBeam': { label: 'Beam', pattern: 'Beam' },
+  'IfcRoof': { label: 'Roof', pattern: 'Roof' },
+  'IfcStair': { label: 'Stair', pattern: 'Stair' },
+  'IfcRailing': { label: 'Railing', pattern: 'Railing' },
+  'IfcCurtainWall': { label: 'Curtain Wall', pattern: 'CurtainWall' },
+  'IfcCovering': { label: 'Covering', pattern: 'Covering' },
+  'IfcPlate': { label: 'Plate', pattern: 'Plate' },
+  'IfcMember': { label: 'Member', pattern: 'Member' },
+  'IfcFurnishingElement': { label: 'Furniture', pattern: 'Furnishing' },
+  'IfcBuildingElementProxy': { label: 'Proxy', pattern: 'BuildingElementProxy' },
+  'IfcSpace': { label: 'Space', pattern: 'Space' },
+  'IfcOpeningElement': { label: 'Opening', pattern: 'Opening' },
+};
+
+const FILTER_OPERATORS: { value: FilterOperator; label: string }[] = [
+  { value: '=', label: 'Equals' },
+  { value: '!=', label: 'Not equals' },
+  { value: '>', label: 'Greater than' },
+  { value: '<', label: 'Less than' },
+  { value: '>=', label: 'Greater or equal' },
+  { value: '<=', label: 'Less or equal' },
+  { value: 'CONTAINS', label: 'Contains' },
+  { value: 'STARTS_WITH', label: 'Starts with' },
+  { value: 'IS_NULL', label: 'Is empty' },
+  { value: 'IS_NOT_NULL', label: 'Is not empty' },
+];
+
+interface PropertyFilterUI {
+  id: string;
+  psetName: string;
+  propName: string;
+  operator: FilterOperator;
+  value: string;
+}
+
+type ActionType = 'SET_PROPERTY' | 'DELETE_PROPERTY' | 'SET_ATTRIBUTE';
+
+interface BulkPropertyEditorProps {
+  trigger?: React.ReactNode;
+}
+
+export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
+  const { models } = useIfc();
+  const getMutationView = useViewerStore((s) => s.getMutationView);
+
+  const [open, setOpen] = useState(false);
+  const [selectedModelId, setSelectedModelId] = useState<string>('');
+
+  // Selection criteria
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+  const [selectedStoreys, setSelectedStoreys] = useState<number[]>([]);
+  const [namePattern, setNamePattern] = useState<string>('');
+  const [filters, setFilters] = useState<PropertyFilterUI[]>([]);
+
+  // Action configuration
+  const [actionType, setActionType] = useState<ActionType>('SET_PROPERTY');
+  const [targetPset, setTargetPset] = useState('');
+  const [targetProp, setTargetProp] = useState('');
+  const [targetValue, setTargetValue] = useState('');
+  const [valueType, setValueType] = useState<PropertyValueType>(PropertyValueType.String);
+
+  // Execution state
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [previewResult, setPreviewResult] = useState<BulkQueryPreview | null>(null);
+  const [executeResult, setExecuteResult] = useState<BulkQueryResult | null>(null);
+
+  // Get list of models
+  const modelList = useMemo(() => {
+    return Array.from(models.values()).map((m) => ({
+      id: m.id,
+      name: m.name,
+    }));
+  }, [models]);
+
+  // Auto-select first model
+  useMemo(() => {
+    if (modelList.length > 0 && !selectedModelId) {
+      setSelectedModelId(modelList[0].id);
+    }
+  }, [modelList, selectedModelId]);
+
+  // Get selected model's data
+  const selectedModel = useMemo(() => {
+    return models.get(selectedModelId);
+  }, [models, selectedModelId]);
+
+  // Get storeys from selected model
+  const availableStoreys = useMemo(() => {
+    if (!selectedModel?.ifcDataStore?.spatialHierarchy) return [];
+    const storeys: { id: number; name: string; elevation?: number }[] = [];
+    const hierarchy = selectedModel.ifcDataStore.spatialHierarchy;
+
+    for (const [storeyId] of hierarchy.byStorey) {
+      const name = selectedModel.ifcDataStore.entities.getName(storeyId) || `Storey #${storeyId}`;
+      const elevation = hierarchy.storeyElevations.get(storeyId);
+      storeys.push({ id: storeyId, name, elevation });
+    }
+
+    // Sort by elevation (highest first)
+    storeys.sort((a, b) => (b.elevation ?? 0) - (a.elevation ?? 0));
+    return storeys;
+  }, [selectedModel]);
+
+  // Get available entity types from the model
+  const availableTypes = useMemo(() => {
+    if (!selectedModel?.ifcDataStore) return [];
+    const entities = selectedModel.ifcDataStore.entities;
+    const typeSet = new Set<string>();
+
+    for (let i = 0; i < entities.count; i++) {
+      const expressId = entities.expressId[i];
+      const typeName = entities.getTypeName(expressId);
+      if (typeName) {
+        typeSet.add(typeName);
+      }
+    }
+
+    // Map to our UI format, filtering to common types
+    return Object.entries(IFC_TYPE_MAP)
+      .filter(([ifcType]) => {
+        const { pattern } = IFC_TYPE_MAP[ifcType];
+        return Array.from(typeSet).some(t => t.includes(pattern));
+      })
+      .map(([ifcType, { label }]) => ({ ifcType, label }));
+  }, [selectedModel]);
+
+  // Create BulkQueryEngine instance
+  const queryEngine = useMemo(() => {
+    if (!selectedModel?.ifcDataStore) return null;
+    const mutationView = getMutationView(selectedModelId);
+    if (!mutationView) return null;
+
+    const dataStore = selectedModel.ifcDataStore;
+    return new BulkQueryEngine(
+      dataStore.entities,
+      mutationView,
+      dataStore.spatialHierarchy || null,
+      dataStore.properties || null,
+      dataStore.strings || null
+    );
+  }, [selectedModel, selectedModelId, getMutationView]);
+
+  // Add a new filter
+  const addFilter = useCallback(() => {
+    setFilters(prev => [...prev, {
+      id: `filter_${Date.now()}`,
+      psetName: '',
+      propName: '',
+      operator: '=' as FilterOperator,
+      value: '',
+    }]);
+  }, []);
+
+  // Remove a filter
+  const removeFilter = useCallback((id: string) => {
+    setFilters(prev => prev.filter(f => f.id !== id));
+  }, []);
+
+  // Update a filter
+  const updateFilter = useCallback((id: string, field: keyof PropertyFilterUI, value: string) => {
+    setFilters(prev => prev.map(f =>
+      f.id === id ? { ...f, [field]: value } : f
+    ));
+  }, []);
+
+  // Build selection criteria for the query engine
+  const buildCriteria = useCallback((): SelectionCriteria => {
+    const criteria: SelectionCriteria = {};
+
+    // Filter by entity types - need to find type enum IDs
+    if (selectedTypes.length > 0 && selectedModel?.ifcDataStore) {
+      const entities = selectedModel.ifcDataStore.entities;
+      const typeEnums: number[] = [];
+
+      // Find type enum values that match our selected types
+      const seenEnums = new Set<number>();
+      for (let i = 0; i < entities.count; i++) {
+        const typeEnum = entities.typeEnum[i];
+        if (seenEnums.has(typeEnum)) continue;
+        seenEnums.add(typeEnum);
+
+        const expressId = entities.expressId[i];
+        const typeName = entities.getTypeName(expressId);
+        if (typeName) {
+          for (const selectedType of selectedTypes) {
+            const { pattern } = IFC_TYPE_MAP[selectedType] || { pattern: selectedType };
+            if (typeName.includes(pattern)) {
+              typeEnums.push(typeEnum);
+              break;
+            }
+          }
+        }
+      }
+
+      if (typeEnums.length > 0) {
+        criteria.entityTypes = typeEnums;
+      }
+    }
+
+    // Filter by storeys
+    if (selectedStoreys.length > 0) {
+      criteria.storeys = selectedStoreys;
+    }
+
+    // Filter by name pattern
+    if (namePattern.trim()) {
+      criteria.namePattern = namePattern;
+    }
+
+    // Add property filters
+    const validFilters = filters.filter(f => f.propName);
+    if (validFilters.length > 0) {
+      criteria.propertyFilters = validFilters.map(f => {
+        const filter: BulkPropertyFilter = {
+          propName: f.propName,
+          operator: f.operator,
+        };
+        if (f.psetName) {
+          filter.psetName = f.psetName;
+        }
+        if (f.operator !== 'IS_NULL' && f.operator !== 'IS_NOT_NULL') {
+          // Try to parse as number if it looks like one
+          const numVal = parseFloat(f.value);
+          filter.value = !isNaN(numVal) ? numVal : f.value;
+        }
+        return filter;
+      });
+    }
+
+    return criteria;
+  }, [selectedTypes, selectedStoreys, namePattern, filters, selectedModel]);
+
+  // Build action for the query engine
+  const buildAction = useCallback((): BulkAction => {
+    if (actionType === 'SET_PROPERTY') {
+      // Parse value based on type
+      let parsedValue: string | number | boolean = targetValue;
+      if (valueType === PropertyValueType.Real) {
+        parsedValue = parseFloat(targetValue) || 0;
+      } else if (valueType === PropertyValueType.Integer) {
+        parsedValue = parseInt(targetValue, 10) || 0;
+      } else if (valueType === PropertyValueType.Boolean) {
+        parsedValue = targetValue.toLowerCase() === 'true' || targetValue === '1';
+      }
+
+      return {
+        type: 'SET_PROPERTY',
+        psetName: targetPset,
+        propName: targetProp,
+        value: parsedValue,
+        valueType,
+      };
+    } else if (actionType === 'DELETE_PROPERTY') {
+      return {
+        type: 'DELETE_PROPERTY',
+        psetName: targetPset,
+        propName: targetProp,
+      };
+    } else {
+      return {
+        type: 'SET_ATTRIBUTE',
+        attribute: targetProp as 'name' | 'description' | 'objectType',
+        value: targetValue,
+      };
+    }
+  }, [actionType, targetPset, targetProp, targetValue, valueType]);
+
+  // Preview query
+  const handlePreview = useCallback(() => {
+    if (!queryEngine) return;
+
+    setPreviewResult(null);
+    setExecuteResult(null);
+
+    try {
+      const criteria = buildCriteria();
+      const action = buildAction();
+      const result = queryEngine.preview({ select: criteria, action });
+      setPreviewResult(result);
+    } catch (error) {
+      console.error('Preview failed:', error);
+      setPreviewResult({ matchedEntityIds: [], matchedCount: 0, estimatedMutations: 0 });
+    }
+  }, [queryEngine, buildCriteria, buildAction]);
+
+  // Execute bulk update
+  const handleExecute = useCallback(async () => {
+    if (!queryEngine || !previewResult || previewResult.matchedCount === 0) return;
+
+    setIsExecuting(true);
+    setExecuteResult(null);
+
+    try {
+      const criteria = buildCriteria();
+      const action = buildAction();
+      const result = queryEngine.execute({ select: criteria, action });
+      setExecuteResult(result);
+    } catch (error) {
+      console.error('Execute failed:', error);
+      setExecuteResult({
+        mutations: [],
+        affectedEntityCount: 0,
+        success: false,
+        errors: [error instanceof Error ? error.message : 'Unknown error'],
+      });
+    } finally {
+      setIsExecuting(false);
+    }
+  }, [queryEngine, previewResult, buildCriteria, buildAction]);
+
+  // Reset form
+  const handleReset = useCallback(() => {
+    setSelectedTypes([]);
+    setSelectedStoreys([]);
+    setNamePattern('');
+    setFilters([]);
+    setTargetPset('');
+    setTargetProp('');
+    setTargetValue('');
+    setPreviewResult(null);
+    setExecuteResult(null);
+  }, []);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        {trigger || (
+          <Button variant="outline" size="sm">
+            <Filter className="h-4 w-4 mr-2" />
+            Bulk Edit
+          </Button>
+        )}
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Filter className="h-5 w-5" />
+            Bulk Property Editor
+          </DialogTitle>
+          <DialogDescription>
+            Select entities by type, storey, or property values, then apply changes to all matching elements
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-6 py-4">
+          {/* Model selector */}
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">Model</Label>
+            <Select value={selectedModelId} onValueChange={setSelectedModelId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select a model" />
+              </SelectTrigger>
+              <SelectContent>
+                {modelList.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Separator />
+
+          {/* Selection Criteria */}
+          <div className="space-y-4">
+            <Label className="text-sm font-medium flex items-center gap-2">
+              <Search className="h-4 w-4" />
+              Selection Criteria
+            </Label>
+
+            {/* Entity type filter */}
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Entity Types</Label>
+              <div className="flex flex-wrap gap-1">
+                {availableTypes.length > 0 ? (
+                  availableTypes.map(({ ifcType, label }) => (
+                    <Badge
+                      key={ifcType}
+                      variant={selectedTypes.includes(ifcType) ? 'default' : 'outline'}
+                      className="cursor-pointer text-xs"
+                      onClick={() => {
+                        setSelectedTypes(prev =>
+                          prev.includes(ifcType)
+                            ? prev.filter(t => t !== ifcType)
+                            : [...prev, ifcType]
+                        );
+                      }}
+                    >
+                      <Building2 className="h-3 w-3 mr-1" />
+                      {label}
+                    </Badge>
+                  ))
+                ) : (
+                  <span className="text-xs text-muted-foreground">Load a model to see available types</span>
+                )}
+              </div>
+            </div>
+
+            {/* Storey filter */}
+            {availableStoreys.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Storeys</Label>
+                <div className="flex flex-wrap gap-1">
+                  {availableStoreys.map((storey) => (
+                    <Badge
+                      key={storey.id}
+                      variant={selectedStoreys.includes(storey.id) ? 'default' : 'outline'}
+                      className="cursor-pointer text-xs"
+                      onClick={() => {
+                        setSelectedStoreys(prev =>
+                          prev.includes(storey.id)
+                            ? prev.filter(s => s !== storey.id)
+                            : [...prev, storey.id]
+                        );
+                      }}
+                    >
+                      <Layers className="h-3 w-3 mr-1" />
+                      {storey.name}
+                      {storey.elevation !== undefined && (
+                        <span className="ml-1 opacity-60">
+                          ({storey.elevation >= 0 ? '+' : ''}{storey.elevation.toFixed(1)}m)
+                        </span>
+                      )}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Name pattern filter */}
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Name Pattern (Regex)</Label>
+              <Input
+                placeholder="e.g., Wall-.*-Exterior"
+                value={namePattern}
+                onChange={(e) => setNamePattern(e.target.value)}
+                className="h-8 text-sm"
+              />
+            </div>
+
+            {/* Property filters */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-muted-foreground">Property Filters</Label>
+                <Button variant="ghost" size="sm" onClick={addFilter}>
+                  <Plus className="h-3 w-3 mr-1" />
+                  Add Filter
+                </Button>
+              </div>
+              {filters.map((filter) => (
+                <div key={filter.id} className="flex items-center gap-2 p-2 border rounded-md bg-muted/30">
+                  <Input
+                    placeholder="Pset (optional)"
+                    value={filter.psetName}
+                    onChange={(e) => updateFilter(filter.id, 'psetName', e.target.value)}
+                    className="h-8 text-xs w-28"
+                  />
+                  <Input
+                    placeholder="Property name"
+                    value={filter.propName}
+                    onChange={(e) => updateFilter(filter.id, 'propName', e.target.value)}
+                    className="h-8 text-xs flex-1"
+                  />
+                  <Select
+                    value={filter.operator}
+                    onValueChange={(v) => updateFilter(filter.id, 'operator', v)}
+                  >
+                    <SelectTrigger className="h-8 w-28">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {FILTER_OPERATORS.map((op) => (
+                        <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {filter.operator !== 'IS_NULL' && filter.operator !== 'IS_NOT_NULL' && (
+                    <Input
+                      placeholder="Value"
+                      value={filter.value}
+                      onChange={(e) => updateFilter(filter.id, 'value', e.target.value)}
+                      className="h-8 text-xs w-20"
+                    />
+                  )}
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => removeFilter(filter.id)}>
+                    <Trash2 className="h-3 w-3 text-destructive" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Action Configuration */}
+          <div className="space-y-4">
+            <Label className="text-sm font-medium flex items-center gap-2">
+              <Tag className="h-4 w-4" />
+              Action
+            </Label>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Action Type</Label>
+                <Select value={actionType} onValueChange={(v) => setActionType(v as ActionType)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="SET_PROPERTY">Set Property</SelectItem>
+                    <SelectItem value="DELETE_PROPERTY">Delete Property</SelectItem>
+                    <SelectItem value="SET_ATTRIBUTE">Set Attribute</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {actionType !== 'SET_ATTRIBUTE' && (
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Property Set</Label>
+                  <Input
+                    placeholder="e.g., Pset_WallCommon"
+                    value={targetPset}
+                    onChange={(e) => setTargetPset(e.target.value)}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">
+                  {actionType === 'SET_ATTRIBUTE' ? 'Attribute' : 'Property Name'}
+                </Label>
+                {actionType === 'SET_ATTRIBUTE' ? (
+                  <Select value={targetProp} onValueChange={setTargetProp}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select attribute" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="name">Name</SelectItem>
+                      <SelectItem value="description">Description</SelectItem>
+                      <SelectItem value="objectType">ObjectType</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    placeholder="e.g., FireRating"
+                    value={targetProp}
+                    onChange={(e) => setTargetProp(e.target.value)}
+                  />
+                )}
+              </div>
+
+              {actionType !== 'DELETE_PROPERTY' && (
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">New Value</Label>
+                  <Input
+                    placeholder="Value"
+                    value={targetValue}
+                    onChange={(e) => setTargetValue(e.target.value)}
+                  />
+                </div>
+              )}
+            </div>
+
+            {actionType === 'SET_PROPERTY' && (
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Value Type</Label>
+                <Select
+                  value={valueType.toString()}
+                  onValueChange={(v) => setValueType(parseInt(v) as PropertyValueType)}
+                >
+                  <SelectTrigger className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={PropertyValueType.String.toString()}>String</SelectItem>
+                    <SelectItem value={PropertyValueType.Real.toString()}>Real</SelectItem>
+                    <SelectItem value={PropertyValueType.Integer.toString()}>Integer</SelectItem>
+                    <SelectItem value={PropertyValueType.Boolean.toString()}>Boolean</SelectItem>
+                    <SelectItem value={PropertyValueType.Label.toString()}>Label</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+
+          {/* Preview Result */}
+          {previewResult && (
+            <Alert variant={previewResult.matchedCount > 0 ? 'default' : 'destructive'}>
+              <Eye className="h-4 w-4" />
+              <AlertTitle>Preview Result</AlertTitle>
+              <AlertDescription>
+                {previewResult.matchedCount > 0
+                  ? `${previewResult.matchedCount} entities match your criteria (${previewResult.estimatedMutations} mutations)`
+                  : 'No entities match your criteria'}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* Execute Result */}
+          {executeResult && (
+            <Alert variant={executeResult.success ? 'default' : 'destructive'}>
+              {executeResult.success ? <Check className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+              <AlertTitle>{executeResult.success ? 'Success' : 'Error'}</AlertTitle>
+              <AlertDescription>
+                {executeResult.success
+                  ? `Applied ${executeResult.mutations.length} mutations to ${executeResult.affectedEntityCount} entities`
+                  : executeResult.errors?.join(', ') || 'Unknown error'}
+              </AlertDescription>
+            </Alert>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={handleReset}>
+            Reset
+          </Button>
+          <Button variant="secondary" onClick={handlePreview} disabled={!queryEngine}>
+            <Eye className="h-4 w-4 mr-2" />
+            Preview
+          </Button>
+          <Button
+            onClick={handleExecute}
+            disabled={!previewResult || previewResult.matchedCount === 0 || !targetProp || (actionType !== 'SET_ATTRIBUTE' && !targetPset) || isExecuting}
+          >
+            {isExecuting ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Applying...
+              </>
+            ) : (
+              <>
+                <Play className="h-4 w-4 mr-2" />
+                Apply to {previewResult?.matchedCount || 0} entities
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

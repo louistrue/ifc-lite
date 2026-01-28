@@ -50,7 +50,10 @@ import { useViewerStore, isIfcxDataStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { cn } from '@/lib/utils';
 import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
-import { FileSpreadsheet, FileJson } from 'lucide-react';
+import { FileSpreadsheet, FileJson, FileText, Filter, Upload } from 'lucide-react';
+import { ExportDialog } from './ExportDialog';
+import { BulkPropertyEditor } from './BulkPropertyEditor';
+import { DataConnector } from './DataConnector';
 
 type Tool = 'select' | 'pan' | 'orbit' | 'walk' | 'measure' | 'section';
 
@@ -418,6 +421,15 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
+          <ExportDialog
+            trigger={
+              <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                <FileText className="h-4 w-4 mr-2" />
+                Export IFC (with changes)
+              </DropdownMenuItem>
+            }
+          />
+          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleExportGLB}>
             <Download className="h-4 w-4 mr-2" />
             Export GLB (3D Model)
@@ -444,6 +456,23 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
             <Camera className="h-4 w-4 mr-2" />
             Screenshot
           </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <BulkPropertyEditor
+            trigger={
+              <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                <Filter className="h-4 w-4 mr-2" />
+                Bulk Property Editor
+              </DropdownMenuItem>
+            }
+          />
+          <DataConnector
+            trigger={
+              <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                <Upload className="h-4 w-4 mr-2" />
+                Import Data (CSV)
+              </DropdownMenuItem>
+            }
+          />
         </DropdownMenuContent>
       </DropdownMenu>
 

@@ -21,7 +21,9 @@ import {
   HardDrive,
   Hash,
   Database,
+  Edit3,
 } from 'lucide-react';
+import { PropertyEditor, NewPropertyDialog, UndoRedoButtons } from './PropertyEditor';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -591,12 +593,29 @@ export function PropertiesPanel() {
 
         <ScrollArea className="flex-1 bg-white dark:bg-black">
           <TabsContent value="properties" className="m-0 p-3 overflow-hidden">
+            {/* Edit toolbar */}
+            {selectedEntity && model && (
+              <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-zinc-200 dark:border-zinc-800">
+                <NewPropertyDialog
+                  modelId={selectedEntity.modelId}
+                  entityId={selectedEntity.expressId}
+                  existingPsets={properties.map(p => p.name)}
+                />
+                <UndoRedoButtons modelId={selectedEntity.modelId} />
+              </div>
+            )}
             {properties.length === 0 ? (
               <p className="text-sm text-zinc-500 dark:text-zinc-500 text-center py-8 font-mono">No property sets</p>
             ) : (
               <div className="space-y-3 w-full overflow-hidden">
                 {properties.map((pset: PropertySet) => (
-                  <PropertySetCard key={pset.name} pset={pset} />
+                  <PropertySetCard
+                    key={pset.name}
+                    pset={pset}
+                    modelId={selectedEntity?.modelId}
+                    entityId={selectedEntity?.expressId}
+                    enableEditing={!!model}
+                  />
                 ))}
               </div>
             )}
@@ -823,7 +842,14 @@ function EntityDataSection({
   );
 }
 
-function PropertySetCard({ pset }: { pset: PropertySet }) {
+interface PropertySetCardProps {
+  pset: PropertySet;
+  modelId?: string;
+  entityId?: number;
+  enableEditing?: boolean;
+}
+
+function PropertySetCard({ pset, modelId, entityId, enableEditing }: PropertySetCardProps) {
   return (
     <Collapsible defaultOpen className="border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 group w-full max-w-full overflow-hidden">
       <CollapsibleTrigger className="flex items-center gap-2 w-full p-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-left transition-colors overflow-hidden">
@@ -836,28 +862,40 @@ function PropertySetCard({ pset }: { pset: PropertySet }) {
             const parsed = parsePropertyValue(prop.value);
             const decodedName = decodeIfcString(prop.name);
             return (
-              <div key={prop.name} className="flex flex-col gap-0.5 px-3 py-2 text-xs hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50">
-                {/* Property name with type tooltip */}
-                {parsed.ifcType ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="text-zinc-500 dark:text-zinc-400 font-medium cursor-help break-words">
-                        {decodedName}
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="text-[10px]">
-                      <span className="text-zinc-400">{parsed.ifcType}</span>
-                    </TooltipContent>
-                  </Tooltip>
-                ) : (
-                  <span className="text-zinc-500 dark:text-zinc-400 font-medium break-words">
-                    {decodedName}
-                  </span>
-                )}
-                {/* Property value */}
-                <span className="font-mono text-zinc-900 dark:text-zinc-100 select-all break-words">
-                  {parsed.displayValue}
-                </span>
+              <div key={prop.name} className="flex items-start justify-between gap-2 px-3 py-2 text-xs hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50 group/prop">
+                <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+                  {/* Property name with type tooltip */}
+                  {parsed.ifcType ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="text-zinc-500 dark:text-zinc-400 font-medium cursor-help break-words">
+                          {decodedName}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-[10px]">
+                        <span className="text-zinc-400">{parsed.ifcType}</span>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <span className="text-zinc-500 dark:text-zinc-400 font-medium break-words">
+                      {decodedName}
+                    </span>
+                  )}
+                  {/* Property value - use PropertyEditor if editing enabled */}
+                  {enableEditing && modelId && entityId ? (
+                    <PropertyEditor
+                      modelId={modelId}
+                      entityId={entityId}
+                      psetName={pset.name}
+                      propName={prop.name}
+                      currentValue={prop.value}
+                    />
+                  ) : (
+                    <span className="font-mono text-zinc-900 dark:text-zinc-100 select-all break-words">
+                      {parsed.displayValue}
+                    </span>
+                  )}
+                </div>
               </div>
             );
           })}
