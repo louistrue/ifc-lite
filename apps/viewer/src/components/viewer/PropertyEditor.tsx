@@ -133,10 +133,10 @@ export function PropertyEditor({
 
   const displayValue = formatDisplayValue(currentValue);
 
-  // Non-editing view: value with pen icon on right
+  // Non-editing view: value with pen icon on right (always visible)
   if (!isEditing) {
     return (
-      <div className="flex items-center gap-2 group/edit min-w-0">
+      <div className="flex items-center gap-2 min-w-0">
         <span
           className="font-mono text-zinc-900 dark:text-zinc-100 select-all break-words flex-1 min-w-0 cursor-text"
           onClick={() => setIsEditing(true)}
@@ -149,7 +149,7 @@ export function PropertyEditor({
             <Button
               variant="ghost"
               size="icon"
-              className="h-5 w-5 opacity-0 group-hover/edit:opacity-100 transition-opacity shrink-0 hover:bg-purple-100 dark:hover:bg-purple-900/30"
+              className="h-5 w-5 shrink-0 hover:bg-purple-100 dark:hover:bg-purple-900/30"
               onClick={() => setIsEditing(true)}
             >
               <PenLine className="h-3 w-3 text-purple-500" />

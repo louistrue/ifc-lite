@@ -292,6 +292,9 @@ export function PropertiesPanel() {
   // Copy feedback state - must be before any early returns (Rules of Hooks)
   const [copied, setCopied] = useState(false);
 
+  // Edit mode toggle - allows inline property editing
+  const [editMode, setEditMode] = useState(false);
+
   const copyToClipboard = useCallback((text: string) => {
     navigator.clipboard.writeText(text);
     setCopied(true);
@@ -572,6 +575,20 @@ export function PropertiesPanel() {
                 {selectedEntityId && isEntityVisible(selectedEntityId) ? 'Hide' : 'Show'}
               </TooltipContent>
             </Tooltip>
+            {/* Edit mode toggle */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={editMode ? 'default' : 'ghost'}
+                  size="icon-xs"
+                  className={`rounded-none ${editMode ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'hover:bg-zinc-200 dark:hover:bg-zinc-700'}`}
+                  onClick={() => setEditMode(!editMode)}
+                >
+                  <PenLine className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{editMode ? 'Exit Edit Mode' : 'Edit Properties'}</TooltipContent>
+            </Tooltip>
           </div>
         </div>
 
@@ -695,9 +712,9 @@ export function PropertiesPanel() {
 
         <ScrollArea className="flex-1 bg-white dark:bg-black">
           <TabsContent value="properties" className="m-0 p-3 overflow-hidden">
-            {/* Edit toolbar */}
-            {selectedEntity && model && (
-              <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-zinc-200 dark:border-zinc-800">
+            {/* Edit toolbar - only shown when edit mode is active */}
+            {editMode && selectedEntity && (
+              <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-purple-200 dark:border-purple-800 bg-purple-50/30 dark:bg-purple-950/20 -mx-3 -mt-3 px-3 pt-3">
                 <NewPropertyDialog
                   modelId={selectedEntity.modelId}
                   entityId={selectedEntity.expressId}
@@ -716,7 +733,7 @@ export function PropertiesPanel() {
                     pset={pset}
                     modelId={selectedEntity?.modelId}
                     entityId={selectedEntity?.expressId}
-                    enableEditing={!!model}
+                    enableEditing={editMode}
                   />
                 ))}
               </div>
