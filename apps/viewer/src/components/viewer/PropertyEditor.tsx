@@ -73,7 +73,6 @@ export function PropertyEditor({
   const [value, setValue] = useState<string>(formatValue(currentValue));
   const [valueType, setValueType] = useState<PropertyValueType>(detectValueType(currentValue, currentType));
   const [isEditing, setIsEditing] = useState(false);
-  const [showTypeSelect, setShowTypeSelect] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Focus input when entering edit mode
@@ -96,7 +95,6 @@ export function PropertyEditor({
     setProperty(normalizedModelId, entityId, psetName, propName, parsedValue, valueType);
     bumpMutationVersion();
     setIsEditing(false);
-    setShowTypeSelect(false);
     onClose?.();
   }, [modelId, entityId, psetName, propName, value, valueType, setProperty, bumpMutationVersion, onClose]);
 
@@ -117,7 +115,6 @@ export function PropertyEditor({
     setValue(formatValue(currentValue));
     setValueType(detectValueType(currentValue, currentType));
     setIsEditing(false);
-    setShowTypeSelect(false);
     onClose?.();
   }, [currentValue, currentType, onClose]);
 
@@ -161,9 +158,10 @@ export function PropertyEditor({
     );
   }
 
-  // Editing view: inline input with action buttons
+  // Editing view: inline input with type selector and action buttons
   return (
     <div className="flex flex-col gap-2 p-2 -mx-2 bg-purple-50/50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 rounded">
+      {/* Value input */}
       <div className="flex items-center gap-2">
         {valueType === PropertyValueType.Boolean || valueType === PropertyValueType.Logical ? (
           <div className="flex items-center gap-2 flex-1">
@@ -185,96 +183,77 @@ export function PropertyEditor({
             step={valueType === PropertyValueType.Real ? 'any' : undefined}
           />
         )}
-      </div>
 
-      {/* Action buttons row */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1">
-          {/* Type toggle button */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 px-2 text-[10px] text-zinc-500 hover:text-zinc-700"
-            onClick={() => setShowTypeSelect(!showTypeSelect)}
-          >
-            {getTypeName(valueType)}
-          </Button>
-        </div>
-
-        <div className="flex items-center gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 hover:bg-green-100 dark:hover:bg-green-900/30"
-                onClick={handleSave}
-              >
-                <Check className="h-3.5 w-3.5 text-green-600" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Save (Enter)</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 hover:bg-zinc-200 dark:hover:bg-zinc-700"
-                onClick={handleCancel}
-              >
-                <X className="h-3.5 w-3.5 text-zinc-500" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Cancel (Esc)</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 hover:bg-red-100 dark:hover:bg-red-900/30"
-                onClick={handleDelete}
-              >
-                <Trash2 className="h-3.5 w-3.5 text-red-500" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Delete property</TooltipContent>
-          </Tooltip>
-        </div>
-      </div>
-
-      {/* Type selector (expandable) */}
-      {showTypeSelect && (
-        <div className="flex flex-wrap gap-1 pt-1 border-t border-purple-200 dark:border-purple-800">
-          {[
-            { type: PropertyValueType.String, label: 'String' },
-            { type: PropertyValueType.Label, label: 'Label' },
-            { type: PropertyValueType.Identifier, label: 'ID' },
-            { type: PropertyValueType.Real, label: 'Real' },
-            { type: PropertyValueType.Integer, label: 'Int' },
-            { type: PropertyValueType.Boolean, label: 'Bool' },
-          ].map(({ type, label }) => (
+        {/* Action buttons */}
+        <Tooltip>
+          <TooltipTrigger asChild>
             <Button
-              key={type}
-              variant={valueType === type ? 'default' : 'outline'}
-              size="sm"
-              className="h-5 px-2 text-[10px]"
-              onClick={() => {
-                setValueType(type);
-                // Convert value if switching to/from boolean
-                if (type === PropertyValueType.Boolean || type === PropertyValueType.Logical) {
-                  const boolVal = value.toLowerCase() === 'true' || value === '1' || value === 'yes';
-                  setValue(boolVal ? 'true' : 'false');
-                }
-                setShowTypeSelect(false);
-              }}
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 hover:bg-green-100 dark:hover:bg-green-900/30"
+              onClick={handleSave}
             >
-              {label}
+              <Check className="h-3.5 w-3.5 text-green-600" />
             </Button>
-          ))}
-        </div>
-      )}
+          </TooltipTrigger>
+          <TooltipContent>Save (Enter)</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+              onClick={handleCancel}
+            >
+              <X className="h-3.5 w-3.5 text-zinc-500" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Cancel (Esc)</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 hover:bg-red-100 dark:hover:bg-red-900/30"
+              onClick={handleDelete}
+            >
+              <Trash2 className="h-3.5 w-3.5 text-red-500" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Delete property</TooltipContent>
+        </Tooltip>
+      </div>
+
+      {/* Type selector - always visible */}
+      <div className="flex flex-wrap gap-1">
+        {[
+          { type: PropertyValueType.String, label: 'String' },
+          { type: PropertyValueType.Label, label: 'Label' },
+          { type: PropertyValueType.Identifier, label: 'ID' },
+          { type: PropertyValueType.Real, label: 'Real' },
+          { type: PropertyValueType.Integer, label: 'Int' },
+          { type: PropertyValueType.Boolean, label: 'Bool' },
+        ].map(({ type, label }) => (
+          <Button
+            key={type}
+            variant={valueType === type ? 'default' : 'outline'}
+            size="sm"
+            className="h-5 px-2 text-[10px]"
+            onClick={() => {
+              setValueType(type);
+              // Convert value if switching to/from boolean
+              if (type === PropertyValueType.Boolean || type === PropertyValueType.Logical) {
+                const boolVal = value.toLowerCase() === 'true' || value === '1' || value === 'yes';
+                setValue(boolVal ? 'true' : 'false');
+              }
+            }}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -514,37 +493,51 @@ export function UndoRedoButtons({ modelId }: UndoRedoButtonsProps) {
 
 // Helper functions
 
-function formatValue(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'boolean') return value ? 'true' : 'false';
-  if (typeof value === 'number') return value.toString();
-  if (Array.isArray(value)) {
-    // Handle typed value arrays [IFCTYPENAME, actualValue]
-    if (value.length === 2 && typeof value[0] === 'string' && value[0].startsWith('IFC')) {
-      return formatValue(value[1]);
-    }
-    return JSON.stringify(value);
+/**
+ * Extract the raw value from typed IFC values.
+ * Handles: arrays like [IFCLABEL, value], strings like "IFCLABEL,value"
+ */
+function extractRawValue(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+
+  // Handle typed value arrays [IFCTYPENAME, actualValue]
+  if (Array.isArray(value) && value.length === 2 && typeof value[0] === 'string' && value[0].toUpperCase().startsWith('IFC')) {
+    return value[1];
   }
-  return String(value);
+
+  // Handle string format "IFCTYPENAME,actualValue"
+  if (typeof value === 'string') {
+    const match = value.match(/^(IFC[A-Z0-9_]+),(.*)$/i);
+    if (match) {
+      return match[2]; // Return just the value part
+    }
+  }
+
+  return value;
+}
+
+function formatValue(value: unknown): string {
+  const raw = extractRawValue(value);
+  if (raw === null || raw === undefined) return '';
+  if (typeof raw === 'boolean') return raw ? 'true' : 'false';
+  if (typeof raw === 'number') return raw.toString();
+  if (Array.isArray(raw)) return JSON.stringify(raw);
+  return String(raw);
 }
 
 function formatDisplayValue(value: unknown): string {
-  if (value === null || value === undefined) return '—';
-  if (typeof value === 'boolean') return value ? 'True' : 'False';
-  if (typeof value === 'number') {
-    return Number.isInteger(value)
-      ? value.toLocaleString()
-      : value.toLocaleString(undefined, { maximumFractionDigits: 6 });
+  const raw = extractRawValue(value);
+  if (raw === null || raw === undefined) return '—';
+  if (typeof raw === 'boolean') return raw ? 'True' : 'False';
+  if (typeof raw === 'number') {
+    return Number.isInteger(raw)
+      ? raw.toLocaleString()
+      : raw.toLocaleString(undefined, { maximumFractionDigits: 6 });
   }
-  if (Array.isArray(value)) {
-    // Handle typed value arrays [IFCTYPENAME, actualValue]
-    if (value.length === 2 && typeof value[0] === 'string' && value[0].startsWith('IFC')) {
-      return formatDisplayValue(value[1]);
-    }
-    return JSON.stringify(value);
-  }
+  if (Array.isArray(raw)) return JSON.stringify(raw);
+
   // Handle boolean strings
-  const strVal = String(value);
+  const strVal = String(raw);
   if (strVal === '.T.' || strVal.toUpperCase() === '.T.') return 'True';
   if (strVal === '.F.' || strVal.toUpperCase() === '.F.') return 'False';
   if (strVal === '.U.' || strVal.toUpperCase() === '.U.') return 'Unknown';
@@ -552,16 +545,7 @@ function formatDisplayValue(value: unknown): string {
 }
 
 function detectValueType(value: unknown, fallback: PropertyValueType): PropertyValueType {
-  if (typeof value === 'boolean') return PropertyValueType.Boolean;
-  if (typeof value === 'number') {
-    return Number.isInteger(value) ? PropertyValueType.Integer : PropertyValueType.Real;
-  }
-  if (typeof value === 'string') {
-    const upper = value.toUpperCase();
-    if (upper === '.T.' || upper === '.F.' || upper === '.U.') {
-      return PropertyValueType.Boolean;
-    }
-  }
+  // First check if it's a typed value and extract the type
   if (Array.isArray(value) && value.length === 2 && typeof value[0] === 'string') {
     const typeName = value[0].toUpperCase();
     if (typeName === 'IFCBOOLEAN' || typeName === 'IFCLOGICAL') return PropertyValueType.Boolean;
@@ -569,7 +553,36 @@ function detectValueType(value: unknown, fallback: PropertyValueType): PropertyV
     if (typeName === 'IFCINTEGER') return PropertyValueType.Integer;
     if (typeName === 'IFCIDENTIFIER') return PropertyValueType.Identifier;
     if (typeName === 'IFCLABEL') return PropertyValueType.Label;
+    if (typeName === 'IFCTEXT') return PropertyValueType.String;
   }
+
+  // Check string format "IFCTYPE,value"
+  if (typeof value === 'string') {
+    const match = value.match(/^(IFC[A-Z0-9_]+),/i);
+    if (match) {
+      const typeName = match[1].toUpperCase();
+      if (typeName === 'IFCBOOLEAN' || typeName === 'IFCLOGICAL') return PropertyValueType.Boolean;
+      if (typeName === 'IFCREAL') return PropertyValueType.Real;
+      if (typeName === 'IFCINTEGER') return PropertyValueType.Integer;
+      if (typeName === 'IFCIDENTIFIER') return PropertyValueType.Identifier;
+      if (typeName === 'IFCLABEL') return PropertyValueType.Label;
+      if (typeName === 'IFCTEXT') return PropertyValueType.String;
+    }
+
+    // Check for boolean enum values
+    const upper = value.toUpperCase();
+    if (upper === '.T.' || upper === '.F.' || upper === '.U.') {
+      return PropertyValueType.Boolean;
+    }
+  }
+
+  // Check raw value type
+  const raw = extractRawValue(value);
+  if (typeof raw === 'boolean') return PropertyValueType.Boolean;
+  if (typeof raw === 'number') {
+    return Number.isInteger(raw) ? PropertyValueType.Integer : PropertyValueType.Real;
+  }
+
   return fallback;
 }
 
