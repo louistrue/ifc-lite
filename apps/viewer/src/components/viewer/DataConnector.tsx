@@ -8,7 +8,7 @@
  * Full integration with CsvConnector from @ifc-lite/mutations
  */
 
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   Upload,
   FileSpreadsheet,
@@ -63,6 +63,7 @@ import { useIfc } from '@/hooks/useIfc';
 import { PropertyValueType } from '@ifc-lite/data';
 import {
   CsvConnector,
+  MutablePropertyView,
   type CsvRow,
   type MatchStrategy,
   type PropertyMapping,
@@ -70,6 +71,7 @@ import {
   type MatchResult,
   type ImportStats,
 } from '@ifc-lite/mutations';
+import { extractPropertiesOnDemand, type IfcDataStore } from '@ifc-lite/parser';
 
 type MatchType = 'globalId' | 'expressId' | 'name' | 'property';
 
@@ -93,6 +95,7 @@ interface MappingRow {
 export function DataConnector({ trigger }: DataConnectorProps) {
   const { models } = useIfc();
   const getMutationView = useViewerStore((s) => s.getMutationView);
+  const registerMutationView = useViewerStore((s) => s.registerMutationView);
   // Also get legacy single-model state for backward compatibility
   const legacyIfcDataStore = useViewerStore((s) => s.ifcDataStore);
   const legacyGeometryResult = useViewerStore((s) => s.geometryResult);
@@ -164,6 +167,29 @@ export function DataConnector({ trigger }: DataConnectorProps) {
       setSelectedModelId(modelList[0].id);
     }
   }, [modelList, selectedModelId]);
+
+  // Ensure mutation view exists for selected model
+  useEffect(() => {
+    if (!selectedModel?.ifcDataStore || !selectedModelId) return;
+
+    // Check if mutation view already exists
+    let mutationView = getMutationView(selectedModelId);
+    if (mutationView) return;
+
+    // Create new mutation view with on-demand property extractor
+    const dataStore = selectedModel.ifcDataStore;
+    mutationView = new MutablePropertyView(dataStore.properties || null, selectedModelId);
+
+    // Set up on-demand property extraction if the data store supports it
+    if (dataStore.onDemandPropertyMap && dataStore.source?.length > 0) {
+      mutationView.setOnDemandExtractor((entityId: number) => {
+        return extractPropertiesOnDemand(dataStore as IfcDataStore, entityId);
+      });
+    }
+
+    // Register the mutation view
+    registerMutationView(selectedModelId, mutationView);
+  }, [selectedModel, selectedModelId, getMutationView, registerMutationView]);
 
   // Create CsvConnector instance
   const csvConnector = useMemo(() => {

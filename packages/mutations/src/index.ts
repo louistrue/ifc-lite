@@ -7,7 +7,7 @@
  */
 
 export * from './types.js';
-export { MutablePropertyView } from './mutable-property-view.js';
+export { MutablePropertyView, type PropertyExtractor } from './mutable-property-view.js';
 export { ChangeSetManager } from './change-set.js';
 export {
   BulkQueryEngine,

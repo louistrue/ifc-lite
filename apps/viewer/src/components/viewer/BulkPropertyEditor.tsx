@@ -7,7 +7,7 @@
  * Full integration with BulkQueryEngine
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   Search,
   Play,
@@ -53,6 +53,7 @@ import { useIfc } from '@/hooks/useIfc';
 import { PropertyValueType } from '@ifc-lite/data';
 import {
   BulkQueryEngine,
+  MutablePropertyView,
   type SelectionCriteria,
   type BulkAction,
   type FilterOperator,
@@ -60,6 +61,7 @@ import {
   type BulkQueryPreview,
   type BulkQueryResult,
 } from '@ifc-lite/mutations';
+import { extractPropertiesOnDemand, type IfcDataStore } from '@ifc-lite/parser';
 
 // Common IFC type enum IDs (from IFC schema)
 // These correspond to the typeEnum values in EntityTable
@@ -114,6 +116,7 @@ interface BulkPropertyEditorProps {
 export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
   const { models } = useIfc();
   const getMutationView = useViewerStore((s) => s.getMutationView);
+  const registerMutationView = useViewerStore((s) => s.registerMutationView);
   // Also get legacy single-model state for backward compatibility
   const legacyIfcDataStore = useViewerStore((s) => s.ifcDataStore);
   const legacyGeometryResult = useViewerStore((s) => s.geometryResult);
@@ -219,6 +222,29 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
       })
       .map(([ifcType, { label }]) => ({ ifcType, label }));
   }, [selectedModel]);
+
+  // Ensure mutation view exists for selected model
+  useEffect(() => {
+    if (!selectedModel?.ifcDataStore || !selectedModelId) return;
+
+    // Check if mutation view already exists
+    let mutationView = getMutationView(selectedModelId);
+    if (mutationView) return;
+
+    // Create new mutation view with on-demand property extractor
+    const dataStore = selectedModel.ifcDataStore;
+    mutationView = new MutablePropertyView(dataStore.properties || null, selectedModelId);
+
+    // Set up on-demand property extraction if the data store supports it
+    if (dataStore.onDemandPropertyMap && dataStore.source?.length > 0) {
+      mutationView.setOnDemandExtractor((entityId: number) => {
+        return extractPropertiesOnDemand(dataStore as IfcDataStore, entityId);
+      });
+    }
+
+    // Register the mutation view
+    registerMutationView(selectedModelId, mutationView);
+  }, [selectedModel, selectedModelId, getMutationView, registerMutationView]);
 
   // Create BulkQueryEngine instance
   const queryEngine = useMemo(() => {

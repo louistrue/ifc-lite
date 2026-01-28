@@ -7,6 +7,9 @@
  *
  * This class provides a mutable view over an immutable PropertyTable.
  * Changes are tracked separately and applied on-the-fly during reads.
+ *
+ * Supports both pre-built property tables and on-demand property extraction
+ * for optimal performance with large models.
  */
 
 import type { PropertyTable, PropertySet, Property } from '@ifc-lite/data';
@@ -14,8 +17,19 @@ import { PropertyValueType } from '@ifc-lite/data';
 import type { PropertyValue, PropertyMutation, Mutation } from './types.js';
 import { propertyKey, generateMutationId } from './types.js';
 
+/**
+ * Function type for on-demand property extraction
+ * Allows globalId to be optional to match extractPropertiesOnDemand return type
+ */
+export type PropertyExtractor = (entityId: number) => Array<{
+  name: string;
+  globalId?: string;
+  properties: Array<{ name: string; type: number; value: unknown }>;
+}>;
+
 export class MutablePropertyView {
   private baseTable: PropertyTable | null;
+  private onDemandExtractor: PropertyExtractor | null = null;
   private propertyMutations: Map<string, PropertyMutation> = new Map();
   private deletedPsets: Set<string> = new Set(); // `${entityId}:${psetName}`
   private newPsets: Map<number, Map<string, PropertySet>> = new Map(); // entityId -> psetName -> PropertySet
@@ -28,69 +42,100 @@ export class MutablePropertyView {
   }
 
   /**
+   * Set an on-demand property extractor function
+   * This is used when properties are extracted lazily from the source buffer
+   */
+  setOnDemandExtractor(extractor: PropertyExtractor): void {
+    this.onDemandExtractor = extractor;
+  }
+
+  /**
+   * Get base properties for an entity (before mutations)
+   * Uses on-demand extraction if available, otherwise falls back to base table
+   */
+  private getBasePropertiesForEntity(entityId: number): PropertySet[] {
+    // Prefer on-demand extraction if available (client-side WASM parsing)
+    if (this.onDemandExtractor) {
+      // Normalize the result to PropertySet[] (globalId defaults to empty string)
+      return this.onDemandExtractor(entityId).map(pset => ({
+        name: pset.name,
+        globalId: pset.globalId || '',
+        properties: pset.properties.map(prop => ({
+          name: prop.name,
+          type: prop.type as PropertyValueType,
+          value: prop.value as PropertyValue,
+        })),
+      }));
+    }
+    // Fallback to pre-built property table
+    if (this.baseTable) {
+      return this.baseTable.getForEntity(entityId);
+    }
+    return [];
+  }
+
+  /**
    * Get all property sets for an entity, with mutations applied
    */
   getForEntity(entityId: number): PropertySet[] {
     const result: PropertySet[] = [];
     const seenPsets = new Set<string>();
 
-    // First, add properties from base table with mutations applied
-    if (this.baseTable) {
-      const basePsets = this.baseTable.getForEntity(entityId);
+    // First, add properties from base (on-demand or table) with mutations applied
+    const basePsets = this.getBasePropertiesForEntity(entityId);
 
-      for (const pset of basePsets) {
-        // Skip deleted property sets
-        if (this.deletedPsets.has(`${entityId}:${pset.name}`)) {
-          continue;
-        }
+    for (const pset of basePsets) {
+      // Skip deleted property sets
+      if (this.deletedPsets.has(`${entityId}:${pset.name}`)) {
+        continue;
+      }
 
-        seenPsets.add(pset.name);
+      seenPsets.add(pset.name);
 
-        // Apply property mutations
-        const mutatedProperties: Property[] = [];
-        for (const prop of pset.properties) {
-          const key = propertyKey(entityId, pset.name, prop.name);
-          const mutation = this.propertyMutations.get(key);
+      // Apply property mutations
+      const mutatedProperties: Property[] = [];
+      for (const prop of pset.properties) {
+        const key = propertyKey(entityId, pset.name, prop.name);
+        const mutation = this.propertyMutations.get(key);
 
-          if (mutation) {
-            if (mutation.operation === 'DELETE') {
-              continue; // Skip deleted properties
-            }
-            // Apply SET mutation
-            mutatedProperties.push({
-              name: prop.name,
-              type: mutation.valueType ?? prop.type,
-              value: mutation.value ?? null,
-              unit: mutation.unit ?? prop.unit,
-            });
-          } else {
-            mutatedProperties.push(prop);
+        if (mutation) {
+          if (mutation.operation === 'DELETE') {
+            continue; // Skip deleted properties
           }
-        }
-
-        // Check for new properties added to this pset
-        for (const [key, mutation] of this.propertyMutations) {
-          if (key.startsWith(`${entityId}:${pset.name}:`) && mutation.operation === 'SET') {
-            const propName = key.split(':')[2];
-            // Only add if not already in the list
-            if (!mutatedProperties.some(p => p.name === propName)) {
-              mutatedProperties.push({
-                name: propName,
-                type: mutation.valueType ?? PropertyValueType.String,
-                value: mutation.value ?? null,
-                unit: mutation.unit,
-              });
-            }
-          }
-        }
-
-        if (mutatedProperties.length > 0) {
-          result.push({
-            name: pset.name,
-            globalId: pset.globalId,
-            properties: mutatedProperties,
+          // Apply SET mutation
+          mutatedProperties.push({
+            name: prop.name,
+            type: mutation.valueType ?? prop.type,
+            value: mutation.value ?? null,
+            unit: mutation.unit ?? prop.unit,
           });
+        } else {
+          mutatedProperties.push(prop);
         }
+      }
+
+      // Check for new properties added to this pset
+      for (const [key, mutation] of this.propertyMutations) {
+        if (key.startsWith(`${entityId}:${pset.name}:`) && mutation.operation === 'SET') {
+          const propName = key.split(':')[2];
+          // Only add if not already in the list
+          if (!mutatedProperties.some(p => p.name === propName)) {
+            mutatedProperties.push({
+              name: propName,
+              type: mutation.valueType ?? PropertyValueType.String,
+              value: mutation.value ?? null,
+              unit: mutation.unit,
+            });
+          }
+        }
+      }
+
+      if (mutatedProperties.length > 0) {
+        result.push({
+          name: pset.name,
+          globalId: pset.globalId,
+          properties: mutatedProperties,
+        });
       }
     }
 
@@ -134,9 +179,14 @@ export class MutablePropertyView {
       }
     }
 
-    // Fall back to base table
-    if (this.baseTable) {
-      return this.baseTable.getPropertyValue(entityId, psetName, propName);
+    // Fall back to on-demand extraction or base table
+    const basePsets = this.getBasePropertiesForEntity(entityId);
+    const pset = basePsets.find(p => p.name === psetName);
+    if (pset) {
+      const prop = pset.properties.find(p => p.name === propName);
+      if (prop) {
+        return prop.value;
+      }
     }
 
     return null;
@@ -276,7 +326,7 @@ export class MutablePropertyView {
     }
 
     // Mark all properties as deleted
-    const existingPsets = this.baseTable?.getForEntity(entityId) || [];
+    const existingPsets = this.getBasePropertiesForEntity(entityId);
     const pset = existingPsets.find(p => p.name === psetName);
     if (pset) {
       for (const prop of pset.properties) {

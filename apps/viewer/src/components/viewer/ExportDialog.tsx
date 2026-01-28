@@ -6,7 +6,7 @@
  * Export Dialog for IFC export with property mutations
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   Download,
   FileText,
@@ -42,6 +42,8 @@ import {
 } from '@/components/ui/alert';
 import { useViewerStore } from '@/store';
 import { StepExporter } from '@ifc-lite/export';
+import { MutablePropertyView } from '@ifc-lite/mutations';
+import { extractPropertiesOnDemand, type IfcDataStore } from '@ifc-lite/parser';
 
 type ExportFormat = 'ifc' | 'ifcx' | 'json';
 type SchemaVersion = 'IFC2X3' | 'IFC4' | 'IFC4X3';
@@ -54,6 +56,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
   const models = useViewerStore((s) => s.models);
   const dirtyModels = useViewerStore((s) => s.dirtyModels);
   const getMutationView = useViewerStore((s) => s.getMutationView);
+  const registerMutationView = useViewerStore((s) => s.registerMutationView);
   const getModifiedEntityCount = useViewerStore((s) => s.getModifiedEntityCount);
   // Also get legacy single-model state for backward compatibility
   const legacyIfcDataStore = useViewerStore((s) => s.ifcDataStore);
@@ -114,6 +117,29 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
     }
     return models.get(selectedModelId);
   }, [models, selectedModelId, legacyIfcDataStore, legacyGeometryResult]);
+
+  // Ensure mutation view exists for selected model
+  useEffect(() => {
+    if (!selectedModel?.ifcDataStore || !selectedModelId) return;
+
+    // Check if mutation view already exists
+    let mutationView = getMutationView(selectedModelId);
+    if (mutationView) return;
+
+    // Create new mutation view with on-demand property extractor
+    const dataStore = selectedModel.ifcDataStore;
+    mutationView = new MutablePropertyView(dataStore.properties || null, selectedModelId);
+
+    // Set up on-demand property extraction if the data store supports it
+    if (dataStore.onDemandPropertyMap && dataStore.source?.length > 0) {
+      mutationView.setOnDemandExtractor((entityId: number) => {
+        return extractPropertiesOnDemand(dataStore as IfcDataStore, entityId);
+      });
+    }
+
+    // Register the mutation view
+    registerMutationView(selectedModelId, mutationView);
+  }, [selectedModel, selectedModelId, getMutationView, registerMutationView]);
 
   const modifiedCount = useMemo(() => {
     return getModifiedEntityCount();

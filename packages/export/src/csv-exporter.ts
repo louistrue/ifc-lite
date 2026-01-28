@@ -4,10 +4,15 @@
 
 /**
  * CSV exporter for IFC data
+ * Uses on-demand property extraction for optimal performance
  */
 
-import type { IfcDataStore } from '@ifc-lite/parser';
-import type { PropertyValue } from '@ifc-lite/data';
+import {
+  type IfcDataStore,
+  extractPropertiesOnDemand,
+  extractQuantitiesOnDemand,
+} from '@ifc-lite/parser';
+import type { PropertyValue, PropertySet, QuantitySet } from '@ifc-lite/data';
 
 export interface CSVExportOptions {
   includeProperties?: boolean;
@@ -21,6 +26,30 @@ export class CSVExporter {
 
   constructor(store: IfcDataStore) {
     this.store = store;
+  }
+
+  /**
+   * Get properties for an entity, using on-demand extraction when available
+   */
+  private getPropertiesForEntity(entityId: number): PropertySet[] {
+    // Use on-demand extraction (works with client-side WASM parsing)
+    if (this.store.onDemandPropertyMap && this.store.source?.length > 0) {
+      return extractPropertiesOnDemand(this.store, entityId) as PropertySet[];
+    }
+    // Fallback to pre-built property table (server-parsed data or cached)
+    return this.store.properties?.getForEntity(entityId) ?? [];
+  }
+
+  /**
+   * Get quantities for an entity, using on-demand extraction when available
+   */
+  private getQuantitiesForEntity(entityId: number): QuantitySet[] {
+    // Use on-demand extraction (works with client-side WASM parsing)
+    if (this.store.onDemandQuantityMap && this.store.source?.length > 0) {
+      return extractQuantitiesOnDemand(this.store, entityId) as QuantitySet[];
+    }
+    // Fallback to pre-built quantity table
+    return this.store.quantities?.getForEntity(entityId) ?? [];
   }
 
   /**
@@ -50,7 +79,7 @@ export class CSVExporter {
       const allEntityIds = entityIds ?? this.getAllEntityIds();
 
       for (const id of allEntityIds) {
-        const properties = this.store.properties?.getForEntity(id) ?? [];
+        const properties = this.getPropertiesForEntity(id);
         for (const pset of properties) {
           if (!psetProps.has(pset.name)) {
             psetProps.set(pset.name, new Set());
@@ -87,7 +116,7 @@ export class CSVExporter {
       ];
 
       if (includeProperties && flattenProperties) {
-        const properties = this.store.properties?.getForEntity(id) ?? [];
+        const properties = this.getPropertiesForEntity(id);
         const propMap = new Map<string, Map<string, PropertyValue>>();
 
         // Build map of pset -> prop -> value
@@ -124,12 +153,8 @@ export class CSVExporter {
 
     const ids = entityIds ?? this.getAllEntityIds();
 
-    if (!this.store.properties) {
-      return rows[0];
-    }
-
     for (const id of ids) {
-      const properties = this.store.properties.getForEntity(id);
+      const properties = this.getPropertiesForEntity(id);
       if (!properties || properties.length === 0) continue;
 
       const globalId = this.store.entities.getGlobalId(id) || '';
@@ -166,15 +191,11 @@ export class CSVExporter {
     const headers = ['entityId', 'globalId', 'entityName', 'entityType', 'qsetName', 'quantityName', 'value', 'type'];
     const headerRow = this.joinRow(headers.map((h) => this.escapeValue(h)), delimiter);
 
-    if (!this.store.quantities) {
-      return headerRow;
-    }
-
     const rows: string[] = [headerRow];
     const ids = entityIds ?? this.getAllEntityIds();
 
     for (const id of ids) {
-      const quantities = this.store.quantities.getForEntity(id);
+      const quantities = this.getQuantitiesForEntity(id);
       if (!quantities || quantities.length === 0) continue;
 
       const globalId = this.store.entities.getGlobalId(id) || '';
