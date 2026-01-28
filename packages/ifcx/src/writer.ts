@@ -10,7 +10,14 @@
 
 import type { IfcxFile, IfcxNode, IfcxHeader } from './types.js';
 import type { EntityTable, PropertyTable, PropertySet, SpatialHierarchy } from '@ifc-lite/data';
-import type { MutablePropertyView } from '@ifc-lite/mutations';
+
+/**
+ * Interface for mutable property view (from @ifc-lite/mutations)
+ * Defined inline to avoid circular dependency during build
+ */
+interface MutablePropertyView {
+  getForEntity(entityId: number): PropertySet[];
+}
 
 /**
  * Options for IFCX export

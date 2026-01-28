@@ -21,6 +21,7 @@ import {
   HardDrive,
   Hash,
   Database,
+  Plus,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -32,6 +33,7 @@ import { useIfc } from '@/hooks/useIfc';
 import { IfcQuery } from '@ifc-lite/query';
 import type { EntityRef, FederatedModel } from '@/store/types';
 import type { IfcDataStore } from '@ifc-lite/parser';
+import { NewPropertyDialog, UndoRedoButtons } from './PropertyEditor';
 
 interface PropertySet {
   name: string;
@@ -590,16 +592,29 @@ export function PropertiesPanel() {
         </TabsList>
 
         <ScrollArea className="flex-1 bg-white dark:bg-black">
-          <TabsContent value="properties" className="m-0 p-3 overflow-hidden">
-            {properties.length === 0 ? (
-              <p className="text-sm text-zinc-500 dark:text-zinc-500 text-center py-8 font-mono">No property sets</p>
-            ) : (
-              <div className="space-y-3 w-full overflow-hidden">
-                {properties.map((pset: PropertySet) => (
-                  <PropertySetCard key={pset.name} pset={pset} />
-                ))}
+          <TabsContent value="properties" className="m-0 overflow-hidden">
+            {/* Property editing toolbar */}
+            {model && (
+              <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50">
+                <NewPropertyDialog
+                  modelId={model.id}
+                  entityId={selectedEntity?.expressId || 0}
+                  existingPsets={properties.map(p => p.name)}
+                />
+                <UndoRedoButtons modelId={model.id} />
               </div>
             )}
+            <div className="p-3">
+              {properties.length === 0 ? (
+                <p className="text-sm text-zinc-500 dark:text-zinc-500 text-center py-8 font-mono">No property sets</p>
+              ) : (
+                <div className="space-y-3 w-full overflow-hidden">
+                  {properties.map((pset: PropertySet) => (
+                    <PropertySetCard key={pset.name} pset={pset} />
+                  ))}
+                </div>
+              )}
+            </div>
           </TabsContent>
 
           <TabsContent value="quantities" className="m-0 p-3 overflow-hidden">

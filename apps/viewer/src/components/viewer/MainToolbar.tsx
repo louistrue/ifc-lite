@@ -50,7 +50,8 @@ import { useViewerStore, isIfcxDataStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { cn } from '@/lib/utils';
 import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
-import { FileSpreadsheet, FileJson } from 'lucide-react';
+import { FileSpreadsheet, FileJson, FileOutput } from 'lucide-react';
+import { ExportDialog } from './ExportDialog';
 
 type Tool = 'select' | 'pan' | 'orbit' | 'walk' | 'measure' | 'section';
 
@@ -418,6 +419,15 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
+          <ExportDialog
+            trigger={
+              <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                <FileOutput className="h-4 w-4 mr-2" />
+                Export IFC (with changes)
+              </DropdownMenuItem>
+            }
+          />
+          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleExportGLB}>
             <Download className="h-4 w-4 mr-2" />
             Export GLB (3D Model)

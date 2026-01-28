@@ -365,9 +365,6 @@ importers:
       '@ifc-lite/geometry':
         specifier: workspace:^
         version: link:../geometry
-      '@ifc-lite/mutations':
-        specifier: workspace:^
-        version: link:../mutations
       '@ifc-lite/parser':
         specifier: workspace:^
         version: link:../parser
@@ -410,9 +407,6 @@ importers:
       '@ifc-lite/data':
         specifier: workspace:^
         version: link:../data
-      '@ifc-lite/mutations':
-        specifier: workspace:^
-        version: link:../mutations
     devDependencies:
       typescript:
         specifier: ^5.3.0

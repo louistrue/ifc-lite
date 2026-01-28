@@ -18,9 +18,17 @@ import {
   type StepValue,
   type StepEntity,
 } from '@ifc-lite/parser';
-import type { MutablePropertyView } from '@ifc-lite/mutations';
 import type { PropertySet, Property } from '@ifc-lite/data';
 import { PropertyValueType } from '@ifc-lite/data';
+
+/**
+ * Interface for mutable property view (from @ifc-lite/mutations)
+ * Defined inline to avoid circular dependency during build
+ */
+interface MutablePropertyView {
+  getForEntity(entityId: number): PropertySet[];
+  getMutations(): Array<{ entityId: number; psetName?: string }>;
+}
 
 /**
  * Options for STEP export
