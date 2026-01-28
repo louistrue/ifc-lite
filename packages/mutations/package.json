@@ -1,7 +1,7 @@
 {
-  "name": "@ifc-lite/ifcx",
+  "name": "@ifc-lite/mutations",
   "version": "1.3.0",
-  "description": "IFC5 (IFCX) parser for IFC-Lite",
+  "description": "Mutation tracking and property editing for IFC-Lite",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -13,30 +13,31 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "test": "vitest run"
   },
   "dependencies": {
     "@ifc-lite/data": "workspace:^",
-    "@ifc-lite/mutations": "workspace:^"
+    "@ifc-lite/parser": "workspace:^"
   },
   "devDependencies": {
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^1.6.0"
   },
   "license": "MPL-2.0",
   "author": "Louis True",
   "repository": {
     "type": "git",
     "url": "https://github.com/louistrue/ifc-lite.git",
-    "directory": "packages/ifcx"
+    "directory": "packages/mutations"
   },
   "homepage": "https://louistrue.github.io/ifc-lite/",
   "bugs": "https://github.com/louistrue/ifc-lite/issues",
   "keywords": [
     "ifc",
-    "ifc5",
-    "ifcx",
     "bim",
-    "parser",
+    "mutations",
+    "properties",
     "aec"
   ],
   "publishConfig": {

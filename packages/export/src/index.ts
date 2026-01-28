@@ -10,3 +10,4 @@ export { GLTFExporter, type GLTFExportOptions } from './gltf-exporter.js';
 export { ParquetExporter, type ParquetExportOptions } from './parquet-exporter.js';
 export { CSVExporter, type CSVExportOptions } from './csv-exporter.js';
 export { JSONLDExporter, type JSONLDExportOptions } from './jsonld-exporter.js';
+export { StepExporter, exportToStep, type StepExportOptions, type StepExportResult } from './step-exporter.js';

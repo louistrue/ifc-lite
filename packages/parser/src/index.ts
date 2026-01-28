@@ -55,6 +55,23 @@ export { SCHEMA_REGISTRY, getEntityMetadata, getAllAttributesForEntity, getInher
 export type * from './generated/entities.js';
 export * from './generated/enums.js';
 
+// STEP serialization support for IFC export
+export {
+  serializeValue,
+  toStepLine,
+  generateHeader,
+  generateStepFile,
+  parseStepValue,
+  ref,
+  enumVal,
+  isEntityRef,
+  isEnumValue,
+  type StepValue,
+  type StepEntity,
+  type EntityRef as StepEntityRef,
+  type EnumValue,
+} from './generated/serializers.js';
+
 export * from './types.js';
 export * from './style-extractor.js';
 export { getAttributeNames, getAttributeNameAt, isKnownType } from './ifc-schema.js';
