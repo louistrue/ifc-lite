@@ -380,8 +380,13 @@ export function PropertiesPanel() {
   // These hooks must be called before any early return to maintain hook order
   // Use MutablePropertyView as primary source when available (it handles base + mutations)
   const properties: PropertySet[] = useMemo(() => {
-    const modelId = selectedEntity?.modelId;
+    let modelId = selectedEntity?.modelId;
     const expressId = selectedEntity?.expressId;
+
+    // Normalize legacy model ID (selection uses 'legacy', mutation views use '__legacy__')
+    if (modelId === 'legacy') {
+      modelId = '__legacy__';
+    }
 
     // DEBUG: Log what we're working with
     console.log('[PropertiesPanel] modelId:', modelId, 'expressId:', expressId, 'mutationVersion:', mutationVersion);
