@@ -114,6 +114,9 @@ interface BulkPropertyEditorProps {
 export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
   const { models } = useIfc();
   const getMutationView = useViewerStore((s) => s.getMutationView);
+  // Also get legacy single-model state for backward compatibility
+  const legacyIfcDataStore = useViewerStore((s) => s.ifcDataStore);
+  const legacyGeometryResult = useViewerStore((s) => s.geometryResult);
 
   const [open, setOpen] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState<string>('');
@@ -136,13 +139,23 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
   const [previewResult, setPreviewResult] = useState<BulkQueryPreview | null>(null);
   const [executeResult, setExecuteResult] = useState<BulkQueryResult | null>(null);
 
-  // Get list of models
+  // Get list of models - includes both federated models and legacy single-model
   const modelList = useMemo(() => {
-    return Array.from(models.values()).map((m) => ({
+    const list = Array.from(models.values()).map((m) => ({
       id: m.id,
       name: m.name,
     }));
-  }, [models]);
+
+    // If no models in Map but legacy data exists, add a synthetic entry
+    if (list.length === 0 && legacyIfcDataStore) {
+      list.push({
+        id: '__legacy__',
+        name: 'Current Model',
+      });
+    }
+
+    return list;
+  }, [models, legacyIfcDataStore]);
 
   // Auto-select first model
   useMemo(() => {
@@ -151,10 +164,21 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
     }
   }, [modelList, selectedModelId]);
 
-  // Get selected model's data
+  // Get selected model's data - supports both federated and legacy mode
   const selectedModel = useMemo(() => {
+    if (selectedModelId === '__legacy__' && legacyIfcDataStore && legacyGeometryResult) {
+      // Return a synthetic FederatedModel-like object for legacy mode
+      return {
+        id: '__legacy__',
+        name: 'Current Model',
+        ifcDataStore: legacyIfcDataStore,
+        geometryResult: legacyGeometryResult,
+        visible: true,
+        collapsed: false,
+      };
+    }
     return models.get(selectedModelId);
-  }, [models, selectedModelId]);
+  }, [models, selectedModelId, legacyIfcDataStore, legacyGeometryResult]);
 
   // Get storeys from selected model
   const availableStoreys = useMemo(() => {

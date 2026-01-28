@@ -55,6 +55,9 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
   const dirtyModels = useViewerStore((s) => s.dirtyModels);
   const getMutationView = useViewerStore((s) => s.getMutationView);
   const getModifiedEntityCount = useViewerStore((s) => s.getModifiedEntityCount);
+  // Also get legacy single-model state for backward compatibility
+  const legacyIfcDataStore = useViewerStore((s) => s.ifcDataStore);
+  const legacyGeometryResult = useViewerStore((s) => s.geometryResult);
 
   const [open, setOpen] = useState(false);
   const [format, setFormat] = useState<ExportFormat>('ifc');
@@ -66,15 +69,27 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
   const [isExporting, setIsExporting] = useState(false);
   const [exportResult, setExportResult] = useState<{ success: boolean; message: string } | null>(null);
 
-  // Get list of models with data stores
+  // Get list of models with data stores - includes both federated models and legacy single-model
   const modelList = useMemo(() => {
-    return Array.from(models.values()).map((m) => ({
+    const list = Array.from(models.values()).map((m) => ({
       id: m.id,
       name: m.name,
       isDirty: dirtyModels.has(m.id),
       schemaVersion: m.schemaVersion,
     }));
-  }, [models, dirtyModels]);
+
+    // If no models in Map but legacy data exists, add a synthetic entry
+    if (list.length === 0 && legacyIfcDataStore) {
+      list.push({
+        id: '__legacy__',
+        name: 'Current Model',
+        isDirty: false,
+        schemaVersion: legacyIfcDataStore.schemaVersion,
+      });
+    }
+
+    return list;
+  }, [models, dirtyModels, legacyIfcDataStore]);
 
   // Select first model by default
   useMemo(() => {
@@ -83,9 +98,22 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
     }
   }, [modelList, selectedModelId]);
 
+  // Get selected model's data - supports both federated and legacy mode
   const selectedModel = useMemo(() => {
+    if (selectedModelId === '__legacy__' && legacyIfcDataStore && legacyGeometryResult) {
+      // Return a synthetic FederatedModel-like object for legacy mode
+      return {
+        id: '__legacy__',
+        name: 'Current Model',
+        ifcDataStore: legacyIfcDataStore,
+        geometryResult: legacyGeometryResult,
+        visible: true,
+        collapsed: false,
+        schemaVersion: legacyIfcDataStore.schemaVersion,
+      };
+    }
     return models.get(selectedModelId);
-  }, [models, selectedModelId]);
+  }, [models, selectedModelId, legacyIfcDataStore, legacyGeometryResult]);
 
   const modifiedCount = useMemo(() => {
     return getModifiedEntityCount();
