@@ -43,6 +43,188 @@ interface QuantitySet {
   quantities: Array<{ name: string; value: number; type: number }>;
 }
 
+/**
+ * Result of parsing a property value.
+ * Contains the display value and optional IFC type for tooltip.
+ */
+interface ParsedPropertyValue {
+  displayValue: string;
+  ifcType?: string;
+}
+
+/**
+ * Map of IFC boolean enumeration values to human-readable text
+ */
+const BOOLEAN_MAP: Record<string, string> = {
+  '.T.': 'True',
+  '.F.': 'False',
+  '.U.': 'Unknown',
+};
+
+/**
+ * Friendly names for common IFC types (shown in tooltips)
+ */
+const IFC_TYPE_DISPLAY_NAMES: Record<string, string> = {
+  'IFCBOOLEAN': 'Boolean',
+  'IFCLOGICAL': 'Logical',
+  'IFCIDENTIFIER': 'Identifier',
+  'IFCLABEL': 'Label',
+  'IFCTEXT': 'Text',
+  'IFCREAL': 'Real',
+  'IFCINTEGER': 'Integer',
+  'IFCPOSITIVELENGTHMEASURE': 'Length',
+  'IFCLENGTHMEASURE': 'Length',
+  'IFCAREAMEASURE': 'Area',
+  'IFCVOLUMEMEASURE': 'Volume',
+  'IFCMASSMEASURE': 'Mass',
+  'IFCTHERMALTRANSMITTANCEMEASURE': 'Thermal Transmittance',
+  'IFCPRESSUREMEASURE': 'Pressure',
+  'IFCFORCEMEASURE': 'Force',
+  'IFCPLANEANGLEMEASURE': 'Angle',
+  'IFCTIMEMEASURE': 'Time',
+  'IFCNORMALISEDRATIOMEASURE': 'Ratio',
+  'IFCRATIOMEASURE': 'Ratio',
+  'IFCPOSITIVERATIOMEASURE': 'Ratio',
+  'IFCCOUNTMEASURE': 'Count',
+  'IFCMONETARYMEASURE': 'Currency',
+};
+
+/**
+ * Decode IFC STEP encoded strings.
+ * Handles:
+ * - \X2\XXXX\X0\ - Unicode hex encoding (e.g., \X2\00E4\X0\ → ä)
+ * - \X\XX\ - ISO-8859-1 hex encoding
+ * - \S\X - Extended ASCII with escape
+ */
+function decodeIfcString(str: string): string {
+  if (!str || typeof str !== 'string') return str;
+
+  let result = str;
+
+  // Decode \X2\XXXX\X0\ patterns (Unicode 2-byte hex, can have multiple chars)
+  // Pattern: \X2\ followed by hex pairs, ended by \X0\
+  result = result.replace(/\\X2\\([0-9A-Fa-f]+)\\X0\\/g, (_, hex) => {
+    // hex can be multiple 4-char sequences (e.g., "00E400FC" for "äü")
+    let decoded = '';
+    for (let i = 0; i < hex.length; i += 4) {
+      const charCode = parseInt(hex.substring(i, i + 4), 16);
+      if (!isNaN(charCode)) {
+        decoded += String.fromCharCode(charCode);
+      }
+    }
+    return decoded;
+  });
+
+  // Decode \X4\XXXXXXXX\X0\ patterns (Unicode 4-byte hex for chars outside BMP)
+  result = result.replace(/\\X4\\([0-9A-Fa-f]+)\\X0\\/g, (_, hex) => {
+    let decoded = '';
+    for (let i = 0; i < hex.length; i += 8) {
+      const codePoint = parseInt(hex.substring(i, i + 8), 16);
+      if (!isNaN(codePoint)) {
+        decoded += String.fromCodePoint(codePoint);
+      }
+    }
+    return decoded;
+  });
+
+  // Decode \X\XX\ patterns (ISO-8859-1 single byte)
+  result = result.replace(/\\X\\([0-9A-Fa-f]{2})/g, (_, hex) => {
+    const charCode = parseInt(hex, 16);
+    return !isNaN(charCode) ? String.fromCharCode(charCode) : '';
+  });
+
+  // Decode \S\X patterns (Latin extended, offset by 128)
+  result = result.replace(/\\S\\(.)/g, (_, char) => {
+    return String.fromCharCode(char.charCodeAt(0) + 128);
+  });
+
+  // Decode \P..\ code page switches (simplified - just remove them)
+  result = result.replace(/\\P[A-Z]?\\/g, '');
+
+  return result;
+}
+
+/**
+ * Parse and format a property value for display.
+ * Handles:
+ * - TypedValues like [IFCIDENTIFIER, '100 x 150mm'] -> display '100 x 150mm', tooltip 'Identifier'
+ * - Boolean enums like '.T.' -> 'True'
+ * - IFC encoded strings with \X2\, \X\ escape sequences
+ * - Null/undefined -> '—'
+ * - Regular values -> string conversion
+ */
+function parsePropertyValue(value: unknown): ParsedPropertyValue {
+  // Handle null/undefined
+  if (value === null || value === undefined) {
+    return { displayValue: '—' };
+  }
+
+  // Handle typed value arrays [IFCTYPENAME, actualValue]
+  if (Array.isArray(value) && value.length === 2 && typeof value[0] === 'string') {
+    const [ifcType, innerValue] = value;
+    const typeName = ifcType.toUpperCase();
+    const friendlyType = IFC_TYPE_DISPLAY_NAMES[typeName] || typeName.replace(/^IFC/, '');
+
+    // Recursively parse the inner value
+    const parsed = parsePropertyValue(innerValue);
+    return {
+      displayValue: parsed.displayValue,
+      ifcType: friendlyType,
+    };
+  }
+
+  // Handle boolean enumeration values
+  if (typeof value === 'string') {
+    const upperVal = value.toUpperCase();
+    if (BOOLEAN_MAP[upperVal]) {
+      return { displayValue: BOOLEAN_MAP[upperVal], ifcType: 'Boolean' };
+    }
+
+    // Handle string that contains typed value pattern (from String(array) conversion)
+    // Pattern: "IFCTYPENAME,actualValue" or just "IFCTYPENAME," (empty value)
+    const typedMatch = value.match(/^(IFC[A-Z0-9_]+),(.*)$/i);
+    if (typedMatch) {
+      const [, ifcType, innerValue] = typedMatch;
+      const typeName = ifcType.toUpperCase();
+      const friendlyType = IFC_TYPE_DISPLAY_NAMES[typeName] || typeName.replace(/^IFC/, '');
+
+      // Handle empty value after type
+      if (!innerValue || innerValue.trim() === '') {
+        return { displayValue: '—', ifcType: friendlyType };
+      }
+
+      // Check if the inner value is a boolean
+      const upperInner = innerValue.toUpperCase().trim();
+      if (BOOLEAN_MAP[upperInner]) {
+        return { displayValue: BOOLEAN_MAP[upperInner], ifcType: friendlyType };
+      }
+
+      // Decode IFC string encoding and return
+      return { displayValue: decodeIfcString(innerValue), ifcType: friendlyType };
+    }
+
+    // Regular string - decode IFC encoding
+    return { displayValue: decodeIfcString(value) };
+  }
+
+  // Handle native booleans
+  if (typeof value === 'boolean') {
+    return { displayValue: value ? 'True' : 'False', ifcType: 'Boolean' };
+  }
+
+  // Handle numbers
+  if (typeof value === 'number') {
+    // Format numbers nicely (limit decimal places, use locale formatting)
+    const formatted = Number.isInteger(value)
+      ? value.toLocaleString()
+      : value.toLocaleString(undefined, { maximumFractionDigits: 6 });
+    return { displayValue: formatted };
+  }
+
+  // Fallback for other types
+  return { displayValue: String(value) };
+}
+
 export function PropertiesPanel() {
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
   const selectedEntity = useViewerStore((s) => s.selectedEntity);
@@ -408,11 +590,11 @@ export function PropertiesPanel() {
         </TabsList>
 
         <ScrollArea className="flex-1 bg-white dark:bg-black">
-          <TabsContent value="properties" className="m-0 p-4">
+          <TabsContent value="properties" className="m-0 p-3 overflow-hidden">
             {properties.length === 0 ? (
               <p className="text-sm text-zinc-500 dark:text-zinc-500 text-center py-8 font-mono">No property sets</p>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-3 w-full overflow-hidden">
                 {properties.map((pset: PropertySet) => (
                   <PropertySetCard key={pset.name} pset={pset} />
                 ))}
@@ -420,11 +602,11 @@ export function PropertiesPanel() {
             )}
           </TabsContent>
 
-          <TabsContent value="quantities" className="m-0 p-4">
+          <TabsContent value="quantities" className="m-0 p-3 overflow-hidden">
             {quantities.length === 0 ? (
               <p className="text-sm text-zinc-500 dark:text-zinc-500 text-center py-8 font-mono">No quantities</p>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-3 w-full overflow-hidden">
                 {quantities.map((qset: QuantitySet) => (
                   <QuantitySetCard key={qset.name} qset={qset} />
                 ))}
@@ -643,28 +825,57 @@ function EntityDataSection({
 
 function PropertySetCard({ pset }: { pset: PropertySet }) {
   return (
-    <Collapsible defaultOpen className="border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 group">
-      <CollapsibleTrigger className="flex items-center justify-between w-full p-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-left transition-colors">
-        <span className="font-bold text-xs uppercase tracking-wide text-zinc-900 dark:text-zinc-100 truncate min-w-0">{pset.name}</span>
-        <span className="text-[10px] font-mono bg-zinc-100 dark:bg-zinc-900 px-1.5 py-0.5 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 shrink-0 ml-2">{pset.properties.length}</span>
+    <Collapsible defaultOpen className="border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 group w-full max-w-full">
+      <CollapsibleTrigger className="flex items-center gap-2 w-full p-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-left transition-colors">
+        <span className="font-bold text-xs uppercase tracking-wide text-zinc-900 dark:text-zinc-100 truncate flex-1 min-w-0">{decodeIfcString(pset.name)}</span>
+        <span className="text-[10px] font-mono bg-zinc-100 dark:bg-zinc-900 px-1.5 py-0.5 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 shrink-0">{pset.properties.length}</span>
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="border-t-2 border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-100 dark:divide-zinc-900">
-          {pset.properties.map((prop: { name: string; value: unknown }) => (
-            <div key={prop.name} className="grid grid-cols-[minmax(80px,1fr)_minmax(0,2fr)] gap-2 px-3 py-2 text-xs hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50">
-              <span className="text-zinc-500 dark:text-zinc-400 font-medium truncate" title={prop.name}>{prop.name}</span>
-              <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700 min-w-0">
-                <span className="font-mono text-zinc-900 dark:text-zinc-100 select-all whitespace-nowrap">
-                  {prop.value !== null && prop.value !== undefined ? String(prop.value) : '—'}
+          {pset.properties.map((prop: { name: string; value: unknown }) => {
+            const parsed = parsePropertyValue(prop.value);
+            const decodedName = decodeIfcString(prop.name);
+            return (
+              <div key={prop.name} className="flex flex-col gap-0.5 px-3 py-2 text-xs hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50">
+                {/* Property name with type tooltip */}
+                {parsed.ifcType ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="text-zinc-500 dark:text-zinc-400 font-medium cursor-help break-words">
+                        {decodedName}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-[10px]">
+                      <span className="text-zinc-400">{parsed.ifcType}</span>
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <span className="text-zinc-500 dark:text-zinc-400 font-medium break-words">
+                    {decodedName}
+                  </span>
+                )}
+                {/* Property value */}
+                <span className="font-mono text-zinc-900 dark:text-zinc-100 select-all break-words">
+                  {parsed.displayValue}
                 </span>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </CollapsibleContent>
     </Collapsible>
   );
 }
+
+/** Maps quantity type to friendly name for tooltip */
+const QUANTITY_TYPE_NAMES: Record<number, string> = {
+  0: 'Length',
+  1: 'Area',
+  2: 'Volume',
+  3: 'Count',
+  4: 'Weight',
+  5: 'Time',
+};
 
 function QuantitySetCard({ qset }: { qset: QuantitySet }) {
   const formatValue = (value: number, type: number): string => {
@@ -681,23 +892,42 @@ function QuantitySetCard({ qset }: { qset: QuantitySet }) {
   };
 
   return (
-    <Collapsible defaultOpen className="border-2 border-blue-200 dark:border-blue-800 bg-blue-50/20 dark:bg-blue-950/20">
-      <CollapsibleTrigger className="flex items-center justify-between w-full p-2.5 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-left transition-colors">
-        <span className="font-bold text-xs uppercase tracking-wide text-blue-700 dark:text-blue-400 truncate min-w-0">{qset.name}</span>
-        <span className="text-[10px] font-mono bg-blue-100 dark:bg-blue-900/50 px-1.5 py-0.5 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 shrink-0 ml-2">{qset.quantities.length}</span>
+    <Collapsible defaultOpen className="border-2 border-blue-200 dark:border-blue-800 bg-blue-50/20 dark:bg-blue-950/20 w-full max-w-full">
+      <CollapsibleTrigger className="flex items-center gap-2 w-full p-2.5 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-left transition-colors">
+        <span className="font-bold text-xs uppercase tracking-wide text-blue-700 dark:text-blue-400 truncate flex-1 min-w-0">{decodeIfcString(qset.name)}</span>
+        <span className="text-[10px] font-mono bg-blue-100 dark:bg-blue-900/50 px-1.5 py-0.5 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 shrink-0">{qset.quantities.length}</span>
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="border-t-2 border-blue-200 dark:border-blue-800 divide-y divide-blue-100 dark:divide-blue-900/30">
-          {qset.quantities.map((q: { name: string; value: number; type: number }) => (
-            <div key={q.name} className="grid grid-cols-[minmax(80px,1fr)_minmax(0,2fr)] gap-2 px-3 py-2 text-xs hover:bg-blue-50/50 dark:hover:bg-blue-900/20">
-              <span className="text-zinc-500 dark:text-zinc-400 font-medium truncate" title={q.name}>{q.name}</span>
-              <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-blue-300 dark:scrollbar-thumb-blue-700 min-w-0 text-right">
-                <span className="font-mono text-blue-700 dark:text-blue-400 select-all whitespace-nowrap">
+          {qset.quantities.map((q: { name: string; value: number; type: number }) => {
+            const decodedName = decodeIfcString(q.name);
+            const typeName = QUANTITY_TYPE_NAMES[q.type];
+            return (
+              <div key={q.name} className="flex flex-col gap-0.5 px-3 py-2 text-xs hover:bg-blue-50/50 dark:hover:bg-blue-900/20">
+                {/* Quantity name with type tooltip */}
+                {typeName ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="text-zinc-500 dark:text-zinc-400 font-medium cursor-help break-words">
+                        {decodedName}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-[10px]">
+                      <span className="text-zinc-400">{typeName}</span>
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <span className="text-zinc-500 dark:text-zinc-400 font-medium break-words">
+                    {decodedName}
+                  </span>
+                )}
+                {/* Quantity value */}
+                <span className="font-mono text-blue-700 dark:text-blue-400 select-all break-words">
                   {formatValue(q.value, q.type)}
                 </span>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </CollapsibleContent>
     </Collapsible>
