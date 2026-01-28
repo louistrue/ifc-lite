@@ -127,7 +127,7 @@ export async function getCacheStats(): Promise<CacheStats> {
 export async function deleteCached(key: string): Promise<void> {
   try {
     const inv = await getInvoke();
-    await inv('delete_cache_entry', { key });
+    await inv('delete_cache_entry', { cacheKey: key });
     console.log('[DesktopCache] Cache entry deleted:', key);
   } catch (error) {
     console.warn('[DesktopCache] Failed to delete cache entry:', error);

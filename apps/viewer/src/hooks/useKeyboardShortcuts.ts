@@ -163,7 +163,6 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
 // Export shortcut definitions for UI display
 export const KEYBOARD_SHORTCUTS = [
   { key: 'V', description: 'Select tool', category: 'Tools' },
-  { key: 'B', description: 'Box select tool', category: 'Tools' },
   { key: 'P', description: 'Pan tool', category: 'Tools' },
   { key: 'O', description: 'Orbit tool', category: 'Tools' },
   { key: 'C', description: 'Walk mode', category: 'Tools' },
@@ -181,5 +180,5 @@ export const KEYBOARD_SHORTCUTS = [
   { key: '0-6', description: 'Preset views', category: 'Camera' },
   { key: 'T', description: 'Toggle theme', category: 'UI' },
   { key: 'Esc', description: 'Reset all (clear selection, filters, isolation)', category: 'Selection' },
-  { key: '?', description: 'Show keyboard shortcuts', category: 'Help' },
+  { key: '?', description: 'Show info panel', category: 'Help' },
 ] as const;

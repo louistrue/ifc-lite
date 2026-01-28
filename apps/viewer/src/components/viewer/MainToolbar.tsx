@@ -620,7 +620,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
             <HelpCircle className="h-4 w-4" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>Keyboard Shortcuts (?)</TooltipContent>
+        <TooltipContent>Info (?)</TooltipContent>
       </Tooltip>
     </div>
   );

@@ -327,15 +327,28 @@ fn test_ar_wall_nan_normals_diagnosis() {
     println!("\n=== Diagnosing NaN normals ===");
     println!("Total vertices: {}", wall_mesh.vertex_count());
 
+    // Use safe vertex count to avoid panic if arrays diverge
+    let safe_vertex_count = std::cmp::min(
+        wall_mesh.normals.len() / 3,
+        wall_mesh.positions.len() / 3,
+    );
+
     let mut nan_count = 0;
-    for (i, chunk) in wall_mesh.normals.chunks_exact(3).enumerate() {
-        let has_nan = !chunk[0].is_finite() || !chunk[1].is_finite() || !chunk[2].is_finite();
+    for (i, (normal_chunk, pos_chunk)) in wall_mesh
+        .normals
+        .chunks_exact(3)
+        .zip(wall_mesh.positions.chunks_exact(3))
+        .enumerate()
+    {
+        if i >= safe_vertex_count {
+            break;
+        }
+        let has_nan = !normal_chunk[0].is_finite() || !normal_chunk[1].is_finite() || !normal_chunk[2].is_finite();
         if has_nan {
             nan_count += 1;
             if nan_count <= 10 {
-                let pos = &wall_mesh.positions[i * 3..i * 3 + 3];
                 println!("  Vertex {}: pos=({:.2}, {:.2}, {:.2}), normal=({}, {}, {})",
-                    i, pos[0], pos[1], pos[2], chunk[0], chunk[1], chunk[2]);
+                    i, pos_chunk[0], pos_chunk[1], pos_chunk[2], normal_chunk[0], normal_chunk[1], normal_chunk[2]);
             }
         }
     }
@@ -344,10 +357,28 @@ fn test_ar_wall_nan_normals_diagnosis() {
     // Find triangles with NaN normals
     println!("\nTriangles with NaN normal vertices:");
     let mut nan_tri_count = 0;
+    let mut invalid_tri_count = 0;
+    let normals_len = wall_mesh.normals.len();
+    let positions_len = wall_mesh.positions.len();
+
+    // Helper to check if index is in bounds for normals/positions (needs idx*3+3 elements)
+    let is_valid_idx = |idx: usize| -> bool {
+        (idx + 1) * 3 <= normals_len && (idx + 1) * 3 <= positions_len
+    };
+
     for tri_chunk in wall_mesh.indices.chunks_exact(3) {
         let i0 = tri_chunk[0] as usize;
         let i1 = tri_chunk[1] as usize;
         let i2 = tri_chunk[2] as usize;
+
+        // Skip triangles with out-of-bounds indices
+        if !is_valid_idx(i0) || !is_valid_idx(i1) || !is_valid_idx(i2) {
+            invalid_tri_count += 1;
+            if invalid_tri_count <= 3 {
+                println!("  Skipping triangle with out-of-bounds indices ({}, {}, {})", i0, i1, i2);
+            }
+            continue;
+        }
 
         let has_nan = |idx: usize| -> bool {
             let n = &wall_mesh.normals[idx * 3..idx * 3 + 3];
@@ -381,6 +412,9 @@ fn test_ar_wall_nan_normals_diagnosis() {
                 println!("    cross: ({:.6}, {:.6}, {:.6}), len: {:.10}", cross[0], cross[1], cross[2], len);
             }
         }
+    }
+    if invalid_tri_count > 0 {
+        println!("Total triangles with out-of-bounds indices: {}", invalid_tri_count);
     }
     println!("Total triangles with NaN normals: {}", nan_tri_count);
 
