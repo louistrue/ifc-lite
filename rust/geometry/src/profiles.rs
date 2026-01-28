@@ -1244,6 +1244,31 @@ impl ProfileProcessor {
         let center = Point2::new(ux, uy);
         let radius = ((p1.x - center.x).powi(2) + (p1.y - center.y).powi(2)).sqrt();
 
+        // Check for near-collinear case using multiple criteria:
+        let chord_len = ((p3.x - p1.x).powi(2) + (p3.y - p1.y).powi(2)).sqrt();
+        if chord_len < 1e-10 {
+            return vec![p1, p2, p3]; // Degenerate case
+        }
+
+        // 1. If radius is extremely large (> 100 units), this is a near-straight arc
+        //    Real building arcs rarely have radii > 100m
+        if radius > 100.0 {
+            return vec![p1, p2, p3];
+        }
+
+        // 2. Check sagitta (arc height) - the perpendicular distance from p2 to chord p1-p3
+        let sagitta = ((p3.y - p1.y) * p2.x - (p3.x - p1.x) * p2.y + p3.x * p1.y - p3.y * p1.x).abs() / chord_len;
+
+        // If sagitta is less than 2% of chord length, treat as line
+        if sagitta < chord_len * 0.02 {
+            return vec![p1, p2, p3];
+        }
+
+        // 3. Ratio check as fallback
+        if radius > chord_len * 10.0 {
+            return vec![p1, p2, p3];
+        }
+
         // Calculate angles
         let angle1 = (p1.y - center.y).atan2(p1.x - center.x);
         let angle3 = (p3.y - center.y).atan2(p3.x - center.x);

@@ -17,11 +17,14 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
   const { enabled = true } = options;
 
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
+  const selectedEntityIds = useViewerStore((s) => s.selectedEntityIds);
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
   const activeTool = useViewerStore((s) => s.activeTool);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
   const isolateEntity = useViewerStore((s) => s.isolateEntity);
+  const isolateEntities = useViewerStore((s) => s.isolateEntities);
   const hideEntity = useViewerStore((s) => s.hideEntity);
+  const hideEntities = useViewerStore((s) => s.hideEntities);
   const showAll = useViewerStore((s) => s.showAll);
   const clearStoreySelection = useViewerStore((s) => s.clearStoreySelection);
   const toggleTheme = useViewerStore((s) => s.toggleTheme);
@@ -74,14 +77,24 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       setActiveTool('section');
     }
 
-    // Visibility controls
+    // Visibility controls - use full selection set (selectedEntityIds includes parent + children)
     if (key === 'i' && !ctrl && !shift && selectedEntityId) {
       e.preventDefault();
-      isolateEntity(selectedEntityId);
+      // Isolate all selected entities (parent + children for aggregate elements)
+      if (selectedEntityIds.size > 1) {
+        isolateEntities(Array.from(selectedEntityIds));
+      } else {
+        isolateEntity(selectedEntityId);
+      }
     }
     if ((key === 'delete' || key === 'backspace') && !ctrl && !shift && selectedEntityId) {
       e.preventDefault();
-      hideEntity(selectedEntityId);
+      // Hide all selected entities (parent + children for aggregate elements)
+      if (selectedEntityIds.size > 1) {
+        hideEntities(Array.from(selectedEntityIds));
+      } else {
+        hideEntity(selectedEntityId);
+      }
     }
     if (key === 'a' && !ctrl && !shift) {
       e.preventDefault();

@@ -94,13 +94,15 @@ export class CoordinateHandler {
                     bounds.max.z = Math.max(bounds.max.z, z);
                     validVertexCount++;
                 } else {
+                    // Debug: log first few corrupted vertices per mesh
                     corruptedVertexCount++;
                 }
             }
         }
 
-        if (corruptedVertexCount > 0) {
-            console.log(`[CoordinateHandler] Filtered ${corruptedVertexCount} corrupted vertices, kept ${validVertexCount} valid`);
+        // Only warn if significant corruption detected (>1% of vertices)
+        if (corruptedVertexCount > 0 && corruptedVertexCount > validVertexCount * 0.01) {
+            console.warn(`[CoordinateHandler] Filtered ${corruptedVertexCount} corrupted vertices`);
         }
 
         return bounds;
@@ -219,19 +221,14 @@ export class CoordinateHandler {
         };
         const maxSize = Math.max(size.x, size.y, size.z);
 
-        console.log('[CoordinateHandler] Original bounds:', {
-            min: originalBounds.min,
-            max: originalBounds.max,
-            size,
-            maxSize: maxSize.toFixed(2) + 'm',
-        });
+        // Debug logging disabled to reduce console noise
+        // console.log('[CoordinateHandler] Original bounds:', { min: originalBounds.min, max: originalBounds.max, size });
 
         // Check if shift is needed (>10km from origin)
         const needsShift = this.needsShift(originalBounds);
 
         if (!needsShift) {
             // No shift needed - just clean up corrupted values in-place
-            console.log('[CoordinateHandler] Coordinates within normal range, no shift needed');
             // Still shift by 0 to clean up corrupted vertices
             const zeroShift = { x: 0, y: 0, z: 0 };
             for (const mesh of meshes) {
@@ -249,14 +246,8 @@ export class CoordinateHandler {
         const centroid = this.calculateCentroid(originalBounds);
         this.originShift = centroid;
 
-        console.log('[CoordinateHandler] Large coordinates detected, shifting to origin:', {
-            centroid,
-            maxCoord: Math.max(
-                Math.abs(originalBounds.min.x), Math.abs(originalBounds.max.x),
-                Math.abs(originalBounds.min.y), Math.abs(originalBounds.max.y),
-                Math.abs(originalBounds.min.z), Math.abs(originalBounds.max.z)
-            ).toFixed(2) + 'm',
-        });
+        // Only log when actually shifting - this is important diagnostic info
+        console.log(`[CoordinateHandler] Shifting large coords to origin: (${centroid.x.toFixed(0)}, ${centroid.y.toFixed(0)}, ${centroid.z.toFixed(0)})`);
 
         // Shift all mesh positions
         for (const mesh of meshes) {
@@ -266,11 +257,8 @@ export class CoordinateHandler {
         // Calculate shifted bounds
         const shiftedBounds = this.shiftBounds(originalBounds, centroid);
 
-        console.log('[CoordinateHandler] Shifted bounds:', {
-            min: shiftedBounds.min,
-            max: shiftedBounds.max,
-            maxSize: maxSize.toFixed(2) + 'm',
-        });
+        // Debug logging disabled to reduce console noise
+        // console.log('[CoordinateHandler] Shifted bounds:', { min: shiftedBounds.min, max: shiftedBounds.max });
 
         return {
             originShift: centroid,
@@ -387,19 +375,9 @@ export class CoordinateHandler {
                 // Check if shift is needed (>10km from origin) AND WASM didn't already apply RTC
                 if ((distanceFromOrigin > this.THRESHOLD || maxSize > this.THRESHOLD) && !wasmRtcLikelyApplied) {
                     this.originShift = centroid;
-                    console.log('[CoordinateHandler] Large coordinates detected, shifting to origin:', {
-                        distanceFromOrigin: distanceFromOrigin.toFixed(2) + 'm',
-                        maxSize: maxSize.toFixed(2) + 'm',
-                        shift: this.originShift,
-                    });
-                } else if (wasmRtcLikelyApplied) {
-                    // Log that we're skipping because WASM already applied RTC
-                    console.log('[CoordinateHandler] Skipping shift - WASM RTC already applied:', {
-                        smallCoordCount,
-                        largeCoordCount,
-                        wasmRtcDetected: true,
-                    });
+                    console.log(`[CoordinateHandler] Shifting large coords to origin: (${centroid.x.toFixed(0)}, ${centroid.y.toFixed(0)}, ${centroid.z.toFixed(0)})`);
                 }
+                // WASM RTC case - no log needed, this is the expected path
             }
             this.shiftCalculated = true;
         }

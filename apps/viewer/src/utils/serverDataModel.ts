@@ -154,6 +154,7 @@ interface ViewerQuantityTable {
 const REL_TYPE_MAP = new Map<string, RelationshipType>([
   ['IFCRELCONTAINEDINSPATIALSTRUCTURE', RelationshipType.ContainsElements],
   ['IFCRELAGGREGATES', RelationshipType.Aggregates],
+  ['IFCRELNESTS', RelationshipType.Nests],  // Window/door components
   ['IFCRELDEFINESBYPROPERTIES', RelationshipType.DefinesByProperties],
   ['IFCRELDEFINESBYTYPE', RelationshipType.DefinesByType],
   ['IFCRELASSOCIATESMATERIAL', RelationshipType.AssociatesMaterial],

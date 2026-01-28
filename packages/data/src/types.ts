@@ -100,6 +100,7 @@ export enum QuantityType {
 export enum RelationshipType {
   ContainsElements = 1,
   Aggregates = 2,
+  Nests = 3,  // IfcRelNests - for window/door components
   DefinesByProperties = 10,
   DefinesByType = 11,
   AssociatesMaterial = 20,

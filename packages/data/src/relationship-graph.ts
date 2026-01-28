@@ -156,6 +156,7 @@ function RelationshipTypeToString(type: RelationshipType): string {
   const names: Record<RelationshipType, string> = {
     [RelationshipType.ContainsElements]: 'IfcRelContainedInSpatialStructure',
     [RelationshipType.Aggregates]: 'IfcRelAggregates',
+    [RelationshipType.Nests]: 'IfcRelNests',
     [RelationshipType.DefinesByProperties]: 'IfcRelDefinesByProperties',
     [RelationshipType.DefinesByType]: 'IfcRelDefinesByType',
     [RelationshipType.AssociatesMaterial]: 'IfcRelAssociatesMaterial',

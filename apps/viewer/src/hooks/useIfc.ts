@@ -296,9 +296,7 @@ export function useIfc() {
         streamMetadata = streamResult.metadata;
         streamStats = streamResult.stats;
 
-        console.log(`[useIfc] Streaming complete in ${parseTime.toFixed(0)}ms`);
-        console.log(`  ${batchCount} batches, ${allMeshes.length} meshes`);
-        console.log(`  Cache key: ${cacheKey}`);
+        console.log(`[useIfc] Streamed ${allMeshes.length} meshes in ${parseTime.toFixed(0)}ms (${batchCount} batches)`);
 
         // Build final result object for data model fetching
         // Note: meshes field is omitted - allMeshes is passed separately to convertServerDataModel
@@ -353,11 +351,7 @@ export function useIfc() {
         result = parquetResult;
         parseTime = performance.now() - parseStart;
 
-        console.log(`[useIfc] Server parse response received in ${parseTime.toFixed(0)}ms`);
-        console.log(`  Server stats: ${parquetResult.stats.total_time_ms}ms total (parse: ${parquetResult.stats.parse_time_ms}ms, geometry: ${parquetResult.stats.geometry_time_ms}ms)`);
-        console.log(`  Parquet payload: ${(parquetResult.parquet_stats.payload_size / 1024 / 1024).toFixed(2)}MB, decode: ${parquetResult.parquet_stats.decode_time_ms}ms`);
-        console.log(`  Meshes: ${parquetResult.meshes.length}, Vertices: ${parquetResult.stats.total_vertices}, Triangles: ${parquetResult.stats.total_triangles}`);
-        console.log(`  Cache key: ${parquetResult.cache_key}`);
+        console.log(`[useIfc] Parsed ${parquetResult.meshes.length} meshes in ${parquetResult.stats.total_time_ms}ms (${(parquetResult.parquet_stats.payload_size / 1024 / 1024).toFixed(1)}MB payload)`);
 
         setProgress({ phase: 'Converting meshes', percent: 70 });
 
@@ -374,18 +368,12 @@ export function useIfc() {
         convertTime = performance.now() - convertStart;
         console.log(`[useIfc] Mesh conversion: ${convertTime.toFixed(0)}ms for ${allMeshes.length} meshes`);
       } else {
-        console.log(`[useIfc] Parquet not available, using JSON endpoint (install parquet-wasm for 15x faster transfer)`);
-        console.log(`[useIfc] Using FULL PARSE (parallel) - all geometry processed at once`);
-
-        // Fallback to JSON endpoint
+        // Fallback to JSON endpoint (parquet-wasm not available)
         const parseStart = performance.now();
         result = await client.parse(file);
         parseTime = performance.now() - parseStart;
 
-        console.log(`[useIfc] Server parse response received in ${parseTime.toFixed(0)}ms`);
-        console.log(`  Server stats: ${result.stats.total_time_ms}ms total (parse: ${result.stats.parse_time_ms}ms, geometry: ${result.stats.geometry_time_ms}ms)`);
-        console.log(`  Meshes: ${result.meshes.length}, Vertices: ${result.stats.total_vertices}, Triangles: ${result.stats.total_triangles}`);
-        console.log(`  Cache key: ${result.cache_key}`);
+        console.log(`[useIfc] Parsed ${result.meshes.length} meshes in ${result.stats.total_time_ms}ms (JSON fallback)`);
 
         setProgress({ phase: 'Converting meshes', percent: 70 });
 

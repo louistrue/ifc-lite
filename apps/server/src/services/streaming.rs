@@ -63,9 +63,11 @@ fn prepare_streaming_data(content: String) -> PreparedData {
     let style_index = build_style_indices(&content, &mut decoder);
 
     // Collect jobs and build void index
+    // Also collect aggregate relationships for multi-layer wall void propagation
     let mut scanner = EntityScanner::new(&content);
     let mut faceted_brep_ids: Vec<u32> = Vec::new();
     let mut void_index: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
+    let mut parent_to_children: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
     let mut jobs: Vec<EntityJob> = Vec::with_capacity(2000);
     let mut schema_version = "IFC2X3".to_string();
     let mut total_entities = 0usize;
@@ -75,6 +77,21 @@ fn prepare_streaming_data(content: String) -> PreparedData {
 
         if type_name == "IFCFACETEDBREP" {
             faceted_brep_ids.push(id);
+        } else if type_name == "IFCRELAGGREGATES" {
+            // Collect aggregate relationships (parent → children) for void propagation
+            if let Ok(entity) = decoder.decode_at(start, end) {
+                if let Some(parent_id) = entity.get_ref(4) {
+                    if let Some(children_attr) = entity.get(5) {
+                        if let Some(children_list) = children_attr.as_list() {
+                            for child in children_list {
+                                if let Some(child_id) = child.as_entity_ref() {
+                                    parent_to_children.entry(parent_id).or_default().push(child_id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         } else if type_name == "IFCRELVOIDSELEMENT" {
             if let Ok(entity) = decoder.decode_at(start, end) {
                 if let (Some(host), Some(opening)) = (entity.get_ref(4), entity.get_ref(5)) {
@@ -92,6 +109,18 @@ fn prepare_streaming_data(content: String) -> PreparedData {
                     start,
                     end,
                 });
+            }
+        }
+    }
+
+    // Propagate voids to aggregate children (for multi-layer walls)
+    // Voids on parent wall need to also cut inner wall layers
+    for (host_id, opening_ids) in void_index.clone() {
+        if let Some(children) = parent_to_children.get(&host_id) {
+            for &child_id in children {
+                for &opening_id in &opening_ids {
+                    void_index.entry(child_id).or_default().push(opening_id);
+                }
             }
         }
     }

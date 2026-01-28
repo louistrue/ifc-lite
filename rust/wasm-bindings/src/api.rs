@@ -414,13 +414,30 @@ impl IfcAPI {
 
         // OPTIMIZATION: Collect all FacetedBrep IDs for batch processing
         // Also build void relationship index (host → openings)
+        // First pass: collect aggregate relationships for multi-layer wall support
         let mut scanner = EntityScanner::new(&content);
         let mut faceted_brep_ids: Vec<u32> = Vec::new();
         let mut void_index: rustc_hash::FxHashMap<u32, Vec<u32>> = rustc_hash::FxHashMap::default();
+        let mut parent_to_children: rustc_hash::FxHashMap<u32, Vec<u32>> = rustc_hash::FxHashMap::default();
 
         while let Some((id, type_name, start, end)) = scanner.next_entity() {
             if type_name == "IFCFACETEDBREP" {
                 faceted_brep_ids.push(id);
+            } else if type_name == "IFCRELAGGREGATES" {
+                // IfcRelAggregates: attr 4 = RelatingObject (parent), attr 5 = RelatedObjects (children)
+                if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                    if let Some(parent_id) = entity.get_ref(4) {
+                        if let Some(children_attr) = entity.get(5) {
+                            if let Some(children_list) = children_attr.as_list() {
+                                for child in children_list {
+                                    if let Some(child_id) = child.as_entity_ref() {
+                                        parent_to_children.entry(parent_id).or_default().push(child_id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             } else if type_name == "IFCRELVOIDSELEMENT" {
                 // IfcRelVoidsElement: Attr 4 = RelatingBuildingElement, Attr 5 = RelatedOpeningElement
                 if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
@@ -428,6 +445,24 @@ impl IfcAPI {
                         (entity.get_ref(4), entity.get_ref(5))
                     {
                         void_index.entry(host_id).or_default().push(opening_id);
+                    }
+                }
+            }
+        }
+
+        // Debug: Log total voids collected
+        web_sys::console::log_1(&format!(
+            "[VOID DEBUG] Total void relationships: {}, hosts with voids: {}",
+            void_index.values().map(|v| v.len()).sum::<usize>(),
+            void_index.len()
+        ).into());
+
+        // Propagate voids to aggregate children (for multi-layer walls)
+        for (host_id, opening_ids) in void_index.clone() {
+            if let Some(children) = parent_to_children.get(&host_id) {
+                for &child_id in children {
+                    for &opening_id in &opening_ids {
+                        void_index.entry(child_id).or_default().push(opening_id);
                     }
                 }
             }
@@ -831,7 +866,8 @@ impl IfcAPI {
 
                     let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
 
-                    // Simple geometry: process immediately
+                    // Simple geometry: process immediately (single-material elements)
+                    // Note: IFCRAILING is NOT here - it needs per-submesh colors for multi-material (glass)
                     if matches!(
                         type_name,
                         "IFCWALL"
@@ -843,7 +879,6 @@ impl IfcAPI {
                             | "IFCROOF"
                             | "IFCCOVERING"
                             | "IFCFOOTING"
-                            | "IFCRAILING"
                             | "IFCSTAIR"
                             | "IFCSTAIRFLIGHT"
                             | "IFCRAMP"
@@ -1275,14 +1310,32 @@ impl IfcAPI {
                 let mut processed_simple_ids: Vec<u32> = Vec::new();
 
                 // PRE-PASS: Build void relationship index (host → openings)
+                // Also collect aggregate relationships for multi-layer wall support
                 let mut scanner = EntityScanner::new(&content);
                 let mut faceted_brep_ids: Vec<u32> = Vec::new();
                 let mut void_index: rustc_hash::FxHashMap<u32, Vec<u32>> =
+                    rustc_hash::FxHashMap::default();
+                let mut parent_to_children: rustc_hash::FxHashMap<u32, Vec<u32>> =
                     rustc_hash::FxHashMap::default();
 
                 while let Some((id, type_name, start, end)) = scanner.next_entity() {
                     if type_name == "IFCFACETEDBREP" {
                         faceted_brep_ids.push(id);
+                    } else if type_name == "IFCRELAGGREGATES" {
+                        // IfcRelAggregates: attr 4 = RelatingObject (parent), attr 5 = RelatedObjects (children)
+                        if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                            if let Some(parent_id) = entity.get_ref(4) {
+                                if let Some(children_attr) = entity.get(5) {
+                                    if let Some(children_list) = children_attr.as_list() {
+                                        for child in children_list {
+                                            if let Some(child_id) = child.as_entity_ref() {
+                                                parent_to_children.entry(parent_id).or_default().push(child_id);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     } else if type_name == "IFCRELVOIDSELEMENT" {
                         // IfcRelVoidsElement: Attr 4 = RelatingBuildingElement, Attr 5 = RelatedOpeningElement
                         if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
@@ -1290,6 +1343,65 @@ impl IfcAPI {
                                 (entity.get_ref(4), entity.get_ref(5))
                             {
                                 void_index.entry(host_id).or_default().push(opening_id);
+                            }
+                        }
+                    }
+                }
+
+                // Propagate voids to aggregate children (for multi-layer walls)
+                for (host_id, opening_ids) in void_index.clone() {
+                    if let Some(children) = parent_to_children.get(&host_id) {
+                        for &child_id in children {
+                            for &opening_id in &opening_ids {
+                                void_index.entry(child_id).or_default().push(opening_id);
+                            }
+                        }
+                    }
+                }
+
+                // DEBUG: Log void_index statistics
+                let total_voids: usize = void_index.values().map(|v| v.len()).sum();
+                web_sys::console::log_1(&format!(
+                    "[VOID DEBUG] Built void_index: {} hosts with {} total void relationships",
+                    void_index.len(),
+                    total_voids
+                ).into());
+
+                // Check specific wall IDs for debugging (AR.ifc wall GlobalIds)
+                // #221277 = 3ZveCIVhf3exFdDUAllr1n, #683654 = 0bI$4rsfj9sPsgvuoSE7JG
+                for test_id in [221277u32, 683654u32] {
+                    if let Some(voids) = void_index.get(&test_id) {
+                        web_sys::console::log_1(&format!(
+                            "[VOID DEBUG] Wall #{} has {} voids: {:?}",
+                            test_id,
+                            voids.len(),
+                            voids
+                        ).into());
+
+                        // DEBUG: Check if opening elements have valid geometry
+                        for &opening_id in voids {
+                            if let Ok(opening_entity) = decoder.decode_by_id(opening_id) {
+                                let has_repr = opening_entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
+                                web_sys::console::log_1(&format!(
+                                    "[VOID DEBUG] Opening #{} type={} has_representation={}",
+                                    opening_id, opening_entity.ifc_type.name(), has_repr
+                                ).into());
+
+                                // Try to process opening geometry
+                                match router.process_element(&opening_entity, &mut decoder) {
+                                    Ok(mesh) => {
+                                        web_sys::console::log_1(&format!(
+                                            "[VOID DEBUG] Opening #{} mesh: {} vertices, {} triangles",
+                                            opening_id, mesh.positions.len() / 3, mesh.indices.len() / 3
+                                        ).into());
+                                    },
+                                    Err(e) => {
+                                        web_sys::console::log_1(&format!(
+                                            "[VOID DEBUG] Opening #{} FAILED: {:?}",
+                                            opening_id, e
+                                        ).into());
+                                    }
+                                }
                             }
                         }
                     }
@@ -1308,7 +1420,8 @@ impl IfcAPI {
 
                     let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
 
-                    // Simple geometry: process immediately
+                    // Simple geometry: process immediately (single-material elements)
+                    // Note: IFCRAILING is NOT here - it needs per-submesh colors for multi-material (glass)
                     if matches!(
                         type_name,
                         "IFCWALL"
@@ -1320,7 +1433,6 @@ impl IfcAPI {
                             | "IFCROOF"
                             | "IFCCOVERING"
                             | "IFCFOOTING"
-                            | "IFCRAILING"
                             | "IFCSTAIR"
                             | "IFCSTAIRFLIGHT"
                             | "IFCRAMP"
@@ -1331,6 +1443,16 @@ impl IfcAPI {
                             let has_representation =
                                 entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
                             if has_representation {
+                                // DEBUG: Log when processing walls with voids
+                                let has_voids = void_index.get(&id).map(|v| !v.is_empty()).unwrap_or(false);
+                                if has_voids {
+                                    let voids = void_index.get(&id).unwrap();
+                                    web_sys::console::log_1(&format!(
+                                        "[VOID DEBUG] Processing {} #{} with {} voids",
+                                        type_name, id, voids.len()
+                                    ).into());
+                                }
+
                                 // Use process_element_with_voids to subtract openings
                                 if let Ok(mut mesh) = router.process_element_with_voids(
                                     &entity,
@@ -1338,6 +1460,13 @@ impl IfcAPI {
                                     &void_index,
                                 ) {
                                     if !mesh.is_empty() {
+                                        // DEBUG: Log mesh stats for walls with voids
+                                        if has_voids && id == 683654 {
+                                            web_sys::console::log_1(&format!(
+                                                "[VOID DEBUG] Wall #{} RESULT: {} vertices, {} triangles",
+                                                id, mesh.positions.len() / 3, mesh.indices.len() / 3
+                                            ).into());
+                                        }
                                         if mesh.normals.len() != mesh.positions.len() {
                                             calculate_normals(&mut mesh);
                                         }
@@ -1488,6 +1617,15 @@ impl IfcAPI {
                             if has_submeshes {
                                 // Use sub-meshes for multi-material elements (windows, doors, etc.)
                                 let sub_meshes = sub_meshes_result.unwrap();
+
+                                // DEBUG: Log railing sub-mesh processing (AR.ifc railing: #746125)
+                                if id == 746125 {
+                                    web_sys::console::log_1(&format!(
+                                        "[STYLE DEBUG] Processing IFCRAILING #{} with {} sub-meshes",
+                                        id, sub_meshes.sub_meshes.len()
+                                    ).into());
+                                }
+
                                 for sub in sub_meshes.sub_meshes {
                                     let mut mesh = sub.mesh;
                                     if mesh.is_empty() {
@@ -1502,6 +1640,16 @@ impl IfcAPI {
                                     let color = find_color_for_geometry(sub.geometry_id, &geometry_styles, &mut decoder)
                                         .or_else(|| style_index.get(&id).copied())
                                         .unwrap_or(default_color);
+
+                                    // DEBUG: Log railing sub-mesh colors
+                                    if id == 746125 {
+                                        let from_geometry = geometry_styles.get(&sub.geometry_id).is_some();
+                                        let from_element = style_index.get(&id).is_some();
+                                        web_sys::console::log_1(&format!(
+                                            "[STYLE DEBUG] Railing sub-mesh geom_id={} color=[{:.2},{:.2},{:.2},{:.2}] from_geom={} from_elem={}",
+                                            sub.geometry_id, color[0], color[1], color[2], color[3], from_geometry, from_element
+                                        ).into());
+                                    }
 
                                     total_vertices += mesh.positions.len() / 3;
                                     total_triangles += mesh.indices.len() / 3;
@@ -1884,19 +2032,46 @@ impl IfcAPI {
         let style_index = build_element_style_index(&content, &geometry_styles, &mut decoder);
 
         // Collect FacetedBrep IDs for batch preprocessing
+        // Also collect aggregate relationships for multi-layer wall support
         let mut scanner = EntityScanner::new(&content);
         let mut faceted_brep_ids: Vec<u32> = Vec::new();
         let mut void_index: rustc_hash::FxHashMap<u32, Vec<u32>> = rustc_hash::FxHashMap::default();
+        let mut parent_to_children: rustc_hash::FxHashMap<u32, Vec<u32>> = rustc_hash::FxHashMap::default();
 
         while let Some((id, type_name, start, end)) = scanner.next_entity() {
             if type_name == "IFCFACETEDBREP" {
                 faceted_brep_ids.push(id);
+            } else if type_name == "IFCRELAGGREGATES" {
+                if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                    if let Some(parent_id) = entity.get_ref(4) {
+                        if let Some(children_attr) = entity.get(5) {
+                            if let Some(children_list) = children_attr.as_list() {
+                                for child in children_list {
+                                    if let Some(child_id) = child.as_entity_ref() {
+                                        parent_to_children.entry(parent_id).or_default().push(child_id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             } else if type_name == "IFCRELVOIDSELEMENT" {
                 if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                     if let (Some(host_id), Some(opening_id)) =
                         (entity.get_ref(4), entity.get_ref(5))
                     {
                         void_index.entry(host_id).or_default().push(opening_id);
+                    }
+                }
+            }
+        }
+
+        // Propagate voids to aggregate children (for multi-layer walls)
+        for (host_id, opening_ids) in void_index.clone() {
+            if let Some(children) = parent_to_children.get(&host_id) {
+                for &child_id in children {
+                    for &opening_id in &opening_ids {
+                        void_index.entry(child_id).or_default().push(opening_id);
                     }
                 }
             }
@@ -2045,20 +2220,48 @@ impl IfcAPI {
                     build_element_style_index(&content, &geometry_styles, &mut decoder);
 
                 // Collect FacetedBrep IDs and void relationships
+                // Also collect aggregate relationships for multi-layer wall support
                 let mut scanner = EntityScanner::new(&content);
                 let mut faceted_brep_ids: Vec<u32> = Vec::new();
                 let mut void_index: rustc_hash::FxHashMap<u32, Vec<u32>> =
+                    rustc_hash::FxHashMap::default();
+                let mut parent_to_children: rustc_hash::FxHashMap<u32, Vec<u32>> =
                     rustc_hash::FxHashMap::default();
 
                 while let Some((id, type_name, start, end)) = scanner.next_entity() {
                     if type_name == "IFCFACETEDBREP" {
                         faceted_brep_ids.push(id);
+                    } else if type_name == "IFCRELAGGREGATES" {
+                        if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                            if let Some(parent_id) = entity.get_ref(4) {
+                                if let Some(children_attr) = entity.get(5) {
+                                    if let Some(children_list) = children_attr.as_list() {
+                                        for child in children_list {
+                                            if let Some(child_id) = child.as_entity_ref() {
+                                                parent_to_children.entry(parent_id).or_default().push(child_id);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     } else if type_name == "IFCRELVOIDSELEMENT" {
                         if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                             if let (Some(host_id), Some(opening_id)) =
                                 (entity.get_ref(4), entity.get_ref(5))
                             {
                                 void_index.entry(host_id).or_default().push(opening_id);
+                            }
+                        }
+                    }
+                }
+
+                // Propagate voids to aggregate children (for multi-layer walls)
+                for (host_id, opening_ids) in void_index.clone() {
+                    if let Some(children) = parent_to_children.get(&host_id) {
+                        for &child_id in children {
+                            for &opening_id in &opening_ids {
+                                void_index.entry(child_id).or_default().push(opening_id);
                             }
                         }
                     }
@@ -2123,7 +2326,8 @@ impl IfcAPI {
 
                     let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
 
-                    // Simple geometry: process immediately
+                    // Simple geometry: process immediately (single-material elements)
+                    // Note: IFCRAILING is NOT here - it needs per-submesh colors for multi-material (glass)
                     if matches!(
                         type_name,
                         "IFCWALL"
@@ -2135,7 +2339,6 @@ impl IfcAPI {
                             | "IFCROOF"
                             | "IFCCOVERING"
                             | "IFCFOOTING"
-                            | "IFCRAILING"
                             | "IFCSTAIR"
                             | "IFCSTAIRFLIGHT"
                             | "IFCRAMP"
@@ -2579,6 +2782,7 @@ fn build_geometry_style_index(
 
     let mut style_index: FxHashMap<u32, [f32; 4]> = FxHashMap::default();
     let mut scanner = EntityScanner::new(content);
+    let mut transparent_count = 0u32;
 
     // First pass: find all IfcStyledItem entities
     while let Some((id, type_name, start, end)) = scanner.next_entity() {
@@ -2612,9 +2816,26 @@ fn build_geometry_style_index(
 
         // Extract color from styles list
         if let Some(color) = extract_color_from_styles(styles_attr, decoder) {
+            // DEBUG: Log transparent styles (alpha < 1.0)
+            if color[3] < 0.99 {
+                transparent_count += 1;
+                // Log specific geometry IDs for railing glass (from AR.ifc analysis: #746104)
+                if geometry_id == 746104 {
+                    web_sys::console::log_1(&format!(
+                        "[STYLE DEBUG] Glass geometry #{} has transparent style: alpha={}",
+                        geometry_id, color[3]
+                    ).into());
+                }
+            }
             style_index.insert(geometry_id, color);
         }
     }
+
+    web_sys::console::log_1(&format!(
+        "[STYLE DEBUG] Built geometry_styles with {} entries, {} have transparency",
+        style_index.len(),
+        transparent_count
+    ).into());
 
     style_index
 }

@@ -206,6 +206,16 @@ export const createModelSlice: StateCreator<ModelSlice, [], [], ModelSlice> = (s
       }
     }
 
+    // FALLBACK: Single-model server loading doesn't add to models Map
+    // In this case, ifcDataStore is set but models Map is empty
+    // GlobalId === ExpressId (offset is 0), use a synthetic modelId
+    if (models.size === 0) {
+      return {
+        modelId: 'default',
+        expressId: globalId,
+      };
+    }
+
     return null;
   },
 });

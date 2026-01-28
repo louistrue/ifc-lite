@@ -141,7 +141,7 @@ export class GeometryProcessor {
       // Create platform bridge for native processing
       this.platformBridge = await createPlatformBridge();
       await this.platformBridge.init();
-      console.log('[GeometryProcessor] Native bridge initialized');
+      // Native bridge initialized
     } else {
       // WASM path
       if (this.bridge) {

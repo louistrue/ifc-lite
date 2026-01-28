@@ -572,20 +572,91 @@ impl PolygonalFaceSetProcessor {
         Self
     }
 
-    /// Triangulate a polygon using fan triangulation
-    /// Works for convex polygons and most well-formed concave polygons
+    /// Triangulate a polygon - uses ear-clipping for 5+ vertices, fan for simpler cases
     /// IFC indices are 1-based, so we subtract 1 to get 0-based indices
+    ///
+    /// For concave polygons with 5+ vertices, we need proper ear-clipping to avoid
+    /// creating invalid triangles that cause "spike" artifacts.
     #[inline]
-    fn triangulate_polygon(indices: &[u32], output: &mut Vec<u32>) {
+    fn triangulate_polygon(
+        indices: &[u32],
+        positions: &[f32],
+        output: &mut Vec<u32>,
+    ) {
         if indices.len() < 3 {
             return;
         }
-        // Fan triangulation: first vertex connects to all other edges
-        let first = indices[0] - 1; // Convert 1-based to 0-based
-        for i in 1..indices.len() - 1 {
-            output.push(first);
-            output.push(indices[i] - 1);
-            output.push(indices[i + 1] - 1);
+
+        // FAST PATH: Triangle - no triangulation needed
+        if indices.len() == 3 {
+            output.push(indices[0] - 1);
+            output.push(indices[1] - 1);
+            output.push(indices[2] - 1);
+            return;
+        }
+
+        // FAST PATH: Quad - simple fan works well
+        if indices.len() == 4 {
+            let i0 = indices[0] - 1;
+            let i1 = indices[1] - 1;
+            let i2 = indices[2] - 1;
+            let i3 = indices[3] - 1;
+            output.push(i0);
+            output.push(i1);
+            output.push(i2);
+            output.push(i0);
+            output.push(i2);
+            output.push(i3);
+            return;
+        }
+
+        // For 5+ vertices, use ear-clipping triangulation to handle concave polygons
+        // First, extract 3D points and project to 2D
+        let points_3d: Vec<_> = indices
+            .iter()
+            .filter_map(|&idx| {
+                let i = (idx - 1) as usize; // Convert to 0-based
+                if i * 3 + 2 < positions.len() {
+                    Some(nalgebra::Point3::new(
+                        positions[i * 3] as f64,
+                        positions[i * 3 + 1] as f64,
+                        positions[i * 3 + 2] as f64,
+                    ))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if points_3d.len() < 3 {
+            return;
+        }
+
+        // Calculate face normal using Newell's method
+        let normal = crate::triangulation::calculate_polygon_normal(&points_3d);
+
+        // Project to 2D
+        let (points_2d, _, _, _) = crate::triangulation::project_to_2d(&points_3d, &normal);
+
+        // Triangulate using ear-clipping
+        match crate::triangulation::triangulate_polygon(&points_2d) {
+            Ok(tri_indices) => {
+                // Map back to original vertex indices
+                for idx in tri_indices {
+                    if idx < indices.len() {
+                        output.push(indices[idx] - 1); // Convert to 0-based
+                    }
+                }
+            }
+            Err(_) => {
+                // Fallback to fan triangulation if ear-clipping fails
+                let first = indices[0] - 1;
+                for i in 1..indices.len() - 1 {
+                    output.push(first);
+                    output.push(indices[i] - 1);
+                    output.push(indices[i + 1] - 1);
+                }
+            }
         }
     }
 }
@@ -670,8 +741,8 @@ impl GeometryProcessor for PolygonalFaceSetProcessor {
                 .filter_map(|v| v.as_int().map(|i| i as u32))
                 .collect();
 
-            // Triangulate the polygon
-            Self::triangulate_polygon(&face_indices, &mut indices);
+            // Triangulate the polygon (pass positions for ear-clipping on concave faces)
+            Self::triangulate_polygon(&face_indices, &positions, &mut indices);
         }
 
         Ok(Mesh {

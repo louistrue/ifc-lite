@@ -43,6 +43,9 @@ impl VoidIndex {
     /// Scans the content for `IfcRelVoidsElement` entities and builds
     /// the host-to-void mapping.
     ///
+    /// Also propagates voids to aggregate components (e.g., inner wall layers
+    /// in multi-layer walls) via `IfcRelAggregates`.
+    ///
     /// # Arguments
     /// * `content` - The raw IFC file content
     /// * `decoder` - Entity decoder for parsing
@@ -53,6 +56,31 @@ impl VoidIndex {
         let mut index = Self::new();
         let mut scanner = EntityScanner::new(content);
 
+        // First pass: collect aggregate relationships (parent → children)
+        // IfcRelAggregates: RelatingObject (attr 4) → RelatedObjects (attr 5)
+        let mut parent_to_children: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
+
+        while let Some((_id, type_name, start, end)) = scanner.next_entity() {
+            if type_name == "IFCRELAGGREGATES" {
+                if let Ok(entity) = decoder.decode_at(start, end) {
+                    // IfcRelAggregates: attr 4 = RelatingObject, attr 5 = RelatedObjects (list)
+                    if let Some(parent_id) = entity.get_ref(4) {
+                        if let Some(children_attr) = entity.get(5) {
+                            if let Some(children_list) = children_attr.as_list() {
+                                for child in children_list {
+                                    if let Some(child_id) = child.as_entity_ref() {
+                                        parent_to_children.entry(parent_id).or_default().push(child_id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Second pass: collect void relationships
+        let mut scanner = EntityScanner::new(content);
         while let Some((_id, type_name, start, end)) = scanner.next_entity() {
             // Look for IfcRelVoidsElement relationships
             if type_name == "IFCRELVOIDSELEMENT" {
@@ -65,6 +93,15 @@ impl VoidIndex {
 
                     if let (Some(host_id), Some(void_id)) = (entity.get_ref(4), entity.get_ref(5)) {
                         index.add_relationship(host_id, void_id);
+
+                        // Propagate void to all children (aggregate components)
+                        // This handles multi-layer walls where voids are on the parent
+                        // but need to be cut from inner layers too
+                        if let Some(children) = parent_to_children.get(&host_id) {
+                            for &child_id in children {
+                                index.add_relationship(child_id, void_id);
+                            }
+                        }
                     }
                 }
             }

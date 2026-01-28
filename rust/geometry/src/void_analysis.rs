@@ -21,7 +21,8 @@ use rustc_hash::FxHashMap;
 const DEFAULT_PLANARITY_EPSILON: f64 = 0.02;
 
 /// Maximum depth tolerance for considering a void as "through"
-const THROUGH_VOID_TOLERANCE: f64 = 0.01;
+/// Increased from 0.01 to handle floating-point precision and small gaps in models
+const THROUGH_VOID_TOLERANCE: f64 = 0.05;
 
 /// Classification of a void relative to a host extrusion
 #[derive(Debug, Clone)]
@@ -124,8 +125,15 @@ impl VoidAnalyzer {
                 }
 
                 // Check if it's a through void
-                let is_through = depth_start <= THROUGH_VOID_TOLERANCE
-                    && depth_end >= extrusion_depth - THROUGH_VOID_TOLERANCE;
+                // A void is "through" if:
+                // 1. It starts at or below the profile plane (depth_start near 0)
+                // 2. It extends to or beyond the extrusion depth
+                // OR if the void covers most of the depth (>95%)
+                let starts_at_profile = depth_start <= THROUGH_VOID_TOLERANCE;
+                let extends_full_depth = depth_end >= extrusion_depth - THROUGH_VOID_TOLERANCE;
+                let void_depth = depth_end - depth_start;
+                let covers_most_depth = void_depth >= extrusion_depth * 0.95;
+                let is_through = (starts_at_profile && extends_full_depth) || covers_most_depth;
 
                 VoidClassification::Coplanar {
                     profile_hole: footprint,

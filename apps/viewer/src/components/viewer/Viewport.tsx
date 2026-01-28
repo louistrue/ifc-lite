@@ -22,6 +22,7 @@ import {
   useColorUpdateState,
   useIfcDataState,
 } from '../../hooks/useViewerSelectors.js';
+import { RelationshipType } from '@ifc-lite/data';
 import { useModelSelection } from '../../hooks/useModelSelection.js';
 import {
   getEntityBounds,
@@ -46,7 +47,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   const [isInitialized, setIsInitialized] = useState(false);
 
   // Selection state
-  const { selectedEntityId, selectedEntityIds, setSelectedEntityId, setSelectedEntity, toggleSelection, models } = useSelectionState();
+  const { selectedEntityId, selectedEntityIds, setSelectedEntityId, setSelectedEntityIds, setSelectedEntity, toggleSelection, models } = useSelectionState();
   const selectedEntity = useViewerStore((s) => s.selectedEntity);
   // Get the bulletproof store-based resolver (more reliable than singleton)
   const resolveGlobalIdFromModels = useViewerStore((s) => s.resolveGlobalIdFromModels);
@@ -73,6 +74,9 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   // IMPORTANT: pickResult.expressId is now a globalId (transformed at load time)
   // We use the store-based resolver to find (modelId, originalExpressId)
   // This is more reliable than the singleton registry which can have bundling issues
+  //
+  // AGGREGATE EXPANSION: When an element is clicked that belongs to an aggregate (e.g., window frame part),
+  // we find all siblings in the aggregate and select them all, so the entire object highlights.
   const handlePickForSelection = (pickResult: PickResult | null) => {
     if (!pickResult) {
       setSelectedEntityId(null);
@@ -81,14 +85,86 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
 
     const globalId = pickResult.expressId;
 
-    // Set globalId for renderer (highlighting uses globalIds directly)
-    setSelectedEntityId(globalId);
-
-    // Resolve globalId -> (modelId, originalExpressId) for property panel
-    // Use store-based resolver instead of singleton for reliability
+    // Resolve globalId -> (modelId, originalExpressId) for property panel and relationship lookup
     const resolved = resolveGlobalIdFromModels(globalId);
+
+    // Try to expand selection to include aggregate siblings
+    // This makes windows, doors, etc. (which have multiple submeshes) select as a whole
+    let allGlobalIds: number[] = [globalId];
+
     if (resolved) {
-      // Set the EntityRef with ORIGINAL expressId (for property lookup in IfcDataStore)
+      const modelId = resolved.modelId;
+      const localExpressId = resolved.expressId;
+      const model = models.get(modelId);
+      // IMPORTANT: Read CURRENT store state, not the captured value from render time
+      // This fixes the race condition where dataStore is set async after geometry renders
+      const currentIfcDataStore = useViewerStore.getState().ifcDataStore;
+      const dataStore = model?.ifcDataStore ?? currentIfcDataStore;
+      const idOffset = model?.idOffset ?? 0;
+
+      console.log('[SELECTION DEBUG] Clicked globalId:', globalId, 'resolved to modelId:', modelId, 'localExpressId:', localExpressId);
+      console.log('[SELECTION DEBUG] model in Map:', !!model, 'dataStore exists:', !!dataStore, 'relationships exists:', !!dataStore?.relationships);
+
+      if (dataStore?.relationships) {
+        // Try to find parent via Aggregates first, then Nests
+        // Windows/doors typically use IfcRelNests for their components
+        let parents = dataStore.relationships.getRelated(
+          localExpressId,
+          RelationshipType.Aggregates,
+          'inverse'
+        );
+
+        console.log('[SELECTION DEBUG] Aggregate parents for', localExpressId, ':', parents);
+
+        let relType = RelationshipType.Aggregates;
+
+        // If no aggregate parent, try nests (for windows/doors)
+        if (parents.length === 0) {
+          parents = dataStore.relationships.getRelated(
+            localExpressId,
+            RelationshipType.Nests,
+            'inverse'
+          );
+          relType = RelationshipType.Nests;
+          console.log('[SELECTION DEBUG] Nests parents for', localExpressId, ':', parents);
+        }
+
+        if (parents.length > 0) {
+          // Get all children of the parent (forward direction: parent -> children)
+          const siblings = dataStore.relationships.getRelated(
+            parents[0],
+            relType,
+            'forward'
+          );
+
+          console.log('[SELECTION DEBUG] Parent', parents[0], 'has', siblings.length, 'children:', siblings);
+
+          if (siblings.length > 0) {
+            // Include all siblings AND the parent in selection
+            // This ensures curtain walls with windows/members all highlight together
+            allGlobalIds = [
+              parents[0] + idOffset,  // Include parent (e.g., curtain wall)
+              ...siblings.map(localId => localId + idOffset)
+            ];
+            console.log('[SELECTION DEBUG] Expanded selection to', allGlobalIds.length, 'ids:', allGlobalIds);
+          }
+        }
+      } else {
+        console.log('[SELECTION DEBUG] No relationships data available');
+      }
+    } else {
+      console.log('[SELECTION DEBUG] Could not resolve globalId', globalId);
+    }
+
+    // Set selection - use multi-selection if we have aggregate siblings
+    if (allGlobalIds.length > 1) {
+      setSelectedEntityIds(allGlobalIds);
+    } else {
+      setSelectedEntityId(globalId);
+    }
+
+    // Set primary entity for property panel
+    if (resolved) {
       setSelectedEntity({ modelId: resolved.modelId, expressId: resolved.expressId });
     } else {
       // Fallback for single-model mode (offset = 0, globalId = expressId)

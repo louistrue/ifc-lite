@@ -905,11 +905,11 @@ export interface InitOutput {
   readonly meshcollection_rtcOffsetX: (a: number) => number;
   readonly meshcollection_rtcOffsetY: (a: number) => number;
   readonly meshcollection_rtcOffsetZ: (a: number) => number;
-  readonly __wasm_bindgen_func_elem_848: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_846: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_408: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_406: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_879: (a: number, b: number, c: number, d: number) => void;
+  readonly __wasm_bindgen_func_elem_855: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_853: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_415: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_413: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_886: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_export: (a: number) => void;
   readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
   readonly __wbindgen_export3: (a: number, b: number) => number;

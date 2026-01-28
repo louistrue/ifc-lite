@@ -39,7 +39,20 @@
       "Bash(pnpm run build:wasm:*)",
       "Bash(node:*)",
       "Bash(cargo test:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(./scripts/build-wasm.sh:*)",
+      "Bash(npm run build:*)",
+      "Bash(~/.cargo/bin/cargo build --package ifc-lite-geometry)",
+      "Bash(~/.cargo/bin/cargo build:*)",
+      "Bash(npm run build:wasm:*)",
+      "Bash(npm run:*)",
+      "Bash(~/.cargo/bin/wasm-pack build:*)",
+      "Bash(export PATH=\"$HOME/.cargo/bin:/usr/bin:/bin:$PATH\")",
+      "Bash(git checkout:*)",
+      "Bash(./build-wasm.sh)",
+      "Bash(npx tsx:*)",
+      "Bash(find:*)",
+      "Bash(pnpm --filter @ifc-lite/wasm build:*)"
     ]
   }
 }
