@@ -205,9 +205,11 @@ export class MutablePropertyView {
     unit?: string
   ): Mutation {
     const key = propertyKey(entityId, psetName, propName);
+    console.log('[MutablePropertyView.setProperty] entityId:', entityId, 'pset:', psetName, 'prop:', propName, 'value:', value, 'key:', key);
 
     // Get old value for undo
     const oldValue = this.getPropertyValue(entityId, psetName, propName);
+    console.log('[MutablePropertyView.setProperty] oldValue:', oldValue);
 
     // Check if this pset exists in base
     const basePsets = this.getBasePropertiesForEntity(entityId);

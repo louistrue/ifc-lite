@@ -103,6 +103,8 @@ export interface MutationSlice {
   clearMutations: (modelId: string) => void;
   /** Clear all mutations */
   clearAllMutations: () => void;
+  /** Manually bump mutation version (for bulk operations that bypass store) */
+  bumpMutationVersion: () => void;
 }
 
 function generateChangeSetId(): string {
@@ -482,6 +484,12 @@ export const createMutationSlice: StateCreator<
       undoStacks: new Map(),
       redoStacks: new Map(),
       dirtyModels: new Set(),
+      mutationVersion: state.mutationVersion + 1,
+    }));
+  },
+
+  bumpMutationVersion: () => {
+    set((state) => ({
       mutationVersion: state.mutationVersion + 1,
     }));
   },

@@ -117,6 +117,7 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
   const { models } = useIfc();
   const getMutationView = useViewerStore((s) => s.getMutationView);
   const registerMutationView = useViewerStore((s) => s.registerMutationView);
+  const bumpMutationVersion = useViewerStore((s) => s.bumpMutationVersion);
   // Subscribe to mutationViews directly to trigger re-render when views are registered
   const mutationViews = useViewerStore((s) => s.mutationViews);
   // Also get legacy single-model state for backward compatibility
@@ -485,8 +486,17 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
 
     try {
       const action = buildAction();
+      console.log('[BulkPropertyEditor] Executing action:', action, 'on', liveMatchCount, 'entities');
       const result = queryEngine.execute({ select: currentCriteria, action });
+      console.log('[BulkPropertyEditor] Execute result:', result);
       setExecuteResult(result);
+
+      // Bump mutation version to trigger re-renders in PropertiesPanel
+      // (BulkQueryEngine applies mutations directly to MutablePropertyView, bypassing store)
+      if (result.mutations.length > 0) {
+        console.log('[BulkPropertyEditor] Bumping mutation version after', result.mutations.length, 'mutations');
+        bumpMutationVersion();
+      }
     } catch (error) {
       console.error('Execute failed:', error);
       setExecuteResult({
@@ -498,7 +508,7 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
     } finally {
       setIsExecuting(false);
     }
-  }, [queryEngine, liveMatchCount, currentCriteria, buildAction]);
+  }, [queryEngine, liveMatchCount, currentCriteria, buildAction, bumpMutationVersion]);
 
   // Reset form
   const handleReset = useCallback(() => {
