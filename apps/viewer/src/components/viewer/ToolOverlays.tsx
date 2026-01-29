@@ -7,7 +7,7 @@
  */
 
 import React, { useCallback, useMemo, useState, useEffect } from 'react';
-import { X, Trash2, Ruler, Slice, ChevronDown } from 'lucide-react';
+import { X, Trash2, Ruler, Slice, ChevronDown, FileImage } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useViewerStore, type Measurement, type SnapVisualization } from '@/store';
 import { SnapType, type SnapTarget } from '@ifc-lite/renderer';
@@ -756,6 +756,8 @@ function SectionOverlay() {
   const setSectionPlanePosition = useViewerStore((s) => s.setSectionPlanePosition);
   const toggleSectionPlane = useViewerStore((s) => s.toggleSectionPlane);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
+  const setDrawingPanelVisible = useViewerStore((s) => s.setDrawing2DPanelVisible);
+  const clearDrawing = useViewerStore((s) => s.clearDrawing2D);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(true);
 
   const handleClose = useCallback(() => {
@@ -773,6 +775,12 @@ function SectionOverlay() {
   const togglePanel = useCallback(() => {
     setIsPanelCollapsed(prev => !prev);
   }, []);
+
+  const handleView2D = useCallback(() => {
+    // Clear existing drawing to force regeneration with current settings
+    clearDrawing();
+    setDrawingPanelVisible(true);
+  }, [clearDrawing, setDrawingPanelVisible]);
 
   return (
     <>
@@ -835,6 +843,19 @@ function SectionOverlay() {
                 onChange={handlePositionChange}
                 className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
               />
+            </div>
+
+            {/* View 2D Drawing Button */}
+            <div className="mt-3 pt-3 border-t">
+              <Button
+                variant="default"
+                size="sm"
+                className="w-full"
+                onClick={handleView2D}
+              >
+                <FileImage className="h-4 w-4 mr-2" />
+                Generate 2D Drawing
+              </Button>
             </div>
           </div>
         )}

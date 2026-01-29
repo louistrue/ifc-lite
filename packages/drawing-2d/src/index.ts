@@ -142,6 +142,24 @@ export { SVGExporter, exportToSVG } from './svg-exporter';
 export type { SVGExportOptions } from './svg-exporter';
 
 // ═══════════════════════════════════════════════════════════════════════════
+// GPU ACCELERATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+export { GPUSectionCutter, isGPUComputeAvailable } from './gpu-section-cutter';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HIGH-LEVEL GENERATOR
+// ═══════════════════════════════════════════════════════════════════════════
+
+export {
+  Drawing2DGenerator,
+  createSectionConfig,
+  generateFloorPlan,
+  generateSection,
+} from './drawing-generator';
+export type { GeneratorOptions, GeneratorProgress } from './drawing-generator';
+
+// ═══════════════════════════════════════════════════════════════════════════
 // MATH UTILITIES
 // ═══════════════════════════════════════════════════════════════════════════
 
