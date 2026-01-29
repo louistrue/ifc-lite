@@ -357,6 +357,19 @@ importers:
         specifier: ^1.6.0
         version: 1.6.1(@types/node@20.19.28)(lightningcss@1.30.2)
 
+  packages/drawing-2d:
+    dependencies:
+      '@ifc-lite/geometry':
+        specifier: workspace:^
+        version: link:../geometry
+    devDependencies:
+      typescript:
+        specifier: ^5.3.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@20.19.28)(lightningcss@1.30.2)
+
   packages/export:
     dependencies:
       '@ifc-lite/data':
