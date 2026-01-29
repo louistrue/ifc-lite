@@ -58,6 +58,12 @@
       ],
       "@ifc-lite/mutations/*": [
         "packages/mutations/dist/*"
+      ],
+      "@ifc-lite/drawing-2d": [
+        "packages/drawing-2d/dist/index.d.ts"
+      ],
+      "@ifc-lite/drawing-2d/*": [
+        "packages/drawing-2d/dist/*"
       ]
     }
   },
