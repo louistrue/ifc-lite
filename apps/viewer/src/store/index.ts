@@ -22,6 +22,7 @@ import { createSectionSlice, type SectionSlice } from './slices/sectionSlice.js'
 import { createMeasurementSlice, type MeasurementSlice } from './slices/measurementSlice.js';
 import { createDataSlice, type DataSlice } from './slices/dataSlice.js';
 import { createModelSlice, type ModelSlice } from './slices/modelSlice.js';
+import { createMutationSlice, type MutationSlice } from './slices/mutationSlice.js';
 
 // Import constants for reset function
 import { CAMERA_DEFAULTS, SECTION_PLANE_DEFAULTS, UI_DEFAULTS, TYPE_VISIBILITY_DEFAULTS } from './constants.js';
@@ -45,7 +46,8 @@ export type ViewerState = LoadingSlice &
   SectionSlice &
   MeasurementSlice &
   DataSlice &
-  ModelSlice & {
+  ModelSlice &
+  MutationSlice & {
     resetViewerState: () => void;
   };
 
@@ -64,6 +66,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
   ...createMeasurementSlice(...args),
   ...createDataSlice(...args),
   ...createModelSlice(...args),
+  ...createMutationSlice(...args),
 
   // Reset all viewer state when loading new file
   // Note: Does NOT clear models - use clearAllModels() for that

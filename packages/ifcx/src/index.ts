@@ -62,6 +62,15 @@ export {
   type ComposedNodeWithSources,
 } from './federated-composition.js';
 
+// IFCX writer for export
+export {
+  IfcxWriter,
+  exportToIfcx,
+  type IfcxExportOptions,
+  type IfcxExportData,
+  type IfcxExportResult,
+} from './writer.js';
+
 /**
  * Result of parsing an IFCX file.
  * Compatible with existing ifc-lite data structures.

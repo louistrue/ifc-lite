@@ -44,13 +44,20 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from '@/components/ui/dropdown-menu';
 import { Progress } from '@/components/ui/progress';
 import { useViewerStore, isIfcxDataStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { cn } from '@/lib/utils';
 import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
-import { FileSpreadsheet, FileJson } from 'lucide-react';
+import { FileSpreadsheet, FileJson, FileText, Filter, Upload, Pencil } from 'lucide-react';
+import { ExportDialog } from './ExportDialog';
+import { BulkPropertyEditor } from './BulkPropertyEditor';
+import { DataConnector } from './DataConnector';
+import { ExportChangesButton } from './ExportChangesButton';
 
 type Tool = 'select' | 'pan' | 'orbit' | 'walk' | 'measure' | 'section';
 
@@ -285,7 +292,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     }
   }, []);
 
-  const handleExportCSV = useCallback((type: 'entities' | 'properties' | 'quantities') => {
+  const handleExportCSV = useCallback((type: 'entities' | 'properties' | 'quantities' | 'spatial') => {
     if (!ifcDataStore) return;
     try {
       const exporter = new CSVExporter(ifcDataStore);
@@ -304,6 +311,10 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
         case 'quantities':
           csv = exporter.exportQuantities();
           filename = 'quantities.csv';
+          break;
+        case 'spatial':
+          csv = exporter.exportSpatialHierarchy();
+          filename = 'spatial-hierarchy.csv';
           break;
       }
 
@@ -418,23 +429,45 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
+          <ExportDialog
+            trigger={
+              <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                <FileText className="h-4 w-4 mr-2" />
+                Export IFC (with changes)
+              </DropdownMenuItem>
+            }
+          />
+          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleExportGLB}>
             <Download className="h-4 w-4 mr-2" />
             Export GLB (3D Model)
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => handleExportCSV('entities')} disabled={!ifcDataStore}>
-            <FileSpreadsheet className="h-4 w-4 mr-2" />
-            Export Entities (CSV)
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleExportCSV('properties')} disabled={!ifcDataStore}>
-            <FileSpreadsheet className="h-4 w-4 mr-2" />
-            Export Properties (CSV)
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleExportCSV('quantities')} disabled={!ifcDataStore}>
-            <FileSpreadsheet className="h-4 w-4 mr-2" />
-            Export Quantities (CSV)
-          </DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger disabled={!ifcDataStore}>
+              <FileSpreadsheet className="h-4 w-4 mr-2" />
+              Export CSV
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuItem onClick={() => handleExportCSV('entities')}>
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+                Entities
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExportCSV('properties')}>
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+                Properties
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExportCSV('quantities')}>
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+                Quantities
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => handleExportCSV('spatial')}>
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+                Spatial Hierarchy
+              </DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
           <DropdownMenuItem onClick={handleExportJSON} disabled={!ifcDataStore}>
             <FileJson className="h-4 w-4 mr-2" />
             Export JSON (All Data)
@@ -446,6 +479,41 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {/* Edit Menu - Bulk editing and data import */}
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-sm" disabled={!ifcDataStore}>
+                <Pencil className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Edit Properties</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent>
+          <BulkPropertyEditor
+            trigger={
+              <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                <Filter className="h-4 w-4 mr-2" />
+                Bulk Property Editor
+              </DropdownMenuItem>
+            }
+          />
+          <DataConnector
+            trigger={
+              <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                <Upload className="h-4 w-4 mr-2" />
+                Import Data (CSV)
+              </DropdownMenuItem>
+            }
+          />
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {/* Export Changes Button - shows when there are pending mutations */}
+      <ExportChangesButton />
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 

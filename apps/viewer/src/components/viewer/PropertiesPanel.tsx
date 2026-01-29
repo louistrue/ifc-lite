@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState, useCallback, useEffect } from 'react';
 import {
   Copy,
   Check,
@@ -21,21 +21,28 @@ import {
   HardDrive,
   Hash,
   Database,
+  Edit3,
+  Sparkles,
+  PenLine,
 } from 'lucide-react';
+import { PropertyEditor, NewPropertyDialog, UndoRedoButtons } from './PropertyEditor';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Badge } from '@/components/ui/badge';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { IfcQuery } from '@ifc-lite/query';
+import { MutablePropertyView } from '@ifc-lite/mutations';
+import { extractPropertiesOnDemand, type IfcDataStore } from '@ifc-lite/parser';
 import type { EntityRef, FederatedModel } from '@/store/types';
-import type { IfcDataStore } from '@ifc-lite/parser';
 
 interface PropertySet {
   name: string;
-  properties: Array<{ name: string; value: unknown }>;
+  properties: Array<{ name: string; value: unknown; isMutated?: boolean }>;
+  isNewPset?: boolean;
 }
 
 interface QuantitySet {
@@ -254,8 +261,39 @@ export function PropertiesPanel() {
   // Use model-aware data store
   const activeDataStore = model?.ifcDataStore ?? ifcDataStore;
 
+  // Subscribe to mutation views and version to trigger re-render when mutations change
+  const mutationViews = useViewerStore((s) => s.mutationViews);
+  const mutationVersion = useViewerStore((s) => s.mutationVersion);
+  const getMutationView = useViewerStore((s) => s.getMutationView);
+  const registerMutationView = useViewerStore((s) => s.registerMutationView);
+
+  // Ensure mutation view exists for editing - creates it on-demand if needed
+  useEffect(() => {
+    if (!model || !selectedEntity || selectedEntity.modelId === 'legacy') return;
+
+    const modelId = selectedEntity.modelId;
+    let mutationView = getMutationView(modelId);
+    if (mutationView) return; // Already exists
+
+    // Create new mutation view
+    const dataStore = model.ifcDataStore;
+    mutationView = new MutablePropertyView(dataStore.properties || null, modelId);
+
+    // Set up on-demand property extractor if available
+    if (dataStore.onDemandPropertyMap && dataStore.source?.length > 0) {
+      mutationView.setOnDemandExtractor((entityId: number) => {
+        return extractPropertiesOnDemand(dataStore as IfcDataStore, entityId);
+      });
+    }
+
+    registerMutationView(modelId, mutationView);
+  }, [model, selectedEntity, getMutationView, registerMutationView]);
+
   // Copy feedback state - must be before any early returns (Rules of Hooks)
   const [copied, setCopied] = useState(false);
+
+  // Edit mode toggle - allows inline property editing
+  const [editMode, setEditMode] = useState(false);
 
   const copyToClipboard = useCallback((text: string) => {
     navigator.clipboard.writeText(text);
@@ -343,14 +381,83 @@ export function PropertiesPanel() {
 
   // Unified property/quantity access - EntityNode handles on-demand extraction automatically
   // These hooks must be called before any early return to maintain hook order
+  // Use MutablePropertyView as primary source when available (it handles base + mutations)
   const properties: PropertySet[] = useMemo(() => {
+    let modelId = selectedEntity?.modelId;
+    const expressId = selectedEntity?.expressId;
+
+    // Normalize legacy model ID (selection uses 'legacy', mutation views use '__legacy__')
+    if (modelId === 'legacy') {
+      modelId = '__legacy__';
+    }
+
+    // DEBUG: Log what we're working with
+    console.log('[PropertiesPanel] modelId:', modelId, 'expressId:', expressId, 'mutationVersion:', mutationVersion);
+    console.log('[PropertiesPanel] mutationViews keys:', [...mutationViews.keys()]);
+
+    // Try to get properties from mutation view first (handles both base and mutations)
+    const mutationView = modelId ? mutationViews.get(modelId) : null;
+    console.log('[PropertiesPanel] mutationView exists:', !!mutationView);
+
+    if (mutationView && expressId) {
+      // DEBUG: Log mutation view state
+      const allMutations = mutationView.getMutations();
+      console.log('[PropertiesPanel] All mutations in view:', allMutations.length, allMutations);
+
+      // Get merged properties from mutation view (base + mutations applied)
+      const mergedProps = mutationView.getForEntity(expressId);
+      console.log('[PropertiesPanel] mergedProps from getForEntity:', mergedProps.length, mergedProps);
+
+      // Get list of actual mutations to track which properties changed
+      const mutations = mutationView.getMutationsForEntity(expressId);
+      console.log('[PropertiesPanel] mutations for this entity:', mutations.length, mutations);
+
+      // Build a set of mutated property keys for quick lookup
+      const mutatedKeys = new Set<string>();
+      const newPsetNames = new Set<string>();
+      for (const m of mutations) {
+        if (m.psetName && m.propName) {
+          mutatedKeys.add(`${m.psetName}:${m.propName}`);
+        }
+        // Track property sets that were created (not in original model)
+        if (m.type === 'CREATE_PROPERTY_SET' && m.psetName) {
+          newPsetNames.add(m.psetName);
+        }
+        // Also mark as new pset if this is a CREATE_PROPERTY for a pset that doesn't exist in base
+        if (m.type === 'CREATE_PROPERTY' && m.psetName) {
+          // Check if we have base properties to compare
+          const baseProps = entityNode?.properties() ?? [];
+          const existsInBase = baseProps.some(p => p.name === m.psetName);
+          if (!existsInBase) {
+            newPsetNames.add(m.psetName);
+          }
+        }
+      }
+
+      // If mutation view returned properties, use them
+      if (mergedProps.length > 0) {
+        return mergedProps.map(pset => ({
+          name: pset.name,
+          properties: pset.properties.map(p => ({
+            name: p.name,
+            value: p.value,
+            isMutated: mutatedKeys.has(`${pset.name}:${p.name}`),
+          })),
+          isNewPset: newPsetNames.has(pset.name),
+        }));
+      }
+    }
+
+    // Fallback to entity node properties (no mutations or mutation view not available)
     if (!entityNode) return [];
+
     const rawProps = entityNode.properties();
     return rawProps.map(pset => ({
       name: pset.name,
-      properties: pset.properties.map(p => ({ name: p.name, value: p.value })),
+      properties: pset.properties.map(p => ({ name: p.name, value: p.value, isMutated: false })),
+      isNewPset: false,
     }));
-  }, [entityNode]);
+  }, [entityNode, selectedEntity, mutationViews, mutationVersion]);
 
   const quantities: QuantitySet[] = useMemo(() => {
     if (!entityNode) return [];
@@ -467,6 +574,20 @@ export function PropertiesPanel() {
               <TooltipContent>
                 {selectedEntityId && isEntityVisible(selectedEntityId) ? 'Hide' : 'Show'}
               </TooltipContent>
+            </Tooltip>
+            {/* Edit mode toggle */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={editMode ? 'default' : 'ghost'}
+                  size="icon-xs"
+                  className={`rounded-none ${editMode ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'hover:bg-zinc-200 dark:hover:bg-zinc-700'}`}
+                  onClick={() => setEditMode(!editMode)}
+                >
+                  <PenLine className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{editMode ? 'Exit Edit Mode' : 'Edit Properties'}</TooltipContent>
             </Tooltip>
           </div>
         </div>
@@ -591,12 +712,29 @@ export function PropertiesPanel() {
 
         <ScrollArea className="flex-1 bg-white dark:bg-black">
           <TabsContent value="properties" className="m-0 p-3 overflow-hidden">
+            {/* Edit toolbar - only shown when edit mode is active */}
+            {editMode && selectedEntity && (
+              <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-purple-200 dark:border-purple-800 bg-purple-50/30 dark:bg-purple-950/20 -mx-3 -mt-3 px-3 pt-3">
+                <NewPropertyDialog
+                  modelId={selectedEntity.modelId}
+                  entityId={selectedEntity.expressId}
+                  existingPsets={properties.map(p => p.name)}
+                />
+                <UndoRedoButtons modelId={selectedEntity.modelId} />
+              </div>
+            )}
             {properties.length === 0 ? (
               <p className="text-sm text-zinc-500 dark:text-zinc-500 text-center py-8 font-mono">No property sets</p>
             ) : (
               <div className="space-y-3 w-full overflow-hidden">
                 {properties.map((pset: PropertySet) => (
-                  <PropertySetCard key={pset.name} pset={pset} />
+                  <PropertySetCard
+                    key={pset.name}
+                    pset={pset}
+                    modelId={selectedEntity?.modelId}
+                    entityId={selectedEntity?.expressId}
+                    enableEditing={editMode}
+                  />
                 ))}
               </div>
             )}
@@ -823,41 +961,114 @@ function EntityDataSection({
   );
 }
 
-function PropertySetCard({ pset }: { pset: PropertySet }) {
+interface PropertySetCardProps {
+  pset: PropertySet;
+  modelId?: string;
+  entityId?: number;
+  enableEditing?: boolean;
+}
+
+function PropertySetCard({ pset, modelId, entityId, enableEditing }: PropertySetCardProps) {
+  // Check if any property in this set is mutated
+  const hasMutations = pset.properties.some(p => p.isMutated);
+  const isNewPset = pset.isNewPset;
+
+  // Dynamic styling based on mutation state
+  const borderClass = isNewPset
+    ? 'border-2 border-amber-400/50 dark:border-amber-500/30'
+    : hasMutations
+    ? 'border-2 border-purple-300/50 dark:border-purple-500/30'
+    : 'border-2 border-zinc-200 dark:border-zinc-800';
+
+  const bgClass = isNewPset
+    ? 'bg-amber-50/30 dark:bg-amber-950/20'
+    : hasMutations
+    ? 'bg-purple-50/20 dark:bg-purple-950/10'
+    : 'bg-white dark:bg-zinc-950';
+
   return (
-    <Collapsible defaultOpen className="border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 group w-full max-w-full overflow-hidden">
+    <Collapsible defaultOpen className={`${borderClass} ${bgClass} group w-full max-w-full overflow-hidden`}>
       <CollapsibleTrigger className="flex items-center gap-2 w-full p-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-left transition-colors overflow-hidden">
+        {isNewPset && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Sparkles className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+            </TooltipTrigger>
+            <TooltipContent>New property set (not in original model)</TooltipContent>
+          </Tooltip>
+        )}
+        {hasMutations && !isNewPset && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PenLine className="h-3.5 w-3.5 text-purple-500 shrink-0" />
+            </TooltipTrigger>
+            <TooltipContent>Has modified properties</TooltipContent>
+          </Tooltip>
+        )}
         <span className="font-bold text-xs text-zinc-900 dark:text-zinc-100 truncate flex-1 min-w-0">{decodeIfcString(pset.name)}</span>
         <span className="text-[10px] font-mono bg-zinc-100 dark:bg-zinc-900 px-1.5 py-0.5 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 shrink-0">{pset.properties.length}</span>
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="border-t-2 border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-100 dark:divide-zinc-900">
-          {pset.properties.map((prop: { name: string; value: unknown }) => {
+          {pset.properties.map((prop: { name: string; value: unknown; isMutated?: boolean }) => {
             const parsed = parsePropertyValue(prop.value);
             const decodedName = decodeIfcString(prop.name);
+            const isMutated = prop.isMutated;
+
             return (
-              <div key={prop.name} className="flex flex-col gap-0.5 px-3 py-2 text-xs hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50">
-                {/* Property name with type tooltip */}
-                {parsed.ifcType ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="text-zinc-500 dark:text-zinc-400 font-medium cursor-help break-words">
+              <div
+                key={prop.name}
+                className={`flex items-start justify-between gap-2 px-3 py-2 text-xs group/prop ${
+                  isMutated
+                    ? 'bg-purple-50/50 dark:bg-purple-950/30 hover:bg-purple-100/50 dark:hover:bg-purple-900/30'
+                    : 'hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50'
+                }`}
+              >
+                <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+                  {/* Property name with type tooltip and mutation indicator */}
+                  <div className="flex items-center gap-1.5">
+                    {isMutated && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge variant="secondary" className="h-4 px-1 text-[9px] bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-700">
+                            edited
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent>This property has been modified</TooltipContent>
+                      </Tooltip>
+                    )}
+                    {parsed.ifcType ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className={`font-medium cursor-help break-words ${isMutated ? 'text-purple-600 dark:text-purple-400' : 'text-zinc-500 dark:text-zinc-400'}`}>
+                            {decodedName}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-[10px]">
+                          <span className="text-zinc-400">{parsed.ifcType}</span>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <span className={`font-medium break-words ${isMutated ? 'text-purple-600 dark:text-purple-400' : 'text-zinc-500 dark:text-zinc-400'}`}>
                         {decodedName}
                       </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="text-[10px]">
-                      <span className="text-zinc-400">{parsed.ifcType}</span>
-                    </TooltipContent>
-                  </Tooltip>
-                ) : (
-                  <span className="text-zinc-500 dark:text-zinc-400 font-medium break-words">
-                    {decodedName}
-                  </span>
-                )}
-                {/* Property value */}
-                <span className="font-mono text-zinc-900 dark:text-zinc-100 select-all break-words">
-                  {parsed.displayValue}
-                </span>
+                    )}
+                  </div>
+                  {/* Property value - use PropertyEditor if editing enabled */}
+                  {enableEditing && modelId && entityId ? (
+                    <PropertyEditor
+                      modelId={modelId}
+                      entityId={entityId}
+                      psetName={pset.name}
+                      propName={prop.name}
+                      currentValue={prop.value}
+                    />
+                  ) : (
+                    <span className={`font-mono select-all break-words ${isMutated ? 'text-purple-900 dark:text-purple-100 font-semibold' : 'text-zinc-900 dark:text-zinc-100'}`}>
+                      {parsed.displayValue}
+                    </span>
+                  )}
+                </div>
               </div>
             );
           })}
