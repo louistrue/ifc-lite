@@ -9,7 +9,9 @@
  * Generates section cuts, floor plans, and elevations with:
  * - Cut lines (geometry intersected by section plane)
  * - Projection lines (visible geometry beyond cut)
- * - Hatching (material-based fill patterns)
+ * - Hidden lines (occluded geometry, dashed)
+ * - Silhouettes and feature edges
+ * - Hatching (material-based fill patterns by IFC type)
  * - Vector output (SVG)
  */
 
@@ -81,6 +83,63 @@ export {
   splitLineAtParams,
 } from './line-merger';
 export type { LineMergerOptions } from './line-merger';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EDGE EXTRACTION
+// ═══════════════════════════════════════════════════════════════════════════
+
+export { EdgeExtractor, getViewDirection } from './edge-extractor';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HIDDEN LINE REMOVAL
+// ═══════════════════════════════════════════════════════════════════════════
+
+export { HiddenLineClassifier } from './hidden-line';
+export type { VisibilitySegment, VisibilityResult, HiddenLineOptions } from './hidden-line';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STYLES (HATCHING & LINE WEIGHTS)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export {
+  // Hatch patterns
+  HATCH_PATTERNS,
+  getHatchPattern,
+
+  // Line styles
+  LINE_STYLES,
+  TYPE_LINE_WEIGHTS,
+  getLineStyle,
+
+  // Scales
+  COMMON_SCALES,
+  getRecommendedScale,
+
+  // Paper sizes
+  PAPER_SIZES,
+} from './styles';
+
+export type {
+  HatchPatternType,
+  HatchPattern,
+  LineStyle,
+  DrawingScale,
+  PaperSize,
+} from './styles';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HATCH GENERATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+export { HatchGenerator } from './hatch-generator';
+export type { HatchLine, HatchResult } from './hatch-generator';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SVG EXPORT
+// ═══════════════════════════════════════════════════════════════════════════
+
+export { SVGExporter, exportToSVG } from './svg-exporter';
+export type { SVGExportOptions } from './svg-exporter';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // MATH UTILITIES
