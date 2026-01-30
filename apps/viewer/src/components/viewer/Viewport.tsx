@@ -1956,7 +1956,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         lines,
         sectionPlane.axis,
         sectionPlane.position,
-        coordinateInfo?.shiftedBounds
+        coordinateInfo?.shiftedBounds,
+        sectionPlane.flipped
       );
     } else {
       // Clear overlay when not in section mode or no drawing

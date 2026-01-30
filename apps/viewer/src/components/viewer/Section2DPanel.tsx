@@ -290,16 +290,36 @@ export function Section2DPanel() {
 
     if (width < 0.001 || height < 0.001) return;
 
-    const scaleX = (rect.width - 40) / width;
-    const scaleY = (rect.height - 40) / height;
-    const scale = Math.min(scaleX, scaleY, 2);
+    // Calculate scale to fit with padding (15% margin on each side)
+    const padding = 0.15;
+    const availableWidth = rect.width * (1 - 2 * padding);
+    const availableHeight = rect.height * (1 - 2 * padding);
+    const scaleX = availableWidth / width;
+    const scaleY = availableHeight / height;
+    // No artificial cap - let it zoom to fit the content
+    const scale = Math.min(scaleX, scaleY);
+
+    // Center the drawing in the view
+    const centerX = (bounds.min.x + bounds.max.x) / 2;
+    const centerY = (bounds.min.y + bounds.max.y) / 2;
 
     setViewTransform({
       scale,
-      x: rect.width / 2 - (bounds.min.x + width / 2) * scale,
-      y: rect.height / 2 + (bounds.min.y + height / 2) * scale, // Flip Y
+      x: rect.width / 2 - centerX * scale,
+      y: rect.height / 2 + centerY * scale, // Flip Y
     });
   }, [drawing]);
+
+  // Auto-fit to view when drawing becomes ready
+  useEffect(() => {
+    if (status === 'ready' && drawing && containerRef.current) {
+      // Small delay to ensure canvas is rendered
+      const timeout = setTimeout(() => {
+        fitToView();
+      }, 50);
+      return () => clearTimeout(timeout);
+    }
+  }, [status, drawing, fitToView]);
 
   // Export SVG
   const handleExportSVG = useCallback(() => {

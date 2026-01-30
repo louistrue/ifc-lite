@@ -279,23 +279,34 @@ export class Section2DOverlayRenderer {
 
   /**
    * Transform 2D coordinates to 3D coordinates on the section plane
+   *
+   * The 2D projection in drawing-2d/math.ts uses:
+   * - Y axis (down): 2D (x, y) = 3D (x, z) - looking down at XZ plane
+   * - Z axis (front): 2D (x, y) = 3D (x, y) - looking along Z at XY plane
+   * - X axis (side): 2D (x, y) = 3D (z, y) - looking along X at ZY plane
+   *
+   * When flipped: x is negated in the 2D projection
    */
   private transform2Dto3D(
     x2d: number,
     y2d: number,
     axis: 'down' | 'front' | 'side',
-    planePosition: number
+    planePosition: number,
+    flipped: boolean = false
   ): [number, number, number] {
+    // Handle flipped - the 2D x coordinate was negated during projection
+    const x = flipped ? -x2d : x2d;
+
     switch (axis) {
       case 'down': // Y axis - horizontal cut (floor plan)
-        // 2D (x, y) -> 3D (x, planeY, -y) - flip y for correct orientation
-        return [x2d, planePosition, -y2d];
+        // 2D.x = 3D.x, 2D.y = 3D.z -> 3D (x, planeY, y)
+        return [x, planePosition, y2d];
       case 'front': // Z axis - vertical cut (section view)
-        // 2D (x, y) -> 3D (x, y, planeZ)
-        return [x2d, y2d, planePosition];
+        // 2D.x = 3D.x, 2D.y = 3D.y -> 3D (x, y, planeZ)
+        return [x, y2d, planePosition];
       case 'side': // X axis - vertical cut (side elevation)
-        // 2D (x, y) -> 3D (planeX, y, -x) - flip x for correct orientation
-        return [planePosition, y2d, -x2d];
+        // 2D.x = 3D.z, 2D.y = 3D.y -> 3D (planeX, y, x)
+        return [planePosition, y2d, x];
     }
   }
 
@@ -306,7 +317,8 @@ export class Section2DOverlayRenderer {
     polygons: CutPolygon2D[],
     lines: DrawingLine2D[],
     axis: 'down' | 'front' | 'side',
-    planePosition: number
+    planePosition: number,
+    flipped: boolean = false
   ): void {
     this.init();
 
@@ -340,7 +352,7 @@ export class Section2DOverlayRenderer {
       const baseVertex = vertexOffset;
 
       for (const point of outer) {
-        const [x3d, y3d, z3d] = this.transform2Dto3D(point.x, point.y, axis, planePosition);
+        const [x3d, y3d, z3d] = this.transform2Dto3D(point.x, point.y, axis, planePosition, flipped);
         fillVertices.push(x3d, y3d, z3d, color[0], color[1], color[2], color[3]);
         vertexOffset++;
       }
@@ -378,8 +390,8 @@ export class Section2DOverlayRenderer {
       for (let i = 0; i < outer.length; i++) {
         const p1 = outer[i];
         const p2 = outer[(i + 1) % outer.length];
-        const [x1, y1, z1] = this.transform2Dto3D(p1.x, p1.y, axis, planePosition);
-        const [x2, y2, z2] = this.transform2Dto3D(p2.x, p2.y, axis, planePosition);
+        const [x1, y1, z1] = this.transform2Dto3D(p1.x, p1.y, axis, planePosition, flipped);
+        const [x2, y2, z2] = this.transform2Dto3D(p2.x, p2.y, axis, planePosition, flipped);
         lineVertices.push(x1, y1, z1, x2, y2, z2);
       }
 
@@ -388,8 +400,8 @@ export class Section2DOverlayRenderer {
         for (let i = 0; i < hole.length; i++) {
           const p1 = hole[i];
           const p2 = hole[(i + 1) % hole.length];
-          const [x1, y1, z1] = this.transform2Dto3D(p1.x, p1.y, axis, planePosition);
-          const [x2, y2, z2] = this.transform2Dto3D(p2.x, p2.y, axis, planePosition);
+          const [x1, y1, z1] = this.transform2Dto3D(p1.x, p1.y, axis, planePosition, flipped);
+          const [x2, y2, z2] = this.transform2Dto3D(p2.x, p2.y, axis, planePosition, flipped);
           lineVertices.push(x1, y1, z1, x2, y2, z2);
         }
       }
@@ -397,8 +409,8 @@ export class Section2DOverlayRenderer {
 
     // Additional drawing lines (hatching, etc.)
     for (const line of lines) {
-      const [x1, y1, z1] = this.transform2Dto3D(line.line.start.x, line.line.start.y, axis, planePosition);
-      const [x2, y2, z2] = this.transform2Dto3D(line.line.end.x, line.line.end.y, axis, planePosition);
+      const [x1, y1, z1] = this.transform2Dto3D(line.line.start.x, line.line.start.y, axis, planePosition, flipped);
+      const [x2, y2, z2] = this.transform2Dto3D(line.line.end.x, line.line.end.y, axis, planePosition, flipped);
       lineVertices.push(x1, y1, z1, x2, y2, z2);
     }
 

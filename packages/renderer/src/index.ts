@@ -1660,7 +1660,8 @@ export class Renderer {
         lines: DrawingLine2D[],
         axis: 'down' | 'front' | 'side',
         position: number,  // 0-100 percentage
-        bounds?: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } }
+        bounds?: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } },
+        flipped: boolean = false
     ): void {
         if (!this.section2DOverlayRenderer) return;
 
@@ -1673,7 +1674,7 @@ export class Renderer {
         const maxVal = effectiveBounds.max[axisIdx];
         const planePosition = minVal + (position / 100) * (maxVal - minVal);
 
-        this.section2DOverlayRenderer.uploadDrawing(polygons, lines, axis, planePosition);
+        this.section2DOverlayRenderer.uploadDrawing(polygons, lines, axis, planePosition, flipped);
     }
 
     /**

@@ -757,6 +757,7 @@ function SectionOverlay() {
   const toggleSectionPlane = useViewerStore((s) => s.toggleSectionPlane);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
   const setDrawingPanelVisible = useViewerStore((s) => s.setDrawing2DPanelVisible);
+  const drawingPanelVisible = useViewerStore((s) => s.drawing2DPanelVisible);
   const clearDrawing = useViewerStore((s) => s.clearDrawing2D);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(true);
 
@@ -802,9 +803,12 @@ function SectionOverlay() {
             <ChevronDown className={`h-3 w-3 transition-transform ${isPanelCollapsed ? '-rotate-90' : ''}`} />
           </button>
           <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon-sm" onClick={handleView2D} title="Generate 2D Drawing">
-              <FileImage className="h-3 w-3" />
-            </Button>
+            {/* Only show 2D button when panel is closed */}
+            {!drawingPanelVisible && (
+              <Button variant="ghost" size="icon-sm" onClick={handleView2D} title="Open 2D Drawing Panel">
+                <FileImage className="h-3 w-3" />
+              </Button>
+            )}
             <Button variant="ghost" size="icon-sm" onClick={handleClose} title="Close">
               <X className="h-3 w-3" />
             </Button>
@@ -848,18 +852,20 @@ function SectionOverlay() {
               />
             </div>
 
-            {/* View 2D Drawing Button */}
-            <div className="mt-3 pt-3 border-t">
-              <Button
-                variant="default"
-                size="sm"
-                className="w-full"
-                onClick={handleView2D}
-              >
-                <FileImage className="h-4 w-4 mr-2" />
-                Generate 2D Drawing
-              </Button>
-            </div>
+            {/* Show 2D panel button - only when panel is closed */}
+            {!drawingPanelVisible && (
+              <div className="mt-3 pt-3 border-t">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={handleView2D}
+                >
+                  <FileImage className="h-4 w-4 mr-2" />
+                  Open 2D Drawing
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>
