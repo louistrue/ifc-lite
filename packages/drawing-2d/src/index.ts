@@ -221,3 +221,82 @@ export {
   ensureCCW,
   ensureCW,
 } from './math';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OPENING HANDLING
+// ═══════════════════════════════════════════════════════════════════════════
+
+export {
+  OpeningRelationshipBuilder,
+  OpeningFilter,
+  buildOpeningRelationships,
+  getOpeningsForHost,
+  getFillingElement,
+  isOpeningElement,
+  isDoorOrWindow,
+} from './openings';
+
+export type {
+  // Opening types
+  OpeningInfo,
+  OpeningRelationships,
+  VoidRelationship,
+  FillRelationship,
+  DoorOperationType,
+  WindowPartitioningType,
+  EntityMetadata,
+  DrawingContext,
+} from './types';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ARCHITECTURAL SYMBOLS
+// ═══════════════════════════════════════════════════════════════════════════
+
+export {
+  DoorSymbolGenerator,
+  WindowSymbolGenerator,
+  SymbolRenderer,
+  generateDoorSymbol,
+  generateWindowSymbol,
+  generateStairArrow,
+} from './symbols';
+
+export type {
+  // Symbol types
+  ArchitecturalSymbol,
+  SymbolType,
+  SymbolParameters,
+  DoorSwingParameters,
+  SlidingDoorParameters,
+  WindowFrameParameters,
+  StairArrowParameters,
+} from './types';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LINE STYLING & LAYERS
+// ═══════════════════════════════════════════════════════════════════════════
+
+export {
+  LineWeightAssigner,
+  LINE_WEIGHT_CONFIG,
+  IFC_TYPE_WEIGHTS,
+  LineStyler,
+  DASH_PATTERNS,
+  LayerMapper,
+  DEFAULT_LAYERS,
+  getLayerForIfcType,
+} from './styling';
+
+export type {
+  // Styling types
+  ArchitecturalLine,
+  LineWeight,
+  LineWeightConfig,
+  SemanticLineType,
+  LayerDefinition,
+  AIALayerCode,
+  ArchitecturalDrawing2D,
+} from './types';
+
+// Re-export LineStyle from types (note: this shadows the style module's LineStyle)
+export type { LineStyle as ArchitecturalLineStyle } from './types';

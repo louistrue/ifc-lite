@@ -296,3 +296,360 @@ export function parseEntityKey(key: EntityKey): { modelIndex: number; entityId: 
   }
   return { modelIndex, entityId };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OPENING AND RELATIONSHIP TYPES
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Door operation type (from IFC IfcDoorTypeOperationEnum)
+ */
+export type DoorOperationType =
+  | 'SINGLE_SWING_LEFT'
+  | 'SINGLE_SWING_RIGHT'
+  | 'DOUBLE_DOOR_SINGLE_SWING'
+  | 'DOUBLE_DOOR_DOUBLE_SWING'
+  | 'DOUBLE_SWING_LEFT'
+  | 'DOUBLE_SWING_RIGHT'
+  | 'SLIDING_TO_LEFT'
+  | 'SLIDING_TO_RIGHT'
+  | 'DOUBLE_DOOR_SLIDING'
+  | 'FOLDING_TO_LEFT'
+  | 'FOLDING_TO_RIGHT'
+  | 'DOUBLE_DOOR_FOLDING'
+  | 'REVOLVING'
+  | 'ROLLINGUP'
+  | 'SWING_FIXED_LEFT'
+  | 'SWING_FIXED_RIGHT'
+  | 'USERDEFINED'
+  | 'NOTDEFINED';
+
+/**
+ * Window operation type (from IFC IfcWindowTypePartitioningEnum)
+ */
+export type WindowPartitioningType =
+  | 'SINGLE_PANEL'
+  | 'DOUBLE_PANEL_VERTICAL'
+  | 'DOUBLE_PANEL_HORIZONTAL'
+  | 'TRIPLE_PANEL_VERTICAL'
+  | 'TRIPLE_PANEL_HORIZONTAL'
+  | 'TRIPLE_PANEL_BOTTOM'
+  | 'TRIPLE_PANEL_TOP'
+  | 'TRIPLE_PANEL_LEFT'
+  | 'TRIPLE_PANEL_RIGHT'
+  | 'USERDEFINED'
+  | 'NOTDEFINED';
+
+/**
+ * Information about an opening (door, window, or void)
+ */
+export interface OpeningInfo {
+  /** Type of opening */
+  type: 'door' | 'window' | 'opening';
+  /** Express ID of the opening element */
+  openingId: number;
+  /** Express ID of the host element (wall, slab, etc.) */
+  hostElementId: number;
+  /** Express ID of the filling element (door/window), if any */
+  fillingElementId?: number;
+  /** IFC type of the filling element */
+  fillingType?: string;
+  /** Opening width in world units */
+  width: number;
+  /** Opening height in world units */
+  height: number;
+  /** 3D bounding box of the opening */
+  bounds3D: {
+    min: Vec3;
+    max: Vec3;
+  };
+  /** Door operation type (for doors) */
+  doorOperation?: DoorOperationType;
+  /** Window partitioning type (for windows) */
+  windowPartitioning?: WindowPartitioningType;
+  /** Model index for multi-model federation */
+  modelIndex: number;
+}
+
+/**
+ * Relationship data for opening-aware drawing generation
+ */
+export interface OpeningRelationships {
+  /** Map of host element ID to opening IDs that void it */
+  voidedBy: Map<number, number[]>;
+  /** Map of opening ID to filling element ID (door/window) */
+  filledBy: Map<number, number>;
+  /** Map of opening/filling element ID to opening info */
+  openingInfo: Map<number, OpeningInfo>;
+}
+
+/**
+ * Void relationship from IfcRelVoidsElement
+ */
+export interface VoidRelationship {
+  /** Host element express ID (wall, slab, etc.) */
+  hostId: number;
+  /** Opening element express ID */
+  openingId: number;
+}
+
+/**
+ * Fill relationship from IfcRelFillsElement
+ */
+export interface FillRelationship {
+  /** Opening element express ID */
+  openingId: number;
+  /** Filling element express ID (door, window) */
+  elementId: number;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LINE WEIGHT AND STYLE TYPES
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Line weight classification for architectural drawings
+ */
+export type LineWeight = 'heavy' | 'medium' | 'light' | 'hairline';
+
+/**
+ * Line style for different element types
+ */
+export type LineStyle = 'solid' | 'dashed' | 'dotted' | 'centerline' | 'phantom';
+
+/**
+ * Semantic line type for architectural categorization
+ */
+export type SemanticLineType =
+  | 'wall-cut'
+  | 'wall-projection'
+  | 'column-cut'
+  | 'slab-cut'
+  | 'opening-frame'
+  | 'door-swing'
+  | 'door-leaf'
+  | 'window-frame'
+  | 'window-mullion'
+  | 'stair-cut'
+  | 'stair-nosing'
+  | 'furniture'
+  | 'equipment'
+  | 'annotation'
+  | 'dimension'
+  | 'hidden'
+  | 'centerline';
+
+/**
+ * Line weight configuration
+ */
+export interface LineWeightConfig {
+  weight: LineWeight;
+  /** Width in mm for SVG output */
+  widthMm: number;
+  style: LineStyle;
+}
+
+/**
+ * Extended drawing line with architectural styling
+ */
+export interface ArchitecturalLine extends DrawingLine {
+  /** Line weight for rendering */
+  lineWeight: LineWeight;
+  /** Line style (solid, dashed, etc.) */
+  lineStyle: LineStyle;
+  /** Semantic type for layer assignment */
+  semanticType: SemanticLineType;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ARCHITECTURAL SYMBOL TYPES
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Type of architectural symbol
+ */
+export type SymbolType =
+  | 'door-swing'
+  | 'door-sliding'
+  | 'door-folding'
+  | 'door-revolving'
+  | 'window-frame'
+  | 'stair-arrow'
+  | 'north-arrow'
+  | 'section-mark'
+  | 'level-mark';
+
+/**
+ * Architectural symbol for 2D drawings
+ */
+export interface ArchitecturalSymbol {
+  /** Symbol type */
+  type: SymbolType;
+  /** Position in 2D drawing space */
+  position: Point2D;
+  /** Rotation angle in radians */
+  rotation: number;
+  /** Scale factor */
+  scale: number;
+  /** Symbol-specific parameters */
+  parameters: SymbolParameters;
+  /** Associated entity ID (if any) */
+  entityId?: number;
+  /** Model index */
+  modelIndex?: number;
+}
+
+/**
+ * Parameters for door swing symbol
+ */
+export interface DoorSwingParameters {
+  /** Door leaf width */
+  width: number;
+  /** Swing direction: 1 = counter-clockwise, -1 = clockwise */
+  swingDirection: 1 | -1;
+  /** Swing angle in radians (typically π/2) */
+  swingAngle: number;
+  /** Hinge position */
+  hingePoint: Point2D;
+  /** Whether this is a double door */
+  isDouble: boolean;
+}
+
+/**
+ * Parameters for sliding door symbol
+ */
+export interface SlidingDoorParameters {
+  /** Door panel width */
+  width: number;
+  /** Slide direction: 1 = positive, -1 = negative */
+  slideDirection: 1 | -1;
+  /** Number of panels */
+  panelCount: number;
+}
+
+/**
+ * Parameters for window frame symbol
+ */
+export interface WindowFrameParameters {
+  /** Window width */
+  width: number;
+  /** Frame depth (thickness shown in plan) */
+  frameDepth: number;
+  /** Number of mullions */
+  mullionCount: number;
+}
+
+/**
+ * Parameters for stair arrow symbol
+ */
+export interface StairArrowParameters {
+  /** Direction: 'up' or 'down' */
+  direction: 'up' | 'down';
+  /** Arrow length */
+  length: number;
+  /** Number of risers to label */
+  riserCount?: number;
+}
+
+/**
+ * Union type for all symbol parameters
+ */
+export type SymbolParameters =
+  | DoorSwingParameters
+  | SlidingDoorParameters
+  | WindowFrameParameters
+  | StairArrowParameters
+  | Record<string, number | string | boolean>;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LAYER TYPES
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * AIA layer naming convention codes
+ */
+export type AIALayerCode =
+  | 'A-WALL'      // Walls
+  | 'A-WALL-FULL' // Full-height walls
+  | 'A-WALL-PRHT' // Partial-height walls
+  | 'A-DOOR'      // Doors
+  | 'A-GLAZ'      // Glazing/Windows
+  | 'A-COLS'      // Columns
+  | 'A-FLOR'      // Floor information
+  | 'A-CLNG'      // Ceiling information
+  | 'A-ROOF'      // Roof information
+  | 'A-STRS'      // Stairs
+  | 'A-FURN'      // Furniture
+  | 'A-EQPM'      // Equipment
+  | 'A-PATT'      // Hatching patterns
+  | 'A-ANNO'      // Annotations
+  | 'A-DIMS'      // Dimensions
+  | 'A-SYMB'      // Symbols
+  | 'A-DETL'      // Details
+  | 'A-ELEV'      // Elevations
+  | 'A-SECT'      // Sections
+  | 'A-HIDN';     // Hidden lines
+
+/**
+ * Layer definition for SVG export
+ */
+export interface LayerDefinition {
+  /** Layer ID (for SVG) */
+  id: string;
+  /** AIA layer code */
+  aiaCode: AIALayerCode;
+  /** Human-readable label */
+  label: string;
+  /** Default visibility */
+  visible: boolean;
+  /** Default line weight for layer */
+  defaultWeight: LineWeight;
+  /** Layer color (CSS color string) */
+  color: string;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ENHANCED DRAWING OUTPUT
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Drawing context with relationships for architectural generation
+ */
+export interface DrawingContext {
+  /** Relationship data for openings */
+  relationships?: {
+    voids: VoidRelationship[];
+    fills: FillRelationship[];
+  };
+  /** Entity metadata (bounding boxes, properties) */
+  entityMetadata?: Map<number, EntityMetadata>;
+}
+
+/**
+ * Metadata for an IFC entity
+ */
+export interface EntityMetadata {
+  /** IFC type name */
+  ifcType: string;
+  /** 3D bounding box */
+  bounds?: {
+    min: Vec3;
+    max: Vec3;
+  };
+  /** Property set values (for door operation, etc.) */
+  properties?: Record<string, unknown>;
+}
+
+/**
+ * Enhanced 2D drawing with architectural features
+ */
+export interface ArchitecturalDrawing2D extends Drawing2D {
+  /** Architectural symbols (door swings, etc.) */
+  symbols: ArchitecturalSymbol[];
+  /** Layer definitions */
+  layers: LayerDefinition[];
+  /** Lines with architectural styling */
+  architecturalLines: ArchitecturalLine[];
+  /** Opening relationships used */
+  openings: OpeningInfo[];
+}
