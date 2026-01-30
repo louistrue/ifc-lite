@@ -41,11 +41,10 @@ import { SheetSetupPanel } from './SheetSetupPanel';
 import { TitleBlockEditor } from './TitleBlockEditor';
 
 // Axis conversion from semantic (down/front/side) to geometric (x/y/z)
-// Uses Z-up convention (standard for IFC/BIM models)
 const AXIS_MAP: Record<'down' | 'front' | 'side', 'x' | 'y' | 'z'> = {
-  down: 'z',  // Plan view - looking down along Z axis, projecting to XY
-  front: 'y', // Front elevation - looking along Y axis (from south toward north), projecting to XZ
-  side: 'x',  // Side elevation - looking along X axis (from west toward east), projecting to YZ
+  down: 'y',
+  front: 'z',
+  side: 'x',
 };
 
 // Fill colors for IFC types (architectural convention)
