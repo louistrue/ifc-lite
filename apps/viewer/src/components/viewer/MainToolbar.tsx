@@ -33,6 +33,7 @@ import {
   SquareX,
   Building2,
   Plus,
+  BarChart3,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -157,6 +158,8 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const typeVisibility = useViewerStore((state) => state.typeVisibility);
   const toggleTypeVisibility = useViewerStore((state) => state.toggleTypeVisibility);
   const resetViewerState = useViewerStore((state) => state.resetViewerState);
+  const toggleDashboard = useViewerStore((state) => state.toggleDashboard);
+  const isDashboardOpen = useViewerStore((state) => state.isDashboardOpen);
 
   // Check which type geometries exist
   const typeGeometryExists = useMemo(() => {
@@ -577,6 +580,25 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {/* BI Dashboard */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={isDashboardOpen ? 'default' : 'ghost'}
+            size="icon-sm"
+            onClick={(e) => {
+              (e.currentTarget as HTMLButtonElement).blur();
+              toggleDashboard();
+            }}
+            disabled={!hasModelsLoaded}
+            className={cn(isDashboardOpen && 'bg-primary text-primary-foreground')}
+          >
+            <BarChart3 className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>BI Dashboard (D)</TooltipContent>
+      </Tooltip>
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 

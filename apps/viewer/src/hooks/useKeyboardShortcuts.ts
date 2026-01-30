@@ -25,6 +25,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
   const showAll = useViewerStore((s) => s.showAll);
   const clearStoreySelection = useViewerStore((s) => s.clearStoreySelection);
   const toggleTheme = useViewerStore((s) => s.toggleTheme);
+  const toggleDashboard = useViewerStore((s) => s.toggleDashboard);
 
   // Measure tool specific actions
   const activeMeasurement = useViewerStore((s) => s.activeMeasurement);
@@ -132,6 +133,12 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       toggleTheme();
     }
 
+    // Dashboard toggle
+    if (key === 'd' && !ctrl && !shift) {
+      e.preventDefault();
+      toggleDashboard();
+    }
+
     // Help - handled by KeyboardShortcutsDialog hook
     // The dialog hook listens for '?' key globally
   }, [
@@ -144,6 +151,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
     showAll,
     clearStoreySelection,
     toggleTheme,
+    toggleDashboard,
     activeMeasurement,
     cancelMeasurement,
     clearMeasurements,
@@ -179,6 +187,7 @@ export const KEYBOARD_SHORTCUTS = [
   { key: 'F', description: 'Frame selection', category: 'Camera' },
   { key: '0-6', description: 'Preset views', category: 'Camera' },
   { key: 'T', description: 'Toggle theme', category: 'UI' },
+  { key: 'D', description: 'Toggle BI Dashboard', category: 'UI' },
   { key: 'Esc', description: 'Reset all (clear selection, filters, isolation)', category: 'Selection' },
   { key: '?', description: 'Show info panel', category: 'Help' },
 ] as const;

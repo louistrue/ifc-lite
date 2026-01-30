@@ -25,6 +25,7 @@ import { createModelSlice, type ModelSlice } from './slices/modelSlice.js';
 import { createMutationSlice, type MutationSlice } from './slices/mutationSlice.js';
 import { createDrawing2DSlice, type Drawing2DSlice } from './slices/drawing2DSlice.js';
 import { createSheetSlice, type SheetSlice } from './slices/sheetSlice.js';
+import { createBISlice, type BISlice } from './slices/biSlice.js';
 
 // Import constants for reset function
 import { CAMERA_DEFAULTS, SECTION_PLANE_DEFAULTS, UI_DEFAULTS, TYPE_VISIBILITY_DEFAULTS } from './constants.js';
@@ -57,7 +58,8 @@ export type ViewerState = LoadingSlice &
   ModelSlice &
   MutationSlice &
   Drawing2DSlice &
-  SheetSlice & {
+  SheetSlice &
+  BISlice & {
     resetViewerState: () => void;
   };
 
@@ -79,6 +81,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
   ...createMutationSlice(...args),
   ...createDrawing2DSlice(...args),
   ...createSheetSlice(...args),
+  ...createBISlice(...args),
 
   // Reset all viewer state when loading new file
   // Note: Does NOT clear models - use clearAllModels() for that
@@ -179,6 +182,12 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       sheetPanelVisible: false,
       titleBlockEditorVisible: false,
       // Keep savedSheetTemplates - don't reset user's templates
+
+      // BI Dashboard - reset filters and hover, keep dashboard config
+      chartFilters: new Map(),
+      chartHoveredEntities: [],
+      chartDataCache: new Map(),
+      isEditMode: false,
     });
   },
 }));

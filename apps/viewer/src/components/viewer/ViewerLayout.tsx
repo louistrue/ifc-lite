@@ -15,6 +15,7 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useViewerStore } from '@/store';
 import { EntityContextMenu } from './EntityContextMenu';
 import { HoverTooltip } from './HoverTooltip';
+import { BIDashboard } from '../bi/BIDashboard';
 
 export function ViewerLayout() {
   // Initialize keyboard shortcuts
@@ -67,6 +68,7 @@ export function ViewerLayout() {
         {/* Global Overlays */}
         <EntityContextMenu />
         <HoverTooltip />
+        <BIDashboard />
 
         {/* Main Toolbar */}
         <MainToolbar onShowShortcuts={shortcutsDialog.toggle} />

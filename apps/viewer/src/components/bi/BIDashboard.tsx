@@ -1,0 +1,448 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+/**
+ * Main BI Dashboard panel component
+ *
+ * Uses react-grid-layout for drag-drop chart arrangement,
+ * integrates with Zustand store for state management,
+ * and provides bidirectional sync with 3D viewer.
+ */
+
+import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
+import GridLayout, { type Layout, type LayoutItem } from 'react-grid-layout';
+import { X, Settings, Download, Plus, Filter, FilterX, Link, Unlink } from 'lucide-react';
+import {
+  BIDataAggregator,
+  computeHighlightedKeys,
+  type ChartInteractionEvent,
+  type BIModelData,
+  type AggregatedDataPoint,
+} from '@ifc-lite/bi';
+import { useViewerStore, type EntityRef } from '../../store/index.js';
+import { ChartCard } from './ChartCard.js';
+import { TemplateSelector } from './TemplateSelector.js';
+import { Button } from '../ui/button.js';
+
+import 'react-grid-layout/css/styles.css';
+import 'react-resizable/css/styles.css';
+
+export function BIDashboard() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(1200);
+
+  // Store state
+  const isDashboardOpen = useViewerStore((state) => state.isDashboardOpen);
+  const activeDashboard = useViewerStore((state) => state.activeDashboard);
+  const isEditMode = useViewerStore((state) => state.isEditMode);
+  const chartFilters = useViewerStore((state) => state.chartFilters);
+  const crossFilterEnabled = useViewerStore((state) => state.crossFilterEnabled);
+  const models = useViewerStore((state) => state.models);
+
+  // Selection state for bidirectional sync
+  const selectedEntity = useViewerStore((state) => state.selectedEntity);
+  const selectedEntities = useViewerStore((state) => state.selectedEntities);
+
+  // Store actions
+  const closeDashboard = useViewerStore((state) => state.closeDashboard);
+  const toggleEditMode = useViewerStore((state) => state.toggleEditMode);
+  const updateChartLayout = useViewerStore((state) => state.updateChartLayout);
+  const setChartFilter = useViewerStore((state) => state.setChartFilter);
+  const clearChartFilter = useViewerStore((state) => state.clearChartFilter);
+  const clearAllFilters = useViewerStore((state) => state.clearAllFilters);
+  const toggleCrossFilter = useViewerStore((state) => state.toggleCrossFilter);
+  const removeChart = useViewerStore((state) => state.removeChart);
+  const cacheChartData = useViewerStore((state) => state.cacheChartData);
+
+  // Selection actions for bidirectional sync
+  const setSelectedEntities = useViewerStore((state) => state.setSelectedEntities);
+  const setSelectedEntityId = useViewerStore((state) => state.setSelectedEntityId);
+  const clearEntitySelection = useViewerStore((state) => state.clearEntitySelection);
+
+  // Visibility actions
+  const isolateEntities = useViewerStore((state) => state.isolateEntities);
+  const toGlobalId = useViewerStore((state) => state.toGlobalId);
+
+  // Measure container width for responsive layout
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width);
+      }
+    });
+
+    resizeObserver.observe(containerRef.current);
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  // Convert models to BIModelData format for aggregator
+  const biModels = useMemo((): BIModelData[] => {
+    const result: BIModelData[] = [];
+
+    for (const [modelId, model] of models) {
+      const dataStore = model.ifcDataStore;
+      const geometryResult = model.geometryResult;
+
+      // Get geometry express IDs
+      const geometryExpressIds: number[] = [];
+      if (geometryResult?.meshes) {
+        for (const mesh of geometryResult.meshes) {
+          // Convert from global ID back to original expressId
+          const originalId = mesh.expressId - model.idOffset;
+          if (originalId > 0) {
+            geometryExpressIds.push(originalId);
+          }
+        }
+      }
+
+      result.push({
+        modelId,
+        entities: {
+          getType: (expressId: number) => dataStore.entities?.getTypeName?.(expressId),
+          getName: (expressId: number) => dataStore.entities?.getName?.(expressId),
+        },
+        spatialHierarchy: dataStore.spatialHierarchy,
+        properties: dataStore.properties
+          ? {
+              getForEntity: (expressId: number) => {
+                const props = dataStore.properties?.getForEntity?.(expressId);
+                return props as
+                  | Array<{
+                      name: string;
+                      properties: Array<{ name: string; value: unknown }>;
+                    }>
+                  | undefined;
+              },
+            }
+          : undefined,
+        quantities: dataStore.quantities
+          ? {
+              getForEntity: (expressId: number) => {
+                const quants = dataStore.quantities?.getForEntity?.(expressId);
+                return quants as
+                  | Array<{
+                      name: string;
+                      quantities: Array<{ name: string; type: number; value: number }>;
+                    }>
+                  | undefined;
+              },
+            }
+          : undefined,
+        relationships: dataStore.relationships
+          ? {
+              getMaterials: (expressId: number) => {
+                // Get materials via relationship graph (inverse direction - entity is the target)
+                const rels = dataStore.relationships?.getRelated?.(
+                  expressId,
+                  20, // AssociatesMaterial
+                  'inverse'
+                );
+                if (!rels || rels.length === 0) return undefined;
+                return rels.map((r: number) => ({
+                  name: dataStore.entities?.getName?.(r) ?? 'Unknown',
+                  expressId: r,
+                }));
+              },
+              getClassifications: (expressId: number) => {
+                // Get classifications via relationship graph (inverse direction)
+                const rels = dataStore.relationships?.getRelated?.(
+                  expressId,
+                  30, // AssociatesClassification
+                  'inverse'
+                );
+                if (!rels || rels.length === 0) return undefined;
+                return rels.map((r: number) => ({
+                  name: dataStore.entities?.getName?.(r) ?? 'Unknown',
+                  expressId: r,
+                }));
+              },
+            }
+          : undefined,
+        geometryExpressIds,
+      });
+    }
+
+    return result;
+  }, [models]);
+
+  // Create aggregator
+  const aggregator = useMemo(() => {
+    return new BIDataAggregator(biModels);
+  }, [biModels]);
+
+  // Compute data for all charts
+  const chartData = useMemo(() => {
+    if (!activeDashboard) return new Map<string, AggregatedDataPoint[]>();
+
+    const data = new Map<string, AggregatedDataPoint[]>();
+    for (const chart of activeDashboard.charts) {
+      try {
+        const result = aggregator.aggregate(chart.aggregation);
+        data.set(chart.id, result.data);
+        // Cache for bidirectional sync
+        cacheChartData(chart.id, result.data);
+      } catch {
+        // If aggregation fails, provide empty data
+        data.set(chart.id, []);
+      }
+    }
+    return data;
+  }, [activeDashboard, aggregator, cacheChartData]);
+
+  // Compute highlighted keys from 3D selection
+  const highlightedKeysByChart = useMemo(() => {
+    const result = new Map<string, Set<string>>();
+    if (!activeDashboard) return result;
+
+    // Get all selected entities
+    const allSelected: EntityRef[] = [];
+    if (selectedEntity) {
+      allSelected.push(selectedEntity);
+    }
+    if (selectedEntities.length > 0) {
+      allSelected.push(...selectedEntities);
+    }
+
+    if (allSelected.length === 0) return result;
+
+    // For each chart, compute which keys should be highlighted
+    for (const chart of activeDashboard.charts) {
+      const data = chartData.get(chart.id);
+      if (data) {
+        const highlighted = computeHighlightedKeys(data, allSelected);
+        result.set(chart.id, highlighted);
+      }
+    }
+
+    return result;
+  }, [activeDashboard, selectedEntity, selectedEntities, chartData]);
+
+  // Grid layout from chart configs
+  const layout = useMemo(() => {
+    if (!activeDashboard) return [];
+    return activeDashboard.charts.map((chart) => ({
+      i: chart.id,
+      x: chart.layout.x,
+      y: chart.layout.y,
+      w: chart.layout.w,
+      h: chart.layout.h,
+      minW: chart.layout.minW ?? 2,
+      minH: chart.layout.minH ?? 2,
+    }));
+  }, [activeDashboard]);
+
+  // Handle layout change from drag/resize
+  const handleLayoutChange = useCallback(
+    (newLayout: Layout) => {
+      for (const item of newLayout) {
+        updateChartLayout(item.i, {
+          x: item.x,
+          y: item.y,
+          w: item.w,
+          h: item.h,
+        });
+      }
+    },
+    [updateChartLayout]
+  );
+
+  // Handle chart interaction (selection, hover)
+  const handleChartInteraction = useCallback(
+    (event: ChartInteractionEvent) => {
+      const { type, chartId, dataPoint, modifiers } = event;
+
+      if (type === 'hover') {
+        // Hover is handled by highlighting in charts
+        // Could add 3D hover highlighting here if desired
+        return;
+      }
+
+      if (type === 'select' && dataPoint) {
+        // Get entity refs from data point
+        const entityRefs = dataPoint.entityRefs;
+
+        if (entityRefs.length === 0) return;
+
+        if (modifiers.alt) {
+          // Alt+click: Isolate these entities
+          // Convert to global IDs for the legacy isolate function
+          const globalIds: number[] = [];
+          for (const ref of entityRefs) {
+            if (toGlobalId) {
+              const gid = toGlobalId(ref.modelId, ref.expressId);
+              if (gid !== null) {
+                globalIds.push(gid);
+              }
+            }
+          }
+          if (globalIds.length > 0) {
+            isolateEntities(globalIds);
+          }
+        } else if (modifiers.shift) {
+          // Shift+click: Add to selection (for now, just replace)
+          setSelectedEntities(entityRefs);
+          if (entityRefs.length > 0 && toGlobalId) {
+            const firstRef = entityRefs[0];
+            const globalId = toGlobalId(firstRef.modelId, firstRef.expressId);
+            if (globalId !== null) {
+              setSelectedEntityId(globalId);
+            }
+          }
+        } else {
+          // Normal click: Select these entities
+          setSelectedEntities(entityRefs);
+          if (entityRefs.length > 0 && toGlobalId) {
+            const firstRef = entityRefs[0];
+            const globalId = toGlobalId(firstRef.modelId, firstRef.expressId);
+            if (globalId !== null) {
+              setSelectedEntityId(globalId);
+            }
+          }
+        }
+
+        // Also set chart filter for cross-filtering
+        if (crossFilterEnabled) {
+          setChartFilter(chartId, new Set([dataPoint.key]));
+        }
+      }
+    },
+    [
+      crossFilterEnabled,
+      setChartFilter,
+      setSelectedEntities,
+      setSelectedEntityId,
+      toGlobalId,
+      isolateEntities,
+    ]
+  );
+
+  // Count active filters
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    for (const keys of chartFilters.values()) {
+      if (keys.size > 0) count++;
+    }
+    return count;
+  }, [chartFilters]);
+
+  if (!isDashboardOpen) return null;
+
+  // No dashboard loaded - show template selector
+  if (!activeDashboard) {
+    return (
+      <div className="absolute inset-0 bg-background/95 z-50 flex items-center justify-center backdrop-blur-sm">
+        <div className="max-w-3xl w-full p-6 bg-background border rounded-xl shadow-lg">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-semibold">BI Dashboard</h2>
+            <Button variant="ghost" size="icon" onClick={closeDashboard}>
+              <X className="h-5 w-5" />
+            </Button>
+          </div>
+          <TemplateSelector />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="absolute inset-0 bg-background z-50 flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
+        <div className="flex items-center gap-4">
+          <h2 className="text-lg font-semibold">{activeDashboard.name}</h2>
+          {activeFilterCount > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-blue-100 text-blue-800 text-xs">
+                <Filter className="h-3 w-3" />
+                {activeFilterCount} filter{activeFilterCount > 1 ? 's' : ''} active
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearAllFilters}
+                className="h-7 text-xs"
+              >
+                <FilterX className="h-3 w-3 mr-1" />
+                Clear all
+              </Button>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant={crossFilterEnabled ? 'default' : 'outline'}
+            size="sm"
+            onClick={toggleCrossFilter}
+            title={crossFilterEnabled ? 'Cross-filtering enabled' : 'Cross-filtering disabled'}
+          >
+            {crossFilterEnabled ? (
+              <Link className="h-4 w-4 mr-1" />
+            ) : (
+              <Unlink className="h-4 w-4 mr-1" />
+            )}
+            Cross-filter
+          </Button>
+          <Button
+            variant={isEditMode ? 'default' : 'outline'}
+            size="sm"
+            onClick={toggleEditMode}
+          >
+            <Settings className="h-4 w-4 mr-1" />
+            {isEditMode ? 'Done' : 'Edit'}
+          </Button>
+          <Button variant="ghost" size="icon" onClick={closeDashboard}>
+            <X className="h-5 w-5" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Chart Grid */}
+      <div ref={containerRef} className="flex-1 overflow-auto p-4">
+        <GridLayout
+          className="layout"
+          layout={layout}
+          width={containerWidth - 32}
+          gridConfig={{
+            cols: 12,
+            rowHeight: 100,
+            margin: [16, 16] as const,
+            maxRows: Infinity,
+            containerPadding: null,
+          }}
+          dragConfig={{
+            enabled: isEditMode,
+            handle: '.cursor-move',
+            bounded: false,
+            threshold: 3,
+          }}
+          resizeConfig={{
+            enabled: isEditMode,
+            handles: ['se'],
+          }}
+          onLayoutChange={handleLayoutChange}
+        >
+          {activeDashboard.charts.map((chart) => (
+            <div key={chart.id}>
+              <ChartCard
+                config={chart}
+                data={chartData.get(chart.id) ?? []}
+                selectedKeys={chartFilters.get(chart.id) ?? new Set()}
+                highlightedKeys={highlightedKeysByChart.get(chart.id) ?? new Set()}
+                onInteraction={handleChartInteraction}
+                onRemove={removeChart}
+                onClearFilter={clearChartFilter}
+                isEditMode={isEditMode}
+                hasFilter={(chartFilters.get(chart.id)?.size ?? 0) > 0}
+              />
+            </div>
+          ))}
+        </GridLayout>
+      </div>
+    </div>
+  );
+}
+
+export default BIDashboard;
