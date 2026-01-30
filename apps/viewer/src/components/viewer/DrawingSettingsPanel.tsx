@@ -558,32 +558,41 @@ function CustomRuleItem({
 
       {/* Hatch settings - show when pattern selected */}
       {rule.style.hatchPattern && rule.style.hatchPattern !== 'none' && rule.style.hatchPattern !== 'solid' && (
-        <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-2">
+          {/* Spacing - shown for line-based patterns */}
+          {['diagonal', 'cross-hatch', 'horizontal', 'vertical'].includes(rule.style.hatchPattern) && (
+            <div>
+              <Label className="text-xs">Line Spacing (mm)</Label>
+              <Input
+                type="number"
+                min={0.5}
+                max={10}
+                step={0.5}
+                value={rule.style.hatchSpacing || 3}
+                onChange={(e) => handleStyleChange('hatchSpacing', parseFloat(e.target.value) || 3)}
+                className="h-8 text-xs mt-1"
+              />
+            </div>
+          )}
+
+          {/* Angle - only for diagonal and cross-hatch */}
+          {['diagonal', 'cross-hatch'].includes(rule.style.hatchPattern) && (
+            <div>
+              <Label className="text-xs">Line Angle (°)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={180}
+                step={15}
+                value={rule.style.hatchAngle || 45}
+                onChange={(e) => handleStyleChange('hatchAngle', parseFloat(e.target.value) || 45)}
+                className="h-8 text-xs mt-1"
+              />
+            </div>
+          )}
+
+          {/* Color - for all hatch patterns */}
           <div>
-            <Label className="text-xs">Hatch Spacing (mm)</Label>
-            <Input
-              type="number"
-              min={0.5}
-              max={10}
-              step={0.5}
-              value={rule.style.hatchSpacing || 3}
-              onChange={(e) => handleStyleChange('hatchSpacing', parseFloat(e.target.value) || 3)}
-              className="h-8 text-xs mt-1"
-            />
-          </div>
-          <div>
-            <Label className="text-xs">Hatch Angle</Label>
-            <Input
-              type="number"
-              min={0}
-              max={180}
-              step={15}
-              value={rule.style.hatchAngle || 45}
-              onChange={(e) => handleStyleChange('hatchAngle', parseFloat(e.target.value) || 45)}
-              className="h-8 text-xs mt-1"
-            />
-          </div>
-          <div className="col-span-2">
             <Label className="text-xs">Hatch Color</Label>
             <div className="flex gap-1 mt-1">
               <input
@@ -599,6 +608,13 @@ function CustomRuleItem({
               />
             </div>
           </div>
+
+          {/* Info for predefined patterns */}
+          {['brick', 'concrete', 'insulation', 'dots'].includes(rule.style.hatchPattern) && (
+            <p className="text-xs text-muted-foreground italic">
+              Pattern uses predefined spacing and angles.
+            </p>
+          )}
         </div>
       )}
 

@@ -30,12 +30,15 @@ import {
   exportToSVG,
   createSectionConfig,
   GraphicOverrideEngine,
+  HatchGenerator,
   type Drawing2D,
   type SectionConfig,
   type DrawingLine,
   type DrawingPolygon,
   type ElementData,
   type ResolvedGraphicStyle,
+  type HatchPatternType,
+  type CustomHatchSettings,
 } from '@ifc-lite/drawing-2d';
 import { DrawingSettingsPanel } from './DrawingSettingsPanel';
 
@@ -150,14 +153,70 @@ export function Section2DPanel() {
     setIsNarrow(panelSize.width < 480);
   }, [panelSize.width]);
 
-  // Store hatching lines separately
-  const [hatchingLines, setHatchingLines] = useState<DrawingLine[]>([]);
-
   // Create graphic override engine with active rules
   const overrideEngine = useMemo(() => {
     const rules = getActiveOverrideRules();
     return new GraphicOverrideEngine(rules);
   }, [getActiveOverrideRules, activePresetId, customOverrideRules, overridesEnabled]);
+
+  // Generate hatching lines using override engine settings
+  // Regenerates when drawing or override rules change
+  const hatchingLines = useMemo(() => {
+    if (!drawing || !drawing.cutPolygons.length) return [];
+
+    const generator = new HatchGenerator();
+
+    // Function to get custom hatch settings from override engine
+    const getCustomSettings = (polygon: DrawingPolygon): CustomHatchSettings | undefined => {
+      if (!overridesEnabled) return undefined;
+
+      const elementData: ElementData = {
+        expressId: polygon.entityId,
+        ifcType: polygon.ifcType,
+      };
+      const result = overrideEngine.applyOverrides(elementData);
+
+      // If override has a hatch pattern, use it
+      if (result.style.hatchPattern && result.style.hatchPattern !== 'none') {
+        return {
+          type: result.style.hatchPattern as HatchPatternType,
+          spacing: result.style.hatchSpacing,
+          angle: result.style.hatchAngle,
+          secondaryAngle: result.style.hatchSecondaryAngle,
+        };
+      }
+
+      // If override explicitly sets 'none', return undefined to skip
+      if (result.matchedRules.length > 0 && result.style.hatchPattern === 'none') {
+        return { type: 'none' };
+      }
+
+      return undefined; // Use IFC type-based pattern
+    };
+
+    const hatchResults = generator.generateHatches(
+      drawing.cutPolygons,
+      drawing.config.scale,
+      getCustomSettings
+    );
+
+    const hatchLines: DrawingLine[] = [];
+    for (const result of hatchResults) {
+      for (const hatchLine of result.lines) {
+        hatchLines.push({
+          line: hatchLine.line,
+          category: 'annotation',
+          visibility: 'visible',
+          entityId: hatchLine.entityId,
+          ifcType: hatchLine.ifcType,
+          modelIndex: hatchLine.modelIndex,
+          depth: 0,
+        });
+      }
+    }
+
+    return hatchLines;
+  }, [drawing, overrideEngine, overridesEnabled]);
 
   // Build entity color map from mesh material colors (for "Use IFC Materials" mode)
   const entityColorMap = useMemo(() => {
@@ -231,9 +290,7 @@ export function Section2DPanel() {
 
       setDrawing(result);
 
-      // Always generate hatching (cached for toggle responsiveness)
-      const hatches = generator.generateHatching(result);
-      setHatchingLines(hatches);
+      // Hatching is now generated via useMemo based on override engine settings
 
       // Generate SVG content
       const svg = exportToSVG(result, {

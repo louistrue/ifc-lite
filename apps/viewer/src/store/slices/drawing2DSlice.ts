@@ -95,7 +95,7 @@ const getDefaultState = (): Drawing2DState => ({
   drawing2DDisplayOptions: getDefaultDisplayOptions(),
   // Graphic overrides
   graphicOverridePresets: BUILT_IN_PRESETS,
-  activePresetId: null,
+  activePresetId: 'preset-3d-colors', // Default to IFC Materials
   customOverrideRules: [],
   overridesEnabled: true,
   overridesPanelVisible: false,

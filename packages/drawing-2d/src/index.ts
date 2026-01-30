@@ -132,7 +132,7 @@ export type {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export { HatchGenerator } from './hatch-generator';
-export type { HatchLine, HatchResult } from './hatch-generator';
+export type { HatchLine, HatchResult, CustomHatchSettings } from './hatch-generator';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SVG EXPORT
@@ -323,7 +323,6 @@ export {
   FIRE_SAFETY_PRESET,
   STRUCTURAL_PRESET,
   MEP_PRESET,
-  MATERIAL_PRESET,
   MONOCHROME_PRESET,
   getBuiltInPreset,
   getPresetsByCategory,

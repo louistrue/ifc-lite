@@ -10,7 +10,7 @@
  */
 
 import type { Point2D, Line2D, Polygon2D, DrawingPolygon, Bounds2D } from './types';
-import type { HatchPattern } from './styles';
+import type { HatchPattern, HatchPatternType } from './styles';
 import { getHatchPattern } from './styles';
 import { EPSILON } from './math';
 
@@ -41,12 +41,37 @@ export interface HatchResult {
 // HATCH GENERATOR CLASS
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** Custom hatch settings that can override IFC type-based patterns */
+export interface CustomHatchSettings {
+  type: HatchPatternType;
+  spacing?: number;
+  angle?: number;
+  secondaryAngle?: number;
+}
+
 export class HatchGenerator {
   /**
    * Generate hatch lines for a polygon
+   * @param polygon The polygon to hatch
+   * @param scale Drawing scale (100 = 1:100)
+   * @param customSettings Optional override settings (type, spacing, angle)
    */
-  generateHatch(polygon: DrawingPolygon, scale: number = 100): HatchResult {
-    const pattern = getHatchPattern(polygon.ifcType);
+  generateHatch(
+    polygon: DrawingPolygon,
+    scale: number = 100,
+    customSettings?: CustomHatchSettings
+  ): HatchResult {
+    // Use custom settings if provided, otherwise lookup by IFC type
+    const basePattern = getHatchPattern(polygon.ifcType);
+    const pattern: HatchPattern = customSettings
+      ? {
+          ...basePattern,
+          type: customSettings.type,
+          spacing: customSettings.spacing ?? basePattern.spacing,
+          angle: customSettings.angle ?? basePattern.angle,
+          secondaryAngle: customSettings.secondaryAngle ?? basePattern.secondaryAngle,
+        }
+      : basePattern;
 
     if (pattern.type === 'none' || pattern.type === 'solid' || pattern.type === 'glass') {
       return { lines: [], pattern, polygon };
@@ -100,9 +125,19 @@ export class HatchGenerator {
 
   /**
    * Generate hatching for multiple polygons
+   * @param polygons Polygons to hatch
+   * @param scale Drawing scale
+   * @param getCustomSettings Optional function to get custom settings per polygon
    */
-  generateHatches(polygons: DrawingPolygon[], scale: number = 100): HatchResult[] {
-    return polygons.map((polygon) => this.generateHatch(polygon, scale));
+  generateHatches(
+    polygons: DrawingPolygon[],
+    scale: number = 100,
+    getCustomSettings?: (polygon: DrawingPolygon) => CustomHatchSettings | undefined
+  ): HatchResult[] {
+    return polygons.map((polygon) => {
+      const customSettings = getCustomSettings?.(polygon);
+      return this.generateHatch(polygon, scale, customSettings);
+    });
   }
 
   /**

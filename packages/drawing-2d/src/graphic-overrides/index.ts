@@ -44,7 +44,6 @@ export {
   FIRE_SAFETY_PRESET,
   STRUCTURAL_PRESET,
   MEP_PRESET,
-  MATERIAL_PRESET,
   MONOCHROME_PRESET,
   getBuiltInPreset,
   getPresetsByCategory,
