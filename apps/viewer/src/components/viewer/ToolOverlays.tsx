@@ -7,7 +7,7 @@
  */
 
 import React, { useCallback, useMemo, useState, useEffect } from 'react';
-import { X, Trash2, Ruler, Slice, ChevronDown } from 'lucide-react';
+import { X, Trash2, Ruler, Slice, ChevronDown, FileImage } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useViewerStore, type Measurement, type SnapVisualization } from '@/store';
 import type { MeasurementConstraintEdge } from '@/store/types';
@@ -882,6 +882,9 @@ function SectionOverlay() {
   const setSectionPlanePosition = useViewerStore((s) => s.setSectionPlanePosition);
   const toggleSectionPlane = useViewerStore((s) => s.toggleSectionPlane);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
+  const setDrawingPanelVisible = useViewerStore((s) => s.setDrawing2DPanelVisible);
+  const drawingPanelVisible = useViewerStore((s) => s.drawing2DPanelVisible);
+  const clearDrawing = useViewerStore((s) => s.clearDrawing2D);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(true);
 
   const handleClose = useCallback(() => {
@@ -899,6 +902,12 @@ function SectionOverlay() {
   const togglePanel = useCallback(() => {
     setIsPanelCollapsed(prev => !prev);
   }, []);
+
+  const handleView2D = useCallback(() => {
+    // Clear existing drawing to force regeneration with current settings
+    clearDrawing();
+    setDrawingPanelVisible(true);
+  }, [clearDrawing, setDrawingPanelVisible]);
 
   return (
     <>
@@ -920,6 +929,12 @@ function SectionOverlay() {
             <ChevronDown className={`h-3 w-3 transition-transform ${isPanelCollapsed ? '-rotate-90' : ''}`} />
           </button>
           <div className="flex items-center gap-1">
+            {/* Only show 2D button when panel is closed */}
+            {!drawingPanelVisible && (
+              <Button variant="ghost" size="icon-sm" onClick={handleView2D} title="Open 2D Drawing Panel">
+                <FileImage className="h-3 w-3" />
+              </Button>
+            )}
             <Button variant="ghost" size="icon-sm" onClick={handleClose} title="Close">
               <X className="h-3 w-3" />
             </Button>
@@ -951,17 +966,41 @@ function SectionOverlay() {
             <div className="mt-3">
               <div className="flex items-center justify-between mb-1">
                 <label className="text-xs text-muted-foreground">Position</label>
-                <span className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded">{sectionPlane.position}%</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value={sectionPlane.position}
+                  onChange={handlePositionChange}
+                  className="w-16 text-xs font-mono bg-muted px-1.5 py-0.5 rounded border-none text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
               </div>
               <input
                 type="range"
                 min="0"
                 max="100"
+                step="0.1"
                 value={sectionPlane.position}
                 onChange={handlePositionChange}
                 className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
               />
             </div>
+
+            {/* Show 2D panel button - only when panel is closed */}
+            {!drawingPanelVisible && (
+              <div className="mt-3 pt-3 border-t">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={handleView2D}
+                >
+                  <FileImage className="h-4 w-4 mr-2" />
+                  Open 2D Drawing
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>

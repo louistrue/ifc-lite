@@ -153,32 +153,20 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   // IFC data state
   const { ifcDataStore } = useIfcDataState();
 
-  // Calculate section plane range based on storey heights only
+  // Calculate section plane range based on actual geometry bounds for current axis
   const sectionRange = useMemo(() => {
-    if (!ifcDataStore?.spatialHierarchy || !coordinateInfo) return null;
+    if (!coordinateInfo?.shiftedBounds) return null;
 
-    const { storeyElevations } = ifcDataStore.spatialHierarchy;
-    if (storeyElevations.size === 0) return null;
+    const bounds = coordinateInfo.shiftedBounds;
 
-    // Storey elevations are in original IFC coordinates - need to apply origin shift
-    const yShift = coordinateInfo.originShift.y;
+    // Map semantic axis to coordinate axis
+    const axisKey = sectionPlane.axis === 'side' ? 'x' : sectionPlane.axis === 'down' ? 'y' : 'z';
 
-    let minLevel = Infinity;
-    let maxLevel = -Infinity;
+    const min = bounds.min[axisKey];
+    const max = bounds.max[axisKey];
 
-    // Find lowest and highest storey elevations (shifted to match geometry)
-    for (const elevation of storeyElevations.values()) {
-      const shiftedElevation = elevation - yShift;
-      if (shiftedElevation < minLevel) minLevel = shiftedElevation;
-      if (shiftedElevation > maxLevel) maxLevel = shiftedElevation;
-    }
-
-    // Use storey bounds with fixed 5m margin
-    const minWithMargin = minLevel - 5;
-    const maxWithMargin = maxLevel + 5;
-
-    return Number.isFinite(minWithMargin) && Number.isFinite(maxWithMargin) ? { min: minWithMargin, max: maxWithMargin } : null;
-  }, [ifcDataStore, coordinateInfo]);
+    return Number.isFinite(min) && Number.isFinite(max) ? { min, max } : null;
+  }, [coordinateInfo, sectionPlane.axis]);
 
   // Theme-aware clear color ref (updated when theme changes)
   // Tokyo Night storm: #1a1b26 = rgb(26, 27, 38)
@@ -252,6 +240,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   const hiddenEntitiesRef = useRef<Set<number>>(hiddenEntities);
   const isolatedEntitiesRef = useRef<Set<number> | null>(isolatedEntities);
   const selectedEntityIdRef = useRef<number | null>(selectedEntityId);
+  const selectedEntityIdsRef = useRef<Set<number> | undefined>(selectedEntityIds);
   const selectedModelIndexRef = useRef<number | undefined>(selectedModelIndex);
   const activeToolRef = useRef<string>(activeTool);
   const pendingMeasurePointRef = useRef<MeasurePoint | null>(pendingMeasurePoint);
@@ -299,6 +288,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   useEffect(() => { hiddenEntitiesRef.current = hiddenEntities; }, [hiddenEntities]);
   useEffect(() => { isolatedEntitiesRef.current = isolatedEntities; }, [isolatedEntities]);
   useEffect(() => { selectedEntityIdRef.current = selectedEntityId; }, [selectedEntityId]);
+  useEffect(() => { selectedEntityIdsRef.current = selectedEntityIds; }, [selectedEntityIds]);
   useEffect(() => { selectedModelIndexRef.current = selectedModelIndex; }, [selectedModelIndex]);
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
   useEffect(() => { pendingMeasurePointRef.current = pendingMeasurePoint; }, [pendingMeasurePoint]);
@@ -2116,6 +2106,56 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
       clearPendingColorUpdates();
     }
   }, [pendingColorUpdates, isInitialized, clearPendingColorUpdates]);
+
+  // 2D section overlay: upload drawing data to renderer when available
+  const drawing2D = useViewerStore((s) => s.drawing2D);
+  const show3DOverlay = useViewerStore((s) => s.drawing2DDisplayOptions.show3DOverlay);
+  useEffect(() => {
+    const renderer = rendererRef.current;
+    if (!renderer || !isInitialized) return;
+
+    // Only show overlay when section tool is active, we have a drawing, AND 3D overlay is enabled
+    if (activeTool === 'section' && drawing2D && drawing2D.cutPolygons.length > 0 && show3DOverlay) {
+      // Convert Drawing2D format to renderer format
+      const polygons = drawing2D.cutPolygons.map((cp) => ({
+        polygon: cp.polygon,
+        ifcType: cp.ifcType,
+        expressId: cp.entityId,  // DrawingPolygon uses entityId
+      }));
+
+      // No hatching lines for 3D overlay (too dense)
+      const lines: Array<{ line: { start: { x: number; y: number }; end: { x: number; y: number } }; category: string }> = [];
+
+      // Upload to renderer - will be drawn on the section plane
+      // Pass sectionRange to match exactly what render() uses for section plane position
+      renderer.uploadSection2DOverlay(
+        polygons,
+        lines,
+        sectionPlane.axis,
+        sectionPlane.position,
+        sectionRangeRef.current ?? undefined,  // Same range as section plane
+        sectionPlane.flipped
+      );
+    } else {
+      // Clear overlay when not in section mode, no drawing, or overlay disabled
+      renderer.clearSection2DOverlay();
+    }
+
+    // Re-render to show/hide overlay
+    renderer.render({
+      hiddenIds: hiddenEntitiesRef.current,
+      isolatedIds: isolatedEntitiesRef.current,
+      selectedId: selectedEntityIdRef.current,
+      selectedIds: selectedEntityIdsRef.current,
+      selectedModelIndex: selectedModelIndexRef.current,
+      clearColor: clearColorRef.current,
+      sectionPlane: activeTool === 'section' ? {
+        ...sectionPlane,
+        min: sectionRangeRef.current?.min,
+        max: sectionRangeRef.current?.max,
+      } : undefined,
+    });
+  }, [drawing2D, activeTool, sectionPlane, isInitialized, coordinateInfo, show3DOverlay]);
 
   // Re-render when visibility, selection, or section plane changes
   useEffect(() => {

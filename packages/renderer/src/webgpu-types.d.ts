@@ -159,7 +159,14 @@ interface GPURenderPipelineDescriptor {
   fragment?: GPUFragmentState;
   primitive?: GPUPrimitiveState;
   depthStencil?: GPUDepthStencilState;
+  multisample?: GPUMultisampleState;
   label?: string;
+}
+
+interface GPUMultisampleState {
+  count?: number;
+  mask?: number;
+  alphaToCoverageEnabled?: boolean;
 }
 
 interface GPUDepthStencilState {

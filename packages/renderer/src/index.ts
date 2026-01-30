@@ -13,6 +13,8 @@ export { Scene } from './scene.js';
 export { Picker } from './picker.js';
 export { MathUtils } from './math.js';
 export { SectionPlaneRenderer } from './section-plane.js';
+export { Section2DOverlayRenderer } from './section-2d-overlay.js';
+export type { Section2DOverlayOptions, CutPolygon2D, DrawingLine2D } from './section-2d-overlay.js';
 export { Raycaster } from './raycaster.js';
 export { SnapDetector, SnapType } from './snap-detector.js';
 export { BVH } from './bvh.js';
@@ -42,6 +44,7 @@ import { Picker } from './picker.js';
 import { FrustumUtils } from '@ifc-lite/spatial';
 import type { RenderOptions, PickOptions, PickResult, Mesh, InstancedMesh, SectionPlaneAxis } from './types.js';
 import { SectionPlaneRenderer } from './section-plane.js';
+import { Section2DOverlayRenderer, type CutPolygon2D, type DrawingLine2D } from './section-2d-overlay.js';
 import type { MeshData } from '@ifc-lite/geometry';
 import { deduplicateMeshes } from '@ifc-lite/geometry';
 import type { InstancedGeometry } from '@ifc-lite/wasm';
@@ -62,6 +65,7 @@ export class Renderer {
     private picker: Picker | null = null;
     private canvas: HTMLCanvasElement;
     private sectionPlaneRenderer: SectionPlaneRenderer | null = null;
+    private section2DOverlayRenderer: Section2DOverlayRenderer | null = null;
     private modelBounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | null = null;
     private raycaster: Raycaster;
     private snapDetector: SnapDetector;
@@ -113,6 +117,11 @@ export class Renderer {
         this.instancedPipeline = new InstancedRenderPipeline(this.device, width, height);
         this.picker = new Picker(this.device, width, height);
         this.sectionPlaneRenderer = new SectionPlaneRenderer(
+            this.device.getDevice(),
+            this.device.getFormat(),
+            this.pipeline.getSampleCount()
+        );
+        this.section2DOverlayRenderer = new Section2DOverlayRenderer(
             this.device.getDevice(),
             this.device.getFormat(),
             this.pipeline.getSampleCount()
@@ -1205,6 +1214,21 @@ export class Renderer {
                         max: options.sectionPlane.max,
                     }
                 );
+
+                // Draw 2D section overlay on the section plane (when section is active, not preview)
+                if (options.sectionPlane.enabled && this.section2DOverlayRenderer?.hasGeometry()) {
+                    this.section2DOverlayRenderer.draw(
+                        pass,
+                        {
+                            axis: options.sectionPlane.axis,
+                            position: options.sectionPlane.position,
+                            bounds: this.modelBounds,
+                            viewProj,
+                            min: options.sectionPlane.min,
+                            max: options.sectionPlane.max,
+                        }
+                    );
+                }
             }
 
             pass.end();
@@ -1625,6 +1649,53 @@ export class Renderer {
 
     getScene(): Scene {
         return this.scene;
+    }
+
+    /**
+     * Upload 2D section drawing data for 3D overlay rendering
+     * Call this when a 2D drawing is generated to display it on the section plane
+     * Uses same position calculation as section plane: sectionRange min/max if provided, else modelBounds
+     */
+    uploadSection2DOverlay(
+        polygons: CutPolygon2D[],
+        lines: DrawingLine2D[],
+        axis: 'down' | 'front' | 'side',
+        position: number,  // 0-100 percentage
+        sectionRange?: { min?: number; max?: number },  // Same storey-based range as section plane
+        flipped: boolean = false
+    ): void {
+        if (!this.section2DOverlayRenderer) return;
+
+        // Use EXACTLY same calculation as section plane in render() method:
+        // minVal = options.sectionPlane.min ?? boundsMin[axisIdx]
+        // maxVal = options.sectionPlane.max ?? boundsMax[axisIdx]
+        const axisIdx = axis === 'side' ? 'x' : axis === 'down' ? 'y' : 'z';
+
+        // Allow upload if either sectionRange has both values, or modelBounds exists as fallback
+        const hasFullRange = sectionRange?.min !== undefined && sectionRange?.max !== undefined;
+        if (!hasFullRange && !this.modelBounds) return;
+
+        const minVal = sectionRange?.min ?? this.modelBounds!.min[axisIdx];
+        const maxVal = sectionRange?.max ?? this.modelBounds!.max[axisIdx];
+        const planePosition = minVal + (position / 100) * (maxVal - minVal);
+
+        this.section2DOverlayRenderer.uploadDrawing(polygons, lines, axis, planePosition, flipped);
+    }
+
+    /**
+     * Clear the 2D section overlay
+     */
+    clearSection2DOverlay(): void {
+        if (this.section2DOverlayRenderer) {
+            this.section2DOverlayRenderer.clearGeometry();
+        }
+    }
+
+    /**
+     * Check if 2D section overlay has geometry to render
+     */
+    hasSection2DOverlay(): boolean {
+        return this.section2DOverlayRenderer?.hasGeometry() ?? false;
     }
 
     /**

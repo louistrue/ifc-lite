@@ -23,6 +23,8 @@ import { createMeasurementSlice, type MeasurementSlice } from './slices/measurem
 import { createDataSlice, type DataSlice } from './slices/dataSlice.js';
 import { createModelSlice, type ModelSlice } from './slices/modelSlice.js';
 import { createMutationSlice, type MutationSlice } from './slices/mutationSlice.js';
+import { createDrawing2DSlice, type Drawing2DSlice } from './slices/drawing2DSlice.js';
+import { createSheetSlice, type SheetSlice } from './slices/sheetSlice.js';
 
 // Import constants for reset function
 import { CAMERA_DEFAULTS, SECTION_PLANE_DEFAULTS, UI_DEFAULTS, TYPE_VISIBILITY_DEFAULTS } from './constants.js';
@@ -36,6 +38,12 @@ export type { EntityRef, SchemaVersion, FederatedModel, MeasurementConstraintEdg
 // Re-export utility functions for entity references
 export { entityRefToString, stringToEntityRef, entityRefEquals, isIfcxDataStore } from './types.js';
 
+// Re-export Drawing2D types
+export type { Drawing2DState, Drawing2DStatus } from './slices/drawing2DSlice.js';
+
+// Re-export Sheet types
+export type { SheetState } from './slices/sheetSlice.js';
+
 // Combined store type
 export type ViewerState = LoadingSlice &
   SelectionSlice &
@@ -47,7 +55,9 @@ export type ViewerState = LoadingSlice &
   MeasurementSlice &
   DataSlice &
   ModelSlice &
-  MutationSlice & {
+  MutationSlice &
+  Drawing2DSlice &
+  SheetSlice & {
     resetViewerState: () => void;
   };
 
@@ -67,6 +77,8 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
   ...createDataSlice(...args),
   ...createModelSlice(...args),
   ...createMutationSlice(...args),
+  ...createDrawing2DSlice(...args),
+  ...createSheetSlice(...args),
 
   // Reset all viewer state when loading new file
   // Note: Does NOT clear models - use clearAllModels() for that
@@ -132,6 +144,41 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
 
       // UI
       activeTool: UI_DEFAULTS.ACTIVE_TOOL,
+
+      // Drawing 2D
+      drawing2D: null,
+      drawing2DStatus: 'idle' as const,
+      drawing2DProgress: 0,
+      drawing2DPhase: '',
+      drawing2DError: null,
+      drawing2DPanelVisible: false,
+      drawing2DSvgContent: null,
+      drawing2DDisplayOptions: {
+        showHiddenLines: true,
+        showHatching: true,
+        showAnnotations: true,
+        show3DOverlay: true,
+        scale: 100,
+      },
+      // Graphic overrides (keep presets, reset active and custom)
+      activePresetId: 'preset-3d-colors',
+      customOverrideRules: [],
+      overridesEnabled: true,
+      overridesPanelVisible: false,
+      // 2D Measure
+      measure2DMode: false,
+      measure2DStart: null,
+      measure2DCurrent: null,
+      measure2DShiftLocked: false,
+      measure2DLockedAxis: null,
+      measure2DResults: [],
+      measure2DSnapPoint: null,
+      // Drawing Sheet
+      activeSheet: null,
+      sheetEnabled: false,
+      sheetPanelVisible: false,
+      titleBlockEditorVisible: false,
+      // Keep savedSheetTemplates - don't reset user's templates
     });
   },
 }));

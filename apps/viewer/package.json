@@ -12,6 +12,7 @@
   "dependencies": {
     "@ifc-lite/cache": "workspace:^",
     "@ifc-lite/data": "workspace:^",
+    "@ifc-lite/drawing-2d": "workspace:^",
     "@ifc-lite/export": "workspace:^",
     "@ifc-lite/geometry": "workspace:^",
     "@ifc-lite/mutations": "workspace:^",
