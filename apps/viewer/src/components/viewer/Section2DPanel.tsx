@@ -928,6 +928,7 @@ export function Section2DPanel(): React.ReactElement | null {
   }, [drawing, displayOptions, activePresetId, entityColorMap, overridesEnabled, overrideEngine, measure2DResults, formatDistance]);
 
   // Generate SVG with drawing sheet (frame, title block, scale bar)
+  // This generates coordinates directly in paper mm space (like the canvas rendering)
   const generateSheetSVG = useCallback((): string | null => {
     if (!drawing || !activeSheet) return null;
 
@@ -945,6 +946,14 @@ export function Section2DPanel(): React.ReactElement | null {
       activeSheet.scale
     );
 
+    const { translateX, translateY, scaleFactor } = drawingTransform;
+
+    // Helper: convert model coordinates to paper mm (matching canvas rendering exactly)
+    const modelToPaper = (x: number, y: number): { x: number; y: number } => ({
+      x: x * scaleFactor + translateX,
+      y: -y * scaleFactor + translateY,
+    });
+
     // Start building SVG (paper coordinates in mm)
     let svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
@@ -956,54 +965,17 @@ export function Section2DPanel(): React.ReactElement | null {
 
 `;
 
-    // Render frame
-    const frameResult = renderFrame(activeSheet.paper, activeSheet.frame);
-    svg += frameResult.svgElements;
-    svg += '\n';
-
-    // Render title block
-    const titleBlockResult = renderTitleBlock(
-      activeSheet.titleBlock,
-      frameResult.innerBounds,
-      activeSheet.revisions
-    );
-    svg += titleBlockResult.svgElements;
-    svg += '\n';
-
-    // Render scale bar (position in lower left of viewport)
-    if (activeSheet.scaleBar.visible) {
-      const scaleBarPos = {
-        x: viewport.x + 10,
-        y: viewport.y + viewport.height - 15,
-      };
-      svg += renderScaleBar(activeSheet.scaleBar, activeSheet.scale, scaleBarPos);
-      svg += '\n';
-    }
-
-    // Render north arrow (position in upper left of viewport)
-    if (activeSheet.northArrow.style !== 'none') {
-      const northArrowPos = {
-        x: viewport.x + viewport.width - 20,
-        y: viewport.y + 20,
-      };
-      svg += renderNorthArrow(activeSheet.northArrow, northArrowPos);
-      svg += '\n';
-    }
-
-    // Create clipping path for viewport
+    // Create clipping path for viewport FIRST (so it can be used by drawing content)
     svg += `  <defs>
     <clipPath id="viewport-clip">
-      <rect x="${viewport.x}" y="${viewport.y}" width="${viewport.width}" height="${viewport.height}"/>
+      <rect x="${viewport.x.toFixed(2)}" y="${viewport.y.toFixed(2)}" width="${viewport.width.toFixed(2)}" height="${viewport.height.toFixed(2)}"/>
     </clipPath>
   </defs>
+
 `;
 
-    // Drawing content group (transformed to fit viewport)
-    // The transform applies scale (with Y flip) then translate
-    // translateX/Y from calculateDrawingTransform already accounts for centering and Y-flip
-    const { translateX, translateY, scaleFactor } = drawingTransform;
-
-    svg += `  <g id="drawing-content" clip-path="url(#viewport-clip)" transform="translate(${translateX.toFixed(4)}, ${translateY.toFixed(4)}) scale(${scaleFactor.toFixed(6)}, ${(-scaleFactor).toFixed(6)})">
+    // Drawing content FIRST (so frame/title block render on top)
+    svg += `  <g id="drawing-content" clip-path="url(#viewport-clip)">
 `;
 
     // Helper to escape XML
@@ -1016,30 +988,31 @@ export function Section2DPanel(): React.ReactElement | null {
         .replace(/'/g, '&apos;');
     };
 
-    // Helper to get polygon path
+    // Helper to get polygon path in paper coordinates
     const polygonToPath = (polygon: { outer: { x: number; y: number }[]; holes: { x: number; y: number }[][] }): string => {
       let path = '';
       if (polygon.outer.length > 0) {
-        path += `M ${polygon.outer[0].x.toFixed(4)} ${polygon.outer[0].y.toFixed(4)}`;
+        const first = modelToPaper(polygon.outer[0].x, polygon.outer[0].y);
+        path += `M ${first.x.toFixed(4)} ${first.y.toFixed(4)}`;
         for (let i = 1; i < polygon.outer.length; i++) {
-          path += ` L ${polygon.outer[i].x.toFixed(4)} ${polygon.outer[i].y.toFixed(4)}`;
+          const pt = modelToPaper(polygon.outer[i].x, polygon.outer[i].y);
+          path += ` L ${pt.x.toFixed(4)} ${pt.y.toFixed(4)}`;
         }
         path += ' Z';
       }
       for (const hole of polygon.holes) {
         if (hole.length > 0) {
-          path += ` M ${hole[0].x.toFixed(4)} ${hole[0].y.toFixed(4)}`;
+          const holeFirst = modelToPaper(hole[0].x, hole[0].y);
+          path += ` M ${holeFirst.x.toFixed(4)} ${holeFirst.y.toFixed(4)}`;
           for (let i = 1; i < hole.length; i++) {
-            path += ` L ${hole[i].x.toFixed(4)} ${hole[i].y.toFixed(4)}`;
+            const pt = modelToPaper(hole[i].x, hole[i].y);
+            path += ` L ${pt.x.toFixed(4)} ${pt.y.toFixed(4)}`;
           }
           path += ' Z';
         }
       }
       return path;
     };
-
-    // Convert mm on paper to model units
-    const mmToModel = (mm: number) => mm / scaleFactor;
 
     // Render polygon fills
     svg += '    <g id="polygon-fills">\n';
@@ -1067,7 +1040,9 @@ export function Section2DPanel(): React.ReactElement | null {
       }
 
       const pathData = polygonToPath(polygon.polygon);
-      svg += `      <path d="${pathData}" fill="${fillColor}" fill-opacity="${opacity.toFixed(2)}" fill-rule="evenodd" data-entity-id="${polygon.entityId}" data-ifc-type="${escapeXml(polygon.ifcType)}"/>\n`;
+      if (pathData) {
+        svg += `      <path d="${pathData}" fill="${fillColor}" fill-opacity="${opacity.toFixed(2)}" fill-rule="evenodd" data-entity-id="${polygon.entityId}" data-ifc-type="${escapeXml(polygon.ifcType)}"/>\n`;
+      }
     }
     svg += '    </g>\n';
 
@@ -1088,8 +1063,11 @@ export function Section2DPanel(): React.ReactElement | null {
       }
 
       const pathData = polygonToPath(polygon.polygon);
-      const svgLineWeight = mmToModel(lineWeight);
-      svg += `      <path d="${pathData}" fill="none" stroke="${strokeColor}" stroke-width="${svgLineWeight.toFixed(4)}" data-entity-id="${polygon.entityId}"/>\n`;
+      if (pathData) {
+        // lineWeight is in mm on paper
+        const svgLineWeight = lineWeight * 0.3; // Scale down for better appearance
+        svg += `      <path d="${pathData}" fill="none" stroke="${strokeColor}" stroke-width="${svgLineWeight.toFixed(4)}" data-entity-id="${polygon.entityId}"/>\n`;
+      }
     }
     svg += '    </g>\n';
 
@@ -1117,7 +1095,7 @@ export function Section2DPanel(): React.ReactElement | null {
 
       switch (line.category) {
         case 'projection': lineWidth = 0.25; break;
-        case 'hidden': lineWidth = 0.18; strokeColor = '#666666'; dashArray = '2 1'; break;
+        case 'hidden': lineWidth = 0.18; strokeColor = '#666666'; dashArray = '1 0.5'; break;
         case 'silhouette': lineWidth = 0.35; break;
         case 'crease': lineWidth = 0.18; break;
         case 'boundary': lineWidth = 0.25; break;
@@ -1126,17 +1104,56 @@ export function Section2DPanel(): React.ReactElement | null {
 
       if (line.visibility === 'hidden') {
         strokeColor = '#888888';
-        dashArray = '2 1';
+        dashArray = '1 0.5';
         lineWidth *= 0.7;
       }
 
-      const svgLineWidth = mmToModel(lineWidth);
-      const dashAttr = dashArray ? ` stroke-dasharray="${dashArray.split(' ').map(d => mmToModel(parseFloat(d)).toFixed(4)).join(' ')}"` : '';
-      svg += `      <line x1="${start.x.toFixed(4)}" y1="${start.y.toFixed(4)}" x2="${end.x.toFixed(4)}" y2="${end.y.toFixed(4)}" stroke="${strokeColor}" stroke-width="${svgLineWidth.toFixed(4)}"${dashAttr}/>\n`;
+      const paperStart = modelToPaper(start.x, start.y);
+      const paperEnd = modelToPaper(end.x, end.y);
+
+      // lineWidth is in mm on paper
+      const svgLineWidth = lineWidth * 0.3;
+      const dashAttr = dashArray ? ` stroke-dasharray="${dashArray}"` : '';
+      svg += `      <line x1="${paperStart.x.toFixed(4)}" y1="${paperStart.y.toFixed(4)}" x2="${paperEnd.x.toFixed(4)}" y2="${paperEnd.y.toFixed(4)}" stroke="${strokeColor}" stroke-width="${svgLineWidth.toFixed(4)}"${dashAttr}/>\n`;
     }
     svg += '    </g>\n';
 
-    svg += '  </g>\n';
+    svg += '  </g>\n\n';
+
+    // Render frame (on top of drawing content)
+    const frameResult = renderFrame(activeSheet.paper, activeSheet.frame);
+    svg += frameResult.svgElements;
+    svg += '\n';
+
+    // Render title block
+    const titleBlockResult = renderTitleBlock(
+      activeSheet.titleBlock,
+      frameResult.innerBounds,
+      activeSheet.revisions
+    );
+    svg += titleBlockResult.svgElements;
+    svg += '\n';
+
+    // Render scale bar (position in lower left of viewport)
+    if (activeSheet.scaleBar.visible) {
+      const scaleBarPos = {
+        x: viewport.x + 10,
+        y: viewport.y + viewport.height - 15,
+      };
+      svg += renderScaleBar(activeSheet.scaleBar, activeSheet.scale, scaleBarPos);
+      svg += '\n';
+    }
+
+    // Render north arrow (position in upper right of viewport)
+    if (activeSheet.northArrow.style !== 'none') {
+      const northArrowPos = {
+        x: viewport.x + viewport.width - 20,
+        y: viewport.y + 20,
+      };
+      svg += renderNorthArrow(activeSheet.northArrow, northArrowPos);
+      svg += '\n';
+    }
+
     svg += '</svg>';
     return svg;
   }, [drawing, activeSheet, displayOptions, activePresetId, entityColorMap, overridesEnabled, overrideEngine]);
@@ -1892,7 +1909,7 @@ function Drawing2DCanvas({
         mmToScreen(tbH)
       );
 
-      // Title block fields
+      // Title block fields - calculate row heights based on font sizes
       const logoSpace = titleBlock.logo ? 50 : 0;
       const revisionSpace = titleBlock.showRevisionHistory ? 20 : 0;
       const availableWidth = tbW - logoSpace - 5;
@@ -1907,19 +1924,41 @@ function Drawing2DCanvas({
         fieldsByRow.get(row)!.push(field);
       }
 
-      const numRows = Math.max(...Array.from(fieldsByRow.keys()), 0) + 1;
-      const rowHeight = availableHeight / numRows;
+      // Calculate minimum height needed for each row based on its largest font
+      const rowCount = Math.max(...Array.from(fieldsByRow.keys()), 0) + 1;
+      const rowHeights: number[] = [];
+      let totalMinHeight = 0;
+
+      for (let r = 0; r < rowCount; r++) {
+        const fields = fieldsByRow.get(r) || [];
+        const maxFontSize = fields.length > 0 ? Math.max(...fields.map(f => f.fontSize)) : 3;
+        const labelSize = Math.min(maxFontSize * 0.5, 2.2);
+        const minRowHeight = labelSize + 1 + maxFontSize + 2;
+        rowHeights.push(minRowHeight);
+        totalMinHeight += minRowHeight;
+      }
+
+      // Scale row heights if they exceed available space
+      const rowScaleFactor = totalMinHeight > availableHeight ? availableHeight / totalMinHeight : 1;
+      const scaledRowHeights = rowHeights.map(h => h * rowScaleFactor);
+
       const colWidth = availableWidth / numCols;
       const gridStartX = tbX + logoSpace + 2;
       const gridStartY = tbY + 2;
+
+      // Calculate row Y positions
+      const rowYPositions: number[] = [gridStartY];
+      for (let i = 0; i < scaledRowHeights.length - 1; i++) {
+        rowYPositions.push(rowYPositions[i] + scaledRowHeights[i]);
+      }
 
       // Draw grid lines
       ctx.strokeStyle = '#000000';
       ctx.lineWidth = Math.max(0.5, mmToScreen(titleBlock.gridWeight));
 
       // Horizontal lines
-      for (let i = 1; i < numRows; i++) {
-        const lineY = gridStartY + i * rowHeight;
+      for (let i = 1; i < rowCount; i++) {
+        const lineY = rowYPositions[i];
         ctx.beginPath();
         ctx.moveTo(mmToScreenX(gridStartX), mmToScreenY(lineY));
         ctx.lineTo(mmToScreenX(gridStartX + availableWidth - 4), mmToScreenY(lineY));
@@ -1931,8 +1970,8 @@ function Drawing2DCanvas({
         const hasMultipleCols = fields.some(f => (f.colSpan ?? 1) < 2);
         if (hasMultipleCols) {
           const centerX = gridStartX + colWidth;
-          const lineY1 = gridStartY + row * rowHeight;
-          const lineY2 = gridStartY + (row + 1) * rowHeight;
+          const lineY1 = rowYPositions[row];
+          const lineY2 = rowYPositions[row] + scaledRowHeights[row];
           ctx.beginPath();
           ctx.moveTo(mmToScreenX(centerX), mmToScreenY(lineY1));
           ctx.lineTo(mmToScreenX(centerX), mmToScreenY(lineY2));
@@ -1942,17 +1981,18 @@ function Drawing2DCanvas({
 
       // Render field text
       for (const [row, fields] of fieldsByRow) {
+        const rowY = rowYPositions[row];
+
         for (const field of fields) {
           const col = field.col ?? 0;
-          const colSpan = field.colSpan ?? 1;
           const fieldX = gridStartX + col * colWidth + 1.5;
-          const fieldY = gridStartY + row * rowHeight;
 
-          const cellPadding = 1;
-          const labelFontSize = Math.min(field.fontSize * 0.5, 2.2);
-          const valueFontSize = field.fontSize;
+          // Scale font sizes if rows are compressed
+          const effectiveScale = rowScaleFactor < 1 ? rowScaleFactor : 1;
+          const labelFontSize = Math.min(field.fontSize * 0.45, 2.2) * Math.max(effectiveScale, 0.7);
+          const valueFontSize = field.fontSize * Math.max(effectiveScale, 0.7);
 
-          // Label
+          // Label at top of cell
           const screenLabelFontSize = Math.max(8, mmToScreen(labelFontSize));
           ctx.font = `${screenLabelFontSize}px Arial, sans-serif`;
           ctx.fillStyle = '#666666';
@@ -1961,17 +2001,17 @@ function Drawing2DCanvas({
           ctx.fillText(
             field.label,
             mmToScreenX(fieldX),
-            mmToScreenY(fieldY + cellPadding)
+            mmToScreenY(rowY + 0.5)
           );
 
-          // Value
+          // Value below label
           const screenValueFontSize = Math.max(10, mmToScreen(valueFontSize));
           ctx.font = `${field.fontWeight === 'bold' ? 'bold ' : ''}${screenValueFontSize}px Arial, sans-serif`;
           ctx.fillStyle = '#000000';
           ctx.fillText(
             field.value,
             mmToScreenX(fieldX),
-            mmToScreenY(fieldY + cellPadding + labelFontSize + 1.5)
+            mmToScreenY(rowY + 0.5 + labelFontSize + 0.8)
           );
         }
       }

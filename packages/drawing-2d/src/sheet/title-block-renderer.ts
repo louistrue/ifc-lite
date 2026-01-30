@@ -111,6 +111,7 @@ export function renderTitleBlock(
 
 /**
  * Render title block fields in a grid layout
+ * Uses a simpler row-based layout with fixed heights based on font size
  */
 function renderTitleBlockFields(
   config: TitleBlockConfig,
@@ -128,7 +129,7 @@ function renderTitleBlockFields(
   const availableWidth = w - logoSpace - 5; // 5mm padding
   const availableHeight = h - revisionSpace - 4; // padding
 
-  // Group fields by row
+  // Group fields by row and calculate row heights based on content
   const fieldsByRow = new Map<number, typeof config.fields>();
   for (const field of config.fields) {
     const row = field.row ?? 0;
@@ -138,30 +139,52 @@ function renderTitleBlockFields(
     fieldsByRow.get(row)!.push(field);
   }
 
-  const numRows = Math.max(...Array.from(fieldsByRow.keys())) + 1;
-  const rowHeight = availableHeight / numRows;
-  const colWidth = availableWidth / numCols;
+  // Calculate minimum height needed for each row based on its largest font
+  const rowCount = Math.max(...Array.from(fieldsByRow.keys())) + 1;
+  const rowHeights: number[] = [];
+  let totalMinHeight = 0;
+
+  for (let r = 0; r < rowCount; r++) {
+    const fields = fieldsByRow.get(r) || [];
+    // Row needs space for: label (small) + gap + value (fontSize) + padding
+    const maxFontSize = fields.length > 0 ? Math.max(...fields.map(f => f.fontSize)) : 3;
+    const labelSize = Math.min(maxFontSize * 0.5, 2.2);
+    // Minimum row height: label + small gap + value + padding
+    const minRowHeight = labelSize + 1 + maxFontSize + 2;
+    rowHeights.push(minRowHeight);
+    totalMinHeight += minRowHeight;
+  }
+
+  // Scale row heights if they exceed available space
+  const scaleFactor = totalMinHeight > availableHeight ? availableHeight / totalMinHeight : 1;
+  const scaledRowHeights = rowHeights.map(h => h * scaleFactor);
 
   // Grid start position
   const gridStartX = x + logoSpace + 2;
   const gridStartY = y + 2;
+  const colWidth = availableWidth / numCols;
 
-  // Draw grid lines
-  // Horizontal lines
-  for (let i = 1; i < numRows; i++) {
-    const lineY = gridStartY + i * rowHeight;
+  // Calculate row Y positions
+  const rowYPositions: number[] = [gridStartY];
+  for (let i = 0; i < scaledRowHeights.length - 1; i++) {
+    rowYPositions.push(rowYPositions[i] + scaledRowHeights[i]);
+  }
+
+  // Draw horizontal grid lines between rows
+  for (let i = 1; i < rowCount; i++) {
+    const lineY = rowYPositions[i];
     svg += `      <line x1="${gridStartX.toFixed(2)}" y1="${lineY.toFixed(2)}" `;
     svg += `x2="${(gridStartX + availableWidth - 4).toFixed(2)}" y2="${lineY.toFixed(2)}" `;
     svg += `stroke="#000000" stroke-width="${config.gridWeight}"/>\n`;
   }
 
-  // Vertical line (center divider) - only draw through rows that have column splits
+  // Vertical dividers for rows with multiple columns
   for (const [row, fields] of fieldsByRow) {
     const hasMultipleCols = fields.some(f => (f.colSpan ?? 1) < 2);
     if (hasMultipleCols) {
       const centerX = gridStartX + colWidth;
-      const lineY1 = gridStartY + row * rowHeight;
-      const lineY2 = gridStartY + (row + 1) * rowHeight;
+      const lineY1 = rowYPositions[row];
+      const lineY2 = rowYPositions[row] + scaledRowHeights[row];
       svg += `      <line x1="${centerX.toFixed(2)}" y1="${lineY1.toFixed(2)}" `;
       svg += `x2="${centerX.toFixed(2)}" y2="${lineY2.toFixed(2)}" `;
       svg += `stroke="#000000" stroke-width="${config.gridWeight}"/>\n`;
@@ -170,27 +193,27 @@ function renderTitleBlockFields(
 
   // Render each field
   for (const [row, fields] of fieldsByRow) {
+    const rowY = rowYPositions[row];
+    const rowH = scaledRowHeights[row];
+
     for (const field of fields) {
       const col = field.col ?? 0;
       const colSpan = field.colSpan ?? 1;
-
       const fieldX = gridStartX + col * colWidth + 1.5;
-      const fieldY = gridStartY + row * rowHeight;
-      const fieldW = colWidth * colSpan - 3;
 
-      // Calculate vertical positions within the cell
-      const cellPadding = 1;
-      const labelFontSize = Math.min(field.fontSize * 0.5, 2.2);
-      const valueFontSize = field.fontSize;
+      // Scale font sizes if row is compressed
+      const effectiveScale = scaleFactor < 1 ? scaleFactor : 1;
+      const labelFontSize = Math.min(field.fontSize * 0.45, 2.2) * Math.max(effectiveScale, 0.7);
+      const valueFontSize = field.fontSize * Math.max(effectiveScale, 0.7);
 
-      // Label at top of cell
-      const labelY = fieldY + cellPadding + labelFontSize;
+      // Position label at top of cell
+      const labelY = rowY + 0.5 + labelFontSize;
       svg += `      <text x="${fieldX.toFixed(2)}" y="${labelY.toFixed(2)}" `;
       svg += `font-family="Arial, sans-serif" font-size="${labelFontSize.toFixed(2)}" `;
       svg += `fill="#666666">${escapeXml(field.label)}</text>\n`;
 
-      // Value below label with proper spacing
-      const valueY = fieldY + cellPadding + labelFontSize + 1.5 + valueFontSize * 0.8;
+      // Position value below label (with small gap)
+      const valueY = labelY + 0.8 + valueFontSize * 0.8;
       svg += `      <text x="${fieldX.toFixed(2)}" y="${valueY.toFixed(2)}" `;
       svg += `font-family="Arial, sans-serif" font-size="${valueFontSize.toFixed(2)}" `;
       svg += `font-weight="${field.fontWeight}" fill="#000000">${escapeXml(field.value)}</text>\n`;
