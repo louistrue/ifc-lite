@@ -74,6 +74,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
   // Reset all viewer state when loading new file
   // Note: Does NOT clear models - use clearAllModels() for that
   resetViewerState: () => {
+    console.log('[Store] resetViewerState called', new Error().stack);
     const [set] = args;
     set({
       // Selection (legacy)

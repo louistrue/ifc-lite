@@ -202,11 +202,14 @@ export function createGeometryEditContext(
       parameter: GeometryParameter,
       value: ParameterValue
     ): MeshData | null {
+      console.log('[GeomEditContext] updateParameter:', { path: parameter.path, value, type: parameter.type });
+
       // Solve constraints
       const { value: solvedValue } = constraints.solveAllConstraints(
         parameter,
         value
       );
+      console.log('[GeomEditContext] Solved value:', solvedValue);
 
       // Apply parameter change
       const result = applicator.applyParameterChange(
@@ -214,8 +217,10 @@ export function createGeometryEditContext(
         solvedValue,
         session.previewMesh
       );
+      console.log('[GeomEditContext] Apply result:', { success: result.success, hasData: !!result.meshData });
 
       if (!result.success || !result.meshData) {
+        console.warn('[GeomEditContext] applyParameterChange failed:', result);
         return null;
       }
 
@@ -227,6 +232,7 @@ export function createGeometryEditContext(
         result.meshData
       );
 
+      console.log('[GeomEditContext] Parameter applied successfully');
       return result.meshData;
     },
 

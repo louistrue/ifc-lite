@@ -311,8 +311,12 @@ export const createGeometryEditSlice: StateCreator<
   },
 
   stopEntityEdit: (commit = true) => {
+    console.log('[GeomEditSlice] stopEntityEdit called with commit:', commit, new Error().stack);
     const { activeSession, editContexts } = get();
-    if (!activeSession) return;
+    if (!activeSession) {
+      console.log('[GeomEditSlice] No active session, returning early');
+      return;
+    }
 
     const context = editContexts.get(activeSession.entity.modelId);
     if (context) {
@@ -338,14 +342,26 @@ export const createGeometryEditSlice: StateCreator<
   },
 
   updateParameter: (parameter, value) => {
+    console.log('[GeomEditSlice] updateParameter called:', { path: parameter.path, value });
     const { activeSession, editContexts } = get();
-    if (!activeSession) return null;
+    if (!activeSession) {
+      console.warn('[GeomEditSlice] No active session for updateParameter');
+      return null;
+    }
 
     const context = editContexts.get(parameter.modelId);
-    if (!context) return null;
+    if (!context) {
+      console.warn('[GeomEditSlice] No context for model:', parameter.modelId);
+      return null;
+    }
 
+    console.log('[GeomEditSlice] Calling context.updateParameter...');
     const newMesh = context.updateParameter(activeSession, parameter, value);
-    if (!newMesh) return null;
+    if (!newMesh) {
+      console.warn('[GeomEditSlice] context.updateParameter returned null');
+      return null;
+    }
+    console.log('[GeomEditSlice] Got new mesh with', newMesh.vertices?.length || 0, 'vertices');
 
     set((state) => {
       const newPreviewMeshes = new Map(state.previewMeshes);
