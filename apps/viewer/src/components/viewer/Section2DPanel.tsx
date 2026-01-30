@@ -2028,42 +2028,48 @@ function Drawing2DCanvas({
         }
       }
 
-      // Render field text - use screen coordinates directly for proper spacing
+      // Render field text - scale proportionally with zoom
       for (const [row, fields] of fieldsByRow) {
         const rowY = rowYPositions[row];
-        const rowH = scaledRowHeights[row];
+        if (rowY === undefined) continue;
+
+        const rowH = scaledRowHeights[row] ?? 5;
+        const screenRowH = mmToScreen(rowH);
+
+        // Skip if row is too small to be readable
+        if (screenRowH < 4) continue;
 
         for (const field of fields) {
           const col = field.col ?? 0;
           const fieldX = gridStartX + col * colWidth + 1.5;
 
-          // Scale font sizes if rows are compressed
+          // Calculate font sizes in mm (accounting for compressed rows)
           const effectiveScale = rowScaleFactor < 1 ? rowScaleFactor : 1;
-          const labelFontSizeMm = Math.min(field.fontSize * 0.45, 2.2) * Math.max(effectiveScale, 0.7);
-          const valueFontSizeMm = field.fontSize * Math.max(effectiveScale, 0.7);
+          const labelFontMm = Math.min(field.fontSize * 0.45, 2.2) * Math.max(effectiveScale, 0.7);
+          const valueFontMm = field.fontSize * Math.max(effectiveScale, 0.7);
 
-          // Calculate screen font sizes with minimum
-          const screenLabelFontSize = Math.max(8, mmToScreen(labelFontSizeMm));
-          const screenValueFontSize = Math.max(10, mmToScreen(valueFontSizeMm));
+          // Convert to screen pixels - scales naturally with zoom
+          const screenLabelFont = mmToScreen(labelFontMm);
+          const screenValueFont = mmToScreen(valueFontMm);
 
-          // Convert row position to screen coordinates
+          // Skip if too small to read
+          if (screenLabelFont < 3) continue;
+
           const screenRowY = mmToScreenY(rowY);
-          const screenRowH = mmToScreen(rowH);
           const screenFieldX = mmToScreenX(fieldX);
 
-          // Position text in screen space with proper spacing
-          // Label at top of cell with 2px padding
-          ctx.font = `${screenLabelFontSize}px Arial, sans-serif`;
+          // Label
+          ctx.font = `${screenLabelFont}px Arial, sans-serif`;
           ctx.fillStyle = '#666666';
           ctx.textAlign = 'left';
           ctx.textBaseline = 'top';
-          ctx.fillText(field.label, screenFieldX, screenRowY + 2);
+          ctx.fillText(field.label, screenFieldX, screenRowY + mmToScreen(0.3));
 
-          // Value below label with proper gap
-          const valuePosY = screenRowY + screenLabelFontSize + 4;
-          ctx.font = `${field.fontWeight === 'bold' ? 'bold ' : ''}${screenValueFontSize}px Arial, sans-serif`;
+          // Value below label (spacing in mm, converted to screen)
+          const valueY = screenRowY + mmToScreen(labelFontMm + 0.5);
+          ctx.font = `${field.fontWeight === 'bold' ? 'bold ' : ''}${screenValueFont}px Arial, sans-serif`;
           ctx.fillStyle = '#000000';
-          ctx.fillText(field.value, screenFieldX, valuePosY);
+          ctx.fillText(field.value, screenFieldX, valueY);
         }
       }
 
@@ -2103,7 +2109,22 @@ function Drawing2DCanvas({
         maxX: drawing.bounds.max.x,
         maxY: drawing.bounds.max.y,
       };
-      const drawingTransform = calculateDrawingTransform(drawingBounds, viewport, activeSheet.scale);
+      const baseTransform = calculateDrawingTransform(drawingBounds, viewport, activeSheet.scale);
+
+      // Adjust transform for axis-specific flipping
+      // calculateDrawingTransform assumes Y-flip (uses maxY), but for 'down' view we don't flip Y
+      const flipY = sectionAxis !== 'down';
+      const flipX = sectionAxis === 'side';
+
+      // For non-flipped Y, we need to recalculate translateY
+      // Original: translateY = viewport.y + (viewport.height - finalHeight)/2 + maxY * scaleFactor
+      // For no flip: translateY = viewport.y + (viewport.height - finalHeight)/2 - minY * scaleFactor
+      const drawingTransform = {
+        ...baseTransform,
+        translateY: flipY
+          ? baseTransform.translateY
+          : baseTransform.translateY - (drawingBounds.maxY + drawingBounds.minY) * baseTransform.scaleFactor,
+      };
 
       // Apply combined transform: sheet mm -> screen, then drawing coords -> sheet mm
       // Drawing coord (meters) * scaleFactor = sheet mm, + translateX/Y
@@ -2113,8 +2134,6 @@ function Drawing2DCanvas({
         // - 'down' (plan view): DON'T flip Y so north (Z+) is up
         // - 'front' and 'side': flip Y so height (Y+) is up
         // - 'side': also flip X to look from conventional direction
-        const flipY = sectionAxis !== 'down'; // Only flip Y for front/side views
-        const flipX = sectionAxis === 'side'; // Flip X for side view
 
         // For each polygon/line, transform from model coords to screen coords
         const modelToScreen = (x: number, y: number) => {
