@@ -728,21 +728,38 @@ export function Section2DPanel(): React.ReactElement | null {
         .replace(/'/g, '&apos;');
     };
 
-    // Helper to get polygon path
+    // Axis-specific flipping (matching canvas rendering)
+    // - 'down' (plan view): DON'T flip Y so north (Z+) is up
+    // - 'front' and 'side': flip Y so height (Y+) is up
+    // - 'side': also flip X to look from conventional direction
+    const currentAxis = sectionPlane.axis;
+    const flipY = currentAxis !== 'down';
+    const flipX = currentAxis === 'side';
+
+    // Helper to get polygon path with axis-specific coordinate transformation
     const polygonToPath = (polygon: { outer: { x: number; y: number }[]; holes: { x: number; y: number }[][] }): string => {
+      const transformPt = (x: number, y: number) => ({
+        x: flipX ? -x : x,
+        y: flipY ? -y : y,
+      });
+
       let path = '';
       if (polygon.outer.length > 0) {
-        path += `M ${polygon.outer[0].x.toFixed(4)} ${(-polygon.outer[0].y).toFixed(4)}`;
+        const first = transformPt(polygon.outer[0].x, polygon.outer[0].y);
+        path += `M ${first.x.toFixed(4)} ${first.y.toFixed(4)}`;
         for (let i = 1; i < polygon.outer.length; i++) {
-          path += ` L ${polygon.outer[i].x.toFixed(4)} ${(-polygon.outer[i].y).toFixed(4)}`;
+          const pt = transformPt(polygon.outer[i].x, polygon.outer[i].y);
+          path += ` L ${pt.x.toFixed(4)} ${pt.y.toFixed(4)}`;
         }
         path += ' Z';
       }
       for (const hole of polygon.holes) {
         if (hole.length > 0) {
-          path += ` M ${hole[0].x.toFixed(4)} ${(-hole[0].y).toFixed(4)}`;
+          const holeFirst = transformPt(hole[0].x, hole[0].y);
+          path += ` M ${holeFirst.x.toFixed(4)} ${holeFirst.y.toFixed(4)}`;
           for (let i = 1; i < hole.length; i++) {
-            path += ` L ${hole[i].x.toFixed(4)} ${(-hole[i].y).toFixed(4)}`;
+            const pt = transformPt(hole[i].x, hole[i].y);
+            path += ` L ${pt.x.toFixed(4)} ${pt.y.toFixed(4)}`;
           }
           path += ' Z';
         }
@@ -750,13 +767,17 @@ export function Section2DPanel(): React.ReactElement | null {
       return path;
     };
 
+    // Calculate viewBox with axis-specific flipping
+    const viewBoxMinX = flipX ? -viewMinX - viewWidth : viewMinX;
+    const viewBoxMinY = flipY ? -viewMinY - viewHeight : viewMinY;
+
     // Start building SVG
     let svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
      width="${svgWidthMm.toFixed(2)}mm"
      height="${svgHeightMm.toFixed(2)}mm"
-     viewBox="${viewMinX.toFixed(4)} ${(-viewMinY - viewHeight).toFixed(4)} ${viewWidth.toFixed(4)} ${viewHeight.toFixed(4)}">
-  <rect x="${viewMinX.toFixed(4)}" y="${(-viewMinY - viewHeight).toFixed(4)}" width="${viewWidth.toFixed(4)}" height="${viewHeight.toFixed(4)}" fill="#FFFFFF"/>
+     viewBox="${viewBoxMinX.toFixed(4)} ${viewBoxMinY.toFixed(4)} ${viewWidth.toFixed(4)} ${viewHeight.toFixed(4)}">
+  <rect x="${viewBoxMinX.toFixed(4)}" y="${viewBoxMinY.toFixed(4)}" width="${viewWidth.toFixed(4)}" height="${viewHeight.toFixed(4)}" fill="#FFFFFF"/>
 `;
 
     // 1. FILL CUT POLYGONS (with color from IFC materials or override engine)
@@ -884,7 +905,10 @@ export function Section2DPanel(): React.ReactElement | null {
       const svgLineWidth = mmToModel(lineWidth);
       const dashAttr = dashArray ? ` stroke-dasharray="${dashArray.split(' ').map(d => mmToModel(parseFloat(d)).toFixed(4)).join(' ')}"` : '';
 
-      svg += `    <line x1="${start.x.toFixed(4)}" y1="${(-start.y).toFixed(4)}" x2="${end.x.toFixed(4)}" y2="${(-end.y).toFixed(4)}" stroke="${strokeColor}" stroke-width="${svgLineWidth.toFixed(4)}"${dashAttr}/>\n`;
+      // Transform line endpoints with axis-specific flipping
+      const startT = { x: flipX ? -start.x : start.x, y: flipY ? -start.y : start.y };
+      const endT = { x: flipX ? -end.x : end.x, y: flipY ? -end.y : end.y };
+      svg += `    <line x1="${startT.x.toFixed(4)}" y1="${startT.y.toFixed(4)}" x2="${endT.x.toFixed(4)}" y2="${endT.y.toFixed(4)}" stroke="${strokeColor}" stroke-width="${svgLineWidth.toFixed(4)}"${dashAttr}/>\n`;
     }
     svg += '  </g>\n';
 
@@ -893,8 +917,11 @@ export function Section2DPanel(): React.ReactElement | null {
       svg += '  <g id="measurements">\n';
       for (const result of measure2DResults) {
         const { start, end, distance } = result;
-        const midX = (start.x + end.x) / 2;
-        const midY = (start.y + end.y) / 2;
+        // Transform measurement points with axis-specific flipping
+        const startT = { x: flipX ? -start.x : start.x, y: flipY ? -start.y : start.y };
+        const endT = { x: flipX ? -end.x : end.x, y: flipY ? -end.y : end.y };
+        const midX = (startT.x + endT.x) / 2;
+        const midY = (startT.y + endT.y) / 2;
         const labelText = formatDistance(distance);
 
         // Measurement styling (all in mm on paper, converted to model units)
@@ -903,11 +930,11 @@ export function Section2DPanel(): React.ReactElement | null {
         const endpointRadius = mmToModel(1.5);    // 1.5mm radius on paper
 
         // Draw line
-        svg += `    <line x1="${start.x.toFixed(4)}" y1="${(-start.y).toFixed(4)}" x2="${end.x.toFixed(4)}" y2="${(-end.y).toFixed(4)}" stroke="${measureColor}" stroke-width="${measureLineWidth.toFixed(4)}"/>\n`;
+        svg += `    <line x1="${startT.x.toFixed(4)}" y1="${startT.y.toFixed(4)}" x2="${endT.x.toFixed(4)}" y2="${endT.y.toFixed(4)}" stroke="${measureColor}" stroke-width="${measureLineWidth.toFixed(4)}"/>\n`;
 
         // Draw endpoints
-        svg += `    <circle cx="${start.x.toFixed(4)}" cy="${(-start.y).toFixed(4)}" r="${endpointRadius.toFixed(4)}" fill="${measureColor}"/>\n`;
-        svg += `    <circle cx="${end.x.toFixed(4)}" cy="${(-end.y).toFixed(4)}" r="${endpointRadius.toFixed(4)}" fill="${measureColor}"/>\n`;
+        svg += `    <circle cx="${startT.x.toFixed(4)}" cy="${startT.y.toFixed(4)}" r="${endpointRadius.toFixed(4)}" fill="${measureColor}"/>\n`;
+        svg += `    <circle cx="${endT.x.toFixed(4)}" cy="${endT.y.toFixed(4)}" r="${endpointRadius.toFixed(4)}" fill="${measureColor}"/>\n`;
 
         // Draw label background and text
         // Use 3mm text height on paper for readable labels
@@ -916,15 +943,15 @@ export function Section2DPanel(): React.ReactElement | null {
         const labelHeight = fontSize * 1.4;
         const labelStroke = mmToModel(0.2);
 
-        svg += `    <rect x="${(midX - labelWidth / 2).toFixed(4)}" y="${(-midY - labelHeight / 2).toFixed(4)}" width="${labelWidth.toFixed(4)}" height="${labelHeight.toFixed(4)}" fill="rgba(255,255,255,0.95)" stroke="${measureColor}" stroke-width="${labelStroke.toFixed(4)}"/>\n`;
-        svg += `    <text x="${midX.toFixed(4)}" y="${(-midY).toFixed(4)}" font-family="Arial, sans-serif" font-size="${fontSize.toFixed(4)}" fill="#000000" text-anchor="middle" dominant-baseline="middle" font-weight="500">${escapeXml(labelText)}</text>\n`;
+        svg += `    <rect x="${(midX - labelWidth / 2).toFixed(4)}" y="${(midY - labelHeight / 2).toFixed(4)}" width="${labelWidth.toFixed(4)}" height="${labelHeight.toFixed(4)}" fill="rgba(255,255,255,0.95)" stroke="${measureColor}" stroke-width="${labelStroke.toFixed(4)}"/>\n`;
+        svg += `    <text x="${midX.toFixed(4)}" y="${midY.toFixed(4)}" font-family="Arial, sans-serif" font-size="${fontSize.toFixed(4)}" fill="#000000" text-anchor="middle" dominant-baseline="middle" font-weight="500">${escapeXml(labelText)}</text>\n`;
       }
       svg += '  </g>\n';
     }
 
     svg += '</svg>';
     return svg;
-  }, [drawing, displayOptions, activePresetId, entityColorMap, overridesEnabled, overrideEngine, measure2DResults, formatDistance]);
+  }, [drawing, displayOptions, activePresetId, entityColorMap, overridesEnabled, overrideEngine, measure2DResults, formatDistance, sectionPlane.axis]);
 
   // Generate SVG with drawing sheet (frame, title block, scale bar)
   // This generates coordinates directly in paper mm space (like the canvas rendering)
@@ -947,11 +974,23 @@ export function Section2DPanel(): React.ReactElement | null {
 
     const { translateX, translateY, scaleFactor } = drawingTransform;
 
+    // Axis-specific flipping (matching canvas rendering)
+    // - 'down' (plan view): DON'T flip Y so north (Z+) is up
+    // - 'front' and 'side': flip Y so height (Y+) is up
+    // - 'side': also flip X to look from conventional direction
+    const currentAxis = sectionPlane.axis;
+    const flipY = currentAxis !== 'down';
+    const flipX = currentAxis === 'side';
+
     // Helper: convert model coordinates to paper mm (matching canvas rendering exactly)
-    const modelToPaper = (x: number, y: number): { x: number; y: number } => ({
-      x: x * scaleFactor + translateX,
-      y: -y * scaleFactor + translateY,
-    });
+    const modelToPaper = (x: number, y: number): { x: number; y: number } => {
+      const adjustedX = flipX ? -x : x;
+      const adjustedY = flipY ? -y : y;
+      return {
+        x: adjustedX * scaleFactor + translateX,
+        y: adjustedY * scaleFactor + translateY,
+      };
+    };
 
     // Start building SVG (paper coordinates in mm)
     let svg = `<?xml version="1.0" encoding="UTF-8"?>
@@ -1597,6 +1636,7 @@ export function Section2DPanel(): React.ReactElement | null {
               measureSnapPoint={measure2DSnapPoint}
               sheetEnabled={sheetEnabled}
               activeSheet={activeSheet}
+              sectionAxis={sectionPlane.axis}
             />
             {/* Subtle updating indicator - shows while regenerating without hiding the drawing */}
             {isRegenerating && (
@@ -1709,6 +1749,8 @@ interface Drawing2DCanvasProps {
   // Sheet mode props
   sheetEnabled?: boolean;
   activeSheet?: import('@ifc-lite/drawing-2d').DrawingSheet | null;
+  // Section plane info for axis-specific rendering
+  sectionAxis: 'down' | 'front' | 'side';
 }
 
 function Drawing2DCanvas({
@@ -1726,6 +1768,7 @@ function Drawing2DCanvas({
   measureSnapPoint = null,
   sheetEnabled = false,
   activeSheet = null,
+  sectionAxis,
 }: Drawing2DCanvasProps): React.ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
@@ -2045,11 +2088,21 @@ function Drawing2DCanvas({
       // Drawing coord (meters) * scaleFactor = sheet mm, + translateX/Y
       // Then sheet mm -> screen via mmToScreenX/Y
       const drawModelContent = () => {
+        // Determine flip behavior based on section axis
+        // - 'down' (plan view): DON'T flip Y so north (Z+) is up
+        // - 'front' and 'side': flip Y so height (Y+) is up
+        // - 'side': also flip X to look from conventional direction
+        const flipY = sectionAxis !== 'down'; // Only flip Y for front/side views
+        const flipX = sectionAxis === 'side'; // Flip X for side view
+
         // For each polygon/line, transform from model coords to screen coords
         const modelToScreen = (x: number, y: number) => {
-          // Model to sheet mm (note: Y is flipped in sheet space)
-          const sheetX = x * drawingTransform.scaleFactor + drawingTransform.translateX;
-          const sheetY = -y * drawingTransform.scaleFactor + drawingTransform.translateY;
+          // Apply axis-specific flipping
+          const adjustedX = flipX ? -x : x;
+          const adjustedY = flipY ? -y : y;
+          // Model to sheet mm
+          const sheetX = adjustedX * drawingTransform.scaleFactor + drawingTransform.translateX;
+          const sheetY = adjustedY * drawingTransform.scaleFactor + drawingTransform.translateY;
           // Sheet mm to screen
           return { x: mmToScreenX(sheetX), y: mmToScreenY(sheetY) };
         };
@@ -2301,10 +2354,16 @@ function Drawing2DCanvas({
       // NON-SHEET MODE: Original rendering (drawing coords -> screen)
       // ═══════════════════════════════════════════════════════════════════════
 
-      // Apply transform
+      // Apply transform with axis-specific flipping
+      // - 'down' (plan view): DON'T flip Y so north (Z+) is up
+      // - 'front' and 'side': flip Y so height (Y+) is up
+      // - 'side': also flip X to look from conventional direction
+      const scaleX = sectionAxis === 'side' ? -transform.scale : transform.scale;
+      const scaleY = sectionAxis === 'down' ? transform.scale : -transform.scale;
+
       ctx.save();
       ctx.translate(transform.x, transform.y);
-      ctx.scale(transform.scale, -transform.scale); // Flip Y for CAD coordinates
+      ctx.scale(scaleX, scaleY);
 
       // ═══════════════════════════════════════════════════════════════════════
       // 1. FILL CUT POLYGONS (with color from IFC materials, override engine, or type fallback)
@@ -2600,7 +2659,7 @@ function Drawing2DCanvas({
       ctx.arc(screenSnap.x, screenSnap.y, 6, 0, Math.PI * 2);
       ctx.stroke();
     }
-  }, [drawing, transform, showHiddenLines, canvasSize, overrideEngine, overridesEnabled, entityColorMap, useIfcMaterials, measureMode, measureStart, measureCurrent, measureResults, measureSnapPoint, sheetEnabled, activeSheet]);
+  }, [drawing, transform, showHiddenLines, canvasSize, overrideEngine, overridesEnabled, entityColorMap, useIfcMaterials, measureMode, measureStart, measureCurrent, measureResults, measureSnapPoint, sheetEnabled, activeSheet, sectionAxis]);
 
   return (
     <canvas
