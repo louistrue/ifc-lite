@@ -15,6 +15,7 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useViewerStore } from '@/store';
 import { EntityContextMenu } from './EntityContextMenu';
 import { HoverTooltip } from './HoverTooltip';
+import { BCFPanel } from './BCFPanel';
 
 export function ViewerLayout() {
   // Initialize keyboard shortcuts
@@ -29,6 +30,8 @@ export function ViewerLayout() {
   const rightPanelCollapsed = useViewerStore((s) => s.rightPanelCollapsed);
   const setLeftPanelCollapsed = useViewerStore((s) => s.setLeftPanelCollapsed);
   const setRightPanelCollapsed = useViewerStore((s) => s.setRightPanelCollapsed);
+  const bcfPanelVisible = useViewerStore((s) => s.bcfPanelVisible);
+  const setBcfPanelVisible = useViewerStore((s) => s.setBcfPanelVisible);
 
   // Detect mobile viewport
   useEffect(() => {
@@ -189,6 +192,13 @@ export function ViewerLayout() {
 
         {/* Status Bar */}
         <StatusBar />
+
+        {/* BCF Panel - Floating overlay */}
+        {bcfPanelVisible && (
+          <div className="fixed top-12 right-0 bottom-6 w-80 z-50 shadow-xl animate-in slide-in-from-right">
+            <BCFPanel onClose={() => setBcfPanelVisible(false)} />
+          </div>
+        )}
       </div>
     </TooltipProvider>
   );

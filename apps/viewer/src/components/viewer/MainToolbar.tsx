@@ -33,6 +33,7 @@ import {
   SquareX,
   Building2,
   Plus,
+  MessageSquare,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -157,6 +158,8 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const typeVisibility = useViewerStore((state) => state.typeVisibility);
   const toggleTypeVisibility = useViewerStore((state) => state.toggleTypeVisibility);
   const resetViewerState = useViewerStore((state) => state.resetViewerState);
+  const bcfPanelVisible = useViewerStore((state) => state.bcfPanelVisible);
+  const toggleBcfPanel = useViewerStore((state) => state.toggleBcfPanel);
 
   // Check which type geometries exist
   const typeGeometryExists = useMemo(() => {
@@ -514,6 +517,24 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
       {/* Export Changes Button - shows when there are pending mutations */}
       <ExportChangesButton />
+
+      {/* BCF Issues Button */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={bcfPanelVisible ? 'default' : 'ghost'}
+            size="icon-sm"
+            onClick={(e) => {
+              (e.currentTarget as HTMLButtonElement).blur();
+              toggleBcfPanel();
+            }}
+            className={cn(bcfPanelVisible && 'bg-primary text-primary-foreground')}
+          >
+            <MessageSquare className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>BCF Issues</TooltipContent>
+      </Tooltip>
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 
