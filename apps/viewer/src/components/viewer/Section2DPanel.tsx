@@ -885,10 +885,29 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
     if (showHatching && hatchingLines.length > 0) {
       ctx.strokeStyle = '#444444';
       ctx.lineWidth = 0.1 / transform.scale;
+
+      // Use drawing bounds to filter out invalid hatching lines
+      const { bounds } = drawing;
+      const margin = Math.max(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y) * 0.5;
+      const minX = bounds.min.x - margin;
+      const maxX = bounds.max.x + margin;
+      const minY = bounds.min.y - margin;
+      const maxY = bounds.max.y + margin;
+
       for (const line of hatchingLines) {
+        // Skip lines with invalid coordinates (NaN, Infinity, or far outside bounds)
+        const { start, end } = line.line;
+        if (!isFinite(start.x) || !isFinite(start.y) || !isFinite(end.x) || !isFinite(end.y)) {
+          continue;
+        }
+        if (start.x < minX || start.x > maxX || start.y < minY || start.y > maxY ||
+            end.x < minX || end.x > maxX || end.y < minY || end.y > maxY) {
+          continue;
+        }
+
         ctx.beginPath();
-        ctx.moveTo(line.line.start.x, line.line.start.y);
-        ctx.lineTo(line.line.end.x, line.line.end.y);
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
         ctx.stroke();
       }
     }
@@ -924,12 +943,30 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
     // ═══════════════════════════════════════════════════════════════════════
     // 4. DRAW PROJECTION/SILHOUETTE LINES (skip 'cut' - already in polygons)
     // ═══════════════════════════════════════════════════════════════════════
+    // Pre-compute bounds for line validation (reuse from hatching or compute fresh)
+    const lineBounds = drawing.bounds;
+    const lineMargin = Math.max(lineBounds.max.x - lineBounds.min.x, lineBounds.max.y - lineBounds.min.y) * 0.5;
+    const lineMinX = lineBounds.min.x - lineMargin;
+    const lineMaxX = lineBounds.max.x + lineMargin;
+    const lineMinY = lineBounds.min.y - lineMargin;
+    const lineMaxY = lineBounds.max.y + lineMargin;
+
     for (const line of drawing.lines) {
       // Skip 'cut' lines - they're triangulation edges, already handled by polygons
       if (line.category === 'cut') continue;
 
       // Skip hidden lines if not showing
       if (!showHiddenLines && line.visibility === 'hidden') continue;
+
+      // Skip lines with invalid coordinates (NaN, Infinity, or far outside bounds)
+      const { start, end } = line.line;
+      if (!isFinite(start.x) || !isFinite(start.y) || !isFinite(end.x) || !isFinite(end.y)) {
+        continue;
+      }
+      if (start.x < lineMinX || start.x > lineMaxX || start.y < lineMinY || start.y > lineMaxY ||
+          end.x < lineMinX || end.x > lineMaxX || end.y < lineMinY || end.y > lineMaxY) {
+        continue;
+      }
 
       // Set line style based on category
       let strokeColor = '#000000';
