@@ -12,7 +12,7 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react';
-import { X, Download, Eye, EyeOff, Maximize2, ZoomIn, ZoomOut, Loader2, Printer, GripVertical, MoreHorizontal, RefreshCw, Pin, PinOff, Palette, Ruler, Trash2 } from 'lucide-react';
+import { X, Download, Eye, EyeOff, Maximize2, ZoomIn, ZoomOut, Loader2, Printer, GripVertical, MoreHorizontal, RefreshCw, Pin, PinOff, Palette, Ruler, Trash2, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -27,11 +27,18 @@ import {
   Drawing2DGenerator,
   createSectionConfig,
   GraphicOverrideEngine,
+  renderFrame,
+  renderTitleBlock,
+  renderScaleBar,
+  renderNorthArrow,
+  calculateDrawingTransform,
   type Drawing2D,
   type SectionConfig,
   type ElementData,
 } from '@ifc-lite/drawing-2d';
 import { DrawingSettingsPanel } from './DrawingSettingsPanel';
+import { SheetSetupPanel } from './SheetSetupPanel';
+import { TitleBlockEditor } from './TitleBlockEditor';
 
 // Axis conversion from semantic (down/front/side) to geometric (x/y/z)
 const AXIS_MAP: Record<'down' | 'front' | 'side', 'x' | 'y' | 'z'> = {
@@ -104,6 +111,14 @@ export function Section2DPanel(): React.ReactElement | null {
 
   // Settings panel visibility
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
+
+  // Sheet state
+  const activeSheet = useViewerStore((s) => s.activeSheet);
+  const sheetEnabled = useViewerStore((s) => s.sheetEnabled);
+  const sheetPanelVisible = useViewerStore((s) => s.sheetPanelVisible);
+  const setSheetPanelVisible = useViewerStore((s) => s.setSheetPanelVisible);
+  const titleBlockEditorVisible = useViewerStore((s) => s.titleBlockEditorVisible);
+  const setTitleBlockEditorVisible = useViewerStore((s) => s.setTitleBlockEditorVisible);
 
   // 2D Measure tool state
   const measure2DMode = useViewerStore((s) => s.measure2DMode);
@@ -873,18 +888,239 @@ export function Section2DPanel(): React.ReactElement | null {
     return svg;
   }, [drawing, displayOptions, activePresetId, entityColorMap, overridesEnabled, overrideEngine, measure2DResults, formatDistance]);
 
+  // Generate SVG with drawing sheet (frame, title block, scale bar)
+  const generateSheetSVG = useCallback((): string | null => {
+    if (!drawing || !activeSheet) return null;
+
+    const { bounds } = drawing;
+
+    // Sheet dimensions in mm
+    const paperWidth = activeSheet.paper.widthMm;
+    const paperHeight = activeSheet.paper.heightMm;
+    const viewport = activeSheet.viewportBounds;
+
+    // Calculate transform to fit drawing into viewport
+    const drawingTransform = calculateDrawingTransform(
+      { minX: bounds.min.x, minY: bounds.min.y, maxX: bounds.max.x, maxY: bounds.max.y },
+      viewport,
+      activeSheet.scale
+    );
+
+    // Start building SVG (paper coordinates in mm)
+    let svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="${paperWidth}mm"
+     height="${paperHeight}mm"
+     viewBox="0 0 ${paperWidth} ${paperHeight}">
+  <!-- Background -->
+  <rect x="0" y="0" width="${paperWidth}" height="${paperHeight}" fill="#FFFFFF"/>
+
+`;
+
+    // Render frame
+    const frameResult = renderFrame(activeSheet.paper, activeSheet.frame);
+    svg += frameResult.svgElements;
+    svg += '\n';
+
+    // Render title block
+    const titleBlockResult = renderTitleBlock(
+      activeSheet.titleBlock,
+      frameResult.innerBounds,
+      activeSheet.revisions
+    );
+    svg += titleBlockResult.svgElements;
+    svg += '\n';
+
+    // Render scale bar (position in lower left of viewport)
+    if (activeSheet.scaleBar.visible) {
+      const scaleBarPos = {
+        x: viewport.x + 10,
+        y: viewport.y + viewport.height - 15,
+      };
+      svg += renderScaleBar(activeSheet.scaleBar, activeSheet.scale, scaleBarPos);
+      svg += '\n';
+    }
+
+    // Render north arrow (position in upper left of viewport)
+    if (activeSheet.northArrow.style !== 'none') {
+      const northArrowPos = {
+        x: viewport.x + viewport.width - 20,
+        y: viewport.y + 20,
+      };
+      svg += renderNorthArrow(activeSheet.northArrow, northArrowPos);
+      svg += '\n';
+    }
+
+    // Create clipping path for viewport
+    svg += `  <defs>
+    <clipPath id="viewport-clip">
+      <rect x="${viewport.x}" y="${viewport.y}" width="${viewport.width}" height="${viewport.height}"/>
+    </clipPath>
+  </defs>
+`;
+
+    // Drawing content group (transformed to fit viewport)
+    // Transform: translate to viewport center, scale to fit, flip Y
+    const scaleFactor = drawingTransform.scaleFactor;
+    const centerX = viewport.x + viewport.width / 2;
+    const centerY = viewport.y + viewport.height / 2;
+    const drawingCenterX = (bounds.min.x + bounds.max.x) / 2;
+    const drawingCenterY = (bounds.min.y + bounds.max.y) / 2;
+
+    svg += `  <g id="drawing-content" clip-path="url(#viewport-clip)" transform="translate(${centerX}, ${centerY}) scale(${scaleFactor}, ${-scaleFactor}) translate(${-drawingCenterX}, ${-drawingCenterY})">
+`;
+
+    // Helper to escape XML
+    const escapeXml = (str: string): string => {
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+    };
+
+    // Helper to get polygon path
+    const polygonToPath = (polygon: { outer: { x: number; y: number }[]; holes: { x: number; y: number }[][] }): string => {
+      let path = '';
+      if (polygon.outer.length > 0) {
+        path += `M ${polygon.outer[0].x.toFixed(4)} ${polygon.outer[0].y.toFixed(4)}`;
+        for (let i = 1; i < polygon.outer.length; i++) {
+          path += ` L ${polygon.outer[i].x.toFixed(4)} ${polygon.outer[i].y.toFixed(4)}`;
+        }
+        path += ' Z';
+      }
+      for (const hole of polygon.holes) {
+        if (hole.length > 0) {
+          path += ` M ${hole[0].x.toFixed(4)} ${hole[0].y.toFixed(4)}`;
+          for (let i = 1; i < hole.length; i++) {
+            path += ` L ${hole[i].x.toFixed(4)} ${hole[i].y.toFixed(4)}`;
+          }
+          path += ' Z';
+        }
+      }
+      return path;
+    };
+
+    // Convert mm on paper to model units
+    const mmToModel = (mm: number) => mm / scaleFactor;
+
+    // Render polygon fills
+    svg += '    <g id="polygon-fills">\n';
+    for (const polygon of drawing.cutPolygons) {
+      let fillColor = getFillColorForType(polygon.ifcType);
+      let opacity = 1;
+
+      if (activePresetId === 'preset-3d-colors') {
+        const materialColor = entityColorMap.get(polygon.entityId);
+        if (materialColor) {
+          const r = Math.round(materialColor[0] * 255);
+          const g = Math.round(materialColor[1] * 255);
+          const b = Math.round(materialColor[2] * 255);
+          fillColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+          opacity = materialColor[3];
+        }
+      } else if (overridesEnabled) {
+        const elementData: ElementData = {
+          expressId: polygon.entityId,
+          ifcType: polygon.ifcType,
+        };
+        const result = overrideEngine.applyOverrides(elementData);
+        fillColor = result.style.fillColor;
+        opacity = result.style.opacity;
+      }
+
+      const pathData = polygonToPath(polygon.polygon);
+      svg += `      <path d="${pathData}" fill="${fillColor}" fill-opacity="${opacity.toFixed(2)}" fill-rule="evenodd" data-entity-id="${polygon.entityId}" data-ifc-type="${escapeXml(polygon.ifcType)}"/>\n`;
+    }
+    svg += '    </g>\n';
+
+    // Render polygon outlines
+    svg += '    <g id="polygon-outlines">\n';
+    for (const polygon of drawing.cutPolygons) {
+      let strokeColor = '#000000';
+      let lineWeight = 0.5;
+
+      if (overridesEnabled) {
+        const elementData: ElementData = {
+          expressId: polygon.entityId,
+          ifcType: polygon.ifcType,
+        };
+        const result = overrideEngine.applyOverrides(elementData);
+        strokeColor = result.style.strokeColor;
+        lineWeight = result.style.lineWeight;
+      }
+
+      const pathData = polygonToPath(polygon.polygon);
+      const svgLineWeight = mmToModel(lineWeight);
+      svg += `      <path d="${pathData}" fill="none" stroke="${strokeColor}" stroke-width="${svgLineWeight.toFixed(4)}" data-entity-id="${polygon.entityId}"/>\n`;
+    }
+    svg += '    </g>\n';
+
+    // Render drawing lines
+    const lineBounds = drawing.bounds;
+    const lineMargin = Math.max(lineBounds.max.x - lineBounds.min.x, lineBounds.max.y - lineBounds.min.y) * 0.5;
+    const lineMinX = lineBounds.min.x - lineMargin;
+    const lineMaxX = lineBounds.max.x + lineMargin;
+    const lineMinY = lineBounds.min.y - lineMargin;
+    const lineMaxY = lineBounds.max.y + lineMargin;
+
+    svg += '    <g id="drawing-lines">\n';
+    for (const line of drawing.lines) {
+      if (line.category === 'cut') continue;
+      if (!displayOptions.showHiddenLines && line.visibility === 'hidden') continue;
+
+      const { start, end } = line.line;
+      if (!isFinite(start.x) || !isFinite(start.y) || !isFinite(end.x) || !isFinite(end.y)) continue;
+      if (start.x < lineMinX || start.x > lineMaxX || start.y < lineMinY || start.y > lineMaxY ||
+          end.x < lineMinX || end.x > lineMaxX || end.y < lineMinY || end.y > lineMaxY) continue;
+
+      let strokeColor = '#000000';
+      let lineWidth = 0.25;
+      let dashArray = '';
+
+      switch (line.category) {
+        case 'projection': lineWidth = 0.25; break;
+        case 'hidden': lineWidth = 0.18; strokeColor = '#666666'; dashArray = '2 1'; break;
+        case 'silhouette': lineWidth = 0.35; break;
+        case 'crease': lineWidth = 0.18; break;
+        case 'boundary': lineWidth = 0.25; break;
+        case 'annotation': lineWidth = 0.13; break;
+      }
+
+      if (line.visibility === 'hidden') {
+        strokeColor = '#888888';
+        dashArray = '2 1';
+        lineWidth *= 0.7;
+      }
+
+      const svgLineWidth = mmToModel(lineWidth);
+      const dashAttr = dashArray ? ` stroke-dasharray="${dashArray.split(' ').map(d => mmToModel(parseFloat(d)).toFixed(4)).join(' ')}"` : '';
+      svg += `      <line x1="${start.x.toFixed(4)}" y1="${start.y.toFixed(4)}" x2="${end.x.toFixed(4)}" y2="${end.y.toFixed(4)}" stroke="${strokeColor}" stroke-width="${svgLineWidth.toFixed(4)}"${dashAttr}/>\n`;
+    }
+    svg += '    </g>\n';
+
+    svg += '  </g>\n';
+    svg += '</svg>';
+    return svg;
+  }, [drawing, activeSheet, displayOptions, activePresetId, entityColorMap, overridesEnabled, overrideEngine]);
+
   // Export SVG
   const handleExportSVG = useCallback(() => {
-    const svg = generateExportSVG();
+    // Use sheet export if enabled, otherwise raw drawing export
+    const svg = (sheetEnabled && activeSheet) ? generateSheetSVG() : generateExportSVG();
     if (!svg) return;
     const blob = new Blob([svg], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `section-${sectionPlane.axis}-${sectionPlane.position}.svg`;
+    const filename = (sheetEnabled && activeSheet)
+      ? `${activeSheet.name.replace(/\s+/g, '-')}-${sectionPlane.axis}-${sectionPlane.position}.svg`
+      : `section-${sectionPlane.axis}-${sectionPlane.position}.svg`;
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
-  }, [generateExportSVG, sectionPlane]);
+  }, [generateExportSVG, generateSheetSVG, sheetEnabled, activeSheet, sectionPlane]);
 
   // Close panel
   const handleClose = useCallback(() => {
@@ -974,7 +1210,8 @@ export function Section2DPanel(): React.ReactElement | null {
 
   // Print handler
   const handlePrint = useCallback(() => {
-    const svg = generateExportSVG();
+    // Use sheet export if enabled, otherwise raw drawing export
+    const svg = (sheetEnabled && activeSheet) ? generateSheetSVG() : generateExportSVG();
     if (!svg) return;
 
     // Create a new window for printing
@@ -984,15 +1221,19 @@ export function Section2DPanel(): React.ReactElement | null {
       return;
     }
 
+    const title = (sheetEnabled && activeSheet)
+      ? `${activeSheet.name} - ${sectionPlane.axis} at ${sectionPlane.position}%`
+      : `Section Drawing - ${sectionPlane.axis} at ${sectionPlane.position}%`;
+
     // Write print-friendly HTML with the SVG
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Section Drawing - ${sectionPlane.axis} at ${sectionPlane.position}%</title>
+          <title>${title}</title>
           <style>
             @media print {
-              @page { margin: 1cm; }
+              @page { margin: ${(sheetEnabled && activeSheet) ? '0' : '1cm'}; }
               body { margin: 0; }
             }
             body {
@@ -1001,7 +1242,7 @@ export function Section2DPanel(): React.ReactElement | null {
               align-items: center;
               min-height: 100vh;
               margin: 0;
-              padding: 20px;
+              padding: ${(sheetEnabled && activeSheet) ? '0' : '20px'};
               box-sizing: border-box;
             }
             svg {
@@ -1024,7 +1265,7 @@ export function Section2DPanel(): React.ReactElement | null {
       </html>
     `);
     printWindow.document.close();
-  }, [generateExportSVG, sectionPlane]);
+  }, [generateExportSVG, generateSheetSVG, sheetEnabled, activeSheet, sectionPlane]);
 
   // Memoize panel style to avoid creating new object on every render
   const panelStyle = useMemo(() => {
@@ -1096,6 +1337,20 @@ export function Section2DPanel(): React.ReactElement | null {
               >
                 <Palette className="h-4 w-4" />
                 {activePresetId && !settingsPanelOpen && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-primary rounded-full" />
+                )}
+              </Button>
+
+              {/* Drawing Sheet Setup */}
+              <Button
+                variant={sheetPanelVisible || sheetEnabled ? 'default' : 'ghost'}
+                size="icon-sm"
+                onClick={() => setSheetPanelVisible(!sheetPanelVisible)}
+                title="Drawing sheet setup"
+                className="relative"
+              >
+                <FileText className="h-4 w-4" />
+                {sheetEnabled && !sheetPanelVisible && (
                   <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-primary rounded-full" />
                 )}
               </Button>
@@ -1199,6 +1454,10 @@ export function Section2DPanel(): React.ReactElement | null {
                   <DropdownMenuItem onClick={() => setSettingsPanelOpen(true)}>
                     <Palette className="h-4 w-4 mr-2" />
                     Drawing Settings...
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setSheetPanelVisible(true)}>
+                    <FileText className="h-4 w-4 mr-2" />
+                    Sheet Setup {sheetEnabled ? '(On)' : ''}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={zoomIn}>
@@ -1359,6 +1618,22 @@ export function Section2DPanel(): React.ReactElement | null {
           <DrawingSettingsPanel onClose={() => setSettingsPanelOpen(false)} />
         </div>
       )}
+
+      {/* Sheet Setup Panel - slides in from right */}
+      {sheetPanelVisible && (
+        <div className="absolute top-0 right-0 bottom-0 w-72 z-50 shadow-xl">
+          <SheetSetupPanel
+            onClose={() => setSheetPanelVisible(false)}
+            onOpenTitleBlockEditor={() => setTitleBlockEditorVisible(true)}
+          />
+        </div>
+      )}
+
+      {/* Title Block Editor Modal */}
+      <TitleBlockEditor
+        open={titleBlockEditorVisible}
+        onOpenChange={setTitleBlockEditorVisible}
+      />
     </div>
   );
 }

@@ -344,3 +344,82 @@ export type {
   ResolvedGraphicStyle,
   OverrideResult,
 } from './graphic-overrides';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DRAWING SHEETS (Paper, Frames, Title Blocks, Scale Bars)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export {
+  // Paper sizes
+  PAPER_SIZE_REGISTRY,
+  getPaperSizesByCategory,
+  getDefaultPaperSize,
+
+  // Frames
+  FRAME_PRESETS,
+  createFrame,
+  getDefaultFrame,
+
+  // Title blocks
+  DEFAULT_TITLE_BLOCK_FIELDS,
+  TITLE_BLOCK_PRESETS,
+  createTitleBlock,
+  getDefaultTitleBlock,
+  updateTitleBlockField,
+
+  // Scale bar
+  DEFAULT_SCALE_BAR,
+  DEFAULT_NORTH_ARROW,
+  calculateOptimalScaleBarLength,
+  calculateOptimalDivisions,
+
+  // Sheet utilities
+  calculateViewportBounds,
+  calculateDrawingTransform,
+
+  // Sheet renderers
+  renderFrame,
+  renderTitleBlock,
+  renderScaleBar,
+  renderNorthArrow,
+} from './sheet';
+
+export type {
+  // Paper types
+  PaperOrientation,
+  PaperSizeCategory,
+  PaperSizeDefinition,
+
+  // Frame types
+  FrameStyle,
+  FrameBorderConfig,
+  FrameMargins,
+  DrawingFrame,
+
+  // Title block types
+  TitleBlockPosition,
+  TitleBlockLayout,
+  TitleBlockField,
+  TitleBlockLogo,
+  RevisionEntry,
+  TitleBlockConfig,
+
+  // Scale bar types
+  ScaleBarStyle,
+  ScaleBarPosition,
+  ScaleBarUnits,
+  ScaleBarConfig,
+  NorthArrowStyle,
+  NorthArrowConfig,
+
+  // Sheet types
+  ViewportBounds,
+  DrawingSheet,
+  SheetCreationOptions,
+
+  // Renderer types
+  FrameRenderResult,
+  FrameInnerBounds,
+  TitleBlockRenderResult,
+  PositionMm,
+} from './sheet';
