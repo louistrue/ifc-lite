@@ -11,7 +11,7 @@
  * - Export to SVG functionality
  */
 
-import React, { useCallback, useRef, useState, useEffect } from 'react';
+import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react';
 import { X, Download, Eye, EyeOff, Grid3x3, Maximize2, Minimize2, ZoomIn, ZoomOut, Loader2, Printer, GripVertical, MoreHorizontal, RefreshCw, Pin, PinOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -186,13 +186,9 @@ export function Section2DPanel() {
 
       setDrawing(result);
 
-      // Generate hatching if enabled
-      if (displayOptions.showHatching) {
-        const hatches = generator.generateHatching(result);
-        setHatchingLines(hatches);
-      } else {
-        setHatchingLines([]);
-      }
+      // Always generate hatching (cached for toggle responsiveness)
+      const hatches = generator.generateHatching(result);
+      setHatchingLines(hatches);
 
       // Generate SVG content
       const svg = exportToSVG(result, {
@@ -515,12 +511,17 @@ export function Section2DPanel() {
     printWindow.document.close();
   }, [svgContent, sectionPlane]);
 
-  if (!panelVisible) return null;
+  // Memoize panel style to avoid creating new object on every render
+  const panelStyle = useMemo(() => {
+    return isExpanded
+      ? {}  // Expanded uses CSS classes for full sizing
+      : { width: panelSize.width, height: panelSize.height };
+  }, [isExpanded, panelSize.width, panelSize.height]);
 
-  // Panel sizing: small corner overlay, expanded fullscreen, or custom size
-  const panelStyle = isExpanded
-    ? {}  // Expanded uses CSS classes for full sizing
-    : { width: panelSize.width, height: panelSize.height };
+  // Memoize progress bar style
+  const progressBarStyle = useMemo(() => ({ width: `${progress}%` }), [progress]);
+
+  if (!panelVisible) return null;
 
   const panelClasses = isExpanded
     ? 'absolute inset-4 z-40'
@@ -707,7 +708,7 @@ export function Section2DPanel() {
             <div className="w-48 h-2 bg-muted rounded-full mt-2 overflow-hidden">
               <div
                 className="h-full bg-primary transition-all duration-200"
-                style={{ width: `${progress}%` }}
+                style={progressBarStyle}
               />
             </div>
             <div className="text-xs text-muted-foreground mt-1">{Math.round(progress)}%</div>
@@ -789,6 +790,9 @@ export function Section2DPanel() {
 // CANVAS RENDERER
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Static style constant to avoid creating new object on every render
+const CANVAS_STYLE = { imageRendering: 'crisp-edges' as const };
+
 interface Drawing2DCanvasProps {
   drawing: Drawing2D;
   hatchingLines: DrawingLine[];
@@ -799,24 +803,46 @@ interface Drawing2DCanvasProps {
 
 function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, showHatching }: Drawing2DCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
 
+  // ResizeObserver to track canvas size changes
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        setCanvasSize((prev) => {
+          // Only update if size actually changed to avoid render loops
+          if (prev.width !== width || prev.height !== height) {
+            return { width, height };
+          }
+          return prev;
+        });
+      }
+    });
+
+    resizeObserver.observe(canvas);
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || canvasSize.width === 0 || canvasSize.height === 0) return;
+
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Set canvas size
-    const rect = canvas.getBoundingClientRect();
+    // Set canvas size using tracked dimensions
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
+    canvas.width = canvasSize.width * dpr;
+    canvas.height = canvasSize.height * dpr;
     ctx.scale(dpr, dpr);
 
     // Clear
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, rect.width, rect.height);
+    ctx.fillRect(0, 0, canvasSize.width, canvasSize.height);
 
     // Apply transform
     ctx.save();
@@ -958,13 +984,13 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
     }
 
     ctx.restore();
-  }, [drawing, hatchingLines, transform, showHiddenLines, showHatching]);
+  }, [drawing, hatchingLines, transform, showHiddenLines, showHatching, canvasSize]);
 
   return (
     <canvas
       ref={canvasRef}
       className="w-full h-full"
-      style={{ imageRendering: 'crisp-edges' }}
+      style={CANVAS_STYLE}
     />
   );
 }
