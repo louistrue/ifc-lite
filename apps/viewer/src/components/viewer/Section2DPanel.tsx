@@ -12,8 +12,15 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect } from 'react';
-import { X, Download, Eye, EyeOff, Grid3x3, Maximize2, Minimize2, ZoomIn, ZoomOut, Loader2, Printer, GripVertical } from 'lucide-react';
+import { X, Download, Eye, EyeOff, Grid3x3, Maximize2, Minimize2, ZoomIn, ZoomOut, Loader2, Printer, GripVertical, MoreHorizontal, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import {
@@ -105,12 +112,18 @@ export function Section2DPanel() {
   const [viewTransform, setViewTransform] = useState({ x: 0, y: 0, scale: 1 });
   const [isExpanded, setIsExpanded] = useState(false);
   const [panelSize, setPanelSize] = useState({ width: 400, height: 300 });
+  const [isNarrow, setIsNarrow] = useState(false);  // Track if panel is too narrow for all buttons
   const containerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const isPanning = useRef(false);
   const lastPanPoint = useRef({ x: 0, y: 0 });
   const isResizing = useRef<'right' | 'top' | 'corner' | null>(null);
   const resizeStartPos = useRef({ x: 0, y: 0, width: 0, height: 0 });
+
+  // Track panel width for responsive header
+  useEffect(() => {
+    setIsNarrow(panelSize.width < 480);
+  }, [panelSize.width]);
 
   // Store hatching lines separately
   const [hatchingLines, setHatchingLines] = useState<DrawingLine[]>([]);
@@ -470,89 +483,146 @@ export function Section2DPanel() {
       style={panelStyle}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-1.5 border-b bg-muted/50 rounded-t-lg">
-        <div className="flex items-center gap-2">
-          <h2 className="font-semibold text-xs">2D Section</h2>
-          {drawing && isExpanded && (
-            <span className="text-xs text-muted-foreground">
-              {drawing.cutPolygons.length} polygons
-            </span>
+      <div className="flex items-center justify-between px-3 py-1.5 border-b bg-muted/50 rounded-t-lg min-w-0">
+        <h2 className="font-semibold text-xs shrink-0">2D Section</h2>
+
+        <div className="flex items-center gap-1 min-w-0">
+          {/* When panel is wide enough, show all buttons */}
+          {!isNarrow && (
+            <>
+              {/* Display toggles */}
+              <Button
+                variant={displayOptions.show3DOverlay ? 'default' : 'ghost'}
+                size="icon-sm"
+                onClick={toggle3DOverlay}
+                title="Toggle 3D overlay"
+              >
+                {displayOptions.show3DOverlay ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+              </Button>
+              <Button
+                variant={displayOptions.showHatching ? 'default' : 'ghost'}
+                size="icon-sm"
+                onClick={toggleHatching}
+                title="Toggle hatching"
+              >
+                <Grid3x3 className="h-4 w-4" />
+              </Button>
+
+              <div className="w-px h-4 bg-border mx-1" />
+
+              {/* Zoom controls */}
+              <Button variant="ghost" size="icon-sm" onClick={zoomOut} title="Zoom out">
+                <ZoomOut className="h-4 w-4" />
+              </Button>
+              <span className="text-xs font-mono w-10 text-center">
+                {Math.round(viewTransform.scale * 100)}%
+              </span>
+              <Button variant="ghost" size="icon-sm" onClick={zoomIn} title="Zoom in">
+                <ZoomIn className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="icon-sm" onClick={fitToView} title="Fit to view">
+                <Maximize2 className="h-4 w-4" />
+              </Button>
+
+              <div className="w-px h-4 bg-border mx-1" />
+
+              {/* Export/Print */}
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={handleExportSVG}
+                disabled={!svgContent}
+                title="Download SVG"
+              >
+                <Download className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={handlePrint}
+                disabled={!svgContent}
+                title="Print"
+              >
+                <Printer className="h-4 w-4" />
+              </Button>
+
+              <div className="w-px h-4 bg-border mx-1" />
+
+              {/* Regenerate */}
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={generateDrawing}
+                disabled={status === 'generating'}
+                title="Regenerate"
+              >
+                {status === 'generating' ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+              </Button>
+            </>
           )}
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Display toggles */}
-          <Button
-            variant={displayOptions.show3DOverlay ? 'default' : 'ghost'}
-            size="icon-sm"
-            onClick={toggle3DOverlay}
-            title="Toggle 3D overlay"
-          >
-            {displayOptions.show3DOverlay ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-          </Button>
-          <Button
-            variant={displayOptions.showHatching ? 'default' : 'ghost'}
-            size="icon-sm"
-            onClick={toggleHatching}
-            title="Toggle hatching"
-          >
-            <Grid3x3 className="h-4 w-4" />
-          </Button>
 
-          <div className="w-px h-4 bg-border mx-1" />
+          {/* When narrow, show minimal controls + dropdown menu */}
+          {isNarrow && (
+            <>
+              {/* Essential zoom controls */}
+              <Button variant="ghost" size="icon-sm" onClick={fitToView} title="Fit to view">
+                <Maximize2 className="h-4 w-4" />
+              </Button>
 
-          {/* Zoom controls */}
-          <Button variant="ghost" size="icon-sm" onClick={zoomOut} title="Zoom out">
-            <ZoomOut className="h-4 w-4" />
-          </Button>
-          <span className="text-xs font-mono w-12 text-center">
-            {Math.round(viewTransform.scale * 100)}%
-          </span>
-          <Button variant="ghost" size="icon-sm" onClick={zoomIn} title="Zoom in">
-            <ZoomIn className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="icon-sm" onClick={fitToView} title="Fit to view">
-            <Maximize2 className="h-4 w-4" />
-          </Button>
+              {/* Overflow menu */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" title="More options">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onClick={toggle3DOverlay}>
+                    {displayOptions.show3DOverlay ? <Eye className="h-4 w-4 mr-2" /> : <EyeOff className="h-4 w-4 mr-2" />}
+                    3D Overlay {displayOptions.show3DOverlay ? 'On' : 'Off'}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={toggleHatching}>
+                    <Grid3x3 className="h-4 w-4 mr-2" />
+                    Hatching {displayOptions.showHatching ? 'On' : 'Off'}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={zoomIn}>
+                    <ZoomIn className="h-4 w-4 mr-2" />
+                    Zoom In
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={zoomOut}>
+                    <ZoomOut className="h-4 w-4 mr-2" />
+                    Zoom Out
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleExportSVG} disabled={!svgContent}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Download SVG
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handlePrint} disabled={!svgContent}>
+                    <Printer className="h-4 w-4 mr-2" />
+                    Print
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={generateDrawing} disabled={status === 'generating'}>
+                    {status === 'generating' ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                    )}
+                    Regenerate
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
+          )}
 
-          <div className="w-px h-4 bg-border mx-1" />
-
-          {/* Export */}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={handleExportSVG}
-            disabled={!svgContent}
-            title="Download SVG"
-          >
-            <Download className="h-4 w-4" />
-          </Button>
-
-          {/* Print */}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={handlePrint}
-            disabled={!svgContent}
-            title="Print"
-          >
-            <Printer className="h-4 w-4" />
-          </Button>
-
-          {/* Regenerate */}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={generateDrawing}
-            disabled={status === 'generating'}
-          >
-            {status === 'generating' ? (
-              <Loader2 className="h-4 w-4 animate-spin mr-1" />
-            ) : null}
-            Regenerate
-          </Button>
-
-          {/* Close */}
-          <Button variant="ghost" size="icon-sm" onClick={handleClose}>
+          {/* Close button always visible */}
+          <Button variant="ghost" size="icon-sm" onClick={handleClose} title="Close">
             <X className="h-4 w-4" />
           </Button>
         </div>
