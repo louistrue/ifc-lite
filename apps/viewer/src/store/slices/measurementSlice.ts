@@ -14,6 +14,7 @@ import type {
   ActiveMeasurement,
   EdgeLockState,
   SnapVisualization,
+  MeasurementConstraintEdge,
 } from '../types.js';
 import { EDGE_LOCK_DEFAULTS } from '../constants.js';
 
@@ -29,6 +30,8 @@ export interface MeasurementSlice {
   snapEnabled: boolean;
   snapVisualization: SnapVisualization | null;
   edgeLockState: EdgeLockState;
+  /** Edge constraint for perpendicular measurements (when shift is held) */
+  measurementConstraintEdge: MeasurementConstraintEdge | null;
 
   // Legacy measurement actions
   addMeasurePoint: (point: MeasurePoint) => void;
@@ -55,6 +58,10 @@ export interface MeasurementSlice {
   updateEdgeLockPosition: (edgeT: number, isCorner: boolean, cornerValence: number) => void;
   clearEdgeLock: () => void;
   incrementEdgeLockStrength: () => void;
+
+  // Perpendicular constraint actions (shift+drag)
+  setMeasurementConstraintEdge: (edge: MeasurementConstraintEdge | null) => void;
+  clearMeasurementConstraintEdge: () => void;
 }
 
 const getDefaultEdgeLockState = (): EdgeLockState => ({
@@ -75,6 +82,7 @@ export const createMeasurementSlice: StateCreator<MeasurementSlice, [], [], Meas
   snapEnabled: true,
   snapVisualization: null,
   edgeLockState: getDefaultEdgeLockState(),
+  measurementConstraintEdge: null,
 
   // Legacy measurement actions
   addMeasurePoint: (point) => set({ pendingMeasurePoint: point }),
@@ -141,12 +149,14 @@ export const createMeasurementSlice: StateCreator<MeasurementSlice, [], [], Meas
       measurements: [...state.measurements, measurement],
       activeMeasurement: null,
       snapTarget: null,
+      measurementConstraintEdge: null,
     };
   }),
 
   cancelMeasurement: () => set({
     activeMeasurement: null,
     snapTarget: null,
+    measurementConstraintEdge: null,
   }),
 
   deleteMeasurement: (id) => set((state) => ({
@@ -265,4 +275,8 @@ export const createMeasurementSlice: StateCreator<MeasurementSlice, [], [], Meas
       ),
     },
   })),
+
+  // Perpendicular constraint actions
+  setMeasurementConstraintEdge: (edge) => set({ measurementConstraintEdge: edge }),
+  clearMeasurementConstraintEdge: () => set({ measurementConstraintEdge: null }),
 });

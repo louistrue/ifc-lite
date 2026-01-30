@@ -142,6 +142,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     updateEdgeLockPosition,
     clearEdgeLock,
     incrementEdgeLockStrength,
+    measurementConstraintEdge,
+    setMeasurementConstraintEdge,
   } = useMeasurementState();
 
   // Color update state
@@ -255,6 +257,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   const activeMeasurementRef = useRef(activeMeasurement);
   const snapEnabledRef = useRef(snapEnabled);
   const edgeLockStateRef = useRef(edgeLockState);
+  const measurementConstraintEdgeRef = useRef(measurementConstraintEdge);
   const sectionPlaneRef = useRef(sectionPlane);
   const sectionRangeRef = useRef<{ min: number; max: number } | null>(null);
   const geometryRef = useRef<MeshData[] | null>(geometry);
@@ -298,6 +301,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   useEffect(() => { activeMeasurementRef.current = activeMeasurement; }, [activeMeasurement]);
   useEffect(() => { snapEnabledRef.current = snapEnabled; }, [snapEnabled]);
   useEffect(() => { edgeLockStateRef.current = edgeLockState; }, [edgeLockState]);
+  useEffect(() => { measurementConstraintEdgeRef.current = measurementConstraintEdge; }, [measurementConstraintEdge]);
   useEffect(() => { sectionPlaneRef.current = sectionPlane; }, [sectionPlane]);
   useEffect(() => { sectionRangeRef.current = sectionRange; }, [sectionRange]);
   useEffect(() => {
@@ -759,6 +763,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
                   // Clear stale lock when release is signaled
                   clearEdgeLock();
                   updateSnapVisualization(result.snapTarget || null);
+                  // Clear constraint edge when not on an edge
+                  setMeasurementConstraintEdge(null);
                 } else if (result.edgeLock.shouldLock && result.edgeLock.edge) {
                   setEdgeLock(result.edgeLock.edge, result.edgeLock.meshExpressId, result.edgeLock.edgeT);
                   updateSnapVisualization(result.snapTarget, {
@@ -766,8 +772,23 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
                     isCorner: result.edgeLock.isCorner,
                     cornerValence: result.edgeLock.cornerValence,
                   });
+                  // Save edge for perpendicular constraint (shift+drag)
+                  const edge = result.edgeLock.edge;
+                  const dx = edge.v1.x - edge.v0.x;
+                  const dy = edge.v1.y - edge.v0.y;
+                  const dz = edge.v1.z - edge.v0.z;
+                  const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                  if (len > 0.0001) {
+                    setMeasurementConstraintEdge({
+                      direction: { x: dx / len, y: dy / len, z: dz / len },
+                      v0: edge.v0,
+                      v1: edge.v1,
+                    });
+                  }
                 } else {
                   updateSnapVisualization(result.snapTarget);
+                  // Clear constraint edge when not on an edge
+                  setMeasurementConstraintEdge(null);
                 }
               }
             }
@@ -789,70 +810,88 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         // Handle measure tool live preview while dragging
         // IMPORTANT: Check tool first, not activeMeasurement, to prevent orbit conflict
         if (tool === 'measure' && mouseState.isDragging) {
-          // Shift+drag: allow orbit instead of measurement
-          if (e.shiftKey) {
-            // Cancel any active measurement and allow orbit
-            if (activeMeasurementRef.current) {
-              cancelMeasurement();
-            }
-            // Fall through to orbit handling below
-          } else {
-            // Normal measure tool drag
-            // Only raycast if we have an active measurement
-            if (!activeMeasurementRef.current) {
-              // Just started dragging, measurement will be set soon
-              // Don't do anything yet to avoid race condition
-              return;
-            }
+          // Only raycast if we have an active measurement
+          if (!activeMeasurementRef.current) {
+            // Just started dragging, measurement will be set soon
+            // Don't do anything yet to avoid race condition
+            return;
+          }
 
-            // Throttle raycasting to 60fps max using requestAnimationFrame
-            if (!measureRaycastPendingRef.current) {
-              measureRaycastPendingRef.current = true;
+          // Check if shift is held for perpendicular constraint
+          const usePerpendicularConstraint = e.shiftKey && measurementConstraintEdgeRef.current;
 
-              measureRaycastFrameRef.current = requestAnimationFrame(() => {
-                measureRaycastPendingRef.current = false;
-                measureRaycastFrameRef.current = null;
+          // Throttle raycasting to 60fps max using requestAnimationFrame
+          if (!measureRaycastPendingRef.current) {
+            measureRaycastPendingRef.current = true;
 
-                // Use magnetic snap for edge sliding behavior
-                const currentLock = edgeLockStateRef.current;
-                const result = renderer.raycastSceneMagnetic(x, y, {
-                  edge: currentLock.edge,
-                  meshExpressId: currentLock.meshExpressId,
-                  lockStrength: currentLock.lockStrength,
-                }, {
-                  hiddenIds: hiddenEntitiesRef.current,
-                  isolatedIds: isolatedEntitiesRef.current,
-                  snapOptions: snapEnabledRef.current ? {
-                    snapToVertices: true,
-                    snapToEdges: true,
-                    snapToFaces: true,
-                    screenSnapRadius: 60,
-                  } : {
-                    snapToVertices: false,
-                    snapToEdges: false,
-                    snapToFaces: false,
-                    screenSnapRadius: 0,
-                  },
-                });
+            measureRaycastFrameRef.current = requestAnimationFrame(() => {
+              measureRaycastPendingRef.current = false;
+              measureRaycastFrameRef.current = null;
 
-                if (result.intersection || result.snapTarget) {
-                  const snapPoint = result.snapTarget || result.intersection;
-                  const pos = snapPoint ? ('position' in snapPoint ? snapPoint.position : snapPoint.point) : null;
+              // Use magnetic snap for edge sliding behavior
+              const currentLock = edgeLockStateRef.current;
+              const result = renderer.raycastSceneMagnetic(x, y, {
+                edge: currentLock.edge,
+                meshExpressId: currentLock.meshExpressId,
+                lockStrength: currentLock.lockStrength,
+              }, {
+                hiddenIds: hiddenEntitiesRef.current,
+                isolatedIds: isolatedEntitiesRef.current,
+                snapOptions: snapEnabledRef.current ? {
+                  snapToVertices: true,
+                  snapToEdges: true,
+                  snapToFaces: true,
+                  screenSnapRadius: 60,
+                } : {
+                  snapToVertices: false,
+                  snapToEdges: false,
+                  snapToFaces: false,
+                  screenSnapRadius: 0,
+                },
+              });
 
-                  if (pos) {
-                    // Project snapped 3D position to screen - indicator position, not raw cursor
-                    const screenPos = camera.projectToScreen(pos, canvas.width, canvas.height);
-                    const measurePoint: MeasurePoint = {
-                      x: pos.x,
-                      y: pos.y,
-                      z: pos.z,
-                      screenX: screenPos?.x ?? x,
-                      screenY: screenPos?.y ?? y,
+              if (result.intersection || result.snapTarget) {
+                const snapPoint = result.snapTarget || result.intersection;
+                let pos = snapPoint ? ('position' in snapPoint ? snapPoint.position : snapPoint.point) : null;
+
+                if (pos) {
+                  // Apply perpendicular constraint if shift is held and we have a constraint edge
+                  if (usePerpendicularConstraint && activeMeasurementRef.current) {
+                    const constraint = measurementConstraintEdgeRef.current!;
+                    const start = activeMeasurementRef.current.start;
+                    const d = constraint.direction;
+
+                    // Vector from start to cursor position
+                    const dx = pos.x - start.x;
+                    const dy = pos.y - start.y;
+                    const dz = pos.z - start.z;
+
+                    // Project onto edge direction (dot product)
+                    const dotProduct = dx * d.x + dy * d.y + dz * d.z;
+
+                    // Remove the component along the edge direction (perpendicular projection)
+                    pos = {
+                      x: start.x + dx - dotProduct * d.x,
+                      y: start.y + dy - dotProduct * d.y,
+                      z: start.z + dz - dotProduct * d.z,
                     };
+                  }
 
-                    updateMeasurement(measurePoint);
-                    setSnapTarget(result.snapTarget || null);
+                  // Project snapped 3D position to screen - indicator position, not raw cursor
+                  const screenPos = camera.projectToScreen(pos, canvas.width, canvas.height);
+                  const measurePoint: MeasurePoint = {
+                    x: pos.x,
+                    y: pos.y,
+                    z: pos.z,
+                    screenX: screenPos?.x ?? x,
+                    screenY: screenPos?.y ?? y,
+                  };
 
+                  updateMeasurement(measurePoint);
+                  setSnapTarget(usePerpendicularConstraint ? null : (result.snapTarget || null));
+
+                  // Only update edge lock state when not in perpendicular constraint mode
+                  if (!usePerpendicularConstraint) {
                     // Update edge lock state
                     if (result.edgeLock.shouldRelease) {
                       // Clear stale lock when release is signaled
@@ -897,15 +936,18 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
                     } else {
                       updateSnapVisualization(result.snapTarget || null);
                     }
+                  } else {
+                    // Clear snap visualization when in perpendicular constraint mode
+                    updateSnapVisualization(null);
                   }
                 }
-              });
-            }
-
-            // Mark as dragged (any movement counts for measure tool)
-            mouseState.didDrag = true;
-            return;
+              }
+            });
           }
+
+          // Mark as dragged (any movement counts for measure tool)
+          mouseState.didDrag = true;
+          return;
         }
 
         // Handle measure tool hover preview (BEFORE dragging starts)

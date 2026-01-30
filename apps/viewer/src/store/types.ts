@@ -32,6 +32,15 @@ export interface ActiveMeasurement {
   distance: number;
 }
 
+/** Edge constraint for perpendicular measurements (shift+drag) */
+export interface MeasurementConstraintEdge {
+  /** Edge direction vector (normalized) */
+  direction: { x: number; y: number; z: number };
+  /** Original edge vertices for reference */
+  v0: { x: number; y: number; z: number };
+  v1: { x: number; y: number; z: number };
+}
+
 // ============================================================================
 // Edge Lock Types (Magnetic Snapping)
 // ============================================================================
