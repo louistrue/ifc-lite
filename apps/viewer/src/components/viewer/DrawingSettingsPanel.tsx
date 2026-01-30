@@ -12,7 +12,7 @@
  */
 
 import React, { useCallback, useState, useMemo } from 'react';
-import { X, Palette, Plus, Trash2, ChevronDown, ChevronRight, GripVertical, Eye, EyeOff, Check } from 'lucide-react';
+import { X, Palette, Plus, Trash2, ChevronDown, ChevronRight, GripVertical, Eye, EyeOff, Check, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -116,6 +116,25 @@ export function DrawingSettingsPanel({ onClose }: DrawingSettingsPanelProps) {
     setEditingRuleId(newRule.id);
   }, [customOverrideRules.length, addCustomRule]);
 
+  // Copy preset rules to custom rules for editing
+  const handleCopyPresetToCustom = useCallback(() => {
+    if (!activePreset) return;
+
+    // Copy each rule from preset to custom with new IDs
+    for (const rule of activePreset.rules) {
+      const newRule: GraphicOverrideRule = {
+        ...rule,
+        id: `custom-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        priority: customOverrideRules.length + 100,
+      };
+      addCustomRule(newRule);
+    }
+
+    // Clear preset selection and expand custom rules
+    setActivePreset(null);
+    setCustomRulesOpen(true);
+  }, [activePreset, customOverrideRules.length, addCustomRule, setActivePreset]);
+
   return (
     <div className="flex flex-col h-full bg-background border-l">
       {/* Header */}
@@ -201,13 +220,23 @@ export function DrawingSettingsPanel({ onClose }: DrawingSettingsPanelProps) {
           </CollapsibleContent>
         </Collapsible>
 
-        {/* Active Preset Rules (read-only) */}
-        {activePreset && (
+        {/* Active Preset Rules (read-only with edit option) */}
+        {activePreset && activePreset.rules.length > 0 && (
           <div className="border-t">
-            <div className="px-4 py-2">
+            <div className="px-4 py-2 flex items-center justify-between">
               <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                 {activePreset.name} Rules
               </h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs"
+                onClick={handleCopyPresetToCustom}
+                title="Copy rules to custom for editing"
+              >
+                <Copy className="h-3 w-3 mr-1" />
+                Edit as Custom
+              </Button>
             </div>
             <div className="px-4 pb-4 space-y-1">
               {activePreset.rules.map((rule) => (
@@ -464,24 +493,47 @@ function CustomRuleItem({
         </div>
       </div>
 
-      {/* Line Weight */}
+      {/* Line Weight - preset or custom mm value */}
       <div>
         <Label className="text-xs">Line Weight</Label>
-        <Select
-          value={typeof rule.style.lineWeight === 'string' ? rule.style.lineWeight : 'medium'}
-          onValueChange={(v) => handleStyleChange('lineWeight', v)}
-        >
-          <SelectTrigger className="h-8 text-sm mt-1">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {LINE_WEIGHTS.map((w) => (
-              <SelectItem key={w.value} value={w.value}>
-                {w.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex gap-2 mt-1">
+          <Select
+            value={typeof rule.style.lineWeight === 'string' ? rule.style.lineWeight : 'custom'}
+            onValueChange={(v) => {
+              if (v === 'custom') {
+                handleStyleChange('lineWeight', 0.35); // Default to 0.35mm
+              } else {
+                handleStyleChange('lineWeight', v);
+              }
+            }}
+          >
+            <SelectTrigger className="h-8 text-sm flex-1">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {LINE_WEIGHTS.map((w) => (
+                <SelectItem key={w.value} value={w.value}>
+                  {w.label}
+                </SelectItem>
+              ))}
+              <SelectItem value="custom">Custom...</SelectItem>
+            </SelectContent>
+          </Select>
+          {typeof rule.style.lineWeight === 'number' && (
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                min={0.05}
+                max={2}
+                step={0.05}
+                value={rule.style.lineWeight}
+                onChange={(e) => handleStyleChange('lineWeight', parseFloat(e.target.value) || 0.35)}
+                className="h-8 w-16 text-xs"
+              />
+              <span className="text-xs text-muted-foreground">mm</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Hatch Pattern */}
@@ -503,6 +555,52 @@ function CustomRuleItem({
           </SelectContent>
         </Select>
       </div>
+
+      {/* Hatch settings - show when pattern selected */}
+      {rule.style.hatchPattern && rule.style.hatchPattern !== 'none' && rule.style.hatchPattern !== 'solid' && (
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <Label className="text-xs">Hatch Spacing (mm)</Label>
+            <Input
+              type="number"
+              min={0.5}
+              max={10}
+              step={0.5}
+              value={rule.style.hatchSpacing || 3}
+              onChange={(e) => handleStyleChange('hatchSpacing', parseFloat(e.target.value) || 3)}
+              className="h-8 text-xs mt-1"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Hatch Angle</Label>
+            <Input
+              type="number"
+              min={0}
+              max={180}
+              step={15}
+              value={rule.style.hatchAngle || 45}
+              onChange={(e) => handleStyleChange('hatchAngle', parseFloat(e.target.value) || 45)}
+              className="h-8 text-xs mt-1"
+            />
+          </div>
+          <div className="col-span-2">
+            <Label className="text-xs">Hatch Color</Label>
+            <div className="flex gap-1 mt-1">
+              <input
+                type="color"
+                value={rule.style.hatchColor || '#444444'}
+                onChange={(e) => handleStyleChange('hatchColor', e.target.value)}
+                className="w-8 h-8 rounded border cursor-pointer"
+              />
+              <Input
+                value={rule.style.hatchColor || '#444444'}
+                onChange={(e) => handleStyleChange('hatchColor', e.target.value)}
+                className="h-8 text-xs font-mono flex-1"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Actions */}
       <div className="flex items-center justify-between pt-2 border-t">
