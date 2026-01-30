@@ -32,13 +32,32 @@ export interface ActiveMeasurement {
   distance: number;
 }
 
-/** Edge constraint for perpendicular measurements (shift+drag) */
+/** Orthogonal constraint axis type */
+export type OrthogonalAxis = 'edge' | 'perpendicular' | 'vertical';
+
+/** Vec3 type for constraint calculations */
+export interface Vec3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** Edge constraint for orthogonal measurements (shift+drag) */
 export interface MeasurementConstraintEdge {
-  /** Edge direction vector (normalized) */
-  direction: { x: number; y: number; z: number };
+  /** Three orthogonal axes for constraint snapping */
+  axes: {
+    /** Along the edge direction */
+    edge: Vec3;
+    /** Perpendicular to edge in horizontal plane */
+    perpendicular: Vec3;
+    /** Vertical (world Y-up) */
+    vertical: Vec3;
+  };
+  /** Currently active constraint axis (computed from cursor direction) */
+  activeAxis: OrthogonalAxis | null;
   /** Original edge vertices for reference */
-  v0: { x: number; y: number; z: number };
-  v1: { x: number; y: number; z: number };
+  v0: Vec3;
+  v1: Vec3;
 }
 
 // ============================================================================

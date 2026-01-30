@@ -87,9 +87,10 @@ export function useMeasurementState() {
   const clearEdgeLock = useViewerStore((state) => state.clearEdgeLock);
   const incrementEdgeLockStrength = useViewerStore((state) => state.incrementEdgeLockStrength);
 
-  // Perpendicular constraint for shift+drag measurements
+  // Orthogonal constraint for shift+drag measurements
   const measurementConstraintEdge = useViewerStore((state) => state.measurementConstraintEdge);
   const setMeasurementConstraintEdge = useViewerStore((state) => state.setMeasurementConstraintEdge);
+  const updateConstraintActiveAxis = useViewerStore((state) => state.updateConstraintActiveAxis);
   const clearMeasurementConstraintEdge = useViewerStore((state) => state.clearMeasurementConstraintEdge);
 
   return {
@@ -116,6 +117,7 @@ export function useMeasurementState() {
     clearEdgeLock,
     incrementEdgeLockStrength,
     setMeasurementConstraintEdge,
+    updateConstraintActiveAxis,
     clearMeasurementConstraintEdge,
   };
 }

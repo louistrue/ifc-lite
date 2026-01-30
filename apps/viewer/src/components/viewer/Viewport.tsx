@@ -144,6 +144,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     incrementEdgeLockStrength,
     measurementConstraintEdge,
     setMeasurementConstraintEdge,
+    updateConstraintActiveAxis,
   } = useMeasurementState();
 
   // Color update state
@@ -772,15 +773,46 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
                     isCorner: result.edgeLock.isCorner,
                     cornerValence: result.edgeLock.cornerValence,
                   });
-                  // Save edge for perpendicular constraint (shift+drag)
+                  // Save edge for orthogonal constraint (shift+drag)
                   const edge = result.edgeLock.edge;
                   const dx = edge.v1.x - edge.v0.x;
                   const dy = edge.v1.y - edge.v0.y;
                   const dz = edge.v1.z - edge.v0.z;
                   const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
                   if (len > 0.0001) {
+                    // Edge direction (normalized)
+                    const edgeDir = { x: dx / len, y: dy / len, z: dz / len };
+
+                    // Vertical axis (world Y-up)
+                    const verticalDir = { x: 0, y: 1, z: 0 };
+
+                    // Perpendicular axis: cross product of edge with vertical
+                    // If edge is nearly vertical, use world X instead
+                    let perpX = edgeDir.y * verticalDir.z - edgeDir.z * verticalDir.y;
+                    let perpY = edgeDir.z * verticalDir.x - edgeDir.x * verticalDir.z;
+                    let perpZ = edgeDir.x * verticalDir.y - edgeDir.y * verticalDir.x;
+                    let perpLen = Math.sqrt(perpX * perpX + perpY * perpY + perpZ * perpZ);
+
+                    // If edge is nearly vertical (perpLen close to 0), use world X as reference
+                    if (perpLen < 0.1) {
+                      const worldX = { x: 1, y: 0, z: 0 };
+                      perpX = edgeDir.y * worldX.z - edgeDir.z * worldX.y;
+                      perpY = edgeDir.z * worldX.x - edgeDir.x * worldX.z;
+                      perpZ = edgeDir.x * worldX.y - edgeDir.y * worldX.x;
+                      perpLen = Math.sqrt(perpX * perpX + perpY * perpY + perpZ * perpZ);
+                    }
+
+                    const perpDir = perpLen > 0.0001
+                      ? { x: perpX / perpLen, y: perpY / perpLen, z: perpZ / perpLen }
+                      : { x: 1, y: 0, z: 0 }; // Fallback
+
                     setMeasurementConstraintEdge({
-                      direction: { x: dx / len, y: dy / len, z: dz / len },
+                      axes: {
+                        edge: edgeDir,
+                        perpendicular: perpDir,
+                        vertical: verticalDir,
+                      },
+                      activeAxis: null,
                       v0: edge.v0,
                       v1: edge.v1,
                     });
@@ -817,8 +849,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
             return;
           }
 
-          // Check if shift is held for perpendicular constraint
-          const usePerpendicularConstraint = e.shiftKey && measurementConstraintEdgeRef.current;
+          // Check if shift is held for orthogonal constraint
+          const useOrthogonalConstraint = e.shiftKey && measurementConstraintEdgeRef.current;
 
           // Throttle raycasting to 60fps max using requestAnimationFrame
           if (!measureRaycastPendingRef.current) {
@@ -855,26 +887,57 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
                 let pos = snapPoint ? ('position' in snapPoint ? snapPoint.position : snapPoint.point) : null;
 
                 if (pos) {
-                  // Apply perpendicular constraint if shift is held and we have a constraint edge
-                  if (usePerpendicularConstraint && activeMeasurementRef.current) {
+                  // Apply orthogonal constraint if shift is held and we have a constraint edge
+                  if (useOrthogonalConstraint && activeMeasurementRef.current) {
                     const constraint = measurementConstraintEdgeRef.current!;
                     const start = activeMeasurementRef.current.start;
-                    const d = constraint.direction;
 
                     // Vector from start to cursor position
                     const dx = pos.x - start.x;
                     const dy = pos.y - start.y;
                     const dz = pos.z - start.z;
 
-                    // Project onto edge direction (dot product)
-                    const dotProduct = dx * d.x + dy * d.y + dz * d.z;
+                    // Calculate dot product with each orthogonal axis
+                    const { edge, perpendicular, vertical } = constraint.axes;
+                    const dotEdge = dx * edge.x + dy * edge.y + dz * edge.z;
+                    const dotPerp = dx * perpendicular.x + dy * perpendicular.y + dz * perpendicular.z;
+                    const dotVert = dx * vertical.x + dy * vertical.y + dz * vertical.z;
 
-                    // Remove the component along the edge direction (perpendicular projection)
+                    // Find the axis with the largest absolute dot product (closest to cursor direction)
+                    const absDotEdge = Math.abs(dotEdge);
+                    const absDotPerp = Math.abs(dotPerp);
+                    const absDotVert = Math.abs(dotVert);
+
+                    let activeAxis: 'edge' | 'perpendicular' | 'vertical';
+                    let chosenDot: number;
+                    let chosenDir: { x: number; y: number; z: number };
+
+                    if (absDotEdge >= absDotPerp && absDotEdge >= absDotVert) {
+                      activeAxis = 'edge';
+                      chosenDot = dotEdge;
+                      chosenDir = edge;
+                    } else if (absDotPerp >= absDotVert) {
+                      activeAxis = 'perpendicular';
+                      chosenDot = dotPerp;
+                      chosenDir = perpendicular;
+                    } else {
+                      activeAxis = 'vertical';
+                      chosenDot = dotVert;
+                      chosenDir = vertical;
+                    }
+
+                    // Project cursor position onto the chosen axis
                     pos = {
-                      x: start.x + dx - dotProduct * d.x,
-                      y: start.y + dy - dotProduct * d.y,
-                      z: start.z + dz - dotProduct * d.z,
+                      x: start.x + chosenDot * chosenDir.x,
+                      y: start.y + chosenDot * chosenDir.y,
+                      z: start.z + chosenDot * chosenDir.z,
                     };
+
+                    // Update active axis for visualization
+                    updateConstraintActiveAxis(activeAxis);
+                  } else if (!useOrthogonalConstraint && measurementConstraintEdgeRef.current?.activeAxis) {
+                    // Clear active axis when shift is released
+                    updateConstraintActiveAxis(null);
                   }
 
                   // Project snapped 3D position to screen - indicator position, not raw cursor
@@ -888,10 +951,10 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
                   };
 
                   updateMeasurement(measurePoint);
-                  setSnapTarget(usePerpendicularConstraint ? null : (result.snapTarget || null));
+                  setSnapTarget(useOrthogonalConstraint ? null : (result.snapTarget || null));
 
                   // Only update edge lock state when not in perpendicular constraint mode
-                  if (!usePerpendicularConstraint) {
+                  if (!useOrthogonalConstraint) {
                     // Update edge lock state
                     if (result.edgeLock.shouldRelease) {
                       // Clear stale lock when release is signaled

@@ -15,6 +15,7 @@ import type {
   EdgeLockState,
   SnapVisualization,
   MeasurementConstraintEdge,
+  OrthogonalAxis,
 } from '../types.js';
 import { EDGE_LOCK_DEFAULTS } from '../constants.js';
 
@@ -59,8 +60,9 @@ export interface MeasurementSlice {
   clearEdgeLock: () => void;
   incrementEdgeLockStrength: () => void;
 
-  // Perpendicular constraint actions (shift+drag)
+  // Orthogonal constraint actions (shift+drag)
   setMeasurementConstraintEdge: (edge: MeasurementConstraintEdge | null) => void;
+  updateConstraintActiveAxis: (axis: OrthogonalAxis | null) => void;
   clearMeasurementConstraintEdge: () => void;
 }
 
@@ -276,7 +278,16 @@ export const createMeasurementSlice: StateCreator<MeasurementSlice, [], [], Meas
     },
   })),
 
-  // Perpendicular constraint actions
+  // Orthogonal constraint actions
   setMeasurementConstraintEdge: (edge) => set({ measurementConstraintEdge: edge }),
+  updateConstraintActiveAxis: (axis) => set((state) => {
+    if (!state.measurementConstraintEdge) return {};
+    return {
+      measurementConstraintEdge: {
+        ...state.measurementConstraintEdge,
+        activeAxis: axis,
+      },
+    };
+  }),
   clearMeasurementConstraintEdge: () => set({ measurementConstraintEdge: null }),
 });

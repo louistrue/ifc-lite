@@ -9,7 +9,7 @@
 import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { X, Trash2, Ruler, Slice, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useViewerStore, type Measurement, type SnapVisualization } from '@/store';
+import { useViewerStore, type Measurement, type SnapVisualization, type MeasurementConstraintEdge } from '@/store';
 import { SnapType, type SnapTarget } from '@ifc-lite/renderer';
 
 export function ToolOverlays() {
@@ -33,6 +33,7 @@ function MeasureOverlay() {
   const snapTarget = useViewerStore((s) => s.snapTarget);
   const snapVisualization = useViewerStore((s) => s.snapVisualization);
   const snapEnabled = useViewerStore((s) => s.snapEnabled);
+  const measurementConstraintEdge = useViewerStore((s) => s.measurementConstraintEdge);
   const toggleSnap = useViewerStore((s) => s.toggleSnap);
   const deleteMeasurement = useViewerStore((s) => s.deleteMeasurement);
   const clearMeasurements = useViewerStore((s) => s.clearMeasurements);
@@ -200,6 +201,7 @@ function MeasureOverlay() {
         snapVisualization={snapVisualization}
         hoverPosition={snapIndicatorPos}
         projectToScreen={projectToScreen}
+        constraintEdge={measurementConstraintEdge}
       />
     </>
   );
@@ -231,14 +233,15 @@ function MeasurementItem({ measurement, index, onDelete }: MeasurementItemProps)
 interface MeasurementOverlaysProps {
   measurements: Measurement[];
   pending: { screenX: number; screenY: number } | null;
-  activeMeasurement: { start: { screenX: number; screenY: number }; current: { screenX: number; screenY: number }; distance: number } | null;
+  activeMeasurement: { start: { screenX: number; screenY: number; x: number; y: number; z: number }; current: { screenX: number; screenY: number }; distance: number } | null;
   snapTarget: SnapTarget | null;
   snapVisualization: SnapVisualization | null;
   hoverPosition?: { x: number; y: number } | null;
   projectToScreen?: (worldPos: { x: number; y: number; z: number }) => { x: number; y: number } | null;
+  constraintEdge?: MeasurementConstraintEdge | null;
 }
 
-const MeasurementOverlays = React.memo(function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTarget, snapVisualization, hoverPosition, projectToScreen }: MeasurementOverlaysProps) {
+const MeasurementOverlays = React.memo(function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTarget, snapVisualization, hoverPosition, projectToScreen, constraintEdge }: MeasurementOverlaysProps) {
   // Determine snap indicator position
   // Priority: activeMeasurement.current > hoverPosition
   const snapIndicatorPos = useMemo(() => {
@@ -386,6 +389,123 @@ const MeasurementOverlays = React.memo(function MeasurementOverlays({ measuremen
           </div>
         </div>
       )}
+
+      {/* Orthogonal constraint axes visualization */}
+      {activeMeasurement && constraintEdge?.activeAxis && projectToScreen && (() => {
+        const startWorld = activeMeasurement.start;
+        const startScreen = { x: startWorld.screenX, y: startWorld.screenY };
+
+        // Project axis endpoints to screen space
+        // Use a fixed world-space length for consistency
+        const axisLength = 2.0; // 2 meters in world space
+
+        const { edge, perpendicular, vertical } = constraintEdge.axes;
+
+        // Calculate endpoints along each axis
+        const edgeEndWorld = {
+          x: startWorld.x + edge.x * axisLength,
+          y: startWorld.y + edge.y * axisLength,
+          z: startWorld.z + edge.z * axisLength,
+        };
+        const perpEndWorld = {
+          x: startWorld.x + perpendicular.x * axisLength,
+          y: startWorld.y + perpendicular.y * axisLength,
+          z: startWorld.z + perpendicular.z * axisLength,
+        };
+        const vertEndWorld = {
+          x: startWorld.x + vertical.x * axisLength,
+          y: startWorld.y + vertical.y * axisLength,
+          z: startWorld.z + vertical.z * axisLength,
+        };
+
+        // Also project negative directions for bidirectional axes
+        const edgeNegWorld = {
+          x: startWorld.x - edge.x * axisLength,
+          y: startWorld.y - edge.y * axisLength,
+          z: startWorld.z - edge.z * axisLength,
+        };
+        const perpNegWorld = {
+          x: startWorld.x - perpendicular.x * axisLength,
+          y: startWorld.y - perpendicular.y * axisLength,
+          z: startWorld.z - perpendicular.z * axisLength,
+        };
+        const vertNegWorld = {
+          x: startWorld.x - vertical.x * axisLength,
+          y: startWorld.y - vertical.y * axisLength,
+          z: startWorld.z - vertical.z * axisLength,
+        };
+
+        const edgeEnd = projectToScreen(edgeEndWorld);
+        const perpEnd = projectToScreen(perpEndWorld);
+        const vertEnd = projectToScreen(vertEndWorld);
+        const edgeNeg = projectToScreen(edgeNegWorld);
+        const perpNeg = projectToScreen(perpNegWorld);
+        const vertNeg = projectToScreen(vertNegWorld);
+
+        if (!edgeEnd || !perpEnd || !vertEnd || !edgeNeg || !perpNeg || !vertNeg) return null;
+
+        const activeAxis = constraintEdge.activeAxis;
+
+        // Colors: Edge=orange, Perpendicular=cyan, Vertical=lime
+        const axisColors = {
+          edge: '#FF9800',
+          perpendicular: '#00BCD4',
+          vertical: '#8BC34A',
+        };
+
+        return (
+          <svg
+            className="absolute inset-0 pointer-events-none z-25"
+            style={{ overflow: 'visible', pointerEvents: 'none' }}
+          >
+            {/* Edge axis (orange) */}
+            <line
+              x1={edgeNeg.x}
+              y1={edgeNeg.y}
+              x2={edgeEnd.x}
+              y2={edgeEnd.y}
+              stroke={axisColors.edge}
+              strokeWidth={activeAxis === 'edge' ? 3 : 1.5}
+              strokeOpacity={activeAxis === 'edge' ? 0.9 : 0.3}
+              strokeDasharray={activeAxis === 'edge' ? 'none' : '4,4'}
+              strokeLinecap="round"
+            />
+            {/* Perpendicular axis (cyan) */}
+            <line
+              x1={perpNeg.x}
+              y1={perpNeg.y}
+              x2={perpEnd.x}
+              y2={perpEnd.y}
+              stroke={axisColors.perpendicular}
+              strokeWidth={activeAxis === 'perpendicular' ? 3 : 1.5}
+              strokeOpacity={activeAxis === 'perpendicular' ? 0.9 : 0.3}
+              strokeDasharray={activeAxis === 'perpendicular' ? 'none' : '4,4'}
+              strokeLinecap="round"
+            />
+            {/* Vertical axis (lime) */}
+            <line
+              x1={vertNeg.x}
+              y1={vertNeg.y}
+              x2={vertEnd.x}
+              y2={vertEnd.y}
+              stroke={axisColors.vertical}
+              strokeWidth={activeAxis === 'vertical' ? 3 : 1.5}
+              strokeOpacity={activeAxis === 'vertical' ? 0.9 : 0.3}
+              strokeDasharray={activeAxis === 'vertical' ? 'none' : '4,4'}
+              strokeLinecap="round"
+            />
+            {/* Center origin dot */}
+            <circle
+              cx={startScreen.x}
+              cy={startScreen.y}
+              r="4"
+              fill="white"
+              stroke={axisColors[activeAxis]}
+              strokeWidth="2"
+            />
+          </svg>
+        );
+      })()}
 
       {/* Edge highlight - draw full edge in 3D-projected screen space */}
       {snapVisualization?.edgeLine3D && projectToScreen && (() => {
@@ -646,7 +766,13 @@ const MeasurementOverlays = React.memo(function MeasurementOverlays({ measuremen
   // Compare pending
   if (prevProps.pending?.screenX !== nextProps.pending?.screenX ||
       prevProps.pending?.screenY !== nextProps.pending?.screenY) return false;
-  
+
+  // Compare constraintEdge
+  if (!!prevProps.constraintEdge !== !!nextProps.constraintEdge) return false;
+  if (prevProps.constraintEdge && nextProps.constraintEdge) {
+    if (prevProps.constraintEdge.activeAxis !== nextProps.constraintEdge.activeAxis) return false;
+  }
+
   return true; // All props are equal, skip re-render
 });
 
