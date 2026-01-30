@@ -53,6 +53,7 @@ export class ParameterExtractor {
 
   /**
    * Extract editable entity from an IFC entity
+   * For product entities (IfcWall, IfcSlab, etc.), navigates to the geometry representation
    */
   extractEditableEntity(
     expressId: number,
@@ -62,30 +63,174 @@ export class ParameterExtractor {
     if (!entityRef) return null;
 
     const ifcType = entityRef.type.toUpperCase();
-    const editMode = getRecommendedEditMode(ifcType);
+    let editMode = getRecommendedEditMode(ifcType);
+    let geometryExpressId = expressId;
+    let geometryType = ifcType;
+
+    // If this is a product type (not directly editable), try to find its geometry representation
+    if (editMode === EditMode.None) {
+      const geomRef = this.findGeometryRepresentation(expressId);
+      if (geomRef) {
+        geometryExpressId = geomRef.expressId;
+        geometryType = geomRef.type.toUpperCase();
+        editMode = getRecommendedEditMode(geometryType);
+        console.log(`[ParameterExtractor] Found geometry for ${ifcType}: ${geometryType} (#${geometryExpressId})`);
+      }
+    }
 
     if (editMode === EditMode.None) {
+      console.log(`[ParameterExtractor] No editable geometry found for ${ifcType} (#${expressId})`);
       return null;
     }
 
     const parameters =
       editMode === EditMode.Parametric
-        ? this.extractParameters(expressId, ifcType)
+        ? this.extractParameters(geometryExpressId, geometryType)
         : [];
 
     const bounds = this.calculateBounds(meshData);
 
     return {
-      expressId,
+      expressId, // Keep original product expressId for selection
       modelId: this.modelId,
       globalId: expressId + this.idOffset,
-      ifcType,
+      ifcType: geometryType, // Use geometry type for editing
       editMode,
       parameters,
       meshData,
       bounds,
       isEditing: false,
     };
+  }
+
+  /**
+   * Find the geometry representation for a product entity
+   * Navigates: IfcProduct → IfcProductDefinitionShape → IfcShapeRepresentation → geometry item
+   */
+  private findGeometryRepresentation(expressId: number): { expressId: number; type: string } | null {
+    const entityText = this.getEntityText(expressId);
+    if (!entityText) return null;
+
+    // Look for Representation reference in product entity
+    // Products have pattern like: IFCWALL(...,#representationId,...)
+    // The Representation is typically the 7th or 8th attribute in IfcProduct subtypes
+
+    // Find all # references in the entity
+    const refs = entityText.match(/#(\d+)/g);
+    if (!refs) return null;
+
+    for (const ref of refs) {
+      const refId = parseInt(ref.substring(1), 10);
+      const refType = this.getEntityType(refId);
+
+      if (refType?.toUpperCase() === 'IFCPRODUCTDEFINITIONSHAPE') {
+        // Found the product definition shape, now find shape representations
+        return this.findGeometryInProductDefinitionShape(refId);
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Find geometry items in IfcProductDefinitionShape
+   */
+  private findGeometryInProductDefinitionShape(shapeId: number): { expressId: number; type: string } | null {
+    const shapeText = this.getEntityText(shapeId);
+    if (!shapeText) return null;
+
+    // IfcProductDefinitionShape has Representations as 3rd attribute (list of IfcShapeRepresentation)
+    // Pattern: IFCPRODUCTDEFINITIONSHAPE($,$,(#rep1,#rep2,...))
+    const listMatch = shapeText.match(/\(\s*(#[\d,\s#]+)\s*\)\s*\)/);
+    if (!listMatch) return null;
+
+    const repRefs = listMatch[1].match(/#(\d+)/g);
+    if (!repRefs) return null;
+
+    // Check each shape representation for 'Body' or 'SweptSolid' type geometry
+    for (const repRef of repRefs) {
+      const repId = parseInt(repRef.substring(1), 10);
+      const result = this.findGeometryInShapeRepresentation(repId);
+      if (result) return result;
+    }
+
+    return null;
+  }
+
+  /**
+   * Find geometry items in IfcShapeRepresentation
+   */
+  private findGeometryInShapeRepresentation(repId: number): { expressId: number; type: string } | null {
+    const repText = this.getEntityText(repId);
+    if (!repText) return null;
+
+    // IfcShapeRepresentation: (Context, RepId, RepType, Items)
+    // Look for 'Body' or geometry-defining representations
+    const upperText = repText.toUpperCase();
+    const isBodyRep = upperText.includes("'BODY'") ||
+                      upperText.includes("'SWEPTSOLID'") ||
+                      upperText.includes("'BREP'") ||
+                      upperText.includes("'CLIPPING'") ||
+                      upperText.includes("'TESSELLATION'");
+
+    if (!isBodyRep) return null;
+
+    // Find Items list (last parenthesized group with # refs)
+    const itemsMatch = repText.match(/\(\s*(#[\d,\s#]+)\s*\)\s*\)/);
+    if (!itemsMatch) return null;
+
+    const itemRefs = itemsMatch[1].match(/#(\d+)/g);
+    if (!itemRefs) return null;
+
+    // Check each item for editable geometry types
+    for (const itemRef of itemRefs) {
+      const itemId = parseInt(itemRef.substring(1), 10);
+      const itemType = this.getEntityType(itemId);
+      if (!itemType) continue;
+
+      const editMode = getRecommendedEditMode(itemType.toUpperCase());
+      if (editMode !== EditMode.None) {
+        return { expressId: itemId, type: itemType };
+      }
+
+      // If it's a boolean result, check its operands
+      if (itemType.toUpperCase() === 'IFCBOOLEANCLIPPINGRESULT' ||
+          itemType.toUpperCase() === 'IFCBOOLEANRESULT') {
+        const booleanGeom = this.findGeometryInBoolean(itemId);
+        if (booleanGeom) return booleanGeom;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Find editable geometry in boolean operations (first operand is usually the main shape)
+   */
+  private findGeometryInBoolean(boolId: number): { expressId: number; type: string } | null {
+    const boolText = this.getEntityText(boolId);
+    if (!boolText) return null;
+
+    // Boolean operations: (Operator, FirstOperand, SecondOperand)
+    const match = boolText.match(/#(\d+)/);
+    if (!match) return null;
+
+    // First # ref after operator is typically FirstOperand
+    const firstOpId = parseInt(match[1], 10);
+    const firstOpType = this.getEntityType(firstOpId);
+    if (!firstOpType) return null;
+
+    const editMode = getRecommendedEditMode(firstOpType.toUpperCase());
+    if (editMode !== EditMode.None) {
+      return { expressId: firstOpId, type: firstOpType };
+    }
+
+    // Recurse if first operand is also a boolean
+    if (firstOpType.toUpperCase().includes('BOOLEAN')) {
+      return this.findGeometryInBoolean(firstOpId);
+    }
+
+    return null;
   }
 
   /**
