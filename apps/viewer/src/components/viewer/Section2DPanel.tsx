@@ -295,9 +295,9 @@ export function Section2DPanel() {
   if (!panelVisible) return null;
 
   return (
-    <div className="absolute inset-0 z-50 bg-background flex flex-col">
+    <div className="absolute inset-4 z-40 bg-background rounded-lg border shadow-xl flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/50">
+      <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/50 rounded-t-lg">
         <div className="flex items-center gap-4">
           <h2 className="font-semibold text-sm">2D Section Drawing</h2>
           {drawing && (
@@ -377,7 +377,7 @@ export function Section2DPanel() {
       {/* Drawing Canvas */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-hidden bg-white dark:bg-zinc-950 cursor-grab active:cursor-grabbing"
+        className="flex-1 overflow-hidden bg-white dark:bg-zinc-950 cursor-grab active:cursor-grabbing rounded-b-lg"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}

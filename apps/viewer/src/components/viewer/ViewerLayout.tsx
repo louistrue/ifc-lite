@@ -15,7 +15,6 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useViewerStore } from '@/store';
 import { EntityContextMenu } from './EntityContextMenu';
 import { HoverTooltip } from './HoverTooltip';
-import { Section2DPanel } from './Section2DPanel';
 
 export function ViewerLayout() {
   // Initialize keyboard shortcuts
@@ -68,7 +67,6 @@ export function ViewerLayout() {
         {/* Global Overlays */}
         <EntityContextMenu />
         <HoverTooltip />
-        <Section2DPanel />
 
         {/* Main Toolbar */}
         <MainToolbar onShowShortcuts={shortcutsDialog.toggle} />

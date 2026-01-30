@@ -6,6 +6,7 @@ import { useMemo, useRef, useState, useCallback } from 'react';
 import { Viewport } from './Viewport';
 import { ViewportOverlays } from './ViewportOverlays';
 import { ToolOverlays } from './ToolOverlays';
+import { Section2DPanel } from './Section2DPanel';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { useWebGPU } from '@/hooks/useWebGPU';
@@ -574,6 +575,7 @@ export function ViewportContainer() {
       />
       <ViewportOverlays />
       <ToolOverlays />
+      <Section2DPanel />
     </div>
   );
 }
