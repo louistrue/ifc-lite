@@ -7,12 +7,12 @@
  *
  * Displays generated 2D drawings (floor plans, sections) with:
  * - Canvas-based rendering with pan/zoom
- * - Toggle controls for hidden lines, hatching
+ * - Toggle controls for hidden lines
  * - Export to SVG functionality
  */
 
 import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react';
-import { X, Download, Eye, EyeOff, Grid3x3, Maximize2, Minimize2, ZoomIn, ZoomOut, Loader2, Printer, GripVertical, MoreHorizontal, RefreshCw, Pin, PinOff, Palette, Check } from 'lucide-react';
+import { X, Download, Eye, EyeOff, Maximize2, ZoomIn, ZoomOut, Loader2, Printer, GripVertical, MoreHorizontal, RefreshCw, Pin, PinOff, Palette } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -20,8 +20,6 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  DropdownMenuLabel,
-  DropdownMenuCheckboxItem,
 } from '@/components/ui/dropdown-menu';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
@@ -30,15 +28,9 @@ import {
   exportToSVG,
   createSectionConfig,
   GraphicOverrideEngine,
-  HatchGenerator,
-  getHatchPattern,
   type Drawing2D,
   type SectionConfig,
-  type DrawingLine,
-  type DrawingPolygon,
   type ElementData,
-  type HatchPatternType,
-  type CustomHatchSettings,
 } from '@ifc-lite/drawing-2d';
 import { DrawingSettingsPanel } from './DrawingSettingsPanel';
 
@@ -159,84 +151,6 @@ export function Section2DPanel() {
     return new GraphicOverrideEngine(rules);
   }, [getActiveOverrideRules, activePresetId, customOverrideRules, overridesEnabled]);
 
-  // Generate hatching lines using override engine settings
-  // Regenerates when drawing or override rules change
-  const hatchingLines = useMemo(() => {
-    if (!drawing || !drawing.cutPolygons.length) return [];
-
-    const generator = new HatchGenerator();
-
-    // Function to get custom hatch settings from override engine
-    // ALWAYS returns IFC type-based patterns as fallback to ensure hatching works in all modes
-    const getCustomSettings = (polygon: DrawingPolygon): CustomHatchSettings | undefined => {
-      // Get the IFC type-based pattern as default
-      const ifcTypePattern = getHatchPattern(polygon.ifcType);
-
-      // If overrides are disabled, use IFC type-based patterns
-      if (!overridesEnabled) {
-        return {
-          type: ifcTypePattern.type,
-          spacing: ifcTypePattern.spacing,
-          angle: ifcTypePattern.angle,
-          secondaryAngle: ifcTypePattern.secondaryAngle,
-        };
-      }
-
-      const elementData: ElementData = {
-        expressId: polygon.entityId,
-        ifcType: polygon.ifcType,
-      };
-      const result = overrideEngine.applyOverrides(elementData);
-
-      // If a rule explicitly set a hatch pattern (not the default 'none'), use it
-      if (result.matchedRules.length > 0 && result.style.hatchPattern && result.style.hatchPattern !== 'none') {
-        return {
-          type: result.style.hatchPattern as HatchPatternType,
-          spacing: result.style.hatchSpacing,
-          angle: result.style.hatchAngle,
-          secondaryAngle: result.style.hatchSecondaryAngle,
-        };
-      }
-
-      // If a rule explicitly sets 'none', skip hatching for this element
-      if (result.matchedRules.length > 0 && result.style.hatchPattern === 'none') {
-        return { type: 'none' };
-      }
-
-      // No matching rules - use IFC type-based pattern
-      // This ensures hatching works in IFC Materials mode and any mode without explicit hatch rules
-      return {
-        type: ifcTypePattern.type,
-        spacing: ifcTypePattern.spacing,
-        angle: ifcTypePattern.angle,
-        secondaryAngle: ifcTypePattern.secondaryAngle,
-      };
-    };
-
-    const hatchResults = generator.generateHatches(
-      drawing.cutPolygons,
-      drawing.config.scale,
-      getCustomSettings
-    );
-
-    const hatchLines: DrawingLine[] = [];
-    for (const result of hatchResults) {
-      for (const hatchLine of result.lines) {
-        hatchLines.push({
-          line: hatchLine.line,
-          category: 'annotation',
-          visibility: 'visible',
-          entityId: hatchLine.entityId,
-          ifcType: hatchLine.ifcType,
-          modelIndex: hatchLine.modelIndex,
-          depth: 0,
-        });
-      }
-    }
-
-    return hatchLines;
-  }, [drawing, overrideEngine, overridesEnabled]);
-
   // Build entity color map from mesh material colors (for "Use IFC Materials" mode)
   const entityColorMap = useMemo(() => {
     const map = new Map<number, [number, number, number, number]>();
@@ -309,12 +223,9 @@ export function Section2DPanel() {
 
       setDrawing(result);
 
-      // Hatching is now generated via useMemo based on override engine settings
-
       // Generate SVG content
       const svg = exportToSVG(result, {
         showHiddenLines: displayOptions.showHiddenLines,
-        showHatching: displayOptions.showHatching,
         // scale is derived from the drawing config
       });
       setSvgContent(svg);
@@ -525,10 +436,6 @@ export function Section2DPanel() {
     updateDisplayOptions({ show3DOverlay: !displayOptions.show3DOverlay });
   }, [displayOptions.show3DOverlay, updateDisplayOptions]);
 
-  const toggleHatching = useCallback(() => {
-    updateDisplayOptions({ showHatching: !displayOptions.showHatching });
-  }, [displayOptions.showHatching, updateDisplayOptions]);
-
   const toggleExpanded = useCallback(() => {
     setIsExpanded((prev) => !prev);
   }, []);
@@ -697,14 +604,6 @@ export function Section2DPanel() {
               >
                 {displayOptions.show3DOverlay ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
               </Button>
-              <Button
-                variant={displayOptions.showHatching ? 'default' : 'ghost'}
-                size="icon-sm"
-                onClick={toggleHatching}
-                title="Toggle hatching"
-              >
-                <Grid3x3 className="h-4 w-4" />
-              </Button>
 
               {/* Graphic Override Settings */}
               <Button
@@ -805,10 +704,6 @@ export function Section2DPanel() {
                     {displayOptions.show3DOverlay ? <Eye className="h-4 w-4 mr-2" /> : <EyeOff className="h-4 w-4 mr-2" />}
                     3D Overlay {displayOptions.show3DOverlay ? 'On' : 'Off'}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={toggleHatching}>
-                    <Grid3x3 className="h-4 w-4 mr-2" />
-                    Hatching {displayOptions.showHatching ? 'On' : 'Off'}
-                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => setSettingsPanelOpen(true)}>
                     <Palette className="h-4 w-4 mr-2" />
@@ -899,10 +794,8 @@ export function Section2DPanel() {
           <>
             <Drawing2DCanvas
               drawing={drawing}
-              hatchingLines={hatchingLines}
               transform={viewTransform}
               showHiddenLines={displayOptions.showHiddenLines}
-              showHatching={displayOptions.showHatching}
               overrideEngine={overrideEngine}
               overridesEnabled={overridesEnabled}
               entityColorMap={entityColorMap}
@@ -981,17 +874,15 @@ const CANVAS_STYLE = { imageRendering: 'crisp-edges' as const };
 
 interface Drawing2DCanvasProps {
   drawing: Drawing2D;
-  hatchingLines: DrawingLine[];
   transform: { x: number; y: number; scale: number };
   showHiddenLines: boolean;
-  showHatching: boolean;
   overrideEngine: GraphicOverrideEngine;
   overridesEnabled: boolean;
   entityColorMap: Map<number, [number, number, number, number]>;
   useIfcMaterials: boolean;
 }
 
-function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, showHatching, overrideEngine, overridesEnabled, entityColorMap, useIfcMaterials }: Drawing2DCanvasProps) {
+function Drawing2DCanvas({ drawing, transform, showHiddenLines, overrideEngine, overridesEnabled, entityColorMap, useIfcMaterials }: Drawing2DCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
 
@@ -1096,75 +987,7 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // 2. DRAW HATCHING ON TOP OF FILLS
-    // ═══════════════════════════════════════════════════════════════════════
-    if (showHatching && hatchingLines.length > 0) {
-      // Use drawing bounds to filter out invalid hatching lines
-      const { bounds } = drawing;
-      const margin = Math.max(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y) * 0.5;
-      const minX = bounds.min.x - margin;
-      const maxX = bounds.max.x + margin;
-      const minY = bounds.min.y - margin;
-      const maxY = bounds.max.y + margin;
-
-      // Group hatching lines by entity for efficient style lookup
-      const linesByEntity = new Map<number, DrawingLine[]>();
-      for (const line of hatchingLines) {
-        // Skip lines with invalid coordinates (NaN, Infinity, or far outside bounds)
-        const { start, end } = line.line;
-        if (!isFinite(start.x) || !isFinite(start.y) || !isFinite(end.x) || !isFinite(end.y)) {
-          continue;
-        }
-        if (start.x < minX || start.x > maxX || start.y < minY || start.y > maxY ||
-            end.x < minX || end.x > maxX || end.y < minY || end.y > maxY) {
-          continue;
-        }
-
-        const existing = linesByEntity.get(line.entityId);
-        if (existing) {
-          existing.push(line);
-        } else {
-          linesByEntity.set(line.entityId, [line]);
-        }
-      }
-
-      // Draw each entity's hatching with appropriate color and line weight
-      for (const [entityId, lines] of linesByEntity) {
-        // Get hatch color and line weight from override engine or use default
-        let hatchColor = '#444444';
-        let hatchLineWeight = 0.25; // Default visible line weight in mm
-        if (overridesEnabled && lines.length > 0) {
-          const elementData: ElementData = {
-            expressId: entityId,
-            ifcType: lines[0].ifcType,
-          };
-          const result = overrideEngine.applyOverrides(elementData);
-          if (result.style.hatchColor) {
-            hatchColor = result.style.hatchColor;
-          }
-          if (result.style.hatchLineWeight) {
-            hatchLineWeight = result.style.hatchLineWeight;
-          }
-        }
-
-        ctx.strokeStyle = hatchColor;
-        // Use at least 1 pixel line width for visibility
-        // The mm value is scaled to approximate screen pixels
-        const minPixels = 1;
-        const scaledLineWeight = hatchLineWeight / transform.scale;
-        ctx.lineWidth = Math.max(minPixels / transform.scale, scaledLineWeight);
-
-        for (const line of lines) {
-          ctx.beginPath();
-          ctx.moveTo(line.line.start.x, line.line.start.y);
-          ctx.lineTo(line.line.end.x, line.line.end.y);
-          ctx.stroke();
-        }
-      }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // 3. STROKE CUT POLYGON OUTLINES (with color from override engine)
+    // 2. STROKE CUT POLYGON OUTLINES (with color from override engine)
     // ═══════════════════════════════════════════════════════════════════════
     for (const polygon of drawing.cutPolygons) {
       let strokeColor = '#000000';
@@ -1205,9 +1028,9 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // 4. DRAW PROJECTION/SILHOUETTE LINES (skip 'cut' - already in polygons)
+    // 3. DRAW PROJECTION/SILHOUETTE LINES (skip 'cut' - already in polygons)
     // ═══════════════════════════════════════════════════════════════════════
-    // Pre-compute bounds for line validation (reuse from hatching or compute fresh)
+    // Pre-compute bounds for line validation
     const lineBounds = drawing.bounds;
     const lineMargin = Math.max(lineBounds.max.x - lineBounds.min.x, lineBounds.max.y - lineBounds.min.y) * 0.5;
     const lineMinX = lineBounds.min.x - lineMargin;
@@ -1285,7 +1108,7 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
     }
 
     ctx.restore();
-  }, [drawing, hatchingLines, transform, showHiddenLines, showHatching, canvasSize, overrideEngine, overridesEnabled, entityColorMap, useIfcMaterials]);
+  }, [drawing, transform, showHiddenLines, canvasSize, overrideEngine, overridesEnabled, entityColorMap, useIfcMaterials]);
 
   return (
     <canvas
