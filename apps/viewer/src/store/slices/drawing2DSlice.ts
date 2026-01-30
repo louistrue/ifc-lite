@@ -15,6 +15,20 @@ import { BUILT_IN_PRESETS } from '@ifc-lite/drawing-2d';
 
 export type Drawing2DStatus = 'idle' | 'generating' | 'ready' | 'error';
 
+/** Point in 2D drawing coordinates */
+export interface Point2D {
+  x: number;
+  y: number;
+}
+
+/** Measurement result */
+export interface Measure2DResult {
+  id: string;
+  start: Point2D;
+  end: Point2D;
+  distance: number; // in drawing units (typically meters)
+}
+
 export interface Drawing2DState {
   /** Current drawing data (null when not generated) */
   drawing2D: Drawing2D | null;
@@ -48,6 +62,22 @@ export interface Drawing2DState {
   overridesEnabled: boolean;
   /** Panel visibility for override editor */
   overridesPanelVisible: boolean;
+
+  // 2D Measure Tool
+  /** Whether measure mode is active */
+  measure2DMode: boolean;
+  /** Start point of current measurement (drawing coords) */
+  measure2DStart: Point2D | null;
+  /** Current/end point of measurement (drawing coords) */
+  measure2DCurrent: Point2D | null;
+  /** Whether shift is held for orthogonal constraint */
+  measure2DShiftLocked: boolean;
+  /** Axis locked to when shift is held ('x' | 'y' | null) */
+  measure2DLockedAxis: 'x' | 'y' | null;
+  /** Completed measurements */
+  measure2DResults: Measure2DResult[];
+  /** Current snap point (if snapping to geometry) */
+  measure2DSnapPoint: Point2D | null;
 }
 
 export interface Drawing2DSlice extends Drawing2DState {
@@ -74,6 +104,21 @@ export interface Drawing2DSlice extends Drawing2DState {
   toggleOverridesPanel: () => void;
   /** Get all active rules (preset + custom) sorted by priority */
   getActiveOverrideRules: () => GraphicOverrideRule[];
+
+  // 2D Measure Actions
+  setMeasure2DMode: (enabled: boolean) => void;
+  toggleMeasure2DMode: () => void;
+  setMeasure2DStart: (point: Point2D | null) => void;
+  setMeasure2DCurrent: (point: Point2D | null) => void;
+  setMeasure2DShiftLocked: (locked: boolean, axis?: 'x' | 'y' | null) => void;
+  addMeasure2DResult: (result: Measure2DResult) => void;
+  removeMeasure2DResult: (id: string) => void;
+  clearMeasure2DResults: () => void;
+  setMeasure2DSnapPoint: (point: Point2D | null) => void;
+  /** Complete current measurement and add to results */
+  completeMeasure2D: () => void;
+  /** Cancel current measurement */
+  cancelMeasure2D: () => void;
 }
 
 const getDefaultDisplayOptions = (): Drawing2DState['drawing2DDisplayOptions'] => ({
@@ -99,6 +144,14 @@ const getDefaultState = (): Drawing2DState => ({
   customOverrideRules: [],
   overridesEnabled: true,
   overridesPanelVisible: false,
+  // 2D Measure
+  measure2DMode: false,
+  measure2DStart: null,
+  measure2DCurrent: null,
+  measure2DShiftLocked: false,
+  measure2DLockedAxis: null,
+  measure2DResults: [],
+  measure2DSnapPoint: null,
 });
 
 export const createDrawing2DSlice: StateCreator<Drawing2DSlice, [], [], Drawing2DSlice> = (set, get) => ({
@@ -183,4 +236,88 @@ export const createDrawing2DSlice: StateCreator<Drawing2DSlice, [], [], Drawing2
       .filter((rule) => rule.enabled)
       .sort((a, b) => a.priority - b.priority);
   },
+
+  // 2D Measure Actions
+  setMeasure2DMode: (enabled) => set({
+    measure2DMode: enabled,
+    // Clear measurement state when disabling
+    ...(enabled ? {} : {
+      measure2DStart: null,
+      measure2DCurrent: null,
+      measure2DShiftLocked: false,
+      measure2DLockedAxis: null,
+      measure2DSnapPoint: null,
+    }),
+  }),
+
+  toggleMeasure2DMode: () => {
+    const state = get();
+    set({
+      measure2DMode: !state.measure2DMode,
+      // Clear measurement state when disabling
+      ...(!state.measure2DMode ? {} : {
+        measure2DStart: null,
+        measure2DCurrent: null,
+        measure2DShiftLocked: false,
+        measure2DLockedAxis: null,
+        measure2DSnapPoint: null,
+      }),
+    });
+  },
+
+  setMeasure2DStart: (point) => set({ measure2DStart: point }),
+
+  setMeasure2DCurrent: (point) => set({ measure2DCurrent: point }),
+
+  setMeasure2DShiftLocked: (locked, axis = null) => set({
+    measure2DShiftLocked: locked,
+    measure2DLockedAxis: locked ? axis : null,
+  }),
+
+  addMeasure2DResult: (result) => set((state) => ({
+    measure2DResults: [...state.measure2DResults, result],
+  })),
+
+  removeMeasure2DResult: (id) => set((state) => ({
+    measure2DResults: state.measure2DResults.filter((r) => r.id !== id),
+  })),
+
+  clearMeasure2DResults: () => set({ measure2DResults: [] }),
+
+  setMeasure2DSnapPoint: (point) => set({ measure2DSnapPoint: point }),
+
+  completeMeasure2D: () => {
+    const state = get();
+    if (state.measure2DStart && state.measure2DCurrent) {
+      const start = state.measure2DStart;
+      const end = state.measure2DCurrent;
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      const result: Measure2DResult = {
+        id: `measure-${Date.now()}`,
+        start,
+        end,
+        distance,
+      };
+
+      set({
+        measure2DResults: [...state.measure2DResults, result],
+        measure2DStart: null,
+        measure2DCurrent: null,
+        measure2DShiftLocked: false,
+        measure2DLockedAxis: null,
+        measure2DSnapPoint: null,
+      });
+    }
+  },
+
+  cancelMeasure2D: () => set({
+    measure2DStart: null,
+    measure2DCurrent: null,
+    measure2DShiftLocked: false,
+    measure2DLockedAxis: null,
+    measure2DSnapPoint: null,
+  }),
 });

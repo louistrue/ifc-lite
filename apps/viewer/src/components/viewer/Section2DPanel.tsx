@@ -12,7 +12,7 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react';
-import { X, Download, Eye, EyeOff, Maximize2, ZoomIn, ZoomOut, Loader2, Printer, GripVertical, MoreHorizontal, RefreshCw, Pin, PinOff, Palette } from 'lucide-react';
+import { X, Download, Eye, EyeOff, Maximize2, ZoomIn, ZoomOut, Loader2, Printer, GripVertical, MoreHorizontal, RefreshCw, Pin, PinOff, Palette, Ruler, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -108,6 +108,23 @@ export function Section2DPanel() {
 
   // Settings panel visibility
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
+
+  // 2D Measure tool state
+  const measure2DMode = useViewerStore((s) => s.measure2DMode);
+  const toggleMeasure2DMode = useViewerStore((s) => s.toggleMeasure2DMode);
+  const measure2DStart = useViewerStore((s) => s.measure2DStart);
+  const measure2DCurrent = useViewerStore((s) => s.measure2DCurrent);
+  const setMeasure2DStart = useViewerStore((s) => s.setMeasure2DStart);
+  const setMeasure2DCurrent = useViewerStore((s) => s.setMeasure2DCurrent);
+  const setMeasure2DShiftLocked = useViewerStore((s) => s.setMeasure2DShiftLocked);
+  const measure2DShiftLocked = useViewerStore((s) => s.measure2DShiftLocked);
+  const measure2DLockedAxis = useViewerStore((s) => s.measure2DLockedAxis);
+  const measure2DResults = useViewerStore((s) => s.measure2DResults);
+  const completeMeasure2D = useViewerStore((s) => s.completeMeasure2D);
+  const cancelMeasure2D = useViewerStore((s) => s.cancelMeasure2D);
+  const clearMeasure2DResults = useViewerStore((s) => s.clearMeasure2DResults);
+  const measure2DSnapPoint = useViewerStore((s) => s.measure2DSnapPoint);
+  const setMeasure2DSnapPoint = useViewerStore((s) => s.setMeasure2DSnapPoint);
 
   const sectionPlane = useViewerStore((s) => s.sectionPlane);
   const activeTool = useViewerStore((s) => s.activeTool);
@@ -305,29 +322,172 @@ export function Section2DPanel() {
     };
   }, [panelVisible, sectionPlane.axis, sectionPlane.position, sectionPlane.flipped, geometryResult, generateDrawing]);
 
-  // Pan handlers
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button === 0) {
-      isPanning.current = true;
-      lastPanPoint.current = { x: e.clientX, y: e.clientY };
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 2D MEASURE TOOL HELPER FUNCTIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Convert screen coordinates to drawing coordinates
+  const screenToDrawing = useCallback((screenX: number, screenY: number): { x: number; y: number } => {
+    // Screen coord → drawing coord
+    // Y is flipped: ctx.scale(transform.scale, -transform.scale)
+    const x = (screenX - viewTransform.x) / viewTransform.scale;
+    const y = -(screenY - viewTransform.y) / viewTransform.scale;
+    return { x, y };
+  }, [viewTransform]);
+
+  // Find snap point near cursor (check polygon vertices and line endpoints)
+  const findSnapPoint = useCallback((drawingCoord: { x: number; y: number }): { x: number; y: number } | null => {
+    if (!drawing) return null;
+
+    const snapThreshold = 10 / viewTransform.scale; // 10 screen pixels
+
+    // Check polygon vertices
+    for (const polygon of drawing.cutPolygons) {
+      for (const pt of polygon.polygon.outer) {
+        const dx = pt.x - drawingCoord.x;
+        const dy = pt.y - drawingCoord.y;
+        if (Math.sqrt(dx * dx + dy * dy) < snapThreshold) {
+          return { x: pt.x, y: pt.y };
+        }
+      }
+      for (const hole of polygon.polygon.holes) {
+        for (const pt of hole) {
+          const dx = pt.x - drawingCoord.x;
+          const dy = pt.y - drawingCoord.y;
+          if (Math.sqrt(dx * dx + dy * dy) < snapThreshold) {
+            return { x: pt.x, y: pt.y };
+          }
+        }
+      }
+    }
+
+    // Check line endpoints
+    for (const line of drawing.lines) {
+      const { start, end } = line.line;
+      for (const pt of [start, end]) {
+        const dx = pt.x - drawingCoord.x;
+        const dy = pt.y - drawingCoord.y;
+        if (Math.sqrt(dx * dx + dy * dy) < snapThreshold) {
+          return { x: pt.x, y: pt.y };
+        }
+      }
+    }
+
+    return null;
+  }, [drawing, viewTransform.scale]);
+
+  // Apply orthogonal constraint if shift is held
+  const applyOrthogonalConstraint = useCallback((start: { x: number; y: number }, current: { x: number; y: number }, lockedAxis: 'x' | 'y' | null): { x: number; y: number } => {
+    if (!lockedAxis) return current;
+
+    if (lockedAxis === 'x') {
+      return { x: current.x, y: start.y };
+    } else {
+      return { x: start.x, y: current.y };
     }
   }, []);
 
+  // Keyboard handlers for shift key (orthogonal constraint)
+  useEffect(() => {
+    if (!measure2DMode) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Shift' && measure2DStart && measure2DCurrent && !measure2DShiftLocked) {
+        // Determine axis based on dominant direction
+        const dx = Math.abs(measure2DCurrent.x - measure2DStart.x);
+        const dy = Math.abs(measure2DCurrent.y - measure2DStart.y);
+        const axis = dx > dy ? 'x' : 'y';
+        setMeasure2DShiftLocked(true, axis);
+      }
+      if (e.key === 'Escape') {
+        cancelMeasure2D();
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') {
+        setMeasure2DShiftLocked(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [measure2DMode, measure2DStart, measure2DCurrent, measure2DShiftLocked, setMeasure2DShiftLocked, cancelMeasure2D]);
+
+  // Pan/Measure handlers
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const screenX = e.clientX - rect.left;
+    const screenY = e.clientY - rect.top;
+
+    if (measure2DMode) {
+      // Measure mode: set start point
+      const drawingCoord = screenToDrawing(screenX, screenY);
+      const snapPoint = findSnapPoint(drawingCoord);
+      const startPoint = snapPoint || drawingCoord;
+      setMeasure2DStart(startPoint);
+      setMeasure2DCurrent(startPoint);
+    } else {
+      // Pan mode
+      isPanning.current = true;
+      lastPanPoint.current = { x: e.clientX, y: e.clientY };
+    }
+  }, [measure2DMode, screenToDrawing, findSnapPoint, setMeasure2DStart, setMeasure2DCurrent]);
+
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!isPanning.current) return;
-    const dx = e.clientX - lastPanPoint.current.x;
-    const dy = e.clientY - lastPanPoint.current.y;
-    lastPanPoint.current = { x: e.clientX, y: e.clientY };
-    setViewTransform((prev) => ({
-      ...prev,
-      x: prev.x + dx,
-      y: prev.y + dy,
-    }));
-  }, []);
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const screenX = e.clientX - rect.left;
+    const screenY = e.clientY - rect.top;
+
+    if (measure2DMode) {
+      const drawingCoord = screenToDrawing(screenX, screenY);
+
+      // Find snap point and update
+      const snapPoint = findSnapPoint(drawingCoord);
+      setMeasure2DSnapPoint(snapPoint);
+
+      if (measure2DStart) {
+        // If measuring, update current point
+        let currentPoint = snapPoint || drawingCoord;
+
+        // Apply orthogonal constraint if shift is held
+        if (measure2DShiftLocked && measure2DLockedAxis) {
+          currentPoint = applyOrthogonalConstraint(measure2DStart, currentPoint, measure2DLockedAxis);
+        }
+
+        setMeasure2DCurrent(currentPoint);
+      }
+    } else if (isPanning.current) {
+      // Pan mode
+      const dx = e.clientX - lastPanPoint.current.x;
+      const dy = e.clientY - lastPanPoint.current.y;
+      lastPanPoint.current = { x: e.clientX, y: e.clientY };
+      setViewTransform((prev) => ({
+        ...prev,
+        x: prev.x + dx,
+        y: prev.y + dy,
+      }));
+    }
+  }, [measure2DMode, measure2DStart, measure2DShiftLocked, measure2DLockedAxis, screenToDrawing, findSnapPoint, setMeasure2DSnapPoint, setMeasure2DCurrent, applyOrthogonalConstraint]);
 
   const handleMouseUp = useCallback(() => {
+    if (measure2DMode && measure2DStart && measure2DCurrent) {
+      // Complete the measurement
+      completeMeasure2D();
+    }
     isPanning.current = false;
-  }, []);
+  }, [measure2DMode, measure2DStart, measure2DCurrent, completeMeasure2D]);
 
   // Zoom handler - unlimited zoom, min 0.01 (1%)
   const handleWheel = useCallback((e: React.WheelEvent) => {
@@ -605,6 +765,26 @@ export function Section2DPanel() {
                 {displayOptions.show3DOverlay ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
               </Button>
 
+              {/* 2D Measure Tool */}
+              <Button
+                variant={measure2DMode ? 'default' : 'ghost'}
+                size="icon-sm"
+                onClick={toggleMeasure2DMode}
+                title={measure2DMode ? 'Exit measure mode' : 'Measure distance'}
+              >
+                <Ruler className="h-4 w-4" />
+              </Button>
+              {measure2DResults.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={clearMeasure2DResults}
+                  title="Clear measurements"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
+
               {/* Graphic Override Settings */}
               <Button
                 variant={settingsPanelOpen || activePresetId ? 'default' : 'ghost'}
@@ -704,6 +884,16 @@ export function Section2DPanel() {
                     {displayOptions.show3DOverlay ? <Eye className="h-4 w-4 mr-2" /> : <EyeOff className="h-4 w-4 mr-2" />}
                     3D Overlay {displayOptions.show3DOverlay ? 'On' : 'Off'}
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={toggleMeasure2DMode}>
+                    <Ruler className="h-4 w-4 mr-2" />
+                    Measure {measure2DMode ? 'On' : 'Off'}
+                  </DropdownMenuItem>
+                  {measure2DResults.length > 0 && (
+                    <DropdownMenuItem onClick={clearMeasure2DResults}>
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Clear Measurements
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => setSettingsPanelOpen(true)}>
                     <Palette className="h-4 w-4 mr-2" />
@@ -755,7 +945,9 @@ export function Section2DPanel() {
       {/* Drawing Canvas */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-hidden bg-white dark:bg-zinc-950 cursor-grab active:cursor-grabbing rounded-b-lg"
+        className={`flex-1 overflow-hidden bg-white dark:bg-zinc-950 rounded-b-lg ${
+          measure2DMode ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
+        }`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -800,6 +992,11 @@ export function Section2DPanel() {
               overridesEnabled={overridesEnabled}
               entityColorMap={entityColorMap}
               useIfcMaterials={activePresetId === 'preset-3d-colors'}
+              measureMode={measure2DMode}
+              measureStart={measure2DStart}
+              measureCurrent={measure2DCurrent}
+              measureResults={measure2DResults}
+              measureSnapPoint={measure2DSnapPoint}
             />
             {/* Subtle updating indicator - shows while regenerating without hiding the drawing */}
             {isRegenerating && (
@@ -872,6 +1069,13 @@ export function Section2DPanel() {
 // Static style constant to avoid creating new object on every render
 const CANVAS_STYLE = { imageRendering: 'crisp-edges' as const };
 
+interface Measure2DResultData {
+  id: string;
+  start: { x: number; y: number };
+  end: { x: number; y: number };
+  distance: number;
+}
+
 interface Drawing2DCanvasProps {
   drawing: Drawing2D;
   transform: { x: number; y: number; scale: number };
@@ -880,9 +1084,28 @@ interface Drawing2DCanvasProps {
   overridesEnabled: boolean;
   entityColorMap: Map<number, [number, number, number, number]>;
   useIfcMaterials: boolean;
+  // Measure tool props
+  measureMode?: boolean;
+  measureStart?: { x: number; y: number } | null;
+  measureCurrent?: { x: number; y: number } | null;
+  measureResults?: Measure2DResultData[];
+  measureSnapPoint?: { x: number; y: number } | null;
 }
 
-function Drawing2DCanvas({ drawing, transform, showHiddenLines, overrideEngine, overridesEnabled, entityColorMap, useIfcMaterials }: Drawing2DCanvasProps) {
+function Drawing2DCanvas({
+  drawing,
+  transform,
+  showHiddenLines,
+  overrideEngine,
+  overridesEnabled,
+  entityColorMap,
+  useIfcMaterials,
+  measureMode = false,
+  measureStart = null,
+  measureCurrent = null,
+  measureResults = [],
+  measureSnapPoint = null,
+}: Drawing2DCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
 
@@ -1108,7 +1331,122 @@ function Drawing2DCanvas({ drawing, transform, showHiddenLines, overrideEngine, 
     }
 
     ctx.restore();
-  }, [drawing, transform, showHiddenLines, canvasSize, overrideEngine, overridesEnabled, entityColorMap, useIfcMaterials]);
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 4. RENDER MEASUREMENTS (in screen space)
+    // ═══════════════════════════════════════════════════════════════════════
+    const drawMeasureLine = (
+      start: { x: number; y: number },
+      end: { x: number; y: number },
+      distance: number,
+      color: string = '#2196F3',
+      isActive: boolean = false
+    ) => {
+      // Convert drawing coords to screen coords
+      const screenStart = {
+        x: start.x * transform.scale + transform.x,
+        y: -start.y * transform.scale + transform.y,
+      };
+      const screenEnd = {
+        x: end.x * transform.scale + transform.x,
+        y: -end.y * transform.scale + transform.y,
+      };
+
+      // Draw line
+      ctx.strokeStyle = color;
+      ctx.lineWidth = isActive ? 2 : 1.5;
+      ctx.setLineDash(isActive ? [6, 3] : []);
+      ctx.beginPath();
+      ctx.moveTo(screenStart.x, screenStart.y);
+      ctx.lineTo(screenEnd.x, screenEnd.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Draw endpoints
+      ctx.fillStyle = color;
+      const endpointRadius = isActive ? 5 : 4;
+      ctx.beginPath();
+      ctx.arc(screenStart.x, screenStart.y, endpointRadius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(screenEnd.x, screenEnd.y, endpointRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Draw distance label
+      const midX = (screenStart.x + screenEnd.x) / 2;
+      const midY = (screenStart.y + screenEnd.y) / 2;
+
+      // Format distance (assuming meters, convert to readable units)
+      let labelText: string;
+      if (distance < 0.01) {
+        labelText = `${(distance * 1000).toFixed(1)} mm`;
+      } else if (distance < 1) {
+        labelText = `${(distance * 100).toFixed(1)} cm`;
+      } else {
+        labelText = `${distance.toFixed(3)} m`;
+      }
+
+      // Background for label
+      ctx.font = '12px system-ui, sans-serif';
+      const textMetrics = ctx.measureText(labelText);
+      const padding = 4;
+      const bgWidth = textMetrics.width + padding * 2;
+      const bgHeight = 18;
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.fillRect(midX - bgWidth / 2, midY - bgHeight / 2, bgWidth, bgHeight);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(midX - bgWidth / 2, midY - bgHeight / 2, bgWidth, bgHeight);
+
+      // Text
+      ctx.fillStyle = '#000000';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(labelText, midX, midY);
+    };
+
+    // Draw completed measurements
+    for (const result of measureResults) {
+      drawMeasureLine(result.start, result.end, result.distance, '#2196F3', false);
+    }
+
+    // Draw active measurement
+    if (measureStart && measureCurrent) {
+      const dx = measureCurrent.x - measureStart.x;
+      const dy = measureCurrent.y - measureStart.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      drawMeasureLine(measureStart, measureCurrent, distance, '#FF5722', true);
+    }
+
+    // Draw snap indicator
+    if (measureMode && measureSnapPoint) {
+      const screenSnap = {
+        x: measureSnapPoint.x * transform.scale + transform.x,
+        y: -measureSnapPoint.y * transform.scale + transform.y,
+      };
+
+      // Draw snap crosshair
+      ctx.strokeStyle = '#4CAF50';
+      ctx.lineWidth = 1.5;
+      const snapSize = 12;
+
+      ctx.beginPath();
+      ctx.moveTo(screenSnap.x - snapSize, screenSnap.y);
+      ctx.lineTo(screenSnap.x + snapSize, screenSnap.y);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(screenSnap.x, screenSnap.y - snapSize);
+      ctx.lineTo(screenSnap.x, screenSnap.y + snapSize);
+      ctx.stroke();
+
+      // Draw snap circle
+      ctx.beginPath();
+      ctx.arc(screenSnap.x, screenSnap.y, 6, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }, [drawing, transform, showHiddenLines, canvasSize, overrideEngine, overridesEnabled, entityColorMap, useIfcMaterials, measureMode, measureStart, measureCurrent, measureResults, measureSnapPoint]);
 
   return (
     <canvas
