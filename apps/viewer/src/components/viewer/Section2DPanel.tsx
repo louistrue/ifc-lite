@@ -143,15 +143,22 @@ export function Section2DPanel() {
   // Store hatching lines separately
   const [hatchingLines, setHatchingLines] = useState<DrawingLine[]>([]);
 
+  // Track if this is a regeneration (vs initial generation)
+  const isRegeneratingRef = useRef(false);
+
   // Generate drawing when panel opens
-  const generateDrawing = useCallback(async () => {
+  const generateDrawing = useCallback(async (isRegenerate = false) => {
     if (!geometryResult?.meshes || geometryResult.meshes.length === 0) {
       setDrawingError('No geometry loaded');
       return;
     }
 
-    setDrawingStatus('generating');
-    setDrawingProgress(0, 'Initializing...');
+    // Only show full loading overlay for initial generation, not regeneration
+    if (!isRegenerate) {
+      setDrawingStatus('generating');
+      setDrawingProgress(0, 'Initializing...');
+    }
+    isRegeneratingRef.current = isRegenerate;
 
     let generator: Drawing2DGenerator | null = null;
     try {
@@ -207,7 +214,9 @@ export function Section2DPanel() {
       });
       setSvgContent(svg);
 
+      // Always set status to ready (whether initial generation or regeneration)
       setDrawingStatus('ready');
+      isRegeneratingRef.current = false;
     } catch (error) {
       console.error('Drawing generation failed:', error);
       setDrawingError(error instanceof Error ? error.message : 'Generation failed');
@@ -233,7 +242,8 @@ export function Section2DPanel() {
     }
   }, [panelVisible, drawing, status, geometryResult, generateDrawing]);
 
-  // Auto-regenerate when section plane changes (debounced to prevent flickering)
+  // Auto-regenerate when section plane changes
+  // Strategy: Debounce but keep existing drawing visible (no flicker)
   const sectionRef = useRef({ axis: sectionPlane.axis, position: sectionPlane.position, flipped: sectionPlane.flipped });
   const regenerateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isRegenerating, setIsRegenerating] = useState(false);
@@ -253,22 +263,23 @@ export function Section2DPanel() {
     sectionRef.current = { axis: sectionPlane.axis, position: sectionPlane.position, flipped: sectionPlane.flipped };
 
     // If panel is visible and we have geometry, regenerate with debounce
-    if (panelVisible && geometryResult?.meshes && status !== 'generating') {
+    // Note: status check removed - we regenerate in background even if status is 'generating'
+    if (panelVisible && geometryResult?.meshes) {
       // Clear any pending regeneration
       if (regenerateTimeoutRef.current) {
         clearTimeout(regenerateTimeoutRef.current);
       }
 
-      // Show subtle updating indicator
+      // Show subtle regenerating indicator immediately
       setIsRegenerating(true);
 
-      // Debounce regeneration to avoid flickering during rapid slider movement
+      // Short debounce - just enough to batch rapid slider movements
       regenerateTimeoutRef.current = setTimeout(() => {
-        // Don't clear the existing drawing - keep it visible while regenerating
-        generateDrawing().finally(() => {
+        // Pass true to indicate this is a regeneration (keeps existing drawing visible)
+        generateDrawing(true).finally(() => {
           setIsRegenerating(false);
         });
-      }, 150); // 150ms debounce for smooth slider interaction
+      }, 150); // 150ms debounce - responsive but avoids excessive calls
     }
 
     return () => {
@@ -276,7 +287,7 @@ export function Section2DPanel() {
         clearTimeout(regenerateTimeoutRef.current);
       }
     };
-  }, [panelVisible, sectionPlane.axis, sectionPlane.position, sectionPlane.flipped, geometryResult, status, generateDrawing]);
+  }, [panelVisible, sectionPlane.axis, sectionPlane.position, sectionPlane.flipped, geometryResult, generateDrawing]);
 
   // Pan handlers
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -690,7 +701,7 @@ export function Section2DPanel() {
               <Button
                 variant="ghost"
                 size="icon-sm"
-                onClick={generateDrawing}
+                onClick={() => generateDrawing(false)}
                 disabled={status === 'generating'}
                 title="Regenerate"
               >
@@ -728,6 +739,23 @@ export function Section2DPanel() {
                     Hatching {displayOptions.showHatching ? 'On' : 'Off'}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
+                  <DropdownMenuLabel className="text-xs">Graphic Styles</DropdownMenuLabel>
+                  <DropdownMenuCheckboxItem
+                    checked={activePresetId === null}
+                    onCheckedChange={() => setActivePreset(null)}
+                  >
+                    <span className="mr-1">📐</span> Default
+                  </DropdownMenuCheckboxItem>
+                  {graphicOverridePresets.slice(0, 4).map((preset) => (
+                    <DropdownMenuCheckboxItem
+                      key={preset.id}
+                      checked={activePresetId === preset.id}
+                      onCheckedChange={() => setActivePreset(preset.id)}
+                    >
+                      <span className="mr-1">{preset.icon}</span> {preset.name}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={zoomIn}>
                     <ZoomIn className="h-4 w-4 mr-2" />
                     Zoom In
@@ -750,7 +778,7 @@ export function Section2DPanel() {
                     Print
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={generateDrawing} disabled={status === 'generating'}>
+                  <DropdownMenuItem onClick={() => generateDrawing(false)} disabled={status === 'generating'}>
                     {status === 'generating' ? (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     ) : (
@@ -801,7 +829,7 @@ export function Section2DPanel() {
               <p className="text-sm text-muted-foreground">
                 {drawingError}
               </p>
-              <Button variant="outline" size="sm" className="mt-4" onClick={generateDrawing}>
+              <Button variant="outline" size="sm" className="mt-4" onClick={() => generateDrawing(false)}>
                 Retry
               </Button>
             </div>
@@ -840,7 +868,7 @@ export function Section2DPanel() {
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-center text-muted-foreground">
               <p>No drawing generated yet</p>
-              <Button variant="outline" size="sm" className="mt-4" onClick={generateDrawing}>
+              <Button variant="outline" size="sm" className="mt-4" onClick={() => generateDrawing(false)}>
                 Generate Drawing
               </Button>
             </div>
