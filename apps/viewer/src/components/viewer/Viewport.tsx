@@ -704,11 +704,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         } else if (tool === 'measure') {
           // Measure tool - shift+drag = orbit, normal drag = measure
           if (e.shiftKey) {
-            // Shift pressed: allow orbit (not pan)
-            // Mouse positions already initialized at start of mousedown handler
+            // Shift pressed: allow orbit (not pan) when no measurement is active
+            mouseState.isDragging = true;
             mouseState.isPanning = false;
             canvas.style.cursor = 'grabbing';
-            // Don't return early - fall through to allow orbit handling in mousemove
+            // Fall through to allow orbit handling in mousemove
           } else {
             // Normal drag: start measurement
             mouseState.isDragging = true; // Mark as dragging for measure tool
@@ -810,13 +810,9 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
 
         // Handle measure tool live preview while dragging
         // IMPORTANT: Check tool first, not activeMeasurement, to prevent orbit conflict
-        if (tool === 'measure' && mouseState.isDragging) {
-          // Only raycast if we have an active measurement
-          if (!activeMeasurementRef.current) {
-            // Just started dragging, measurement will be set soon
-            // Don't do anything yet to avoid race condition
-            return;
-          }
+        if (tool === 'measure' && mouseState.isDragging && activeMeasurementRef.current) {
+          // Only process measurement dragging if we have an active measurement
+          // If shift is held without active measurement, fall through to orbit handling
 
           // Check if shift is held for orthogonal constraint
           const useOrthogonalConstraint = e.shiftKey && measurementConstraintEdgeRef.current;
