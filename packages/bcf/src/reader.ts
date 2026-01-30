@@ -364,21 +364,33 @@ async function parseViewpoints(
 
       if (viewpoint) {
         // Load snapshot if available
-        const snapshotPath = viewpointPath.replace('.bcfv', '.png');
-        const snapshotFile = zip.file(snapshotPath);
+        // BCF files may use either Viewpoint_xxx.png or Snapshot_xxx.png naming
+        const viewpointBaseName = viewpointPath.replace('.bcfv', '');
+        const snapshotBaseName = viewpointBaseName.replace('Viewpoint_', 'Snapshot_');
+
+        // Try Snapshot_xxx.png first (common pattern)
+        let snapshotFile = zip.file(`${snapshotBaseName}.png`);
+        let snapshotFormat = 'png';
+
+        // Fallback to Viewpoint_xxx.png
+        if (!snapshotFile) {
+          snapshotFile = zip.file(`${viewpointBaseName}.png`);
+        }
+
+        // Try JPG variants
+        if (!snapshotFile) {
+          snapshotFile = zip.file(`${snapshotBaseName}.jpg`);
+          snapshotFormat = 'jpeg';
+        }
+        if (!snapshotFile) {
+          snapshotFile = zip.file(`${viewpointBaseName}.jpg`);
+          snapshotFormat = 'jpeg';
+        }
+
         if (snapshotFile) {
           const snapshotData = await snapshotFile.async('uint8array');
           viewpoint.snapshotData = snapshotData;
-          viewpoint.snapshot = `data:image/png;base64,${uint8ArrayToBase64(snapshotData)}`;
-        } else {
-          // Try JPG
-          const jpgPath = viewpointPath.replace('.bcfv', '.jpg');
-          const jpgFile = zip.file(jpgPath);
-          if (jpgFile) {
-            const snapshotData = await jpgFile.async('uint8array');
-            viewpoint.snapshotData = snapshotData;
-            viewpoint.snapshot = `data:image/jpeg;base64,${uint8ArrayToBase64(snapshotData)}`;
-          }
+          viewpoint.snapshot = `data:image/${snapshotFormat};base64,${uint8ArrayToBase64(snapshotData)}`;
         }
 
         viewpoints.push(viewpoint);
