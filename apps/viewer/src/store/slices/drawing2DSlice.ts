@@ -10,7 +10,8 @@
  */
 
 import type { StateCreator } from 'zustand';
-import type { Drawing2D } from '@ifc-lite/drawing-2d';
+import type { Drawing2D, GraphicOverrideRule, GraphicOverridePreset } from '@ifc-lite/drawing-2d';
+import { BUILT_IN_PRESETS } from '@ifc-lite/drawing-2d';
 
 export type Drawing2DStatus = 'idle' | 'generating' | 'ready' | 'error';
 
@@ -37,10 +38,20 @@ export interface Drawing2DState {
     show3DOverlay: boolean;
     scale: number;
   };
+  /** Available graphic override presets */
+  graphicOverridePresets: GraphicOverridePreset[];
+  /** Currently active preset ID (null = no preset) */
+  activePresetId: string | null;
+  /** Custom user-defined override rules */
+  customOverrideRules: GraphicOverrideRule[];
+  /** Whether to apply graphic overrides */
+  overridesEnabled: boolean;
+  /** Panel visibility for override editor */
+  overridesPanelVisible: boolean;
 }
 
 export interface Drawing2DSlice extends Drawing2DState {
-  // Actions
+  // Drawing Actions
   setDrawing2D: (drawing: Drawing2D | null) => void;
   setDrawing2DStatus: (status: Drawing2DStatus) => void;
   setDrawing2DProgress: (progress: number, phase: string) => void;
@@ -50,6 +61,19 @@ export interface Drawing2DSlice extends Drawing2DState {
   setDrawing2DSvgContent: (svg: string | null) => void;
   updateDrawing2DDisplayOptions: (options: Partial<Drawing2DState['drawing2DDisplayOptions']>) => void;
   clearDrawing2D: () => void;
+
+  // Graphic Override Actions
+  setActivePreset: (presetId: string | null) => void;
+  addCustomRule: (rule: GraphicOverrideRule) => void;
+  updateCustomRule: (ruleId: string, updates: Partial<GraphicOverrideRule>) => void;
+  removeCustomRule: (ruleId: string) => void;
+  clearCustomRules: () => void;
+  setOverridesEnabled: (enabled: boolean) => void;
+  toggleOverridesEnabled: () => void;
+  setOverridesPanelVisible: (visible: boolean) => void;
+  toggleOverridesPanel: () => void;
+  /** Get all active rules (preset + custom) sorted by priority */
+  getActiveOverrideRules: () => GraphicOverrideRule[];
 }
 
 const getDefaultDisplayOptions = (): Drawing2DState['drawing2DDisplayOptions'] => ({
@@ -69,13 +93,19 @@ const getDefaultState = (): Drawing2DState => ({
   drawing2DPanelVisible: false,
   drawing2DSvgContent: null,
   drawing2DDisplayOptions: getDefaultDisplayOptions(),
+  // Graphic overrides
+  graphicOverridePresets: BUILT_IN_PRESETS,
+  activePresetId: null,
+  customOverrideRules: [],
+  overridesEnabled: true,
+  overridesPanelVisible: false,
 });
 
-export const createDrawing2DSlice: StateCreator<Drawing2DSlice, [], [], Drawing2DSlice> = (set) => ({
+export const createDrawing2DSlice: StateCreator<Drawing2DSlice, [], [], Drawing2DSlice> = (set, get) => ({
   // Initial state
   ...getDefaultState(),
 
-  // Actions
+  // Drawing Actions
   setDrawing2D: (drawing) => set({
     drawing2D: drawing,
     drawing2DStatus: drawing ? 'ready' : 'idle',
@@ -105,4 +135,52 @@ export const createDrawing2DSlice: StateCreator<Drawing2DSlice, [], [], Drawing2
   })),
 
   clearDrawing2D: () => set(getDefaultState()),
+
+  // Graphic Override Actions
+  setActivePreset: (presetId) => set({ activePresetId: presetId }),
+
+  addCustomRule: (rule) => set((state) => ({
+    customOverrideRules: [...state.customOverrideRules, rule],
+  })),
+
+  updateCustomRule: (ruleId, updates) => set((state) => ({
+    customOverrideRules: state.customOverrideRules.map((rule) =>
+      rule.id === ruleId ? { ...rule, ...updates } : rule
+    ),
+  })),
+
+  removeCustomRule: (ruleId) => set((state) => ({
+    customOverrideRules: state.customOverrideRules.filter((rule) => rule.id !== ruleId),
+  })),
+
+  clearCustomRules: () => set({ customOverrideRules: [] }),
+
+  setOverridesEnabled: (enabled) => set({ overridesEnabled: enabled }),
+
+  toggleOverridesEnabled: () => set((state) => ({ overridesEnabled: !state.overridesEnabled })),
+
+  setOverridesPanelVisible: (visible) => set({ overridesPanelVisible: visible }),
+
+  toggleOverridesPanel: () => set((state) => ({ overridesPanelVisible: !state.overridesPanelVisible })),
+
+  getActiveOverrideRules: () => {
+    const state = get();
+    if (!state.overridesEnabled) return [];
+
+    const presetRules: GraphicOverrideRule[] = [];
+
+    // Get rules from active preset
+    if (state.activePresetId) {
+      const preset = state.graphicOverridePresets.find((p) => p.id === state.activePresetId);
+      if (preset) {
+        presetRules.push(...preset.rules);
+      }
+    }
+
+    // Combine with custom rules and sort by priority
+    const allRules = [...presetRules, ...state.customOverrideRules];
+    return allRules
+      .filter((rule) => rule.enabled)
+      .sort((a, b) => a.priority - b.priority);
+  },
 });

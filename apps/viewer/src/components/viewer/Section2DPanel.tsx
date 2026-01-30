@@ -12,7 +12,7 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react';
-import { X, Download, Eye, EyeOff, Grid3x3, Maximize2, Minimize2, ZoomIn, ZoomOut, Loader2, Printer, GripVertical, MoreHorizontal, RefreshCw, Pin, PinOff } from 'lucide-react';
+import { X, Download, Eye, EyeOff, Grid3x3, Maximize2, Minimize2, ZoomIn, ZoomOut, Loader2, Printer, GripVertical, MoreHorizontal, RefreshCw, Pin, PinOff, Palette, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -20,6 +20,8 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuLabel,
+  DropdownMenuCheckboxItem,
 } from '@/components/ui/dropdown-menu';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
@@ -94,6 +96,13 @@ export function Section2DPanel() {
   const updateDisplayOptions = useViewerStore((s) => s.updateDrawing2DDisplayOptions);
   const svgContent = useViewerStore((s) => s.drawing2DSvgContent);
   const setSvgContent = useViewerStore((s) => s.setDrawing2DSvgContent);
+
+  // Graphic overrides
+  const graphicOverridePresets = useViewerStore((s) => s.graphicOverridePresets);
+  const activePresetId = useViewerStore((s) => s.activePresetId);
+  const setActivePreset = useViewerStore((s) => s.setActivePreset);
+  const overridesEnabled = useViewerStore((s) => s.overridesEnabled);
+  const toggleOverridesEnabled = useViewerStore((s) => s.toggleOverridesEnabled);
 
   const sectionPlane = useViewerStore((s) => s.sectionPlane);
   const activeTool = useViewerStore((s) => s.activeTool);
@@ -580,6 +589,54 @@ export function Section2DPanel() {
               >
                 <Grid3x3 className="h-4 w-4" />
               </Button>
+
+              {/* Graphic Override Presets */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant={activePresetId ? 'default' : 'ghost'}
+                    size="icon-sm"
+                    title="Graphic overrides"
+                    className="relative"
+                  >
+                    <Palette className="h-4 w-4" />
+                    {activePresetId && (
+                      <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-primary rounded-full" />
+                    )}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  <DropdownMenuLabel className="flex items-center justify-between">
+                    <span>Graphic Styles</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={toggleOverridesEnabled}
+                    >
+                      {overridesEnabled ? 'Enabled' : 'Disabled'}
+                    </Button>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuCheckboxItem
+                    checked={activePresetId === null}
+                    onCheckedChange={() => setActivePreset(null)}
+                  >
+                    <span className="mr-2">📐</span> Default (IFC Types)
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuSeparator />
+                  {graphicOverridePresets.map((preset) => (
+                    <DropdownMenuCheckboxItem
+                      key={preset.id}
+                      checked={activePresetId === preset.id}
+                      onCheckedChange={() => setActivePreset(preset.id)}
+                    >
+                      <span className="mr-2">{preset.icon}</span>
+                      {preset.name}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               <div className="w-px h-4 bg-border mx-1" />
 

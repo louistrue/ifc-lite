@@ -300,3 +300,47 @@ export type {
 
 // Re-export LineStyle from types (note: this shadows the style module's LineStyle)
 export type { LineStyle as ArchitecturalLineStyle } from './types';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GRAPHIC OVERRIDES
+// ═══════════════════════════════════════════════════════════════════════════
+
+export {
+  // Engine
+  GraphicOverrideEngine,
+  createOverrideEngine,
+
+  // Criteria helpers
+  ifcTypeCriterion,
+  propertyCriterion,
+  andCriteria,
+  orCriteria,
+
+  // Built-in presets
+  BUILT_IN_PRESETS,
+  ARCHITECTURAL_PRESET,
+  FIRE_SAFETY_PRESET,
+  STRUCTURAL_PRESET,
+  MEP_PRESET,
+  MATERIAL_PRESET,
+  MONOCHROME_PRESET,
+  getBuiltInPreset,
+  getPresetsByCategory,
+} from './graphic-overrides';
+
+export type {
+  // Override types
+  LineWeightPreset,
+  LineStylePreset,
+  DashPattern,
+  CriteriaOperator,
+  CriteriaType,
+  OverrideCriterion,
+  OverrideCriteria,
+  GraphicStyle,
+  GraphicOverrideRule,
+  GraphicOverridePreset,
+  ElementData,
+  ResolvedGraphicStyle,
+  OverrideResult,
+} from './graphic-overrides';
