@@ -361,7 +361,7 @@ export const createGeometryEditSlice: StateCreator<
       console.warn('[GeomEditSlice] context.updateParameter returned null');
       return null;
     }
-    console.log('[GeomEditSlice] Got new mesh with', newMesh.vertices?.length || 0, 'vertices');
+    console.log('[GeomEditSlice] Got new mesh with', newMesh.positions?.length ? newMesh.positions.length / 3 : 0, 'vertices');
 
     set((state) => {
       const newPreviewMeshes = new Map(state.previewMeshes);

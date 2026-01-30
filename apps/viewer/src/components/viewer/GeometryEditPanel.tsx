@@ -78,11 +78,12 @@ export function GeometryEditPanel() {
     };
 
     for (const param of parameters) {
-      if (param.path.includes('depth') || param.path.includes('height') || param.path.includes('width') || param.path.includes('radius')) {
+      const pathLower = param.path.toLowerCase();
+      if (pathLower.includes('depth') || pathLower.includes('height') || pathLower.includes('width') || pathLower.includes('radius') || pathLower.includes('dim') || pathLower.includes('axis')) {
         groups.dimensions.push(param);
-      } else if (param.path.includes('position') || param.path.includes('location')) {
+      } else if (pathLower.includes('position') || pathLower.includes('location') || pathLower.includes('direction')) {
         groups.position.push(param);
-      } else if (param.path.includes('profile')) {
+      } else if (pathLower.includes('profile') || pathLower.includes('sweptarea')) {
         groups.profile.push(param);
       } else {
         groups.other.push(param);

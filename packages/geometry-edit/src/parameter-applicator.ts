@@ -217,48 +217,64 @@ export class ParameterApplicator {
     currentMesh: MeshData
   ): MeshData | null {
     const path = parameter.path;
+    console.log('[ParameterApplicator] regenerateMesh:', {
+      path,
+      oldValue: parameter.value,
+      newValue,
+      currentMeshVertices: currentMesh.positions?.length ? currentMesh.positions.length / 3 : 0,
+    });
+
+    let result: MeshData | null = null;
 
     // Handle extrusion depth change
     if (path === 'Depth' || path.endsWith('.Depth')) {
-      return this.applyDepthChange(
+      console.log('[ParameterApplicator] Applying depth change');
+      result = this.applyDepthChange(
         currentMesh,
         parameter.value as number,
         newValue as number
       );
     }
-
     // Handle profile dimension changes (XDim, YDim, Radius, etc.)
-    if (
+    else if (
       path.includes('XDim') ||
       path.includes('YDim') ||
       path.includes('Radius') ||
       path.includes('SemiAxis')
     ) {
-      return this.applyProfileDimensionChange(
+      console.log('[ParameterApplicator] Applying profile dimension change');
+      result = this.applyProfileDimensionChange(
         currentMesh,
         path,
         parameter.value as number,
         newValue as number
       );
     }
-
     // Handle direction changes
-    if (path.includes('Direction')) {
-      return this.applyDirectionChange(
+    else if (path.includes('Direction')) {
+      console.log('[ParameterApplicator] Applying direction change');
+      result = this.applyDirectionChange(
         currentMesh,
         parameter.value as Vec3,
         newValue as Vec3
       );
     }
-
     // Handle arbitrary profile point changes
-    if (path.includes('OuterCurve')) {
+    else if (path.includes('OuterCurve')) {
+      console.log('[ParameterApplicator] OuterCurve change - WASM path needed');
       // Full re-triangulation needed - return null to trigger WASM path
       return null;
     }
-
     // Default: return current mesh (no change possible without WASM)
-    return currentMesh;
+    else {
+      console.log('[ParameterApplicator] Unknown parameter path, returning current mesh');
+      result = currentMesh;
+    }
+
+    if (result) {
+      console.log('[ParameterApplicator] Result mesh vertices:', result.positions?.length ? result.positions.length / 3 : 0);
+    }
+    return result;
   }
 
   /**
