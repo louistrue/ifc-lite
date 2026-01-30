@@ -166,6 +166,8 @@ export function Section2DPanel(): React.ReactElement | null {
   const prevAxisRef = useRef(sectionPlane.axis);  // Track axis changes
   // Track resize event handlers for cleanup
   const resizeHandlersRef = useRef<{ move: ((e: MouseEvent) => void) | null; up: (() => void) | null }>({ move: null, up: null });
+  // Cache sheet drawing transform when pinned (to keep model fixed in place)
+  const cachedSheetTransformRef = useRef<{ translateX: number; translateY: number; scaleFactor: number } | null>(null);
 
   // Track panel width for responsive header
   useEffect(() => {
@@ -664,6 +666,7 @@ export function Section2DPanel(): React.ReactElement | null {
     if (sectionPlane.axis !== prevAxisRef.current) {
       prevAxisRef.current = sectionPlane.axis;
       setNeedsFit(true);  // Force fit when axis changes
+      cachedSheetTransformRef.current = null;  // Clear cached transform for new axis
     }
   }, [sectionPlane.axis]);
 
@@ -672,6 +675,7 @@ export function Section2DPanel(): React.ReactElement | null {
   useEffect(() => {
     if (sheetEnabled !== prevSheetEnabledRef.current) {
       prevSheetEnabledRef.current = sheetEnabled;
+      cachedSheetTransformRef.current = null;  // Clear cached transform
       // Auto-fit when sheet mode is toggled
       if (status === 'ready' && drawing && containerRef.current) {
         const timeout = setTimeout(() => {
@@ -1658,6 +1662,8 @@ export function Section2DPanel(): React.ReactElement | null {
               sheetEnabled={sheetEnabled}
               activeSheet={activeSheet}
               sectionAxis={sectionPlane.axis}
+              isPinned={isPinned}
+              cachedSheetTransformRef={cachedSheetTransformRef}
             />
             {/* Subtle updating indicator - shows while regenerating without hiding the drawing */}
             {isRegenerating && (
@@ -1772,6 +1778,9 @@ interface Drawing2DCanvasProps {
   activeSheet?: import('@ifc-lite/drawing-2d').DrawingSheet | null;
   // Section plane info for axis-specific rendering
   sectionAxis: 'down' | 'front' | 'side';
+  // Pinned mode - keep model fixed in place on sheet
+  isPinned?: boolean;
+  cachedSheetTransformRef?: React.MutableRefObject<{ translateX: number; translateY: number; scaleFactor: number } | null>;
 }
 
 function Drawing2DCanvas({
@@ -1790,6 +1799,8 @@ function Drawing2DCanvas({
   sheetEnabled = false,
   activeSheet = null,
   sectionAxis,
+  isPinned = false,
+  cachedSheetTransformRef,
 }: Drawing2DCanvasProps): React.ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
@@ -2074,21 +2085,7 @@ function Drawing2DCanvas({
       }
 
       // ─────────────────────────────────────────────────────────────────────
-      // 4. Draw viewport border (dashed, for visual reference)
-      // ─────────────────────────────────────────────────────────────────────
-      ctx.strokeStyle = '#999999';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 2]);
-      ctx.strokeRect(
-        mmToScreenX(viewport.x),
-        mmToScreenY(viewport.y),
-        mmToScreen(viewport.width),
-        mmToScreen(viewport.height)
-      );
-      ctx.setLineDash([]);
-
-      // ─────────────────────────────────────────────────────────────────────
-      // 7. Clip to viewport and draw model content
+      // 4. Clip to viewport and draw model content
       // ─────────────────────────────────────────────────────────────────────
       ctx.save();
 
@@ -2109,22 +2106,35 @@ function Drawing2DCanvas({
         maxX: drawing.bounds.max.x,
         maxY: drawing.bounds.max.y,
       };
-      const baseTransform = calculateDrawingTransform(drawingBounds, viewport, activeSheet.scale);
 
-      // Adjust transform for axis-specific flipping
-      // calculateDrawingTransform assumes Y-flip (uses maxY), but for 'down' view we don't flip Y
+      // Axis-specific flipping
       const flipY = sectionAxis !== 'down';
       const flipX = sectionAxis === 'side';
 
-      // For non-flipped Y, we need to recalculate translateY
-      // Original: translateY = viewport.y + (viewport.height - finalHeight)/2 + maxY * scaleFactor
-      // For no flip: translateY = viewport.y + (viewport.height - finalHeight)/2 - minY * scaleFactor
-      const drawingTransform = {
-        ...baseTransform,
-        translateY: flipY
-          ? baseTransform.translateY
-          : baseTransform.translateY - (drawingBounds.maxY + drawingBounds.minY) * baseTransform.scaleFactor,
-      };
+      // Use cached transform when pinned, otherwise calculate new one
+      let drawingTransform: { translateX: number; translateY: number; scaleFactor: number };
+
+      if (isPinned && cachedSheetTransformRef?.current) {
+        // Use cached transform to keep model fixed in place
+        drawingTransform = cachedSheetTransformRef.current;
+      } else {
+        // Calculate new transform
+        const baseTransform = calculateDrawingTransform(drawingBounds, viewport, activeSheet.scale);
+
+        // Adjust for axis-specific flipping
+        // calculateDrawingTransform assumes Y-flip (uses maxY), but for 'down' view we don't flip Y
+        drawingTransform = {
+          ...baseTransform,
+          translateY: flipY
+            ? baseTransform.translateY
+            : baseTransform.translateY - (drawingBounds.maxY + drawingBounds.minY) * baseTransform.scaleFactor,
+        };
+
+        // Cache the transform for pinned mode
+        if (cachedSheetTransformRef) {
+          cachedSheetTransformRef.current = drawingTransform;
+        }
+      }
 
       // Apply combined transform: sheet mm -> screen, then drawing coords -> sheet mm
       // Drawing coord (meters) * scaleFactor = sheet mm, + translateX/Y
@@ -2704,7 +2714,7 @@ function Drawing2DCanvas({
       ctx.arc(screenSnap.x, screenSnap.y, 6, 0, Math.PI * 2);
       ctx.stroke();
     }
-  }, [drawing, transform, showHiddenLines, canvasSize, overrideEngine, overridesEnabled, entityColorMap, useIfcMaterials, measureMode, measureStart, measureCurrent, measureResults, measureSnapPoint, sheetEnabled, activeSheet, sectionAxis]);
+  }, [drawing, transform, showHiddenLines, canvasSize, overrideEngine, overridesEnabled, entityColorMap, useIfcMaterials, measureMode, measureStart, measureCurrent, measureResults, measureSnapPoint, sheetEnabled, activeSheet, sectionAxis, isPinned]);
 
   return (
     <canvas
