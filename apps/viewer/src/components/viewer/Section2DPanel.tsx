@@ -25,7 +25,6 @@ import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import {
   Drawing2DGenerator,
-  exportToSVG,
   createSectionConfig,
   GraphicOverrideEngine,
   type Drawing2D,
@@ -94,9 +93,6 @@ export function Section2DPanel() {
   const setDrawingError = useViewerStore((s) => s.setDrawing2DError);
   const displayOptions = useViewerStore((s) => s.drawing2DDisplayOptions);
   const updateDisplayOptions = useViewerStore((s) => s.updateDrawing2DDisplayOptions);
-  const svgContent = useViewerStore((s) => s.drawing2DSvgContent);
-  const setSvgContent = useViewerStore((s) => s.setDrawing2DSvgContent);
-
   // Graphic overrides
   const graphicOverridePresets = useViewerStore((s) => s.graphicOverridePresets);
   const activePresetId = useViewerStore((s) => s.activePresetId);
@@ -240,13 +236,6 @@ export function Section2DPanel() {
 
       setDrawing(result);
 
-      // Generate SVG content
-      const svg = exportToSVG(result, {
-        showHiddenLines: displayOptions.showHiddenLines,
-        // scale is derived from the drawing config
-      });
-      setSvgContent(svg);
-
       // Always set status to ready (whether initial generation or regeneration)
       setDrawingStatus('ready');
       isRegeneratingRef.current = false;
@@ -265,7 +254,6 @@ export function Section2DPanel() {
     setDrawingStatus,
     setDrawingProgress,
     setDrawingError,
-    setSvgContent,
   ]);
 
   // Auto-generate when panel opens and no drawing exists
@@ -641,17 +629,256 @@ export function Section2DPanel() {
     }
   }, [status, drawing, fitToView, isPinned, needsFit, sectionPlane.axis]);
 
+  // Format distance for display (same logic as canvas)
+  const formatDistance = useCallback((distance: number): string => {
+    if (distance < 0.01) {
+      return `${(distance * 1000).toFixed(1)} mm`;
+    } else if (distance < 1) {
+      return `${(distance * 100).toFixed(1)} cm`;
+    } else {
+      return `${distance.toFixed(3)} m`;
+    }
+  }, []);
+
+  // Generate SVG that matches the canvas rendering exactly
+  const generateExportSVG = useCallback((): string | null => {
+    if (!drawing) return null;
+
+    const { bounds } = drawing;
+    const width = bounds.max.x - bounds.min.x;
+    const height = bounds.max.y - bounds.min.y;
+
+    // Add padding around the drawing
+    const padding = Math.max(width, height) * 0.1;
+    const viewMinX = bounds.min.x - padding;
+    const viewMinY = bounds.min.y - padding;
+    const viewWidth = width + padding * 2;
+    const viewHeight = height + padding * 2;
+
+    // SVG dimensions in mm (assuming model is in meters, scale 1:100)
+    const scale = displayOptions.scale || 100;
+    const svgWidthMm = (viewWidth * 1000) / scale;
+    const svgHeightMm = (viewHeight * 1000) / scale;
+
+    // Helper to escape XML
+    const escapeXml = (str: string): string => {
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+    };
+
+    // Helper to get polygon path
+    const polygonToPath = (polygon: { outer: { x: number; y: number }[]; holes: { x: number; y: number }[][] }): string => {
+      let path = '';
+      if (polygon.outer.length > 0) {
+        path += `M ${polygon.outer[0].x.toFixed(4)} ${(-polygon.outer[0].y).toFixed(4)}`;
+        for (let i = 1; i < polygon.outer.length; i++) {
+          path += ` L ${polygon.outer[i].x.toFixed(4)} ${(-polygon.outer[i].y).toFixed(4)}`;
+        }
+        path += ' Z';
+      }
+      for (const hole of polygon.holes) {
+        if (hole.length > 0) {
+          path += ` M ${hole[0].x.toFixed(4)} ${(-hole[0].y).toFixed(4)}`;
+          for (let i = 1; i < hole.length; i++) {
+            path += ` L ${hole[i].x.toFixed(4)} ${(-hole[i].y).toFixed(4)}`;
+          }
+          path += ' Z';
+        }
+      }
+      return path;
+    };
+
+    // Start building SVG
+    let svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="${svgWidthMm.toFixed(2)}mm"
+     height="${svgHeightMm.toFixed(2)}mm"
+     viewBox="${viewMinX.toFixed(4)} ${(-viewMinY - viewHeight).toFixed(4)} ${viewWidth.toFixed(4)} ${viewHeight.toFixed(4)}">
+  <rect x="${viewMinX.toFixed(4)}" y="${(-viewMinY - viewHeight).toFixed(4)}" width="${viewWidth.toFixed(4)}" height="${viewHeight.toFixed(4)}" fill="#FFFFFF"/>
+`;
+
+    // 1. FILL CUT POLYGONS (with color from IFC materials or override engine)
+    svg += '  <g id="polygon-fills">\n';
+    for (const polygon of drawing.cutPolygons) {
+      let fillColor = getFillColorForType(polygon.ifcType);
+      let opacity = 1;
+
+      // Use actual IFC material colors from the mesh data
+      if (activePresetId === 'preset-3d-colors') {
+        const materialColor = entityColorMap.get(polygon.entityId);
+        if (materialColor) {
+          const r = Math.round(materialColor[0] * 255);
+          const g = Math.round(materialColor[1] * 255);
+          const b = Math.round(materialColor[2] * 255);
+          fillColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+          opacity = materialColor[3];
+        }
+      } else if (overridesEnabled) {
+        const elementData: ElementData = {
+          expressId: polygon.entityId,
+          ifcType: polygon.ifcType,
+        };
+        const result = overrideEngine.applyOverrides(elementData);
+        fillColor = result.style.fillColor;
+        opacity = result.style.opacity;
+      }
+
+      const pathData = polygonToPath(polygon.polygon);
+      svg += `    <path d="${pathData}" fill="${fillColor}" fill-opacity="${opacity.toFixed(2)}" fill-rule="evenodd" data-entity-id="${polygon.entityId}" data-ifc-type="${escapeXml(polygon.ifcType)}"/>\n`;
+    }
+    svg += '  </g>\n';
+
+    // 2. STROKE CUT POLYGON OUTLINES (with color from override engine)
+    svg += '  <g id="polygon-outlines">\n';
+    for (const polygon of drawing.cutPolygons) {
+      let strokeColor = '#000000';
+      let lineWeight = 0.5;
+
+      if (overridesEnabled) {
+        const elementData: ElementData = {
+          expressId: polygon.entityId,
+          ifcType: polygon.ifcType,
+        };
+        const result = overrideEngine.applyOverrides(elementData);
+        strokeColor = result.style.strokeColor;
+        lineWeight = result.style.lineWeight;
+      }
+
+      const pathData = polygonToPath(polygon.polygon);
+      // Line weight in model units (meters), convert to reasonable SVG units
+      const svgLineWeight = lineWeight / 1000; // mm to meters for model space
+      svg += `    <path d="${pathData}" fill="none" stroke="${strokeColor}" stroke-width="${svgLineWeight.toFixed(4)}" data-entity-id="${polygon.entityId}"/>\n`;
+    }
+    svg += '  </g>\n';
+
+    // 3. DRAW PROJECTION/SILHOUETTE LINES
+    // Pre-compute bounds for line validation
+    const lineBounds = drawing.bounds;
+    const lineMargin = Math.max(lineBounds.max.x - lineBounds.min.x, lineBounds.max.y - lineBounds.min.y) * 0.5;
+    const lineMinX = lineBounds.min.x - lineMargin;
+    const lineMaxX = lineBounds.max.x + lineMargin;
+    const lineMinY = lineBounds.min.y - lineMargin;
+    const lineMaxY = lineBounds.max.y + lineMargin;
+
+    svg += '  <g id="drawing-lines">\n';
+    for (const line of drawing.lines) {
+      // Skip 'cut' lines - they're triangulation edges, already handled by polygons
+      if (line.category === 'cut') continue;
+
+      // Skip hidden lines if not showing
+      if (!displayOptions.showHiddenLines && line.visibility === 'hidden') continue;
+
+      // Skip lines with invalid coordinates
+      const { start, end } = line.line;
+      if (!isFinite(start.x) || !isFinite(start.y) || !isFinite(end.x) || !isFinite(end.y)) {
+        continue;
+      }
+      if (start.x < lineMinX || start.x > lineMaxX || start.y < lineMinY || start.y > lineMaxY ||
+          end.x < lineMinX || end.x > lineMaxX || end.y < lineMinY || end.y > lineMaxY) {
+        continue;
+      }
+
+      // Set line style based on category
+      let strokeColor = '#000000';
+      let lineWidth = 0.25;
+      let dashArray = '';
+
+      switch (line.category) {
+        case 'projection':
+          lineWidth = 0.25;
+          strokeColor = '#000000';
+          break;
+        case 'hidden':
+          lineWidth = 0.18;
+          strokeColor = '#666666';
+          dashArray = '2 1';
+          break;
+        case 'silhouette':
+          lineWidth = 0.35;
+          strokeColor = '#000000';
+          break;
+        case 'crease':
+          lineWidth = 0.18;
+          strokeColor = '#000000';
+          break;
+        case 'boundary':
+          lineWidth = 0.25;
+          strokeColor = '#000000';
+          break;
+        case 'annotation':
+          lineWidth = 0.13;
+          strokeColor = '#000000';
+          break;
+      }
+
+      // Hidden visibility overrides
+      if (line.visibility === 'hidden') {
+        strokeColor = '#888888';
+        dashArray = '2 1';
+        lineWidth *= 0.7;
+      }
+
+      // Convert line width from mm to model units (meters)
+      const svgLineWidth = lineWidth / 1000;
+      const dashAttr = dashArray ? ` stroke-dasharray="${dashArray.split(' ').map(d => (parseFloat(d) / 1000).toFixed(4)).join(' ')}"` : '';
+
+      svg += `    <line x1="${start.x.toFixed(4)}" y1="${(-start.y).toFixed(4)}" x2="${end.x.toFixed(4)}" y2="${(-end.y).toFixed(4)}" stroke="${strokeColor}" stroke-width="${svgLineWidth.toFixed(4)}"${dashAttr}/>\n`;
+    }
+    svg += '  </g>\n';
+
+    // 4. DRAW COMPLETED MEASUREMENTS
+    if (measure2DResults.length > 0) {
+      svg += '  <g id="measurements">\n';
+      for (const result of measure2DResults) {
+        const { start, end, distance } = result;
+        const midX = (start.x + end.x) / 2;
+        const midY = (start.y + end.y) / 2;
+        const labelText = formatDistance(distance);
+
+        // Measurement line color
+        const measureColor = '#2196F3';
+        const measureLineWidth = 1.5 / 1000; // 1.5px converted to model units
+        const endpointRadius = 4 / 1000; // 4px converted to model units
+
+        // Draw line
+        svg += `    <line x1="${start.x.toFixed(4)}" y1="${(-start.y).toFixed(4)}" x2="${end.x.toFixed(4)}" y2="${(-end.y).toFixed(4)}" stroke="${measureColor}" stroke-width="${measureLineWidth.toFixed(4)}"/>\n`;
+
+        // Draw endpoints
+        svg += `    <circle cx="${start.x.toFixed(4)}" cy="${(-start.y).toFixed(4)}" r="${endpointRadius.toFixed(4)}" fill="${measureColor}"/>\n`;
+        svg += `    <circle cx="${end.x.toFixed(4)}" cy="${(-end.y).toFixed(4)}" r="${endpointRadius.toFixed(4)}" fill="${measureColor}"/>\n`;
+
+        // Draw label background and text
+        const fontSize = 12 / 1000 / (scale / 100); // Adjust font size for scale
+        const labelPadding = 4 / 1000;
+        const labelWidth = labelText.length * fontSize * 0.6; // Approximate text width
+        const labelHeight = fontSize * 1.5;
+
+        svg += `    <rect x="${(midX - labelWidth / 2).toFixed(4)}" y="${(-midY - labelHeight / 2).toFixed(4)}" width="${labelWidth.toFixed(4)}" height="${labelHeight.toFixed(4)}" fill="rgba(255,255,255,0.9)" stroke="${measureColor}" stroke-width="${(0.5 / 1000).toFixed(4)}"/>\n`;
+        svg += `    <text x="${midX.toFixed(4)}" y="${(-midY).toFixed(4)}" font-family="system-ui, sans-serif" font-size="${fontSize.toFixed(4)}" fill="#000000" text-anchor="middle" dominant-baseline="middle">${escapeXml(labelText)}</text>\n`;
+      }
+      svg += '  </g>\n';
+    }
+
+    svg += '</svg>';
+    return svg;
+  }, [drawing, displayOptions, activePresetId, entityColorMap, overridesEnabled, overrideEngine, measure2DResults, formatDistance]);
+
   // Export SVG
   const handleExportSVG = useCallback(() => {
-    if (!svgContent) return;
-    const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+    const svg = generateExportSVG();
+    if (!svg) return;
+    const blob = new Blob([svg], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `section-${sectionPlane.axis}-${sectionPlane.position}.svg`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [svgContent, sectionPlane]);
+  }, [generateExportSVG, sectionPlane]);
 
   // Close panel
   const handleClose = useCallback(() => {
@@ -741,7 +968,8 @@ export function Section2DPanel() {
 
   // Print handler
   const handlePrint = useCallback(() => {
-    if (!svgContent) return;
+    const svg = generateExportSVG();
+    if (!svg) return;
 
     // Create a new window for printing
     const printWindow = window.open('', '_blank', 'width=800,height=600');
@@ -779,7 +1007,7 @@ export function Section2DPanel() {
           </style>
         </head>
         <body>
-          ${svgContent}
+          ${svg}
           <script>
             window.onload = function() {
               window.print();
@@ -790,7 +1018,7 @@ export function Section2DPanel() {
       </html>
     `);
     printWindow.document.close();
-  }, [svgContent, sectionPlane]);
+  }, [generateExportSVG, sectionPlane]);
 
   // Memoize panel style to avoid creating new object on every render
   const panelStyle = useMemo(() => {
@@ -897,7 +1125,7 @@ export function Section2DPanel() {
                 variant="ghost"
                 size="icon-sm"
                 onClick={handleExportSVG}
-                disabled={!svgContent}
+                disabled={!drawing}
                 title="Download SVG"
               >
                 <Download className="h-4 w-4" />
@@ -906,7 +1134,7 @@ export function Section2DPanel() {
                 variant="ghost"
                 size="icon-sm"
                 onClick={handlePrint}
-                disabled={!svgContent}
+                disabled={!drawing}
                 title="Print"
               >
                 <Printer className="h-4 w-4" />
@@ -980,11 +1208,11 @@ export function Section2DPanel() {
                     Pin View {isPinned ? 'On' : 'Off'}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleExportSVG} disabled={!svgContent}>
+                  <DropdownMenuItem onClick={handleExportSVG} disabled={!drawing}>
                     <Download className="h-4 w-4 mr-2" />
                     Download SVG
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={handlePrint} disabled={!svgContent}>
+                  <DropdownMenuItem onClick={handlePrint} disabled={!drawing}>
                     <Printer className="h-4 w-4 mr-2" />
                     Print
                   </DropdownMenuItem>
