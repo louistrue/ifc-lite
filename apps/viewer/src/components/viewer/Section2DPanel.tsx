@@ -12,7 +12,7 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect } from 'react';
-import { X, Download, Eye, EyeOff, Grid3x3, Maximize2, ZoomIn, ZoomOut, Loader2 } from 'lucide-react';
+import { X, Download, Eye, EyeOff, Grid3x3, Maximize2, Minimize2, ZoomIn, ZoomOut, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
@@ -88,10 +88,22 @@ export function Section2DPanel() {
   const setSvgContent = useViewerStore((s) => s.setDrawing2DSvgContent);
 
   const sectionPlane = useViewerStore((s) => s.sectionPlane);
+  const activeTool = useViewerStore((s) => s.activeTool);
   const { geometryResult } = useIfc();
 
-  // Local state for pan/zoom
+  // Auto-show panel when section tool is active
+  const prevActiveToolRef = useRef(activeTool);
+  useEffect(() => {
+    // Section tool was just activated
+    if (activeTool === 'section' && prevActiveToolRef.current !== 'section' && geometryResult?.meshes) {
+      setDrawingPanelVisible(true);
+    }
+    prevActiveToolRef.current = activeTool;
+  }, [activeTool, geometryResult, setDrawingPanelVisible]);
+
+  // Local state for pan/zoom and expanded mode
   const [viewTransform, setViewTransform] = useState({ x: 0, y: 0, scale: 1 });
+  const [isExpanded, setIsExpanded] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const isPanning = useRef(false);
   const lastPanPoint = useRef({ x: 0, y: 0 });
@@ -191,6 +203,29 @@ export function Section2DPanel() {
       generateDrawing();
     }
   }, [panelVisible, drawing, status, geometryResult, generateDrawing]);
+
+  // Auto-regenerate when section plane changes (debounced)
+  const sectionRef = useRef({ axis: sectionPlane.axis, position: sectionPlane.position, flipped: sectionPlane.flipped });
+  useEffect(() => {
+    // Check if section plane actually changed
+    const prev = sectionRef.current;
+    if (
+      prev.axis === sectionPlane.axis &&
+      prev.position === sectionPlane.position &&
+      prev.flipped === sectionPlane.flipped
+    ) {
+      return;
+    }
+
+    // Update ref
+    sectionRef.current = { axis: sectionPlane.axis, position: sectionPlane.position, flipped: sectionPlane.flipped };
+
+    // If panel is visible and we have geometry, regenerate
+    if (panelVisible && geometryResult?.meshes && status !== 'generating') {
+      // Clear existing drawing to force regeneration
+      setDrawing(null);
+    }
+  }, [panelVisible, sectionPlane.axis, sectionPlane.position, sectionPlane.flipped, geometryResult, status, setDrawing]);
 
   // Pan handlers
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -292,17 +327,26 @@ export function Section2DPanel() {
     updateDisplayOptions({ showHatching: !displayOptions.showHatching });
   }, [displayOptions.showHatching, updateDisplayOptions]);
 
+  const toggleExpanded = useCallback(() => {
+    setIsExpanded((prev) => !prev);
+  }, []);
+
   if (!panelVisible) return null;
 
+  // Panel sizing: small corner overlay or expanded fullscreen
+  const panelClasses = isExpanded
+    ? 'absolute inset-4 z-40'
+    : 'absolute bottom-4 left-4 w-80 h-64 z-40';
+
   return (
-    <div className="absolute inset-4 z-40 bg-background rounded-lg border shadow-xl flex flex-col overflow-hidden">
+    <div className={`${panelClasses} bg-background rounded-lg border shadow-xl flex flex-col overflow-hidden`}>
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/50 rounded-t-lg">
-        <div className="flex items-center gap-4">
-          <h2 className="font-semibold text-sm">2D Section Drawing</h2>
-          {drawing && (
+      <div className="flex items-center justify-between px-3 py-1.5 border-b bg-muted/50 rounded-t-lg">
+        <div className="flex items-center gap-2">
+          <h2 className="font-semibold text-xs">2D Section</h2>
+          {drawing && isExpanded && (
             <span className="text-xs text-muted-foreground">
-              {drawing.lines.length} lines, {drawing.cutPolygons.length} cut polygons
+              {drawing.cutPolygons.length} polygons
             </span>
           )}
         </div>
