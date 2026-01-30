@@ -858,11 +858,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
                   snapToFaces: true,
                   screenSnapRadius: reduceComplexity ? 40 : 60, // Smaller radius when slow
                 } : useOrthogonalConstraint ? {
-                  // In orthogonal mode, just snap to surface point
-                  snapToVertices: false,
-                  snapToEdges: false,
-                  snapToFaces: true,
-                  screenSnapRadius: 20,
+                  // In orthogonal mode, snap to edges and vertices only (no faces)
+                  snapToVertices: true,
+                  snapToEdges: true,
+                  snapToFaces: false,
+                  screenSnapRadius: 40,
                 } : {
                   snapToVertices: false,
                   snapToEdges: false,
@@ -1173,18 +1173,29 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
           const useOrthogonalConstraint = e.shiftKey && measurementConstraintEdgeRef.current;
           const currentLock = edgeLockStateRef.current;
 
+          // Use simpler snap options in orthogonal mode (no magnetic locking needed)
+          const finalLock = useOrthogonalConstraint
+            ? { edge: null, meshExpressId: null, lockStrength: 0 }
+            : currentLock;
+
           const result = renderer.raycastSceneMagnetic(x, y, {
-            edge: currentLock.edge,
-            meshExpressId: currentLock.meshExpressId,
-            lockStrength: currentLock.lockStrength,
+            edge: finalLock.edge,
+            meshExpressId: finalLock.meshExpressId,
+            lockStrength: finalLock.lockStrength,
           }, {
             hiddenIds: hiddenEntitiesRef.current,
             isolatedIds: isolatedEntitiesRef.current,
-            snapOptions: snapEnabledRef.current ? {
+            snapOptions: snapEnabledRef.current && !useOrthogonalConstraint ? {
               snapToVertices: true,
               snapToEdges: true,
               snapToFaces: true,
               screenSnapRadius: 60,
+            } : useOrthogonalConstraint ? {
+              // In orthogonal mode, snap to edges and vertices only (no faces)
+              snapToVertices: true,
+              snapToEdges: true,
+              snapToFaces: false,
+              screenSnapRadius: 40,
             } : {
               snapToVertices: false,
               snapToEdges: false,
