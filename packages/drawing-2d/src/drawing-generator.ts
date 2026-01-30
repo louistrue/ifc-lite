@@ -39,6 +39,7 @@ import {
   boundsExtendPoint,
   boundsExtendLine,
   projectTo2D,
+  lineLength,
 } from './math';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -210,6 +211,20 @@ export class Drawing2DGenerator {
           'projection',
           config.plane.position
         );
+      }
+
+      // Filter out outlier lines that are abnormally long (likely artifacts)
+      // Use cut polygon bounds to determine reasonable max line length
+      const cutBounds = this.computeBounds(cutLines);
+      if (cutBounds.min.x < cutBounds.max.x && cutBounds.min.y < cutBounds.max.y) {
+        const boundsWidth = cutBounds.max.x - cutBounds.min.x;
+        const boundsHeight = cutBounds.max.y - cutBounds.min.y;
+        const boundsDiagonal = Math.sqrt(boundsWidth * boundsWidth + boundsHeight * boundsHeight);
+        // Allow lines up to 1.5x the diagonal of the cut area
+        const maxLineLength = boundsDiagonal * 1.5;
+
+        silhouetteLines = silhouetteLines.filter((line) => lineLength(line.line) <= maxLineLength);
+        projectionLines = projectionLines.filter((line) => lineLength(line.line) <= maxLineLength);
       }
 
       report('edges', 1);
