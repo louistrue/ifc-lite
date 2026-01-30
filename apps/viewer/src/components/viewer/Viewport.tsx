@@ -150,32 +150,20 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   // IFC data state
   const { ifcDataStore } = useIfcDataState();
 
-  // Calculate section plane range based on storey heights only
+  // Calculate section plane range based on actual geometry bounds for current axis
   const sectionRange = useMemo(() => {
-    if (!ifcDataStore?.spatialHierarchy || !coordinateInfo) return null;
+    if (!coordinateInfo?.shiftedBounds) return null;
 
-    const { storeyElevations } = ifcDataStore.spatialHierarchy;
-    if (storeyElevations.size === 0) return null;
+    const bounds = coordinateInfo.shiftedBounds;
 
-    // Storey elevations are in original IFC coordinates - need to apply origin shift
-    const yShift = coordinateInfo.originShift.y;
+    // Map semantic axis to coordinate axis
+    const axisKey = sectionPlane.axis === 'side' ? 'x' : sectionPlane.axis === 'down' ? 'y' : 'z';
 
-    let minLevel = Infinity;
-    let maxLevel = -Infinity;
+    const min = bounds.min[axisKey];
+    const max = bounds.max[axisKey];
 
-    // Find lowest and highest storey elevations (shifted to match geometry)
-    for (const elevation of storeyElevations.values()) {
-      const shiftedElevation = elevation - yShift;
-      if (shiftedElevation < minLevel) minLevel = shiftedElevation;
-      if (shiftedElevation > maxLevel) maxLevel = shiftedElevation;
-    }
-
-    // Use storey bounds with fixed 5m margin
-    const minWithMargin = minLevel - 5;
-    const maxWithMargin = maxLevel + 5;
-
-    return Number.isFinite(minWithMargin) && Number.isFinite(maxWithMargin) ? { min: minWithMargin, max: maxWithMargin } : null;
-  }, [ifcDataStore, coordinateInfo]);
+    return Number.isFinite(min) && Number.isFinite(max) ? { min, max } : null;
+  }, [coordinateInfo, sectionPlane.axis]);
 
   // Theme-aware clear color ref (updated when theme changes)
   // Tokyo Night storm: #1a1b26 = rgb(26, 27, 38)
