@@ -500,16 +500,10 @@ export class Section2DOverlayRenderer {
     uniforms[19] = 0;  // padding
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
 
-    // Draw filled polygons first
-    if (this.fillVertexBuffer && this.fillIndexBuffer && this.fillIndexCount > 0) {
-      pass.setPipeline(this.fillPipeline);
-      pass.setBindGroup(0, this.bindGroup);
-      pass.setVertexBuffer(0, this.fillVertexBuffer);
-      pass.setIndexBuffer(this.fillIndexBuffer, 'uint32');
-      pass.drawIndexed(this.fillIndexCount);
-    }
+    // Note: Skip filled polygons in 3D overlay - they create visual artifacts
+    // The fills are rendered properly in the 2D panel canvas instead
 
-    // Draw lines on top
+    // Draw lines only
     if (this.lineVertexBuffer && this.lineVertexCount > 0) {
       pass.setPipeline(this.linePipeline);
       pass.setBindGroup(0, this.bindGroup);
