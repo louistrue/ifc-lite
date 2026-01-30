@@ -147,6 +147,13 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       drawing2DError: null,
       drawing2DPanelVisible: false,
       drawing2DSvgContent: null,
+      drawing2DDisplayOptions: {
+        showHiddenLines: true,
+        showHatching: true,
+        showAnnotations: true,
+        show3DOverlay: true,
+        scale: 100,
+      },
     });
   },
 }));

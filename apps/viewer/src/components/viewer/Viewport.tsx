@@ -237,6 +237,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   const hiddenEntitiesRef = useRef<Set<number>>(hiddenEntities);
   const isolatedEntitiesRef = useRef<Set<number> | null>(isolatedEntities);
   const selectedEntityIdRef = useRef<number | null>(selectedEntityId);
+  const selectedEntityIdsRef = useRef<Set<number> | undefined>(selectedEntityIds);
   const selectedModelIndexRef = useRef<number | undefined>(selectedModelIndex);
   const activeToolRef = useRef<string>(activeTool);
   const pendingMeasurePointRef = useRef<MeasurePoint | null>(pendingMeasurePoint);
@@ -280,6 +281,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   useEffect(() => { hiddenEntitiesRef.current = hiddenEntities; }, [hiddenEntities]);
   useEffect(() => { isolatedEntitiesRef.current = isolatedEntities; }, [isolatedEntities]);
   useEffect(() => { selectedEntityIdRef.current = selectedEntityId; }, [selectedEntityId]);
+  useEffect(() => { selectedEntityIdsRef.current = selectedEntityIds; }, [selectedEntityIds]);
   useEffect(() => { selectedModelIndexRef.current = selectedModelIndex; }, [selectedModelIndex]);
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
   useEffect(() => { pendingMeasurePointRef.current = pendingMeasurePoint; }, [pendingMeasurePoint]);
@@ -1959,7 +1961,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
       hiddenIds: hiddenEntitiesRef.current,
       isolatedIds: isolatedEntitiesRef.current,
       selectedId: selectedEntityIdRef.current,
-      selectedIds: undefined,
+      selectedIds: selectedEntityIdsRef.current,
       selectedModelIndex: selectedModelIndexRef.current,
       clearColor: clearColorRef.current,
       sectionPlane: activeTool === 'section' ? {

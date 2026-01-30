@@ -239,7 +239,9 @@ export function boundsValid(bounds: Bounds2D): boolean {
     bounds.min.x <= bounds.max.x &&
     bounds.min.y <= bounds.max.y &&
     isFinite(bounds.min.x) &&
-    isFinite(bounds.max.x)
+    isFinite(bounds.max.x) &&
+    isFinite(bounds.min.y) &&
+    isFinite(bounds.max.y)
   );
 }
 

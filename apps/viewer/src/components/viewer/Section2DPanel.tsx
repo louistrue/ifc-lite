@@ -88,6 +88,7 @@ export function Section2DPanel() {
   const progress = useViewerStore((s) => s.drawing2DProgress);
   const progressPhase = useViewerStore((s) => s.drawing2DPhase);
   const setDrawingProgress = useViewerStore((s) => s.setDrawing2DProgress);
+  const drawingError = useViewerStore((s) => s.drawing2DError);
   const setDrawingError = useViewerStore((s) => s.setDrawing2DError);
   const displayOptions = useViewerStore((s) => s.drawing2DDisplayOptions);
   const updateDisplayOptions = useViewerStore((s) => s.updateDrawing2DDisplayOptions);
@@ -141,8 +142,9 @@ export function Section2DPanel() {
     setDrawingStatus('generating');
     setDrawingProgress(0, 'Initializing...');
 
+    let generator: Drawing2DGenerator | null = null;
     try {
-      const generator = new Drawing2DGenerator();
+      generator = new Drawing2DGenerator();
       await generator.initialize();
 
       // Convert semantic axis to geometric
@@ -199,12 +201,12 @@ export function Section2DPanel() {
       setSvgContent(svg);
 
       setDrawingStatus('ready');
-
-      // Cleanup
-      generator.dispose();
     } catch (error) {
       console.error('Drawing generation failed:', error);
       setDrawingError(error instanceof Error ? error.message : 'Generation failed');
+    } finally {
+      // Always cleanup generator to prevent resource leaks
+      generator?.dispose();
     }
   }, [
     geometryResult,
@@ -691,7 +693,7 @@ export function Section2DPanel() {
             <div className="text-destructive text-center">
               <p className="font-medium">Generation failed</p>
               <p className="text-sm text-muted-foreground">
-                {useViewerStore.getState().drawing2DError}
+                {drawingError}
               </p>
               <Button variant="outline" size="sm" className="mt-4" onClick={generateDrawing}>
                 Retry
