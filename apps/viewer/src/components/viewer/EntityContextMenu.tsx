@@ -180,22 +180,6 @@ export function EntityContextMenu() {
       return;
     }
 
-    // Get the resolved model info
-    const resolved = resolveGlobalIdFromModels(contextMenu.entityId);
-    if (!resolved) {
-      closeContextMenu();
-      return;
-    }
-
-    const model = models.get(resolved.modelId);
-    if (!model) {
-      closeContextMenu();
-      return;
-    }
-
-    // Initialize edit context for this model if not already done
-    initializeContext(model.ifcDataStore, resolved.modelId, model.idOffset);
-
     // Get mesh data for the entity
     const meshData = getMeshForEntity?.(contextMenu.entityId);
     if (!meshData) {
@@ -204,8 +188,24 @@ export function EntityContextMenu() {
       return;
     }
 
-    // Start editing session
-    startEditing(resolved.modelId, resolvedExpressId, meshData);
+    // Try multi-model resolution first
+    const resolved = resolveGlobalIdFromModels(contextMenu.entityId);
+    if (resolved) {
+      const model = models.get(resolved.modelId);
+      if (model) {
+        // Multi-model mode: use resolved model info
+        initializeContext(model.ifcDataStore, resolved.modelId, model.idOffset);
+        startEditing(resolved.modelId, resolvedExpressId, meshData);
+        closeContextMenu();
+        return;
+      }
+    }
+
+    // Fallback for legacy single-model mode
+    // In this case, globalId = expressId (offset is 0) and modelId is '__legacy__'
+    const legacyModelId = '__legacy__';
+    initializeContext(activeDataStore, legacyModelId, 0);
+    startEditing(legacyModelId, resolvedExpressId, meshData);
     closeContextMenu();
   }, [
     contextMenu.entityId,

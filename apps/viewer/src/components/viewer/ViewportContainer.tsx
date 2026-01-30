@@ -170,32 +170,36 @@ export function ViewportContainer() {
 
   // Global geometry edit mode: handle click to start editing
   const handleGlobalGeometryEditClick = useCallback((globalId: number) => {
-    // Resolve globalId -> (modelId, originalExpressId)
-    const resolved = resolveGlobalIdFromModels(globalId);
-    if (!resolved) {
-      console.warn('Could not resolve globalId for geometry edit:', globalId);
-      return;
-    }
-
-    const model = models.get(resolved.modelId);
-    if (!model) {
-      console.warn('Model not found for geometry edit:', resolved.modelId);
-      return;
-    }
-
-    // Initialize edit context for this model if not already done
-    initializeContext(model.ifcDataStore, resolved.modelId, model.idOffset);
-
-    // Get mesh data for the entity
+    // Get mesh data for the entity first
     const meshData = getMeshForEntity?.(globalId);
     if (!meshData) {
       console.warn('No mesh data available for entity', globalId);
       return;
     }
 
-    // Start editing session
-    startEditing(resolved.modelId, resolved.expressId, meshData);
-  }, [resolveGlobalIdFromModels, models, initializeContext, getMeshForEntity, startEditing]);
+    // Try to resolve globalId -> (modelId, originalExpressId) for multi-model mode
+    const resolved = resolveGlobalIdFromModels(globalId);
+    if (resolved) {
+      const model = models.get(resolved.modelId);
+      if (model) {
+        // Multi-model mode: use resolved model info
+        initializeContext(model.ifcDataStore, resolved.modelId, model.idOffset);
+        startEditing(resolved.modelId, resolved.expressId, meshData);
+        return;
+      }
+    }
+
+    // Fallback for legacy single-model mode (no federation registry)
+    // In this case, globalId = expressId (offset is 0) and modelId is '__legacy__'
+    if (ifcDataStore) {
+      const legacyModelId = '__legacy__';
+      initializeContext(ifcDataStore, legacyModelId, 0);
+      startEditing(legacyModelId, globalId, meshData);
+      return;
+    }
+
+    console.warn('Could not start geometry edit - no model context available for:', globalId);
+  }, [resolveGlobalIdFromModels, models, ifcDataStore, initializeContext, getMeshForEntity, startEditing]);
 
   // Filter geometry based on type visibility only
   // PERFORMANCE FIX: Don't filter by storey or hiddenEntities here
