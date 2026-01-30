@@ -1952,12 +1952,13 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
       const lines: Array<{ line: { start: { x: number; y: number }; end: { x: number; y: number } }; category: string }> = [];
 
       // Upload to renderer - will be drawn on the section plane
+      // Pass sectionRange to match exactly what render() uses for section plane position
       renderer.uploadSection2DOverlay(
         polygons,
         lines,
         sectionPlane.axis,
         sectionPlane.position,
-        coordinateInfo?.shiftedBounds,
+        sectionRangeRef.current ?? undefined,  // Same range as section plane
         sectionPlane.flipped
       );
     } else {

@@ -1654,24 +1654,25 @@ export class Renderer {
     /**
      * Upload 2D section drawing data for 3D overlay rendering
      * Call this when a 2D drawing is generated to display it on the section plane
-     * IMPORTANT: Always uses this.modelBounds to match section plane renderer position
+     * Uses same position calculation as section plane: sectionRange min/max if provided, else modelBounds
      */
     uploadSection2DOverlay(
         polygons: CutPolygon2D[],
         lines: DrawingLine2D[],
         axis: 'down' | 'front' | 'side',
         position: number,  // 0-100 percentage
-        _bounds?: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } },
+        sectionRange?: { min?: number; max?: number },  // Same storey-based range as section plane
         flipped: boolean = false
     ): void {
         if (!this.section2DOverlayRenderer) return;
-
-        // MUST use modelBounds to match section plane renderer (not passed bounds which may be different)
         if (!this.modelBounds) return;
 
+        // Use EXACTLY same calculation as section plane in render() method:
+        // minVal = options.sectionPlane.min ?? boundsMin[axisIdx]
+        // maxVal = options.sectionPlane.max ?? boundsMax[axisIdx]
         const axisIdx = axis === 'side' ? 'x' : axis === 'down' ? 'y' : 'z';
-        const minVal = this.modelBounds.min[axisIdx];
-        const maxVal = this.modelBounds.max[axisIdx];
+        const minVal = sectionRange?.min ?? this.modelBounds.min[axisIdx];
+        const maxVal = sectionRange?.max ?? this.modelBounds.max[axisIdx];
         const planePosition = minVal + (position / 100) * (maxVal - minVal);
 
         this.section2DOverlayRenderer.uploadDrawing(polygons, lines, axis, planePosition, flipped);
