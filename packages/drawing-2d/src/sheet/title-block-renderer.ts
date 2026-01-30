@@ -371,7 +371,7 @@ function renderRevisionHistory(
 }
 
 /**
- * Render scale bar inside title block with real-world distance labels
+ * Render scale bar at BOTTOM LEFT of title block
  */
 function renderScaleBarInTitleBlock(
   scaleBar: ScaleBarConfig,
@@ -380,23 +380,17 @@ function renderScaleBarInTitleBlock(
   y: number,
   w: number,
   h: number,
-  hasLogo: boolean
+  _hasLogo: boolean
 ): string {
   let svg = '    <g id="title-block-scale-bar">\n';
 
-  // Calculate space in title block for scale bar
-  // Use the logo space area if no logo, otherwise use bottom of title block
-  const scaleBarAreaW = hasLogo ? 45 : w * 0.35;
-  const scaleBarAreaY = hasLogo ? y + h - 18 : y + h * 0.6;
-  const scaleBarAreaH = hasLogo ? 15 : h * 0.35;
-
+  // Position: bottom left with small margin
   const barX = x + 3;
-  const barY = scaleBarAreaY;
-  const barHeight = Math.min(scaleBar.heightMm, scaleBarAreaH * 0.4);
-
-  // Calculate bar length in mm on paper
+  const barY = y + h - 8; // 8mm from bottom (leaves room for label)
+  const maxBarWidth = Math.min(w * 0.3, 50);
   const barLengthMm = (scaleBar.totalLengthM * 1000) / scale.factor;
-  const actualBarLength = Math.min(barLengthMm, scaleBarAreaW - 2);
+  const actualBarLength = Math.min(barLengthMm, maxBarWidth);
+  const barHeight = Math.min(scaleBar.heightMm, 3);
   const actualTotalLength = (actualBarLength * scale.factor) / 1000;
 
   // Draw alternating bar segments
@@ -411,16 +405,14 @@ function renderScaleBarInTitleBlock(
     svg += `fill="${fill}" stroke="${scaleBar.strokeColor}" stroke-width="${scaleBar.lineWeight}"/>\n`;
   }
 
-  // Draw distance labels - only at 0 and end to avoid overlap
+  // Draw distance labels - only at 0 and end
   const fontSize = 1.8;
   const labelY = barY + barHeight + fontSize + 0.3;
 
-  // Start label (0)
   svg += `      <text x="${barX.toFixed(2)}" y="${labelY.toFixed(2)}" `;
   svg += `font-family="Arial, sans-serif" font-size="${fontSize}" `;
   svg += `text-anchor="start" fill="#000000">0</text>\n`;
 
-  // End label (total length)
   const endLabel = actualTotalLength < 1
     ? `${(actualTotalLength * 100).toFixed(0)}cm`
     : `${actualTotalLength.toFixed(0)}m`;
@@ -433,7 +425,7 @@ function renderScaleBarInTitleBlock(
 }
 
 /**
- * Render north arrow inside title block
+ * Render north arrow at BOTTOM RIGHT of title block
  */
 function renderNorthArrowInTitleBlock(
   northArrow: NorthArrowConfig,
@@ -441,25 +433,15 @@ function renderNorthArrowInTitleBlock(
   y: number,
   w: number,
   h: number,
-  hasLogo: boolean,
-  position: TitleBlockPosition
+  _hasLogo: boolean,
+  _position: TitleBlockPosition
 ): string {
   let svg = '    <g id="title-block-north-arrow">\n';
 
-  // Position north arrow based on title block layout
-  let arrowX: number;
-  let arrowY: number;
-  if (position === 'bottom-full') {
-    // Center in full-width title block
-    arrowX = x + w * 0.5;
-    arrowY = y + h * 0.5;
-  } else {
-    // In left area for bottom-right layout
-    arrowX = x + (hasLogo ? 35 : 25);
-    arrowY = y + h - Math.min(15, h * 0.6);
-  }
-
-  const size = Math.min(northArrow.sizeMm, 10, h * 0.4);
+  // Position: bottom right with margin
+  const size = Math.min(northArrow.sizeMm, 8, h * 0.6);
+  const arrowX = x + w - size - 5; // Right side with margin
+  const arrowY = y + h - size / 2 - 3; // Bottom with margin
 
   // Apply rotation transform
   const rotation = northArrow.rotation;
