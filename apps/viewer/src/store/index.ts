@@ -23,6 +23,7 @@ import { createMeasurementSlice, type MeasurementSlice } from './slices/measurem
 import { createDataSlice, type DataSlice } from './slices/dataSlice.js';
 import { createModelSlice, type ModelSlice } from './slices/modelSlice.js';
 import { createMutationSlice, type MutationSlice } from './slices/mutationSlice.js';
+import { createGeometryEditSlice, type GeometryEditSlice } from './slices/geometryEditSlice.js';
 
 // Import constants for reset function
 import { CAMERA_DEFAULTS, SECTION_PLANE_DEFAULTS, UI_DEFAULTS, TYPE_VISIBILITY_DEFAULTS } from './constants.js';
@@ -47,7 +48,8 @@ export type ViewerState = LoadingSlice &
   MeasurementSlice &
   DataSlice &
   ModelSlice &
-  MutationSlice & {
+  MutationSlice &
+  GeometryEditSlice & {
     resetViewerState: () => void;
   };
 
@@ -67,6 +69,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
   ...createDataSlice(...args),
   ...createModelSlice(...args),
   ...createMutationSlice(...args),
+  ...createGeometryEditSlice(...args),
 
   // Reset all viewer state when loading new file
   // Note: Does NOT clear models - use clearAllModels() for that
@@ -132,6 +135,15 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
 
       // UI
       activeTool: UI_DEFAULTS.ACTIVE_TOOL,
+
+      // Geometry Edit
+      geometryEditMode: 'none',
+      activeEditEntity: null,
+      activeSession: null,
+      previewMeshes: new Map(),
+      meshSelection: null,
+      hasGeometryChanges: false,
+      constraintAxis: null,
     });
   },
 }));

@@ -14,6 +14,7 @@
     "@ifc-lite/data": "workspace:^",
     "@ifc-lite/export": "workspace:^",
     "@ifc-lite/geometry": "workspace:^",
+    "@ifc-lite/geometry-edit": "workspace:^",
     "@ifc-lite/mutations": "workspace:^",
     "@ifc-lite/parser": "workspace:^",
     "@ifc-lite/query": "workspace:^",
