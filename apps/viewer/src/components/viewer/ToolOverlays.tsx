@@ -802,6 +802,9 @@ function SectionOverlay() {
             <ChevronDown className={`h-3 w-3 transition-transform ${isPanelCollapsed ? '-rotate-90' : ''}`} />
           </button>
           <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon-sm" onClick={handleView2D} title="Generate 2D Drawing">
+              <FileImage className="h-3 w-3" />
+            </Button>
             <Button variant="ghost" size="icon-sm" onClick={handleClose} title="Close">
               <X className="h-3 w-3" />
             </Button>

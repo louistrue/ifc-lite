@@ -32,6 +32,45 @@ const AXIS_MAP: Record<'down' | 'front' | 'side', 'x' | 'y' | 'z'> = {
   side: 'x',
 };
 
+// Fill colors for IFC types (architectural convention)
+const IFC_TYPE_FILL_COLORS: Record<string, string> = {
+  // Structural elements - solid gray
+  IfcWall: '#b0b0b0',
+  IfcWallStandardCase: '#b0b0b0',
+  IfcColumn: '#909090',
+  IfcBeam: '#909090',
+  IfcSlab: '#c8c8c8',
+  IfcRoof: '#d0d0d0',
+  IfcFooting: '#808080',
+  IfcPile: '#707070',
+
+  // Windows/Doors - lighter
+  IfcWindow: '#e8f4fc',
+  IfcDoor: '#f5e6d3',
+
+  // Stairs/Railings
+  IfcStair: '#d8d8d8',
+  IfcStairFlight: '#d8d8d8',
+  IfcRailing: '#c0c0c0',
+
+  // MEP - distinct colors
+  IfcPipeSegment: '#a0d0ff',
+  IfcDuctSegment: '#c0ffc0',
+
+  // Furniture
+  IfcFurnishingElement: '#ffe0c0',
+
+  // Spaces (usually not shown in section)
+  IfcSpace: '#f0f0f0',
+
+  // Default
+  default: '#d0d0d0',
+};
+
+function getFillColorForType(ifcType: string): string {
+  return IFC_TYPE_FILL_COLORS[ifcType] || IFC_TYPE_FILL_COLORS.default;
+}
+
 export function Section2DPanel() {
   const panelVisible = useViewerStore((s) => s.drawing2DPanelVisible);
   const setDrawingPanelVisible = useViewerStore((s) => s.setDrawing2DPanelVisible);
@@ -436,10 +475,42 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
     ctx.translate(transform.x, transform.y);
     ctx.scale(transform.scale, -transform.scale); // Flip Y for CAD coordinates
 
-    // Draw hatching first (background)
+    // ═══════════════════════════════════════════════════════════════════════
+    // 1. FILL CUT POLYGONS (with solid color based on IFC type)
+    // ═══════════════════════════════════════════════════════════════════════
+    for (const polygon of drawing.cutPolygons) {
+      // Get fill color based on IFC type
+      const fillColor = getFillColorForType(polygon.ifcType);
+
+      ctx.fillStyle = fillColor;
+      ctx.beginPath();
+      if (polygon.polygon.outer.length > 0) {
+        ctx.moveTo(polygon.polygon.outer[0].x, polygon.polygon.outer[0].y);
+        for (let i = 1; i < polygon.polygon.outer.length; i++) {
+          ctx.lineTo(polygon.polygon.outer[i].x, polygon.polygon.outer[i].y);
+        }
+        ctx.closePath();
+
+        // Draw holes (inner boundaries)
+        for (const hole of polygon.polygon.holes) {
+          if (hole.length > 0) {
+            ctx.moveTo(hole[0].x, hole[0].y);
+            for (let i = 1; i < hole.length; i++) {
+              ctx.lineTo(hole[i].x, hole[i].y);
+            }
+            ctx.closePath();
+          }
+        }
+      }
+      ctx.fill('evenodd');
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 2. DRAW HATCHING ON TOP OF FILLS
+    // ═══════════════════════════════════════════════════════════════════════
     if (showHatching && hatchingLines.length > 0) {
-      ctx.strokeStyle = '#888888';
-      ctx.lineWidth = 0.13 / transform.scale;
+      ctx.strokeStyle = '#444444';
+      ctx.lineWidth = 0.1 / transform.scale;
       for (const line of hatchingLines) {
         ctx.beginPath();
         ctx.moveTo(line.line.start.x, line.line.start.y);
@@ -448,7 +519,9 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
       }
     }
 
-    // Draw cut polygons (outlines)
+    // ═══════════════════════════════════════════════════════════════════════
+    // 3. STROKE CUT POLYGON OUTLINES (thick black lines)
+    // ═══════════════════════════════════════════════════════════════════════
     for (const polygon of drawing.cutPolygons) {
       ctx.strokeStyle = '#000000';
       ctx.lineWidth = 0.5 / transform.scale;
@@ -459,12 +532,28 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
           ctx.lineTo(polygon.polygon.outer[i].x, polygon.polygon.outer[i].y);
         }
         ctx.closePath();
+
+        // Stroke holes too
+        for (const hole of polygon.polygon.holes) {
+          if (hole.length > 0) {
+            ctx.moveTo(hole[0].x, hole[0].y);
+            for (let i = 1; i < hole.length; i++) {
+              ctx.lineTo(hole[i].x, hole[i].y);
+            }
+            ctx.closePath();
+          }
+        }
       }
       ctx.stroke();
     }
 
-    // Draw lines
+    // ═══════════════════════════════════════════════════════════════════════
+    // 4. DRAW PROJECTION/SILHOUETTE LINES (skip 'cut' - already in polygons)
+    // ═══════════════════════════════════════════════════════════════════════
     for (const line of drawing.lines) {
+      // Skip 'cut' lines - they're triangulation edges, already handled by polygons
+      if (line.category === 'cut') continue;
+
       // Skip hidden lines if not showing
       if (!showHiddenLines && line.visibility === 'hidden') continue;
 
@@ -474,10 +563,6 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
       let dashPattern: number[] = [];
 
       switch (line.category) {
-        case 'cut':
-          lineWidth = 0.5;
-          strokeColor = '#000000';
-          break;
         case 'projection':
           lineWidth = 0.25;
           strokeColor = '#000000';
