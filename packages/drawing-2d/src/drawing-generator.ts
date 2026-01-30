@@ -379,14 +379,18 @@ export async function generateFloorPlan(
   options?: Partial<GeneratorOptions>
 ): Promise<Drawing2D> {
   const generator = new Drawing2DGenerator();
-  await generator.initialize();
+  try {
+    await generator.initialize();
 
-  const config = createSectionConfig('y', elevation, {
-    projectionDepth: 3, // 3 meters below cut
-    scale: 100,
-  });
+    const config = createSectionConfig('y', elevation, {
+      projectionDepth: 3, // 3 meters below cut
+      scale: 100,
+    });
 
-  return generator.generate(meshes, config, options);
+    return await generator.generate(meshes, config, options);
+  } finally {
+    generator.dispose();
+  }
 }
 
 /**
@@ -399,12 +403,16 @@ export async function generateSection(
   options?: Partial<GeneratorOptions>
 ): Promise<Drawing2D> {
   const generator = new Drawing2DGenerator();
-  await generator.initialize();
+  try {
+    await generator.initialize();
 
-  const config = createSectionConfig(axis, position, {
-    projectionDepth: 10,
-    scale: 100,
-  });
+    const config = createSectionConfig(axis, position, {
+      projectionDepth: 10,
+      scale: 100,
+    });
 
-  return generator.generate(meshes, config, options);
+    return await generator.generate(meshes, config, options);
+  } finally {
+    generator.dispose();
+  }
 }

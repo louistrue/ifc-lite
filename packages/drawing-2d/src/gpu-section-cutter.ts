@@ -286,9 +286,15 @@ export class GPUSectionCutter {
       await this.initialize(triangleCount * 2);
     }
 
+    // Capture resources reference after potential reinitialization to avoid race conditions
+    const resources = this.resources;
+    if (!resources) {
+      throw new Error('GPU resources became unavailable after initialization');
+    }
+
     // Upload triangle data
     this.device.queue.writeBuffer(
-      this.resources!.triangleBuffer,
+      resources.triangleBuffer,
       0,
       triangleData.buffer.buffer as ArrayBuffer,
       triangleData.buffer.byteOffset,
@@ -298,7 +304,7 @@ export class GPUSectionCutter {
     // Upload plane data
     const planeData = this.createPlaneData(config);
     this.device.queue.writeBuffer(
-      this.resources!.planeBuffer,
+      resources.planeBuffer,
       0,
       planeData.buffer as ArrayBuffer,
       planeData.byteOffset,
@@ -307,7 +313,7 @@ export class GPUSectionCutter {
 
     // Reset counter
     this.device.queue.writeBuffer(
-      this.resources!.countBuffer,
+      resources.countBuffer,
       0,
       new Uint32Array([0])
     );
@@ -315,8 +321,8 @@ export class GPUSectionCutter {
     // Dispatch compute shader
     const encoder = this.device.createCommandEncoder();
     const pass = encoder.beginComputePass();
-    pass.setPipeline(this.resources!.pipeline);
-    pass.setBindGroup(0, this.resources!.bindGroup);
+    pass.setPipeline(resources.pipeline);
+    pass.setBindGroup(0, resources.bindGroup);
 
     const workgroupCount = Math.ceil(triangleCount / 64);
     pass.dispatchWorkgroups(workgroupCount);
@@ -324,9 +330,9 @@ export class GPUSectionCutter {
 
     // Copy results to readback buffers
     encoder.copyBufferToBuffer(
-      this.resources!.countBuffer,
+      resources.countBuffer,
       0,
-      this.resources!.countReadbackBuffer,
+      resources.countReadbackBuffer,
       0,
       4
     );
@@ -334,12 +340,12 @@ export class GPUSectionCutter {
     this.device.queue.submit([encoder.finish()]);
 
     // Read back count first
-    await this.resources!.countReadbackBuffer.mapAsync(GPUMapMode.READ);
+    await resources.countReadbackBuffer.mapAsync(GPUMapMode.READ);
     const countData = new Uint32Array(
-      this.resources!.countReadbackBuffer.getMappedRange()
+      resources.countReadbackBuffer.getMappedRange()
     );
     const segmentCount = countData[0];
-    this.resources!.countReadbackBuffer.unmap();
+    resources.countReadbackBuffer.unmap();
 
     if (segmentCount === 0) {
       return [];
@@ -348,23 +354,23 @@ export class GPUSectionCutter {
     // Copy and read back segments
     const encoder2 = this.device.createCommandEncoder();
     encoder2.copyBufferToBuffer(
-      this.resources!.segmentBuffer,
+      resources.segmentBuffer,
       0,
-      this.resources!.readbackBuffer,
+      resources.readbackBuffer,
       0,
       segmentCount * 64
     );
     this.device.queue.submit([encoder2.finish()]);
 
-    await this.resources!.readbackBuffer.mapAsync(GPUMapMode.READ);
+    await resources.readbackBuffer.mapAsync(GPUMapMode.READ);
     const segmentData = new Float32Array(
-      this.resources!.readbackBuffer.getMappedRange(0, segmentCount * 64)
+      resources.readbackBuffer.getMappedRange(0, segmentCount * 64)
     );
 
     // Parse segments
     const segments = this.parseSegments(segmentData, segmentCount, triangleData.entityMap);
 
-    this.resources!.readbackBuffer.unmap();
+    resources.readbackBuffer.unmap();
 
     return segments;
   }

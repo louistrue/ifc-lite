@@ -285,6 +285,14 @@ export function makeEntityKey(modelIndex: number, entityId: number): EntityKey {
  * Parse entity key back to components
  */
 export function parseEntityKey(key: EntityKey): { modelIndex: number; entityId: number } {
-  const [modelIndex, entityId] = key.split(':').map(Number);
+  const parts = key.split(':');
+  if (parts.length !== 2) {
+    throw new Error(`Invalid entity key format: "${key}". Expected "modelIndex:entityId"`);
+  }
+  const modelIndex = Number(parts[0]);
+  const entityId = Number(parts[1]);
+  if (!Number.isFinite(modelIndex) || !Number.isFinite(entityId)) {
+    throw new Error(`Invalid entity key values: "${key}". Both modelIndex and entityId must be valid numbers`);
+  }
   return { modelIndex, entityId };
 }

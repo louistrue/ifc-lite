@@ -1665,14 +1665,18 @@ export class Renderer {
         flipped: boolean = false
     ): void {
         if (!this.section2DOverlayRenderer) return;
-        if (!this.modelBounds) return;
 
         // Use EXACTLY same calculation as section plane in render() method:
         // minVal = options.sectionPlane.min ?? boundsMin[axisIdx]
         // maxVal = options.sectionPlane.max ?? boundsMax[axisIdx]
         const axisIdx = axis === 'side' ? 'x' : axis === 'down' ? 'y' : 'z';
-        const minVal = sectionRange?.min ?? this.modelBounds.min[axisIdx];
-        const maxVal = sectionRange?.max ?? this.modelBounds.max[axisIdx];
+
+        // Allow upload if either sectionRange has both values, or modelBounds exists as fallback
+        const hasFullRange = sectionRange?.min !== undefined && sectionRange?.max !== undefined;
+        if (!hasFullRange && !this.modelBounds) return;
+
+        const minVal = sectionRange?.min ?? this.modelBounds!.min[axisIdx];
+        const maxVal = sectionRange?.max ?? this.modelBounds!.max[axisIdx];
         const planePosition = minVal + (position / 100) * (maxVal - minVal);
 
         this.section2DOverlayRenderer.uploadDrawing(polygons, lines, axis, planePosition, flipped);

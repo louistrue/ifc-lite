@@ -123,6 +123,8 @@ export function Section2DPanel() {
   const isResizing = useRef<'right' | 'top' | 'corner' | null>(null);
   const resizeStartPos = useRef({ x: 0, y: 0, width: 0, height: 0 });
   const prevAxisRef = useRef(sectionPlane.axis);  // Track axis changes
+  // Track resize event handlers for cleanup
+  const resizeHandlersRef = useRef<{ move: ((e: MouseEvent) => void) | null; up: (() => void) | null }>({ move: null, up: null });
 
   // Track panel width for responsive header
   useEffect(() => {
@@ -404,6 +406,14 @@ export function Section2DPanel() {
       height: panelSize.height,
     };
 
+    // Remove any existing listeners first
+    if (resizeHandlersRef.current.move) {
+      window.removeEventListener('mousemove', resizeHandlersRef.current.move);
+    }
+    if (resizeHandlersRef.current.up) {
+      window.removeEventListener('mouseup', resizeHandlersRef.current.up);
+    }
+
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing.current) return;
 
@@ -430,11 +440,27 @@ export function Section2DPanel() {
       isResizing.current = null;
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      resizeHandlersRef.current = { move: null, up: null };
     };
+
+    // Store refs for cleanup
+    resizeHandlersRef.current = { move: handleMouseMove, up: handleMouseUp };
 
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
   }, [panelSize]);
+
+  // Cleanup resize listeners on unmount
+  useEffect(() => {
+    return () => {
+      if (resizeHandlersRef.current.move) {
+        window.removeEventListener('mousemove', resizeHandlersRef.current.move);
+      }
+      if (resizeHandlersRef.current.up) {
+        window.removeEventListener('mouseup', resizeHandlersRef.current.up);
+      }
+    };
+  }, []);
 
   // Print handler
   const handlePrint = useCallback(() => {

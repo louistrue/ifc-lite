@@ -322,7 +322,7 @@ export class Section2DOverlayRenderer {
   ): void {
     this.init();
 
-    // Clean up old buffers
+    // Clean up old buffers and reset counts
     if (this.fillVertexBuffer) {
       this.fillVertexBuffer.destroy();
       this.fillVertexBuffer = null;
@@ -335,6 +335,8 @@ export class Section2DOverlayRenderer {
       this.lineVertexBuffer.destroy();
       this.lineVertexBuffer = null;
     }
+    this.fillIndexCount = 0;
+    this.lineVertexCount = 0;
 
     // Build fill geometry (triangulated polygons)
     const fillVertices: number[] = [];

@@ -284,12 +284,13 @@ export class HiddenLineClassifier {
   ): { x: number; y: number; depth: number } {
     const u = v[axes.u];
     const vCoord = v[axes.v];
-    // Use the axis perpendicular to projection as depth
-    const depthAxis = axes.u === 'x' ? (axes.v === 'y' ? 'z' : 'y') : axes.v === 'y' ? 'x' : 'x';
+    // Find depth axis: the one not used for u or v projection
+    const allAxes: ('x' | 'y' | 'z')[] = ['x', 'y', 'z'];
+    const depthAxis = allAxes.find(a => a !== axes.u && a !== axes.v) ?? 'z';
     return {
       x: flipped ? -u : u,
       y: vCoord,
-      depth: v[depthAxis === 'x' ? 'x' : depthAxis === 'y' ? 'y' : 'z'],
+      depth: v[depthAxis],
     };
   }
 
@@ -354,7 +355,12 @@ export class HiddenLineClassifier {
     const dot11 = v1x * v1x + v1y * v1y;
     const dot12 = v1x * v2x + v1y * v2y;
 
-    const invDenom = 1 / (dot00 * dot11 - dot01 * dot01);
+    const denom = dot00 * dot11 - dot01 * dot01;
+    // Handle degenerate triangles (zero area) by returning invalid coordinates
+    if (Math.abs(denom) < 1e-10) {
+      return { u: -1, v: -1, w: -1 };
+    }
+    const invDenom = 1 / denom;
     const v = (dot11 * dot02 - dot01 * dot12) * invDenom;
     const w = (dot00 * dot12 - dot01 * dot02) * invDenom;
     const u = 1 - v - w;
