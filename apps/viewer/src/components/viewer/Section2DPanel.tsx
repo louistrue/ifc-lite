@@ -12,7 +12,7 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect } from 'react';
-import { X, Download, Eye, EyeOff, Grid3x3, Maximize2, Minimize2, ZoomIn, ZoomOut, Loader2, Printer, GripVertical, MoreHorizontal, RefreshCw } from 'lucide-react';
+import { X, Download, Eye, EyeOff, Grid3x3, Maximize2, Minimize2, ZoomIn, ZoomOut, Loader2, Printer, GripVertical, MoreHorizontal, RefreshCw, Pin, PinOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -113,6 +113,7 @@ export function Section2DPanel() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [panelSize, setPanelSize] = useState({ width: 400, height: 300 });
   const [isNarrow, setIsNarrow] = useState(false);  // Track if panel is too narrow for all buttons
+  const [isPinned, setIsPinned] = useState(false);  // When pinned, don't auto-fit after regenerate
   const containerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const isPanning = useRef(false);
@@ -268,9 +269,10 @@ export function Section2DPanel() {
     isPanning.current = false;
   }, []);
 
-  // Zoom handler
+  // Zoom handler - unlimited zoom, min 0.01 (1%)
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
+    e.stopPropagation();  // Prevent bubbling to 3D viewport
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -279,7 +281,7 @@ export function Section2DPanel() {
     const y = e.clientY - rect.top;
 
     setViewTransform((prev) => {
-      const newScale = Math.max(0.1, Math.min(10, prev.scale * delta));
+      const newScale = Math.max(0.01, prev.scale * delta);  // No upper limit
       const scaleRatio = newScale / prev.scale;
       return {
         scale: newScale,
@@ -289,13 +291,13 @@ export function Section2DPanel() {
     });
   }, []);
 
-  // Zoom controls
+  // Zoom controls - unlimited zoom
   const zoomIn = useCallback(() => {
-    setViewTransform((prev) => ({ ...prev, scale: Math.min(10, prev.scale * 1.2) }));
+    setViewTransform((prev) => ({ ...prev, scale: prev.scale * 1.2 }));  // No upper limit
   }, []);
 
   const zoomOut = useCallback(() => {
-    setViewTransform((prev) => ({ ...prev, scale: Math.max(0.1, prev.scale / 1.2) }));
+    setViewTransform((prev) => ({ ...prev, scale: Math.max(0.01, prev.scale / 1.2) }));
   }, []);
 
   const fitToView = useCallback(() => {
@@ -327,16 +329,16 @@ export function Section2DPanel() {
     });
   }, [drawing]);
 
-  // Auto-fit to view when drawing becomes ready
+  // Auto-fit to view when drawing becomes ready (unless pinned)
   useEffect(() => {
-    if (status === 'ready' && drawing && containerRef.current) {
+    if (status === 'ready' && drawing && containerRef.current && !isPinned) {
       // Small delay to ensure canvas is rendered
       const timeout = setTimeout(() => {
         fitToView();
       }, 50);
       return () => clearTimeout(timeout);
     }
-  }, [status, drawing, fitToView]);
+  }, [status, drawing, fitToView, isPinned]);
 
   // Export SVG
   const handleExportSVG = useCallback(() => {
@@ -366,6 +368,10 @@ export function Section2DPanel() {
 
   const toggleExpanded = useCallback(() => {
     setIsExpanded((prev) => !prev);
+  }, []);
+
+  const togglePinned = useCallback(() => {
+    setIsPinned((prev) => !prev);
   }, []);
 
   // Resize handlers
@@ -523,6 +529,14 @@ export function Section2DPanel() {
               <Button variant="ghost" size="icon-sm" onClick={fitToView} title="Fit to view">
                 <Maximize2 className="h-4 w-4" />
               </Button>
+              <Button
+                variant={isPinned ? 'default' : 'ghost'}
+                size="icon-sm"
+                onClick={togglePinned}
+                title={isPinned ? 'Unpin view (auto-fit on regenerate)' : 'Pin view (keep position on regenerate)'}
+              >
+                {isPinned ? <Pin className="h-4 w-4" /> : <PinOff className="h-4 w-4" />}
+              </Button>
 
               <div className="w-px h-4 bg-border mx-1" />
 
@@ -597,6 +611,10 @@ export function Section2DPanel() {
                   <DropdownMenuItem onClick={zoomOut}>
                     <ZoomOut className="h-4 w-4 mr-2" />
                     Zoom Out
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={togglePinned}>
+                    {isPinned ? <Pin className="h-4 w-4 mr-2" /> : <PinOff className="h-4 w-4 mr-2" />}
+                    Pin View {isPinned ? 'On' : 'Off'}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleExportSVG} disabled={!svgContent}>
