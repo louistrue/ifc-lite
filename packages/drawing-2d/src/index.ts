@@ -421,5 +421,6 @@ export type {
   FrameRenderResult,
   FrameInnerBounds,
   TitleBlockRenderResult,
+  TitleBlockExtras,
   PositionMm,
 } from './sheet';

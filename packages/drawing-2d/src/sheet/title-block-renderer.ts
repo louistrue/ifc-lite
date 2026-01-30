@@ -13,6 +13,8 @@
  */
 
 import type { TitleBlockConfig, RevisionEntry } from './title-block-types';
+import type { ScaleBarConfig, NorthArrowConfig } from './scale-bar-types';
+import type { DrawingScale } from '../styles';
 
 /** Inner bounds of the frame (where title block is positioned) */
 export interface FrameInnerBounds {
@@ -20,6 +22,13 @@ export interface FrameInnerBounds {
   y: number;
   width: number;
   height: number;
+}
+
+/** Options for rendering scale bar and north arrow in title block */
+export interface TitleBlockExtras {
+  scaleBar?: ScaleBarConfig;
+  northArrow?: NorthArrowConfig;
+  scale?: DrawingScale;
 }
 
 /** Result of title block rendering */
@@ -36,7 +45,8 @@ export interface TitleBlockRenderResult {
 export function renderTitleBlock(
   config: TitleBlockConfig,
   frameInnerBounds: FrameInnerBounds,
-  revisions: RevisionEntry[] = []
+  revisions: RevisionEntry[] = [],
+  extras?: TitleBlockExtras
 ): TitleBlockRenderResult {
   // Calculate title block position and size
   let x: number, y: number, w: number, h: number;
@@ -87,6 +97,16 @@ export function renderTitleBlock(
   // Logo
   if (config.logo?.source) {
     svg += renderLogo(config.logo, x, y, w, h);
+  }
+
+  // Scale bar (in title block, bottom-left area)
+  if (extras?.scaleBar?.visible && extras?.scale) {
+    svg += renderScaleBarInTitleBlock(extras.scaleBar, extras.scale, x, y, w, h);
+  }
+
+  // North arrow (in title block, next to scale bar or logo area)
+  if (extras?.northArrow && extras.northArrow.style !== 'none') {
+    svg += renderNorthArrowInTitleBlock(extras.northArrow, x, y, w, h, config.logo != null);
   }
 
   // Revision history
@@ -346,6 +366,124 @@ function renderRevisionHistory(
     }
   }
 
+  svg += '    </g>\n';
+  return svg;
+}
+
+/**
+ * Render scale bar inside title block with real-world distance labels
+ */
+function renderScaleBarInTitleBlock(
+  scaleBar: ScaleBarConfig,
+  scale: DrawingScale,
+  x: number,
+  y: number,
+  w: number,
+  h: number
+): string {
+  let svg = '    <g id="title-block-scale-bar">\n';
+
+  // Position scale bar in bottom-left of title block
+  const barX = x + 3;
+  const barY = y + h - 12; // 12mm from bottom
+  const barHeight = scaleBar.heightMm;
+
+  // Calculate bar length in mm on paper
+  // totalLengthM is in meters, scale.factor is like 100 for 1:100
+  // At 1:100, 1m = 10mm on paper
+  const barLengthMm = (scaleBar.totalLengthM * 1000) / scale.factor;
+
+  // Limit bar width to fit in title block (leave space for north arrow)
+  const maxBarWidth = w * 0.4; // Use 40% of title block width max
+  const actualBarLength = Math.min(barLengthMm, maxBarWidth);
+  const actualTotalLength = (actualBarLength * scale.factor) / 1000; // Back to meters
+
+  // Draw alternating bar segments with distance labels
+  const divisions = scaleBar.primaryDivisions;
+  const divWidth = actualBarLength / divisions;
+  const divLengthM = actualTotalLength / divisions;
+
+  // Draw bar segments
+  for (let i = 0; i < divisions; i++) {
+    const segX = barX + i * divWidth;
+    const fill = i % 2 === 0 ? scaleBar.fillColor : '#ffffff';
+    svg += `      <rect x="${segX.toFixed(2)}" y="${barY.toFixed(2)}" `;
+    svg += `width="${divWidth.toFixed(2)}" height="${barHeight.toFixed(2)}" `;
+    svg += `fill="${fill}" stroke="${scaleBar.strokeColor}" stroke-width="${scaleBar.lineWeight}"/>\n`;
+  }
+
+  // Draw distance labels at each division
+  const fontSize = 2;
+  const labelY = barY + barHeight + fontSize + 0.5;
+
+  for (let i = 0; i <= divisions; i++) {
+    const labelX = barX + i * divWidth;
+    const distance = i * divLengthM;
+
+    // Format distance label
+    let label: string;
+    if (distance === 0) {
+      label = '0';
+    } else if (distance < 1) {
+      label = `${(distance * 100).toFixed(0)}cm`;
+    } else if (distance === Math.floor(distance)) {
+      label = `${distance.toFixed(0)}m`;
+    } else {
+      label = `${distance.toFixed(1)}m`;
+    }
+
+    // Center label under tick (except first and last)
+    const anchor = i === 0 ? 'start' : i === divisions ? 'end' : 'middle';
+    svg += `      <text x="${labelX.toFixed(2)}" y="${labelY.toFixed(2)}" `;
+    svg += `font-family="Arial, sans-serif" font-size="${fontSize}" `;
+    svg += `text-anchor="${anchor}" fill="#000000">${label}</text>\n`;
+  }
+
+  svg += '    </g>\n';
+  return svg;
+}
+
+/**
+ * Render north arrow inside title block
+ */
+function renderNorthArrowInTitleBlock(
+  northArrow: NorthArrowConfig,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  hasLogo: boolean
+): string {
+  let svg = '    <g id="title-block-north-arrow">\n';
+
+  // Position north arrow - if logo exists, put it to the right of logo area
+  // Otherwise put it in bottom-left area next to scale bar
+  const arrowX = hasLogo ? x + 35 : x + w * 0.5; // Centered in right portion if no logo
+  const arrowY = y + h - 25; // 25mm from bottom
+  const size = Math.min(northArrow.sizeMm, 12); // Limit size for title block
+
+  // Apply rotation transform
+  const rotation = northArrow.rotation;
+  svg += `      <g transform="translate(${arrowX.toFixed(2)}, ${arrowY.toFixed(2)}) rotate(${rotation})">\n`;
+
+  // Draw simple north arrow
+  const halfSize = size / 2;
+
+  // Arrow body (filled triangle pointing up)
+  svg += `        <polygon points="0,${(-halfSize).toFixed(2)} ${(-halfSize / 3).toFixed(2)},${(halfSize / 2).toFixed(2)} ${(halfSize / 3).toFixed(2)},${(halfSize / 2).toFixed(2)}" `;
+  svg += `fill="#000000" stroke="none"/>\n`;
+
+  // Arrow outline (lower part, unfilled)
+  svg += `        <polygon points="0,${(halfSize / 3).toFixed(2)} ${(-halfSize / 3).toFixed(2)},${(halfSize / 2).toFixed(2)} ${(halfSize / 3).toFixed(2)},${(halfSize / 2).toFixed(2)}" `;
+  svg += `fill="#ffffff" stroke="#000000" stroke-width="0.25"/>\n`;
+
+  // "N" label
+  const fontSize = size * 0.4;
+  svg += `        <text x="0" y="${(-halfSize - 1).toFixed(2)}" `;
+  svg += `font-family="Arial, sans-serif" font-size="${fontSize.toFixed(2)}" font-weight="bold" `;
+  svg += `text-anchor="middle" fill="#000000">N</text>\n`;
+
+  svg += '      </g>\n';
   svg += '    </g>\n';
   return svg;
 }

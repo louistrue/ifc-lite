@@ -90,6 +90,7 @@ export { renderFrame } from './frame-renderer';
 export type {
   FrameInnerBounds,
   TitleBlockRenderResult,
+  TitleBlockExtras,
 } from './title-block-renderer';
 export { renderTitleBlock } from './title-block-renderer';
 

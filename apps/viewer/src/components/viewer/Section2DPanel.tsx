@@ -29,12 +29,11 @@ import {
   GraphicOverrideEngine,
   renderFrame,
   renderTitleBlock,
-  renderScaleBar,
-  renderNorthArrow,
   calculateDrawingTransform,
   type Drawing2D,
   type SectionConfig,
   type ElementData,
+  type TitleBlockExtras,
 } from '@ifc-lite/drawing-2d';
 import { DrawingSettingsPanel } from './DrawingSettingsPanel';
 import { SheetSetupPanel } from './SheetSetupPanel';
@@ -1125,34 +1124,20 @@ export function Section2DPanel(): React.ReactElement | null {
     svg += frameResult.svgElements;
     svg += '\n';
 
-    // Render title block
+    // Render title block with scale bar and north arrow inside
+    const titleBlockExtras: TitleBlockExtras = {
+      scaleBar: activeSheet.scaleBar,
+      northArrow: activeSheet.northArrow,
+      scale: activeSheet.scale,
+    };
     const titleBlockResult = renderTitleBlock(
       activeSheet.titleBlock,
       frameResult.innerBounds,
-      activeSheet.revisions
+      activeSheet.revisions,
+      titleBlockExtras
     );
     svg += titleBlockResult.svgElements;
     svg += '\n';
-
-    // Render scale bar (position in lower left of viewport)
-    if (activeSheet.scaleBar.visible) {
-      const scaleBarPos = {
-        x: viewport.x + 10,
-        y: viewport.y + viewport.height - 15,
-      };
-      svg += renderScaleBar(activeSheet.scaleBar, activeSheet.scale, scaleBarPos);
-      svg += '\n';
-    }
-
-    // Render north arrow (position in upper right of viewport)
-    if (activeSheet.northArrow.style !== 'none') {
-      const northArrowPos = {
-        x: viewport.x + viewport.width - 20,
-        y: viewport.y + 20,
-      };
-      svg += renderNorthArrow(activeSheet.northArrow, northArrowPos);
-      svg += '\n';
-    }
 
     svg += '</svg>';
     return svg;
@@ -2238,27 +2223,24 @@ function Drawing2DCanvas({
       ctx.restore();
 
       // ─────────────────────────────────────────────────────────────────────
-      // 6. Draw scale bar (if visible) - AFTER model content so it's on top
+      // 6. Draw scale bar inside title block (if visible)
       // ─────────────────────────────────────────────────────────────────────
       if (scaleBar.visible) {
-        const sbX = viewport.x + 10;
-        const sbY = viewport.y + viewport.height - 15;
+        // Position scale bar in bottom-left of title block
+        const sbX = tbX + 3;
+        const sbY = tbY + tbH - 12; // 12mm from bottom of title block
         // Calculate length in mm: totalLengthM (meters) * 1000 / scale factor
-        const sbLengthMm = (scaleBar.totalLengthM * 1000) / activeSheet.scale.factor;
-        const sbHeight = scaleBar.heightMm;
-
-        // Scale bar background
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(
-          mmToScreenX(sbX - 2),
-          mmToScreenY(sbY - 2),
-          mmToScreen(sbLengthMm + 4),
-          mmToScreen(sbHeight + 8)
+        const sbLengthMm = Math.min(
+          (scaleBar.totalLengthM * 1000) / activeSheet.scale.factor,
+          tbW * 0.4 // Max 40% of title block width
         );
+        const sbHeight = scaleBar.heightMm;
+        const actualTotalLength = (sbLengthMm * activeSheet.scale.factor) / 1000; // Back to meters
 
         // Scale bar divisions
         const divisions = scaleBar.primaryDivisions;
         const divWidth = sbLengthMm / divisions;
+        const divLengthM = actualTotalLength / divisions;
         for (let i = 0; i < divisions; i++) {
           ctx.fillStyle = i % 2 === 0 ? scaleBar.fillColor : '#ffffff';
           ctx.fillRect(
@@ -2279,26 +2261,44 @@ function Drawing2DCanvas({
           mmToScreen(sbHeight)
         );
 
-        // Scale text
-        const scaleFontSize = Math.max(9, mmToScreen(scaleBar.labelFontSize));
-        ctx.font = `${scaleFontSize}px Arial, sans-serif`;
+        // Distance labels at each division (real-world values for calibration)
+        const labelFontSize = Math.max(8, mmToScreen(2));
+        ctx.font = `${labelFontSize}px Arial, sans-serif`;
         ctx.fillStyle = '#000000';
-        ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
-        ctx.fillText(
-          `1:${activeSheet.scale.factor}`,
-          mmToScreenX(sbX + sbLengthMm / 2),
-          mmToScreenY(sbY + sbHeight + 1)
-        );
+        const labelY = sbY + sbHeight + 0.5;
+
+        for (let i = 0; i <= divisions; i++) {
+          const labelX = sbX + i * divWidth;
+          const distance = i * divLengthM;
+
+          // Format distance label
+          let label: string;
+          if (distance === 0) {
+            label = '0';
+          } else if (distance < 1) {
+            label = `${(distance * 100).toFixed(0)}cm`;
+          } else if (distance === Math.floor(distance)) {
+            label = `${distance.toFixed(0)}m`;
+          } else {
+            label = `${distance.toFixed(1)}m`;
+          }
+
+          // Align: start for first, end for last, center for middle
+          ctx.textAlign = i === 0 ? 'left' : i === divisions ? 'right' : 'center';
+          ctx.fillText(label, mmToScreenX(labelX), mmToScreenY(labelY));
+        }
       }
 
       // ─────────────────────────────────────────────────────────────────────
-      // 7. Draw north arrow (if not 'none') - AFTER model content so it's on top
+      // 7. Draw north arrow inside title block (if not 'none')
       // ─────────────────────────────────────────────────────────────────────
       if (northArrow.style !== 'none') {
-        const naX = viewport.x + viewport.width - 20;
-        const naY = viewport.y + 20;
-        const naSize = northArrow.sizeMm;
+        // Position in title block - right of logo area if logo exists, otherwise in bottom-left area
+        const hasLogo = titleBlock.logo != null;
+        const naX = hasLogo ? tbX + 35 : tbX + tbW * 0.5;
+        const naY = tbY + tbH - 25; // 25mm from bottom of title block
+        const naSize = Math.min(northArrow.sizeMm, 12); // Limit size for title block
 
         ctx.save();
         ctx.translate(mmToScreenX(naX), mmToScreenY(naY));

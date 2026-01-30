@@ -51,8 +51,6 @@ import {
   type FrameStyle,
   type TitleBlockLayout,
   type DrawingScale,
-  type ScaleBarStyle,
-  type NorthArrowStyle,
 } from '@ifc-lite/drawing-2d';
 
 interface SheetSetupPanelProps {
@@ -80,20 +78,6 @@ const TITLE_BLOCK_LAYOUT_OPTIONS: { value: TitleBlockLayout; label: string }[] =
   { value: 'compact', label: 'Compact (Smaller)' },
 ];
 
-const SCALE_BAR_STYLE_OPTIONS: { value: ScaleBarStyle; label: string }[] = [
-  { value: 'alternating', label: 'Alternating' },
-  { value: 'linear', label: 'Linear' },
-  { value: 'single', label: 'Single Bar' },
-  { value: 'graphic', label: 'Graphic' },
-];
-
-const NORTH_ARROW_STYLE_OPTIONS: { value: NorthArrowStyle; label: string }[] = [
-  { value: 'simple', label: 'Simple Arrow' },
-  { value: 'compass', label: 'Compass Rose' },
-  { value: 'decorative', label: 'Decorative' },
-  { value: 'none', label: 'None' },
-];
-
 export function SheetSetupPanel({ onClose, onOpenTitleBlockEditor }: SheetSetupPanelProps): React.ReactElement {
   const activeSheet = useViewerStore((s) => s.activeSheet);
   const sheetEnabled = useViewerStore((s) => s.sheetEnabled);
@@ -103,9 +87,8 @@ export function SheetSetupPanel({ onClose, onOpenTitleBlockEditor }: SheetSetupP
   const setFrameStyle = useViewerStore((s) => s.setFrameStyle);
   const setDrawingScale = useViewerStore((s) => s.setDrawingScale);
   const setTitleBlockLayout = useViewerStore((s) => s.setTitleBlockLayout);
-  const updateScaleBar = useViewerStore((s) => s.updateScaleBar);
   const toggleScaleBar = useViewerStore((s) => s.toggleScaleBar);
-  const updateNorthArrow = useViewerStore((s) => s.updateNorthArrow);
+  const toggleNorthArrow = useViewerStore((s) => s.toggleNorthArrow);
   const savedSheetTemplates = useViewerStore((s) => s.savedSheetTemplates);
   const saveAsTemplate = useViewerStore((s) => s.saveAsTemplate);
   const loadTemplate = useViewerStore((s) => s.loadTemplate);
@@ -163,16 +146,6 @@ export function SheetSetupPanel({ onClose, onOpenTitleBlockEditor }: SheetSetupP
   const handleTitleBlockLayoutChange = useCallback((layout: string) => {
     setTitleBlockLayout(layout as TitleBlockLayout);
   }, [setTitleBlockLayout]);
-
-  // Scale bar style change
-  const handleScaleBarStyleChange = useCallback((style: string) => {
-    updateScaleBar({ style: style as ScaleBarStyle });
-  }, [updateScaleBar]);
-
-  // North arrow style change
-  const handleNorthArrowStyleChange = useCallback((style: string) => {
-    updateNorthArrow({ style: style as NorthArrowStyle });
-  }, [updateNorthArrow]);
 
   // Save template
   const handleSaveTemplate = useCallback(() => {
@@ -408,54 +381,23 @@ export function SheetSetupPanel({ onClose, onOpenTitleBlockEditor }: SheetSetupP
                 </button>
               </CollapsibleTrigger>
               <CollapsibleContent>
-                <div className="px-4 py-3 space-y-4">
-                  {/* Scale Bar */}
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-xs">Scale Bar</Label>
-                      <Switch
-                        checked={activeSheet?.scaleBar.visible ?? true}
-                        onCheckedChange={toggleScaleBar}
-                      />
-                    </div>
-
-                    {activeSheet?.scaleBar.visible && (
-                      <Select
-                        value={activeSheet.scaleBar.style}
-                        onValueChange={handleScaleBarStyleChange}
-                      >
-                        <SelectTrigger className="h-8 text-sm">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {SCALE_BAR_STYLE_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
+                <div className="px-4 py-3 space-y-3">
+                  {/* Scale Bar Toggle */}
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs">Scale Bar</Label>
+                    <Switch
+                      checked={activeSheet?.scaleBar.visible ?? true}
+                      onCheckedChange={toggleScaleBar}
+                    />
                   </div>
 
-                  {/* North Arrow */}
-                  <div className="space-y-2">
+                  {/* North Arrow Toggle */}
+                  <div className="flex items-center justify-between">
                     <Label className="text-xs">North Arrow</Label>
-                    <Select
-                      value={activeSheet?.northArrow.style || 'simple'}
-                      onValueChange={handleNorthArrowStyleChange}
-                    >
-                      <SelectTrigger className="h-8 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {NORTH_ARROW_STYLE_OPTIONS.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Switch
+                      checked={(activeSheet?.northArrow.style ?? 'simple') !== 'none'}
+                      onCheckedChange={toggleNorthArrow}
+                    />
                   </div>
                 </div>
               </CollapsibleContent>
