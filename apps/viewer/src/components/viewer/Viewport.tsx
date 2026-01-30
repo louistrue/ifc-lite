@@ -40,9 +40,11 @@ interface ViewportProps {
   modelIdToIndex?: Map<string, number>;
   /** Callback when entity is clicked in global geometry edit mode */
   onGlobalGeometryEditClick?: (globalId: number) => void;
+  /** Preview mesh for geometry editing - rendered with highlight effect */
+  previewMesh?: MeshData | null;
 }
 
-export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelIdToIndex, onGlobalGeometryEditClick }: ViewportProps) {
+export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelIdToIndex, onGlobalGeometryEditClick, previewMesh }: ViewportProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<Renderer | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -331,6 +333,20 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   useEffect(() => {
     onGlobalGeometryEditClickRef.current = onGlobalGeometryEditClick;
   }, [onGlobalGeometryEditClick]);
+
+  // Handle preview mesh for geometry editing
+  useEffect(() => {
+    const renderer = rendererRef.current;
+    if (!renderer || !isInitialized) return;
+
+    if (previewMesh) {
+      console.log('[Viewport] Setting preview mesh for expressId:', previewMesh.expressId, 'vertices:', previewMesh.positions?.length ? previewMesh.positions.length / 3 : 0);
+      renderer.setPreviewMesh(previewMesh);
+    } else {
+      console.log('[Viewport] Clearing preview mesh');
+      renderer.clearPreviewMesh();
+    }
+  }, [previewMesh, isInitialized]);
 
   // Cleanup measurement state when tool changes + set cursor
   useEffect(() => {

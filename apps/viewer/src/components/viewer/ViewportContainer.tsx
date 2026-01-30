@@ -266,65 +266,28 @@ export function ViewportContainer() {
   const previewMeshes = usePreviewMeshes();
   const geometryEditVersion = useGeometryEditVersion();
 
-  // Build modelIndex -> idOffset mapping for globalId computation
-  const modelIndexToOffset = useMemo(() => {
-    const map = new Map<number, number>();
-    let index = 0;
-    for (const [, model] of storeModels) {
-      map.set(index++, model.idOffset ?? 0);
-    }
-    return map;
-  }, [storeModels]);
+  // Get the active session to determine which preview mesh to use
+  const activeSession = useViewerStore((s) => s.activeSession);
 
-  // Merge preview meshes with filtered geometry to show live edits
-  const geometryWithPreviews = useMemo(() => {
-    if (!filteredGeometry) return null;
-
-    // If no preview meshes, return filtered geometry unchanged
-    if (previewMeshes.size === 0) {
-      return filteredGeometry;
+  // Get the current active preview mesh (if any)
+  // The renderer has a dedicated setPreviewMesh API for this
+  const activePreviewMesh = useMemo(() => {
+    if (!activeSession || previewMeshes.size === 0) {
+      return null;
     }
 
-    console.log('[ViewportContainer] Merging preview meshes:', {
-      previewMeshCount: previewMeshes.size,
-      previewMeshKeys: Array.from(previewMeshes.keys()),
-      geometryEditVersion,
-    });
+    const globalId = activeSession.entity.globalId;
+    const previewMesh = previewMeshes.get(globalId);
 
-    let appliedPreviews = 0;
+    if (previewMesh) {
+      console.log('[ViewportContainer] Active preview mesh for globalId:', globalId, {
+        vertices: previewMesh.positions?.length ? previewMesh.positions.length / 3 : 0,
+        geometryEditVersion,
+      });
+    }
 
-    // Preview meshes are keyed by globalId (expressId + offset)
-    // We need to compute globalId for each mesh to look up the preview
-    const result = filteredGeometry.map(mesh => {
-      // Compute globalId: expressId + model's offset
-      const offset = mesh.modelIndex !== undefined
-        ? modelIndexToOffset.get(mesh.modelIndex) ?? 0
-        : 0;
-      const globalId = mesh.expressId + offset;
-
-      // Check if there's a preview mesh for this entity
-      const previewMesh = previewMeshes.get(globalId);
-      if (previewMesh) {
-        appliedPreviews++;
-        console.log('[ViewportContainer] Applying preview mesh for globalId:', globalId, {
-          expressId: mesh.expressId,
-          offset,
-          originalVerts: mesh.positions?.length ? mesh.positions.length / 3 : 0,
-          previewVerts: previewMesh.positions?.length ? previewMesh.positions.length / 3 : 0,
-        });
-        // Use preview mesh but preserve modelIndex and expressId for multi-model support
-        return {
-          ...previewMesh,
-          modelIndex: mesh.modelIndex,
-          expressId: mesh.expressId, // Keep original expressId for consistency
-        };
-      }
-      return mesh;
-    });
-
-    console.log('[ViewportContainer] Applied', appliedPreviews, 'preview meshes');
-    return result;
-  }, [filteredGeometry, previewMeshes, geometryEditVersion, modelIndexToOffset]);
+    return previewMesh || null;
+  }, [activeSession, previewMeshes, geometryEditVersion]);
 
   // Compute combined isolation set (storeys + manual isolation)
   // This is passed to the renderer for batch-level visibility filtering
@@ -679,11 +642,12 @@ export function ViewportContainer() {
       )}
 
       <Viewport
-        geometry={geometryWithPreviews}
+        geometry={filteredGeometry}
         coordinateInfo={mergedGeometryResult?.coordinateInfo}
         computedIsolatedIds={computedIsolatedIds}
         modelIdToIndex={modelIdToIndex}
         onGlobalGeometryEditClick={handleGlobalGeometryEditClick}
+        previewMesh={activePreviewMesh}
       />
       <ViewportOverlays />
       <ToolOverlays />
