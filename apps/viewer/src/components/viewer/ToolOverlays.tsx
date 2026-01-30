@@ -244,14 +244,29 @@ interface MeasurementOverlaysProps {
 
 const MeasurementOverlays = React.memo(function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTarget, snapVisualization, hoverPosition, projectToScreen, constraintEdge }: MeasurementOverlaysProps) {
   // Determine snap indicator position
-  // Priority: activeMeasurement.current > hoverPosition
+  // Priority: activeMeasurement.current > snapTarget projected position > hoverPosition (fallback)
   const snapIndicatorPos = useMemo(() => {
-    return activeMeasurement
-      ? { x: activeMeasurement.current.screenX, y: activeMeasurement.current.screenY }
-      : hoverPosition;
+    // During active measurement, use the measurement's current position
+    if (activeMeasurement) {
+      return { x: activeMeasurement.current.screenX, y: activeMeasurement.current.screenY };
+    }
+    // During hover, project the snap target's world position to screen
+    // This ensures the indicator is at the actual snap point, not the cursor
+    if (snapTarget && projectToScreen) {
+      const projected = projectToScreen(snapTarget.position);
+      if (projected) {
+        return projected;
+      }
+    }
+    // Fallback to hover position (cursor position)
+    return hoverPosition ?? null;
   }, [
     activeMeasurement?.current?.screenX,
     activeMeasurement?.current?.screenY,
+    snapTarget?.position?.x,
+    snapTarget?.position?.y,
+    snapTarget?.position?.z,
+    projectToScreen,
     hoverPosition?.x,
     hoverPosition?.y,
   ]);

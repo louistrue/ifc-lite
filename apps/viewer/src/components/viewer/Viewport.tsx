@@ -268,12 +268,15 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   const hoverThrottleMs = 50; // Check hover every 50ms
   const hoverTooltipsEnabledRef = useRef(hoverTooltipsEnabled);
 
-  // Measure tool throttling (16ms = 60fps max)
+  // Measure tool throttling (adaptive based on raycast performance)
   const measureRaycastPendingRef = useRef(false);
   const measureRaycastFrameRef = useRef<number | null>(null);
+  const lastMeasureRaycastDurationRef = useRef<number>(0);
   // Hover-only snap detection throttling (100ms = 10fps max for hover, 60fps for active measurement)
   const lastHoverSnapTimeRef = useRef<number>(0);
   const HOVER_SNAP_THROTTLE_MS = 100;
+  // Skip visualization updates if raycast was slow (prevents UI freezes)
+  const SLOW_RAYCAST_THRESHOLD_MS = 50;
 
   // Render throttling during orbit/pan
   // Adaptive: 16ms (60fps) for small models, up to 33ms (30fps) for very large models
@@ -826,8 +829,21 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
               measureRaycastPendingRef.current = false;
               measureRaycastFrameRef.current = null;
 
-              // Use magnetic snap for edge sliding behavior
-              const currentLock = edgeLockStateRef.current;
+              const raycastStart = performance.now();
+
+              // When using orthogonal constraint (shift held), use simpler raycasting
+              // since the final position will be projected onto an axis anyway
+              const snapEnabled = snapEnabledRef.current && !useOrthogonalConstraint;
+
+              // If last raycast was slow, reduce complexity to prevent UI freezes
+              const wasSlowLastTime = lastMeasureRaycastDurationRef.current > SLOW_RAYCAST_THRESHOLD_MS;
+              const reduceComplexity = wasSlowLastTime && !useOrthogonalConstraint;
+
+              // Use magnetic snap for edge sliding behavior (only when not in orthogonal mode)
+              const currentLock = useOrthogonalConstraint
+                ? { edge: null, meshExpressId: null, lockStrength: 0 }
+                : edgeLockStateRef.current;
+
               const result = renderer.raycastSceneMagnetic(x, y, {
                 edge: currentLock.edge,
                 meshExpressId: currentLock.meshExpressId,
@@ -835,11 +851,18 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
               }, {
                 hiddenIds: hiddenEntitiesRef.current,
                 isolatedIds: isolatedEntitiesRef.current,
-                snapOptions: snapEnabledRef.current ? {
-                  snapToVertices: true,
+                // Reduce snap complexity when using orthogonal constraint or when slow
+                snapOptions: snapEnabled ? {
+                  snapToVertices: !reduceComplexity, // Skip vertex snapping when slow
                   snapToEdges: true,
                   snapToFaces: true,
-                  screenSnapRadius: 60,
+                  screenSnapRadius: reduceComplexity ? 40 : 60, // Smaller radius when slow
+                } : useOrthogonalConstraint ? {
+                  // In orthogonal mode, just snap to surface point
+                  snapToVertices: false,
+                  snapToEdges: false,
+                  snapToFaces: true,
+                  screenSnapRadius: 20,
                 } : {
                   snapToVertices: false,
                   snapToEdges: false,
@@ -847,6 +870,9 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
                   screenSnapRadius: 0,
                 },
               });
+
+              // Track raycast duration for adaptive throttling
+              lastMeasureRaycastDurationRef.current = performance.now() - raycastStart;
 
               if (result.intersection || result.snapTarget) {
                 const snapPoint = result.snapTarget || result.intersection;
@@ -1127,11 +1153,103 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         }
       });
 
-      canvas.addEventListener('mouseup', () => {
+      canvas.addEventListener('mouseup', (e) => {
         const tool = activeToolRef.current;
 
         // Handle measure tool completion
         if (tool === 'measure' && activeMeasurementRef.current) {
+          // Cancel any pending raycast to avoid stale updates
+          if (measureRaycastFrameRef.current) {
+            cancelAnimationFrame(measureRaycastFrameRef.current);
+            measureRaycastFrameRef.current = null;
+            measureRaycastPendingRef.current = false;
+          }
+
+          // Do a final synchronous raycast at the mouseup position to ensure accurate end point
+          const rect = canvas.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+
+          const useOrthogonalConstraint = e.shiftKey && measurementConstraintEdgeRef.current;
+          const currentLock = edgeLockStateRef.current;
+
+          const result = renderer.raycastSceneMagnetic(x, y, {
+            edge: currentLock.edge,
+            meshExpressId: currentLock.meshExpressId,
+            lockStrength: currentLock.lockStrength,
+          }, {
+            hiddenIds: hiddenEntitiesRef.current,
+            isolatedIds: isolatedEntitiesRef.current,
+            snapOptions: snapEnabledRef.current ? {
+              snapToVertices: true,
+              snapToEdges: true,
+              snapToFaces: true,
+              screenSnapRadius: 60,
+            } : {
+              snapToVertices: false,
+              snapToEdges: false,
+              snapToFaces: false,
+              screenSnapRadius: 0,
+            },
+          });
+
+          // Update measurement with final position before finalizing
+          if (result.intersection || result.snapTarget) {
+            const snapPoint = result.snapTarget || result.intersection;
+            let pos = snapPoint ? ('position' in snapPoint ? snapPoint.position : snapPoint.point) : null;
+
+            if (pos) {
+              // Apply orthogonal constraint if shift is held
+              if (useOrthogonalConstraint && activeMeasurementRef.current) {
+                const constraint = measurementConstraintEdgeRef.current!;
+                const start = activeMeasurementRef.current.start;
+
+                const dx = pos.x - start.x;
+                const dy = pos.y - start.y;
+                const dz = pos.z - start.z;
+
+                const { axis1, axis2, axis3 } = constraint.axes;
+                const dot1 = dx * axis1.x + dy * axis1.y + dz * axis1.z;
+                const dot2 = dx * axis2.x + dy * axis2.y + dz * axis2.z;
+                const dot3 = dx * axis3.x + dy * axis3.y + dz * axis3.z;
+
+                const absDot1 = Math.abs(dot1);
+                const absDot2 = Math.abs(dot2);
+                const absDot3 = Math.abs(dot3);
+
+                let chosenDot: number;
+                let chosenDir: { x: number; y: number; z: number };
+
+                if (absDot1 >= absDot2 && absDot1 >= absDot3) {
+                  chosenDot = dot1;
+                  chosenDir = axis1;
+                } else if (absDot2 >= absDot3) {
+                  chosenDot = dot2;
+                  chosenDir = axis2;
+                } else {
+                  chosenDot = dot3;
+                  chosenDir = axis3;
+                }
+
+                pos = {
+                  x: start.x + chosenDot * chosenDir.x,
+                  y: start.y + chosenDot * chosenDir.y,
+                  z: start.z + chosenDot * chosenDir.z,
+                };
+              }
+
+              const screenPos = camera.projectToScreen(pos, canvas.width, canvas.height);
+              const measurePoint: MeasurePoint = {
+                x: pos.x,
+                y: pos.y,
+                z: pos.z,
+                screenX: screenPos?.x ?? x,
+                screenY: screenPos?.y ?? y,
+              };
+              updateMeasurement(measurePoint);
+            }
+          }
+
           finalizeMeasurement();
           clearEdgeLock(); // Clear edge lock after measurement complete
           mouseState.isDragging = false;
