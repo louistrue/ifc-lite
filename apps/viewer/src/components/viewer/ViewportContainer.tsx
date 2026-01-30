@@ -6,6 +6,7 @@ import { useMemo, useRef, useState, useCallback } from 'react';
 import { Viewport } from './Viewport';
 import { ViewportOverlays } from './ViewportOverlays';
 import { ToolOverlays } from './ToolOverlays';
+import { GeometryHandles } from './GeometryHandles';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { useWebGPU } from '@/hooks/useWebGPU';
@@ -21,6 +22,7 @@ export function ViewportContainer() {
   const storeModels = useViewerStore((s) => s.models);
   const resetViewerState = useViewerStore((s) => s.resetViewerState);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const viewportContainerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showTroubleshooting, setShowTroubleshooting] = useState(false);
   const webgpu = useWebGPU();
@@ -546,6 +548,7 @@ export function ViewportContainer() {
 
   return (
     <div
+      ref={viewportContainerRef}
       className="relative h-full w-full bg-zinc-50 dark:bg-black overflow-hidden"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -574,6 +577,7 @@ export function ViewportContainer() {
       />
       <ViewportOverlays />
       <ToolOverlays />
+      <GeometryHandles containerRef={viewportContainerRef} />
     </div>
   );
 }

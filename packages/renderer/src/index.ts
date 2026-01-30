@@ -594,9 +594,13 @@ export class Renderer {
         let meshes = this.scene.getMeshes();
 
         // Check if visibility filtering is active
+        // Get preview expressId to hide the original mesh during editing
+        const previewExpressId = this.scene.getPreviewExpressId();
+
         const hasHiddenFilter = options.hiddenIds && options.hiddenIds.size > 0;
         const hasIsolatedFilter = options.isolatedIds !== null && options.isolatedIds !== undefined;
-        const hasVisibilityFiltering = hasHiddenFilter || hasIsolatedFilter;
+        const hasPreviewFilter = previewExpressId !== null;
+        const hasVisibilityFiltering = hasHiddenFilter || hasIsolatedFilter || hasPreviewFilter;
 
         // PERFORMANCE FIX: Use batch-level visibility filtering instead of creating individual meshes
         // Only create individual meshes for selected elements (for highlighting)
@@ -839,7 +843,8 @@ export class Renderer {
                         for (const expressId of batch.expressIds) {
                             const isHidden = options.hiddenIds?.has(expressId) ?? false;
                             const isIsolated = !hasIsolatedFilter || options.isolatedIds!.has(expressId);
-                            if (!isHidden && isIsolated) {
+                            const isPreviewed = expressId === previewExpressId;
+                            if (!isHidden && isIsolated && !isPreviewed) {
                                 visibleCount++;
                             }
                         }
@@ -878,7 +883,8 @@ export class Renderer {
                             for (const expressId of batch.expressIds) {
                                 const isHidden = options.hiddenIds?.has(expressId) ?? false;
                                 const isIsolated = !hasIsolatedFilter || options.isolatedIds!.has(expressId);
-                                if (!isHidden && isIsolated) {
+                                const isPreviewed = expressId === previewExpressId;
+                                if (!isHidden && isIsolated && !isPreviewed) {
                                     visibleIds.add(expressId);
                                 }
                             }
@@ -1188,6 +1194,42 @@ export class Renderer {
                         pass.drawIndexed(instancedMesh.indexCount, instancedMesh.instanceCount, 0, 0, 0);
                     }
                 }
+            }
+
+            // Render preview mesh for geometry editing (if active)
+            const previewMesh = this.scene.getPreviewMesh();
+            if (previewMesh && previewMesh.bindGroup && previewMesh.uniformBuffer) {
+                const previewBuffer = new Float32Array(48);
+                const previewFlagBuffer = new Uint32Array(previewBuffer.buffer, 176, 4);
+
+                previewBuffer.set(viewProj, 0);
+                previewBuffer.set(previewMesh.transform.m, 16);
+                previewBuffer.set(previewMesh.color, 32);
+                previewBuffer[36] = 0.0; // metallic
+                previewBuffer[37] = 0.5; // roughness
+
+                // Section plane data for preview mesh
+                if (sectionPlaneData) {
+                    previewBuffer[40] = sectionPlaneData.normal[0];
+                    previewBuffer[41] = sectionPlaneData.normal[1];
+                    previewBuffer[42] = sectionPlaneData.normal[2];
+                    previewBuffer[43] = sectionPlaneData.distance;
+                }
+
+                // Flags - render as selected to get highlight effect
+                previewFlagBuffer[0] = 1; // isSelected - triggers highlight
+                previewFlagBuffer[1] = sectionPlaneData?.enabled ? 1 : 0;
+                previewFlagBuffer[2] = 0;
+                previewFlagBuffer[3] = 0;
+
+                device.queue.writeBuffer(previewMesh.uniformBuffer, 0, previewBuffer);
+
+                // Use selection pipeline for highlight effect
+                pass.setPipeline(this.pipeline.getSelectionPipeline());
+                pass.setBindGroup(0, previewMesh.bindGroup);
+                pass.setVertexBuffer(0, previewMesh.vertexBuffer);
+                pass.setIndexBuffer(previewMesh.indexBuffer, 'uint32');
+                pass.drawIndexed(previewMesh.indexCount, 1, 0, 0, 0);
             }
 
             // Draw section plane visual BEFORE pass.end() (within same MSAA render pass)
@@ -1625,6 +1667,105 @@ export class Renderer {
 
     getScene(): Scene {
         return this.scene;
+    }
+
+    /**
+     * Set preview mesh for geometry editing
+     * Creates GPU resources from MeshData and sets it as the preview mesh
+     * The preview mesh will be rendered with a highlight effect and the original mesh will be hidden
+     *
+     * @param meshData - The mesh data for the preview
+     * @param expressId - The expressId of the entity being edited
+     */
+    setPreviewMesh(meshData: MeshData): void {
+        if (!this.device.isInitialized() || !this.pipeline) return;
+
+        const device = this.device.getDevice();
+        const vertexCount = meshData.positions.length / 3;
+        const interleaved = new Float32Array(vertexCount * 6);
+
+        for (let i = 0; i < vertexCount; i++) {
+            const base = i * 6;
+            const posBase = i * 3;
+            interleaved[base] = meshData.positions[posBase];
+            interleaved[base + 1] = meshData.positions[posBase + 1];
+            interleaved[base + 2] = meshData.positions[posBase + 2];
+            interleaved[base + 3] = meshData.normals[posBase];
+            interleaved[base + 4] = meshData.normals[posBase + 1];
+            interleaved[base + 5] = meshData.normals[posBase + 2];
+        }
+
+        const vertexBuffer = device.createBuffer({
+            size: interleaved.byteLength,
+            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        });
+        device.queue.writeBuffer(vertexBuffer, 0, interleaved);
+
+        const indexBuffer = device.createBuffer({
+            size: meshData.indices.byteLength,
+            usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+        });
+        device.queue.writeBuffer(indexBuffer, 0, meshData.indices);
+
+        // Create uniform buffer for the preview mesh
+        const uniformBuffer = device.createBuffer({
+            size: this.pipeline.getUniformBufferSize(),
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+
+        // Create bind group
+        const bindGroup = device.createBindGroup({
+            layout: this.pipeline.getBindGroupLayout(),
+            entries: [
+                {
+                    binding: 0,
+                    resource: { buffer: uniformBuffer },
+                },
+            ],
+        });
+
+        // Use a distinct color for the preview (amber/orange tint)
+        const previewColor: [number, number, number, number] = [
+            meshData.color[0] * 0.7 + 0.3 * 1.0,  // Tint towards amber
+            meshData.color[1] * 0.7 + 0.3 * 0.7,
+            meshData.color[2] * 0.7 + 0.3 * 0.1,
+            0.9,  // Slightly transparent
+        ];
+
+        const previewMesh: Mesh = {
+            expressId: meshData.expressId,
+            modelIndex: meshData.modelIndex,
+            vertexBuffer,
+            indexBuffer,
+            indexCount: meshData.indices.length,
+            transform: MathUtils.identity(),
+            color: previewColor,
+            uniformBuffer,
+            bindGroup,
+        };
+
+        this.scene.setPreviewMesh(previewMesh, meshData.expressId);
+    }
+
+    /**
+     * Clear preview mesh and restore normal rendering
+     */
+    clearPreviewMesh(): void {
+        this.scene.clearPreviewMesh();
+    }
+
+    /**
+     * Check if an entity is currently being previewed
+     */
+    isEntityBeingPreviewed(expressId: number): boolean {
+        return this.scene.isBeingPreviewed(expressId);
+    }
+
+    /**
+     * Get the expressId of the currently previewed entity (if any)
+     */
+    getPreviewedEntityId(): number | null {
+        return this.scene.getPreviewExpressId();
     }
 
     /**

@@ -8,6 +8,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { MainToolbar } from './MainToolbar';
 import { HierarchyPanel } from './HierarchyPanel';
 import { PropertiesPanel } from './PropertiesPanel';
+import { GeometryEditPanel } from './GeometryEditPanel';
 import { StatusBar } from './StatusBar';
 import { ViewportContainer } from './ViewportContainer';
 import { KeyboardShortcutsDialog, useKeyboardShortcutsDialog } from './KeyboardShortcutsDialog';
@@ -29,6 +30,10 @@ export function ViewerLayout() {
   const rightPanelCollapsed = useViewerStore((s) => s.rightPanelCollapsed);
   const setLeftPanelCollapsed = useViewerStore((s) => s.setLeftPanelCollapsed);
   const setRightPanelCollapsed = useViewerStore((s) => s.setRightPanelCollapsed);
+
+  // Geometry edit mode - show GeometryEditPanel instead of PropertiesPanel when active
+  const geometryEditMode = useViewerStore((s) => s.geometryEditMode);
+  const isGeometryEditing = geometryEditMode !== 'none';
 
   // Detect mobile viewport
   useEffect(() => {
@@ -98,7 +103,7 @@ export function ViewerLayout() {
 
             <PanelResizeHandle className="w-1.5 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-col-resize" />
 
-            {/* Right Panel - Properties */}
+            {/* Right Panel - Properties or Geometry Edit */}
             <Panel
               id="right-panel"
               defaultSize={22}
@@ -107,7 +112,7 @@ export function ViewerLayout() {
               collapsedSize={0}
             >
               <div className="h-full w-full overflow-hidden">
-                <PropertiesPanel />
+                {isGeometryEditing ? <GeometryEditPanel /> : <PropertiesPanel />}
               </div>
             </Panel>
           </PanelGroup>
@@ -142,11 +147,13 @@ export function ViewerLayout() {
               </div>
             )}
 
-            {/* Mobile Bottom Sheet - Properties */}
+            {/* Mobile Bottom Sheet - Properties or Geometry Edit */}
             {!rightPanelCollapsed && (
               <div className="absolute inset-x-0 bottom-0 h-[50vh] bg-background border-t rounded-t-xl shadow-xl z-40 animate-in slide-in-from-bottom">
                 <div className="flex items-center justify-between p-2 border-b">
-                  <span className="font-medium text-sm">Properties</span>
+                  <span className="font-medium text-sm">
+                    {isGeometryEditing ? 'Geometry Edit' : 'Properties'}
+                  </span>
                   <button
                     className="p-1 hover:bg-muted rounded"
                     onClick={() => setRightPanelCollapsed(true)}
@@ -158,7 +165,7 @@ export function ViewerLayout() {
                   </button>
                 </div>
                 <div className="h-[calc(50vh-48px)] overflow-auto">
-                  <PropertiesPanel />
+                  {isGeometryEditing ? <GeometryEditPanel /> : <PropertiesPanel />}
                 </div>
               </div>
             )}

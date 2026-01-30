@@ -25,6 +25,10 @@ export class Scene {
   private meshDataMap: Map<number, MeshData[]> = new Map(); // Map expressId -> MeshData[] (for lazy buffer creation, accumulates multiple pieces)
   private boundingBoxes: Map<number, BoundingBox> = new Map(); // Map expressId -> bounding box (computed lazily)
 
+  // Preview mesh for geometry editing - temporarily replaces original mesh during editing
+  private previewMesh: Mesh | null = null;
+  private previewExpressId: number | null = null;
+
   // Sub-batch cache for partially visible batches (PERFORMANCE FIX)
   // Key = colorKey + ":" + sorted visible expressIds hash
   // This allows rendering partially visible batches as single draw calls instead of 10,000+ individual draws
@@ -41,6 +45,56 @@ export class Scene {
    */
   addMesh(mesh: Mesh): void {
     this.meshes.push(mesh);
+  }
+
+  /**
+   * Set preview mesh for geometry editing
+   * The preview mesh temporarily replaces the original mesh during editing
+   */
+  setPreviewMesh(mesh: Mesh, expressId: number): void {
+    // Clean up previous preview mesh if different
+    if (this.previewMesh && this.previewExpressId !== expressId) {
+      this.clearPreviewMesh();
+    }
+    this.previewMesh = mesh;
+    this.previewExpressId = expressId;
+  }
+
+  /**
+   * Get current preview mesh
+   */
+  getPreviewMesh(): Mesh | null {
+    return this.previewMesh;
+  }
+
+  /**
+   * Get expressId of the entity being previewed
+   */
+  getPreviewExpressId(): number | null {
+    return this.previewExpressId;
+  }
+
+  /**
+   * Clear preview mesh and restore original rendering
+   */
+  clearPreviewMesh(): void {
+    if (this.previewMesh) {
+      // Destroy GPU buffers
+      this.previewMesh.vertexBuffer.destroy();
+      this.previewMesh.indexBuffer.destroy();
+      if (this.previewMesh.uniformBuffer) {
+        this.previewMesh.uniformBuffer.destroy();
+      }
+    }
+    this.previewMesh = null;
+    this.previewExpressId = null;
+  }
+
+  /**
+   * Check if an expressId is currently being previewed (should be hidden from normal rendering)
+   */
+  isBeingPreviewed(expressId: number): boolean {
+    return this.previewExpressId === expressId;
   }
 
   /**
@@ -615,6 +669,8 @@ export class Scene {
         batch.uniformBuffer.destroy();
       }
     }
+    // Clear preview mesh
+    this.clearPreviewMesh();
     this.meshes = [];
     this.instancedMeshes = [];
     this.batchedMeshes = [];
