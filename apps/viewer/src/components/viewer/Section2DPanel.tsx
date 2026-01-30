@@ -224,8 +224,11 @@ export function Section2DPanel() {
     }
   }, [panelVisible, drawing, status, geometryResult, generateDrawing]);
 
-  // Auto-regenerate when section plane changes (debounced)
+  // Auto-regenerate when section plane changes (debounced to prevent flickering)
   const sectionRef = useRef({ axis: sectionPlane.axis, position: sectionPlane.position, flipped: sectionPlane.flipped });
+  const regenerateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+
   useEffect(() => {
     // Check if section plane actually changed
     const prev = sectionRef.current;
@@ -240,12 +243,31 @@ export function Section2DPanel() {
     // Update ref
     sectionRef.current = { axis: sectionPlane.axis, position: sectionPlane.position, flipped: sectionPlane.flipped };
 
-    // If panel is visible and we have geometry, regenerate
+    // If panel is visible and we have geometry, regenerate with debounce
     if (panelVisible && geometryResult?.meshes && status !== 'generating') {
-      // Clear existing drawing to force regeneration
-      setDrawing(null);
+      // Clear any pending regeneration
+      if (regenerateTimeoutRef.current) {
+        clearTimeout(regenerateTimeoutRef.current);
+      }
+
+      // Show subtle updating indicator
+      setIsRegenerating(true);
+
+      // Debounce regeneration to avoid flickering during rapid slider movement
+      regenerateTimeoutRef.current = setTimeout(() => {
+        // Don't clear the existing drawing - keep it visible while regenerating
+        generateDrawing().finally(() => {
+          setIsRegenerating(false);
+        });
+      }, 150); // 150ms debounce for smooth slider interaction
     }
-  }, [panelVisible, sectionPlane.axis, sectionPlane.position, sectionPlane.flipped, geometryResult, status, setDrawing]);
+
+    return () => {
+      if (regenerateTimeoutRef.current) {
+        clearTimeout(regenerateTimeoutRef.current);
+      }
+    };
+  }, [panelVisible, sectionPlane.axis, sectionPlane.position, sectionPlane.flipped, geometryResult, status, generateDrawing]);
 
   // Pan handlers
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -730,13 +752,22 @@ export function Section2DPanel() {
         )}
 
         {status === 'ready' && drawing && drawing.cutPolygons.length > 0 && (
-          <Drawing2DCanvas
-            drawing={drawing}
-            hatchingLines={hatchingLines}
-            transform={viewTransform}
-            showHiddenLines={displayOptions.showHiddenLines}
-            showHatching={displayOptions.showHatching}
-          />
+          <>
+            <Drawing2DCanvas
+              drawing={drawing}
+              hatchingLines={hatchingLines}
+              transform={viewTransform}
+              showHiddenLines={displayOptions.showHiddenLines}
+              showHatching={displayOptions.showHatching}
+            />
+            {/* Subtle updating indicator - shows while regenerating without hiding the drawing */}
+            {isRegenerating && (
+              <div className="absolute top-2 right-2 flex items-center gap-1.5 bg-background/80 backdrop-blur-sm px-2 py-1 rounded text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                <span>Updating...</span>
+              </div>
+            )}
+          </>
         )}
 
         {status === 'ready' && drawing && drawing.cutPolygons.length === 0 && (

@@ -840,12 +840,21 @@ function SectionOverlay() {
             <div className="mt-3">
               <div className="flex items-center justify-between mb-1">
                 <label className="text-xs text-muted-foreground">Position</label>
-                <span className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded">{sectionPlane.position}%</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value={sectionPlane.position}
+                  onChange={handlePositionChange}
+                  className="w-16 text-xs font-mono bg-muted px-1.5 py-0.5 rounded border-none text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
               </div>
               <input
                 type="range"
                 min="0"
                 max="100"
+                step="0.1"
                 value={sectionPlane.position}
                 onChange={handlePositionChange}
                 className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
