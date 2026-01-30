@@ -159,6 +159,19 @@ export function Section2DPanel() {
     return new GraphicOverrideEngine(rules);
   }, [getActiveOverrideRules, activePresetId, customOverrideRules, overridesEnabled]);
 
+  // Build entity color map from mesh material colors (for "Use IFC Materials" mode)
+  const entityColorMap = useMemo(() => {
+    const map = new Map<number, [number, number, number, number]>();
+    if (geometryResult?.meshes) {
+      for (const mesh of geometryResult.meshes) {
+        if (mesh.expressId && mesh.color) {
+          map.set(mesh.expressId, mesh.color);
+        }
+      }
+    }
+    return map;
+  }, [geometryResult]);
+
   // Track if this is a regeneration (vs initial generation)
   const isRegeneratingRef = useRef(false);
 
@@ -816,6 +829,8 @@ export function Section2DPanel() {
               showHatching={displayOptions.showHatching}
               overrideEngine={overrideEngine}
               overridesEnabled={overridesEnabled}
+              entityColorMap={entityColorMap}
+              useIfcMaterials={activePresetId === 'preset-3d-colors'}
             />
             {/* Subtle updating indicator - shows while regenerating without hiding the drawing */}
             {isRegenerating && (
@@ -896,9 +911,11 @@ interface Drawing2DCanvasProps {
   showHatching: boolean;
   overrideEngine: GraphicOverrideEngine;
   overridesEnabled: boolean;
+  entityColorMap: Map<number, [number, number, number, number]>;
+  useIfcMaterials: boolean;
 }
 
-function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, showHatching, overrideEngine, overridesEnabled }: Drawing2DCanvasProps) {
+function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, showHatching, overrideEngine, overridesEnabled, entityColorMap, useIfcMaterials }: Drawing2DCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
 
@@ -947,15 +964,26 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
     ctx.scale(transform.scale, -transform.scale); // Flip Y for CAD coordinates
 
     // ═══════════════════════════════════════════════════════════════════════
-    // 1. FILL CUT POLYGONS (with color from override engine or IFC type fallback)
+    // 1. FILL CUT POLYGONS (with color from IFC materials, override engine, or type fallback)
     // ═══════════════════════════════════════════════════════════════════════
     for (const polygon of drawing.cutPolygons) {
-      // Get fill color - use override engine if enabled, fallback to IFC type colors
+      // Get fill color - priority: IFC materials > override engine > IFC type fallback
       let fillColor = getFillColorForType(polygon.ifcType);
       let strokeColor = '#000000';
       let opacity = 1;
 
-      if (overridesEnabled) {
+      // Use actual IFC material colors from the mesh data
+      if (useIfcMaterials) {
+        const materialColor = entityColorMap.get(polygon.entityId);
+        if (materialColor) {
+          // Convert RGBA [0-1] to hex color
+          const r = Math.round(materialColor[0] * 255);
+          const g = Math.round(materialColor[1] * 255);
+          const b = Math.round(materialColor[2] * 255);
+          fillColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+          opacity = materialColor[3];
+        }
+      } else if (overridesEnabled) {
         const elementData: ElementData = {
           expressId: polygon.entityId,
           ifcType: polygon.ifcType,
@@ -1146,7 +1174,7 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
     }
 
     ctx.restore();
-  }, [drawing, hatchingLines, transform, showHiddenLines, showHatching, canvasSize, overrideEngine, overridesEnabled]);
+  }, [drawing, hatchingLines, transform, showHiddenLines, showHatching, canvasSize, overrideEngine, overridesEnabled, entityColorMap, useIfcMaterials]);
 
   return (
     <canvas

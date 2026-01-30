@@ -394,6 +394,164 @@ export const MEP_PRESET: GraphicOverridePreset = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
+// 3D VIEW COLORS PRESET (matches renderer default materials)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Convert RGBA array [0-1, 0-1, 0-1, 0-1] to hex color
+function rgbaToHex(rgba: [number, number, number, number]): string {
+  const r = Math.round(rgba[0] * 255);
+  const g = Math.round(rgba[1] * 255);
+  const b = Math.round(rgba[2] * 255);
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
+const VIEW_3D_RULES: GraphicOverrideRule[] = [
+  // Walls - Warm white (matte plaster)
+  createRule(
+    'Walls - Warm white',
+    ifcTypeCriterion(['IfcWall']),
+    {
+      fillColor: rgbaToHex([0.95, 0.93, 0.88, 1.0]),
+      strokeColor: '#000000',
+      lineWeight: 'medium',
+    },
+    100
+  ),
+  // Slabs - Cool gray (concrete)
+  createRule(
+    'Slabs - Cool gray',
+    ifcTypeCriterion(['IfcSlab']),
+    {
+      fillColor: rgbaToHex([0.75, 0.75, 0.78, 1.0]),
+      strokeColor: '#000000',
+      lineWeight: 'medium',
+    },
+    100
+  ),
+  // Columns - Light gray
+  createRule(
+    'Columns - Light gray',
+    ifcTypeCriterion(['IfcColumn']),
+    {
+      fillColor: rgbaToHex([0.7, 0.7, 0.7, 1.0]),
+      strokeColor: '#000000',
+      lineWeight: 'heavy',
+    },
+    100
+  ),
+  // Beams - Steel blue
+  createRule(
+    'Beams - Steel blue',
+    ifcTypeCriterion(['IfcBeam']),
+    {
+      fillColor: rgbaToHex([0.55, 0.55, 0.6, 1.0]),
+      strokeColor: '#000000',
+      lineWeight: 'medium',
+    },
+    100
+  ),
+  // Windows - Sky blue (glass)
+  createRule(
+    'Windows - Sky blue',
+    ifcTypeCriterion(['IfcWindow']),
+    {
+      fillColor: rgbaToHex([0.6, 0.8, 0.95, 0.3]),
+      strokeColor: '#4080C0',
+      lineWeight: 'light',
+      opacity: 0.5,
+    },
+    100
+  ),
+  // Doors - Warm wood
+  createRule(
+    'Doors - Warm wood',
+    ifcTypeCriterion(['IfcDoor']),
+    {
+      fillColor: rgbaToHex([0.6, 0.45, 0.3, 1.0]),
+      strokeColor: '#000000',
+      lineWeight: 'medium',
+    },
+    100
+  ),
+  // Roof - Terra cotta
+  createRule(
+    'Roof - Terra cotta',
+    ifcTypeCriterion(['IfcRoof']),
+    {
+      fillColor: rgbaToHex([0.7, 0.5, 0.4, 1.0]),
+      strokeColor: '#000000',
+      lineWeight: 'medium',
+    },
+    100
+  ),
+  // Stairs - Sandstone
+  createRule(
+    'Stairs - Sandstone',
+    ifcTypeCriterion(['IfcStair', 'IfcStairFlight']),
+    {
+      fillColor: rgbaToHex([0.8, 0.75, 0.65, 1.0]),
+      strokeColor: '#000000',
+      lineWeight: 'light',
+    },
+    100
+  ),
+  // Railings - Dark metal
+  createRule(
+    'Railings - Dark metal',
+    ifcTypeCriterion(['IfcRailing']),
+    {
+      fillColor: rgbaToHex([0.3, 0.3, 0.35, 1.0]),
+      strokeColor: '#000000',
+      lineWeight: 'light',
+    },
+    100
+  ),
+  // Furniture - Natural wood
+  createRule(
+    'Furniture - Natural wood',
+    ifcTypeCriterion(['IfcFurnishingElement', 'IfcFurniture']),
+    {
+      fillColor: rgbaToHex([0.7, 0.6, 0.5, 1.0]),
+      strokeColor: '#000000',
+      lineWeight: 'hairline',
+    },
+    90
+  ),
+  // Pipes - Blue-gray
+  createRule(
+    'Pipes - Blue-gray',
+    ifcTypeCriterion(['IfcPipeSegment', 'IfcPipeFitting']),
+    {
+      fillColor: rgbaToHex([0.4, 0.5, 0.6, 1.0]),
+      strokeColor: '#000000',
+      lineWeight: 'light',
+    },
+    100
+  ),
+  // Ducts - Light gray
+  createRule(
+    'Ducts - Light gray',
+    ifcTypeCriterion(['IfcDuctSegment', 'IfcDuctFitting']),
+    {
+      fillColor: rgbaToHex([0.6, 0.6, 0.65, 1.0]),
+      strokeColor: '#000000',
+      lineWeight: 'light',
+    },
+    100
+  ),
+];
+
+export const VIEW_3D_PRESET: GraphicOverridePreset = {
+  id: 'preset-3d-colors',
+  name: 'IFC Materials',
+  description: 'Use actual material colors from the IFC file',
+  icon: '🎨',
+  rules: [], // No rules needed - colors come from mesh data directly
+  builtIn: true,
+  category: 'Standards',
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
 // MATERIAL BASED PRESET
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -513,6 +671,7 @@ export const MONOCHROME_PRESET: GraphicOverridePreset = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const BUILT_IN_PRESETS: GraphicOverridePreset[] = [
+  VIEW_3D_PRESET,
   ARCHITECTURAL_PRESET,
   FIRE_SAFETY_PRESET,
   STRUCTURAL_PRESET,
