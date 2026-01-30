@@ -284,20 +284,29 @@ export const createGeometryEditSlice: StateCreator<
     }
     console.log('[GeomEditSlice] Session created successfully, mode:', session.mode);
 
+    const newMode = session.mode === 'parametric' ? 'parameter' : 'mesh';
+    console.log('[GeomEditSlice] Setting geometryEditMode to:', newMode);
+
     set((state) => {
       const newPreviewMeshes = new Map(state.previewMeshes);
       newPreviewMeshes.set(session.entity.globalId, meshData);
 
+      console.log('[GeomEditSlice] Updating state with:', {
+        activeEditEntity: session.entity.expressId,
+        geometryEditMode: newMode,
+        parameters: session.entity.parameters?.length || 0,
+      });
+
       return {
         activeEditEntity: session.entity,
         activeSession: session,
-        geometryEditMode:
-          session.mode === 'parametric' ? 'parameter' : 'mesh',
+        geometryEditMode: newMode,
         previewMeshes: newPreviewMeshes,
         geometryEditVersion: state.geometryEditVersion + 1,
       };
     });
 
+    console.log('[GeomEditSlice] After set, geometryEditMode is:', get().geometryEditMode);
     return session;
   },
 

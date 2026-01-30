@@ -33,7 +33,13 @@ export function ViewerLayout() {
 
   // Geometry edit mode - show GeometryEditPanel instead of PropertiesPanel when active
   const geometryEditMode = useViewerStore((s) => s.geometryEditMode);
+  const activeSession = useViewerStore((s) => s.activeSession);
   const isGeometryEditing = geometryEditMode !== 'none';
+
+  // Debug logging for geometry edit mode
+  useEffect(() => {
+    console.log('[ViewerLayout] geometryEditMode:', geometryEditMode, 'isGeometryEditing:', isGeometryEditing, 'hasSession:', !!activeSession);
+  }, [geometryEditMode, isGeometryEditing, activeSession]);
 
   // Detect mobile viewport
   useEffect(() => {
