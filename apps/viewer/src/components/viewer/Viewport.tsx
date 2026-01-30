@@ -32,6 +32,7 @@ import {
   calculateScaleBarSize,
   type ViewportStateRefs,
 } from '../../utils/viewportUtils.js';
+import { setGlobalCanvasRef, setGlobalRendererRef } from '../../hooks/useBCF.js';
 
 interface ViewportProps {
   geometry: MeshData[] | null;
@@ -354,6 +355,10 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
 
     const renderer = new Renderer(canvas);
     rendererRef.current = renderer;
+
+    // Register refs for BCF hook access (snapshot capture, camera control)
+    setGlobalCanvasRef(canvasRef);
+    setGlobalRendererRef(rendererRef);
 
     renderer.init().then(() => {
       if (aborted) return;

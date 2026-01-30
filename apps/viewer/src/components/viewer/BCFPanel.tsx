@@ -53,9 +53,8 @@ import {
   createBCFProject,
   createBCFTopic,
   createBCFComment,
-  createViewpoint,
-  extractViewpointState,
 } from '@ifc-lite/bcf';
+import { useBCF } from '@/hooks/useBCF';
 
 // ============================================================================
 // Constants
@@ -643,6 +642,9 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
   const setBcfLoading = useViewerStore((s) => s.setBcfLoading);
   const setBcfError = useViewerStore((s) => s.setBcfError);
 
+  // BCF hook for camera/snapshot integration
+  const { createViewpointFromState, applyViewpoint } = useBCF();
+
   // Local state
   const [statusFilter, setStatusFilter] = useState('all');
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -743,26 +745,28 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
     [activeTopicId, bcfAuthor, addComment]
   );
 
-  // Capture viewpoint (placeholder - needs camera integration)
-  const handleCaptureViewpoint = useCallback(() => {
+  // Capture viewpoint from current viewer state
+  const handleCaptureViewpoint = useCallback(async () => {
     if (!activeTopicId) return;
-    // This will be connected to the viewer's camera state
-    const viewpoint = createViewpoint({
-      camera: {
-        position: { x: 0, y: 0, z: 10 },
-        target: { x: 0, y: 0, z: 0 },
-        up: { x: 0, y: 1, z: 0 },
-        fov: Math.PI / 4,
-      },
-    });
-    addViewpoint(activeTopicId, viewpoint);
-  }, [activeTopicId, addViewpoint]);
 
-  // Activate viewpoint (placeholder - needs camera integration)
+    // Create viewpoint from current camera, section plane, and selection state
+    const viewpoint = await createViewpointFromState({
+      includeSnapshot: true,
+      includeSelection: true,
+      includeHidden: true,
+    });
+
+    if (viewpoint) {
+      addViewpoint(activeTopicId, viewpoint);
+    } else {
+      console.warn('[BCFPanel] Failed to capture viewpoint - no camera available');
+    }
+  }, [activeTopicId, addViewpoint, createViewpointFromState]);
+
+  // Activate viewpoint - apply camera and state to viewer
   const handleActivateViewpoint = useCallback((viewpoint: BCFViewpoint) => {
-    // This will be connected to the viewer's camera controls
-    console.log('Activate viewpoint:', viewpoint.guid);
-  }, []);
+    applyViewpoint(viewpoint, true); // Animate to viewpoint
+  }, [applyViewpoint]);
 
   // Delete viewpoint
   const handleDeleteViewpoint = useCallback(
