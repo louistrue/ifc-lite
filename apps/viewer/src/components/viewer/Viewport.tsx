@@ -1934,12 +1934,13 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
 
   // 2D section overlay: upload drawing data to renderer when available
   const drawing2D = useViewerStore((s) => s.drawing2D);
+  const show3DOverlay = useViewerStore((s) => s.drawing2DDisplayOptions.show3DOverlay);
   useEffect(() => {
     const renderer = rendererRef.current;
     if (!renderer || !isInitialized) return;
 
-    // Only show overlay when section tool is active and we have a drawing
-    if (activeTool === 'section' && drawing2D && drawing2D.cutPolygons.length > 0) {
+    // Only show overlay when section tool is active, we have a drawing, AND 3D overlay is enabled
+    if (activeTool === 'section' && drawing2D && drawing2D.cutPolygons.length > 0 && show3DOverlay) {
       // Convert Drawing2D format to renderer format
       const polygons = drawing2D.cutPolygons.map((cp) => ({
         polygon: cp.polygon,
@@ -1960,7 +1961,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         sectionPlane.flipped
       );
     } else {
-      // Clear overlay when not in section mode or no drawing
+      // Clear overlay when not in section mode, no drawing, or overlay disabled
       renderer.clearSection2DOverlay();
     }
 
@@ -1978,7 +1979,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         max: sectionRangeRef.current?.max,
       } : undefined,
     });
-  }, [drawing2D, activeTool, sectionPlane, isInitialized, coordinateInfo]);
+  }, [drawing2D, activeTool, sectionPlane, isInitialized, coordinateInfo, show3DOverlay]);
 
   // Re-render when visibility, selection, or section plane changes
   useEffect(() => {

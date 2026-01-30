@@ -34,6 +34,7 @@ export interface Drawing2DState {
     showHiddenLines: boolean;
     showHatching: boolean;
     showAnnotations: boolean;
+    show3DOverlay: boolean;
     scale: number;
   };
 }
@@ -55,6 +56,7 @@ const getDefaultDisplayOptions = (): Drawing2DState['drawing2DDisplayOptions'] =
   showHiddenLines: true,
   showHatching: true,
   showAnnotations: true,
+  show3DOverlay: true, // Show 3D overlay by default
   scale: 100, // 1:100 default
 });
 

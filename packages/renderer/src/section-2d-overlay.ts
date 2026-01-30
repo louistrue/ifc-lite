@@ -217,7 +217,7 @@ export class Section2DOverlayRenderer {
       depthStencil: {
         format: 'depth24plus' as const,
         depthWriteEnabled: false,
-        depthCompare: 'greater-equal' as const,  // Render at same depth or closer (reverse-Z)
+        depthCompare: 'always' as const,  // Always draw - overlay is positioned with fixed offset
       },
       multisample: {
         count: this.sampleCount,
@@ -253,7 +253,7 @@ export class Section2DOverlayRenderer {
       depthStencil: {
         format: 'depth24plus' as const,
         depthWriteEnabled: false,
-        depthCompare: 'greater-equal' as const,  // Render at same depth or closer (reverse-Z)
+        depthCompare: 'always' as const,  // Always draw - overlay is positioned with fixed offset
       },
       multisample: {
         count: this.sampleCount,
@@ -472,9 +472,9 @@ export class Section2DOverlayRenderer {
 
     const { axis, viewProj } = options;
 
-    // Calculate a small offset to render slightly in front of the section plane
-    // This prevents z-fighting with the section plane grid
-    const offsetAmount = 0.001;  // Small offset in world units
+    // Fixed offset to render overlay clearly above the section plane
+    // Use 0.3m offset for clear visibility at any camera angle
+    const offsetAmount = 0.3;  // 0.3m offset in world units
     let offset: [number, number, number] = [0, 0, 0];
 
     switch (axis) {

@@ -339,9 +339,9 @@ export function Section2DPanel() {
   }, [setDrawingPanelVisible]);
 
   // Toggle options
-  const toggleHiddenLines = useCallback(() => {
-    updateDisplayOptions({ showHiddenLines: !displayOptions.showHiddenLines });
-  }, [displayOptions.showHiddenLines, updateDisplayOptions]);
+  const toggle3DOverlay = useCallback(() => {
+    updateDisplayOptions({ show3DOverlay: !displayOptions.show3DOverlay });
+  }, [displayOptions.show3DOverlay, updateDisplayOptions]);
 
   const toggleHatching = useCallback(() => {
     updateDisplayOptions({ showHatching: !displayOptions.showHatching });
@@ -373,12 +373,12 @@ export function Section2DPanel() {
         <div className="flex items-center gap-2">
           {/* Display toggles */}
           <Button
-            variant={displayOptions.showHiddenLines ? 'default' : 'ghost'}
+            variant={displayOptions.show3DOverlay ? 'default' : 'ghost'}
             size="icon-sm"
-            onClick={toggleHiddenLines}
-            title="Toggle hidden lines"
+            onClick={toggle3DOverlay}
+            title="Toggle 3D overlay"
           >
-            {displayOptions.showHiddenLines ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+            {displayOptions.show3DOverlay ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
           </Button>
           <Button
             variant={displayOptions.showHatching ? 'default' : 'ghost'}
