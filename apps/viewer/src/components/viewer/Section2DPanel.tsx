@@ -1982,39 +1982,27 @@ function Drawing2DCanvas({
           const screenLabelFontSize = Math.max(8, mmToScreen(labelFontSizeMm));
           const screenValueFontSize = Math.max(10, mmToScreen(valueFontSizeMm));
 
-          // Calculate effective mm sizes based on what we actually render
-          // This prevents text overlap when minimum font sizes kick in
-          const effectiveLabelMm = screenLabelFontSize / transform.scale;
-          const effectiveValueMm = screenValueFontSize / transform.scale;
-
-          // Calculate vertical positions ensuring no overlap
-          // Leave 0.5mm padding at top, then label, then 0.5mm gap, then value
+          // Label at top of cell (use mm position, render at screen font size)
           const labelTopMm = rowY + 0.5;
-          const valueTopMm = labelTopMm + effectiveLabelMm + 0.5;
+          ctx.font = `${screenLabelFontSize}px Arial, sans-serif`;
+          ctx.fillStyle = '#666666';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+          ctx.fillText(
+            field.label,
+            mmToScreenX(fieldX),
+            mmToScreenY(labelTopMm)
+          );
 
-          // Only render if there's space in the row
-          const neededHeight = 0.5 + effectiveLabelMm + 0.5 + effectiveValueMm + 0.5;
-          if (neededHeight <= rowH + 1) { // Allow small overflow
-            // Label at top of cell
-            ctx.font = `${screenLabelFontSize}px Arial, sans-serif`;
-            ctx.fillStyle = '#666666';
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'top';
-            ctx.fillText(
-              field.label,
-              mmToScreenX(fieldX),
-              mmToScreenY(labelTopMm)
-            );
-
-            // Value below label
-            ctx.font = `${field.fontWeight === 'bold' ? 'bold ' : ''}${screenValueFontSize}px Arial, sans-serif`;
-            ctx.fillStyle = '#000000';
-            ctx.fillText(
-              field.value,
-              mmToScreenX(fieldX),
-              mmToScreenY(valueTopMm)
-            );
-          }
+          // Value below label (position based on row proportions)
+          const valueTopMm = rowY + rowH * 0.4;
+          ctx.font = `${field.fontWeight === 'bold' ? 'bold ' : ''}${screenValueFontSize}px Arial, sans-serif`;
+          ctx.fillStyle = '#000000';
+          ctx.fillText(
+            field.value,
+            mmToScreenX(fieldX),
+            mmToScreenY(valueTopMm)
+          );
         }
       }
 
@@ -2223,18 +2211,25 @@ function Drawing2DCanvas({
       ctx.restore();
 
       // ─────────────────────────────────────────────────────────────────────
-      // 6. Draw scale bar inside title block (if visible)
+      // 6. Draw scale bar inside title block (if visible and space available)
       // ─────────────────────────────────────────────────────────────────────
-      if (scaleBar.visible) {
-        // Position scale bar in bottom-left of title block
-        const sbX = tbX + 3;
-        const sbY = tbY + tbH - 12; // 12mm from bottom of title block
+      // Calculate space in title block for scale bar and north arrow
+      // Use the logo space area if no logo, otherwise use bottom of title block
+      const hasLogo = titleBlock.logo != null;
+      const scaleBarAreaX = tbX + 3;
+      const scaleBarAreaW = hasLogo ? 45 : tbW * 0.35; // Use logo area if no logo
+      const scaleBarAreaY = hasLogo ? tbY + tbH - 18 : tbY + tbH * 0.6; // Bottom area
+      const scaleBarAreaH = hasLogo ? 15 : tbH * 0.35;
+
+      if (scaleBar.visible && scaleBarAreaH > 8) { // Only draw if enough space
+        const sbX = scaleBarAreaX;
+        const sbY = scaleBarAreaY;
         // Calculate length in mm: totalLengthM (meters) * 1000 / scale factor
         const sbLengthMm = Math.min(
           (scaleBar.totalLengthM * 1000) / activeSheet.scale.factor,
-          tbW * 0.4 // Max 40% of title block width
+          scaleBarAreaW - 2
         );
-        const sbHeight = scaleBar.heightMm;
+        const sbHeight = Math.min(scaleBar.heightMm, scaleBarAreaH * 0.4);
         const actualTotalLength = (sbLengthMm * activeSheet.scale.factor) / 1000; // Back to meters
 
         // Scale bar divisions
@@ -2261,44 +2256,38 @@ function Drawing2DCanvas({
           mmToScreen(sbHeight)
         );
 
-        // Distance labels at each division (real-world values for calibration)
-        const labelFontSize = Math.max(8, mmToScreen(2));
+        // Distance labels - only at 0 and end to avoid overlap
+        const labelFontSize = Math.max(7, mmToScreen(1.8));
         ctx.font = `${labelFontSize}px Arial, sans-serif`;
         ctx.fillStyle = '#000000';
         ctx.textBaseline = 'top';
-        const labelY = sbY + sbHeight + 0.5;
+        const labelY = sbY + sbHeight + 0.3;
 
-        for (let i = 0; i <= divisions; i++) {
-          const labelX = sbX + i * divWidth;
-          const distance = i * divLengthM;
+        // Start label (0)
+        ctx.textAlign = 'left';
+        ctx.fillText('0', mmToScreenX(sbX), mmToScreenY(labelY));
 
-          // Format distance label
-          let label: string;
-          if (distance === 0) {
-            label = '0';
-          } else if (distance < 1) {
-            label = `${(distance * 100).toFixed(0)}cm`;
-          } else if (distance === Math.floor(distance)) {
-            label = `${distance.toFixed(0)}m`;
-          } else {
-            label = `${distance.toFixed(1)}m`;
-          }
-
-          // Align: start for first, end for last, center for middle
-          ctx.textAlign = i === 0 ? 'left' : i === divisions ? 'right' : 'center';
-          ctx.fillText(label, mmToScreenX(labelX), mmToScreenY(labelY));
-        }
+        // End label (total length)
+        ctx.textAlign = 'right';
+        const endLabel = actualTotalLength < 1
+          ? `${(actualTotalLength * 100).toFixed(0)}cm`
+          : `${actualTotalLength.toFixed(0)}m`;
+        ctx.fillText(endLabel, mmToScreenX(sbX + sbLengthMm), mmToScreenY(labelY));
       }
 
       // ─────────────────────────────────────────────────────────────────────
-      // 7. Draw north arrow inside title block (if not 'none')
+      // 7. Draw north arrow inside title block (if not 'none' and space available)
       // ─────────────────────────────────────────────────────────────────────
-      if (northArrow.style !== 'none') {
-        // Position in title block - right of logo area if logo exists, otherwise in bottom-left area
-        const hasLogo = titleBlock.logo != null;
-        const naX = hasLogo ? tbX + 35 : tbX + tbW * 0.5;
-        const naY = tbY + tbH - 25; // 25mm from bottom of title block
-        const naSize = Math.min(northArrow.sizeMm, 12); // Limit size for title block
+      if (northArrow.style !== 'none' && tbH > 15) {
+        // Position north arrow: centered in title block for full-width layouts,
+        // or in the logo area for bottom-right layouts
+        const naX = titleBlock.position === 'bottom-full'
+          ? tbX + tbW * 0.5  // Center for full-width
+          : tbX + (hasLogo ? 35 : 25); // Left area for bottom-right
+        const naY = titleBlock.position === 'bottom-full'
+          ? tbY + tbH * 0.5  // Vertically centered
+          : tbY + tbH - Math.min(15, tbH * 0.6);
+        const naSize = Math.min(northArrow.sizeMm, 10, tbH * 0.4); // Limit to title block size
 
         ctx.save();
         ctx.translate(mmToScreenX(naX), mmToScreenY(naY));
@@ -2316,11 +2305,11 @@ function Drawing2DCanvas({
         ctx.fill();
 
         // Draw "N" label
-        const nFontSize = Math.max(10, mmToScreen(3));
+        const nFontSize = Math.max(8, mmToScreen(2.5));
         ctx.font = `bold ${nFontSize}px Arial, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
-        ctx.fillText('N', 0, -arrowLen / 2 - 2);
+        ctx.fillText('N', 0, -arrowLen / 2 - 1);
 
         ctx.restore();
       }

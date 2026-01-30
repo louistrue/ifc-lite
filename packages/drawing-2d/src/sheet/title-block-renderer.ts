@@ -12,7 +12,7 @@
  * - Revision history table
  */
 
-import type { TitleBlockConfig, RevisionEntry } from './title-block-types';
+import type { TitleBlockConfig, RevisionEntry, TitleBlockPosition } from './title-block-types';
 import type { ScaleBarConfig, NorthArrowConfig } from './scale-bar-types';
 import type { DrawingScale } from '../styles';
 
@@ -100,13 +100,13 @@ export function renderTitleBlock(
   }
 
   // Scale bar (in title block, bottom-left area)
-  if (extras?.scaleBar?.visible && extras?.scale) {
-    svg += renderScaleBarInTitleBlock(extras.scaleBar, extras.scale, x, y, w, h);
+  if (extras?.scaleBar?.visible && extras?.scale && h > 10) {
+    svg += renderScaleBarInTitleBlock(extras.scaleBar, extras.scale, x, y, w, h, config.logo != null);
   }
 
   // North arrow (in title block, next to scale bar or logo area)
-  if (extras?.northArrow && extras.northArrow.style !== 'none') {
-    svg += renderNorthArrowInTitleBlock(extras.northArrow, x, y, w, h, config.logo != null);
+  if (extras?.northArrow && extras.northArrow.style !== 'none' && h > 15) {
+    svg += renderNorthArrowInTitleBlock(extras.northArrow, x, y, w, h, config.logo != null, config.position);
   }
 
   // Revision history
@@ -379,31 +379,30 @@ function renderScaleBarInTitleBlock(
   x: number,
   y: number,
   w: number,
-  h: number
+  h: number,
+  hasLogo: boolean
 ): string {
   let svg = '    <g id="title-block-scale-bar">\n';
 
-  // Position scale bar in bottom-left of title block
+  // Calculate space in title block for scale bar
+  // Use the logo space area if no logo, otherwise use bottom of title block
+  const scaleBarAreaW = hasLogo ? 45 : w * 0.35;
+  const scaleBarAreaY = hasLogo ? y + h - 18 : y + h * 0.6;
+  const scaleBarAreaH = hasLogo ? 15 : h * 0.35;
+
   const barX = x + 3;
-  const barY = y + h - 12; // 12mm from bottom
-  const barHeight = scaleBar.heightMm;
+  const barY = scaleBarAreaY;
+  const barHeight = Math.min(scaleBar.heightMm, scaleBarAreaH * 0.4);
 
   // Calculate bar length in mm on paper
-  // totalLengthM is in meters, scale.factor is like 100 for 1:100
-  // At 1:100, 1m = 10mm on paper
   const barLengthMm = (scaleBar.totalLengthM * 1000) / scale.factor;
+  const actualBarLength = Math.min(barLengthMm, scaleBarAreaW - 2);
+  const actualTotalLength = (actualBarLength * scale.factor) / 1000;
 
-  // Limit bar width to fit in title block (leave space for north arrow)
-  const maxBarWidth = w * 0.4; // Use 40% of title block width max
-  const actualBarLength = Math.min(barLengthMm, maxBarWidth);
-  const actualTotalLength = (actualBarLength * scale.factor) / 1000; // Back to meters
-
-  // Draw alternating bar segments with distance labels
+  // Draw alternating bar segments
   const divisions = scaleBar.primaryDivisions;
   const divWidth = actualBarLength / divisions;
-  const divLengthM = actualTotalLength / divisions;
 
-  // Draw bar segments
   for (let i = 0; i < divisions; i++) {
     const segX = barX + i * divWidth;
     const fill = i % 2 === 0 ? scaleBar.fillColor : '#ffffff';
@@ -412,32 +411,22 @@ function renderScaleBarInTitleBlock(
     svg += `fill="${fill}" stroke="${scaleBar.strokeColor}" stroke-width="${scaleBar.lineWeight}"/>\n`;
   }
 
-  // Draw distance labels at each division
-  const fontSize = 2;
-  const labelY = barY + barHeight + fontSize + 0.5;
+  // Draw distance labels - only at 0 and end to avoid overlap
+  const fontSize = 1.8;
+  const labelY = barY + barHeight + fontSize + 0.3;
 
-  for (let i = 0; i <= divisions; i++) {
-    const labelX = barX + i * divWidth;
-    const distance = i * divLengthM;
+  // Start label (0)
+  svg += `      <text x="${barX.toFixed(2)}" y="${labelY.toFixed(2)}" `;
+  svg += `font-family="Arial, sans-serif" font-size="${fontSize}" `;
+  svg += `text-anchor="start" fill="#000000">0</text>\n`;
 
-    // Format distance label
-    let label: string;
-    if (distance === 0) {
-      label = '0';
-    } else if (distance < 1) {
-      label = `${(distance * 100).toFixed(0)}cm`;
-    } else if (distance === Math.floor(distance)) {
-      label = `${distance.toFixed(0)}m`;
-    } else {
-      label = `${distance.toFixed(1)}m`;
-    }
-
-    // Center label under tick (except first and last)
-    const anchor = i === 0 ? 'start' : i === divisions ? 'end' : 'middle';
-    svg += `      <text x="${labelX.toFixed(2)}" y="${labelY.toFixed(2)}" `;
-    svg += `font-family="Arial, sans-serif" font-size="${fontSize}" `;
-    svg += `text-anchor="${anchor}" fill="#000000">${label}</text>\n`;
-  }
+  // End label (total length)
+  const endLabel = actualTotalLength < 1
+    ? `${(actualTotalLength * 100).toFixed(0)}cm`
+    : `${actualTotalLength.toFixed(0)}m`;
+  svg += `      <text x="${(barX + actualBarLength).toFixed(2)}" y="${labelY.toFixed(2)}" `;
+  svg += `font-family="Arial, sans-serif" font-size="${fontSize}" `;
+  svg += `text-anchor="end" fill="#000000">${endLabel}</text>\n`;
 
   svg += '    </g>\n';
   return svg;
@@ -452,15 +441,25 @@ function renderNorthArrowInTitleBlock(
   y: number,
   w: number,
   h: number,
-  hasLogo: boolean
+  hasLogo: boolean,
+  position: TitleBlockPosition
 ): string {
   let svg = '    <g id="title-block-north-arrow">\n';
 
-  // Position north arrow - if logo exists, put it to the right of logo area
-  // Otherwise put it in bottom-left area next to scale bar
-  const arrowX = hasLogo ? x + 35 : x + w * 0.5; // Centered in right portion if no logo
-  const arrowY = y + h - 25; // 25mm from bottom
-  const size = Math.min(northArrow.sizeMm, 12); // Limit size for title block
+  // Position north arrow based on title block layout
+  let arrowX: number;
+  let arrowY: number;
+  if (position === 'bottom-full') {
+    // Center in full-width title block
+    arrowX = x + w * 0.5;
+    arrowY = y + h * 0.5;
+  } else {
+    // In left area for bottom-right layout
+    arrowX = x + (hasLogo ? 35 : 25);
+    arrowY = y + h - Math.min(15, h * 0.6);
+  }
+
+  const size = Math.min(northArrow.sizeMm, 10, h * 0.4);
 
   // Apply rotation transform
   const rotation = northArrow.rotation;
