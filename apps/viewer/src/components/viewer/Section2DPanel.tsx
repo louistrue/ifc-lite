@@ -331,11 +331,20 @@ export function Section2DPanel(): React.ReactElement | null {
   // Convert screen coordinates to drawing coordinates
   const screenToDrawing = useCallback((screenX: number, screenY: number): { x: number; y: number } => {
     // Screen coord → drawing coord
-    // Y is flipped: ctx.scale(transform.scale, -transform.scale)
-    const x = (screenX - viewTransform.x) / viewTransform.scale;
-    const y = -(screenY - viewTransform.y) / viewTransform.scale;
+    // Apply axis-specific inverse transforms (matching canvas rendering)
+    const currentAxis = sectionPlane.axis;
+    const flipY = currentAxis !== 'down'; // Only flip Y for front/side views
+    const flipX = currentAxis === 'side'; // Flip X for side view
+
+    // Inverse of: screenX = drawingX * scaleX + transform.x
+    // where scaleX = flipX ? -scale : scale
+    const scaleX = flipX ? -viewTransform.scale : viewTransform.scale;
+    const scaleY = flipY ? -viewTransform.scale : viewTransform.scale;
+
+    const x = (screenX - viewTransform.x) / scaleX;
+    const y = (screenY - viewTransform.y) / scaleY;
     return { x, y };
-  }, [viewTransform]);
+  }, [viewTransform, sectionPlane.axis]);
 
   // Find nearest point on a line segment
   const nearestPointOnSegment = useCallback((
@@ -2555,14 +2564,16 @@ function Drawing2DCanvas({
       color: string = '#2196F3',
       isActive: boolean = false
     ) => {
-      // Convert drawing coords to screen coords
+      // Convert drawing coords to screen coords with axis-specific transforms
+      const measureScaleX = sectionAxis === 'side' ? -transform.scale : transform.scale;
+      const measureScaleY = sectionAxis === 'down' ? transform.scale : -transform.scale;
       const screenStart = {
-        x: start.x * transform.scale + transform.x,
-        y: -start.y * transform.scale + transform.y,
+        x: start.x * measureScaleX + transform.x,
+        y: start.y * measureScaleY + transform.y,
       };
       const screenEnd = {
-        x: end.x * transform.scale + transform.x,
-        y: -end.y * transform.scale + transform.y,
+        x: end.x * measureScaleX + transform.x,
+        y: end.y * measureScaleY + transform.y,
       };
 
       // Draw line
@@ -2634,9 +2645,12 @@ function Drawing2DCanvas({
 
     // Draw snap indicator
     if (measureMode && measureSnapPoint) {
+      // Use axis-specific transforms (matching canvas rendering)
+      const snapScaleX = sectionAxis === 'side' ? -transform.scale : transform.scale;
+      const snapScaleY = sectionAxis === 'down' ? transform.scale : -transform.scale;
       const screenSnap = {
-        x: measureSnapPoint.x * transform.scale + transform.x,
-        y: -measureSnapPoint.y * transform.scale + transform.y,
+        x: measureSnapPoint.x * snapScaleX + transform.x,
+        y: measureSnapPoint.y * snapScaleY + transform.y,
       };
 
       // Draw snap crosshair
