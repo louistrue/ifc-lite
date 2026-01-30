@@ -960,14 +960,11 @@ export function Section2DPanel(): React.ReactElement | null {
 `;
 
     // Drawing content group (transformed to fit viewport)
-    // Transform: translate to viewport center, scale to fit, flip Y
-    const scaleFactor = drawingTransform.scaleFactor;
-    const centerX = viewport.x + viewport.width / 2;
-    const centerY = viewport.y + viewport.height / 2;
-    const drawingCenterX = (bounds.min.x + bounds.max.x) / 2;
-    const drawingCenterY = (bounds.min.y + bounds.max.y) / 2;
+    // The transform applies scale (with Y flip) then translate
+    // translateX/Y from calculateDrawingTransform already accounts for centering and Y-flip
+    const { translateX, translateY, scaleFactor } = drawingTransform;
 
-    svg += `  <g id="drawing-content" clip-path="url(#viewport-clip)" transform="translate(${centerX}, ${centerY}) scale(${scaleFactor}, ${-scaleFactor}) translate(${-drawingCenterX}, ${-drawingCenterY})">
+    svg += `  <g id="drawing-content" clip-path="url(#viewport-clip)" transform="translate(${translateX.toFixed(4)}, ${translateY.toFixed(4)}) scale(${scaleFactor.toFixed(6)}, ${(-scaleFactor).toFixed(6)})">
 `;
 
     // Helper to escape XML

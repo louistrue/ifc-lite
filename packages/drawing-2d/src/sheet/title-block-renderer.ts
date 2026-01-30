@@ -126,7 +126,7 @@ function renderTitleBlockFields(
   const logoSpace = config.logo ? 50 : 0; // Reserve space for logo
   const revisionSpace = config.showRevisionHistory ? 20 : 0;
   const availableWidth = w - logoSpace - 5; // 5mm padding
-  const availableHeight = h - revisionSpace - 3; // 3mm padding
+  const availableHeight = h - revisionSpace - 4; // padding
 
   // Group fields by row
   const fieldsByRow = new Map<number, typeof config.fields>();
@@ -142,10 +142,11 @@ function renderTitleBlockFields(
   const rowHeight = availableHeight / numRows;
   const colWidth = availableWidth / numCols;
 
-  // Draw grid lines
+  // Grid start position
   const gridStartX = x + logoSpace + 2;
   const gridStartY = y + 2;
 
+  // Draw grid lines
   // Horizontal lines
   for (let i = 1; i < numRows; i++) {
     const lineY = gridStartY + i * rowHeight;
@@ -154,11 +155,18 @@ function renderTitleBlockFields(
     svg += `stroke="#000000" stroke-width="${config.gridWeight}"/>\n`;
   }
 
-  // Vertical line (center divider)
-  const centerX = gridStartX + colWidth;
-  svg += `      <line x1="${centerX.toFixed(2)}" y1="${gridStartY.toFixed(2)}" `;
-  svg += `x2="${centerX.toFixed(2)}" y2="${(gridStartY + availableHeight - 2).toFixed(2)}" `;
-  svg += `stroke="#000000" stroke-width="${config.gridWeight}"/>\n`;
+  // Vertical line (center divider) - only draw through rows that have column splits
+  for (const [row, fields] of fieldsByRow) {
+    const hasMultipleCols = fields.some(f => (f.colSpan ?? 1) < 2);
+    if (hasMultipleCols) {
+      const centerX = gridStartX + colWidth;
+      const lineY1 = gridStartY + row * rowHeight;
+      const lineY2 = gridStartY + (row + 1) * rowHeight;
+      svg += `      <line x1="${centerX.toFixed(2)}" y1="${lineY1.toFixed(2)}" `;
+      svg += `x2="${centerX.toFixed(2)}" y2="${lineY2.toFixed(2)}" `;
+      svg += `stroke="#000000" stroke-width="${config.gridWeight}"/>\n`;
+    }
+  }
 
   // Render each field
   for (const [row, fields] of fieldsByRow) {
@@ -166,20 +174,25 @@ function renderTitleBlockFields(
       const col = field.col ?? 0;
       const colSpan = field.colSpan ?? 1;
 
-      const fieldX = gridStartX + col * colWidth + 2;
-      const fieldY = gridStartY + row * rowHeight + 2;
-      const fieldW = colWidth * colSpan - 4;
+      const fieldX = gridStartX + col * colWidth + 1.5;
+      const fieldY = gridStartY + row * rowHeight;
+      const fieldW = colWidth * colSpan - 3;
 
-      // Label (smaller, above value)
-      const labelY = fieldY + field.fontSize * 0.4;
+      // Calculate vertical positions within the cell
+      const cellPadding = 1;
+      const labelFontSize = Math.min(field.fontSize * 0.5, 2.2);
+      const valueFontSize = field.fontSize;
+
+      // Label at top of cell
+      const labelY = fieldY + cellPadding + labelFontSize;
       svg += `      <text x="${fieldX.toFixed(2)}" y="${labelY.toFixed(2)}" `;
-      svg += `font-family="Arial, sans-serif" font-size="${(field.fontSize * 0.6).toFixed(2)}" `;
+      svg += `font-family="Arial, sans-serif" font-size="${labelFontSize.toFixed(2)}" `;
       svg += `fill="#666666">${escapeXml(field.label)}</text>\n`;
 
-      // Value
-      const valueY = fieldY + rowHeight * 0.65;
+      // Value below label with proper spacing
+      const valueY = fieldY + cellPadding + labelFontSize + 1.5 + valueFontSize * 0.8;
       svg += `      <text x="${fieldX.toFixed(2)}" y="${valueY.toFixed(2)}" `;
-      svg += `font-family="Arial, sans-serif" font-size="${field.fontSize.toFixed(2)}" `;
+      svg += `font-family="Arial, sans-serif" font-size="${valueFontSize.toFixed(2)}" `;
       svg += `font-weight="${field.fontWeight}" fill="#000000">${escapeXml(field.value)}</text>\n`;
     }
   }
