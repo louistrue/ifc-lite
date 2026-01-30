@@ -33,7 +33,7 @@ export interface ActiveMeasurement {
 }
 
 /** Orthogonal constraint axis type */
-export type OrthogonalAxis = 'edge' | 'perpendicular' | 'vertical';
+export type OrthogonalAxis = 'axis1' | 'axis2' | 'axis3';
 
 /** Vec3 type for constraint calculations */
 export interface Vec3 {
@@ -42,22 +42,24 @@ export interface Vec3 {
   z: number;
 }
 
-/** Edge constraint for orthogonal measurements (shift+drag) */
+/** Orthogonal constraint for measurements (shift+drag) */
 export interface MeasurementConstraintEdge {
   /** Three orthogonal axes for constraint snapping */
   axes: {
-    /** Along the edge direction */
-    edge: Vec3;
-    /** Perpendicular to edge in horizontal plane */
-    perpendicular: Vec3;
-    /** Vertical (world Y-up) */
-    vertical: Vec3;
+    axis1: Vec3;
+    axis2: Vec3;
+    axis3: Vec3;
   };
+  /** Axis colors for visualization */
+  colors: {
+    axis1: string;
+    axis2: string;
+    axis3: string;
+  };
+  /** Whether axes are edge-relative (true) or world-aligned (false) */
+  isEdgeRelative: boolean;
   /** Currently active constraint axis (computed from cursor direction) */
   activeAxis: OrthogonalAxis | null;
-  /** Original edge vertices for reference */
-  v0: Vec3;
-  v1: Vec3;
 }
 
 // ============================================================================

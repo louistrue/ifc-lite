@@ -396,102 +396,86 @@ const MeasurementOverlays = React.memo(function MeasurementOverlays({ measuremen
         const startScreen = { x: startWorld.screenX, y: startWorld.screenY };
 
         // Project axis endpoints to screen space
-        // Use a fixed world-space length for consistency
         const axisLength = 2.0; // 2 meters in world space
 
-        const { edge, perpendicular, vertical } = constraintEdge.axes;
+        const { axis1, axis2, axis3 } = constraintEdge.axes;
+        const colors = constraintEdge.colors;
 
-        // Calculate endpoints along each axis
-        const edgeEndWorld = {
-          x: startWorld.x + edge.x * axisLength,
-          y: startWorld.y + edge.y * axisLength,
-          z: startWorld.z + edge.z * axisLength,
-        };
-        const perpEndWorld = {
-          x: startWorld.x + perpendicular.x * axisLength,
-          y: startWorld.y + perpendicular.y * axisLength,
-          z: startWorld.z + perpendicular.z * axisLength,
-        };
-        const vertEndWorld = {
-          x: startWorld.x + vertical.x * axisLength,
-          y: startWorld.y + vertical.y * axisLength,
-          z: startWorld.z + vertical.z * axisLength,
-        };
+        // Calculate endpoints along each axis (positive and negative)
+        const axis1End = projectToScreen({
+          x: startWorld.x + axis1.x * axisLength,
+          y: startWorld.y + axis1.y * axisLength,
+          z: startWorld.z + axis1.z * axisLength,
+        });
+        const axis1Neg = projectToScreen({
+          x: startWorld.x - axis1.x * axisLength,
+          y: startWorld.y - axis1.y * axisLength,
+          z: startWorld.z - axis1.z * axisLength,
+        });
+        const axis2End = projectToScreen({
+          x: startWorld.x + axis2.x * axisLength,
+          y: startWorld.y + axis2.y * axisLength,
+          z: startWorld.z + axis2.z * axisLength,
+        });
+        const axis2Neg = projectToScreen({
+          x: startWorld.x - axis2.x * axisLength,
+          y: startWorld.y - axis2.y * axisLength,
+          z: startWorld.z - axis2.z * axisLength,
+        });
+        const axis3End = projectToScreen({
+          x: startWorld.x + axis3.x * axisLength,
+          y: startWorld.y + axis3.y * axisLength,
+          z: startWorld.z + axis3.z * axisLength,
+        });
+        const axis3Neg = projectToScreen({
+          x: startWorld.x - axis3.x * axisLength,
+          y: startWorld.y - axis3.y * axisLength,
+          z: startWorld.z - axis3.z * axisLength,
+        });
 
-        // Also project negative directions for bidirectional axes
-        const edgeNegWorld = {
-          x: startWorld.x - edge.x * axisLength,
-          y: startWorld.y - edge.y * axisLength,
-          z: startWorld.z - edge.z * axisLength,
-        };
-        const perpNegWorld = {
-          x: startWorld.x - perpendicular.x * axisLength,
-          y: startWorld.y - perpendicular.y * axisLength,
-          z: startWorld.z - perpendicular.z * axisLength,
-        };
-        const vertNegWorld = {
-          x: startWorld.x - vertical.x * axisLength,
-          y: startWorld.y - vertical.y * axisLength,
-          z: startWorld.z - vertical.z * axisLength,
-        };
-
-        const edgeEnd = projectToScreen(edgeEndWorld);
-        const perpEnd = projectToScreen(perpEndWorld);
-        const vertEnd = projectToScreen(vertEndWorld);
-        const edgeNeg = projectToScreen(edgeNegWorld);
-        const perpNeg = projectToScreen(perpNegWorld);
-        const vertNeg = projectToScreen(vertNegWorld);
-
-        if (!edgeEnd || !perpEnd || !vertEnd || !edgeNeg || !perpNeg || !vertNeg) return null;
+        if (!axis1End || !axis1Neg || !axis2End || !axis2Neg || !axis3End || !axis3Neg) return null;
 
         const activeAxis = constraintEdge.activeAxis;
-
-        // Colors: Edge=orange, Perpendicular=cyan, Vertical=lime
-        const axisColors = {
-          edge: '#FF9800',
-          perpendicular: '#00BCD4',
-          vertical: '#8BC34A',
-        };
 
         return (
           <svg
             className="absolute inset-0 pointer-events-none z-25"
             style={{ overflow: 'visible', pointerEvents: 'none' }}
           >
-            {/* Edge axis (orange) */}
+            {/* Axis 1 */}
             <line
-              x1={edgeNeg.x}
-              y1={edgeNeg.y}
-              x2={edgeEnd.x}
-              y2={edgeEnd.y}
-              stroke={axisColors.edge}
-              strokeWidth={activeAxis === 'edge' ? 3 : 1.5}
-              strokeOpacity={activeAxis === 'edge' ? 0.9 : 0.3}
-              strokeDasharray={activeAxis === 'edge' ? 'none' : '4,4'}
+              x1={axis1Neg.x}
+              y1={axis1Neg.y}
+              x2={axis1End.x}
+              y2={axis1End.y}
+              stroke={colors.axis1}
+              strokeWidth={activeAxis === 'axis1' ? 3 : 1.5}
+              strokeOpacity={activeAxis === 'axis1' ? 0.9 : 0.3}
+              strokeDasharray={activeAxis === 'axis1' ? 'none' : '4,4'}
               strokeLinecap="round"
             />
-            {/* Perpendicular axis (cyan) */}
+            {/* Axis 2 */}
             <line
-              x1={perpNeg.x}
-              y1={perpNeg.y}
-              x2={perpEnd.x}
-              y2={perpEnd.y}
-              stroke={axisColors.perpendicular}
-              strokeWidth={activeAxis === 'perpendicular' ? 3 : 1.5}
-              strokeOpacity={activeAxis === 'perpendicular' ? 0.9 : 0.3}
-              strokeDasharray={activeAxis === 'perpendicular' ? 'none' : '4,4'}
+              x1={axis2Neg.x}
+              y1={axis2Neg.y}
+              x2={axis2End.x}
+              y2={axis2End.y}
+              stroke={colors.axis2}
+              strokeWidth={activeAxis === 'axis2' ? 3 : 1.5}
+              strokeOpacity={activeAxis === 'axis2' ? 0.9 : 0.3}
+              strokeDasharray={activeAxis === 'axis2' ? 'none' : '4,4'}
               strokeLinecap="round"
             />
-            {/* Vertical axis (lime) */}
+            {/* Axis 3 */}
             <line
-              x1={vertNeg.x}
-              y1={vertNeg.y}
-              x2={vertEnd.x}
-              y2={vertEnd.y}
-              stroke={axisColors.vertical}
-              strokeWidth={activeAxis === 'vertical' ? 3 : 1.5}
-              strokeOpacity={activeAxis === 'vertical' ? 0.9 : 0.3}
-              strokeDasharray={activeAxis === 'vertical' ? 'none' : '4,4'}
+              x1={axis3Neg.x}
+              y1={axis3Neg.y}
+              x2={axis3End.x}
+              y2={axis3End.y}
+              stroke={colors.axis3}
+              strokeWidth={activeAxis === 'axis3' ? 3 : 1.5}
+              strokeOpacity={activeAxis === 'axis3' ? 0.9 : 0.3}
+              strokeDasharray={activeAxis === 'axis3' ? 'none' : '4,4'}
               strokeLinecap="round"
             />
             {/* Center origin dot */}
@@ -500,7 +484,7 @@ const MeasurementOverlays = React.memo(function MeasurementOverlays({ measuremen
               cy={startScreen.y}
               r="4"
               fill="white"
-              stroke={axisColors[activeAxis]}
+              stroke={colors[activeAxis]}
               strokeWidth="2"
             />
           </svg>

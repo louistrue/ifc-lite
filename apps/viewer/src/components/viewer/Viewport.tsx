@@ -761,11 +761,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
 
                 // Update edge lock state
                 if (result.edgeLock.shouldRelease) {
-                  // Clear stale lock when release is signaled
                   clearEdgeLock();
                   updateSnapVisualization(result.snapTarget || null);
-                  // Clear constraint edge when not on an edge
-                  setMeasurementConstraintEdge(null);
                 } else if (result.edgeLock.shouldLock && result.edgeLock.edge) {
                   setEdgeLock(result.edgeLock.edge, result.edgeLock.meshExpressId, result.edgeLock.edgeT);
                   updateSnapVisualization(result.snapTarget, {
@@ -773,27 +770,30 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
                     isCorner: result.edgeLock.isCorner,
                     cornerValence: result.edgeLock.cornerValence,
                   });
-                  // Save edge for orthogonal constraint (shift+drag)
+                } else {
+                  updateSnapVisualization(result.snapTarget);
+                }
+
+                // Set up orthogonal constraint for shift+drag
+                // Use edge-relative axes if starting from an edge, otherwise world axes
+                if (result.edgeLock.shouldLock && result.edgeLock.edge) {
+                  // Edge-relative axes
                   const edge = result.edgeLock.edge;
                   const dx = edge.v1.x - edge.v0.x;
                   const dy = edge.v1.y - edge.v0.y;
                   const dz = edge.v1.z - edge.v0.z;
                   const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
-                  if (len > 0.0001) {
-                    // Edge direction (normalized)
-                    const edgeDir = { x: dx / len, y: dy / len, z: dz / len };
 
-                    // Vertical axis (world Y-up)
+                  if (len > 0.0001) {
+                    const edgeDir = { x: dx / len, y: dy / len, z: dz / len };
                     const verticalDir = { x: 0, y: 1, z: 0 };
 
-                    // Perpendicular axis: cross product of edge with vertical
-                    // If edge is nearly vertical, use world X instead
+                    // Perpendicular: cross product of edge with vertical
                     let perpX = edgeDir.y * verticalDir.z - edgeDir.z * verticalDir.y;
                     let perpY = edgeDir.z * verticalDir.x - edgeDir.x * verticalDir.z;
                     let perpZ = edgeDir.x * verticalDir.y - edgeDir.y * verticalDir.x;
                     let perpLen = Math.sqrt(perpX * perpX + perpY * perpY + perpZ * perpZ);
 
-                    // If edge is nearly vertical (perpLen close to 0), use world X as reference
                     if (perpLen < 0.1) {
                       const worldX = { x: 1, y: 0, z: 0 };
                       perpX = edgeDir.y * worldX.z - edgeDir.z * worldX.y;
@@ -804,23 +804,55 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
 
                     const perpDir = perpLen > 0.0001
                       ? { x: perpX / perpLen, y: perpY / perpLen, z: perpZ / perpLen }
-                      : { x: 1, y: 0, z: 0 }; // Fallback
+                      : { x: 1, y: 0, z: 0 };
 
                     setMeasurementConstraintEdge({
                       axes: {
-                        edge: edgeDir,
-                        perpendicular: perpDir,
-                        vertical: verticalDir,
+                        axis1: edgeDir,
+                        axis2: perpDir,
+                        axis3: verticalDir,
                       },
+                      colors: {
+                        axis1: '#FF9800',  // Orange - edge direction
+                        axis2: '#00BCD4',  // Cyan - perpendicular
+                        axis3: '#8BC34A',  // Lime - vertical
+                      },
+                      isEdgeRelative: true,
                       activeAxis: null,
-                      v0: edge.v0,
-                      v1: edge.v1,
+                    });
+                  } else {
+                    // Fallback to world axes
+                    setMeasurementConstraintEdge({
+                      axes: {
+                        axis1: { x: 1, y: 0, z: 0 },
+                        axis2: { x: 0, y: 1, z: 0 },
+                        axis3: { x: 0, y: 0, z: 1 },
+                      },
+                      colors: {
+                        axis1: '#F44336',
+                        axis2: '#8BC34A',
+                        axis3: '#2196F3',
+                      },
+                      isEdgeRelative: false,
+                      activeAxis: null,
                     });
                   }
                 } else {
-                  updateSnapVisualization(result.snapTarget);
-                  // Clear constraint edge when not on an edge
-                  setMeasurementConstraintEdge(null);
+                  // World-aligned axes (X, Y, Z) for non-edge starts
+                  setMeasurementConstraintEdge({
+                    axes: {
+                      axis1: { x: 1, y: 0, z: 0 },  // World X
+                      axis2: { x: 0, y: 1, z: 0 },  // World Y (vertical)
+                      axis3: { x: 0, y: 0, z: 1 },  // World Z
+                    },
+                    colors: {
+                      axis1: '#F44336',  // Red - X axis
+                      axis2: '#8BC34A',  // Lime - Y axis (vertical)
+                      axis3: '#2196F3',  // Blue - Z axis
+                    },
+                    isEdgeRelative: false,
+                    activeAxis: null,
+                  });
                 }
               }
             }
@@ -887,7 +919,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
                 let pos = snapPoint ? ('position' in snapPoint ? snapPoint.position : snapPoint.point) : null;
 
                 if (pos) {
-                  // Apply orthogonal constraint if shift is held and we have a constraint edge
+                  // Apply orthogonal constraint if shift is held and we have a constraint
                   if (useOrthogonalConstraint && activeMeasurementRef.current) {
                     const constraint = measurementConstraintEdgeRef.current!;
                     const start = activeMeasurementRef.current.start;
@@ -898,32 +930,32 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
                     const dz = pos.z - start.z;
 
                     // Calculate dot product with each orthogonal axis
-                    const { edge, perpendicular, vertical } = constraint.axes;
-                    const dotEdge = dx * edge.x + dy * edge.y + dz * edge.z;
-                    const dotPerp = dx * perpendicular.x + dy * perpendicular.y + dz * perpendicular.z;
-                    const dotVert = dx * vertical.x + dy * vertical.y + dz * vertical.z;
+                    const { axis1, axis2, axis3 } = constraint.axes;
+                    const dot1 = dx * axis1.x + dy * axis1.y + dz * axis1.z;
+                    const dot2 = dx * axis2.x + dy * axis2.y + dz * axis2.z;
+                    const dot3 = dx * axis3.x + dy * axis3.y + dz * axis3.z;
 
                     // Find the axis with the largest absolute dot product (closest to cursor direction)
-                    const absDotEdge = Math.abs(dotEdge);
-                    const absDotPerp = Math.abs(dotPerp);
-                    const absDotVert = Math.abs(dotVert);
+                    const absDot1 = Math.abs(dot1);
+                    const absDot2 = Math.abs(dot2);
+                    const absDot3 = Math.abs(dot3);
 
-                    let activeAxis: 'edge' | 'perpendicular' | 'vertical';
+                    let activeAxis: 'axis1' | 'axis2' | 'axis3';
                     let chosenDot: number;
                     let chosenDir: { x: number; y: number; z: number };
 
-                    if (absDotEdge >= absDotPerp && absDotEdge >= absDotVert) {
-                      activeAxis = 'edge';
-                      chosenDot = dotEdge;
-                      chosenDir = edge;
-                    } else if (absDotPerp >= absDotVert) {
-                      activeAxis = 'perpendicular';
-                      chosenDot = dotPerp;
-                      chosenDir = perpendicular;
+                    if (absDot1 >= absDot2 && absDot1 >= absDot3) {
+                      activeAxis = 'axis1';
+                      chosenDot = dot1;
+                      chosenDir = axis1;
+                    } else if (absDot2 >= absDot3) {
+                      activeAxis = 'axis2';
+                      chosenDot = dot2;
+                      chosenDir = axis2;
                     } else {
-                      activeAxis = 'vertical';
-                      chosenDot = dotVert;
-                      chosenDir = vertical;
+                      activeAxis = 'axis3';
+                      chosenDot = dot3;
+                      chosenDir = axis3;
                     }
 
                     // Project cursor position onto the chosen axis
