@@ -1023,9 +1023,6 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
     // 2. DRAW HATCHING ON TOP OF FILLS
     // ═══════════════════════════════════════════════════════════════════════
     if (showHatching && hatchingLines.length > 0) {
-      ctx.strokeStyle = '#444444';
-      ctx.lineWidth = 0.1 / transform.scale;
-
       // Use drawing bounds to filter out invalid hatching lines
       const { bounds } = drawing;
       const margin = Math.max(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y) * 0.5;
@@ -1034,6 +1031,8 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
       const minY = bounds.min.y - margin;
       const maxY = bounds.max.y + margin;
 
+      // Group hatching lines by entity for efficient style lookup
+      const linesByEntity = new Map<number, DrawingLine[]>();
       for (const line of hatchingLines) {
         // Skip lines with invalid coordinates (NaN, Infinity, or far outside bounds)
         const { start, end } = line.line;
@@ -1045,10 +1044,38 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
           continue;
         }
 
-        ctx.beginPath();
-        ctx.moveTo(start.x, start.y);
-        ctx.lineTo(end.x, end.y);
-        ctx.stroke();
+        const existing = linesByEntity.get(line.entityId);
+        if (existing) {
+          existing.push(line);
+        } else {
+          linesByEntity.set(line.entityId, [line]);
+        }
+      }
+
+      // Draw each entity's hatching with appropriate color
+      for (const [entityId, lines] of linesByEntity) {
+        // Get hatch color from override engine or use default
+        let hatchColor = '#444444';
+        if (overridesEnabled && lines.length > 0) {
+          const elementData: ElementData = {
+            expressId: entityId,
+            ifcType: lines[0].ifcType,
+          };
+          const result = overrideEngine.applyOverrides(elementData);
+          if (result.style.hatchColor) {
+            hatchColor = result.style.hatchColor;
+          }
+        }
+
+        ctx.strokeStyle = hatchColor;
+        ctx.lineWidth = 0.1 / transform.scale;
+
+        for (const line of lines) {
+          ctx.beginPath();
+          ctx.moveTo(line.line.start.x, line.line.start.y);
+          ctx.lineTo(line.line.end.x, line.line.end.y);
+          ctx.stroke();
+        }
       }
     }
 
