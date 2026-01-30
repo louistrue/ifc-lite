@@ -114,6 +114,7 @@ export function Section2DPanel() {
   const [panelSize, setPanelSize] = useState({ width: 400, height: 300 });
   const [isNarrow, setIsNarrow] = useState(false);  // Track if panel is too narrow for all buttons
   const [isPinned, setIsPinned] = useState(true);  // Default ON: keep position on regenerate
+  const [needsFit, setNeedsFit] = useState(true);  // Force fit on first open and axis change
   const containerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const isPanning = useRef(false);
@@ -330,30 +331,30 @@ export function Section2DPanel() {
     });
   }, [drawing]);
 
-  // Auto-fit to view when drawing becomes ready (unless pinned)
-  useEffect(() => {
-    if (status === 'ready' && drawing && containerRef.current && !isPinned) {
-      // Small delay to ensure canvas is rendered
-      const timeout = setTimeout(() => {
-        fitToView();
-      }, 50);
-      return () => clearTimeout(timeout);
-    }
-  }, [status, drawing, fitToView, isPinned]);
-
-  // Always auto-fit when axis changes (front/side/down) regardless of pin
+  // Set needsFit when axis changes
   useEffect(() => {
     if (sectionPlane.axis !== prevAxisRef.current) {
       prevAxisRef.current = sectionPlane.axis;
-      // Fit to view after axis change and drawing regenerates
-      if (status === 'ready' && drawing && containerRef.current) {
+      setNeedsFit(true);  // Force fit when axis changes
+    }
+  }, [sectionPlane.axis]);
+
+  // Auto-fit when: (1) needsFit is true (first open or axis change), or (2) not pinned after regenerate
+  useEffect(() => {
+    if (status === 'ready' && drawing && containerRef.current) {
+      // Fit if needsFit (first open/axis change) OR if not pinned
+      if (needsFit || !isPinned) {
+        // Small delay to ensure canvas is rendered
         const timeout = setTimeout(() => {
           fitToView();
-        }, 100);
+          if (needsFit) {
+            setNeedsFit(false);  // Clear the flag after fitting
+          }
+        }, 50);
         return () => clearTimeout(timeout);
       }
     }
-  }, [sectionPlane.axis, status, drawing, fitToView]);
+  }, [status, drawing, fitToView, isPinned, needsFit]);
 
   // Export SVG
   const handleExportSVG = useCallback(() => {
