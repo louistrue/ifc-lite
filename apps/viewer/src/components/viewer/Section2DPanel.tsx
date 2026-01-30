@@ -633,16 +633,28 @@ export function Section2DPanel(): React.ReactElement | null {
     // No artificial cap - let it zoom to fit the content
     const scale = Math.min(scaleX, scaleY);
 
-    // Center the drawing in the view
+    // Center the drawing in the view with axis-specific transforms
+    // Must match the canvas rendering transforms:
+    // - 'down' (plan view): no Y flip
+    // - 'front'/'side': Y flip
+    // - 'side': X flip
+    const currentAxis = sectionPlane.axis;
+    const flipY = currentAxis !== 'down';
+    const flipX = currentAxis === 'side';
+
     const centerX = (bounds.min.x + bounds.max.x) / 2;
     const centerY = (bounds.min.y + bounds.max.y) / 2;
 
+    // Apply transforms matching canvas rendering
+    const adjustedCenterX = flipX ? -centerX : centerX;
+    const adjustedCenterY = flipY ? -centerY : centerY;
+
     setViewTransform({
       scale,
-      x: rect.width / 2 - centerX * scale,
-      y: rect.height / 2 + centerY * scale, // Flip Y
+      x: rect.width / 2 - adjustedCenterX * scale,
+      y: rect.height / 2 - adjustedCenterY * scale,
     });
-  }, [drawing, sheetEnabled, activeSheet]);
+  }, [drawing, sheetEnabled, activeSheet, sectionPlane.axis]);
 
   // Track axis changes for forced fit-to-view
   const lastFitAxisRef = useRef(sectionPlane.axis);
