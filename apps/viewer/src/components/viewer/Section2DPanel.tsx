@@ -335,46 +335,106 @@ export function Section2DPanel() {
     return { x, y };
   }, [viewTransform]);
 
-  // Find snap point near cursor (check polygon vertices and line endpoints)
+  // Find nearest point on a line segment
+  const nearestPointOnSegment = useCallback((
+    p: { x: number; y: number },
+    a: { x: number; y: number },
+    b: { x: number; y: number }
+  ): { point: { x: number; y: number }; dist: number } => {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const lenSq = dx * dx + dy * dy;
+
+    if (lenSq < 0.0001) {
+      // Degenerate segment
+      const d = Math.sqrt((p.x - a.x) ** 2 + (p.y - a.y) ** 2);
+      return { point: a, dist: d };
+    }
+
+    // Parameter t along segment [0,1]
+    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
+    t = Math.max(0, Math.min(1, t));
+
+    const nearest = { x: a.x + t * dx, y: a.y + t * dy };
+    const dist = Math.sqrt((p.x - nearest.x) ** 2 + (p.y - nearest.y) ** 2);
+
+    return { point: nearest, dist };
+  }, []);
+
+  // Find snap point near cursor (check polygon vertices, edges, and line endpoints)
   const findSnapPoint = useCallback((drawingCoord: { x: number; y: number }): { x: number; y: number } | null => {
     if (!drawing) return null;
 
     const snapThreshold = 10 / viewTransform.scale; // 10 screen pixels
+    let bestSnap: { x: number; y: number } | null = null;
+    let bestDist = snapThreshold;
 
-    // Check polygon vertices
+    // Priority 1: Check polygon vertices (endpoints are highest priority)
     for (const polygon of drawing.cutPolygons) {
       for (const pt of polygon.polygon.outer) {
-        const dx = pt.x - drawingCoord.x;
-        const dy = pt.y - drawingCoord.y;
-        if (Math.sqrt(dx * dx + dy * dy) < snapThreshold) {
-          return { x: pt.x, y: pt.y };
+        const dist = Math.sqrt((pt.x - drawingCoord.x) ** 2 + (pt.y - drawingCoord.y) ** 2);
+        if (dist < bestDist * 0.7) { // Vertices get priority (70% threshold)
+          return { x: pt.x, y: pt.y }; // Return immediately for vertex snaps
         }
       }
       for (const hole of polygon.polygon.holes) {
         for (const pt of hole) {
-          const dx = pt.x - drawingCoord.x;
-          const dy = pt.y - drawingCoord.y;
-          if (Math.sqrt(dx * dx + dy * dy) < snapThreshold) {
+          const dist = Math.sqrt((pt.x - drawingCoord.x) ** 2 + (pt.y - drawingCoord.y) ** 2);
+          if (dist < bestDist * 0.7) {
             return { x: pt.x, y: pt.y };
           }
         }
       }
     }
 
-    // Check line endpoints
+    // Priority 2: Check line endpoints
     for (const line of drawing.lines) {
       const { start, end } = line.line;
       for (const pt of [start, end]) {
-        const dx = pt.x - drawingCoord.x;
-        const dy = pt.y - drawingCoord.y;
-        if (Math.sqrt(dx * dx + dy * dy) < snapThreshold) {
+        const dist = Math.sqrt((pt.x - drawingCoord.x) ** 2 + (pt.y - drawingCoord.y) ** 2);
+        if (dist < bestDist * 0.7) {
           return { x: pt.x, y: pt.y };
         }
       }
     }
 
-    return null;
-  }, [drawing, viewTransform.scale]);
+    // Priority 3: Check polygon edges
+    for (const polygon of drawing.cutPolygons) {
+      const outer = polygon.polygon.outer;
+      for (let i = 0; i < outer.length; i++) {
+        const a = outer[i];
+        const b = outer[(i + 1) % outer.length];
+        const { point, dist } = nearestPointOnSegment(drawingCoord, a, b);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestSnap = point;
+        }
+      }
+      for (const hole of polygon.polygon.holes) {
+        for (let i = 0; i < hole.length; i++) {
+          const a = hole[i];
+          const b = hole[(i + 1) % hole.length];
+          const { point, dist } = nearestPointOnSegment(drawingCoord, a, b);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestSnap = point;
+          }
+        }
+      }
+    }
+
+    // Priority 4: Check drawing lines
+    for (const line of drawing.lines) {
+      const { start, end } = line.line;
+      const { point, dist } = nearestPointOnSegment(drawingCoord, start, end);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestSnap = point;
+      }
+    }
+
+    return bestSnap;
+  }, [drawing, viewTransform.scale, nearestPointOnSegment]);
 
   // Apply orthogonal constraint if shift is held
   const applyOrthogonalConstraint = useCallback((start: { x: number; y: number }, current: { x: number; y: number }, lockedAxis: 'x' | 'y' | null): { x: number; y: number } => {
