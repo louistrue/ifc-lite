@@ -109,7 +109,7 @@ export function Section2DPanel() {
   const panelRef = useRef<HTMLDivElement>(null);
   const isPanning = useRef(false);
   const lastPanPoint = useRef({ x: 0, y: 0 });
-  const isResizing = useRef<'right' | 'bottom' | 'corner' | null>(null);
+  const isResizing = useRef<'right' | 'top' | 'corner' | null>(null);
   const resizeStartPos = useRef({ x: 0, y: 0, width: 0, height: 0 });
 
   // Store hatching lines separately
@@ -356,7 +356,7 @@ export function Section2DPanel() {
   }, []);
 
   // Resize handlers
-  const handleResizeStart = useCallback((edge: 'right' | 'bottom' | 'corner') => (e: React.MouseEvent) => {
+  const handleResizeStart = useCallback((edge: 'right' | 'top' | 'corner') => (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     isResizing.current = edge;
@@ -380,8 +380,9 @@ export function Section2DPanel() {
         if (isResizing.current === 'right' || isResizing.current === 'corner') {
           newWidth = Math.max(300, Math.min(1200, resizeStartPos.current.width + dx));
         }
-        if (isResizing.current === 'bottom' || isResizing.current === 'corner') {
-          newHeight = Math.max(200, Math.min(800, resizeStartPos.current.height + dy));
+        // Top resize: dragging up (negative dy) increases height
+        if (isResizing.current === 'top' || isResizing.current === 'corner') {
+          newHeight = Math.max(200, Math.min(800, resizeStartPos.current.height - dy));
         }
 
         return { width: newWidth, height: newHeight };
@@ -634,17 +635,17 @@ export function Section2DPanel() {
             className="absolute top-0 right-0 w-2 h-full cursor-ew-resize hover:bg-primary/20 transition-colors"
             onMouseDown={handleResizeStart('right')}
           />
-          {/* Bottom edge */}
+          {/* Top edge */}
           <div
-            className="absolute bottom-0 left-0 w-full h-2 cursor-ns-resize hover:bg-primary/20 transition-colors"
-            onMouseDown={handleResizeStart('bottom')}
+            className="absolute top-0 left-0 w-full h-2 cursor-ns-resize hover:bg-primary/20 transition-colors"
+            onMouseDown={handleResizeStart('top')}
           />
-          {/* Corner */}
+          {/* Top-right corner */}
           <div
-            className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize flex items-center justify-center hover:bg-primary/20 transition-colors"
+            className="absolute top-0 right-0 w-4 h-4 cursor-nesw-resize flex items-center justify-center hover:bg-primary/20 transition-colors"
             onMouseDown={handleResizeStart('corner')}
           >
-            <GripVertical className="h-3 w-3 text-muted-foreground rotate-[-45deg]" />
+            <GripVertical className="h-3 w-3 text-muted-foreground rotate-[45deg]" />
           </div>
         </>
       )}
