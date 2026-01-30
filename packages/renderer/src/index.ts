@@ -1654,24 +1654,24 @@ export class Renderer {
     /**
      * Upload 2D section drawing data for 3D overlay rendering
      * Call this when a 2D drawing is generated to display it on the section plane
+     * IMPORTANT: Always uses this.modelBounds to match section plane renderer position
      */
     uploadSection2DOverlay(
         polygons: CutPolygon2D[],
         lines: DrawingLine2D[],
         axis: 'down' | 'front' | 'side',
         position: number,  // 0-100 percentage
-        bounds?: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } },
+        _bounds?: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } },
         flipped: boolean = false
     ): void {
         if (!this.section2DOverlayRenderer) return;
 
-        // Calculate plane position in world coordinates
-        const effectiveBounds = bounds || this.modelBounds;
-        if (!effectiveBounds) return;
+        // MUST use modelBounds to match section plane renderer (not passed bounds which may be different)
+        if (!this.modelBounds) return;
 
         const axisIdx = axis === 'side' ? 'x' : axis === 'down' ? 'y' : 'z';
-        const minVal = effectiveBounds.min[axisIdx];
-        const maxVal = effectiveBounds.max[axisIdx];
+        const minVal = this.modelBounds.min[axisIdx];
+        const maxVal = this.modelBounds.max[axisIdx];
         const planePosition = minVal + (position / 100) * (maxVal - minVal);
 
         this.section2DOverlayRenderer.uploadDrawing(polygons, lines, axis, planePosition, flipped);
