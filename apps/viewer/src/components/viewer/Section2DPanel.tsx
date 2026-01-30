@@ -29,10 +29,15 @@ import {
   Drawing2DGenerator,
   exportToSVG,
   createSectionConfig,
+  GraphicOverrideEngine,
   type Drawing2D,
   type SectionConfig,
   type DrawingLine,
+  type DrawingPolygon,
+  type ElementData,
+  type ResolvedGraphicStyle,
 } from '@ifc-lite/drawing-2d';
+import { DrawingSettingsPanel } from './DrawingSettingsPanel';
 
 // Axis conversion from semantic (down/front/side) to geometric (x/y/z)
 const AXIS_MAP: Record<'down' | 'front' | 'side', 'x' | 'y' | 'z'> = {
@@ -103,6 +108,11 @@ export function Section2DPanel() {
   const setActivePreset = useViewerStore((s) => s.setActivePreset);
   const overridesEnabled = useViewerStore((s) => s.overridesEnabled);
   const toggleOverridesEnabled = useViewerStore((s) => s.toggleOverridesEnabled);
+  const getActiveOverrideRules = useViewerStore((s) => s.getActiveOverrideRules);
+  const customOverrideRules = useViewerStore((s) => s.customOverrideRules);
+
+  // Settings panel visibility
+  const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
 
   const sectionPlane = useViewerStore((s) => s.sectionPlane);
   const activeTool = useViewerStore((s) => s.activeTool);
@@ -142,6 +152,12 @@ export function Section2DPanel() {
 
   // Store hatching lines separately
   const [hatchingLines, setHatchingLines] = useState<DrawingLine[]>([]);
+
+  // Create graphic override engine with active rules
+  const overrideEngine = useMemo(() => {
+    const rules = getActiveOverrideRules();
+    return new GraphicOverrideEngine(rules);
+  }, [getActiveOverrideRules, activePresetId, customOverrideRules, overridesEnabled]);
 
   // Track if this is a regeneration (vs initial generation)
   const isRegeneratingRef = useRef(false);
@@ -601,53 +617,19 @@ export function Section2DPanel() {
                 <Grid3x3 className="h-4 w-4" />
               </Button>
 
-              {/* Graphic Override Presets */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant={activePresetId ? 'default' : 'ghost'}
-                    size="icon-sm"
-                    title="Graphic overrides"
-                    className="relative"
-                  >
-                    <Palette className="h-4 w-4" />
-                    {activePresetId && (
-                      <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-primary rounded-full" />
-                    )}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-56">
-                  <DropdownMenuLabel className="flex items-center justify-between">
-                    <span>Graphic Styles</span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 px-2 text-xs"
-                      onClick={toggleOverridesEnabled}
-                    >
-                      {overridesEnabled ? 'Enabled' : 'Disabled'}
-                    </Button>
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuCheckboxItem
-                    checked={activePresetId === null}
-                    onCheckedChange={() => setActivePreset(null)}
-                  >
-                    <span className="mr-2">📐</span> Default (IFC Types)
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuSeparator />
-                  {graphicOverridePresets.map((preset) => (
-                    <DropdownMenuCheckboxItem
-                      key={preset.id}
-                      checked={activePresetId === preset.id}
-                      onCheckedChange={() => setActivePreset(preset.id)}
-                    >
-                      <span className="mr-2">{preset.icon}</span>
-                      {preset.name}
-                    </DropdownMenuCheckboxItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {/* Graphic Override Settings */}
+              <Button
+                variant={settingsPanelOpen || activePresetId ? 'default' : 'ghost'}
+                size="icon-sm"
+                onClick={() => setSettingsPanelOpen((prev) => !prev)}
+                title="Drawing settings"
+                className="relative"
+              >
+                <Palette className="h-4 w-4" />
+                {activePresetId && !settingsPanelOpen && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-primary rounded-full" />
+                )}
+              </Button>
 
               <div className="w-px h-4 bg-border mx-1" />
 
@@ -739,22 +721,10 @@ export function Section2DPanel() {
                     Hatching {displayOptions.showHatching ? 'On' : 'Off'}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuLabel className="text-xs">Graphic Styles</DropdownMenuLabel>
-                  <DropdownMenuCheckboxItem
-                    checked={activePresetId === null}
-                    onCheckedChange={() => setActivePreset(null)}
-                  >
-                    <span className="mr-1">📐</span> Default
-                  </DropdownMenuCheckboxItem>
-                  {graphicOverridePresets.slice(0, 4).map((preset) => (
-                    <DropdownMenuCheckboxItem
-                      key={preset.id}
-                      checked={activePresetId === preset.id}
-                      onCheckedChange={() => setActivePreset(preset.id)}
-                    >
-                      <span className="mr-1">{preset.icon}</span> {preset.name}
-                    </DropdownMenuCheckboxItem>
-                  ))}
+                  <DropdownMenuItem onClick={() => setSettingsPanelOpen(true)}>
+                    <Palette className="h-4 w-4 mr-2" />
+                    Drawing Settings...
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={zoomIn}>
                     <ZoomIn className="h-4 w-4 mr-2" />
@@ -844,6 +814,8 @@ export function Section2DPanel() {
               transform={viewTransform}
               showHiddenLines={displayOptions.showHiddenLines}
               showHatching={displayOptions.showHatching}
+              overrideEngine={overrideEngine}
+              overridesEnabled={overridesEnabled}
             />
             {/* Subtle updating indicator - shows while regenerating without hiding the drawing */}
             {isRegenerating && (
@@ -898,6 +870,13 @@ export function Section2DPanel() {
           </div>
         </>
       )}
+
+      {/* Settings Panel - slides in from right */}
+      {settingsPanelOpen && (
+        <div className="absolute top-0 right-0 bottom-0 w-72 z-50 shadow-xl">
+          <DrawingSettingsPanel onClose={() => setSettingsPanelOpen(false)} />
+        </div>
+      )}
     </div>
   );
 }
@@ -915,9 +894,11 @@ interface Drawing2DCanvasProps {
   transform: { x: number; y: number; scale: number };
   showHiddenLines: boolean;
   showHatching: boolean;
+  overrideEngine: GraphicOverrideEngine;
+  overridesEnabled: boolean;
 }
 
-function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, showHatching }: Drawing2DCanvasProps) {
+function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, showHatching, overrideEngine, overridesEnabled }: Drawing2DCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
 
@@ -966,12 +947,26 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
     ctx.scale(transform.scale, -transform.scale); // Flip Y for CAD coordinates
 
     // ═══════════════════════════════════════════════════════════════════════
-    // 1. FILL CUT POLYGONS (with solid color based on IFC type)
+    // 1. FILL CUT POLYGONS (with color from override engine or IFC type fallback)
     // ═══════════════════════════════════════════════════════════════════════
     for (const polygon of drawing.cutPolygons) {
-      // Get fill color based on IFC type
-      const fillColor = getFillColorForType(polygon.ifcType);
+      // Get fill color - use override engine if enabled, fallback to IFC type colors
+      let fillColor = getFillColorForType(polygon.ifcType);
+      let strokeColor = '#000000';
+      let opacity = 1;
 
+      if (overridesEnabled) {
+        const elementData: ElementData = {
+          expressId: polygon.entityId,
+          ifcType: polygon.ifcType,
+        };
+        const result = overrideEngine.applyOverrides(elementData);
+        fillColor = result.style.fillColor;
+        strokeColor = result.style.strokeColor;
+        opacity = result.style.opacity;
+      }
+
+      ctx.globalAlpha = opacity;
       ctx.fillStyle = fillColor;
       ctx.beginPath();
       if (polygon.polygon.outer.length > 0) {
@@ -993,6 +988,7 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
         }
       }
       ctx.fill('evenodd');
+      ctx.globalAlpha = 1;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1029,11 +1025,24 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // 3. STROKE CUT POLYGON OUTLINES (thick black lines)
+    // 3. STROKE CUT POLYGON OUTLINES (with color from override engine)
     // ═══════════════════════════════════════════════════════════════════════
     for (const polygon of drawing.cutPolygons) {
-      ctx.strokeStyle = '#000000';
-      ctx.lineWidth = 0.5 / transform.scale;
+      let strokeColor = '#000000';
+      let lineWeight = 0.5;
+
+      if (overridesEnabled) {
+        const elementData: ElementData = {
+          expressId: polygon.entityId,
+          ifcType: polygon.ifcType,
+        };
+        const result = overrideEngine.applyOverrides(elementData);
+        strokeColor = result.style.strokeColor;
+        lineWeight = result.style.lineWeight;
+      }
+
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = lineWeight / transform.scale;
       ctx.beginPath();
       if (polygon.polygon.outer.length > 0) {
         ctx.moveTo(polygon.polygon.outer[0].x, polygon.polygon.outer[0].y);
@@ -1137,7 +1146,7 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
     }
 
     ctx.restore();
-  }, [drawing, hatchingLines, transform, showHiddenLines, showHatching, canvasSize]);
+  }, [drawing, hatchingLines, transform, showHiddenLines, showHatching, canvasSize, overrideEngine, overridesEnabled]);
 
   return (
     <canvas
