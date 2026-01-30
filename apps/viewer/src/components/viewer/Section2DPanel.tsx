@@ -141,9 +141,9 @@ export function Section2DPanel() {
       config.plane.flipped = sectionPlane.flipped;
 
       const result = await generator.generate(geometryResult.meshes, config, {
-        includeHiddenLines: displayOptions.showHiddenLines,
-        includeProjection: true,
-        includeEdges: true,
+        includeHiddenLines: false,  // Disable - causes internal mesh edges
+        includeProjection: false,   // Disable - causes triangulation lines
+        includeEdges: false,        // Disable - causes triangulation lines
         mergeLines: true,
         onProgress: progressCallback,
       });
