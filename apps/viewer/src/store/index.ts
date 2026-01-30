@@ -154,6 +154,19 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
         show3DOverlay: true,
         scale: 100,
       },
+      // Graphic overrides (keep presets, reset active and custom)
+      activePresetId: 'preset-3d-colors',
+      customOverrideRules: [],
+      overridesEnabled: true,
+      overridesPanelVisible: false,
+      // 2D Measure
+      measure2DMode: false,
+      measure2DStart: null,
+      measure2DCurrent: null,
+      measure2DShiftLocked: false,
+      measure2DLockedAxis: null,
+      measure2DResults: [],
+      measure2DSnapPoint: null,
     });
   },
 }));

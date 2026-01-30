@@ -79,7 +79,7 @@ function getFillColorForType(ifcType: string): string {
   return IFC_TYPE_FILL_COLORS[ifcType] || IFC_TYPE_FILL_COLORS.default;
 }
 
-export function Section2DPanel() {
+export function Section2DPanel(): React.ReactElement | null {
   const panelVisible = useViewerStore((s) => s.drawing2DPanelVisible);
   const setDrawingPanelVisible = useViewerStore((s) => s.setDrawing2DPanelVisible);
   const drawing = useViewerStore((s) => s.drawing2D);
@@ -660,6 +660,11 @@ export function Section2DPanel() {
     const svgWidthMm = (viewWidth * 1000) / scale;
     const svgHeightMm = (viewHeight * 1000) / scale;
 
+    // Convert mm on paper to model units (meters)
+    // At 1:100 scale, 1mm on paper = 0.1m in model space
+    // Formula: modelUnits = paperMm * scale / 1000
+    const mmToModel = (mm: number) => mm * scale / 1000;
+
     // Helper to escape XML
     const escapeXml = (str: string): string => {
       return str
@@ -749,8 +754,8 @@ export function Section2DPanel() {
       }
 
       const pathData = polygonToPath(polygon.polygon);
-      // Line weight in model units (meters), convert to reasonable SVG units
-      const svgLineWeight = lineWeight / 1000; // mm to meters for model space
+      // Convert line weight (mm on paper) to model units
+      const svgLineWeight = mmToModel(lineWeight);
       svg += `    <path d="${pathData}" fill="none" stroke="${strokeColor}" stroke-width="${svgLineWeight.toFixed(4)}" data-entity-id="${polygon.entityId}"/>\n`;
     }
     svg += '  </g>\n';
@@ -822,9 +827,9 @@ export function Section2DPanel() {
         lineWidth *= 0.7;
       }
 
-      // Convert line width from mm to model units (meters)
-      const svgLineWidth = lineWidth / 1000;
-      const dashAttr = dashArray ? ` stroke-dasharray="${dashArray.split(' ').map(d => (parseFloat(d) / 1000).toFixed(4)).join(' ')}"` : '';
+      // Convert line width from mm on paper to model units
+      const svgLineWidth = mmToModel(lineWidth);
+      const dashAttr = dashArray ? ` stroke-dasharray="${dashArray.split(' ').map(d => mmToModel(parseFloat(d)).toFixed(4)).join(' ')}"` : '';
 
       svg += `    <line x1="${start.x.toFixed(4)}" y1="${(-start.y).toFixed(4)}" x2="${end.x.toFixed(4)}" y2="${(-end.y).toFixed(4)}" stroke="${strokeColor}" stroke-width="${svgLineWidth.toFixed(4)}"${dashAttr}/>\n`;
     }
@@ -839,10 +844,10 @@ export function Section2DPanel() {
         const midY = (start.y + end.y) / 2;
         const labelText = formatDistance(distance);
 
-        // Measurement line color
+        // Measurement styling (all in mm on paper, converted to model units)
         const measureColor = '#2196F3';
-        const measureLineWidth = 1.5 / 1000; // 1.5px converted to model units
-        const endpointRadius = 4 / 1000; // 4px converted to model units
+        const measureLineWidth = mmToModel(0.4);  // 0.4mm line on paper
+        const endpointRadius = mmToModel(1.5);    // 1.5mm radius on paper
 
         // Draw line
         svg += `    <line x1="${start.x.toFixed(4)}" y1="${(-start.y).toFixed(4)}" x2="${end.x.toFixed(4)}" y2="${(-end.y).toFixed(4)}" stroke="${measureColor}" stroke-width="${measureLineWidth.toFixed(4)}"/>\n`;
@@ -852,13 +857,14 @@ export function Section2DPanel() {
         svg += `    <circle cx="${end.x.toFixed(4)}" cy="${(-end.y).toFixed(4)}" r="${endpointRadius.toFixed(4)}" fill="${measureColor}"/>\n`;
 
         // Draw label background and text
-        const fontSize = 12 / 1000 / (scale / 100); // Adjust font size for scale
-        const labelPadding = 4 / 1000;
-        const labelWidth = labelText.length * fontSize * 0.6; // Approximate text width
-        const labelHeight = fontSize * 1.5;
+        // Use 3mm text height on paper for readable labels
+        const fontSize = mmToModel(3);
+        const labelWidth = labelText.length * fontSize * 0.6;  // Approximate text width
+        const labelHeight = fontSize * 1.4;
+        const labelStroke = mmToModel(0.2);
 
-        svg += `    <rect x="${(midX - labelWidth / 2).toFixed(4)}" y="${(-midY - labelHeight / 2).toFixed(4)}" width="${labelWidth.toFixed(4)}" height="${labelHeight.toFixed(4)}" fill="rgba(255,255,255,0.9)" stroke="${measureColor}" stroke-width="${(0.5 / 1000).toFixed(4)}"/>\n`;
-        svg += `    <text x="${midX.toFixed(4)}" y="${(-midY).toFixed(4)}" font-family="system-ui, sans-serif" font-size="${fontSize.toFixed(4)}" fill="#000000" text-anchor="middle" dominant-baseline="middle">${escapeXml(labelText)}</text>\n`;
+        svg += `    <rect x="${(midX - labelWidth / 2).toFixed(4)}" y="${(-midY - labelHeight / 2).toFixed(4)}" width="${labelWidth.toFixed(4)}" height="${labelHeight.toFixed(4)}" fill="rgba(255,255,255,0.95)" stroke="${measureColor}" stroke-width="${labelStroke.toFixed(4)}"/>\n`;
+        svg += `    <text x="${midX.toFixed(4)}" y="${(-midY).toFixed(4)}" font-family="Arial, sans-serif" font-size="${fontSize.toFixed(4)}" fill="#000000" text-anchor="middle" dominant-baseline="middle" font-weight="500">${escapeXml(labelText)}</text>\n`;
       }
       svg += '  </g>\n';
     }
@@ -1400,7 +1406,7 @@ function Drawing2DCanvas({
   measureCurrent = null,
   measureResults = [],
   measureSnapPoint = null,
-}: Drawing2DCanvasProps) {
+}: Drawing2DCanvasProps): React.ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
 
