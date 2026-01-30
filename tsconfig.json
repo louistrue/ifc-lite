@@ -58,6 +58,18 @@
       ],
       "@ifc-lite/mutations/*": [
         "packages/mutations/dist/*"
+      ],
+      "@ifc-lite/parser": [
+        "packages/parser/dist/index.d.ts"
+      ],
+      "@ifc-lite/parser/*": [
+        "packages/parser/dist/*"
+      ],
+      "@ifc-lite/geometry-edit": [
+        "packages/geometry-edit/dist/index.d.ts"
+      ],
+      "@ifc-lite/geometry-edit/*": [
+        "packages/geometry-edit/dist/*"
       ]
     }
   },

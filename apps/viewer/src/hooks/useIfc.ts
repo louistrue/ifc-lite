@@ -1486,6 +1486,27 @@ export function useIfc() {
     return fromGlobalId(globalId);
   }, [fromGlobalId]);
 
+  /**
+   * Get mesh data for a specific entity by globalId
+   * Used for geometry editing to get the current mesh data
+   */
+  const getMeshForEntity = useCallback((globalId: number): MeshData | null => {
+    // Search in all models
+    for (const model of models.values()) {
+      if (!model.geometryResult?.meshes) continue;
+      const mesh = model.geometryResult.meshes.find(m => m.expressId === globalId);
+      if (mesh) return mesh;
+    }
+
+    // Fallback to legacy geometry result
+    if (geometryResult?.meshes) {
+      const mesh = geometryResult.meshes.find(m => m.expressId === globalId);
+      if (mesh) return mesh;
+    }
+
+    return null;
+  }, [models, geometryResult]);
+
   return {
     // Legacy single-model API (backward compatibility)
     loading,
@@ -1520,5 +1541,8 @@ export function useIfc() {
     findModelForEntity,  // Find model by globalId
     resolveGlobalId,     // Convert globalId -> (modelId, originalExpressId)
     toGlobalId,          // Convert (modelId, expressId) -> globalId
+
+    // Geometry editing helpers
+    getMeshForEntity,    // Get mesh data for a specific entity
   };
 }

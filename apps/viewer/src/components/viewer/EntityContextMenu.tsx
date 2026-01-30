@@ -15,9 +15,11 @@ import {
   Copy,
   Maximize2,
   Building2,
+  Pencil,
 } from 'lucide-react';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
+import { useGeometryEdit } from '@/hooks/useGeometryEdit';
 
 export function EntityContextMenu() {
   const contextMenu = useViewerStore((s) => s.contextMenu);
@@ -30,7 +32,8 @@ export function EntityContextMenu() {
   const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
   const resolveGlobalIdFromModels = useViewerStore((s) => s.resolveGlobalIdFromModels);
   const menuRef = useRef<HTMLDivElement>(null);
-  const { ifcDataStore, models } = useIfc();
+  const { ifcDataStore, models, getMeshForEntity } = useIfc();
+  const { startEditing, initializeContext } = useGeometryEdit();
 
   // Resolve contextMenu.entityId (globalId) to original expressId and model
   // This is needed because IfcDataStore uses original expressIds, not globalIds
@@ -171,6 +174,51 @@ export function EntityContextMenu() {
     closeContextMenu();
   }, [resolvedExpressId, activeDataStore, closeContextMenu]);
 
+  const handleEditGeometry = useCallback(() => {
+    if (!contextMenu.entityId || !resolvedExpressId || !activeDataStore) {
+      closeContextMenu();
+      return;
+    }
+
+    // Get the resolved model info
+    const resolved = resolveGlobalIdFromModels(contextMenu.entityId);
+    if (!resolved) {
+      closeContextMenu();
+      return;
+    }
+
+    const model = models.get(resolved.modelId);
+    if (!model) {
+      closeContextMenu();
+      return;
+    }
+
+    // Initialize edit context for this model if not already done
+    initializeContext(model.ifcDataStore, resolved.modelId, model.idOffset);
+
+    // Get mesh data for the entity
+    const meshData = getMeshForEntity?.(contextMenu.entityId);
+    if (!meshData) {
+      console.warn('No mesh data available for entity', contextMenu.entityId);
+      closeContextMenu();
+      return;
+    }
+
+    // Start editing session
+    startEditing(resolved.modelId, resolvedExpressId, meshData);
+    closeContextMenu();
+  }, [
+    contextMenu.entityId,
+    resolvedExpressId,
+    activeDataStore,
+    resolveGlobalIdFromModels,
+    models,
+    initializeContext,
+    getMeshForEntity,
+    startEditing,
+    closeContextMenu,
+  ]);
+
   if (!contextMenu.isOpen) {
     return null;
   }
@@ -215,6 +263,10 @@ export function EntityContextMenu() {
           <div className="h-px bg-border my-1" />
 
           <MenuItem icon={Copy} label="Copy GlobalId" onClick={handleCopyId} />
+
+          <div className="h-px bg-border my-1" />
+
+          <MenuItem icon={Pencil} label="Edit Geometry" onClick={handleEditGeometry} />
         </>
       )}
 
