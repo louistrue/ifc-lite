@@ -9,7 +9,8 @@
 import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { X, Trash2, Ruler, Slice, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useViewerStore, type Measurement, type SnapVisualization, type MeasurementConstraintEdge } from '@/store';
+import { useViewerStore, type Measurement, type SnapVisualization } from '@/store';
+import type { MeasurementConstraintEdge } from '@/store/types';
 import { SnapType, type SnapTarget } from '@ifc-lite/renderer';
 
 export function ToolOverlays() {

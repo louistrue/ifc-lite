@@ -56,8 +56,6 @@ export interface MeasurementConstraintEdge {
     axis2: string;
     axis3: string;
   };
-  /** Whether axes are edge-relative (true) or world-aligned (false) */
-  isEdgeRelative: boolean;
   /** Currently active constraint axis (computed from cursor direction) */
   activeAxis: OrthogonalAxis | null;
 }

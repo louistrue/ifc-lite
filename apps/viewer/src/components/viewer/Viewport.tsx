@@ -774,86 +774,20 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
                   updateSnapVisualization(result.snapTarget);
                 }
 
-                // Set up orthogonal constraint for shift+drag
-                // Use edge-relative axes if starting from an edge, otherwise world axes
-                if (result.edgeLock.shouldLock && result.edgeLock.edge) {
-                  // Edge-relative axes
-                  const edge = result.edgeLock.edge;
-                  const dx = edge.v1.x - edge.v0.x;
-                  const dy = edge.v1.y - edge.v0.y;
-                  const dz = edge.v1.z - edge.v0.z;
-                  const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
-                  if (len > 0.0001) {
-                    const edgeDir = { x: dx / len, y: dy / len, z: dz / len };
-                    const verticalDir = { x: 0, y: 1, z: 0 };
-
-                    // Perpendicular: cross product of edge with vertical
-                    let perpX = edgeDir.y * verticalDir.z - edgeDir.z * verticalDir.y;
-                    let perpY = edgeDir.z * verticalDir.x - edgeDir.x * verticalDir.z;
-                    let perpZ = edgeDir.x * verticalDir.y - edgeDir.y * verticalDir.x;
-                    let perpLen = Math.sqrt(perpX * perpX + perpY * perpY + perpZ * perpZ);
-
-                    if (perpLen < 0.1) {
-                      const worldX = { x: 1, y: 0, z: 0 };
-                      perpX = edgeDir.y * worldX.z - edgeDir.z * worldX.y;
-                      perpY = edgeDir.z * worldX.x - edgeDir.x * worldX.z;
-                      perpZ = edgeDir.x * worldX.y - edgeDir.y * worldX.x;
-                      perpLen = Math.sqrt(perpX * perpX + perpY * perpY + perpZ * perpZ);
-                    }
-
-                    const perpDir = perpLen > 0.0001
-                      ? { x: perpX / perpLen, y: perpY / perpLen, z: perpZ / perpLen }
-                      : { x: 1, y: 0, z: 0 };
-
-                    setMeasurementConstraintEdge({
-                      axes: {
-                        axis1: edgeDir,
-                        axis2: perpDir,
-                        axis3: verticalDir,
-                      },
-                      colors: {
-                        axis1: '#FF9800',  // Orange - edge direction
-                        axis2: '#00BCD4',  // Cyan - perpendicular
-                        axis3: '#8BC34A',  // Lime - vertical
-                      },
-                      isEdgeRelative: true,
-                      activeAxis: null,
-                    });
-                  } else {
-                    // Fallback to world axes
-                    setMeasurementConstraintEdge({
-                      axes: {
-                        axis1: { x: 1, y: 0, z: 0 },
-                        axis2: { x: 0, y: 1, z: 0 },
-                        axis3: { x: 0, y: 0, z: 1 },
-                      },
-                      colors: {
-                        axis1: '#F44336',
-                        axis2: '#8BC34A',
-                        axis3: '#2196F3',
-                      },
-                      isEdgeRelative: false,
-                      activeAxis: null,
-                    });
-                  }
-                } else {
-                  // World-aligned axes (X, Y, Z) for non-edge starts
-                  setMeasurementConstraintEdge({
-                    axes: {
-                      axis1: { x: 1, y: 0, z: 0 },  // World X
-                      axis2: { x: 0, y: 1, z: 0 },  // World Y (vertical)
-                      axis3: { x: 0, y: 0, z: 1 },  // World Z
-                    },
-                    colors: {
-                      axis1: '#F44336',  // Red - X axis
-                      axis2: '#8BC34A',  // Lime - Y axis (vertical)
-                      axis3: '#2196F3',  // Blue - Z axis
-                    },
-                    isEdgeRelative: false,
-                    activeAxis: null,
-                  });
-                }
+                // Set up orthogonal constraint for shift+drag - always use world axes
+                setMeasurementConstraintEdge({
+                  axes: {
+                    axis1: { x: 1, y: 0, z: 0 },  // World X
+                    axis2: { x: 0, y: 1, z: 0 },  // World Y (vertical)
+                    axis3: { x: 0, y: 0, z: 1 },  // World Z
+                  },
+                  colors: {
+                    axis1: '#F44336',  // Red - X axis
+                    axis2: '#8BC34A',  // Lime - Y axis (vertical)
+                    axis3: '#2196F3',  // Blue - Z axis
+                  },
+                  activeAxis: null,
+                });
               }
             }
             return; // Early return for measure tool (non-shift)
@@ -983,57 +917,46 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
                   };
 
                   updateMeasurement(measurePoint);
-                  setSnapTarget(useOrthogonalConstraint ? null : (result.snapTarget || null));
+                  setSnapTarget(result.snapTarget || null);
 
-                  // Only update edge lock state when not in perpendicular constraint mode
-                  if (!useOrthogonalConstraint) {
-                    // Update edge lock state
-                    if (result.edgeLock.shouldRelease) {
-                      // Clear stale lock when release is signaled
-                      clearEdgeLock();
-                      updateSnapVisualization(result.snapTarget || null);
-                    } else if (result.edgeLock.shouldLock && result.edgeLock.edge) {
-                      // Check if we're on the same edge to preserve lock strength (hysteresis)
-                      // Also check reversed edge ordering (v0↔v1 swap)
-                      const sameDirection = currentLock.edge &&
-                        Math.abs(currentLock.edge.v0.x - result.edgeLock.edge.v0.x) < 0.0001 &&
-                        Math.abs(currentLock.edge.v0.y - result.edgeLock.edge.v0.y) < 0.0001 &&
-                        Math.abs(currentLock.edge.v0.z - result.edgeLock.edge.v0.z) < 0.0001 &&
-                        Math.abs(currentLock.edge.v1.x - result.edgeLock.edge.v1.x) < 0.0001 &&
-                        Math.abs(currentLock.edge.v1.y - result.edgeLock.edge.v1.y) < 0.0001 &&
-                        Math.abs(currentLock.edge.v1.z - result.edgeLock.edge.v1.z) < 0.0001;
-                      const reversedDirection = currentLock.edge &&
-                        Math.abs(currentLock.edge.v0.x - result.edgeLock.edge.v1.x) < 0.0001 &&
-                        Math.abs(currentLock.edge.v0.y - result.edgeLock.edge.v1.y) < 0.0001 &&
-                        Math.abs(currentLock.edge.v0.z - result.edgeLock.edge.v1.z) < 0.0001 &&
-                        Math.abs(currentLock.edge.v1.x - result.edgeLock.edge.v0.x) < 0.0001 &&
-                        Math.abs(currentLock.edge.v1.y - result.edgeLock.edge.v0.y) < 0.0001 &&
-                        Math.abs(currentLock.edge.v1.z - result.edgeLock.edge.v0.z) < 0.0001;
-                      const isSameEdge = currentLock.edge &&
-                        currentLock.meshExpressId === result.edgeLock.meshExpressId &&
-                        (sameDirection || reversedDirection);
+                  // Update edge lock state and snap visualization (even in orthogonal mode)
+                  if (result.edgeLock.shouldRelease) {
+                    clearEdgeLock();
+                    updateSnapVisualization(result.snapTarget || null);
+                  } else if (result.edgeLock.shouldLock && result.edgeLock.edge) {
+                    // Check if we're on the same edge to preserve lock strength (hysteresis)
+                    const sameDirection = currentLock.edge &&
+                      Math.abs(currentLock.edge.v0.x - result.edgeLock.edge.v0.x) < 0.0001 &&
+                      Math.abs(currentLock.edge.v0.y - result.edgeLock.edge.v0.y) < 0.0001 &&
+                      Math.abs(currentLock.edge.v0.z - result.edgeLock.edge.v0.z) < 0.0001 &&
+                      Math.abs(currentLock.edge.v1.x - result.edgeLock.edge.v1.x) < 0.0001 &&
+                      Math.abs(currentLock.edge.v1.y - result.edgeLock.edge.v1.y) < 0.0001 &&
+                      Math.abs(currentLock.edge.v1.z - result.edgeLock.edge.v1.z) < 0.0001;
+                    const reversedDirection = currentLock.edge &&
+                      Math.abs(currentLock.edge.v0.x - result.edgeLock.edge.v1.x) < 0.0001 &&
+                      Math.abs(currentLock.edge.v0.y - result.edgeLock.edge.v1.y) < 0.0001 &&
+                      Math.abs(currentLock.edge.v0.z - result.edgeLock.edge.v1.z) < 0.0001 &&
+                      Math.abs(currentLock.edge.v1.x - result.edgeLock.edge.v0.x) < 0.0001 &&
+                      Math.abs(currentLock.edge.v1.y - result.edgeLock.edge.v0.y) < 0.0001 &&
+                      Math.abs(currentLock.edge.v1.z - result.edgeLock.edge.v0.z) < 0.0001;
+                    const isSameEdge = currentLock.edge &&
+                      currentLock.meshExpressId === result.edgeLock.meshExpressId &&
+                      (sameDirection || reversedDirection);
 
-                      if (isSameEdge) {
-                        // Same edge - just update position and grow lock strength
-                        updateEdgeLockPosition(result.edgeLock.edgeT, result.edgeLock.isCorner, result.edgeLock.cornerValence);
-                        incrementEdgeLockStrength();
-                      } else {
-                        // New edge - reset lock state
-                        setEdgeLock(result.edgeLock.edge, result.edgeLock.meshExpressId, result.edgeLock.edgeT);
-                        updateEdgeLockPosition(result.edgeLock.edgeT, result.edgeLock.isCorner, result.edgeLock.cornerValence);
-                      }
-                      // Update visualization with edge lock info
-                      updateSnapVisualization(result.snapTarget, {
-                        edgeT: result.edgeLock.edgeT,
-                        isCorner: result.edgeLock.isCorner,
-                        cornerValence: result.edgeLock.cornerValence,
-                      });
+                    if (isSameEdge) {
+                      updateEdgeLockPosition(result.edgeLock.edgeT, result.edgeLock.isCorner, result.edgeLock.cornerValence);
+                      incrementEdgeLockStrength();
                     } else {
-                      updateSnapVisualization(result.snapTarget || null);
+                      setEdgeLock(result.edgeLock.edge, result.edgeLock.meshExpressId, result.edgeLock.edgeT);
+                      updateEdgeLockPosition(result.edgeLock.edgeT, result.edgeLock.isCorner, result.edgeLock.cornerValence);
                     }
+                    updateSnapVisualization(result.snapTarget, {
+                      edgeT: result.edgeLock.edgeT,
+                      isCorner: result.edgeLock.isCorner,
+                      cornerValence: result.edgeLock.cornerValence,
+                    });
                   } else {
-                    // Clear snap visualization when in perpendicular constraint mode
-                    updateSnapVisualization(null);
+                    updateSnapVisualization(result.snapTarget || null);
                   }
                 }
               }
