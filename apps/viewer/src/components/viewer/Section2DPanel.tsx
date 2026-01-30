@@ -1189,10 +1189,13 @@ export function Section2DPanel(): React.ReactElement | null {
     svg += '\n';
 
     // Render title block with scale bar and north arrow inside
+    // Pass effectiveScaleFactor from the actual transform (not just configured scale)
+    // This ensures scale bar shows correct values when dynamically scaled
     const titleBlockExtras: TitleBlockExtras = {
       scaleBar: activeSheet.scaleBar,
       northArrow: activeSheet.northArrow,
       scale: activeSheet.scale,
+      effectiveScaleFactor: scaleFactor,
     };
     const titleBlockResult = renderTitleBlock(
       activeSheet.titleBlock,
@@ -2312,18 +2315,45 @@ function Drawing2DCanvas({
 
       // ─────────────────────────────────────────────────────────────────────
       // 6. Draw scale bar at BOTTOM LEFT of title block
+      // Uses actual drawingTransform.scaleFactor which accounts for dynamic scaling
       // ─────────────────────────────────────────────────────────────────────
       if (scaleBar.visible && tbH > 10) {
         // Position: bottom left with small margin
         const sbX = tbX + 3;
         const sbY = tbY + tbH - 8; // 8mm from bottom (leaves room for label)
+
+        // Calculate effective scale from the actual drawing transform
+        // scaleFactor = mm per meter, so effective scale ratio = 1000 / scaleFactor
+        const effectiveScaleFactor = drawingTransform.scaleFactor;
+
+        // Scale bar length: we want to show a nice round number of meters
+        // Calculate how many mm on paper for the desired real-world length
         const maxBarWidth = Math.min(tbW * 0.3, 50); // Max 30% of width or 50mm
-        const sbLengthMm = Math.min(
-          (scaleBar.totalLengthM * 1000) / activeSheet.scale.factor,
-          maxBarWidth
-        );
+
+        // Find a nice round length that fits
+        // Start with the configured length and adjust if needed
+        let targetLengthM = scaleBar.totalLengthM;
+        let sbLengthMm = targetLengthM * effectiveScaleFactor;
+
+        // If bar would be too long, reduce the target length
+        while (sbLengthMm > maxBarWidth && targetLengthM > 0.5) {
+          targetLengthM = targetLengthM / 2;
+          sbLengthMm = targetLengthM * effectiveScaleFactor;
+        }
+
+        // If bar would be too short, increase the target length
+        while (sbLengthMm < maxBarWidth * 0.3 && targetLengthM < 100) {
+          targetLengthM = targetLengthM * 2;
+          sbLengthMm = targetLengthM * effectiveScaleFactor;
+        }
+
+        // Clamp to max width
+        sbLengthMm = Math.min(sbLengthMm, maxBarWidth);
+
+        // Actual length represented by the bar
+        const actualTotalLength = sbLengthMm / effectiveScaleFactor;
+
         const sbHeight = Math.min(scaleBar.heightMm, 3);
-        const actualTotalLength = (sbLengthMm * activeSheet.scale.factor) / 1000;
 
         // Scale bar divisions
         const divisions = scaleBar.primaryDivisions;

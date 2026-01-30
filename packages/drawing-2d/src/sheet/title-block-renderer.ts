@@ -29,6 +29,8 @@ export interface TitleBlockExtras {
   scaleBar?: ScaleBarConfig;
   northArrow?: NorthArrowConfig;
   scale?: DrawingScale;
+  /** Effective scale factor (mm per meter) - used for scale bar when drawing is dynamically scaled */
+  effectiveScaleFactor?: number;
 }
 
 /** Result of title block rendering */
@@ -101,7 +103,7 @@ export function renderTitleBlock(
 
   // Scale bar (in title block, bottom-left area)
   if (extras?.scaleBar?.visible && extras?.scale && h > 10) {
-    svg += renderScaleBarInTitleBlock(extras.scaleBar, extras.scale, x, y, w, h, config.logo != null);
+    svg += renderScaleBarInTitleBlock(extras.scaleBar, extras.scale, x, y, w, h, config.logo != null, extras.effectiveScaleFactor);
   }
 
   // North arrow (in title block, next to scale bar or logo area)
@@ -380,18 +382,22 @@ function renderScaleBarInTitleBlock(
   y: number,
   w: number,
   h: number,
-  _hasLogo: boolean
+  _hasLogo: boolean,
+  effectiveScaleFactor?: number
 ): string {
   let svg = '    <g id="title-block-scale-bar">\n';
+
+  // Use effective scale factor if provided (for dynamic scaling), otherwise use configured scale
+  const scaleFactor = effectiveScaleFactor ?? scale.factor;
 
   // Position: bottom left with small margin
   const barX = x + 3;
   const barY = y + h - 8; // 8mm from bottom (leaves room for label)
   const maxBarWidth = Math.min(w * 0.3, 50);
-  const barLengthMm = (scaleBar.totalLengthM * 1000) / scale.factor;
+  const barLengthMm = (scaleBar.totalLengthM * 1000) / scaleFactor;
   const actualBarLength = Math.min(barLengthMm, maxBarWidth);
   const barHeight = Math.min(scaleBar.heightMm, 3);
-  const actualTotalLength = (actualBarLength * scale.factor) / 1000;
+  const actualTotalLength = (actualBarLength * scaleFactor) / 1000;
 
   // Draw alternating bar segments
   const divisions = scaleBar.primaryDivisions;
