@@ -66,15 +66,15 @@ export class PolygonBuilder {
       byEntity.get(key)!.push(seg);
     }
 
-    // Build polygons for each entity
-    const polygons: DrawingPolygon[] = [];
+    // Build polygons for each entity - collect arrays for efficient flattening
+    const polygonArrays: DrawingPolygon[][] = [];
 
     for (const [key, entitySegments] of byEntity) {
       const entityPolygons = this.buildEntityPolygons(entitySegments);
-      polygons.push(...entityPolygons);
+      polygonArrays.push(entityPolygons);
     }
 
-    return polygons;
+    return polygonArrays.flat();
   }
 
   /**

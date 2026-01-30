@@ -349,8 +349,14 @@ export class Section2DOverlayRenderer {
 
       if (outer.length < 3) continue;
 
-      // Simple fan triangulation for convex-ish polygons
-      // For complex polygons with holes, we'd need ear clipping
+      // KNOWN LIMITATION: Simple fan triangulation for convex polygons only.
+      // This produces correct results for most architectural elements (walls, slabs, etc.)
+      // but may render incorrectly for:
+      // - Concave polygons (e.g., L-shaped openings)
+      // - Polygons with holes (e.g., windows in walls)
+      // For production use with complex geometry, consider implementing ear clipping
+      // (e.g., using earcut library) or constrained Delaunay triangulation.
+      // Note: The 2D canvas/SVG rendering in Section2DPanel handles holes correctly.
       const baseVertex = vertexOffset;
 
       for (const point of outer) {

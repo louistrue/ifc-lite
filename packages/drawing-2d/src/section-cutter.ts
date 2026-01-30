@@ -53,17 +53,20 @@ export class SectionCutter {
   cutMeshes(meshes: MeshData[]): SectionCutResult {
     const startTime = performance.now();
 
-    const allSegments: CutSegment[] = [];
+    const segmentArrays: CutSegment[][] = [];
     let totalTriangles = 0;
     let intersectedTriangles = 0;
 
-    // Process each mesh
+    // Process each mesh - collect segment arrays for efficient flattening
     for (const mesh of meshes) {
       const result = this.cutSingleMesh(mesh);
-      allSegments.push(...result.segments);
+      segmentArrays.push(result.segments);
       totalTriangles += result.trianglesProcessed;
       intersectedTriangles += result.trianglesIntersected;
     }
+
+    // Flatten all segments at once (more efficient than repeated push(...spread))
+    const allSegments = segmentArrays.flat();
 
     // Reconstruct closed polygons from segments
     const polygonBuilder = new PolygonBuilder();
@@ -258,23 +261,25 @@ export async function cutMeshesStreaming(
   const cutter = new SectionCutter(config);
   const startTime = performance.now();
 
-  const allSegments: CutSegment[] = [];
+  const allSegmentArrays: CutSegment[][] = [];
   let totalTriangles = 0;
   let intersectedTriangles = 0;
   let lastYield = performance.now();
 
   for (let i = 0; i < meshes.length; i += batchSize) {
     const batch = meshes.slice(i, Math.min(i + batchSize, meshes.length));
-    const batchSegments: CutSegment[] = [];
+    const batchSegmentArrays: CutSegment[][] = [];
 
     for (const mesh of batch) {
       const result = cutter.cutSingleMesh(mesh);
-      batchSegments.push(...result.segments);
+      batchSegmentArrays.push(result.segments);
       totalTriangles += result.trianglesProcessed;
       intersectedTriangles += result.trianglesIntersected;
     }
 
-    allSegments.push(...batchSegments);
+    // Flatten batch for progress callback
+    const batchSegments = batchSegmentArrays.flat();
+    allSegmentArrays.push(batchSegments);
 
     // Report progress
     const progress = Math.min(1, (i + batch.length) / meshes.length);
@@ -287,6 +292,9 @@ export async function cutMeshesStreaming(
       lastYield = performance.now();
     }
   }
+
+  // Flatten all segments at once (more efficient than repeated push(...spread))
+  const allSegments = allSegmentArrays.flat();
 
   // Build polygons from all segments
   const polygonBuilder = new PolygonBuilder();

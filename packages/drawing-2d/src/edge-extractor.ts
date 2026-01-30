@@ -205,7 +205,10 @@ export class EdgeExtractor {
   }
 
   /**
-   * Filter edges that are within a depth range from the section plane
+   * Filter edges that are within a depth range from the section plane.
+   * Includes edges where:
+   * - Either endpoint is within range
+   * - The edge crosses through the depth band (one endpoint before, one after)
    */
   filterEdgesByDepth(
     edges: EdgeData[],
@@ -218,13 +221,21 @@ export class EdgeExtractor {
       const d0 = edge.v0[axis] - sectionPosition;
       const d1 = edge.v1[axis] - sectionPosition;
 
-      // Check if edge is in the projection range (beyond section plane)
-      // When not flipped, we want positive distances (in front of plane)
-      // When flipped, we want negative distances
-      const inRange0 = flipped ? d0 <= 0 && d0 >= -maxDepth : d0 >= 0 && d0 <= maxDepth;
-      const inRange1 = flipped ? d1 <= 0 && d1 >= -maxDepth : d1 >= 0 && d1 <= maxDepth;
+      // Define the valid depth range
+      // When not flipped: [0, maxDepth] (positive direction from plane)
+      // When flipped: [-maxDepth, 0] (negative direction from plane)
+      const rangeMin = flipped ? -maxDepth : 0;
+      const rangeMax = flipped ? 0 : maxDepth;
 
-      return inRange0 || inRange1;
+      // Check if endpoints are within range
+      const inRange0 = d0 >= rangeMin && d0 <= rangeMax;
+      const inRange1 = d1 >= rangeMin && d1 <= rangeMax;
+
+      // Check if edge crosses the depth band
+      // This happens when one endpoint is before rangeMin and the other is after rangeMax
+      const crossesBand = (d0 < rangeMin && d1 > rangeMax) || (d1 < rangeMin && d0 > rangeMax);
+
+      return inRange0 || inRange1 || crossesBand;
     });
   }
 
