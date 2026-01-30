@@ -586,6 +586,30 @@ export function Section2DPanel(): React.ReactElement | null {
   const fitToView = useCallback(() => {
     if (!drawing || !containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
+
+    // Sheet mode: fit the entire paper into view
+    if (sheetEnabled && activeSheet) {
+      const paperWidth = activeSheet.paper.widthMm;
+      const paperHeight = activeSheet.paper.heightMm;
+
+      // Calculate scale to fit paper with padding (10% margin on each side)
+      const padding = 0.1;
+      const availableWidth = rect.width * (1 - 2 * padding);
+      const availableHeight = rect.height * (1 - 2 * padding);
+      const scaleX = availableWidth / paperWidth;
+      const scaleY = availableHeight / paperHeight;
+      const scale = Math.min(scaleX, scaleY);
+
+      // Center the paper in the view
+      setViewTransform({
+        scale,
+        x: (rect.width - paperWidth * scale) / 2,
+        y: (rect.height - paperHeight * scale) / 2,
+      });
+      return;
+    }
+
+    // Non-sheet mode: fit the drawing bounds
     const { bounds } = drawing;
     const width = bounds.max.x - bounds.min.x;
     const height = bounds.max.y - bounds.min.y;
@@ -610,7 +634,7 @@ export function Section2DPanel(): React.ReactElement | null {
       x: rect.width / 2 - centerX * scale,
       y: rect.height / 2 + centerY * scale, // Flip Y
     });
-  }, [drawing]);
+  }, [drawing, sheetEnabled, activeSheet]);
 
   // Track axis changes for forced fit-to-view
   const lastFitAxisRef = useRef(sectionPlane.axis);
@@ -622,6 +646,21 @@ export function Section2DPanel(): React.ReactElement | null {
       setNeedsFit(true);  // Force fit when axis changes
     }
   }, [sectionPlane.axis]);
+
+  // Track previous sheet mode to detect toggle
+  const prevSheetEnabledRef = useRef(sheetEnabled);
+  useEffect(() => {
+    if (sheetEnabled !== prevSheetEnabledRef.current) {
+      prevSheetEnabledRef.current = sheetEnabled;
+      // Auto-fit when sheet mode is toggled
+      if (status === 'ready' && drawing && containerRef.current) {
+        const timeout = setTimeout(() => {
+          fitToView();
+        }, 50);
+        return () => clearTimeout(timeout);
+      }
+    }
+  }, [sheetEnabled, status, drawing, fitToView]);
 
   // Auto-fit when: (1) needsFit is true (first open or axis change), or (2) not pinned after regenerate
   // ALWAYS fit when axis changed, regardless of pin state
@@ -1554,6 +1593,8 @@ export function Section2DPanel(): React.ReactElement | null {
               measureCurrent={measure2DCurrent}
               measureResults={measure2DResults}
               measureSnapPoint={measure2DSnapPoint}
+              sheetEnabled={sheetEnabled}
+              activeSheet={activeSheet}
             />
             {/* Subtle updating indicator - shows while regenerating without hiding the drawing */}
             {isRegenerating && (
@@ -1663,6 +1704,9 @@ interface Drawing2DCanvasProps {
   measureCurrent?: { x: number; y: number } | null;
   measureResults?: Measure2DResultData[];
   measureSnapPoint?: { x: number; y: number } | null;
+  // Sheet mode props
+  sheetEnabled?: boolean;
+  activeSheet?: import('@ifc-lite/drawing-2d').DrawingSheet | null;
 }
 
 function Drawing2DCanvas({
@@ -1678,6 +1722,8 @@ function Drawing2DCanvas({
   measureCurrent = null,
   measureResults = [],
   measureSnapPoint = null,
+  sheetEnabled = false,
+  activeSheet = null,
 }: Drawing2DCanvasProps): React.ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
@@ -1717,193 +1763,700 @@ function Drawing2DCanvas({
     canvas.height = canvasSize.height * dpr;
     ctx.scale(dpr, dpr);
 
-    // Clear
-    ctx.fillStyle = '#ffffff';
+    // Clear with light gray background (shows paper edge when in sheet mode)
+    ctx.fillStyle = sheetEnabled && activeSheet ? '#e5e5e5' : '#ffffff';
     ctx.fillRect(0, 0, canvasSize.width, canvasSize.height);
 
-    // Apply transform
-    ctx.save();
-    ctx.translate(transform.x, transform.y);
-    ctx.scale(transform.scale, -transform.scale); // Flip Y for CAD coordinates
-
     // ═══════════════════════════════════════════════════════════════════════
-    // 1. FILL CUT POLYGONS (with color from IFC materials, override engine, or type fallback)
+    // SHEET MODE: Render paper, frame, title block, then drawing in viewport
     // ═══════════════════════════════════════════════════════════════════════
-    for (const polygon of drawing.cutPolygons) {
-      // Get fill color - priority: IFC materials > override engine > IFC type fallback
-      let fillColor = getFillColorForType(polygon.ifcType);
-      let strokeColor = '#000000';
-      let opacity = 1;
+    if (sheetEnabled && activeSheet) {
+      const paper = activeSheet.paper;
+      const frame = activeSheet.frame;
+      const titleBlock = activeSheet.titleBlock;
+      const viewport = activeSheet.viewportBounds;
+      const scaleBar = activeSheet.scaleBar;
+      const northArrow = activeSheet.northArrow;
 
-      // Use actual IFC material colors from the mesh data
-      if (useIfcMaterials) {
-        const materialColor = entityColorMap.get(polygon.entityId);
-        if (materialColor) {
-          // Convert RGBA [0-1] to hex color
-          const r = Math.round(materialColor[0] * 255);
-          const g = Math.round(materialColor[1] * 255);
-          const b = Math.round(materialColor[2] * 255);
-          fillColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-          opacity = materialColor[3];
-        }
-      } else if (overridesEnabled) {
-        const elementData: ElementData = {
-          expressId: polygon.entityId,
-          ifcType: polygon.ifcType,
-        };
-        const result = overrideEngine.applyOverrides(elementData);
-        fillColor = result.style.fillColor;
-        strokeColor = result.style.strokeColor;
-        opacity = result.style.opacity;
+      // Helper: convert sheet mm to screen pixels
+      const mmToScreen = (mm: number) => mm * transform.scale;
+      const mmToScreenX = (x: number) => x * transform.scale + transform.x;
+      const mmToScreenY = (y: number) => y * transform.scale + transform.y;
+
+      // ─────────────────────────────────────────────────────────────────────
+      // 1. Draw paper background (white with shadow)
+      // ─────────────────────────────────────────────────────────────────────
+      ctx.save();
+      // Paper shadow
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+      ctx.shadowBlur = 10 * (transform.scale > 0.5 ? 1 : transform.scale * 2);
+      ctx.shadowOffsetX = 3;
+      ctx.shadowOffsetY = 3;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(
+        mmToScreenX(0),
+        mmToScreenY(0),
+        mmToScreen(paper.widthMm),
+        mmToScreen(paper.heightMm)
+      );
+      ctx.restore();
+
+      // Paper border
+      ctx.strokeStyle = '#cccccc';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(
+        mmToScreenX(0),
+        mmToScreenY(0),
+        mmToScreen(paper.widthMm),
+        mmToScreen(paper.heightMm)
+      );
+
+      // ─────────────────────────────────────────────────────────────────────
+      // 2. Draw frame borders
+      // ─────────────────────────────────────────────────────────────────────
+      const frameLeft = frame.margins.left + frame.margins.bindingMargin;
+      const frameTop = frame.margins.top;
+      const frameRight = paper.widthMm - frame.margins.right;
+      const frameBottom = paper.heightMm - frame.margins.bottom;
+      const frameWidth = frameRight - frameLeft;
+      const frameHeight = frameBottom - frameTop;
+
+      // Outer border
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = Math.max(1, mmToScreen(frame.border.outerLineWeight));
+      ctx.strokeRect(
+        mmToScreenX(frameLeft),
+        mmToScreenY(frameTop),
+        mmToScreen(frameWidth),
+        mmToScreen(frameHeight)
+      );
+
+      // Inner border (if gap > 0)
+      if (frame.border.borderGap > 0) {
+        const innerLeft = frameLeft + frame.border.borderGap;
+        const innerTop = frameTop + frame.border.borderGap;
+        const innerWidth = frameWidth - 2 * frame.border.borderGap;
+        const innerHeight = frameHeight - 2 * frame.border.borderGap;
+
+        ctx.lineWidth = Math.max(0.5, mmToScreen(frame.border.innerLineWeight));
+        ctx.strokeRect(
+          mmToScreenX(innerLeft),
+          mmToScreenY(innerTop),
+          mmToScreen(innerWidth),
+          mmToScreen(innerHeight)
+        );
       }
 
-      ctx.globalAlpha = opacity;
-      ctx.fillStyle = fillColor;
-      ctx.beginPath();
-      if (polygon.polygon.outer.length > 0) {
-        ctx.moveTo(polygon.polygon.outer[0].x, polygon.polygon.outer[0].y);
-        for (let i = 1; i < polygon.polygon.outer.length; i++) {
-          ctx.lineTo(polygon.polygon.outer[i].x, polygon.polygon.outer[i].y);
+      // ─────────────────────────────────────────────────────────────────────
+      // 3. Draw title block
+      // ─────────────────────────────────────────────────────────────────────
+      const innerLeft = frameLeft + frame.border.borderGap;
+      const innerTop = frameTop + frame.border.borderGap;
+      const innerWidth = frameWidth - 2 * frame.border.borderGap;
+      const innerHeight = frameHeight - 2 * frame.border.borderGap;
+
+      let tbX: number, tbY: number, tbW: number, tbH: number;
+      switch (titleBlock.position) {
+        case 'bottom-right':
+          tbW = titleBlock.widthMm;
+          tbH = titleBlock.heightMm;
+          tbX = innerLeft + innerWidth - tbW;
+          tbY = innerTop + innerHeight - tbH;
+          break;
+        case 'bottom-full':
+          tbW = innerWidth;
+          tbH = titleBlock.heightMm;
+          tbX = innerLeft;
+          tbY = innerTop + innerHeight - tbH;
+          break;
+        case 'right-strip':
+          tbW = titleBlock.widthMm;
+          tbH = innerHeight;
+          tbX = innerLeft + innerWidth - tbW;
+          tbY = innerTop;
+          break;
+        default:
+          tbW = titleBlock.widthMm;
+          tbH = titleBlock.heightMm;
+          tbX = innerLeft + innerWidth - tbW;
+          tbY = innerTop + innerHeight - tbH;
+      }
+
+      // Title block border
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = Math.max(1, mmToScreen(titleBlock.borderWeight));
+      ctx.strokeRect(
+        mmToScreenX(tbX),
+        mmToScreenY(tbY),
+        mmToScreen(tbW),
+        mmToScreen(tbH)
+      );
+
+      // Title block fields
+      const logoSpace = titleBlock.logo ? 50 : 0;
+      const revisionSpace = titleBlock.showRevisionHistory ? 20 : 0;
+      const availableWidth = tbW - logoSpace - 5;
+      const availableHeight = tbH - revisionSpace - 4;
+      const numCols = 2;
+
+      // Group fields by row
+      const fieldsByRow = new Map<number, typeof titleBlock.fields>();
+      for (const field of titleBlock.fields) {
+        const row = field.row ?? 0;
+        if (!fieldsByRow.has(row)) fieldsByRow.set(row, []);
+        fieldsByRow.get(row)!.push(field);
+      }
+
+      const numRows = Math.max(...Array.from(fieldsByRow.keys()), 0) + 1;
+      const rowHeight = availableHeight / numRows;
+      const colWidth = availableWidth / numCols;
+      const gridStartX = tbX + logoSpace + 2;
+      const gridStartY = tbY + 2;
+
+      // Draw grid lines
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = Math.max(0.5, mmToScreen(titleBlock.gridWeight));
+
+      // Horizontal lines
+      for (let i = 1; i < numRows; i++) {
+        const lineY = gridStartY + i * rowHeight;
+        ctx.beginPath();
+        ctx.moveTo(mmToScreenX(gridStartX), mmToScreenY(lineY));
+        ctx.lineTo(mmToScreenX(gridStartX + availableWidth - 4), mmToScreenY(lineY));
+        ctx.stroke();
+      }
+
+      // Vertical dividers (for rows with multiple columns)
+      for (const [row, fields] of fieldsByRow) {
+        const hasMultipleCols = fields.some(f => (f.colSpan ?? 1) < 2);
+        if (hasMultipleCols) {
+          const centerX = gridStartX + colWidth;
+          const lineY1 = gridStartY + row * rowHeight;
+          const lineY2 = gridStartY + (row + 1) * rowHeight;
+          ctx.beginPath();
+          ctx.moveTo(mmToScreenX(centerX), mmToScreenY(lineY1));
+          ctx.lineTo(mmToScreenX(centerX), mmToScreenY(lineY2));
+          ctx.stroke();
         }
+      }
+
+      // Render field text
+      for (const [row, fields] of fieldsByRow) {
+        for (const field of fields) {
+          const col = field.col ?? 0;
+          const colSpan = field.colSpan ?? 1;
+          const fieldX = gridStartX + col * colWidth + 1.5;
+          const fieldY = gridStartY + row * rowHeight;
+
+          const cellPadding = 1;
+          const labelFontSize = Math.min(field.fontSize * 0.5, 2.2);
+          const valueFontSize = field.fontSize;
+
+          // Label
+          const screenLabelFontSize = Math.max(8, mmToScreen(labelFontSize));
+          ctx.font = `${screenLabelFontSize}px Arial, sans-serif`;
+          ctx.fillStyle = '#666666';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+          ctx.fillText(
+            field.label,
+            mmToScreenX(fieldX),
+            mmToScreenY(fieldY + cellPadding)
+          );
+
+          // Value
+          const screenValueFontSize = Math.max(10, mmToScreen(valueFontSize));
+          ctx.font = `${field.fontWeight === 'bold' ? 'bold ' : ''}${screenValueFontSize}px Arial, sans-serif`;
+          ctx.fillStyle = '#000000';
+          ctx.fillText(
+            field.value,
+            mmToScreenX(fieldX),
+            mmToScreenY(fieldY + cellPadding + labelFontSize + 1.5)
+          );
+        }
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
+      // 4. Draw scale bar (if visible)
+      // ─────────────────────────────────────────────────────────────────────
+      if (scaleBar.visible) {
+        const sbX = viewport.x + 10;
+        const sbY = viewport.y + viewport.height - 15;
+        // Calculate length in mm: totalLengthM (meters) * 1000 / scale factor
+        const sbLengthMm = (scaleBar.totalLengthM * 1000) / activeSheet.scale.factor;
+        const sbHeight = scaleBar.heightMm;
+
+        // Scale bar background
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(
+          mmToScreenX(sbX - 2),
+          mmToScreenY(sbY - 2),
+          mmToScreen(sbLengthMm + 4),
+          mmToScreen(sbHeight + 8)
+        );
+
+        // Scale bar divisions
+        const divisions = scaleBar.primaryDivisions;
+        const divWidth = sbLengthMm / divisions;
+        for (let i = 0; i < divisions; i++) {
+          ctx.fillStyle = i % 2 === 0 ? scaleBar.fillColor : '#ffffff';
+          ctx.fillRect(
+            mmToScreenX(sbX + i * divWidth),
+            mmToScreenY(sbY),
+            mmToScreen(divWidth),
+            mmToScreen(sbHeight)
+          );
+        }
+
+        // Scale bar border
+        ctx.strokeStyle = scaleBar.strokeColor;
+        ctx.lineWidth = Math.max(1, mmToScreen(scaleBar.lineWeight));
+        ctx.strokeRect(
+          mmToScreenX(sbX),
+          mmToScreenY(sbY),
+          mmToScreen(sbLengthMm),
+          mmToScreen(sbHeight)
+        );
+
+        // Scale text
+        const scaleFontSize = Math.max(9, mmToScreen(scaleBar.labelFontSize));
+        ctx.font = `${scaleFontSize}px Arial, sans-serif`;
+        ctx.fillStyle = '#000000';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(
+          `1:${activeSheet.scale.factor}`,
+          mmToScreenX(sbX + sbLengthMm / 2),
+          mmToScreenY(sbY + sbHeight + 1)
+        );
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
+      // 5. Draw north arrow (if not 'none')
+      // ─────────────────────────────────────────────────────────────────────
+      if (northArrow.style !== 'none') {
+        const naX = viewport.x + viewport.width - 20;
+        const naY = viewport.y + 20;
+        const naSize = northArrow.sizeMm;
+
+        ctx.save();
+        ctx.translate(mmToScreenX(naX), mmToScreenY(naY));
+        ctx.rotate((northArrow.rotation * Math.PI) / 180);
+
+        // Draw arrow
+        const arrowLen = mmToScreen(naSize);
+        ctx.fillStyle = '#000000';
+        ctx.beginPath();
+        ctx.moveTo(0, -arrowLen / 2);
+        ctx.lineTo(-arrowLen / 6, arrowLen / 2);
+        ctx.lineTo(0, arrowLen / 3);
+        ctx.lineTo(arrowLen / 6, arrowLen / 2);
         ctx.closePath();
+        ctx.fill();
 
-        // Draw holes (inner boundaries)
-        for (const hole of polygon.polygon.holes) {
-          if (hole.length > 0) {
-            ctx.moveTo(hole[0].x, hole[0].y);
-            for (let i = 1; i < hole.length; i++) {
-              ctx.lineTo(hole[i].x, hole[i].y);
-            }
-            ctx.closePath();
-          }
-        }
-      }
-      ctx.fill('evenodd');
-      ctx.globalAlpha = 1;
-    }
+        // Draw "N" label
+        const nFontSize = Math.max(10, mmToScreen(3));
+        ctx.font = `bold ${nFontSize}px Arial, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('N', 0, -arrowLen / 2 - 2);
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // 2. STROKE CUT POLYGON OUTLINES (with color from override engine)
-    // ═══════════════════════════════════════════════════════════════════════
-    for (const polygon of drawing.cutPolygons) {
-      let strokeColor = '#000000';
-      let lineWeight = 0.5;
-
-      if (overridesEnabled) {
-        const elementData: ElementData = {
-          expressId: polygon.entityId,
-          ifcType: polygon.ifcType,
-        };
-        const result = overrideEngine.applyOverrides(elementData);
-        strokeColor = result.style.strokeColor;
-        lineWeight = result.style.lineWeight;
+        ctx.restore();
       }
 
-      ctx.strokeStyle = strokeColor;
-      ctx.lineWidth = lineWeight / transform.scale;
-      ctx.beginPath();
-      if (polygon.polygon.outer.length > 0) {
-        ctx.moveTo(polygon.polygon.outer[0].x, polygon.polygon.outer[0].y);
-        for (let i = 1; i < polygon.polygon.outer.length; i++) {
-          ctx.lineTo(polygon.polygon.outer[i].x, polygon.polygon.outer[i].y);
-        }
-        ctx.closePath();
-
-        // Stroke holes too
-        for (const hole of polygon.polygon.holes) {
-          if (hole.length > 0) {
-            ctx.moveTo(hole[0].x, hole[0].y);
-            for (let i = 1; i < hole.length; i++) {
-              ctx.lineTo(hole[i].x, hole[i].y);
-            }
-            ctx.closePath();
-          }
-        }
-      }
-      ctx.stroke();
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // 3. DRAW PROJECTION/SILHOUETTE LINES (skip 'cut' - already in polygons)
-    // ═══════════════════════════════════════════════════════════════════════
-    // Pre-compute bounds for line validation
-    const lineBounds = drawing.bounds;
-    const lineMargin = Math.max(lineBounds.max.x - lineBounds.min.x, lineBounds.max.y - lineBounds.min.y) * 0.5;
-    const lineMinX = lineBounds.min.x - lineMargin;
-    const lineMaxX = lineBounds.max.x + lineMargin;
-    const lineMinY = lineBounds.min.y - lineMargin;
-    const lineMaxY = lineBounds.max.y + lineMargin;
-
-    for (const line of drawing.lines) {
-      // Skip 'cut' lines - they're triangulation edges, already handled by polygons
-      if (line.category === 'cut') continue;
-
-      // Skip hidden lines if not showing
-      if (!showHiddenLines && line.visibility === 'hidden') continue;
-
-      // Skip lines with invalid coordinates (NaN, Infinity, or far outside bounds)
-      const { start, end } = line.line;
-      if (!isFinite(start.x) || !isFinite(start.y) || !isFinite(end.x) || !isFinite(end.y)) {
-        continue;
-      }
-      if (start.x < lineMinX || start.x > lineMaxX || start.y < lineMinY || start.y > lineMaxY ||
-          end.x < lineMinX || end.x > lineMaxX || end.y < lineMinY || end.y > lineMaxY) {
-        continue;
-      }
-
-      // Set line style based on category
-      let strokeColor = '#000000';
-      let lineWidth = 0.25;
-      let dashPattern: number[] = [];
-
-      switch (line.category) {
-        case 'projection':
-          lineWidth = 0.25;
-          strokeColor = '#000000';
-          break;
-        case 'hidden':
-          lineWidth = 0.18;
-          strokeColor = '#666666';
-          dashPattern = [2, 1];
-          break;
-        case 'silhouette':
-          lineWidth = 0.35;
-          strokeColor = '#000000';
-          break;
-        case 'crease':
-          lineWidth = 0.18;
-          strokeColor = '#000000';
-          break;
-        case 'boundary':
-          lineWidth = 0.25;
-          strokeColor = '#000000';
-          break;
-        case 'annotation':
-          lineWidth = 0.13;
-          strokeColor = '#000000';
-          break;
-      }
-
-      // Hidden visibility overrides
-      if (line.visibility === 'hidden') {
-        strokeColor = '#888888';
-        dashPattern = [2, 1];
-        lineWidth *= 0.7;
-      }
-
-      ctx.strokeStyle = strokeColor;
-      ctx.lineWidth = lineWidth / transform.scale;
-      ctx.setLineDash(dashPattern.map((d) => d / transform.scale));
-
-      ctx.beginPath();
-      ctx.moveTo(line.line.start.x, line.line.start.y);
-      ctx.lineTo(line.line.end.x, line.line.end.y);
-      ctx.stroke();
-
+      // ─────────────────────────────────────────────────────────────────────
+      // 6. Draw viewport border (dashed, for visual reference)
+      // ─────────────────────────────────────────────────────────────────────
+      ctx.strokeStyle = '#999999';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 2]);
+      ctx.strokeRect(
+        mmToScreenX(viewport.x),
+        mmToScreenY(viewport.y),
+        mmToScreen(viewport.width),
+        mmToScreen(viewport.height)
+      );
       ctx.setLineDash([]);
-    }
 
-    ctx.restore();
+      // ─────────────────────────────────────────────────────────────────────
+      // 7. Clip to viewport and draw model content
+      // ─────────────────────────────────────────────────────────────────────
+      ctx.save();
+
+      // Create clip region for viewport
+      ctx.beginPath();
+      ctx.rect(
+        mmToScreenX(viewport.x),
+        mmToScreenY(viewport.y),
+        mmToScreen(viewport.width),
+        mmToScreen(viewport.height)
+      );
+      ctx.clip();
+
+      // Calculate drawing transform to fit in viewport
+      const drawingBounds = {
+        minX: drawing.bounds.min.x,
+        minY: drawing.bounds.min.y,
+        maxX: drawing.bounds.max.x,
+        maxY: drawing.bounds.max.y,
+      };
+      const drawingTransform = calculateDrawingTransform(drawingBounds, viewport, activeSheet.scale);
+
+      // Apply combined transform: sheet mm -> screen, then drawing coords -> sheet mm
+      // Drawing coord (meters) * scaleFactor = sheet mm, + translateX/Y
+      // Then sheet mm -> screen via mmToScreenX/Y
+      const drawModelContent = () => {
+        // For each polygon/line, transform from model coords to screen coords
+        const modelToScreen = (x: number, y: number) => {
+          // Model to sheet mm (note: Y is flipped in sheet space)
+          const sheetX = x * drawingTransform.scaleFactor + drawingTransform.translateX;
+          const sheetY = -y * drawingTransform.scaleFactor + drawingTransform.translateY;
+          // Sheet mm to screen
+          return { x: mmToScreenX(sheetX), y: mmToScreenY(sheetY) };
+        };
+
+        // Line width in screen pixels (convert mm to screen)
+        const mmLineToScreen = (mmWeight: number) => Math.max(0.5, mmToScreen(mmWeight / drawingTransform.scaleFactor * 0.001));
+
+        // Fill cut polygons
+        for (const polygon of drawing.cutPolygons) {
+          let fillColor = getFillColorForType(polygon.ifcType);
+          let opacity = 1;
+
+          if (useIfcMaterials) {
+            const materialColor = entityColorMap.get(polygon.entityId);
+            if (materialColor) {
+              const r = Math.round(materialColor[0] * 255);
+              const g = Math.round(materialColor[1] * 255);
+              const b = Math.round(materialColor[2] * 255);
+              fillColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+              opacity = materialColor[3];
+            }
+          } else if (overridesEnabled) {
+            const elementData: ElementData = {
+              expressId: polygon.entityId,
+              ifcType: polygon.ifcType,
+            };
+            const result = overrideEngine.applyOverrides(elementData);
+            fillColor = result.style.fillColor;
+            opacity = result.style.opacity;
+          }
+
+          ctx.globalAlpha = opacity;
+          ctx.fillStyle = fillColor;
+          ctx.beginPath();
+
+          if (polygon.polygon.outer.length > 0) {
+            const first = modelToScreen(polygon.polygon.outer[0].x, polygon.polygon.outer[0].y);
+            ctx.moveTo(first.x, first.y);
+            for (let i = 1; i < polygon.polygon.outer.length; i++) {
+              const pt = modelToScreen(polygon.polygon.outer[i].x, polygon.polygon.outer[i].y);
+              ctx.lineTo(pt.x, pt.y);
+            }
+            ctx.closePath();
+
+            for (const hole of polygon.polygon.holes) {
+              if (hole.length > 0) {
+                const holeFirst = modelToScreen(hole[0].x, hole[0].y);
+                ctx.moveTo(holeFirst.x, holeFirst.y);
+                for (let i = 1; i < hole.length; i++) {
+                  const pt = modelToScreen(hole[i].x, hole[i].y);
+                  ctx.lineTo(pt.x, pt.y);
+                }
+                ctx.closePath();
+              }
+            }
+          }
+          ctx.fill('evenodd');
+          ctx.globalAlpha = 1;
+        }
+
+        // Stroke polygon outlines
+        for (const polygon of drawing.cutPolygons) {
+          let strokeColor = '#000000';
+          let lineWeight = 0.5;
+
+          if (overridesEnabled) {
+            const elementData: ElementData = {
+              expressId: polygon.entityId,
+              ifcType: polygon.ifcType,
+            };
+            const result = overrideEngine.applyOverrides(elementData);
+            strokeColor = result.style.strokeColor;
+            lineWeight = result.style.lineWeight;
+          }
+
+          ctx.strokeStyle = strokeColor;
+          ctx.lineWidth = Math.max(0.5, mmToScreen(lineWeight) * 0.3);
+          ctx.beginPath();
+
+          if (polygon.polygon.outer.length > 0) {
+            const first = modelToScreen(polygon.polygon.outer[0].x, polygon.polygon.outer[0].y);
+            ctx.moveTo(first.x, first.y);
+            for (let i = 1; i < polygon.polygon.outer.length; i++) {
+              const pt = modelToScreen(polygon.polygon.outer[i].x, polygon.polygon.outer[i].y);
+              ctx.lineTo(pt.x, pt.y);
+            }
+            ctx.closePath();
+
+            for (const hole of polygon.polygon.holes) {
+              if (hole.length > 0) {
+                const holeFirst = modelToScreen(hole[0].x, hole[0].y);
+                ctx.moveTo(holeFirst.x, holeFirst.y);
+                for (let i = 1; i < hole.length; i++) {
+                  const pt = modelToScreen(hole[i].x, hole[i].y);
+                  ctx.lineTo(pt.x, pt.y);
+                }
+                ctx.closePath();
+              }
+            }
+          }
+          ctx.stroke();
+        }
+
+        // Draw lines (projection, silhouette, etc.)
+        const lineBounds = drawing.bounds;
+        const lineMargin = Math.max(lineBounds.max.x - lineBounds.min.x, lineBounds.max.y - lineBounds.min.y) * 0.5;
+        const lineMinX = lineBounds.min.x - lineMargin;
+        const lineMaxX = lineBounds.max.x + lineMargin;
+        const lineMinY = lineBounds.min.y - lineMargin;
+        const lineMaxY = lineBounds.max.y + lineMargin;
+
+        for (const line of drawing.lines) {
+          if (line.category === 'cut') continue;
+          if (!showHiddenLines && line.visibility === 'hidden') continue;
+
+          const { start, end } = line.line;
+          if (!isFinite(start.x) || !isFinite(start.y) || !isFinite(end.x) || !isFinite(end.y)) continue;
+          if (start.x < lineMinX || start.x > lineMaxX || start.y < lineMinY || start.y > lineMaxY ||
+              end.x < lineMinX || end.x > lineMaxX || end.y < lineMinY || end.y > lineMaxY) continue;
+
+          let strokeColor = '#000000';
+          let lineWidth = 0.25;
+          let dashPattern: number[] = [];
+
+          switch (line.category) {
+            case 'projection': lineWidth = 0.25; break;
+            case 'hidden': lineWidth = 0.18; strokeColor = '#666666'; dashPattern = [4, 2]; break;
+            case 'silhouette': lineWidth = 0.35; break;
+            case 'crease': lineWidth = 0.18; break;
+            case 'boundary': lineWidth = 0.25; break;
+            case 'annotation': lineWidth = 0.13; break;
+          }
+
+          if (line.visibility === 'hidden') {
+            strokeColor = '#888888';
+            dashPattern = [4, 2];
+            lineWidth *= 0.7;
+          }
+
+          ctx.strokeStyle = strokeColor;
+          ctx.lineWidth = Math.max(0.5, mmToScreen(lineWidth) * 0.3);
+          ctx.setLineDash(dashPattern);
+
+          const screenStart = modelToScreen(start.x, start.y);
+          const screenEnd = modelToScreen(end.x, end.y);
+
+          ctx.beginPath();
+          ctx.moveTo(screenStart.x, screenStart.y);
+          ctx.lineTo(screenEnd.x, screenEnd.y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      };
+
+      drawModelContent();
+      ctx.restore();
+
+    } else {
+      // ═══════════════════════════════════════════════════════════════════════
+      // NON-SHEET MODE: Original rendering (drawing coords -> screen)
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // Apply transform
+      ctx.save();
+      ctx.translate(transform.x, transform.y);
+      ctx.scale(transform.scale, -transform.scale); // Flip Y for CAD coordinates
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // 1. FILL CUT POLYGONS (with color from IFC materials, override engine, or type fallback)
+      // ═══════════════════════════════════════════════════════════════════════
+      for (const polygon of drawing.cutPolygons) {
+        // Get fill color - priority: IFC materials > override engine > IFC type fallback
+        let fillColor = getFillColorForType(polygon.ifcType);
+        let strokeColor = '#000000';
+        let opacity = 1;
+
+        // Use actual IFC material colors from the mesh data
+        if (useIfcMaterials) {
+          const materialColor = entityColorMap.get(polygon.entityId);
+          if (materialColor) {
+            // Convert RGBA [0-1] to hex color
+            const r = Math.round(materialColor[0] * 255);
+            const g = Math.round(materialColor[1] * 255);
+            const b = Math.round(materialColor[2] * 255);
+            fillColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+            opacity = materialColor[3];
+          }
+        } else if (overridesEnabled) {
+          const elementData: ElementData = {
+            expressId: polygon.entityId,
+            ifcType: polygon.ifcType,
+          };
+          const result = overrideEngine.applyOverrides(elementData);
+          fillColor = result.style.fillColor;
+          strokeColor = result.style.strokeColor;
+          opacity = result.style.opacity;
+        }
+
+        ctx.globalAlpha = opacity;
+        ctx.fillStyle = fillColor;
+        ctx.beginPath();
+        if (polygon.polygon.outer.length > 0) {
+          ctx.moveTo(polygon.polygon.outer[0].x, polygon.polygon.outer[0].y);
+          for (let i = 1; i < polygon.polygon.outer.length; i++) {
+            ctx.lineTo(polygon.polygon.outer[i].x, polygon.polygon.outer[i].y);
+          }
+          ctx.closePath();
+
+          // Draw holes (inner boundaries)
+          for (const hole of polygon.polygon.holes) {
+            if (hole.length > 0) {
+              ctx.moveTo(hole[0].x, hole[0].y);
+              for (let i = 1; i < hole.length; i++) {
+                ctx.lineTo(hole[i].x, hole[i].y);
+              }
+              ctx.closePath();
+            }
+          }
+        }
+        ctx.fill('evenodd');
+        ctx.globalAlpha = 1;
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // 2. STROKE CUT POLYGON OUTLINES (with color from override engine)
+      // ═══════════════════════════════════════════════════════════════════════
+      for (const polygon of drawing.cutPolygons) {
+        let strokeColor = '#000000';
+        let lineWeight = 0.5;
+
+        if (overridesEnabled) {
+          const elementData: ElementData = {
+            expressId: polygon.entityId,
+            ifcType: polygon.ifcType,
+          };
+          const result = overrideEngine.applyOverrides(elementData);
+          strokeColor = result.style.strokeColor;
+          lineWeight = result.style.lineWeight;
+        }
+
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = lineWeight / transform.scale;
+        ctx.beginPath();
+        if (polygon.polygon.outer.length > 0) {
+          ctx.moveTo(polygon.polygon.outer[0].x, polygon.polygon.outer[0].y);
+          for (let i = 1; i < polygon.polygon.outer.length; i++) {
+            ctx.lineTo(polygon.polygon.outer[i].x, polygon.polygon.outer[i].y);
+          }
+          ctx.closePath();
+
+          // Stroke holes too
+          for (const hole of polygon.polygon.holes) {
+            if (hole.length > 0) {
+              ctx.moveTo(hole[0].x, hole[0].y);
+              for (let i = 1; i < hole.length; i++) {
+                ctx.lineTo(hole[i].x, hole[i].y);
+              }
+              ctx.closePath();
+            }
+          }
+        }
+        ctx.stroke();
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // 3. DRAW PROJECTION/SILHOUETTE LINES (skip 'cut' - already in polygons)
+      // ═══════════════════════════════════════════════════════════════════════
+      // Pre-compute bounds for line validation
+      const lineBounds = drawing.bounds;
+      const lineMargin = Math.max(lineBounds.max.x - lineBounds.min.x, lineBounds.max.y - lineBounds.min.y) * 0.5;
+      const lineMinX = lineBounds.min.x - lineMargin;
+      const lineMaxX = lineBounds.max.x + lineMargin;
+      const lineMinY = lineBounds.min.y - lineMargin;
+      const lineMaxY = lineBounds.max.y + lineMargin;
+
+      for (const line of drawing.lines) {
+        // Skip 'cut' lines - they're triangulation edges, already handled by polygons
+        if (line.category === 'cut') continue;
+
+        // Skip hidden lines if not showing
+        if (!showHiddenLines && line.visibility === 'hidden') continue;
+
+        // Skip lines with invalid coordinates (NaN, Infinity, or far outside bounds)
+        const { start, end } = line.line;
+        if (!isFinite(start.x) || !isFinite(start.y) || !isFinite(end.x) || !isFinite(end.y)) {
+          continue;
+        }
+        if (start.x < lineMinX || start.x > lineMaxX || start.y < lineMinY || start.y > lineMaxY ||
+            end.x < lineMinX || end.x > lineMaxX || end.y < lineMinY || end.y > lineMaxY) {
+          continue;
+        }
+
+        // Set line style based on category
+        let strokeColor = '#000000';
+        let lineWidth = 0.25;
+        let dashPattern: number[] = [];
+
+        switch (line.category) {
+          case 'projection':
+            lineWidth = 0.25;
+            strokeColor = '#000000';
+            break;
+          case 'hidden':
+            lineWidth = 0.18;
+            strokeColor = '#666666';
+            dashPattern = [2, 1];
+            break;
+          case 'silhouette':
+            lineWidth = 0.35;
+            strokeColor = '#000000';
+            break;
+          case 'crease':
+            lineWidth = 0.18;
+            strokeColor = '#000000';
+            break;
+          case 'boundary':
+            lineWidth = 0.25;
+            strokeColor = '#000000';
+            break;
+          case 'annotation':
+            lineWidth = 0.13;
+            strokeColor = '#000000';
+            break;
+        }
+
+        // Hidden visibility overrides
+        if (line.visibility === 'hidden') {
+          strokeColor = '#888888';
+          dashPattern = [2, 1];
+          lineWidth *= 0.7;
+        }
+
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = lineWidth / transform.scale;
+        ctx.setLineDash(dashPattern.map((d) => d / transform.scale));
+
+        ctx.beginPath();
+        ctx.moveTo(line.line.start.x, line.line.start.y);
+        ctx.lineTo(line.line.end.x, line.line.end.y);
+        ctx.stroke();
+
+        ctx.setLineDash([]);
+      }
+
+      ctx.restore();
+    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // 4. RENDER MEASUREMENTS (in screen space)
@@ -2019,7 +2572,7 @@ function Drawing2DCanvas({
       ctx.arc(screenSnap.x, screenSnap.y, 6, 0, Math.PI * 2);
       ctx.stroke();
     }
-  }, [drawing, transform, showHiddenLines, canvasSize, overrideEngine, overridesEnabled, entityColorMap, useIfcMaterials, measureMode, measureStart, measureCurrent, measureResults, measureSnapPoint]);
+  }, [drawing, transform, showHiddenLines, canvasSize, overrideEngine, overridesEnabled, entityColorMap, useIfcMaterials, measureMode, measureStart, measureCurrent, measureResults, measureSnapPoint, sheetEnabled, activeSheet]);
 
   return (
     <canvas
