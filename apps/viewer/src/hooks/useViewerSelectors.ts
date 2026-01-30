@@ -87,6 +87,12 @@ export function useMeasurementState() {
   const clearEdgeLock = useViewerStore((state) => state.clearEdgeLock);
   const incrementEdgeLockStrength = useViewerStore((state) => state.incrementEdgeLockStrength);
 
+  // Orthogonal constraint for shift+drag measurements
+  const measurementConstraintEdge = useViewerStore((state) => state.measurementConstraintEdge);
+  const setMeasurementConstraintEdge = useViewerStore((state) => state.setMeasurementConstraintEdge);
+  const updateConstraintActiveAxis = useViewerStore((state) => state.updateConstraintActiveAxis);
+  const clearMeasurementConstraintEdge = useViewerStore((state) => state.clearMeasurementConstraintEdge);
+
   return {
     // State
     measurements,
@@ -94,6 +100,7 @@ export function useMeasurementState() {
     activeMeasurement,
     snapEnabled,
     edgeLockState,
+    measurementConstraintEdge,
 
     // Actions
     addMeasurePoint,
@@ -109,6 +116,9 @@ export function useMeasurementState() {
     updateEdgeLockPosition,
     clearEdgeLock,
     incrementEdgeLockStrength,
+    setMeasurementConstraintEdge,
+    updateConstraintActiveAxis,
+    clearMeasurementConstraintEdge,
   };
 }
 

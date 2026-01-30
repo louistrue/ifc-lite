@@ -14,6 +14,8 @@ import type {
   ActiveMeasurement,
   EdgeLockState,
   SnapVisualization,
+  MeasurementConstraintEdge,
+  OrthogonalAxis,
 } from '../types.js';
 import { EDGE_LOCK_DEFAULTS } from '../constants.js';
 
@@ -29,6 +31,8 @@ export interface MeasurementSlice {
   snapEnabled: boolean;
   snapVisualization: SnapVisualization | null;
   edgeLockState: EdgeLockState;
+  /** Edge constraint for perpendicular measurements (when shift is held) */
+  measurementConstraintEdge: MeasurementConstraintEdge | null;
 
   // Legacy measurement actions
   addMeasurePoint: (point: MeasurePoint) => void;
@@ -55,6 +59,11 @@ export interface MeasurementSlice {
   updateEdgeLockPosition: (edgeT: number, isCorner: boolean, cornerValence: number) => void;
   clearEdgeLock: () => void;
   incrementEdgeLockStrength: () => void;
+
+  // Orthogonal constraint actions (shift+drag)
+  setMeasurementConstraintEdge: (edge: MeasurementConstraintEdge | null) => void;
+  updateConstraintActiveAxis: (axis: OrthogonalAxis | null) => void;
+  clearMeasurementConstraintEdge: () => void;
 }
 
 const getDefaultEdgeLockState = (): EdgeLockState => ({
@@ -75,6 +84,7 @@ export const createMeasurementSlice: StateCreator<MeasurementSlice, [], [], Meas
   snapEnabled: true,
   snapVisualization: null,
   edgeLockState: getDefaultEdgeLockState(),
+  measurementConstraintEdge: null,
 
   // Legacy measurement actions
   addMeasurePoint: (point) => set({ pendingMeasurePoint: point }),
@@ -141,12 +151,14 @@ export const createMeasurementSlice: StateCreator<MeasurementSlice, [], [], Meas
       measurements: [...state.measurements, measurement],
       activeMeasurement: null,
       snapTarget: null,
+      measurementConstraintEdge: null,
     };
   }),
 
   cancelMeasurement: () => set({
     activeMeasurement: null,
     snapTarget: null,
+    measurementConstraintEdge: null,
   }),
 
   deleteMeasurement: (id) => set((state) => ({
@@ -265,4 +277,17 @@ export const createMeasurementSlice: StateCreator<MeasurementSlice, [], [], Meas
       ),
     },
   })),
+
+  // Orthogonal constraint actions
+  setMeasurementConstraintEdge: (edge) => set({ measurementConstraintEdge: edge }),
+  updateConstraintActiveAxis: (axis) => set((state) => {
+    if (!state.measurementConstraintEdge) return {};
+    return {
+      measurementConstraintEdge: {
+        ...state.measurementConstraintEdge,
+        activeAxis: axis,
+      },
+    };
+  }),
+  clearMeasurementConstraintEdge: () => set({ measurementConstraintEdge: null }),
 });

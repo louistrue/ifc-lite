@@ -10,6 +10,7 @@ import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { X, Trash2, Ruler, Slice, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useViewerStore, type Measurement, type SnapVisualization } from '@/store';
+import type { MeasurementConstraintEdge } from '@/store/types';
 import { SnapType, type SnapTarget } from '@ifc-lite/renderer';
 
 export function ToolOverlays() {
@@ -33,6 +34,7 @@ function MeasureOverlay() {
   const snapTarget = useViewerStore((s) => s.snapTarget);
   const snapVisualization = useViewerStore((s) => s.snapVisualization);
   const snapEnabled = useViewerStore((s) => s.snapEnabled);
+  const measurementConstraintEdge = useViewerStore((s) => s.measurementConstraintEdge);
   const toggleSnap = useViewerStore((s) => s.toggleSnap);
   const deleteMeasurement = useViewerStore((s) => s.deleteMeasurement);
   const clearMeasurements = useViewerStore((s) => s.clearMeasurements);
@@ -200,6 +202,7 @@ function MeasureOverlay() {
         snapVisualization={snapVisualization}
         hoverPosition={snapIndicatorPos}
         projectToScreen={projectToScreen}
+        constraintEdge={measurementConstraintEdge}
       />
     </>
   );
@@ -231,23 +234,39 @@ function MeasurementItem({ measurement, index, onDelete }: MeasurementItemProps)
 interface MeasurementOverlaysProps {
   measurements: Measurement[];
   pending: { screenX: number; screenY: number } | null;
-  activeMeasurement: { start: { screenX: number; screenY: number }; current: { screenX: number; screenY: number }; distance: number } | null;
+  activeMeasurement: { start: { screenX: number; screenY: number; x: number; y: number; z: number }; current: { screenX: number; screenY: number }; distance: number } | null;
   snapTarget: SnapTarget | null;
   snapVisualization: SnapVisualization | null;
   hoverPosition?: { x: number; y: number } | null;
   projectToScreen?: (worldPos: { x: number; y: number; z: number }) => { x: number; y: number } | null;
+  constraintEdge?: MeasurementConstraintEdge | null;
 }
 
-const MeasurementOverlays = React.memo(function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTarget, snapVisualization, hoverPosition, projectToScreen }: MeasurementOverlaysProps) {
+const MeasurementOverlays = React.memo(function MeasurementOverlays({ measurements, pending, activeMeasurement, snapTarget, snapVisualization, hoverPosition, projectToScreen, constraintEdge }: MeasurementOverlaysProps) {
   // Determine snap indicator position
-  // Priority: activeMeasurement.current > hoverPosition
+  // Priority: activeMeasurement.current > snapTarget projected position > hoverPosition (fallback)
   const snapIndicatorPos = useMemo(() => {
-    return activeMeasurement
-      ? { x: activeMeasurement.current.screenX, y: activeMeasurement.current.screenY }
-      : hoverPosition;
+    // During active measurement, use the measurement's current position
+    if (activeMeasurement) {
+      return { x: activeMeasurement.current.screenX, y: activeMeasurement.current.screenY };
+    }
+    // During hover, project the snap target's world position to screen
+    // This ensures the indicator is at the actual snap point, not the cursor
+    if (snapTarget && projectToScreen) {
+      const projected = projectToScreen(snapTarget.position);
+      if (projected) {
+        return projected;
+      }
+    }
+    // Fallback to hover position (cursor position)
+    return hoverPosition ?? null;
   }, [
     activeMeasurement?.current?.screenX,
     activeMeasurement?.current?.screenY,
+    snapTarget?.position?.x,
+    snapTarget?.position?.y,
+    snapTarget?.position?.z,
+    projectToScreen,
     hoverPosition?.x,
     hoverPosition?.y,
   ]);
@@ -386,6 +405,107 @@ const MeasurementOverlays = React.memo(function MeasurementOverlays({ measuremen
           </div>
         </div>
       )}
+
+      {/* Orthogonal constraint axes visualization */}
+      {activeMeasurement && constraintEdge?.activeAxis && projectToScreen && (() => {
+        const startWorld = activeMeasurement.start;
+        const startScreen = { x: startWorld.screenX, y: startWorld.screenY };
+
+        // Project axis endpoints to screen space
+        const axisLength = 2.0; // 2 meters in world space
+
+        const { axis1, axis2, axis3 } = constraintEdge.axes;
+        const colors = constraintEdge.colors;
+
+        // Calculate endpoints along each axis (positive and negative)
+        const axis1End = projectToScreen({
+          x: startWorld.x + axis1.x * axisLength,
+          y: startWorld.y + axis1.y * axisLength,
+          z: startWorld.z + axis1.z * axisLength,
+        });
+        const axis1Neg = projectToScreen({
+          x: startWorld.x - axis1.x * axisLength,
+          y: startWorld.y - axis1.y * axisLength,
+          z: startWorld.z - axis1.z * axisLength,
+        });
+        const axis2End = projectToScreen({
+          x: startWorld.x + axis2.x * axisLength,
+          y: startWorld.y + axis2.y * axisLength,
+          z: startWorld.z + axis2.z * axisLength,
+        });
+        const axis2Neg = projectToScreen({
+          x: startWorld.x - axis2.x * axisLength,
+          y: startWorld.y - axis2.y * axisLength,
+          z: startWorld.z - axis2.z * axisLength,
+        });
+        const axis3End = projectToScreen({
+          x: startWorld.x + axis3.x * axisLength,
+          y: startWorld.y + axis3.y * axisLength,
+          z: startWorld.z + axis3.z * axisLength,
+        });
+        const axis3Neg = projectToScreen({
+          x: startWorld.x - axis3.x * axisLength,
+          y: startWorld.y - axis3.y * axisLength,
+          z: startWorld.z - axis3.z * axisLength,
+        });
+
+        if (!axis1End || !axis1Neg || !axis2End || !axis2Neg || !axis3End || !axis3Neg) return null;
+
+        const activeAxis = constraintEdge.activeAxis;
+
+        return (
+          <svg
+            className="absolute inset-0 pointer-events-none z-25"
+            style={{ overflow: 'visible', pointerEvents: 'none' }}
+          >
+            {/* Axis 1 */}
+            <line
+              x1={axis1Neg.x}
+              y1={axis1Neg.y}
+              x2={axis1End.x}
+              y2={axis1End.y}
+              stroke={colors.axis1}
+              strokeWidth={activeAxis === 'axis1' ? 3 : 1.5}
+              strokeOpacity={activeAxis === 'axis1' ? 0.9 : 0.3}
+              strokeDasharray={activeAxis === 'axis1' ? 'none' : '4,4'}
+              strokeLinecap="round"
+            />
+            {/* Axis 2 */}
+            <line
+              x1={axis2Neg.x}
+              y1={axis2Neg.y}
+              x2={axis2End.x}
+              y2={axis2End.y}
+              stroke={colors.axis2}
+              strokeWidth={activeAxis === 'axis2' ? 3 : 1.5}
+              strokeOpacity={activeAxis === 'axis2' ? 0.9 : 0.3}
+              strokeDasharray={activeAxis === 'axis2' ? 'none' : '4,4'}
+              strokeLinecap="round"
+            />
+            {/* Axis 3 */}
+            <line
+              x1={axis3Neg.x}
+              y1={axis3Neg.y}
+              x2={axis3End.x}
+              y2={axis3End.y}
+              stroke={colors.axis3}
+              strokeWidth={activeAxis === 'axis3' ? 3 : 1.5}
+              strokeOpacity={activeAxis === 'axis3' ? 0.9 : 0.3}
+              strokeDasharray={activeAxis === 'axis3' ? 'none' : '4,4'}
+              strokeLinecap="round"
+            />
+            {/* Center origin dot */}
+            <circle
+              cx={startScreen.x}
+              cy={startScreen.y}
+              r="4"
+              fill="white"
+              stroke={colors[activeAxis]}
+              strokeWidth="2"
+            />
+          </svg>
+        );
+      })()}
 
       {/* Edge highlight - draw full edge in 3D-projected screen space */}
       {snapVisualization?.edgeLine3D && projectToScreen && (() => {
@@ -646,7 +766,13 @@ const MeasurementOverlays = React.memo(function MeasurementOverlays({ measuremen
   // Compare pending
   if (prevProps.pending?.screenX !== nextProps.pending?.screenX ||
       prevProps.pending?.screenY !== nextProps.pending?.screenY) return false;
-  
+
+  // Compare constraintEdge
+  if (!!prevProps.constraintEdge !== !!nextProps.constraintEdge) return false;
+  if (prevProps.constraintEdge && nextProps.constraintEdge) {
+    if (prevProps.constraintEdge.activeAxis !== nextProps.constraintEdge.activeAxis) return false;
+  }
+
   return true; // All props are equal, skip re-render
 });
 
