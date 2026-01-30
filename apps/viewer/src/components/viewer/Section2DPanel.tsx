@@ -165,6 +165,7 @@ export function Section2DPanel() {
     if (!drawing || !drawing.cutPolygons.length) return [];
 
     const generator = new HatchGenerator();
+    const debuggedTypes = new Set<string>();
 
     // Function to get custom hatch settings from override engine
     const getCustomSettings = (polygon: DrawingPolygon): CustomHatchSettings | undefined => {
@@ -175,6 +176,12 @@ export function Section2DPanel() {
         ifcType: polygon.ifcType,
       };
       const result = overrideEngine.applyOverrides(elementData);
+
+      // Debug: log override result for first polygon of each type
+      if (!debuggedTypes.has(polygon.ifcType)) {
+        debuggedTypes.add(polygon.ifcType);
+        console.log(`[Hatch] ${polygon.ifcType}: pattern=${result.style.hatchPattern}, matchedRules=${result.matchedRules.length}, spacing=${result.style.hatchSpacing}, angle=${result.style.hatchAngle}`);
+      }
 
       // If override has a hatch pattern, use it
       if (result.style.hatchPattern && result.style.hatchPattern !== 'none') {
@@ -1079,6 +1086,8 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
     // ═══════════════════════════════════════════════════════════════════════
     // 2. DRAW HATCHING ON TOP OF FILLS
     // ═══════════════════════════════════════════════════════════════════════
+    // Debug: log hatching count
+    console.log(`[Hatching] showHatching=${showHatching}, lines=${hatchingLines.length}`);
     if (showHatching && hatchingLines.length > 0) {
       // Use drawing bounds to filter out invalid hatching lines
       const { bounds } = drawing;
@@ -1109,10 +1118,11 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
         }
       }
 
-      // Draw each entity's hatching with appropriate color
+      // Draw each entity's hatching with appropriate color and line weight
       for (const [entityId, lines] of linesByEntity) {
-        // Get hatch color from override engine or use default
+        // Get hatch color and line weight from override engine or use default
         let hatchColor = '#444444';
+        let hatchLineWeight = 0.25; // Default visible line weight in mm
         if (overridesEnabled && lines.length > 0) {
           const elementData: ElementData = {
             expressId: entityId,
@@ -1122,10 +1132,17 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
           if (result.style.hatchColor) {
             hatchColor = result.style.hatchColor;
           }
+          if (result.style.hatchLineWeight) {
+            hatchLineWeight = result.style.hatchLineWeight;
+          }
         }
 
         ctx.strokeStyle = hatchColor;
-        ctx.lineWidth = 0.1 / transform.scale;
+        // Use at least 1 pixel line width for visibility
+        // The mm value is scaled to approximate screen pixels
+        const minPixels = 1;
+        const scaledLineWeight = hatchLineWeight / transform.scale;
+        ctx.lineWidth = Math.max(minPixels / transform.scale, scaledLineWeight);
 
         for (const line of lines) {
           ctx.beginPath();
