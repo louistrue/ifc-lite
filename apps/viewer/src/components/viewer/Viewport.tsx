@@ -346,6 +346,15 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
       console.log('[Viewport] Clearing preview mesh');
       renderer.clearPreviewMesh();
     }
+
+    // Trigger a render to display the preview mesh change
+    renderer.render({
+      hiddenIds: hiddenEntitiesRef.current,
+      isolatedIds: isolatedEntitiesRef.current,
+      selectedId: selectedEntityIdRef.current,
+      selectedModelIndex: selectedModelIndexRef.current,
+      clearColor: clearColorRef.current,
+    });
   }, [previewMesh, isInitialized]);
 
   // Cleanup measurement state when tool changes + set cursor
