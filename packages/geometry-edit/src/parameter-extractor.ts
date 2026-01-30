@@ -88,6 +88,9 @@ export class ParameterExtractor {
         ? this.extractParameters(geometryExpressId, geometryType)
         : [];
 
+    console.log(`[ParameterExtractor] Extracted ${parameters.length} parameters for ${geometryType}:`,
+      parameters.map(p => `${p.path}=${JSON.stringify(p.value)}`));
+
     const bounds = this.calculateBounds(meshData);
 
     return {
@@ -271,6 +274,7 @@ export class ParameterExtractor {
    */
   private extractExtrusionParameters(expressId: number): GeometryParameter[] {
     const entityText = this.getEntityText(expressId);
+    console.log(`[ParameterExtractor] extractExtrusionParameters for #${expressId}, entityText:`, entityText?.substring(0, 200));
     if (!entityText) return [];
 
     const params: GeometryParameter[] = [];
@@ -279,6 +283,7 @@ export class ParameterExtractor {
     const match = entityText.match(
       /IFCEXTRUDEDAREASOLID\s*\(\s*#(\d+)\s*,\s*#?(\d+|[\$])\s*,\s*#?(\d+|[\$])\s*,\s*([\d.E+-]+)\s*\)/i
     );
+    console.log(`[ParameterExtractor] Regex match result:`, match ? `depth=${match[4]}, sweptArea=#${match[1]}` : 'no match');
 
     if (match) {
       const sweptAreaId = parseInt(match[1], 10);
