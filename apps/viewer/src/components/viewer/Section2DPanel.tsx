@@ -31,12 +31,12 @@ import {
   createSectionConfig,
   GraphicOverrideEngine,
   HatchGenerator,
+  getHatchPattern,
   type Drawing2D,
   type SectionConfig,
   type DrawingLine,
   type DrawingPolygon,
   type ElementData,
-  type ResolvedGraphicStyle,
   type HatchPatternType,
   type CustomHatchSettings,
 } from '@ifc-lite/drawing-2d';
@@ -165,11 +165,22 @@ export function Section2DPanel() {
     if (!drawing || !drawing.cutPolygons.length) return [];
 
     const generator = new HatchGenerator();
-    const debuggedTypes = new Set<string>();
 
     // Function to get custom hatch settings from override engine
+    // ALWAYS returns IFC type-based patterns as fallback to ensure hatching works in all modes
     const getCustomSettings = (polygon: DrawingPolygon): CustomHatchSettings | undefined => {
-      if (!overridesEnabled) return undefined;
+      // Get the IFC type-based pattern as default
+      const ifcTypePattern = getHatchPattern(polygon.ifcType);
+
+      // If overrides are disabled, use IFC type-based patterns
+      if (!overridesEnabled) {
+        return {
+          type: ifcTypePattern.type,
+          spacing: ifcTypePattern.spacing,
+          angle: ifcTypePattern.angle,
+          secondaryAngle: ifcTypePattern.secondaryAngle,
+        };
+      }
 
       const elementData: ElementData = {
         expressId: polygon.entityId,
@@ -177,14 +188,8 @@ export function Section2DPanel() {
       };
       const result = overrideEngine.applyOverrides(elementData);
 
-      // Debug: log override result for first polygon of each type
-      if (!debuggedTypes.has(polygon.ifcType)) {
-        debuggedTypes.add(polygon.ifcType);
-        console.log(`[Hatch] ${polygon.ifcType}: pattern=${result.style.hatchPattern}, matchedRules=${result.matchedRules.length}, spacing=${result.style.hatchSpacing}, angle=${result.style.hatchAngle}`);
-      }
-
-      // If override has a hatch pattern, use it
-      if (result.style.hatchPattern && result.style.hatchPattern !== 'none') {
+      // If a rule explicitly set a hatch pattern (not the default 'none'), use it
+      if (result.matchedRules.length > 0 && result.style.hatchPattern && result.style.hatchPattern !== 'none') {
         return {
           type: result.style.hatchPattern as HatchPatternType,
           spacing: result.style.hatchSpacing,
@@ -193,12 +198,19 @@ export function Section2DPanel() {
         };
       }
 
-      // If override explicitly sets 'none', return undefined to skip
+      // If a rule explicitly sets 'none', skip hatching for this element
       if (result.matchedRules.length > 0 && result.style.hatchPattern === 'none') {
         return { type: 'none' };
       }
 
-      return undefined; // Use IFC type-based pattern
+      // No matching rules - use IFC type-based pattern
+      // This ensures hatching works in IFC Materials mode and any mode without explicit hatch rules
+      return {
+        type: ifcTypePattern.type,
+        spacing: ifcTypePattern.spacing,
+        angle: ifcTypePattern.angle,
+        secondaryAngle: ifcTypePattern.secondaryAngle,
+      };
     };
 
     const hatchResults = generator.generateHatches(
@@ -1086,8 +1098,6 @@ function Drawing2DCanvas({ drawing, hatchingLines, transform, showHiddenLines, s
     // ═══════════════════════════════════════════════════════════════════════
     // 2. DRAW HATCHING ON TOP OF FILLS
     // ═══════════════════════════════════════════════════════════════════════
-    // Debug: log hatching count
-    console.log(`[Hatching] showHatching=${showHatching}, lines=${hatchingLines.length}`);
     if (showHatching && hatchingLines.length > 0) {
       // Use drawing bounds to filter out invalid hatching lines
       const { bounds } = drawing;
