@@ -399,8 +399,8 @@ export const MEP_PRESET: GraphicOverridePreset = {
 
 export const VIEW_3D_PRESET: GraphicOverridePreset = {
   id: 'preset-3d-colors',
-  name: 'IFC Materials',
-  description: 'Use actual material colors from the IFC file (default)',
+  name: 'Default',
+  description: 'By material color',
   icon: 'Palette',
   rules: [], // No rules needed - colors come from mesh data directly
   builtIn: true,

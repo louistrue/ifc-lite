@@ -57,18 +57,6 @@ const LINE_WEIGHTS = [
   { value: 'hairline', label: 'Hairline (0.18mm)' },
 ];
 
-// Hatch patterns
-const HATCH_PATTERNS = [
-  { value: 'none', label: 'None' },
-  { value: 'solid', label: 'Solid Fill' },
-  { value: 'diagonal', label: 'Diagonal Lines' },
-  { value: 'cross-hatch', label: 'Cross Hatch' },
-  { value: 'dots', label: 'Dots' },
-  { value: 'concrete', label: 'Concrete' },
-  { value: 'brick', label: 'Brick' },
-  { value: 'insulation', label: 'Insulation' },
-];
-
 // Icon mapping for presets
 const PRESET_ICONS: Record<string, LucideIcon> = {
   Palette,
@@ -190,22 +178,6 @@ export function DrawingSettingsPanel({ onClose }: DrawingSettingsPanelProps) {
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div className="px-4 pb-3 space-y-1">
-              {/* Default option */}
-              <button
-                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded transition-colors text-sm ${
-                  activePresetId === null
-                    ? 'bg-primary/10 text-primary'
-                    : 'hover:bg-muted text-foreground'
-                }`}
-                onClick={() => setActivePreset(null)}
-              >
-                <div className={`w-6 h-6 rounded flex items-center justify-center ${activePresetId === null ? 'bg-primary/20' : 'bg-muted'}`}>
-                  <PenTool className="h-3.5 w-3.5" />
-                </div>
-                <span className="flex-1 text-left font-medium">Default</span>
-                {activePresetId === null && <Check className="h-3.5 w-3.5" />}
-              </button>
-
               {/* Built-in presets */}
               {graphicOverridePresets.map((preset) => (
                 <button
@@ -543,88 +515,6 @@ function CustomRuleItem({
           )}
         </div>
       </div>
-
-      {/* Hatch Pattern */}
-      <div>
-        <Label className="text-xs">Hatch Pattern</Label>
-        <Select
-          value={rule.style.hatchPattern || 'none'}
-          onValueChange={(v) => handleStyleChange('hatchPattern', v === 'none' ? undefined : v)}
-        >
-          <SelectTrigger className="h-8 text-sm mt-1">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {HATCH_PATTERNS.map((p) => (
-              <SelectItem key={p.value} value={p.value}>
-                {p.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Hatch settings - show when pattern selected */}
-      {rule.style.hatchPattern && rule.style.hatchPattern !== 'none' && rule.style.hatchPattern !== 'solid' && (
-        <div className="space-y-2">
-          {/* Spacing - shown for line-based patterns */}
-          {['diagonal', 'cross-hatch', 'horizontal', 'vertical'].includes(rule.style.hatchPattern) && (
-            <div>
-              <Label className="text-xs">Line Spacing (mm)</Label>
-              <Input
-                type="number"
-                min={0.5}
-                max={10}
-                step={0.5}
-                value={rule.style.hatchSpacing || 3}
-                onChange={(e) => handleStyleChange('hatchSpacing', parseFloat(e.target.value) || 3)}
-                className="h-8 text-xs mt-1"
-              />
-            </div>
-          )}
-
-          {/* Angle - only for diagonal and cross-hatch */}
-          {['diagonal', 'cross-hatch'].includes(rule.style.hatchPattern) && (
-            <div>
-              <Label className="text-xs">Line Angle (°)</Label>
-              <Input
-                type="number"
-                min={0}
-                max={180}
-                step={15}
-                value={rule.style.hatchAngle || 45}
-                onChange={(e) => handleStyleChange('hatchAngle', parseFloat(e.target.value) || 45)}
-                className="h-8 text-xs mt-1"
-              />
-            </div>
-          )}
-
-          {/* Color - for all hatch patterns */}
-          <div>
-            <Label className="text-xs">Hatch Color</Label>
-            <div className="flex gap-1 mt-1">
-              <input
-                type="color"
-                value={rule.style.hatchColor || '#444444'}
-                onChange={(e) => handleStyleChange('hatchColor', e.target.value)}
-                className="w-8 h-8 rounded border cursor-pointer"
-              />
-              <Input
-                value={rule.style.hatchColor || '#444444'}
-                onChange={(e) => handleStyleChange('hatchColor', e.target.value)}
-                className="h-8 text-xs font-mono flex-1"
-              />
-            </div>
-          </div>
-
-          {/* Info for predefined patterns */}
-          {['brick', 'concrete', 'insulation', 'dots'].includes(rule.style.hatchPattern) && (
-            <p className="text-xs text-muted-foreground italic">
-              Pattern uses predefined spacing and angles.
-            </p>
-          )}
-        </div>
-      )}
 
       {/* Actions */}
       <div className="flex items-center justify-between pt-2 border-t">

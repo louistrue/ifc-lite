@@ -549,6 +549,9 @@ export function Section2DPanel() {
     });
   }, [drawing]);
 
+  // Track axis changes for forced fit-to-view
+  const lastFitAxisRef = useRef(sectionPlane.axis);
+
   // Set needsFit when axis changes
   useEffect(() => {
     if (sectionPlane.axis !== prevAxisRef.current) {
@@ -558,13 +561,17 @@ export function Section2DPanel() {
   }, [sectionPlane.axis]);
 
   // Auto-fit when: (1) needsFit is true (first open or axis change), or (2) not pinned after regenerate
+  // ALWAYS fit when axis changed, regardless of pin state
   useEffect(() => {
     if (status === 'ready' && drawing && containerRef.current) {
-      // Fit if needsFit (first open/axis change) OR if not pinned
-      if (needsFit || !isPinned) {
+      const axisChanged = lastFitAxisRef.current !== sectionPlane.axis;
+
+      // Fit if needsFit (first open/axis change) OR if not pinned OR if axis just changed
+      if (needsFit || !isPinned || axisChanged) {
         // Small delay to ensure canvas is rendered
         const timeout = setTimeout(() => {
           fitToView();
+          lastFitAxisRef.current = sectionPlane.axis;
           if (needsFit) {
             setNeedsFit(false);  // Clear the flag after fitting
           }
@@ -572,7 +579,7 @@ export function Section2DPanel() {
         return () => clearTimeout(timeout);
       }
     }
-  }, [status, drawing, fitToView, isPinned, needsFit]);
+  }, [status, drawing, fitToView, isPinned, needsFit, sectionPlane.axis]);
 
   // Export SVG
   const handleExportSVG = useCallback(() => {
