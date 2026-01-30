@@ -38,9 +38,11 @@ interface ViewportProps {
   coordinateInfo?: CoordinateInfo;
   computedIsolatedIds?: Set<number> | null;
   modelIdToIndex?: Map<string, number>;
+  /** Callback when entity is clicked in global geometry edit mode */
+  onGlobalGeometryEditClick?: (globalId: number) => void;
 }
 
-export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelIdToIndex }: ViewportProps) {
+export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelIdToIndex, onGlobalGeometryEditClick }: ViewportProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<Renderer | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -121,6 +123,9 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
 
   // Context menu state
   const { openContextMenu } = useContextMenuState();
+
+  // Global geometry edit state
+  const globalGeometryEditEnabled = useViewerStore((s) => s.globalGeometryEditEnabled);
 
   // Measurement state
   const {
@@ -267,6 +272,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   const lastHoverCheckRef = useRef<number>(0);
   const hoverThrottleMs = 50; // Check hover every 50ms
   const hoverTooltipsEnabledRef = useRef(hoverTooltipsEnabled);
+  const globalGeometryEditEnabledRef = useRef(globalGeometryEditEnabled);
+  const onGlobalGeometryEditClickRef = useRef(onGlobalGeometryEditClick);
 
   // Measure tool throttling (adaptive based on raycast performance)
   const measureRaycastPendingRef = useRef(false);
@@ -318,6 +325,12 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
       clearHover();
     }
   }, [hoverTooltipsEnabled, clearHover]);
+  useEffect(() => {
+    globalGeometryEditEnabledRef.current = globalGeometryEditEnabled;
+  }, [globalGeometryEditEnabled]);
+  useEffect(() => {
+    onGlobalGeometryEditClickRef.current = onGlobalGeometryEditClick;
+  }, [onGlobalGeometryEditClick]);
 
   // Cleanup measurement state when tool changes + set cursor
   useEffect(() => {
@@ -1381,6 +1394,12 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         } else {
           // Single click - uses visibility filtering so only visible elements can be selected
           const pickResult = await renderer.pick(x, y, getPickOptions());
+
+          // Global geometry edit mode: start editing on click
+          if (globalGeometryEditEnabledRef.current && pickResult && onGlobalGeometryEditClickRef.current) {
+            onGlobalGeometryEditClickRef.current(pickResult.expressId);
+            return;
+          }
 
           // Multi-selection with Ctrl/Cmd
           if (e.ctrlKey || e.metaKey) {

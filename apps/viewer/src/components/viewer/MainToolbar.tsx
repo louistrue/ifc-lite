@@ -53,7 +53,7 @@ import { useViewerStore, isIfcxDataStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { cn } from '@/lib/utils';
 import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
-import { FileSpreadsheet, FileJson, FileText, Filter, Upload, Pencil } from 'lucide-react';
+import { FileSpreadsheet, FileJson, FileText, Filter, Upload, Pencil, PenTool } from 'lucide-react';
 import { ExportDialog } from './ExportDialog';
 import { BulkPropertyEditor } from './BulkPropertyEditor';
 import { DataConnector } from './DataConnector';
@@ -157,6 +157,8 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const typeVisibility = useViewerStore((state) => state.typeVisibility);
   const toggleTypeVisibility = useViewerStore((state) => state.toggleTypeVisibility);
   const resetViewerState = useViewerStore((state) => state.resetViewerState);
+  const globalGeometryEditEnabled = useViewerStore((state) => state.globalGeometryEditEnabled);
+  const setGlobalGeometryEditEnabled = useViewerStore((state) => state.setGlobalGeometryEditEnabled);
 
   // Check which type geometries exist
   const typeGeometryExists = useMemo(() => {
@@ -514,6 +516,28 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
       {/* Export Changes Button - shows when there are pending mutations */}
       <ExportChangesButton />
+
+      {/* Global Geometry Edit Mode Toggle */}
+      {hasModelsLoaded && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={globalGeometryEditEnabled ? 'default' : 'ghost'}
+              size="icon-sm"
+              onClick={(e) => {
+                (e.currentTarget as HTMLButtonElement).blur();
+                setGlobalGeometryEditEnabled(!globalGeometryEditEnabled);
+              }}
+              className={cn(globalGeometryEditEnabled && 'bg-primary text-primary-foreground')}
+            >
+              <PenTool className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {globalGeometryEditEnabled ? 'Exit' : 'Enter'} Geometry Edit Mode (click any object to edit)
+          </TooltipContent>
+        </Tooltip>
+      )}
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 

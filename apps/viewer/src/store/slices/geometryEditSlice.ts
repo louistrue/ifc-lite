@@ -80,12 +80,18 @@ export interface GeometryEditSlice {
   /** Snap to grid size (0 = disabled) */
   gridSnapSize: number;
 
+  /** Global geometry edit mode - when enabled, clicking any entity starts editing */
+  globalGeometryEditEnabled: boolean;
+
   // =========================================================================
   // Actions - Mode Management
   // =========================================================================
 
   /** Set geometry edit mode */
   setGeometryEditMode: (mode: GeometryEditUIMode) => void;
+
+  /** Enable/disable global geometry edit mode */
+  setGlobalGeometryEditEnabled: (enabled: boolean) => void;
 
   /** Set transform gizmo mode */
   setTransformMode: (mode: TransformMode) => void;
@@ -207,6 +213,7 @@ export const createGeometryEditSlice: StateCreator<
   geometryEditVersion: 0,
   constraintAxis: null,
   gridSnapSize: 0,
+  globalGeometryEditEnabled: false,
 
   // =========================================================================
   // Mode Management
@@ -214,6 +221,10 @@ export const createGeometryEditSlice: StateCreator<
 
   setGeometryEditMode: (mode) => {
     set({ geometryEditMode: mode });
+  },
+
+  setGlobalGeometryEditEnabled: (enabled) => {
+    set({ globalGeometryEditEnabled: enabled });
   },
 
   setTransformMode: (mode) => {
@@ -653,6 +664,7 @@ export const createGeometryEditSlice: StateCreator<
       meshSelection: null,
       hasGeometryChanges: false,
       geometryEditVersion: 0,
+      globalGeometryEditEnabled: false,
     });
   },
 });

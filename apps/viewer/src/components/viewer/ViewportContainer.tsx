@@ -9,12 +9,15 @@ import { ToolOverlays } from './ToolOverlays';
 import { GeometryHandles } from './GeometryHandles';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
+import { useGeometryEdit } from '@/hooks/useGeometryEdit';
 import { useWebGPU } from '@/hooks/useWebGPU';
 import { Upload, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown, ExternalLink, Plus } from 'lucide-react';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 
 export function ViewportContainer() {
-  const { geometryResult, ifcDataStore, loadFile, loading, models, clearAllModels, loadFilesSequentially } = useIfc();
+  const { geometryResult, ifcDataStore, loadFile, loading, models, clearAllModels, loadFilesSequentially, getMeshForEntity } = useIfc();
+  const { startEditing, initializeContext } = useGeometryEdit();
+  const resolveGlobalIdFromModels = useViewerStore((s) => s.resolveGlobalIdFromModels);
   const selectedStoreys = useViewerStore((s) => s.selectedStoreys);
   const typeVisibility = useViewerStore((s) => s.typeVisibility);
   const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
@@ -164,6 +167,35 @@ export function ViewportContainer() {
 
   // Check if any models are loaded (even if hidden) - used to show empty 3D vs starting UI
   const hasLoadedModels = storeModels.size > 0 || (geometryResult?.meshes && geometryResult.meshes.length > 0);
+
+  // Global geometry edit mode: handle click to start editing
+  const handleGlobalGeometryEditClick = useCallback((globalId: number) => {
+    // Resolve globalId -> (modelId, originalExpressId)
+    const resolved = resolveGlobalIdFromModels(globalId);
+    if (!resolved) {
+      console.warn('Could not resolve globalId for geometry edit:', globalId);
+      return;
+    }
+
+    const model = models.get(resolved.modelId);
+    if (!model) {
+      console.warn('Model not found for geometry edit:', resolved.modelId);
+      return;
+    }
+
+    // Initialize edit context for this model if not already done
+    initializeContext(model.ifcDataStore, resolved.modelId, model.idOffset);
+
+    // Get mesh data for the entity
+    const meshData = getMeshForEntity?.(globalId);
+    if (!meshData) {
+      console.warn('No mesh data available for entity', globalId);
+      return;
+    }
+
+    // Start editing session
+    startEditing(resolved.modelId, resolved.expressId, meshData);
+  }, [resolveGlobalIdFromModels, models, initializeContext, getMeshForEntity, startEditing]);
 
   // Filter geometry based on type visibility only
   // PERFORMANCE FIX: Don't filter by storey or hiddenEntities here
@@ -574,6 +606,7 @@ export function ViewportContainer() {
         coordinateInfo={mergedGeometryResult?.coordinateInfo}
         computedIsolatedIds={computedIsolatedIds}
         modelIdToIndex={modelIdToIndex}
+        onGlobalGeometryEditClick={handleGlobalGeometryEditClick}
       />
       <ViewportOverlays />
       <ToolOverlays />
