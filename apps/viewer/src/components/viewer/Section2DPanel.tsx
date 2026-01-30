@@ -595,7 +595,7 @@ export function Section2DPanel() {
           </div>
         )}
 
-        {status === 'ready' && drawing && (
+        {status === 'ready' && drawing && drawing.cutPolygons.length > 0 && (
           <Drawing2DCanvas
             drawing={drawing}
             hatchingLines={hatchingLines}
@@ -603,6 +603,15 @@ export function Section2DPanel() {
             showHiddenLines={displayOptions.showHiddenLines}
             showHatching={displayOptions.showHatching}
           />
+        )}
+
+        {status === 'ready' && drawing && drawing.cutPolygons.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="text-center text-muted-foreground">
+              <p className="font-medium">No geometry at this level</p>
+              <p className="text-sm mt-1">Move the section plane to cut through geometry</p>
+            </div>
+          </div>
         )}
 
         {status === 'idle' && !drawing && (
