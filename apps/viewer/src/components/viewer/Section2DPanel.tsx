@@ -113,13 +113,14 @@ export function Section2DPanel() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [panelSize, setPanelSize] = useState({ width: 400, height: 300 });
   const [isNarrow, setIsNarrow] = useState(false);  // Track if panel is too narrow for all buttons
-  const [isPinned, setIsPinned] = useState(false);  // When pinned, don't auto-fit after regenerate
+  const [isPinned, setIsPinned] = useState(true);  // Default ON: keep position on regenerate
   const containerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const isPanning = useRef(false);
   const lastPanPoint = useRef({ x: 0, y: 0 });
   const isResizing = useRef<'right' | 'top' | 'corner' | null>(null);
   const resizeStartPos = useRef({ x: 0, y: 0, width: 0, height: 0 });
+  const prevAxisRef = useRef(sectionPlane.axis);  // Track axis changes
 
   // Track panel width for responsive header
   useEffect(() => {
@@ -339,6 +340,20 @@ export function Section2DPanel() {
       return () => clearTimeout(timeout);
     }
   }, [status, drawing, fitToView, isPinned]);
+
+  // Always auto-fit when axis changes (front/side/down) regardless of pin
+  useEffect(() => {
+    if (sectionPlane.axis !== prevAxisRef.current) {
+      prevAxisRef.current = sectionPlane.axis;
+      // Fit to view after axis change and drawing regenerates
+      if (status === 'ready' && drawing && containerRef.current) {
+        const timeout = setTimeout(() => {
+          fitToView();
+        }, 100);
+        return () => clearTimeout(timeout);
+      }
+    }
+  }, [sectionPlane.axis, status, drawing, fitToView]);
 
   // Export SVG
   const handleExportSVG = useCallback(() => {
