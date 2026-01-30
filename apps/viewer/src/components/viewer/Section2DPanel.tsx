@@ -12,7 +12,7 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect } from 'react';
-import { X, Download, Eye, EyeOff, Grid3x3, Maximize2, Minimize2, ZoomIn, ZoomOut, Loader2 } from 'lucide-react';
+import { X, Download, Eye, EyeOff, Grid3x3, Maximize2, Minimize2, ZoomIn, ZoomOut, Loader2, Printer, GripVertical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
@@ -104,9 +104,13 @@ export function Section2DPanel() {
   // Local state for pan/zoom and expanded mode
   const [viewTransform, setViewTransform] = useState({ x: 0, y: 0, scale: 1 });
   const [isExpanded, setIsExpanded] = useState(false);
+  const [panelSize, setPanelSize] = useState({ width: 400, height: 300 });
   const containerRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const isPanning = useRef(false);
   const lastPanPoint = useRef({ x: 0, y: 0 });
+  const isResizing = useRef<'right' | 'bottom' | 'corner' | null>(null);
+  const resizeStartPos = useRef({ x: 0, y: 0, width: 0, height: 0 });
 
   // Store hatching lines separately
   const [hatchingLines, setHatchingLines] = useState<DrawingLine[]>([]);
@@ -351,15 +355,119 @@ export function Section2DPanel() {
     setIsExpanded((prev) => !prev);
   }, []);
 
+  // Resize handlers
+  const handleResizeStart = useCallback((edge: 'right' | 'bottom' | 'corner') => (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isResizing.current = edge;
+    resizeStartPos.current = {
+      x: e.clientX,
+      y: e.clientY,
+      width: panelSize.width,
+      height: panelSize.height,
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing.current) return;
+
+      const dx = e.clientX - resizeStartPos.current.x;
+      const dy = e.clientY - resizeStartPos.current.y;
+
+      setPanelSize((prev) => {
+        let newWidth = prev.width;
+        let newHeight = prev.height;
+
+        if (isResizing.current === 'right' || isResizing.current === 'corner') {
+          newWidth = Math.max(300, Math.min(1200, resizeStartPos.current.width + dx));
+        }
+        if (isResizing.current === 'bottom' || isResizing.current === 'corner') {
+          newHeight = Math.max(200, Math.min(800, resizeStartPos.current.height + dy));
+        }
+
+        return { width: newWidth, height: newHeight };
+      });
+    };
+
+    const handleMouseUp = () => {
+      isResizing.current = null;
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  }, [panelSize]);
+
+  // Print handler
+  const handlePrint = useCallback(() => {
+    if (!svgContent) return;
+
+    // Create a new window for printing
+    const printWindow = window.open('', '_blank', 'width=800,height=600');
+    if (!printWindow) {
+      alert('Please allow popups to print');
+      return;
+    }
+
+    // Write print-friendly HTML with the SVG
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Section Drawing - ${sectionPlane.axis} at ${sectionPlane.position}%</title>
+          <style>
+            @media print {
+              @page { margin: 1cm; }
+              body { margin: 0; }
+            }
+            body {
+              display: flex;
+              justify-content: center;
+              align-items: center;
+              min-height: 100vh;
+              margin: 0;
+              padding: 20px;
+              box-sizing: border-box;
+            }
+            svg {
+              max-width: 100%;
+              max-height: 100vh;
+              width: auto;
+              height: auto;
+            }
+          </style>
+        </head>
+        <body>
+          ${svgContent}
+          <script>
+            window.onload = function() {
+              window.print();
+              window.onafterprint = function() { window.close(); };
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  }, [svgContent, sectionPlane]);
+
   if (!panelVisible) return null;
 
-  // Panel sizing: small corner overlay or expanded fullscreen
+  // Panel sizing: small corner overlay, expanded fullscreen, or custom size
+  const panelStyle = isExpanded
+    ? {}  // Expanded uses CSS classes for full sizing
+    : { width: panelSize.width, height: panelSize.height };
+
   const panelClasses = isExpanded
     ? 'absolute inset-4 z-40'
-    : 'absolute bottom-4 left-4 w-80 h-64 z-40';
+    : 'absolute bottom-4 left-4 z-40';
 
   return (
-    <div className={`${panelClasses} bg-background rounded-lg border shadow-xl flex flex-col overflow-hidden`}>
+    <div
+      ref={panelRef}
+      className={`${panelClasses} bg-background rounded-lg border shadow-xl flex flex-col overflow-hidden`}
+      style={panelStyle}
+    >
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-1.5 border-b bg-muted/50 rounded-t-lg">
         <div className="flex items-center gap-2">
@@ -413,9 +521,20 @@ export function Section2DPanel() {
             size="icon-sm"
             onClick={handleExportSVG}
             disabled={!svgContent}
-            title="Export SVG"
+            title="Download SVG"
           >
             <Download className="h-4 w-4" />
+          </Button>
+
+          {/* Print */}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={handlePrint}
+            disabled={!svgContent}
+            title="Print"
+          >
+            <Printer className="h-4 w-4" />
           </Button>
 
           {/* Regenerate */}
@@ -497,6 +616,29 @@ export function Section2DPanel() {
           </div>
         )}
       </div>
+
+      {/* Resize handles - only show when not expanded */}
+      {!isExpanded && (
+        <>
+          {/* Right edge */}
+          <div
+            className="absolute top-0 right-0 w-2 h-full cursor-ew-resize hover:bg-primary/20 transition-colors"
+            onMouseDown={handleResizeStart('right')}
+          />
+          {/* Bottom edge */}
+          <div
+            className="absolute bottom-0 left-0 w-full h-2 cursor-ns-resize hover:bg-primary/20 transition-colors"
+            onMouseDown={handleResizeStart('bottom')}
+          />
+          {/* Corner */}
+          <div
+            className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize flex items-center justify-center hover:bg-primary/20 transition-colors"
+            onMouseDown={handleResizeStart('corner')}
+          >
+            <GripVertical className="h-3 w-3 text-muted-foreground rotate-[-45deg]" />
+          </div>
+        </>
+      )}
     </div>
   );
 }
