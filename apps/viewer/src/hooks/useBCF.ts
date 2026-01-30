@@ -99,6 +99,10 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
   const toggleSectionPlane = useViewerStore((s) => s.toggleSectionPlane);
   const flipSectionPlane = useViewerStore((s) => s.flipSectionPlane);
 
+  // Selection and visibility actions
+  const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
+  const setHiddenEntities = useViewerStore((s) => s.setHiddenEntities);
+
   // Get coordinate info for bounds
   const models = useViewerStore((s) => s.models);
 
@@ -190,6 +194,51 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
   }, [models]);
 
   /**
+   * Convert expressId (with model offset) to IFC GlobalId string
+   * Handles multi-model federation by finding the correct model and subtracting offset
+   */
+  const expressIdToGlobalId = useCallback(
+    (expressId: number): string | null => {
+      for (const model of models.values()) {
+        const offset = model.idOffset ?? 0;
+        const localExpressId = expressId - offset;
+
+        // Check if this expressId belongs to this model's range
+        if (localExpressId > 0 && localExpressId <= (model.maxExpressId ?? Infinity)) {
+          const globalIdString = model.ifcDataStore?.entities?.getGlobalId(localExpressId);
+          if (globalIdString) {
+            return globalIdString;
+          }
+        }
+      }
+      return null;
+    },
+    [models]
+  );
+
+  /**
+   * Convert IFC GlobalId string to expressId (with model offset for federation)
+   * Returns { expressId, modelId } or null if not found
+   */
+  const globalIdToExpressId = useCallback(
+    (globalIdString: string): { expressId: number; modelId: string } | null => {
+      for (const [modelId, model] of models.entries()) {
+        const localExpressId = model.ifcDataStore?.entities?.getExpressIdByGlobalId(globalIdString);
+        if (localExpressId !== undefined && localExpressId > 0) {
+          // Add model offset for federation
+          const offset = model.idOffset ?? 0;
+          return {
+            expressId: localExpressId + offset,
+            modelId,
+          };
+        }
+      }
+      return null;
+    },
+    [models]
+  );
+
+  /**
    * Create a viewpoint from current viewer state
    */
   const createViewpointFromState = useCallback(
@@ -228,29 +277,35 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
       // Get bounds for section plane conversion
       const bounds = getBounds() ?? undefined;
 
-      // Get selected GUIDs
-      // TODO: When GUID mapping is implemented, convert expressIds to IFC GUIDs
+      // Get selected GUIDs - convert expressIds to IFC GlobalId strings
       const selectedGuids: string[] | undefined = includeSelection
         ? (() => {
             const guids: string[] = [];
             if (selectedEntityId !== null) {
-              // For now, use expressId as string - will be replaced with actual GUID lookup
-              guids.push(String(selectedEntityId));
+              const guid = expressIdToGlobalId(selectedEntityId);
+              if (guid) guids.push(guid);
             }
             for (const id of selectedEntityIds) {
               if (id !== selectedEntityId) {
-                guids.push(String(id));
+                const guid = expressIdToGlobalId(id);
+                if (guid) guids.push(guid);
               }
             }
             return guids.length > 0 ? guids : undefined;
           })()
         : undefined;
 
-      // Get hidden GUIDs
-      // TODO: When GUID mapping is implemented, convert expressIds to IFC GUIDs
+      // Get hidden GUIDs - convert expressIds to IFC GlobalId strings
       const hiddenGuids: string[] | undefined =
         includeHidden && hiddenEntities.size > 0
-          ? Array.from(hiddenEntities).map(String)
+          ? (() => {
+              const guids: string[] = [];
+              for (const id of hiddenEntities) {
+                const guid = expressIdToGlobalId(id);
+                if (guid) guids.push(guid);
+              }
+              return guids.length > 0 ? guids : undefined;
+            })()
           : undefined;
 
       // Create viewpoint
@@ -271,6 +326,7 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
       selectedEntityId,
       selectedEntityIds,
       hiddenEntities,
+      expressIdToGlobalId,
     ]
   );
 
@@ -331,17 +387,61 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
         }
       }
 
-      // TODO: Apply selection and visibility when GUID mapping is implemented
-      // For now, log what would be applied
+      // Apply selection from BCF components
       const state = extractViewpointState(viewpoint, bounds);
+
       if (state.selectedGuids.length > 0) {
-        console.log('[useBCF] Viewpoint has selection (GUID mapping needed):', state.selectedGuids);
+        // Convert GlobalId strings to expressIds
+        const selectedExpressIds: number[] = [];
+        for (const guid of state.selectedGuids) {
+          const result = globalIdToExpressId(guid);
+          if (result) {
+            selectedExpressIds.push(result.expressId);
+          }
+        }
+
+        if (selectedExpressIds.length > 0) {
+          // Select the first entity (primary selection)
+          // The expressId here already includes the federation offset
+          setSelectedEntityId(selectedExpressIds[0]);
+          // Note: Multi-selection would require additional store support
+        }
+      } else {
+        // Clear selection if viewpoint has no selection
+        setSelectedEntityId(null);
       }
+
+      // Apply visibility (hidden entities) from BCF components
       if (state.hiddenGuids.length > 0) {
-        console.log('[useBCF] Viewpoint has hidden entities (GUID mapping needed):', state.hiddenGuids);
+        // Convert GlobalId strings to expressIds
+        const hiddenExpressIds = new Set<number>();
+        for (const guid of state.hiddenGuids) {
+          const result = globalIdToExpressId(guid);
+          if (result) {
+            hiddenExpressIds.add(result.expressId);
+          }
+        }
+
+        if (hiddenExpressIds.size > 0) {
+          setHiddenEntities(hiddenExpressIds);
+        }
+      } else {
+        // Clear hidden entities if viewpoint has none
+        setHiddenEntities(new Set());
       }
     },
-    [getRenderer, getBounds, sectionPlane, setSectionPlaneAxis, setSectionPlanePosition, toggleSectionPlane, flipSectionPlane]
+    [
+      getRenderer,
+      getBounds,
+      sectionPlane,
+      setSectionPlaneAxis,
+      setSectionPlanePosition,
+      toggleSectionPlane,
+      flipSectionPlane,
+      globalIdToExpressId,
+      setSelectedEntityId,
+      setHiddenEntities,
+    ]
   );
 
   return {
