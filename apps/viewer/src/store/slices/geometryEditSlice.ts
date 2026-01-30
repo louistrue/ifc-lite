@@ -268,16 +268,21 @@ export const createGeometryEditSlice: StateCreator<
   // =========================================================================
 
   startEntityEdit: (modelId, expressId, meshData) => {
+    console.log('[GeomEditSlice] startEntityEdit called:', { modelId, expressId, ifcType: meshData.ifcType });
     const context = get().editContexts.get(modelId);
     if (!context) {
-      console.warn(`No edit context for model ${modelId}`);
+      console.warn(`[GeomEditSlice] No edit context for model ${modelId}`);
+      console.log('[GeomEditSlice] Available contexts:', Array.from(get().editContexts.keys()));
       return null;
     }
+    console.log('[GeomEditSlice] Found context for model:', modelId);
 
     const session = context.startEditing(expressId, meshData);
     if (!session) {
+      console.warn('[GeomEditSlice] context.startEditing returned null - entity may not be editable');
       return null;
     }
+    console.log('[GeomEditSlice] Session created successfully, mode:', session.mode);
 
     set((state) => {
       const newPreviewMeshes = new Map(state.previewMeshes);

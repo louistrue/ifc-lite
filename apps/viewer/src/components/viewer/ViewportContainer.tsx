@@ -170,12 +170,15 @@ export function ViewportContainer() {
 
   // Global geometry edit mode: handle click to start editing
   const handleGlobalGeometryEditClick = useCallback((globalId: number) => {
+    console.log('[GeomEdit] Starting edit for globalId:', globalId);
+
     // Get mesh data for the entity first
     const meshData = getMeshForEntity?.(globalId);
     if (!meshData) {
-      console.warn('No mesh data available for entity', globalId);
+      console.warn('[GeomEdit] No mesh data available for entity', globalId);
       return;
     }
+    console.log('[GeomEdit] Got mesh data, ifcType:', meshData.ifcType);
 
     // Try to resolve globalId -> (modelId, originalExpressId) for multi-model mode
     const resolved = resolveGlobalIdFromModels(globalId);
@@ -183,8 +186,11 @@ export function ViewportContainer() {
       const model = models.get(resolved.modelId);
       if (model) {
         // Multi-model mode: use resolved model info
-        initializeContext(model.ifcDataStore, resolved.modelId, model.idOffset);
-        startEditing(resolved.modelId, resolved.expressId, meshData);
+        console.log('[GeomEdit] Multi-model mode:', resolved.modelId, 'expressId:', resolved.expressId);
+        const ctx = initializeContext(model.ifcDataStore, resolved.modelId, model.idOffset);
+        console.log('[GeomEdit] Context initialized:', !!ctx);
+        const session = startEditing(resolved.modelId, resolved.expressId, meshData);
+        console.log('[GeomEdit] Session created:', !!session, session?.mode);
         return;
       }
     }
@@ -193,12 +199,15 @@ export function ViewportContainer() {
     // In this case, globalId = expressId (offset is 0) and modelId is '__legacy__'
     if (ifcDataStore) {
       const legacyModelId = '__legacy__';
-      initializeContext(ifcDataStore, legacyModelId, 0);
-      startEditing(legacyModelId, globalId, meshData);
+      console.log('[GeomEdit] Legacy mode, expressId:', globalId);
+      const ctx = initializeContext(ifcDataStore, legacyModelId, 0);
+      console.log('[GeomEdit] Context initialized:', !!ctx);
+      const session = startEditing(legacyModelId, globalId, meshData);
+      console.log('[GeomEdit] Session created:', !!session, session?.mode);
       return;
     }
 
-    console.warn('Could not start geometry edit - no model context available for:', globalId);
+    console.warn('[GeomEdit] Could not start - no model context available for:', globalId);
   }, [resolveGlobalIdFromModels, models, ifcDataStore, initializeContext, getMeshForEntity, startEditing]);
 
   // Filter geometry based on type visibility only
