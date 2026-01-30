@@ -275,15 +275,16 @@ export function getAxisNormal(axis: 'x' | 'y' | 'z', flipped: boolean): Vec3 {
 
 /**
  * Get the two axes perpendicular to the section axis (for 2D projection)
+ * Uses Z-up convention: u becomes 2D X (horizontal), v becomes 2D Y (vertical)
  */
 export function getProjectionAxes(axis: 'x' | 'y' | 'z'): { u: 'x' | 'y' | 'z'; v: 'x' | 'y' | 'z' } {
   switch (axis) {
     case 'x':
-      return { u: 'z', v: 'y' }; // Looking along X, project to ZY
+      return { u: 'y', v: 'z' }; // Side view: Y horizontal, Z vertical
     case 'y':
-      return { u: 'x', v: 'z' }; // Looking along Y (down), project to XZ
+      return { u: 'x', v: 'z' }; // Front view: X horizontal, Z vertical
     case 'z':
-      return { u: 'x', v: 'y' }; // Looking along Z, project to XY
+      return { u: 'x', v: 'y' }; // Plan view: X horizontal, Y vertical
   }
 }
 

@@ -41,10 +41,11 @@ import { SheetSetupPanel } from './SheetSetupPanel';
 import { TitleBlockEditor } from './TitleBlockEditor';
 
 // Axis conversion from semantic (down/front/side) to geometric (x/y/z)
+// Uses Z-up convention (standard for IFC/BIM models)
 const AXIS_MAP: Record<'down' | 'front' | 'side', 'x' | 'y' | 'z'> = {
-  down: 'y',
-  front: 'z',
-  side: 'x',
+  down: 'z',  // Plan view - looking down along Z axis, projecting to XY
+  front: 'y', // Front elevation - looking along Y axis (from south toward north), projecting to XZ
+  side: 'x',  // Side elevation - looking along X axis (from west toward east), projecting to YZ
 };
 
 // Fill colors for IFC types (architectural convention)
@@ -1982,6 +1983,7 @@ function Drawing2DCanvas({
       // Render field text
       for (const [row, fields] of fieldsByRow) {
         const rowY = rowYPositions[row];
+        const rowH = scaledRowHeights[row];
 
         for (const field of fields) {
           const col = field.col ?? 0;
@@ -1989,123 +1991,51 @@ function Drawing2DCanvas({
 
           // Scale font sizes if rows are compressed
           const effectiveScale = rowScaleFactor < 1 ? rowScaleFactor : 1;
-          const labelFontSize = Math.min(field.fontSize * 0.45, 2.2) * Math.max(effectiveScale, 0.7);
-          const valueFontSize = field.fontSize * Math.max(effectiveScale, 0.7);
+          const labelFontSizeMm = Math.min(field.fontSize * 0.45, 2.2) * Math.max(effectiveScale, 0.7);
+          const valueFontSizeMm = field.fontSize * Math.max(effectiveScale, 0.7);
 
-          // Label at top of cell
-          const screenLabelFontSize = Math.max(8, mmToScreen(labelFontSize));
-          ctx.font = `${screenLabelFontSize}px Arial, sans-serif`;
-          ctx.fillStyle = '#666666';
-          ctx.textAlign = 'left';
-          ctx.textBaseline = 'top';
-          ctx.fillText(
-            field.label,
-            mmToScreenX(fieldX),
-            mmToScreenY(rowY + 0.5)
-          );
+          // Calculate screen font sizes with minimum
+          const screenLabelFontSize = Math.max(8, mmToScreen(labelFontSizeMm));
+          const screenValueFontSize = Math.max(10, mmToScreen(valueFontSizeMm));
 
-          // Value below label
-          const screenValueFontSize = Math.max(10, mmToScreen(valueFontSize));
-          ctx.font = `${field.fontWeight === 'bold' ? 'bold ' : ''}${screenValueFontSize}px Arial, sans-serif`;
-          ctx.fillStyle = '#000000';
-          ctx.fillText(
-            field.value,
-            mmToScreenX(fieldX),
-            mmToScreenY(rowY + 0.5 + labelFontSize + 0.8)
-          );
+          // Calculate effective mm sizes based on what we actually render
+          // This prevents text overlap when minimum font sizes kick in
+          const effectiveLabelMm = screenLabelFontSize / transform.scale;
+          const effectiveValueMm = screenValueFontSize / transform.scale;
+
+          // Calculate vertical positions ensuring no overlap
+          // Leave 0.5mm padding at top, then label, then 0.5mm gap, then value
+          const labelTopMm = rowY + 0.5;
+          const valueTopMm = labelTopMm + effectiveLabelMm + 0.5;
+
+          // Only render if there's space in the row
+          const neededHeight = 0.5 + effectiveLabelMm + 0.5 + effectiveValueMm + 0.5;
+          if (neededHeight <= rowH + 1) { // Allow small overflow
+            // Label at top of cell
+            ctx.font = `${screenLabelFontSize}px Arial, sans-serif`;
+            ctx.fillStyle = '#666666';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+            ctx.fillText(
+              field.label,
+              mmToScreenX(fieldX),
+              mmToScreenY(labelTopMm)
+            );
+
+            // Value below label
+            ctx.font = `${field.fontWeight === 'bold' ? 'bold ' : ''}${screenValueFontSize}px Arial, sans-serif`;
+            ctx.fillStyle = '#000000';
+            ctx.fillText(
+              field.value,
+              mmToScreenX(fieldX),
+              mmToScreenY(valueTopMm)
+            );
+          }
         }
       }
 
       // ─────────────────────────────────────────────────────────────────────
-      // 4. Draw scale bar (if visible)
-      // ─────────────────────────────────────────────────────────────────────
-      if (scaleBar.visible) {
-        const sbX = viewport.x + 10;
-        const sbY = viewport.y + viewport.height - 15;
-        // Calculate length in mm: totalLengthM (meters) * 1000 / scale factor
-        const sbLengthMm = (scaleBar.totalLengthM * 1000) / activeSheet.scale.factor;
-        const sbHeight = scaleBar.heightMm;
-
-        // Scale bar background
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(
-          mmToScreenX(sbX - 2),
-          mmToScreenY(sbY - 2),
-          mmToScreen(sbLengthMm + 4),
-          mmToScreen(sbHeight + 8)
-        );
-
-        // Scale bar divisions
-        const divisions = scaleBar.primaryDivisions;
-        const divWidth = sbLengthMm / divisions;
-        for (let i = 0; i < divisions; i++) {
-          ctx.fillStyle = i % 2 === 0 ? scaleBar.fillColor : '#ffffff';
-          ctx.fillRect(
-            mmToScreenX(sbX + i * divWidth),
-            mmToScreenY(sbY),
-            mmToScreen(divWidth),
-            mmToScreen(sbHeight)
-          );
-        }
-
-        // Scale bar border
-        ctx.strokeStyle = scaleBar.strokeColor;
-        ctx.lineWidth = Math.max(1, mmToScreen(scaleBar.lineWeight));
-        ctx.strokeRect(
-          mmToScreenX(sbX),
-          mmToScreenY(sbY),
-          mmToScreen(sbLengthMm),
-          mmToScreen(sbHeight)
-        );
-
-        // Scale text
-        const scaleFontSize = Math.max(9, mmToScreen(scaleBar.labelFontSize));
-        ctx.font = `${scaleFontSize}px Arial, sans-serif`;
-        ctx.fillStyle = '#000000';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
-        ctx.fillText(
-          `1:${activeSheet.scale.factor}`,
-          mmToScreenX(sbX + sbLengthMm / 2),
-          mmToScreenY(sbY + sbHeight + 1)
-        );
-      }
-
-      // ─────────────────────────────────────────────────────────────────────
-      // 5. Draw north arrow (if not 'none')
-      // ─────────────────────────────────────────────────────────────────────
-      if (northArrow.style !== 'none') {
-        const naX = viewport.x + viewport.width - 20;
-        const naY = viewport.y + 20;
-        const naSize = northArrow.sizeMm;
-
-        ctx.save();
-        ctx.translate(mmToScreenX(naX), mmToScreenY(naY));
-        ctx.rotate((northArrow.rotation * Math.PI) / 180);
-
-        // Draw arrow
-        const arrowLen = mmToScreen(naSize);
-        ctx.fillStyle = '#000000';
-        ctx.beginPath();
-        ctx.moveTo(0, -arrowLen / 2);
-        ctx.lineTo(-arrowLen / 6, arrowLen / 2);
-        ctx.lineTo(0, arrowLen / 3);
-        ctx.lineTo(arrowLen / 6, arrowLen / 2);
-        ctx.closePath();
-        ctx.fill();
-
-        // Draw "N" label
-        const nFontSize = Math.max(10, mmToScreen(3));
-        ctx.font = `bold ${nFontSize}px Arial, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'bottom';
-        ctx.fillText('N', 0, -arrowLen / 2 - 2);
-
-        ctx.restore();
-      }
-
-      // ─────────────────────────────────────────────────────────────────────
-      // 6. Draw viewport border (dashed, for visual reference)
+      // 4. Draw viewport border (dashed, for visual reference)
       // ─────────────────────────────────────────────────────────────────────
       ctx.strokeStyle = '#999999';
       ctx.lineWidth = 1;
@@ -2307,6 +2237,94 @@ function Drawing2DCanvas({
 
       drawModelContent();
       ctx.restore();
+
+      // ─────────────────────────────────────────────────────────────────────
+      // 6. Draw scale bar (if visible) - AFTER model content so it's on top
+      // ─────────────────────────────────────────────────────────────────────
+      if (scaleBar.visible) {
+        const sbX = viewport.x + 10;
+        const sbY = viewport.y + viewport.height - 15;
+        // Calculate length in mm: totalLengthM (meters) * 1000 / scale factor
+        const sbLengthMm = (scaleBar.totalLengthM * 1000) / activeSheet.scale.factor;
+        const sbHeight = scaleBar.heightMm;
+
+        // Scale bar background
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(
+          mmToScreenX(sbX - 2),
+          mmToScreenY(sbY - 2),
+          mmToScreen(sbLengthMm + 4),
+          mmToScreen(sbHeight + 8)
+        );
+
+        // Scale bar divisions
+        const divisions = scaleBar.primaryDivisions;
+        const divWidth = sbLengthMm / divisions;
+        for (let i = 0; i < divisions; i++) {
+          ctx.fillStyle = i % 2 === 0 ? scaleBar.fillColor : '#ffffff';
+          ctx.fillRect(
+            mmToScreenX(sbX + i * divWidth),
+            mmToScreenY(sbY),
+            mmToScreen(divWidth),
+            mmToScreen(sbHeight)
+          );
+        }
+
+        // Scale bar border
+        ctx.strokeStyle = scaleBar.strokeColor;
+        ctx.lineWidth = Math.max(1, mmToScreen(scaleBar.lineWeight));
+        ctx.strokeRect(
+          mmToScreenX(sbX),
+          mmToScreenY(sbY),
+          mmToScreen(sbLengthMm),
+          mmToScreen(sbHeight)
+        );
+
+        // Scale text
+        const scaleFontSize = Math.max(9, mmToScreen(scaleBar.labelFontSize));
+        ctx.font = `${scaleFontSize}px Arial, sans-serif`;
+        ctx.fillStyle = '#000000';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(
+          `1:${activeSheet.scale.factor}`,
+          mmToScreenX(sbX + sbLengthMm / 2),
+          mmToScreenY(sbY + sbHeight + 1)
+        );
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
+      // 7. Draw north arrow (if not 'none') - AFTER model content so it's on top
+      // ─────────────────────────────────────────────────────────────────────
+      if (northArrow.style !== 'none') {
+        const naX = viewport.x + viewport.width - 20;
+        const naY = viewport.y + 20;
+        const naSize = northArrow.sizeMm;
+
+        ctx.save();
+        ctx.translate(mmToScreenX(naX), mmToScreenY(naY));
+        ctx.rotate((northArrow.rotation * Math.PI) / 180);
+
+        // Draw arrow
+        const arrowLen = mmToScreen(naSize);
+        ctx.fillStyle = '#000000';
+        ctx.beginPath();
+        ctx.moveTo(0, -arrowLen / 2);
+        ctx.lineTo(-arrowLen / 6, arrowLen / 2);
+        ctx.lineTo(0, arrowLen / 3);
+        ctx.lineTo(arrowLen / 6, arrowLen / 2);
+        ctx.closePath();
+        ctx.fill();
+
+        // Draw "N" label
+        const nFontSize = Math.max(10, mmToScreen(3));
+        ctx.font = `bold ${nFontSize}px Arial, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('N', 0, -arrowLen / 2 - 2);
+
+        ctx.restore();
+      }
 
     } else {
       // ═══════════════════════════════════════════════════════════════════════
