@@ -224,6 +224,16 @@ export function createGeometryEditContext(
         return null;
       }
 
+      // Update the parameter value in the session so subsequent edits use the current value
+      const paramIndex = session.entity.parameters.findIndex(p => p.path === parameter.path);
+      if (paramIndex !== -1) {
+        session.entity.parameters[paramIndex] = {
+          ...session.entity.parameters[paramIndex],
+          value: solvedValue,
+        };
+        console.log('[GeomEditContext] Updated parameter value in session:', { path: parameter.path, newValue: solvedValue });
+      }
+
       // Record mutation
       mutations.applyParameterChange(
         session,

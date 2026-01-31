@@ -8,7 +8,7 @@
 
 import type { StateCreator } from 'zustand';
 import type { IfcDataStore } from '@ifc-lite/parser';
-import type { GeometryResult, CoordinateInfo } from '@ifc-lite/geometry';
+import type { GeometryResult, CoordinateInfo, MeshData } from '@ifc-lite/geometry';
 import { DATA_DEFAULTS } from '../constants.js';
 
 export interface DataSlice {
@@ -24,6 +24,8 @@ export interface DataSlice {
   updateMeshColors: (updates: Map<number, [number, number, number, number]>) => void;
   clearPendingColorUpdates: () => void;
   updateCoordinateInfo: (coordinateInfo: CoordinateInfo) => void;
+  /** Replace a mesh's geometry data (for geometry editing) */
+  updateMeshGeometry: (expressId: number, newMesh: MeshData) => void;
 }
 
 const getDefaultCoordinateInfo = (): CoordinateInfo => ({
@@ -106,6 +108,36 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
       geometryResult: {
         ...state.geometryResult,
         coordinateInfo,
+      },
+    };
+  }),
+
+  updateMeshGeometry: (expressId, newMesh) => set((state) => {
+    if (!state.geometryResult) return {};
+
+    const updatedMeshes = state.geometryResult.meshes.map(mesh => {
+      if (mesh.expressId === expressId) {
+        // Replace with new mesh data, preserving color if not provided
+        return {
+          ...newMesh,
+          color: newMesh.color || mesh.color,
+        };
+      }
+      return mesh;
+    });
+
+    // Recalculate totals
+    const totalTriangles = updatedMeshes.reduce((sum, m) => sum + (m.indices.length / 3), 0);
+    const totalVertices = updatedMeshes.reduce((sum, m) => sum + (m.positions.length / 3), 0);
+
+    console.log('[DataSlice] Updated mesh geometry for expressId:', expressId);
+
+    return {
+      geometryResult: {
+        ...state.geometryResult,
+        meshes: updatedMeshes,
+        totalTriangles,
+        totalVertices,
       },
     };
   }),

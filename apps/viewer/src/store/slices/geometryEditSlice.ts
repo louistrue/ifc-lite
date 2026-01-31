@@ -311,8 +311,9 @@ export const createGeometryEditSlice: StateCreator<
   },
 
   stopEntityEdit: (commit = true) => {
-    console.log('[GeomEditSlice] stopEntityEdit called with commit:', commit, new Error().stack);
-    const { activeSession, editContexts } = get();
+    console.log('[GeomEditSlice] stopEntityEdit called with commit:', commit);
+    const state = get();
+    const { activeSession, editContexts, previewMeshes } = state;
     if (!activeSession) {
       console.log('[GeomEditSlice] No active session, returning early');
       return;
@@ -323,12 +324,20 @@ export const createGeometryEditSlice: StateCreator<
       context.stopEditing(activeSession.entity.globalId, commit);
     }
 
-    set((state) => {
-      const newPreviewMeshes = new Map(state.previewMeshes);
-      if (!commit) {
-        // If discarding changes, remove preview
-        newPreviewMeshes.delete(activeSession.entity.globalId);
+    // If committing changes, persist the preview mesh to the main geometry
+    if (commit) {
+      const finalMesh = previewMeshes.get(activeSession.entity.globalId);
+      if (finalMesh) {
+        console.log('[GeomEditSlice] Persisting geometry changes for expressId:', activeSession.entity.expressId);
+        // updateMeshGeometry is available on the combined ViewerState
+        state.updateMeshGeometry(activeSession.entity.expressId, finalMesh);
       }
+    }
+
+    set((s) => {
+      const newPreviewMeshes = new Map(s.previewMeshes);
+      // Always clear the preview mesh when editing ends
+      newPreviewMeshes.delete(activeSession.entity.globalId);
 
       return {
         activeEditEntity: null,
@@ -336,7 +345,7 @@ export const createGeometryEditSlice: StateCreator<
         geometryEditMode: 'none',
         meshSelection: null,
         previewMeshes: newPreviewMeshes,
-        geometryEditVersion: state.geometryEditVersion + 1,
+        geometryEditVersion: s.geometryEditVersion + 1,
       };
     });
   },
@@ -376,7 +385,19 @@ export const createGeometryEditSlice: StateCreator<
       const newRedoSizes = new Map(state.redoStackSizes);
       newRedoSizes.set(parameter.modelId, 0); // Clear redo on new action
 
+      // Update activeSession reference to trigger React re-renders
+      // The session's entity.parameters have been updated in the context
+      const updatedSession = {
+        ...activeSession,
+        previewMesh: newMesh,
+        entity: {
+          ...activeSession.entity,
+          parameters: [...activeSession.entity.parameters], // New array reference
+        },
+      };
+
       return {
+        activeSession: updatedSession,
         previewMeshes: newPreviewMeshes,
         undoStackSizes: newUndoSizes,
         redoStackSizes: newRedoSizes,

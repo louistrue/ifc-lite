@@ -39,6 +39,7 @@ import {
 } from '@/hooks/useGeometryEdit';
 import {
   ParameterType,
+  ConstraintType,
   type GeometryParameter,
   type ParameterValue,
   type Point2D,
@@ -355,17 +356,56 @@ interface ParameterInputProps {
   onChange: (value: ParameterValue) => void;
 }
 
+// Extract min/max constraints from parameter
+function getNumericConstraints(parameter: GeometryParameter): { min?: number; max?: number } {
+  let min: number | undefined;
+  let max: number | undefined;
+
+  for (const constraint of parameter.constraints) {
+    if (!constraint.enabled) continue;
+    if (constraint.type === ConstraintType.MinValue && constraint.value !== undefined) {
+      min = constraint.value;
+    } else if (constraint.type === ConstraintType.MaxValue && constraint.value !== undefined) {
+      max = constraint.value;
+    } else if (constraint.type === ConstraintType.Positive) {
+      // Positive constraint means min > 0
+      min = min !== undefined ? Math.max(min, 0.001) : 0.001;
+    }
+  }
+
+  // Default minimum for dimension-like parameters to prevent zero/negative
+  const pathLower = parameter.path.toLowerCase();
+  if (pathLower.includes('depth') || pathLower.includes('dim') || pathLower.includes('radius') || pathLower.includes('width') || pathLower.includes('height')) {
+    min = min !== undefined ? Math.max(min, 0.001) : 0.001;
+    max = max !== undefined ? max : 10000; // Reasonable max for building dimensions
+  }
+
+  return { min, max };
+}
+
+// Clamp value to constraints
+function clampValue(value: number, min?: number, max?: number): number {
+  if (min !== undefined && value < min) return min;
+  if (max !== undefined && value > max) return max;
+  return value;
+}
+
 function ParameterInput({ parameter, onChange }: ParameterInputProps) {
   const [localValue, setLocalValue] = useState<string>(
     formatParameterValue(parameter.value, parameter.type)
   );
   const inputRef = useRef<HTMLInputElement>(null);
   const [isFocused, setIsFocused] = useState(false);
+  const [hasError, setHasError] = useState(false);
+
+  // Get constraints for this parameter
+  const { min, max } = useMemo(() => getNumericConstraints(parameter), [parameter]);
 
   // Update local value when parameter changes externally
   useEffect(() => {
     if (!isFocused) {
       setLocalValue(formatParameterValue(parameter.value, parameter.type));
+      setHasError(false);
     }
   }, [parameter.value, parameter.type, isFocused]);
 
@@ -374,17 +414,29 @@ function ParameterInput({ parameter, onChange }: ParameterInputProps) {
       const newValue = e.target.value;
       setLocalValue(newValue);
 
-      // Parse and emit change for live preview
+      // Parse and validate
       const parsed = parseParameterValue(newValue, parameter.type);
-      if (parsed !== null) {
+      if (parsed === null) {
+        setHasError(true);
+        return;
+      }
+
+      // For numbers, clamp to constraints
+      if (parameter.type === ParameterType.Number && typeof parsed === 'number') {
+        const clamped = clampValue(parsed, min, max);
+        setHasError(false);
+        onChange(clamped);
+      } else {
+        setHasError(false);
         onChange(parsed);
       }
     },
-    [parameter.type, onChange]
+    [parameter.type, onChange, min, max]
   );
 
   const handleBlur = useCallback(() => {
     setIsFocused(false);
+    setHasError(false);
     // Reformat on blur
     setLocalValue(formatParameterValue(parameter.value, parameter.type));
   }, [parameter.value, parameter.type]);
@@ -399,6 +451,7 @@ function ParameterInput({ parameter, onChange }: ParameterInputProps) {
         inputRef.current?.blur();
       } else if (e.key === 'Escape') {
         setLocalValue(formatParameterValue(parameter.value, parameter.type));
+        setHasError(false);
         inputRef.current?.blur();
       }
     },
@@ -431,14 +484,21 @@ function ParameterInput({ parameter, onChange }: ParameterInputProps) {
               onBlur={handleBlur}
               onFocus={handleFocus}
               onKeyDown={handleKeyDown}
-              className="h-7 text-xs font-mono"
+              className={`h-7 text-xs font-mono ${hasError ? 'border-red-500 focus:border-red-500' : ''}`}
               step="any"
+              min={min}
+              max={max}
               disabled={!parameter.editable}
             />
             {parameter.unit && (
               <span className="text-[10px] text-zinc-400 shrink-0">{parameter.unit}</span>
             )}
           </div>
+          {(min !== undefined || max !== undefined) && (
+            <div className="text-[9px] text-zinc-400 mt-0.5">
+              Range: {min !== undefined ? min.toFixed(3) : '−∞'} – {max !== undefined ? max.toFixed(0) : '∞'}
+            </div>
+          )}
         </div>
       );
 
