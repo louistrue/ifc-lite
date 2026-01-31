@@ -48,6 +48,7 @@ export function ExportChangesButton({ className }: ExportChangesButtonProps) {
           name: firstModel.name,
           ifcDataStore: firstModel.ifcDataStore,
           schemaVersion: firstModel.schemaVersion,
+          geometryResult: firstModel.geometryResult,
         };
       }
     }
@@ -58,6 +59,7 @@ export function ExportChangesButton({ className }: ExportChangesButtonProps) {
         name: 'model',
         ifcDataStore: legacyIfcDataStore,
         schemaVersion: legacyIfcDataStore.schemaVersion,
+        geometryResult: legacyGeometryResult,
       };
     }
     return null;
@@ -126,10 +128,15 @@ export function ExportChangesButton({ className }: ExportChangesButtonProps) {
       // Get geometry mutations
       const geometryMutations = getEditedMeshes();
 
+      // Get coordinate info for inverse transformation (viewer coords -> world coords)
+      const coordinateInfo = modelInfo.geometryResult?.coordinateInfo;
+      console.log('[ExportChangesButton] Exporting with coordinateInfo:', coordinateInfo);
+
       const exporter = new StepExporter(
         modelInfo.ifcDataStore,
         mutationView || undefined,
-        geometryMutations
+        geometryMutations,
+        coordinateInfo
       );
       const result = exporter.export({
         schema: schema as 'IFC2X3' | 'IFC4' | 'IFC4X3',

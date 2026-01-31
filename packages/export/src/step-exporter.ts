@@ -21,7 +21,7 @@ import {
 import type { MutablePropertyView } from '@ifc-lite/mutations';
 import type { PropertySet, Property } from '@ifc-lite/data';
 import { PropertyValueType } from '@ifc-lite/data';
-import type { MeshData } from '@ifc-lite/geometry';
+import type { MeshData, CoordinateInfo, Vec3 } from '@ifc-lite/geometry';
 
 /**
  * Options for STEP export
@@ -88,16 +88,19 @@ export class StepExporter {
   private dataStore: IfcDataStore;
   private mutationView: MutablePropertyView | null;
   private geometryMutations: GeometryMutations;
+  private coordinateInfo: CoordinateInfo | null;
   private nextExpressId: number;
 
   constructor(
     dataStore: IfcDataStore,
     mutationView?: MutablePropertyView,
-    geometryMutations?: GeometryMutations
+    geometryMutations?: GeometryMutations,
+    coordinateInfo?: CoordinateInfo
   ) {
     this.dataStore = dataStore;
     this.mutationView = mutationView || null;
     this.geometryMutations = geometryMutations || new Map();
+    this.coordinateInfo = coordinateInfo || null;
     // Start new IDs after the highest existing ID
     this.nextExpressId = this.findMaxExpressId() + 1;
   }
@@ -779,13 +782,20 @@ export class StepExporter {
 
   /**
    * Format coordinate list as STEP tuple list
+   * Applies inverse origin shift to convert from viewer coords back to world coords
    */
   private formatCoordinateList(positions: Float32Array, precision: number): string {
     const tuples: string[] = [];
+    // Get origin shift (need to add it back to get world coordinates)
+    const shift = this.coordinateInfo?.originShift || { x: 0, y: 0, z: 0 };
+
+    console.log(`[StepExporter] Applying inverse origin shift: (${shift.x}, ${shift.y}, ${shift.z})`);
+
     for (let i = 0; i < positions.length; i += 3) {
-      const x = positions[i].toFixed(precision);
-      const y = positions[i + 1].toFixed(precision);
-      const z = positions[i + 2].toFixed(precision);
+      // Add origin shift back to get world coordinates
+      const x = (positions[i] + shift.x).toFixed(precision);
+      const y = (positions[i + 1] + shift.y).toFixed(precision);
+      const z = (positions[i + 2] + shift.z).toFixed(precision);
       tuples.push(`(${x},${y},${z})`);
     }
     return tuples.join(',');

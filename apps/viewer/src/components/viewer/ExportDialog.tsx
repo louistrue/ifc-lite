@@ -161,10 +161,15 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
         const geometryMutations = getEditedMeshes();
         console.log('[ExportDialog] Exporting with geometry mutations:', geometryMutations.size);
 
+        // Get coordinate info for inverse transformation (viewer coords -> world coords)
+        const coordinateInfo = selectedModel.geometryResult?.coordinateInfo;
+        console.log('[ExportDialog] Coordinate info:', coordinateInfo);
+
         const exporter = new StepExporter(
           selectedModel.ifcDataStore,
           mutationView || undefined,
-          geometryMutations
+          geometryMutations,
+          coordinateInfo
         );
         const result = exporter.export({
           schema,
