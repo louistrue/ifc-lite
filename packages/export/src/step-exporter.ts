@@ -137,7 +137,11 @@ export class StepExporter {
     const skipGeometryEntityIds = new Set<number>();
     const entitiesWithGeometryChanges = new Map<number, { meshData: MeshData; representationId: number | null }>();
 
-    // Process geometry mutations
+    // Map to track entity text replacements (for updating Representation attribute)
+    const entityReplacements = new Map<number, string>();
+
+    // Process geometry mutations - MUST happen before entity export loop
+    // so we can create entity replacements with updated representation references
     if (this.geometryMutations.size > 0) {
       for (const [expressId, meshData] of this.geometryMutations) {
         // Find the entity's representation (IfcProductDefinitionShape)
@@ -150,6 +154,27 @@ export class StepExporter {
           const geomEntityIds = this.findGeometryEntitiesForRepresentation(representationId);
           for (const geomId of geomEntityIds) {
             skipGeometryEntityIds.add(geomId);
+          }
+        }
+      }
+
+      // Pre-generate geometry entities and create entity replacements
+      // This ensures the entities are updated to reference new geometry
+      for (const [expressId, { meshData, representationId }] of entitiesWithGeometryChanges) {
+        const newGeomEntities = this.generateGeometryEntities(expressId, meshData, representationId);
+        entities.push(...newGeomEntities.lines);
+        newEntityCount += newGeomEntities.count;
+
+        // If we have a new product definition shape ID and an old one,
+        // create a replacement for the entity
+        if (newGeomEntities.newProductDefShapeId && representationId) {
+          const replacement = this.createEntityReplacementWithNewRepresentation(
+            expressId,
+            representationId,
+            newGeomEntities.newProductDefShapeId
+          );
+          if (replacement) {
+            entityReplacements.set(expressId, replacement);
           }
         }
       }
@@ -225,9 +250,6 @@ export class StepExporter {
       };
     }
 
-    // Map to track entity text replacements (for updating Representation attribute)
-    const entityReplacements = new Map<number, string>();
-
     // Export original entities from source buffer, SKIPPING modified property sets and geometry
     if (!options.deltaOnly && this.dataStore.source) {
       const decoder = new TextDecoder();
@@ -274,12 +296,8 @@ export class StepExporter {
       newEntityCount += newEntities.count;
     }
 
-    // Generate new geometry entities for edited meshes
-    for (const [expressId, { meshData, representationId }] of entitiesWithGeometryChanges) {
-      const newGeomEntities = this.generateGeometryEntities(expressId, meshData, representationId);
-      entities.push(...newGeomEntities.lines);
-      newEntityCount += newGeomEntities.count;
-    }
+    // Note: Geometry entities were already generated earlier in the process
+    // (before the entity export loop) to enable entity replacement with new representation references
 
     // Assemble final file
     const dataSection = entities.join('\n');
@@ -660,13 +678,13 @@ export class StepExporter {
 
   /**
    * Generate new geometry entities for an edited mesh
-   * Returns IfcTriangulatedFaceSet with supporting entities
+   * Returns IfcTriangulatedFaceSet with supporting entities and the new IfcProductDefinitionShape ID
    */
   private generateGeometryEntities(
     entityId: number,
     meshData: MeshData,
     _originalRepresentationId: number | null
-  ): { lines: string[]; count: number } {
+  ): { lines: string[]; count: number; newProductDefShapeId: number } {
     const lines: string[] = [];
     let count = 0;
     const precision = 6;
@@ -725,7 +743,38 @@ export class StepExporter {
     // Add comment for traceability
     lines.push(`/* Geometry replaced for entity #${entityId} */`);
 
-    return { lines, count };
+    return { lines, count, newProductDefShapeId: productDefShapeId };
+  }
+
+  /**
+   * Create a replacement entity text with updated representation reference
+   * This replaces the old representation ID with the new one in the entity definition
+   */
+  private createEntityReplacementWithNewRepresentation(
+    entityId: number,
+    oldRepresentationId: number,
+    newRepresentationId: number
+  ): string | null {
+    const entityRef = this.dataStore.entityIndex.byId.get(entityId);
+    if (!entityRef || !this.dataStore.source) return null;
+
+    const decoder = new TextDecoder();
+    const entityText = decoder.decode(
+      this.dataStore.source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength)
+    );
+
+    // Replace the old representation reference with the new one
+    const oldRef = `#${oldRepresentationId}`;
+    const newRef = `#${newRepresentationId}`;
+
+    if (!entityText.includes(oldRef)) {
+      console.warn(`[StepExporter] Entity #${entityId} does not contain reference to representation #${oldRepresentationId}`);
+      return null;
+    }
+
+    const replacement = entityText.replace(oldRef, newRef);
+    console.log(`[StepExporter] Created replacement for entity #${entityId}: ${oldRef} -> ${newRef}`);
+    return replacement;
   }
 
   /**
