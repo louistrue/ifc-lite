@@ -58,6 +58,8 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
   const getMutationView = useViewerStore((s) => s.getMutationView);
   const registerMutationView = useViewerStore((s) => s.registerMutationView);
   const getModifiedEntityCount = useViewerStore((s) => s.getModifiedEntityCount);
+  const getEditedMeshes = useViewerStore((s) => s.getEditedMeshes);
+  const editedGeometryIds = useViewerStore((s) => s.editedGeometryIds);
   // Also get legacy single-model state for backward compatibility
   const legacyIfcDataStore = useViewerStore((s) => s.ifcDataStore);
   const legacyGeometryResult = useViewerStore((s) => s.geometryResult);
@@ -155,13 +157,21 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
       const mutationView = getMutationView(selectedModelId);
 
       if (format === 'ifc') {
-        const exporter = new StepExporter(selectedModel.ifcDataStore, mutationView || undefined);
+        // Get geometry mutations (edited meshes)
+        const geometryMutations = getEditedMeshes();
+        console.log('[ExportDialog] Exporting with geometry mutations:', geometryMutations.size);
+
+        const exporter = new StepExporter(
+          selectedModel.ifcDataStore,
+          mutationView || undefined,
+          geometryMutations
+        );
         const result = exporter.export({
           schema,
           includeGeometry,
           applyMutations,
           deltaOnly,
-          description: `Exported from ifc-lite with ${modifiedCount} modifications`,
+          description: `Exported from ifc-lite with ${modifiedCount} property modifications and ${geometryMutations.size} geometry changes`,
           application: 'ifc-lite',
         });
 
@@ -176,9 +186,12 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
+        const geomMsg = result.stats.geometryChangedCount > 0
+          ? `, ${result.stats.geometryChangedCount} geometry`
+          : '';
         setExportResult({
           success: true,
-          message: `Exported ${result.stats.entityCount} entities (${result.stats.modifiedEntityCount} modified)`,
+          message: `Exported ${result.stats.entityCount} entities (${result.stats.modifiedEntityCount} properties${geomMsg})`,
         });
       } else if (format === 'ifcx') {
         // Export as IFCX JSON
@@ -240,7 +253,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
     } finally {
       setIsExporting(false);
     }
-  }, [selectedModel, selectedModelId, format, schema, includeGeometry, applyMutations, deltaOnly, getMutationView, modifiedCount]);
+  }, [selectedModel, selectedModelId, format, schema, includeGeometry, applyMutations, deltaOnly, getMutationView, modifiedCount, getEditedMeshes]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -354,12 +367,14 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
           )}
 
           {/* Stats */}
-          {modifiedCount > 0 && (
+          {(modifiedCount > 0 || editedGeometryIds.size > 0) && (
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>Pending Changes</AlertTitle>
               <AlertDescription>
-                {modifiedCount} entities have been modified
+                {modifiedCount > 0 && `${modifiedCount} property modifications`}
+                {modifiedCount > 0 && editedGeometryIds.size > 0 && ', '}
+                {editedGeometryIds.size > 0 && `${editedGeometryIds.size} geometry edits`}
               </AlertDescription>
             </Alert>
           )}

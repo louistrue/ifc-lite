@@ -27,6 +27,8 @@ export function ExportChangesButton({ className }: ExportChangesButtonProps) {
   const getMutationView = useViewerStore((s) => s.getMutationView);
   const registerMutationView = useViewerStore((s) => s.registerMutationView);
   const mutationVersion = useViewerStore((s) => s.mutationVersion);
+  const getEditedMeshes = useViewerStore((s) => s.getEditedMeshes);
+  const editedGeometryIds = useViewerStore((s) => s.editedGeometryIds);
 
   // Legacy single-model support
   const legacyIfcDataStore = useViewerStore((s) => s.ifcDataStore);
@@ -121,13 +123,20 @@ export function ExportChangesButton({ className }: ExportChangesButtonProps) {
                    : schemaVersion.includes('4X3') ? 'IFC4X3'
                    : 'IFC4';
 
-      const exporter = new StepExporter(modelInfo.ifcDataStore, mutationView || undefined);
+      // Get geometry mutations
+      const geometryMutations = getEditedMeshes();
+
+      const exporter = new StepExporter(
+        modelInfo.ifcDataStore,
+        mutationView || undefined,
+        geometryMutations
+      );
       const result = exporter.export({
         schema: schema as 'IFC2X3' | 'IFC4' | 'IFC4X3',
         includeGeometry: true,
         applyMutations: true,
         deltaOnly: false,
-        description: `Exported from ifc-lite with ${mutationCount} modifications`,
+        description: `Exported from ifc-lite with ${mutationCount} property modifications and ${geometryMutations.size} geometry changes`,
         application: 'ifc-lite',
       });
 
@@ -147,7 +156,7 @@ export function ExportChangesButton({ className }: ExportChangesButtonProps) {
       // Reset status after 2 seconds
       setTimeout(() => setExportStatus('idle'), 2000);
 
-      console.log(`[ExportChangesButton] Exported ${result.stats.entityCount} entities (${result.stats.modifiedEntityCount} modified)`);
+      console.log(`[ExportChangesButton] Exported ${result.stats.entityCount} entities (${result.stats.modifiedEntityCount} property, ${result.stats.geometryChangedCount} geometry)`);
     } catch (error) {
       console.error('[ExportChangesButton] Export failed:', error);
       setExportStatus('error');
@@ -155,10 +164,13 @@ export function ExportChangesButton({ className }: ExportChangesButtonProps) {
     } finally {
       setIsExporting(false);
     }
-  }, [modelInfo, getMutationView, mutationCount, generateFilename]);
+  }, [modelInfo, getMutationView, mutationCount, generateFilename, getEditedMeshes]);
 
-  // Don't render if no model or no mutations
-  if (!modelInfo || mutationCount === 0) {
+  // Total change count (property + geometry)
+  const totalChanges = mutationCount + editedGeometryIds.size;
+
+  // Don't render if no model or no changes
+  if (!modelInfo || totalChanges === 0) {
     return null;
   }
 
@@ -183,12 +195,14 @@ export function ExportChangesButton({ className }: ExportChangesButtonProps) {
           )}
           Export Changes
           <Badge variant="secondary" className="ml-2 text-xs">
-            {mutationCount}
+            {totalChanges}
           </Badge>
         </Button>
       </TooltipTrigger>
       <TooltipContent>
-        Export IFC with {mutationCount} property changes applied
+        Export IFC with {mutationCount > 0 ? `${mutationCount} property` : ''}
+        {mutationCount > 0 && editedGeometryIds.size > 0 ? ' and ' : ''}
+        {editedGeometryIds.size > 0 ? `${editedGeometryIds.size} geometry` : ''} changes applied
       </TooltipContent>
     </Tooltip>
   );

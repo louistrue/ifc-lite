@@ -21,6 +21,7 @@ import {
 import type { MutablePropertyView } from '@ifc-lite/mutations';
 import type { PropertySet, Property } from '@ifc-lite/data';
 import { PropertyValueType } from '@ifc-lite/data';
+import type { MeshData } from '@ifc-lite/geometry';
 
 /**
  * Options for STEP export
@@ -68,10 +69,17 @@ export interface StepExportResult {
     newEntityCount: number;
     /** Entities modified by mutations */
     modifiedEntityCount: number;
+    /** Entities with geometry changes */
+    geometryChangedCount: number;
     /** File size in bytes */
     fileSize: number;
   };
 }
+
+/**
+ * Geometry mutations - map from expressId to edited MeshData
+ */
+export type GeometryMutations = Map<number, MeshData>;
 
 /**
  * IFC STEP file exporter
@@ -79,11 +87,17 @@ export interface StepExportResult {
 export class StepExporter {
   private dataStore: IfcDataStore;
   private mutationView: MutablePropertyView | null;
+  private geometryMutations: GeometryMutations;
   private nextExpressId: number;
 
-  constructor(dataStore: IfcDataStore, mutationView?: MutablePropertyView) {
+  constructor(
+    dataStore: IfcDataStore,
+    mutationView?: MutablePropertyView,
+    geometryMutations?: GeometryMutations
+  ) {
     this.dataStore = dataStore;
     this.mutationView = mutationView || null;
+    this.geometryMutations = geometryMutations || new Map();
     // Start new IDs after the highest existing ID
     this.nextExpressId = this.findMaxExpressId() + 1;
   }
@@ -95,6 +109,7 @@ export class StepExporter {
     const entities: string[] = [];
     let newEntityCount = 0;
     let modifiedEntityCount = 0;
+    let geometryChangedCount = 0;
 
     // Determine schema from data store if not specified
     const schema = options.schema || (this.dataStore.schemaVersion as 'IFC2X3' | 'IFC4' | 'IFC4X3') || 'IFC4';
@@ -117,6 +132,28 @@ export class StepExporter {
     // Track property set IDs and relationship IDs to skip
     const skipPropertySetIds = new Set<number>();
     const skipRelationshipIds = new Set<number>();
+
+    // Track geometry entities to skip and entities needing new geometry
+    const skipGeometryEntityIds = new Set<number>();
+    const entitiesWithGeometryChanges = new Map<number, { meshData: MeshData; representationId: number | null }>();
+
+    // Process geometry mutations
+    if (this.geometryMutations.size > 0) {
+      for (const [expressId, meshData] of this.geometryMutations) {
+        // Find the entity's representation (IfcProductDefinitionShape)
+        const representationId = this.findEntityRepresentation(expressId);
+        entitiesWithGeometryChanges.set(expressId, { meshData, representationId });
+        geometryChangedCount++;
+
+        if (representationId) {
+          // Find all geometry entities referenced by this representation and mark for skip
+          const geomEntityIds = this.findGeometryEntitiesForRepresentation(representationId);
+          for (const geomId of geomEntityIds) {
+            skipGeometryEntityIds.add(geomId);
+          }
+        }
+      }
+    }
 
     // Process mutations if we have a mutation view
     if (this.mutationView && (options.applyMutations !== false)) {
@@ -175,19 +212,23 @@ export class StepExporter {
     }
 
     // If delta only, only export modified entities
-    if (options.deltaOnly && modifiedEntities.size === 0) {
+    if (options.deltaOnly && modifiedEntities.size === 0 && this.geometryMutations.size === 0) {
       return {
         content: header + 'DATA;\nENDSEC;\nEND-ISO-10303-21;\n',
         stats: {
           entityCount: 0,
           newEntityCount: 0,
           modifiedEntityCount: 0,
+          geometryChangedCount: 0,
           fileSize: 0,
         },
       };
     }
 
-    // Export original entities from source buffer, SKIPPING modified property sets
+    // Map to track entity text replacements (for updating Representation attribute)
+    const entityReplacements = new Map<number, string>();
+
+    // Export original entities from source buffer, SKIPPING modified property sets and geometry
     if (!options.deltaOnly && this.dataStore.source) {
       const decoder = new TextDecoder();
       const source = this.dataStore.source;
@@ -196,6 +237,11 @@ export class StepExporter {
       for (const [expressId, entityRef] of this.dataStore.entityIndex.byId) {
         // Skip property sets/relationships that are being replaced
         if (skipPropertySetIds.has(expressId) || skipRelationshipIds.has(expressId)) {
+          continue;
+        }
+
+        // Skip geometry entities that are being replaced
+        if (skipGeometryEntityIds.has(expressId)) {
           continue;
         }
 
@@ -208,9 +254,14 @@ export class StepExporter {
         }
 
         // Get original entity text
-        const entityText = decoder.decode(
+        let entityText = decoder.decode(
           source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength)
         );
+
+        // Check if this entity has a replacement (e.g., updated Representation)
+        if (entityReplacements.has(expressId)) {
+          entityText = entityReplacements.get(expressId)!;
+        }
 
         entities.push(entityText);
       }
@@ -223,6 +274,13 @@ export class StepExporter {
       newEntityCount += newEntities.count;
     }
 
+    // Generate new geometry entities for edited meshes
+    for (const [expressId, { meshData, representationId }] of entitiesWithGeometryChanges) {
+      const newGeomEntities = this.generateGeometryEntities(expressId, meshData, representationId);
+      entities.push(...newGeomEntities.lines);
+      newEntityCount += newGeomEntities.count;
+    }
+
     // Assemble final file
     const dataSection = entities.join('\n');
     const content = `${header}DATA;\n${dataSection}\nENDSEC;\nEND-ISO-10303-21;\n`;
@@ -233,6 +291,7 @@ export class StepExporter {
         entityCount: entities.length,
         newEntityCount,
         modifiedEntityCount,
+        geometryChangedCount,
         fileSize: new TextEncoder().encode(content).length,
       },
     };
@@ -511,6 +570,203 @@ export class StepExporter {
       ids.push(parseInt(m[1], 10));
     }
     return ids;
+  }
+
+  // =========================================================================
+  // Geometry Mutation Methods
+  // =========================================================================
+
+  /**
+   * Find the IfcProductDefinitionShape ID for an entity
+   */
+  private findEntityRepresentation(entityId: number): number | null {
+    const entityRef = this.dataStore.entityIndex.byId.get(entityId);
+    if (!entityRef || !this.dataStore.source) return null;
+
+    const decoder = new TextDecoder();
+    const entityText = decoder.decode(
+      this.dataStore.source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength)
+    );
+
+    // Look for Representation attribute (typically 6th or 7th argument)
+    // Pattern: ...#placementId,#representationId,...) or ...$,#representationId,...)
+    const refMatches = [...entityText.matchAll(/#(\d+)/g)];
+
+    // For IFC products, the representation is typically the second-to-last reference
+    // Let's find it by checking which reference is an IfcProductDefinitionShape
+    for (const match of refMatches) {
+      const refId = parseInt(match[1], 10);
+      const refEntity = this.dataStore.entityIndex.byId.get(refId);
+      if (refEntity && refEntity.type.toUpperCase() === 'IFCPRODUCTDEFINITIONSHAPE') {
+        return refId;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Find all geometry entity IDs referenced by a representation
+   * This recursively finds all entities that should be replaced
+   */
+  private findGeometryEntitiesForRepresentation(representationId: number): Set<number> {
+    const entityIds = new Set<number>();
+    const toProcess = [representationId];
+    const processed = new Set<number>();
+
+    while (toProcess.length > 0) {
+      const currentId = toProcess.pop()!;
+      if (processed.has(currentId)) continue;
+      processed.add(currentId);
+
+      const entityRef = this.dataStore.entityIndex.byId.get(currentId);
+      if (!entityRef || !this.dataStore.source) continue;
+
+      const entityType = entityRef.type.toUpperCase();
+
+      // Only include geometry-related entities
+      if (this.isGeometryEntity(entityType) ||
+          entityType === 'IFCPRODUCTDEFINITIONSHAPE' ||
+          entityType === 'IFCCARTESIANPOINTLIST3D') {
+        entityIds.add(currentId);
+      }
+
+      // Parse entity text to find references
+      const decoder = new TextDecoder();
+      const entityText = decoder.decode(
+        this.dataStore.source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength)
+      );
+
+      // Find all references in this entity
+      const refMatches = entityText.matchAll(/#(\d+)/g);
+      for (const match of refMatches) {
+        const refId = parseInt(match[1], 10);
+        if (!processed.has(refId)) {
+          const refEntity = this.dataStore.entityIndex.byId.get(refId);
+          if (refEntity) {
+            const refType = refEntity.type.toUpperCase();
+            // Only follow geometry-related references
+            if (this.isGeometryEntity(refType) ||
+                refType === 'IFCCARTESIANPOINTLIST3D' ||
+                refType === 'IFCPRODUCTDEFINITIONSHAPE') {
+              toProcess.push(refId);
+            }
+          }
+        }
+      }
+    }
+
+    return entityIds;
+  }
+
+  /**
+   * Generate new geometry entities for an edited mesh
+   * Returns IfcTriangulatedFaceSet with supporting entities
+   */
+  private generateGeometryEntities(
+    entityId: number,
+    meshData: MeshData,
+    _originalRepresentationId: number | null
+  ): { lines: string[]; count: number } {
+    const lines: string[] = [];
+    let count = 0;
+    const precision = 6;
+
+    // Generate IfcCartesianPointList3D for coordinates
+    const coordListId = this.nextExpressId++;
+    count++;
+    const coordinates = this.formatCoordinateList(meshData.positions, precision);
+    lines.push(`#${coordListId}=IFCCARTESIANPOINTLIST3D((${coordinates}));`);
+
+    // Generate IfcTriangulatedFaceSet
+    const faceSetId = this.nextExpressId++;
+    count++;
+    const indices = this.formatIndicesList(meshData.indices);
+    // IfcTriangulatedFaceSet(Coordinates, Normals, Closed, CoordIndex, NormalIndex)
+    lines.push(`#${faceSetId}=IFCTRIANGULATEDFACESET(#${coordListId},$,.U.,(${indices}),$);`);
+
+    // Generate color if available
+    if (meshData.color) {
+      const [r, g, b, a] = meshData.color;
+
+      // IfcColourRgb
+      const colorId = this.nextExpressId++;
+      count++;
+      lines.push(`#${colorId}=IFCCOLOURRGB($,${r.toFixed(4)},${g.toFixed(4)},${b.toFixed(4)});`);
+
+      // IfcSurfaceStyleRendering
+      const renderingId = this.nextExpressId++;
+      count++;
+      const transparency = 1 - a;
+      lines.push(`#${renderingId}=IFCSURFACESTYLERENDERING(#${colorId},${transparency.toFixed(4)},$,$,$,$,$,$,.NOTDEFINED.);`);
+
+      // IfcSurfaceStyle
+      const surfaceStyleId = this.nextExpressId++;
+      count++;
+      lines.push(`#${surfaceStyleId}=IFCSURFACESTYLE($,.BOTH.,(#${renderingId}));`);
+
+      // IfcStyledItem
+      const styledItemId = this.nextExpressId++;
+      count++;
+      lines.push(`#${styledItemId}=IFCSTYLEDITEM(#${faceSetId},(#${surfaceStyleId}),$);`);
+    }
+
+    // Generate IfcShapeRepresentation
+    const shapeRepId = this.nextExpressId++;
+    count++;
+    // Find geometric representation context (use first one we find, or create reference)
+    const contextId = this.findGeometricRepresentationContext() || 1;
+    lines.push(`#${shapeRepId}=IFCSHAPEREPRESENTATION(#${contextId},'Body','Tessellation',(#${faceSetId}));`);
+
+    // Generate IfcProductDefinitionShape
+    const productDefShapeId = this.nextExpressId++;
+    count++;
+    lines.push(`#${productDefShapeId}=IFCPRODUCTDEFINITIONSHAPE($,$,(#${shapeRepId}));`);
+
+    // Add comment for traceability
+    lines.push(`/* Geometry replaced for entity #${entityId} */`);
+
+    return { lines, count };
+  }
+
+  /**
+   * Format coordinate list as STEP tuple list
+   */
+  private formatCoordinateList(positions: Float32Array, precision: number): string {
+    const tuples: string[] = [];
+    for (let i = 0; i < positions.length; i += 3) {
+      const x = positions[i].toFixed(precision);
+      const y = positions[i + 1].toFixed(precision);
+      const z = positions[i + 2].toFixed(precision);
+      tuples.push(`(${x},${y},${z})`);
+    }
+    return tuples.join(',');
+  }
+
+  /**
+   * Format triangle indices as STEP index tuples (1-based for IFC)
+   */
+  private formatIndicesList(indices: Uint32Array): string {
+    const tuples: string[] = [];
+    for (let i = 0; i < indices.length; i += 3) {
+      // Convert to 1-based indices for IFC
+      const i0 = indices[i] + 1;
+      const i1 = indices[i + 1] + 1;
+      const i2 = indices[i + 2] + 1;
+      tuples.push(`(${i0},${i1},${i2})`);
+    }
+    return tuples.join(',');
+  }
+
+  /**
+   * Find the geometric representation context ID in the model
+   */
+  private findGeometricRepresentationContext(): number | null {
+    for (const [id, entityRef] of this.dataStore.entityIndex.byId) {
+      if (entityRef.type.toUpperCase() === 'IFCGEOMETRICREPRESENTATIONCONTEXT') {
+        return id;
+      }
+    }
+    return null;
   }
 }
 

@@ -16,6 +16,8 @@ export interface DataSlice {
   ifcDataStore: IfcDataStore | null;
   geometryResult: GeometryResult | null;
   pendingColorUpdates: Map<number, [number, number, number, number]> | null;
+  /** Set of expressIds that have been edited (for export) */
+  editedGeometryIds: Set<number>;
 
   // Actions
   setIfcDataStore: (result: IfcDataStore | null) => void;
@@ -26,6 +28,10 @@ export interface DataSlice {
   updateCoordinateInfo: (coordinateInfo: CoordinateInfo) => void;
   /** Replace a mesh's geometry data (for geometry editing) */
   updateMeshGeometry: (expressId: number, newMesh: MeshData) => void;
+  /** Get edited meshes for export */
+  getEditedMeshes: () => Map<number, MeshData>;
+  /** Clear edited geometry tracking (e.g., on model reload) */
+  clearEditedGeometry: () => void;
 }
 
 const getDefaultCoordinateInfo = (): CoordinateInfo => ({
@@ -42,11 +48,12 @@ const getDefaultCoordinateInfo = (): CoordinateInfo => ({
   hasLargeCoordinates: DATA_DEFAULTS.HAS_LARGE_COORDINATES,
 });
 
-export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set) => ({
+export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set, get) => ({
   // Initial state
   ifcDataStore: null,
   geometryResult: null,
   pendingColorUpdates: null,
+  editedGeometryIds: new Set<number>(),
 
   // Actions
   setIfcDataStore: (ifcDataStore) => set({ ifcDataStore }),
@@ -130,7 +137,11 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
     const totalTriangles = updatedMeshes.reduce((sum, m) => sum + (m.indices.length / 3), 0);
     const totalVertices = updatedMeshes.reduce((sum, m) => sum + (m.positions.length / 3), 0);
 
-    console.log('[DataSlice] Updated mesh geometry for expressId:', expressId);
+    // Track this as an edited mesh
+    const newEditedIds = new Set(state.editedGeometryIds);
+    newEditedIds.add(expressId);
+
+    console.log('[DataSlice] Updated mesh geometry for expressId:', expressId, '- total edited:', newEditedIds.size);
 
     return {
       geometryResult: {
@@ -139,6 +150,23 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
         totalTriangles,
         totalVertices,
       },
+      editedGeometryIds: newEditedIds,
     };
   }),
+
+  getEditedMeshes: () => {
+    const state = get();
+    const editedMeshes = new Map<number, MeshData>();
+    if (!state.geometryResult || state.editedGeometryIds.size === 0) {
+      return editedMeshes;
+    }
+    for (const mesh of state.geometryResult.meshes) {
+      if (state.editedGeometryIds.has(mesh.expressId)) {
+        editedMeshes.set(mesh.expressId, mesh);
+      }
+    }
+    return editedMeshes;
+  },
+
+  clearEditedGeometry: () => set({ editedGeometryIds: new Set<number>() }),
 });
