@@ -1724,26 +1724,22 @@ export class Renderer {
 
     /**
      * Capture a screenshot of the current view
-     * This renders a fresh frame and captures immediately after GPU work completes
-     * @param options - Render options for the capture
+     * Waits for GPU work to complete and captures exactly what's displayed
      * @returns PNG data URL or null if capture failed
      */
-    async captureScreenshot(options: RenderOptions = {}): Promise<string | null> {
-        if (!this.device.isInitialized() || !this.pipeline) {
+    async captureScreenshot(): Promise<string | null> {
+        if (!this.device.isInitialized()) {
             console.warn('[Renderer] Cannot capture screenshot: not initialized');
             return null;
         }
 
         try {
-            // Render a fresh frame with the provided options
-            this.render(options);
-
-            // Wait for GPU work to complete before capturing
-            // This ensures the render is fully done before we read the canvas
+            // Wait for any pending GPU work to complete before capturing
+            // This ensures we capture the fully rendered frame
             const device = this.device.getDevice();
             await device.queue.onSubmittedWorkDone();
 
-            // Capture the canvas content
+            // Capture exactly what's displayed on the canvas
             const dataUrl = this.canvas.toDataURL('image/png');
             return dataUrl;
         } catch (error) {
