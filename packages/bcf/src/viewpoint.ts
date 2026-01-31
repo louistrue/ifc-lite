@@ -55,6 +55,51 @@ export interface ViewerBounds {
 }
 
 // ============================================================================
+// Coordinate System Conversion
+// ============================================================================
+
+/**
+ * ifc-lite viewer uses Y-up coordinate system (typical WebGL):
+ *   +X = right
+ *   +Y = up
+ *   +Z = towards viewer (out of screen)
+ *
+ * BCF/IFC uses Z-up coordinate system:
+ *   +X = right
+ *   +Y = forward (into screen)
+ *   +Z = up
+ *
+ * Conversion:
+ *   BCF.x = Viewer.x
+ *   BCF.y = -Viewer.z  (viewer Z towards viewer = negative BCF Y forward)
+ *   BCF.z = Viewer.y   (viewer Y up = BCF Z up)
+ */
+
+type Point3D = { x: number; y: number; z: number };
+
+/**
+ * Convert from viewer coordinates (Y-up) to BCF coordinates (Z-up)
+ */
+function viewerToBcfCoords(p: Point3D): Point3D {
+  return {
+    x: p.x,
+    y: -p.z,
+    z: p.y,
+  };
+}
+
+/**
+ * Convert from BCF coordinates (Z-up) to viewer coordinates (Y-up)
+ */
+function bcfToViewerCoords(p: Point3D): Point3D {
+  return {
+    x: p.x,
+    y: p.z,
+    z: -p.y,
+  };
+}
+
+// ============================================================================
 // Camera Conversion
 // ============================================================================
 
@@ -63,33 +108,38 @@ export interface ViewerBounds {
  *
  * BCF uses direction vector instead of look-at point.
  * Direction = normalize(target - position)
+ *
+ * Also converts from viewer's Y-up to BCF's Z-up coordinate system.
  */
 export function cameraToPerspective(camera: ViewerCameraState): BCFPerspectiveCamera {
-  // Calculate direction vector
-  const dx = camera.target.x - camera.position.x;
-  const dy = camera.target.y - camera.position.y;
-  const dz = camera.target.z - camera.position.z;
+  // Convert position and target to BCF coordinates (Z-up)
+  const bcfPosition = viewerToBcfCoords(camera.position);
+  const bcfTarget = viewerToBcfCoords(camera.target);
+  const bcfUp = viewerToBcfCoords(camera.up);
+
+  // Calculate direction vector in BCF coordinates
+  const dx = bcfTarget.x - bcfPosition.x;
+  const dy = bcfTarget.y - bcfPosition.y;
+  const dz = bcfTarget.z - bcfPosition.z;
 
   const length = Math.sqrt(dx * dx + dy * dy + dz * dz);
   const direction: BCFDirection =
     length > 0.0001
       ? { x: dx / length, y: dy / length, z: dz / length }
-      : { x: 0, y: 0, z: -1 }; // Default forward
+      : { x: 0, y: 1, z: 0 }; // Default forward in BCF (positive Y)
 
   // Normalize up vector
-  const upLength = Math.sqrt(
-    camera.up.x * camera.up.x + camera.up.y * camera.up.y + camera.up.z * camera.up.z
-  );
+  const upLength = Math.sqrt(bcfUp.x * bcfUp.x + bcfUp.y * bcfUp.y + bcfUp.z * bcfUp.z);
   const upVector: BCFDirection =
     upLength > 0.0001
-      ? { x: camera.up.x / upLength, y: camera.up.y / upLength, z: camera.up.z / upLength }
-      : { x: 0, y: 1, z: 0 }; // Default up
+      ? { x: bcfUp.x / upLength, y: bcfUp.y / upLength, z: bcfUp.z / upLength }
+      : { x: 0, y: 0, z: 1 }; // Default up in BCF (positive Z)
 
   // Convert FOV from radians to degrees
   const fieldOfView = (camera.fov * 180) / Math.PI;
 
   return {
-    cameraViewPoint: { ...camera.position },
+    cameraViewPoint: bcfPosition,
     cameraDirection: direction,
     cameraUpVector: upVector,
     fieldOfView: Math.max(1, Math.min(179, fieldOfView)), // Clamp to valid range
@@ -98,33 +148,38 @@ export function cameraToPerspective(camera: ViewerCameraState): BCFPerspectiveCa
 
 /**
  * Convert viewer camera state to BCF orthogonal camera
+ *
+ * Also converts from viewer's Y-up to BCF's Z-up coordinate system.
  */
 export function cameraToOrthogonal(
   camera: ViewerCameraState,
   viewToWorldScale: number
 ): BCFOrthogonalCamera {
-  // Calculate direction vector
-  const dx = camera.target.x - camera.position.x;
-  const dy = camera.target.y - camera.position.y;
-  const dz = camera.target.z - camera.position.z;
+  // Convert position and target to BCF coordinates (Z-up)
+  const bcfPosition = viewerToBcfCoords(camera.position);
+  const bcfTarget = viewerToBcfCoords(camera.target);
+  const bcfUp = viewerToBcfCoords(camera.up);
+
+  // Calculate direction vector in BCF coordinates
+  const dx = bcfTarget.x - bcfPosition.x;
+  const dy = bcfTarget.y - bcfPosition.y;
+  const dz = bcfTarget.z - bcfPosition.z;
 
   const length = Math.sqrt(dx * dx + dy * dy + dz * dz);
   const direction: BCFDirection =
     length > 0.0001
       ? { x: dx / length, y: dy / length, z: dz / length }
-      : { x: 0, y: 0, z: -1 };
+      : { x: 0, y: 1, z: 0 }; // Default forward in BCF
 
   // Normalize up vector
-  const upLength = Math.sqrt(
-    camera.up.x * camera.up.x + camera.up.y * camera.up.y + camera.up.z * camera.up.z
-  );
+  const upLength = Math.sqrt(bcfUp.x * bcfUp.x + bcfUp.y * bcfUp.y + bcfUp.z * bcfUp.z);
   const upVector: BCFDirection =
     upLength > 0.0001
-      ? { x: camera.up.x / upLength, y: camera.up.y / upLength, z: camera.up.z / upLength }
-      : { x: 0, y: 1, z: 0 };
+      ? { x: bcfUp.x / upLength, y: bcfUp.y / upLength, z: bcfUp.z / upLength }
+      : { x: 0, y: 0, z: 1 }; // Default up in BCF
 
   return {
-    cameraViewPoint: { ...camera.position },
+    cameraViewPoint: bcfPosition,
     cameraDirection: direction,
     cameraUpVector: upVector,
     viewToWorldScale,
@@ -137,6 +192,8 @@ export function cameraToOrthogonal(
  * BCF stores direction, but viewers need a look-at point.
  * We compute target = position + direction * distance
  *
+ * Also converts from BCF's Z-up to viewer's Y-up coordinate system.
+ *
  * @param camera - BCF perspective camera
  * @param targetDistance - Distance from eye to target (default: 10)
  */
@@ -144,19 +201,25 @@ export function perspectiveToCamera(
   camera: BCFPerspectiveCamera,
   targetDistance = 10
 ): ViewerCameraState {
-  const target = {
+  // Calculate target in BCF coordinates
+  const bcfTarget = {
     x: camera.cameraViewPoint.x + camera.cameraDirection.x * targetDistance,
     y: camera.cameraViewPoint.y + camera.cameraDirection.y * targetDistance,
     z: camera.cameraViewPoint.z + camera.cameraDirection.z * targetDistance,
   };
 
+  // Convert to viewer coordinates (Y-up)
+  const viewerPosition = bcfToViewerCoords(camera.cameraViewPoint);
+  const viewerTarget = bcfToViewerCoords(bcfTarget);
+  const viewerUp = bcfToViewerCoords(camera.cameraUpVector);
+
   // Convert FOV from degrees to radians
   const fov = (camera.fieldOfView * Math.PI) / 180;
 
   return {
-    position: { ...camera.cameraViewPoint },
-    target,
-    up: { ...camera.cameraUpVector },
+    position: viewerPosition,
+    target: viewerTarget,
+    up: viewerUp,
     fov,
     isOrthographic: false,
   };
@@ -164,21 +227,29 @@ export function perspectiveToCamera(
 
 /**
  * Convert BCF orthogonal camera to viewer camera state
+ *
+ * Also converts from BCF's Z-up to viewer's Y-up coordinate system.
  */
 export function orthogonalToCamera(
   camera: BCFOrthogonalCamera,
   targetDistance = 10
 ): ViewerCameraState {
-  const target = {
+  // Calculate target in BCF coordinates
+  const bcfTarget = {
     x: camera.cameraViewPoint.x + camera.cameraDirection.x * targetDistance,
     y: camera.cameraViewPoint.y + camera.cameraDirection.y * targetDistance,
     z: camera.cameraViewPoint.z + camera.cameraDirection.z * targetDistance,
   };
 
+  // Convert to viewer coordinates (Y-up)
+  const viewerPosition = bcfToViewerCoords(camera.cameraViewPoint);
+  const viewerTarget = bcfToViewerCoords(bcfTarget);
+  const viewerUp = bcfToViewerCoords(camera.cameraUpVector);
+
   return {
-    position: { ...camera.cameraViewPoint },
-    target,
-    up: { ...camera.cameraUpVector },
+    position: viewerPosition,
+    target: viewerTarget,
+    up: viewerUp,
     fov: Math.PI / 4, // Default FOV for ortho (not used)
     isOrthographic: true,
     orthoScale: camera.viewToWorldScale,
@@ -193,7 +264,7 @@ export function orthogonalToCamera(
  * Convert viewer section plane to BCF clipping plane
  *
  * ifc-lite uses percentage position (0-100) along an axis.
- * BCF uses absolute location and direction in world coordinates.
+ * BCF uses absolute location and direction in world coordinates (Z-up).
  */
 export function sectionPlaneToClippingPlane(
   sectionPlane: ViewerSectionPlane,
@@ -203,82 +274,89 @@ export function sectionPlaneToClippingPlane(
     return null;
   }
 
-  // Calculate absolute position from percentage
+  // Calculate absolute position from percentage (in viewer coordinates)
   const t = sectionPlane.position / 100;
 
-  let location: BCFPoint;
-  let direction: BCFDirection;
+  let viewerLocation: Point3D;
+  let viewerDirection: Point3D;
 
   switch (sectionPlane.axis) {
-    case 'down': // Y axis
-      location = {
+    case 'down': // Y axis (viewer up/down)
+      viewerLocation = {
         x: (bounds.min.x + bounds.max.x) / 2,
         y: bounds.min.y + t * (bounds.max.y - bounds.min.y),
         z: (bounds.min.z + bounds.max.z) / 2,
       };
-      direction = sectionPlane.flipped ? { x: 0, y: 1, z: 0 } : { x: 0, y: -1, z: 0 };
+      viewerDirection = sectionPlane.flipped ? { x: 0, y: 1, z: 0 } : { x: 0, y: -1, z: 0 };
       break;
 
-    case 'front': // Z axis
-      location = {
+    case 'front': // Z axis (viewer depth)
+      viewerLocation = {
         x: (bounds.min.x + bounds.max.x) / 2,
         y: (bounds.min.y + bounds.max.y) / 2,
         z: bounds.min.z + t * (bounds.max.z - bounds.min.z),
       };
-      direction = sectionPlane.flipped ? { x: 0, y: 0, z: 1 } : { x: 0, y: 0, z: -1 };
+      viewerDirection = sectionPlane.flipped ? { x: 0, y: 0, z: 1 } : { x: 0, y: 0, z: -1 };
       break;
 
     case 'side': // X axis
-      location = {
+      viewerLocation = {
         x: bounds.min.x + t * (bounds.max.x - bounds.min.x),
         y: (bounds.min.y + bounds.max.y) / 2,
         z: (bounds.min.z + bounds.max.z) / 2,
       };
-      direction = sectionPlane.flipped ? { x: 1, y: 0, z: 0 } : { x: -1, y: 0, z: 0 };
+      viewerDirection = sectionPlane.flipped ? { x: 1, y: 0, z: 0 } : { x: -1, y: 0, z: 0 };
       break;
   }
 
-  return { location, direction };
+  // Convert to BCF coordinates (Z-up)
+  return {
+    location: viewerToBcfCoords(viewerLocation),
+    direction: viewerToBcfCoords(viewerDirection),
+  };
 }
 
 /**
  * Convert BCF clipping plane to viewer section plane
  *
  * Determines the closest axis and calculates percentage position.
+ * Converts from BCF coordinates (Z-up) to viewer coordinates (Y-up).
  */
 export function clippingPlaneToSectionPlane(
   plane: BCFClippingPlane,
   bounds: ViewerBounds
 ): ViewerSectionPlane {
-  const { direction } = plane;
+  // Convert from BCF coordinates to viewer coordinates
+  const viewerLocation = bcfToViewerCoords(plane.location);
+  const viewerDirection = bcfToViewerCoords(plane.direction);
 
-  // Determine primary axis based on direction
-  const absX = Math.abs(direction.x);
-  const absY = Math.abs(direction.y);
-  const absZ = Math.abs(direction.z);
+  // Determine primary axis based on direction (in viewer coordinates)
+  const absX = Math.abs(viewerDirection.x);
+  const absY = Math.abs(viewerDirection.y);
+  const absZ = Math.abs(viewerDirection.z);
 
   let axis: 'down' | 'front' | 'side';
   let position: number;
   let flipped: boolean;
 
   if (absY >= absX && absY >= absZ) {
-    // Y axis dominant (down)
+    // Y axis dominant (down) in viewer
     axis = 'down';
     const range = bounds.max.y - bounds.min.y;
-    position = range > 0 ? ((plane.location.y - bounds.min.y) / range) * 100 : 50;
-    flipped = direction.y > 0;
+    position = range > 0 ? ((viewerLocation.y - bounds.min.y) / range) * 100 : 50;
+    flipped = viewerDirection.y > 0;
   } else if (absZ >= absX) {
-    // Z axis dominant (front)
+    // Z axis dominant (front) in viewer
     axis = 'front';
     const range = bounds.max.z - bounds.min.z;
-    position = range > 0 ? ((plane.location.z - bounds.min.z) / range) * 100 : 50;
-    flipped = direction.z > 0;
+    position = range > 0 ? ((viewerLocation.z - bounds.min.z) / range) * 100 : 50;
+    flipped = viewerDirection.z > 0;
   } else {
     // X axis dominant (side)
     axis = 'side';
     const range = bounds.max.x - bounds.min.x;
-    position = range > 0 ? ((plane.location.x - bounds.min.x) / range) * 100 : 50;
-    flipped = direction.x > 0;
+    position = range > 0 ? ((viewerLocation.x - bounds.min.x) / range) * 100 : 50;
+    flipped = viewerDirection.x > 0;
   }
 
   // Clamp position to valid range

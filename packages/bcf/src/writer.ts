@@ -212,9 +212,9 @@ async function writeViewpointFiles(
   const filename = `Viewpoint_${viewpoint.guid}.bcfv`;
   const snapshotName = `Snapshot_${viewpoint.guid}.png`;
 
-  // Write viewpoint XML
+  // Write viewpoint XML - use buildingSMART standard format
   let content = `<?xml version="1.0" encoding="UTF-8"?>
-<VisualizationInfo Guid="${viewpoint.guid}" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="visinfo.xsd">`;
+<VisualizationInfo xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" Guid="${viewpoint.guid}">`;
 
   // Write components
   if (viewpoint.components) {

@@ -420,8 +420,8 @@ async function parseViewpoints(
  * Parse viewpoint XML content
  */
 function parseViewpointContent(content: string): BCFViewpoint | null {
-  // Extract viewpoint GUID from root element
-  const guidMatch = content.match(/<VisualizationInfo\s+Guid="([^"]+)"/);
+  // Extract viewpoint GUID from root element (Guid can be anywhere in the tag)
+  const guidMatch = content.match(/<VisualizationInfo[^>]+Guid="([^"]+)"/);
   const guid = guidMatch?.[1] || crypto.randomUUID?.() || `vp-${Date.now()}`;
 
   // Parse perspective camera
