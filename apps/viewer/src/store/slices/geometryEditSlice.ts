@@ -83,6 +83,9 @@ export interface GeometryEditSlice {
   /** Global geometry edit mode - when enabled, clicking any entity starts editing */
   globalGeometryEditEnabled: boolean;
 
+  /** ExpressId of mesh pending commit - signals Viewport to commit instead of clear */
+  pendingCommitExpressId: number | null;
+
   // =========================================================================
   // Actions - Mode Management
   // =========================================================================
@@ -185,6 +188,9 @@ export interface GeometryEditSlice {
 
   /** Clear all geometry edits */
   clearAllGeometryEdits: () => void;
+
+  /** Clear pending commit expressId (called by Viewport after committing) */
+  clearPendingCommit: () => void;
 }
 
 /**
@@ -214,6 +220,7 @@ export const createGeometryEditSlice: StateCreator<
   constraintAxis: null,
   gridSnapSize: 0,
   globalGeometryEditEnabled: false,
+  pendingCommitExpressId: null,
 
   // =========================================================================
   // Mode Management
@@ -346,6 +353,8 @@ export const createGeometryEditSlice: StateCreator<
         meshSelection: null,
         previewMeshes: newPreviewMeshes,
         geometryEditVersion: s.geometryEditVersion + 1,
+        // Signal to Viewport to commit instead of clear when commit=true
+        pendingCommitExpressId: commit ? activeSession.entity.expressId : null,
       };
     });
   },
@@ -716,6 +725,11 @@ export const createGeometryEditSlice: StateCreator<
       hasGeometryChanges: false,
       geometryEditVersion: 0,
       globalGeometryEditEnabled: false,
+      pendingCommitExpressId: null,
     });
+  },
+
+  clearPendingCommit: () => {
+    set({ pendingCommitExpressId: null });
   },
 });

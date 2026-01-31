@@ -29,6 +29,10 @@ export class Scene {
   private previewMesh: Mesh | null = null;
   private previewExpressId: number | null = null;
 
+  // Committed meshes - permanent replacements from completed geometry edits
+  // These persist until the model is reloaded
+  private committedMeshes: Map<number, Mesh> = new Map(); // Map expressId -> committed Mesh
+
   // Sub-batch cache for partially visible batches (PERFORMANCE FIX)
   // Key = colorKey + ":" + sorted visible expressIds hash
   // This allows rendering partially visible batches as single draw calls instead of 10,000+ individual draws
@@ -91,10 +95,76 @@ export class Scene {
   }
 
   /**
+   * Commit the current preview mesh as a permanent replacement
+   * This is called when geometry edits are applied (not cancelled)
+   */
+  commitPreviewMesh(): void {
+    if (this.previewMesh && this.previewExpressId !== null) {
+      // Clean up any existing committed mesh for this entity
+      const existingCommitted = this.committedMeshes.get(this.previewExpressId);
+      if (existingCommitted) {
+        existingCommitted.vertexBuffer.destroy();
+        existingCommitted.indexBuffer.destroy();
+        if (existingCommitted.uniformBuffer) {
+          existingCommitted.uniformBuffer.destroy();
+        }
+      }
+
+      // Move preview to committed (don't destroy, just transfer ownership)
+      this.committedMeshes.set(this.previewExpressId, this.previewMesh);
+      console.log('[Scene] Committed mesh for expressId:', this.previewExpressId);
+
+      // Clear preview references without destroying (already transferred)
+      this.previewMesh = null;
+      this.previewExpressId = null;
+    }
+  }
+
+  /**
+   * Check if an expressId has a committed mesh replacement
+   */
+  hasCommittedMesh(expressId: number): boolean {
+    return this.committedMeshes.has(expressId);
+  }
+
+  /**
+   * Get committed mesh for an expressId
+   */
+  getCommittedMesh(expressId: number): Mesh | null {
+    return this.committedMeshes.get(expressId) || null;
+  }
+
+  /**
+   * Get all committed meshes (for rendering)
+   */
+  getCommittedMeshes(): Map<number, Mesh> {
+    return this.committedMeshes;
+  }
+
+  /**
    * Check if an expressId is currently being previewed (should be hidden from normal rendering)
    */
   isBeingPreviewed(expressId: number): boolean {
     return this.previewExpressId === expressId;
+  }
+
+  /**
+   * Check if an expressId has been edited (preview or committed)
+   * Used to skip rendering the original batched geometry
+   */
+  isEdited(expressId: number): boolean {
+    return this.previewExpressId === expressId || this.committedMeshes.has(expressId);
+  }
+
+  /**
+   * Get all expressIds that have been edited (for filtering during batched rendering)
+   */
+  getEditedExpressIds(): Set<number> {
+    const ids = new Set<number>(this.committedMeshes.keys());
+    if (this.previewExpressId !== null) {
+      ids.add(this.previewExpressId);
+    }
+    return ids;
   }
 
   /**
@@ -671,6 +741,15 @@ export class Scene {
     }
     // Clear preview mesh
     this.clearPreviewMesh();
+    // Clear committed meshes
+    for (const [, mesh] of this.committedMeshes) {
+      mesh.vertexBuffer.destroy();
+      mesh.indexBuffer.destroy();
+      if (mesh.uniformBuffer) {
+        mesh.uniformBuffer.destroy();
+      }
+    }
+    this.committedMeshes.clear();
     this.meshes = [];
     this.instancedMeshes = [];
     this.batchedMeshes = [];

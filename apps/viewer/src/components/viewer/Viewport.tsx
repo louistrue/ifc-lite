@@ -22,6 +22,7 @@ import {
   useColorUpdateState,
   useIfcDataState,
 } from '../../hooks/useViewerSelectors.js';
+import { usePendingCommitExpressId, useClearPendingCommit } from '../../hooks/useGeometryEdit.js';
 import { useModelSelection } from '../../hooks/useModelSelection.js';
 import {
   getEntityBounds,
@@ -57,6 +58,10 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
 
   // Sync selectedEntityId with model-aware selectedEntity for PropertiesPanel
   useModelSelection();
+
+  // Geometry edit commit flow
+  const pendingCommitExpressId = usePendingCommitExpressId();
+  const clearPendingCommit = useClearPendingCommit();
 
   // Create reverse mapping from modelIndex to modelId for selection
   const modelIndexToId = useMemo(() => {
@@ -343,8 +348,15 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
       console.log('[Viewport] Setting preview mesh for expressId:', previewMesh.expressId, 'vertices:', previewMesh.positions?.length ? previewMesh.positions.length / 3 : 0);
       renderer.setPreviewMesh(previewMesh);
     } else {
-      console.log('[Viewport] Clearing preview mesh');
-      renderer.clearPreviewMesh();
+      // Check if we should commit the edit instead of clearing
+      if (pendingCommitExpressId !== null) {
+        console.log('[Viewport] Committing preview mesh for expressId:', pendingCommitExpressId);
+        renderer.commitPreviewMesh();
+        clearPendingCommit();
+      } else {
+        console.log('[Viewport] Clearing preview mesh');
+        renderer.clearPreviewMesh();
+      }
     }
 
     // Trigger a render to display the preview mesh change
@@ -355,7 +367,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
       selectedModelIndex: selectedModelIndexRef.current,
       clearColor: clearColorRef.current,
     });
-  }, [previewMesh, isInitialized]);
+  }, [previewMesh, isInitialized, pendingCommitExpressId, clearPendingCommit]);
 
   // Cleanup measurement state when tool changes + set cursor
   useEffect(() => {

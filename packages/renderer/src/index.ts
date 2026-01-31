@@ -594,13 +594,13 @@ export class Renderer {
         let meshes = this.scene.getMeshes();
 
         // Check if visibility filtering is active
-        // Get preview expressId to hide the original mesh during editing
-        const previewExpressId = this.scene.getPreviewExpressId();
+        // Get all edited expressIds (preview + committed) to hide their original meshes
+        const editedExpressIds = this.scene.getEditedExpressIds();
 
         const hasHiddenFilter = options.hiddenIds && options.hiddenIds.size > 0;
         const hasIsolatedFilter = options.isolatedIds !== null && options.isolatedIds !== undefined;
-        const hasPreviewFilter = previewExpressId !== null;
-        const hasVisibilityFiltering = hasHiddenFilter || hasIsolatedFilter || hasPreviewFilter;
+        const hasEditedFilter = editedExpressIds.size > 0;
+        const hasVisibilityFiltering = hasHiddenFilter || hasIsolatedFilter || hasEditedFilter;
 
         // PERFORMANCE FIX: Use batch-level visibility filtering instead of creating individual meshes
         // Only create individual meshes for selected elements (for highlighting)
@@ -843,8 +843,8 @@ export class Renderer {
                         for (const expressId of batch.expressIds) {
                             const isHidden = options.hiddenIds?.has(expressId) ?? false;
                             const isIsolated = !hasIsolatedFilter || options.isolatedIds!.has(expressId);
-                            const isPreviewed = expressId === previewExpressId;
-                            if (!isHidden && isIsolated && !isPreviewed) {
+                            const isEdited = editedExpressIds.has(expressId);
+                            if (!isHidden && isIsolated && !isEdited) {
                                 visibleCount++;
                             }
                         }
@@ -883,8 +883,8 @@ export class Renderer {
                             for (const expressId of batch.expressIds) {
                                 const isHidden = options.hiddenIds?.has(expressId) ?? false;
                                 const isIsolated = !hasIsolatedFilter || options.isolatedIds!.has(expressId);
-                                const isPreviewed = expressId === previewExpressId;
-                                if (!isHidden && isIsolated && !isPreviewed) {
+                                const isEdited = editedExpressIds.has(expressId);
+                                if (!isHidden && isIsolated && !isEdited) {
                                     visibleIds.add(expressId);
                                 }
                             }
@@ -1230,6 +1230,44 @@ export class Renderer {
                 pass.setVertexBuffer(0, previewMesh.vertexBuffer);
                 pass.setIndexBuffer(previewMesh.indexBuffer, 'uint32');
                 pass.drawIndexed(previewMesh.indexCount, 1, 0, 0, 0);
+            }
+
+            // Render committed meshes (permanent geometry edits)
+            const committedMeshes = this.scene.getCommittedMeshes();
+            if (committedMeshes.size > 0) {
+                pass.setPipeline(this.pipeline.getPipeline());
+                for (const [, mesh] of committedMeshes) {
+                    if (mesh.bindGroup && mesh.uniformBuffer) {
+                        const meshBuffer = new Float32Array(48);
+                        const meshFlagBuffer = new Uint32Array(meshBuffer.buffer, 176, 4);
+
+                        meshBuffer.set(viewProj, 0);
+                        meshBuffer.set(mesh.transform.m, 16);
+                        meshBuffer.set(mesh.color, 32);
+                        meshBuffer[36] = 0.0; // metallic
+                        meshBuffer[37] = 0.5; // roughness
+
+                        // Section plane data
+                        if (sectionPlaneData) {
+                            meshBuffer[40] = sectionPlaneData.normal[0];
+                            meshBuffer[41] = sectionPlaneData.normal[1];
+                            meshBuffer[42] = sectionPlaneData.normal[2];
+                            meshBuffer[43] = sectionPlaneData.distance;
+                        }
+
+                        // Normal flags (not selected)
+                        meshFlagBuffer[0] = 0;
+                        meshFlagBuffer[1] = sectionPlaneData?.enabled ? 1 : 0;
+                        meshFlagBuffer[2] = 0;
+                        meshFlagBuffer[3] = 0;
+
+                        device.queue.writeBuffer(mesh.uniformBuffer, 0, meshBuffer);
+                        pass.setBindGroup(0, mesh.bindGroup);
+                        pass.setVertexBuffer(0, mesh.vertexBuffer);
+                        pass.setIndexBuffer(mesh.indexBuffer, 'uint32');
+                        pass.drawIndexed(mesh.indexCount, 1, 0, 0, 0);
+                    }
+                }
             }
 
             // Draw section plane visual BEFORE pass.end() (within same MSAA render pass)
@@ -1755,10 +1793,26 @@ export class Renderer {
     }
 
     /**
+     * Commit the preview mesh as a permanent replacement
+     * This should be called when geometry edits are applied (not cancelled)
+     * The committed mesh will be rendered instead of the original batched geometry
+     */
+    commitPreviewMesh(): void {
+        this.scene.commitPreviewMesh();
+    }
+
+    /**
      * Check if an entity is currently being previewed
      */
     isEntityBeingPreviewed(expressId: number): boolean {
         return this.scene.isBeingPreviewed(expressId);
+    }
+
+    /**
+     * Check if an entity has been edited (either preview or committed)
+     */
+    isEntityEdited(expressId: number): boolean {
+        return this.scene.isEdited(expressId);
     }
 
     /**

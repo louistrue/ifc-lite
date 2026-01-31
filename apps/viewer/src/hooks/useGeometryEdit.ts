@@ -404,3 +404,17 @@ export function usePreviewMeshes(): Map<number, MeshData> {
 export function useGeometryEditVersion(): number {
   return useViewerStore((s) => s.geometryEditVersion);
 }
+
+/**
+ * Hook for pending commit expressId (for renderer commit flow)
+ */
+export function usePendingCommitExpressId(): number | null {
+  return useViewerStore((s) => s.pendingCommitExpressId);
+}
+
+/**
+ * Hook for clearPendingCommit action
+ */
+export function useClearPendingCommit(): () => void {
+  return useViewerStore((s) => s.clearPendingCommit);
+}
