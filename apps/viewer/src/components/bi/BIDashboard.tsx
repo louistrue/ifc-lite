@@ -12,7 +12,7 @@
 
 import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
 import GridLayout, { type Layout, type LayoutItem } from 'react-grid-layout';
-import { X, Settings, Download, Plus, Filter, FilterX, Link, Unlink } from 'lucide-react';
+import { X, Settings, Download, Plus, Filter, FilterX, Link, Unlink, LayoutTemplate } from 'lucide-react';
 import {
   BIDataAggregator,
   computeHighlightedKeys,
@@ -48,6 +48,7 @@ export function BIDashboard() {
   const closeDashboard = useViewerStore((state) => state.closeDashboard);
   const toggleEditMode = useViewerStore((state) => state.toggleEditMode);
   const updateChartLayout = useViewerStore((state) => state.updateChartLayout);
+  const setActiveDashboard = useViewerStore((state) => state.setActiveDashboard);
   const setChartFilter = useViewerStore((state) => state.setChartFilter);
   const clearChartFilter = useViewerStore((state) => state.clearChartFilter);
   const clearAllFilters = useViewerStore((state) => state.clearAllFilters);
@@ -82,21 +83,48 @@ export function BIDashboard() {
   const biModels = useMemo((): BIModelData[] => {
     const result: BIModelData[] = [];
 
+    console.log('[BIDashboard] Converting models to BIModelData, models count:', models.size);
+
     for (const [modelId, model] of models) {
       const dataStore = model.ifcDataStore;
       const geometryResult = model.geometryResult;
 
+      console.log('[BIDashboard] Processing model:', modelId, {
+        hasDataStore: !!dataStore,
+        hasEntities: !!dataStore?.entities,
+        hasGeometry: !!geometryResult,
+        meshCount: geometryResult?.meshes?.length ?? 0,
+        idOffset: model.idOffset,
+      });
+
       // Get geometry express IDs
+      // Note: mesh.expressId contains global ID (original + idOffset) if idOffset > 0
+      // We need to convert back to original expressId for dataStore lookups
       const geometryExpressIds: number[] = [];
       if (geometryResult?.meshes) {
+        const seenIds = new Set<number>();
         for (const mesh of geometryResult.meshes) {
-          // Convert from global ID back to original expressId
-          const originalId = mesh.expressId - model.idOffset;
-          if (originalId > 0) {
-            geometryExpressIds.push(originalId);
+          // Convert global ID back to original expressId
+          const originalExpressId = mesh.expressId - (model.idOffset ?? 0);
+          if (originalExpressId > 0 && !seenIds.has(originalExpressId)) {
+            seenIds.add(originalExpressId);
+            geometryExpressIds.push(originalExpressId);
           }
         }
       }
+
+      // Debug: check if entity lookup works
+      if (geometryExpressIds.length > 0) {
+        const sampleId = geometryExpressIds[0];
+        console.log('[BIDashboard] Sample entity lookup:', {
+          expressId: sampleId,
+          type: dataStore.entities?.getTypeName?.(sampleId),
+          name: dataStore.entities?.getName?.(sampleId),
+        });
+      }
+
+      console.log('[BIDashboard] geometryExpressIds count:', geometryExpressIds.length,
+        'sample ids:', geometryExpressIds.slice(0, 5));
 
       result.push({
         modelId,
@@ -177,20 +205,30 @@ export function BIDashboard() {
   const chartData = useMemo(() => {
     if (!activeDashboard) return new Map<string, AggregatedDataPoint[]>();
 
+    console.log('[BIDashboard] Computing chart data for', activeDashboard.charts.length, 'charts');
+    console.log('[BIDashboard] biModels available:', biModels.length);
+
     const data = new Map<string, AggregatedDataPoint[]>();
     for (const chart of activeDashboard.charts) {
       try {
         const result = aggregator.aggregate(chart.aggregation);
+        console.log('[BIDashboard] Chart', chart.title, 'aggregation result:', {
+          dataPoints: result.data.length,
+          totalEntities: result.totalEntities,
+          totalValue: result.totalValue,
+          computeTimeMs: result.computeTimeMs,
+        });
         data.set(chart.id, result.data);
         // Cache for bidirectional sync
         cacheChartData(chart.id, result.data);
-      } catch {
+      } catch (err) {
         // If aggregation fails, provide empty data
+        console.error('[BIDashboard] Aggregation failed for chart', chart.title, err);
         data.set(chart.id, []);
       }
     }
     return data;
-  }, [activeDashboard, aggregator, cacheChartData]);
+  }, [activeDashboard, aggregator, biModels.length, cacheChartData]);
 
   // Compute highlighted keys from 3D selection
   const highlightedKeysByChart = useMemo(() => {
@@ -372,6 +410,15 @@ export function BIDashboard() {
           )}
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setActiveDashboard(null)}
+            title="Switch to a different dashboard template"
+          >
+            <LayoutTemplate className="h-4 w-4 mr-1" />
+            Switch Template
+          </Button>
           <Button
             variant={crossFilterEnabled ? 'default' : 'outline'}
             size="sm"
