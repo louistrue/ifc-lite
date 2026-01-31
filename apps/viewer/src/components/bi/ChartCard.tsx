@@ -19,6 +19,7 @@ interface ChartCardProps {
   highlightedKeys: Set<string>;
   onInteraction: (event: ChartInteractionEvent) => void;
   onRemove: (chartId: string) => void;
+  onEdit: (chartId: string) => void;
   onClearFilter: (chartId: string) => void;
   isEditMode: boolean;
   hasFilter: boolean;
@@ -31,6 +32,7 @@ export function ChartCard({
   highlightedKeys,
   onInteraction,
   onRemove,
+  onEdit,
   onClearFilter,
   isEditMode,
   hasFilter,
@@ -38,6 +40,10 @@ export function ChartCard({
   const handleRemove = useCallback(() => {
     onRemove(config.id);
   }, [config.id, onRemove]);
+
+  const handleEdit = useCallback(() => {
+    onEdit(config.id);
+  }, [config.id, onEdit]);
 
   const handleClearFilter = useCallback(() => {
     onClearFilter(config.id);
@@ -77,6 +83,7 @@ export function ChartCard({
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6"
+                onClick={handleEdit}
                 title="Configure chart"
               >
                 <Settings className="h-3.5 w-3.5" />

@@ -20,9 +20,10 @@ import {
   type BIModelData,
   type AggregatedDataPoint,
 } from '@ifc-lite/bi';
-import { extractQuantitiesOnDemand } from '@ifc-lite/parser';
+import { extractQuantitiesOnDemand, EntityExtractor } from '@ifc-lite/parser';
 import { useViewerStore, type EntityRef } from '../../store/index.js';
 import { ChartCard } from './ChartCard.js';
+import { ChartEditDialog } from './ChartEditDialog.js';
 import { TemplateSelector } from './TemplateSelector.js';
 import { Button } from '../ui/button.js';
 
@@ -32,6 +33,7 @@ import 'react-resizable/css/styles.css';
 export function BIDashboard() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(1200);
+  const [editingChartId, setEditingChartId] = useState<string | null>(null);
 
   // Store state
   const isDashboardOpen = useViewerStore((state) => state.isDashboardOpen);
@@ -59,6 +61,7 @@ export function BIDashboard() {
   const clearAllFilters = useViewerStore((state) => state.clearAllFilters);
   const toggleCrossFilter = useViewerStore((state) => state.toggleCrossFilter);
   const removeChart = useViewerStore((state) => state.removeChart);
+  const updateChart = useViewerStore((state) => state.updateChart);
   const cacheChartData = useViewerStore((state) => state.cacheChartData);
 
   // Selection actions for bidirectional sync
@@ -205,8 +208,48 @@ export function BIDashboard() {
                   'inverse'
                 );
                 if (!rels || rels.length === 0) return undefined;
+
+                // Helper to extract material name on-demand from source buffer
+                const getMaterialName = (materialId: number): string => {
+                  // First try entity table (might have name for some types)
+                  const tableName = dataStore.entities?.getName?.(materialId);
+                  if (tableName) return tableName;
+
+                  // Extract on-demand from source buffer
+                  const ref = dataStore.entityIndex?.byId?.get(materialId);
+                  if (!ref || !dataStore.source) return 'Unknown';
+
+                  const extractor = new EntityExtractor(dataStore.source);
+                  const entity = extractor.extractEntity(ref);
+                  if (!entity) return 'Unknown';
+
+                  const attrs = entity.attributes || [];
+                  const typeUpper = entity.type.toUpperCase();
+
+                  // Different material types have name at different positions
+                  // IfcMaterial: Name[0]
+                  // IfcMaterialLayerSet: MaterialLayers[0], LayerSetName[1]
+                  // IfcMaterialLayerSetUsage: ForLayerSet[0] (reference)
+                  // IfcMaterialList: Materials[0] (list of refs)
+                  if (typeUpper === 'IFCMATERIAL') {
+                    return typeof attrs[0] === 'string' ? attrs[0] : 'Unnamed Material';
+                  } else if (typeUpper === 'IFCMATERIALLAYERSET') {
+                    return typeof attrs[1] === 'string' ? attrs[1] : 'Layer Set';
+                  } else if (typeUpper === 'IFCMATERIALLAYERSETUSAGE') {
+                    // This references a LayerSet - recurse
+                    const layerSetRef = typeof attrs[0] === 'number' ? attrs[0] : null;
+                    if (layerSetRef) return getMaterialName(layerSetRef);
+                    return 'Layer Set Usage';
+                  } else if (typeUpper === 'IFCMATERIALCONSTITUENTSET') {
+                    return typeof attrs[0] === 'string' ? attrs[0] : 'Constituent Set';
+                  } else if (typeUpper === 'IFCMATERIALPROFILESET') {
+                    return typeof attrs[0] === 'string' ? attrs[0] : 'Profile Set';
+                  }
+                  return entity.type;
+                };
+
                 return rels.map((r: number) => ({
-                  name: dataStore.entities?.getName?.(r) ?? 'Unknown',
+                  name: getMaterialName(r),
                   expressId: r,
                 }));
               },
@@ -527,6 +570,7 @@ export function BIDashboard() {
                 highlightedKeys={highlightedKeysByChart.get(chart.id) ?? new Set()}
                 onInteraction={handleChartInteraction}
                 onRemove={removeChart}
+                onEdit={setEditingChartId}
                 onClearFilter={clearChartFilter}
                 isEditMode={isEditMode}
                 hasFilter={(chartFilters.get(chart.id)?.size ?? 0) > 0}
@@ -535,6 +579,15 @@ export function BIDashboard() {
           ))}
         </GridLayout>
       </div>
+
+      {/* Chart Edit Dialog */}
+      {editingChartId && activeDashboard && (
+        <ChartEditDialog
+          config={activeDashboard.charts.find((c) => c.id === editingChartId)!}
+          onSave={(updates) => updateChart(editingChartId, updates)}
+          onClose={() => setEditingChartId(null)}
+        />
+      )}
     </div>
   );
 }
