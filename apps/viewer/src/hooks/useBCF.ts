@@ -136,25 +136,40 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
 
   /**
    * Capture a snapshot from the WebGPU canvas
+   * Uses the renderer's captureScreenshot method for proper GPU synchronization
    */
   const captureSnapshot = useCallback(async (): Promise<string | null> => {
-    const canvas = getCanvas();
-    if (!canvas) {
-      console.warn('[useBCF] No canvas available for snapshot capture');
+    const renderer = getRenderer();
+    if (!renderer) {
+      console.warn('[useBCF] No renderer available for snapshot capture');
       return null;
     }
 
     try {
-      // For WebGPU, we need to capture after render
-      // The canvas.toDataURL() works because WebGPU configures the canvas with
-      // alphaMode: 'premultiplied' which allows readback
-      const dataUrl = canvas.toDataURL('image/png');
+      // Use renderer's captureScreenshot for proper GPU synchronization
+      // This renders a fresh frame and waits for GPU work to complete before capturing
+      const dataUrl = await renderer.captureScreenshot({
+        hiddenIds: hiddenEntities,
+        selectedId: selectedEntityId ?? undefined,
+        selectedIds: selectedEntityIds,
+        // Use a neutral background for BCF export
+        clearColor: [0.9, 0.9, 0.9, 1] as [number, number, number, number],
+        // Include section plane if enabled
+        sectionPlane: sectionPlane.enabled
+          ? {
+              axis: sectionPlane.axis,
+              position: sectionPlane.position,
+              enabled: true,
+              flipped: sectionPlane.flipped,
+            }
+          : undefined,
+      });
       return dataUrl;
     } catch (error) {
       console.error('[useBCF] Failed to capture snapshot:', error);
       return null;
     }
-  }, [getCanvas]);
+  }, [getRenderer, hiddenEntities, selectedEntityId, selectedEntityIds, sectionPlane]);
 
   /**
    * Get current camera state from renderer
