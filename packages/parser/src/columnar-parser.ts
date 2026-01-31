@@ -411,7 +411,17 @@ export class ColumnarParser {
         let relatingObject: any;
         let relatedObjects: any;
 
-        if (typeUpper === 'IFCRELDEFINESBYPROPERTIES' || typeUpper === 'IFCRELCONTAINEDINSPATIALSTRUCTURE') {
+        // IFC relationship types have two patterns for attribute order:
+        // Pattern A: RelatingObject[4], RelatedObjects[5] - IfcRelAggregates, IfcRelVoidsElement, etc.
+        // Pattern B: RelatedObjects[4], RelatingXxx[5] - IfcRelDefinesByProperties, IfcRelContained..., IfcRelAssociates*
+        // Pattern B types have the "related" items BEFORE the "relating" reference
+        const isPatternB = typeUpper === 'IFCRELDEFINESBYPROPERTIES' ||
+            typeUpper === 'IFCRELCONTAINEDINSPATIALSTRUCTURE' ||
+            typeUpper === 'IFCRELASSOCIATESMATERIAL' ||
+            typeUpper === 'IFCRELASSOCIATESCLASSIFICATION' ||
+            typeUpper === 'IFCRELDEFINESBYTYPE';
+
+        if (isPatternB) {
             relatedObjects = attrs[4];
             relatingObject = attrs[5];
         } else {

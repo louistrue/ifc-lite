@@ -131,6 +131,20 @@ export function BIDashboard() {
           type: dataStore.entities?.getTypeName?.(sampleId),
           name: dataStore.entities?.getName?.(sampleId),
         });
+
+        // Debug: check quantities and materials
+        const sampleQuants = dataStore.quantities?.getForEntity?.(sampleId);
+        const sampleMaterials = dataStore.relationships?.getRelated?.(
+          sampleId,
+          20, // AssociatesMaterial
+          'inverse'
+        );
+        console.log('[BIDashboard] Sample quantities for', sampleId, ':', {
+          hasQuantitiesTable: !!dataStore.quantities,
+          quantityCount: dataStore.quantities?.count ?? 0,
+          sampleQuants,
+          sampleMaterials,
+        });
       }
 
       console.log('[BIDashboard] geometryExpressIds count:', geometryExpressIds.length,
