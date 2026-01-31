@@ -285,7 +285,30 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     const canvas = document.querySelector('canvas');
     if (!canvas) return;
     try {
+      // Log canvas dimensions for debugging
+      const rect = canvas.getBoundingClientRect();
+      console.log('[MainToolbar] Screenshot - Canvas dimensions:', {
+        'canvas.width': canvas.width,
+        'canvas.height': canvas.height,
+        'rect.width': rect.width,
+        'rect.height': rect.height,
+        'devicePixelRatio': window.devicePixelRatio,
+        'ratio canvas.width/rect.width': canvas.width / rect.width,
+        'ratio canvas.height/rect.height': canvas.height / rect.height,
+      });
+
       const dataUrl = canvas.toDataURL('image/png');
+
+      // Log captured image dimensions
+      const img = new Image();
+      img.onload = () => {
+        console.log('[MainToolbar] Screenshot - Captured image dimensions:', {
+          'img.width': img.width,
+          'img.height': img.height,
+        });
+      };
+      img.src = dataUrl;
+
       const a = document.createElement('a');
       a.href = dataUrl;
       a.download = 'screenshot.png';

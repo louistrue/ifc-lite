@@ -147,6 +147,18 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
     }
 
     try {
+      // Log canvas dimensions for debugging
+      const rect = canvas.getBoundingClientRect();
+      console.log('[useBCF] Canvas dimensions:', {
+        'canvas.width': canvas.width,
+        'canvas.height': canvas.height,
+        'rect.width': rect.width,
+        'rect.height': rect.height,
+        'devicePixelRatio': window.devicePixelRatio,
+        'ratio canvas.width/rect.width': canvas.width / rect.width,
+        'ratio canvas.height/rect.height': canvas.height / rect.height,
+      });
+
       // Wait for any pending GPU work to complete before capturing
       // This ensures we capture the fully rendered frame
       if (renderer) {
@@ -158,6 +170,17 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
 
       // Capture exactly what's displayed on the canvas
       const dataUrl = canvas.toDataURL('image/png');
+
+      // Log captured image dimensions
+      const img = new Image();
+      img.onload = () => {
+        console.log('[useBCF] Captured image dimensions:', {
+          'img.width': img.width,
+          'img.height': img.height,
+        });
+      };
+      img.src = dataUrl;
+
       return dataUrl;
     } catch (error) {
       console.error('[useBCF] Failed to capture snapshot:', error);
