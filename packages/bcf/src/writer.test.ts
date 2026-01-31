@@ -7,7 +7,7 @@ import JSZip from 'jszip';
 import { writeBCF } from './writer.js';
 import { readBCF } from './reader.js';
 import type { BCFProject, BCFTopic, BCFViewpoint } from './types.js';
-import { generateIfcGuid } from './guid.js';
+import { generateUuid } from './guid.js';
 
 // Helper to convert Blob to ArrayBuffer for Node.js environment
 async function blobToArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
@@ -47,7 +47,7 @@ describe('BCF Writer', () => {
   });
 
   it('should create topic folder with markup.bcf', async () => {
-    const topicGuid = generateIfcGuid();
+    const topicGuid = generateUuid();
     const topic: BCFTopic = {
       guid: topicGuid,
       title: 'Test Topic',
@@ -71,8 +71,8 @@ describe('BCF Writer', () => {
   });
 
   it('should use consistent filenames between markup and viewpoint files', async () => {
-    const topicGuid = generateIfcGuid();
-    const viewpointGuid = generateIfcGuid();
+    const topicGuid = generateUuid();
+    const viewpointGuid = generateUuid();
 
     const viewpoint: BCFViewpoint = {
       guid: viewpointGuid,
@@ -115,8 +115,8 @@ describe('BCF Writer', () => {
   });
 
   it('should use consistent snapshot filenames', async () => {
-    const topicGuid = generateIfcGuid();
-    const viewpointGuid = generateIfcGuid();
+    const topicGuid = generateUuid();
+    const viewpointGuid = generateUuid();
 
     const viewpoint: BCFViewpoint = {
       guid: viewpointGuid,
@@ -159,9 +159,9 @@ describe('BCF Writer', () => {
   });
 
   it('should handle multiple viewpoints with unique filenames', async () => {
-    const topicGuid = generateIfcGuid();
-    const viewpoint1Guid = generateIfcGuid();
-    const viewpoint2Guid = generateIfcGuid();
+    const topicGuid = generateUuid();
+    const viewpoint1Guid = generateUuid();
+    const viewpoint2Guid = generateUuid();
 
     const viewpoint1: BCFViewpoint = {
       guid: viewpoint1Guid,
@@ -211,8 +211,8 @@ describe('BCF Writer', () => {
   });
 
   it('should roundtrip through reader', async () => {
-    const topicGuid = generateIfcGuid();
-    const viewpointGuid = generateIfcGuid();
+    const topicGuid = generateUuid();
+    const viewpointGuid = generateUuid();
 
     const viewpoint: BCFViewpoint = {
       guid: viewpointGuid,

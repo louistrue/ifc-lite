@@ -26,7 +26,7 @@ import type {
   BCFPoint,
   BCFDirection,
 } from './types.js';
-import { generateIfcGuid } from './guid.js';
+import { generateUuid } from './guid.js';
 
 /**
  * Write a BCFProject to a .bcfzip file
@@ -76,7 +76,7 @@ function writeVersionFile(zip: JSZip, version: '2.1' | '3.0'): void {
  * Uses buildingSMART standard format
  */
 function writeProjectFile(zip: JSZip, project: BCFProject): void {
-  const projectId = project.projectId || generateIfcGuid();
+  const projectId = project.projectId || generateUuid();
   const nameElement = project.name ? `\n    <Name>${escapeXml(project.name)}</Name>` : '';
 
   const content = `<?xml version="1.0" encoding="UTF-8"?>
@@ -133,10 +133,9 @@ function writeMarkupFile(folder: JSZip, topic: BCFTopic): void {
 
   if (topic.modifiedDate) {
     content += `\n    <ModifiedDate>${topic.modifiedDate}</ModifiedDate>`;
-  }
-
-  if (topic.modifiedAuthor) {
-    content += `\n    <ModifiedAuthor>${escapeXml(topic.modifiedAuthor)}</ModifiedAuthor>`;
+    // BCF spec requires ModifiedAuthor when ModifiedDate is present
+    const modifiedAuthor = topic.modifiedAuthor || topic.creationAuthor;
+    content += `\n    <ModifiedAuthor>${escapeXml(modifiedAuthor)}</ModifiedAuthor>`;
   }
 
   if (topic.dueDate) {

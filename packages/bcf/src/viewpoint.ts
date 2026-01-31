@@ -17,7 +17,7 @@ import type {
   BCFPoint,
   BCFDirection,
 } from './types.js';
-import { generateIfcGuid } from './guid.js';
+import { generateUuid } from './guid.js';
 
 // ============================================================================
 // Camera State Types (matching ifc-lite viewer)
@@ -399,7 +399,7 @@ export function createViewpoint(options: {
   } = options;
 
   const viewpoint: BCFViewpoint = {
-    guid: generateIfcGuid(),
+    guid: generateUuid(),
   };
 
   // Add camera

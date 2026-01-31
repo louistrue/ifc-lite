@@ -88,7 +88,7 @@ export function createBCFProject(options?: {
 }): BCFProject {
   return {
     version: options?.version ?? '2.1',
-    projectId: generateIfcGuid(),
+    projectId: generateUuid(),
     name: options?.name,
     topics: new Map(),
   };
@@ -109,7 +109,7 @@ export function createBCFTopic(options: {
   labels?: string[];
 }): BCFTopic {
   return {
-    guid: generateIfcGuid(),
+    guid: generateUuid(),
     title: options.title,
     description: options.description,
     topicType: options.topicType ?? 'Issue',
