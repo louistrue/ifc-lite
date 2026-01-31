@@ -392,7 +392,7 @@ export function BIDashboard() {
   // No dashboard loaded - show template selector
   if (!activeDashboard) {
     return (
-      <div className="absolute inset-0 bg-background/95 z-50 flex items-center justify-center backdrop-blur-sm">
+      <div className="absolute inset-x-0 top-12 bottom-0 bg-background/95 z-40 flex items-center justify-center backdrop-blur-sm">
         <div className="max-w-3xl w-full p-6 bg-background border rounded-xl shadow-lg">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-semibold">BI Dashboard</h2>
@@ -407,9 +407,9 @@ export function BIDashboard() {
   }
 
   return (
-    <div className="absolute inset-0 bg-background z-50 flex flex-col">
+    <div className="absolute inset-x-0 top-12 bottom-0 bg-background z-40 flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
+      <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/50 shrink-0">
         <div className="flex items-center gap-4">
           <h2 className="text-lg font-semibold">{activeDashboard.name}</h2>
           {activeFilterCount > 0 && (
