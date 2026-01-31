@@ -20,6 +20,7 @@ import {
   type BIModelData,
   type AggregatedDataPoint,
 } from '@ifc-lite/bi';
+import { extractQuantitiesOnDemand } from '@ifc-lite/parser';
 import { useViewerStore, type EntityRef } from '../../store/index.js';
 import { ChartCard } from './ChartCard.js';
 import { TemplateSelector } from './TemplateSelector.js';
@@ -132,8 +133,10 @@ export function BIDashboard() {
           name: dataStore.entities?.getName?.(sampleId),
         });
 
-        // Debug: check quantities and materials
-        const sampleQuants = dataStore.quantities?.getForEntity?.(sampleId);
+        // Debug: check quantities and materials using on-demand extraction
+        const sampleQuants = dataStore.onDemandQuantityMap
+          ? extractQuantitiesOnDemand(dataStore, sampleId)
+          : dataStore.quantities?.getForEntity?.(sampleId);
         const sampleMaterials = dataStore.relationships?.getRelated?.(
           sampleId,
           20, // AssociatesMaterial
@@ -141,6 +144,8 @@ export function BIDashboard() {
         );
         console.log('[BIDashboard] Sample quantities for', sampleId, ':', {
           hasQuantitiesTable: !!dataStore.quantities,
+          hasOnDemandMap: !!dataStore.onDemandQuantityMap,
+          onDemandMapSize: dataStore.onDemandQuantityMap?.size ?? 0,
           quantityCount: dataStore.quantities?.count ?? 0,
           sampleQuants,
           sampleMaterials,
@@ -170,9 +175,16 @@ export function BIDashboard() {
               },
             }
           : undefined,
-        quantities: dataStore.quantities
+        quantities: (dataStore.quantities || dataStore.onDemandQuantityMap)
           ? {
               getForEntity: (expressId: number) => {
+                // Use on-demand extraction if available (WASM client-side parsing)
+                // This is how PropertiesPanel gets quantities
+                if (dataStore.onDemandQuantityMap) {
+                  const quants = extractQuantitiesOnDemand(dataStore, expressId);
+                  return quants.length > 0 ? quants : undefined;
+                }
+                // Fallback to pre-computed quantity table (server-parsed data)
                 const quants = dataStore.quantities?.getForEntity?.(expressId);
                 return quants as
                   | Array<{
