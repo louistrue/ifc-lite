@@ -40,6 +40,10 @@ export function BIDashboard() {
   const crossFilterEnabled = useViewerStore((state) => state.crossFilterEnabled);
   const models = useViewerStore((state) => state.models);
 
+  // Legacy single-model state (for backward compatibility)
+  const legacyIfcDataStore = useViewerStore((state) => state.ifcDataStore);
+  const legacyGeometryResult = useViewerStore((state) => state.geometryResult);
+
   // Selection state for bidirectional sync
   const selectedEntity = useViewerStore((state) => state.selectedEntity);
   const selectedEntities = useViewerStore((state) => state.selectedEntities);
@@ -83,18 +87,24 @@ export function BIDashboard() {
   const biModels = useMemo((): BIModelData[] => {
     const result: BIModelData[] = [];
 
-    console.log('[BIDashboard] Converting models to BIModelData, models count:', models.size);
+    console.log('[BIDashboard] Converting models to BIModelData, models count:', models.size,
+      'hasLegacy:', !!legacyIfcDataStore);
 
-    for (const [modelId, model] of models) {
-      const dataStore = model.ifcDataStore;
-      const geometryResult = model.geometryResult;
+    // Helper to process a model (federated or legacy)
+    const processModel = (
+      modelId: string,
+      dataStore: typeof legacyIfcDataStore,
+      geometryResult: typeof legacyGeometryResult,
+      idOffset: number
+    ) => {
+      if (!dataStore || !geometryResult) return;
 
       console.log('[BIDashboard] Processing model:', modelId, {
         hasDataStore: !!dataStore,
         hasEntities: !!dataStore?.entities,
         hasGeometry: !!geometryResult,
         meshCount: geometryResult?.meshes?.length ?? 0,
-        idOffset: model.idOffset,
+        idOffset,
       });
 
       // Get geometry express IDs
@@ -105,7 +115,7 @@ export function BIDashboard() {
         const seenIds = new Set<number>();
         for (const mesh of geometryResult.meshes) {
           // Convert global ID back to original expressId
-          const originalExpressId = mesh.expressId - (model.idOffset ?? 0);
+          const originalExpressId = mesh.expressId - idOffset;
           if (originalExpressId > 0 && !seenIds.has(originalExpressId)) {
             seenIds.add(originalExpressId);
             geometryExpressIds.push(originalExpressId);
@@ -191,10 +201,21 @@ export function BIDashboard() {
           : undefined,
         geometryExpressIds,
       });
+    };
+
+    // Process federated models from the Map
+    for (const [modelId, model] of models) {
+      processModel(modelId, model.ifcDataStore, model.geometryResult, model.idOffset ?? 0);
+    }
+
+    // Fallback to legacy single-model state if no federated models
+    if (result.length === 0 && legacyIfcDataStore && legacyGeometryResult) {
+      console.log('[BIDashboard] Using legacy single-model fallback');
+      processModel('__legacy__', legacyIfcDataStore, legacyGeometryResult, 0);
     }
 
     return result;
-  }, [models]);
+  }, [models, legacyIfcDataStore, legacyGeometryResult]);
 
   // Create aggregator
   const aggregator = useMemo(() => {
