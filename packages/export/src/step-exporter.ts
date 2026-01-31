@@ -692,10 +692,20 @@ export class StepExporter {
     let count = 0;
     const precision = 6;
 
+    // Get entity's placement transform and compute inverse
+    // The mesh positions are in world coordinates (after placement was applied during extraction)
+    // We need to transform them back to local coordinates (before placement) for correct export
+    const placementMatrix = this.getEntityPlacementMatrix(entityId);
+    const inverseMatrix = placementMatrix ? this.invertMatrix4x4(placementMatrix) : null;
+
+    if (inverseMatrix) {
+      console.log(`[StepExporter] Applying inverse placement transform for entity #${entityId}`);
+    }
+
     // Generate IfcCartesianPointList3D for coordinates
     const coordListId = this.nextExpressId++;
     count++;
-    const coordinates = this.formatCoordinateList(meshData.positions, precision);
+    const coordinates = this.formatCoordinateList(meshData.positions, precision, inverseMatrix);
     lines.push(`#${coordListId}=IFCCARTESIANPOINTLIST3D((${coordinates}));`);
 
     // Generate IfcTriangulatedFaceSet
@@ -782,9 +792,13 @@ export class StepExporter {
 
   /**
    * Format coordinate list as STEP tuple list
-   * Applies inverse origin shift to convert from viewer coords back to world coords
+   * Applies inverse origin shift and inverse placement transform to convert from viewer coords to local entity coords
    */
-  private formatCoordinateList(positions: Float32Array, precision: number): string {
+  private formatCoordinateList(
+    positions: Float32Array,
+    precision: number,
+    inversePlacementMatrix: number[] | null = null
+  ): string {
     const tuples: string[] = [];
     // Get origin shift (need to add it back to get world coordinates)
     const shift = this.coordinateInfo?.originShift || { x: 0, y: 0, z: 0 };
@@ -792,11 +806,23 @@ export class StepExporter {
     console.log(`[StepExporter] Applying inverse origin shift: (${shift.x}, ${shift.y}, ${shift.z})`);
 
     for (let i = 0; i < positions.length; i += 3) {
-      // Add origin shift back to get world coordinates
-      const x = (positions[i] + shift.x).toFixed(precision);
-      const y = (positions[i + 1] + shift.y).toFixed(precision);
-      const z = (positions[i + 2] + shift.z).toFixed(precision);
-      tuples.push(`(${x},${y},${z})`);
+      // First add origin shift back to get world coordinates
+      let x = positions[i] + shift.x;
+      let y = positions[i + 1] + shift.y;
+      let z = positions[i + 2] + shift.z;
+
+      // Then apply inverse placement transform to get local entity coordinates
+      if (inversePlacementMatrix) {
+        const m = inversePlacementMatrix;
+        const newX = m[0] * x + m[4] * y + m[8] * z + m[12];
+        const newY = m[1] * x + m[5] * y + m[9] * z + m[13];
+        const newZ = m[2] * x + m[6] * y + m[10] * z + m[14];
+        x = newX;
+        y = newY;
+        z = newZ;
+      }
+
+      tuples.push(`(${x.toFixed(precision)},${y.toFixed(precision)},${z.toFixed(precision)})`);
     }
     return tuples.join(',');
   }
@@ -826,6 +852,236 @@ export class StepExporter {
       }
     }
     return null;
+  }
+
+  // =========================================================================
+  // Placement Transformation Methods
+  // =========================================================================
+
+  /**
+   * Get the cumulative placement transformation matrix for an entity
+   * This includes the full chain of relative placements
+   * Returns a column-major 4x4 matrix as a 16-element array, or null if no placement
+   */
+  private getEntityPlacementMatrix(entityId: number): number[] | null {
+    const entityRef = this.dataStore.entityIndex.byId.get(entityId);
+    if (!entityRef || !this.dataStore.source) return null;
+
+    const decoder = new TextDecoder();
+    const entityText = decoder.decode(
+      this.dataStore.source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength)
+    );
+
+    // Find ObjectPlacement reference - it's usually the 5th attribute in IfcProduct
+    // Pattern: IFCWALL('guid',#owner,'name',$,#placement,#representation,...)
+    const refMatches = [...entityText.matchAll(/#(\d+)/g)];
+
+    // For IFC products, placement is typically one of the first few references
+    for (const match of refMatches) {
+      const refId = parseInt(match[1], 10);
+      const refEntity = this.dataStore.entityIndex.byId.get(refId);
+      if (refEntity && refEntity.type.toUpperCase() === 'IFCLOCALPLACEMENT') {
+        return this.parsePlacementMatrix(refId);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Parse IfcLocalPlacement and compute cumulative transformation matrix
+   * Handles relative placements by recursively computing parent transforms
+   */
+  private parsePlacementMatrix(placementId: number): number[] | null {
+    const entityRef = this.dataStore.entityIndex.byId.get(placementId);
+    if (!entityRef || !this.dataStore.source) return null;
+
+    const decoder = new TextDecoder();
+    const entityText = decoder.decode(
+      this.dataStore.source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength)
+    );
+
+    // IfcLocalPlacement(PlacementRelTo, RelativePlacement)
+    // PlacementRelTo can be $ (null) or #id of parent placement
+    // RelativePlacement is #id of IfcAxis2Placement3D
+    const match = entityText.match(/IFCLOCALPLACEMENT\s*\(\s*([^,]+)\s*,\s*#(\d+)/i);
+    if (!match) return null;
+
+    const placementRelTo = match[1].trim();
+    const axis2PlacementId = parseInt(match[2], 10);
+
+    // Get the local transformation from IfcAxis2Placement3D
+    const localMatrix = this.parseAxis2Placement3D(axis2PlacementId);
+    if (!localMatrix) return null;
+
+    // If there's a parent placement, multiply matrices
+    if (placementRelTo !== '$' && placementRelTo.startsWith('#')) {
+      const parentId = parseInt(placementRelTo.substring(1), 10);
+      const parentMatrix = this.parsePlacementMatrix(parentId);
+      if (parentMatrix) {
+        return this.multiplyMatrix4x4(parentMatrix, localMatrix);
+      }
+    }
+
+    return localMatrix;
+  }
+
+  /**
+   * Parse IfcAxis2Placement3D and return transformation matrix
+   * Returns column-major 4x4 matrix
+   */
+  private parseAxis2Placement3D(axisPlacementId: number): number[] | null {
+    const entityRef = this.dataStore.entityIndex.byId.get(axisPlacementId);
+    if (!entityRef || !this.dataStore.source) return null;
+
+    const decoder = new TextDecoder();
+    const entityText = decoder.decode(
+      this.dataStore.source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength)
+    );
+
+    // IfcAxis2Placement3D(Location, Axis, RefDirection)
+    // Axis is Z direction (can be $), RefDirection is X direction (can be $)
+    const match = entityText.match(/IFCAXIS2PLACEMENT3D\s*\(\s*#(\d+)\s*(?:,\s*([^,)]+)\s*)?(?:,\s*([^,)]+)\s*)?\)/i);
+    if (!match) return null;
+
+    const locationId = parseInt(match[1], 10);
+    const axisArg = match[2]?.trim();
+    const refDirArg = match[3]?.trim();
+
+    // Parse location point
+    const location = this.parseCartesianPoint(locationId) || { x: 0, y: 0, z: 0 };
+
+    // Parse Z axis (default is [0,0,1])
+    let zAxis = { x: 0, y: 0, z: 1 };
+    if (axisArg && axisArg.startsWith('#')) {
+      const axisId = parseInt(axisArg.substring(1), 10);
+      const parsed = this.parseDirection(axisId);
+      if (parsed) zAxis = parsed;
+    }
+
+    // Parse X axis (RefDirection) - default is [1,0,0]
+    let xAxis = { x: 1, y: 0, z: 0 };
+    if (refDirArg && refDirArg.startsWith('#')) {
+      const refDirId = parseInt(refDirArg.substring(1), 10);
+      const parsed = this.parseDirection(refDirId);
+      if (parsed) xAxis = parsed;
+    }
+
+    // Compute Y axis as cross product of Z and X
+    const yAxis = {
+      x: zAxis.y * xAxis.z - zAxis.z * xAxis.y,
+      y: zAxis.z * xAxis.x - zAxis.x * xAxis.z,
+      z: zAxis.x * xAxis.y - zAxis.y * xAxis.x,
+    };
+
+    // Build column-major 4x4 transformation matrix
+    // [xAxis.x, xAxis.y, xAxis.z, 0,
+    //  yAxis.x, yAxis.y, yAxis.z, 0,
+    //  zAxis.x, zAxis.y, zAxis.z, 0,
+    //  loc.x,   loc.y,   loc.z,   1]
+    return [
+      xAxis.x, xAxis.y, xAxis.z, 0,
+      yAxis.x, yAxis.y, yAxis.z, 0,
+      zAxis.x, zAxis.y, zAxis.z, 0,
+      location.x, location.y, location.z, 1,
+    ];
+  }
+
+  /**
+   * Parse IfcCartesianPoint
+   */
+  private parseCartesianPoint(pointId: number): Vec3 | null {
+    const entityRef = this.dataStore.entityIndex.byId.get(pointId);
+    if (!entityRef || !this.dataStore.source) return null;
+
+    const decoder = new TextDecoder();
+    const entityText = decoder.decode(
+      this.dataStore.source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength)
+    );
+
+    // IfcCartesianPoint((x,y,z)) or IfcCartesianPoint((x,y))
+    const match = entityText.match(/IFCCARTESIANPOINT\s*\(\s*\(\s*([^)]+)\s*\)\s*\)/i);
+    if (!match) return null;
+
+    const coords = match[1].split(',').map(s => parseFloat(s.trim()));
+    return {
+      x: coords[0] || 0,
+      y: coords[1] || 0,
+      z: coords[2] || 0,
+    };
+  }
+
+  /**
+   * Parse IfcDirection
+   */
+  private parseDirection(directionId: number): Vec3 | null {
+    const entityRef = this.dataStore.entityIndex.byId.get(directionId);
+    if (!entityRef || !this.dataStore.source) return null;
+
+    const decoder = new TextDecoder();
+    const entityText = decoder.decode(
+      this.dataStore.source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength)
+    );
+
+    // IfcDirection((x,y,z)) or IfcDirection((x,y))
+    const match = entityText.match(/IFCDIRECTION\s*\(\s*\(\s*([^)]+)\s*\)\s*\)/i);
+    if (!match) return null;
+
+    const coords = match[1].split(',').map(s => parseFloat(s.trim()));
+    return {
+      x: coords[0] || 0,
+      y: coords[1] || 0,
+      z: coords[2] || 0,
+    };
+  }
+
+  /**
+   * Multiply two 4x4 matrices (column-major)
+   */
+  private multiplyMatrix4x4(a: number[], b: number[]): number[] {
+    const result = new Array(16).fill(0);
+    for (let col = 0; col < 4; col++) {
+      for (let row = 0; row < 4; row++) {
+        let sum = 0;
+        for (let k = 0; k < 4; k++) {
+          sum += a[k * 4 + row] * b[col * 4 + k];
+        }
+        result[col * 4 + row] = sum;
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Invert a 4x4 transformation matrix (column-major)
+   * Uses the fact that for affine transforms, we can separately invert rotation and translation
+   */
+  private invertMatrix4x4(m: number[]): number[] | null {
+    // For a transformation matrix [R | T], the inverse is [R^T | -R^T * T]
+    // where R is the 3x3 rotation part and T is the translation
+
+    // Extract rotation (columns 0-2, rows 0-2)
+    const r00 = m[0], r10 = m[1], r20 = m[2];
+    const r01 = m[4], r11 = m[5], r21 = m[6];
+    const r02 = m[8], r12 = m[9], r22 = m[10];
+
+    // Extract translation
+    const tx = m[12], ty = m[13], tz = m[14];
+
+    // Transpose of rotation (R^T)
+    // For orthonormal matrices (pure rotation), transpose equals inverse
+
+    // Compute -R^T * T
+    const invTx = -(r00 * tx + r10 * ty + r20 * tz);
+    const invTy = -(r01 * tx + r11 * ty + r21 * tz);
+    const invTz = -(r02 * tx + r12 * ty + r22 * tz);
+
+    // Build inverse matrix (column-major)
+    return [
+      r00, r01, r02, 0,  // Column 0: transposed row 0 of rotation
+      r10, r11, r12, 0,  // Column 1: transposed row 1 of rotation
+      r20, r21, r22, 0,  // Column 2: transposed row 2 of rotation
+      invTx, invTy, invTz, 1,  // Column 3: inverted translation
+    ];
   }
 }
 
