@@ -165,8 +165,9 @@ function writeMarkupFile(folder: JSZip, topic: BCFTopic): void {
   // Write viewpoint references
   for (let i = 0; i < topic.viewpoints.length; i++) {
     const viewpoint = topic.viewpoints[i];
-    const filename = i === 0 ? 'viewpoint.bcfv' : `viewpoint_${i}.bcfv`;
-    const snapshotName = i === 0 ? 'snapshot.png' : `snapshot_${i}.png`;
+    // Use standard buildingSMART naming convention: Viewpoint_<guid>.bcfv
+    const filename = `Viewpoint_${viewpoint.guid}.bcfv`;
+    const snapshotName = `Snapshot_${viewpoint.guid}.png`;
 
     content += `\n  <Viewpoints Guid="${viewpoint.guid}">`;
     content += `\n    <Viewpoint>${filename}</Viewpoint>`;
@@ -205,10 +206,11 @@ function writeMarkupFile(folder: JSZip, topic: BCFTopic): void {
 async function writeViewpointFiles(
   folder: JSZip,
   viewpoint: BCFViewpoint,
-  isDefault: boolean
+  _isDefault: boolean
 ): Promise<void> {
-  const filename = isDefault ? 'viewpoint.bcfv' : `viewpoint_${viewpoint.guid.substring(0, 8)}.bcfv`;
-  const snapshotName = isDefault ? 'snapshot.png' : `snapshot_${viewpoint.guid.substring(0, 8)}.png`;
+  // Use standard buildingSMART naming convention: Viewpoint_<guid>.bcfv
+  const filename = `Viewpoint_${viewpoint.guid}.bcfv`;
+  const snapshotName = `Snapshot_${viewpoint.guid}.png`;
 
   // Write viewpoint XML
   let content = `<?xml version="1.0" encoding="UTF-8"?>
