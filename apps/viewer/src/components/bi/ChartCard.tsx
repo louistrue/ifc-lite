@@ -6,11 +6,17 @@
  * Chart card component - wraps a chart with title, actions, and edit controls
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useRef, useState, useEffect } from 'react';
 import { X, Settings, GripVertical, Filter, FilterX } from 'lucide-react';
 import type { ChartConfig, AggregatedDataPoint, ChartInteractionEvent } from '@ifc-lite/bi';
 import { ChartRenderer } from './ChartRenderer.js';
 import { Button } from '../ui/button.js';
+
+/** Container dimensions for responsive chart sizing */
+export interface ChartDimensions {
+  width: number;
+  height: number;
+}
 
 interface ChartCardProps {
   config: ChartConfig;
@@ -37,6 +43,32 @@ export function ChartCard({
   isEditMode,
   hasFilter,
 }: ChartCardProps) {
+  const chartContainerRef = useRef<HTMLDivElement>(null);
+  const [dimensions, setDimensions] = useState<ChartDimensions>({ width: 300, height: 200 });
+
+  // Track container size with ResizeObserver
+  useEffect(() => {
+    const container = chartContainerRef.current;
+    if (!container) return;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        const { width, height } = entry.contentRect;
+        // Only update if dimensions actually changed to avoid unnecessary re-renders
+        setDimensions((prev) => {
+          if (Math.abs(prev.width - width) > 1 || Math.abs(prev.height - height) > 1) {
+            return { width, height };
+          }
+          return prev;
+        });
+      }
+    });
+
+    resizeObserver.observe(container);
+    return () => resizeObserver.disconnect();
+  }, []);
+
   const handleRemove = useCallback(() => {
     onRemove(config.id);
   }, [config.id, onRemove]);
@@ -103,7 +135,7 @@ export function ChartCard({
       </div>
 
       {/* Chart */}
-      <div className="flex-1 p-2 min-h-0">
+      <div ref={chartContainerRef} className="flex-1 p-2 min-h-0">
         {data.length === 0 ? (
           <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
             No data available
@@ -115,6 +147,7 @@ export function ChartCard({
             selectedKeys={selectedKeys}
             highlightedKeys={highlightedKeys}
             onInteraction={onInteraction}
+            dimensions={dimensions}
           />
         )}
       </div>

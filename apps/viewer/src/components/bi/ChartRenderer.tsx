@@ -18,6 +18,7 @@ import type {
   ChartInteractionEvent,
   COLOR_SCHEMES,
 } from '@ifc-lite/bi';
+import type { ChartDimensions } from './ChartCard.js';
 
 interface ChartRendererProps {
   config: ChartConfig;
@@ -25,6 +26,66 @@ interface ChartRendererProps {
   selectedKeys: Set<string>;
   highlightedKeys: Set<string>;
   onInteraction: (event: ChartInteractionEvent) => void;
+  dimensions: ChartDimensions;
+}
+
+/**
+ * Size breakpoints for responsive chart configuration
+ * - compact: Very small charts, minimal UI
+ * - medium: Standard size, balanced layout
+ * - large: Plenty of room, full features
+ */
+type SizeClass = 'compact' | 'medium' | 'large';
+
+interface SizeInfo {
+  widthClass: SizeClass;
+  heightClass: SizeClass;
+  width: number;
+  height: number;
+  /** Whether to show legend at all */
+  showLegend: boolean;
+  /** Whether legend should be horizontal (below) or vertical (side) */
+  legendHorizontal: boolean;
+  /** Maximum items to show before grouping into "Other" */
+  maxItems: number;
+  /** Whether to show axis labels */
+  showAxisLabels: boolean;
+  /** Label truncation width */
+  labelWidth: number;
+}
+
+function getSizeInfo(dimensions: ChartDimensions): SizeInfo {
+  const { width, height } = dimensions;
+
+  const widthClass: SizeClass = width < 250 ? 'compact' : width < 400 ? 'medium' : 'large';
+  const heightClass: SizeClass = height < 180 ? 'compact' : height < 280 ? 'medium' : 'large';
+
+  // Calculate responsive values
+  const showLegend = width >= 200 && height >= 150;
+  const legendHorizontal = width < 350 || height < 200;
+
+  // More items for larger charts
+  const maxItems =
+    widthClass === 'compact' ? 5 : widthClass === 'medium' ? 8 : 12;
+
+  // Hide axis labels in very small charts
+  const showAxisLabels = width >= 150 && height >= 120;
+
+  // Label width based on available space
+  const labelWidth =
+    widthClass === 'compact' ? 40 : widthClass === 'medium' ? 60 : 100;
+
+  return {
+    widthClass,
+    heightClass,
+    width,
+    height,
+    showLegend,
+    legendHorizontal,
+    maxItems,
+    showAxisLabels,
+    labelWidth,
+  };
 }
 
 // Get color scheme
@@ -81,8 +142,12 @@ export function ChartRenderer({
   selectedKeys,
   highlightedKeys,
   onInteraction,
+  dimensions,
 }: ChartRendererProps) {
   const chartRef = useRef<ReactECharts>(null);
+
+  // Get responsive size info
+  const sizeInfo = useMemo(() => getSizeInfo(dimensions), [dimensions]);
 
   // Build ECharts option based on chart type
   const option = useMemo((): EChartsOption => {
@@ -91,24 +156,24 @@ export function ChartRenderer({
     switch (config.type) {
       case 'pie':
       case 'donut':
-        return buildPieOption(config, data, selectedKeys, colors);
+        return buildPieOption(config, data, selectedKeys, colors, sizeInfo);
       case 'bar':
       case 'barHorizontal':
-        return buildBarOption(config, data, selectedKeys, colors);
+        return buildBarOption(config, data, selectedKeys, colors, sizeInfo);
       case 'stackedBar':
-        return buildStackedBarOption(config, data, selectedKeys, colors);
+        return buildStackedBarOption(config, data, selectedKeys, colors, sizeInfo);
       case 'treemap':
-        return buildTreemapOption(config, data, selectedKeys, colors);
+        return buildTreemapOption(config, data, selectedKeys, colors, sizeInfo);
       case 'sunburst':
-        return buildSunburstOption(config, data, selectedKeys, colors);
+        return buildSunburstOption(config, data, selectedKeys, colors, sizeInfo);
       case 'scatter':
-        return buildScatterOption(config, data, selectedKeys, colors);
+        return buildScatterOption(config, data, selectedKeys, colors, sizeInfo);
       case 'histogram':
-        return buildHistogramOption(config, data, selectedKeys, colors);
+        return buildHistogramOption(config, data, selectedKeys, colors, sizeInfo);
       default:
-        return buildBarOption(config, data, selectedKeys, colors);
+        return buildBarOption(config, data, selectedKeys, colors, sizeInfo);
     }
-  }, [config, data, selectedKeys]);
+  }, [config, data, selectedKeys, sizeInfo]);
 
   // Handle click event
   const handleClick = useCallback(
@@ -208,10 +273,12 @@ function buildPieOption(
   config: ChartConfig,
   data: AggregatedDataPoint[],
   selectedKeys: Set<string>,
-  colors: string[]
+  colors: string[],
+  sizeInfo: SizeInfo
 ): EChartsOption {
   const isDonut = config.type === 'donut';
-  const maxSlices = config.options?.maxSlices ?? 10;
+  // Use responsive max slices, but allow config override
+  const maxSlices = config.options?.maxSlices ?? sizeInfo.maxItems;
 
   // Sort and optionally group into "Other"
   let chartData = [...data].sort((a, b) => b.value - a.value);
@@ -231,24 +298,64 @@ function buildPieOption(
     ];
   }
 
+  // Responsive legend configuration
+  const showLegend = (config.options?.showLegend ?? true) && sizeInfo.showLegend;
+  const legendHorizontal = sizeInfo.legendHorizontal;
+
+  // Calculate pie center and radius based on legend position
+  let pieCenter: [string, string];
+  let pieRadius: string | [string, string];
+
+  if (!showLegend) {
+    // No legend: center the pie
+    pieCenter = ['50%', '50%'];
+    pieRadius = isDonut ? ['35%', '65%'] : '65%';
+  } else if (legendHorizontal) {
+    // Legend below: pie in upper portion
+    pieCenter = ['50%', '42%'];
+    pieRadius = isDonut ? ['25%', '50%'] : '50%';
+  } else {
+    // Legend on right: pie shifted left
+    pieCenter = ['35%', '50%'];
+    pieRadius = isDonut ? ['30%', '60%'] : '60%';
+  }
+
+  // Truncate long labels for legend
+  const truncateLabel = (label: string, maxLen: number): string => {
+    if (label.length <= maxLen) return label;
+    return label.slice(0, maxLen - 1) + '…';
+  };
+
+  const legendMaxLen = sizeInfo.widthClass === 'compact' ? 12 : sizeInfo.widthClass === 'medium' ? 18 : 25;
+
   return {
     color: colors,
     tooltip: {
       trigger: 'item',
       formatter: '{b}: {c} ({d}%)',
+      confine: true, // Keep tooltip within chart bounds
     },
-    legend: {
-      show: config.options?.showLegend ?? true,
-      orient: 'vertical',
-      right: 10,
-      top: 'center',
-      type: 'scroll',
-    },
+    legend: showLegend
+      ? {
+          show: true,
+          orient: legendHorizontal ? 'horizontal' : 'vertical',
+          ...(legendHorizontal
+            ? { bottom: 5, left: 'center' }
+            : { right: 10, top: 'center' }),
+          type: 'scroll',
+          pageIconSize: 10,
+          pageTextStyle: { fontSize: 10 },
+          formatter: (name: string) => truncateLabel(name, legendMaxLen),
+          textStyle: {
+            fontSize: sizeInfo.widthClass === 'compact' ? 10 : 11,
+          },
+        }
+      : { show: false },
     series: [
       {
         type: 'pie',
-        radius: isDonut ? ['40%', '70%'] : '70%',
-        center: ['40%', '50%'],
+        radius: pieRadius,
+        center: pieCenter,
         data: chartData.map((d) => ({
           name: d.label,
           value: d.value,
@@ -261,7 +368,7 @@ function buildPieOption(
             : undefined,
         })),
         label: {
-          show: config.options?.showLabels ?? false,
+          show: false, // Always hide pie labels - they overlap. Use legend + tooltip
         },
         emphasis: {
           itemStyle: {
@@ -279,7 +386,8 @@ function buildBarOption(
   config: ChartConfig,
   data: AggregatedDataPoint[],
   selectedKeys: Set<string>,
-  colors: string[]
+  colors: string[],
+  sizeInfo: SizeInfo
 ): EChartsOption {
   const isHorizontal = config.type === 'barHorizontal';
 
@@ -293,19 +401,76 @@ function buildBarOption(
     sortedData.sort((a, b) => a.key.localeCompare(b.key));
   }
 
+  // Limit number of bars based on available space
+  const maxBars = isHorizontal
+    ? Math.max(3, Math.floor(sizeInfo.height / 25))
+    : Math.max(3, Math.floor(sizeInfo.width / 35));
+
+  if (sortedData.length > maxBars) {
+    // Group excess items into "Other"
+    const topItems = sortedData.slice(0, maxBars - 1);
+    const otherItems = sortedData.slice(maxBars - 1);
+    const otherValue = otherItems.reduce((sum, d) => sum + d.value, 0);
+    const otherRefs = otherItems.flatMap((d) => d.entityRefs);
+    sortedData = [
+      ...topItems,
+      {
+        key: '__other__',
+        label: `Other (${otherItems.length})`,
+        value: otherValue,
+        entityRefs: otherRefs,
+      },
+    ];
+  }
+
+  // Truncate labels based on available space
+  const truncateLabel = (label: string): string => {
+    const maxLen = sizeInfo.labelWidth / 6; // Rough char width estimate
+    if (label.length <= maxLen) return label;
+    return label.slice(0, Math.max(3, maxLen - 1)) + '…';
+  };
+
+  // Responsive label configuration
+  const labelRotate = isHorizontal ? 0 : sizeInfo.widthClass === 'compact' ? 90 : 45;
+  const showLabels = sizeInfo.showAxisLabels;
+
   const categoryAxis = {
     type: 'category' as const,
-    data: sortedData.map((d) => d.label),
+    data: sortedData.map((d) => truncateLabel(d.label)),
     axisLabel: {
-      rotate: isHorizontal ? 0 : 45,
+      show: showLabels,
+      rotate: labelRotate,
       interval: 0,
       overflow: 'truncate' as const,
-      width: isHorizontal ? 100 : 60,
+      width: sizeInfo.labelWidth,
+      fontSize: sizeInfo.widthClass === 'compact' ? 9 : 10,
     },
+    axisTick: { show: showLabels },
   };
 
   const valueAxis = {
     type: 'value' as const,
+    axisLabel: {
+      show: showLabels,
+      fontSize: sizeInfo.widthClass === 'compact' ? 9 : 10,
+      formatter: (value: number) => {
+        if (value >= 1000000) return (value / 1000000).toFixed(1) + 'M';
+        if (value >= 1000) return (value / 1000).toFixed(1) + 'K';
+        return value.toFixed(value % 1 === 0 ? 0 : 1);
+      },
+    },
+  };
+
+  // Responsive grid padding
+  const gridPadding = {
+    left: isHorizontal
+      ? sizeInfo.widthClass === 'compact' ? 5 : 10
+      : sizeInfo.widthClass === 'compact' ? 5 : 10,
+    right: sizeInfo.widthClass === 'compact' ? 5 : 15,
+    bottom: isHorizontal
+      ? sizeInfo.heightClass === 'compact' ? 5 : 10
+      : sizeInfo.heightClass === 'compact' ? 20 : 40,
+    top: sizeInfo.heightClass === 'compact' ? 5 : 15,
   };
 
   return {
@@ -313,12 +478,10 @@ function buildBarOption(
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
+      confine: true,
     },
     grid: {
-      left: isHorizontal ? '25%' : '10%',
-      right: '10%',
-      bottom: isHorizontal ? '10%' : '25%',
-      top: '10%',
+      ...gridPadding,
       containLabel: true,
     },
     xAxis: isHorizontal ? valueAxis : categoryAxis,
@@ -342,6 +505,7 @@ function buildBarOption(
             shadowColor: 'rgba(0, 0, 0, 0.3)',
           },
         },
+        barMaxWidth: sizeInfo.widthClass === 'compact' ? 20 : 40,
       },
     ],
   };
@@ -351,47 +515,81 @@ function buildStackedBarOption(
   config: ChartConfig,
   data: AggregatedDataPoint[],
   selectedKeys: Set<string>,
-  colors: string[]
+  colors: string[],
+  sizeInfo: SizeInfo
 ): EChartsOption {
   // For stacked bars, we'd need secondary grouping data
   // For now, fall back to regular bar
-  return buildBarOption(config, data, selectedKeys, colors);
+  return buildBarOption(config, data, selectedKeys, colors, sizeInfo);
 }
 
 function buildTreemapOption(
   config: ChartConfig,
   data: AggregatedDataPoint[],
   selectedKeys: Set<string>,
-  colors: string[]
+  colors: string[],
+  sizeInfo: SizeInfo
 ): EChartsOption {
+  // Calculate minimum area for showing labels
+  const totalValue = data.reduce((sum, d) => sum + d.value, 0);
+  const chartArea = sizeInfo.width * sizeInfo.height;
+
+  // Only show labels on segments that are large enough
+  const minLabelArea = sizeInfo.widthClass === 'compact' ? 2500 : 1600;
+
   return {
     color: colors,
     tooltip: {
       trigger: 'item',
       formatter: '{b}: {c}',
+      confine: true,
     },
     series: [
       {
         type: 'treemap',
-        data: data.map((d) => ({
-          name: d.label,
-          value: d.value,
-          dataPoint: d,
-          itemStyle: selectedKeys.has(d.key)
-            ? {
-                borderColor: '#1890ff',
-                borderWidth: 3,
-              }
-            : undefined,
-        })),
-        label: {
-          show: true,
-          formatter: '{b}',
-        },
+        width: '100%',
+        height: '100%',
+        data: data.map((d) => {
+          // Estimate this segment's area
+          const segmentArea = (d.value / totalValue) * chartArea;
+          const showLabel = segmentArea >= minLabelArea;
+
+          return {
+            name: d.label,
+            value: d.value,
+            dataPoint: d,
+            label: {
+              show: showLabel,
+              formatter: (params: { name: string }) => {
+                // Truncate label based on estimated width
+                const maxChars = Math.max(3, Math.floor(Math.sqrt(segmentArea) / 8));
+                const name = params.name;
+                return name.length > maxChars ? name.slice(0, maxChars - 1) + '…' : name;
+              },
+              fontSize: sizeInfo.widthClass === 'compact' ? 9 : 11,
+            },
+            itemStyle: selectedKeys.has(d.key)
+              ? {
+                  borderColor: '#1890ff',
+                  borderWidth: 3,
+                }
+              : undefined,
+          };
+        }),
         breadcrumb: {
           show: false,
         },
         roam: false,
+        nodeClick: false, // Disable drill-down to prevent confusion
+        levels: [
+          {
+            itemStyle: {
+              borderWidth: 1,
+              borderColor: '#fff',
+              gapWidth: 1,
+            },
+          },
+        ],
         emphasis: {
           itemStyle: {
             shadowBlur: 10,
@@ -407,8 +605,13 @@ function buildSunburstOption(
   config: ChartConfig,
   data: AggregatedDataPoint[],
   selectedKeys: Set<string>,
-  colors: string[]
+  colors: string[],
+  sizeInfo: SizeInfo
 ): EChartsOption {
+  // Calculate whether to show labels based on size
+  const showLabels = sizeInfo.widthClass !== 'compact' && sizeInfo.heightClass !== 'compact';
+  const minDimension = Math.min(sizeInfo.width, sizeInfo.height);
+
   // Convert flat data to hierarchical for sunburst
   const sunburstData = data.map((d) => ({
     name: d.label,
@@ -432,18 +635,44 @@ function buildSunburstOption(
     tooltip: {
       trigger: 'item',
       formatter: '{b}: {c}',
+      confine: true,
     },
     series: [
       {
         type: 'sunburst',
         data: sunburstData,
-        radius: ['15%', '90%'],
+        radius: ['10%', '85%'],
         label: {
+          show: showLabels,
           rotate: 'radial',
+          fontSize: sizeInfo.widthClass === 'medium' ? 9 : 10,
+          minAngle: 15, // Hide labels for very small slices
+          formatter: (params: { name: string }) => {
+            // Truncate based on available space
+            const maxLen = Math.max(5, Math.floor(minDimension / 25));
+            const name = params.name;
+            return name.length > maxLen ? name.slice(0, maxLen - 1) + '…' : name;
+          },
         },
         emphasis: {
           focus: 'ancestor',
         },
+        levels: [
+          {},
+          {
+            r0: '10%',
+            r: '45%',
+            label: { show: showLabels },
+          },
+          {
+            r0: '45%',
+            r: '85%',
+            label: {
+              show: showLabels && sizeInfo.widthClass === 'large',
+              fontSize: 9,
+            },
+          },
+        ],
       },
     ],
   };
@@ -453,25 +682,48 @@ function buildScatterOption(
   config: ChartConfig,
   data: AggregatedDataPoint[],
   selectedKeys: Set<string>,
-  colors: string[]
+  colors: string[],
+  sizeInfo: SizeInfo
 ): EChartsOption {
+  const showLabels = sizeInfo.showAxisLabels;
+  const symbolSize = sizeInfo.widthClass === 'compact' ? 12 : sizeInfo.widthClass === 'medium' ? 16 : 20;
+
   return {
     color: colors,
     tooltip: {
       trigger: 'item',
       formatter: '{b}: {c}',
+      confine: true,
+    },
+    grid: {
+      left: 10,
+      right: 10,
+      bottom: 10,
+      top: 10,
+      containLabel: true,
     },
     xAxis: {
       type: 'category',
       data: data.map((d) => d.label),
+      axisLabel: {
+        show: showLabels,
+        rotate: 45,
+        fontSize: 9,
+        overflow: 'truncate',
+        width: sizeInfo.labelWidth,
+      },
     },
     yAxis: {
       type: 'value',
+      axisLabel: {
+        show: showLabels,
+        fontSize: 9,
+      },
     },
     series: [
       {
         type: 'scatter',
-        symbolSize: 20,
+        symbolSize,
         data: data.map((d, i) => ({
           name: d.label,
           value: [i, d.value],
@@ -498,21 +750,43 @@ function buildHistogramOption(
   config: ChartConfig,
   data: AggregatedDataPoint[],
   selectedKeys: Set<string>,
-  colors: string[]
+  colors: string[],
+  sizeInfo: SizeInfo
 ): EChartsOption {
+  const showLabels = sizeInfo.showAxisLabels;
+
   // Histogram is essentially a bar chart for distribution data
   return {
     color: colors,
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
+      confine: true,
+    },
+    grid: {
+      left: 10,
+      right: 10,
+      bottom: 10,
+      top: 10,
+      containLabel: true,
     },
     xAxis: {
       type: 'category',
       data: data.map((d) => d.label),
+      axisLabel: {
+        show: showLabels,
+        rotate: 45,
+        fontSize: 9,
+        overflow: 'truncate',
+        width: sizeInfo.labelWidth,
+      },
     },
     yAxis: {
       type: 'value',
+      axisLabel: {
+        show: showLabels,
+        fontSize: 9,
+      },
     },
     series: [
       {
