@@ -169,12 +169,13 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
     const camera = renderer.getCamera();
     const position = camera.getPosition();
     const target = camera.getTarget();
+    const up = camera.getUp();
     const fov = camera.getFOV();
 
     return {
       position,
       target,
-      up: { x: 0, y: 1, z: 0 }, // Y-up coordinate system
+      up, // Use actual camera up vector
       fov,
       isOrthographic: false,
     };

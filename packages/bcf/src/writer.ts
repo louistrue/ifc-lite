@@ -60,11 +60,12 @@ export async function writeBCF(project: BCFProject): Promise<Blob> {
 
 /**
  * Write bcf.version file
+ * Uses buildingSMART standard format with both xsi and xsd namespaces
  */
 function writeVersionFile(zip: JSZip, version: '2.1' | '3.0'): void {
   const content = `<?xml version="1.0" encoding="UTF-8"?>
-<Version VersionId="${version}" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="version.xsd">
-  <DetailedVersion>${version}.0</DetailedVersion>
+<Version xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" VersionId="${version}">
+  <DetailedVersion>${version}</DetailedVersion>
 </Version>`;
 
   zip.file('bcf.version', content);
@@ -72,13 +73,14 @@ function writeVersionFile(zip: JSZip, version: '2.1' | '3.0'): void {
 
 /**
  * Write project.bcfp file
+ * Uses buildingSMART standard format
  */
 function writeProjectFile(zip: JSZip, project: BCFProject): void {
   const projectId = project.projectId || generateIfcGuid();
-  const nameElement = project.name ? `\n  <Name>${escapeXml(project.name)}</Name>` : '';
+  const nameElement = project.name ? `\n    <Name>${escapeXml(project.name)}</Name>` : '';
 
   const content = `<?xml version="1.0" encoding="UTF-8"?>
-<ProjectExtension xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="project.xsd">
+<ProjectExtension xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
   <Project ProjectId="${projectId}">${nameElement}
   </Project>
 </ProjectExtension>`;
@@ -106,10 +108,11 @@ async function writeTopicFolder(zip: JSZip, topic: BCFTopic): Promise<void> {
 
 /**
  * Write markup.bcf file
+ * Uses buildingSMART standard format
  */
 function writeMarkupFile(folder: JSZip, topic: BCFTopic): void {
   let content = `<?xml version="1.0" encoding="UTF-8"?>
-<Markup xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="markup.xsd">
+<Markup xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
   <Topic Guid="${topic.guid}"${topic.topicType ? ` TopicType="${escapeXml(topic.topicType)}"` : ''}${topic.topicStatus ? ` TopicStatus="${escapeXml(topic.topicStatus)}"` : ''}>
     <Title>${escapeXml(topic.title)}</Title>`;
 

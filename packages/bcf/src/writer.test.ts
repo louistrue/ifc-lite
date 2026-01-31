@@ -26,7 +26,8 @@ describe('BCF Writer', () => {
 
     const versionContent = await zip.file('bcf.version')?.async('string');
     expect(versionContent).toContain('VersionId="2.1"');
-    expect(versionContent).toContain('DetailedVersion');
+    expect(versionContent).toContain('<DetailedVersion>2.1</DetailedVersion>');
+    expect(versionContent).toContain('xmlns:xsd');
   });
 
   it('should create project.bcfp file when project has name', async () => {
