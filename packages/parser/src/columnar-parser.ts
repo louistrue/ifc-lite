@@ -123,6 +123,10 @@ const SPATIAL_TYPES = new Set([
 // Relationship types needed for hierarchy
 const HIERARCHY_REL_TYPES = new Set([
     'IFCRELAGGREGATES', 'IFCRELCONTAINEDINSPATIALSTRUCTURE',
+    // Material and classification associations (needed for BI dashboard)
+    'IFCRELASSOCIATESMATERIAL', 'IFCRELASSOCIATESCLASSIFICATION',
+    // Type definitions
+    'IFCRELDEFINESBYTYPE',
 ]);
 
 // Relationship types for on-demand property loading
