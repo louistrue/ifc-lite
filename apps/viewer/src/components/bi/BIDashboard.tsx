@@ -65,6 +65,10 @@ export function BIDashboard() {
   const [containerWidth, setContainerWidth] = useState(0); // Start at 0, measure before rendering grid
   const [editingChartId, setEditingChartId] = useState<string | null>(null);
 
+  // Refs for stabilizing data and tracking initial load
+  const prevBiModelsRef = useRef<BIModelData[]>([]);
+  const hasLoadedDataRef = useRef(false);
+
   // Store state
   const isDashboardOpen = useViewerStore((state) => state.isDashboardOpen);
   const dashboardMode = useViewerStore((state) => state.dashboardMode);
@@ -347,6 +351,26 @@ export function BIDashboard() {
       processModel('__legacy__', legacyIfcDataStore, legacyGeometryResult, 0);
     }
 
+    // Stabilize: return previous ref if model data hasn't actually changed
+    // This prevents cascading recomputations when store references change
+    const prev = prevBiModelsRef.current;
+    if (result.length === prev.length && result.length > 0) {
+      const isSame = result.every((m, i) =>
+        m.modelId === prev[i]?.modelId &&
+        m.geometryExpressIds.length === prev[i]?.geometryExpressIds.length
+      );
+      if (isSame) {
+        console.log('[BIDashboard] biModels unchanged, returning stable ref');
+        return prev;
+      }
+    }
+
+    // Track that we've loaded data for animation control
+    if (result.length > 0) {
+      hasLoadedDataRef.current = true;
+    }
+
+    prevBiModelsRef.current = result;
     return result;
   }, [models, legacyIfcDataStore, legacyGeometryResult]);
 

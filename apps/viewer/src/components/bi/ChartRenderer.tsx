@@ -146,6 +146,7 @@ export function ChartRenderer({
 }: ChartRendererProps) {
   const chartRef = useRef<ReactECharts>(null);
   const prevDataRef = useRef<AggregatedDataPoint[]>([]);
+  const hasAnimatedRef = useRef(false);
 
   // Stabilize data reference - only update if actual values changed
   // This prevents ECharts from re-animating when data reference changes but values are same
@@ -164,6 +165,14 @@ export function ChartRenderer({
     prevDataRef.current = data;
     return data;
   }, [data]);
+
+  // Determine if animation should be enabled (only on first render with data)
+  const shouldAnimate = useMemo(() => {
+    if (stableData.length === 0) return false;
+    if (hasAnimatedRef.current) return false;
+    hasAnimatedRef.current = true;
+    return true;
+  }, [stableData]);
 
   // Get responsive size info
   const sizeInfo = useMemo(() => getSizeInfo(dimensions), [dimensions]);
@@ -201,16 +210,15 @@ export function ChartRenderer({
         chartOption = buildBarOption(config, stableData, selectedKeys, colors, sizeInfo);
     }
 
-    // Add animation settings: keep initial animation fast, disable update animation
-    // This prevents the jarring double-animation when data recomputes
+    // Only animate on first render with data - prevents jarring double-animation
     return {
       ...chartOption,
-      animation: true,
-      animationDuration: 300,
-      animationDurationUpdate: 0, // No animation on data updates
+      animation: shouldAnimate,
+      animationDuration: shouldAnimate ? 300 : 0,
+      animationDurationUpdate: 0,
       animationEasing: 'cubicOut',
     };
-  }, [config, stableData, selectedKeys, sizeInfo]);
+  }, [config, stableData, selectedKeys, sizeInfo, shouldAnimate]);
 
   // Handle click event
   const handleClick = useCallback(
