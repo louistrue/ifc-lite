@@ -325,24 +325,31 @@ async function parseViewpoints(
 ): Promise<BCFViewpoint[]> {
   const viewpoints: BCFViewpoint[] = [];
 
-  // Find viewpoint references in markup
-  const viewpointRefs = markupContent.matchAll(
-    /<Viewpoint\s+Guid="([^"]+)"[^>]*>[\s\S]*?<Viewpoint>([^<]+)<\/Viewpoint>[\s\S]*?<\/Viewpoint>/g
-  );
+  // Parse viewpoint references from markup.bcf to get snapshot filenames
+  // Format: <Viewpoint Guid="xxx"><Viewpoint>filename.bcfv</Viewpoint><Snapshot>snapshot.png</Snapshot></Viewpoint>
+  const viewpointInfoMap = new Map<string, { viewpointFile?: string; snapshotFile?: string }>();
 
-  // Also match simpler viewpoint format
-  const simpleViewpointRefs = markupContent.matchAll(
-    /<Viewpoint\s+Guid="([^"]+)"[^>]*\/>/g
-  );
+  // Match full viewpoint elements with both viewpoint and snapshot references
+  const viewpointElementRegex = /<Viewpoint\s+Guid="([^"]+)"[^>]*>([\s\S]*?)<\/Viewpoint>/g;
+  for (const match of markupContent.matchAll(viewpointElementRegex)) {
+    const guid = match[1];
+    const content = match[2];
 
-  const viewpointGuids = new Set<string>();
+    const viewpointFileMatch = content.match(/<Viewpoint>([^<]+)<\/Viewpoint>/);
+    const snapshotFileMatch = content.match(/<Snapshot>([^<]+)<\/Snapshot>/);
 
-  for (const match of viewpointRefs) {
-    viewpointGuids.add(match[1]);
+    viewpointInfoMap.set(guid, {
+      viewpointFile: viewpointFileMatch?.[1],
+      snapshotFile: snapshotFileMatch?.[1],
+    });
   }
 
+  // Also match self-closing viewpoint references
+  const simpleViewpointRefs = markupContent.matchAll(/<Viewpoint\s+Guid="([^"]+)"[^>]*\/>/g);
   for (const match of simpleViewpointRefs) {
-    viewpointGuids.add(match[1]);
+    if (!viewpointInfoMap.has(match[1])) {
+      viewpointInfoMap.set(match[1], {});
+    }
   }
 
   // Find viewpoint files directly in the folder
@@ -363,28 +370,51 @@ async function parseViewpoints(
       const viewpoint = parseViewpointContent(viewpointContent);
 
       if (viewpoint) {
-        // Load snapshot if available
-        // BCF files may use either Viewpoint_xxx.png or Snapshot_xxx.png naming
-        const viewpointBaseName = viewpointPath.replace('.bcfv', '');
-        const snapshotBaseName = viewpointBaseName.replace('Viewpoint_', 'Snapshot_');
-
-        // Try Snapshot_xxx.png first (common pattern)
-        let snapshotFile = zip.file(`${snapshotBaseName}.png`);
+        // Get snapshot filename from markup.bcf if available
+        const viewpointInfo = viewpointInfoMap.get(viewpoint.guid);
+        let snapshotFile: JSZip.JSZipObject | null = null;
         let snapshotFormat = 'png';
 
-        // Fallback to Viewpoint_xxx.png
-        if (!snapshotFile) {
-          snapshotFile = zip.file(`${viewpointBaseName}.png`);
+        // First, try the snapshot filename from markup.bcf
+        if (viewpointInfo?.snapshotFile) {
+          snapshotFile = zip.file(`${topicFolder}/${viewpointInfo.snapshotFile}`);
+          if (viewpointInfo.snapshotFile.toLowerCase().endsWith('.jpg') ||
+              viewpointInfo.snapshotFile.toLowerCase().endsWith('.jpeg')) {
+            snapshotFormat = 'jpeg';
+          }
         }
 
-        // Try JPG variants
+        // Fallback: try common naming patterns
         if (!snapshotFile) {
-          snapshotFile = zip.file(`${snapshotBaseName}.jpg`);
-          snapshotFormat = 'jpeg';
-        }
-        if (!snapshotFile) {
-          snapshotFile = zip.file(`${viewpointBaseName}.jpg`);
-          snapshotFormat = 'jpeg';
+          const viewpointBaseName = viewpointPath.replace('.bcfv', '');
+          const snapshotBaseName = viewpointBaseName.replace(/Viewpoint_/i, 'Snapshot_');
+
+          // Try Snapshot_xxx.png
+          snapshotFile = zip.file(`${snapshotBaseName}.png`);
+
+          // Try Viewpoint_xxx.png
+          if (!snapshotFile) {
+            snapshotFile = zip.file(`${viewpointBaseName}.png`);
+          }
+
+          // Try snapshot.png (simple default)
+          if (!snapshotFile) {
+            snapshotFile = zip.file(`${topicFolder}/snapshot.png`);
+          }
+
+          // Try JPG variants
+          if (!snapshotFile) {
+            snapshotFile = zip.file(`${snapshotBaseName}.jpg`);
+            snapshotFormat = 'jpeg';
+          }
+          if (!snapshotFile) {
+            snapshotFile = zip.file(`${viewpointBaseName}.jpg`);
+            snapshotFormat = 'jpeg';
+          }
+          if (!snapshotFile) {
+            snapshotFile = zip.file(`${topicFolder}/snapshot.jpg`);
+            snapshotFormat = 'jpeg';
+          }
         }
 
         if (snapshotFile) {
@@ -402,12 +432,13 @@ async function parseViewpoints(
 
   // If no viewpoint files found, check for default snapshot
   if (viewpoints.length === 0) {
-    const defaultSnapshot = zip.file(`${topicFolder}/snapshot.png`);
+    const defaultSnapshot = zip.file(`${topicFolder}/snapshot.png`) || zip.file(`${topicFolder}/snapshot.jpg`);
     if (defaultSnapshot) {
+      const isJpg = defaultSnapshot.name.toLowerCase().endsWith('.jpg');
       const snapshotData = await defaultSnapshot.async('uint8array');
       viewpoints.push({
         guid: topicFolder, // Use topic GUID as viewpoint GUID
-        snapshot: `data:image/png;base64,${uint8ArrayToBase64(snapshotData)}`,
+        snapshot: `data:image/${isJpg ? 'jpeg' : 'png'};base64,${uint8ArrayToBase64(snapshotData)}`,
         snapshotData,
       });
     }
