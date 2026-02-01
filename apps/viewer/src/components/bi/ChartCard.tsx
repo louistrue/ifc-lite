@@ -7,7 +7,7 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect } from 'react';
-import { X, Settings, GripVertical, Filter, FilterX, ExternalLink } from 'lucide-react';
+import { X, Settings, GripVertical, Filter, FilterX } from 'lucide-react';
 import type { ChartConfig, AggregatedDataPoint, ChartInteractionEvent } from '@ifc-lite/bi';
 import { ChartRenderer } from './ChartRenderer.js';
 import { Button } from '../ui/button.js';
@@ -27,7 +27,6 @@ interface ChartCardProps {
   onRemove: (chartId: string) => void;
   onEdit: (chartId: string) => void;
   onClearFilter: (chartId: string) => void;
-  onPopOut?: (chartId: string) => void;
   isEditMode: boolean;
   hasFilter: boolean;
 }
@@ -41,7 +40,6 @@ export function ChartCard({
   onRemove,
   onEdit,
   onClearFilter,
-  onPopOut,
   isEditMode,
   hasFilter,
 }: ChartCardProps) {
@@ -83,10 +81,6 @@ export function ChartCard({
     onClearFilter(config.id);
   }, [config.id, onClearFilter]);
 
-  const handlePopOut = useCallback(() => {
-    onPopOut?.(config.id);
-  }, [config.id, onPopOut]);
-
   return (
     <div className="h-full w-full bg-background border rounded-lg shadow-sm flex flex-col relative">
       {/* Header */}
@@ -113,17 +107,6 @@ export function ChartCard({
               title="Clear filter"
             >
               <FilterX className="h-3.5 w-3.5" />
-            </Button>
-          )}
-          {onPopOut && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              onClick={handlePopOut}
-              title="Open in new window"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
             </Button>
           )}
           {isEditMode && (

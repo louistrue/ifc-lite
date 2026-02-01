@@ -14,7 +14,7 @@ import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react'
 import GridLayout, { type Layout, type LayoutItem } from 'react-grid-layout';
 import {
   X, Settings, Download, Plus, Filter, FilterX, Link, Unlink, LayoutTemplate,
-  Maximize2, Minimize2, PanelRight, PanelRightClose,
+  Maximize2, Minimize2, PanelRight, PanelRightClose, EyeOff, Eye,
 } from 'lucide-react';
 import {
   BIDataAggregator,
@@ -72,6 +72,7 @@ export function BIDashboard() {
   const isEditMode = useViewerStore((state) => state.isEditMode);
   const chartFilters = useViewerStore((state) => state.chartFilters);
   const crossFilterEnabled = useViewerStore((state) => state.crossFilterEnabled);
+  const hideNoneValues = useViewerStore((state) => state.hideNoneValues);
   const models = useViewerStore((state) => state.models);
 
   // Legacy single-model state (for backward compatibility)
@@ -92,6 +93,7 @@ export function BIDashboard() {
   const clearChartFilter = useViewerStore((state) => state.clearChartFilter);
   const clearAllFilters = useViewerStore((state) => state.clearAllFilters);
   const toggleCrossFilter = useViewerStore((state) => state.toggleCrossFilter);
+  const toggleHideNoneValues = useViewerStore((state) => state.toggleHideNoneValues);
   const removeChart = useViewerStore((state) => state.removeChart);
   const updateChart = useViewerStore((state) => state.updateChart);
   const cacheChartData = useViewerStore((state) => state.cacheChartData);
@@ -378,6 +380,25 @@ export function BIDashboard() {
     return allRefs.size > 0 ? allRefs : null;
   }, [crossFilterEnabled, chartFilters, chartDataCache]);
 
+  // Helper to check if a data point represents a "none" value
+  const isNoneValue = useCallback((key: string, label: string): boolean => {
+    const lowerKey = key.toLowerCase();
+    const lowerLabel = label.toLowerCase();
+    // Match patterns like "No Material", "No Storey", "Unknown", "Unassigned", "N/A", etc.
+    return (
+      lowerKey.startsWith('no ') ||
+      lowerLabel.startsWith('no ') ||
+      lowerKey === 'unknown' ||
+      lowerLabel === 'unknown' ||
+      lowerKey === 'unassigned' ||
+      lowerLabel === 'unassigned' ||
+      lowerKey === 'n/a' ||
+      lowerLabel === 'n/a' ||
+      lowerKey === 'none' ||
+      lowerLabel === 'none'
+    );
+  }, []);
+
   // Compute data for all charts (with cross-filtering applied via aggregator)
   const chartData = useMemo(() => {
     if (!activeDashboard) return new Map<string, AggregatedDataPoint[]>();
@@ -403,15 +424,21 @@ export function BIDashboard() {
 
         const result = aggregator.aggregate(aggregationConfig);
 
+        // Filter out "none" values if hideNoneValues is enabled
+        const filteredData = hideNoneValues
+          ? result.data.filter((point) => !isNoneValue(point.key, point.label))
+          : result.data;
+
         console.log('[BIDashboard] Chart', chart.title, 'aggregation result:', {
           dataPoints: result.data.length,
+          filteredDataPoints: filteredData.length,
           totalEntities: result.totalEntities,
           totalValue: result.totalValue,
           filtered: !!aggregationConfig.entityFilter,
           computeTimeMs: result.computeTimeMs,
         });
 
-        data.set(chart.id, result.data);
+        data.set(chart.id, filteredData);
       } catch (err) {
         // If aggregation fails, provide empty data
         console.error('[BIDashboard] Aggregation failed for chart', chart.title, err);
@@ -419,7 +446,7 @@ export function BIDashboard() {
       }
     }
     return data;
-  }, [activeDashboard, aggregator, biModels.length, crossFilterEntityRefs, chartFilters]);
+  }, [activeDashboard, aggregator, biModels.length, crossFilterEntityRefs, chartFilters, hideNoneValues, isNoneValue]);
 
   // Cache chart data for cross-filtering (separate effect to avoid infinite loop)
   // We only cache when there's NO active cross-filter (i.e., full unfiltered data)
@@ -599,62 +626,6 @@ export function BIDashboard() {
     return count;
   }, [chartFilters]);
 
-  // Handle chart pop-out to new window
-  const handlePopOut = useCallback(
-    (chartId: string) => {
-      const chart = activeDashboard?.charts.find((c) => c.id === chartId);
-      const data = chartData.get(chartId);
-      if (!chart || !data) return;
-
-      // Open a new window with the chart
-      const popoutWindow = window.open(
-        '',
-        `chart-${chartId}`,
-        'width=800,height=600,menubar=no,toolbar=no,location=no,status=no'
-      );
-
-      if (!popoutWindow) {
-        console.error('Failed to open pop-out window - popup may be blocked');
-        return;
-      }
-
-      // Write initial content to the pop-out window
-      popoutWindow.document.write(`
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>${chart.title} - IFC-Lite Dashboard</title>
-            <style>
-              body { margin: 0; padding: 16px; font-family: system-ui, sans-serif; background: #f5f5f5; }
-              h1 { margin: 0 0 16px 0; font-size: 18px; color: #333; }
-              .chart-container { background: white; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-              .info { color: #666; font-size: 14px; margin-top: 16px; }
-              .sync-status { display: inline-block; padding: 4px 8px; background: #e3f2fd; color: #1565c0; border-radius: 4px; font-size: 12px; }
-            </style>
-          </head>
-          <body>
-            <h1>${chart.title}</h1>
-            <div class="chart-container">
-              <p>Chart data: ${data.length} data points</p>
-              <p>Total value: ${data.reduce((sum, d) => sum + d.value, 0).toFixed(2)}</p>
-              <ul>
-                ${data.slice(0, 10).map((d) => `<li>${d.label}: ${d.value.toFixed(2)}</li>`).join('')}
-                ${data.length > 10 ? `<li>... and ${data.length - 10} more</li>` : ''}
-              </ul>
-            </div>
-            <div class="info">
-              <span class="sync-status">Connected to main viewer</span>
-              <p>Selections in this window will sync with the 3D viewer.</p>
-              <p><strong>Note:</strong> Full interactive chart in pop-out requires React portal setup.</p>
-            </div>
-          </body>
-        </html>
-      `);
-      popoutWindow.document.close();
-    },
-    [activeDashboard, chartData]
-  );
-
   // Calculate container classes based on mode
   // IMPORTANT: This must be before early returns to follow React's rules of hooks
   const containerClasses = useMemo(() => {
@@ -774,6 +745,19 @@ export function BIDashboard() {
             Cross-filter
           </Button>
           <Button
+            variant={hideNoneValues ? 'default' : 'outline'}
+            size="sm"
+            onClick={toggleHideNoneValues}
+            title={hideNoneValues ? 'Showing only elements with values' : 'Showing all elements including those without values'}
+          >
+            {hideNoneValues ? (
+              <EyeOff className="h-4 w-4 mr-1" />
+            ) : (
+              <Eye className="h-4 w-4 mr-1" />
+            )}
+            {hideNoneValues ? 'Hide Empty' : 'Show All'}
+          </Button>
+          <Button
             variant={isEditMode ? 'default' : 'outline'}
             size="sm"
             onClick={toggleEditMode}
@@ -851,7 +835,6 @@ export function BIDashboard() {
                   onRemove={removeChart}
                   onEdit={setEditingChartId}
                   onClearFilter={clearChartFilter}
-                  onPopOut={handlePopOut}
                   isEditMode={isEditMode}
                   hasFilter={(chartFilters.get(chart.id)?.size ?? 0) > 0}
                 />

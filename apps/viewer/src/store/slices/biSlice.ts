@@ -49,6 +49,9 @@ export interface BISlice {
   /** Is edit mode active (drag/resize charts) */
   isEditMode: boolean;
 
+  /** Hide "none" values (No Material, No Storey, etc.) from charts */
+  hideNoneValues: boolean;
+
   /** Stored entity refs by chart data point key for quick lookup */
   chartDataCache: Map<string, Map<string, EntityRef[]>>;
 
@@ -72,6 +75,9 @@ export interface BISlice {
 
   /** Set dashboard display mode */
   setDashboardMode: (mode: DashboardMode) => void;
+
+  /** Toggle hide none values */
+  toggleHideNoneValues: () => void;
 
   // ============================================================================
   // Actions - Charts
@@ -135,6 +141,7 @@ export const createBISlice: StateCreator<BISlice, [], [], BISlice> = (set, get) 
   crossFilterEnabled: true,
   chartHoveredEntities: [],
   isEditMode: false,
+  hideNoneValues: false,
   chartDataCache: new Map(),
 
   // Dashboard actions
@@ -168,6 +175,9 @@ export const createBISlice: StateCreator<BISlice, [], [], BISlice> = (set, get) 
   toggleEditMode: () => set((state) => ({ isEditMode: !state.isEditMode })),
 
   setDashboardMode: (mode) => set({ dashboardMode: mode }),
+
+  toggleHideNoneValues: () =>
+    set((state) => ({ hideNoneValues: !state.hideNoneValues })),
 
   // Chart actions
   addChart: (config) => {
