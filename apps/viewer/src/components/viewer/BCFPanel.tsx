@@ -31,6 +31,9 @@ import {
   CheckCircle,
   Clock,
   Filter,
+  MousePointer2,
+  Focus,
+  EyeOff,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -373,6 +376,10 @@ interface TopicDetailProps {
   onDeleteViewpoint: (viewpointGuid: string) => void;
   onUpdateStatus: (status: string) => void;
   onDeleteTopic: () => void;
+  // Viewer state info for capture feedback
+  selectionCount: number;
+  hasIsolation: boolean;
+  hasHiddenEntities: boolean;
 }
 
 function TopicDetail({
@@ -384,6 +391,9 @@ function TopicDetail({
   onDeleteViewpoint,
   onUpdateStatus,
   onDeleteTopic,
+  selectionCount,
+  hasIsolation,
+  hasHiddenEntities,
 }: TopicDetailProps) {
   const [commentText, setCommentText] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -482,6 +492,33 @@ function TopicDetail({
                 Capture
               </Button>
             </div>
+
+            {/* Capture info - what will be included */}
+            {(selectionCount > 0 || hasIsolation || hasHiddenEntities) && (
+              <div className="mb-2 p-2 bg-muted/50 rounded-md text-xs text-muted-foreground">
+                <p className="font-medium mb-1">Capture will include:</p>
+                <ul className="space-y-0.5">
+                  {selectionCount > 0 && (
+                    <li className="flex items-center gap-1">
+                      <MousePointer2 className="h-3 w-3" />
+                      {selectionCount} selected {selectionCount === 1 ? 'object' : 'objects'}
+                    </li>
+                  )}
+                  {hasIsolation && (
+                    <li className="flex items-center gap-1">
+                      <Focus className="h-3 w-3" />
+                      Isolated objects (others hidden)
+                    </li>
+                  )}
+                  {hasHiddenEntities && !hasIsolation && (
+                    <li className="flex items-center gap-1">
+                      <EyeOff className="h-3 w-3" />
+                      Hidden objects
+                    </li>
+                  )}
+                </ul>
+              </div>
+            )}
 
             {topic.viewpoints.length === 0 ? (
               <p className="text-xs text-muted-foreground">No viewpoints captured</p>
@@ -808,6 +845,24 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
   const bcfAuthor = useViewerStore((s) => s.bcfAuthor);
   const setBcfAuthor = useViewerStore((s) => s.setBcfAuthor);
   const setBcfLoading = useViewerStore((s) => s.setBcfLoading);
+
+  // Viewer state for capture feedback
+  const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
+  const selectedEntityIds = useViewerStore((s) => s.selectedEntityIds);
+  const hiddenEntities = useViewerStore((s) => s.hiddenEntities);
+  const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
+
+  // Computed capture state info
+  const selectionCount = useMemo(() => {
+    let count = selectedEntityId !== null ? 1 : 0;
+    count += selectedEntityIds.size;
+    if (selectedEntityId !== null && selectedEntityIds.has(selectedEntityId)) {
+      count--; // Avoid double-counting
+    }
+    return count;
+  }, [selectedEntityId, selectedEntityIds]);
+  const hasIsolation = isolatedEntities !== null && isolatedEntities.size > 0;
+  const hasHiddenEntities = hiddenEntities.size > 0;
   const setBcfError = useViewerStore((s) => s.setBcfError);
   const models = useViewerStore((s) => s.models);
 
@@ -1065,6 +1120,9 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
             onDeleteViewpoint={handleDeleteViewpoint}
             onUpdateStatus={handleUpdateStatus}
             onDeleteTopic={handleDeleteTopic}
+            selectionCount={selectionCount}
+            hasIsolation={hasIsolation}
+            hasHiddenEntities={hasHiddenEntities}
           />
         ) : (
           <TopicList
