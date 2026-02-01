@@ -291,6 +291,21 @@ export function BIDashboard() {
                     return typeof attrs[0] === 'string' ? attrs[0] : 'Constituent Set';
                   } else if (typeUpper === 'IFCMATERIALPROFILESET') {
                     return typeof attrs[0] === 'string' ? attrs[0] : 'Profile Set';
+                  } else if (typeUpper === 'IFCMATERIALLIST') {
+                    // IfcMaterialList has Materials[0] as array of material refs
+                    // Get names of all materials and join them
+                    const materialsAttr = attrs[0];
+                    if (Array.isArray(materialsAttr) && materialsAttr.length > 0) {
+                      const materialNames = materialsAttr
+                        .filter((ref): ref is number => typeof ref === 'number')
+                        .slice(0, 3) // Limit to first 3 to avoid very long names
+                        .map(ref => getMaterialName(ref));
+                      if (materialNames.length > 0) {
+                        const suffix = materialsAttr.length > 3 ? ` +${materialsAttr.length - 3}` : '';
+                        return materialNames.join(', ') + suffix;
+                      }
+                    }
+                    return 'Material List';
                   }
                   return entity.type;
                 };

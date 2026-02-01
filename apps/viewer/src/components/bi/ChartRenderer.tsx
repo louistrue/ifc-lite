@@ -289,7 +289,7 @@ export function ChartRenderer({
       style={{ height: '100%', width: '100%' }}
       opts={{ renderer: 'canvas' }}
       lazyUpdate={true}
-      notMerge={true}
+      notMerge={false} // Merge mode so updates use animationDurationUpdate (0) not animationDuration
     />
   );
 }
