@@ -803,6 +803,7 @@ export class StepExporter {
   /**
    * Format coordinate list as STEP tuple list
    * Applies inverse origin shift and inverse placement transform to convert from viewer coords to local entity coords
+   * Also converts from Y-up (viewer) to Z-up (IFC) coordinate system
    */
   private formatCoordinateList(
     positions: Float32Array,
@@ -820,6 +821,17 @@ export class StepExporter {
       let x = positions[i] + shift.x;
       let y = positions[i + 1] + shift.y;
       let z = positions[i + 2] + shift.z;
+
+      // Convert from Y-up (viewer) to Z-up (IFC) coordinate system
+      // Y-up: X right, Y up, Z towards viewer
+      // Z-up: X right, Y forward, Z up
+      // Transformation: IFC_X = Viewer_X, IFC_Y = -Viewer_Z, IFC_Z = Viewer_Y
+      const ifcX = x;
+      const ifcY = -z;
+      const ifcZ = y;
+      x = ifcX;
+      y = ifcY;
+      z = ifcZ;
 
       // Then apply inverse placement transform to get local entity coordinates
       if (inversePlacementMatrix) {
