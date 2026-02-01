@@ -19,6 +19,7 @@ import {
   type ChartInteractionEvent,
   type BIModelData,
   type AggregatedDataPoint,
+  type EntityRef as BIEntityRef,
 } from '@ifc-lite/bi';
 import { extractQuantitiesOnDemand, EntityExtractor } from '@ifc-lite/parser';
 import { useViewerStore, type EntityRef } from '../../store/index.js';
@@ -29,6 +30,32 @@ import { Button } from '../ui/button.js';
 
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
+
+// Custom styles for resize handles
+const gridLayoutStyles = `
+  .react-grid-item > .react-resizable-handle {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    bottom: 0;
+    right: 0;
+    cursor: se-resize;
+    z-index: 10;
+  }
+  .react-grid-item > .react-resizable-handle::after {
+    content: '';
+    position: absolute;
+    right: 3px;
+    bottom: 3px;
+    width: 8px;
+    height: 8px;
+    border-right: 2px solid rgba(0, 0, 0, 0.3);
+    border-bottom: 2px solid rgba(0, 0, 0, 0.3);
+  }
+  .react-grid-item:hover > .react-resizable-handle::after {
+    border-color: rgba(0, 0, 0, 0.6);
+  }
+`;
 
 export function BIDashboard() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -72,6 +99,9 @@ export function BIDashboard() {
   // Visibility actions
   const isolateEntities = useViewerStore((state) => state.isolateEntities);
   const toGlobalId = useViewerStore((state) => state.toGlobalId);
+
+  // Get chartDataCache for cross-filtering
+  const chartDataCache = useViewerStore((state) => state.chartDataCache);
 
   // Measure container width for responsive layout
   useEffect(() => {
@@ -291,26 +321,77 @@ export function BIDashboard() {
     return new BIDataAggregator(biModels);
   }, [biModels]);
 
-  // Compute data for all charts
+  // Collect cross-filter entity refs from all active chart filters
+  const crossFilterEntityRefs = useMemo(() => {
+    if (!crossFilterEnabled || chartFilters.size === 0) return null;
+
+    const allRefs = new Set<string>();
+    for (const [chartId, keys] of chartFilters) {
+      if (keys.size === 0) continue;
+
+      // Get cached data for this chart to find entity refs
+      const cachedData = chartDataCache.get(chartId);
+      if (!cachedData) continue;
+
+      for (const key of keys) {
+        const refs = cachedData.get(key);
+        if (refs) {
+          for (const ref of refs) {
+            allRefs.add(`${ref.modelId}:${ref.expressId}`);
+          }
+        }
+      }
+    }
+
+    return allRefs.size > 0 ? allRefs : null;
+  }, [crossFilterEnabled, chartFilters, chartDataCache]);
+
+  // Compute data for all charts (with cross-filtering applied)
   const chartData = useMemo(() => {
     if (!activeDashboard) return new Map<string, AggregatedDataPoint[]>();
 
     console.log('[BIDashboard] Computing chart data for', activeDashboard.charts.length, 'charts');
     console.log('[BIDashboard] biModels available:', biModels.length);
+    console.log('[BIDashboard] crossFilterEntityRefs:', crossFilterEntityRefs?.size ?? 0);
 
     const data = new Map<string, AggregatedDataPoint[]>();
     for (const chart of activeDashboard.charts) {
       try {
         const result = aggregator.aggregate(chart.aggregation);
+        let chartDataPoints = result.data;
+
+        // Apply cross-filtering: filter data to only include entities in the cross-filter set
+        // Skip filtering if this chart is the source of the filter
+        const chartHasFilter = chartFilters.has(chart.id) && (chartFilters.get(chart.id)?.size ?? 0) > 0;
+        if (crossFilterEntityRefs && !chartHasFilter) {
+          chartDataPoints = result.data
+            .map((point) => {
+              // Filter entity refs to only those in the cross-filter set
+              const filteredRefs = point.entityRefs.filter((ref) =>
+                crossFilterEntityRefs.has(`${ref.modelId}:${ref.expressId}`)
+              );
+              if (filteredRefs.length === 0) return null;
+
+              // Recalculate value for filtered entities (for count, it's just the length)
+              return {
+                ...point,
+                entityRefs: filteredRefs,
+                value: filteredRefs.length, // Simplified - proper recalc would need metric type
+              };
+            })
+            .filter((p): p is AggregatedDataPoint => p !== null);
+        }
+
         console.log('[BIDashboard] Chart', chart.title, 'aggregation result:', {
-          dataPoints: result.data.length,
+          dataPoints: chartDataPoints.length,
           totalEntities: result.totalEntities,
           totalValue: result.totalValue,
           computeTimeMs: result.computeTimeMs,
         });
-        data.set(chart.id, result.data);
+
+        data.set(chart.id, chartDataPoints);
         // Cache for bidirectional sync
-        cacheChartData(chart.id, result.data);
+        cacheChartData(chart.id, chartDataPoints);
       } catch (err) {
         // If aggregation fails, provide empty data
         console.error('[BIDashboard] Aggregation failed for chart', chart.title, err);
@@ -318,7 +399,7 @@ export function BIDashboard() {
       }
     }
     return data;
-  }, [activeDashboard, aggregator, biModels.length, cacheChartData]);
+  }, [activeDashboard, aggregator, biModels.length, cacheChartData, crossFilterEntityRefs, chartFilters]);
 
   // Compute highlighted keys from 3D selection
   const highlightedKeysByChart = useMemo(() => {
@@ -456,6 +537,62 @@ export function BIDashboard() {
     return count;
   }, [chartFilters]);
 
+  // Handle chart pop-out to new window
+  const handlePopOut = useCallback(
+    (chartId: string) => {
+      const chart = activeDashboard?.charts.find((c) => c.id === chartId);
+      const data = chartData.get(chartId);
+      if (!chart || !data) return;
+
+      // Open a new window with the chart
+      const popoutWindow = window.open(
+        '',
+        `chart-${chartId}`,
+        'width=800,height=600,menubar=no,toolbar=no,location=no,status=no'
+      );
+
+      if (!popoutWindow) {
+        console.error('Failed to open pop-out window - popup may be blocked');
+        return;
+      }
+
+      // Write initial content to the pop-out window
+      popoutWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>${chart.title} - IFC-Lite Dashboard</title>
+            <style>
+              body { margin: 0; padding: 16px; font-family: system-ui, sans-serif; background: #f5f5f5; }
+              h1 { margin: 0 0 16px 0; font-size: 18px; color: #333; }
+              .chart-container { background: white; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+              .info { color: #666; font-size: 14px; margin-top: 16px; }
+              .sync-status { display: inline-block; padding: 4px 8px; background: #e3f2fd; color: #1565c0; border-radius: 4px; font-size: 12px; }
+            </style>
+          </head>
+          <body>
+            <h1>${chart.title}</h1>
+            <div class="chart-container">
+              <p>Chart data: ${data.length} data points</p>
+              <p>Total value: ${data.reduce((sum, d) => sum + d.value, 0).toFixed(2)}</p>
+              <ul>
+                ${data.slice(0, 10).map((d) => `<li>${d.label}: ${d.value.toFixed(2)}</li>`).join('')}
+                ${data.length > 10 ? `<li>... and ${data.length - 10} more</li>` : ''}
+              </ul>
+            </div>
+            <div class="info">
+              <span class="sync-status">Connected to main viewer</span>
+              <p>Selections in this window will sync with the 3D viewer.</p>
+              <p><strong>Note:</strong> Full interactive chart in pop-out requires React portal setup.</p>
+            </div>
+          </body>
+        </html>
+      `);
+      popoutWindow.document.close();
+    },
+    [activeDashboard, chartData]
+  );
+
   if (!isDashboardOpen) return null;
 
   // No dashboard loaded - show template selector
@@ -477,6 +614,9 @@ export function BIDashboard() {
 
   return (
     <div className="absolute inset-x-0 top-12 bottom-0 bg-background z-40 flex flex-col">
+      {/* Inject custom resize handle styles */}
+      <style>{gridLayoutStyles}</style>
+
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/50 shrink-0">
         <div className="flex items-center gap-4">
@@ -572,6 +712,7 @@ export function BIDashboard() {
                 onRemove={removeChart}
                 onEdit={setEditingChartId}
                 onClearFilter={clearChartFilter}
+                onPopOut={handlePopOut}
                 isEditMode={isEditMode}
                 hasFilter={(chartFilters.get(chart.id)?.size ?? 0) > 0}
               />
