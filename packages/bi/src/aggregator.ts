@@ -94,16 +94,20 @@ export class BIDataAggregator {
    * Main aggregation entry point
    */
   aggregate(config: AggregationConfig): AggregationResult {
-    const cacheKey = this.buildCacheKey(config);
+    // Don't cache when entity filter is used (dynamic cross-filtering)
+    const useCache = !config.entityFilter;
+    const cacheKey = useCache ? this.buildCacheKey(config) : '';
 
     // Check cache
-    const cached = this.cache.get(cacheKey);
-    if (cached) return cached;
+    if (useCache) {
+      const cached = this.cache.get(cacheKey);
+      if (cached) return cached;
+    }
 
     const startTime = performance.now();
 
-    // Collect all entities across models
-    const entities = this.collectEntities(config.preFilter);
+    // Collect all entities across models, applying filters
+    const entities = this.collectEntities(config.preFilter, config.entityFilter);
 
     // Group entities by dimension
     const groups = this.groupEntities(entities, config.groupBy, config.propertyPath);
@@ -122,8 +126,10 @@ export class BIDataAggregator {
       computeTimeMs: performance.now() - startTime,
     };
 
-    // Cache result
-    this.cache.set(cacheKey, result);
+    // Cache result (only if not using entity filter)
+    if (useCache) {
+      this.cache.set(cacheKey, result);
+    }
 
     return result;
   }
@@ -136,10 +142,11 @@ export class BIDataAggregator {
   }
 
   /**
-   * Collect entities from all models, applying optional filter
+   * Collect entities from all models, applying optional filters
    */
   private collectEntities(
-    filter?: DataFilter
+    filter?: DataFilter,
+    entityFilter?: Set<string>
   ): Array<{
     ref: EntityRef;
     model: BIModelData;
@@ -153,6 +160,14 @@ export class BIDataAggregator {
 
     for (const model of this.models) {
       for (const expressId of model.geometryExpressIds) {
+        // Apply entity ID filter if specified (for cross-filtering)
+        if (entityFilter) {
+          const entityKey = `${model.modelId}:${expressId}`;
+          if (!entityFilter.has(entityKey)) {
+            continue;
+          }
+        }
+
         // Apply pre-filter if specified
         if (filter && !this.passesFilter(model, expressId, filter)) {
           continue;

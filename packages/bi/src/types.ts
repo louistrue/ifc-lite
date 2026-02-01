@@ -51,6 +51,8 @@ export interface AggregationConfig {
   groupBySecondary?: GroupByDimension;
   /** Filter before aggregation */
   preFilter?: DataFilter;
+  /** Entity ID filter: Set of "modelId:expressId" strings - only aggregate these entities */
+  entityFilter?: Set<string>;
 }
 
 // ============================================================================

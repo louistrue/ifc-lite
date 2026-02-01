@@ -45,6 +45,9 @@ export type { Drawing2DState, Drawing2DStatus } from './slices/drawing2DSlice.js
 // Re-export Sheet types
 export type { SheetState } from './slices/sheetSlice.js';
 
+// Re-export BI types
+export type { DashboardMode } from './slices/biSlice.js';
+
 // Combined store type
 export type ViewerState = LoadingSlice &
   SelectionSlice &

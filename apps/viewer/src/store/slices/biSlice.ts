@@ -20,6 +20,9 @@ import type {
 import { DASHBOARD_PRESETS, createDashboardFromPreset } from '@ifc-lite/bi';
 import type { EntityRef } from '../types.js';
 
+/** Dashboard display mode */
+export type DashboardMode = 'fullscreen' | 'sidebar' | 'minimized';
+
 export interface BISlice {
   // ============================================================================
   // State
@@ -27,6 +30,9 @@ export interface BISlice {
 
   /** Is the dashboard panel open? */
   isDashboardOpen: boolean;
+
+  /** Dashboard display mode */
+  dashboardMode: DashboardMode;
 
   /** Active dashboard configuration */
   activeDashboard: DashboardConfig | null;
@@ -63,6 +69,9 @@ export interface BISlice {
 
   /** Toggle edit mode */
   toggleEditMode: () => void;
+
+  /** Set dashboard display mode */
+  setDashboardMode: (mode: DashboardMode) => void;
 
   // ============================================================================
   // Actions - Charts
@@ -120,6 +129,7 @@ export interface BISlice {
 export const createBISlice: StateCreator<BISlice, [], [], BISlice> = (set, get) => ({
   // Initial state
   isDashboardOpen: false,
+  dashboardMode: 'fullscreen' as DashboardMode,
   activeDashboard: null,
   chartFilters: new Map(),
   crossFilterEnabled: true,
@@ -156,6 +166,8 @@ export const createBISlice: StateCreator<BISlice, [], [], BISlice> = (set, get) 
     }),
 
   toggleEditMode: () => set((state) => ({ isEditMode: !state.isEditMode })),
+
+  setDashboardMode: (mode) => set({ dashboardMode: mode }),
 
   // Chart actions
   addChart: (config) => {

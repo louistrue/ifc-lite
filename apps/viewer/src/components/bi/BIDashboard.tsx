@@ -12,7 +12,10 @@
 
 import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
 import GridLayout, { type Layout, type LayoutItem } from 'react-grid-layout';
-import { X, Settings, Download, Plus, Filter, FilterX, Link, Unlink, LayoutTemplate } from 'lucide-react';
+import {
+  X, Settings, Download, Plus, Filter, FilterX, Link, Unlink, LayoutTemplate,
+  Maximize2, Minimize2, PanelRight, PanelRightClose,
+} from 'lucide-react';
 import {
   BIDataAggregator,
   computeHighlightedKeys,
@@ -22,7 +25,7 @@ import {
   type EntityRef as BIEntityRef,
 } from '@ifc-lite/bi';
 import { extractQuantitiesOnDemand, EntityExtractor } from '@ifc-lite/parser';
-import { useViewerStore, type EntityRef } from '../../store/index.js';
+import { useViewerStore, type EntityRef, type DashboardMode } from '../../store/index.js';
 import { ChartCard } from './ChartCard.js';
 import { ChartEditDialog } from './ChartEditDialog.js';
 import { TemplateSelector } from './TemplateSelector.js';
@@ -64,6 +67,7 @@ export function BIDashboard() {
 
   // Store state
   const isDashboardOpen = useViewerStore((state) => state.isDashboardOpen);
+  const dashboardMode = useViewerStore((state) => state.dashboardMode);
   const activeDashboard = useViewerStore((state) => state.activeDashboard);
   const isEditMode = useViewerStore((state) => state.isEditMode);
   const chartFilters = useViewerStore((state) => state.chartFilters);
@@ -83,6 +87,7 @@ export function BIDashboard() {
   const toggleEditMode = useViewerStore((state) => state.toggleEditMode);
   const updateChartLayout = useViewerStore((state) => state.updateChartLayout);
   const setActiveDashboard = useViewerStore((state) => state.setActiveDashboard);
+  const setDashboardMode = useViewerStore((state) => state.setDashboardMode);
   const setChartFilter = useViewerStore((state) => state.setChartFilter);
   const clearChartFilter = useViewerStore((state) => state.clearChartFilter);
   const clearAllFilters = useViewerStore((state) => state.clearAllFilters);
@@ -346,7 +351,7 @@ export function BIDashboard() {
     return allRefs.size > 0 ? allRefs : null;
   }, [crossFilterEnabled, chartFilters, chartDataCache]);
 
-  // Compute data for all charts (with cross-filtering applied)
+  // Compute data for all charts (with cross-filtering applied via aggregator)
   const chartData = useMemo(() => {
     if (!activeDashboard) return new Map<string, AggregatedDataPoint[]>();
 
@@ -357,41 +362,29 @@ export function BIDashboard() {
     const data = new Map<string, AggregatedDataPoint[]>();
     for (const chart of activeDashboard.charts) {
       try {
-        const result = aggregator.aggregate(chart.aggregation);
-        let chartDataPoints = result.data;
-
-        // Apply cross-filtering: filter data to only include entities in the cross-filter set
-        // Skip filtering if this chart is the source of the filter
+        // Determine if this chart is the source of the filter
         const chartHasFilter = chartFilters.has(chart.id) && (chartFilters.get(chart.id)?.size ?? 0) > 0;
-        if (crossFilterEntityRefs && !chartHasFilter) {
-          chartDataPoints = result.data
-            .map((point) => {
-              // Filter entity refs to only those in the cross-filter set
-              const filteredRefs = point.entityRefs.filter((ref) =>
-                crossFilterEntityRefs.has(`${ref.modelId}:${ref.expressId}`)
-              );
-              if (filteredRefs.length === 0) return null;
 
-              // Recalculate value for filtered entities (for count, it's just the length)
-              return {
-                ...point,
-                entityRefs: filteredRefs,
-                value: filteredRefs.length, // Simplified - proper recalc would need metric type
-              };
-            })
-            .filter((p): p is AggregatedDataPoint => p !== null);
-        }
+        // Build aggregation config with entity filter for cross-filtering
+        // Source chart gets full data, other charts get filtered data
+        const aggregationConfig = {
+          ...chart.aggregation,
+          entityFilter: (crossFilterEntityRefs && !chartHasFilter) ? crossFilterEntityRefs : undefined,
+        };
+
+        const result = aggregator.aggregate(aggregationConfig);
 
         console.log('[BIDashboard] Chart', chart.title, 'aggregation result:', {
-          dataPoints: chartDataPoints.length,
+          dataPoints: result.data.length,
           totalEntities: result.totalEntities,
           totalValue: result.totalValue,
+          filtered: !!aggregationConfig.entityFilter,
           computeTimeMs: result.computeTimeMs,
         });
 
-        data.set(chart.id, chartDataPoints);
-        // Cache for bidirectional sync
-        cacheChartData(chart.id, chartDataPoints);
+        data.set(chart.id, result.data);
+        // Cache for bidirectional sync (cache unfiltered data for filter source)
+        cacheChartData(chart.id, result.data);
       } catch (err) {
         // If aggregation fails, provide empty data
         console.error('[BIDashboard] Aggregation failed for chart', chart.title, err);
@@ -612,18 +605,69 @@ export function BIDashboard() {
     );
   }
 
+  // Calculate container classes based on mode
+  const containerClasses = useMemo(() => {
+    switch (dashboardMode) {
+      case 'sidebar':
+        return 'absolute right-0 top-12 bottom-0 w-[450px] bg-background z-40 flex flex-col border-l shadow-lg';
+      case 'minimized':
+        return 'absolute right-4 bottom-4 w-80 h-12 bg-background z-40 flex items-center rounded-lg border shadow-lg';
+      case 'fullscreen':
+      default:
+        return 'absolute inset-x-0 top-12 bottom-0 bg-background z-40 flex flex-col';
+    }
+  }, [dashboardMode]);
+
+  // Calculate grid columns based on mode
+  const gridCols = dashboardMode === 'sidebar' ? 6 : 12;
+
   return (
-    <div className="absolute inset-x-0 top-12 bottom-0 bg-background z-40 flex flex-col">
+    <div className={containerClasses}>
       {/* Inject custom resize handle styles */}
       <style>{gridLayoutStyles}</style>
 
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/50 shrink-0">
-        <div className="flex items-center gap-4">
-          <h2 className="text-lg font-semibold">{activeDashboard.name}</h2>
-          {activeFilterCount > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-blue-100 text-blue-800 text-xs">
+      {/* Minimized mode - just show a bar to expand */}
+      {dashboardMode === 'minimized' && (
+        <div className="flex items-center justify-between w-full px-4">
+          <span className="text-sm font-medium">{activeDashboard.name}</span>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setDashboardMode('sidebar')}
+              title="Open as sidebar"
+            >
+              <PanelRight className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setDashboardMode('fullscreen')}
+              title="Open fullscreen"
+            >
+              <Maximize2 className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={closeDashboard}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Full/Sidebar mode */}
+      {dashboardMode !== 'minimized' && (
+        <>
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/50 shrink-0">
+            <div className="flex items-center gap-4">
+              <h2 className={dashboardMode === 'sidebar' ? 'text-sm font-semibold' : 'text-lg font-semibold'}>
+                {activeDashboard.name}
+              </h2>
+              {activeFilterCount > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-blue-100 text-blue-800 text-xs">
                 <Filter className="h-3 w-3" />
                 {activeFilterCount} filter{activeFilterCount > 1 ? 's' : ''} active
               </span>
@@ -670,9 +714,35 @@ export function BIDashboard() {
             <Settings className="h-4 w-4 mr-1" />
             {isEditMode ? 'Done' : 'Edit'}
           </Button>
-          <Button variant="ghost" size="icon" onClick={closeDashboard}>
-            <X className="h-5 w-5" />
-          </Button>
+
+          {/* Mode switching buttons */}
+          <div className="flex items-center border-l pl-2 ml-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setDashboardMode('minimized')}
+              title="Minimize dashboard"
+            >
+              <Minimize2 className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={dashboardMode === 'sidebar' ? 'default' : 'ghost'}
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setDashboardMode(dashboardMode === 'sidebar' ? 'fullscreen' : 'sidebar')}
+              title={dashboardMode === 'sidebar' ? 'Expand to fullscreen' : 'Dock to sidebar'}
+            >
+              {dashboardMode === 'sidebar' ? (
+                <PanelRightClose className="h-4 w-4" />
+              ) : (
+                <PanelRight className="h-4 w-4" />
+              )}
+            </Button>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={closeDashboard}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -683,9 +753,9 @@ export function BIDashboard() {
           layout={layout}
           width={containerWidth - 32}
           gridConfig={{
-            cols: 12,
-            rowHeight: 100,
-            margin: [16, 16] as const,
+            cols: gridCols,
+            rowHeight: dashboardMode === 'sidebar' ? 80 : 100,
+            margin: dashboardMode === 'sidebar' ? [8, 8] as const : [16, 16] as const,
             maxRows: Infinity,
             containerPadding: null,
           }}
@@ -721,13 +791,15 @@ export function BIDashboard() {
         </GridLayout>
       </div>
 
-      {/* Chart Edit Dialog */}
-      {editingChartId && activeDashboard && (
-        <ChartEditDialog
-          config={activeDashboard.charts.find((c) => c.id === editingChartId)!}
-          onSave={(updates) => updateChart(editingChartId, updates)}
-          onClose={() => setEditingChartId(null)}
-        />
+          {/* Chart Edit Dialog */}
+          {editingChartId && activeDashboard && (
+            <ChartEditDialog
+              config={activeDashboard.charts.find((c) => c.id === editingChartId)!}
+              onSave={(updates) => updateChart(editingChartId, updates)}
+              onClose={() => setEditingChartId(null)}
+            />
+          )}
+        </>
       )}
     </div>
   );
