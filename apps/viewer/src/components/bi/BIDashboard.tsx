@@ -430,6 +430,9 @@ export function BIDashboard() {
     return result;
   }, [activeDashboard, selectedEntity, selectedEntities, chartData]);
 
+  // Calculate grid columns based on mode - must be before layout useMemo that uses it
+  const gridCols = dashboardMode === 'sidebar' ? 6 : 12;
+
   // Grid layout from chart configs - scale for sidebar mode
   // Templates are designed for 12 columns, scale to 6 for sidebar
   const layout = useMemo(() => {
@@ -636,9 +639,6 @@ export function BIDashboard() {
         return 'absolute inset-x-0 top-12 bottom-0 bg-background z-40 flex flex-col';
     }
   }, [dashboardMode]);
-
-  // Calculate grid columns based on mode
-  const gridCols = dashboardMode === 'sidebar' ? 6 : 12;
 
   if (!isDashboardOpen) return null;
 
