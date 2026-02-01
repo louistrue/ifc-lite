@@ -77,10 +77,14 @@ export interface BCFSlice extends BCFSliceState {
 // ============================================================================
 
 const getDefaultBcfAuthor = (): string => {
-  // Try to get from localStorage
-  if (typeof localStorage !== 'undefined') {
-    const stored = localStorage.getItem('bcf-author');
-    if (stored) return stored;
+  // Try to get from localStorage (may fail in private browsing)
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem('bcf-author');
+      if (stored) return stored;
+    }
+  } catch {
+    // localStorage not available (private browsing, storage quota, etc.)
   }
   return 'user@example.com';
 };
@@ -335,9 +339,13 @@ export const createBcfSlice: StateCreator<BCFSlice, [], [], BCFSlice> = (set, ge
   setBcfError: (bcfError) => set({ bcfError }),
 
   setBcfAuthor: (bcfAuthor) => {
-    // Persist to localStorage
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('bcf-author', bcfAuthor);
+    // Persist to localStorage (may fail in private browsing)
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('bcf-author', bcfAuthor);
+      }
+    } catch {
+      // localStorage not available
     }
     set({ bcfAuthor });
   },

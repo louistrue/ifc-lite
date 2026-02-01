@@ -153,7 +153,7 @@ export const createVisibilitySlice: StateCreator<VisibilitySlice, [], [], Visibi
 
   showAll: () => set({ hiddenEntities: new Set(), isolatedEntities: null }),
 
-  setHiddenEntities: (ids) => set({ hiddenEntities: new Set(ids) }),
+  setHiddenEntities: (ids) => set({ hiddenEntities: new Set(ids), isolatedEntities: null }),
 
   isEntityVisible: (id) => {
     const state = get();

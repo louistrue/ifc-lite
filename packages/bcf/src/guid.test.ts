@@ -49,7 +49,8 @@ describe('IFC GUID utilities', () => {
     });
 
     it('should throw for invalid IFC GUID characters', () => {
-      expect(() => ifcGuidToUuid('0000000000000000000000@@')).toThrow();
+      // Use 22-char string with invalid characters (@ is not in base64 charset)
+      expect(() => ifcGuidToUuid('00000000000000000000@@')).toThrow();
     });
   });
 
