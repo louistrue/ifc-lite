@@ -817,23 +817,13 @@ export class StepExporter {
     console.log(`[StepExporter] Applying inverse origin shift: (${shift.x}, ${shift.y}, ${shift.z})`);
 
     for (let i = 0; i < positions.length; i += 3) {
-      // First add origin shift back to get world coordinates
+      // Start with viewer coordinates (Y-up)
       let x = positions[i] + shift.x;
       let y = positions[i + 1] + shift.y;
       let z = positions[i + 2] + shift.z;
 
-      // Convert from Y-up (viewer) to Z-up (IFC) coordinate system
-      // Y-up: X right, Y up, Z towards viewer
-      // Z-up: X right, Y forward, Z up
-      // Transformation: IFC_X = Viewer_X, IFC_Y = -Viewer_Z, IFC_Z = Viewer_Y
-      const ifcX = x;
-      const ifcY = -z;
-      const ifcZ = y;
-      x = ifcX;
-      y = ifcY;
-      z = ifcZ;
-
-      // Then apply inverse placement transform to get local entity coordinates
+      // Apply inverse placement transform FIRST (in Y-up space)
+      // This removes the placement transform that was applied during geometry extraction
       if (inversePlacementMatrix) {
         const m = inversePlacementMatrix;
         const newX = m[0] * x + m[4] * y + m[8] * z + m[12];
@@ -844,7 +834,15 @@ export class StepExporter {
         z = newZ;
       }
 
-      tuples.push(`(${x.toFixed(precision)},${y.toFixed(precision)},${z.toFixed(precision)})`);
+      // THEN convert from Y-up (viewer) to Z-up (IFC) coordinate system
+      // Y-up: X right, Y up, Z towards viewer
+      // Z-up: X right, Y forward, Z up
+      // Transformation: IFC_X = Viewer_X, IFC_Y = -Viewer_Z, IFC_Z = Viewer_Y
+      const ifcX = x;
+      const ifcY = -z;
+      const ifcZ = y;
+
+      tuples.push(`(${ifcX.toFixed(precision)},${ifcY.toFixed(precision)},${ifcZ.toFixed(precision)})`);
     }
     return tuples.join(',');
   }
