@@ -32,7 +32,7 @@ import {
   calculateScaleBarSize,
   type ViewportStateRefs,
 } from '../../utils/viewportUtils.js';
-import { setGlobalCanvasRef, setGlobalRendererRef } from '../../hooks/useBCF.js';
+import { setGlobalCanvasRef, setGlobalRendererRef, clearGlobalRefs } from '../../hooks/useBCF.js';
 
 interface ViewportProps {
   geometry: MeshData[] | null;
@@ -1752,6 +1752,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
       }
       setIsInitialized(false);
       rendererRef.current = null;
+      // Clear BCF global refs to prevent memory leaks
+      clearGlobalRefs();
     };
     // Note: selectedEntityId is intentionally NOT in dependencies
     // The click handler captures setSelectedEntityId via closure

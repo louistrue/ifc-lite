@@ -324,7 +324,7 @@ function TopicDetail({
   );
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full relative">
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
         <Button variant="ghost" size="sm" onClick={onBack}>
@@ -641,6 +641,7 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
   const setBcfAuthor = useViewerStore((s) => s.setBcfAuthor);
   const setBcfLoading = useViewerStore((s) => s.setBcfLoading);
   const setBcfError = useViewerStore((s) => s.setBcfError);
+  const models = useViewerStore((s) => s.models);
 
   // BCF hook for camera/snapshot integration
   const { createViewpointFromState, applyViewpoint } = useBCF();
@@ -663,12 +664,28 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
     return bcfProject.topics.get(activeTopicId) || null;
   }, [bcfProject, activeTopicId]);
 
+  // Get a default project name from loaded models
+  const getDefaultProjectName = useCallback(() => {
+    if (models.size === 0) {
+      // No models loaded, use date-based name
+      const date = new Date().toISOString().split('T')[0];
+      return `BCF_Issues_${date}`;
+    }
+    // Use first model's name (without extension) + "_Issues"
+    const firstModel = models.values().next().value;
+    if (firstModel?.name) {
+      const baseName = firstModel.name.replace(/\.(ifc|ifczip)$/i, '');
+      return `${baseName}_Issues`;
+    }
+    return `BCF_Issues_${new Date().toISOString().split('T')[0]}`;
+  }, [models]);
+
   // Initialize project if needed
   const ensureProject = useCallback(() => {
     if (!bcfProject) {
-      setBcfProject(createBCFProject({ name: 'New BCF Project' }));
+      setBcfProject(createBCFProject({ name: getDefaultProjectName() }));
     }
-  }, [bcfProject, setBcfProject]);
+  }, [bcfProject, setBcfProject, getDefaultProjectName]);
 
   // Import BCF file
   const handleImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -701,7 +718,9 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${bcfProject.name || 'issues'}.bcfzip`;
+      // Use project name, or generate from model name, or date-based fallback
+      const fileName = bcfProject.name || getDefaultProjectName();
+      a.download = `${fileName}.bcfzip`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -712,7 +731,7 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
     } finally {
       setBcfLoading(false);
     }
-  }, [bcfProject, setBcfLoading, setBcfError]);
+  }, [bcfProject, setBcfLoading, setBcfError, getDefaultProjectName]);
 
   // Create new topic
   const handleCreateTopic = useCallback(

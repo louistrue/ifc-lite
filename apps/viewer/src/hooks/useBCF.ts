@@ -77,6 +77,14 @@ export function setGlobalRendererRef(ref: React.RefObject<Renderer | null>): voi
   globalRendererRef = ref;
 }
 
+/**
+ * Clear the global references (called on unmount to prevent memory leaks)
+ */
+export function clearGlobalRefs(): void {
+  globalCanvasRef = null;
+  globalRendererRef = null;
+}
+
 // ============================================================================
 // Hook
 // ============================================================================
@@ -353,12 +361,13 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
 
       const bounds = getBounds() ?? undefined;
 
-      // Extract state from viewpoint
-      const { camera, sectionPlane: viewpointSectionPlane } = extractViewpointState(
+      // Extract state from viewpoint (once, reused for camera, section plane, and selection)
+      const state = extractViewpointState(
         viewpoint,
         bounds,
         renderer.getCamera().getDistance() // Use current distance as reference
       );
+      const { camera, sectionPlane: viewpointSectionPlane } = state;
 
       // Apply camera
       if (camera) {
@@ -398,8 +407,6 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
       }
 
       // Apply selection from BCF components
-      const state = extractViewpointState(viewpoint, bounds);
-
       if (state.selectedGuids.length > 0) {
         // Convert GlobalId strings to expressIds
         const selectedExpressIds: number[] = [];

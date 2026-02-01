@@ -159,7 +159,7 @@ export function readEntities(reader: BufferReader, strings: StringTable): Entity
       return globalIdToExpressId.get(gid) ?? -1;
     },
     getGlobalIdMap: () => {
-      return globalIdToExpressId;
+      return new Map(globalIdToExpressId); // Defensive copy
     },
   };
 }

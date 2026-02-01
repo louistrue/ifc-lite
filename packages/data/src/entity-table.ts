@@ -201,7 +201,7 @@ export class EntityTableBuilder {
 
       getExpressIdByGlobalId: (gid) => globalIdToExpressId.get(gid) ?? -1,
 
-      getGlobalIdMap: () => globalIdToExpressId,
+      getGlobalIdMap: () => new Map(globalIdToExpressId), // Defensive copy
     };
   }
 }
