@@ -352,15 +352,6 @@ async function parseViewpoints(
     }
   }
 
-  // Find all files in the topic folder for debugging
-  const allFilesInFolder: string[] = [];
-  zip.forEach((relativePath) => {
-    if (relativePath.startsWith(`${topicFolder}/`)) {
-      allFilesInFolder.push(relativePath);
-    }
-  });
-  console.log(`[BCF Reader] Files in topic folder "${topicFolder}":`, allFilesInFolder);
-
   // Find viewpoint files directly in the folder
   const viewpointFiles: string[] = [];
   zip.forEach((relativePath) => {
@@ -368,8 +359,6 @@ async function parseViewpoints(
       viewpointFiles.push(relativePath);
     }
   });
-  console.log(`[BCF Reader] Viewpoint files found:`, viewpointFiles);
-  console.log(`[BCF Reader] Viewpoint info from markup:`, Object.fromEntries(viewpointInfoMap));
 
   // Parse each viewpoint file
   for (const viewpointPath of viewpointFiles) {
@@ -386,13 +375,9 @@ async function parseViewpoints(
         let snapshotFile: JSZip.JSZipObject | null = null;
         let snapshotFormat = 'png';
 
-        console.log(`[BCF Reader] Looking for snapshot for viewpoint ${viewpoint.guid}`);
-        console.log(`[BCF Reader] Viewpoint info from markup:`, viewpointInfo);
-
         // First, try the snapshot filename from markup.bcf
         if (viewpointInfo?.snapshotFile) {
           const snapshotPath = `${topicFolder}/${viewpointInfo.snapshotFile}`;
-          console.log(`[BCF Reader] Trying markup snapshot path: ${snapshotPath}`);
           snapshotFile = zip.file(snapshotPath);
           if (viewpointInfo.snapshotFile.toLowerCase().endsWith('.jpg') ||
               viewpointInfo.snapshotFile.toLowerCase().endsWith('.jpeg')) {
@@ -427,12 +412,9 @@ async function parseViewpoints(
             `${topicFolder}/snapshot.jpg`,
           ];
 
-          console.log(`[BCF Reader] Trying fallback paths:`, pathsToTry);
-
           for (const path of pathsToTry) {
             snapshotFile = zip.file(path);
             if (snapshotFile) {
-              console.log(`[BCF Reader] Found snapshot at: ${path}`);
               if (path.toLowerCase().endsWith('.jpg') || path.toLowerCase().endsWith('.jpeg')) {
                 snapshotFormat = 'jpeg';
               }
@@ -442,13 +424,9 @@ async function parseViewpoints(
         }
 
         if (snapshotFile) {
-          console.log(`[BCF Reader] Loading snapshot: ${snapshotFile.name}`);
           const snapshotData = await snapshotFile.async('uint8array');
           viewpoint.snapshotData = snapshotData;
           viewpoint.snapshot = `data:image/${snapshotFormat};base64,${uint8ArrayToBase64(snapshotData)}`;
-          console.log(`[BCF Reader] Snapshot loaded, size: ${snapshotData.length} bytes`);
-        } else {
-          console.warn(`[BCF Reader] No snapshot found for viewpoint ${viewpoint.guid}`);
         }
 
         viewpoints.push(viewpoint);
