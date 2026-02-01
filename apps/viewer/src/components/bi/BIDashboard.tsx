@@ -383,8 +383,6 @@ export function BIDashboard() {
         });
 
         data.set(chart.id, result.data);
-        // Cache for bidirectional sync (cache unfiltered data for filter source)
-        cacheChartData(chart.id, result.data);
       } catch (err) {
         // If aggregation fails, provide empty data
         console.error('[BIDashboard] Aggregation failed for chart', chart.title, err);
@@ -392,7 +390,17 @@ export function BIDashboard() {
       }
     }
     return data;
-  }, [activeDashboard, aggregator, biModels.length, cacheChartData, crossFilterEntityRefs, chartFilters]);
+  }, [activeDashboard, aggregator, biModels.length, crossFilterEntityRefs, chartFilters]);
+
+  // Cache chart data for cross-filtering (separate effect to avoid infinite loop)
+  // We only cache when there's NO active cross-filter (i.e., full unfiltered data)
+  useEffect(() => {
+    if (!activeDashboard || crossFilterEntityRefs) return;
+
+    for (const [chartId, data] of chartData) {
+      cacheChartData(chartId, data);
+    }
+  }, [activeDashboard, chartData, crossFilterEntityRefs, cacheChartData]);
 
   // Compute highlighted keys from 3D selection
   const highlightedKeysByChart = useMemo(() => {
