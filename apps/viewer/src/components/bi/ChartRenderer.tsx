@@ -237,18 +237,29 @@ export function ChartRenderer({
     const instance = chartRef.current?.getEchartsInstance();
     if (!instance) return;
 
-    // Downplay all, then highlight selected
-    instance.dispatchAction({ type: 'downplay', seriesIndex: 0 });
+    try {
+      // Downplay all, then highlight selected
+      instance.dispatchAction({ type: 'downplay', seriesIndex: 0 });
 
-    if (selectedKeys.size > 0 || highlightedKeys.size > 0) {
-      const allKeys = new Set([...selectedKeys, ...highlightedKeys]);
-      const dataIndices = data
-        .map((d, i) => (allKeys.has(d.key) ? i : -1))
-        .filter((i) => i >= 0);
+      if (selectedKeys.size > 0 || highlightedKeys.size > 0) {
+        const allKeys = new Set([...selectedKeys, ...highlightedKeys]);
+        const dataIndices = data
+          .map((d, i) => (allKeys.has(d.key) ? i : -1))
+          .filter((i) => i >= 0);
 
-      dataIndices.forEach((dataIndex) => {
-        instance.dispatchAction({ type: 'highlight', seriesIndex: 0, dataIndex });
-      });
+        dataIndices.forEach((dataIndex) => {
+          instance.dispatchAction({
+            type: 'highlight',
+            seriesIndex: 0,
+            dataIndex,
+            // Don't show tooltip on programmatic highlight to avoid null DOM errors
+            notShowPointer: true,
+          });
+        });
+      }
+    } catch (err) {
+      // Ignore errors during highlight - chart may be re-rendering or unmounted
+      console.debug('[ChartRenderer] Highlight error (safe to ignore):', err);
     }
   }, [selectedKeys, highlightedKeys, data]);
 

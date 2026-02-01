@@ -430,19 +430,48 @@ export function BIDashboard() {
     return result;
   }, [activeDashboard, selectedEntity, selectedEntities, chartData]);
 
-  // Grid layout from chart configs
+  // Grid layout from chart configs - scale for sidebar mode
+  // Templates are designed for 12 columns, scale to 6 for sidebar
   const layout = useMemo(() => {
     if (!activeDashboard) return [];
-    return activeDashboard.charts.map((chart) => ({
-      i: chart.id,
-      x: chart.layout.x,
-      y: chart.layout.y,
-      w: chart.layout.w,
-      h: chart.layout.h,
-      minW: chart.layout.minW ?? 2,
-      minH: chart.layout.minH ?? 2,
-    }));
-  }, [activeDashboard]);
+
+    const baseCols = 12;
+    const scale = gridCols / baseCols;
+
+    return activeDashboard.charts.map((chart) => {
+      const originalLayout = chart.layout;
+
+      if (scale === 1) {
+        // Full-size mode - use original layout
+        return {
+          i: chart.id,
+          x: originalLayout.x,
+          y: originalLayout.y,
+          w: originalLayout.w,
+          h: originalLayout.h,
+          minW: originalLayout.minW ?? 2,
+          minH: originalLayout.minH ?? 2,
+        };
+      }
+
+      // Sidebar mode - scale and reflow layouts
+      // Scale width, ensure at least 3 columns and max of gridCols
+      const scaledW = Math.max(3, Math.min(gridCols, Math.round(originalLayout.w * scale)));
+      // In sidebar, stack charts vertically (x=0) since width is limited
+      // Each chart takes full width or half if it fits
+      const scaledX = scaledW >= gridCols ? 0 : (originalLayout.x >= baseCols / 2 ? gridCols - scaledW : 0);
+
+      return {
+        i: chart.id,
+        x: scaledX,
+        y: originalLayout.y, // Keep y position, react-grid-layout will reflow
+        w: scaledW,
+        h: originalLayout.h,
+        minW: Math.min(originalLayout.minW ?? 2, gridCols),
+        minH: originalLayout.minH ?? 2,
+      };
+    });
+  }, [activeDashboard, gridCols]);
 
   // Handle layout change from drag/resize
   const handleLayoutChange = useCallback(
