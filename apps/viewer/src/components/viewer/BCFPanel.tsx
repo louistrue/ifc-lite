@@ -367,7 +367,7 @@ function TopicList({
 interface TopicDetailProps {
   topic: BCFTopic;
   onBack: () => void;
-  onAddComment: (text: string) => void;
+  onAddComment: (text: string, viewpointGuid?: string) => void;
   onAddViewpoint: () => void;
   onActivateViewpoint: (viewpoint: BCFViewpoint) => void;
   onDeleteViewpoint: (viewpointGuid: string) => void;
@@ -387,13 +387,22 @@ function TopicDetail({
 }: TopicDetailProps) {
   const [commentText, setCommentText] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [selectedViewpointGuid, setSelectedViewpointGuid] = useState<string | null>(null);
+
+  // Get the selected viewpoint for display
+  const selectedViewpoint = useMemo(() => {
+    if (!selectedViewpointGuid) return null;
+    return topic.viewpoints.find(vp => vp.guid === selectedViewpointGuid) || null;
+  }, [selectedViewpointGuid, topic.viewpoints]);
 
   const handleSubmitComment = useCallback(() => {
     if (commentText.trim()) {
-      onAddComment(commentText.trim());
+      // Associate comment with selected viewpoint if one is selected
+      onAddComment(commentText.trim(), selectedViewpointGuid || undefined);
       setCommentText('');
+      setSelectedViewpointGuid(null); // Clear selection after commenting
     }
-  }, [commentText, onAddComment]);
+  }, [commentText, onAddComment, selectedViewpointGuid]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -478,39 +487,65 @@ function TopicDetail({
               <p className="text-xs text-muted-foreground">No viewpoints captured</p>
             ) : (
               <div className="grid grid-cols-2 gap-2">
-                {topic.viewpoints.map((vp) => (
-                  <div
-                    key={vp.guid}
-                    className="relative group rounded-md overflow-hidden border border-border"
-                  >
-                    {vp.snapshot ? (
-                      <img
-                        src={vp.snapshot}
-                        alt="Viewpoint"
-                        className="w-full aspect-video object-cover cursor-pointer hover:opacity-80 transition-opacity"
-                        onClick={() => onActivateViewpoint(vp)}
-                      />
-                    ) : (
-                      <div
-                        className="w-full aspect-video bg-muted flex items-center justify-center cursor-pointer hover:bg-muted/80 transition-colors"
-                        onClick={() => onActivateViewpoint(vp)}
-                      >
-                        <Camera className="h-6 w-6 text-muted-foreground" />
-                      </div>
-                    )}
-                    <Button
-                      variant="destructive"
-                      size="icon"
-                      className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteViewpoint(vp.guid);
-                      }}
+                {topic.viewpoints.map((vp) => {
+                  const isSelected = selectedViewpointGuid === vp.guid;
+                  const commentCount = topic.comments.filter(c => c.viewpointGuid === vp.guid).length;
+                  return (
+                    <div
+                      key={vp.guid}
+                      className={`relative group rounded-md overflow-hidden border-2 transition-colors ${
+                        isSelected ? 'border-primary' : 'border-border'
+                      }`}
                     >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
-                ))}
+                      {vp.snapshot ? (
+                        <img
+                          src={vp.snapshot}
+                          alt="Viewpoint"
+                          className="w-full aspect-video object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                          onClick={() => onActivateViewpoint(vp)}
+                        />
+                      ) : (
+                        <div
+                          className="w-full aspect-video bg-muted flex items-center justify-center cursor-pointer hover:bg-muted/80 transition-colors"
+                          onClick={() => onActivateViewpoint(vp)}
+                        >
+                          <Camera className="h-6 w-6 text-muted-foreground" />
+                        </div>
+                      )}
+                      {/* Comment button */}
+                      <Button
+                        variant={isSelected ? 'default' : 'secondary'}
+                        size="icon"
+                        className="absolute bottom-1 left-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedViewpointGuid(isSelected ? null : vp.guid);
+                        }}
+                        title={isSelected ? 'Cancel commenting on this viewpoint' : 'Comment on this viewpoint'}
+                      >
+                        <MessageSquare className="h-3 w-3" />
+                      </Button>
+                      {/* Comment count badge */}
+                      {commentCount > 0 && (
+                        <div className="absolute bottom-1 left-8 bg-background/90 rounded px-1.5 py-0.5 text-xs font-medium">
+                          {commentCount}
+                        </div>
+                      )}
+                      {/* Delete button */}
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteViewpoint(vp.guid);
+                        }}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -524,20 +559,44 @@ function TopicDetail({
             </h4>
 
             <div className="space-y-3">
-              {topic.comments.map((comment) => (
-                <div
-                  key={comment.guid}
-                  className="bg-muted/50 rounded-md p-2 text-sm"
-                >
-                  <div className="flex items-center gap-2 mb-1 text-xs text-muted-foreground">
-                    <User className="h-3 w-3" />
-                    <span>{comment.author.split('@')[0]}</span>
-                    <span>-</span>
-                    <span>{formatDateTime(comment.date)}</span>
+              {topic.comments.map((comment) => {
+                // Find associated viewpoint if any
+                const associatedViewpoint = comment.viewpointGuid
+                  ? topic.viewpoints.find(vp => vp.guid === comment.viewpointGuid)
+                  : null;
+                return (
+                  <div
+                    key={comment.guid}
+                    className="bg-muted/50 rounded-md p-2 text-sm"
+                  >
+                    {/* Show associated viewpoint thumbnail if present */}
+                    {associatedViewpoint?.snapshot && (
+                      <div
+                        className="mb-2 rounded overflow-hidden border border-border cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={() => onActivateViewpoint(associatedViewpoint)}
+                      >
+                        <img
+                          src={associatedViewpoint.snapshot}
+                          alt="Associated viewpoint"
+                          className="w-full h-16 object-cover"
+                        />
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 mb-1 text-xs text-muted-foreground">
+                      <User className="h-3 w-3" />
+                      <span>{comment.author.split('@')[0]}</span>
+                      <span>-</span>
+                      <span>{formatDateTime(comment.date)}</span>
+                      {comment.viewpointGuid && (
+                        <span className="flex items-center gap-0.5">
+                          <Camera className="h-3 w-3" />
+                        </span>
+                      )}
+                    </div>
+                    <p className="whitespace-pre-wrap">{comment.comment}</p>
                   </div>
-                  <p className="whitespace-pre-wrap">{comment.comment}</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
@@ -545,9 +604,32 @@ function TopicDetail({
 
       {/* Comment Input */}
       <div className="border-t border-border p-3">
+        {/* Show selected viewpoint indicator */}
+        {selectedViewpoint && (
+          <div className="flex items-center gap-2 mb-2 p-2 bg-primary/10 rounded-md">
+            {selectedViewpoint.snapshot && (
+              <img
+                src={selectedViewpoint.snapshot}
+                alt="Selected viewpoint"
+                className="w-10 h-10 object-cover rounded"
+              />
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-muted-foreground">Commenting on viewpoint</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 shrink-0"
+              onClick={() => setSelectedViewpointGuid(null)}
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+        )}
         <div className="flex gap-2">
           <Input
-            placeholder="Add a comment..."
+            placeholder={selectedViewpoint ? "Add comment on viewpoint..." : "Add a comment..."}
             value={commentText}
             onChange={(e) => setCommentText(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -833,13 +915,14 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
     [ensureProject, bcfAuthor, addTopic]
   );
 
-  // Add comment to topic
+  // Add comment to topic (optionally associated with a viewpoint)
   const handleAddComment = useCallback(
-    (text: string) => {
+    (text: string, viewpointGuid?: string) => {
       if (!activeTopicId) return;
       const comment = createBCFComment({
         author: bcfAuthor,
         comment: text,
+        viewpointGuid, // Associate with viewpoint if provided
       });
       addComment(activeTopicId, comment);
     },
