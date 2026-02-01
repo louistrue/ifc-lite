@@ -153,26 +153,44 @@ export function ChartRenderer({
   const option = useMemo((): EChartsOption => {
     const colors = getColorScheme(config.options?.colorScheme);
 
+    let chartOption: EChartsOption;
     switch (config.type) {
       case 'pie':
       case 'donut':
-        return buildPieOption(config, data, selectedKeys, colors, sizeInfo);
+        chartOption = buildPieOption(config, data, selectedKeys, colors, sizeInfo);
+        break;
       case 'bar':
       case 'barHorizontal':
-        return buildBarOption(config, data, selectedKeys, colors, sizeInfo);
+        chartOption = buildBarOption(config, data, selectedKeys, colors, sizeInfo);
+        break;
       case 'stackedBar':
-        return buildStackedBarOption(config, data, selectedKeys, colors, sizeInfo);
+        chartOption = buildStackedBarOption(config, data, selectedKeys, colors, sizeInfo);
+        break;
       case 'treemap':
-        return buildTreemapOption(config, data, selectedKeys, colors, sizeInfo);
+        chartOption = buildTreemapOption(config, data, selectedKeys, colors, sizeInfo);
+        break;
       case 'sunburst':
-        return buildSunburstOption(config, data, selectedKeys, colors, sizeInfo);
+        chartOption = buildSunburstOption(config, data, selectedKeys, colors, sizeInfo);
+        break;
       case 'scatter':
-        return buildScatterOption(config, data, selectedKeys, colors, sizeInfo);
+        chartOption = buildScatterOption(config, data, selectedKeys, colors, sizeInfo);
+        break;
       case 'histogram':
-        return buildHistogramOption(config, data, selectedKeys, colors, sizeInfo);
+        chartOption = buildHistogramOption(config, data, selectedKeys, colors, sizeInfo);
+        break;
       default:
-        return buildBarOption(config, data, selectedKeys, colors, sizeInfo);
+        chartOption = buildBarOption(config, data, selectedKeys, colors, sizeInfo);
     }
+
+    // Add animation settings: keep initial animation fast, disable update animation
+    // This prevents the jarring double-animation when data recomputes
+    return {
+      ...chartOption,
+      animation: true,
+      animationDuration: 300,
+      animationDurationUpdate: 0, // No animation on data updates
+      animationEasing: 'cubicOut',
+    };
   }, [config, data, selectedKeys, sizeInfo]);
 
   // Handle click event

@@ -62,7 +62,7 @@ const gridLayoutStyles = `
 
 export function BIDashboard() {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [containerWidth, setContainerWidth] = useState(1200);
+  const [containerWidth, setContainerWidth] = useState(0); // Start at 0, measure before rendering grid
   const [editingChartId, setEditingChartId] = useState<string | null>(null);
 
   // Store state
@@ -788,47 +788,50 @@ export function BIDashboard() {
 
       {/* Chart Grid */}
       <div ref={containerRef} className="flex-1 overflow-auto p-4">
-        <GridLayout
-          className="layout"
-          layout={layout}
-          width={containerWidth}
-          gridConfig={{
-            cols: gridCols,
-            rowHeight: dashboardMode === 'sidebar' ? 80 : 100,
-            margin: dashboardMode === 'sidebar' ? [8, 8] as const : [16, 16] as const,
-            maxRows: Infinity,
-            containerPadding: null,
-          }}
-          dragConfig={{
-            enabled: isEditMode,
-            handle: '.cursor-move',
-            bounded: false,
-            threshold: 3,
-          }}
-          resizeConfig={{
-            enabled: isEditMode,
-            handles: ['se'],
-          }}
-          onLayoutChange={handleLayoutChange}
-        >
-          {activeDashboard.charts.map((chart) => (
-            <div key={chart.id}>
-              <ChartCard
-                config={chart}
-                data={chartData.get(chart.id) ?? []}
-                selectedKeys={chartFilters.get(chart.id) ?? new Set()}
-                highlightedKeys={highlightedKeysByChart.get(chart.id) ?? new Set()}
-                onInteraction={handleChartInteraction}
-                onRemove={removeChart}
-                onEdit={setEditingChartId}
-                onClearFilter={clearChartFilter}
-                onPopOut={handlePopOut}
-                isEditMode={isEditMode}
-                hasFilter={(chartFilters.get(chart.id)?.size ?? 0) > 0}
-              />
-            </div>
-          ))}
-        </GridLayout>
+        {/* Only render grid once we have measured the container width */}
+        {containerWidth > 0 && (
+          <GridLayout
+            className="layout"
+            layout={layout}
+            width={containerWidth}
+            gridConfig={{
+              cols: gridCols,
+              rowHeight: dashboardMode === 'sidebar' ? 80 : 100,
+              margin: dashboardMode === 'sidebar' ? [8, 8] as const : [16, 16] as const,
+              maxRows: Infinity,
+              containerPadding: null,
+            }}
+            dragConfig={{
+              enabled: isEditMode,
+              handle: '.cursor-move',
+              bounded: false,
+              threshold: 3,
+            }}
+            resizeConfig={{
+              enabled: isEditMode,
+              handles: ['se'],
+            }}
+            onLayoutChange={handleLayoutChange}
+          >
+            {activeDashboard.charts.map((chart) => (
+              <div key={chart.id}>
+                <ChartCard
+                  config={chart}
+                  data={chartData.get(chart.id) ?? []}
+                  selectedKeys={chartFilters.get(chart.id) ?? new Set()}
+                  highlightedKeys={highlightedKeysByChart.get(chart.id) ?? new Set()}
+                  onInteraction={handleChartInteraction}
+                  onRemove={removeChart}
+                  onEdit={setEditingChartId}
+                  onClearFilter={clearChartFilter}
+                  onPopOut={handlePopOut}
+                  isEditMode={isEditMode}
+                  hasFilter={(chartFilters.get(chart.id)?.size ?? 0) > 0}
+                />
+              </div>
+            ))}
+          </GridLayout>
+        )}
       </div>
 
           {/* Chart Edit Dialog */}
