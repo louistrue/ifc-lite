@@ -486,63 +486,67 @@ function TopicDetail({
             {topic.viewpoints.length === 0 ? (
               <p className="text-xs text-muted-foreground">No viewpoints captured</p>
             ) : (
-              <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2">
                 {topic.viewpoints.map((vp) => {
                   const isSelected = selectedViewpointGuid === vp.guid;
                   const commentCount = topic.comments.filter(c => c.viewpointGuid === vp.guid).length;
                   return (
                     <div
                       key={vp.guid}
-                      className={`relative group rounded-md overflow-hidden border-2 transition-colors ${
-                        isSelected ? 'border-primary' : 'border-border'
+                      className={`rounded-md overflow-hidden border-2 transition-colors ${
+                        isSelected ? 'border-primary bg-primary/5' : 'border-border'
                       }`}
                     >
-                      {vp.snapshot ? (
-                        <img
-                          src={vp.snapshot}
-                          alt="Viewpoint"
-                          className="w-full aspect-video object-cover cursor-pointer hover:opacity-80 transition-opacity"
-                          onClick={() => onActivateViewpoint(vp)}
-                        />
-                      ) : (
-                        <div
-                          className="w-full aspect-video bg-muted flex items-center justify-center cursor-pointer hover:bg-muted/80 transition-colors"
+                      {/* Snapshot */}
+                      <div className="relative group">
+                        {vp.snapshot ? (
+                          <img
+                            src={vp.snapshot}
+                            alt="Viewpoint"
+                            className="w-full aspect-video object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                            onClick={() => onActivateViewpoint(vp)}
+                          />
+                        ) : (
+                          <div
+                            className="w-full aspect-video bg-muted flex items-center justify-center cursor-pointer hover:bg-muted/80 transition-colors"
+                            onClick={() => onActivateViewpoint(vp)}
+                          >
+                            <Camera className="h-6 w-6 text-muted-foreground" />
+                          </div>
+                        )}
+                        {/* Delete button - hover only */}
+                        <Button
+                          variant="destructive"
+                          size="icon"
+                          className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteViewpoint(vp.guid);
+                          }}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                      {/* Action bar - always visible */}
+                      <div className="flex items-center justify-between px-2 py-1.5 bg-muted/30">
+                        <Button
+                          variant={isSelected ? 'default' : 'ghost'}
+                          size="sm"
+                          className="h-7 text-xs gap-1"
+                          onClick={() => setSelectedViewpointGuid(isSelected ? null : vp.guid)}
+                        >
+                          <MessageSquare className="h-3 w-3" />
+                          {commentCount > 0 ? `${commentCount} comment${commentCount > 1 ? 's' : ''}` : 'Comment'}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs"
                           onClick={() => onActivateViewpoint(vp)}
                         >
-                          <Camera className="h-6 w-6 text-muted-foreground" />
-                        </div>
-                      )}
-                      {/* Comment button */}
-                      <Button
-                        variant={isSelected ? 'default' : 'secondary'}
-                        size="icon"
-                        className="absolute bottom-1 left-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedViewpointGuid(isSelected ? null : vp.guid);
-                        }}
-                        title={isSelected ? 'Cancel commenting on this viewpoint' : 'Comment on this viewpoint'}
-                      >
-                        <MessageSquare className="h-3 w-3" />
-                      </Button>
-                      {/* Comment count badge */}
-                      {commentCount > 0 && (
-                        <div className="absolute bottom-1 left-8 bg-background/90 rounded px-1.5 py-0.5 text-xs font-medium">
-                          {commentCount}
-                        </div>
-                      )}
-                      {/* Delete button */}
-                      <Button
-                        variant="destructive"
-                        size="icon"
-                        className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteViewpoint(vp.guid);
-                        }}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
+                          Go to view
+                        </Button>
+                      </div>
                     </div>
                   );
                 })}

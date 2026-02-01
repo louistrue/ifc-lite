@@ -39,6 +39,8 @@ export interface VisibilitySlice {
   toggleTypeVisibility: (type: 'spaces' | 'openings' | 'site') => void;
   /** Set all hidden entities at once (for BCF viewpoint application) */
   setHiddenEntities: (ids: Set<number>) => void;
+  /** Set all isolated entities at once (for BCF viewpoint with defaultVisibility=false) */
+  setIsolatedEntities: (ids: Set<number> | null) => void;
 
   // Actions (multi-model)
   /** Hide entity in specific model */
@@ -154,6 +156,11 @@ export const createVisibilitySlice: StateCreator<VisibilitySlice, [], [], Visibi
   showAll: () => set({ hiddenEntities: new Set(), isolatedEntities: null }),
 
   setHiddenEntities: (ids) => set({ hiddenEntities: new Set(ids), isolatedEntities: null }),
+
+  setIsolatedEntities: (ids) => set({
+    isolatedEntities: ids ? new Set(ids) : null,
+    hiddenEntities: new Set(), // Clear hidden when setting isolation
+  }),
 
   isEntityVisible: (id) => {
     const state = get();

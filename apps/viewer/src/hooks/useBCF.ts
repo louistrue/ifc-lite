@@ -100,6 +100,7 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
   // Store selectors
   const sectionPlane = useViewerStore((s) => s.sectionPlane);
   const hiddenEntities = useViewerStore((s) => s.hiddenEntities);
+  const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
   const selectedEntityIds = useViewerStore((s) => s.selectedEntityIds);
   const setSectionPlaneAxis = useViewerStore((s) => s.setSectionPlaneAxis);
@@ -110,6 +111,7 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
   // Selection and visibility actions
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
   const setHiddenEntities = useViewerStore((s) => s.setHiddenEntities);
+  const setIsolatedEntities = useViewerStore((s) => s.setIsolatedEntities);
 
   // Get coordinate info for bounds
   const models = useViewerStore((s) => s.models);
@@ -313,18 +315,29 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
           })()
         : undefined;
 
-      // Get hidden GUIDs - convert expressIds to IFC GlobalId strings
-      const hiddenGuids: string[] | undefined =
-        includeHidden && hiddenEntities.size > 0
-          ? (() => {
-              const guids: string[] = [];
-              for (const id of hiddenEntities) {
-                const guid = expressIdToGlobalId(id);
-                if (guid) guids.push(guid);
-              }
-              return guids.length > 0 ? guids : undefined;
-            })()
-          : undefined;
+      // Get visibility GUIDs - either hidden (normal mode) or visible (isolation mode)
+      let hiddenGuids: string[] | undefined;
+      let visibleGuids: string[] | undefined;
+
+      if (includeHidden) {
+        if (isolatedEntities !== null && isolatedEntities.size > 0) {
+          // Isolation mode: capture visible entities (defaultVisibility=false)
+          const guids: string[] = [];
+          for (const id of isolatedEntities) {
+            const guid = expressIdToGlobalId(id);
+            if (guid) guids.push(guid);
+          }
+          visibleGuids = guids.length > 0 ? guids : undefined;
+        } else if (hiddenEntities.size > 0) {
+          // Normal mode: capture hidden entities (defaultVisibility=true)
+          const guids: string[] = [];
+          for (const id of hiddenEntities) {
+            const guid = expressIdToGlobalId(id);
+            if (guid) guids.push(guid);
+          }
+          hiddenGuids = guids.length > 0 ? guids : undefined;
+        }
+      }
 
       // Create viewpoint
       return createViewpoint({
@@ -334,6 +347,7 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
         snapshot,
         selectedGuids,
         hiddenGuids,
+        visibleGuids,
       });
     },
     [
@@ -344,6 +358,7 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
       selectedEntityId,
       selectedEntityIds,
       hiddenEntities,
+      isolatedEntities,
       expressIdToGlobalId,
     ]
   );
@@ -428,9 +443,26 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
         setSelectedEntityId(null);
       }
 
-      // Apply visibility (hidden entities) from BCF components
-      if (state.hiddenGuids.length > 0) {
-        // Convert GlobalId strings to expressIds
+      // Apply visibility from BCF components
+      // Either isolation mode (visibleGuids with defaultVisibility=false)
+      // or normal mode (hiddenGuids with defaultVisibility=true)
+      if (state.visibleGuids.length > 0) {
+        // Isolation mode: only specified entities are visible
+        const isolatedExpressIds = new Set<number>();
+        for (const guid of state.visibleGuids) {
+          const result = globalIdToExpressId(guid);
+          if (result) {
+            isolatedExpressIds.add(result.expressId);
+          }
+        }
+
+        if (isolatedExpressIds.size > 0) {
+          setIsolatedEntities(isolatedExpressIds);
+        } else {
+          setIsolatedEntities(null);
+        }
+      } else if (state.hiddenGuids.length > 0) {
+        // Normal mode: specified entities are hidden
         const hiddenExpressIds = new Set<number>();
         for (const guid of state.hiddenGuids) {
           const result = globalIdToExpressId(guid);
@@ -443,7 +475,7 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
           setHiddenEntities(hiddenExpressIds);
         }
       } else {
-        // Clear hidden entities if viewpoint has none
+        // Clear all visibility state if viewpoint has none
         setHiddenEntities(new Set());
       }
     },
@@ -458,6 +490,7 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
       globalIdToExpressId,
       setSelectedEntityId,
       setHiddenEntities,
+      setIsolatedEntities,
     ]
   );
 

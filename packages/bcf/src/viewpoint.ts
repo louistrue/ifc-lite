@@ -376,6 +376,10 @@ export function clippingPlaneToSectionPlane(
 
 /**
  * Create a BCF viewpoint from viewer state
+ *
+ * For visibility:
+ * - Use `hiddenGuids` when most entities are visible (defaultVisibility=true, exceptions=hidden)
+ * - Use `visibleGuids` when most entities are hidden/isolated (defaultVisibility=false, exceptions=visible)
  */
 export function createViewpoint(options: {
   camera: ViewerCameraState;
@@ -385,6 +389,7 @@ export function createViewpoint(options: {
   snapshotData?: Uint8Array;
   selectedGuids?: string[];
   hiddenGuids?: string[];
+  visibleGuids?: string[]; // For isolation mode (defaultVisibility=false)
   coloredGuids?: { color: string; guids: string[] }[];
 }): BCFViewpoint {
   const {
@@ -395,6 +400,7 @@ export function createViewpoint(options: {
     snapshotData,
     selectedGuids,
     hiddenGuids,
+    visibleGuids,
     coloredGuids,
   } = options;
 
@@ -428,16 +434,25 @@ export function createViewpoint(options: {
   // Add components
   const hasSelection = selectedGuids && selectedGuids.length > 0;
   const hasHidden = hiddenGuids && hiddenGuids.length > 0;
+  const hasVisible = visibleGuids && visibleGuids.length > 0;
   const hasColoring = coloredGuids && coloredGuids.length > 0;
 
-  if (hasSelection || hasHidden || hasColoring) {
+  if (hasSelection || hasHidden || hasVisible || hasColoring) {
     viewpoint.components = {};
 
     if (hasSelection) {
       viewpoint.components.selection = selectedGuids!.map((guid) => ({ ifcGuid: guid }));
     }
 
-    if (hasHidden) {
+    // Visibility: use visibleGuids (isolation) or hiddenGuids (normal), not both
+    if (hasVisible) {
+      // Isolation mode: everything hidden by default, exceptions are visible
+      viewpoint.components.visibility = {
+        defaultVisibility: false,
+        exceptions: visibleGuids!.map((guid) => ({ ifcGuid: guid })),
+      };
+    } else if (hasHidden) {
+      // Normal mode: everything visible by default, exceptions are hidden
       viewpoint.components.visibility = {
         defaultVisibility: true,
         exceptions: hiddenGuids!.map((guid) => ({ ifcGuid: guid })),
@@ -467,6 +482,7 @@ export function extractViewpointState(
   sectionPlane?: ViewerSectionPlane;
   selectedGuids: string[];
   hiddenGuids: string[];
+  visibleGuids: string[]; // For isolation mode (defaultVisibility=false)
   coloredGuids: { color: string; guids: string[] }[];
 } {
   let camera: ViewerCameraState | undefined;
@@ -494,13 +510,21 @@ export function extractViewpointState(
     }
   }
 
-  // Extract hidden GUIDs (visibility exceptions when defaultVisibility is true)
+  // Extract visibility GUIDs
   const hiddenGuids: string[] = [];
-  if (viewpoint.components?.visibility?.defaultVisibility !== false) {
-    if (viewpoint.components?.visibility?.exceptions) {
-      for (const comp of viewpoint.components.visibility.exceptions) {
+  const visibleGuids: string[] = [];
+  if (viewpoint.components?.visibility) {
+    const { defaultVisibility, exceptions } = viewpoint.components.visibility;
+    if (exceptions) {
+      for (const comp of exceptions) {
         if (comp.ifcGuid) {
-          hiddenGuids.push(comp.ifcGuid);
+          if (defaultVisibility === false) {
+            // Isolation mode: exceptions are the visible entities
+            visibleGuids.push(comp.ifcGuid);
+          } else {
+            // Normal mode: exceptions are the hidden entities
+            hiddenGuids.push(comp.ifcGuid);
+          }
         }
       }
     }
@@ -527,6 +551,7 @@ export function extractViewpointState(
     sectionPlane,
     selectedGuids,
     hiddenGuids,
+    visibleGuids,
     coloredGuids,
   };
 }
