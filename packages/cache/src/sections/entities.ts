@@ -99,6 +99,15 @@ export function readEntities(reader: BufferReader, strings: StringTable): Entity
     return idToIndex.get(id) ?? -1;
   };
 
+  // Build GlobalId → expressId map for BCF integration
+  const globalIdToExpressId = new Map<string, number>();
+  for (let i = 0; i < count; i++) {
+    const gidString = strings.get(globalId[i]);
+    if (gidString) {
+      globalIdToExpressId.set(gidString, expressId[i]);
+    }
+  }
+
   return {
     count,
     expressId,
@@ -145,6 +154,12 @@ export function readEntities(reader: BufferReader, strings: StringTable): Entity
         ids.push(expressId[i]);
       }
       return ids;
+    },
+    getExpressIdByGlobalId: (gid) => {
+      return globalIdToExpressId.get(gid) ?? -1;
+    },
+    getGlobalIdMap: () => {
+      return new Map(globalIdToExpressId); // Defensive copy
     },
   };
 }

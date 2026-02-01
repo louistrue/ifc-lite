@@ -25,6 +25,7 @@ import { createModelSlice, type ModelSlice } from './slices/modelSlice.js';
 import { createMutationSlice, type MutationSlice } from './slices/mutationSlice.js';
 import { createDrawing2DSlice, type Drawing2DSlice } from './slices/drawing2DSlice.js';
 import { createSheetSlice, type SheetSlice } from './slices/sheetSlice.js';
+import { createBcfSlice, type BCFSlice } from './slices/bcfSlice.js';
 
 // Import constants for reset function
 import { CAMERA_DEFAULTS, SECTION_PLANE_DEFAULTS, UI_DEFAULTS, TYPE_VISIBILITY_DEFAULTS } from './constants.js';
@@ -44,6 +45,9 @@ export type { Drawing2DState, Drawing2DStatus } from './slices/drawing2DSlice.js
 // Re-export Sheet types
 export type { SheetState } from './slices/sheetSlice.js';
 
+// Re-export BCF types
+export type { BCFSlice, BCFSliceState } from './slices/bcfSlice.js';
+
 // Combined store type
 export type ViewerState = LoadingSlice &
   SelectionSlice &
@@ -57,7 +61,8 @@ export type ViewerState = LoadingSlice &
   ModelSlice &
   MutationSlice &
   Drawing2DSlice &
-  SheetSlice & {
+  SheetSlice &
+  BCFSlice & {
     resetViewerState: () => void;
   };
 
@@ -79,6 +84,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
   ...createMutationSlice(...args),
   ...createDrawing2DSlice(...args),
   ...createSheetSlice(...args),
+  ...createBcfSlice(...args),
 
   // Reset all viewer state when loading new file
   // Note: Does NOT clear models - use clearAllModels() for that
@@ -179,6 +185,14 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       sheetPanelVisible: false,
       titleBlockEditorVisible: false,
       // Keep savedSheetTemplates - don't reset user's templates
+
+      // BCF - reset panel but keep project and author
+      bcfPanelVisible: false,
+      bcfLoading: false,
+      bcfError: null,
+      activeTopicId: null,
+      activeViewpointId: null,
+      // Keep bcfProject and bcfAuthor - user's work
     });
   },
 }));

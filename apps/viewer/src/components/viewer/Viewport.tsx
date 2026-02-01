@@ -32,6 +32,7 @@ import {
   calculateScaleBarSize,
   type ViewportStateRefs,
 } from '../../utils/viewportUtils.js';
+import { setGlobalCanvasRef, setGlobalRendererRef, clearGlobalRefs } from '../../hooks/useBCF.js';
 
 interface ViewportProps {
   geometry: MeshData[] | null;
@@ -346,14 +347,25 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     let aborted = false;
     let resizeObserver: ResizeObserver | null = null;
 
+    // Helper to align canvas dimensions to WebGPU requirements
+    // WebGPU texture row pitch must be aligned to 256 bytes
+    // For RGBA (4 bytes/pixel), width should be multiple of 64 pixels
+    const alignToWebGPU = (size: number): number => {
+      return Math.max(64, Math.floor(size / 64) * 64);
+    };
+
     const rect = canvas.getBoundingClientRect();
-    const width = Math.max(1, Math.floor(rect.width));
+    const width = alignToWebGPU(Math.max(1, Math.floor(rect.width)));
     const height = Math.max(1, Math.floor(rect.height));
     canvas.width = width;
     canvas.height = height;
 
     const renderer = new Renderer(canvas);
     rendererRef.current = renderer;
+
+    // Register refs for BCF hook access (snapshot capture, camera control)
+    setGlobalCanvasRef(canvasRef);
+    setGlobalRendererRef(rendererRef);
 
     renderer.init().then(() => {
       if (aborted) return;
@@ -1686,7 +1698,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
       resizeObserver = new ResizeObserver(() => {
         if (aborted) return;
         const rect = canvas.getBoundingClientRect();
-        const width = Math.max(1, Math.floor(rect.width));
+        // Use same WebGPU alignment as initialization
+        const width = alignToWebGPU(Math.max(1, Math.floor(rect.width)));
         const height = Math.max(1, Math.floor(rect.height));
         renderer.resize(width, height);
         renderer.render({
@@ -1739,6 +1752,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
       }
       setIsInitialized(false);
       rendererRef.current = null;
+      // Clear BCF global refs to prevent memory leaks
+      clearGlobalRefs();
     };
     // Note: selectedEntityId is intentionally NOT in dependencies
     // The click handler captures setSelectedEntityId via closure

@@ -567,12 +567,14 @@ export class Renderer {
         if (!this.device.isInitialized() || !this.pipeline) return;
 
         // Validate canvas dimensions
+        // Align width to 64 pixels for WebGPU texture row alignment (256 bytes / 4 bytes per pixel)
         const rect = this.canvas.getBoundingClientRect();
-        const width = Math.max(1, Math.floor(rect.width));
+        const rawWidth = Math.max(1, Math.floor(rect.width));
+        const width = Math.max(64, Math.floor(rawWidth / 64) * 64);
         const height = Math.max(1, Math.floor(rect.height));
 
         // Skip rendering if canvas is too small
-        if (width < 10 || height < 10) return;
+        if (width < 64 || height < 10) return;
 
         // Update canvas pixel dimensions if needed
         const dimensionsChanged = this.canvas.width !== width || this.canvas.height !== height;
@@ -1720,5 +1722,38 @@ export class Renderer {
             return null;
         }
         return this.device.getDevice();
+    }
+
+    /**
+     * Capture a screenshot of the current view
+     * Waits for GPU work to complete and captures exactly what's displayed
+     * @returns PNG data URL or null if capture failed
+     */
+    async captureScreenshot(): Promise<string | null> {
+        if (!this.device.isInitialized()) {
+            console.warn('[Renderer] Cannot capture screenshot: not initialized');
+            return null;
+        }
+
+        try {
+            // Wait for any pending GPU work to complete before capturing
+            // This ensures we capture the fully rendered frame
+            const device = this.device.getDevice();
+            await device.queue.onSubmittedWorkDone();
+
+            // Capture exactly what's displayed on the canvas
+            const dataUrl = this.canvas.toDataURL('image/png');
+            return dataUrl;
+        } catch (error) {
+            console.error('[Renderer] Screenshot capture failed:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Get the canvas element
+     */
+    getCanvas(): HTMLCanvasElement {
+        return this.canvas;
     }
 }

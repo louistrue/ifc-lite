@@ -379,6 +379,7 @@ function buildEntityTable(
 
   // Maps for fast lookup
   const idToIndex = new Map<number, number>();
+  const globalIdToExpressId = new Map<string, number>();
   const entityByIdMap = new Map<number, { expressId: number; type: string; byteOffset: number; byteLength: number; lineNumber: number }>();
   const typeGroups = new Map<IfcTypeEnum, number[]>();
 
@@ -389,7 +390,11 @@ function buildEntityTable(
     expressId[idx] = id;
     const typeVal = IfcTypeEnumFromString(entity.type_name);
     typeEnumArr[idx] = typeVal;
-    globalIdArr[idx] = strings.intern(entity.global_id || '');
+    const globalIdString = entity.global_id || '';
+    globalIdArr[idx] = strings.intern(globalIdString);
+    if (globalIdString) {
+      globalIdToExpressId.set(globalIdString, id);
+    }
     nameArr[idx] = strings.intern(entity.name || '');
     descriptionArr[idx] = strings.intern((entity as { description?: string }).description || '');
     objectTypeArr[idx] = strings.intern((entity as { object_type?: string }).object_type || '');
@@ -454,6 +459,12 @@ function buildEntityTable(
       const indices = typeGroups.get(type);
       if (!indices) return [];
       return indices.map(idx => expressId[idx]);
+    },
+    getExpressIdByGlobalId: (gid) => {
+      return globalIdToExpressId.get(gid) ?? -1;
+    },
+    getGlobalIdMap: () => {
+      return new Map(globalIdToExpressId); // Defensive copy
     },
   };
 

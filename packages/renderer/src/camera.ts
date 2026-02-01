@@ -947,6 +947,13 @@ export class Camera {
   }
 
   /**
+   * Get camera up vector
+   */
+  getUp(): Vec3 {
+    return { ...this.camera.up };
+  }
+
+  /**
    * Get camera FOV in radians
    */
   getFOV(): number {
