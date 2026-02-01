@@ -166,6 +166,8 @@ interface TopicListProps {
   onCreateTopic: () => void;
   statusFilter: string;
   onStatusFilterChange: (status: string) => void;
+  author: string;
+  onSetAuthor: (author: string) => void;
 }
 
 function TopicList({
@@ -174,7 +176,19 @@ function TopicList({
   onCreateTopic,
   statusFilter,
   onStatusFilterChange,
+  author,
+  onSetAuthor,
 }: TopicListProps) {
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [emailInput, setEmailInput] = useState(author);
+  const isDefaultEmail = author === 'user@example.com';
+
+  const handleSaveEmail = useCallback(() => {
+    if (emailInput.trim() && emailInput.includes('@')) {
+      onSetAuthor(emailInput.trim());
+      setEditingEmail(false);
+    }
+  }, [emailInput, onSetAuthor]);
   const filteredTopics = useMemo(() => {
     if (!statusFilter || statusFilter === 'all') return topics;
     return topics.filter(
@@ -215,7 +229,7 @@ function TopicList({
       {/* Topic List */}
       <ScrollArea className="flex-1">
         {sortedTopics.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-32 text-muted-foreground text-sm">
+          <div className="flex flex-col items-center justify-center py-8 px-4 text-muted-foreground text-sm">
             <MessageSquare className="h-8 w-8 mb-2 opacity-50" />
             <p>No topics</p>
             <Button
@@ -226,6 +240,74 @@ function TopicList({
             >
               Create first topic
             </Button>
+
+            {/* Email setup nudge */}
+            <div className="mt-6 w-full max-w-xs">
+              <div className="border border-border rounded-lg p-3 bg-muted/30">
+                {editingEmail ? (
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Your email for BCF authorship</Label>
+                    <Input
+                      value={emailInput}
+                      onChange={(e) => setEmailInput(e.target.value)}
+                      placeholder="your@email.com"
+                      className="h-8 text-sm"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleSaveEmail();
+                        if (e.key === 'Escape') setEditingEmail(false);
+                      }}
+                      autoFocus
+                    />
+                    <div className="flex gap-2 justify-end">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setEmailInput(author);
+                          setEditingEmail(false);
+                        }}
+                        className="h-7 text-xs"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleSaveEmail}
+                        disabled={!emailInput.trim() || !emailInput.includes('@')}
+                        className="h-7 text-xs"
+                      >
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-muted-foreground mb-0.5">Author</p>
+                      <p className={`text-sm truncate ${isDefaultEmail ? 'text-amber-600 dark:text-amber-400' : 'text-foreground'}`}>
+                        {author}
+                      </p>
+                    </div>
+                    <Button
+                      variant={isDefaultEmail ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => {
+                        setEmailInput(author);
+                        setEditingEmail(true);
+                      }}
+                      className="h-7 text-xs shrink-0"
+                    >
+                      {isDefaultEmail ? 'Set email' : <Edit2 className="h-3 w-3" />}
+                    </Button>
+                  </div>
+                )}
+              </div>
+              {isDefaultEmail && !editingEmail && (
+                <p className="text-xs text-muted-foreground mt-2 text-center">
+                  Set your email to identify your issues and comments
+                </p>
+              )}
+            </div>
           </div>
         ) : (
           <div className="divide-y divide-border">
@@ -904,6 +986,8 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
             onCreateTopic={() => setShowCreateForm(true)}
             statusFilter={statusFilter}
             onStatusFilterChange={setStatusFilter}
+            author={bcfAuthor}
+            onSetAuthor={setBcfAuthor}
           />
         )}
 
