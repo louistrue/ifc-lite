@@ -403,13 +403,26 @@ async function parseViewpoints(
         // Fallback: try common naming patterns
         if (!snapshotFile) {
           const viewpointBaseName = viewpointPath.replace('.bcfv', '');
-          const snapshotBaseName = viewpointBaseName.replace(/Viewpoint_/i, 'Snapshot_');
+
+          // Handle different naming conventions:
+          // 1. Viewpoint_<guid>.bcfv -> Snapshot_<guid>.png (buildingSMART standard)
+          // 2. <guid>_viewpoint.bcfv -> <guid>_snapshot.png (alternative pattern)
+          // 3. viewpoint.bcfv -> snapshot.png (simple default)
+          const snapshotBaseName1 = viewpointBaseName.replace(/Viewpoint_/i, 'Snapshot_');
+          const snapshotBaseName2 = viewpointBaseName.replace(/_viewpoint$/i, '_snapshot');
 
           const pathsToTry = [
-            `${snapshotBaseName}.png`,
+            // Pattern 1: Snapshot_<guid>.png
+            `${snapshotBaseName1}.png`,
+            // Pattern 2: <guid>_snapshot.png
+            `${snapshotBaseName2}.png`,
+            // Pattern 3: same name as viewpoint but .png
             `${viewpointBaseName}.png`,
+            // Default: snapshot.png
             `${topicFolder}/snapshot.png`,
-            `${snapshotBaseName}.jpg`,
+            // JPG variants
+            `${snapshotBaseName1}.jpg`,
+            `${snapshotBaseName2}.jpg`,
             `${viewpointBaseName}.jpg`,
             `${topicFolder}/snapshot.jpg`,
           ];
