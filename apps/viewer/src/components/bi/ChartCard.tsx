@@ -29,6 +29,10 @@ interface ChartCardProps {
   onClearFilter: (chartId: string) => void;
   isEditMode: boolean;
   hasFilter: boolean;
+  /** Whether this chart has already animated (to prevent double animation) */
+  hasAnimated: boolean;
+  /** Mark this chart as having animated */
+  onAnimated: () => void;
 }
 
 export function ChartCard({
@@ -42,6 +46,8 @@ export function ChartCard({
   onClearFilter,
   isEditMode,
   hasFilter,
+  hasAnimated,
+  onAnimated,
 }: ChartCardProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState<ChartDimensions>({ width: 300, height: 200 });
@@ -148,6 +154,8 @@ export function ChartCard({
             highlightedKeys={highlightedKeys}
             onInteraction={onInteraction}
             dimensions={dimensions}
+            hasAnimated={hasAnimated}
+            onAnimated={onAnimated}
           />
         )}
       </div>

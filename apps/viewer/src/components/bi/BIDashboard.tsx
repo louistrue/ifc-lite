@@ -68,6 +68,8 @@ export function BIDashboard() {
   // Refs for stabilizing data and tracking initial load
   const prevBiModelsRef = useRef<BIModelData[]>([]);
   const hasLoadedDataRef = useRef(false);
+  // Track which charts have animated to prevent double animation on remount
+  const animatedChartsRef = useRef<Set<string>>(new Set());
 
   // Store state
   const isDashboardOpen = useViewerStore((state) => state.isDashboardOpen);
@@ -571,6 +573,11 @@ export function BIDashboard() {
     [updateChartLayout]
   );
 
+  // Mark a chart as having animated (to prevent double animation on remount)
+  const markChartAnimated = useCallback((chartId: string) => {
+    animatedChartsRef.current.add(chartId);
+  }, []);
+
   // Handle chart interaction (selection, hover)
   const handleChartInteraction = useCallback(
     (event: ChartInteractionEvent) => {
@@ -861,6 +868,8 @@ export function BIDashboard() {
                   onClearFilter={clearChartFilter}
                   isEditMode={isEditMode}
                   hasFilter={(chartFilters.get(chart.id)?.size ?? 0) > 0}
+                  hasAnimated={animatedChartsRef.current.has(chart.id)}
+                  onAnimated={() => markChartAnimated(chart.id)}
                 />
               </div>
             ))}

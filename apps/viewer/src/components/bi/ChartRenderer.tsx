@@ -27,6 +27,10 @@ interface ChartRendererProps {
   highlightedKeys: Set<string>;
   onInteraction: (event: ChartInteractionEvent) => void;
   dimensions: ChartDimensions;
+  /** Whether this chart has already animated (tracked at parent level) */
+  hasAnimated: boolean;
+  /** Callback to mark this chart as having animated */
+  onAnimated: () => void;
 }
 
 /**
@@ -143,10 +147,11 @@ export function ChartRenderer({
   highlightedKeys,
   onInteraction,
   dimensions,
+  hasAnimated,
+  onAnimated,
 }: ChartRendererProps) {
   const chartRef = useRef<ReactECharts>(null);
   const prevDataRef = useRef<AggregatedDataPoint[]>([]);
-  const hasAnimatedRef = useRef(false);
 
   // Stabilize data reference - only update if actual values changed
   // This prevents ECharts from re-animating when data reference changes but values are same
@@ -167,12 +172,21 @@ export function ChartRenderer({
   }, [data]);
 
   // Determine if animation should be enabled (only on first render with data)
+  // Animation state is tracked at parent level to survive component remounts
   const shouldAnimate = useMemo(() => {
     if (stableData.length === 0) return false;
-    if (hasAnimatedRef.current) return false;
-    hasAnimatedRef.current = true;
+    if (hasAnimated) return false;
     return true;
-  }, [stableData]);
+  }, [stableData.length, hasAnimated]);
+
+  // Mark as animated after first render with data
+  useEffect(() => {
+    if (shouldAnimate && stableData.length > 0) {
+      // Small delay to ensure animation has started
+      const timer = setTimeout(() => onAnimated(), 50);
+      return () => clearTimeout(timer);
+    }
+  }, [shouldAnimate, stableData.length, onAnimated]);
 
   // Get responsive size info
   const sizeInfo = useMemo(() => getSizeInfo(dimensions), [dimensions]);
