@@ -748,14 +748,14 @@ export function BIDashboard() {
             variant={hideNoneValues ? 'default' : 'outline'}
             size="sm"
             onClick={toggleHideNoneValues}
-            title={hideNoneValues ? 'Showing only elements with values' : 'Showing all elements including those without values'}
+            title={hideNoneValues ? 'Currently hiding "No Material", "Unknown", etc. Click to show all.' : 'Click to hide entries without values (No Material, Unknown, etc.)'}
           >
             {hideNoneValues ? (
               <EyeOff className="h-4 w-4 mr-1" />
             ) : (
               <Eye className="h-4 w-4 mr-1" />
             )}
-            {hideNoneValues ? 'Hide Empty' : 'Show All'}
+            Hide Empty
           </Button>
           <Button
             variant={isEditMode ? 'default' : 'outline'}
