@@ -354,6 +354,8 @@ export function BIDashboard() {
   // Compute data for all charts (with cross-filtering applied via aggregator)
   const chartData = useMemo(() => {
     if (!activeDashboard) return new Map<string, AggregatedDataPoint[]>();
+    // Skip computation if no model data available - prevents double-load visual flicker
+    if (biModels.length === 0) return new Map<string, AggregatedDataPoint[]>();
 
     console.log('[BIDashboard] Computing chart data for', activeDashboard.charts.length, 'charts');
     console.log('[BIDashboard] biModels available:', biModels.length);
@@ -789,7 +791,7 @@ export function BIDashboard() {
         <GridLayout
           className="layout"
           layout={layout}
-          width={containerWidth - 32}
+          width={containerWidth}
           gridConfig={{
             cols: gridCols,
             rowHeight: dashboardMode === 'sidebar' ? 80 : 100,
