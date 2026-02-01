@@ -821,7 +821,7 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
   }, [tempAuthor, setBcfAuthor]);
 
   return (
-    <div className="flex flex-col h-full bg-background border-l border-border">
+    <div className="flex flex-col h-full bg-background">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
         <div className="flex items-center gap-2">

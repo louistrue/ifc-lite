@@ -101,7 +101,7 @@ export function ViewerLayout() {
 
             <PanelResizeHandle className="w-1.5 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-col-resize" />
 
-            {/* Right Panel - Properties */}
+            {/* Right Panel - Properties or BCF */}
             <Panel
               id="right-panel"
               defaultSize={22}
@@ -110,7 +110,11 @@ export function ViewerLayout() {
               collapsedSize={0}
             >
               <div className="h-full w-full overflow-hidden">
-                <PropertiesPanel />
+                {bcfPanelVisible ? (
+                  <BCFPanel onClose={() => setBcfPanelVisible(false)} />
+                ) : (
+                  <PropertiesPanel />
+                )}
               </div>
             </Panel>
           </PanelGroup>
@@ -145,14 +149,17 @@ export function ViewerLayout() {
               </div>
             )}
 
-            {/* Mobile Bottom Sheet - Properties */}
+            {/* Mobile Bottom Sheet - Properties or BCF */}
             {!rightPanelCollapsed && (
               <div className="absolute inset-x-0 bottom-0 h-[50vh] bg-background border-t rounded-t-xl shadow-xl z-40 animate-in slide-in-from-bottom">
                 <div className="flex items-center justify-between p-2 border-b">
-                  <span className="font-medium text-sm">Properties</span>
+                  <span className="font-medium text-sm">{bcfPanelVisible ? 'BCF Issues' : 'Properties'}</span>
                   <button
                     className="p-1 hover:bg-muted rounded"
-                    onClick={() => setRightPanelCollapsed(true)}
+                    onClick={() => {
+                      setRightPanelCollapsed(true);
+                      if (bcfPanelVisible) setBcfPanelVisible(false);
+                    }}
                   >
                     <span className="sr-only">Close</span>
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -161,7 +168,11 @@ export function ViewerLayout() {
                   </button>
                 </div>
                 <div className="h-[calc(50vh-48px)] overflow-auto">
-                  <PropertiesPanel />
+                  {bcfPanelVisible ? (
+                    <BCFPanel onClose={() => setBcfPanelVisible(false)} />
+                  ) : (
+                    <PropertiesPanel />
+                  )}
                 </div>
               </div>
             )}
@@ -192,13 +203,6 @@ export function ViewerLayout() {
 
         {/* Status Bar */}
         <StatusBar />
-
-        {/* BCF Panel - Floating overlay */}
-        {bcfPanelVisible && (
-          <div className="fixed top-12 right-0 bottom-6 w-80 z-50 shadow-xl animate-in slide-in-from-right">
-            <BCFPanel onClose={() => setBcfPanelVisible(false)} />
-          </div>
-        )}
       </div>
     </TooltipProvider>
   );

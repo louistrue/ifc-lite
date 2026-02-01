@@ -160,6 +160,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const resetViewerState = useViewerStore((state) => state.resetViewerState);
   const bcfPanelVisible = useViewerStore((state) => state.bcfPanelVisible);
   const toggleBcfPanel = useViewerStore((state) => state.toggleBcfPanel);
+  const setRightPanelCollapsed = useViewerStore((state) => state.setRightPanelCollapsed);
 
   // Check which type geometries exist
   const typeGeometryExists = useMemo(() => {
@@ -526,6 +527,10 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
             size="icon-sm"
             onClick={(e) => {
               (e.currentTarget as HTMLButtonElement).blur();
+              // If BCF is being shown, also expand the right panel
+              if (!bcfPanelVisible) {
+                setRightPanelCollapsed(false);
+              }
               toggleBcfPanel();
             }}
             className={cn(bcfPanelVisible && 'bg-primary text-primary-foreground')}
