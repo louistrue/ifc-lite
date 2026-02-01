@@ -347,8 +347,15 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     let aborted = false;
     let resizeObserver: ResizeObserver | null = null;
 
+    // Helper to align canvas dimensions to WebGPU requirements
+    // WebGPU texture row pitch must be aligned to 256 bytes
+    // For RGBA (4 bytes/pixel), width should be multiple of 64 pixels
+    const alignToWebGPU = (size: number): number => {
+      return Math.max(64, Math.floor(size / 64) * 64);
+    };
+
     const rect = canvas.getBoundingClientRect();
-    const width = Math.max(1, Math.floor(rect.width));
+    const width = alignToWebGPU(Math.max(1, Math.floor(rect.width)));
     const height = Math.max(1, Math.floor(rect.height));
     canvas.width = width;
     canvas.height = height;
@@ -1691,7 +1698,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
       resizeObserver = new ResizeObserver(() => {
         if (aborted) return;
         const rect = canvas.getBoundingClientRect();
-        const width = Math.max(1, Math.floor(rect.width));
+        // Use same WebGPU alignment as initialization
+        const width = alignToWebGPU(Math.max(1, Math.floor(rect.width)));
         const height = Math.max(1, Math.floor(rect.height));
         renderer.resize(width, height);
         renderer.render({

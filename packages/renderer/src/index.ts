@@ -567,12 +567,14 @@ export class Renderer {
         if (!this.device.isInitialized() || !this.pipeline) return;
 
         // Validate canvas dimensions
+        // Align width to 64 pixels for WebGPU texture row alignment (256 bytes / 4 bytes per pixel)
         const rect = this.canvas.getBoundingClientRect();
-        const width = Math.max(1, Math.floor(rect.width));
+        const rawWidth = Math.max(1, Math.floor(rect.width));
+        const width = Math.max(64, Math.floor(rawWidth / 64) * 64);
         const height = Math.max(1, Math.floor(rect.height));
 
         // Skip rendering if canvas is too small
-        if (width < 10 || height < 10) return;
+        if (width < 64 || height < 10) return;
 
         // Update canvas pixel dimensions if needed
         const dimensionsChanged = this.canvas.width !== width || this.canvas.height !== height;
