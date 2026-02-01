@@ -803,7 +803,7 @@ export class StepExporter {
   /**
    * Format coordinate list as STEP tuple list
    * Applies inverse origin shift and inverse placement transform to convert from viewer coords to local entity coords
-   * Also converts from Y-up (viewer) to Z-up (IFC) coordinate system
+   * Note: Viewer uses Z-up coordinate system (same as IFC), so no axis conversion needed
    */
   private formatCoordinateList(
     positions: Float32Array,
@@ -817,12 +817,12 @@ export class StepExporter {
     console.log(`[StepExporter] Applying inverse origin shift: (${shift.x}, ${shift.y}, ${shift.z})`);
 
     for (let i = 0; i < positions.length; i += 3) {
-      // Start with viewer coordinates (Y-up)
+      // Start with viewer coordinates (Z-up, same as IFC)
       let x = positions[i] + shift.x;
       let y = positions[i + 1] + shift.y;
       let z = positions[i + 2] + shift.z;
 
-      // Apply inverse placement transform FIRST (in Y-up space)
+      // Apply inverse placement transform to get local entity coordinates
       // This removes the placement transform that was applied during geometry extraction
       if (inversePlacementMatrix) {
         const m = inversePlacementMatrix;
@@ -834,15 +834,7 @@ export class StepExporter {
         z = newZ;
       }
 
-      // THEN convert from Y-up (viewer) to Z-up (IFC) coordinate system
-      // Y-up: X right, Y up, Z towards viewer
-      // Z-up: X right, Y forward, Z up
-      // Transformation: IFC_X = Viewer_X, IFC_Y = -Viewer_Z, IFC_Z = Viewer_Y
-      const ifcX = x;
-      const ifcY = -z;
-      const ifcZ = y;
-
-      tuples.push(`(${ifcX.toFixed(precision)},${ifcY.toFixed(precision)},${ifcZ.toFixed(precision)})`);
+      tuples.push(`(${x.toFixed(precision)},${y.toFixed(precision)},${z.toFixed(precision)})`);
     }
     return tuples.join(',');
   }
