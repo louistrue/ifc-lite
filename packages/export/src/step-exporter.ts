@@ -744,8 +744,9 @@ export class StepExporter {
     // Generate IfcShapeRepresentation
     const shapeRepId = this.nextExpressId++;
     count++;
-    // Find geometric representation context (use first one we find, or create reference)
-    const contextId = this.findGeometricRepresentationContext() || 1;
+    // Find SubContext for 'Body' representation (or fall back to main context)
+    const contextId = this.findBodyRepresentationContext() || this.findGeometricRepresentationContext() || 1;
+    console.log(`[StepExporter] Using context #${contextId} for shape representation`);
     lines.push(`#${shapeRepId}=IFCSHAPEREPRESENTATION(#${contextId},'Body','Tessellation',(#${faceSetId}));`);
 
     // Generate IfcProductDefinitionShape
@@ -849,6 +850,28 @@ export class StepExporter {
     for (const [id, entityRef] of this.dataStore.entityIndex.byId) {
       if (entityRef.type.toUpperCase() === 'IFCGEOMETRICREPRESENTATIONCONTEXT') {
         return id;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Find the SubContext for 'Body' representations
+   * This is typically an IfcGeometricRepresentationSubContext with ContextIdentifier='Body'
+   */
+  private findBodyRepresentationContext(): number | null {
+    if (!this.dataStore.source) return null;
+    const decoder = new TextDecoder();
+
+    for (const [id, entityRef] of this.dataStore.entityIndex.byId) {
+      if (entityRef.type.toUpperCase() === 'IFCGEOMETRICREPRESENTATIONSUBCONTEXT') {
+        const entityText = decoder.decode(
+          this.dataStore.source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength)
+        );
+        // Look for ContextIdentifier='Body'
+        if (entityText.includes("'Body'")) {
+          return id;
+        }
       }
     }
     return null;
