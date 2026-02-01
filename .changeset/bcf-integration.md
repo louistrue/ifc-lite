@@ -1,5 +1,6 @@
 ---
 "@ifc-lite/bcf": minor
+"@ifc-lite/parser": patch
 "@ifc-lite/renderer": patch
 "@ifc-lite/viewer": minor
 ---
@@ -27,6 +28,9 @@ Adds full BCF 2.1 support for issue tracking and collaboration in BIM workflows:
 **Renderer Fixes:**
 - Fix screenshot distortion caused by WebGPU texture row alignment
 - Add GPU-synchronized screenshot capture for accurate snapshots
+
+**Parser Fixes:**
+- Extract GlobalIds for all geometry entities (not just spatial) to enable BCF component references
 
 **Bug Fixes:**
 - Fix BCF viewpoint visibility not clearing isolation mode

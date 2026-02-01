@@ -172,8 +172,9 @@ export class ColumnarParser {
             byType: new Map<string, number[]>(),
         };
 
-        // First pass: collect spatial, relationship, and property refs for targeted parsing
+        // First pass: collect spatial, geometry, relationship, and property refs for targeted parsing
         const spatialRefs: EntityRef[] = [];
+        const geometryRefs: EntityRef[] = [];
         const relationshipRefs: EntityRef[] = [];
         const propertyRelRefs: EntityRef[] = [];
         const propertyEntityRefs: EntityRef[] = [];
@@ -192,6 +193,8 @@ export class ColumnarParser {
             const typeUpper = ref.type.toUpperCase();
             if (SPATIAL_TYPES.has(typeUpper)) {
                 spatialRefs.push(ref);
+            } else if (GEOMETRY_TYPES.has(typeUpper)) {
+                geometryRefs.push(ref);
             } else if (HIERARCHY_REL_TYPES.has(typeUpper)) {
                 relationshipRefs.push(ref);
             } else if (PROPERTY_REL_TYPES.has(typeUpper)) {
@@ -201,11 +204,11 @@ export class ColumnarParser {
             }
         }
 
-        // === TARGETED PARSING: Parse spatial entities first ===
+        // === TARGETED PARSING: Parse spatial and geometry entities for GlobalIds ===
         options.onProgress?.({ phase: 'parsing spatial', percent: 10 });
 
         const extractor = new EntityExtractor(uint8Buffer);
-        const parsedSpatialData = new Map<number, { globalId: string; name: string }>();
+        const parsedEntityData = new Map<number, { globalId: string; name: string }>();
 
         // Parse spatial entities (typically < 100 entities)
         for (const ref of spatialRefs) {
@@ -214,7 +217,20 @@ export class ColumnarParser {
                 const attrs = entity.attributes || [];
                 const globalId = typeof attrs[0] === 'string' ? attrs[0] : '';
                 const name = typeof attrs[2] === 'string' ? attrs[2] : '';
-                parsedSpatialData.set(ref.expressId, { globalId, name });
+                parsedEntityData.set(ref.expressId, { globalId, name });
+            }
+        }
+
+        // Parse geometry entities for GlobalIds (needed for BCF component references)
+        // IFC entities with geometry have GlobalId at attribute[0] and Name at attribute[2]
+        options.onProgress?.({ phase: 'parsing geometry globalIds', percent: 12 });
+        for (const ref of geometryRefs) {
+            const entity = extractor.extractEntity(ref);
+            if (entity) {
+                const attrs = entity.attributes || [];
+                const globalId = typeof attrs[0] === 'string' ? attrs[0] : '';
+                const name = typeof attrs[2] === 'string' ? attrs[2] : '';
+                parsedEntityData.set(ref.expressId, { globalId, name });
             }
         }
 
@@ -325,10 +341,10 @@ export class ColumnarParser {
                 continue;
             }
 
-            // Get parsed data for spatial entities
-            const spatialData = parsedSpatialData.get(ref.expressId);
-            const globalId = spatialData?.globalId || '';
-            const name = spatialData?.name || '';
+            // Get parsed data (GlobalId, Name) for spatial and geometry entities
+            const entityData = parsedEntityData.get(ref.expressId);
+            const globalId = entityData?.globalId || '';
+            const name = entityData?.name || '';
 
             entityTableBuilder.add(
                 ref.expressId,
