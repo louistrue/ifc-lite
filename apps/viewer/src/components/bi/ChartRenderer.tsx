@@ -145,6 +145,25 @@ export function ChartRenderer({
   dimensions,
 }: ChartRendererProps) {
   const chartRef = useRef<ReactECharts>(null);
+  const prevDataRef = useRef<AggregatedDataPoint[]>([]);
+
+  // Stabilize data reference - only update if actual values changed
+  // This prevents ECharts from re-animating when data reference changes but values are same
+  const stableData = useMemo(() => {
+    const prev = prevDataRef.current;
+    // Quick length check
+    if (data.length === prev.length) {
+      // Check if all keys and values match
+      const isSame = data.every((d, i) =>
+        d.key === prev[i]?.key && d.value === prev[i]?.value
+      );
+      if (isSame) {
+        return prev; // Return previous reference to prevent re-render
+      }
+    }
+    prevDataRef.current = data;
+    return data;
+  }, [data]);
 
   // Get responsive size info
   const sizeInfo = useMemo(() => getSizeInfo(dimensions), [dimensions]);
@@ -157,29 +176,29 @@ export function ChartRenderer({
     switch (config.type) {
       case 'pie':
       case 'donut':
-        chartOption = buildPieOption(config, data, selectedKeys, colors, sizeInfo);
+        chartOption = buildPieOption(config, stableData, selectedKeys, colors, sizeInfo);
         break;
       case 'bar':
       case 'barHorizontal':
-        chartOption = buildBarOption(config, data, selectedKeys, colors, sizeInfo);
+        chartOption = buildBarOption(config, stableData, selectedKeys, colors, sizeInfo);
         break;
       case 'stackedBar':
-        chartOption = buildStackedBarOption(config, data, selectedKeys, colors, sizeInfo);
+        chartOption = buildStackedBarOption(config, stableData, selectedKeys, colors, sizeInfo);
         break;
       case 'treemap':
-        chartOption = buildTreemapOption(config, data, selectedKeys, colors, sizeInfo);
+        chartOption = buildTreemapOption(config, stableData, selectedKeys, colors, sizeInfo);
         break;
       case 'sunburst':
-        chartOption = buildSunburstOption(config, data, selectedKeys, colors, sizeInfo);
+        chartOption = buildSunburstOption(config, stableData, selectedKeys, colors, sizeInfo);
         break;
       case 'scatter':
-        chartOption = buildScatterOption(config, data, selectedKeys, colors, sizeInfo);
+        chartOption = buildScatterOption(config, stableData, selectedKeys, colors, sizeInfo);
         break;
       case 'histogram':
-        chartOption = buildHistogramOption(config, data, selectedKeys, colors, sizeInfo);
+        chartOption = buildHistogramOption(config, stableData, selectedKeys, colors, sizeInfo);
         break;
       default:
-        chartOption = buildBarOption(config, data, selectedKeys, colors, sizeInfo);
+        chartOption = buildBarOption(config, stableData, selectedKeys, colors, sizeInfo);
     }
 
     // Add animation settings: keep initial animation fast, disable update animation
@@ -191,7 +210,7 @@ export function ChartRenderer({
       animationDurationUpdate: 0, // No animation on data updates
       animationEasing: 'cubicOut',
     };
-  }, [config, data, selectedKeys, sizeInfo]);
+  }, [config, stableData, selectedKeys, sizeInfo]);
 
   // Handle click event
   const handleClick = useCallback(
@@ -261,7 +280,7 @@ export function ChartRenderer({
 
       if (selectedKeys.size > 0 || highlightedKeys.size > 0) {
         const allKeys = new Set([...selectedKeys, ...highlightedKeys]);
-        const dataIndices = data
+        const dataIndices = stableData
           .map((d, i) => (allKeys.has(d.key) ? i : -1))
           .filter((i) => i >= 0);
 
@@ -279,7 +298,7 @@ export function ChartRenderer({
       // Ignore errors during highlight - chart may be re-rendering or unmounted
       console.debug('[ChartRenderer] Highlight error (safe to ignore):', err);
     }
-  }, [selectedKeys, highlightedKeys, data]);
+  }, [selectedKeys, highlightedKeys, stableData]);
 
   return (
     <ReactECharts
