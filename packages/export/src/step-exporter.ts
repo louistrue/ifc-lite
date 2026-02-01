@@ -116,6 +116,7 @@ export class StepExporter {
 
     // Determine schema from data store if not specified
     const schema = options.schema || (this.dataStore.schemaVersion as 'IFC2X3' | 'IFC4' | 'IFC4X3') || 'IFC4';
+    console.log(`[StepExporter] Exporting with schema: ${schema}, geometry mutations: ${this.geometryMutations.size}`);
 
     // Generate header
     const header = generateHeader({
@@ -706,14 +707,22 @@ export class StepExporter {
     const coordListId = this.nextExpressId++;
     count++;
     const coordinates = this.formatCoordinateList(meshData.positions, precision, inverseMatrix);
-    lines.push(`#${coordListId}=IFCCARTESIANPOINTLIST3D((${coordinates}));`);
+    const coordLine = `#${coordListId}=IFCCARTESIANPOINTLIST3D((${coordinates}));`;
+    lines.push(coordLine);
+
+    // Log first few coordinates for debugging
+    const firstCoords = coordinates.split(',').slice(0, 3).join(',');
+    console.log(`[StepExporter] First 3 coordinates: ${firstCoords}...`);
+    console.log(`[StepExporter] Total vertices: ${meshData.positions.length / 3}, triangles: ${meshData.indices.length / 3}`);
 
     // Generate IfcTriangulatedFaceSet
     const faceSetId = this.nextExpressId++;
     count++;
     const indices = this.formatIndicesList(meshData.indices);
     // IfcTriangulatedFaceSet(Coordinates, Normals, Closed, CoordIndex, NormalIndex)
-    lines.push(`#${faceSetId}=IFCTRIANGULATEDFACESET(#${coordListId},$,.U.,(${indices}),$);`);
+    const faceSetLine = `#${faceSetId}=IFCTRIANGULATEDFACESET(#${coordListId},$,.U.,(${indices}),$);`;
+    lines.push(faceSetLine);
+    console.log(`[StepExporter] Generated IfcTriangulatedFaceSet #${faceSetId} with #${coordListId}`);
 
     // Generate color if available
     if (meshData.color) {
