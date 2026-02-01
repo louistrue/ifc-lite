@@ -61,7 +61,7 @@ const gridLayoutStyles = `
 `;
 
 export function BIDashboard() {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerRef, setContainerRef] = useState<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(0); // Start at 0, measure before rendering grid
   const [editingChartId, setEditingChartId] = useState<string | null>(null);
 
@@ -110,17 +110,29 @@ export function BIDashboard() {
 
   // Measure container width for responsive layout
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!containerRef) return;
 
-    const resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setContainerWidth(entry.contentRect.width);
+    // Measure width using clientWidth minus padding (p-4 = 16px each side)
+    const measureWidth = () => {
+      if (containerRef) {
+        const width = containerRef.clientWidth - 32;
+        if (width > 0) {
+          setContainerWidth(width);
+        }
       }
+    };
+
+    // Measure immediately when container is set
+    measureWidth();
+
+    // Use ResizeObserver for updates
+    const resizeObserver = new ResizeObserver(() => {
+      measureWidth();
     });
 
-    resizeObserver.observe(containerRef.current);
+    resizeObserver.observe(containerRef);
     return () => resizeObserver.disconnect();
-  }, []);
+  }, [containerRef]);
 
   // Convert models to BIModelData format for aggregator
   const biModels = useMemo((): BIModelData[] => {
@@ -787,7 +799,7 @@ export function BIDashboard() {
       </div>
 
       {/* Chart Grid */}
-      <div ref={containerRef} className="flex-1 overflow-auto p-4">
+      <div ref={setContainerRef} className="flex-1 overflow-auto p-4">
         {/* Only render grid once we have measured the container width */}
         {containerWidth > 0 && (
           <GridLayout
