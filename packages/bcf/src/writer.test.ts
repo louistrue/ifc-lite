@@ -210,6 +210,63 @@ describe('BCF Writer', () => {
     expect(markupContent).toContain(`<Viewpoint>Viewpoint_${viewpoint2Guid}.bcfv</Viewpoint>`);
   });
 
+  it('should write components in BCF 2.1 schema order', async () => {
+    const topicGuid = generateUuid();
+    const viewpointGuid = generateUuid();
+
+    // Create viewpoint with selection, visibility, and coloring
+    const viewpoint: BCFViewpoint = {
+      guid: viewpointGuid,
+      perspectiveCamera: {
+        cameraViewPoint: { x: 0, y: 0, z: 10 },
+        cameraDirection: { x: 0, y: 0, z: -1 },
+        cameraUpVector: { x: 0, y: 1, z: 0 },
+        fieldOfView: 60,
+      },
+      components: {
+        selection: [{ ifcGuid: '0abc123def456789012345' }],
+        visibility: {
+          defaultVisibility: true,
+          exceptions: [{ ifcGuid: '1abc123def456789012345' }],
+        },
+      },
+    };
+
+    const topic: BCFTopic = {
+      guid: topicGuid,
+      title: 'Components Test',
+      creationDate: new Date().toISOString(),
+      creationAuthor: 'test@example.com',
+      viewpoints: [viewpoint],
+      comments: [],
+    };
+
+    const project: BCFProject = {
+      version: '2.1',
+      topics: new Map([[topicGuid, topic]]),
+    };
+
+    const blob = await writeBCF(project);
+    const zip = await JSZip.loadAsync(await blobToArrayBuffer(blob));
+
+    const viewpointContent = await zip.file(`${topicGuid}/Viewpoint_${viewpointGuid}.bcfv`)?.async('string');
+    expect(viewpointContent).toBeDefined();
+
+    // BCF 2.1 schema requires: Selection BEFORE Visibility
+    const selectionIndex = viewpointContent!.indexOf('<Selection>');
+    const visibilityIndex = viewpointContent!.indexOf('<Visibility');
+    expect(selectionIndex).toBeGreaterThan(-1);
+    expect(visibilityIndex).toBeGreaterThan(-1);
+    expect(selectionIndex).toBeLessThan(visibilityIndex); // Selection must come first!
+
+    // Visibility must have DefaultVisibility attribute
+    expect(viewpointContent).toContain('DefaultVisibility="true"');
+
+    // Component IfcGuid must be an attribute (not element)
+    expect(viewpointContent).toContain('IfcGuid="0abc123def456789012345"');
+    expect(viewpointContent).toContain('IfcGuid="1abc123def456789012345"');
+  });
+
   it('should roundtrip through reader', async () => {
     const topicGuid = generateUuid();
     const viewpointGuid = generateUuid();

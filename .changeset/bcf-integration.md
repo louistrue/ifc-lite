@@ -35,3 +35,8 @@ Adds full BCF 2.1 support for issue tracking and collaboration in BIM workflows:
 **Bug Fixes:**
 - Fix BCF viewpoint visibility not clearing isolation mode
 - Add localStorage error handling for private browsing mode
+- Fix BCF XML schema compliance for BIMcollab compatibility:
+  - Correct element order (Selection before Visibility)
+  - Move ViewSetupHints to Components level (not inside Visibility)
+  - Write OriginatingSystem/AuthoringToolId as child elements (not attributes)
+  - Always include required Visibility element

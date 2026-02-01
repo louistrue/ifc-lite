@@ -281,16 +281,33 @@ async function writeViewpointFiles(
 
 /**
  * Write components XML
+ *
+ * BCF 2.1 schema order (MUST follow this order):
+ * 1. ViewSetupHints (optional)
+ * 2. Selection (optional)
+ * 3. Visibility (REQUIRED)
+ * 4. Coloring (optional)
  */
 function writeComponents(components: BCFComponents): string {
   let content = `\n  <Components>`;
 
-  // Write visibility
-  if (components.visibility) {
-    content += writeVisibility(components.visibility);
+  // 1. Write ViewSetupHints (if present in visibility)
+  if (components.visibility?.viewSetupHints) {
+    const hints = components.visibility.viewSetupHints;
+    content += `\n    <ViewSetupHints`;
+    if (hints.spacesVisible !== undefined) {
+      content += ` SpacesVisible="${hints.spacesVisible}"`;
+    }
+    if (hints.spaceBoundariesVisible !== undefined) {
+      content += ` SpaceBoundariesVisible="${hints.spaceBoundariesVisible}"`;
+    }
+    if (hints.openingsVisible !== undefined) {
+      content += ` OpeningsVisible="${hints.openingsVisible}"`;
+    }
+    content += `/>`;
   }
 
-  // Write selection
+  // 2. Write selection (before visibility per schema)
   if (components.selection && components.selection.length > 0) {
     content += `\n    <Selection>`;
     for (const component of components.selection) {
@@ -299,7 +316,10 @@ function writeComponents(components: BCFComponents): string {
     content += `\n    </Selection>`;
   }
 
-  // Write coloring
+  // 3. Write visibility (REQUIRED by schema)
+  content += writeVisibility(components.visibility);
+
+  // 4. Write coloring
   if (components.coloring && components.coloring.length > 0) {
     content += `\n    <Coloring>`;
     for (const coloring of components.coloring) {
@@ -314,31 +334,25 @@ function writeComponents(components: BCFComponents): string {
 
 /**
  * Write visibility XML
+ *
+ * Per BCF 2.1 schema:
+ * - Visibility is REQUIRED inside Components
+ * - DefaultVisibility attribute defaults to false
+ * - Exceptions contains Component elements (entities to show/hide opposite of default)
+ * - ViewSetupHints is NOT inside Visibility (moved to Components level)
  */
-function writeVisibility(visibility: BCFVisibility): string {
-  let content = `\n    <Visibility DefaultVisibility="${visibility.defaultVisibility}">`;
+function writeVisibility(visibility: BCFVisibility | undefined): string {
+  // Default visibility to true (show all) if not specified
+  const defaultVis = visibility?.defaultVisibility ?? true;
 
-  if (visibility.exceptions && visibility.exceptions.length > 0) {
+  let content = `\n    <Visibility DefaultVisibility="${defaultVis}">`;
+
+  if (visibility?.exceptions && visibility.exceptions.length > 0) {
     content += `\n      <Exceptions>`;
     for (const component of visibility.exceptions) {
       content += writeComponent(component, '        ');
     }
     content += `\n      </Exceptions>`;
-  }
-
-  if (visibility.viewSetupHints) {
-    const hints = visibility.viewSetupHints;
-    content += `\n      <ViewSetupHints`;
-    if (hints.spacesVisible !== undefined) {
-      content += ` SpacesVisible="${hints.spacesVisible}"`;
-    }
-    if (hints.spaceBoundariesVisible !== undefined) {
-      content += ` SpaceBoundariesVisible="${hints.spaceBoundariesVisible}"`;
-    }
-    if (hints.openingsVisible !== undefined) {
-      content += ` OpeningsVisible="${hints.openingsVisible}"`;
-    }
-    content += `/>`;
   }
 
   content += `\n    </Visibility>`;
@@ -347,21 +361,34 @@ function writeVisibility(visibility: BCFVisibility): string {
 
 /**
  * Write a single component XML
+ *
+ * Per BCF 2.1 schema:
+ * - IfcGuid is an ATTRIBUTE (required for IFC objects)
+ * - OriginatingSystem is a child ELEMENT (optional)
+ * - AuthoringToolId is a child ELEMENT (optional)
  */
 function writeComponent(component: BCFComponent, indent = '      '): string {
+  const hasChildren = component.originatingSystem || component.authoringToolId;
+
   let content = `\n${indent}<Component`;
 
   if (component.ifcGuid) {
     content += ` IfcGuid="${component.ifcGuid}"`;
   }
-  if (component.authoringToolId) {
-    content += ` AuthoringToolId="${component.authoringToolId}"`;
-  }
-  if (component.originatingSystem) {
-    content += ` OriginatingSystem="${escapeXml(component.originatingSystem)}"`;
+
+  if (hasChildren) {
+    content += `>`;
+    if (component.originatingSystem) {
+      content += `\n${indent}  <OriginatingSystem>${escapeXml(component.originatingSystem)}</OriginatingSystem>`;
+    }
+    if (component.authoringToolId) {
+      content += `\n${indent}  <AuthoringToolId>${escapeXml(component.authoringToolId)}</AuthoringToolId>`;
+    }
+    content += `\n${indent}</Component>`;
+  } else {
+    content += `/>`;
   }
 
-  content += `/>`;
   return content;
 }
 
