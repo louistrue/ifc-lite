@@ -586,6 +586,23 @@ export function BIDashboard() {
     [activeDashboard, chartData]
   );
 
+  // Calculate container classes based on mode
+  // IMPORTANT: This must be before early returns to follow React's rules of hooks
+  const containerClasses = useMemo(() => {
+    switch (dashboardMode) {
+      case 'sidebar':
+        return 'absolute right-0 top-12 bottom-0 w-[450px] bg-background z-40 flex flex-col border-l shadow-lg';
+      case 'minimized':
+        return 'absolute right-4 bottom-4 w-80 h-12 bg-background z-40 flex items-center rounded-lg border shadow-lg';
+      case 'fullscreen':
+      default:
+        return 'absolute inset-x-0 top-12 bottom-0 bg-background z-40 flex flex-col';
+    }
+  }, [dashboardMode]);
+
+  // Calculate grid columns based on mode
+  const gridCols = dashboardMode === 'sidebar' ? 6 : 12;
+
   if (!isDashboardOpen) return null;
 
   // No dashboard loaded - show template selector
@@ -604,22 +621,6 @@ export function BIDashboard() {
       </div>
     );
   }
-
-  // Calculate container classes based on mode
-  const containerClasses = useMemo(() => {
-    switch (dashboardMode) {
-      case 'sidebar':
-        return 'absolute right-0 top-12 bottom-0 w-[450px] bg-background z-40 flex flex-col border-l shadow-lg';
-      case 'minimized':
-        return 'absolute right-4 bottom-4 w-80 h-12 bg-background z-40 flex items-center rounded-lg border shadow-lg';
-      case 'fullscreen':
-      default:
-        return 'absolute inset-x-0 top-12 bottom-0 bg-background z-40 flex flex-col';
-    }
-  }, [dashboardMode]);
-
-  // Calculate grid columns based on mode
-  const gridCols = dashboardMode === 'sidebar' ? 6 : 12;
 
   return (
     <div className={containerClasses}>
