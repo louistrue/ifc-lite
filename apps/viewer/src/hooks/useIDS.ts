@@ -428,6 +428,10 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
   // Ref to store original colors before IDS color overrides
   const originalColorsRef = useRef<Map<number, [number, number, number, number]>>(new Map());
 
+  // Ref to access geometryResult without creating callback dependencies (prevents infinite loops)
+  const geometryResultRef = useRef(geometryResult);
+  geometryResultRef.current = geometryResult;
+
   // Get translator for current locale
   const translator = useMemo(() => {
     return createTranslationService(locale);
@@ -642,8 +646,10 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     }
 
     // Capture original colors before applying overrides (only if not already captured)
-    if (geometryResult?.meshes && originalColorsRef.current.size === 0) {
-      for (const mesh of geometryResult.meshes) {
+    // Use ref to avoid dependency on geometryResult which would cause infinite loops
+    const currentGeometry = geometryResultRef.current;
+    if (currentGeometry?.meshes && originalColorsRef.current.size === 0) {
+      for (const mesh of currentGeometry.meshes) {
         if (globalIdsToUpdate.has(mesh.expressId)) {
           originalColorsRef.current.set(mesh.expressId, [...mesh.color] as [number, number, number, number]);
         }
@@ -669,7 +675,7 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     if (colorUpdates.size > 0) {
       updateMeshColors(colorUpdates);
     }
-  }, [report, models, displayOptions, defaultFailedColor, defaultPassedColor, updateMeshColors, geometryResult]);
+  }, [report, models, displayOptions, defaultFailedColor, defaultPassedColor, updateMeshColors]);
 
   const clearColors = useCallback(() => {
     // Restore original colors from the ref
