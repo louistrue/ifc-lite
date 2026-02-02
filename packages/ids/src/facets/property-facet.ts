@@ -60,7 +60,7 @@ export function checkPropertyFacet(
 
   // Check each matching property set for the property
   for (const pset of matchingPsets) {
-    const result = checkPropertyInPset(facet, pset, expressId);
+    const result = checkPropertyInPset(facet, pset);
     if (result.passed) {
       return result;
     }
@@ -93,8 +93,7 @@ export function checkPropertyFacet(
  */
 function checkPropertyInPset(
   facet: IDSPropertyFacet,
-  pset: PropertySetInfo,
-  expressId: number
+  pset: PropertySetInfo
 ): FacetCheckResult {
   // Find matching properties
   const matchingProps = pset.properties.filter((prop) =>

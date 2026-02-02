@@ -314,7 +314,6 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
     locale,
     activeSpecificationId,
     filterMode,
-    displayOptions,
 
     // Actions
     loadIDSFile,
@@ -325,7 +324,6 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
     selectEntity,
     setLocale,
     setFilterMode,
-    setDisplayOptions,
     applyColors,
     isolateFailed,
     isolatePassed,

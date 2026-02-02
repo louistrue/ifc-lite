@@ -473,32 +473,44 @@ function parseRestriction(el: Element): IDSConstraint {
     };
 
     if (minInclusiveEl) {
-      bounds.minInclusive = parseFloat(
+      const val = parseFloat(
         minInclusiveEl.getAttribute('value') ||
           minInclusiveEl.textContent ||
           ''
       );
+      if (!isNaN(val)) {
+        bounds.minInclusive = val;
+      }
     }
     if (maxInclusiveEl) {
-      bounds.maxInclusive = parseFloat(
+      const val = parseFloat(
         maxInclusiveEl.getAttribute('value') ||
           maxInclusiveEl.textContent ||
           ''
       );
+      if (!isNaN(val)) {
+        bounds.maxInclusive = val;
+      }
     }
     if (minExclusiveEl) {
-      bounds.minExclusive = parseFloat(
+      const val = parseFloat(
         minExclusiveEl.getAttribute('value') ||
           minExclusiveEl.textContent ||
           ''
       );
+      if (!isNaN(val)) {
+        bounds.minExclusive = val;
+      }
     }
     if (maxExclusiveEl) {
-      bounds.maxExclusive = parseFloat(
+      const val = parseFloat(
         maxExclusiveEl.getAttribute('value') ||
           maxExclusiveEl.textContent ||
           ''
       );
+      if (!isNaN(val)) {
+        bounds.maxExclusive = val;
+      }
     }
 
     return bounds;

@@ -333,7 +333,7 @@ function createDataAccessor(
         case 'objecttype':
         case 'predefinedtype':
           return this.getObjectType(expressId);
-        default:
+        default: {
           // Try to get from entities table if available
           const entities = dataStore.entities as {
             getAttribute?: (id: number, attr: string) => string | undefined;
@@ -342,6 +342,7 @@ function createDataAccessor(
             return entities.getAttribute(expressId, attributeName);
           }
           return undefined;
+        }
       }
     },
   };
@@ -604,12 +605,31 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
   }, [report, models, displayOptions, defaultFailedColor, defaultPassedColor, updateMeshColors]);
 
   const clearColors = useCallback(() => {
-    // Reset colors by reloading geometry would be expensive
-    // Instead, we'll just remove the color overrides for IDS entities
-    // This requires tracking which entities had colors applied
-    // For now, log a warning
-    console.log('[useIDS] Color clearing requires model reload or tracking applied colors');
-  }, []);
+    if (!report) {
+      console.log('[useIDS] No validation report to clear colors from');
+      return;
+    }
+
+    // Build a map of all IDS-colored entities to clear their overrides
+    // Setting color to null/undefined signals the renderer to use default colors
+    const colorUpdates = new Map<number, [number, number, number, number]>();
+    const defaultColor: [number, number, number, number] = [1, 1, 1, 1]; // Reset to white
+
+    for (const specResult of report.specificationResults) {
+      for (const entityResult of specResult.entityResults) {
+        const model = models.get(entityResult.modelId);
+        const globalId = model
+          ? entityResult.expressId + (model.idOffset ?? 0)
+          : entityResult.expressId;
+        colorUpdates.set(globalId, defaultColor);
+      }
+    }
+
+    if (colorUpdates.size > 0) {
+      updateMeshColors(colorUpdates);
+      console.log(`[useIDS] Cleared colors from ${colorUpdates.size} entities`);
+    }
+  }, [report, models, updateMeshColors]);
 
   // Auto-apply colors when validation completes
   useEffect(() => {
@@ -626,7 +646,9 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     const failedIds = new Set<number>();
 
     for (const key of idsFailedEntityIds) {
-      const [modelId, expressIdStr] = key.split(':');
+      const lastColonIndex = key.lastIndexOf(':');
+      const modelId = key.substring(0, lastColonIndex);
+      const expressIdStr = key.substring(lastColonIndex + 1);
       const expressId = parseInt(expressIdStr, 10);
       const model = models.get(modelId);
       const globalId = model ? expressId + (model.idOffset ?? 0) : expressId;
@@ -643,7 +665,9 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     const passedIds = new Set<number>();
 
     for (const key of idsPassedEntityIds) {
-      const [modelId, expressIdStr] = key.split(':');
+      const lastColonIndex = key.lastIndexOf(':');
+      const modelId = key.substring(0, lastColonIndex);
+      const expressIdStr = key.substring(lastColonIndex + 1);
       const expressId = parseInt(expressIdStr, 10);
       const model = models.get(modelId);
       const globalId = model ? expressId + (model.idOffset ?? 0) : expressId;

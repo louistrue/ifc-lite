@@ -533,7 +533,7 @@ function formatRequirementDescription(requirement: IDSRequirement): string {
       }
       break;
 
-    case 'partOf':
+    case 'partOf': {
       const relName = facet.relation.replace('IfcRel', '').toLowerCase();
       if (facet.entity) {
         desc = `Must be ${relName} ${formatConstraint(facet.entity.name)}`;
@@ -541,6 +541,7 @@ function formatRequirementDescription(requirement: IDSRequirement): string {
         desc = `Must be ${relName} some entity`;
       }
       break;
+    }
 
     default:
       desc = 'Unknown requirement';
