@@ -155,7 +155,7 @@ jobs:
         if: matrix.target == 'linux-x64-musl'
         run: |
           sudo apt-get update
-          sudo apt-get install -y musl-tools
+          sudo apt-get install -y musl-tools musl-dev
 
       # Build the server binary
       - name: Build Server Binary
@@ -195,6 +195,7 @@ jobs:
 
       # Upload to GitHub Release
       - name: Upload to GitHub Release
+        shell: bash
         run: |
           gh release upload "v${{ needs.release.outputs.version }}" \
             ifc-lite-server-${{ matrix.target }}.${{ matrix.archive }} \
