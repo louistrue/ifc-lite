@@ -376,12 +376,20 @@ function createDataAccessor(
 // Hook Implementation
 // ============================================================================
 
+// Stable default color constants (moved outside hook to prevent recreations)
+const DEFAULT_FAILED_COLOR: [number, number, number, number] = [0.9, 0.2, 0.2, 1.0];
+const DEFAULT_PASSED_COLOR: [number, number, number, number] = [0.2, 0.8, 0.2, 1.0];
+
 export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
   const {
     autoApplyColors = true,
-    failedColor: defaultFailedColor = [0.9, 0.2, 0.2, 1.0],
-    passedColor: defaultPassedColor = [0.2, 0.8, 0.2, 1.0],
+    failedColor: optionsFailedColor,
+    passedColor: optionsPassedColor,
   } = options;
+
+  // Use stable defaults if options not provided
+  const defaultFailedColor = optionsFailedColor ?? DEFAULT_FAILED_COLOR;
+  const defaultPassedColor = optionsPassedColor ?? DEFAULT_PASSED_COLOR;
 
   // IDS store state
   const document = useViewerStore((s) => s.idsDocument);
