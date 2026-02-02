@@ -96,8 +96,8 @@ export interface UseIDSResult {
   // Selection actions
   /** Set active specification for filtering */
   setActiveSpecification: (specId: string | null) => void;
-  /** Select an entity from results (syncs to 3D view) */
-  selectEntity: (modelId: string, expressId: number) => void;
+  /** Select an entity from results (syncs to 3D view and zooms) */
+  selectEntity: (modelId: string, expressId: number, zoomToEntity?: boolean) => void;
   /** Clear entity selection */
   clearEntitySelection: () => void;
 
@@ -136,6 +136,12 @@ export interface UseIDSResult {
   isEntityFailed: (modelId: string, expressId: number) => boolean;
   /** Check if an entity passed validation */
   isEntityPassed: (modelId: string, expressId: number) => boolean;
+
+  // Export actions
+  /** Export validation report to JSON */
+  exportReportJSON: () => void;
+  /** Export validation report to HTML */
+  exportReportHTML: () => void;
 }
 
 // ============================================================================
@@ -154,7 +160,7 @@ function createDataAccessor(
   const getEntityInfo = (expressId: number) => {
     return dataStore.entities?.getName ? {
       name: dataStore.entities.getName(expressId),
-      type: dataStore.entities.getType?.(expressId),
+      type: dataStore.entities.getTypeName?.(expressId),
       globalId: dataStore.entities.getGlobalId?.(expressId),
     } : undefined;
   };
@@ -162,7 +168,7 @@ function createDataAccessor(
   return {
     getEntityType(expressId: number): string | undefined {
       // Try entities table first
-      const entityType = dataStore.entities?.getType?.(expressId);
+      const entityType = dataStore.entities?.getTypeName?.(expressId);
       if (entityType) return entityType;
 
       // Fallback to entityIndex
@@ -217,8 +223,8 @@ function createDataAccessor(
       const propertiesStore = dataStore.properties;
       if (!propertiesStore) return undefined;
 
-      // Get property sets for this entity
-      const psets = propertiesStore.getPropertySets?.(expressId);
+      // Get property sets for this entity using getForEntity (returns PropertySet[])
+      const psets = propertiesStore.getForEntity?.(expressId);
       if (!psets) return undefined;
 
       for (const pset of psets) {
@@ -226,9 +232,17 @@ function createDataAccessor(
           const props = pset.properties || [];
           for (const prop of props) {
             if (prop.name.toLowerCase() === propertyName.toLowerCase()) {
+              // Convert value: ensure it's a primitive type (not array)
+              let value: string | number | boolean | null = null;
+              if (Array.isArray(prop.value)) {
+                // For arrays, convert to string representation
+                value = JSON.stringify(prop.value);
+              } else {
+                value = prop.value as string | number | boolean | null;
+              }
               return {
-                value: prop.value,
-                dataType: prop.type || 'IFCLABEL',
+                value,
+                dataType: String(prop.type || 'IFCLABEL'),
                 propertySetName: pset.name,
                 propertyName: prop.name,
               };
@@ -243,16 +257,26 @@ function createDataAccessor(
       const propertiesStore = dataStore.properties;
       if (!propertiesStore) return [];
 
-      const psets = propertiesStore.getPropertySets?.(expressId);
+      // Use getForEntity (returns PropertySet[])
+      const psets = propertiesStore.getForEntity?.(expressId);
       if (!psets) return [];
 
-      return psets.map(pset => ({
+      return psets.map((pset) => ({
         name: pset.name,
-        properties: (pset.properties || []).map(prop => ({
-          name: prop.name,
-          value: prop.value,
-          dataType: prop.type || 'IFCLABEL',
-        })),
+        properties: (pset.properties || []).map((prop) => {
+          // Convert value: ensure it's a primitive type (not array)
+          let value: string | number | boolean | null = null;
+          if (Array.isArray(prop.value)) {
+            value = JSON.stringify(prop.value);
+          } else {
+            value = prop.value as string | number | boolean | null;
+          }
+          return {
+            name: prop.name,
+            value,
+            dataType: String(prop.type || 'IFCLABEL'),
+          };
+        }),
       }));
     },
 
@@ -398,6 +422,7 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
   const setSelectedEntity = useViewerStore((s) => s.setSelectedEntity);
   const setIsolatedEntities = useViewerStore((s) => s.setIsolatedEntities);
+  const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
 
   // Get translator for current locale
   const translator = useMemo(() => {
@@ -528,8 +553,8 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     setIdsActiveSpecification(specId);
   }, [setIdsActiveSpecification]);
 
-  const selectEntity = useCallback((modelId: string, expressId: number) => {
-    console.log(`[useIDS] selectEntity: modelId="${modelId}", expressId=${expressId}, models.size=${models.size}`);
+  const selectEntity = useCallback((modelId: string, expressId: number, zoomToEntity = true) => {
+    console.log(`[useIDS] selectEntity: modelId="${modelId}", expressId=${expressId}, zoom=${zoomToEntity}`);
 
     // Update IDS state
     setIdsActiveEntity({ modelId, expressId });
@@ -552,7 +577,14 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
       setSelectedEntityId(globalId);
       setSelectedEntity({ modelId, expressId });
     }
-  }, [setIdsActiveEntity, setSelectedEntityId, setSelectedEntity, models]);
+
+    // Zoom to entity after a small delay to ensure selection is processed
+    if (zoomToEntity && cameraCallbacks.frameSelection) {
+      setTimeout(() => {
+        cameraCallbacks.frameSelection?.();
+      }, 50);
+    }
+  }, [setIdsActiveEntity, setSelectedEntityId, setSelectedEntity, models, cameraCallbacks]);
 
   const clearEntitySelection = useCallback(() => {
     setIdsActiveEntity(null);
@@ -754,6 +786,188 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
   }, [idsPassedEntityIds]);
 
   // ============================================================================
+  // Export Actions
+  // ============================================================================
+
+  const exportReportJSON = useCallback(() => {
+    if (!report) {
+      console.warn('[useIDS] No report to export');
+      return;
+    }
+
+    const exportData = {
+      document: report.document,
+      modelInfo: report.modelInfo,
+      timestamp: report.timestamp.toISOString(),
+      summary: report.summary,
+      specificationResults: report.specificationResults.map(spec => ({
+        specification: spec.specification,
+        status: spec.status,
+        applicableCount: spec.applicableCount,
+        passedCount: spec.passedCount,
+        failedCount: spec.failedCount,
+        passRate: spec.passRate,
+        entityResults: spec.entityResults.map(entity => ({
+          expressId: entity.expressId,
+          modelId: entity.modelId,
+          entityType: entity.entityType,
+          entityName: entity.entityName,
+          globalId: entity.globalId,
+          passed: entity.passed,
+          requirementResults: entity.requirementResults.map(req => ({
+            requirement: req.requirement,
+            status: req.status,
+            facetType: req.facetType,
+            checkedDescription: req.checkedDescription,
+            failureReason: req.failureReason,
+            actualValue: req.actualValue,
+            expectedValue: req.expectedValue,
+          })),
+        })),
+      })),
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = globalThis.document.createElement('a');
+    a.href = url;
+    a.download = `ids-report-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [report]);
+
+  const exportReportHTML = useCallback(() => {
+    if (!report) {
+      console.warn('[useIDS] No report to export');
+      return;
+    }
+
+    const statusClass = (status: string) => {
+      if (status === 'pass') return 'color: #22c55e;';
+      if (status === 'fail') return 'color: #ef4444;';
+      return 'color: #eab308;';
+    };
+
+    const html = `<!DOCTYPE html>
+<html lang="${locale}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IDS Validation Report - ${report.document.info.title}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background: #f5f5f5; }
+    h1, h2, h3 { margin-top: 0; }
+    .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; }
+    .summary-item { text-align: center; padding: 16px; background: #f9fafb; border-radius: 8px; }
+    .summary-item .value { font-size: 24px; font-weight: bold; }
+    .summary-item .label { color: #6b7280; font-size: 14px; }
+    .pass { color: #22c55e; }
+    .fail { color: #ef4444; }
+    .progress-bar { height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
+    .progress-fill { height: 100%; transition: width 0.3s; }
+    .spec-card { border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 12px; }
+    .spec-header { padding: 16px; cursor: pointer; }
+    .spec-header:hover { background: #f9fafb; }
+    .entity-list { border-top: 1px solid #e5e7eb; max-height: 400px; overflow-y: auto; }
+    .entity-row { padding: 12px 16px; border-bottom: 1px solid #f3f4f6; }
+    .entity-row:last-child { border-bottom: none; }
+    .requirement { font-size: 13px; padding: 4px 0; color: #6b7280; }
+    .failure-reason { color: #ef4444; font-size: 12px; margin-top: 2px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }
+    th { background: #f9fafb; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${report.document.info.title}</h1>
+    ${report.document.info.description ? `<p>${report.document.info.description}</p>` : ''}
+    <p><strong>Model:</strong> ${report.modelInfo.modelId} | <strong>Schema:</strong> ${report.modelInfo.schemaVersion} | <strong>Date:</strong> ${report.timestamp.toLocaleString()}</p>
+  </div>
+
+  <div class="card">
+    <h2>Summary</h2>
+    <div class="summary">
+      <div class="summary-item">
+        <div class="value">${report.summary.totalSpecifications}</div>
+        <div class="label">Specifications</div>
+      </div>
+      <div class="summary-item">
+        <div class="value pass">${report.summary.passedSpecifications}</div>
+        <div class="label">Passed</div>
+      </div>
+      <div class="summary-item">
+        <div class="value fail">${report.summary.failedSpecifications}</div>
+        <div class="label">Failed</div>
+      </div>
+      <div class="summary-item">
+        <div class="value">${report.summary.totalEntitiesChecked}</div>
+        <div class="label">Entities Checked</div>
+      </div>
+      <div class="summary-item">
+        <div class="value">${report.summary.overallPassRate}%</div>
+        <div class="label">Pass Rate</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Specifications</h2>
+    ${report.specificationResults.map(spec => `
+      <div class="spec-card">
+        <div class="spec-header">
+          <h3 style="${statusClass(spec.status)}">${spec.status === 'pass' ? '✓' : '✗'} ${spec.specification.name}</h3>
+          ${spec.specification.description ? `<p style="margin: 8px 0; color: #6b7280;">${spec.specification.description}</p>` : ''}
+          <div style="display: flex; gap: 16px; font-size: 14px; color: #6b7280;">
+            <span>${spec.applicableCount} entities</span>
+            <span class="pass">${spec.passedCount} passed</span>
+            <span class="fail">${spec.failedCount} failed</span>
+          </div>
+          <div class="progress-bar" style="margin-top: 8px;">
+            <div class="progress-fill" style="width: ${spec.passRate}%; background: ${spec.passRate >= 80 ? '#22c55e' : spec.passRate >= 50 ? '#eab308' : '#ef4444'};"></div>
+          </div>
+        </div>
+        ${spec.entityResults.length > 0 ? `
+        <div class="entity-list">
+          ${spec.entityResults.slice(0, 50).map(entity => `
+            <div class="entity-row">
+              <div style="${statusClass(entity.passed ? 'pass' : 'fail')}">
+                ${entity.passed ? '✓' : '✗'} <strong>${entity.entityName || '#' + entity.expressId}</strong>
+                <span style="color: #6b7280; font-size: 13px;"> - ${entity.entityType}${entity.globalId ? ' · ' + entity.globalId : ''}</span>
+              </div>
+              ${entity.requirementResults.filter(r => r.status === 'fail').map(req => `
+                <div class="requirement">
+                  ${req.checkedDescription}
+                  ${req.failureReason ? `<div class="failure-reason">${req.failureReason}</div>` : ''}
+                </div>
+              `).join('')}
+            </div>
+          `).join('')}
+          ${spec.entityResults.length > 50 ? `<div class="entity-row" style="text-align: center; color: #6b7280;">... and ${spec.entityResults.length - 50} more entities</div>` : ''}
+        </div>
+        ` : ''}
+      </div>
+    `).join('')}
+  </div>
+
+  <footer style="text-align: center; color: #6b7280; padding: 20px;">
+    Generated by IFC-Lite IDS Validator
+  </footer>
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = globalThis.document.createElement('a');
+    a.href = url;
+    a.download = `ids-report-${new Date().toISOString().split('T')[0]}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [report, locale]);
+
+  // ============================================================================
   // Return
   // ============================================================================
 
@@ -806,5 +1020,9 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     getPassedEntityIds,
     isEntityFailed,
     isEntityPassed,
+
+    // Export actions
+    exportReportJSON,
+    exportReportHTML,
   };
 }

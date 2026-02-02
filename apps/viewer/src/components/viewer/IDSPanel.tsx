@@ -35,6 +35,9 @@ import {
   Building2,
   RefreshCw,
   Trash2,
+  Download,
+  FileJson,
+  FileCode,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -75,15 +78,25 @@ interface IDSPanelProps {
 // Helper Components
 // ============================================================================
 
-function StatusIcon({ status }: { status: 'pass' | 'fail' | 'not_applicable' }) {
-  switch (status) {
-    case 'pass':
-      return <CheckCircle className="h-4 w-4 text-green-500" />;
-    case 'fail':
-      return <XCircle className="h-4 w-4 text-red-500" />;
-    case 'not_applicable':
-      return <AlertCircle className="h-4 w-4 text-yellow-500" />;
-  }
+function StatusIcon({ status, showLabel = false }: { status: 'pass' | 'fail' | 'not_applicable'; showLabel?: boolean }) {
+  const labels = {
+    pass: 'Passed',
+    fail: 'Failed',
+    not_applicable: 'Not Applicable',
+  };
+
+  const icons = {
+    pass: <CheckCircle className="h-4 w-4 text-green-500" aria-hidden="true" />,
+    fail: <XCircle className="h-4 w-4 text-red-500" aria-hidden="true" />,
+    not_applicable: <AlertCircle className="h-4 w-4 text-yellow-500" aria-hidden="true" />,
+  };
+
+  return (
+    <span className="inline-flex items-center gap-1" role="status" aria-label={labels[status]}>
+      {icons[status]}
+      {showLabel && <span className="sr-only">{labels[status]}</span>}
+    </span>
+  );
 }
 
 function StatusBadge({ status }: { status: 'pass' | 'fail' | 'not_applicable' }) {
@@ -236,11 +249,28 @@ interface EntityResultRowProps {
 function EntityResultRow({ entity, onClick }: EntityResultRowProps) {
   const [showDetails, setShowDetails] = useState(false);
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onClick();
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      setShowDetails(true);
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      setShowDetails(false);
+    }
+  };
+
   return (
-    <div className="hover:bg-muted/50">
+    <div className="hover:bg-muted/50 focus-within:bg-muted/50">
       <button
-        className="w-full p-2 text-left flex items-center gap-2"
+        className="w-full p-2 text-left flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset"
         onClick={onClick}
+        onKeyDown={handleKeyDown}
+        tabIndex={0}
+        aria-expanded={showDetails}
+        aria-label={`${entity.entityName || '#' + entity.expressId} - ${entity.entityType} - ${entity.passed ? 'Passed' : 'Failed'}`}
       >
         <StatusIcon status={entity.passed ? 'pass' : 'fail'} />
         <div className="flex-1 min-w-0">
@@ -328,6 +358,8 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
     isolateFailed,
     isolatePassed,
     clearIsolation,
+    exportReportJSON,
+    exportReportHTML,
   } = useIDS();
 
   // Handle file selection
@@ -450,6 +482,9 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
           <div className="mt-2">
             <PassRateBar passRate={report.summary.overallPassRate} />
           </div>
+          <p className="text-xs text-muted-foreground mt-2 text-center">
+            💡 Click any entity to select and zoom to it in the 3D view
+          </p>
         </div>
 
         {/* Filter & Actions Bar */}
@@ -503,6 +538,26 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
             </TooltipTrigger>
             <TooltipContent>Reapply Colors</TooltipContent>
           </Tooltip>
+
+          <Separator orientation="vertical" className="h-4 mx-1" />
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={exportReportJSON}>
+                <FileJson className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Export JSON Report</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={exportReportHTML}>
+                <FileCode className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Export HTML Report</TooltipContent>
+          </Tooltip>
         </div>
 
         {/* Specifications List */}
@@ -534,17 +589,24 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
         </div>
         <div className="flex items-center gap-1">
           {/* Language Selector */}
-          <Select value={locale} onValueChange={(v) => setLocale(v as SupportedLocale)}>
-            <SelectTrigger className="h-7 w-16 text-xs">
-              <Globe className="h-3 w-3 mr-1" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="en">EN</SelectItem>
-              <SelectItem value="de">DE</SelectItem>
-              <SelectItem value="fr">FR</SelectItem>
-            </SelectContent>
-          </Select>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div>
+                <Select value={locale} onValueChange={(v) => setLocale(v as SupportedLocale)}>
+                  <SelectTrigger className="h-7 w-16 text-xs">
+                    <Globe className="h-3 w-3 mr-1" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="en">EN</SelectItem>
+                    <SelectItem value="de">DE</SelectItem>
+                    <SelectItem value="fr">FR</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>Report Language</TooltipContent>
+          </Tooltip>
 
           {/* Load New IDS */}
           {document && (
