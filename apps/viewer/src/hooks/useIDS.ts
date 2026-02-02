@@ -868,6 +868,17 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
       return;
     }
 
+    // HTML escape helper to prevent XSS
+    const escapeHtml = (str: string | undefined | null): string => {
+      if (str == null) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    };
+
     const statusClass = (status: string) => {
       if (status === 'pass') return 'color: #22c55e;';
       if (status === 'fail') return 'color: #ef4444;';
@@ -875,11 +886,11 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     };
 
     const html = `<!DOCTYPE html>
-<html lang="${locale}">
+<html lang="${escapeHtml(locale)}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>IDS Validation Report - ${report.document.info.title}</title>
+  <title>IDS Validation Report - ${escapeHtml(report.document.info.title)}</title>
   <style>
     * { box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background: #f5f5f5; }
@@ -908,9 +919,9 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
 </head>
 <body>
   <div class="card">
-    <h1>${report.document.info.title}</h1>
-    ${report.document.info.description ? `<p>${report.document.info.description}</p>` : ''}
-    <p><strong>Model:</strong> ${report.modelInfo.modelId} | <strong>Schema:</strong> ${report.modelInfo.schemaVersion} | <strong>Date:</strong> ${report.timestamp.toLocaleString()}</p>
+    <h1>${escapeHtml(report.document.info.title)}</h1>
+    ${report.document.info.description ? `<p>${escapeHtml(report.document.info.description)}</p>` : ''}
+    <p><strong>Model:</strong> ${escapeHtml(report.modelInfo.modelId)} | <strong>Schema:</strong> ${escapeHtml(report.modelInfo.schemaVersion)} | <strong>Date:</strong> ${escapeHtml(report.timestamp.toLocaleString())}</p>
   </div>
 
   <div class="card">
@@ -944,8 +955,8 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     ${report.specificationResults.map(spec => `
       <div class="spec-card">
         <div class="spec-header">
-          <h3 style="${statusClass(spec.status)}">${spec.status === 'pass' ? '✓' : '✗'} ${spec.specification.name}</h3>
-          ${spec.specification.description ? `<p style="margin: 8px 0; color: #6b7280;">${spec.specification.description}</p>` : ''}
+          <h3 style="${statusClass(spec.status)}">${spec.status === 'pass' ? '✓' : '✗'} ${escapeHtml(spec.specification.name)}</h3>
+          ${spec.specification.description ? `<p style="margin: 8px 0; color: #6b7280;">${escapeHtml(spec.specification.description)}</p>` : ''}
           <div style="display: flex; gap: 16px; font-size: 14px; color: #6b7280;">
             <span>${spec.applicableCount} entities</span>
             <span class="pass">${spec.passedCount} passed</span>
@@ -960,13 +971,13 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
           ${spec.entityResults.slice(0, 50).map(entity => `
             <div class="entity-row">
               <div style="${statusClass(entity.passed ? 'pass' : 'fail')}">
-                ${entity.passed ? '✓' : '✗'} <strong>${entity.entityName || '#' + entity.expressId}</strong>
-                <span style="color: #6b7280; font-size: 13px;"> - ${entity.entityType}${entity.globalId ? ' · ' + entity.globalId : ''}</span>
+                ${entity.passed ? '✓' : '✗'} <strong>${escapeHtml(entity.entityName) || '#' + entity.expressId}</strong>
+                <span style="color: #6b7280; font-size: 13px;"> - ${escapeHtml(entity.entityType)}${entity.globalId ? ' · ' + escapeHtml(entity.globalId) : ''}</span>
               </div>
               ${entity.requirementResults.filter(r => r.status === 'fail').map(req => `
                 <div class="requirement">
-                  ${req.checkedDescription}
-                  ${req.failureReason ? `<div class="failure-reason">${req.failureReason}</div>` : ''}
+                  ${escapeHtml(req.checkedDescription)}
+                  ${req.failureReason ? `<div class="failure-reason">${escapeHtml(req.failureReason)}</div>` : ''}
                 </div>
               `).join('')}
             </div>
