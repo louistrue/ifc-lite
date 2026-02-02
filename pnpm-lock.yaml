@@ -180,6 +180,9 @@ importers:
       '@ifc-lite/geometry':
         specifier: workspace:^
         version: link:../../packages/geometry
+      '@ifc-lite/ids':
+        specifier: workspace:^
+        version: link:../../packages/ids
       '@ifc-lite/mutations':
         specifier: workspace:^
         version: link:../../packages/mutations
@@ -439,6 +442,19 @@ importers:
       '@tauri-apps/api':
         specifier: ^2.0.0
         version: 2.9.1
+
+  packages/ids:
+    dependencies:
+      '@ifc-lite/data':
+        specifier: workspace:*
+        version: link:../data
+    devDependencies:
+      typescript:
+        specifier: ^5.3.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@20.19.28)(lightningcss@1.30.2)
 
   packages/ifcx:
     dependencies:
