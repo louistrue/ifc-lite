@@ -441,11 +441,11 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
       const doc = parseIDS(xmlContent);
       setIdsDocument(doc);
 
-      console.log(`[useIDS] Loaded IDS: "${doc.info.title}" with ${doc.specifications.length} specifications`);
+      console.info(`[IDS] Loaded: "${doc.info.title}" (${doc.specifications.length} specifications)`);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to parse IDS file';
       setIdsError(message);
-      console.error('[useIDS] Parse error:', err);
+      console.error('[IDS] Parse error:', err);
     } finally {
       setIdsLoading(false);
     }
@@ -490,7 +490,6 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     // Determine model ID - use '__legacy__' for legacy single-model mode
     const isLegacyMode = ifcDataStore && models.size === 0;
     const modelId = activeModelId || (models.size > 0 ? Array.from(models.keys())[0] : '__legacy__');
-    console.log(`[useIDS] runValidation: modelId="${modelId}", isLegacyMode=${isLegacyMode}, models.size=${models.size}`);
 
     try {
       setIdsLoading(true);
@@ -515,16 +514,16 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
 
       setIdsValidationReport(validationReport);
 
-      console.log(
-        `[useIDS] Validation complete: ${validationReport.summary.passedSpecifications}/${validationReport.summary.totalSpecifications} specs passed, ` +
-        `${validationReport.summary.totalEntitiesPassed}/${validationReport.summary.totalEntitiesChecked} entities passed (${validationReport.summary.overallPassRate}%)`
+      console.info(
+        `[IDS] Validation: ${validationReport.summary.passedSpecifications}/${validationReport.summary.totalSpecifications} specs, ` +
+        `${validationReport.summary.totalEntitiesPassed}/${validationReport.summary.totalEntitiesChecked} entities (${validationReport.summary.overallPassRate}%)`
       );
 
       return validationReport;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Validation failed';
       setIdsError(message);
-      console.error('[useIDS] Validation error:', err);
+      console.error('[IDS] Validation error:', err);
       return null;
     } finally {
       setIdsLoading(false);
@@ -554,7 +553,6 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
   }, [setIdsActiveSpecification]);
 
   const selectEntity = useCallback((modelId: string, expressId: number, zoomToEntity = true) => {
-    console.log(`[useIDS] selectEntity: modelId="${modelId}", expressId=${expressId}, zoom=${zoomToEntity}`);
 
     // Update IDS state
     setIdsActiveEntity({ modelId, expressId });
@@ -565,7 +563,6 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
 
     if (isLegacyMode) {
       // Legacy mode: globalId equals expressId, use 'legacy' for selection
-      console.log(`[useIDS] Legacy mode - setting expressId directly: ${expressId}`);
       setSelectedEntityId(expressId);
       // Use 'legacy' as the modelId for PropertiesPanel compatibility
       setSelectedEntity({ modelId: 'legacy', expressId });
@@ -573,7 +570,6 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
       // Federation mode: convert to globalId using model offset
       const model = models.get(modelId);
       const globalId = model ? expressId + (model.idOffset ?? 0) : expressId;
-      console.log(`[useIDS] Federation mode - model found: ${!!model}, globalId: ${globalId}`);
       setSelectedEntityId(globalId);
       setSelectedEntity({ modelId, expressId });
     }
@@ -647,13 +643,11 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
 
     if (colorUpdates.size > 0) {
       updateMeshColors(colorUpdates);
-      console.log(`[useIDS] Applied colors to ${colorUpdates.size} entities`);
     }
   }, [report, models, displayOptions, defaultFailedColor, defaultPassedColor, updateMeshColors]);
 
   const clearColors = useCallback(() => {
     if (!report) {
-      console.log('[useIDS] No validation report to clear colors from');
       return;
     }
 
@@ -674,7 +668,6 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
 
     if (colorUpdates.size > 0) {
       updateMeshColors(colorUpdates);
-      console.log(`[useIDS] Cleared colors from ${colorUpdates.size} entities`);
     }
   }, [report, models, updateMeshColors]);
 
@@ -704,7 +697,6 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
 
     if (failedIds.size > 0) {
       setIsolatedEntities(failedIds);
-      console.log(`[useIDS] Isolated ${failedIds.size} failed entities`);
     }
   }, [idsFailedEntityIds, models, setIsolatedEntities]);
 
@@ -723,7 +715,6 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
 
     if (passedIds.size > 0) {
       setIsolatedEntities(passedIds);
-      console.log(`[useIDS] Isolated ${passedIds.size} passed entities`);
     }
   }, [idsPassedEntityIds, models, setIsolatedEntities]);
 
@@ -791,7 +782,7 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
 
   const exportReportJSON = useCallback(() => {
     if (!report) {
-      console.warn('[useIDS] No report to export');
+      console.warn('[IDS] No report to export');
       return;
     }
 
@@ -838,7 +829,7 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
 
   const exportReportHTML = useCallback(() => {
     if (!report) {
-      console.warn('[useIDS] No report to export');
+      console.warn('[IDS] No report to export');
       return;
     }
 
