@@ -462,9 +462,10 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
       return null;
     }
 
-    // Determine model ID
-    const modelId = activeModelId || (models.size > 0 ? Array.from(models.keys())[0] : 'default');
-    console.log(`[useIDS] runValidation: modelId="${modelId}", activeModelId="${activeModelId}", models.size=${models.size}`);
+    // Determine model ID - use '__legacy__' for legacy single-model mode
+    const isLegacyMode = ifcDataStore && models.size === 0;
+    const modelId = activeModelId || (models.size > 0 ? Array.from(models.keys())[0] : '__legacy__');
+    console.log(`[useIDS] runValidation: modelId="${modelId}", isLegacyMode=${isLegacyMode}, models.size=${models.size}`);
 
     try {
       setIdsLoading(true);
@@ -528,21 +529,29 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
   }, [setIdsActiveSpecification]);
 
   const selectEntity = useCallback((modelId: string, expressId: number) => {
-    console.log(`[useIDS] selectEntity called: modelId="${modelId}", expressId=${expressId}`);
-    console.log(`[useIDS] models keys:`, Array.from(models.keys()));
+    console.log(`[useIDS] selectEntity: modelId="${modelId}", expressId=${expressId}, models.size=${models.size}`);
 
     // Update IDS state
     setIdsActiveEntity({ modelId, expressId });
 
     // Sync to viewer selection
-    // Need to convert to globalId if using federation
-    const model = models.get(modelId);
-    console.log(`[useIDS] Found model:`, model ? 'yes' : 'no', model?.idOffset);
-    const globalId = model ? expressId + (model.idOffset ?? 0) : expressId;
-    console.log(`[useIDS] Setting globalId: ${globalId}`);
+    // Handle legacy mode vs federation mode
+    const isLegacyMode = modelId === '__legacy__' || models.size === 0;
 
-    setSelectedEntityId(globalId);
-    setSelectedEntity({ modelId, expressId });
+    if (isLegacyMode) {
+      // Legacy mode: globalId equals expressId, use 'legacy' for selection
+      console.log(`[useIDS] Legacy mode - setting expressId directly: ${expressId}`);
+      setSelectedEntityId(expressId);
+      // Use 'legacy' as the modelId for PropertiesPanel compatibility
+      setSelectedEntity({ modelId: 'legacy', expressId });
+    } else {
+      // Federation mode: convert to globalId using model offset
+      const model = models.get(modelId);
+      const globalId = model ? expressId + (model.idOffset ?? 0) : expressId;
+      console.log(`[useIDS] Federation mode - model found: ${!!model}, globalId: ${globalId}`);
+      setSelectedEntityId(globalId);
+      setSelectedEntity({ modelId, expressId });
+    }
   }, [setIdsActiveEntity, setSelectedEntityId, setSelectedEntity, models]);
 
   const clearEntitySelection = useCallback(() => {
