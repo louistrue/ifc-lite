@@ -13,7 +13,7 @@
  * - Isolate failed/passed entities
  */
 
-import { useCallback, useMemo, useEffect } from 'react';
+import { useCallback, useMemo, useEffect, useRef } from 'react';
 import { useViewerStore } from '@/store';
 import type {
   IDSDocument,
@@ -423,6 +423,10 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
   const setSelectedEntity = useViewerStore((s) => s.setSelectedEntity);
   const setIsolatedEntities = useViewerStore((s) => s.setIsolatedEntities);
   const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
+  const geometryResult = useViewerStore((s) => s.geometryResult);
+
+  // Ref to store original colors before IDS color overrides
+  const originalColorsRef = useRef<Map<number, [number, number, number, number]>>(new Map());
 
   // Get translator for current locale
   const translator = useMemo(() => {
@@ -625,6 +629,27 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     const failedClr = displayOptions.failedColor ?? defaultFailedColor;
     const passedClr = displayOptions.passedColor ?? defaultPassedColor;
 
+    // Build a set of globalIds we'll be updating
+    const globalIdsToUpdate = new Set<number>();
+    for (const specResult of report.specificationResults) {
+      for (const entityResult of specResult.entityResults) {
+        const model = models.get(entityResult.modelId);
+        const globalId = model
+          ? entityResult.expressId + (model.idOffset ?? 0)
+          : entityResult.expressId;
+        globalIdsToUpdate.add(globalId);
+      }
+    }
+
+    // Capture original colors before applying overrides (only if not already captured)
+    if (geometryResult?.meshes && originalColorsRef.current.size === 0) {
+      for (const mesh of geometryResult.meshes) {
+        if (globalIdsToUpdate.has(mesh.expressId)) {
+          originalColorsRef.current.set(mesh.expressId, [...mesh.color] as [number, number, number, number]);
+        }
+      }
+    }
+
     // Process all entity results
     for (const specResult of report.specificationResults) {
       for (const entityResult of specResult.entityResults) {
@@ -644,32 +669,23 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     if (colorUpdates.size > 0) {
       updateMeshColors(colorUpdates);
     }
-  }, [report, models, displayOptions, defaultFailedColor, defaultPassedColor, updateMeshColors]);
+  }, [report, models, displayOptions, defaultFailedColor, defaultPassedColor, updateMeshColors, geometryResult]);
 
   const clearColors = useCallback(() => {
-    if (!report) {
+    // Restore original colors from the ref
+    if (originalColorsRef.current.size === 0) {
       return;
     }
 
-    // Build a map of all IDS-colored entities to clear their overrides
-    // Setting color to null/undefined signals the renderer to use default colors
-    const colorUpdates = new Map<number, [number, number, number, number]>();
-    const defaultColor: [number, number, number, number] = [1, 1, 1, 1]; // Reset to white
-
-    for (const specResult of report.specificationResults) {
-      for (const entityResult of specResult.entityResults) {
-        const model = models.get(entityResult.modelId);
-        const globalId = model
-          ? entityResult.expressId + (model.idOffset ?? 0)
-          : entityResult.expressId;
-        colorUpdates.set(globalId, defaultColor);
-      }
-    }
+    // Create a new map with the original colors to restore
+    const colorUpdates = new Map<number, [number, number, number, number]>(originalColorsRef.current);
 
     if (colorUpdates.size > 0) {
       updateMeshColors(colorUpdates);
+      // Clear the stored original colors after restoring
+      originalColorsRef.current.clear();
     }
-  }, [report, models, updateMeshColors]);
+  }, [updateMeshColors]);
 
   // Auto-apply colors when validation completes
   useEffect(() => {

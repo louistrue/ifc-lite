@@ -127,16 +127,29 @@ function parseSpecification(el: Element, index: number): IDSSpecification {
     .map((v) => normalizeIfcVersion(v))
     .filter((v): v is IFCVersion => v !== null);
 
-  // Parse minOccurs/maxOccurs
+  // Parse minOccurs/maxOccurs with NaN validation
   const minOccursAttr = el.getAttribute('minOccurs');
   const maxOccursAttr = el.getAttribute('maxOccurs');
 
-  const minOccurs = minOccursAttr ? parseInt(minOccursAttr, 10) : undefined;
-  const maxOccurs = maxOccursAttr
-    ? maxOccursAttr === 'unbounded'
-      ? 'unbounded'
-      : parseInt(maxOccursAttr, 10)
-    : undefined;
+  let minOccurs: number | undefined;
+  if (minOccursAttr) {
+    const parsed = parseInt(minOccursAttr, 10);
+    if (Number.isFinite(parsed)) {
+      minOccurs = parsed;
+    }
+  }
+
+  let maxOccurs: number | 'unbounded' | undefined;
+  if (maxOccursAttr) {
+    if (maxOccursAttr === 'unbounded') {
+      maxOccurs = 'unbounded';
+    } else {
+      const parsed = parseInt(maxOccursAttr, 10);
+      if (Number.isFinite(parsed)) {
+        maxOccurs = parsed;
+      }
+    }
+  }
 
   // Parse applicability
   const applicabilityEl = getChildElement(el, 'applicability');
