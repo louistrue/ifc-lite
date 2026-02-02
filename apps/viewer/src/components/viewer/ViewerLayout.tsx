@@ -16,6 +16,7 @@ import { useViewerStore } from '@/store';
 import { EntityContextMenu } from './EntityContextMenu';
 import { HoverTooltip } from './HoverTooltip';
 import { BCFPanel } from './BCFPanel';
+import { IDSPanel } from './IDSPanel';
 
 export function ViewerLayout() {
   // Initialize keyboard shortcuts
@@ -32,6 +33,8 @@ export function ViewerLayout() {
   const setRightPanelCollapsed = useViewerStore((s) => s.setRightPanelCollapsed);
   const bcfPanelVisible = useViewerStore((s) => s.bcfPanelVisible);
   const setBcfPanelVisible = useViewerStore((s) => s.setBcfPanelVisible);
+  const idsPanelVisible = useViewerStore((s) => s.idsPanelVisible);
+  const setIdsPanelVisible = useViewerStore((s) => s.setIdsPanelVisible);
 
   // Detect mobile viewport
   useEffect(() => {
@@ -101,7 +104,7 @@ export function ViewerLayout() {
 
             <PanelResizeHandle className="w-1.5 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-col-resize" />
 
-            {/* Right Panel - Properties or BCF */}
+            {/* Right Panel - Properties, BCF, or IDS */}
             <Panel
               id="right-panel"
               defaultSize={22}
@@ -110,7 +113,9 @@ export function ViewerLayout() {
               collapsedSize={0}
             >
               <div className="h-full w-full overflow-hidden">
-                {bcfPanelVisible ? (
+                {idsPanelVisible ? (
+                  <IDSPanel onClose={() => setIdsPanelVisible(false)} />
+                ) : bcfPanelVisible ? (
                   <BCFPanel onClose={() => setBcfPanelVisible(false)} />
                 ) : (
                   <PropertiesPanel />
@@ -149,16 +154,19 @@ export function ViewerLayout() {
               </div>
             )}
 
-            {/* Mobile Bottom Sheet - Properties or BCF */}
+            {/* Mobile Bottom Sheet - Properties, BCF, or IDS */}
             {!rightPanelCollapsed && (
               <div className="absolute inset-x-0 bottom-0 h-[50vh] bg-background border-t rounded-t-xl shadow-xl z-40 animate-in slide-in-from-bottom">
                 <div className="flex items-center justify-between p-2 border-b">
-                  <span className="font-medium text-sm">{bcfPanelVisible ? 'BCF Issues' : 'Properties'}</span>
+                  <span className="font-medium text-sm">
+                    {idsPanelVisible ? 'IDS Validation' : bcfPanelVisible ? 'BCF Issues' : 'Properties'}
+                  </span>
                   <button
                     className="p-1 hover:bg-muted rounded"
                     onClick={() => {
                       setRightPanelCollapsed(true);
                       if (bcfPanelVisible) setBcfPanelVisible(false);
+                      if (idsPanelVisible) setIdsPanelVisible(false);
                     }}
                   >
                     <span className="sr-only">Close</span>
@@ -168,7 +176,9 @@ export function ViewerLayout() {
                   </button>
                 </div>
                 <div className="h-[calc(50vh-48px)] overflow-auto">
-                  {bcfPanelVisible ? (
+                  {idsPanelVisible ? (
+                    <IDSPanel onClose={() => setIdsPanelVisible(false)} />
+                  ) : bcfPanelVisible ? (
                     <BCFPanel onClose={() => setBcfPanelVisible(false)} />
                   ) : (
                     <PropertiesPanel />

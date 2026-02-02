@@ -34,6 +34,7 @@ import {
   Building2,
   Plus,
   MessageSquare,
+  ClipboardCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -160,6 +161,8 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const resetViewerState = useViewerStore((state) => state.resetViewerState);
   const bcfPanelVisible = useViewerStore((state) => state.bcfPanelVisible);
   const toggleBcfPanel = useViewerStore((state) => state.toggleBcfPanel);
+  const idsPanelVisible = useViewerStore((state) => state.idsPanelVisible);
+  const toggleIdsPanel = useViewerStore((state) => state.toggleIdsPanel);
   const setRightPanelCollapsed = useViewerStore((state) => state.setRightPanelCollapsed);
 
   // Check which type geometries exist
@@ -539,6 +542,28 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
           </Button>
         </TooltipTrigger>
         <TooltipContent>BCF Issues</TooltipContent>
+      </Tooltip>
+
+      {/* IDS Validation Button */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={idsPanelVisible ? 'default' : 'ghost'}
+            size="icon-sm"
+            onClick={(e) => {
+              (e.currentTarget as HTMLButtonElement).blur();
+              // If IDS is being shown, also expand the right panel
+              if (!idsPanelVisible) {
+                setRightPanelCollapsed(false);
+              }
+              toggleIdsPanel();
+            }}
+            className={cn(idsPanelVisible && 'bg-primary text-primary-foreground')}
+          >
+            <ClipboardCheck className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>IDS Validation</TooltipContent>
       </Tooltip>
 
       <Separator orientation="vertical" className="h-6 mx-1" />

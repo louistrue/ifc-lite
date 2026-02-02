@@ -64,6 +64,12 @@
       ],
       "@ifc-lite/drawing-2d/*": [
         "packages/drawing-2d/dist/*"
+      ],
+      "@ifc-lite/ids": [
+        "packages/ids/dist/index.d.ts"
+      ],
+      "@ifc-lite/ids/*": [
+        "packages/ids/dist/*"
       ]
     }
   },
