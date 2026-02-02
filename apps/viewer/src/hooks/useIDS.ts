@@ -701,12 +701,17 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     }
   }, [updateMeshColors]);
 
+  // Ref to store applyColors for stable useEffect (prevents infinite loops)
+  const applyColorsRef = useRef(applyColors);
+  applyColorsRef.current = applyColors;
+
   // Auto-apply colors when validation completes
+  // Use ref to avoid dependency on applyColors callback which could cause loops
   useEffect(() => {
     if (autoApplyColors && report) {
-      applyColors();
+      applyColorsRef.current();
     }
-  }, [autoApplyColors, report, applyColors]);
+  }, [autoApplyColors, report]);
 
   // ============================================================================
   // Isolation Actions
