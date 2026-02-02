@@ -464,6 +464,7 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
 
     // Determine model ID
     const modelId = activeModelId || (models.size > 0 ? Array.from(models.keys())[0] : 'default');
+    console.log(`[useIDS] runValidation: modelId="${modelId}", activeModelId="${activeModelId}", models.size=${models.size}`);
 
     try {
       setIdsLoading(true);
@@ -527,13 +528,18 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
   }, [setIdsActiveSpecification]);
 
   const selectEntity = useCallback((modelId: string, expressId: number) => {
+    console.log(`[useIDS] selectEntity called: modelId="${modelId}", expressId=${expressId}`);
+    console.log(`[useIDS] models keys:`, Array.from(models.keys()));
+
     // Update IDS state
     setIdsActiveEntity({ modelId, expressId });
 
     // Sync to viewer selection
     // Need to convert to globalId if using federation
     const model = models.get(modelId);
+    console.log(`[useIDS] Found model:`, model ? 'yes' : 'no', model?.idOffset);
     const globalId = model ? expressId + (model.idOffset ?? 0) : expressId;
+    console.log(`[useIDS] Setting globalId: ${globalId}`);
 
     setSelectedEntityId(globalId);
     setSelectedEntity({ modelId, expressId });
