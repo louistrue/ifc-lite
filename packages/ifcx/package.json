@@ -12,7 +12,7 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "pnpm --filter @ifc-lite/mutations build && tsc",
     "dev": "tsc --watch"
   },
   "dependencies": {
