@@ -31,6 +31,7 @@ import {
   renderTitleBlock,
   calculateDrawingTransform,
   type Drawing2D,
+  type DrawingLine,
   type SectionConfig,
   type ElementData,
   type TitleBlockExtras,
@@ -235,10 +236,8 @@ export function Section2DPanel(): React.ReactElement | null {
 
         setDrawingProgress(50, `Found ${symbolicCollection.totalCount} symbolic items...`);
 
-        // Convert symbolic data to Drawing2D format
-        // SymbolicPolyline -> ElementData with polylines
-        // SymbolicCircle -> ElementData with arc approximation
-        const elements: ElementData[] = [];
+        // Convert symbolic data to Drawing2D format with proper DrawingLine[]
+        const drawingLines: DrawingLine[] = [];
 
         // Process polylines
         for (let i = 0; i < symbolicCollection.polylineCount; i++) {
@@ -247,17 +246,21 @@ export function Section2DPanel(): React.ReactElement | null {
 
           const points = poly.points;
           const pointCount = poly.pointCount;
-          const lines: { start: { x: number; y: number }; end: { x: number; y: number } }[] = [];
 
-          // Convert points to line segments
+          // Convert points to DrawingLine segments
           for (let j = 0; j < pointCount - 1; j++) {
             const x1 = points[j * 2];
             const y1 = points[j * 2 + 1];
             const x2 = points[(j + 1) * 2];
             const y2 = points[(j + 1) * 2 + 1];
-            lines.push({
-              start: { x: x1, y: y1 },
-              end: { x: x2, y: y2 },
+            drawingLines.push({
+              line: { start: { x: x1, y: y1 }, end: { x: x2, y: y2 } },
+              category: 'cut',
+              visibility: 'visible',
+              entityId: poly.expressId,
+              ifcType: poly.ifcType,
+              modelIndex: 0,
+              depth: 0,
             });
           }
 
@@ -267,19 +270,14 @@ export function Section2DPanel(): React.ReactElement | null {
             const y1 = points[(pointCount - 1) * 2 + 1];
             const x2 = points[0];
             const y2 = points[1];
-            lines.push({
-              start: { x: x1, y: y1 },
-              end: { x: x2, y: y2 },
-            });
-          }
-
-          if (lines.length > 0) {
-            elements.push({
+            drawingLines.push({
+              line: { start: { x: x1, y: y1 }, end: { x: x2, y: y2 } },
+              category: 'cut',
+              visibility: 'visible',
               entityId: poly.expressId,
               ifcType: poly.ifcType,
-              sectionLines: lines,
-              projectionLines: [],
-              hiddenLines: [],
+              modelIndex: 0,
+              depth: 0,
             });
           }
         }
@@ -289,7 +287,6 @@ export function Section2DPanel(): React.ReactElement | null {
           const circle = symbolicCollection.getCircle(i);
           if (!circle) continue;
 
-          const lines: { start: { x: number; y: number }; end: { x: number; y: number } }[] = [];
           const numSegments = circle.isFullCircle ? 32 : 16;
           const startAngle = circle.startAngle;
           const endAngle = circle.endAngle;
@@ -300,57 +297,73 @@ export function Section2DPanel(): React.ReactElement | null {
             const a1 = startAngle + t1 * (endAngle - startAngle);
             const a2 = startAngle + t2 * (endAngle - startAngle);
 
-            lines.push({
-              start: {
-                x: circle.centerX + circle.radius * Math.cos(a1),
-                y: circle.centerY + circle.radius * Math.sin(a1),
+            drawingLines.push({
+              line: {
+                start: {
+                  x: circle.centerX + circle.radius * Math.cos(a1),
+                  y: circle.centerY + circle.radius * Math.sin(a1),
+                },
+                end: {
+                  x: circle.centerX + circle.radius * Math.cos(a2),
+                  y: circle.centerY + circle.radius * Math.sin(a2),
+                },
               },
-              end: {
-                x: circle.centerX + circle.radius * Math.cos(a2),
-                y: circle.centerY + circle.radius * Math.sin(a2),
-              },
-            });
-          }
-
-          if (lines.length > 0) {
-            elements.push({
+              category: 'cut',
+              visibility: 'visible',
               entityId: circle.expressId,
               ifcType: circle.ifcType,
-              sectionLines: lines,
-              projectionLines: [],
-              hiddenLines: [],
+              modelIndex: 0,
+              depth: 0,
             });
           }
         }
 
         setDrawingProgress(80, 'Generating drawing...');
 
-        // Calculate bounds from all elements
+        // Calculate bounds from all lines
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (const element of elements) {
-          for (const line of element.sectionLines) {
-            minX = Math.min(minX, line.start.x, line.end.x);
-            minY = Math.min(minY, line.start.y, line.end.y);
-            maxX = Math.max(maxX, line.start.x, line.end.x);
-            maxY = Math.max(maxY, line.start.y, line.end.y);
-          }
+        for (const line of drawingLines) {
+          minX = Math.min(minX, line.line.start.x, line.line.end.x);
+          minY = Math.min(minY, line.line.start.y, line.line.end.y);
+          maxX = Math.max(maxX, line.line.start.x, line.line.end.x);
+          maxY = Math.max(maxY, line.line.start.y, line.line.end.y);
         }
 
-        // Create the Drawing2D result
+        // Create a default section config for symbolic mode
+        const symbolicConfig: SectionConfig = {
+          plane: {
+            axis: 'y',
+            position: 0,
+            normal: { x: 0, y: 1, z: 0 },
+            origin: { x: 0, y: 0, z: 0 },
+            flipped: false,
+          },
+          projectionDepth: 0,
+          includeHiddenLines: false,
+          creaseAngle: 30,
+          scale: displayOptions.scale,
+        };
+
+        // Create the Drawing2D result with proper structure
         const symbolicDrawing: Drawing2D = {
-          elements,
+          config: symbolicConfig,
+          lines: drawingLines,
+          cutPolygons: [], // No cut polygons for symbolic representations
+          projectionPolygons: [],
           bounds: {
             minX: isFinite(minX) ? minX : 0,
             minY: isFinite(minY) ? minY : 0,
             maxX: isFinite(maxX) ? maxX : 1,
             maxY: isFinite(maxY) ? maxY : 1,
           },
-          scale: displayOptions.scale,
           stats: {
-            entityCount: elements.length,
-            sectionLineCount: elements.reduce((sum, e) => sum + e.sectionLines.length, 0),
+            cutLineCount: drawingLines.length,
             projectionLineCount: 0,
             hiddenLineCount: 0,
+            silhouetteLineCount: 0,
+            polygonCount: 0,
+            totalTriangles: 0,
+            processingTimeMs: 0,
           },
         };
 
@@ -358,7 +371,7 @@ export function Section2DPanel(): React.ReactElement | null {
         setDrawingStatus('ready');
         processor.dispose();
 
-        console.log(`[Section2DPanel] Symbolic drawing generated: ${symbolicCollection.totalCount} items, ${elements.length} elements`);
+        console.log(`[Section2DPanel] Symbolic drawing generated: ${symbolicCollection.totalCount} items, ${drawingLines.length} lines`);
         return;
       } catch (error) {
         console.error('Symbolic representation parsing failed:', error);
@@ -1404,7 +1417,10 @@ export function Section2DPanel(): React.ReactElement | null {
 
   const toggleSymbolicRepresentations = useCallback(() => {
     updateDisplayOptions({ useSymbolicRepresentations: !displayOptions.useSymbolicRepresentations });
-  }, [displayOptions.useSymbolicRepresentations, updateDisplayOptions]);
+    // Clear current drawing to trigger regeneration with new mode
+    setDrawing(null);
+    setDrawingStatus('idle');
+  }, [displayOptions.useSymbolicRepresentations, updateDisplayOptions, setDrawing, setDrawingStatus]);
 
   const toggleExpanded = useCallback(() => {
     setIsExpanded((prev) => !prev);
@@ -1579,6 +1595,16 @@ export function Section2DPanel(): React.ReactElement | null {
                 title="Toggle 3D overlay"
               >
                 {displayOptions.show3DOverlay ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+              </Button>
+
+              {/* Symbolic vs Section Cut toggle */}
+              <Button
+                variant={displayOptions.useSymbolicRepresentations ? 'default' : 'ghost'}
+                size="icon-sm"
+                onClick={toggleSymbolicRepresentations}
+                title={displayOptions.useSymbolicRepresentations ? 'Symbolic representations (Plan)' : 'Section cut (Body)'}
+              >
+                {displayOptions.useSymbolicRepresentations ? <Shapes className="h-4 w-4" /> : <Box className="h-4 w-4" />}
               </Button>
 
               {/* 2D Measure Tool */}
@@ -1820,7 +1846,7 @@ export function Section2DPanel(): React.ReactElement | null {
           </div>
         )}
 
-        {status === 'ready' && drawing && drawing.cutPolygons.length > 0 && (
+        {status === 'ready' && drawing && (drawing.cutPolygons.length > 0 || drawing.lines?.length > 0) && (
           <>
             <Drawing2DCanvas
               drawing={drawing}
@@ -1851,7 +1877,7 @@ export function Section2DPanel(): React.ReactElement | null {
           </>
         )}
 
-        {status === 'ready' && drawing && drawing.cutPolygons.length === 0 && (
+        {status === 'ready' && drawing && drawing.cutPolygons.length === 0 && (!drawing.lines || drawing.lines.length === 0) && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-center text-muted-foreground">
               <p className="font-medium">No geometry at this level</p>
