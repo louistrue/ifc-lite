@@ -369,18 +369,46 @@ export function Section2DPanel(): React.ReactElement | null {
 
       // If we have symbolic representations, create a hybrid drawing
       if (symbolicLines.length > 0 && entitiesWithSymbols.size > 0) {
-        // Filter out section cut lines for entities that have symbolic representations
-        const filteredLines = result.lines.filter((line: DrawingLine) =>
-          line.entityId === undefined || !entitiesWithSymbols.has(line.entityId)
+        // Get entity IDs that actually appear in the section cut (these are being cut by the plane)
+        const cutEntityIds = new Set<number>();
+        for (const line of result.lines) {
+          if (line.entityId !== undefined) {
+            cutEntityIds.add(line.entityId);
+          }
+        }
+        // Also check cut polygons for entity IDs
+        for (const poly of result.cutPolygons ?? []) {
+          if ((poly as { entityId?: number }).entityId !== undefined) {
+            cutEntityIds.add((poly as { entityId?: number }).entityId!);
+          }
+        }
+
+        // Only include symbolic lines for entities that are ACTUALLY being cut
+        // This filters out symbols from other floors/levels not intersected by the section plane
+        const relevantSymbolicLines = symbolicLines.filter(line =>
+          line.entityId !== undefined && cutEntityIds.has(line.entityId)
         );
 
-        // Also filter cut polygons for entities with symbols
+        // Get the set of entities that have both symbols AND are being cut
+        const entitiesWithRelevantSymbols = new Set<number>();
+        for (const line of relevantSymbolicLines) {
+          if (line.entityId !== undefined) {
+            entitiesWithRelevantSymbols.add(line.entityId);
+          }
+        }
+
+        // Filter out section cut lines for entities that have relevant symbolic representations
+        const filteredLines = result.lines.filter((line: DrawingLine) =>
+          line.entityId === undefined || !entitiesWithRelevantSymbols.has(line.entityId)
+        );
+
+        // Also filter cut polygons for entities with relevant symbols
         const filteredCutPolygons = result.cutPolygons?.filter((poly: { entityId?: number }) =>
-          poly.entityId === undefined || !entitiesWithSymbols.has(poly.entityId)
+          poly.entityId === undefined || !entitiesWithRelevantSymbols.has(poly.entityId)
         ) ?? [];
 
-        // Combine filtered section cuts with symbolic lines
-        const combinedLines = [...filteredLines, ...symbolicLines];
+        // Combine filtered section cuts with relevant symbolic lines
+        const combinedLines = [...filteredLines, ...relevantSymbolicLines];
 
         // Recalculate bounds with combined lines
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -406,7 +434,7 @@ export function Section2DPanel(): React.ReactElement | null {
           },
         };
 
-        console.log(`[Section2DPanel] Hybrid drawing: ${filteredLines.length} section cut lines (filtered from ${result.lines.length}), ${symbolicLines.length} symbolic lines, ${entitiesWithSymbols.size} entities with symbols`);
+        console.log(`[Section2DPanel] Hybrid drawing: ${filteredLines.length} section cut lines, ${relevantSymbolicLines.length} symbolic lines (from ${symbolicLines.length} total), ${entitiesWithRelevantSymbols.size} entities replaced, ${cutEntityIds.size} entities being cut`);
         setDrawing(hybridDrawing);
       } else {
         setDrawing(result);
