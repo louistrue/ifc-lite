@@ -279,17 +279,25 @@ function EntityResultRow({ entity, onClick }: EntityResultRowProps) {
             {entity.globalId && ` \u00b7 ${entity.globalId}`}
           </div>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 w-6 p-0"
+        <span
+          role="button"
+          tabIndex={0}
+          className="inline-flex items-center justify-center h-6 w-6 rounded-md hover:bg-accent hover:text-accent-foreground"
           onClick={(e) => {
             e.stopPropagation();
             setShowDetails(!showDetails);
           }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              e.stopPropagation();
+              setShowDetails(!showDetails);
+            }
+          }}
+          aria-label={showDetails ? 'Hide details' : 'Show details'}
         >
           {showDetails ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        </Button>
+        </span>
       </button>
       {showDetails && (
         <div className="px-8 pb-2 space-y-1">
@@ -538,8 +546,9 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={exportReportJSON}>
+              <Button variant="ghost" size="sm" className="h-8 px-2 gap-1" onClick={exportReportJSON}>
                 <FileJson className="h-4 w-4" />
+                <span className="text-xs">JSON</span>
               </Button>
             </TooltipTrigger>
             <TooltipContent>Export JSON Report</TooltipContent>
@@ -547,8 +556,9 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={exportReportHTML}>
+              <Button variant="ghost" size="sm" className="h-8 px-2 gap-1" onClick={exportReportHTML}>
                 <FileCode className="h-4 w-4" />
+                <span className="text-xs">HTML</span>
               </Button>
             </TooltipTrigger>
             <TooltipContent>Export HTML Report</TooltipContent>
