@@ -2729,7 +2729,8 @@ fn resolve_placement_transform(
     }
 }
 
-/// Parse IfcAxis2Placement3D/2D to get 2D translation and rotation
+/// Parse IfcAxis2Placement3D/2D to get 2D translation and rotation for floor plan view
+/// In IFC, Y is typically the vertical axis, so floor plans use X-Z plane
 fn parse_axis2_placement_2d(
     placement: &ifc_lite_core::DecodedEntity,
     decoder: &mut ifc_lite_core::EntityDecoder,
@@ -2738,14 +2739,24 @@ fn parse_axis2_placement_2d(
     use ifc_lite_core::IfcType;
 
     // Get Location (attribute 0)
+    // For 3D placements, use X and Z (floor plan coordinates, Y is up)
+    // For 2D placements, use X and Y as-is
+    let is_3d = placement.ifc_type == IfcType::IfcAxis2Placement3D;
+
     let (tx, ty) = if let Some(loc_ref) = placement.get_ref(0) {
         if let Ok(loc) = decoder.decode_by_id(loc_ref) {
             if loc.ifc_type == IfcType::IfcCartesianPoint {
                 if let Some(coords_attr) = loc.get(0) {
                     if let Some(coords) = coords_attr.as_list() {
                         let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                        let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                        (x, y)
+                        // For 3D, use Z (index 2) as the second floor plan coordinate
+                        // For 2D, use Y (index 1)
+                        let y_or_z = if is_3d {
+                            coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale
+                        } else {
+                            coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale
+                        };
+                        (x, y_or_z)
                     } else {
                         (0.0, 0.0)
                     }
@@ -2764,6 +2775,7 @@ fn parse_axis2_placement_2d(
 
     // Get RefDirection (attribute 2 for 3D, attribute 1 for 2D) to get rotation
     // RefDirection is the X-axis direction in the local coordinate system
+    // For 3D, use X and Z components; for 2D, use X and Y
     let (cos_theta, sin_theta) = if let Some(ref_dir_attr) = placement.get(2).or_else(|| placement.get(1)) {
         if !ref_dir_attr.is_null() {
             if let Some(ref_dir_id) = ref_dir_attr.as_entity_ref() {
@@ -2772,10 +2784,15 @@ fn parse_axis2_placement_2d(
                         if let Some(ratios_attr) = ref_dir.get(0) {
                             if let Some(ratios) = ratios_attr.as_list() {
                                 let dx = ratios.first().and_then(|v| v.as_float()).unwrap_or(1.0) as f32;
-                                let dy = ratios.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
-                                let len = (dx * dx + dy * dy).sqrt();
+                                // For 3D, use Z component (index 2); for 2D, use Y component (index 1)
+                                let dy_or_dz = if is_3d {
+                                    ratios.get(2).and_then(|v| v.as_float()).unwrap_or(0.0) as f32
+                                } else {
+                                    ratios.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32
+                                };
+                                let len = (dx * dx + dy_or_dz * dy_or_dz).sqrt();
                                 if len > 0.0001 {
-                                    (dx / len, dy / len)
+                                    (dx / len, dy_or_dz / len)
                                 } else {
                                     (1.0, 0.0)
                                 }
