@@ -9,7 +9,7 @@
 use crate::gpu_geometry::{GpuGeometry, GpuInstancedGeometry, GpuInstancedGeometryCollection};
 use crate::zero_copy::{
     InstanceData, InstancedGeometry, InstancedMeshCollection, MeshCollection, MeshDataJs,
-    ZeroCopyMesh,
+    SymbolicRepresentationCollection, ZeroCopyMesh,
 };
 use ifc_lite_core::{EntityScanner, GeoReference, ParseEvent, RtcOffset, StreamConfig};
 use js_sys::{Function, Promise};
@@ -2492,6 +2492,403 @@ impl IfcAPI {
         }
 
         "No walls found".to_string()
+    }
+
+    /// Parse IFC file and extract symbolic representations (Plan, Annotation, FootPrint)
+    /// These are 2D curves used for architectural drawings instead of sectioning 3D geometry
+    ///
+    /// Example:
+    /// ```javascript
+    /// const api = new IfcAPI();
+    /// const symbols = api.parseSymbolicRepresentations(ifcData);
+    /// console.log('Found', symbols.totalCount, 'symbolic items');
+    /// for (let i = 0; i < symbols.polylineCount; i++) {
+    ///   const polyline = symbols.getPolyline(i);
+    ///   console.log('Polyline for', polyline.ifcType, ':', polyline.points);
+    /// }
+    /// ```
+    #[wasm_bindgen(js_name = parseSymbolicRepresentations)]
+    pub fn parse_symbolic_representations(&self, content: String) -> SymbolicRepresentationCollection {
+        use crate::zero_copy::SymbolicRepresentationCollection;
+        use ifc_lite_core::{build_entity_index, EntityDecoder, EntityScanner, IfcType};
+
+        // Build entity index for fast lookups
+        let entity_index = build_entity_index(&content);
+        let mut decoder = EntityDecoder::with_index(&content, entity_index);
+
+        // Create geometry router to get unit scale
+        let router = ifc_lite_geometry::GeometryRouter::with_units(&content, &mut decoder);
+        let unit_scale = router.unit_scale() as f32;
+
+        let mut collection = SymbolicRepresentationCollection::new();
+        let mut scanner = EntityScanner::new(&content);
+
+        // Process all building elements that might have symbolic representations
+        while let Some((id, type_name, start, end)) = scanner.next_entity() {
+            // Check if this is a building element type
+            if !ifc_lite_core::has_geometry_by_name(type_name) {
+                continue;
+            }
+
+            // Decode the entity
+            let entity = match decoder.decode_at_with_id(id, start, end) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+
+            // Get representation (attribute 6 for most products)
+            let representation_attr = match entity.get(6) {
+                Some(attr) if !attr.is_null() => attr,
+                _ => continue,
+            };
+
+            let representation = match decoder.resolve_ref(representation_attr) {
+                Ok(Some(r)) => r,
+                _ => continue,
+            };
+
+            // Get representations list (attribute 2 of IfcProductDefinitionShape)
+            let representations_attr = match representation.get(2) {
+                Some(attr) => attr,
+                None => continue,
+            };
+
+            let representations = match decoder.resolve_ref_list(representations_attr) {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+
+            let ifc_type_name = entity.ifc_type.name().to_string();
+
+            // Look for Plan, Annotation, or FootPrint representations
+            for shape_rep in representations {
+                if shape_rep.ifc_type != IfcType::IfcShapeRepresentation {
+                    continue;
+                }
+
+                // Get RepresentationIdentifier (attribute 1)
+                let rep_identifier = match shape_rep.get(1) {
+                    Some(attr) => attr.as_string().unwrap_or("").to_string(),
+                    None => continue,
+                };
+
+                // Only process symbolic representations
+                if !matches!(
+                    rep_identifier.as_str(),
+                    "Plan" | "Annotation" | "FootPrint" | "Axis"
+                ) {
+                    continue;
+                }
+
+                // Get items list (attribute 3)
+                let items_attr = match shape_rep.get(3) {
+                    Some(attr) => attr,
+                    None => continue,
+                };
+
+                let items = match decoder.resolve_ref_list(items_attr) {
+                    Ok(i) => i,
+                    Err(_) => continue,
+                };
+
+                // Process each item in the representation
+                for item in items {
+                    extract_symbolic_item(
+                        &item,
+                        &mut decoder,
+                        id,
+                        &ifc_type_name,
+                        &rep_identifier,
+                        unit_scale,
+                        &mut collection,
+                    );
+                }
+            }
+        }
+
+        collection
+    }
+}
+
+/// Extract symbolic geometry from a representation item (recursive for IfcGeometricSet, IfcMappedItem)
+fn extract_symbolic_item(
+    item: &ifc_lite_core::DecodedEntity,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+    express_id: u32,
+    ifc_type: &str,
+    rep_identifier: &str,
+    unit_scale: f32,
+    collection: &mut crate::zero_copy::SymbolicRepresentationCollection,
+) {
+    use crate::zero_copy::{SymbolicCircle, SymbolicPolyline};
+    use ifc_lite_core::IfcType;
+
+    match item.ifc_type {
+        IfcType::IfcGeometricSet | IfcType::IfcGeometricCurveSet => {
+            // IfcGeometricSet: Elements (SET of IfcGeometricSetSelect)
+            if let Some(elements_attr) = item.get(0) {
+                if let Ok(elements) = decoder.resolve_ref_list(elements_attr) {
+                    for element in elements {
+                        extract_symbolic_item(
+                            &element,
+                            decoder,
+                            express_id,
+                            ifc_type,
+                            rep_identifier,
+                            unit_scale,
+                            collection,
+                        );
+                    }
+                }
+            }
+        }
+        IfcType::IfcMappedItem => {
+            // IfcMappedItem: MappingSource (IfcRepresentationMap), MappingTarget
+            if let Some(source_id) = item.get_ref(0) {
+                if let Ok(rep_map) = decoder.decode_by_id(source_id) {
+                    // IfcRepresentationMap: MappingOrigin, MappedRepresentation
+                    if let Some(mapped_rep_id) = rep_map.get_ref(1) {
+                        if let Ok(mapped_rep) = decoder.decode_by_id(mapped_rep_id) {
+                            // Get items from the mapped representation
+                            if let Some(items_attr) = mapped_rep.get(3) {
+                                if let Ok(items) = decoder.resolve_ref_list(items_attr) {
+                                    for sub_item in items {
+                                        extract_symbolic_item(
+                                            &sub_item,
+                                            decoder,
+                                            express_id,
+                                            ifc_type,
+                                            rep_identifier,
+                                            unit_scale,
+                                            collection,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        IfcType::IfcPolyline => {
+            // IfcPolyline: Points (LIST of IfcCartesianPoint)
+            if let Some(points_attr) = item.get(0) {
+                if let Ok(point_entities) = decoder.resolve_ref_list(points_attr) {
+                    let mut points: Vec<f32> = Vec::with_capacity(point_entities.len() * 2);
+                    for point_entity in point_entities {
+                        if point_entity.ifc_type != IfcType::IfcCartesianPoint {
+                            continue;
+                        }
+                        if let Some(coords_attr) = point_entity.get(0) {
+                            if let Some(coords) = coords_attr.as_list() {
+                                let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                points.push(x);
+                                points.push(y);
+                            }
+                        }
+                    }
+                    if points.len() >= 4 {
+                        // Check if closed (first == last point)
+                        let n = points.len();
+                        let is_closed = n >= 4
+                            && (points[0] - points[n - 2]).abs() < 0.001
+                            && (points[1] - points[n - 1]).abs() < 0.001;
+
+                        collection.add_polyline(SymbolicPolyline::new(
+                            express_id,
+                            ifc_type.to_string(),
+                            points,
+                            is_closed,
+                            rep_identifier.to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+        IfcType::IfcIndexedPolyCurve => {
+            // IfcIndexedPolyCurve: Points (IfcCartesianPointList2D/3D), Segments, SelfIntersect
+            if let Some(points_ref) = item.get_ref(0) {
+                if let Ok(points_list) = decoder.decode_by_id(points_ref) {
+                    if let Some(coord_list_attr) = points_list.get(0) {
+                        if let Some(coord_list) = coord_list_attr.as_list() {
+                            let mut points: Vec<f32> = Vec::new();
+                            for coord in coord_list {
+                                if let Some(coords) = coord.as_list() {
+                                    let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                    let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                    points.push(x);
+                                    points.push(y);
+                                }
+                            }
+                            if points.len() >= 4 {
+                                let n = points.len();
+                                let is_closed = n >= 4
+                                    && (points[0] - points[n - 2]).abs() < 0.001
+                                    && (points[1] - points[n - 1]).abs() < 0.001;
+
+                                collection.add_polyline(SymbolicPolyline::new(
+                                    express_id,
+                                    ifc_type.to_string(),
+                                    points,
+                                    is_closed,
+                                    rep_identifier.to_string(),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        IfcType::IfcCircle => {
+            // IfcCircle: Position (IfcAxis2Placement2D/3D), Radius
+            let radius = item.get(1).and_then(|a| a.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+            if radius > 0.0 {
+                // Get center from Position (attribute 0)
+                let (center_x, center_y) = if let Some(pos_ref) = item.get_ref(0) {
+                    if let Ok(placement) = decoder.decode_by_id(pos_ref) {
+                        // IfcAxis2Placement2D/3D: Location
+                        if let Some(loc_ref) = placement.get_ref(0) {
+                            if let Ok(loc) = decoder.decode_by_id(loc_ref) {
+                                if let Some(coords_attr) = loc.get(0) {
+                                    if let Some(coords) = coords_attr.as_list() {
+                                        let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                        let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                        (x, y)
+                                    } else {
+                                        (0.0, 0.0)
+                                    }
+                                } else {
+                                    (0.0, 0.0)
+                                }
+                            } else {
+                                (0.0, 0.0)
+                            }
+                        } else {
+                            (0.0, 0.0)
+                        }
+                    } else {
+                        (0.0, 0.0)
+                    }
+                } else {
+                    (0.0, 0.0)
+                };
+
+                collection.add_circle(SymbolicCircle::full_circle(
+                    express_id,
+                    ifc_type.to_string(),
+                    center_x,
+                    center_y,
+                    radius,
+                    rep_identifier.to_string(),
+                ));
+            }
+        }
+        IfcType::IfcTrimmedCurve => {
+            // IfcTrimmedCurve: BasisCurve, Trim1, Trim2, SenseAgreement, MasterRepresentation
+            // For arcs, the basis curve is often IfcCircle
+            if let Some(basis_ref) = item.get_ref(0) {
+                if let Ok(basis_curve) = decoder.decode_by_id(basis_ref) {
+                    if basis_curve.ifc_type == IfcType::IfcCircle {
+                        // For simplicity, extract as polyline approximation of the arc
+                        // Get radius and center
+                        let radius = basis_curve.get(1).and_then(|a| a.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                        if radius > 0.0 {
+                            let (center_x, center_y) = if let Some(pos_ref) = basis_curve.get_ref(0) {
+                                if let Ok(placement) = decoder.decode_by_id(pos_ref) {
+                                    if let Some(loc_ref) = placement.get_ref(0) {
+                                        if let Ok(loc) = decoder.decode_by_id(loc_ref) {
+                                            if let Some(coords_attr) = loc.get(0) {
+                                                if let Some(coords) = coords_attr.as_list() {
+                                                    let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                                    let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                                    (x, y)
+                                                } else {
+                                                    (0.0, 0.0)
+                                                }
+                                            } else {
+                                                (0.0, 0.0)
+                                            }
+                                        } else {
+                                            (0.0, 0.0)
+                                        }
+                                    } else {
+                                        (0.0, 0.0)
+                                    }
+                                } else {
+                                    (0.0, 0.0)
+                                }
+                            } else {
+                                (0.0, 0.0)
+                            };
+
+                            // Get trim parameters (simplified - assume parameter values)
+                            let trim1 = item.get(1).and_then(|a| {
+                                a.as_list().and_then(|l| l.first().and_then(|v| v.as_float()))
+                            }).unwrap_or(0.0) as f32;
+                            let trim2 = item.get(2).and_then(|a| {
+                                a.as_list().and_then(|l| l.first().and_then(|v| v.as_float()))
+                            }).unwrap_or(std::f32::consts::TAU as f64) as f32;
+
+                            // Convert to arc and tessellate as polyline
+                            let start_angle = trim1.to_radians().min(trim2.to_radians());
+                            let end_angle = trim1.to_radians().max(trim2.to_radians());
+                            let arc_length = (end_angle - start_angle).abs();
+                            let num_segments = ((arc_length * radius / 0.1) as usize).max(8).min(64);
+
+                            let mut points = Vec::with_capacity((num_segments + 1) * 2);
+                            for i in 0..=num_segments {
+                                let t = i as f32 / num_segments as f32;
+                                let angle = start_angle + t * (end_angle - start_angle);
+                                let x = center_x + radius * angle.cos();
+                                let y = center_y + radius * angle.sin();
+                                points.push(x);
+                                points.push(y);
+                            }
+
+                            collection.add_polyline(SymbolicPolyline::new(
+                                express_id,
+                                ifc_type.to_string(),
+                                points,
+                                false, // Arcs are not closed
+                                rep_identifier.to_string(),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        IfcType::IfcCompositeCurve => {
+            // IfcCompositeCurve: Segments (LIST of IfcCompositeCurveSegment), SelfIntersect
+            if let Some(segments_attr) = item.get(0) {
+                if let Ok(segments) = decoder.resolve_ref_list(segments_attr) {
+                    for segment in segments {
+                        // IfcCompositeCurveSegment: Transition, SameSense, ParentCurve
+                        if let Some(curve_ref) = segment.get_ref(2) {
+                            if let Ok(parent_curve) = decoder.decode_by_id(curve_ref) {
+                                extract_symbolic_item(
+                                    &parent_curve,
+                                    decoder,
+                                    express_id,
+                                    ifc_type,
+                                    rep_identifier,
+                                    unit_scale,
+                                    collection,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        IfcType::IfcLine => {
+            // IfcLine: Pnt (IfcCartesianPoint), Dir (IfcVector)
+            // Lines are infinite, so we just skip them (or could extract as a segment)
+            // For now, skip - symbolic representations usually use polylines
+        }
+        _ => {
+            // Unknown curve type - skip
+        }
     }
 }
 

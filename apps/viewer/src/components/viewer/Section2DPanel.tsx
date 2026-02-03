@@ -12,7 +12,7 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react';
-import { X, Download, Eye, EyeOff, Maximize2, ZoomIn, ZoomOut, Loader2, Printer, GripVertical, MoreHorizontal, RefreshCw, Pin, PinOff, Palette, Ruler, Trash2, FileText } from 'lucide-react';
+import { X, Download, Eye, EyeOff, Maximize2, ZoomIn, ZoomOut, Loader2, Printer, GripVertical, MoreHorizontal, RefreshCw, Pin, PinOff, Palette, Ruler, Trash2, FileText, Shapes, Box } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -201,6 +201,15 @@ export function Section2DPanel(): React.ReactElement | null {
     if (!geometryResult?.meshes || geometryResult.meshes.length === 0) {
       setDrawingError('No geometry loaded');
       return;
+    }
+
+    // Check if symbolic representations mode is enabled
+    if (displayOptions.useSymbolicRepresentations) {
+      // TODO: Parse symbolic representations from IFC content
+      // For now, show a message that this feature needs IFC content access
+      setDrawingError('Symbolic representation mode: IFC file must contain Plan/Annotation representations. Re-parsing IFC for symbolic data...');
+      // Fall through to normal generation for now - in a full implementation,
+      // we would parse the IFC file here and extract symbolic curves
     }
 
     // Only show full loading overlay for initial generation, not regeneration
@@ -1237,6 +1246,10 @@ export function Section2DPanel(): React.ReactElement | null {
     updateDisplayOptions({ show3DOverlay: !displayOptions.show3DOverlay });
   }, [displayOptions.show3DOverlay, updateDisplayOptions]);
 
+  const toggleSymbolicRepresentations = useCallback(() => {
+    updateDisplayOptions({ useSymbolicRepresentations: !displayOptions.useSymbolicRepresentations });
+  }, [displayOptions.useSymbolicRepresentations, updateDisplayOptions]);
+
   const toggleExpanded = useCallback(() => {
     setIsExpanded((prev) => !prev);
   }, []);
@@ -1540,10 +1553,14 @@ export function Section2DPanel(): React.ReactElement | null {
                     <MoreHorizontal className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuContent align="end" className="w-56">
                   <DropdownMenuItem onClick={toggle3DOverlay}>
                     {displayOptions.show3DOverlay ? <Eye className="h-4 w-4 mr-2" /> : <EyeOff className="h-4 w-4 mr-2" />}
                     3D Overlay {displayOptions.show3DOverlay ? 'On' : 'Off'}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={toggleSymbolicRepresentations}>
+                    {displayOptions.useSymbolicRepresentations ? <Shapes className="h-4 w-4 mr-2" /> : <Box className="h-4 w-4 mr-2" />}
+                    {displayOptions.useSymbolicRepresentations ? 'Symbolic (Plan)' : 'Section Cut (Body)'}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={toggleMeasure2DMode}>
                     <Ruler className="h-4 w-4 mr-2" />

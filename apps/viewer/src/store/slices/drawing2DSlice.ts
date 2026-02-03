@@ -51,6 +51,8 @@ export interface Drawing2DState {
     showAnnotations: boolean;
     show3DOverlay: boolean;
     scale: number;
+    /** Use authored symbolic representations (Plan/Annotation) when available instead of section cut */
+    useSymbolicRepresentations: boolean;
   };
   /** Available graphic override presets */
   graphicOverridePresets: GraphicOverridePreset[];
@@ -127,6 +129,7 @@ const getDefaultDisplayOptions = (): Drawing2DState['drawing2DDisplayOptions'] =
   showAnnotations: true,
   show3DOverlay: true, // Show 3D overlay by default
   scale: 100, // 1:100 default
+  useSymbolicRepresentations: false, // Default to section cut (Body geometry)
 });
 
 const getDefaultState = (): Drawing2DState => ({

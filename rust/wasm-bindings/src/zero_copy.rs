@@ -528,6 +528,299 @@ impl Default for InstancedMeshCollection {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// SYMBOLIC REPRESENTATION DATA STRUCTURES
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// A single 2D polyline for symbolic representations (Plan, Annotation, FootPrint)
+/// Points are stored as [x1, y1, x2, y2, ...] in 2D coordinates
+#[wasm_bindgen]
+pub struct SymbolicPolyline {
+    express_id: u32,
+    ifc_type: String,
+    /// 2D points: [x1, y1, x2, y2, ...]
+    points: Vec<f32>,
+    /// Whether this is a closed loop
+    is_closed: bool,
+    /// Representation identifier: "Plan", "Annotation", "FootPrint", "Axis"
+    rep_identifier: String,
+}
+
+#[wasm_bindgen]
+impl SymbolicPolyline {
+    /// Get express ID of the parent element
+    #[wasm_bindgen(getter, js_name = expressId)]
+    pub fn express_id(&self) -> u32 {
+        self.express_id
+    }
+
+    /// Get IFC type name (e.g., "IfcDoor", "IfcWindow")
+    #[wasm_bindgen(getter, js_name = ifcType)]
+    pub fn ifc_type(&self) -> String {
+        self.ifc_type.clone()
+    }
+
+    /// Get 2D points as Float32Array [x1, y1, x2, y2, ...]
+    #[wasm_bindgen(getter)]
+    pub fn points(&self) -> js_sys::Float32Array {
+        js_sys::Float32Array::from(&self.points[..])
+    }
+
+    /// Get number of points
+    #[wasm_bindgen(getter, js_name = pointCount)]
+    pub fn point_count(&self) -> usize {
+        self.points.len() / 2
+    }
+
+    /// Check if this is a closed loop
+    #[wasm_bindgen(getter, js_name = isClosed)]
+    pub fn is_closed(&self) -> bool {
+        self.is_closed
+    }
+
+    /// Get representation identifier ("Plan", "Annotation", "FootPrint", "Axis")
+    #[wasm_bindgen(getter, js_name = repIdentifier)]
+    pub fn rep_identifier(&self) -> String {
+        self.rep_identifier.clone()
+    }
+}
+
+impl SymbolicPolyline {
+    /// Create a new symbolic polyline
+    pub fn new(
+        express_id: u32,
+        ifc_type: String,
+        points: Vec<f32>,
+        is_closed: bool,
+        rep_identifier: String,
+    ) -> Self {
+        Self {
+            express_id,
+            ifc_type,
+            points,
+            is_closed,
+            rep_identifier,
+        }
+    }
+}
+
+/// A 2D circle/arc for symbolic representations
+#[wasm_bindgen]
+pub struct SymbolicCircle {
+    express_id: u32,
+    ifc_type: String,
+    /// Center point [x, y]
+    center_x: f32,
+    center_y: f32,
+    /// Radius
+    radius: f32,
+    /// Start angle in radians (0 for full circle)
+    start_angle: f32,
+    /// End angle in radians (2*PI for full circle)
+    end_angle: f32,
+    /// Representation identifier
+    rep_identifier: String,
+}
+
+#[wasm_bindgen]
+impl SymbolicCircle {
+    #[wasm_bindgen(getter, js_name = expressId)]
+    pub fn express_id(&self) -> u32 {
+        self.express_id
+    }
+
+    #[wasm_bindgen(getter, js_name = ifcType)]
+    pub fn ifc_type(&self) -> String {
+        self.ifc_type.clone()
+    }
+
+    #[wasm_bindgen(getter, js_name = centerX)]
+    pub fn center_x(&self) -> f32 {
+        self.center_x
+    }
+
+    #[wasm_bindgen(getter, js_name = centerY)]
+    pub fn center_y(&self) -> f32 {
+        self.center_y
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn radius(&self) -> f32 {
+        self.radius
+    }
+
+    #[wasm_bindgen(getter, js_name = startAngle)]
+    pub fn start_angle(&self) -> f32 {
+        self.start_angle
+    }
+
+    #[wasm_bindgen(getter, js_name = endAngle)]
+    pub fn end_angle(&self) -> f32 {
+        self.end_angle
+    }
+
+    #[wasm_bindgen(getter, js_name = repIdentifier)]
+    pub fn rep_identifier(&self) -> String {
+        self.rep_identifier.clone()
+    }
+
+    /// Check if this is a full circle
+    #[wasm_bindgen(getter, js_name = isFullCircle)]
+    pub fn is_full_circle(&self) -> bool {
+        (self.end_angle - self.start_angle - std::f32::consts::TAU).abs() < 0.001
+    }
+}
+
+impl SymbolicCircle {
+    pub fn new(
+        express_id: u32,
+        ifc_type: String,
+        center_x: f32,
+        center_y: f32,
+        radius: f32,
+        start_angle: f32,
+        end_angle: f32,
+        rep_identifier: String,
+    ) -> Self {
+        Self {
+            express_id,
+            ifc_type,
+            center_x,
+            center_y,
+            radius,
+            start_angle,
+            end_angle,
+            rep_identifier,
+        }
+    }
+
+    /// Create a full circle
+    pub fn full_circle(
+        express_id: u32,
+        ifc_type: String,
+        center_x: f32,
+        center_y: f32,
+        radius: f32,
+        rep_identifier: String,
+    ) -> Self {
+        Self::new(
+            express_id,
+            ifc_type,
+            center_x,
+            center_y,
+            radius,
+            0.0,
+            std::f32::consts::TAU,
+            rep_identifier,
+        )
+    }
+}
+
+/// Collection of symbolic representations for an IFC model
+#[wasm_bindgen]
+pub struct SymbolicRepresentationCollection {
+    polylines: Vec<SymbolicPolyline>,
+    circles: Vec<SymbolicCircle>,
+}
+
+#[wasm_bindgen]
+impl SymbolicRepresentationCollection {
+    /// Get number of polylines
+    #[wasm_bindgen(getter, js_name = polylineCount)]
+    pub fn polyline_count(&self) -> usize {
+        self.polylines.len()
+    }
+
+    /// Get number of circles/arcs
+    #[wasm_bindgen(getter, js_name = circleCount)]
+    pub fn circle_count(&self) -> usize {
+        self.circles.len()
+    }
+
+    /// Get total count of all symbolic items
+    #[wasm_bindgen(getter, js_name = totalCount)]
+    pub fn total_count(&self) -> usize {
+        self.polylines.len() + self.circles.len()
+    }
+
+    /// Check if collection is empty
+    #[wasm_bindgen(getter, js_name = isEmpty)]
+    pub fn is_empty(&self) -> bool {
+        self.polylines.is_empty() && self.circles.is_empty()
+    }
+
+    /// Get polyline at index
+    #[wasm_bindgen(js_name = getPolyline)]
+    pub fn get_polyline(&self, index: usize) -> Option<SymbolicPolyline> {
+        self.polylines.get(index).map(|p| SymbolicPolyline {
+            express_id: p.express_id,
+            ifc_type: p.ifc_type.clone(),
+            points: p.points.clone(),
+            is_closed: p.is_closed,
+            rep_identifier: p.rep_identifier.clone(),
+        })
+    }
+
+    /// Get circle at index
+    #[wasm_bindgen(js_name = getCircle)]
+    pub fn get_circle(&self, index: usize) -> Option<SymbolicCircle> {
+        self.circles.get(index).map(|c| SymbolicCircle {
+            express_id: c.express_id,
+            ifc_type: c.ifc_type.clone(),
+            center_x: c.center_x,
+            center_y: c.center_y,
+            radius: c.radius,
+            start_angle: c.start_angle,
+            end_angle: c.end_angle,
+            rep_identifier: c.rep_identifier.clone(),
+        })
+    }
+
+    /// Get all express IDs that have symbolic representations
+    #[wasm_bindgen(js_name = getExpressIds)]
+    pub fn get_express_ids(&self) -> Vec<u32> {
+        let mut ids: Vec<u32> = self
+            .polylines
+            .iter()
+            .map(|p| p.express_id)
+            .chain(self.circles.iter().map(|c| c.express_id))
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
+}
+
+impl SymbolicRepresentationCollection {
+    pub fn new() -> Self {
+        Self {
+            polylines: Vec::new(),
+            circles: Vec::new(),
+        }
+    }
+
+    pub fn with_capacity(polyline_capacity: usize, circle_capacity: usize) -> Self {
+        Self {
+            polylines: Vec::with_capacity(polyline_capacity),
+            circles: Vec::with_capacity(circle_capacity),
+        }
+    }
+
+    pub fn add_polyline(&mut self, polyline: SymbolicPolyline) {
+        self.polylines.push(polyline);
+    }
+
+    pub fn add_circle(&mut self, circle: SymbolicCircle) {
+        self.circles.push(circle);
+    }
+}
+
+impl Default for SymbolicRepresentationCollection {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Get WASM memory to allow JavaScript to create TypedArray views
 #[wasm_bindgen]
 pub fn get_memory() -> JsValue {
