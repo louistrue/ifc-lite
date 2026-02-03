@@ -2516,9 +2516,19 @@ impl IfcAPI {
         let entity_index = build_entity_index(&content);
         let mut decoder = EntityDecoder::with_index(&content, entity_index);
 
-        // Create geometry router to get unit scale
+        // Create geometry router to get unit scale and detect RTC offset
         let router = ifc_lite_geometry::GeometryRouter::with_units(&content, &mut decoder);
         let unit_scale = router.unit_scale() as f32;
+
+        // Detect RTC offset (same as mesh parsing) to align with section cuts
+        let rtc_offset = router.detect_rtc_offset_from_first_element(&content, &mut decoder);
+        let needs_rtc = rtc_offset.0.abs() > 10000.0
+            || rtc_offset.1.abs() > 10000.0
+            || rtc_offset.2.abs() > 10000.0;
+
+        // RTC offset for floor plan: use X and Z (Y is vertical)
+        let rtc_x = if needs_rtc { rtc_offset.0 as f32 } else { 0.0 };
+        let rtc_z = if needs_rtc { rtc_offset.2 as f32 } else { 0.0 };
 
         let mut collection = SymbolicRepresentationCollection::new();
         let mut scanner = EntityScanner::new(&content);
@@ -2604,6 +2614,8 @@ impl IfcAPI {
                         &rep_identifier,
                         unit_scale,
                         &placement_transform,
+                        rtc_x,
+                        rtc_z,
                         &mut collection,
                     );
                 }
@@ -2830,6 +2842,8 @@ fn extract_symbolic_item(
     rep_identifier: &str,
     unit_scale: f32,
     transform: &Transform2D,
+    rtc_x: f32,
+    rtc_z: f32,
     collection: &mut crate::zero_copy::SymbolicRepresentationCollection,
 ) {
     use crate::zero_copy::{SymbolicCircle, SymbolicPolyline};
@@ -2849,6 +2863,8 @@ fn extract_symbolic_item(
                             rep_identifier,
                             unit_scale,
                             transform,
+                            rtc_x,
+                            rtc_z,
                             collection,
                         );
                     }
@@ -2874,6 +2890,8 @@ fn extract_symbolic_item(
                                             rep_identifier,
                                             unit_scale,
                                             transform,
+                                            rtc_x,
+                                            rtc_z,
                                             collection,
                                         );
                                     }
@@ -2898,8 +2916,10 @@ fn extract_symbolic_item(
                                 let local_x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
                                 let local_y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
 
-                                // Apply placement transform to get world coordinates
-                                let (x, y) = transform.transform_point(local_x, local_y);
+                                // Apply placement transform to get world coordinates, then apply RTC offset
+                                let (wx, wy) = transform.transform_point(local_x, local_y);
+                                let x = wx - rtc_x;
+                                let y = wy - rtc_z;
 
                                 // Skip invalid coordinates
                                 if x.is_finite() && y.is_finite() {
@@ -2939,8 +2959,10 @@ fn extract_symbolic_item(
                                     let local_x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
                                     let local_y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
 
-                                    // Apply placement transform to get world coordinates
-                                    let (x, y) = transform.transform_point(local_x, local_y);
+                                    // Apply placement transform to get world coordinates, then apply RTC offset
+                                    let (wx, wy) = transform.transform_point(local_x, local_y);
+                                    let x = wx - rtc_x;
+                                    let y = wy - rtc_z;
 
                                     // Skip invalid coordinates
                                     if x.is_finite() && y.is_finite() {
@@ -3013,8 +3035,10 @@ fn extract_symbolic_item(
                 return;
             }
 
-            // Apply placement transform to get world coordinates
-            let (world_cx, world_cy) = transform.transform_point(center_x, center_y);
+            // Apply placement transform to get world coordinates, then apply RTC offset
+            let (wx, wy) = transform.transform_point(center_x, center_y);
+            let world_cx = wx - rtc_x;
+            let world_cy = wy - rtc_z;
 
             collection.add_circle(SymbolicCircle::full_circle(
                 express_id,
@@ -3122,10 +3146,10 @@ fn extract_symbolic_item(
 
                         if is_near_collinear {
                             // Emit as simple line segment instead of tessellated arc
-                            // Apply placement transform to get world coordinates
-                            let (world_sx, world_sy) = transform.transform_point(start_x, start_y);
-                            let (world_ex, world_ey) = transform.transform_point(end_x, end_y);
-                            let points = vec![world_sx, world_sy, world_ex, world_ey];
+                            // Apply placement transform to get world coordinates, then apply RTC offset
+                            let (wsx, wsy) = transform.transform_point(start_x, start_y);
+                            let (wex, wey) = transform.transform_point(end_x, end_y);
+                            let points = vec![wsx - rtc_x, wsy - rtc_z, wex - rtc_x, wey - rtc_z];
                             collection.add_polyline(SymbolicPolyline::new(
                                 express_id,
                                 ifc_type.to_string(),
@@ -3145,8 +3169,10 @@ fn extract_symbolic_item(
                                 let local_x = center_x + radius * angle.cos();
                                 let local_y = center_y + radius * angle.sin();
 
-                                // Apply placement transform to get world coordinates
-                                let (x, y) = transform.transform_point(local_x, local_y);
+                                // Apply placement transform to get world coordinates, then apply RTC offset
+                                let (wx, wy) = transform.transform_point(local_x, local_y);
+                                let x = wx - rtc_x;
+                                let y = wy - rtc_z;
 
                                 // Skip NaN/Infinity points
                                 if x.is_finite() && y.is_finite() {
@@ -3186,6 +3212,8 @@ fn extract_symbolic_item(
                                     rep_identifier,
                                     unit_scale,
                                     transform,
+                                    rtc_x,
+                                    rtc_z,
                                     collection,
                                 );
                             }
