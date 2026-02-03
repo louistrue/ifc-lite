@@ -164,10 +164,7 @@ function SpecificationCard({
         <CollapsibleTrigger asChild>
           <button
             className="w-full p-3 text-left"
-            onClick={() => {
-              setIsExpanded(!isExpanded);
-              onSelect();
-            }}
+            onClick={onSelect}
           >
             <div className="flex items-start gap-2">
               {isExpanded ? (
@@ -260,7 +257,7 @@ function EntityResultRow({ entity, onClick }: EntityResultRowProps) {
   };
 
   return (
-    <div className="hover:bg-muted/50 focus-within:bg-muted/50 focus-within:ring-2 focus-within:ring-primary focus-within:ring-inset rounded-md">
+    <div className="group/row hover:bg-muted/50 focus-within:bg-muted/50 focus-within:ring-2 focus-within:ring-primary focus-within:ring-inset rounded-md">
       {/* Header row - chevron overlays content */}
       <div className="relative overflow-hidden">
         <button
@@ -282,11 +279,11 @@ function EntityResultRow({ entity, onClick }: EntityResultRowProps) {
             </div>
           </div>
         </button>
-        {/* Chevron overlay - always visible with gradient background */}
+        {/* Chevron overlay - always visible, gradient adapts to row hover */}
         <span
           role="button"
           tabIndex={0}
-          className="absolute right-0 top-0 bottom-0 flex items-center pl-4 pr-1 bg-gradient-to-l from-background from-60% to-transparent hover:from-accent z-10"
+          className="absolute right-0 top-0 bottom-0 flex items-center pl-6 pr-1 bg-gradient-to-l from-background from-50% to-transparent group-hover/row:from-muted/50 hover:!from-accent z-10"
           onClick={(e) => {
             e.stopPropagation();
             setShowDetails(!showDetails);
