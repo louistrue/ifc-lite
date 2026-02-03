@@ -1,5 +1,5 @@
 [workspace]
-members = ["rust/core", "rust/geometry", "rust/wasm-bindings", "apps/server", "apps/desktop/src-tauri"]
+members = ["rust/core", "rust/geometry", "rust/pdf-vision", "rust/wasm-bindings", "apps/server", "apps/desktop/src-tauri"]
 resolver = "2"
 
 [workspace.package]

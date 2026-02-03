@@ -1,0 +1,41 @@
+[package]
+name = "ifc-lite-pdf-vision"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Floor plan recognition and 3D reconstruction from 2D drawings"
+keywords = ["ifc", "bim", "floor-plan", "computer-vision", "aec"]
+categories = ["graphics", "computer-vision"]
+readme = "../../README.md"
+
+[features]
+default = []
+
+[dependencies]
+# Image processing (pure Rust - WASM compatible)
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+imageproc = "0.25"
+
+# Math library
+nalgebra = { version = "0.33", default-features = false, features = ["std"] }
+
+# Reuse existing geometry types
+ifc-lite-geometry = { version = "1.3.0", path = "../geometry" }
+
+# Error handling
+thiserror = "1.0"
+
+# Serialization for WASM interop
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Fast hashing for deduplication
+rustc-hash = "1.1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "0.3", features = ["console"] }
+
+[dev-dependencies]
+approx = "0.5"

@@ -65,6 +65,7 @@ pub use console_error_panic_hook::set_once as set_panic_hook;
 
 mod api;
 mod gpu_geometry;
+mod pdf_vision;
 mod utils;
 mod zero_copy;
 
@@ -78,6 +79,7 @@ pub use zero_copy::{
     get_memory, InstanceData, InstancedGeometry, InstancedMeshCollection, MeshCollection,
     MeshDataJs, ZeroCopyMesh,
 };
+pub use pdf_vision::{FloorPlanAPI, create_default_storey_config, create_multi_storey_config};
 
 /// Initialize the WASM module.
 ///
