@@ -2683,8 +2683,12 @@ fn extract_symbolic_item(
                             if let Some(coords) = coords_attr.as_list() {
                                 let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
                                 let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                                points.push(x);
-                                points.push(y);
+
+                                // Skip invalid coordinates
+                                if x.is_finite() && y.is_finite() {
+                                    points.push(x);
+                                    points.push(y);
+                                }
                             }
                         }
                     }
@@ -2712,13 +2716,17 @@ fn extract_symbolic_item(
                 if let Ok(points_list) = decoder.decode_by_id(points_ref) {
                     if let Some(coord_list_attr) = points_list.get(0) {
                         if let Some(coord_list) = coord_list_attr.as_list() {
-                            let mut points: Vec<f32> = Vec::new();
+                            let mut points: Vec<f32> = Vec::with_capacity(coord_list.len() * 2);
                             for coord in coord_list {
                                 if let Some(coords) = coord.as_list() {
                                     let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
                                     let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                                    points.push(x);
-                                    points.push(y);
+
+                                    // Skip invalid coordinates
+                                    if x.is_finite() && y.is_finite() {
+                                        points.push(x);
+                                        points.push(y);
+                                    }
                                 }
                             }
                             if points.len() >= 4 {
@@ -2743,21 +2751,24 @@ fn extract_symbolic_item(
         IfcType::IfcCircle => {
             // IfcCircle: Position (IfcAxis2Placement2D/3D), Radius
             let radius = item.get(1).and_then(|a| a.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-            if radius > 0.0 {
-                // Get center from Position (attribute 0)
-                let (center_x, center_y) = if let Some(pos_ref) = item.get_ref(0) {
-                    if let Ok(placement) = decoder.decode_by_id(pos_ref) {
-                        // IfcAxis2Placement2D/3D: Location
-                        if let Some(loc_ref) = placement.get_ref(0) {
-                            if let Ok(loc) = decoder.decode_by_id(loc_ref) {
-                                if let Some(coords_attr) = loc.get(0) {
-                                    if let Some(coords) = coords_attr.as_list() {
-                                        let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                                        let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                                        (x, y)
-                                    } else {
-                                        (0.0, 0.0)
-                                    }
+
+            // Skip invalid, degenerate, or unreasonably large radii
+            // Radius > 1000 units is likely erroneous data
+            if radius <= 0.0 || !radius.is_finite() || radius > 1000.0 {
+                return;
+            }
+
+            // Get center from Position (attribute 0)
+            let (center_x, center_y) = if let Some(pos_ref) = item.get_ref(0) {
+                if let Ok(placement) = decoder.decode_by_id(pos_ref) {
+                    // IfcAxis2Placement2D/3D: Location
+                    if let Some(loc_ref) = placement.get_ref(0) {
+                        if let Ok(loc) = decoder.decode_by_id(loc_ref) {
+                            if let Some(coords_attr) = loc.get(0) {
+                                if let Some(coords) = coords_attr.as_list() {
+                                    let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                    let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                    (x, y)
                                 } else {
                                     (0.0, 0.0)
                                 }
@@ -2772,17 +2783,24 @@ fn extract_symbolic_item(
                     }
                 } else {
                     (0.0, 0.0)
-                };
+                }
+            } else {
+                (0.0, 0.0)
+            };
 
-                collection.add_circle(SymbolicCircle::full_circle(
-                    express_id,
-                    ifc_type.to_string(),
-                    center_x,
-                    center_y,
-                    radius,
-                    rep_identifier.to_string(),
-                ));
+            // Validate center coordinates
+            if !center_x.is_finite() || !center_y.is_finite() {
+                return;
             }
+
+            collection.add_circle(SymbolicCircle::full_circle(
+                express_id,
+                ifc_type.to_string(),
+                center_x,
+                center_y,
+                radius,
+                rep_identifier.to_string(),
+            ));
         }
         IfcType::IfcTrimmedCurve => {
             // IfcTrimmedCurve: BasisCurve, Trim1, Trim2, SenseAgreement, MasterRepresentation
@@ -2793,19 +2811,21 @@ fn extract_symbolic_item(
                         // For simplicity, extract as polyline approximation of the arc
                         // Get radius and center
                         let radius = basis_curve.get(1).and_then(|a| a.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                        if radius > 0.0 {
-                            let (center_x, center_y) = if let Some(pos_ref) = basis_curve.get_ref(0) {
-                                if let Ok(placement) = decoder.decode_by_id(pos_ref) {
-                                    if let Some(loc_ref) = placement.get_ref(0) {
-                                        if let Ok(loc) = decoder.decode_by_id(loc_ref) {
-                                            if let Some(coords_attr) = loc.get(0) {
-                                                if let Some(coords) = coords_attr.as_list() {
-                                                    let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                                                    let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                                                    (x, y)
-                                                } else {
-                                                    (0.0, 0.0)
-                                                }
+
+                        // Skip invalid or degenerate radii
+                        if radius <= 0.0 || !radius.is_finite() {
+                            return;
+                        }
+
+                        let (center_x, center_y) = if let Some(pos_ref) = basis_curve.get_ref(0) {
+                            if let Ok(placement) = decoder.decode_by_id(pos_ref) {
+                                if let Some(loc_ref) = placement.get_ref(0) {
+                                    if let Ok(loc) = decoder.decode_by_id(loc_ref) {
+                                        if let Some(coords_attr) = loc.get(0) {
+                                            if let Some(coords) = coords_attr.as_list() {
+                                                let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                                let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                                (x, y)
                                             } else {
                                                 (0.0, 0.0)
                                             }
@@ -2820,19 +2840,75 @@ fn extract_symbolic_item(
                                 }
                             } else {
                                 (0.0, 0.0)
-                            };
+                            }
+                        } else {
+                            (0.0, 0.0)
+                        };
 
-                            // Get trim parameters (simplified - assume parameter values)
-                            let trim1 = item.get(1).and_then(|a| {
-                                a.as_list().and_then(|l| l.first().and_then(|v| v.as_float()))
-                            }).unwrap_or(0.0) as f32;
-                            let trim2 = item.get(2).and_then(|a| {
-                                a.as_list().and_then(|l| l.first().and_then(|v| v.as_float()))
-                            }).unwrap_or(std::f32::consts::TAU as f64) as f32;
+                        // Validate center coordinates
+                        if !center_x.is_finite() || !center_y.is_finite() {
+                            return;
+                        }
 
-                            // Convert to arc and tessellate as polyline
-                            let start_angle = trim1.to_radians().min(trim2.to_radians());
-                            let end_angle = trim1.to_radians().max(trim2.to_radians());
+                        // Get trim parameters (simplified - assume parameter values)
+                        let trim1 = item.get(1).and_then(|a| {
+                            a.as_list().and_then(|l| l.first().and_then(|v| v.as_float()))
+                        }).unwrap_or(0.0) as f32;
+                        let trim2 = item.get(2).and_then(|a| {
+                            a.as_list().and_then(|l| l.first().and_then(|v| v.as_float()))
+                        }).unwrap_or(std::f32::consts::TAU as f64) as f32;
+
+                        // Convert to arc and tessellate as polyline
+                        let start_angle = trim1.to_radians().min(trim2.to_radians());
+                        let end_angle = trim1.to_radians().max(trim2.to_radians());
+
+                        // Validate angles
+                        if !start_angle.is_finite() || !end_angle.is_finite() {
+                            return;
+                        }
+
+                        // Calculate start and end points for near-collinear detection
+                        let start_x = center_x + radius * start_angle.cos();
+                        let start_y = center_y + radius * start_angle.sin();
+                        let end_x = center_x + radius * end_angle.cos();
+                        let end_y = center_y + radius * end_angle.sin();
+
+                        // Calculate chord length
+                        let chord_dx = end_x - start_x;
+                        let chord_dy = end_y - start_y;
+                        let chord_len = (chord_dx * chord_dx + chord_dy * chord_dy).sqrt();
+
+                        // Near-collinear arc detection (from fix-geometry-processing branch):
+                        // 1. If radius is extremely large (> 100 units), this is nearly straight
+                        // 2. If sagitta (arc height) < 2% of chord length, nearly straight
+                        // 3. If radius > 10x chord length, nearly straight
+                        let is_near_collinear = if chord_len > 0.0001 {
+                            // Calculate sagitta (perpendicular distance from midpoint to chord)
+                            let mid_angle = (start_angle + end_angle) / 2.0;
+                            let mid_x = center_x + radius * mid_angle.cos();
+                            let mid_y = center_y + radius * mid_angle.sin();
+
+                            // Distance from midpoint to chord line
+                            let sagitta = ((end_y - start_y) * mid_x - (end_x - start_x) * mid_y
+                                          + end_x * start_y - end_y * start_x).abs() / chord_len;
+
+                            radius > 100.0 || sagitta < chord_len * 0.02 || radius > chord_len * 10.0
+                        } else {
+                            true // Very short arc, treat as point/line
+                        };
+
+                        if is_near_collinear {
+                            // Emit as simple line segment instead of tessellated arc
+                            let points = vec![start_x, start_y, end_x, end_y];
+                            collection.add_polyline(SymbolicPolyline::new(
+                                express_id,
+                                ifc_type.to_string(),
+                                points,
+                                false,
+                                rep_identifier.to_string(),
+                            ));
+                        } else {
+                            // Normal arc tessellation
                             let arc_length = (end_angle - start_angle).abs();
                             let num_segments = ((arc_length * radius / 0.1) as usize).max(8).min(64);
 
@@ -2842,17 +2918,24 @@ fn extract_symbolic_item(
                                 let angle = start_angle + t * (end_angle - start_angle);
                                 let x = center_x + radius * angle.cos();
                                 let y = center_y + radius * angle.sin();
-                                points.push(x);
-                                points.push(y);
+
+                                // Skip NaN/Infinity points
+                                if x.is_finite() && y.is_finite() {
+                                    points.push(x);
+                                    points.push(y);
+                                }
                             }
 
-                            collection.add_polyline(SymbolicPolyline::new(
-                                express_id,
-                                ifc_type.to_string(),
-                                points,
-                                false, // Arcs are not closed
-                                rep_identifier.to_string(),
-                            ));
+                            // Only add if we have valid points
+                            if points.len() >= 4 {
+                                collection.add_polyline(SymbolicPolyline::new(
+                                    express_id,
+                                    ifc_type.to_string(),
+                                    points,
+                                    false, // Arcs are not closed
+                                    rep_identifier.to_string(),
+                                ));
+                            }
                         }
                     }
                 }
