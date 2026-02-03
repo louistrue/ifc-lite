@@ -397,45 +397,77 @@ export function Section2DPanel(): React.ReactElement | null {
           }
         }
 
-        // DEBUG: Compare coordinates for a specific entity
-        if (entitiesWithRelevantSymbols.size > 0) {
-          // Pick the first entity that has both symbolic and section cut lines
-          const debugEntityId = Array.from(entitiesWithRelevantSymbols)[0];
+        // Align symbolic geometry with section cut geometry using bounding box matching
+        // Plan representations often have different local origins than Body representations
+        // So we compute per-entity transforms to align Plan bbox center with section cut bbox center
 
-          // Get section cut bounds for this entity
-          const sectionCutLinesForEntity = result.lines.filter((l: DrawingLine) => l.entityId === debugEntityId);
-          let scMinX = Infinity, scMinY = Infinity, scMaxX = -Infinity, scMaxY = -Infinity;
-          for (const line of sectionCutLinesForEntity) {
-            scMinX = Math.min(scMinX, line.line.start.x, line.line.end.x);
-            scMinY = Math.min(scMinY, line.line.start.y, line.line.end.y);
-            scMaxX = Math.max(scMaxX, line.line.start.x, line.line.end.x);
-            scMaxY = Math.max(scMaxY, line.line.start.y, line.line.end.y);
-          }
+        // Build per-entity bounding boxes for section cut
+        const sectionCutBounds = new Map<number, { minX: number; minY: number; maxX: number; maxY: number }>();
+        for (const line of result.lines) {
+          if (line.entityId === undefined) continue;
+          const bounds = sectionCutBounds.get(line.entityId) ?? { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+          bounds.minX = Math.min(bounds.minX, line.line.start.x, line.line.end.x);
+          bounds.minY = Math.min(bounds.minY, line.line.start.y, line.line.end.y);
+          bounds.maxX = Math.max(bounds.maxX, line.line.start.x, line.line.end.x);
+          bounds.maxY = Math.max(bounds.maxY, line.line.start.y, line.line.end.y);
+          sectionCutBounds.set(line.entityId, bounds);
+        }
 
-          // Get symbolic bounds for this entity
-          const symbolicLinesForEntity = relevantSymbolicLines.filter(l => l.entityId === debugEntityId);
-          let symMinX = Infinity, symMinY = Infinity, symMaxX = -Infinity, symMaxY = -Infinity;
-          for (const line of symbolicLinesForEntity) {
-            symMinX = Math.min(symMinX, line.line.start.x, line.line.end.x);
-            symMinY = Math.min(symMinY, line.line.start.y, line.line.end.y);
-            symMaxX = Math.max(symMaxX, line.line.start.x, line.line.end.x);
-            symMaxY = Math.max(symMaxY, line.line.start.y, line.line.end.y);
-          }
+        // Build per-entity bounding boxes for symbolic
+        const symbolicBounds = new Map<number, { minX: number; minY: number; maxX: number; maxY: number }>();
+        for (const line of relevantSymbolicLines) {
+          if (line.entityId === undefined) continue;
+          const bounds = symbolicBounds.get(line.entityId) ?? { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+          bounds.minX = Math.min(bounds.minX, line.line.start.x, line.line.end.x);
+          bounds.minY = Math.min(bounds.minY, line.line.start.y, line.line.end.y);
+          bounds.maxX = Math.max(bounds.maxX, line.line.start.x, line.line.end.x);
+          bounds.maxY = Math.max(bounds.maxY, line.line.start.y, line.line.end.y);
+          symbolicBounds.set(line.entityId, bounds);
+        }
 
-          console.log(`[DEBUG] Entity #${debugEntityId}:`);
-          console.log(`  Section cut: ${sectionCutLinesForEntity.length} lines, bounds X[${scMinX.toFixed(2)}, ${scMaxX.toFixed(2)}] Y[${scMinY.toFixed(2)}, ${scMaxY.toFixed(2)}]`);
-          console.log(`  Symbolic:    ${symbolicLinesForEntity.length} lines, bounds X[${symMinX.toFixed(2)}, ${symMaxX.toFixed(2)}] Y[${symMinY.toFixed(2)}, ${symMaxY.toFixed(2)}]`);
-          console.log(`  Offset:      dX=${(symMinX - scMinX).toFixed(2)}, dY=${(symMinY - scMinY).toFixed(2)}`);
-          console.log(`  Size ratio:  sX=${((symMaxX - symMinX) / (scMaxX - scMinX)).toFixed(3)}, sY=${((symMaxY - symMinY) / (scMaxY - scMinY)).toFixed(3)}`);
-
-          // Also log first line coordinates
-          if (sectionCutLinesForEntity.length > 0 && symbolicLinesForEntity.length > 0) {
-            const scLine = sectionCutLinesForEntity[0];
-            const symLine = symbolicLinesForEntity[0];
-            console.log(`  First SC line:  (${scLine.line.start.x.toFixed(2)}, ${scLine.line.start.y.toFixed(2)}) -> (${scLine.line.end.x.toFixed(2)}, ${scLine.line.end.y.toFixed(2)})`);
-            console.log(`  First Sym line: (${symLine.line.start.x.toFixed(2)}, ${symLine.line.start.y.toFixed(2)}) -> (${symLine.line.end.x.toFixed(2)}, ${symLine.line.end.y.toFixed(2)})`);
+        // Compute per-entity alignment transforms (center-to-center offset)
+        const alignmentOffsets = new Map<number, { dx: number; dy: number }>();
+        for (const entityId of entitiesWithRelevantSymbols) {
+          const scBounds = sectionCutBounds.get(entityId);
+          const symBounds = symbolicBounds.get(entityId);
+          if (scBounds && symBounds) {
+            const scCenterX = (scBounds.minX + scBounds.maxX) / 2;
+            const scCenterY = (scBounds.minY + scBounds.maxY) / 2;
+            const symCenterX = (symBounds.minX + symBounds.maxX) / 2;
+            const symCenterY = (symBounds.minY + symBounds.maxY) / 2;
+            alignmentOffsets.set(entityId, {
+              dx: scCenterX - symCenterX,
+              dy: scCenterY - symCenterY,
+            });
           }
         }
+
+        // DEBUG: Log alignment info for first entity
+        if (alignmentOffsets.size > 0) {
+          const debugEntityId = Array.from(alignmentOffsets.keys())[0];
+          const offset = alignmentOffsets.get(debugEntityId)!;
+          const scBounds = sectionCutBounds.get(debugEntityId)!;
+          const symBounds = symbolicBounds.get(debugEntityId)!;
+          console.log(`[DEBUG] Entity #${debugEntityId} bbox alignment:`);
+          console.log(`  Section cut center: (${((scBounds.minX + scBounds.maxX) / 2).toFixed(2)}, ${((scBounds.minY + scBounds.maxY) / 2).toFixed(2)})`);
+          console.log(`  Symbolic center:    (${((symBounds.minX + symBounds.maxX) / 2).toFixed(2)}, ${((symBounds.minY + symBounds.maxY) / 2).toFixed(2)})`);
+          console.log(`  Alignment offset:   dx=${offset.dx.toFixed(2)}, dy=${offset.dy.toFixed(2)}`);
+        }
+
+        // Apply alignment offsets to symbolic lines
+        const alignedSymbolicLines = relevantSymbolicLines.map(line => {
+          const offset = line.entityId !== undefined ? alignmentOffsets.get(line.entityId) : undefined;
+          if (offset) {
+            return {
+              ...line,
+              line: {
+                start: { x: line.line.start.x + offset.dx, y: line.line.start.y + offset.dy },
+                end: { x: line.line.end.x + offset.dx, y: line.line.end.y + offset.dy },
+              },
+            };
+          }
+          return line;
+        });
 
         // Filter out section cut lines for entities that have relevant symbolic representations
         const filteredLines = result.lines.filter((line: DrawingLine) =>
@@ -447,8 +479,8 @@ export function Section2DPanel(): React.ReactElement | null {
           poly.entityId === undefined || !entitiesWithRelevantSymbols.has(poly.entityId)
         ) ?? [];
 
-        // Combine filtered section cuts with relevant symbolic lines
-        const combinedLines = [...filteredLines, ...relevantSymbolicLines];
+        // Combine filtered section cuts with aligned symbolic lines
+        const combinedLines = [...filteredLines, ...alignedSymbolicLines];
 
         // Recalculate bounds with combined lines
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -474,7 +506,7 @@ export function Section2DPanel(): React.ReactElement | null {
           },
         };
 
-        console.log(`[Section2DPanel] Hybrid drawing: ${filteredLines.length} section cut lines, ${relevantSymbolicLines.length} symbolic lines (from ${symbolicLines.length} total), ${entitiesWithRelevantSymbols.size} entities replaced, ${cutEntityIds.size} entities being cut`);
+        console.log(`[Section2DPanel] Hybrid drawing: ${filteredLines.length} section cut lines, ${alignedSymbolicLines.length} symbolic lines (aligned), ${entitiesWithRelevantSymbols.size} entities replaced, ${alignmentOffsets.size} entities aligned`);
         setDrawing(hybridDrawing);
       } else {
         setDrawing(result);

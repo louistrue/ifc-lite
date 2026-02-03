@@ -2609,6 +2609,57 @@ impl IfcAPI {
                     continue;
                 }
 
+                // Check ContextOfItems (attribute 0) for WorldCoordinateSystem
+                // Some Plan representations use a different coordinate system than Body
+                let context_transform = if let Some(context_ref) = shape_rep.get_ref(0) {
+                    if let Ok(context) = decoder.decode_by_id(context_ref) {
+                        // IfcGeometricRepresentationContext has WorldCoordinateSystem at attr 2
+                        // IfcGeometricRepresentationSubContext inherits from parent (attr 4)
+                        if context.ifc_type == IfcType::IfcGeometricRepresentationContext {
+                            if let Some(wcs_ref) = context.get_ref(2) {
+                                if let Ok(wcs) = decoder.decode_by_id(wcs_ref) {
+                                    parse_axis2_placement_2d(&wcs, &mut decoder, unit_scale)
+                                } else {
+                                    Transform2D::identity()
+                                }
+                            } else {
+                                Transform2D::identity()
+                            }
+                        } else if context.ifc_type == IfcType::IfcGeometricRepresentationSubContext {
+                            // SubContext inherits from parent - for now use identity
+                            // TODO: could recursively get parent context's WCS
+                            Transform2D::identity()
+                        } else {
+                            Transform2D::identity()
+                        }
+                    } else {
+                        Transform2D::identity()
+                    }
+                } else {
+                    Transform2D::identity()
+                };
+
+                // Compose: context_transform * placement_transform
+                // The context WCS defines global positioning, placement is entity-specific
+                let combined_transform = if context_transform.tx.abs() > 0.001
+                    || context_transform.ty.abs() > 0.001
+                    || (context_transform.cos_theta - 1.0).abs() > 0.0001
+                    || context_transform.sin_theta.abs() > 0.0001
+                {
+                    // Debug: log non-identity context transform
+                    static CONTEXT_DEBUG_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+                    if CONTEXT_DEBUG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 2 {
+                        web_sys::console::log_1(&format!(
+                            "[Symbolic Context] Rep '{}': context WCS tx={:.2}, ty={:.2}, cos={:.4}, sin={:.4}",
+                            rep_identifier, context_transform.tx, context_transform.ty,
+                            context_transform.cos_theta, context_transform.sin_theta
+                        ).into());
+                    }
+                    compose_transforms(&context_transform, &placement_transform)
+                } else {
+                    placement_transform.clone()
+                };
+
                 // Get items list (attribute 3)
                 let items_attr = match shape_rep.get(3) {
                     Some(attr) => attr,
@@ -2629,7 +2680,7 @@ impl IfcAPI {
                         &ifc_type_name,
                         &rep_identifier,
                         unit_scale,
-                        &placement_transform,
+                        &combined_transform,
                         rtc_x,
                         rtc_z,
                         &mut collection,
@@ -2643,7 +2694,7 @@ impl IfcAPI {
 }
 
 /// Simple 2D transform for symbolic representations (translation + rotation)
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Transform2D {
     tx: f32,
     ty: f32,

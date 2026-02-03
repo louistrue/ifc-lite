@@ -1097,11 +1097,11 @@ export interface InitOutput {
     readonly meshcollection_rtcOffsetZ: (a: number) => number;
     readonly symboliccircle_expressId: (a: number) => number;
     readonly get_memory: () => number;
-    readonly __wasm_bindgen_func_elem_898: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_460: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_934: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_903: (a: number, b: number, c: number) => void;
-    readonly __wasm_bindgen_func_elem_464: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_899: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_461: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_935: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_904: (a: number, b: number, c: number) => void;
+    readonly __wasm_bindgen_func_elem_465: (a: number, b: number) => void;
     readonly __wbindgen_export: (a: number) => void;
     readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
     readonly __wbindgen_export3: (a: number, b: number) => number;
