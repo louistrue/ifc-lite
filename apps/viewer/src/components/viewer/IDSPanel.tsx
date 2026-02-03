@@ -257,51 +257,41 @@ function EntityResultRow({ entity, onClick }: EntityResultRowProps) {
   };
 
   return (
-    <div className="group/row w-full overflow-hidden hover:bg-muted/50 focus-within:bg-muted/50 focus-within:ring-2 focus-within:ring-primary focus-within:ring-inset rounded-md">
-      {/* Header row - chevron overlays content */}
-      <div className="relative w-full">
-        <button
-          className="w-full p-2 pr-10 text-left flex items-center gap-2 focus:outline-none min-w-0"
-          onClick={onClick}
-          onKeyDown={handleKeyDown}
-          tabIndex={0}
-          aria-expanded={showDetails}
-          aria-label={`${entity.entityName || '#' + entity.expressId} - ${entity.entityType} - ${entity.passed ? 'Passed' : 'Failed'}`}
-        >
-          <StatusIcon status={entity.passed ? 'pass' : 'fail'} />
-          <div className="flex-1 min-w-0">
-            <div className="text-sm truncate">
-              {entity.entityName || `#${entity.expressId}`}
-            </div>
-            <div className="text-xs text-muted-foreground truncate">
-              {entity.entityType}
-              {entity.globalId && ` \u00b7 ${entity.globalId}`}
-            </div>
+    <div className="hover:bg-muted/50 focus-within:bg-muted/50 focus-within:ring-2 focus-within:ring-primary focus-within:ring-inset rounded-md">
+      <button
+        className="w-full p-2 text-left flex items-center gap-2 focus:outline-none"
+        onClick={onClick}
+        onKeyDown={handleKeyDown}
+        tabIndex={0}
+        aria-expanded={showDetails}
+        aria-label={`${entity.entityName || '#' + entity.expressId} - ${entity.entityType} - ${entity.passed ? 'Passed' : 'Failed'}`}
+      >
+        <StatusIcon status={entity.passed ? 'pass' : 'fail'} />
+        <div className="flex-1 min-w-0">
+          <div className="text-sm truncate">
+            {entity.entityName || `#${entity.expressId}`}
           </div>
-        </button>
-        {/* Chevron - fixed position at right edge, never pushed out */}
+          <div className="text-xs text-muted-foreground truncate">
+            {entity.entityType}
+            {entity.globalId && ` · ${entity.globalId}`}
+          </div>
+        </div>
+        {/* Chevron - shrink-0 keeps it visible */}
         <span
           role="button"
-          tabIndex={0}
-          className="absolute right-0 top-0 bottom-0 w-10 flex items-center justify-center bg-gradient-to-l from-background from-60% to-transparent group-hover/row:from-muted/50 hover:!from-accent z-10"
+          tabIndex={-1}
+          className="shrink-0 p-1 rounded hover:bg-accent"
           onClick={(e) => {
             e.stopPropagation();
             setShowDetails(!showDetails);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              e.stopPropagation();
-              setShowDetails(!showDetails);
-            }
           }}
           aria-label={showDetails ? 'Hide details' : 'Show details'}
         >
           {showDetails ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
         </span>
-      </div>
+      </button>
       {showDetails && (
-        <div className="px-8 pb-2 space-y-1">
+        <div className="pl-8 pr-2 pb-2 space-y-1">
           {entity.requirementResults.map((req, idx) => (
             <RequirementResultRow key={req.requirement.id || idx} result={req} />
           ))}
