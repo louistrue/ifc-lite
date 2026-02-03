@@ -260,9 +260,9 @@ function EntityResultRow({ entity, onClick }: EntityResultRowProps) {
   };
 
   return (
-    <div className="hover:bg-muted/50 focus-within:bg-muted/50">
+    <div className="hover:bg-muted/50 focus-within:bg-muted/50 relative">
       <button
-        className="w-full p-2 text-left flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset"
+        className="w-full p-2 pr-8 text-left flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset"
         onClick={onClick}
         onKeyDown={handleKeyDown}
         tabIndex={0}
@@ -279,26 +279,26 @@ function EntityResultRow({ entity, onClick }: EntityResultRowProps) {
             {entity.globalId && ` \u00b7 ${entity.globalId}`}
           </div>
         </div>
-        <span
-          role="button"
-          tabIndex={0}
-          className="shrink-0 inline-flex items-center justify-center h-6 w-6 rounded-md hover:bg-accent hover:text-accent-foreground"
-          onClick={(e) => {
+      </button>
+      <span
+        role="button"
+        tabIndex={0}
+        className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center justify-center h-6 w-6 rounded-md hover:bg-accent hover:text-accent-foreground"
+        onClick={(e) => {
+          e.stopPropagation();
+          setShowDetails(!showDetails);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
             e.stopPropagation();
             setShowDetails(!showDetails);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              e.stopPropagation();
-              setShowDetails(!showDetails);
-            }
-          }}
-          aria-label={showDetails ? 'Hide details' : 'Show details'}
-        >
-          {showDetails ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        </span>
-      </button>
+          }
+        }}
+        aria-label={showDetails ? 'Hide details' : 'Show details'}
+      >
+        {showDetails ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+      </span>
       {showDetails && (
         <div className="px-8 pb-2 space-y-1">
           {entity.requirementResults.map((req, idx) => (
