@@ -2922,9 +2922,10 @@ fn extract_symbolic_item(
                                 let y = wy - rtc_z;
 
                                 // Skip invalid coordinates
+                                // Swap X and Y to align with section cut projection (Y-axis section projects to X-Z)
                                 if x.is_finite() && y.is_finite() {
-                                    points.push(x);
-                                    points.push(y);
+                                    points.push(y);  // Swapped: Y becomes drawing X
+                                    points.push(x);  // Swapped: X becomes drawing Y
                                 }
                             }
                         }
@@ -2965,9 +2966,10 @@ fn extract_symbolic_item(
                                     let y = wy - rtc_z;
 
                                     // Skip invalid coordinates
+                                    // Swap X and Y to align with section cut projection
                                     if x.is_finite() && y.is_finite() {
-                                        points.push(x);
-                                        points.push(y);
+                                        points.push(y);  // Swapped
+                                        points.push(x);  // Swapped
                                     }
                                 }
                             }
@@ -3040,11 +3042,12 @@ fn extract_symbolic_item(
             let world_cx = wx - rtc_x;
             let world_cy = wy - rtc_z;
 
+            // Swap X and Y to align with section cut projection
             collection.add_circle(SymbolicCircle::full_circle(
                 express_id,
                 ifc_type.to_string(),
-                world_cx,
-                world_cy,
+                world_cy,  // Swapped
+                world_cx,  // Swapped
                 radius,
                 rep_identifier.to_string(),
             ));
@@ -3149,7 +3152,8 @@ fn extract_symbolic_item(
                             // Apply placement transform to get world coordinates, then apply RTC offset
                             let (wsx, wsy) = transform.transform_point(start_x, start_y);
                             let (wex, wey) = transform.transform_point(end_x, end_y);
-                            let points = vec![wsx - rtc_x, wsy - rtc_z, wex - rtc_x, wey - rtc_z];
+                            // Swap X and Y to align with section cut projection
+                            let points = vec![wsy - rtc_z, wsx - rtc_x, wey - rtc_z, wex - rtc_x];
                             collection.add_polyline(SymbolicPolyline::new(
                                 express_id,
                                 ifc_type.to_string(),
@@ -3175,9 +3179,10 @@ fn extract_symbolic_item(
                                 let y = wy - rtc_z;
 
                                 // Skip NaN/Infinity points
+                                // Swap X and Y to align with section cut projection
                                 if x.is_finite() && y.is_finite() {
-                                    points.push(x);
-                                    points.push(y);
+                                    points.push(y);  // Swapped
+                                    points.push(x);  // Swapped
                                 }
                             }
 

@@ -240,17 +240,11 @@ export function Section2DPanel(): React.ReactElement | null {
             const pointCount = poly.pointCount;
 
             // Convert points to DrawingLine segments
-            // DEBUG: Try swapping X and Y to fix 90-degree rotation
-            const SWAP_XY = true; // Toggle this to test axis swap
             for (let j = 0; j < pointCount - 1; j++) {
-              const rawX1 = points[j * 2];
-              const rawY1 = points[j * 2 + 1];
-              const rawX2 = points[(j + 1) * 2];
-              const rawY2 = points[(j + 1) * 2 + 1];
-              const x1 = SWAP_XY ? rawY1 : rawX1;
-              const y1 = SWAP_XY ? rawX1 : rawY1;
-              const x2 = SWAP_XY ? rawY2 : rawX2;
-              const y2 = SWAP_XY ? rawX2 : rawY2;
+              const x1 = points[j * 2];
+              const y1 = points[j * 2 + 1];
+              const x2 = points[(j + 1) * 2];
+              const y2 = points[(j + 1) * 2 + 1];
               symbolicLines.push({
                 line: { start: { x: x1, y: y1 }, end: { x: x2, y: y2 } },
                 category: 'silhouette',
@@ -264,14 +258,10 @@ export function Section2DPanel(): React.ReactElement | null {
 
             // Close the polyline if needed
             if (poly.isClosed && pointCount > 2) {
-              const rawX1 = points[(pointCount - 1) * 2];
-              const rawY1 = points[(pointCount - 1) * 2 + 1];
-              const rawX2 = points[0];
-              const rawY2 = points[1];
-              const x1 = SWAP_XY ? rawY1 : rawX1;
-              const y1 = SWAP_XY ? rawX1 : rawY1;
-              const x2 = SWAP_XY ? rawY2 : rawX2;
-              const y2 = SWAP_XY ? rawX2 : rawY2;
+              const x1 = points[(pointCount - 1) * 2];
+              const y1 = points[(pointCount - 1) * 2 + 1];
+              const x2 = points[0];
+              const y2 = points[1];
               symbolicLines.push({
                 line: { start: { x: x1, y: y1 }, end: { x: x2, y: y2 } },
                 category: 'silhouette',
@@ -285,8 +275,6 @@ export function Section2DPanel(): React.ReactElement | null {
           }
 
           // Process circles/arcs (tessellate to line segments)
-          // Use same SWAP_XY as polylines
-          const SWAP_XY_CIRCLES = true; // Match polylines
           for (let i = 0; i < symbolicCollection.circleCount; i++) {
             const circle = symbolicCollection.getCircle(i);
             if (!circle) continue;
@@ -295,10 +283,6 @@ export function Section2DPanel(): React.ReactElement | null {
             const numSegments = circle.isFullCircle ? 32 : 16;
             const startAngle = circle.startAngle;
             const endAngle = circle.endAngle;
-
-            // For circles, swap centerX/centerY if needed
-            const cx = SWAP_XY_CIRCLES ? circle.centerY : circle.centerX;
-            const cy = SWAP_XY_CIRCLES ? circle.centerX : circle.centerY;
 
             for (let j = 0; j < numSegments; j++) {
               const t1 = j / numSegments;
@@ -309,12 +293,12 @@ export function Section2DPanel(): React.ReactElement | null {
               symbolicLines.push({
                 line: {
                   start: {
-                    x: cx + circle.radius * Math.cos(a1),
-                    y: cy + circle.radius * Math.sin(a1),
+                    x: circle.centerX + circle.radius * Math.cos(a1),
+                    y: circle.centerY + circle.radius * Math.sin(a1),
                   },
                   end: {
-                    x: cx + circle.radius * Math.cos(a2),
-                    y: cy + circle.radius * Math.sin(a2),
+                    x: circle.centerX + circle.radius * Math.cos(a2),
+                    y: circle.centerY + circle.radius * Math.sin(a2),
                   },
                 },
                 category: 'silhouette',
@@ -325,22 +309,6 @@ export function Section2DPanel(): React.ReactElement | null {
                 depth: 0,
               });
             }
-          }
-
-          // Debug: Calculate symbolic bounds
-          let symMinX = Infinity, symMinY = Infinity, symMaxX = -Infinity, symMaxY = -Infinity;
-          for (const line of symbolicLines) {
-            symMinX = Math.min(symMinX, line.line.start.x, line.line.end.x);
-            symMinY = Math.min(symMinY, line.line.start.y, line.line.end.y);
-            symMaxX = Math.max(symMaxX, line.line.start.x, line.line.end.x);
-            symMaxY = Math.max(symMaxY, line.line.start.y, line.line.end.y);
-          }
-          console.log(`[Section2DPanel] Symbolic bounds: X[${symMinX.toFixed(2)}, ${symMaxX.toFixed(2)}] Y[${symMinY.toFixed(2)}, ${symMaxY.toFixed(2)}] size: ${(symMaxX-symMinX).toFixed(2)} x ${(symMaxY-symMinY).toFixed(2)}`);
-
-          // Debug: Log a sample symbolic line
-          if (symbolicLines.length > 0) {
-            const sample = symbolicLines[0];
-            console.log(`[Section2DPanel] Sample symbolic line: (${sample.line.start.x.toFixed(2)}, ${sample.line.start.y.toFixed(2)}) -> (${sample.line.end.x.toFixed(2)}, ${sample.line.end.y.toFixed(2)}) entityId=${sample.entityId}`);
           }
 
           console.log(`[Section2DPanel] Parsed ${entitiesWithSymbols.size} entities with symbolic representations, ${symbolicLines.length} lines`);
@@ -438,15 +406,6 @@ export function Section2DPanel(): React.ReactElement | null {
           },
         };
 
-        // Debug: Log section cut bounds for comparison
-        let secMinX = Infinity, secMinY = Infinity, secMaxX = -Infinity, secMaxY = -Infinity;
-        for (const line of result.lines) {
-          secMinX = Math.min(secMinX, line.line.start.x, line.line.end.x);
-          secMinY = Math.min(secMinY, line.line.start.y, line.line.end.y);
-          secMaxX = Math.max(secMaxX, line.line.start.x, line.line.end.x);
-          secMaxY = Math.max(secMaxY, line.line.start.y, line.line.end.y);
-        }
-        console.log(`[Section2DPanel] Section cut bounds: X[${secMinX.toFixed(2)}, ${secMaxX.toFixed(2)}] Y[${secMinY.toFixed(2)}, ${secMaxY.toFixed(2)}] size: ${(secMaxX-secMinX).toFixed(2)} x ${(secMaxY-secMinY).toFixed(2)}`);
         console.log(`[Section2DPanel] Hybrid drawing: ${filteredLines.length} section cut lines (filtered from ${result.lines.length}), ${symbolicLines.length} symbolic lines, ${entitiesWithSymbols.size} entities with symbols`);
         setDrawing(hybridDrawing);
       } else {
