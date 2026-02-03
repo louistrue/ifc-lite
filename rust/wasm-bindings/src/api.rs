@@ -3048,16 +3048,15 @@ fn extract_symbolic_item(
                                 // Debug first point of first polyline
                                 if polyline_debug && i == 0 {
                                     web_sys::console::log_1(&format!(
-                                        "[Symbolic Polyline] Entity #{}: local({:.2}, {:.2}) -> world({:.2}, {:.2}) -> shifted({:.2}, {:.2}) -> swapped({:.2}, {:.2})",
-                                        express_id, local_x, local_y, wx, wy, x, y, y, x
+                                        "[Symbolic Polyline] Entity #{}: local({:.2}, {:.2}) -> world({:.2}, {:.2}) -> shifted({:.2}, {:.2})",
+                                        express_id, local_x, local_y, wx, wy, x, y
                                     ).into());
                                 }
 
                                 // Skip invalid coordinates
-                                // Swap X and Y to align with section cut projection (Y-axis section projects to X-Z)
                                 if x.is_finite() && y.is_finite() {
-                                    points.push(y);  // Swapped: Y becomes drawing X
-                                    points.push(x);  // Swapped: X becomes drawing Y
+                                    points.push(x);
+                                    points.push(y);
                                 }
                             }
                         }
@@ -3098,10 +3097,9 @@ fn extract_symbolic_item(
                                     let y = wy - rtc_z;
 
                                     // Skip invalid coordinates
-                                    // Swap X and Y to align with section cut projection
                                     if x.is_finite() && y.is_finite() {
-                                        points.push(y);  // Swapped
-                                        points.push(x);  // Swapped
+                                        points.push(x);
+                                        points.push(y);
                                     }
                                 }
                             }
@@ -3174,12 +3172,11 @@ fn extract_symbolic_item(
             let world_cx = wx - rtc_x;
             let world_cy = wy - rtc_z;
 
-            // Swap X and Y to align with section cut projection
             collection.add_circle(SymbolicCircle::full_circle(
                 express_id,
                 ifc_type.to_string(),
-                world_cy,  // Swapped
-                world_cx,  // Swapped
+                world_cx,
+                world_cy,
                 radius,
                 rep_identifier.to_string(),
             ));
@@ -3284,8 +3281,7 @@ fn extract_symbolic_item(
                             // Apply placement transform to get world coordinates, then apply RTC offset
                             let (wsx, wsy) = transform.transform_point(start_x, start_y);
                             let (wex, wey) = transform.transform_point(end_x, end_y);
-                            // Swap X and Y to align with section cut projection
-                            let points = vec![wsy - rtc_z, wsx - rtc_x, wey - rtc_z, wex - rtc_x];
+                            let points = vec![wsx - rtc_x, wsy - rtc_z, wex - rtc_x, wey - rtc_z];
                             collection.add_polyline(SymbolicPolyline::new(
                                 express_id,
                                 ifc_type.to_string(),
@@ -3311,10 +3307,9 @@ fn extract_symbolic_item(
                                 let y = wy - rtc_z;
 
                                 // Skip NaN/Infinity points
-                                // Swap X and Y to align with section cut projection
                                 if x.is_finite() && y.is_finite() {
-                                    points.push(y);  // Swapped
-                                    points.push(x);  // Swapped
+                                    points.push(x);
+                                    points.push(y);
                                 }
                             }
 
