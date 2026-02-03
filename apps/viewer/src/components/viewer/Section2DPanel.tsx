@@ -351,10 +351,8 @@ export function Section2DPanel(): React.ReactElement | null {
           cutPolygons: [], // No cut polygons for symbolic representations
           projectionPolygons: [],
           bounds: {
-            minX: isFinite(minX) ? minX : 0,
-            minY: isFinite(minY) ? minY : 0,
-            maxX: isFinite(maxX) ? maxX : 1,
-            maxY: isFinite(maxY) ? maxY : 1,
+            min: { x: isFinite(minX) ? minX : 0, y: isFinite(minY) ? minY : 0 },
+            max: { x: isFinite(maxX) ? maxX : 1, y: isFinite(maxY) ? maxY : 1 },
           },
           stats: {
             cutLineCount: drawingLines.length,
