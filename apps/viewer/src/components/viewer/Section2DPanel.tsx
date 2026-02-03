@@ -255,7 +255,7 @@ export function Section2DPanel(): React.ReactElement | null {
             const y2 = points[(j + 1) * 2 + 1];
             drawingLines.push({
               line: { start: { x: x1, y: y1 }, end: { x: x2, y: y2 } },
-              category: 'cut',
+              category: 'silhouette', // Use silhouette, not 'cut' (cut lines are skipped in renderer)
               visibility: 'visible',
               entityId: poly.expressId,
               ifcType: poly.ifcType,
@@ -272,7 +272,7 @@ export function Section2DPanel(): React.ReactElement | null {
             const y2 = points[1];
             drawingLines.push({
               line: { start: { x: x1, y: y1 }, end: { x: x2, y: y2 } },
-              category: 'cut',
+              category: 'silhouette',
               visibility: 'visible',
               entityId: poly.expressId,
               ifcType: poly.ifcType,
@@ -308,7 +308,7 @@ export function Section2DPanel(): React.ReactElement | null {
                   y: circle.centerY + circle.radius * Math.sin(a2),
                 },
               },
-              category: 'cut',
+              category: 'silhouette',
               visibility: 'visible',
               entityId: circle.expressId,
               ifcType: circle.ifcType,
