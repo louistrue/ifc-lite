@@ -282,7 +282,7 @@ function EntityResultRow({ entity, onClick }: EntityResultRowProps) {
         <span
           role="button"
           tabIndex={0}
-          className="inline-flex items-center justify-center h-6 w-6 rounded-md hover:bg-accent hover:text-accent-foreground"
+          className="shrink-0 inline-flex items-center justify-center h-6 w-6 rounded-md hover:bg-accent hover:text-accent-foreground"
           onClick={(e) => {
             e.stopPropagation();
             setShowDetails(!showDetails);
@@ -491,9 +491,9 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
         </div>
 
         {/* Filter & Actions Bar */}
-        <div className="p-2 border-b flex items-center gap-2">
+        <div className="p-2 border-b flex items-center gap-1 flex-wrap">
           <Select value={filterMode} onValueChange={(v) => setFilterMode(v as 'all' | 'failed' | 'passed')}>
-            <SelectTrigger className="h-8 w-28">
+            <SelectTrigger className="h-8 w-24">
               <Filter className="h-3 w-3 mr-1" />
               <SelectValue />
             </SelectTrigger>
@@ -504,7 +504,7 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
             </SelectContent>
           </Select>
 
-          <div className="flex-1" />
+          <div className="flex-1 min-w-2" />
 
           <Tooltip>
             <TooltipTrigger asChild>
@@ -546,9 +546,8 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 px-2 gap-1" onClick={exportReportJSON}>
-                <FileJson className="h-4 w-4" />
-                <span className="text-xs">JSON</span>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={exportReportJSON}>
+                <FileJson className="h-4 w-4 text-blue-500" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>Export JSON Report</TooltipContent>
@@ -556,9 +555,8 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 px-2 gap-1" onClick={exportReportHTML}>
-                <FileCode className="h-4 w-4" />
-                <span className="text-xs">HTML</span>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={exportReportHTML}>
+                <FileCode className="h-4 w-4 text-orange-500" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>Export HTML Report</TooltipContent>
