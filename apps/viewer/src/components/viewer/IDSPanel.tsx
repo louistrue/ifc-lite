@@ -29,13 +29,11 @@ import {
   Focus,
   EyeOff,
   Eye,
-  Globe,
   FileText,
   Loader2,
   Building2,
   RefreshCw,
   Trash2,
-  Download,
   FileJson,
   FileCode,
 } from 'lucide-react';
@@ -62,7 +60,6 @@ import type {
   IDSSpecificationResult,
   IDSEntityResult,
   IDSRequirementResult,
-  SupportedLocale,
 } from '@ifc-lite/ids';
 import { cn } from '@/lib/utils';
 
@@ -341,7 +338,6 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
     loading,
     progress,
     error,
-    locale,
     activeSpecificationId,
     filterMode,
 
@@ -352,7 +348,6 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
     clearValidation,
     setActiveSpecification,
     selectEntity,
-    setLocale,
     setFilterMode,
     applyColors,
     isolateFailed,
@@ -588,26 +583,6 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
           <span className="font-medium text-sm">IDS Validation</span>
         </div>
         <div className="flex items-center gap-1">
-          {/* Language Selector */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div>
-                <Select value={locale} onValueChange={(v) => setLocale(v as SupportedLocale)}>
-                  <SelectTrigger className="h-7 w-16 text-xs">
-                    <Globe className="h-3 w-3 mr-1" />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="en">EN</SelectItem>
-                    <SelectItem value="de">DE</SelectItem>
-                    <SelectItem value="fr">FR</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>Report Language</TooltipContent>
-          </Tooltip>
-
           {/* Load New IDS */}
           {document && (
             <>
