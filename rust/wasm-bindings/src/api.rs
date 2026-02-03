@@ -2530,6 +2530,11 @@ impl IfcAPI {
         let rtc_x = if needs_rtc { rtc_offset.0 as f32 } else { 0.0 };
         let rtc_z = if needs_rtc { rtc_offset.2 as f32 } else { 0.0 };
 
+        web_sys::console::log_1(&format!(
+            "[Symbolic] RTC offset: ({:.2}, {:.2}, {:.2}), using rtc_x={:.2}, rtc_z={:.2}, unit_scale={:.4}",
+            rtc_offset.0, rtc_offset.1, rtc_offset.2, rtc_x, rtc_z, unit_scale
+        ).into());
+
         let mut collection = SymbolicRepresentationCollection::new();
         let mut scanner = EntityScanner::new(&content);
 
@@ -2548,6 +2553,17 @@ impl IfcAPI {
 
             // Get ObjectPlacement transform (attribute 5) to transform local coords to world
             let placement_transform = get_object_placement_transform(&entity, &mut decoder, unit_scale);
+
+            // Debug: log first entity's placement transform
+            static DEBUG_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let debug_count = DEBUG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if debug_count < 3 {
+                web_sys::console::log_1(&format!(
+                    "[Symbolic] Entity #{} ({}) placement: tx={:.2}, ty={:.2}, cos={:.4}, sin={:.4}",
+                    id, entity.ifc_type.name(), placement_transform.tx, placement_transform.ty,
+                    placement_transform.cos_theta, placement_transform.sin_theta
+                ).into());
+            }
 
             // Get representation (attribute 6 for most products)
             let representation_attr = match entity.get(6) {
@@ -2645,6 +2661,24 @@ impl Transform2D {
         let rx = x * self.cos_theta - y * self.sin_theta;
         let ry = x * self.sin_theta + y * self.cos_theta;
         (rx + self.tx, ry + self.ty)
+    }
+}
+
+/// Compose two 2D transforms: result = a * b (apply b first, then a)
+fn compose_transforms(a: &Transform2D, b: &Transform2D) -> Transform2D {
+    // Combined rotation: R_combined = R_a * R_b
+    let combined_cos = a.cos_theta * b.cos_theta - a.sin_theta * b.sin_theta;
+    let combined_sin = a.sin_theta * b.cos_theta + a.cos_theta * b.sin_theta;
+
+    // Combined translation: t_combined = R_a * t_b + t_a
+    let rtx = b.tx * a.cos_theta - b.ty * a.sin_theta;
+    let rty = b.tx * a.sin_theta + b.ty * a.cos_theta;
+
+    Transform2D {
+        tx: rtx + a.tx,
+        ty: rty + a.ty,
+        cos_theta: combined_cos,
+        sin_theta: combined_sin,
     }
 }
 
@@ -2872,10 +2906,35 @@ fn extract_symbolic_item(
             }
         }
         IfcType::IfcMappedItem => {
-            // IfcMappedItem: MappingSource (IfcRepresentationMap), MappingTarget
+            // IfcMappedItem: MappingSource (IfcRepresentationMap), MappingTarget (optional transform)
             if let Some(source_id) = item.get_ref(0) {
                 if let Ok(rep_map) = decoder.decode_by_id(source_id) {
                     // IfcRepresentationMap: MappingOrigin, MappedRepresentation
+                    // MappingOrigin (attr 0) defines the coordinate system origin for the mapped geometry
+                    let mapping_origin_transform = if let Some(origin_id) = rep_map.get_ref(0) {
+                        if let Ok(origin) = decoder.decode_by_id(origin_id) {
+                            parse_axis2_placement_2d(&origin, decoder, unit_scale)
+                        } else {
+                            Transform2D::identity()
+                        }
+                    } else {
+                        Transform2D::identity()
+                    };
+
+                    // Debug: log MappingOrigin transform for first mapped item
+                    static MAPPED_DEBUG_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+                    if MAPPED_DEBUG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 2 {
+                        web_sys::console::log_1(&format!(
+                            "[Symbolic MappedItem] Entity #{}: MappingOrigin tx={:.2}, ty={:.2}, cos={:.4}, sin={:.4}",
+                            express_id, mapping_origin_transform.tx, mapping_origin_transform.ty,
+                            mapping_origin_transform.cos_theta, mapping_origin_transform.sin_theta
+                        ).into());
+                    }
+
+                    // Compose: entity_transform * mapping_origin_transform
+                    // The mapping origin defines where the mapped geometry's (0,0) is relative to entity
+                    let composed_transform = compose_transforms(transform, &mapping_origin_transform);
+
                     if let Some(mapped_rep_id) = rep_map.get_ref(1) {
                         if let Ok(mapped_rep) = decoder.decode_by_id(mapped_rep_id) {
                             // Get items from the mapped representation
@@ -2889,7 +2948,7 @@ fn extract_symbolic_item(
                                             ifc_type,
                                             rep_identifier,
                                             unit_scale,
-                                            transform,
+                                            &composed_transform,
                                             rtc_x,
                                             rtc_z,
                                             collection,
@@ -2907,7 +2966,12 @@ fn extract_symbolic_item(
             if let Some(points_attr) = item.get(0) {
                 if let Ok(point_entities) = decoder.resolve_ref_list(points_attr) {
                     let mut points: Vec<f32> = Vec::with_capacity(point_entities.len() * 2);
-                    for point_entity in point_entities {
+
+                    // Debug: log first polyline's first point transformation
+                    static POLYLINE_DEBUG_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+                    let polyline_debug = POLYLINE_DEBUG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 2;
+
+                    for (i, point_entity) in point_entities.iter().enumerate() {
                         if point_entity.ifc_type != IfcType::IfcCartesianPoint {
                             continue;
                         }
@@ -2920,6 +2984,14 @@ fn extract_symbolic_item(
                                 let (wx, wy) = transform.transform_point(local_x, local_y);
                                 let x = wx - rtc_x;
                                 let y = wy - rtc_z;
+
+                                // Debug first point of first polyline
+                                if polyline_debug && i == 0 {
+                                    web_sys::console::log_1(&format!(
+                                        "[Symbolic Polyline] Entity #{}: local({:.2}, {:.2}) -> world({:.2}, {:.2}) -> shifted({:.2}, {:.2}) -> swapped({:.2}, {:.2})",
+                                        express_id, local_x, local_y, wx, wy, x, y, y, x
+                                    ).into());
+                                }
 
                                 // Skip invalid coordinates
                                 // Swap X and Y to align with section cut projection (Y-axis section projects to X-Z)

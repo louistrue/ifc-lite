@@ -397,6 +397,46 @@ export function Section2DPanel(): React.ReactElement | null {
           }
         }
 
+        // DEBUG: Compare coordinates for a specific entity
+        if (entitiesWithRelevantSymbols.size > 0) {
+          // Pick the first entity that has both symbolic and section cut lines
+          const debugEntityId = Array.from(entitiesWithRelevantSymbols)[0];
+
+          // Get section cut bounds for this entity
+          const sectionCutLinesForEntity = result.lines.filter((l: DrawingLine) => l.entityId === debugEntityId);
+          let scMinX = Infinity, scMinY = Infinity, scMaxX = -Infinity, scMaxY = -Infinity;
+          for (const line of sectionCutLinesForEntity) {
+            scMinX = Math.min(scMinX, line.line.start.x, line.line.end.x);
+            scMinY = Math.min(scMinY, line.line.start.y, line.line.end.y);
+            scMaxX = Math.max(scMaxX, line.line.start.x, line.line.end.x);
+            scMaxY = Math.max(scMaxY, line.line.start.y, line.line.end.y);
+          }
+
+          // Get symbolic bounds for this entity
+          const symbolicLinesForEntity = relevantSymbolicLines.filter(l => l.entityId === debugEntityId);
+          let symMinX = Infinity, symMinY = Infinity, symMaxX = -Infinity, symMaxY = -Infinity;
+          for (const line of symbolicLinesForEntity) {
+            symMinX = Math.min(symMinX, line.line.start.x, line.line.end.x);
+            symMinY = Math.min(symMinY, line.line.start.y, line.line.end.y);
+            symMaxX = Math.max(symMaxX, line.line.start.x, line.line.end.x);
+            symMaxY = Math.max(symMaxY, line.line.start.y, line.line.end.y);
+          }
+
+          console.log(`[DEBUG] Entity #${debugEntityId}:`);
+          console.log(`  Section cut: ${sectionCutLinesForEntity.length} lines, bounds X[${scMinX.toFixed(2)}, ${scMaxX.toFixed(2)}] Y[${scMinY.toFixed(2)}, ${scMaxY.toFixed(2)}]`);
+          console.log(`  Symbolic:    ${symbolicLinesForEntity.length} lines, bounds X[${symMinX.toFixed(2)}, ${symMaxX.toFixed(2)}] Y[${symMinY.toFixed(2)}, ${symMaxY.toFixed(2)}]`);
+          console.log(`  Offset:      dX=${(symMinX - scMinX).toFixed(2)}, dY=${(symMinY - scMinY).toFixed(2)}`);
+          console.log(`  Size ratio:  sX=${((symMaxX - symMinX) / (scMaxX - scMinX)).toFixed(3)}, sY=${((symMaxY - symMinY) / (scMaxY - scMinY)).toFixed(3)}`);
+
+          // Also log first line coordinates
+          if (sectionCutLinesForEntity.length > 0 && symbolicLinesForEntity.length > 0) {
+            const scLine = sectionCutLinesForEntity[0];
+            const symLine = symbolicLinesForEntity[0];
+            console.log(`  First SC line:  (${scLine.line.start.x.toFixed(2)}, ${scLine.line.start.y.toFixed(2)}) -> (${scLine.line.end.x.toFixed(2)}, ${scLine.line.end.y.toFixed(2)})`);
+            console.log(`  First Sym line: (${symLine.line.start.x.toFixed(2)}, ${symLine.line.start.y.toFixed(2)}) -> (${symLine.line.end.x.toFixed(2)}, ${symLine.line.end.y.toFixed(2)})`);
+          }
+        }
+
         // Filter out section cut lines for entities that have relevant symbolic representations
         const filteredLines = result.lines.filter((line: DrawingLine) =>
           line.entityId === undefined || !entitiesWithRelevantSymbols.has(line.entityId)
