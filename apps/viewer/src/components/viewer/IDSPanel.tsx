@@ -257,11 +257,11 @@ function EntityResultRow({ entity, onClick }: EntityResultRowProps) {
   };
 
   return (
-    <div className="group/row hover:bg-muted/50 focus-within:bg-muted/50 focus-within:ring-2 focus-within:ring-primary focus-within:ring-inset rounded-md">
+    <div className="group/row w-full overflow-hidden hover:bg-muted/50 focus-within:bg-muted/50 focus-within:ring-2 focus-within:ring-primary focus-within:ring-inset rounded-md">
       {/* Header row - chevron overlays content */}
-      <div className="relative overflow-hidden">
+      <div className="relative w-full">
         <button
-          className="w-full p-2 text-left flex items-center gap-2 focus:outline-none min-w-0"
+          className="w-full p-2 pr-10 text-left flex items-center gap-2 focus:outline-none min-w-0"
           onClick={onClick}
           onKeyDown={handleKeyDown}
           tabIndex={0}
@@ -269,7 +269,7 @@ function EntityResultRow({ entity, onClick }: EntityResultRowProps) {
           aria-label={`${entity.entityName || '#' + entity.expressId} - ${entity.entityType} - ${entity.passed ? 'Passed' : 'Failed'}`}
         >
           <StatusIcon status={entity.passed ? 'pass' : 'fail'} />
-          <div className="flex-1 min-w-0 overflow-hidden">
+          <div className="flex-1 min-w-0">
             <div className="text-sm truncate">
               {entity.entityName || `#${entity.expressId}`}
             </div>
@@ -279,11 +279,11 @@ function EntityResultRow({ entity, onClick }: EntityResultRowProps) {
             </div>
           </div>
         </button>
-        {/* Chevron overlay - always visible, gradient adapts to row hover */}
+        {/* Chevron - fixed position at right edge, never pushed out */}
         <span
           role="button"
           tabIndex={0}
-          className="absolute right-0 top-0 bottom-0 flex items-center pl-6 pr-1 bg-gradient-to-l from-background from-50% to-transparent group-hover/row:from-muted/50 hover:!from-accent z-10"
+          className="absolute right-0 top-0 bottom-0 w-10 flex items-center justify-center bg-gradient-to-l from-background from-60% to-transparent group-hover/row:from-muted/50 hover:!from-accent z-10"
           onClick={(e) => {
             e.stopPropagation();
             setShowDetails(!showDetails);
