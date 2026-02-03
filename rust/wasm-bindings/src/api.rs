@@ -2873,6 +2873,7 @@ fn parse_axis2_placement_2d(
     // Get RefDirection (attribute 2 for 3D, attribute 1 for 2D) to get rotation
     // RefDirection is the X-axis direction in the local coordinate system
     // For 3D, use X and Z components; for 2D, use X and Y
+    // Special case: if RefDirection is purely in Y direction (vertical), compute rotation from Y
     let (cos_theta, sin_theta) = if let Some(ref_dir_attr) = placement.get(2).or_else(|| placement.get(1)) {
         if !ref_dir_attr.is_null() {
             if let Some(ref_dir_id) = ref_dir_attr.as_entity_ref() {
@@ -2881,15 +2882,23 @@ fn parse_axis2_placement_2d(
                         if let Some(ratios_attr) = ref_dir.get(0) {
                             if let Some(ratios) = ratios_attr.as_list() {
                                 let dx = ratios.first().and_then(|v| v.as_float()).unwrap_or(1.0) as f32;
+                                let dy = ratios.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
                                 // For 3D, use Z component (index 2); for 2D, use Y component (index 1)
                                 let dy_or_dz = if is_3d {
                                     ratios.get(2).and_then(|v| v.as_float()).unwrap_or(0.0) as f32
                                 } else {
-                                    ratios.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32
+                                    dy
                                 };
                                 let len = (dx * dx + dy_or_dz * dy_or_dz).sqrt();
                                 if len > 0.0001 {
                                     (dx / len, dy_or_dz / len)
+                                } else if is_3d && dy.abs() > 0.0001 {
+                                    // Special case: RefDirection is purely in Y direction
+                                    // Local X points up/down (Y), which is perpendicular to X-Z floor plane
+                                    // This means local coordinate system is rotated 90° in floor plan
+                                    // dy > 0: local X points +Y, rotation = 90° (cos=0, sin=1)
+                                    // dy < 0: local X points -Y, rotation = -90° (cos=0, sin=-1)
+                                    if dy > 0.0 { (0.0, 1.0) } else { (0.0, -1.0) }
                                 } else {
                                     (1.0, 0.0)
                                 }
