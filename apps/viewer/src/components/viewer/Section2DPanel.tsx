@@ -35,6 +35,7 @@ import {
   type ElementData,
   type TitleBlockExtras,
 } from '@ifc-lite/drawing-2d';
+import { GeometryProcessor } from '@ifc-lite/geometry';
 import { DrawingSettingsPanel } from './DrawingSettingsPanel';
 import { SheetSetupPanel } from './SheetSetupPanel';
 import { TitleBlockEditor } from './TitleBlockEditor';
@@ -138,7 +139,7 @@ export function Section2DPanel(): React.ReactElement | null {
 
   const sectionPlane = useViewerStore((s) => s.sectionPlane);
   const activeTool = useViewerStore((s) => s.activeTool);
-  const { geometryResult } = useIfc();
+  const { geometryResult, ifcDataStore } = useIfc();
 
   // Auto-show panel when section tool is active
   const prevActiveToolRef = useRef(activeTool);
@@ -205,11 +206,165 @@ export function Section2DPanel(): React.ReactElement | null {
 
     // Check if symbolic representations mode is enabled
     if (displayOptions.useSymbolicRepresentations) {
-      // TODO: Parse symbolic representations from IFC content
-      // For now, show a message that this feature needs IFC content access
-      setDrawingError('Symbolic representation mode: IFC file must contain Plan/Annotation representations. Re-parsing IFC for symbolic data...');
-      // Fall through to normal generation for now - in a full implementation,
-      // we would parse the IFC file here and extract symbolic curves
+      // Parse symbolic representations from IFC content
+      if (!ifcDataStore?.source) {
+        setDrawingError('Symbolic representations require IFC file source data. Please reload the file.');
+        return;
+      }
+
+      try {
+        if (!isRegenerate) {
+          setDrawingStatus('generating');
+          setDrawingProgress(0, 'Initializing symbolic parser...');
+        }
+
+        // Initialize geometry processor for WASM access
+        const processor = new GeometryProcessor();
+        await processor.init();
+
+        setDrawingProgress(20, 'Parsing symbolic representations...');
+
+        // Parse symbolic representations (Plan, Annotation, FootPrint)
+        const symbolicCollection = processor.parseSymbolicRepresentations(ifcDataStore.source);
+
+        if (!symbolicCollection || symbolicCollection.isEmpty) {
+          setDrawingError('No symbolic representations (Plan, Annotation, FootPrint) found in IFC file. This file may not contain authored 2D representations.');
+          processor.dispose();
+          return;
+        }
+
+        setDrawingProgress(50, `Found ${symbolicCollection.totalCount} symbolic items...`);
+
+        // Convert symbolic data to Drawing2D format
+        // SymbolicPolyline -> ElementData with polylines
+        // SymbolicCircle -> ElementData with arc approximation
+        const elements: ElementData[] = [];
+
+        // Process polylines
+        for (let i = 0; i < symbolicCollection.polylineCount; i++) {
+          const poly = symbolicCollection.getPolyline(i);
+          if (!poly) continue;
+
+          const points = poly.points;
+          const pointCount = poly.pointCount;
+          const lines: { start: { x: number; y: number }; end: { x: number; y: number } }[] = [];
+
+          // Convert points to line segments
+          for (let j = 0; j < pointCount - 1; j++) {
+            const x1 = points[j * 2];
+            const y1 = points[j * 2 + 1];
+            const x2 = points[(j + 1) * 2];
+            const y2 = points[(j + 1) * 2 + 1];
+            lines.push({
+              start: { x: x1, y: y1 },
+              end: { x: x2, y: y2 },
+            });
+          }
+
+          // Close the polyline if needed
+          if (poly.isClosed && pointCount > 2) {
+            const x1 = points[(pointCount - 1) * 2];
+            const y1 = points[(pointCount - 1) * 2 + 1];
+            const x2 = points[0];
+            const y2 = points[1];
+            lines.push({
+              start: { x: x1, y: y1 },
+              end: { x: x2, y: y2 },
+            });
+          }
+
+          if (lines.length > 0) {
+            elements.push({
+              entityId: poly.expressId,
+              ifcType: poly.ifcType,
+              sectionLines: lines,
+              projectionLines: [],
+              hiddenLines: [],
+            });
+          }
+        }
+
+        // Process circles/arcs (tessellate to line segments)
+        for (let i = 0; i < symbolicCollection.circleCount; i++) {
+          const circle = symbolicCollection.getCircle(i);
+          if (!circle) continue;
+
+          const lines: { start: { x: number; y: number }; end: { x: number; y: number } }[] = [];
+          const numSegments = circle.isFullCircle ? 32 : 16;
+          const startAngle = circle.startAngle;
+          const endAngle = circle.endAngle;
+
+          for (let j = 0; j < numSegments; j++) {
+            const t1 = j / numSegments;
+            const t2 = (j + 1) / numSegments;
+            const a1 = startAngle + t1 * (endAngle - startAngle);
+            const a2 = startAngle + t2 * (endAngle - startAngle);
+
+            lines.push({
+              start: {
+                x: circle.centerX + circle.radius * Math.cos(a1),
+                y: circle.centerY + circle.radius * Math.sin(a1),
+              },
+              end: {
+                x: circle.centerX + circle.radius * Math.cos(a2),
+                y: circle.centerY + circle.radius * Math.sin(a2),
+              },
+            });
+          }
+
+          if (lines.length > 0) {
+            elements.push({
+              entityId: circle.expressId,
+              ifcType: circle.ifcType,
+              sectionLines: lines,
+              projectionLines: [],
+              hiddenLines: [],
+            });
+          }
+        }
+
+        setDrawingProgress(80, 'Generating drawing...');
+
+        // Calculate bounds from all elements
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const element of elements) {
+          for (const line of element.sectionLines) {
+            minX = Math.min(minX, line.start.x, line.end.x);
+            minY = Math.min(minY, line.start.y, line.end.y);
+            maxX = Math.max(maxX, line.start.x, line.end.x);
+            maxY = Math.max(maxY, line.start.y, line.end.y);
+          }
+        }
+
+        // Create the Drawing2D result
+        const symbolicDrawing: Drawing2D = {
+          elements,
+          bounds: {
+            minX: isFinite(minX) ? minX : 0,
+            minY: isFinite(minY) ? minY : 0,
+            maxX: isFinite(maxX) ? maxX : 1,
+            maxY: isFinite(maxY) ? maxY : 1,
+          },
+          scale: displayOptions.scale,
+          stats: {
+            entityCount: elements.length,
+            sectionLineCount: elements.reduce((sum, e) => sum + e.sectionLines.length, 0),
+            projectionLineCount: 0,
+            hiddenLineCount: 0,
+          },
+        };
+
+        setDrawing(symbolicDrawing);
+        setDrawingStatus('ready');
+        processor.dispose();
+
+        console.log(`[Section2DPanel] Symbolic drawing generated: ${symbolicCollection.totalCount} items, ${elements.length} elements`);
+        return;
+      } catch (error) {
+        console.error('Symbolic representation parsing failed:', error);
+        setDrawingError(error instanceof Error ? error.message : 'Failed to parse symbolic representations');
+        return;
+      }
     }
 
     // Only show full loading overlay for initial generation, not regeneration
@@ -273,6 +428,7 @@ export function Section2DPanel(): React.ReactElement | null {
     }
   }, [
     geometryResult,
+    ifcDataStore,
     sectionPlane,
     displayOptions,
     setDrawing,

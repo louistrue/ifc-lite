@@ -8,7 +8,7 @@
  */
 
 // IFC-Lite components (recommended - faster)
-export { IfcLiteBridge } from './ifc-lite-bridge.js';
+export { IfcLiteBridge, type SymbolicRepresentationCollection, type SymbolicPolyline, type SymbolicCircle } from './ifc-lite-bridge.js';
 export { IfcLiteMeshCollector, type StreamingColorUpdateEvent } from './ifc-lite-mesh-collector.js';
 import type { StreamingColorUpdateEvent } from './ifc-lite-mesh-collector.js';
 
@@ -480,6 +480,21 @@ export class GeometryProcessor {
       return null;
     }
     return this.bridge.getApi();
+  }
+
+  /**
+   * Parse symbolic representations (Plan, Annotation, FootPrint) from IFC content
+   * These are pre-authored 2D curves for architectural drawings (door swings, window cuts, etc.)
+   * @param buffer IFC file buffer
+   * @returns Collection of symbolic polylines and circles
+   */
+  parseSymbolicRepresentations(buffer: Uint8Array): import('@ifc-lite/wasm').SymbolicRepresentationCollection | null {
+    if (!this.bridge || !this.bridge.isInitialized()) {
+      return null;
+    }
+    const decoder = new TextDecoder();
+    const content = decoder.decode(buffer);
+    return this.bridge.parseSymbolicRepresentations(content);
   }
 
   /**
