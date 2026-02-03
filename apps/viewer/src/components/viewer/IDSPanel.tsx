@@ -260,45 +260,48 @@ function EntityResultRow({ entity, onClick }: EntityResultRowProps) {
   };
 
   return (
-    <div className="hover:bg-muted/50 focus-within:bg-muted/50 focus-within:ring-2 focus-within:ring-primary focus-within:ring-inset relative rounded-md">
-      <button
-        className="w-full p-2 pr-8 text-left flex items-center gap-2 focus:outline-none"
-        onClick={onClick}
-        onKeyDown={handleKeyDown}
-        tabIndex={0}
-        aria-expanded={showDetails}
-        aria-label={`${entity.entityName || '#' + entity.expressId} - ${entity.entityType} - ${entity.passed ? 'Passed' : 'Failed'}`}
-      >
-        <StatusIcon status={entity.passed ? 'pass' : 'fail'} />
-        <div className="flex-1 min-w-0">
-          <div className="text-sm truncate">
-            {entity.entityName || `#${entity.expressId}`}
+    <div className="hover:bg-muted/50 focus-within:bg-muted/50 focus-within:ring-2 focus-within:ring-primary focus-within:ring-inset rounded-md">
+      {/* Header row - chevron positioned relative to this */}
+      <div className="relative">
+        <button
+          className="w-full p-2 pr-8 text-left flex items-center gap-2 focus:outline-none min-w-0"
+          onClick={onClick}
+          onKeyDown={handleKeyDown}
+          tabIndex={0}
+          aria-expanded={showDetails}
+          aria-label={`${entity.entityName || '#' + entity.expressId} - ${entity.entityType} - ${entity.passed ? 'Passed' : 'Failed'}`}
+        >
+          <StatusIcon status={entity.passed ? 'pass' : 'fail'} />
+          <div className="flex-1 min-w-0 overflow-hidden">
+            <div className="text-sm truncate">
+              {entity.entityName || `#${entity.expressId}`}
+            </div>
+            <div className="text-xs text-muted-foreground truncate">
+              {entity.entityType}
+              {entity.globalId && ` \u00b7 ${entity.globalId}`}
+            </div>
           </div>
-          <div className="text-xs text-muted-foreground truncate">
-            {entity.entityType}
-            {entity.globalId && ` \u00b7 ${entity.globalId}`}
-          </div>
-        </div>
-      </button>
-      <span
-        role="button"
-        tabIndex={0}
-        className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center justify-center h-6 w-6 rounded-md hover:bg-accent hover:text-accent-foreground"
-        onClick={(e) => {
-          e.stopPropagation();
-          setShowDetails(!showDetails);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
+        </button>
+        <span
+          role="button"
+          tabIndex={0}
+          className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center justify-center h-6 w-6 rounded-md hover:bg-accent hover:text-accent-foreground z-10"
+          onClick={(e) => {
             e.stopPropagation();
             setShowDetails(!showDetails);
-          }
-        }}
-        aria-label={showDetails ? 'Hide details' : 'Show details'}
-      >
-        {showDetails ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-      </span>
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              e.stopPropagation();
+              setShowDetails(!showDetails);
+            }
+          }}
+          aria-label={showDetails ? 'Hide details' : 'Show details'}
+        >
+          {showDetails ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        </span>
+      </div>
       {showDetails && (
         <div className="px-8 pb-2 space-y-1">
           {entity.requirementResults.map((req, idx) => (
