@@ -2536,6 +2536,9 @@ impl IfcAPI {
                 Err(_) => continue,
             };
 
+            // Get ObjectPlacement transform (attribute 5) to transform local coords to world
+            let placement_transform = get_object_placement_transform(&entity, &mut decoder, unit_scale);
+
             // Get representation (attribute 6 for most products)
             let representation_attr = match entity.get(6) {
                 Some(attr) if !attr.is_null() => attr,
@@ -2600,6 +2603,7 @@ impl IfcAPI {
                         &ifc_type_name,
                         &rep_identifier,
                         unit_scale,
+                        &placement_transform,
                         &mut collection,
                     );
                 }
@@ -2610,6 +2614,196 @@ impl IfcAPI {
     }
 }
 
+/// Simple 2D transform for symbolic representations (translation + rotation)
+#[derive(Clone, Copy)]
+struct Transform2D {
+    tx: f32,
+    ty: f32,
+    cos_theta: f32,
+    sin_theta: f32,
+}
+
+impl Transform2D {
+    fn identity() -> Self {
+        Self { tx: 0.0, ty: 0.0, cos_theta: 1.0, sin_theta: 0.0 }
+    }
+
+    fn transform_point(&self, x: f32, y: f32) -> (f32, f32) {
+        // Apply rotation then translation: p' = R * p + t
+        let rx = x * self.cos_theta - y * self.sin_theta;
+        let ry = x * self.sin_theta + y * self.cos_theta;
+        (rx + self.tx, ry + self.ty)
+    }
+}
+
+/// Get the 2D world transform from an entity's ObjectPlacement
+fn get_object_placement_transform(
+    entity: &ifc_lite_core::DecodedEntity,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+    unit_scale: f32,
+) -> Transform2D {
+    // Get ObjectPlacement (attribute 5 for IfcProduct)
+    let placement_attr = match entity.get(5) {
+        Some(attr) if !attr.is_null() => attr,
+        _ => return Transform2D::identity(),
+    };
+
+    let placement = match decoder.resolve_ref(placement_attr) {
+        Ok(Some(p)) => p,
+        _ => return Transform2D::identity(),
+    };
+
+    // Recursively resolve the placement hierarchy
+    resolve_placement_transform(&placement, decoder, unit_scale, 0)
+}
+
+/// Recursively resolve IfcLocalPlacement to get the full 2D transform
+fn resolve_placement_transform(
+    placement: &ifc_lite_core::DecodedEntity,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+    unit_scale: f32,
+    depth: usize,
+) -> Transform2D {
+    use ifc_lite_core::IfcType;
+
+    // Prevent infinite recursion
+    if depth > 50 || placement.ifc_type != IfcType::IfcLocalPlacement {
+        return Transform2D::identity();
+    }
+
+    // Get parent transform first (attribute 0: PlacementRelTo)
+    let parent_transform = if let Some(parent_attr) = placement.get(0) {
+        if !parent_attr.is_null() {
+            if let Ok(Some(parent)) = decoder.resolve_ref(parent_attr) {
+                resolve_placement_transform(&parent, decoder, unit_scale, depth + 1)
+            } else {
+                Transform2D::identity()
+            }
+        } else {
+            Transform2D::identity()
+        }
+    } else {
+        Transform2D::identity()
+    };
+
+    // Get local transform (attribute 1: RelativePlacement - IfcAxis2Placement3D)
+    let local_transform = if let Some(rel_attr) = placement.get(1) {
+        if !rel_attr.is_null() {
+            if let Ok(Some(rel)) = decoder.resolve_ref(rel_attr) {
+                if rel.ifc_type == IfcType::IfcAxis2Placement3D {
+                    parse_axis2_placement_2d(&rel, decoder, unit_scale)
+                } else if rel.ifc_type == IfcType::IfcAxis2Placement2D {
+                    parse_axis2_placement_2d(&rel, decoder, unit_scale)
+                } else {
+                    Transform2D::identity()
+                }
+            } else {
+                Transform2D::identity()
+            }
+        } else {
+            Transform2D::identity()
+        }
+    } else {
+        Transform2D::identity()
+    };
+
+    // Compose: parent * local
+    // For rotation: combined_angle = parent_angle + local_angle
+    // For translation: combined_t = parent_R * local_t + parent_t
+    let combined_cos = parent_transform.cos_theta * local_transform.cos_theta
+                     - parent_transform.sin_theta * local_transform.sin_theta;
+    let combined_sin = parent_transform.sin_theta * local_transform.cos_theta
+                     + parent_transform.cos_theta * local_transform.sin_theta;
+
+    // Rotate local translation by parent rotation, then add parent translation
+    let rtx = local_transform.tx * parent_transform.cos_theta
+            - local_transform.ty * parent_transform.sin_theta;
+    let rty = local_transform.tx * parent_transform.sin_theta
+            + local_transform.ty * parent_transform.cos_theta;
+
+    Transform2D {
+        tx: rtx + parent_transform.tx,
+        ty: rty + parent_transform.ty,
+        cos_theta: combined_cos,
+        sin_theta: combined_sin,
+    }
+}
+
+/// Parse IfcAxis2Placement3D/2D to get 2D translation and rotation
+fn parse_axis2_placement_2d(
+    placement: &ifc_lite_core::DecodedEntity,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+    unit_scale: f32,
+) -> Transform2D {
+    use ifc_lite_core::IfcType;
+
+    // Get Location (attribute 0)
+    let (tx, ty) = if let Some(loc_ref) = placement.get_ref(0) {
+        if let Ok(loc) = decoder.decode_by_id(loc_ref) {
+            if loc.ifc_type == IfcType::IfcCartesianPoint {
+                if let Some(coords_attr) = loc.get(0) {
+                    if let Some(coords) = coords_attr.as_list() {
+                        let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                        let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                        (x, y)
+                    } else {
+                        (0.0, 0.0)
+                    }
+                } else {
+                    (0.0, 0.0)
+                }
+            } else {
+                (0.0, 0.0)
+            }
+        } else {
+            (0.0, 0.0)
+        }
+    } else {
+        (0.0, 0.0)
+    };
+
+    // Get RefDirection (attribute 2 for 3D, attribute 1 for 2D) to get rotation
+    // RefDirection is the X-axis direction in the local coordinate system
+    let (cos_theta, sin_theta) = if let Some(ref_dir_attr) = placement.get(2).or_else(|| placement.get(1)) {
+        if !ref_dir_attr.is_null() {
+            if let Some(ref_dir_id) = ref_dir_attr.as_entity_ref() {
+                if let Ok(ref_dir) = decoder.decode_by_id(ref_dir_id) {
+                    if ref_dir.ifc_type == IfcType::IfcDirection {
+                        if let Some(ratios_attr) = ref_dir.get(0) {
+                            if let Some(ratios) = ratios_attr.as_list() {
+                                let dx = ratios.first().and_then(|v| v.as_float()).unwrap_or(1.0) as f32;
+                                let dy = ratios.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+                                let len = (dx * dx + dy * dy).sqrt();
+                                if len > 0.0001 {
+                                    (dx / len, dy / len)
+                                } else {
+                                    (1.0, 0.0)
+                                }
+                            } else {
+                                (1.0, 0.0)
+                            }
+                        } else {
+                            (1.0, 0.0)
+                        }
+                    } else {
+                        (1.0, 0.0)
+                    }
+                } else {
+                    (1.0, 0.0)
+                }
+            } else {
+                (1.0, 0.0)
+            }
+        } else {
+            (1.0, 0.0)
+        }
+    } else {
+        (1.0, 0.0)
+    };
+
+    Transform2D { tx, ty, cos_theta, sin_theta }
+}
+
 /// Extract symbolic geometry from a representation item (recursive for IfcGeometricSet, IfcMappedItem)
 fn extract_symbolic_item(
     item: &ifc_lite_core::DecodedEntity,
@@ -2618,6 +2812,7 @@ fn extract_symbolic_item(
     ifc_type: &str,
     rep_identifier: &str,
     unit_scale: f32,
+    transform: &Transform2D,
     collection: &mut crate::zero_copy::SymbolicRepresentationCollection,
 ) {
     use crate::zero_copy::{SymbolicCircle, SymbolicPolyline};
@@ -2636,6 +2831,7 @@ fn extract_symbolic_item(
                             ifc_type,
                             rep_identifier,
                             unit_scale,
+                            transform,
                             collection,
                         );
                     }
@@ -2660,6 +2856,7 @@ fn extract_symbolic_item(
                                             ifc_type,
                                             rep_identifier,
                                             unit_scale,
+                                            transform,
                                             collection,
                                         );
                                     }
@@ -2681,8 +2878,11 @@ fn extract_symbolic_item(
                         }
                         if let Some(coords_attr) = point_entity.get(0) {
                             if let Some(coords) = coords_attr.as_list() {
-                                let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                                let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                let local_x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                let local_y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+
+                                // Apply placement transform to get world coordinates
+                                let (x, y) = transform.transform_point(local_x, local_y);
 
                                 // Skip invalid coordinates
                                 if x.is_finite() && y.is_finite() {
@@ -2719,8 +2919,11 @@ fn extract_symbolic_item(
                             let mut points: Vec<f32> = Vec::with_capacity(coord_list.len() * 2);
                             for coord in coord_list {
                                 if let Some(coords) = coord.as_list() {
-                                    let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                                    let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                    let local_x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                    let local_y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+
+                                    // Apply placement transform to get world coordinates
+                                    let (x, y) = transform.transform_point(local_x, local_y);
 
                                     // Skip invalid coordinates
                                     if x.is_finite() && y.is_finite() {
@@ -2793,11 +2996,14 @@ fn extract_symbolic_item(
                 return;
             }
 
+            // Apply placement transform to get world coordinates
+            let (world_cx, world_cy) = transform.transform_point(center_x, center_y);
+
             collection.add_circle(SymbolicCircle::full_circle(
                 express_id,
                 ifc_type.to_string(),
-                center_x,
-                center_y,
+                world_cx,
+                world_cy,
                 radius,
                 rep_identifier.to_string(),
             ));
@@ -2899,7 +3105,10 @@ fn extract_symbolic_item(
 
                         if is_near_collinear {
                             // Emit as simple line segment instead of tessellated arc
-                            let points = vec![start_x, start_y, end_x, end_y];
+                            // Apply placement transform to get world coordinates
+                            let (world_sx, world_sy) = transform.transform_point(start_x, start_y);
+                            let (world_ex, world_ey) = transform.transform_point(end_x, end_y);
+                            let points = vec![world_sx, world_sy, world_ex, world_ey];
                             collection.add_polyline(SymbolicPolyline::new(
                                 express_id,
                                 ifc_type.to_string(),
@@ -2916,8 +3125,11 @@ fn extract_symbolic_item(
                             for i in 0..=num_segments {
                                 let t = i as f32 / num_segments as f32;
                                 let angle = start_angle + t * (end_angle - start_angle);
-                                let x = center_x + radius * angle.cos();
-                                let y = center_y + radius * angle.sin();
+                                let local_x = center_x + radius * angle.cos();
+                                let local_y = center_y + radius * angle.sin();
+
+                                // Apply placement transform to get world coordinates
+                                let (x, y) = transform.transform_point(local_x, local_y);
 
                                 // Skip NaN/Infinity points
                                 if x.is_finite() && y.is_finite() {
@@ -2956,6 +3168,7 @@ fn extract_symbolic_item(
                                     ifc_type,
                                     rep_identifier,
                                     unit_scale,
+                                    transform,
                                     collection,
                                 );
                             }
