@@ -205,185 +205,124 @@ export function Section2DPanel(): React.ReactElement | null {
       return;
     }
 
-    // Check if symbolic representations mode is enabled
-    if (displayOptions.useSymbolicRepresentations) {
-      // Parse symbolic representations from IFC content
-      if (!ifcDataStore?.source) {
-        setDrawingError('Symbolic representations require IFC file source data. Please reload the file.');
-        return;
-      }
-
-      try {
-        if (!isRegenerate) {
-          setDrawingStatus('generating');
-          setDrawingProgress(0, 'Initializing symbolic parser...');
-        }
-
-        // Initialize geometry processor for WASM access
-        const processor = new GeometryProcessor();
-        await processor.init();
-
-        setDrawingProgress(20, 'Parsing symbolic representations...');
-
-        // Parse symbolic representations (Plan, Annotation, FootPrint)
-        const symbolicCollection = processor.parseSymbolicRepresentations(ifcDataStore.source);
-
-        if (!symbolicCollection || symbolicCollection.isEmpty) {
-          setDrawingError('No symbolic representations (Plan, Annotation, FootPrint) found in IFC file. This file may not contain authored 2D representations.');
-          processor.dispose();
-          return;
-        }
-
-        setDrawingProgress(50, `Found ${symbolicCollection.totalCount} symbolic items...`);
-
-        // Convert symbolic data to Drawing2D format with proper DrawingLine[]
-        const drawingLines: DrawingLine[] = [];
-
-        // Process polylines
-        for (let i = 0; i < symbolicCollection.polylineCount; i++) {
-          const poly = symbolicCollection.getPolyline(i);
-          if (!poly) continue;
-
-          const points = poly.points;
-          const pointCount = poly.pointCount;
-
-          // Convert points to DrawingLine segments
-          for (let j = 0; j < pointCount - 1; j++) {
-            const x1 = points[j * 2];
-            const y1 = points[j * 2 + 1];
-            const x2 = points[(j + 1) * 2];
-            const y2 = points[(j + 1) * 2 + 1];
-            drawingLines.push({
-              line: { start: { x: x1, y: y1 }, end: { x: x2, y: y2 } },
-              category: 'silhouette', // Use silhouette, not 'cut' (cut lines are skipped in renderer)
-              visibility: 'visible',
-              entityId: poly.expressId,
-              ifcType: poly.ifcType,
-              modelIndex: 0,
-              depth: 0,
-            });
-          }
-
-          // Close the polyline if needed
-          if (poly.isClosed && pointCount > 2) {
-            const x1 = points[(pointCount - 1) * 2];
-            const y1 = points[(pointCount - 1) * 2 + 1];
-            const x2 = points[0];
-            const y2 = points[1];
-            drawingLines.push({
-              line: { start: { x: x1, y: y1 }, end: { x: x2, y: y2 } },
-              category: 'silhouette',
-              visibility: 'visible',
-              entityId: poly.expressId,
-              ifcType: poly.ifcType,
-              modelIndex: 0,
-              depth: 0,
-            });
-          }
-        }
-
-        // Process circles/arcs (tessellate to line segments)
-        for (let i = 0; i < symbolicCollection.circleCount; i++) {
-          const circle = symbolicCollection.getCircle(i);
-          if (!circle) continue;
-
-          const numSegments = circle.isFullCircle ? 32 : 16;
-          const startAngle = circle.startAngle;
-          const endAngle = circle.endAngle;
-
-          for (let j = 0; j < numSegments; j++) {
-            const t1 = j / numSegments;
-            const t2 = (j + 1) / numSegments;
-            const a1 = startAngle + t1 * (endAngle - startAngle);
-            const a2 = startAngle + t2 * (endAngle - startAngle);
-
-            drawingLines.push({
-              line: {
-                start: {
-                  x: circle.centerX + circle.radius * Math.cos(a1),
-                  y: circle.centerY + circle.radius * Math.sin(a1),
-                },
-                end: {
-                  x: circle.centerX + circle.radius * Math.cos(a2),
-                  y: circle.centerY + circle.radius * Math.sin(a2),
-                },
-              },
-              category: 'silhouette',
-              visibility: 'visible',
-              entityId: circle.expressId,
-              ifcType: circle.ifcType,
-              modelIndex: 0,
-              depth: 0,
-            });
-          }
-        }
-
-        setDrawingProgress(80, 'Generating drawing...');
-
-        // Calculate bounds from all lines
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (const line of drawingLines) {
-          minX = Math.min(minX, line.line.start.x, line.line.end.x);
-          minY = Math.min(minY, line.line.start.y, line.line.end.y);
-          maxX = Math.max(maxX, line.line.start.x, line.line.end.x);
-          maxY = Math.max(maxY, line.line.start.y, line.line.end.y);
-        }
-
-        // Create a default section config for symbolic mode
-        const symbolicConfig: SectionConfig = {
-          plane: {
-            axis: 'y',
-            position: 0,
-            normal: { x: 0, y: 1, z: 0 },
-            origin: { x: 0, y: 0, z: 0 },
-            flipped: false,
-          },
-          projectionDepth: 0,
-          includeHiddenLines: false,
-          creaseAngle: 30,
-          scale: displayOptions.scale,
-        };
-
-        // Create the Drawing2D result with proper structure
-        const symbolicDrawing: Drawing2D = {
-          config: symbolicConfig,
-          lines: drawingLines,
-          cutPolygons: [], // No cut polygons for symbolic representations
-          projectionPolygons: [],
-          bounds: {
-            min: { x: isFinite(minX) ? minX : 0, y: isFinite(minY) ? minY : 0 },
-            max: { x: isFinite(maxX) ? maxX : 1, y: isFinite(maxY) ? maxY : 1 },
-          },
-          stats: {
-            cutLineCount: drawingLines.length,
-            projectionLineCount: 0,
-            hiddenLineCount: 0,
-            silhouetteLineCount: 0,
-            polygonCount: 0,
-            totalTriangles: 0,
-            processingTimeMs: 0,
-          },
-        };
-
-        setDrawing(symbolicDrawing);
-        setDrawingStatus('ready');
-        processor.dispose();
-
-        console.log(`[Section2DPanel] Symbolic drawing generated: ${symbolicCollection.totalCount} items, ${drawingLines.length} lines`);
-        return;
-      } catch (error) {
-        console.error('Symbolic representation parsing failed:', error);
-        setDrawingError(error instanceof Error ? error.message : 'Failed to parse symbolic representations');
-        return;
-      }
-    }
-
     // Only show full loading overlay for initial generation, not regeneration
     if (!isRegenerate) {
       setDrawingStatus('generating');
       setDrawingProgress(0, 'Initializing...');
     }
     isRegeneratingRef.current = isRegenerate;
+
+    // Parse symbolic representations if enabled (for hybrid mode)
+    let symbolicLines: DrawingLine[] = [];
+    let entitiesWithSymbols = new Set<number>();
+
+    if (displayOptions.useSymbolicRepresentations && ifcDataStore?.source) {
+      try {
+        setDrawingProgress(5, 'Parsing symbolic representations...');
+
+        // Initialize geometry processor for WASM access
+        const processor = new GeometryProcessor();
+        await processor.init();
+
+        // Parse symbolic representations (Plan, Annotation, FootPrint)
+        const symbolicCollection = processor.parseSymbolicRepresentations(ifcDataStore.source);
+
+        if (symbolicCollection && !symbolicCollection.isEmpty) {
+          setDrawingProgress(15, `Found ${symbolicCollection.totalCount} symbolic items...`);
+
+          // Process polylines
+          for (let i = 0; i < symbolicCollection.polylineCount; i++) {
+            const poly = symbolicCollection.getPolyline(i);
+            if (!poly) continue;
+
+            entitiesWithSymbols.add(poly.expressId);
+            const points = poly.points;
+            const pointCount = poly.pointCount;
+
+            // Convert points to DrawingLine segments
+            for (let j = 0; j < pointCount - 1; j++) {
+              const x1 = points[j * 2];
+              const y1 = points[j * 2 + 1];
+              const x2 = points[(j + 1) * 2];
+              const y2 = points[(j + 1) * 2 + 1];
+              symbolicLines.push({
+                line: { start: { x: x1, y: y1 }, end: { x: x2, y: y2 } },
+                category: 'silhouette',
+                visibility: 'visible',
+                entityId: poly.expressId,
+                ifcType: poly.ifcType,
+                modelIndex: 0,
+                depth: 0,
+              });
+            }
+
+            // Close the polyline if needed
+            if (poly.isClosed && pointCount > 2) {
+              const x1 = points[(pointCount - 1) * 2];
+              const y1 = points[(pointCount - 1) * 2 + 1];
+              const x2 = points[0];
+              const y2 = points[1];
+              symbolicLines.push({
+                line: { start: { x: x1, y: y1 }, end: { x: x2, y: y2 } },
+                category: 'silhouette',
+                visibility: 'visible',
+                entityId: poly.expressId,
+                ifcType: poly.ifcType,
+                modelIndex: 0,
+                depth: 0,
+              });
+            }
+          }
+
+          // Process circles/arcs (tessellate to line segments)
+          for (let i = 0; i < symbolicCollection.circleCount; i++) {
+            const circle = symbolicCollection.getCircle(i);
+            if (!circle) continue;
+
+            entitiesWithSymbols.add(circle.expressId);
+            const numSegments = circle.isFullCircle ? 32 : 16;
+            const startAngle = circle.startAngle;
+            const endAngle = circle.endAngle;
+
+            for (let j = 0; j < numSegments; j++) {
+              const t1 = j / numSegments;
+              const t2 = (j + 1) / numSegments;
+              const a1 = startAngle + t1 * (endAngle - startAngle);
+              const a2 = startAngle + t2 * (endAngle - startAngle);
+
+              symbolicLines.push({
+                line: {
+                  start: {
+                    x: circle.centerX + circle.radius * Math.cos(a1),
+                    y: circle.centerY + circle.radius * Math.sin(a1),
+                  },
+                  end: {
+                    x: circle.centerX + circle.radius * Math.cos(a2),
+                    y: circle.centerY + circle.radius * Math.sin(a2),
+                  },
+                },
+                category: 'silhouette',
+                visibility: 'visible',
+                entityId: circle.expressId,
+                ifcType: circle.ifcType,
+                modelIndex: 0,
+                depth: 0,
+              });
+            }
+          }
+
+          console.log(`[Section2DPanel] Parsed ${entitiesWithSymbols.size} entities with symbolic representations, ${symbolicLines.length} lines`);
+        } else {
+          console.log('[Section2DPanel] No symbolic representations found, using section cuts only');
+        }
+
+        processor.dispose();
+      } catch (error) {
+        console.warn('Symbolic representation parsing failed, falling back to section cuts only:', error);
+        symbolicLines = [];
+        entitiesWithSymbols = new Set<number>();
+      }
+    }
 
     let generator: Drawing2DGenerator | null = null;
     try {
@@ -403,8 +342,11 @@ export function Section2DPanel(): React.ReactElement | null {
       // Calculate max depth as half the model extent
       const maxDepth = (axisMax - axisMin) * 0.5;
 
+      // Adjust progress to account for symbolic parsing phase (0-20%)
+      const progressOffset = symbolicLines.length > 0 ? 20 : 0;
+      const progressScale = symbolicLines.length > 0 ? 0.8 : 1;
       const progressCallback = (stage: string, prog: number) => {
-        setDrawingProgress(prog * 100, stage);
+        setDrawingProgress(progressOffset + prog * 100 * progressScale, stage);
       };
 
       // Create section config
@@ -425,7 +367,50 @@ export function Section2DPanel(): React.ReactElement | null {
         onProgress: progressCallback,
       });
 
-      setDrawing(result);
+      // If we have symbolic representations, create a hybrid drawing
+      if (symbolicLines.length > 0 && entitiesWithSymbols.size > 0) {
+        // Filter out section cut lines for entities that have symbolic representations
+        const filteredLines = result.lines.filter((line: DrawingLine) =>
+          line.entityId === undefined || !entitiesWithSymbols.has(line.entityId)
+        );
+
+        // Also filter cut polygons for entities with symbols
+        const filteredCutPolygons = result.cutPolygons?.filter((poly: { entityId?: number }) =>
+          poly.entityId === undefined || !entitiesWithSymbols.has(poly.entityId)
+        ) ?? [];
+
+        // Combine filtered section cuts with symbolic lines
+        const combinedLines = [...filteredLines, ...symbolicLines];
+
+        // Recalculate bounds with combined lines
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const line of combinedLines) {
+          minX = Math.min(minX, line.line.start.x, line.line.end.x);
+          minY = Math.min(minY, line.line.start.y, line.line.end.y);
+          maxX = Math.max(maxX, line.line.start.x, line.line.end.x);
+          maxY = Math.max(maxY, line.line.start.y, line.line.end.y);
+        }
+
+        // Create hybrid drawing
+        const hybridDrawing: Drawing2D = {
+          ...result,
+          lines: combinedLines,
+          cutPolygons: filteredCutPolygons,
+          bounds: {
+            min: { x: isFinite(minX) ? minX : result.bounds.min.x, y: isFinite(minY) ? minY : result.bounds.min.y },
+            max: { x: isFinite(maxX) ? maxX : result.bounds.max.x, y: isFinite(maxY) ? maxY : result.bounds.max.y },
+          },
+          stats: {
+            ...result.stats,
+            cutLineCount: combinedLines.length,
+          },
+        };
+
+        console.log(`[Section2DPanel] Hybrid drawing: ${filteredLines.length} section cut lines (filtered from ${result.lines.length}), ${symbolicLines.length} symbolic lines, ${entitiesWithSymbols.size} entities with symbols`);
+        setDrawing(hybridDrawing);
+      } else {
+        setDrawing(result);
+      }
 
       // Always set status to ready (whether initial generation or regeneration)
       setDrawingStatus('ready');
