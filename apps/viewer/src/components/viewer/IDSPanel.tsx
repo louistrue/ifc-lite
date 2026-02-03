@@ -261,10 +261,10 @@ function EntityResultRow({ entity, onClick }: EntityResultRowProps) {
 
   return (
     <div className="hover:bg-muted/50 focus-within:bg-muted/50 focus-within:ring-2 focus-within:ring-primary focus-within:ring-inset rounded-md">
-      {/* Header row - chevron positioned relative to this */}
-      <div className="relative">
+      {/* Header row - chevron overlays content */}
+      <div className="relative overflow-hidden">
         <button
-          className="w-full p-2 pr-8 text-left flex items-center gap-2 focus:outline-none min-w-0"
+          className="w-full p-2 text-left flex items-center gap-2 focus:outline-none min-w-0"
           onClick={onClick}
           onKeyDown={handleKeyDown}
           tabIndex={0}
@@ -282,10 +282,11 @@ function EntityResultRow({ entity, onClick }: EntityResultRowProps) {
             </div>
           </div>
         </button>
+        {/* Chevron overlay - always visible with gradient background */}
         <span
           role="button"
           tabIndex={0}
-          className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center justify-center h-6 w-6 rounded-md hover:bg-accent hover:text-accent-foreground z-10"
+          className="absolute right-0 top-0 bottom-0 flex items-center pl-4 pr-1 bg-gradient-to-l from-background from-60% to-transparent hover:from-accent z-10"
           onClick={(e) => {
             e.stopPropagation();
             setShowDetails(!showDetails);
@@ -299,7 +300,7 @@ function EntityResultRow({ entity, onClick }: EntityResultRowProps) {
           }}
           aria-label={showDetails ? 'Hide details' : 'Show details'}
         >
-          {showDetails ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          {showDetails ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
         </span>
       </div>
       {showDetails && (
