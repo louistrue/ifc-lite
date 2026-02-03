@@ -260,9 +260,9 @@ function EntityResultRow({ entity, onClick }: EntityResultRowProps) {
   };
 
   return (
-    <div className="hover:bg-muted/50 focus-within:bg-muted/50 relative">
+    <div className="hover:bg-muted/50 focus-within:bg-muted/50 focus-within:ring-2 focus-within:ring-primary focus-within:ring-inset relative rounded-md">
       <button
-        className="w-full p-2 pr-8 text-left flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset"
+        className="w-full p-2 pr-8 text-left flex items-center gap-2 focus:outline-none"
         onClick={onClick}
         onKeyDown={handleKeyDown}
         tabIndex={0}
