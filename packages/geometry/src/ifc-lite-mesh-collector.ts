@@ -182,10 +182,10 @@ export class IfcLiteMeshCollector {
     }
 
     log.debug(`Collected ${meshes.length} meshes`, { operation: 'collectMeshes' });
-    
+
     // Store building rotation for later use (will be added to CoordinateInfo)
     (this as any)._buildingRotation = buildingRotation;
-    
+
     return meshes;
   }
 
@@ -311,12 +311,12 @@ export class IfcLiteMeshCollector {
       },
       onComplete: (stats: { totalMeshes: number; totalVertices: number; totalTriangles: number; rtcOffset?: { x: number; y: number; z: number; hasRtc: boolean }; buildingRotation?: number }) => {
         isComplete = true;
-        
+
         // Store building rotation if present
         if (stats.buildingRotation !== undefined) {
           (this as any)._buildingRotation = stats.buildingRotation;
         }
-        
+
         log.debug(`Streaming complete: ${stats.totalMeshes} meshes, ${stats.totalVertices} vertices, ${stats.totalTriangles} triangles`, {
           operation: 'collectMeshesStreaming',
         });
@@ -395,7 +395,7 @@ export class IfcLiteMeshCollector {
       while (accumulatedMeshes.length >= currentBatchSize) {
         const batchToYield = accumulatedMeshes.splice(0, currentBatchSize);
         yield batchToYield;
-        
+
         // Update batch size for next batch
         batchNumber++;
         currentBatchSize = getBatchSize();

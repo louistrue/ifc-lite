@@ -742,7 +742,8 @@ impl GeometryRouter {
                         let world_dir = (rot_x * local_dir.x
                             + rot_y * local_dir.y
                             + rot_z * local_dir.z)
-                            .try_normalize(1e-12)?;
+                            .try_normalize(1e-12)
+                            .ok_or_else(|| Error::geometry("Zero-length direction vector".to_string()))?;
 
                         // Apply element placement transform
                         let element_rot_x = Vector3::new(
@@ -764,7 +765,8 @@ impl GeometryRouter {
                         let final_dir = (element_rot_x * world_dir.x
                             + element_rot_y * world_dir.y
                             + element_rot_z * world_dir.z)
-                            .try_normalize(1e-12)?;
+                            .try_normalize(1e-12)
+                            .ok_or_else(|| Error::geometry("Zero-length direction vector".to_string()))?;
 
                         Some(final_dir)
                     } else {
@@ -789,7 +791,8 @@ impl GeometryRouter {
                         let final_dir = (element_rot_x * local_dir.x
                             + element_rot_y * local_dir.y
                             + element_rot_z * local_dir.z)
-                            .try_normalize(1e-12)?;
+                            .try_normalize(1e-12)
+                            .ok_or_else(|| Error::geometry("Zero-length direction vector".to_string()))?;
 
                         Some(final_dir)
                     }

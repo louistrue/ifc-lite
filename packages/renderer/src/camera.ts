@@ -359,7 +359,7 @@ export class Camera {
     // Keep near/far ratio under 10000:1 for better depth precision
     const optimalNear = Math.max(0.01, distance * 0.001);  // 0.1% of distance
     const optimalFar = distance * 10;  // 10x distance for safety margin
-    
+
     // Ensure ratio is reasonable (max 10000:1)
     const maxRatio = 10000;
     if (optimalFar / optimalNear > maxRatio) {
@@ -368,7 +368,7 @@ export class Camera {
     } else {
       this.camera.far = optimalFar;
     }
-    
+
     this.camera.near = optimalNear;
 
     this.updateMatrices();
@@ -617,7 +617,7 @@ export class Camera {
     // Calculate required distance based on FOV
     const fovFactor = Math.tan(this.camera.fov / 2);
     const distance = (maxSize / 2) / fovFactor * 1.5; // 1.5x for padding
-    
+
     // Update near/far planes dynamically
     this.updateNearFarPlanes(distance);
 
@@ -1148,7 +1148,7 @@ export class Camera {
   private updateNearFarPlanes(distance: number): void {
     const optimalNear = Math.max(0.01, distance * 0.001);  // 0.1% of distance
     const optimalFar = distance * 10;  // 10x distance for safety margin
-    
+
     // Ensure ratio is reasonable (max 10000:1)
     const maxRatio = 10000;
     if (optimalFar / optimalNear > maxRatio) {
@@ -1156,7 +1156,7 @@ export class Camera {
     } else {
       this.camera.far = Math.max(optimalFar, this.camera.far);
     }
-    
+
     this.camera.near = Math.min(optimalNear, this.camera.near);
   }
 

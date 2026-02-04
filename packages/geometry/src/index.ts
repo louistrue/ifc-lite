@@ -325,7 +325,7 @@ export class GeometryProcessor {
         this.coordinateHandler.processMeshesIncremental(batch);
         totalMeshes += batch.length;
         const coordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
-        
+
         // Merge buildingRotation if we have it
         const coordinateInfoWithRotation = coordinateInfo && extractedBuildingRotation !== undefined
           ? { ...coordinateInfo, buildingRotation: extractedBuildingRotation }
@@ -333,10 +333,10 @@ export class GeometryProcessor {
 
         yield { type: 'batch', meshes: batch, totalSoFar: totalMeshes, coordinateInfo: coordinateInfoWithRotation || undefined };
       }
-      
+
       // Get building rotation after streaming completes
       extractedBuildingRotation = collector.getBuildingRotation();
-      
+
       const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
       const finalCoordinateInfo = extractedBuildingRotation !== undefined
         ? { ...coordinateInfo, buildingRotation: extractedBuildingRotation }

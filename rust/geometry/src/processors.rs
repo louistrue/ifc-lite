@@ -322,7 +322,16 @@ impl ExtrudedAreaSolidProcessor {
         decoder: &mut EntityDecoder,
     ) -> Result<Matrix4<f64>> {
         // IfcAxis2Placement3D: Location, Axis, RefDirection
-        let location = self.parse_cartesian_point(placement, decoder, 0)?;
+        // Location can be null ($) - default to origin (0,0,0)
+        let location = if let Some(loc_attr) = placement.get(0) {
+            if !loc_attr.is_null() {
+                self.parse_cartesian_point(placement, decoder, 0)?
+            } else {
+                Point3::new(0.0, 0.0, 0.0)
+            }
+        } else {
+            Point3::new(0.0, 0.0, 0.0)
+        };
 
         // Default axes if not specified
         let z_axis = if let Some(axis_attr) = placement.get(1) {

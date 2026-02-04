@@ -183,7 +183,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         hiddenIds: hiddenEntitiesRef.current,
         isolatedIds: isolatedEntitiesRef.current,
         selectedId: selectedEntityIdRef.current,
-            selectedModelIndex: selectedModelIndexRef.current,
+        selectedModelIndex: selectedModelIndexRef.current,
         clearColor: clearColorRef.current,
       });
     }
@@ -1105,7 +1105,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
               hiddenIds: hiddenEntitiesRef.current,
               isolatedIds: isolatedEntitiesRef.current,
               selectedId: selectedEntityIdRef.current,
-            selectedModelIndex: selectedModelIndexRef.current,
+              selectedModelIndex: selectedModelIndexRef.current,
               clearColor: clearColorRef.current,
               sectionPlane: activeToolRef.current === 'section' ? {
                 ...sectionPlaneRef.current,
@@ -1126,7 +1126,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
                 hiddenIds: hiddenEntitiesRef.current,
                 isolatedIds: isolatedEntitiesRef.current,
                 selectedId: selectedEntityIdRef.current,
-            selectedModelIndex: selectedModelIndexRef.current,
+                selectedModelIndex: selectedModelIndexRef.current,
                 clearColor: clearColorRef.current,
                 sectionPlane: activeToolRef.current === 'section' ? {
                   ...sectionPlaneRef.current,
@@ -1316,7 +1316,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
           hiddenIds: hiddenEntitiesRef.current,
           isolatedIds: isolatedEntitiesRef.current,
           selectedId: selectedEntityIdRef.current,
-            selectedModelIndex: selectedModelIndexRef.current,
+          selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
           sectionPlane: activeToolRef.current === 'section' ? {
             ...sectionPlaneRef.current,
@@ -1712,7 +1712,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
           hiddenIds: hiddenEntitiesRef.current,
           isolatedIds: isolatedEntitiesRef.current,
           selectedId: selectedEntityIdRef.current,
-            selectedModelIndex: selectedModelIndexRef.current,
+          selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
           sectionPlane: activeToolRef.current === 'section' ? {
             ...sectionPlaneRef.current,
@@ -1727,7 +1727,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         hiddenIds: hiddenEntitiesRef.current,
         isolatedIds: isolatedEntitiesRef.current,
         selectedId: selectedEntityIdRef.current,
-            selectedModelIndex: selectedModelIndexRef.current,
+        selectedModelIndex: selectedModelIndexRef.current,
         clearColor: clearColorRef.current,
         sectionPlane: activeToolRef.current === 'section' ? {
           ...sectionPlaneRef.current,

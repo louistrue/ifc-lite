@@ -501,11 +501,16 @@ impl IfcAPI {
                 
                 // #endregion
                 
-                if let Ok(mut mesh) =
-                    router.process_element_with_voids(&entity, &mut decoder, &void_index)
-                {
-                    // #endregion
-                    
+                match router.process_element_with_voids(&entity, &mut decoder, &void_index) {
+                Err(e) => {
+                    // Log the specific error for debugging
+                    web_sys::console::warn_1(&format!(
+                        "[IFC-LITE] Failed to process #{} ({}): {}",
+                        id, entity.ifc_type.name(), e
+                    ).into());
+                    stats.process_failed += 1;
+                }
+                Ok(mut mesh) => {
                     if !mesh.is_empty() {
                         // Calculate normals if not present or incomplete
                         // CSG operations may produce partial normals, so check for matching count
@@ -578,8 +583,7 @@ impl IfcAPI {
                     } else {
                         stats.empty_mesh += 1;
                     }
-                } else {
-                    stats.process_failed += 1;
+                }
                 }
             } else {
                 stats.decode_failed += 1;
