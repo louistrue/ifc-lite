@@ -198,6 +198,15 @@ export function Section2DPanel(): React.ReactElement | null {
   // Track if this is a regeneration (vs initial generation)
   const isRegeneratingRef = useRef(false);
 
+  // Cache for symbolic representations - these don't change with section position
+  // Only re-parse when model or display options change
+  const symbolicCacheRef = useRef<{
+    lines: DrawingLine[];
+    entities: Set<number>;
+    sourceId: string | null;
+    useSymbolic: boolean;
+  } | null>(null);
+
   // Generate drawing when panel opens
   const generateDrawing = useCallback(async (isRegenerate = false) => {
     if (!geometryResult?.meshes || geometryResult.meshes.length === 0) {
@@ -213,114 +222,132 @@ export function Section2DPanel(): React.ReactElement | null {
     isRegeneratingRef.current = isRegenerate;
 
     // Parse symbolic representations if enabled (for hybrid mode)
+    // OPTIMIZATION: Cache symbolic data - it doesn't change with section position
     let symbolicLines: DrawingLine[] = [];
     let entitiesWithSymbols = new Set<number>();
 
-    if (displayOptions.useSymbolicRepresentations && ifcDataStore?.source) {
-      try {
-        setDrawingProgress(5, 'Parsing symbolic representations...');
+    const sourceId = ifcDataStore?.source ? String(ifcDataStore.source.byteLength) : null;
+    const useSymbolic = displayOptions.useSymbolicRepresentations && !!ifcDataStore?.source;
 
-        // Initialize geometry processor for WASM access
-        const processor = new GeometryProcessor();
-        await processor.init();
+    // Check if we can use cached symbolic data
+    const cache = symbolicCacheRef.current;
+    const cacheValid = cache &&
+      cache.sourceId === sourceId &&
+      cache.useSymbolic === useSymbolic;
 
-        // Parse symbolic representations (Plan, Annotation, FootPrint)
-        const symbolicCollection = processor.parseSymbolicRepresentations(ifcDataStore.source);
+    if (useSymbolic) {
+      if (cacheValid) {
+        // Use cached data - FAST PATH
+        symbolicLines = cache.lines;
+        entitiesWithSymbols = cache.entities;
+      } else {
+        // Need to parse - only on first load or when model changes
+        try {
+          if (!isRegenerate) {
+            setDrawingProgress(5, 'Parsing symbolic representations...');
+          }
 
-        if (symbolicCollection && !symbolicCollection.isEmpty) {
-          setDrawingProgress(15, `Found ${symbolicCollection.totalCount} symbolic items...`);
+          const processor = new GeometryProcessor();
+          await processor.init();
 
-          // Process polylines
-          for (let i = 0; i < symbolicCollection.polylineCount; i++) {
-            const poly = symbolicCollection.getPolyline(i);
-            if (!poly) continue;
+          const symbolicCollection = processor.parseSymbolicRepresentations(ifcDataStore!.source);
 
-            entitiesWithSymbols.add(poly.expressId);
-            const points = poly.points;
-            const pointCount = poly.pointCount;
+          if (symbolicCollection && !symbolicCollection.isEmpty) {
+            // Process polylines
+            for (let i = 0; i < symbolicCollection.polylineCount; i++) {
+              const poly = symbolicCollection.getPolyline(i);
+              if (!poly) continue;
 
-            // Convert points to DrawingLine segments
-            for (let j = 0; j < pointCount - 1; j++) {
-              const x1 = points[j * 2];
-              const y1 = points[j * 2 + 1];
-              const x2 = points[(j + 1) * 2];
-              const y2 = points[(j + 1) * 2 + 1];
-              symbolicLines.push({
-                line: { start: { x: x1, y: y1 }, end: { x: x2, y: y2 } },
-                category: 'silhouette',
-                visibility: 'visible',
-                entityId: poly.expressId,
-                ifcType: poly.ifcType,
-                modelIndex: 0,
-                depth: 0,
-              });
+              entitiesWithSymbols.add(poly.expressId);
+              const points = poly.points;
+              const pointCount = poly.pointCount;
+
+              for (let j = 0; j < pointCount - 1; j++) {
+                symbolicLines.push({
+                  line: {
+                    start: { x: points[j * 2], y: points[j * 2 + 1] },
+                    end: { x: points[(j + 1) * 2], y: points[(j + 1) * 2 + 1] }
+                  },
+                  category: 'silhouette',
+                  visibility: 'visible',
+                  entityId: poly.expressId,
+                  ifcType: poly.ifcType,
+                  modelIndex: 0,
+                  depth: 0,
+                });
+              }
+
+              if (poly.isClosed && pointCount > 2) {
+                symbolicLines.push({
+                  line: {
+                    start: { x: points[(pointCount - 1) * 2], y: points[(pointCount - 1) * 2 + 1] },
+                    end: { x: points[0], y: points[1] }
+                  },
+                  category: 'silhouette',
+                  visibility: 'visible',
+                  entityId: poly.expressId,
+                  ifcType: poly.ifcType,
+                  modelIndex: 0,
+                  depth: 0,
+                });
+              }
             }
 
-            // Close the polyline if needed
-            if (poly.isClosed && pointCount > 2) {
-              const x1 = points[(pointCount - 1) * 2];
-              const y1 = points[(pointCount - 1) * 2 + 1];
-              const x2 = points[0];
-              const y2 = points[1];
-              symbolicLines.push({
-                line: { start: { x: x1, y: y1 }, end: { x: x2, y: y2 } },
-                category: 'silhouette',
-                visibility: 'visible',
-                entityId: poly.expressId,
-                ifcType: poly.ifcType,
-                modelIndex: 0,
-                depth: 0,
-              });
+            // Process circles/arcs
+            for (let i = 0; i < symbolicCollection.circleCount; i++) {
+              const circle = symbolicCollection.getCircle(i);
+              if (!circle) continue;
+
+              entitiesWithSymbols.add(circle.expressId);
+              const numSegments = circle.isFullCircle ? 32 : 16;
+
+              for (let j = 0; j < numSegments; j++) {
+                const t1 = j / numSegments;
+                const t2 = (j + 1) / numSegments;
+                const a1 = circle.startAngle + t1 * (circle.endAngle - circle.startAngle);
+                const a2 = circle.startAngle + t2 * (circle.endAngle - circle.startAngle);
+
+                symbolicLines.push({
+                  line: {
+                    start: {
+                      x: circle.centerX + circle.radius * Math.cos(a1),
+                      y: circle.centerY + circle.radius * Math.sin(a1),
+                    },
+                    end: {
+                      x: circle.centerX + circle.radius * Math.cos(a2),
+                      y: circle.centerY + circle.radius * Math.sin(a2),
+                    },
+                  },
+                  category: 'silhouette',
+                  visibility: 'visible',
+                  entityId: circle.expressId,
+                  ifcType: circle.ifcType,
+                  modelIndex: 0,
+                  depth: 0,
+                });
+              }
             }
           }
 
-          // Process circles/arcs (tessellate to line segments)
-          for (let i = 0; i < symbolicCollection.circleCount; i++) {
-            const circle = symbolicCollection.getCircle(i);
-            if (!circle) continue;
+          processor.dispose();
 
-            entitiesWithSymbols.add(circle.expressId);
-            const numSegments = circle.isFullCircle ? 32 : 16;
-            const startAngle = circle.startAngle;
-            const endAngle = circle.endAngle;
-
-            for (let j = 0; j < numSegments; j++) {
-              const t1 = j / numSegments;
-              const t2 = (j + 1) / numSegments;
-              const a1 = startAngle + t1 * (endAngle - startAngle);
-              const a2 = startAngle + t2 * (endAngle - startAngle);
-
-              symbolicLines.push({
-                line: {
-                  start: {
-                    x: circle.centerX + circle.radius * Math.cos(a1),
-                    y: circle.centerY + circle.radius * Math.sin(a1),
-                  },
-                  end: {
-                    x: circle.centerX + circle.radius * Math.cos(a2),
-                    y: circle.centerY + circle.radius * Math.sin(a2),
-                  },
-                },
-                category: 'silhouette',
-                visibility: 'visible',
-                entityId: circle.expressId,
-                ifcType: circle.ifcType,
-                modelIndex: 0,
-                depth: 0,
-              });
-            }
-          }
-
-          console.log(`[Section2DPanel] Parsed ${entitiesWithSymbols.size} entities with symbolic representations, ${symbolicLines.length} lines`);
-        } else {
-          console.log('[Section2DPanel] No symbolic representations found, using section cuts only');
+          // Cache the parsed data
+          symbolicCacheRef.current = {
+            lines: symbolicLines,
+            entities: entitiesWithSymbols,
+            sourceId,
+            useSymbolic,
+          };
+        } catch (error) {
+          console.warn('Symbolic parsing failed:', error);
+          symbolicLines = [];
+          entitiesWithSymbols = new Set<number>();
         }
-
-        processor.dispose();
-      } catch (error) {
-        console.warn('Symbolic representation parsing failed, falling back to section cuts only:', error);
-        symbolicLines = [];
-        entitiesWithSymbols = new Set<number>();
+      }
+    } else {
+      // Clear cache if symbolic is disabled
+      if (cache && cache.useSymbolic) {
+        symbolicCacheRef.current = null;
       }
     }
 
@@ -442,18 +469,6 @@ export function Section2DPanel(): React.ReactElement | null {
           }
         }
 
-        // DEBUG: Log alignment info for first entity
-        if (alignmentOffsets.size > 0) {
-          const debugEntityId = Array.from(alignmentOffsets.keys())[0];
-          const offset = alignmentOffsets.get(debugEntityId)!;
-          const scBounds = sectionCutBounds.get(debugEntityId)!;
-          const symBounds = symbolicBounds.get(debugEntityId)!;
-          console.log(`[DEBUG] Entity #${debugEntityId} bbox alignment:`);
-          console.log(`  Section cut center: (${((scBounds.minX + scBounds.maxX) / 2).toFixed(2)}, ${((scBounds.minY + scBounds.maxY) / 2).toFixed(2)})`);
-          console.log(`  Symbolic center:    (${((symBounds.minX + symBounds.maxX) / 2).toFixed(2)}, ${((symBounds.minY + symBounds.maxY) / 2).toFixed(2)})`);
-          console.log(`  Alignment offset:   dx=${offset.dx.toFixed(2)}, dy=${offset.dy.toFixed(2)}`);
-        }
-
         // Apply alignment offsets to symbolic lines
         const alignedSymbolicLines = relevantSymbolicLines.map(line => {
           const offset = line.entityId !== undefined ? alignmentOffsets.get(line.entityId) : undefined;
@@ -506,7 +521,6 @@ export function Section2DPanel(): React.ReactElement | null {
           },
         };
 
-        console.log(`[Section2DPanel] Hybrid drawing: ${filteredLines.length} section cut lines, ${alignedSymbolicLines.length} symbolic lines (aligned), ${entitiesWithRelevantSymbols.size} entities replaced, ${alignmentOffsets.size} entities aligned`);
         setDrawing(hybridDrawing);
       } else {
         setDrawing(result);
@@ -533,21 +547,61 @@ export function Section2DPanel(): React.ReactElement | null {
     setDrawingError,
   ]);
 
-  // Auto-generate when panel opens and no drawing exists
+  // Auto-generate when panel opens (or 3D overlay is enabled) and no drawing exists
   useEffect(() => {
-    if (panelVisible && !drawing && status === 'idle' && geometryResult?.meshes) {
+    // Generate drawing if panel is visible OR if 3D overlay is enabled (for live 3D section lines)
+    if ((panelVisible || displayOptions.show3DOverlay) && !drawing && status === 'idle' && geometryResult?.meshes) {
       generateDrawing();
     }
-  }, [panelVisible, drawing, status, geometryResult, generateDrawing]);
+  }, [panelVisible, displayOptions.show3DOverlay, drawing, status, geometryResult, generateDrawing]);
 
   // Auto-regenerate when section plane changes
-  // Strategy: Debounce but keep existing drawing visible (no flicker)
+  // Strategy: INSTANT - no debounce, but prevent overlapping computations
+  // The generation time itself acts as natural batching for fast slider movements
   const sectionRef = useRef({ axis: sectionPlane.axis, position: sectionPlane.position, flipped: sectionPlane.flipped });
-  const regenerateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isGeneratingRef = useRef(false);
+  const latestSectionRef = useRef({ axis: sectionPlane.axis, position: sectionPlane.position, flipped: sectionPlane.flipped });
   const [isRegenerating, setIsRegenerating] = useState(false);
 
+  // Stable regenerate function that handles overlapping calls
+  const doRegenerate = useCallback(async () => {
+    if (isGeneratingRef.current) {
+      // Already generating - the latest position is already tracked in latestSectionRef
+      // When current generation finishes, it will check if another is needed
+      return;
+    }
+
+    isGeneratingRef.current = true;
+    setIsRegenerating(true);
+
+    // Capture position at start of generation
+    const targetSection = { ...latestSectionRef.current };
+
+    try {
+      await generateDrawing(true);
+    } finally {
+      isGeneratingRef.current = false;
+      setIsRegenerating(false);
+
+      // Check if section changed while we were generating
+      const current = latestSectionRef.current;
+      if (
+        current.axis !== targetSection.axis ||
+        current.position !== targetSection.position ||
+        current.flipped !== targetSection.flipped
+      ) {
+        // Position changed during generation - regenerate immediately with latest
+        // Use microtask to avoid blocking
+        queueMicrotask(() => doRegenerate());
+      }
+    }
+  }, [generateDrawing]);
+
   useEffect(() => {
-    // Check if section plane actually changed
+    // Always update latest section ref (even if generating)
+    latestSectionRef.current = { axis: sectionPlane.axis, position: sectionPlane.position, flipped: sectionPlane.flipped };
+
+    // Check if section plane actually changed from last processed
     const prev = sectionRef.current;
     if (
       prev.axis === sectionPlane.axis &&
@@ -557,35 +611,16 @@ export function Section2DPanel(): React.ReactElement | null {
       return;
     }
 
-    // Update ref
+    // Update processed ref
     sectionRef.current = { axis: sectionPlane.axis, position: sectionPlane.position, flipped: sectionPlane.flipped };
 
-    // If panel is visible and we have geometry, regenerate with debounce
-    // Note: status check removed - we regenerate in background even if status is 'generating'
-    if (panelVisible && geometryResult?.meshes) {
-      // Clear any pending regeneration
-      if (regenerateTimeoutRef.current) {
-        clearTimeout(regenerateTimeoutRef.current);
-      }
-
-      // Show subtle regenerating indicator immediately
-      setIsRegenerating(true);
-
-      // Short debounce - just enough to batch rapid slider movements
-      regenerateTimeoutRef.current = setTimeout(() => {
-        // Pass true to indicate this is a regeneration (keeps existing drawing visible)
-        generateDrawing(true).finally(() => {
-          setIsRegenerating(false);
-        });
-      }, 150); // 150ms debounce - responsive but avoids excessive calls
+    // If panel is visible OR 3D overlay is enabled, and we have geometry, regenerate INSTANTLY
+    if ((panelVisible || displayOptions.show3DOverlay) && geometryResult?.meshes) {
+      // Start immediately - no debounce
+      // doRegenerate handles preventing overlaps and will auto-regenerate with latest when done
+      doRegenerate();
     }
-
-    return () => {
-      if (regenerateTimeoutRef.current) {
-        clearTimeout(regenerateTimeoutRef.current);
-      }
-    };
-  }, [panelVisible, sectionPlane.axis, sectionPlane.position, sectionPlane.flipped, geometryResult, generateDrawing]);
+  }, [panelVisible, displayOptions.show3DOverlay, sectionPlane.axis, sectionPlane.position, sectionPlane.flipped, geometryResult, doRegenerate]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // 2D MEASURE TOOL HELPER FUNCTIONS
@@ -823,27 +858,42 @@ export function Section2DPanel(): React.ReactElement | null {
     isPanning.current = false;
   }, [measure2DMode, measure2DStart, measure2DCurrent, completeMeasure2D]);
 
-  // Zoom handler - unlimited zoom, min 0.01 (1%)
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    e.stopPropagation();  // Prevent bubbling to 3D viewport
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
+  // Wheel handler - attached with passive: false to allow preventDefault
+  useEffect(() => {
+    // Only attach handler when panel is visible
+    if (!panelVisible) return;
 
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const container = containerRef.current;
+    if (!container) {
+      // Container not ready yet, try again on next render
+      return;
+    }
 
-    setViewTransform((prev) => {
-      const newScale = Math.max(0.01, prev.scale * delta);  // No upper limit
-      const scaleRatio = newScale / prev.scale;
-      return {
-        scale: newScale,
-        x: x - (x - prev.x) * scaleRatio,
-        y: y - (y - prev.y) * scaleRatio,
-      };
-    });
-  }, []);
+    const wheelHandler = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const delta = e.deltaY > 0 ? 0.9 : 1.1;
+      const rect = container.getBoundingClientRect();
+
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      setViewTransform((prev) => {
+        const newScale = Math.max(0.01, prev.scale * delta);
+        const scaleRatio = newScale / prev.scale;
+        return {
+          scale: newScale,
+          x: x - (x - prev.x) * scaleRatio,
+          y: y - (y - prev.y) * scaleRatio,
+        };
+      });
+    };
+
+    container.addEventListener('wheel', wheelHandler, { passive: false });
+    return () => {
+      container.removeEventListener('wheel', wheelHandler);
+    };
+  }, [panelVisible, status]); // Re-run when panel visibility or status changes to ensure container is ready
 
   // Zoom controls - unlimited zoom
   const zoomIn = useCallback(() => {
@@ -1143,7 +1193,7 @@ export function Section2DPanel(): React.ReactElement | null {
         continue;
       }
       if (start.x < lineMinX || start.x > lineMaxX || start.y < lineMinY || start.y > lineMaxY ||
-          end.x < lineMinX || end.x > lineMaxX || end.y < lineMinY || end.y > lineMaxY) {
+        end.x < lineMinX || end.x > lineMaxX || end.y < lineMinY || end.y > lineMaxY) {
         continue;
       }
 
@@ -1411,7 +1461,7 @@ export function Section2DPanel(): React.ReactElement | null {
       const { start, end } = line.line;
       if (!isFinite(start.x) || !isFinite(start.y) || !isFinite(end.x) || !isFinite(end.y)) continue;
       if (start.x < lineMinX || start.x > lineMaxX || start.y < lineMinY || start.y > lineMaxY ||
-          end.x < lineMinX || end.x > lineMaxX || end.y < lineMinY || end.y > lineMaxY) continue;
+        end.x < lineMinX || end.x > lineMaxX || end.y < lineMinY || end.y > lineMaxY) continue;
 
       let strokeColor = '#000000';
       let lineWidth = 0.25;
@@ -1892,14 +1942,12 @@ export function Section2DPanel(): React.ReactElement | null {
       {/* Drawing Canvas */}
       <div
         ref={containerRef}
-        className={`flex-1 overflow-hidden bg-white dark:bg-zinc-950 rounded-b-lg ${
-          measure2DMode ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
-        }`}
+        className={`flex-1 overflow-hidden bg-white dark:bg-zinc-950 rounded-b-lg ${measure2DMode ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
+          }`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        onWheel={handleWheel}
       >
         {status === 'generating' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80">
@@ -2556,7 +2604,7 @@ function Drawing2DCanvas({
           const { start, end } = line.line;
           if (!isFinite(start.x) || !isFinite(start.y) || !isFinite(end.x) || !isFinite(end.y)) continue;
           if (start.x < lineMinX || start.x > lineMaxX || start.y < lineMinY || start.y > lineMaxY ||
-              end.x < lineMinX || end.x > lineMaxX || end.y < lineMinY || end.y > lineMaxY) continue;
+            end.x < lineMinX || end.x > lineMaxX || end.y < lineMinY || end.y > lineMaxY) continue;
 
           let strokeColor = '#000000';
           let lineWidth = 0.25;
@@ -2848,7 +2896,7 @@ function Drawing2DCanvas({
           continue;
         }
         if (start.x < lineMinX || start.x > lineMaxX || start.y < lineMinY || start.y > lineMaxY ||
-            end.x < lineMinX || end.x > lineMaxX || end.y < lineMinY || end.y > lineMaxY) {
+          end.x < lineMinX || end.x > lineMaxX || end.y < lineMinY || end.y > lineMaxY) {
           continue;
         }
 

@@ -489,9 +489,18 @@ impl IfcAPI {
 
                 // Use process_element_with_voids for ALL elements (simplified from separate paths)
                 // This ensures RTC offset is consistently applied via transform_mesh
+                
+                // #region agent log - Debug void processing
+                let is_wall = entity.ifc_type == ifc_lite_core::IfcType::IfcWall || entity.ifc_type == ifc_lite_core::IfcType::IfcWallStandardCase;
+                let has_voids = void_index.get(&id).map(|v| !v.is_empty()).unwrap_or(false);
+                
+                // #endregion
+                
                 if let Ok(mut mesh) =
                     router.process_element_with_voids(&entity, &mut decoder, &void_index)
                 {
+                    // #endregion
+                    
                     if !mesh.is_empty() {
                         // Calculate normals if not present or incomplete
                         // CSG operations may produce partial normals, so check for matching count
@@ -1331,12 +1340,16 @@ impl IfcAPI {
                             let has_representation =
                                 entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
                             if has_representation {
+                                // #endregion
+                                
                                 // Use process_element_with_voids to subtract openings
                                 if let Ok(mut mesh) = router.process_element_with_voids(
                                     &entity,
                                     &mut decoder,
                                     &void_index,
                                 ) {
+                                    // #endregion
+                                    
                                     if !mesh.is_empty() {
                                         if mesh.normals.len() != mesh.positions.len() {
                                             calculate_normals(&mut mesh);
@@ -2530,11 +2543,6 @@ impl IfcAPI {
         let rtc_x = if needs_rtc { rtc_offset.0 as f32 } else { 0.0 };
         let rtc_z = if needs_rtc { rtc_offset.2 as f32 } else { 0.0 };
 
-        web_sys::console::log_1(&format!(
-            "[Symbolic] RTC offset: ({:.2}, {:.2}, {:.2}), using rtc_x={:.2}, rtc_z={:.2}, unit_scale={:.4}",
-            rtc_offset.0, rtc_offset.1, rtc_offset.2, rtc_x, rtc_z, unit_scale
-        ).into());
-
         let mut collection = SymbolicRepresentationCollection::new();
         let mut scanner = EntityScanner::new(&content);
 
@@ -2599,19 +2607,7 @@ impl IfcAPI {
                 // Get ObjectPlacement transform for symbolic representations.
                 // - Translations are accumulated directly (not rotated by parent)
                 // - Rotations ARE accumulated to orient symbols correctly
-                let placement_transform = get_object_placement_for_symbolic(&entity, &mut decoder, unit_scale);
-
-                // Debug: log first few placements
-                static DEBUG_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-                let debug_count = DEBUG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if debug_count < 3 {
-                    web_sys::console::log_1(&format!(
-                        "[Symbolic] Entity #{} ({}) rep='{}' placement: tx={:.2}, ty={:.2}, cos={:.4}, sin={:.4}",
-                        id, entity.ifc_type.name(), rep_identifier,
-                        placement_transform.tx, placement_transform.ty,
-                        placement_transform.cos_theta, placement_transform.sin_theta
-                    ).into());
-                }
+                let placement_transform = get_object_placement_for_symbolic_logged(&entity, &mut decoder, unit_scale, None);
 
                 // Check ContextOfItems (attribute 0) for WorldCoordinateSystem
                 // Some Plan representations use a different coordinate system than Body
@@ -2650,15 +2646,6 @@ impl IfcAPI {
                     || (context_transform.cos_theta - 1.0).abs() > 0.0001
                     || context_transform.sin_theta.abs() > 0.0001
                 {
-                    // Debug: log non-identity context transform
-                    static CONTEXT_DEBUG_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-                    if CONTEXT_DEBUG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 2 {
-                        web_sys::console::log_1(&format!(
-                            "[Symbolic Context] Rep '{}': context WCS tx={:.2}, ty={:.2}, cos={:.4}, sin={:.4}",
-                            rep_identifier, context_transform.tx, context_transform.ty,
-                            context_transform.cos_theta, context_transform.sin_theta
-                        ).into());
-                    }
                     compose_transforms(&context_transform, &placement_transform)
                 } else {
                     placement_transform.clone()
@@ -2693,6 +2680,35 @@ impl IfcAPI {
             }
         }
 
+
+        // Log bounding box of all symbolic geometry
+        let mut min_x = f32::MAX;
+        let mut min_y = f32::MAX;
+        let mut max_x = f32::MIN;
+        let mut max_y = f32::MIN;
+        for i in 0..collection.polyline_count() {
+            if let Some(poly) = collection.get_polyline(i) {
+                let points_array = poly.points();
+                let points: Vec<f32> = points_array.to_vec();
+                for chunk in points.chunks(2) {
+                    if chunk.len() == 2 {
+                        min_x = min_x.min(chunk[0]);
+                        max_x = max_x.max(chunk[0]);
+                        min_y = min_y.min(chunk[1]);
+                        max_y = max_y.max(chunk[1]);
+                    }
+                }
+            }
+        }
+        for i in 0..collection.circle_count() {
+            if let Some(circle) = collection.get_circle(i) {
+                min_x = min_x.min(circle.center_x() - circle.radius());
+                max_x = max_x.max(circle.center_x() + circle.radius());
+                min_y = min_y.min(circle.center_y() - circle.radius());
+                max_y = max_y.max(circle.center_y() + circle.radius());
+            }
+        }
+
         collection
     }
 }
@@ -2723,6 +2739,18 @@ impl Transform2D {
     /// in floor plan orientation and shouldn't be rotated by the 3D ObjectPlacement.
     fn translate_point(&self, x: f32, y: f32) -> (f32, f32) {
         (x + self.tx, y + self.ty)
+    }
+
+    /// Get rotation angle in degrees for logging
+    fn rotation_degrees(&self) -> f32 {
+        self.sin_theta.atan2(self.cos_theta).to_degrees()
+    }
+
+    /// Check if this is approximately identity transform
+    fn is_identity(&self) -> bool {
+        self.tx.abs() < 0.001 && self.ty.abs() < 0.001 
+            && (self.cos_theta - 1.0).abs() < 0.0001 
+            && self.sin_theta.abs() < 0.0001
     }
 }
 
@@ -2773,6 +2801,16 @@ fn get_object_placement_for_symbolic(
     decoder: &mut ifc_lite_core::EntityDecoder,
     unit_scale: f32,
 ) -> Transform2D {
+    get_object_placement_for_symbolic_logged(entity, decoder, unit_scale, None)
+}
+
+/// Get placement transform for symbolic 2D representations with logging.
+fn get_object_placement_for_symbolic_logged(
+    entity: &ifc_lite_core::DecodedEntity,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+    unit_scale: f32,
+    log_entity_id: Option<u32>,
+) -> Transform2D {
     // Get ObjectPlacement (attribute 5 for IfcProduct)
     let placement_attr = match entity.get(5) {
         Some(attr) if !attr.is_null() => attr,
@@ -2784,8 +2822,8 @@ fn get_object_placement_for_symbolic(
         _ => return Transform2D::identity(),
     };
 
-    // Recursively resolve for symbolic representations
-    resolve_placement_for_symbolic(&placement, decoder, unit_scale, 0)
+    // Recursively resolve for symbolic representations with logging
+    resolve_placement_for_symbolic_with_logging(&placement, decoder, unit_scale, 0, log_entity_id)
 }
 
 /// Recursively resolve IfcLocalPlacement to get the full 2D transform
@@ -2869,6 +2907,17 @@ fn resolve_placement_for_symbolic(
     unit_scale: f32,
     depth: usize,
 ) -> Transform2D {
+    resolve_placement_for_symbolic_with_logging(placement, decoder, unit_scale, depth, None)
+}
+
+/// Helper for resolve_placement_for_symbolic with optional entity ID for logging
+fn resolve_placement_for_symbolic_with_logging(
+    placement: &ifc_lite_core::DecodedEntity,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+    unit_scale: f32,
+    depth: usize,
+    log_entity_id: Option<u32>,
+) -> Transform2D {
     use ifc_lite_core::IfcType;
 
     // Prevent infinite recursion
@@ -2880,7 +2929,7 @@ fn resolve_placement_for_symbolic(
     let parent_transform = if let Some(parent_attr) = placement.get(0) {
         if !parent_attr.is_null() {
             if let Ok(Some(parent)) = decoder.resolve_ref(parent_attr) {
-                resolve_placement_for_symbolic(&parent, decoder, unit_scale, depth + 1)
+                resolve_placement_for_symbolic_with_logging(&parent, decoder, unit_scale, depth + 1, log_entity_id)
             } else {
                 Transform2D::identity()
             }
@@ -2915,67 +2964,89 @@ fn resolve_placement_for_symbolic(
     // - Rotations are accumulated to orient the 2D geometry
     // This prevents parent rotations from distorting child positions while
     // still allowing correct orientation of symbols.
+    // Compose transforms properly: rotate local translation by parent rotation
     let combined_cos = parent_transform.cos_theta * local_transform.cos_theta
                      - parent_transform.sin_theta * local_transform.sin_theta;
     let combined_sin = parent_transform.sin_theta * local_transform.cos_theta
                      + parent_transform.cos_theta * local_transform.sin_theta;
 
+    // Rotate local translation by parent rotation before adding to parent translation
+    let rotated_local_tx = local_transform.tx * parent_transform.cos_theta 
+                         - local_transform.ty * parent_transform.sin_theta;
+    let rotated_local_ty = local_transform.tx * parent_transform.sin_theta 
+                         + local_transform.ty * parent_transform.cos_theta;
+
+    let composed_tx = parent_transform.tx + rotated_local_tx;
+    let composed_ty = parent_transform.ty + rotated_local_ty;
+    let _composed_rot = combined_sin.atan2(combined_cos).to_degrees();
+
+
     Transform2D {
-        tx: local_transform.tx + parent_transform.tx,  // Direct addition, no rotation
-        ty: local_transform.ty + parent_transform.ty,
+        tx: composed_tx,
+        ty: composed_ty,
         cos_theta: combined_cos,
         sin_theta: combined_sin,
     }
 }
 
 /// Parse IfcAxis2Placement3D/2D to get 2D translation and rotation for floor plan view
-/// In IFC, Y is typically the vertical axis, so floor plans use X-Z plane
+/// Floor plan uses X-Y plane (Z is up) to match section cut coordinate system
 fn parse_axis2_placement_2d(
     placement: &ifc_lite_core::DecodedEntity,
     decoder: &mut ifc_lite_core::EntityDecoder,
     unit_scale: f32,
 ) -> Transform2D {
+    parse_axis2_placement_2d_with_logging(placement, decoder, unit_scale, false, 0)
+}
+
+/// Parse IfcAxis2Placement3D/2D with optional logging
+fn parse_axis2_placement_2d_with_logging(
+    placement: &ifc_lite_core::DecodedEntity,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+    unit_scale: f32,
+    _log: bool,
+    _entity_id: u32,
+) -> Transform2D {
     use ifc_lite_core::IfcType;
 
     // Get Location (attribute 0)
-    // For 3D placements, use X and Z (floor plan coordinates, Y is up)
-    // For 2D placements, use X and Y as-is
+    // Floor plan coordinates use X-Y plane (Z is up) to match section cut
     let is_3d = placement.ifc_type == IfcType::IfcAxis2Placement3D;
 
-    let (tx, ty) = if let Some(loc_ref) = placement.get_ref(0) {
+    let (tx, ty, raw_coords) = if let Some(loc_ref) = placement.get_ref(0) {
         if let Ok(loc) = decoder.decode_by_id(loc_ref) {
             if loc.ifc_type == IfcType::IfcCartesianPoint {
                 if let Some(coords_attr) = loc.get(0) {
                     if let Some(coords) = coords_attr.as_list() {
-                        let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                        // For 3D, use Z (index 2) as the second floor plan coordinate
-                        // For 2D, use Y (index 1)
-                        let y_or_z = if is_3d {
-                            coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale
-                        } else {
-                            coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale
-                        };
-                        (x, y_or_z)
+                        let raw_x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+                        let raw_y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+                        let raw_z = coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+
+                        // Use X-Y for floor plan (Z is up in most IFC models)
+                        // Keep native IFC coordinates to match section cut
+                        let x = raw_x * unit_scale;
+                        let y = raw_y * unit_scale;
+                        (x, y, Some((raw_x, raw_y, raw_z)))
                     } else {
-                        (0.0, 0.0)
+                        (0.0, 0.0, None)
                     }
                 } else {
-                    (0.0, 0.0)
+                    (0.0, 0.0, None)
                 }
             } else {
-                (0.0, 0.0)
+                (0.0, 0.0, None)
             }
         } else {
-            (0.0, 0.0)
+            (0.0, 0.0, None)
         }
     } else {
-        (0.0, 0.0)
+        (0.0, 0.0, None)
     };
+
 
     // Get RefDirection (attribute 2 for 3D, attribute 1 for 2D) to get rotation
     // RefDirection is the X-axis direction in the local coordinate system
-    // For 3D, use X and Z components; for 2D, use X and Y
-    // Special case: if RefDirection is purely in Y direction (vertical), compute rotation from Y
+    // Use X-Y components for floor plan rotation (Z is up)
     let (cos_theta, sin_theta) = if let Some(ref_dir_attr) = placement.get(2).or_else(|| placement.get(1)) {
         if !ref_dir_attr.is_null() {
             if let Some(ref_dir_id) = ref_dir_attr.as_entity_ref() {
@@ -2985,22 +3056,16 @@ fn parse_axis2_placement_2d(
                             if let Some(ratios) = ratios_attr.as_list() {
                                 let dx = ratios.first().and_then(|v| v.as_float()).unwrap_or(1.0) as f32;
                                 let dy = ratios.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
-                                // For 3D, use Z component (index 2); for 2D, use Y component (index 1)
-                                let dy_or_dz = if is_3d {
-                                    ratios.get(2).and_then(|v| v.as_float()).unwrap_or(0.0) as f32
-                                } else {
-                                    dy
-                                };
-                                let len = (dx * dx + dy_or_dz * dy_or_dz).sqrt();
+                                let dz = ratios.get(2).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+                                
+                                // Use X-Y for rotation (Z is up)
+                                let len = (dx * dx + dy * dy).sqrt();
                                 if len > 0.0001 {
-                                    (dx / len, dy_or_dz / len)
-                                } else if is_3d && dy.abs() > 0.0001 {
-                                    // Special case: RefDirection is purely in Y direction
-                                    // Local X points up/down (Y), which is perpendicular to X-Z floor plane
-                                    // This means local coordinate system is rotated 90° in floor plan
-                                    // dy > 0: local X points +Y, rotation = 90° (cos=0, sin=1)
-                                    // dy < 0: local X points -Y, rotation = -90° (cos=0, sin=-1)
-                                    if dy > 0.0 { (0.0, 1.0) } else { (0.0, -1.0) }
+                                    (dx / len, dy / len)
+                                } else if is_3d && dz.abs() > 0.0001 {
+                                    // Special case: RefDirection is purely in Z direction (vertical)
+                                    // Local X points up/down, rotation is 0° in floor plan
+                                    (1.0, 0.0)
                                 } else {
                                     (1.0, 0.0)
                                 }
@@ -3025,6 +3090,56 @@ fn parse_axis2_placement_2d(
     } else {
         (1.0, 0.0)
     };
+
+    Transform2D { tx, ty, cos_theta, sin_theta }
+}
+
+/// Parse IfcCartesianTransformationOperator to get 2D transform
+fn parse_cartesian_transformation_operator(
+    operator: &ifc_lite_core::DecodedEntity,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+    unit_scale: f32,
+) -> Transform2D {
+    use ifc_lite_core::IfcType;
+
+    // IfcCartesianTransformationOperator: Axis1, Axis2, LocalOrigin, Scale
+    // IfcCartesianTransformationOperator2D: same, but 2D
+    // IfcCartesianTransformationOperator3D: Axis1, Axis2, LocalOrigin, Scale, Axis3
+
+    // Get LocalOrigin (attribute 2 for 2D, attribute 2 for 3D)
+    let (tx, ty) = if let Some(origin_ref) = operator.get_ref(2) {
+        if let Ok(origin) = decoder.decode_by_id(origin_ref) {
+            if origin.ifc_type == IfcType::IfcCartesianPoint {
+                if let Some(coords_attr) = origin.get(0) {
+                    if let Some(coords) = coords_attr.as_list() {
+                        let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                        let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                        (x, y)
+                    } else { (0.0, 0.0) }
+                } else { (0.0, 0.0) }
+            } else { (0.0, 0.0) }
+        } else { (0.0, 0.0) }
+    } else { (0.0, 0.0) };
+
+    // Get Axis1 for rotation (attribute 0)
+    let (cos_theta, sin_theta) = if let Some(axis1_ref) = operator.get_ref(0) {
+        if let Ok(axis1) = decoder.decode_by_id(axis1_ref) {
+            if axis1.ifc_type == IfcType::IfcDirection {
+                if let Some(ratios_attr) = axis1.get(0) {
+                    if let Some(ratios) = ratios_attr.as_list() {
+                        let dx = ratios.first().and_then(|v| v.as_float()).unwrap_or(1.0) as f32;
+                        let dy = ratios.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+                        let len = (dx * dx + dy * dy).sqrt();
+                        if len > 0.0001 {
+                            (dx / len, dy / len)
+                        } else {
+                            (1.0, 0.0)
+                        }
+                    } else { (1.0, 0.0) }
+                } else { (1.0, 0.0) }
+            } else { (1.0, 0.0) }
+        } else { (1.0, 0.0) }
+    } else { (1.0, 0.0) };
 
     Transform2D { tx, ty, cos_theta, sin_theta }
 }
@@ -3083,19 +3198,23 @@ fn extract_symbolic_item(
                         Transform2D::identity()
                     };
 
-                    // Debug: log MappingOrigin transform for first mapped item
-                    static MAPPED_DEBUG_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-                    if MAPPED_DEBUG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 2 {
-                        web_sys::console::log_1(&format!(
-                            "[Symbolic MappedItem] Entity #{}: MappingOrigin tx={:.2}, ty={:.2}, cos={:.4}, sin={:.4}",
-                            express_id, mapping_origin_transform.tx, mapping_origin_transform.ty,
-                            mapping_origin_transform.cos_theta, mapping_origin_transform.sin_theta
-                        ).into());
-                    }
+                    // Check for MappingTarget (attr 1 of IfcMappedItem) - additional transform
+                    let mapping_target_transform = if let Some(target_ref) = item.get_ref(1) {
+                        if let Ok(target) = decoder.decode_by_id(target_ref) {
+                            // IfcCartesianTransformationOperator2D/3D
+                            parse_cartesian_transformation_operator(&target, decoder, unit_scale)
+                        } else {
+                            Transform2D::identity()
+                        }
+                    } else {
+                        Transform2D::identity()
+                    };
 
-                    // Compose: entity_transform * mapping_origin_transform
+                    // Compose: entity_transform * mapping_target * mapping_origin
                     // The mapping origin defines where the mapped geometry's (0,0) is relative to entity
-                    let composed_transform = compose_transforms(transform, &mapping_origin_transform);
+                    // The mapping target provides additional transformation
+                    let origin_with_target = compose_transforms(&mapping_target_transform, &mapping_origin_transform);
+                    let composed_transform = compose_transforms(transform, &origin_with_target);
 
                     if let Some(mapped_rep_id) = rep_map.get_ref(1) {
                         if let Ok(mapped_rep) = decoder.decode_by_id(mapped_rep_id) {
@@ -3129,11 +3248,7 @@ fn extract_symbolic_item(
                 if let Ok(point_entities) = decoder.resolve_ref_list(points_attr) {
                     let mut points: Vec<f32> = Vec::with_capacity(point_entities.len() * 2);
 
-                    // Debug: log first polyline's first point transformation
-                    static POLYLINE_DEBUG_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-                    let polyline_debug = POLYLINE_DEBUG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 2;
-
-                    for (i, point_entity) in point_entities.iter().enumerate() {
+                    for point_entity in point_entities.iter() {
                         if point_entity.ifc_type != IfcType::IfcCartesianPoint {
                             continue;
                         }
@@ -3147,15 +3262,8 @@ fn extract_symbolic_item(
                                 // door swings, window symbols, etc. properly.
                                 let (wx, wy) = transform.transform_point(local_x, local_y);
                                 let x = wx - rtc_x;
-                                let y = wy - rtc_z;
-
-                                // Debug first point of first polyline
-                                if polyline_debug && i == 0 {
-                                    web_sys::console::log_1(&format!(
-                                        "[Symbolic Polyline] Entity #{}: local({:.2}, {:.2}) -> world({:.2}, {:.2}) -> shifted({:.2}, {:.2})",
-                                        express_id, local_x, local_y, wx, wy, x, y
-                                    ).into());
-                                }
+                                // Negate Y to match section cut coordinate system (renderer flips Y)
+                                let y = -wy + rtc_z;
 
                                 // Skip invalid coordinates
                                 if x.is_finite() && y.is_finite() {
@@ -3171,6 +3279,7 @@ fn extract_symbolic_item(
                         let is_closed = n >= 4
                             && (points[0] - points[n - 2]).abs() < 0.001
                             && (points[1] - points[n - 1]).abs() < 0.001;
+
 
                         collection.add_polyline(SymbolicPolyline::new(
                             express_id,
@@ -3198,7 +3307,8 @@ fn extract_symbolic_item(
                                     // Apply full transform (rotation + translation)
                                     let (wx, wy) = transform.transform_point(local_x, local_y);
                                     let x = wx - rtc_x;
-                                    let y = wy - rtc_z;
+                                    // Negate Y to match section cut coordinate system
+                                    let y = -wy + rtc_z;
 
                                     // Skip invalid coordinates
                                     if x.is_finite() && y.is_finite() {
@@ -3262,7 +3372,9 @@ fn extract_symbolic_item(
             // Apply full transform (rotation + translation)
             let (wx, wy) = transform.transform_point(center_x, center_y);
             let world_cx = wx - rtc_x;
-            let world_cy = wy - rtc_z;
+            // Negate Y to match section cut coordinate system
+            let world_cy = -wy + rtc_z;
+
 
             collection.add_circle(SymbolicCircle::full_circle(
                 express_id,
@@ -3317,6 +3429,7 @@ fn extract_symbolic_item(
                             a.as_list().and_then(|l| l.first().and_then(|v| v.as_float()))
                         }).unwrap_or(std::f32::consts::TAU as f64) as f32;
 
+
                         // Convert to arc and tessellate as polyline
                         let start_angle = trim1.to_radians().min(trim2.to_radians());
                         let end_angle = trim1.to_radians().max(trim2.to_radians());
@@ -3360,7 +3473,8 @@ fn extract_symbolic_item(
                             // Emit as simple line segment instead of tessellated arc
                             let (wsx, wsy) = transform.transform_point(start_x, start_y);
                             let (wex, wey) = transform.transform_point(end_x, end_y);
-                            let points = vec![wsx - rtc_x, wsy - rtc_z, wex - rtc_x, wey - rtc_z];
+                            // Negate Y to match section cut coordinate system
+                            let points = vec![wsx - rtc_x, -wsy + rtc_z, wex - rtc_x, -wey + rtc_z];
                             collection.add_polyline(SymbolicPolyline::new(
                                 express_id,
                                 ifc_type.to_string(),
@@ -3383,7 +3497,8 @@ fn extract_symbolic_item(
                                 // Apply full transform (rotation + translation)
                                 let (wx, wy) = transform.transform_point(local_x, local_y);
                                 let x = wx - rtc_x;
-                                let y = wy - rtc_z;
+                                // Negate Y to match section cut coordinate system
+                                let y = -wy + rtc_z;
 
                                 // Skip NaN/Infinity points
                                 if x.is_finite() && y.is_finite() {

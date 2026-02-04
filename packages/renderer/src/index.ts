@@ -26,14 +26,14 @@ export type { SnapTarget, SnapOptions, EdgeLockInput, MagneticSnapResult } from 
 
 // Zero-copy GPU upload (new - faster, less memory)
 export {
-  ZeroCopyGpuUploader,
-  createZeroCopyUploader,
-  type WasmMemoryHandle,
-  type GpuGeometryData,
-  type GpuInstancedGeometryData,
-  type ZeroCopyMeshMetadata,
-  type ZeroCopyUploadResult,
-  type ZeroCopyInstancedUploadResult,
+    ZeroCopyGpuUploader,
+    createZeroCopyUploader,
+    type WasmMemoryHandle,
+    type GpuGeometryData,
+    type GpuInstancedGeometryData,
+    type ZeroCopyMeshMetadata,
+    type ZeroCopyUploadResult,
+    type ZeroCopyInstancedUploadResult,
 } from './zero-copy-uploader.js';
 
 import { WebGPUDevice } from './device.js';
@@ -141,7 +141,7 @@ export class Renderer {
         }
 
         const meshes = Array.isArray(geometry) ? geometry : geometry.meshes;
-        
+
         if (meshes.length === 0) {
             console.warn('[Renderer] loadGeometry called with empty mesh array');
             return;
@@ -216,14 +216,14 @@ export class Renderer {
         }
 
         const { min, max } = this.modelBounds;
-        
+
         // Calculate center and size
         const center = {
             x: (min.x + max.x) / 2,
             y: (min.y + max.y) / 2,
             z: (min.z + max.z) / 2
         };
-        
+
         const size = Math.max(
             max.x - min.x,
             max.y - min.y,
@@ -803,11 +803,11 @@ export class Renderer {
 
             // Now record draw commands
             const encoder = device.createCommandEncoder();
-            
+
             // Set up MSAA rendering if enabled
             const msaaView = this.pipeline.getMultisampleTextureView();
             const useMSAA = msaaView !== null && this.pipeline.getSampleCount() > 1;
-            
+
             const pass = encoder.beginRenderPass({
                 colorAttachments: [
                     {
@@ -1009,7 +1009,7 @@ export class Renderer {
                 // Render selected meshes individually for proper highlighting
                 // First, check if we have Mesh objects for selected IDs
                 // If not, create them lazily from stored MeshData
-                
+
                 // FIX: Filter selected IDs by visibility BEFORE creating GPU resources
                 // This ensures highlights don't appear for hidden elements
                 const visibleSelectedIds = new Set<number>();
@@ -1253,11 +1253,22 @@ export class Renderer {
      * Pick object at screen coordinates
      * Respects visibility filtering so users can only select visible elements
      * Returns PickResult with expressId and modelIndex for multi-model support
+     * 
+     * Note: x, y are CSS pixel coordinates relative to the canvas element.
+     * These are scaled internally to match the actual canvas pixel dimensions.
      */
     async pick(x: number, y: number, options?: PickOptions): Promise<PickResult | null> {
         if (!this.picker) {
             return null;
         }
+
+        // Scale CSS pixel coordinates to canvas pixel coordinates
+        // The canvas.width may differ from CSS width due to 64-pixel alignment for WebGPU
+        const rect = this.canvas.getBoundingClientRect();
+        const scaleX = this.canvas.width / rect.width;
+        const scaleY = this.canvas.height / rect.height;
+        const scaledX = x * scaleX;
+        const scaledY = y * scaleY;
 
         // Skip picker during streaming for consistent performance
         // Picking during streaming would be slow and incomplete anyway
@@ -1309,7 +1320,7 @@ export class Renderer {
             const MAX_PICK_MESH_CREATION = 500;
             if (toCreate > MAX_PICK_MESH_CREATION) {
                 // Use CPU raycasting fallback - works regardless of how many individual meshes exist
-                const ray = this.camera.unprojectToRay(x, y, this.canvas.width, this.canvas.height);
+                const ray = this.camera.unprojectToRay(scaledX, scaledY, this.canvas.width, this.canvas.height);
                 const hit = this.scene.raycast(ray.origin, ray.direction, options?.hiddenIds, options?.isolatedIds);
                 if (!hit) return null;
                 // CPU raycasting returns expressId and modelIndex
@@ -1356,13 +1367,16 @@ export class Renderer {
         }
 
         const viewProj = this.camera.getViewProjMatrix().m;
-        const result = await this.picker.pick(x, y, this.canvas.width, this.canvas.height, meshes, viewProj);
+        const result = await this.picker.pick(scaledX, scaledY, this.canvas.width, this.canvas.height, meshes, viewProj);
         return result;
     }
 
     /**
      * Raycast into the scene to get precise 3D intersection point
      * This is more accurate than pick() as it returns the exact surface point
+     * 
+     * Note: x, y are CSS pixel coordinates relative to the canvas element.
+     * These are scaled internally to match the actual canvas pixel dimensions.
      */
     raycastScene(
         x: number,
@@ -1370,8 +1384,16 @@ export class Renderer {
         options?: PickOptions & { snapOptions?: Partial<SnapOptions> }
     ): { intersection: Intersection; snap?: SnapTarget } | null {
         try {
+            // Scale CSS pixel coordinates to canvas pixel coordinates
+            // The canvas.width may differ from CSS width due to 64-pixel alignment for WebGPU
+            const rect = this.canvas.getBoundingClientRect();
+            const scaleX = this.canvas.width / rect.width;
+            const scaleY = this.canvas.height / rect.height;
+            const scaledX = x * scaleX;
+            const scaledY = y * scaleY;
+
             // Create ray from screen coordinates
-            const ray = this.camera.unprojectToRay(x, y, this.canvas.width, this.canvas.height);
+            const ray = this.camera.unprojectToRay(scaledX, scaledY, this.canvas.width, this.canvas.height);
 
             // Get all mesh data from scene
             const allMeshData: MeshData[] = [];
@@ -1481,6 +1503,9 @@ export class Renderer {
     /**
      * Raycast with magnetic edge snapping behavior
      * This provides the "stick and slide along edges" experience
+     * 
+     * Note: x, y are CSS pixel coordinates relative to the canvas element.
+     * These are scaled internally to match the actual canvas pixel dimensions.
      */
     raycastSceneMagnetic(
         x: number,
@@ -1489,8 +1514,16 @@ export class Renderer {
         options?: PickOptions & { snapOptions?: Partial<SnapOptions> }
     ): MagneticSnapResult & { intersection: Intersection | null } {
         try {
+            // Scale CSS pixel coordinates to canvas pixel coordinates
+            // The canvas.width may differ from CSS width due to 64-pixel alignment for WebGPU
+            const rect = this.canvas.getBoundingClientRect();
+            const scaleX = this.canvas.width / rect.width;
+            const scaleY = this.canvas.height / rect.height;
+            const scaledX = x * scaleX;
+            const scaledY = y * scaleY;
+
             // Create ray from screen coordinates
-            const ray = this.camera.unprojectToRay(x, y, this.canvas.width, this.canvas.height);
+            const ray = this.camera.unprojectToRay(scaledX, scaledY, this.canvas.width, this.canvas.height);
 
             // Get all mesh data from scene
             const allMeshData: MeshData[] = [];

@@ -809,6 +809,24 @@ impl ClippingProcessor {
                 continue;
             }
             
+            // Check if any vertex is significantly OUTSIDE the host bounds
+            // This catches CSG artifacts that create long thin triangles extending far from the model
+            let expansion = min_dim.max(1.0); // At least 1 meter expansion allowed
+            let far_outside = 
+                v0.x < (host_min_x - expansion) || v0.x > (host_max_x + expansion) ||
+                v0.y < (host_min_y - expansion) || v0.y > (host_max_y + expansion) ||
+                v0.z < (host_min_z - expansion) || v0.z > (host_max_z + expansion) ||
+                v1.x < (host_min_x - expansion) || v1.x > (host_max_x + expansion) ||
+                v1.y < (host_min_y - expansion) || v1.y > (host_max_y + expansion) ||
+                v1.z < (host_min_z - expansion) || v1.z > (host_max_z + expansion) ||
+                v2.x < (host_min_x - expansion) || v2.x > (host_max_x + expansion) ||
+                v2.y < (host_min_y - expansion) || v2.y > (host_max_y + expansion) ||
+                v2.z < (host_min_z - expansion) || v2.z > (host_max_z + expansion);
+            
+            if far_outside {
+                continue;
+            }
+            
             // Check if triangle center is strictly inside the host bounds
             // (not on the surface) - these are likely CSG artifacts
             let center = Point3::new(

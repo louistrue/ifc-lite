@@ -923,7 +923,7 @@ function SectionOverlay() {
             <span className="font-medium text-sm">Section</span>
             {sectionPlane.enabled && (
               <span className="text-xs text-primary font-mono">
-                {AXIS_INFO[sectionPlane.axis].label} {sectionPlane.position}%
+                {AXIS_INFO[sectionPlane.axis].label} <span className="inline-block w-12 text-right tabular-nums">{sectionPlane.position.toFixed(1)}%</span>
               </span>
             )}
             <ChevronDown className={`h-3 w-3 transition-transform ${isPanelCollapsed ? '-rotate-90' : ''}`} />
@@ -1016,7 +1016,7 @@ function SectionOverlay() {
       >
         <span className="font-mono text-xs uppercase tracking-wide">
           {sectionPlane.enabled
-            ? `Cutting ${AXIS_INFO[sectionPlane.axis].label.toLowerCase()} at ${sectionPlane.position}%`
+            ? `Cutting ${AXIS_INFO[sectionPlane.axis].label.toLowerCase()} at ${sectionPlane.position.toFixed(1)}%`
             : 'Preview mode'}
         </span>
       </div>

@@ -22,27 +22,54 @@ pub fn extrude_profile(
         ));
     }
 
-    // Triangulate profile
-    let triangulation = profile.triangulate()?;
+    // #region agent log H3/H4 - Profile bounds at extrusion entry
+    let (min_x, max_x, min_y, max_y) = profile.outer.iter().fold(
+        (f64::MAX, f64::MIN, f64::MAX, f64::MIN),
+        |(min_x, max_x, min_y, max_y), p| {
+            (min_x.min(p.x), max_x.max(p.x), min_y.min(p.y), max_y.max(p.y))
+        }
+    );
+    let profile_span = ((max_x - min_x).powi(2) + (max_y - min_y).powi(2)).sqrt();
+    // Log to stderr for capture - H3/H4 hypothesis testing
+    if profile_span > 10.0 {
+        eprintln!("[DEBUG-H3H4] extrude_profile: span={:.2}m pts={} X=[{:.2},{:.2}] Y=[{:.2},{:.2}] depth={:.3}",
+            profile_span, profile.outer.len(), min_x, max_x, min_y, max_y, depth);
+    }
+    // #endregion
+
+    // Check if profile has extreme aspect ratio (very elongated)
+    // This detects profiles like railings that span building perimeters
+    // and would create stretched triangles when triangulated
+    let should_skip_caps = profile_has_extreme_aspect_ratio(&profile.outer);
+
+    // Triangulate profile (only if we need caps)
+    let triangulation = if should_skip_caps {
+        None
+    } else {
+        Some(profile.triangulate()?)
+    };
 
     // Create mesh
-    let vertex_count = triangulation.points.len() * 2; // Top and bottom
-    let side_vertex_count = profile.outer.len() * 2; // Side walls
-    let total_vertices = vertex_count + side_vertex_count;
+    let cap_vertex_count = triangulation.as_ref().map(|t| t.points.len() * 2).unwrap_or(0);
+    let side_vertex_count = profile.outer.len() * 2;
+    let total_vertices = cap_vertex_count + side_vertex_count;
 
+    let cap_index_count = triangulation.as_ref().map(|t| t.indices.len() * 2).unwrap_or(0);
     let mut mesh = Mesh::with_capacity(
         total_vertices,
-        triangulation.indices.len() * 2 + profile.outer.len() * 6,
+        cap_index_count + profile.outer.len() * 6,
     );
 
-    // Create top and bottom caps
-    create_cap_mesh(&triangulation, 0.0, Vector3::new(0.0, 0.0, -1.0), &mut mesh);
-    create_cap_mesh(
-        &triangulation,
-        depth,
-        Vector3::new(0.0, 0.0, 1.0),
-        &mut mesh,
-    );
+    // Create top and bottom caps (skip for extreme aspect ratio profiles)
+    if let Some(ref tri) = triangulation {
+        create_cap_mesh(tri, 0.0, Vector3::new(0.0, 0.0, -1.0), &mut mesh);
+        create_cap_mesh(
+            tri,
+            depth,
+            Vector3::new(0.0, 0.0, 1.0),
+            &mut mesh,
+        );
+    }
 
     // Create side walls
     create_side_walls(&profile.outer, depth, &mut mesh);
@@ -58,6 +85,45 @@ pub fn extrude_profile(
     }
 
     Ok(mesh)
+}
+
+/// Check if a profile has an extreme aspect ratio (very elongated shape)
+/// Returns true if the profile's aspect ratio exceeds 100:1
+/// This catches profiles like railings that span building perimeters but have
+/// small cross-sections, which would create problematic cap triangles.
+#[inline]
+fn profile_has_extreme_aspect_ratio(outer: &[Point2<f64>]) -> bool {
+    if outer.len() < 3 {
+        return false;
+    }
+
+    // Calculate bounding box
+    let mut min_x = f64::MAX;
+    let mut max_x = f64::MIN;
+    let mut min_y = f64::MAX;
+    let mut max_y = f64::MIN;
+
+    for p in outer {
+        min_x = min_x.min(p.x);
+        max_x = max_x.max(p.x);
+        min_y = min_y.min(p.y);
+        max_y = max_y.max(p.y);
+    }
+
+    let width = max_x - min_x;
+    let height = max_y - min_y;
+
+    // Skip if dimensions are too small to measure
+    if width < 0.001 || height < 0.001 {
+        return false;
+    }
+
+    let aspect_ratio = (width / height).max(height / width);
+
+    // Skip caps if aspect ratio > 100:1
+    // This is a very conservative check that only catches truly extreme profiles
+    // The stretched triangle filter will catch any remaining issues
+    aspect_ratio > 100.0
 }
 
 /// Extrude a 2D profile with void awareness
