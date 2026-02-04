@@ -56,10 +56,25 @@ export async function initFloorPlanWasm(): Promise<void> {
   const wasm = await import('@ifc-lite/wasm');
   await wasm.default(); // Initialize WASM
 
+  // Type assertion needed until WASM types are regenerated with FloorPlanAPI
+  // The FloorPlanAPI is exported from pdf_vision.rs but TypeScript definitions
+  // need wasm-pack build to be regenerated
+  const wasmAny = wasm as Record<string, unknown>;
+
+  // Check if FloorPlanAPI is available (requires wasm-pack build with pdf-vision)
+  if (!wasmAny.FloorPlanAPI) {
+    console.warn('[pdf-vision] FloorPlanAPI not available in WASM module. Run wasm-pack build to include it.');
+    return;
+  }
+
   wasmModule = {
-    FloorPlanAPI: wasm.FloorPlanAPI,
-    createDefaultStoreyConfig: wasm.createDefaultStoreyConfig,
-    createMultiStoreyConfig: wasm.createMultiStoreyConfig,
+    FloorPlanAPI: wasmAny.FloorPlanAPI as new () => FloorPlanAPIWasm,
+    createDefaultStoreyConfig: wasmAny.createDefaultStoreyConfig as (floorPlanIndex: number, label: string, height: number) => string,
+    createMultiStoreyConfig: wasmAny.createMultiStoreyConfig as (
+      indicesJson: string,
+      labelsJson: string,
+      heightsJson: string
+    ) => string,
   };
 }
 

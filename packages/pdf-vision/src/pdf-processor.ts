@@ -82,8 +82,10 @@ export class PdfProcessor {
       throw new Error('Failed to get 2D context');
     }
 
+    // Cast context - pdf.js types expect CanvasRenderingContext2D but
+    // OffscreenCanvas returns OffscreenCanvasRenderingContext2D which is compatible
     await page.render({
-      canvasContext: ctx,
+      canvasContext: ctx as unknown as CanvasRenderingContext2D,
       viewport,
     }).promise;
 
@@ -146,8 +148,10 @@ export class PdfProcessor {
       throw new Error('Failed to get 2D context');
     }
 
+    // Cast context - pdf.js types expect CanvasRenderingContext2D but
+    // OffscreenCanvas returns OffscreenCanvasRenderingContext2D which is compatible
     await page.render({
-      canvasContext: ctx,
+      canvasContext: ctx as unknown as CanvasRenderingContext2D,
       viewport: scaledViewport,
     }).promise;
 
