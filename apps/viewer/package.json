@@ -10,11 +10,15 @@
     "test": "bash -c 'shopt -s globstar && tsx --test src/**/*.test.ts'"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.1.0",
+    "@dnd-kit/sortable": "^8.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@ifc-lite/bcf": "workspace:^",
     "@ifc-lite/cache": "workspace:^",
     "@ifc-lite/data": "workspace:^",
     "@ifc-lite/ids": "workspace:^",
     "@ifc-lite/drawing-2d": "workspace:^",
+    "@ifc-lite/pdf-vision": "workspace:^",
     "@ifc-lite/export": "workspace:^",
     "@ifc-lite/geometry": "workspace:^",
     "@ifc-lite/mutations": "workspace:^",
@@ -46,6 +50,7 @@
     "clsx": "^2.1.1",
     "lucide-react": "^0.562.0",
     "parquet-wasm": "^0.5.0",
+    "pdfjs-dist": "^4.4.168",
     "postcss": "^8.5.6",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

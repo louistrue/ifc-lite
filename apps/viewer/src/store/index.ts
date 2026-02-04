@@ -27,6 +27,7 @@ import { createDrawing2DSlice, type Drawing2DSlice } from './slices/drawing2DSli
 import { createSheetSlice, type SheetSlice } from './slices/sheetSlice.js';
 import { createBcfSlice, type BCFSlice } from './slices/bcfSlice.js';
 import { createIdsSlice, type IDSSlice } from './slices/idsSlice.js';
+import { createFloorPlanSlice, type FloorPlanSlice } from './slices/floorPlanSlice.js';
 
 // Import constants for reset function
 import { CAMERA_DEFAULTS, SECTION_PLANE_DEFAULTS, UI_DEFAULTS, TYPE_VISIBILITY_DEFAULTS } from './constants.js';
@@ -52,6 +53,20 @@ export type { BCFSlice, BCFSliceState } from './slices/bcfSlice.js';
 // Re-export IDS types
 export type { IDSSlice, IDSSliceState, IDSDisplayOptions, IDSFilterMode } from './slices/idsSlice.js';
 
+// Re-export FloorPlan types
+export type {
+  FloorPlanSlice,
+  FloorPlanState,
+  FloorPlanStatus,
+  FloorPlanPage,
+  StoreyConfig,
+  DetectedWall,
+  DetectedRoom,
+  DetectedOpening,
+  StoreyMeshData,
+  GeneratedBuilding,
+} from './slices/floorPlanSlice.js';
+
 // Combined store type
 export type ViewerState = LoadingSlice &
   SelectionSlice &
@@ -67,7 +82,8 @@ export type ViewerState = LoadingSlice &
   Drawing2DSlice &
   SheetSlice &
   BCFSlice &
-  IDSSlice & {
+  IDSSlice &
+  FloorPlanSlice & {
     resetViewerState: () => void;
   };
 
@@ -91,6 +107,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
   ...createSheetSlice(...args),
   ...createBcfSlice(...args),
   ...createIdsSlice(...args),
+  ...createFloorPlanSlice(...args),
 
   // Reset all viewer state when loading new file
   // Note: Does NOT clear models - use clearAllModels() for that
@@ -208,6 +225,14 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       idsActiveSpecificationId: null,
       idsActiveEntityId: null,
       // Keep idsDocument, idsValidationReport, idsLocale - user's work
+
+      // Floor Plan - reset panel but keep pages and configs
+      floorPlanPanelVisible: false,
+      floorPlanStatus: 'idle' as const,
+      floorPlanProgress: 0,
+      floorPlanPhase: '',
+      floorPlanError: null,
+      // Keep floorPlanPages, storeyConfigs - user's work
     });
   },
 }));

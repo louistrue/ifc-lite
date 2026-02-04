@@ -163,6 +163,8 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const toggleBcfPanel = useViewerStore((state) => state.toggleBcfPanel);
   const idsPanelVisible = useViewerStore((state) => state.idsPanelVisible);
   const toggleIdsPanel = useViewerStore((state) => state.toggleIdsPanel);
+  const floorPlanPanelVisible = useViewerStore((state) => state.floorPlanPanelVisible);
+  const toggleFloorPlanPanel = useViewerStore((state) => state.toggleFloorPlanPanel);
   const setRightPanelCollapsed = useViewerStore((state) => state.setRightPanelCollapsed);
 
   // Check which type geometries exist
@@ -564,6 +566,28 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
           </Button>
         </TooltipTrigger>
         <TooltipContent>IDS Validation</TooltipContent>
+      </Tooltip>
+
+      {/* Floor Plan to 3D Button */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={floorPlanPanelVisible ? 'default' : 'ghost'}
+            size="icon-sm"
+            onClick={(e) => {
+              (e.currentTarget as HTMLButtonElement).blur();
+              // If Floor Plan panel is being shown, also expand the right panel
+              if (!floorPlanPanelVisible) {
+                setRightPanelCollapsed(false);
+              }
+              toggleFloorPlanPanel();
+            }}
+            className={cn(floorPlanPanelVisible && 'bg-primary text-primary-foreground')}
+          >
+            <Layers className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Floor Plan to 3D</TooltipContent>
       </Tooltip>
 
       <Separator orientation="vertical" className="h-6 mx-1" />
