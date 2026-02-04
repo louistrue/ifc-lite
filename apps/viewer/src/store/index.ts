@@ -171,6 +171,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
         showAnnotations: true,
         show3DOverlay: true,
         scale: 100,
+        useSymbolicRepresentations: false,
       },
       // Graphic overrides (keep presets, reset active and custom)
       activePresetId: 'preset-3d-colors',

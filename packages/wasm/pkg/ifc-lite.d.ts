@@ -462,6 +462,22 @@ export class IfcAPI {
    */
   parseMeshesInstancedAsync(content: string, options: any): Promise<any>;
   /**
+   * Parse IFC file and extract symbolic representations (Plan, Annotation, FootPrint)
+   * These are 2D curves used for architectural drawings instead of sectioning 3D geometry
+   *
+   * Example:
+   * ```javascript
+   * const api = new IfcAPI();
+   * const symbols = api.parseSymbolicRepresentations(ifcData);
+   * console.log('Found', symbols.totalCount, 'symbolic items');
+   * for (let i = 0; i < symbols.polylineCount; i++) {
+   *   const polyline = symbols.getPolyline(i);
+   *   console.log('Polyline for', polyline.ifcType, ':', polyline.points);
+   * }
+   * ```
+   */
+  parseSymbolicRepresentations(content: string): SymbolicRepresentationCollection;
+  /**
    * Parse IFC file to GPU-ready instanced geometry for zero-copy upload
    *
    * Groups identical geometries by hash for efficient GPU instancing.
@@ -563,6 +579,11 @@ export class MeshCollection {
    */
   readonly totalTriangles: number;
   /**
+   * Get building rotation angle in radians (from IfcSite placement)
+   * Returns None if no rotation was detected
+   */
+  readonly buildingRotation: number | undefined;
+  /**
    * Get number of meshes
    */
   readonly length: number;
@@ -652,6 +673,88 @@ export class RtcOffsetJs {
    * Z offset
    */
   z: number;
+}
+
+export class SymbolicCircle {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  readonly expressId: number;
+  readonly startAngle: number;
+  /**
+   * Check if this is a full circle
+   */
+  readonly isFullCircle: boolean;
+  readonly repIdentifier: string;
+  readonly radius: number;
+  readonly centerX: number;
+  readonly centerY: number;
+  readonly ifcType: string;
+  readonly endAngle: number;
+}
+
+export class SymbolicPolyline {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  /**
+   * Get express ID of the parent element
+   */
+  readonly expressId: number;
+  /**
+   * Get number of points
+   */
+  readonly pointCount: number;
+  /**
+   * Get representation identifier ("Plan", "Annotation", "FootPrint", "Axis")
+   */
+  readonly repIdentifier: string;
+  /**
+   * Get 2D points as Float32Array [x1, y1, x2, y2, ...]
+   */
+  readonly points: Float32Array;
+  /**
+   * Get IFC type name (e.g., "IfcDoor", "IfcWindow")
+   */
+  readonly ifcType: string;
+  /**
+   * Check if this is a closed loop
+   */
+  readonly isClosed: boolean;
+}
+
+export class SymbolicRepresentationCollection {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  /**
+   * Get circle at index
+   */
+  getCircle(index: number): SymbolicCircle | undefined;
+  /**
+   * Get polyline at index
+   */
+  getPolyline(index: number): SymbolicPolyline | undefined;
+  /**
+   * Get all express IDs that have symbolic representations
+   */
+  getExpressIds(): Uint32Array;
+  /**
+   * Get total count of all symbolic items
+   */
+  readonly totalCount: number;
+  /**
+   * Get number of circles/arcs
+   */
+  readonly circleCount: number;
+  /**
+   * Get number of polylines
+   */
+  readonly polylineCount: number;
+  /**
+   * Check if collection is empty
+   */
+  readonly isEmpty: boolean;
 }
 
 export class ZeroCopyMesh {
@@ -766,6 +869,9 @@ export interface InitOutput {
   readonly __wbg_set_georeferencejs_scale: (a: number, b: number) => void;
   readonly __wbg_set_georeferencejs_x_axis_abscissa: (a: number, b: number) => void;
   readonly __wbg_set_georeferencejs_x_axis_ordinate: (a: number, b: number) => void;
+  readonly __wbg_symboliccircle_free: (a: number, b: number) => void;
+  readonly __wbg_symbolicpolyline_free: (a: number, b: number) => void;
+  readonly __wbg_symbolicrepresentationcollection_free: (a: number, b: number) => void;
   readonly __wbg_zerocopymesh_free: (a: number, b: number) => void;
   readonly georeferencejs_crsName: (a: number, b: number) => void;
   readonly georeferencejs_localToMap: (a: number, b: number, c: number, d: number, e: number) => void;
@@ -841,6 +947,7 @@ export interface InitOutput {
   readonly ifcapi_parseMeshesInstancedAsync: (a: number, b: number, c: number, d: number) => number;
   readonly ifcapi_parseMeshesWithRtc: (a: number, b: number, c: number) => number;
   readonly ifcapi_parseStreaming: (a: number, b: number, c: number, d: number) => number;
+  readonly ifcapi_parseSymbolicRepresentations: (a: number, b: number, c: number) => number;
   readonly ifcapi_parseToGpuGeometry: (a: number, b: number, c: number) => number;
   readonly ifcapi_parseToGpuGeometryAsync: (a: number, b: number, c: number, d: number) => number;
   readonly ifcapi_parseToGpuInstancedGeometry: (a: number, b: number, c: number) => number;
@@ -858,14 +965,16 @@ export interface InitOutput {
   readonly instancedgeometry_positions: (a: number) => number;
   readonly instancedmeshcollection_get: (a: number, b: number) => number;
   readonly instancedmeshcollection_totalInstances: (a: number) => number;
+  readonly meshcollection_buildingRotation: (a: number, b: number) => void;
   readonly meshcollection_get: (a: number, b: number) => number;
   readonly meshcollection_hasRtcOffset: (a: number) => number;
   readonly meshcollection_length: (a: number) => number;
   readonly meshcollection_localToWorld: (a: number, b: number, c: number, d: number, e: number) => void;
+  readonly meshcollection_rtcOffsetY: (a: number) => number;
+  readonly meshcollection_rtcOffsetZ: (a: number) => number;
   readonly meshcollection_totalTriangles: (a: number) => number;
   readonly meshcollection_totalVertices: (a: number) => number;
   readonly meshcollectionwithrtc_get: (a: number, b: number) => number;
-  readonly meshcollectionwithrtc_length: (a: number) => number;
   readonly meshcollectionwithrtc_meshes: (a: number) => number;
   readonly meshcollectionwithrtc_rtcOffset: (a: number) => number;
   readonly meshdatajs_color: (a: number, b: number) => void;
@@ -876,7 +985,29 @@ export interface InitOutput {
   readonly meshdatajs_positions: (a: number) => number;
   readonly meshdatajs_triangleCount: (a: number) => number;
   readonly meshdatajs_vertexCount: (a: number) => number;
+  readonly rtcoffsetjs_isSignificant: (a: number) => number;
   readonly rtcoffsetjs_toWorld: (a: number, b: number, c: number, d: number, e: number) => void;
+  readonly symboliccircle_centerX: (a: number) => number;
+  readonly symboliccircle_centerY: (a: number) => number;
+  readonly symboliccircle_endAngle: (a: number) => number;
+  readonly symboliccircle_ifcType: (a: number, b: number) => void;
+  readonly symboliccircle_isFullCircle: (a: number) => number;
+  readonly symboliccircle_radius: (a: number) => number;
+  readonly symboliccircle_repIdentifier: (a: number, b: number) => void;
+  readonly symboliccircle_startAngle: (a: number) => number;
+  readonly symbolicpolyline_expressId: (a: number) => number;
+  readonly symbolicpolyline_ifcType: (a: number, b: number) => void;
+  readonly symbolicpolyline_isClosed: (a: number) => number;
+  readonly symbolicpolyline_pointCount: (a: number) => number;
+  readonly symbolicpolyline_points: (a: number) => number;
+  readonly symbolicpolyline_repIdentifier: (a: number, b: number) => void;
+  readonly symbolicrepresentationcollection_circleCount: (a: number) => number;
+  readonly symbolicrepresentationcollection_getCircle: (a: number, b: number) => number;
+  readonly symbolicrepresentationcollection_getExpressIds: (a: number, b: number) => void;
+  readonly symbolicrepresentationcollection_getPolyline: (a: number, b: number) => number;
+  readonly symbolicrepresentationcollection_isEmpty: (a: number) => number;
+  readonly symbolicrepresentationcollection_polylineCount: (a: number) => number;
+  readonly symbolicrepresentationcollection_totalCount: (a: number) => number;
   readonly version: (a: number) => void;
   readonly zerocopymesh_bounds_max: (a: number, b: number) => void;
   readonly zerocopymesh_bounds_min: (a: number, b: number) => void;
@@ -889,6 +1020,7 @@ export interface InitOutput {
   readonly init: () => void;
   readonly instancedmeshcollection_length: (a: number) => number;
   readonly instancedmeshcollection_totalGeometries: (a: number) => number;
+  readonly meshcollectionwithrtc_length: (a: number) => number;
   readonly zerocopymesh_indices_len: (a: number) => number;
   readonly __wbg_set_rtcoffsetjs_x: (a: number, b: number) => void;
   readonly __wbg_set_rtcoffsetjs_y: (a: number, b: number) => void;
@@ -897,19 +1029,17 @@ export interface InitOutput {
   readonly get_memory: () => number;
   readonly zerocopymesh_indices_ptr: (a: number) => number;
   readonly zerocopymesh_normals_ptr: (a: number) => number;
-  readonly rtcoffsetjs_isSignificant: (a: number) => number;
   readonly __wbg_get_rtcoffsetjs_x: (a: number) => number;
   readonly __wbg_get_rtcoffsetjs_y: (a: number) => number;
   readonly __wbg_get_rtcoffsetjs_z: (a: number) => number;
   readonly instancedgeometry_geometryId: (a: number) => bigint;
   readonly meshcollection_rtcOffsetX: (a: number) => number;
-  readonly meshcollection_rtcOffsetY: (a: number) => number;
-  readonly meshcollection_rtcOffsetZ: (a: number) => number;
-  readonly __wasm_bindgen_func_elem_848: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_846: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_408: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_406: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_879: (a: number, b: number, c: number, d: number) => void;
+  readonly symboliccircle_expressId: (a: number) => number;
+  readonly __wasm_bindgen_func_elem_474: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_472: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_921: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_919: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_952: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_export: (a: number) => void;
   readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
   readonly __wbindgen_export3: (a: number, b: number) => number;

@@ -8,8 +8,8 @@
  */
 
 import { createLogger } from '@ifc-lite/data';
-import init, { IfcAPI, MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData } from '@ifc-lite/wasm';
-export type { MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData };
+import init, { IfcAPI, MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData, SymbolicRepresentationCollection, SymbolicPolyline, SymbolicCircle } from '@ifc-lite/wasm';
+export type { MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData, SymbolicRepresentationCollection, SymbolicPolyline, SymbolicCircle };
 
 const log = createLogger('Geometry');
 
@@ -150,6 +150,27 @@ export class IfcLiteBridge {
     } catch (error) {
       log.error('Failed to parse instanced IFC geometry (streaming)', error, {
         operation: 'parseMeshesInstancedAsync',
+        data: { contentLength: content.length },
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Parse IFC content and return symbolic representations (Plan, Annotation, FootPrint)
+   * These are pre-authored 2D curves for architectural drawings
+   */
+  parseSymbolicRepresentations(content: string): SymbolicRepresentationCollection {
+    if (!this.ifcApi) {
+      throw new Error('IFC-Lite not initialized. Call init() first.');
+    }
+    try {
+      const collection = this.ifcApi.parseSymbolicRepresentations(content);
+      log.debug(`Parsed ${collection.totalCount} symbolic items (${collection.polylineCount} polylines, ${collection.circleCount} circles)`, { operation: 'parseSymbolicRepresentations' });
+      return collection;
+    } catch (error) {
+      log.error('Failed to parse symbolic representations', error, {
+        operation: 'parseSymbolicRepresentations',
         data: { contentLength: content.length },
       });
       throw error;

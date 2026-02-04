@@ -198,16 +198,16 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_848(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_848(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_474(arg0, arg1) {
+    wasm.__wasm_bindgen_func_elem_474(arg0, arg1);
 }
 
-function __wasm_bindgen_func_elem_408(arg0, arg1) {
-    wasm.__wasm_bindgen_func_elem_408(arg0, arg1);
+function __wasm_bindgen_func_elem_921(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_921(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_879(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_879(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_952(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_952(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -265,6 +265,18 @@ const MeshDataJsFinalization = (typeof FinalizationRegistry === 'undefined')
 const RtcOffsetJsFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_rtcoffsetjs_free(ptr >>> 0, 1));
+
+const SymbolicCircleFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_symboliccircle_free(ptr >>> 0, 1));
+
+const SymbolicPolylineFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_symbolicpolyline_free(ptr >>> 0, 1));
+
+const SymbolicRepresentationCollectionFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_symbolicrepresentationcollection_free(ptr >>> 0, 1));
 
 const ZeroCopyMeshFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
@@ -1451,6 +1463,29 @@ export class IfcAPI {
         return takeObject(ret);
     }
     /**
+     * Parse IFC file and extract symbolic representations (Plan, Annotation, FootPrint)
+     * These are 2D curves used for architectural drawings instead of sectioning 3D geometry
+     *
+     * Example:
+     * ```javascript
+     * const api = new IfcAPI();
+     * const symbols = api.parseSymbolicRepresentations(ifcData);
+     * console.log('Found', symbols.totalCount, 'symbolic items');
+     * for (let i = 0; i < symbols.polylineCount; i++) {
+     *   const polyline = symbols.getPolyline(i);
+     *   console.log('Polyline for', polyline.ifcType, ':', polyline.points);
+     * }
+     * ```
+     * @param {string} content
+     * @returns {SymbolicRepresentationCollection}
+     */
+    parseSymbolicRepresentations(content) {
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.ifcapi_parseSymbolicRepresentations(this.__wbg_ptr, ptr0, len0);
+        return SymbolicRepresentationCollection.__wrap(ret);
+    }
+    /**
      * Parse IFC file to GPU-ready instanced geometry for zero-copy upload
      *
      * Groups identical geometries by hash for efficient GPU instancing.
@@ -1723,7 +1758,7 @@ export class MeshCollection {
      * @returns {number}
      */
     get rtcOffsetX() {
-        const ret = wasm.gpugeometry_rtcOffsetX(this.__wbg_ptr);
+        const ret = wasm.gpugeometry_rtcOffsetZ(this.__wbg_ptr);
         return ret;
     }
     /**
@@ -1731,7 +1766,7 @@ export class MeshCollection {
      * @returns {number}
      */
     get rtcOffsetY() {
-        const ret = wasm.gpugeometry_rtcOffsetY(this.__wbg_ptr);
+        const ret = wasm.meshcollection_rtcOffsetY(this.__wbg_ptr);
         return ret;
     }
     /**
@@ -1739,7 +1774,7 @@ export class MeshCollection {
      * @returns {number}
      */
     get rtcOffsetZ() {
-        const ret = wasm.gpugeometry_rtcOffsetZ(this.__wbg_ptr);
+        const ret = wasm.meshcollection_rtcOffsetZ(this.__wbg_ptr);
         return ret;
     }
     /**
@@ -1786,6 +1821,22 @@ export class MeshCollection {
     get totalTriangles() {
         const ret = wasm.meshcollection_totalTriangles(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * Get building rotation angle in radians (from IfcSite placement)
+     * Returns None if no rotation was detected
+     * @returns {number | undefined}
+     */
+    get buildingRotation() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.meshcollection_buildingRotation(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r2 = getDataViewMemory0().getFloat64(retptr + 8 * 1, true);
+            return r0 === 0 ? undefined : r2;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
     }
     /**
      * Get mesh at index
@@ -1850,7 +1901,7 @@ export class MeshCollectionWithRtc {
      * @returns {number}
      */
     get length() {
-        const ret = wasm.meshcollectionwithrtc_length(this.__wbg_ptr);
+        const ret = wasm.meshcollection_length(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -2044,7 +2095,7 @@ export class RtcOffsetJs {
      * @returns {boolean}
      */
     isSignificant() {
-        const ret = wasm.meshcollection_hasRtcOffset(this.__wbg_ptr);
+        const ret = wasm.rtcoffsetjs_isSignificant(this.__wbg_ptr);
         return ret !== 0;
     }
     /**
@@ -2069,6 +2120,306 @@ export class RtcOffsetJs {
     }
 }
 if (Symbol.dispose) RtcOffsetJs.prototype[Symbol.dispose] = RtcOffsetJs.prototype.free;
+
+/**
+ * A 2D circle/arc for symbolic representations
+ */
+export class SymbolicCircle {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(SymbolicCircle.prototype);
+        obj.__wbg_ptr = ptr;
+        SymbolicCircleFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        SymbolicCircleFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_symboliccircle_free(ptr, 0);
+    }
+    /**
+     * @returns {number}
+     */
+    get expressId() {
+        const ret = wasm.gpumeshmetadata_vertexCount(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get startAngle() {
+        const ret = wasm.symboliccircle_startAngle(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Check if this is a full circle
+     * @returns {boolean}
+     */
+    get isFullCircle() {
+        const ret = wasm.symboliccircle_isFullCircle(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * @returns {string}
+     */
+    get repIdentifier() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.symboliccircle_repIdentifier(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export2(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * @returns {number}
+     */
+    get radius() {
+        const ret = wasm.symboliccircle_radius(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {number}
+     */
+    get centerX() {
+        const ret = wasm.symboliccircle_centerX(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {number}
+     */
+    get centerY() {
+        const ret = wasm.symboliccircle_centerY(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {string}
+     */
+    get ifcType() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.symboliccircle_ifcType(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export2(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * @returns {number}
+     */
+    get endAngle() {
+        const ret = wasm.symboliccircle_endAngle(this.__wbg_ptr);
+        return ret;
+    }
+}
+if (Symbol.dispose) SymbolicCircle.prototype[Symbol.dispose] = SymbolicCircle.prototype.free;
+
+/**
+ * A single 2D polyline for symbolic representations (Plan, Annotation, FootPrint)
+ * Points are stored as [x1, y1, x2, y2, ...] in 2D coordinates
+ */
+export class SymbolicPolyline {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(SymbolicPolyline.prototype);
+        obj.__wbg_ptr = ptr;
+        SymbolicPolylineFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        SymbolicPolylineFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_symbolicpolyline_free(ptr, 0);
+    }
+    /**
+     * Get express ID of the parent element
+     * @returns {number}
+     */
+    get expressId() {
+        const ret = wasm.symbolicpolyline_expressId(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Get number of points
+     * @returns {number}
+     */
+    get pointCount() {
+        const ret = wasm.symbolicpolyline_pointCount(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Get representation identifier ("Plan", "Annotation", "FootPrint", "Axis")
+     * @returns {string}
+     */
+    get repIdentifier() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.symbolicpolyline_repIdentifier(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export2(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * Get 2D points as Float32Array [x1, y1, x2, y2, ...]
+     * @returns {Float32Array}
+     */
+    get points() {
+        const ret = wasm.symbolicpolyline_points(this.__wbg_ptr);
+        return takeObject(ret);
+    }
+    /**
+     * Get IFC type name (e.g., "IfcDoor", "IfcWindow")
+     * @returns {string}
+     */
+    get ifcType() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.symbolicpolyline_ifcType(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export2(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * Check if this is a closed loop
+     * @returns {boolean}
+     */
+    get isClosed() {
+        const ret = wasm.symbolicpolyline_isClosed(this.__wbg_ptr);
+        return ret !== 0;
+    }
+}
+if (Symbol.dispose) SymbolicPolyline.prototype[Symbol.dispose] = SymbolicPolyline.prototype.free;
+
+/**
+ * Collection of symbolic representations for an IFC model
+ */
+export class SymbolicRepresentationCollection {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(SymbolicRepresentationCollection.prototype);
+        obj.__wbg_ptr = ptr;
+        SymbolicRepresentationCollectionFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        SymbolicRepresentationCollectionFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_symbolicrepresentationcollection_free(ptr, 0);
+    }
+    /**
+     * Get circle at index
+     * @param {number} index
+     * @returns {SymbolicCircle | undefined}
+     */
+    getCircle(index) {
+        const ret = wasm.symbolicrepresentationcollection_getCircle(this.__wbg_ptr, index);
+        return ret === 0 ? undefined : SymbolicCircle.__wrap(ret);
+    }
+    /**
+     * Get total count of all symbolic items
+     * @returns {number}
+     */
+    get totalCount() {
+        const ret = wasm.symbolicrepresentationcollection_totalCount(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Get number of circles/arcs
+     * @returns {number}
+     */
+    get circleCount() {
+        const ret = wasm.symbolicrepresentationcollection_circleCount(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Get polyline at index
+     * @param {number} index
+     * @returns {SymbolicPolyline | undefined}
+     */
+    getPolyline(index) {
+        const ret = wasm.symbolicrepresentationcollection_getPolyline(this.__wbg_ptr, index);
+        return ret === 0 ? undefined : SymbolicPolyline.__wrap(ret);
+    }
+    /**
+     * Get number of polylines
+     * @returns {number}
+     */
+    get polylineCount() {
+        const ret = wasm.symbolicrepresentationcollection_polylineCount(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Get all express IDs that have symbolic representations
+     * @returns {Uint32Array}
+     */
+    getExpressIds() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.symbolicrepresentationcollection_getExpressIds(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayU32FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export2(r0, r1 * 4, 4);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Check if collection is empty
+     * @returns {boolean}
+     */
+    get isEmpty() {
+        const ret = wasm.symbolicrepresentationcollection_isEmpty(this.__wbg_ptr);
+        return ret !== 0;
+    }
+}
+if (Symbol.dispose) SymbolicRepresentationCollection.prototype[Symbol.dispose] = SymbolicRepresentationCollection.prototype.free;
 
 /**
  * Zero-copy mesh that exposes pointers to WASM memory
@@ -2362,6 +2713,10 @@ function __wbg_get_imports() {
         const ret = InstancedGeometry.__wrap(arg0);
         return addHeapObject(ret);
     };
+    imports.wbg.__wbg_length_86ce4877baf913bb = function(arg0) {
+        const ret = getObject(arg0).length;
+        return ret;
+    };
     imports.wbg.__wbg_length_d45040a40c570362 = function(arg0) {
         const ret = getObject(arg0).length;
         return ret;
@@ -2393,7 +2748,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wasm_bindgen_func_elem_879(a, state0.b, arg0, arg1);
+                    return __wasm_bindgen_func_elem_952(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -2415,6 +2770,9 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_new_no_args_cb138f77cf6151ee = function(arg0, arg1) {
         const ret = new Function(getStringFromWasm0(arg0, arg1));
         return addHeapObject(ret);
+    };
+    imports.wbg.__wbg_prototypesetcall_96cc7097487b926d = function(arg0, arg1, arg2) {
+        Float32Array.prototype.set.call(getArrayF32FromWasm0(arg0, arg1), getObject(arg2));
     };
     imports.wbg.__wbg_push_7d9be8f38fc13975 = function(arg0, arg1) {
         const ret = getObject(arg0).push(getObject(arg1));
@@ -2495,7 +2853,7 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbindgen_cast_7f089052c998c143 = function(arg0, arg1) {
         // Cast intrinsic for `Closure(Closure { dtor_idx: 105, function: Function { arguments: [Externref], shim_idx: 106, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_846, __wasm_bindgen_func_elem_848);
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_919, __wasm_bindgen_func_elem_921);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {
@@ -2505,7 +2863,7 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbindgen_cast_fa504d1cec41bd0d = function(arg0, arg1) {
         // Cast intrinsic for `Closure(Closure { dtor_idx: 45, function: Function { arguments: [], shim_idx: 46, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_406, __wasm_bindgen_func_elem_408);
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_472, __wasm_bindgen_func_elem_474);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_object_clone_ref = function(arg0) {

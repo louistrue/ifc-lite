@@ -322,7 +322,16 @@ impl ExtrudedAreaSolidProcessor {
         decoder: &mut EntityDecoder,
     ) -> Result<Matrix4<f64>> {
         // IfcAxis2Placement3D: Location, Axis, RefDirection
-        let location = self.parse_cartesian_point(placement, decoder, 0)?;
+        // Location can be null ($) - default to origin (0,0,0)
+        let location = if let Some(loc_attr) = placement.get(0) {
+            if !loc_attr.is_null() {
+                self.parse_cartesian_point(placement, decoder, 0)?
+            } else {
+                Point3::new(0.0, 0.0, 0.0)
+            }
+        } else {
+            Point3::new(0.0, 0.0, 0.0)
+        };
 
         // Default axes if not specified
         let z_axis = if let Some(axis_attr) = placement.get(1) {
@@ -572,20 +581,150 @@ impl PolygonalFaceSetProcessor {
         Self
     }
 
-    /// Triangulate a polygon using fan triangulation
-    /// Works for convex polygons and most well-formed concave polygons
+    /// Triangulate a polygon using ear-clipping algorithm (earcutr)
+    /// This works correctly for both convex and concave polygons
     /// IFC indices are 1-based, so we subtract 1 to get 0-based indices
-    #[inline]
-    fn triangulate_polygon(indices: &[u32], output: &mut Vec<u32>) {
-        if indices.len() < 3 {
+    /// positions is flattened [x0, y0, z0, x1, y1, z1, ...]
+    fn triangulate_polygon(
+        face_indices: &[u32],
+        positions: &[f32],
+        output: &mut Vec<u32>,
+    ) {
+        if face_indices.len() < 3 {
             return;
         }
-        // Fan triangulation: first vertex connects to all other edges
-        let first = indices[0] - 1; // Convert 1-based to 0-based
-        for i in 1..indices.len() - 1 {
+
+        // For triangles, no triangulation needed
+        if face_indices.len() == 3 {
+            output.push(face_indices[0] - 1);
+            output.push(face_indices[1] - 1);
+            output.push(face_indices[2] - 1);
+            return;
+        }
+
+        // For quads and simple cases, use fan triangulation (fast path)
+        if face_indices.len() == 4 {
+            let first = face_indices[0] - 1;
             output.push(first);
-            output.push(indices[i] - 1);
-            output.push(indices[i + 1] - 1);
+            output.push(face_indices[1] - 1);
+            output.push(face_indices[2] - 1);
+            output.push(first);
+            output.push(face_indices[2] - 1);
+            output.push(face_indices[3] - 1);
+            return;
+        }
+
+        // Helper to get 3D position from flattened array
+        let get_pos = |idx: u32| -> Option<(f32, f32, f32)> {
+            let base = ((idx - 1) * 3) as usize;
+            if base + 2 < positions.len() {
+                Some((positions[base], positions[base + 1], positions[base + 2]))
+            } else {
+                None
+            }
+        };
+
+        // For complex polygons (5+ vertices), use ear-clipping triangulation
+        // This handles concave polygons correctly (like opening cutouts)
+        
+        // Extract 2D coordinates by projecting to best-fit plane
+        // Find dominant normal direction to choose projection plane
+        let mut sum_x = 0.0f64;
+        let mut sum_y = 0.0f64;
+        let mut sum_z = 0.0f64;
+        
+        // Calculate centroid-based normal approximation using Newell's method
+        for i in 0..face_indices.len() {
+            let v0 = match get_pos(face_indices[i]) {
+                Some(p) => p,
+                None => {
+                    // Fallback to fan triangulation if indices are invalid
+                    let first = face_indices[0] - 1;
+                    for j in 1..face_indices.len() - 1 {
+                        output.push(first);
+                        output.push(face_indices[j] - 1);
+                        output.push(face_indices[j + 1] - 1);
+                    }
+                    return;
+                }
+            };
+            let v1 = match get_pos(face_indices[(i + 1) % face_indices.len()]) {
+                Some(p) => p,
+                None => {
+                    let first = face_indices[0] - 1;
+                    for j in 1..face_indices.len() - 1 {
+                        output.push(first);
+                        output.push(face_indices[j] - 1);
+                        output.push(face_indices[j + 1] - 1);
+                    }
+                    return;
+                }
+            };
+            
+            sum_x += (v0.1 - v1.1) as f64 * (v0.2 + v1.2) as f64;
+            sum_y += (v0.2 - v1.2) as f64 * (v0.0 + v1.0) as f64;
+            sum_z += (v0.0 - v1.0) as f64 * (v0.1 + v1.1) as f64;
+        }
+        
+        // Choose projection plane based on dominant axis
+        let abs_x = sum_x.abs();
+        let abs_y = sum_y.abs();
+        let abs_z = sum_z.abs();
+        
+        // Project 3D points to 2D for triangulation
+        let mut coords_2d: Vec<f64> = Vec::with_capacity(face_indices.len() * 2);
+        
+        for &idx in face_indices {
+            let p = match get_pos(idx) {
+                Some(pos) => pos,
+                None => {
+                    // Fallback to fan triangulation
+                    let first = face_indices[0] - 1;
+                    for j in 1..face_indices.len() - 1 {
+                        output.push(first);
+                        output.push(face_indices[j] - 1);
+                        output.push(face_indices[j + 1] - 1);
+                    }
+                    return;
+                }
+            };
+            
+            // Project to 2D based on dominant normal axis
+            if abs_z >= abs_x && abs_z >= abs_y {
+                // XY plane (Z is dominant)
+                coords_2d.push(p.0 as f64);
+                coords_2d.push(p.1 as f64);
+            } else if abs_y >= abs_x {
+                // XZ plane (Y is dominant)
+                coords_2d.push(p.0 as f64);
+                coords_2d.push(p.2 as f64);
+            } else {
+                // YZ plane (X is dominant)
+                coords_2d.push(p.1 as f64);
+                coords_2d.push(p.2 as f64);
+            }
+        }
+        
+        // Run ear-clipping triangulation
+        let hole_indices: Vec<usize> = vec![]; // No holes for simple faces
+        match earcutr::earcut(&coords_2d, &hole_indices, 2) {
+            Ok(tri_indices) => {
+                // Map local triangle indices back to original face indices
+                for tri_idx in tri_indices {
+                    if tri_idx < face_indices.len() {
+                        output.push(face_indices[tri_idx] - 1);
+                    }
+                }
+            }
+            Err(_) => {
+                // Fallback to fan triangulation if ear-clipping fails
+                let first = face_indices[0] - 1;
+                for i in 1..face_indices.len() - 1 {
+                    output.push(first);
+                    output.push(face_indices[i] - 1);
+                    output.push(face_indices[i + 1] - 1);
+                }
+            }
         }
     }
 }
@@ -670,8 +809,8 @@ impl GeometryProcessor for PolygonalFaceSetProcessor {
                 .filter_map(|v| v.as_int().map(|i| i as u32))
                 .collect();
 
-            // Triangulate the polygon
-            Self::triangulate_polygon(&face_indices, &mut indices);
+            // Triangulate the polygon (using ear-clipping for complex polygons)
+            Self::triangulate_polygon(&face_indices, &positions, &mut indices);
         }
 
         Ok(Mesh {

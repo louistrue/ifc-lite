@@ -183,7 +183,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         hiddenIds: hiddenEntitiesRef.current,
         isolatedIds: isolatedEntitiesRef.current,
         selectedId: selectedEntityIdRef.current,
-            selectedModelIndex: selectedModelIndexRef.current,
+        selectedModelIndex: selectedModelIndexRef.current,
         clearColor: clearColorRef.current,
       });
     }
@@ -237,6 +237,9 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     max: { x: 100, y: 100, z: 100 },
   });
 
+  // Coordinate info ref for camera callbacks (to access latest buildingRotation)
+  const coordinateInfoRef = useRef<CoordinateInfo | undefined>(coordinateInfo);
+
   // Visibility state refs for animation loop
   const hiddenEntitiesRef = useRef<Set<number>>(hiddenEntities);
   const isolatedEntitiesRef = useRef<Set<number> | null>(isolatedEntities);
@@ -286,6 +289,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   } | null>(null);
 
   // Keep refs in sync
+  useEffect(() => { coordinateInfoRef.current = coordinateInfo; }, [coordinateInfo]);
   useEffect(() => { hiddenEntitiesRef.current = hiddenEntities; }, [hiddenEntities]);
   useEffect(() => { isolatedEntitiesRef.current = isolatedEntities; }, [isolatedEntities]);
   useEffect(() => { selectedEntityIdRef.current = selectedEntityId; }, [selectedEntityId]);
@@ -450,7 +454,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
       setCameraCallbacks({
         setPresetView: (view) => {
           // Pass actual geometry bounds to avoid distance drift
-          camera.setPresetView(view, geometryBoundsRef.current);
+          const rotation = coordinateInfoRef.current?.buildingRotation;
+          camera.setPresetView(view, geometryBoundsRef.current, rotation);
           // Initial render - animation loop will continue rendering during animation
           renderer.render({
             hiddenIds: hiddenEntitiesRef.current,
@@ -1100,7 +1105,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
               hiddenIds: hiddenEntitiesRef.current,
               isolatedIds: isolatedEntitiesRef.current,
               selectedId: selectedEntityIdRef.current,
-            selectedModelIndex: selectedModelIndexRef.current,
+              selectedModelIndex: selectedModelIndexRef.current,
               clearColor: clearColorRef.current,
               sectionPlane: activeToolRef.current === 'section' ? {
                 ...sectionPlaneRef.current,
@@ -1121,7 +1126,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
                 hiddenIds: hiddenEntitiesRef.current,
                 isolatedIds: isolatedEntitiesRef.current,
                 selectedId: selectedEntityIdRef.current,
-            selectedModelIndex: selectedModelIndexRef.current,
+                selectedModelIndex: selectedModelIndexRef.current,
                 clearColor: clearColorRef.current,
                 sectionPlane: activeToolRef.current === 'section' ? {
                   ...sectionPlaneRef.current,
@@ -1311,7 +1316,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
           hiddenIds: hiddenEntitiesRef.current,
           isolatedIds: isolatedEntitiesRef.current,
           selectedId: selectedEntityIdRef.current,
-            selectedModelIndex: selectedModelIndexRef.current,
+          selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
           sectionPlane: activeToolRef.current === 'section' ? {
             ...sectionPlaneRef.current,
@@ -1587,7 +1592,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
 
         // Preset views - set view and re-render
         const setViewAndRender = (view: 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right') => {
-          camera.setPresetView(view, geometryBoundsRef.current);
+          const rotation = coordinateInfoRef.current?.buildingRotation;
+          camera.setPresetView(view, geometryBoundsRef.current, rotation);
           renderer.render({
             hiddenIds: hiddenEntitiesRef.current,
             isolatedIds: isolatedEntitiesRef.current,
@@ -1706,7 +1712,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
           hiddenIds: hiddenEntitiesRef.current,
           isolatedIds: isolatedEntitiesRef.current,
           selectedId: selectedEntityIdRef.current,
-            selectedModelIndex: selectedModelIndexRef.current,
+          selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
           sectionPlane: activeToolRef.current === 'section' ? {
             ...sectionPlaneRef.current,
@@ -1721,7 +1727,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         hiddenIds: hiddenEntitiesRef.current,
         isolatedIds: isolatedEntitiesRef.current,
         selectedId: selectedEntityIdRef.current,
-            selectedModelIndex: selectedModelIndexRef.current,
+        selectedModelIndex: selectedModelIndexRef.current,
         clearColor: clearColorRef.current,
         sectionPlane: activeToolRef.current === 'section' ? {
           ...sectionPlaneRef.current,
@@ -2189,8 +2195,9 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         min: sectionRange?.min,
         max: sectionRange?.max,
       } : undefined,
+      buildingRotation: coordinateInfo?.buildingRotation,
     });
-  }, [hiddenEntities, isolatedEntities, selectedEntityId, selectedEntityIds, selectedModelIndex, isInitialized, sectionPlane, activeTool, sectionRange]);
+  }, [hiddenEntities, isolatedEntities, selectedEntityId, selectedEntityIds, selectedModelIndex, isInitialized, sectionPlane, activeTool, sectionRange, coordinateInfo?.buildingRotation]);
 
   return (
     <canvas

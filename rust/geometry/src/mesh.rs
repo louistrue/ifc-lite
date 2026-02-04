@@ -140,6 +140,23 @@ impl Mesh {
             indices: Vec::with_capacity(index_count),
         }
     }
+    
+    /// Create a mesh from a single triangle
+    pub fn from_triangle(v0: &Point3<f64>, v1: &Point3<f64>, v2: &Point3<f64>, normal: &Vector3<f64>) -> Self {
+        let mut mesh = Self::with_capacity(3, 3);
+        mesh.positions = vec![
+            v0.x as f32, v0.y as f32, v0.z as f32,
+            v1.x as f32, v1.y as f32, v1.z as f32,
+            v2.x as f32, v2.y as f32, v2.z as f32,
+        ];
+        mesh.normals = vec![
+            normal.x as f32, normal.y as f32, normal.z as f32,
+            normal.x as f32, normal.y as f32, normal.z as f32,
+            normal.x as f32, normal.y as f32, normal.z as f32,
+        ];
+        mesh.indices = vec![0, 1, 2];
+        mesh
+    }
 
     /// Add a vertex with normal
     #[inline]
@@ -328,6 +345,79 @@ impl Mesh {
         self.positions.clear();
         self.normals.clear();
         self.indices.clear();
+    }
+
+    /// Filter out triangles with edges exceeding the threshold
+    /// This removes "stretched" triangles that span unreasonably large distances,
+    /// which can occur when disconnected geometry is incorrectly merged.
+    ///
+    /// Uses a conservative threshold (500m) to only catch clearly broken geometry,
+    /// not legitimate large elements like long beams or walls.
+    ///
+    /// # Arguments
+    /// * `max_edge_length` - Maximum allowed edge length in meters (default: 500m)
+    ///
+    /// # Returns
+    /// Number of triangles removed
+    pub fn filter_stretched_triangles(&mut self, max_edge_length: f32) -> usize {
+        if self.is_empty() {
+            return 0;
+        }
+
+        let max_edge_sq = max_edge_length * max_edge_length;
+        let mut valid_indices = Vec::new();
+        let mut removed_count = 0;
+
+        // Check each triangle
+        for i in (0..self.indices.len()).step_by(3) {
+            let i0 = self.indices[i] as usize;
+            let i1 = self.indices[i + 1] as usize;
+            let i2 = self.indices[i + 2] as usize;
+
+            if i0 * 3 + 2 >= self.positions.len()
+                || i1 * 3 + 2 >= self.positions.len()
+                || i2 * 3 + 2 >= self.positions.len()
+            {
+                // Invalid indices - skip
+                removed_count += 1;
+                continue;
+            }
+
+            let p0 = (
+                self.positions[i0 * 3],
+                self.positions[i0 * 3 + 1],
+                self.positions[i0 * 3 + 2],
+            );
+            let p1 = (
+                self.positions[i1 * 3],
+                self.positions[i1 * 3 + 1],
+                self.positions[i1 * 3 + 2],
+            );
+            let p2 = (
+                self.positions[i2 * 3],
+                self.positions[i2 * 3 + 1],
+                self.positions[i2 * 3 + 2],
+            );
+
+            // Calculate squared edge lengths
+            let edge01_sq = (p1.0 - p0.0).powi(2) + (p1.1 - p0.1).powi(2) + (p1.2 - p0.2).powi(2);
+            let edge12_sq = (p2.0 - p1.0).powi(2) + (p2.1 - p1.1).powi(2) + (p2.2 - p1.2).powi(2);
+            let edge20_sq = (p0.0 - p2.0).powi(2) + (p0.1 - p2.1).powi(2) + (p0.2 - p2.2).powi(2);
+
+            // Check if any edge exceeds threshold
+            if edge01_sq <= max_edge_sq && edge12_sq <= max_edge_sq && edge20_sq <= max_edge_sq {
+                // Triangle is valid - keep it
+                valid_indices.push(self.indices[i]);
+                valid_indices.push(self.indices[i + 1]);
+                valid_indices.push(self.indices[i + 2]);
+            } else {
+                // Triangle has stretched edge - remove it
+                removed_count += 1;
+            }
+        }
+
+        self.indices = valid_indices;
+        removed_count
     }
 }
 

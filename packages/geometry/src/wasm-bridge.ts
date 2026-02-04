@@ -48,6 +48,7 @@ export class WasmBridge implements IPlatformBridge {
     const startTime = performance.now();
     const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
     const meshes = collector.collectMeshes();
+    const buildingRotation = collector.getBuildingRotation();
     const endTime = performance.now();
 
     // Calculate totals
@@ -70,6 +71,7 @@ export class WasmBridge implements IPlatformBridge {
         max: { x: 0, y: 0, z: 0 },
       },
       hasLargeCoordinates: false,
+      buildingRotation,
     };
 
     return {

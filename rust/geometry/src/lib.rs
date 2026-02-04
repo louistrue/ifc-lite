@@ -76,6 +76,7 @@ pub mod processors;
 pub mod profile;
 pub mod profiles;
 pub mod router;
+pub mod transform;
 pub mod triangulation;
 pub mod void_analysis;
 pub mod void_index;
@@ -100,6 +101,10 @@ pub use processors::{
 pub use profile::{Profile2D, Profile2DWithVoids, ProfileType, VoidInfo};
 pub use profiles::ProfileProcessor;
 pub use router::{GeometryProcessor, GeometryRouter};
+pub use transform::{
+    apply_rtc_offset, parse_axis2_placement_3d, parse_axis2_placement_3d_from_id,
+    parse_cartesian_point, parse_cartesian_point_from_id, parse_direction, parse_direction_from_id,
+};
 pub use triangulation::triangulate_polygon;
 pub use void_analysis::{
     classify_voids_batch, extract_coplanar_voids, extract_nonplanar_voids, VoidAnalyzer,

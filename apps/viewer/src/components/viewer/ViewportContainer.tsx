@@ -575,7 +575,11 @@ export function ViewportContainer() {
       />
       <ViewportOverlays />
       <ToolOverlays />
-      <Section2DPanel />
+      <Section2DPanel 
+        mergedGeometry={mergedGeometryResult}
+        computedIsolatedIds={computedIsolatedIds}
+        modelIdToIndex={modelIdToIndex}
+      />
     </div>
   );
 }

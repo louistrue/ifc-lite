@@ -31,6 +31,10 @@ export interface CoordinateInfo {
     shiftedBounds: AABB;
     /** True if model had large coordinates requiring RTC shift. NOT the same as proper georeferencing via IfcMapConversion. */
     hasLargeCoordinates: boolean;
+    /** RTC offset applied by WASM in IFC coordinates (Z-up). Used for multi-model alignment. */
+    wasmRtcOffset?: Vec3;
+    /** Building rotation angle in radians (from IfcSite placement). Rotation of building's principal axes relative to world X/Y/Z. */
+    buildingRotation?: number;
 }
 
 export class CoordinateHandler {
@@ -356,7 +360,7 @@ export class CoordinateHandler {
                 // If majority of meshes have small coordinates, WASM already shifted them
                 let smallCoordCount = 0;
                 let largeCoordCount = 0;
-                const SMALL_COORD_THRESHOLD = 10000; // 10km - reasonable campus/site size
+                const SMALL_COORD_THRESHOLD = this.THRESHOLD; // Use same threshold as RTC detection
 
                 for (const mesh of batch) {
                     const positions = mesh.positions;

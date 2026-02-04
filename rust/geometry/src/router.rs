@@ -554,11 +554,112 @@ impl GeometryRouter {
     /// Get individual bounding boxes for each representation item in an opening element.
     /// This handles disconnected geometry (e.g., two separate window openings in one IfcOpeningElement)
     /// by returning separate bounds for each item instead of one combined bounding box.
-    fn get_opening_item_bounds(
+
+    /// Extract extrusion direction and position transform from IfcExtrudedAreaSolid
+    /// Returns (local_direction, position_transform)
+    fn extract_extrusion_direction_from_solid(
+        &self,
+        solid: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Option<(Vector3<f64>, Option<Matrix4<f64>>)> {
+        // Get ExtrudedDirection (attribute 2: IfcDirection)
+        let direction_attr = solid.get(2)?;
+        let direction_entity = decoder.resolve_ref(direction_attr).ok()??;
+        let local_dir = self.parse_direction(&direction_entity).ok()?;
+
+        // Get Position transform (attribute 1: IfcAxis2Placement3D)
+        let position_transform = if let Some(pos_attr) = solid.get(1) {
+            if !pos_attr.is_null() {
+                if let Ok(Some(pos_entity)) = decoder.resolve_ref(pos_attr) {
+                    if pos_entity.ifc_type == IfcType::IfcAxis2Placement3D {
+                        self.parse_axis2_placement_3d(&pos_entity, decoder).ok()
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        Some((local_dir, position_transform))
+    }
+
+    /// Recursively extract extrusion direction and position transform from representation item
+    /// Handles IfcExtrudedAreaSolid, IfcBooleanClippingResult, and IfcMappedItem
+    /// Returns (local_direction, position_transform) where direction is in local space
+    fn extract_extrusion_direction_recursive(
+        &self,
+        item: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Option<(Vector3<f64>, Option<Matrix4<f64>>)> {
+        match item.ifc_type {
+            IfcType::IfcExtrudedAreaSolid => {
+                // Direct extraction from ExtrudedDirection (attribute 2) and Position (attribute 1)
+                self.extract_extrusion_direction_from_solid(item, decoder)
+            }
+            IfcType::IfcBooleanClippingResult | IfcType::IfcBooleanResult => {
+                // FirstOperand (attribute 1) contains base geometry
+                let first_attr = item.get(1)?;
+                let first_operand = decoder.resolve_ref(first_attr).ok()??;
+                self.extract_extrusion_direction_recursive(&first_operand, decoder)
+            }
+            IfcType::IfcMappedItem => {
+                // MappingSource (attribute 0) -> MappedRepresentation -> Items
+                let source_attr = item.get(0)?;
+                let source = decoder.resolve_ref(source_attr).ok()??;
+                // RepresentationMap.MappedRepresentation is attribute 1
+                let rep_attr = source.get(1)?;
+                let rep = decoder.resolve_ref(rep_attr).ok()??;
+                
+                // MappingTarget (attribute 1) -> instance transform
+                let mapping_transform = if let Some(target_attr) = item.get(1) {
+                    if !target_attr.is_null() {
+                        if let Ok(Some(target)) = decoder.resolve_ref(target_attr) {
+                            self.parse_cartesian_transformation_operator(&target, decoder).ok()
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                
+                // Get first item from representation
+                let items_attr = rep.get(3)?;
+                let items = decoder.resolve_ref_list(items_attr).ok()?;
+                items.first().and_then(|first| {
+                    self.extract_extrusion_direction_recursive(first, decoder).map(|(dir, pos)| {
+                        // Combine MappingTarget transform with position transform
+                        let combined = match (mapping_transform.as_ref(), pos) {
+                            (Some(map), Some(pos)) => Some(map * pos),
+                            (Some(map), None) => Some(map.clone()),
+                            (None, Some(pos)) => Some(pos),
+                            (None, None) => None,
+                        };
+                        (dir, combined)
+                    })
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// Get opening item bounds with extrusion direction for each representation item
+    /// Returns Vec of (min, max, extrusion_direction) tuples
+    /// Extrusion direction is in world coordinates, normalized
+    /// Returns None for extrusion direction if it cannot be extracted (fallback to bounds-only)
+    fn get_opening_item_bounds_with_direction(
         &self,
         element: &DecodedEntity,
         decoder: &mut EntityDecoder,
-    ) -> Result<Vec<(Point3<f64>, Point3<f64>)>> {
+    ) -> Result<Vec<(Point3<f64>, Point3<f64>, Option<Vector3<f64>>)>> {
         // Get representation (attribute 6 for most building elements)
         let representation_attr = element.get(6).ok_or_else(|| {
             Error::geometry("Element has no representation attribute".to_string())
@@ -613,6 +714,93 @@ impl GeometryRouter {
 
             // Process each item separately to get individual bounds
             for item in items {
+                // Try to extract extrusion direction recursively (handles wrappers)
+                let extrusion_direction = if let Some((local_dir, position_transform)) = 
+                    self.extract_extrusion_direction_recursive(&item, decoder) 
+                {
+                    // Transform extrusion direction from local to world coordinates
+                    if let Some(pos_transform) = position_transform {
+                        // Extract rotation matrix (3x3 upper-left of 4x4 transform)
+                        let rot_x = Vector3::new(
+                            pos_transform[(0, 0)],
+                            pos_transform[(1, 0)],
+                            pos_transform[(2, 0)],
+                        );
+                        let rot_y = Vector3::new(
+                            pos_transform[(0, 1)],
+                            pos_transform[(1, 1)],
+                            pos_transform[(2, 1)],
+                        );
+                        let rot_z = Vector3::new(
+                            pos_transform[(0, 2)],
+                            pos_transform[(1, 2)],
+                            pos_transform[(2, 2)],
+                        );
+
+                        // Transform local direction to world space
+                        // Use try_normalize to guard against zero-length vectors
+                        let world_dir = (rot_x * local_dir.x
+                            + rot_y * local_dir.y
+                            + rot_z * local_dir.z)
+                            .try_normalize(1e-12)
+                            .ok_or_else(|| Error::geometry("Zero-length direction vector".to_string()))?;
+
+                        // Apply element placement transform
+                        let element_rot_x = Vector3::new(
+                            placement_transform[(0, 0)],
+                            placement_transform[(1, 0)],
+                            placement_transform[(2, 0)],
+                        );
+                        let element_rot_y = Vector3::new(
+                            placement_transform[(0, 1)],
+                            placement_transform[(1, 1)],
+                            placement_transform[(2, 1)],
+                        );
+                        let element_rot_z = Vector3::new(
+                            placement_transform[(0, 2)],
+                            placement_transform[(1, 2)],
+                            placement_transform[(2, 2)],
+                        );
+
+                        let final_dir = (element_rot_x * world_dir.x
+                            + element_rot_y * world_dir.y
+                            + element_rot_z * world_dir.z)
+                            .try_normalize(1e-12)
+                            .ok_or_else(|| Error::geometry("Zero-length direction vector".to_string()))?;
+
+                        Some(final_dir)
+                    } else {
+                        // No position transform, use local direction directly
+                        // Still need to apply element placement
+                        let element_rot_x = Vector3::new(
+                            placement_transform[(0, 0)],
+                            placement_transform[(1, 0)],
+                            placement_transform[(2, 0)],
+                        );
+                        let element_rot_y = Vector3::new(
+                            placement_transform[(0, 1)],
+                            placement_transform[(1, 1)],
+                            placement_transform[(2, 1)],
+                        );
+                        let element_rot_z = Vector3::new(
+                            placement_transform[(0, 2)],
+                            placement_transform[(1, 2)],
+                            placement_transform[(2, 2)],
+                        );
+
+                        let final_dir = (element_rot_x * local_dir.x
+                            + element_rot_y * local_dir.y
+                            + element_rot_z * local_dir.z)
+                            .try_normalize(1e-12)
+                            .ok_or_else(|| Error::geometry("Zero-length direction vector".to_string()))?;
+
+                        Some(final_dir)
+                    }
+                } else {
+                    None
+                };
+
+                // Get mesh bounds (same as original function)
                 let mesh = match self.process_representation_item(&item, decoder) {
                     Ok(m) if !m.is_empty() => m,
                     _ => continue,
@@ -649,7 +837,21 @@ impl GeometryRouter {
                     transformed.iter().map(|p| p.z).fold(f64::NEG_INFINITY, f64::max),
                 );
 
-                bounds_list.push((world_min, world_max));
+                // Apply RTC offset to opening bounds so they match wall mesh coordinate system
+                // Wall mesh positions have RTC subtracted during transform_mesh, so opening bounds must match
+                let rtc = self.rtc_offset;
+                let rtc_min = Point3::new(
+                    world_min.x - rtc.0,
+                    world_min.y - rtc.1,
+                    world_min.z - rtc.2,
+                );
+                let rtc_max = Point3::new(
+                    world_max.x - rtc.0,
+                    world_max.y - rtc.1,
+                    world_max.z - rtc.2,
+                );
+
+                bounds_list.push((rtc_min, rtc_max, extrusion_direction));
             }
         }
 
@@ -865,6 +1067,22 @@ impl GeometryRouter {
     /// 2. For each opening, use optimized box cutting with internal face generation
     /// 3. Apply any clipping operations (roof clips) from original representation
     #[inline]
+    /// Process an element with void subtraction (openings).
+    ///
+    /// This function handles three distinct cases for cutting openings:
+    ///
+    /// 1. **Floor/Slab openings** (vertical Z-extrusion): Uses CSG with actual mesh geometry
+    ///    because the XY footprint may be rotated relative to the slab orientation.
+    ///
+    /// 2. **Wall openings** (horizontal X/Y-extrusion, axis-aligned): Uses AABB clipping
+    ///    for fast, accurate cutting of rectangular openings.
+    ///
+    /// 3. **Diagonal wall openings**: Uses AABB clipping without internal face generation
+    ///    to avoid rotation artifacts.
+    ///
+    /// **Important**: Internal face generation is disabled for all openings because it causes
+    /// visual artifacts (rotated faces, thin lines extending from models). The opening cutouts
+    /// are still geometrically correct - only the internal "reveal" faces are omitted.
     pub fn process_element_with_voids(
         &self,
         element: &DecodedEntity,
@@ -933,8 +1151,12 @@ impl GeometryRouter {
         // For rectangular openings, get individual bounds per representation item to handle
         // disconnected geometry (e.g., two separate window openings in one IfcOpeningElement)
         enum OpeningType {
-            Rectangular(Point3<f64>, Point3<f64>),  // min, max bounds
-            NonRectangular(Mesh),                    // full mesh for CSG
+            /// Rectangular opening with AABB clipping
+            /// Fields: (min_bounds, max_bounds, extrusion_direction, is_diagonal)
+            Rectangular(Point3<f64>, Point3<f64>, Option<Vector3<f64>>, bool),
+            /// Non-rectangular opening (circular, arched, or floor openings with rotated footprint)
+            /// Uses full CSG subtraction with actual mesh geometry
+            NonRectangular(Mesh),
         }
 
         let mut openings: Vec<OpeningType> = Vec::new();
@@ -955,22 +1177,47 @@ impl GeometryRouter {
                 // Non-rectangular (circular, arched, etc.) - use full CSG
                 openings.push(OpeningType::NonRectangular(opening_mesh));
             } else {
-                // Rectangular - get individual bounds for each representation item
+                // Rectangular - get individual bounds with extrusion direction for each representation item
                 // This handles disconnected geometry (multiple boxes with gaps between them)
-                let item_bounds = self.get_opening_item_bounds(&opening_entity, decoder)
+                let item_bounds_with_dir = self.get_opening_item_bounds_with_direction(&opening_entity, decoder)
                     .unwrap_or_default();
 
-                if !item_bounds.is_empty() {
-                    // Use individual item bounds for disconnected geometry
-                    for (min_pt, max_pt) in item_bounds {
-                        openings.push(OpeningType::Rectangular(min_pt, max_pt));
+                if !item_bounds_with_dir.is_empty() {
+                    // Check if this is a floor/slab opening (vertical Z-extrusion)
+                    // Floor openings may have rotated XY footprints that AABB clipping can't handle correctly.
+                    // Example: A rectangular opening in a diagonal slab - the opening's rectangle in XY
+                    // is rotated relative to the world axes, so AABB clipping creates a diamond-shaped cutout.
+                    let is_floor_opening = item_bounds_with_dir.iter().any(|(_, _, dir)| {
+                        dir.map(|d| d.z.abs() > 0.95).unwrap_or(false)
+                    });
+                    
+                    // For floor openings, use CSG with actual mesh geometry to handle rotated footprints
+                    if is_floor_opening && vertex_count > 0 {
+                        openings.push(OpeningType::NonRectangular(opening_mesh.clone()));
+                    } else {
+                        // Use AABB clipping for wall openings (X/Y extrusion)
+                        // Mark diagonal ones so we skip internal face generation (which causes artifacts)
+                        for (min_pt, max_pt, extrusion_dir) in item_bounds_with_dir {
+                            // Check if extrusion direction is diagonal (not axis-aligned)
+                            let is_diagonal = extrusion_dir.map(|dir| {
+                                const AXIS_THRESHOLD: f64 = 0.95;
+                                let abs_x = dir.x.abs();
+                                let abs_y = dir.y.abs();
+                                let abs_z = dir.z.abs();
+                                // Diagonal if no single component dominates (>95% of magnitude)
+                                !(abs_x > AXIS_THRESHOLD || abs_y > AXIS_THRESHOLD || abs_z > AXIS_THRESHOLD)
+                            }).unwrap_or(false);
+                            
+                            openings.push(OpeningType::Rectangular(min_pt, max_pt, extrusion_dir, is_diagonal));
+                        }
                     }
                 } else {
                     // Fallback to combined mesh bounds when individual bounds unavailable
                     let (open_min, open_max) = opening_mesh.bounds();
                     let min_f64 = Point3::new(open_min.x as f64, open_min.y as f64, open_min.z as f64);
                     let max_f64 = Point3::new(open_max.x as f64, open_max.y as f64, open_max.z as f64);
-                    openings.push(OpeningType::Rectangular(min_f64, max_f64));
+                    
+                    openings.push(OpeningType::Rectangular(min_f64, max_f64, None, false));
                 }
             }
         }
@@ -1012,11 +1259,29 @@ impl GeometryRouter {
         let mut csg_operation_count = 0;
         const MAX_CSG_OPERATIONS: usize = 10; // Limit to prevent runaway CSG
 
-        for (_idx, opening) in openings.iter().enumerate() {
+        for opening in openings.iter() {
             match opening {
-                OpeningType::Rectangular(open_min, open_max) => {
-                    // Use optimized rectangular opening cut (safe, doesn't use csgrs)
-                    result = self.cut_rectangular_opening(&result, *open_min, *open_max, wall_min, wall_max);
+                OpeningType::Rectangular(open_min, open_max, extrusion_dir, is_diagonal) => {
+                    // Use AABB clipping for all rectangular openings
+                    let (final_min, final_max) = if let Some(dir) = extrusion_dir {
+                        // Extend along the actual extrusion direction to penetrate multi-layer walls
+                        self.extend_opening_along_direction(*open_min, *open_max, wall_min, wall_max, *dir)
+                    } else {
+                        // Fallback: use opening bounds as-is (no direction available)
+                        (*open_min, *open_max)
+                    };
+                    
+                    if *is_diagonal {
+                        // For diagonal openings, use AABB clipping WITHOUT internal faces
+                        // Internal faces for diagonal openings cause rotation artifacts
+                        result = self.cut_rectangular_opening_no_faces(&result, final_min, final_max);
+                    } else {
+                        // For axis-aligned openings, use AABB clipping (no internal faces)
+                        // Internal face generation is disabled for all openings because it causes
+                        // visual artifacts (rotated faces, thin lines). The opening cutout is still
+                        // geometrically correct - only the internal "reveal" faces are omitted.
+                        result = self.cut_rectangular_opening(&result, final_min, final_max, wall_min, wall_max);
+                    }
                 }
                 OpeningType::NonRectangular(opening_mesh) => {
                     // Safety: limit total CSG operations to prevent crashes on complex geometry
@@ -1082,30 +1347,138 @@ impl GeometryRouter {
     /// 
     /// This is more efficient than full CSG because:
     /// 1. Only processes triangles that intersect the opening bounds
-    /// 2. Uses simple plane clipping instead of polygon boolean operations
-    /// 3. Generates minimal internal faces
+    /// Extend opening bounds along extrusion direction to match wall extent
+    /// 
+    /// Projects wall corners onto the extrusion axis and extends the opening
+    /// min/max to cover the wall's full extent along that direction.
+    /// This ensures openings penetrate multi-layer walls correctly without
+    /// causing artifacts for angled walls.
+    fn extend_opening_along_direction(
+        &self,
+        open_min: Point3<f64>,
+        open_max: Point3<f64>,
+        wall_min: Point3<f64>,
+        wall_max: Point3<f64>,
+        extrusion_direction: Vector3<f64>,  // World-space, normalized
+    ) -> (Point3<f64>, Point3<f64>) {
+        // Use opening center as reference point for projection
+        let open_center = Point3::new(
+            (open_min.x + open_max.x) * 0.5,
+            (open_min.y + open_max.y) * 0.5,
+            (open_min.z + open_max.z) * 0.5,
+        );
+
+        // Project all 8 corners of the wall box onto the extrusion axis
+        let wall_corners = [
+            Point3::new(wall_min.x, wall_min.y, wall_min.z),
+            Point3::new(wall_max.x, wall_min.y, wall_min.z),
+            Point3::new(wall_min.x, wall_max.y, wall_min.z),
+            Point3::new(wall_max.x, wall_max.y, wall_min.z),
+            Point3::new(wall_min.x, wall_min.y, wall_max.z),
+            Point3::new(wall_max.x, wall_min.y, wall_max.z),
+            Point3::new(wall_min.x, wall_max.y, wall_max.z),
+            Point3::new(wall_max.x, wall_max.y, wall_max.z),
+        ];
+
+        // Find min/max projections of wall corners onto extrusion axis
+        let mut wall_min_proj = f64::INFINITY;
+        let mut wall_max_proj = f64::NEG_INFINITY;
+
+        for corner in &wall_corners {
+            // Project corner onto extrusion axis relative to opening center
+            let proj = (corner - open_center).dot(&extrusion_direction);
+            wall_min_proj = wall_min_proj.min(proj);
+            wall_max_proj = wall_max_proj.max(proj);
+        }
+
+        // Project opening corners onto extrusion axis
+        let open_corners = [
+            Point3::new(open_min.x, open_min.y, open_min.z),
+            Point3::new(open_max.x, open_min.y, open_min.z),
+            Point3::new(open_min.x, open_max.y, open_min.z),
+            Point3::new(open_max.x, open_max.y, open_min.z),
+            Point3::new(open_min.x, open_min.y, open_max.z),
+            Point3::new(open_max.x, open_min.y, open_max.z),
+            Point3::new(open_min.x, open_max.y, open_max.z),
+            Point3::new(open_max.x, open_max.y, open_max.z),
+        ];
+
+        let mut open_min_proj = f64::INFINITY;
+        let mut open_max_proj = f64::NEG_INFINITY;
+
+        for corner in &open_corners {
+            let proj = (corner - open_center).dot(&extrusion_direction);
+            open_min_proj = open_min_proj.min(proj);
+            open_max_proj = open_max_proj.max(proj);
+        }
+
+        // Calculate how much to extend in each direction along the extrusion axis
+        // If wall extends beyond opening, we need to extend the opening
+        let extend_backward = (open_min_proj - wall_min_proj).max(0.0);  // How much wall extends before opening
+        let extend_forward = (wall_max_proj - open_max_proj).max(0.0);   // How much wall extends after opening
+
+        // Extend opening bounds along the extrusion direction
+        let extended_min = open_min - extrusion_direction * extend_backward;
+        let extended_max = open_max + extrusion_direction * extend_forward;
+
+        // Create new AABB that encompasses both original opening and extended points
+        // This ensures we don't shrink the opening in other dimensions
+        let all_points = [
+            open_min, open_max,
+            extended_min, extended_max,
+        ];
+
+        let new_min = Point3::new(
+            all_points.iter().map(|p| p.x).fold(f64::INFINITY, f64::min),
+            all_points.iter().map(|p| p.y).fold(f64::INFINITY, f64::min),
+            all_points.iter().map(|p| p.z).fold(f64::INFINITY, f64::min),
+        );
+        let new_max = Point3::new(
+            all_points.iter().map(|p| p.x).fold(f64::NEG_INFINITY, f64::max),
+            all_points.iter().map(|p| p.y).fold(f64::NEG_INFINITY, f64::max),
+            all_points.iter().map(|p| p.z).fold(f64::NEG_INFINITY, f64::max),
+        );
+
+        (new_min, new_max)
+    }
+
+    /// Cut a rectangular opening from a mesh using AABB clipping.
+    /// 
+    /// This method clips triangles against the opening bounding box using axis-aligned
+    /// clipping planes. Internal face generation is disabled because it causes visual
+    /// artifacts (rotated faces, thin lines extending from models).
     fn cut_rectangular_opening(
         &self,
         mesh: &Mesh,
         open_min: Point3<f64>,
         open_max: Point3<f64>,
-        wall_min: Point3<f64>,
-        wall_max: Point3<f64>,
+        _wall_min: Point3<f64>,
+        _wall_max: Point3<f64>,
+    ) -> Mesh {
+        // Use the same implementation as cut_rectangular_opening_no_faces
+        // Internal faces are disabled for all openings to avoid artifacts
+        self.cut_rectangular_opening_no_faces(mesh, open_min, open_max)
+    }
+    
+    /// Cut a rectangular opening using AABB clipping WITHOUT generating internal faces.
+    /// Used for diagonal openings where internal face generation causes rotation artifacts.
+    fn cut_rectangular_opening_no_faces(
+        &self,
+        mesh: &Mesh,
+        open_min: Point3<f64>,
+        open_max: Point3<f64>,
     ) -> Mesh {
         use nalgebra::Vector3;
-
-        // Tolerance for floating-point boundary comparisons
+        
         const EPSILON: f64 = 1e-6;
-
+        
         let mut result = Mesh::with_capacity(
-            mesh.positions.len() / 3 + 24, // Original + opening faces
-            mesh.indices.len() / 3 + 8,    // Original + opening triangles
+            mesh.positions.len() / 3,
+            mesh.indices.len() / 3,
         );
 
-        // Create reusable buffers for clipping operations (avoids 6+ allocations per triangle)
         let mut clip_buffers = ClipBuffers::new();
 
-        // Process each triangle using chunks_exact to ensure bounds safety
         for chunk in mesh.indices.chunks_exact(3) {
             let i0 = chunk[0] as usize;
             let i1 = chunk[1] as usize;
@@ -1127,7 +1500,6 @@ impl GeometryRouter {
                 mesh.positions[i2 * 3 + 2] as f64,
             );
             
-            // Get triangle normal - use per-vertex normals if available, otherwise compute face normal
             let n0 = if mesh.normals.len() >= mesh.positions.len() {
                 Vector3::new(
                     mesh.normals[i0 * 3] as f64,
@@ -1135,13 +1507,11 @@ impl GeometryRouter {
                     mesh.normals[i0 * 3 + 2] as f64,
                 )
             } else {
-                // Compute face normal from triangle vertices
                 let edge1 = v1 - v0;
                 let edge2 = v2 - v0;
                 edge1.cross(&edge2).try_normalize(1e-10).unwrap_or(Vector3::new(0.0, 0.0, 1.0))
             };
             
-            // Check if triangle is completely outside opening bounds
             let tri_min_x = v0.x.min(v1.x).min(v2.x);
             let tri_max_x = v0.x.max(v1.x).max(v2.x);
             let tri_min_y = v0.y.min(v1.y).min(v2.y);
@@ -1149,11 +1519,10 @@ impl GeometryRouter {
             let tri_min_z = v0.z.min(v1.z).min(v2.z);
             let tri_max_z = v0.z.max(v1.z).max(v2.z);
             
-            // If triangle is completely outside opening, keep it as-is (with epsilon tolerance)
+            // If triangle is completely outside opening, keep it as-is
             if tri_max_x <= open_min.x - EPSILON || tri_min_x >= open_max.x + EPSILON ||
                tri_max_y <= open_min.y - EPSILON || tri_min_y >= open_max.y + EPSILON ||
                tri_max_z <= open_min.z - EPSILON || tri_min_z >= open_max.z + EPSILON {
-                // Triangle is outside opening - keep it
                 let base = result.vertex_count() as u32;
                 result.add_vertex(v0, n0);
                 result.add_vertex(v1, n0);
@@ -1163,21 +1532,16 @@ impl GeometryRouter {
             }
             
             // Check if triangle is completely inside opening (remove it)
-            // Use INWARD epsilon to be conservative - only remove triangles clearly inside
             if tri_min_x >= open_min.x + EPSILON && tri_max_x <= open_max.x - EPSILON &&
                tri_min_y >= open_min.y + EPSILON && tri_max_y <= open_max.y - EPSILON &&
                tri_min_z >= open_min.z + EPSILON && tri_max_z <= open_max.z - EPSILON {
-                // Triangle is inside opening - remove it
                 continue;
             }
             
-            // Triangle may intersect opening - use proper intersection test
-            // A triangle can have all vertices outside a box but still pass through it
+            // Triangle may intersect opening - clip it
             if self.triangle_intersects_box(&v0, &v1, &v2, &open_min, &open_max) {
-                // Triangle intersects the opening box - clip it to remove the intersecting part
                 self.clip_triangle_against_box(&mut result, &mut clip_buffers, &v0, &v1, &v2, &n0, &open_min, &open_max);
             } else {
-                // Triangle truly doesn't intersect - safe to keep as-is
                 let base = result.vertex_count() as u32;
                 result.add_vertex(v0, n0);
                 result.add_vertex(v1, n0);
@@ -1186,11 +1550,10 @@ impl GeometryRouter {
             }
         }
         
-        // Generate internal faces for the opening
-        self.generate_opening_faces(&mut result, &open_min, &open_max, &wall_min, &wall_max);
-        
+        // No internal face generation for diagonal openings
         result
     }
+    
     
     /// Test if a triangle intersects an axis-aligned bounding box using Separating Axis Theorem (SAT)
     /// Returns true if triangle and box intersect, false if they are separated
@@ -1411,139 +1774,6 @@ impl GeometryRouter {
     
     /// Generate internal faces for an opening (the 4 sides of the hole)
     /// Clamps faces to wall bounds to prevent extending outside the wall surface
-    fn generate_opening_faces(
-        &self,
-        mesh: &mut Mesh,
-        open_min: &Point3<f64>,
-        open_max: &Point3<f64>,
-        wall_min: &Point3<f64>,
-        wall_max: &Point3<f64>,
-    ) {
-        use nalgebra::Vector3;
-        
-        // The opening is a rectangular prism defined by open_min and open_max
-        // We need to generate 4 internal faces (not top/bottom which are open)
-        
-        // Determine which axis is the "through" direction (smallest extent)
-        let dx = open_max.x - open_min.x;
-        let dy = open_max.y - open_min.y;
-        let dz = open_max.z - open_min.z;
-        
-        // Assume the wall thickness (smallest dimension) is the through direction
-        // Generate faces perpendicular to the other two axes
-        // Clamp the through-direction coordinates to wall bounds
-        
-        if dy <= dx && dy <= dz {
-            // Y is through direction - generate X and Z faces
-            // Clamp Y coordinates to wall bounds
-            let clamped_y_min = wall_min.y.max(open_min.y);
-            let clamped_y_max = wall_max.y.min(open_max.y);
-            
-            self.add_quad_to_mesh(mesh, 
-                &Point3::new(open_min.x, clamped_y_min, open_min.z),
-                &Point3::new(open_min.x, clamped_y_max, open_min.z),
-                &Point3::new(open_min.x, clamped_y_max, open_max.z),
-                &Point3::new(open_min.x, clamped_y_min, open_max.z),
-                &Vector3::new(-1.0, 0.0, 0.0)); // Left face
-            self.add_quad_to_mesh(mesh,
-                &Point3::new(open_max.x, clamped_y_min, open_min.z),
-                &Point3::new(open_max.x, clamped_y_min, open_max.z),
-                &Point3::new(open_max.x, clamped_y_max, open_max.z),
-                &Point3::new(open_max.x, clamped_y_max, open_min.z),
-                &Vector3::new(1.0, 0.0, 0.0)); // Right face
-            self.add_quad_to_mesh(mesh,
-                &Point3::new(open_min.x, clamped_y_min, open_min.z),
-                &Point3::new(open_max.x, clamped_y_min, open_min.z),
-                &Point3::new(open_max.x, clamped_y_max, open_min.z),
-                &Point3::new(open_min.x, clamped_y_max, open_min.z),
-                &Vector3::new(0.0, 0.0, -1.0)); // Bottom face
-            self.add_quad_to_mesh(mesh,
-                &Point3::new(open_min.x, clamped_y_min, open_max.z),
-                &Point3::new(open_min.x, clamped_y_max, open_max.z),
-                &Point3::new(open_max.x, clamped_y_max, open_max.z),
-                &Point3::new(open_max.x, clamped_y_min, open_max.z),
-                &Vector3::new(0.0, 0.0, 1.0)); // Top face
-        } else if dx <= dy && dx <= dz {
-            // X is through direction - generate Y and Z faces
-            // Clamp X coordinates to wall bounds
-            let clamped_x_min = wall_min.x.max(open_min.x);
-            let clamped_x_max = wall_max.x.min(open_max.x);
-            
-            self.add_quad_to_mesh(mesh,
-                &Point3::new(clamped_x_min, open_min.y, open_min.z),
-                &Point3::new(clamped_x_min, open_min.y, open_max.z),
-                &Point3::new(clamped_x_max, open_min.y, open_max.z),
-                &Point3::new(clamped_x_max, open_min.y, open_min.z),
-                &Vector3::new(0.0, -1.0, 0.0)); // Front face
-            self.add_quad_to_mesh(mesh,
-                &Point3::new(clamped_x_min, open_max.y, open_min.z),
-                &Point3::new(clamped_x_max, open_max.y, open_min.z),
-                &Point3::new(clamped_x_max, open_max.y, open_max.z),
-                &Point3::new(clamped_x_min, open_max.y, open_max.z),
-                &Vector3::new(0.0, 1.0, 0.0)); // Back face
-            self.add_quad_to_mesh(mesh,
-                &Point3::new(clamped_x_min, open_min.y, open_min.z),
-                &Point3::new(clamped_x_max, open_min.y, open_min.z),
-                &Point3::new(clamped_x_max, open_max.y, open_min.z),
-                &Point3::new(clamped_x_min, open_max.y, open_min.z),
-                &Vector3::new(0.0, 0.0, -1.0)); // Bottom face
-            self.add_quad_to_mesh(mesh,
-                &Point3::new(clamped_x_min, open_min.y, open_max.z),
-                &Point3::new(clamped_x_min, open_max.y, open_max.z),
-                &Point3::new(clamped_x_max, open_max.y, open_max.z),
-                &Point3::new(clamped_x_max, open_min.y, open_max.z),
-                &Vector3::new(0.0, 0.0, 1.0)); // Top face
-        } else {
-            // Z is through direction - generate X and Y faces
-            // Clamp Z coordinates to wall bounds
-            let clamped_z_min = wall_min.z.max(open_min.z);
-            let clamped_z_max = wall_max.z.min(open_max.z);
-            
-            self.add_quad_to_mesh(mesh,
-                &Point3::new(open_min.x, open_min.y, clamped_z_min),
-                &Point3::new(open_min.x, open_max.y, clamped_z_min),
-                &Point3::new(open_min.x, open_max.y, clamped_z_max),
-                &Point3::new(open_min.x, open_min.y, clamped_z_max),
-                &Vector3::new(-1.0, 0.0, 0.0)); // Left face
-            self.add_quad_to_mesh(mesh,
-                &Point3::new(open_max.x, open_min.y, clamped_z_min),
-                &Point3::new(open_max.x, open_min.y, clamped_z_max),
-                &Point3::new(open_max.x, open_max.y, clamped_z_max),
-                &Point3::new(open_max.x, open_max.y, clamped_z_min),
-                &Vector3::new(1.0, 0.0, 0.0)); // Right face
-            self.add_quad_to_mesh(mesh,
-                &Point3::new(open_min.x, open_min.y, clamped_z_min),
-                &Point3::new(open_min.x, open_min.y, clamped_z_max),
-                &Point3::new(open_max.x, open_min.y, clamped_z_max),
-                &Point3::new(open_max.x, open_min.y, clamped_z_min),
-                &Vector3::new(0.0, -1.0, 0.0)); // Front face
-            self.add_quad_to_mesh(mesh,
-                &Point3::new(open_min.x, open_max.y, clamped_z_min),
-                &Point3::new(open_max.x, open_max.y, clamped_z_min),
-                &Point3::new(open_max.x, open_max.y, clamped_z_max),
-                &Point3::new(open_min.x, open_max.y, clamped_z_max),
-                &Vector3::new(0.0, 1.0, 0.0)); // Back face
-        }
-    }
-    
-    /// Add a quad (two triangles) to a mesh
-    fn add_quad_to_mesh(
-        &self,
-        mesh: &mut Mesh,
-        v0: &Point3<f64>,
-        v1: &Point3<f64>,
-        v2: &Point3<f64>,
-        v3: &Point3<f64>,
-        normal: &Vector3<f64>,
-    ) {
-        let base = mesh.vertex_count() as u32;
-        mesh.add_vertex(*v0, *normal);
-        mesh.add_vertex(*v1, *normal);
-        mesh.add_vertex(*v2, *normal);
-        mesh.add_vertex(*v3, *normal);
-        mesh.add_triangle(base, base + 1, base + 2);
-        mesh.add_triangle(base, base + 2, base + 3);
-    }
 
     /// Quick check if an element has clipping planes (IfcBooleanClippingResult in representation)
     /// This is much faster than extract_base_profile_and_clips and allows skipping expensive

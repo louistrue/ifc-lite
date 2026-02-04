@@ -51,6 +51,8 @@ export interface Drawing2DState {
     showAnnotations: boolean;
     show3DOverlay: boolean;
     scale: number;
+    /** Use authored symbolic representations (Plan/Annotation) when available instead of section cut */
+    useSymbolicRepresentations: boolean;
   };
   /** Available graphic override presets */
   graphicOverridePresets: GraphicOverridePreset[];
@@ -127,6 +129,7 @@ const getDefaultDisplayOptions = (): Drawing2DState['drawing2DDisplayOptions'] =
   showAnnotations: true,
   show3DOverlay: true, // Show 3D overlay by default
   scale: 100, // 1:100 default
+  useSymbolicRepresentations: false, // Default to section cut (Body geometry)
 });
 
 const getDefaultState = (): Drawing2DState => ({
@@ -294,6 +297,20 @@ export const createDrawing2DSlice: StateCreator<Drawing2DSlice, [], [], Drawing2
       const dx = end.x - start.x;
       const dy = end.y - start.y;
       const distance = Math.sqrt(dx * dx + dy * dy);
+
+      // Ignore zero-length measurements (click without drag)
+      const MIN_MEASUREMENT_DISTANCE = 0.001; // 1mm minimum
+      if (distance < MIN_MEASUREMENT_DISTANCE) {
+        // Reset state without saving the measurement
+        set({
+          measure2DStart: null,
+          measure2DCurrent: null,
+          measure2DShiftLocked: false,
+          measure2DLockedAxis: null,
+          measure2DSnapPoint: null,
+        });
+        return;
+      }
 
       const result: Measure2DResult = {
         id: `measure-${Date.now()}`,
