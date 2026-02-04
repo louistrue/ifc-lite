@@ -51,3 +51,13 @@ export type {
 // Utilities
 export { xxhash64, xxhash64Hex } from './utils/hash.js';
 export { BufferWriter, BufferReader } from './utils/buffer-utils.js';
+
+// GLB parser
+export {
+  parseGLB,
+  extractGLBMapping,
+  parseGLBToMeshData,
+  loadGLBToMeshData,
+} from './glb.js';
+
+export type { ParsedGLB, GLBMapping } from './glb.js';
