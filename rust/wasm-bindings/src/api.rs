@@ -2596,21 +2596,20 @@ impl IfcAPI {
                     continue;
                 }
 
-                // Get ObjectPlacement transform using translation-only composition.
-                // For ALL symbolic representations (Plan, FootPrint, Annotation, Axis), the 2D geometry
-                // is designed for floor plan display and shouldn't be rotated by 3D ObjectPlacement.
-                // Parent placement rotations (e.g., from wall hosts with vertical RefDirection) should
-                // not affect child translation offsets for 2D representation positioning.
-                let placement_transform = get_object_placement_translation_only(&entity, &mut decoder, unit_scale);
+                // Get ObjectPlacement transform for symbolic representations.
+                // - Translations are accumulated directly (not rotated by parent)
+                // - Rotations ARE accumulated to orient symbols correctly
+                let placement_transform = get_object_placement_for_symbolic(&entity, &mut decoder, unit_scale);
 
                 // Debug: log first few placements
                 static DEBUG_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
                 let debug_count = DEBUG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 if debug_count < 3 {
                     web_sys::console::log_1(&format!(
-                        "[Symbolic] Entity #{} ({}) rep='{}' placement: tx={:.2}, ty={:.2} [translation-only]",
+                        "[Symbolic] Entity #{} ({}) rep='{}' placement: tx={:.2}, ty={:.2}, cos={:.4}, sin={:.4}",
                         id, entity.ifc_type.name(), rep_identifier,
-                        placement_transform.tx, placement_transform.ty
+                        placement_transform.tx, placement_transform.ty,
+                        placement_transform.cos_theta, placement_transform.sin_theta
                     ).into());
                 }
 
@@ -2766,9 +2765,10 @@ fn get_object_placement_transform(
     resolve_placement_transform(&placement, decoder, unit_scale, 0)
 }
 
-/// Get translation-only placement transform from an entity's ObjectPlacement.
-/// Used for 2D Plan/FootPrint representations where geometry is already in floor plan orientation.
-fn get_object_placement_translation_only(
+/// Get placement transform for symbolic 2D representations.
+/// Translations are accumulated directly (not rotated), but rotations are accumulated
+/// to properly orient door swings, window symbols, etc.
+fn get_object_placement_for_symbolic(
     entity: &ifc_lite_core::DecodedEntity,
     decoder: &mut ifc_lite_core::EntityDecoder,
     unit_scale: f32,
@@ -2784,8 +2784,8 @@ fn get_object_placement_translation_only(
         _ => return Transform2D::identity(),
     };
 
-    // Recursively resolve using translation-only composition
-    resolve_placement_translation_only(&placement, decoder, unit_scale, 0)
+    // Recursively resolve for symbolic representations
+    resolve_placement_for_symbolic(&placement, decoder, unit_scale, 0)
 }
 
 /// Recursively resolve IfcLocalPlacement to get the full 2D transform
@@ -2860,10 +2860,10 @@ fn resolve_placement_transform(
     }
 }
 
-/// Recursively resolve IfcLocalPlacement using translation-only composition.
-/// Used for 2D Plan/FootPrint representations where 2D geometry is already in
-/// floor plan orientation and parent rotations shouldn't affect child translations.
-fn resolve_placement_translation_only(
+/// Recursively resolve IfcLocalPlacement for 2D symbolic representations.
+/// Translations are accumulated directly (without rotating by parent rotations),
+/// but rotations ARE accumulated to orient the 2D geometry correctly.
+fn resolve_placement_for_symbolic(
     placement: &ifc_lite_core::DecodedEntity,
     decoder: &mut ifc_lite_core::EntityDecoder,
     unit_scale: f32,
@@ -2880,7 +2880,7 @@ fn resolve_placement_translation_only(
     let parent_transform = if let Some(parent_attr) = placement.get(0) {
         if !parent_attr.is_null() {
             if let Ok(Some(parent)) = decoder.resolve_ref(parent_attr) {
-                resolve_placement_translation_only(&parent, decoder, unit_scale, depth + 1)
+                resolve_placement_for_symbolic(&parent, decoder, unit_scale, depth + 1)
             } else {
                 Transform2D::identity()
             }
@@ -2891,42 +2891,40 @@ fn resolve_placement_translation_only(
         Transform2D::identity()
     };
 
-    // Get local translation only (attribute 1: RelativePlacement)
-    let (local_tx, local_ty) = if let Some(rel_attr) = placement.get(1) {
+    // Get local transform (attribute 1: RelativePlacement)
+    let local_transform = if let Some(rel_attr) = placement.get(1) {
         if !rel_attr.is_null() {
             if let Ok(Some(rel)) = decoder.resolve_ref(rel_attr) {
                 if rel.ifc_type == IfcType::IfcAxis2Placement3D || rel.ifc_type == IfcType::IfcAxis2Placement2D {
-                    // Extract only translation, ignore rotation
-                    let is_3d = rel.ifc_type == IfcType::IfcAxis2Placement3D;
-                    if let Some(loc_ref) = rel.get_ref(0) {
-                        if let Ok(loc) = decoder.decode_by_id(loc_ref) {
-                            if loc.ifc_type == IfcType::IfcCartesianPoint {
-                                if let Some(coords_attr) = loc.get(0) {
-                                    if let Some(coords) = coords_attr.as_list() {
-                                        let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                                        let y_or_z = if is_3d {
-                                            coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale
-                                        } else {
-                                            coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale
-                                        };
-                                        (x, y_or_z)
-                                    } else { (0.0, 0.0) }
-                                } else { (0.0, 0.0) }
-                            } else { (0.0, 0.0) }
-                        } else { (0.0, 0.0) }
-                    } else { (0.0, 0.0) }
-                } else { (0.0, 0.0) }
-            } else { (0.0, 0.0) }
-        } else { (0.0, 0.0) }
-    } else { (0.0, 0.0) };
+                    parse_axis2_placement_2d(&rel, decoder, unit_scale)
+                } else {
+                    Transform2D::identity()
+                }
+            } else {
+                Transform2D::identity()
+            }
+        } else {
+            Transform2D::identity()
+        }
+    } else {
+        Transform2D::identity()
+    };
 
-    // Translation-only composition: just add translations directly
-    // No rotation applied to child translations
+    // For symbolic 2D representations:
+    // - Translations are added directly (NOT rotated by parent rotation)
+    // - Rotations are accumulated to orient the 2D geometry
+    // This prevents parent rotations from distorting child positions while
+    // still allowing correct orientation of symbols.
+    let combined_cos = parent_transform.cos_theta * local_transform.cos_theta
+                     - parent_transform.sin_theta * local_transform.sin_theta;
+    let combined_sin = parent_transform.sin_theta * local_transform.cos_theta
+                     + parent_transform.cos_theta * local_transform.sin_theta;
+
     Transform2D {
-        tx: local_tx + parent_transform.tx,
-        ty: local_ty + parent_transform.ty,
-        cos_theta: 1.0,  // Identity rotation
-        sin_theta: 0.0,
+        tx: local_transform.tx + parent_transform.tx,  // Direct addition, no rotation
+        ty: local_transform.ty + parent_transform.ty,
+        cos_theta: combined_cos,
+        sin_theta: combined_sin,
     }
 }
 
@@ -3143,24 +3141,19 @@ fn extract_symbolic_item(
                             if let Some(coords) = coords_attr.as_list() {
                                 let local_x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
                                 let local_y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                                let is_2d = coords.len() == 2;
 
-                                // For 2D representations (Axis, Plan with 2D points), apply translation only.
-                                // 2D representation coordinates are already in floor plan orientation.
-                                // For 3D points, apply full transform including rotation.
-                                let (wx, wy) = if is_2d {
-                                    transform.translate_point(local_x, local_y)
-                                } else {
-                                    transform.transform_point(local_x, local_y)
-                                };
+                                // Apply full transform (rotation + translation) to orient symbols correctly.
+                                // The placement's rotation is accumulated from hierarchy to orient
+                                // door swings, window symbols, etc. properly.
+                                let (wx, wy) = transform.transform_point(local_x, local_y);
                                 let x = wx - rtc_x;
                                 let y = wy - rtc_z;
 
                                 // Debug first point of first polyline
                                 if polyline_debug && i == 0 {
                                     web_sys::console::log_1(&format!(
-                                        "[Symbolic Polyline] Entity #{}: local({:.2}, {:.2}) -> world({:.2}, {:.2}) -> shifted({:.2}, {:.2}) [{}]",
-                                        express_id, local_x, local_y, wx, wy, x, y, if is_2d { "2D" } else { "3D" }
+                                        "[Symbolic Polyline] Entity #{}: local({:.2}, {:.2}) -> world({:.2}, {:.2}) -> shifted({:.2}, {:.2})",
+                                        express_id, local_x, local_y, wx, wy, x, y
                                     ).into());
                                 }
 
@@ -3201,14 +3194,9 @@ fn extract_symbolic_item(
                                 if let Some(coords) = coord.as_list() {
                                     let local_x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
                                     let local_y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                                    let is_2d = coords.len() == 2;
 
-                                    // For 2D representations, apply translation only (no rotation)
-                                    let (wx, wy) = if is_2d {
-                                        transform.translate_point(local_x, local_y)
-                                    } else {
-                                        transform.transform_point(local_x, local_y)
-                                    };
+                                    // Apply full transform (rotation + translation)
+                                    let (wx, wy) = transform.transform_point(local_x, local_y);
                                     let x = wx - rtc_x;
                                     let y = wy - rtc_z;
 
@@ -3249,7 +3237,7 @@ fn extract_symbolic_item(
             }
 
             // Get center from Position (attribute 0)
-            let (center_x, center_y, is_2d_center) = if let Some(pos_ref) = item.get_ref(0) {
+            let (center_x, center_y) = if let Some(pos_ref) = item.get_ref(0) {
                 if let Ok(placement) = decoder.decode_by_id(pos_ref) {
                     // IfcAxis2Placement2D/3D: Location
                     if let Some(loc_ref) = placement.get_ref(0) {
@@ -3258,37 +3246,21 @@ fn extract_symbolic_item(
                                 if let Some(coords) = coords_attr.as_list() {
                                     let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
                                     let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                                    (x, y, coords.len() == 2)
-                                } else {
-                                    (0.0, 0.0, true)
-                                }
-                            } else {
-                                (0.0, 0.0, true)
-                            }
-                        } else {
-                            (0.0, 0.0, true)
-                        }
-                    } else {
-                        (0.0, 0.0, true)
-                    }
-                } else {
-                    (0.0, 0.0, true)
-                }
-            } else {
-                (0.0, 0.0, true)
-            };
+                                    (x, y)
+                                } else { (0.0, 0.0) }
+                            } else { (0.0, 0.0) }
+                        } else { (0.0, 0.0) }
+                    } else { (0.0, 0.0) }
+                } else { (0.0, 0.0) }
+            } else { (0.0, 0.0) };
 
             // Validate center coordinates
             if !center_x.is_finite() || !center_y.is_finite() {
                 return;
             }
 
-            // For 2D representations, apply translation only (no rotation)
-            let (wx, wy) = if is_2d_center {
-                transform.translate_point(center_x, center_y)
-            } else {
-                transform.transform_point(center_x, center_y)
-            };
+            // Apply full transform (rotation + translation)
+            let (wx, wy) = transform.transform_point(center_x, center_y);
             let world_cx = wx - rtc_x;
             let world_cy = wy - rtc_z;
 
@@ -3316,7 +3288,7 @@ fn extract_symbolic_item(
                             return;
                         }
 
-                        let (center_x, center_y, is_2d_arc) = if let Some(pos_ref) = basis_curve.get_ref(0) {
+                        let (center_x, center_y) = if let Some(pos_ref) = basis_curve.get_ref(0) {
                             if let Ok(placement) = decoder.decode_by_id(pos_ref) {
                                 if let Some(loc_ref) = placement.get_ref(0) {
                                     if let Ok(loc) = decoder.decode_by_id(loc_ref) {
@@ -3324,25 +3296,13 @@ fn extract_symbolic_item(
                                             if let Some(coords) = coords_attr.as_list() {
                                                 let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
                                                 let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                                                (x, y, coords.len() == 2)
-                                            } else {
-                                                (0.0, 0.0, true)
-                                            }
-                                        } else {
-                                            (0.0, 0.0, true)
-                                        }
-                                    } else {
-                                        (0.0, 0.0, true)
-                                    }
-                                } else {
-                                    (0.0, 0.0, true)
-                                }
-                            } else {
-                                (0.0, 0.0, true)
-                            }
-                        } else {
-                            (0.0, 0.0, true)
-                        };
+                                                (x, y)
+                                            } else { (0.0, 0.0) }
+                                        } else { (0.0, 0.0) }
+                                    } else { (0.0, 0.0) }
+                                } else { (0.0, 0.0) }
+                            } else { (0.0, 0.0) }
+                        } else { (0.0, 0.0) };
 
                         // Validate center coordinates
                         if !center_x.is_finite() || !center_y.is_finite() {
@@ -3398,17 +3358,8 @@ fn extract_symbolic_item(
 
                         if is_near_collinear {
                             // Emit as simple line segment instead of tessellated arc
-                            // For 2D representations, apply translation only (no rotation)
-                            let (wsx, wsy) = if is_2d_arc {
-                                transform.translate_point(start_x, start_y)
-                            } else {
-                                transform.transform_point(start_x, start_y)
-                            };
-                            let (wex, wey) = if is_2d_arc {
-                                transform.translate_point(end_x, end_y)
-                            } else {
-                                transform.transform_point(end_x, end_y)
-                            };
+                            let (wsx, wsy) = transform.transform_point(start_x, start_y);
+                            let (wex, wey) = transform.transform_point(end_x, end_y);
                             let points = vec![wsx - rtc_x, wsy - rtc_z, wex - rtc_x, wey - rtc_z];
                             collection.add_polyline(SymbolicPolyline::new(
                                 express_id,
@@ -3429,12 +3380,8 @@ fn extract_symbolic_item(
                                 let local_x = center_x + radius * angle.cos();
                                 let local_y = center_y + radius * angle.sin();
 
-                                // For 2D representations, apply translation only (no rotation)
-                                let (wx, wy) = if is_2d_arc {
-                                    transform.translate_point(local_x, local_y)
-                                } else {
-                                    transform.transform_point(local_x, local_y)
-                                };
+                                // Apply full transform (rotation + translation)
+                                let (wx, wy) = transform.transform_point(local_x, local_y);
                                 let x = wx - rtc_x;
                                 let y = wy - rtc_z;
 
