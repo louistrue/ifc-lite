@@ -2551,21 +2551,8 @@ impl IfcAPI {
                 Err(_) => continue,
             };
 
-            // Get ObjectPlacement transform (attribute 5) to transform local coords to world
-            let placement_transform = get_object_placement_transform(&entity, &mut decoder, unit_scale);
-
-            // Debug: log first entity's placement transform
-            static DEBUG_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-            let debug_count = DEBUG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            if debug_count < 3 {
-                web_sys::console::log_1(&format!(
-                    "[Symbolic] Entity #{} ({}) placement: tx={:.2}, ty={:.2}, cos={:.4}, sin={:.4}",
-                    id, entity.ifc_type.name(), placement_transform.tx, placement_transform.ty,
-                    placement_transform.cos_theta, placement_transform.sin_theta
-                ).into());
-            }
-
             // Get representation (attribute 6 for most products)
+            // Note: placement transform is computed per-representation below
             let representation_attr = match entity.get(6) {
                 Some(attr) if !attr.is_null() => attr,
                 _ => continue,
@@ -2607,6 +2594,24 @@ impl IfcAPI {
                     "Plan" | "Annotation" | "FootPrint" | "Axis"
                 ) {
                     continue;
+                }
+
+                // Get ObjectPlacement transform using translation-only composition.
+                // For ALL symbolic representations (Plan, FootPrint, Annotation, Axis), the 2D geometry
+                // is designed for floor plan display and shouldn't be rotated by 3D ObjectPlacement.
+                // Parent placement rotations (e.g., from wall hosts with vertical RefDirection) should
+                // not affect child translation offsets for 2D representation positioning.
+                let placement_transform = get_object_placement_translation_only(&entity, &mut decoder, unit_scale);
+
+                // Debug: log first few placements
+                static DEBUG_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+                let debug_count = DEBUG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if debug_count < 3 {
+                    web_sys::console::log_1(&format!(
+                        "[Symbolic] Entity #{} ({}) rep='{}' placement: tx={:.2}, ty={:.2} [translation-only]",
+                        id, entity.ifc_type.name(), rep_identifier,
+                        placement_transform.tx, placement_transform.ty
+                    ).into());
                 }
 
                 // Check ContextOfItems (attribute 0) for WorldCoordinateSystem
@@ -2761,6 +2766,28 @@ fn get_object_placement_transform(
     resolve_placement_transform(&placement, decoder, unit_scale, 0)
 }
 
+/// Get translation-only placement transform from an entity's ObjectPlacement.
+/// Used for 2D Plan/FootPrint representations where geometry is already in floor plan orientation.
+fn get_object_placement_translation_only(
+    entity: &ifc_lite_core::DecodedEntity,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+    unit_scale: f32,
+) -> Transform2D {
+    // Get ObjectPlacement (attribute 5 for IfcProduct)
+    let placement_attr = match entity.get(5) {
+        Some(attr) if !attr.is_null() => attr,
+        _ => return Transform2D::identity(),
+    };
+
+    let placement = match decoder.resolve_ref(placement_attr) {
+        Ok(Some(p)) => p,
+        _ => return Transform2D::identity(),
+    };
+
+    // Recursively resolve using translation-only composition
+    resolve_placement_translation_only(&placement, decoder, unit_scale, 0)
+}
+
 /// Recursively resolve IfcLocalPlacement to get the full 2D transform
 fn resolve_placement_transform(
     placement: &ifc_lite_core::DecodedEntity,
@@ -2830,6 +2857,76 @@ fn resolve_placement_transform(
         ty: rty + parent_transform.ty,
         cos_theta: combined_cos,
         sin_theta: combined_sin,
+    }
+}
+
+/// Recursively resolve IfcLocalPlacement using translation-only composition.
+/// Used for 2D Plan/FootPrint representations where 2D geometry is already in
+/// floor plan orientation and parent rotations shouldn't affect child translations.
+fn resolve_placement_translation_only(
+    placement: &ifc_lite_core::DecodedEntity,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+    unit_scale: f32,
+    depth: usize,
+) -> Transform2D {
+    use ifc_lite_core::IfcType;
+
+    // Prevent infinite recursion
+    if depth > 50 || placement.ifc_type != IfcType::IfcLocalPlacement {
+        return Transform2D::identity();
+    }
+
+    // Get parent transform first (attribute 0: PlacementRelTo)
+    let parent_transform = if let Some(parent_attr) = placement.get(0) {
+        if !parent_attr.is_null() {
+            if let Ok(Some(parent)) = decoder.resolve_ref(parent_attr) {
+                resolve_placement_translation_only(&parent, decoder, unit_scale, depth + 1)
+            } else {
+                Transform2D::identity()
+            }
+        } else {
+            Transform2D::identity()
+        }
+    } else {
+        Transform2D::identity()
+    };
+
+    // Get local translation only (attribute 1: RelativePlacement)
+    let (local_tx, local_ty) = if let Some(rel_attr) = placement.get(1) {
+        if !rel_attr.is_null() {
+            if let Ok(Some(rel)) = decoder.resolve_ref(rel_attr) {
+                if rel.ifc_type == IfcType::IfcAxis2Placement3D || rel.ifc_type == IfcType::IfcAxis2Placement2D {
+                    // Extract only translation, ignore rotation
+                    let is_3d = rel.ifc_type == IfcType::IfcAxis2Placement3D;
+                    if let Some(loc_ref) = rel.get_ref(0) {
+                        if let Ok(loc) = decoder.decode_by_id(loc_ref) {
+                            if loc.ifc_type == IfcType::IfcCartesianPoint {
+                                if let Some(coords_attr) = loc.get(0) {
+                                    if let Some(coords) = coords_attr.as_list() {
+                                        let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                        let y_or_z = if is_3d {
+                                            coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale
+                                        } else {
+                                            coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale
+                                        };
+                                        (x, y_or_z)
+                                    } else { (0.0, 0.0) }
+                                } else { (0.0, 0.0) }
+                            } else { (0.0, 0.0) }
+                        } else { (0.0, 0.0) }
+                    } else { (0.0, 0.0) }
+                } else { (0.0, 0.0) }
+            } else { (0.0, 0.0) }
+        } else { (0.0, 0.0) }
+    } else { (0.0, 0.0) };
+
+    // Translation-only composition: just add translations directly
+    // No rotation applied to child translations
+    Transform2D {
+        tx: local_tx + parent_transform.tx,
+        ty: local_ty + parent_transform.ty,
+        cos_theta: 1.0,  // Identity rotation
+        sin_theta: 0.0,
     }
 }
 
