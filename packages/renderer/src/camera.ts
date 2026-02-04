@@ -781,10 +781,12 @@ export class Camera {
   /**
    * Set preset view with explicit bounds (Y-up coordinate system)
    * Clicking the same view again rotates 90° around the view axis
+   * @param buildingRotation Optional building rotation in radians (from IfcSite placement)
    */
   setPresetView(
     view: 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right',
-    bounds?: { min: Vec3; max: Vec3 }
+    bounds?: { min: Vec3; max: Vec3 },
+    buildingRotation?: number
   ): void {
     const useBounds = bounds || this.getCurrentBounds();
     if (!useBounds) {
@@ -838,35 +840,74 @@ export class Camera {
       { x: -1, y: 0, z: 0 },  // 270° - West up
     ];
 
+    // Apply building rotation if present (rotate around Y axis)
+    const cosR = buildingRotation !== undefined && buildingRotation !== 0 ? Math.cos(buildingRotation) : 1.0;
+    const sinR = buildingRotation !== undefined && buildingRotation !== 0 ? Math.sin(buildingRotation) : 0.0;
+
     switch (view) {
       case 'top':
         // Top view: looking straight down from above (+Y)
+        // Counter-rotate up vector by NEGATIVE building rotation to align with building axes
+        const topUp = topUpVectors[this.presetViewRotation];
         endPos = { x: center.x, y: center.y + distance, z: center.z };
-        upVector = topUpVectors[this.presetViewRotation];
+        upVector = {
+          x: topUp.x * cosR + topUp.z * sinR,
+          y: topUp.y,
+          z: -topUp.x * sinR + topUp.z * cosR,
+        };
         break;
       case 'bottom':
         // Bottom view: looking straight up from below (-Y)
+        // Counter-rotate up vector by NEGATIVE building rotation to align with building axes
+        const bottomUp = bottomUpVectors[this.presetViewRotation];
         endPos = { x: center.x, y: center.y - distance, z: center.z };
-        upVector = bottomUpVectors[this.presetViewRotation];
+        upVector = {
+          x: bottomUp.x * cosR + bottomUp.z * sinR,
+          y: bottomUp.y,
+          z: -bottomUp.x * sinR + bottomUp.z * cosR,
+        };
         break;
       case 'front':
         // Front view: from +Z looking at model
-        endPos = { x: center.x, y: center.y, z: center.z + distance };
+        // Rotate camera position around Y axis by building rotation
+        // Standard rotation: x' = x*cos - z*sin, z' = x*sin + z*cos
+        // For +Z direction (0,0,1): x' = -sin, z' = cos
+        // But we need to look at building's front, so use negative rotation
+        endPos = {
+          x: center.x + sinR * distance,
+          y: center.y,
+          z: center.z + cosR * distance,
+        };
         upVector = { x: 0, y: 1, z: 0 }; // Y-up
         break;
       case 'back':
         // Back view: from -Z looking at model
-        endPos = { x: center.x, y: center.y, z: center.z - distance };
+        // For -Z direction (0,0,-1) rotated: x' = sin, z' = -cos
+        endPos = {
+          x: center.x - sinR * distance,
+          y: center.y,
+          z: center.z - cosR * distance,
+        };
         upVector = { x: 0, y: 1, z: 0 }; // Y-up
         break;
       case 'left':
         // Left view: from -X looking at model
-        endPos = { x: center.x - distance, y: center.y, z: center.z };
+        // For -X direction (-1,0,0) rotated: x' = -cos, z' = sin
+        endPos = {
+          x: center.x - cosR * distance,
+          y: center.y,
+          z: center.z + sinR * distance,
+        };
         upVector = { x: 0, y: 1, z: 0 }; // Y-up
         break;
       case 'right':
         // Right view: from +X looking at model
-        endPos = { x: center.x + distance, y: center.y, z: center.z };
+        // For +X direction (1,0,0) rotated: x' = cos, z' = -sin
+        endPos = {
+          x: center.x + cosR * distance,
+          y: center.y,
+          z: center.z - sinR * distance,
+        };
         upVector = { x: 0, y: 1, z: 0 }; // Y-up
         break;
     }

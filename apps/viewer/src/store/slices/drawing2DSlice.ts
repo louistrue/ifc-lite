@@ -298,6 +298,20 @@ export const createDrawing2DSlice: StateCreator<Drawing2DSlice, [], [], Drawing2
       const dy = end.y - start.y;
       const distance = Math.sqrt(dx * dx + dy * dy);
 
+      // Ignore zero-length measurements (click without drag)
+      const MIN_MEASUREMENT_DISTANCE = 0.001; // 1mm minimum
+      if (distance < MIN_MEASUREMENT_DISTANCE) {
+        // Reset state without saving the measurement
+        set({
+          measure2DStart: null,
+          measure2DCurrent: null,
+          measure2DShiftLocked: false,
+          measure2DLockedAxis: null,
+          measure2DSnapPoint: null,
+        });
+        return;
+      }
+
       const result: Measure2DResult = {
         id: `measure-${Date.now()}`,
         start,

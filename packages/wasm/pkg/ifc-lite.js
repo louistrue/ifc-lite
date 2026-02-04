@@ -198,16 +198,16 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_911(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_911(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_476(arg0, arg1) {
+    wasm.__wasm_bindgen_func_elem_476(arg0, arg1);
 }
 
-function __wasm_bindgen_func_elem_466(arg0, arg1) {
-    wasm.__wasm_bindgen_func_elem_466(arg0, arg1);
+function __wasm_bindgen_func_elem_922(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_922(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_942(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_942(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_953(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_953(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -1758,7 +1758,7 @@ export class MeshCollection {
      * @returns {number}
      */
     get rtcOffsetX() {
-        const ret = wasm.gpugeometry_rtcOffsetX(this.__wbg_ptr);
+        const ret = wasm.gpugeometry_rtcOffsetZ(this.__wbg_ptr);
         return ret;
     }
     /**
@@ -1766,7 +1766,7 @@ export class MeshCollection {
      * @returns {number}
      */
     get rtcOffsetY() {
-        const ret = wasm.gpugeometry_rtcOffsetY(this.__wbg_ptr);
+        const ret = wasm.meshcollection_rtcOffsetY(this.__wbg_ptr);
         return ret;
     }
     /**
@@ -1774,7 +1774,7 @@ export class MeshCollection {
      * @returns {number}
      */
     get rtcOffsetZ() {
-        const ret = wasm.gpugeometry_rtcOffsetZ(this.__wbg_ptr);
+        const ret = wasm.meshcollection_rtcOffsetZ(this.__wbg_ptr);
         return ret;
     }
     /**
@@ -1821,6 +1821,22 @@ export class MeshCollection {
     get totalTriangles() {
         const ret = wasm.meshcollection_totalTriangles(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * Get building rotation angle in radians (from IfcSite placement)
+     * Returns None if no rotation was detected
+     * @returns {number | undefined}
+     */
+    get buildingRotation() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.meshcollection_buildingRotation(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r2 = getDataViewMemory0().getFloat64(retptr + 8 * 1, true);
+            return r0 === 0 ? undefined : r2;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
     }
     /**
      * Get mesh at index
@@ -1885,7 +1901,7 @@ export class MeshCollectionWithRtc {
      * @returns {number}
      */
     get length() {
-        const ret = wasm.meshcollectionwithrtc_length(this.__wbg_ptr);
+        const ret = wasm.meshcollection_length(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -2079,7 +2095,7 @@ export class RtcOffsetJs {
      * @returns {boolean}
      */
     isSignificant() {
-        const ret = wasm.meshcollection_hasRtcOffset(this.__wbg_ptr);
+        const ret = wasm.rtcoffsetjs_isSignificant(this.__wbg_ptr);
         return ret !== 0;
     }
     /**
@@ -2130,7 +2146,7 @@ export class SymbolicCircle {
      * @returns {number}
      */
     get expressId() {
-        const ret = wasm.gpumeshmetadata_vertexCount(this.__wbg_ptr);
+        const ret = wasm.symboliccircle_expressId(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -2705,6 +2721,9 @@ function __wbg_get_imports() {
         const ret = getObject(arg0).length;
         return ret;
     };
+    imports.wbg.__wbg_log_1d990106d99dacb7 = function(arg0) {
+        console.log(getObject(arg0));
+    };
     imports.wbg.__wbg_meshdatajs_new = function(arg0) {
         const ret = MeshDataJs.__wrap(arg0);
         return addHeapObject(ret);
@@ -2732,7 +2751,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wasm_bindgen_func_elem_942(a, state0.b, arg0, arg1);
+                    return __wasm_bindgen_func_elem_953(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -2837,7 +2856,7 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbindgen_cast_7f089052c998c143 = function(arg0, arg1) {
         // Cast intrinsic for `Closure(Closure { dtor_idx: 105, function: Function { arguments: [Externref], shim_idx: 106, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_909, __wasm_bindgen_func_elem_911);
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_920, __wasm_bindgen_func_elem_922);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {
@@ -2847,7 +2866,7 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbindgen_cast_fa504d1cec41bd0d = function(arg0, arg1) {
         // Cast intrinsic for `Closure(Closure { dtor_idx: 45, function: Function { arguments: [], shim_idx: 46, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_464, __wasm_bindgen_func_elem_466);
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_474, __wasm_bindgen_func_elem_476);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_object_clone_ref = function(arg0) {

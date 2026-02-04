@@ -397,6 +397,7 @@ impl IfcAPI {
     ///   console.log('Color:', mesh.color);
     /// }
     /// ```
+
     #[wasm_bindgen(js_name = parseMeshes)]
     pub fn parse_meshes(&self, content: String) -> MeshCollection {
         use ifc_lite_core::{build_entity_index, EntityDecoder, EntityScanner};
@@ -465,6 +466,10 @@ impl IfcAPI {
         if needs_shift {
             mesh_collection.set_rtc_offset(rtc_offset.0, rtc_offset.1, rtc_offset.2);
         }
+
+        // Extract building rotation from IfcSite's top-level placement
+        let building_rotation = extract_building_rotation(&content, &mut decoder);
+        mesh_collection.set_building_rotation(building_rotation);
 
         // Track geometry parsing statistics
         let mut stats = GeometryStats::default();
@@ -1274,6 +1279,9 @@ impl IfcAPI {
                     let _ = callback.call1(&JsValue::NULL, &rtc_info);
                 }
 
+                // Extract building rotation from IfcSite's top-level placement
+                let building_rotation = extract_building_rotation(&content, &mut decoder);
+
                 // Process counters
                 let mut processed = 0;
                 let mut total_meshes = 0;
@@ -1605,6 +1613,10 @@ impl IfcAPI {
                     set_js_prop(&rtc_info, "z", &rtc_offset.2.into());
                     set_js_prop(&rtc_info, "hasRtc", &needs_shift.into());
                     set_js_prop(&stats, "rtcOffset", &rtc_info);
+                    // Include building rotation in completion stats
+                    if let Some(rotation) = building_rotation {
+                        set_js_prop(&stats, "buildingRotation", &rotation.into());
+                    }
                     let _ = callback.call1(&JsValue::NULL, &stats);
                 }
 
@@ -4038,6 +4050,143 @@ fn get_default_color_for_type(ifc_type: &ifc_lite_core::IfcType) -> [f32; 4] {
         // Default gray
         _ => [0.8, 0.8, 0.8, 1.0],
     }
+}
+
+/// Extract building rotation from IfcSite's top-level placement
+/// Returns rotation angle in radians, or None if not found
+fn extract_building_rotation(
+    content: &str,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+) -> Option<f64> {
+    use ifc_lite_core::EntityScanner;
+
+    let mut scanner = EntityScanner::new(content);
+
+    // Find IfcSite entity
+    let mut found_site = false;
+    while let Some((site_id, type_name, start, end)) = scanner.next_entity() {
+        if type_name != "IFCSITE" {
+            continue;
+        }
+
+        found_site = true;
+
+        // Decode IfcSite
+        if let Ok(site_entity) = decoder.decode_at_with_id(site_id, start, end) {
+            // Get ObjectPlacement (attribute 5 for IfcProduct)
+            let placement_attr = match site_entity.get(5) {
+                Some(attr) if !attr.is_null() => attr,
+                _ => continue,
+            };
+
+            // Resolve placement
+            let placement = match decoder.resolve_ref(placement_attr) {
+                Ok(Some(p)) => p,
+                _ => continue,
+            };
+
+            // Find top-level placement (parent is null)
+            let top_level_placement = find_top_level_placement(&placement, decoder);
+            
+            // Extract rotation from top-level placement's RefDirection
+            if let Some(rotation) = extract_rotation_from_placement(&top_level_placement, decoder) {
+                return Some(rotation);
+            }
+        }
+    }
+
+    None
+}
+
+/// Find the top-level placement (one with null parent)
+fn find_top_level_placement(
+    placement: &ifc_lite_core::DecodedEntity,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+) -> ifc_lite_core::DecodedEntity {
+    use ifc_lite_core::IfcType;
+
+    // Check if this is a local placement
+    if placement.ifc_type != IfcType::IfcLocalPlacement {
+        return placement.clone();
+    }
+
+    // Check parent (attribute 0: PlacementRelTo)
+    let parent_attr = match placement.get(0) {
+        Some(attr) if !attr.is_null() => attr,
+        _ => return placement.clone(), // No parent - this is top-level
+    };
+
+    // Resolve parent and recurse
+    if let Ok(Some(parent)) = decoder.resolve_ref(parent_attr) {
+        find_top_level_placement(&parent, decoder)
+    } else {
+        placement.clone() // Parent resolution failed - return current
+    }
+}
+
+/// Extract rotation angle from IfcAxis2Placement3D's RefDirection
+/// Returns rotation angle in radians (atan2 of RefDirection Y/X components)
+fn extract_rotation_from_placement(
+    placement: &ifc_lite_core::DecodedEntity,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+) -> Option<f64> {
+    use ifc_lite_core::IfcType;
+
+    // Get RelativePlacement (attribute 1: IfcAxis2Placement3D)
+    let rel_attr = match placement.get(1) {
+        Some(attr) if !attr.is_null() => attr,
+        _ => return None,
+    };
+
+    let axis_placement = match decoder.resolve_ref(rel_attr) {
+        Ok(Some(p)) => p,
+        _ => return None,
+    };
+
+    // Check if it's IfcAxis2Placement3D
+    if axis_placement.ifc_type != IfcType::IfcAxis2Placement3D {
+        return None;
+    }
+
+    // Get RefDirection (attribute 2: IfcDirection)
+    let ref_dir_attr = match axis_placement.get(2) {
+        Some(attr) if !attr.is_null() => attr,
+        _ => return None,
+    };
+
+    let ref_dir = match decoder.resolve_ref(ref_dir_attr) {
+        Ok(Some(d)) => d,
+        _ => return None,
+    };
+
+    if ref_dir.ifc_type != IfcType::IfcDirection {
+        return None;
+    }
+
+    // Get direction ratios (attribute 0: list of floats)
+    let ratios_attr = match ref_dir.get(0) {
+        Some(attr) => attr,
+        _ => return None,
+    };
+
+    let ratios = match ratios_attr.as_list() {
+        Some(list) => list,
+        _ => return None,
+    };
+
+    // Extract X and Y components (Z is up in IFC)
+    let dx = ratios.first().and_then(|v| v.as_float()).unwrap_or(0.0);
+    let dy = ratios.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
+
+    // Calculate rotation angle: atan2(dy, dx)
+    // This gives the angle of the building's X-axis relative to world X-axis
+    let len_sq = dx * dx + dy * dy;
+    if len_sq < 1e-10 {
+        return None; // Zero-length direction
+    }
+
+    let rotation = dy.atan2(dx);
+    Some(rotation)
 }
 
 /// Safely set a property on a JavaScript object.

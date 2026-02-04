@@ -36,7 +36,7 @@ import {
   type ElementData,
   type TitleBlockExtras,
 } from '@ifc-lite/drawing-2d';
-import { GeometryProcessor } from '@ifc-lite/geometry';
+import { GeometryProcessor, type GeometryResult } from '@ifc-lite/geometry';
 import { DrawingSettingsPanel } from './DrawingSettingsPanel';
 import { SheetSetupPanel } from './SheetSetupPanel';
 import { TitleBlockEditor } from './TitleBlockEditor';
@@ -87,7 +87,17 @@ function getFillColorForType(ifcType: string): string {
   return IFC_TYPE_FILL_COLORS[ifcType] || IFC_TYPE_FILL_COLORS.default;
 }
 
-export function Section2DPanel(): React.ReactElement | null {
+interface Section2DPanelProps {
+  mergedGeometry?: GeometryResult | null;
+  computedIsolatedIds?: Set<number> | null;
+  modelIdToIndex?: Map<string, number>;
+}
+
+export function Section2DPanel({ 
+  mergedGeometry, 
+  computedIsolatedIds, 
+  modelIdToIndex 
+}: Section2DPanelProps = {}): React.ReactElement | null {
   const panelVisible = useViewerStore((s) => s.drawing2DPanelVisible);
   const setDrawingPanelVisible = useViewerStore((s) => s.setDrawing2DPanelVisible);
   const drawing = useViewerStore((s) => s.drawing2D);
@@ -140,7 +150,11 @@ export function Section2DPanel(): React.ReactElement | null {
 
   const sectionPlane = useViewerStore((s) => s.sectionPlane);
   const activeTool = useViewerStore((s) => s.activeTool);
-  const { geometryResult, ifcDataStore } = useIfc();
+  const models = useViewerStore((s) => s.models);
+  const { geometryResult: legacyGeometryResult, ifcDataStore } = useIfc();
+  
+  // Use merged geometry from props if available (multi-model), otherwise fall back to legacy single-model
+  const geometryResult = mergedGeometry ?? legacyGeometryResult;
 
   // Auto-show panel when section tool is active
   const prevActiveToolRef = useRef(activeTool);
@@ -166,6 +180,8 @@ export function Section2DPanel(): React.ReactElement | null {
   const isResizing = useRef<'right' | 'top' | 'corner' | null>(null);
   const resizeStartPos = useRef({ x: 0, y: 0, width: 0, height: 0 });
   const prevAxisRef = useRef(sectionPlane.axis);  // Track axis changes
+  const isMouseButtonDown = useRef(false);  // Track if mouse button is currently pressed
+  const isMouseInsidePanel = useRef(true);  // Track if mouse is inside the panel
   // Track resize event handlers for cleanup
   const resizeHandlersRef = useRef<{ move: ((e: MouseEvent) => void) | null; up: (() => void) | null }>({ move: null, up: null });
   // Cache sheet drawing transform when pinned (to keep model fixed in place)
@@ -195,6 +211,51 @@ export function Section2DPanel(): React.ReactElement | null {
     return map;
   }, [geometryResult]);
 
+  // Get visibility state from store for filtering
+  const hiddenEntities = useViewerStore((s) => s.hiddenEntities);
+  const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
+  const hiddenEntitiesByModel = useViewerStore((s) => s.hiddenEntitiesByModel);
+  const isolatedEntitiesByModel = useViewerStore((s) => s.isolatedEntitiesByModel);
+  
+  // Build combined Set of global IDs from multi-model visibility state
+  // This converts per-model local expressIds to global IDs using idOffset
+  const combinedHiddenIds = useMemo(() => {
+    const globalHiddenIds = new Set<number>(hiddenEntities); // Start with legacy hidden IDs
+    
+    // Add hidden entities from each model (convert local expressId to global ID)
+    for (const [modelId, localHiddenIds] of hiddenEntitiesByModel) {
+      const model = models.get(modelId);
+      if (model && model.idOffset !== undefined) {
+        for (const localId of localHiddenIds) {
+          globalHiddenIds.add(localId + model.idOffset);
+        }
+      }
+    }
+    
+    return globalHiddenIds;
+  }, [hiddenEntities, hiddenEntitiesByModel, models]);
+  
+  // Build combined Set of global IDs for isolation
+  const combinedIsolatedIds = useMemo(() => {
+    // If legacy isolation is active, use that (already contains global IDs)
+    if (isolatedEntities !== null) {
+      return isolatedEntities;
+    }
+    
+    // Build from multi-model isolation
+    const globalIsolatedIds = new Set<number>();
+    for (const [modelId, localIsolatedIds] of isolatedEntitiesByModel) {
+      const model = models.get(modelId);
+      if (model && model.idOffset !== undefined) {
+        for (const localId of localIsolatedIds) {
+          globalIsolatedIds.add(localId + model.idOffset);
+        }
+      }
+    }
+    
+    return globalIsolatedIds.size > 0 ? globalIsolatedIds : null;
+  }, [isolatedEntities, isolatedEntitiesByModel, models]);
+
   // Track if this is a regeneration (vs initial generation)
   const isRegeneratingRef = useRef(false);
 
@@ -210,7 +271,10 @@ export function Section2DPanel(): React.ReactElement | null {
   // Generate drawing when panel opens
   const generateDrawing = useCallback(async (isRegenerate = false) => {
     if (!geometryResult?.meshes || geometryResult.meshes.length === 0) {
-      setDrawingError('No geometry loaded');
+      // Clear the drawing when no geometry is available (e.g., all models hidden)
+      setDrawing(null);
+      setDrawingStatus('idle');
+      setDrawingError('No visible geometry');
       return;
     }
 
@@ -226,13 +290,20 @@ export function Section2DPanel(): React.ReactElement | null {
     let symbolicLines: DrawingLine[] = [];
     let entitiesWithSymbols = new Set<number>();
 
-    const sourceId = ifcDataStore?.source ? String(ifcDataStore.source.byteLength) : null;
-    const useSymbolic = displayOptions.useSymbolicRepresentations && !!ifcDataStore?.source;
+    // For multi-model: create cache key from model count and visible model IDs
+    // For single-model: use source byteLength as before
+    const modelCacheKey = models.size > 0
+      ? `${models.size}-${[...models.values()].filter(m => m.visible).map(m => m.id).sort().join(',')}`
+      : (ifcDataStore?.source ? String(ifcDataStore.source.byteLength) : null);
+    
+    const useSymbolic = displayOptions.useSymbolicRepresentations && (
+      models.size > 0 ? true : !!ifcDataStore?.source
+    );
 
     // Check if we can use cached symbolic data
     const cache = symbolicCacheRef.current;
     const cacheValid = cache &&
-      cache.sourceId === sourceId &&
+      cache.sourceId === modelCacheKey &&
       cache.useSymbolic === useSymbolic;
 
     if (useSymbolic) {
@@ -248,94 +319,99 @@ export function Section2DPanel(): React.ReactElement | null {
           }
 
           const processor = new GeometryProcessor();
-          await processor.init();
+          try {
+            await processor.init();
 
-          const symbolicCollection = processor.parseSymbolicRepresentations(ifcDataStore!.source);
+            const symbolicCollection = processor.parseSymbolicRepresentations(ifcDataStore!.source);
+            // For single-model (legacy) mode, model index is always 0
+            // Multi-model symbolic parsing would require iterating over each model separately
+            const symbolicModelIndex = 0;
 
-          if (symbolicCollection && !symbolicCollection.isEmpty) {
-            // Process polylines
-            for (let i = 0; i < symbolicCollection.polylineCount; i++) {
-              const poly = symbolicCollection.getPolyline(i);
-              if (!poly) continue;
+            if (symbolicCollection && !symbolicCollection.isEmpty) {
+              // Process polylines
+              for (let i = 0; i < symbolicCollection.polylineCount; i++) {
+                const poly = symbolicCollection.getPolyline(i);
+                if (!poly) continue;
 
-              entitiesWithSymbols.add(poly.expressId);
-              const points = poly.points;
-              const pointCount = poly.pointCount;
+                entitiesWithSymbols.add(poly.expressId);
+                const points = poly.points;
+                const pointCount = poly.pointCount;
 
-              for (let j = 0; j < pointCount - 1; j++) {
-                symbolicLines.push({
-                  line: {
-                    start: { x: points[j * 2], y: points[j * 2 + 1] },
-                    end: { x: points[(j + 1) * 2], y: points[(j + 1) * 2 + 1] }
-                  },
-                  category: 'silhouette',
-                  visibility: 'visible',
-                  entityId: poly.expressId,
-                  ifcType: poly.ifcType,
-                  modelIndex: 0,
-                  depth: 0,
-                });
+                for (let j = 0; j < pointCount - 1; j++) {
+                  symbolicLines.push({
+                    line: {
+                      start: { x: points[j * 2], y: points[j * 2 + 1] },
+                      end: { x: points[(j + 1) * 2], y: points[(j + 1) * 2 + 1] }
+                    },
+                    category: 'silhouette',
+                    visibility: 'visible',
+                    entityId: poly.expressId,
+                    ifcType: poly.ifcType,
+                    modelIndex: symbolicModelIndex,
+                    depth: 0,
+                  });
+                }
+
+                if (poly.isClosed && pointCount > 2) {
+                  symbolicLines.push({
+                    line: {
+                      start: { x: points[(pointCount - 1) * 2], y: points[(pointCount - 1) * 2 + 1] },
+                      end: { x: points[0], y: points[1] }
+                    },
+                    category: 'silhouette',
+                    visibility: 'visible',
+                    entityId: poly.expressId,
+                    ifcType: poly.ifcType,
+                    modelIndex: symbolicModelIndex,
+                    depth: 0,
+                  });
+                }
               }
 
-              if (poly.isClosed && pointCount > 2) {
-                symbolicLines.push({
-                  line: {
-                    start: { x: points[(pointCount - 1) * 2], y: points[(pointCount - 1) * 2 + 1] },
-                    end: { x: points[0], y: points[1] }
-                  },
-                  category: 'silhouette',
-                  visibility: 'visible',
-                  entityId: poly.expressId,
-                  ifcType: poly.ifcType,
-                  modelIndex: 0,
-                  depth: 0,
-                });
+              // Process circles/arcs
+              for (let i = 0; i < symbolicCollection.circleCount; i++) {
+                const circle = symbolicCollection.getCircle(i);
+                if (!circle) continue;
+
+                entitiesWithSymbols.add(circle.expressId);
+                const numSegments = circle.isFullCircle ? 32 : 16;
+
+                for (let j = 0; j < numSegments; j++) {
+                  const t1 = j / numSegments;
+                  const t2 = (j + 1) / numSegments;
+                  const a1 = circle.startAngle + t1 * (circle.endAngle - circle.startAngle);
+                  const a2 = circle.startAngle + t2 * (circle.endAngle - circle.startAngle);
+
+                  symbolicLines.push({
+                    line: {
+                      start: {
+                        x: circle.centerX + circle.radius * Math.cos(a1),
+                        y: circle.centerY + circle.radius * Math.sin(a1),
+                      },
+                      end: {
+                        x: circle.centerX + circle.radius * Math.cos(a2),
+                        y: circle.centerY + circle.radius * Math.sin(a2),
+                      },
+                    },
+                    category: 'silhouette',
+                    visibility: 'visible',
+                    entityId: circle.expressId,
+                    ifcType: circle.ifcType,
+                    modelIndex: symbolicModelIndex,
+                    depth: 0,
+                  });
+                }
               }
             }
-
-            // Process circles/arcs
-            for (let i = 0; i < symbolicCollection.circleCount; i++) {
-              const circle = symbolicCollection.getCircle(i);
-              if (!circle) continue;
-
-              entitiesWithSymbols.add(circle.expressId);
-              const numSegments = circle.isFullCircle ? 32 : 16;
-
-              for (let j = 0; j < numSegments; j++) {
-                const t1 = j / numSegments;
-                const t2 = (j + 1) / numSegments;
-                const a1 = circle.startAngle + t1 * (circle.endAngle - circle.startAngle);
-                const a2 = circle.startAngle + t2 * (circle.endAngle - circle.startAngle);
-
-                symbolicLines.push({
-                  line: {
-                    start: {
-                      x: circle.centerX + circle.radius * Math.cos(a1),
-                      y: circle.centerY + circle.radius * Math.sin(a1),
-                    },
-                    end: {
-                      x: circle.centerX + circle.radius * Math.cos(a2),
-                      y: circle.centerY + circle.radius * Math.sin(a2),
-                    },
-                  },
-                  category: 'silhouette',
-                  visibility: 'visible',
-                  entityId: circle.expressId,
-                  ifcType: circle.ifcType,
-                  modelIndex: 0,
-                  depth: 0,
-                });
-              }
-            }
+          } finally {
+            processor.dispose();
           }
-
-          processor.dispose();
 
           // Cache the parsed data
           symbolicCacheRef.current = {
             lines: symbolicLines,
             entities: entitiesWithSymbols,
-            sourceId,
+            sourceId: modelCacheKey,
             useSymbolic,
           };
         } catch (error) {
@@ -386,7 +462,40 @@ export function Section2DPanel(): React.ReactElement | null {
       // Override the flipped setting
       config.plane.flipped = sectionPlane.flipped;
 
-      const result = await generator.generate(geometryResult.meshes, config, {
+      // Filter meshes by visibility (respect 3D hiding/isolation)
+      let meshesToProcess = geometryResult.meshes;
+
+      // Filter out hidden entities (using combined multi-model set)
+      if (combinedHiddenIds.size > 0) {
+        meshesToProcess = meshesToProcess.filter(
+          mesh => !combinedHiddenIds.has(mesh.expressId)
+        );
+      }
+
+      // Filter by isolation (if active, using combined multi-model set)
+      if (combinedIsolatedIds !== null) {
+        meshesToProcess = meshesToProcess.filter(
+          mesh => combinedIsolatedIds.has(mesh.expressId)
+        );
+      }
+
+      // Also filter by computedIsolatedIds (storey selection)
+      if (computedIsolatedIds !== null && computedIsolatedIds !== undefined && computedIsolatedIds.size > 0) {
+        const isolatedSet = computedIsolatedIds;
+        meshesToProcess = meshesToProcess.filter(
+          mesh => isolatedSet.has(mesh.expressId)
+        );
+      }
+
+      // If all meshes were filtered out by visibility, clear the drawing
+      if (meshesToProcess.length === 0) {
+        setDrawing(null);
+        setDrawingStatus('idle');
+        setDrawingError(null);
+        return;
+      }
+
+      const result = await generator.generate(meshesToProcess, config, {
         includeHiddenLines: false,  // Disable - causes internal mesh edges
         includeProjection: false,   // Disable - causes triangulation lines
         includeEdges: false,        // Disable - causes triangulation lines
@@ -430,14 +539,31 @@ export function Section2DPanel(): React.ReactElement | null {
 
         // Build per-entity bounding boxes for section cut
         const sectionCutBounds = new Map<number, { minX: number; minY: number; maxX: number; maxY: number }>();
+        const updateBounds = (entityId: number, x: number, y: number) => {
+          const bounds = sectionCutBounds.get(entityId) ?? { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+          bounds.minX = Math.min(bounds.minX, x);
+          bounds.minY = Math.min(bounds.minY, y);
+          bounds.maxX = Math.max(bounds.maxX, x);
+          bounds.maxY = Math.max(bounds.maxY, y);
+          sectionCutBounds.set(entityId, bounds);
+        };
         for (const line of result.lines) {
           if (line.entityId === undefined) continue;
-          const bounds = sectionCutBounds.get(line.entityId) ?? { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
-          bounds.minX = Math.min(bounds.minX, line.line.start.x, line.line.end.x);
-          bounds.minY = Math.min(bounds.minY, line.line.start.y, line.line.end.y);
-          bounds.maxX = Math.max(bounds.maxX, line.line.start.x, line.line.end.x);
-          bounds.maxY = Math.max(bounds.maxY, line.line.start.y, line.line.end.y);
-          sectionCutBounds.set(line.entityId, bounds);
+          updateBounds(line.entityId, line.line.start.x, line.line.start.y);
+          updateBounds(line.entityId, line.line.end.x, line.line.end.y);
+        }
+        // Include cut polygon vertices in bounds computation
+        for (const poly of result.cutPolygons ?? []) {
+          const entityId = (poly as { entityId?: number }).entityId;
+          if (entityId === undefined) continue;
+          for (const pt of poly.polygon.outer) {
+            updateBounds(entityId, pt.x, pt.y);
+          }
+          for (const hole of poly.polygon.holes) {
+            for (const pt of hole) {
+              updateBounds(entityId, pt.x, pt.y);
+            }
+          }
         }
 
         // Build per-entity bounding boxes for symbolic
@@ -497,13 +623,30 @@ export function Section2DPanel(): React.ReactElement | null {
         // Combine filtered section cuts with aligned symbolic lines
         const combinedLines = [...filteredLines, ...alignedSymbolicLines];
 
-        // Recalculate bounds with combined lines
+        // Recalculate bounds with combined lines and polygons
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         for (const line of combinedLines) {
           minX = Math.min(minX, line.line.start.x, line.line.end.x);
           minY = Math.min(minY, line.line.start.y, line.line.end.y);
           maxX = Math.max(maxX, line.line.start.x, line.line.end.x);
           maxY = Math.max(maxY, line.line.start.y, line.line.end.y);
+        }
+        // Include polygon vertices in bounds
+        for (const poly of filteredCutPolygons) {
+          for (const pt of poly.polygon.outer) {
+            minX = Math.min(minX, pt.x);
+            minY = Math.min(minY, pt.y);
+            maxX = Math.max(maxX, pt.x);
+            maxY = Math.max(maxY, pt.y);
+          }
+          for (const hole of poly.polygon.holes) {
+            for (const pt of hole) {
+              minX = Math.min(minX, pt.x);
+              minY = Math.min(minY, pt.y);
+              maxX = Math.max(maxX, pt.x);
+              maxY = Math.max(maxY, pt.y);
+            }
+          }
         }
 
         // Create hybrid drawing
@@ -541,19 +684,57 @@ export function Section2DPanel(): React.ReactElement | null {
     ifcDataStore,
     sectionPlane,
     displayOptions,
+    combinedHiddenIds,
+    combinedIsolatedIds,
+    computedIsolatedIds,
     setDrawing,
     setDrawingStatus,
     setDrawingProgress,
     setDrawingError,
   ]);
 
+  // Track panel visibility and geometry for detecting changes
+  const prevPanelVisibleRef = useRef(false);
+  const prevOverlayEnabledRef = useRef(false);
+  const prevMeshCountRef = useRef(0);
+
   // Auto-generate when panel opens (or 3D overlay is enabled) and no drawing exists
+  // Also regenerate when geometry changes significantly (e.g., models hidden/shown)
   useEffect(() => {
-    // Generate drawing if panel is visible OR if 3D overlay is enabled (for live 3D section lines)
-    if ((panelVisible || displayOptions.show3DOverlay) && !drawing && status === 'idle' && geometryResult?.meshes) {
-      generateDrawing();
+    const wasVisible = prevPanelVisibleRef.current;
+    const wasOverlayEnabled = prevOverlayEnabledRef.current;
+    const prevMeshCount = prevMeshCountRef.current;
+    const currentMeshCount = geometryResult?.meshes?.length ?? 0;
+    const hasGeometry = currentMeshCount > 0;
+    
+    // Track panel visibility separately from overlay
+    const panelJustOpened = panelVisible && !wasVisible;
+    const overlayJustEnabled = displayOptions.show3DOverlay && !wasOverlayEnabled;
+    const isNowActive = panelVisible || displayOptions.show3DOverlay;
+    const geometryChanged = currentMeshCount !== prevMeshCount;
+    
+    // Always update refs
+    prevPanelVisibleRef.current = panelVisible;
+    prevOverlayEnabledRef.current = displayOptions.show3DOverlay;
+    prevMeshCountRef.current = currentMeshCount;
+    
+    if (isNowActive) {
+      if (!hasGeometry) {
+        // No geometry available - clear the drawing
+        if (drawing) {
+          setDrawing(null);
+          setDrawingStatus('idle');
+        }
+      } else if (panelJustOpened || overlayJustEnabled || !drawing || geometryChanged) {
+        // Generate if:
+        // 1. Panel just opened, OR
+        // 2. Overlay just enabled, OR  
+        // 3. No drawing exists, OR
+        // 4. Geometry changed significantly (models hidden/shown)
+        generateDrawing();
+      }
     }
-  }, [panelVisible, displayOptions.show3DOverlay, drawing, status, geometryResult, generateDrawing]);
+  }, [panelVisible, displayOptions.show3DOverlay, drawing, geometryResult, generateDrawing, setDrawing, setDrawingStatus]);
 
   // Auto-regenerate when section plane changes
   // Strategy: INSTANT - no debounce, but prevent overlapping computations
@@ -620,7 +801,7 @@ export function Section2DPanel(): React.ReactElement | null {
       // doRegenerate handles preventing overlaps and will auto-regenerate with latest when done
       doRegenerate();
     }
-  }, [panelVisible, displayOptions.show3DOverlay, sectionPlane.axis, sectionPlane.position, sectionPlane.flipped, geometryResult, doRegenerate]);
+  }, [panelVisible, displayOptions.show3DOverlay, sectionPlane.axis, sectionPlane.position, sectionPlane.flipped, geometryResult, combinedHiddenIds, combinedIsolatedIds, computedIsolatedIds, doRegenerate]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // 2D MEASURE TOOL HELPER FUNCTIONS
@@ -788,10 +969,29 @@ export function Section2DPanel(): React.ReactElement | null {
     };
   }, [measure2DMode, measure2DStart, measure2DCurrent, measure2DShiftLocked, setMeasure2DShiftLocked, cancelMeasure2D]);
 
+  // Global mouseup handler to cancel measurement if released outside panel
+  useEffect(() => {
+    if (!measure2DMode) return;
+
+    const handleGlobalMouseUp = (e: MouseEvent) => {
+      // If mouse button is released and we're outside the panel with a measurement started, cancel it
+      if (!isMouseInsidePanel.current && measure2DStart && e.button === 0) {
+        cancelMeasure2D();
+      }
+      isMouseButtonDown.current = false;
+    };
+
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => {
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+    };
+  }, [measure2DMode, measure2DStart, cancelMeasure2D]);
+
   // Pan/Measure handlers
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return;
 
+    isMouseButtonDown.current = true;
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
 
@@ -851,12 +1051,36 @@ export function Section2DPanel(): React.ReactElement | null {
   }, [measure2DMode, measure2DStart, measure2DShiftLocked, measure2DLockedAxis, screenToDrawing, findSnapPoint, setMeasure2DSnapPoint, setMeasure2DCurrent, applyOrthogonalConstraint]);
 
   const handleMouseUp = useCallback(() => {
+    isMouseButtonDown.current = false;
     if (measure2DMode && measure2DStart && measure2DCurrent) {
       // Complete the measurement
       completeMeasure2D();
     }
     isPanning.current = false;
   }, [measure2DMode, measure2DStart, measure2DCurrent, completeMeasure2D]);
+
+  const handleMouseLeave = useCallback(() => {
+    isMouseInsidePanel.current = false;
+    // Don't cancel if button is still down - user might re-enter
+    // Cancel will happen on global mouseup if released outside
+    isPanning.current = false;
+  }, []);
+
+  const handleMouseEnter = useCallback((e: React.MouseEvent) => {
+    isMouseInsidePanel.current = true;
+    // If re-entering with button down and measurement started, resume tracking
+    if (isMouseButtonDown.current && measure2DMode && measure2DStart) {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (rect) {
+        const screenX = e.clientX - rect.left;
+        const screenY = e.clientY - rect.top;
+        const drawingCoord = screenToDrawing(screenX, screenY);
+        const snapPoint = findSnapPoint(drawingCoord);
+        const currentPoint = snapPoint || drawingCoord;
+        setMeasure2DCurrent(currentPoint);
+      }
+    }
+  }, [measure2DMode, measure2DStart, screenToDrawing, findSnapPoint, setMeasure2DCurrent]);
 
   // Wheel handler - attached with passive: false to allow preventDefault
   useEffect(() => {
@@ -999,8 +1223,9 @@ export function Section2DPanel(): React.ReactElement | null {
 
   // Auto-fit when: (1) needsFit is true (first open or axis change), or (2) not pinned after regenerate
   // ALWAYS fit when axis changed, regardless of pin state
+  // Also re-run when panelVisible changes so we fit when panel opens with existing drawing
   useEffect(() => {
-    if (status === 'ready' && drawing && containerRef.current) {
+    if (status === 'ready' && drawing && containerRef.current && panelVisible) {
       const axisChanged = lastFitAxisRef.current !== sectionPlane.axis;
 
       // Fit if needsFit (first open/axis change) OR if not pinned OR if axis just changed
@@ -1016,7 +1241,7 @@ export function Section2DPanel(): React.ReactElement | null {
         return () => clearTimeout(timeout);
       }
     }
-  }, [status, drawing, fitToView, isPinned, needsFit, sectionPlane.axis]);
+  }, [status, drawing, fitToView, isPinned, needsFit, sectionPlane.axis, panelVisible]);
 
   // Format distance for display (same logic as canvas)
   const formatDistance = useCallback((distance: number): string => {
@@ -1942,12 +2167,13 @@ export function Section2DPanel(): React.ReactElement | null {
       {/* Drawing Canvas */}
       <div
         ref={containerRef}
-        className={`flex-1 overflow-hidden bg-white dark:bg-zinc-950 rounded-b-lg ${measure2DMode ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
+        className={`relative flex-1 overflow-hidden bg-white dark:bg-zinc-950 rounded-b-lg ${measure2DMode ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
           }`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
       >
         {status === 'generating' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80">
@@ -2008,6 +2234,16 @@ export function Section2DPanel(): React.ReactElement | null {
           </>
         )}
 
+        {/* Measure mode tip - bottom right */}
+        {measure2DMode && measure2DStart && (
+          <div className="absolute bottom-2 right-2 pointer-events-none z-10">
+            <div className="flex items-center gap-1.5 text-[10px] text-black">
+              <kbd className={`px-1 py-0.5 text-[9px] font-mono font-semibold ${measure2DShiftLocked ? 'text-primary' : 'text-black'}`}>Shift</kbd>
+              <span className="text-black">perpendicular</span>
+            </div>
+          </div>
+        )}
+
         {status === 'ready' && drawing && drawing.cutPolygons.length === 0 && (!drawing.lines || drawing.lines.length === 0) && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-center text-muted-foreground">
@@ -2017,16 +2253,7 @@ export function Section2DPanel(): React.ReactElement | null {
           </div>
         )}
 
-        {status === 'idle' && !drawing && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-center text-muted-foreground">
-              <p>No drawing generated yet</p>
-              <Button variant="outline" size="sm" className="mt-4" onClick={() => generateDrawing(false)}>
-                Generate Drawing
-              </Button>
-            </div>
-          </div>
-        )}
+        {/* Empty state - just show blank canvas, no message */}
       </div>
 
       {/* Resize handles - only show when not expanded */}

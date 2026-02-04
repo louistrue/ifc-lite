@@ -31,6 +31,10 @@ export interface CoordinateInfo {
     shiftedBounds: AABB;
     /** True if model had large coordinates requiring RTC shift. NOT the same as proper georeferencing via IfcMapConversion. */
     hasLargeCoordinates: boolean;
+    /** RTC offset applied by WASM in IFC coordinates (Z-up). Used for multi-model alignment. */
+    wasmRtcOffset?: Vec3;
+    /** Building rotation angle in radians (from IfcSite placement). Rotation of building's principal axes relative to world X/Y/Z. */
+    buildingRotation?: number;
 }
 
 export class CoordinateHandler {
@@ -46,9 +50,8 @@ export class CoordinateHandler {
 
     // WASM RTC detection - if WASM already applied RTC, skip TypeScript shift
     private wasmRtcDetected: boolean = false;
-    // Threshold for "normal" coordinates when WASM RTC is active (50km = matches WASM outlier filter)
-    // This should match MAX_REASONABLE_OFFSET in rust/wasm-bindings/src/api.rs filter_mesh_outliers
-    private readonly NORMAL_COORD_THRESHOLD = 50000;
+    // Threshold for "normal" coordinates when WASM RTC is active (10km = reasonable campus/site size)
+    private readonly NORMAL_COORD_THRESHOLD = 10000;
     // Active threshold for coordinate validation (set based on wasmRtcDetected)
     private activeThreshold: number = 1e7;
 
@@ -100,14 +103,8 @@ export class CoordinateHandler {
             }
         }
 
-        // Only log significant filtering (more than 50% corrupted or > 10000 corrupted)
-        // to avoid console spam during normal WASM RTC operation
         if (corruptedVertexCount > 0) {
-            const totalVertices = corruptedVertexCount + validVertexCount;
-            const corruptedRatio = corruptedVertexCount / totalVertices;
-            if (corruptedRatio > 0.5 || corruptedVertexCount > 10000) {
-                console.warn(`[CoordinateHandler] High corruption rate: ${corruptedVertexCount}/${totalVertices} vertices (${(corruptedRatio * 100).toFixed(1)}%) exceed threshold`);
-            }
+            console.log(`[CoordinateHandler] Filtered ${corruptedVertexCount} corrupted vertices, kept ${validVertexCount} valid`);
         }
 
         return bounds;
@@ -361,10 +358,9 @@ export class CoordinateHandler {
 
                 // DETECT IF WASM ALREADY APPLIED RTC
                 // If majority of meshes have small coordinates, WASM already shifted them
-                // Use NORMAL_COORD_THRESHOLD for consistency with the filtering logic
                 let smallCoordCount = 0;
                 let largeCoordCount = 0;
-                const SMALL_COORD_THRESHOLD = this.NORMAL_COORD_THRESHOLD; // Matches WASM outlier filter
+                const SMALL_COORD_THRESHOLD = this.THRESHOLD; // Use same threshold as RTC detection
 
                 for (const mesh of batch) {
                     const positions = mesh.positions;

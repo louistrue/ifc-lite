@@ -9,8 +9,8 @@
 
 // IFC-Lite components (recommended - faster)
 export { IfcLiteBridge, type SymbolicRepresentationCollection, type SymbolicPolyline, type SymbolicCircle } from './ifc-lite-bridge.js';
-export { IfcLiteMeshCollector, type StreamingColorUpdateEvent } from './ifc-lite-mesh-collector.js';
-import type { StreamingColorUpdateEvent } from './ifc-lite-mesh-collector.js';
+export { IfcLiteMeshCollector, type StreamingColorUpdateEvent, type StreamingRtcOffsetEvent } from './ifc-lite-mesh-collector.js';
+import type { StreamingColorUpdateEvent, StreamingRtcOffsetEvent } from './ifc-lite-mesh-collector.js';
 
 // Platform bridge abstraction (auto-selects WASM or native based on environment)
 export {
@@ -63,7 +63,7 @@ import { BufferBuilder } from './buffer-builder.js';
 import { CoordinateHandler } from './coordinate-handler.js';
 import { GeometryQuality } from './progressive-loader.js';
 import { createPlatformBridge, isTauri, type IPlatformBridge } from './platform-bridge.js';
-import type { GeometryResult, MeshData } from './types.js';
+import type { GeometryResult, MeshData, CoordinateInfo } from './types.js';
 
 export interface GeometryProcessorOptions {
   quality?: GeometryQuality; // Default: Balanced
@@ -104,6 +104,7 @@ export type StreamingGeometryEvent =
   | { type: 'model-open'; modelID: number }
   | { type: 'batch'; meshes: MeshData[]; totalSoFar: number; coordinateInfo?: import('./types.js').CoordinateInfo }
   | { type: 'colorUpdate'; updates: Map<number, [number, number, number, number]> }
+  | { type: 'rtcOffset'; rtcOffset: { x: number; y: number; z: number }; hasRtc: boolean }
   | { type: 'complete'; totalMeshes: number; coordinateInfo: import('./types.js').CoordinateInfo };
 
 export type StreamingInstancedGeometryEvent =
@@ -174,7 +175,25 @@ export class GeometryProcessor {
       if (!this.bridge?.isInitialized()) {
         await this.init();
       }
-      meshes = await this.collectMeshesMainThread(buffer);
+      const mainThreadResult = await this.collectMeshesMainThread(buffer);
+      meshes = mainThreadResult.meshes;
+      // Merge building rotation from WASM into coordinate info
+      const coordinateInfoFromHandler = this.coordinateHandler.processMeshes(meshes);
+      const buildingRotation = mainThreadResult.buildingRotation;
+      const coordinateInfo: CoordinateInfo = {
+        ...coordinateInfoFromHandler,
+        buildingRotation,
+      };
+      // Build GPU-ready buffers
+      const bufferResult = this.bufferBuilder.processMeshes(meshes);
+
+      // Combine results
+      return {
+        meshes: bufferResult.meshes,
+        totalTriangles: bufferResult.totalTriangles,
+        totalVertices: bufferResult.totalVertices,
+        coordinateInfo,
+      };
     }
 
     // Handle large coordinates by shifting to origin
@@ -197,7 +216,7 @@ export class GeometryProcessor {
   /**
    * Collect meshes on main thread using IFC-Lite WASM
    */
-  private async collectMeshesMainThread(buffer: Uint8Array, _entityIndex?: Map<number, any>): Promise<MeshData[]> {
+  private async collectMeshesMainThread(buffer: Uint8Array, _entityIndex?: Map<number, any>): Promise<{ meshes: MeshData[]; buildingRotation?: number }> {
     if (!this.bridge) {
       throw new Error('WASM bridge not initialized');
     }
@@ -208,8 +227,9 @@ export class GeometryProcessor {
 
     const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
     const meshes = collector.collectMeshes();
+    const buildingRotation = collector.getBuildingRotation();
 
-    return meshes;
+    return { meshes, buildingRotation };
   }
 
   /**
@@ -272,6 +292,7 @@ export class GeometryProcessor {
 
       const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
       let totalMeshes = 0;
+      let extractedBuildingRotation: number | undefined = undefined;
 
       // Determine optimal WASM batch size based on file size
       // Larger batches = fewer callbacks = faster processing
@@ -291,17 +312,36 @@ export class GeometryProcessor {
           continue;
         }
 
+        // Handle RTC offset events
+        if (item && typeof item === 'object' && 'type' in item && (item as StreamingRtcOffsetEvent).type === 'rtcOffset') {
+          const rtcEvent = item as StreamingRtcOffsetEvent;
+          yield { type: 'rtcOffset', rtcOffset: rtcEvent.rtcOffset, hasRtc: rtcEvent.hasRtc };
+          continue;
+        }
+
         // Handle mesh batches
         const batch = item as MeshData[];
         // Process coordinate shifts incrementally (will accumulate bounds)
         this.coordinateHandler.processMeshesIncremental(batch);
         totalMeshes += batch.length;
         const coordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
-        yield { type: 'batch', meshes: batch, totalSoFar: totalMeshes, coordinateInfo: coordinateInfo || undefined };
-      }
+        
+        // Merge buildingRotation if we have it
+        const coordinateInfoWithRotation = coordinateInfo && extractedBuildingRotation !== undefined
+          ? { ...coordinateInfo, buildingRotation: extractedBuildingRotation }
+          : coordinateInfo;
 
+        yield { type: 'batch', meshes: batch, totalSoFar: totalMeshes, coordinateInfo: coordinateInfoWithRotation || undefined };
+      }
+      
+      // Get building rotation after streaming completes
+      extractedBuildingRotation = collector.getBuildingRotation();
+      
       const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
-      yield { type: 'complete', totalMeshes, coordinateInfo };
+      const finalCoordinateInfo = extractedBuildingRotation !== undefined
+        ? { ...coordinateInfo, buildingRotation: extractedBuildingRotation }
+        : coordinateInfo;
+      yield { type: 'complete', totalMeshes, coordinateInfo: finalCoordinateInfo };
     }
   }
 

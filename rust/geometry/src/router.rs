@@ -615,11 +615,36 @@ impl GeometryRouter {
                 // RepresentationMap.MappedRepresentation is attribute 1
                 let rep_attr = source.get(1)?;
                 let rep = decoder.resolve_ref(rep_attr).ok()??;
+                
+                // MappingTarget (attribute 1) -> instance transform
+                let mapping_transform = if let Some(target_attr) = item.get(1) {
+                    if !target_attr.is_null() {
+                        if let Ok(Some(target)) = decoder.resolve_ref(target_attr) {
+                            self.parse_cartesian_transformation_operator(&target, decoder).ok()
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                
                 // Get first item from representation
                 let items_attr = rep.get(3)?;
                 let items = decoder.resolve_ref_list(items_attr).ok()?;
                 items.first().and_then(|first| {
-                    self.extract_extrusion_direction_recursive(first, decoder)
+                    self.extract_extrusion_direction_recursive(first, decoder).map(|(dir, pos)| {
+                        // Combine MappingTarget transform with position transform
+                        let combined = match (mapping_transform.as_ref(), pos) {
+                            (Some(map), Some(pos)) => Some(map * pos),
+                            (Some(map), None) => Some(map.clone()),
+                            (None, Some(pos)) => Some(pos),
+                            (None, None) => None,
+                        };
+                        (dir, combined)
+                    })
                 })
             }
             _ => None,
@@ -713,10 +738,11 @@ impl GeometryRouter {
                         );
 
                         // Transform local direction to world space
+                        // Use try_normalize to guard against zero-length vectors
                         let world_dir = (rot_x * local_dir.x
                             + rot_y * local_dir.y
                             + rot_z * local_dir.z)
-                            .normalize();
+                            .try_normalize(1e-12)?;
 
                         // Apply element placement transform
                         let element_rot_x = Vector3::new(
@@ -738,7 +764,7 @@ impl GeometryRouter {
                         let final_dir = (element_rot_x * world_dir.x
                             + element_rot_y * world_dir.y
                             + element_rot_z * world_dir.z)
-                            .normalize();
+                            .try_normalize(1e-12)?;
 
                         Some(final_dir)
                     } else {
@@ -763,7 +789,7 @@ impl GeometryRouter {
                         let final_dir = (element_rot_x * local_dir.x
                             + element_rot_y * local_dir.y
                             + element_rot_z * local_dir.z)
-                            .normalize();
+                            .try_normalize(1e-12)?;
 
                         Some(final_dir)
                     }

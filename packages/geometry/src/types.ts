@@ -65,6 +65,10 @@ export interface CoordinateInfo {
   shiftedBounds: AABB;      // Bounds after shift
   /** True if model had large coordinates requiring RTC shift. NOT the same as proper georeferencing via IfcMapConversion. */
   hasLargeCoordinates: boolean;
+  /** RTC offset applied by WASM in IFC coordinates (Z-up). Used for multi-model alignment. */
+  wasmRtcOffset?: Vec3;
+  /** Building rotation angle in radians (from IfcSite placement). Rotation of building's principal axes relative to world X/Y/Z. */
+  buildingRotation?: number;
 }
 
 export interface GeometryResult {
@@ -141,11 +145,11 @@ export interface SymbolicRepresentationCollection {
   /** Check if collection is empty */
   isEmpty: boolean;
   /** Get polyline at index */
-  getPolyline(index: number): SymbolicPolyline | null;
+  getPolyline(index: number): SymbolicPolyline | undefined;
   /** Get circle at index */
-  getCircle(index: number): SymbolicCircle | null;
+  getCircle(index: number): SymbolicCircle | undefined;
   /** Get all express IDs that have symbolic representations */
-  getExpressIds(): number[];
+  getExpressIds(): Uint32Array;
 }
 
 /**

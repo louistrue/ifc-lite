@@ -111,6 +111,20 @@ function writeCoordinateInfo(writer: BufferWriter, info: CoordinateInfo): void {
 
   // Has large coordinates flag (was misnamed isGeoReferenced)
   writer.writeUint8(info.hasLargeCoordinates ? 1 : 0);
+
+  // Write wasmRtcOffset (optional)
+  const hasWasmRtc = info.wasmRtcOffset !== undefined;
+  writer.writeUint8(hasWasmRtc ? 1 : 0);
+  if (hasWasmRtc) {
+    writeVec3(writer, info.wasmRtcOffset!);
+  }
+
+  // Write buildingRotation (optional)
+  const hasBuildingRotation = info.buildingRotation !== undefined;
+  writer.writeUint8(hasBuildingRotation ? 1 : 0);
+  if (hasBuildingRotation) {
+    writer.writeFloat64(info.buildingRotation!);
+  }
 }
 
 function writeVec3(writer: BufferWriter, v: Vec3): void {
@@ -147,7 +161,7 @@ export function readGeometry(reader: BufferReader, version: number = 2): {
     throw new Error(`Invalid cache: meshCount ${meshCount} exceeds maximum ${MAX_MESH_COUNT}. Cache may be corrupted or from incompatible version.`);
   }
 
-  const coordinateInfo = readCoordinateInfo(reader);
+  const coordinateInfo = readCoordinateInfo(reader, version);
 
   const meshes: MeshData[] = [];
 
@@ -199,17 +213,32 @@ export function readGeometry(reader: BufferReader, version: number = 2): {
   };
 }
 
-function readCoordinateInfo(reader: BufferReader): CoordinateInfo {
+function readCoordinateInfo(reader: BufferReader, version: number = 2): CoordinateInfo {
   const originShift = readVec3(reader);
   const originalBounds = readAABB(reader);
   const shiftedBounds = readAABB(reader);
   const hasLargeCoordinates = reader.readUint8() === 1;
+
+  // Version 3+: read optional fields
+  let wasmRtcOffset: Vec3 | undefined;
+  let buildingRotation: number | undefined;
+
+  if (version >= 3) {
+    if (reader.readUint8() === 1) {
+      wasmRtcOffset = readVec3(reader);
+    }
+    if (reader.readUint8() === 1) {
+      buildingRotation = reader.readFloat64();
+    }
+  }
 
   return {
     originShift,
     originalBounds,
     shiftedBounds,
     hasLargeCoordinates,
+    wasmRtcOffset,
+    buildingRotation,
   };
 }
 

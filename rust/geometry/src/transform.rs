@@ -206,7 +206,7 @@ pub fn parse_axis2_placement_3d_from_id(
     // Get location using fast path if available
     let location = if let Some(loc_attr) = placement.get(0) {
         if let Some(loc_id) = loc_attr.as_entity_ref() {
-            parse_cartesian_point_from_id(loc_id, decoder).unwrap_or(Point3::new(0.0, 0.0, 0.0))
+            parse_cartesian_point_from_id(loc_id, decoder)?
         } else {
             Point3::new(0.0, 0.0, 0.0)
         }
@@ -218,7 +218,7 @@ pub fn parse_axis2_placement_3d_from_id(
     let z_axis = if let Some(axis_attr) = placement.get(1) {
         if !axis_attr.is_null() {
             if let Some(axis_id) = axis_attr.as_entity_ref() {
-                parse_direction_from_id(axis_id, decoder).unwrap_or(Vector3::new(0.0, 0.0, 1.0))
+                parse_direction_from_id(axis_id, decoder)?
             } else {
                 Vector3::new(0.0, 0.0, 1.0)
             }
@@ -233,7 +233,7 @@ pub fn parse_axis2_placement_3d_from_id(
     let x_axis = if let Some(ref_dir_attr) = placement.get(2) {
         if !ref_dir_attr.is_null() {
             if let Some(ref_dir_id) = ref_dir_attr.as_entity_ref() {
-                parse_direction_from_id(ref_dir_id, decoder).unwrap_or(Vector3::new(1.0, 0.0, 0.0))
+                parse_direction_from_id(ref_dir_id, decoder)?
             } else {
                 Vector3::new(1.0, 0.0, 0.0)
             }

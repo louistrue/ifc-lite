@@ -222,11 +222,12 @@ testFile(join(FIXTURES_DIR, 'ara3d/duplex.ifc'), { tolerance: 0.1 });
 testFile(join(FIXTURES_DIR, 'buildingsmart/Building-Architecture.ifc'));
 
 // Summary
+const updateReferences = process.env.UPDATE_REFERENCES === 'true';
 console.log(`\n${'─'.repeat(50)}`);
-console.log(`📊 Test Results: ${passed} passed, ${failed} failed, ${updated} ${updated === 1 ? 'reference' : 'references'} ${updated > 0 ? (updateReference ? 'updated' : 'created') : ''}`);
+console.log(`📊 Test Results: ${passed} passed, ${failed} failed, ${updated} ${updated === 1 ? 'reference' : 'references'} ${updated > 0 ? (updateReferences ? 'updated' : 'created') : ''}`);
 console.log(`${'─'.repeat(50)}`);
 
-if (updateReference) {
+if (updateReferences) {
   console.log('\n💡 References updated. Run again without UPDATE_REFERENCES=true to test.');
 } else if (failed > 0) {
   console.error('\n❌ Some reference tests failed!');

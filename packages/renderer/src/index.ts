@@ -736,10 +736,31 @@ export class Renderer {
                 if (options.sectionPlane.enabled) {
                     // Calculate plane normal based on semantic axis
                     // down = Y axis (horizontal cut), front = Z axis, side = X axis
-                    const normal: [number, number, number] = [0, 0, 0];
+                    let normal: [number, number, number] = [0, 0, 0];
                     if (options.sectionPlane.axis === 'side') normal[0] = 1;        // X axis
                     else if (options.sectionPlane.axis === 'down') normal[1] = 1;   // Y axis (horizontal)
                     else normal[2] = 1;                                              // Z axis (front)
+
+                    // Apply building rotation if present (rotate normal around Y axis)
+                    // Building rotation is in X-Y plane (Z is up in IFC, Y is up in WebGL)
+                    if (options.buildingRotation !== undefined && options.buildingRotation !== 0) {
+                        const originalNormal = [...normal] as [number, number, number];
+                        const cosR = Math.cos(options.buildingRotation);
+                        const sinR = Math.sin(options.buildingRotation);
+                        // Rotate normal vector around Y axis (vertical)
+                        // For X-Z plane rotation: x' = x*cos - z*sin, z' = x*sin + z*cos, y' = y
+                        const x = normal[0];
+                        const z = normal[2];
+                        normal[0] = x * cosR - z * sinR;
+                        normal[2] = x * sinR + z * cosR;
+                        // Normalize to maintain unit length
+                        const len = Math.sqrt(normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]);
+                        if (len > 0.0001) {
+                            normal[0] /= len;
+                            normal[1] /= len;
+                            normal[2] /= len;
+                        }
+                    }
 
                     // Get axis-specific range based on semantic axis
                     // Use min/max overrides from sectionPlane if provided (storey-based range)
@@ -1265,6 +1286,9 @@ export class Renderer {
         // Scale CSS pixel coordinates to canvas pixel coordinates
         // The canvas.width may differ from CSS width due to 64-pixel alignment for WebGPU
         const rect = this.canvas.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) {
+            return null;
+        }
         const scaleX = this.canvas.width / rect.width;
         const scaleY = this.canvas.height / rect.height;
         const scaledX = x * scaleX;
@@ -1387,6 +1411,9 @@ export class Renderer {
             // Scale CSS pixel coordinates to canvas pixel coordinates
             // The canvas.width may differ from CSS width due to 64-pixel alignment for WebGPU
             const rect = this.canvas.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) {
+                return null;
+            }
             const scaleX = this.canvas.width / rect.width;
             const scaleY = this.canvas.height / rect.height;
             const scaledX = x * scaleX;
@@ -1517,6 +1544,21 @@ export class Renderer {
             // Scale CSS pixel coordinates to canvas pixel coordinates
             // The canvas.width may differ from CSS width due to 64-pixel alignment for WebGPU
             const rect = this.canvas.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) {
+                return {
+                    intersection: null,
+                    snapTarget: null,
+                    edgeLock: {
+                        edge: null,
+                        meshExpressId: null,
+                        edgeT: 0,
+                        shouldLock: false,
+                        shouldRelease: true,
+                        isCorner: false,
+                        cornerValence: 0,
+                    },
+                };
+            }
             const scaleX = this.canvas.width / rect.width;
             const scaleY = this.canvas.height / rect.height;
             const scaledX = x * scaleX;

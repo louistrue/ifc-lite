@@ -242,6 +242,7 @@ export function useIfcCache() {
     fileName: string
   ): Promise<void> => {
     try {
+      console.log('[useIfcCache] Starting cache write for:', fileName);
       const writer = new BinaryCacheWriter();
 
       // Adapt dataStore to cache format
@@ -256,11 +257,16 @@ export function useIfcCache() {
         spatialHierarchy: dataStore.spatialHierarchy,
       };
 
+      console.log('[useIfcCache] Writing cache buffer...');
       const cacheBuffer = await writer.write(cacheDataStore, geometry, sourceBuffer, { includeGeometry: true });
+      console.log('[useIfcCache] Cache buffer written:', cacheBuffer.byteLength, 'bytes');
 
+      console.log('[useIfcCache] Saving to cache storage...');
       await setCached(cacheKey, cacheBuffer, fileName, sourceBuffer.byteLength, sourceBuffer);
+      console.log('[useIfcCache] ✓ Cache saved successfully');
     } catch (err) {
-      console.warn('[useIfcCache] Failed to cache model:', err);
+      console.error('[useIfcCache] Failed to cache model:', err);
+      console.error('[useIfcCache] Error stack:', err instanceof Error ? err.stack : 'No stack trace');
     }
   }, []);
 

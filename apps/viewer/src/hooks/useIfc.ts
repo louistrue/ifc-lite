@@ -580,7 +580,7 @@ export function useIfc() {
             const positions = m.positions instanceof Float32Array ? m.positions : new Float32Array(m.positions || []);
             const indices = m.indices instanceof Uint32Array ? m.indices : new Uint32Array(m.indices || []);
             const normals = m.normals instanceof Float32Array ? m.normals : new Float32Array(m.normals || []);
-            
+
             // Normalize color to RGBA format (4 elements)
             const color = normalizeColor(m.color);
 
@@ -654,9 +654,10 @@ export function useIfc() {
         }
       }
 
-      // INSTANT cache lookup: Use filename + size as key (no hashing!)
+      // INSTANT cache lookup: Use filename + size + format version as key (no hashing!)
       // Same filename + same size = same file (fast and reliable enough)
-      const cacheKey = `${file.name}-${buffer.byteLength}`;
+      // Include format version to invalidate old caches when format changes
+      const cacheKey = `${file.name}-${buffer.byteLength}-v3`;
 
       if (buffer.byteLength >= CACHE_SIZE_THRESHOLD) {
         setProgress({ phase: 'Checking cache', percent: 5 });
@@ -712,7 +713,7 @@ export function useIfc() {
         parser.parseColumnar(buffer, {
           wasmApi, // Pass WASM API for 5-10x faster entity scanning
         }).then(dataStore => {
-          
+
           // Calculate storey heights from elevation differences if not already populated
           if (dataStore.spatialHierarchy && dataStore.spatialHierarchy.storeyHeights.size === 0 && dataStore.spatialHierarchy.storeyElevations.size > 1) {
             const calculatedHeights = calculateStoreyHeights(dataStore.spatialHierarchy.storeyElevations);
@@ -720,7 +721,7 @@ export function useIfc() {
               dataStore.spatialHierarchy.storeyHeights.set(storeyId, height);
             }
           }
-          
+
           setIfcDataStore(dataStore);
           resolveDataStore(dataStore);
         }).catch(err => {
@@ -736,6 +737,8 @@ export function useIfc() {
       let totalMeshes = 0;
       const allMeshes: MeshData[] = []; // Collect all meshes for BVH building
       let finalCoordinateInfo: CoordinateInfo | null = null;
+      // Capture RTC offset from WASM for proper multi-model alignment
+      let capturedRtcOffset: { x: number; y: number; z: number } | null = null;
 
       // Clear existing geometry result
       setGeometryResult(null);
@@ -776,6 +779,13 @@ export function useIfc() {
             case 'colorUpdate': {
               // Update colors for already-rendered meshes
               updateMeshColors(event.updates);
+              break;
+            }
+            case 'rtcOffset': {
+              // Capture RTC offset from WASM for multi-model alignment
+              if (event.hasRtc) {
+                capturedRtcOffset = event.rtcOffset;
+              }
               break;
             }
             case 'batch': {
@@ -828,8 +838,13 @@ export function useIfc() {
 
               finalCoordinateInfo = event.coordinateInfo ?? null;
 
+              // Store captured RTC offset in coordinate info for multi-model alignment
+              if (finalCoordinateInfo && capturedRtcOffset) {
+                finalCoordinateInfo.wasmRtcOffset = capturedRtcOffset;
+              }
+
               // Update geometry result with final coordinate info
-              updateCoordinateInfo(event.coordinateInfo);
+              updateCoordinateInfo(finalCoordinateInfo);
 
               setProgress({ phase: 'Complete', percent: 100 });
 
@@ -885,7 +900,7 @@ export function useIfc() {
         `${allMeshes.length} meshes, ${(totalVertices / 1000).toFixed(0)}k vertices | ` +
         `first: ${firstGeometryTime.toFixed(0)}ms, total: ${totalElapsedMs.toFixed(0)}ms`
       );
-      
+
       setLoading(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -933,9 +948,13 @@ export function useIfc() {
         // IMPORTANT: Include ALL entities, not just meshes, for proper globalId resolution
         const legacyMeshes = currentGeometryResult.meshes || [];
         const legacyMaxExpressIdFromMeshes = legacyMeshes.reduce((max, m) => Math.max(max, m.expressId), 0);
-        const legacyMaxExpressIdFromEntities = currentIfcDataStore.entityIndex?.byId
-          ? Math.max(0, ...Array.from(currentIfcDataStore.entityIndex.byId.keys()))
-          : 0;
+        // FIXED: Use iteration instead of spread to avoid stack overflow with large Maps
+        let legacyMaxExpressIdFromEntities = 0;
+        if (currentIfcDataStore.entityIndex?.byId) {
+          for (const key of currentIfcDataStore.entityIndex.byId.keys()) {
+            if (key > legacyMaxExpressIdFromEntities) legacyMaxExpressIdFromEntities = key;
+          }
+        }
         const legacyMaxExpressId = Math.max(legacyMaxExpressIdFromMeshes, legacyMaxExpressIdFromEntities);
 
         // Register legacy model with offset 0 (IDs already in use as-is)
@@ -1051,6 +1070,8 @@ export function useIfc() {
         // Process geometry
         const allMeshes: MeshData[] = [];
         let finalCoordinateInfo: CoordinateInfo | null = null;
+        // Capture RTC offset from WASM for proper multi-model alignment
+        let capturedRtcOffset: { x: number; y: number; z: number } | null = null;
 
         const dynamicBatchConfig = getDynamicBatchConfig(fileSizeMB);
 
@@ -1064,6 +1085,13 @@ export function useIfc() {
               finalCoordinateInfo = event.coordinateInfo ?? null;
               const progressPercent = 10 + Math.min(80, (allMeshes.length / 1000) * 0.8);
               setProgress({ phase: `Processing geometry (${allMeshes.length} meshes)`, percent: progressPercent });
+              break;
+            }
+            case 'rtcOffset': {
+              // Capture RTC offset from WASM for multi-model alignment
+              if (event.hasRtc) {
+                capturedRtcOffset = event.rtcOffset;
+              }
               break;
             }
             case 'complete':
@@ -1099,8 +1127,13 @@ export function useIfc() {
           coordinateInfo: finalCoordinateInfo || createCoordinateInfo(calculateMeshBounds(allMeshes).bounds),
         };
 
+        // Store captured RTC offset in coordinate info for multi-model alignment
+        if (parsedGeometry.coordinateInfo && capturedRtcOffset) {
+          parsedGeometry.coordinateInfo.wasmRtcOffset = capturedRtcOffset;
+        }
+
         schemaVersion = parsedDataStore.schemaVersion === 'IFC4X3' ? 'IFC4X3' :
-                        parsedDataStore.schemaVersion === 'IFC4' ? 'IFC4' : 'IFC2X3';
+          parsedDataStore.schemaVersion === 'IFC4' ? 'IFC4' : 'IFC2X3';
       }
 
       if (!parsedDataStore || !parsedGeometry) {
@@ -1116,9 +1149,13 @@ export function useIfc() {
       // IMPORTANT: Use ALL entities from data store, not just meshes
       // Spatial containers (IfcProject, IfcSite, etc.) don't have geometry but need valid globalId resolution
       const maxExpressIdFromMeshes = parsedGeometry.meshes.reduce((max, m) => Math.max(max, m.expressId), 0);
-      const maxExpressIdFromEntities = parsedDataStore.entityIndex?.byId
-        ? Math.max(0, ...Array.from(parsedDataStore.entityIndex.byId.keys()))
-        : 0;
+      // FIXED: Use iteration instead of spread to avoid stack overflow with large Maps
+      let maxExpressIdFromEntities = 0;
+      if (parsedDataStore.entityIndex?.byId) {
+        for (const key of parsedDataStore.entityIndex.byId.keys()) {
+          if (key > maxExpressIdFromEntities) maxExpressIdFromEntities = key;
+        }
+      }
       const maxExpressId = Math.max(maxExpressIdFromMeshes, maxExpressIdFromEntities);
 
       // Step 2: Register with federation registry to get unique offset
@@ -1130,6 +1167,76 @@ export function useIfc() {
       if (idOffset > 0) {
         for (const mesh of parsedGeometry.meshes) {
           mesh.expressId = mesh.expressId + idOffset;
+        }
+      }
+
+      // =========================================================================
+      // COORDINATE ALIGNMENT: Align new model with existing models using RTC delta
+      // WASM applies per-model RTC offsets. To align models from the same project,
+      // we calculate the difference in RTC offsets and apply it to the new model.
+      // 
+      // RTC offset is in IFC coordinates (Z-up). After Z-up to Y-up conversion:
+      // - IFC X → WebGL X
+      // - IFC Y → WebGL -Z
+      // - IFC Z → WebGL Y (vertical)
+      // =========================================================================
+      const existingModels = Array.from(useViewerStore.getState().models.values());
+      if (existingModels.length > 0) {
+        const firstModel = existingModels[0];
+        const firstRtc = firstModel.geometryResult?.coordinateInfo?.wasmRtcOffset;
+        const newRtc = parsedGeometry.coordinateInfo?.wasmRtcOffset;
+        
+        // If both models have RTC offsets, use RTC delta for precise alignment
+        if (firstRtc && newRtc) {
+          // Calculate what adjustment is needed to align new model with first model
+          // First model: pos = original - firstRtc
+          // New model: pos = original - newRtc
+          // To align: newPos + adjustment = firstPos (assuming same original)
+          // adjustment = firstRtc - newRtc (add back new's RTC, subtract first's RTC)
+          const adjustX = firstRtc.x - newRtc.x;  // IFC X adjustment
+          const adjustY = firstRtc.y - newRtc.y;  // IFC Y adjustment
+          const adjustZ = firstRtc.z - newRtc.z;  // IFC Z adjustment (vertical)
+          
+          // Convert to WebGL coordinates:
+          // IFC X → WebGL X (no change)
+          // IFC Y → WebGL -Z (swap and negate)
+          // IFC Z → WebGL Y (vertical)
+          const webglAdjustX = adjustX;
+          const webglAdjustY = adjustZ;   // IFC Z is WebGL Y (vertical)
+          const webglAdjustZ = -adjustY;  // IFC Y is WebGL -Z
+          
+          const hasSignificantAdjust = Math.abs(webglAdjustX) > 0.01 || 
+                                        Math.abs(webglAdjustY) > 0.01 || 
+                                        Math.abs(webglAdjustZ) > 0.01;
+          
+          if (hasSignificantAdjust) {
+            console.log(`[useIfc] Aligning model "${file.name}" using RTC adjustment: X=${webglAdjustX.toFixed(2)}m, Y=${webglAdjustY.toFixed(2)}m, Z=${webglAdjustZ.toFixed(2)}m`);
+            
+            // Apply adjustment to all mesh vertices
+            // SUBTRACT adjustment: if firstRtc > newRtc, first was shifted MORE, 
+            // so new model needs to be shifted in same direction (subtract more)
+            for (const mesh of parsedGeometry.meshes) {
+              const positions = mesh.positions;
+              for (let i = 0; i < positions.length; i += 3) {
+                positions[i] -= webglAdjustX;
+                positions[i + 1] -= webglAdjustY;
+                positions[i + 2] -= webglAdjustZ;
+              }
+            }
+            
+            // Update coordinate info bounds
+            if (parsedGeometry.coordinateInfo) {
+              parsedGeometry.coordinateInfo.shiftedBounds.min.x -= webglAdjustX;
+              parsedGeometry.coordinateInfo.shiftedBounds.max.x -= webglAdjustX;
+              parsedGeometry.coordinateInfo.shiftedBounds.min.y -= webglAdjustY;
+              parsedGeometry.coordinateInfo.shiftedBounds.max.y -= webglAdjustY;
+              parsedGeometry.coordinateInfo.shiftedBounds.min.z -= webglAdjustZ;
+              parsedGeometry.coordinateInfo.shiftedBounds.max.z -= webglAdjustZ;
+            }
+          }
+        } else {
+          // No RTC info - can't align reliably. This happens with old cache entries.
+          console.warn(`[useIfc] Cannot align "${file.name}" - missing RTC offset. Clear cache and reload.`);
         }
       }
 

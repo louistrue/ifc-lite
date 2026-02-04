@@ -579,6 +579,11 @@ export class MeshCollection {
    */
   readonly totalTriangles: number;
   /**
+   * Get building rotation angle in radians (from IfcSite placement)
+   * Returns None if no rotation was detected
+   */
+  readonly buildingRotation: number | undefined;
+  /**
    * Get number of meshes
    */
   readonly length: number;
@@ -960,14 +965,16 @@ export interface InitOutput {
   readonly instancedgeometry_positions: (a: number) => number;
   readonly instancedmeshcollection_get: (a: number, b: number) => number;
   readonly instancedmeshcollection_totalInstances: (a: number) => number;
+  readonly meshcollection_buildingRotation: (a: number, b: number) => void;
   readonly meshcollection_get: (a: number, b: number) => number;
   readonly meshcollection_hasRtcOffset: (a: number) => number;
   readonly meshcollection_length: (a: number) => number;
   readonly meshcollection_localToWorld: (a: number, b: number, c: number, d: number, e: number) => void;
+  readonly meshcollection_rtcOffsetY: (a: number) => number;
+  readonly meshcollection_rtcOffsetZ: (a: number) => number;
   readonly meshcollection_totalTriangles: (a: number) => number;
   readonly meshcollection_totalVertices: (a: number) => number;
   readonly meshcollectionwithrtc_get: (a: number, b: number) => number;
-  readonly meshcollectionwithrtc_length: (a: number) => number;
   readonly meshcollectionwithrtc_meshes: (a: number) => number;
   readonly meshcollectionwithrtc_rtcOffset: (a: number) => number;
   readonly meshdatajs_color: (a: number, b: number) => void;
@@ -978,6 +985,7 @@ export interface InitOutput {
   readonly meshdatajs_positions: (a: number) => number;
   readonly meshdatajs_triangleCount: (a: number) => number;
   readonly meshdatajs_vertexCount: (a: number) => number;
+  readonly rtcoffsetjs_isSignificant: (a: number) => number;
   readonly rtcoffsetjs_toWorld: (a: number, b: number, c: number, d: number, e: number) => void;
   readonly symboliccircle_centerX: (a: number) => number;
   readonly symboliccircle_centerY: (a: number) => number;
@@ -1012,6 +1020,7 @@ export interface InitOutput {
   readonly init: () => void;
   readonly instancedmeshcollection_length: (a: number) => number;
   readonly instancedmeshcollection_totalGeometries: (a: number) => number;
+  readonly meshcollectionwithrtc_length: (a: number) => number;
   readonly zerocopymesh_indices_len: (a: number) => number;
   readonly __wbg_set_rtcoffsetjs_x: (a: number, b: number) => void;
   readonly __wbg_set_rtcoffsetjs_y: (a: number, b: number) => void;
@@ -1020,20 +1029,17 @@ export interface InitOutput {
   readonly get_memory: () => number;
   readonly zerocopymesh_indices_ptr: (a: number) => number;
   readonly zerocopymesh_normals_ptr: (a: number) => number;
-  readonly rtcoffsetjs_isSignificant: (a: number) => number;
   readonly __wbg_get_rtcoffsetjs_x: (a: number) => number;
   readonly __wbg_get_rtcoffsetjs_y: (a: number) => number;
   readonly __wbg_get_rtcoffsetjs_z: (a: number) => number;
   readonly instancedgeometry_geometryId: (a: number) => bigint;
   readonly meshcollection_rtcOffsetX: (a: number) => number;
-  readonly meshcollection_rtcOffsetY: (a: number) => number;
-  readonly meshcollection_rtcOffsetZ: (a: number) => number;
   readonly symboliccircle_expressId: (a: number) => number;
-  readonly __wasm_bindgen_func_elem_911: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_909: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_466: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_464: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_942: (a: number, b: number, c: number, d: number) => void;
+  readonly __wasm_bindgen_func_elem_476: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_474: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_922: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_920: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_953: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_export: (a: number) => void;
   readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
   readonly __wbindgen_export3: (a: number, b: number) => number;

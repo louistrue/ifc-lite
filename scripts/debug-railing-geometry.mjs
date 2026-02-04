@@ -282,10 +282,12 @@ try {
   }
 
   console.log(`  Triangle orientations:`);
-  console.log(`    Facing X axis: ${facingX} (${(facingX / winding.validTriangles * 100).toFixed(1)}%)`);
-  console.log(`    Facing Y axis: ${facingY} (${(facingY / winding.validTriangles * 100).toFixed(1)}%)`);
-  console.log(`    Facing Z axis: ${facingZ} (${(facingZ / winding.validTriangles * 100).toFixed(1)}%)`);
-  console.log(`    Other orientations: ${facingOther} (${(facingOther / winding.validTriangles * 100).toFixed(1)}%)`);
+  const totalFacing = facingX + facingY + facingZ + facingOther;
+  const pct = (n) => totalFacing > 0 ? (n / totalFacing * 100).toFixed(1) : '0.0';
+  console.log(`    Facing X axis: ${facingX} (${pct(facingX)}%)`);
+  console.log(`    Facing Y axis: ${facingY} (${pct(facingY)}%)`);
+  console.log(`    Facing Z axis: ${facingZ} (${pct(facingZ)}%)`);
+  console.log(`    Other orientations: ${facingOther} (${pct(facingOther)}%)`);
 
   if (winding.validTriangles === 0) {
     console.log(`  ❌ No valid triangles found!`);

@@ -45,44 +45,214 @@ function test(name, fn) {
   }
 }
 
+/**
+ * Analyze mesh quality and return issues found
+ */
+function analyzeMeshQuality(mesh) {
+  const vertices = mesh.positions;
+  const indices = mesh.indices;
+  const normals = mesh.normals;
+  const vertexCount = mesh.vertexCount;
+  const triangleCount = mesh.triangleCount;
+
+  const issues = [];
+
+  // Check bounding box reasonableness
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+  for (let i = 0; i < vertexCount; i++) {
+    const x = vertices[i * 3];
+    const y = vertices[i * 3 + 1];
+    const z = vertices[i * 3 + 2];
+
+    if (!isFinite(x) || !isFinite(y) || !isFinite(z)) {
+      issues.push(`Non-finite coordinates at vertex ${i}`);
+      continue;
+    }
+
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+  }
+
+  const sizeX = maxX - minX;
+  const sizeY = maxY - minY;
+  const sizeZ = maxZ - minZ;
+  const maxSize = Math.max(sizeX, sizeY, sizeZ);
+
+  // Check for unreasonably large bounding boxes (e.g., 1km spans for small elements)
+  if (maxSize > 1000) {
+    issues.push(`Unreasonably large bounding box: ${maxSize.toFixed(1)}m span`);
+  }
+
+  // Check for flat geometry (all vertices in a plane)
+  const FLAT_THRESHOLD = 0.001; // 1mm
+  if (sizeX < FLAT_THRESHOLD || sizeY < FLAT_THRESHOLD || sizeZ < FLAT_THRESHOLD) {
+    issues.push(`Flat geometry detected: size (${sizeX.toFixed(6)}, ${sizeY.toFixed(6)}, ${sizeZ.toFixed(6)})`);
+  }
+
+  // Check vertex clusters (fragmented geometry)
+  const clusters = new Map();
+  const clusterSize = 50; // 50m bins
+  for (let i = 0; i < vertexCount; i++) {
+    const x = vertices[i * 3];
+    const y = vertices[i * 3 + 1];
+    const cx = Math.floor(x / clusterSize);
+    const cy = Math.floor(y / clusterSize);
+    const key = `${cx},${cy}`;
+    clusters.set(key, (clusters.get(key) || 0) + 1);
+  }
+
+  if (clusters.size > 3) {
+    issues.push(`Fragmented geometry: ${clusters.size} separate vertex clusters`);
+  }
+
+  // Analyze triangles
+  let degenerateCount = 0;
+  let stretchedCount = 0;
+  const AREA_THRESHOLD = 1e-8;
+  const EDGE_THRESHOLD = 50; // 50m edge threshold
+
+  for (let t = 0; t < triangleCount; t++) {
+    const i0 = indices[t * 3];
+    const i1 = indices[t * 3 + 1];
+    const i2 = indices[t * 3 + 2];
+
+    if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount) {
+      issues.push(`Invalid triangle indices at triangle ${t}`);
+      continue;
+    }
+
+    const p0 = [vertices[i0 * 3], vertices[i0 * 3 + 1], vertices[i0 * 3 + 2]];
+    const p1 = [vertices[i1 * 3], vertices[i1 * 3 + 1], vertices[i1 * 3 + 2]];
+    const p2 = [vertices[i2 * 3], vertices[i2 * 3 + 1], vertices[i2 * 3 + 2]];
+
+    // Check for stretched triangles
+    const edge01 = Math.sqrt((p1[0] - p0[0]) ** 2 + (p1[1] - p0[1]) ** 2 + (p1[2] - p0[2]) ** 2);
+    const edge12 = Math.sqrt((p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2 + (p2[2] - p1[2]) ** 2);
+    const edge20 = Math.sqrt((p0[0] - p2[0]) ** 2 + (p0[1] - p2[1]) ** 2 + (p0[2] - p2[2]) ** 2);
+    const maxEdge = Math.max(edge01, edge12, edge20);
+
+    if (maxEdge > EDGE_THRESHOLD) {
+      stretchedCount++;
+    }
+
+    // Check for degenerate triangles
+    const e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+    const e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+    const cross = [
+      e1[1] * e2[2] - e1[2] * e2[1],
+      e1[2] * e2[0] - e1[0] * e2[2],
+      e1[0] * e2[1] - e1[1] * e2[0],
+    ];
+    const area = 0.5 * Math.sqrt(cross[0] ** 2 + cross[1] ** 2 + cross[2] ** 2);
+
+    if (area === 0 || area < AREA_THRESHOLD) {
+      degenerateCount++;
+    }
+  }
+
+  if (degenerateCount > 0) {
+    issues.push(`${degenerateCount} degenerate triangles (zero or near-zero area)`);
+  }
+
+  if (stretchedCount > 0) {
+    const ratio = (stretchedCount / triangleCount * 100).toFixed(1);
+    issues.push(`${stretchedCount} stretched triangles (edge > ${EDGE_THRESHOLD}m) - ${ratio}%`);
+  }
+
+  // Validate normals
+  if (normals.length === vertices.length) {
+    let invalidNormalCount = 0;
+    for (let i = 0; i < vertexCount; i++) {
+      const nx = normals[i * 3];
+      const ny = normals[i * 3 + 1];
+      const nz = normals[i * 3 + 2];
+
+      if (!isFinite(nx) || !isFinite(ny) || !isFinite(nz)) {
+        invalidNormalCount++;
+        continue;
+      }
+
+      const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      if (len < 0.9 || len > 1.1) {
+        invalidNormalCount++;
+      }
+    }
+
+    if (invalidNormalCount > 0) {
+      issues.push(`${invalidNormalCount} invalid normals (non-unit length or non-finite)`);
+    }
+  }
+
+  return issues;
+}
+
 function testFile(filePath, expectations) {
   const fileName = basename(filePath);
-  
+
   if (!existsSync(filePath)) {
     console.log(`  ⏭️  ${fileName} (file not found)`);
     skipped++;
     return;
   }
-  
+
   test(fileName, () => {
     const content = readFileSync(filePath, 'utf-8');
     const collection = api.parseMeshes(content);
-    
+
     try {
       // For minMeshes > 0, enforce the minimum
       if (expectations.minMeshes !== undefined && expectations.minMeshes > 0) {
-        assert.ok(collection.length >= expectations.minMeshes, 
+        assert.ok(collection.length >= expectations.minMeshes,
           `Expected >= ${expectations.minMeshes} meshes, got ${collection.length}`);
       }
       // For minMeshes === 0, just verify parsing didn't crash (no assertion needed)
-      
+
       if (expectations.minVertices !== undefined) {
-        assert.ok(collection.totalVertices >= expectations.minVertices, 
+        assert.ok(collection.totalVertices >= expectations.minVertices,
           `Expected >= ${expectations.minVertices} vertices, got ${collection.totalVertices}`);
       }
-      
+
       if (expectations.minTriangles !== undefined) {
-        assert.ok(collection.totalTriangles >= expectations.minTriangles, 
+        assert.ok(collection.totalTriangles >= expectations.minTriangles,
           `Expected >= ${expectations.minTriangles} triangles, got ${collection.totalTriangles}`);
       }
-      
-      // Verify mesh integrity for all meshes (if any)
-      for (let i = 0; i < Math.min(collection.length, 10); i++) {
+
+      // Verify mesh integrity and quality for all meshes (if any)
+      const maxMeshesToCheck = Math.min(collection.length, 10);
+      let totalQualityIssues = 0;
+
+      for (let i = 0; i < maxMeshesToCheck; i++) {
         const mesh = collection.get(i);
         assert.ok(mesh.positions.length > 0, 'Should have positions');
         assert.ok(mesh.indices.length > 0, 'Should have indices');
         assert.equal(mesh.indices.length % 3, 0, 'Indices must form complete triangles');
+
+        // Analyze mesh quality
+        const qualityIssues = analyzeMeshQuality(mesh);
+        if (qualityIssues.length > 0) {
+          totalQualityIssues += qualityIssues.length;
+          // Only fail on truly critical issues (not warnings)
+          // Note: Fragmented geometry is a warning, not a critical issue,
+          // as legitimate geometry can span large areas
+          const criticalIssues = qualityIssues.filter(issue =>
+            issue.includes('Non-finite') ||
+            issue.includes('Invalid triangle')
+          );
+
+          if (criticalIssues.length > 0) {
+            throw new Error(`Mesh ${i} (entity ${mesh.expressId}): ${criticalIssues.join('; ')}`);
+          }
+        }
+
         mesh.free();
+      }
+
+      // Warn if many quality issues found (but don't fail)
+      if (totalQualityIssues > maxMeshesToCheck * 2) {
+        console.log(`     ⚠️  Warning: ${totalQualityIssues} quality issues found in sampled meshes`);
       }
     } finally {
       collection.free();

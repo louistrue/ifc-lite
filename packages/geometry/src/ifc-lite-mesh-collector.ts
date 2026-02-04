@@ -40,7 +40,14 @@ export interface StreamingColorUpdateEvent {
   updates: Map<number, [number, number, number, number]>;
 }
 
-export type StreamingEvent = StreamingBatchEvent | StreamingCompleteEvent | StreamingColorUpdateEvent;
+export interface StreamingRtcOffsetEvent {
+  type: 'rtcOffset';
+  /** RTC offset in IFC coordinates (before Z-up to Y-up conversion) */
+  rtcOffset: { x: number; y: number; z: number };
+  hasRtc: boolean;
+}
+
+export type StreamingEvent = StreamingBatchEvent | StreamingCompleteEvent | StreamingColorUpdateEvent | StreamingRtcOffsetEvent;
 
 export class IfcLiteMeshCollector {
   private ifcApi: IfcAPI;
@@ -164,6 +171,9 @@ export class IfcLiteMeshCollector {
       }
     }
 
+    // Extract building rotation before freeing collection
+    const buildingRotation = collection.buildingRotation ?? undefined;
+
     // Free the collection
     collection.free();
 
@@ -172,7 +182,18 @@ export class IfcLiteMeshCollector {
     }
 
     log.debug(`Collected ${meshes.length} meshes`, { operation: 'collectMeshes' });
+    
+    // Store building rotation for later use (will be added to CoordinateInfo)
+    (this as any)._buildingRotation = buildingRotation;
+    
     return meshes;
+  }
+
+  /**
+   * Get building rotation extracted from IfcSite placement
+   */
+  getBuildingRotation(): number | undefined {
+    return (this as any)._buildingRotation;
   }
 
   /**
@@ -180,9 +201,9 @@ export class IfcLiteMeshCollector {
    * Uses fast-first-frame streaming: simple geometry (walls, slabs) first
    * @param batchSize Number of meshes per batch (default: 25 for faster first frame)
    */
-  async *collectMeshesStreaming(batchSize: number = 25): AsyncGenerator<MeshData[] | StreamingColorUpdateEvent> {
+  async *collectMeshesStreaming(batchSize: number = 25): AsyncGenerator<MeshData[] | StreamingColorUpdateEvent | StreamingRtcOffsetEvent> {
     // Queue to hold batches produced by async callback
-    const batchQueue: (MeshData[] | StreamingColorUpdateEvent)[] = [];
+    const batchQueue: (MeshData[] | StreamingColorUpdateEvent | StreamingRtcOffsetEvent)[] = [];
     let resolveWaiting: (() => void) | null = null;
     let isComplete = false;
     let processingError: Error | null = null;
@@ -195,6 +216,19 @@ export class IfcLiteMeshCollector {
     // NOTE: WASM now automatically defers style building for faster first frame
     const processingPromise = this.ifcApi.parseMeshesAsync(this.content, {
       batchSize,
+      onRtcOffset: (rtc: { x: number; y: number; z: number; hasRtc: boolean }) => {
+        // Emit RTC offset event so consumer can capture it
+        batchQueue.push({
+          type: 'rtcOffset',
+          rtcOffset: { x: rtc.x, y: rtc.y, z: rtc.z },
+          hasRtc: rtc.hasRtc,
+        });
+        // Wake up the generator if it's waiting
+        if (resolveWaiting) {
+          resolveWaiting();
+          resolveWaiting = null;
+        }
+      },
       onColorUpdate: (updates: Map<number, [number, number, number, number]>) => {
         // Store color updates
         for (const [expressId, color] of updates) {
@@ -275,8 +309,14 @@ export class IfcLiteMeshCollector {
           resolveWaiting = null;
         }
       },
-      onComplete: (stats: { totalMeshes: number; totalVertices: number; totalTriangles: number }) => {
+      onComplete: (stats: { totalMeshes: number; totalVertices: number; totalTriangles: number; rtcOffset?: { x: number; y: number; z: number; hasRtc: boolean }; buildingRotation?: number }) => {
         isComplete = true;
+        
+        // Store building rotation if present
+        if (stats.buildingRotation !== undefined) {
+          (this as any)._buildingRotation = stats.buildingRotation;
+        }
+        
         log.debug(`Streaming complete: ${stats.totalMeshes} meshes, ${stats.totalVertices} vertices, ${stats.totalTriangles} triangles`, {
           operation: 'collectMeshesStreaming',
         });

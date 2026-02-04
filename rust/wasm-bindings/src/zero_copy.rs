@@ -94,6 +94,9 @@ pub struct MeshCollection {
     rtc_offset_x: f64,
     rtc_offset_y: f64,
     rtc_offset_z: f64,
+    /// Building rotation angle in radians (from IfcSite's top-level placement)
+    /// This is the rotation of the building's principal axes relative to world X/Y/Z
+    building_rotation: Option<f64>,
 }
 
 #[wasm_bindgen]
@@ -157,6 +160,13 @@ impl MeshCollection {
             || self.rtc_offset_z.abs() > THRESHOLD
     }
 
+    /// Get building rotation angle in radians (from IfcSite placement)
+    /// Returns None if no rotation was detected
+    #[wasm_bindgen(getter, js_name = buildingRotation)]
+    pub fn building_rotation(&self) -> Option<f64> {
+        self.building_rotation
+    }
+
     /// Convert local coordinates to world coordinates
     /// Use this to convert mesh positions back to original IFC coordinates
     #[wasm_bindgen(js_name = localToWorld)]
@@ -177,6 +187,7 @@ impl MeshCollection {
             rtc_offset_x: 0.0,
             rtc_offset_y: 0.0,
             rtc_offset_z: 0.0,
+            building_rotation: None,
         }
     }
 
@@ -187,6 +198,7 @@ impl MeshCollection {
             rtc_offset_x: 0.0,
             rtc_offset_y: 0.0,
             rtc_offset_z: 0.0,
+            building_rotation: None,
         }
     }
 
@@ -203,6 +215,7 @@ impl MeshCollection {
             rtc_offset_x: 0.0,
             rtc_offset_y: 0.0,
             rtc_offset_z: 0.0,
+            building_rotation: None,
         }
     }
 
@@ -221,6 +234,11 @@ impl MeshCollection {
         self.rtc_offset_x = x;
         self.rtc_offset_y = y;
         self.rtc_offset_z = z;
+    }
+
+    /// Set the building rotation angle in radians
+    pub fn set_building_rotation(&mut self, rotation: Option<f64>) {
+        self.building_rotation = rotation;
     }
 
     /// Apply RTC offset to all meshes (shift coordinates)
@@ -257,6 +275,7 @@ impl Clone for MeshCollection {
             rtc_offset_x: self.rtc_offset_x,
             rtc_offset_y: self.rtc_offset_y,
             rtc_offset_z: self.rtc_offset_z,
+            building_rotation: self.building_rotation,
         }
     }
 }
