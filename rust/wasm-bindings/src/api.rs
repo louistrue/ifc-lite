@@ -2713,6 +2713,13 @@ impl Transform2D {
         let ry = x * self.sin_theta + y * self.cos_theta;
         (rx + self.tx, ry + self.ty)
     }
+
+    /// Apply translation only, no rotation.
+    /// Used for 2D representations (Axis, Plan) where 2D coordinates are already
+    /// in floor plan orientation and shouldn't be rotated by the 3D ObjectPlacement.
+    fn translate_point(&self, x: f32, y: f32) -> (f32, f32) {
+        (x + self.tx, y + self.ty)
+    }
 }
 
 /// Compose two 2D transforms: result = a * b (apply b first, then a)
@@ -3039,17 +3046,24 @@ fn extract_symbolic_item(
                             if let Some(coords) = coords_attr.as_list() {
                                 let local_x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
                                 let local_y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                let is_2d = coords.len() == 2;
 
-                                // Apply placement transform to get world coordinates, then apply RTC offset
-                                let (wx, wy) = transform.transform_point(local_x, local_y);
+                                // For 2D representations (Axis, Plan with 2D points), apply translation only.
+                                // 2D representation coordinates are already in floor plan orientation.
+                                // For 3D points, apply full transform including rotation.
+                                let (wx, wy) = if is_2d {
+                                    transform.translate_point(local_x, local_y)
+                                } else {
+                                    transform.transform_point(local_x, local_y)
+                                };
                                 let x = wx - rtc_x;
                                 let y = wy - rtc_z;
 
                                 // Debug first point of first polyline
                                 if polyline_debug && i == 0 {
                                     web_sys::console::log_1(&format!(
-                                        "[Symbolic Polyline] Entity #{}: local({:.2}, {:.2}) -> world({:.2}, {:.2}) -> shifted({:.2}, {:.2})",
-                                        express_id, local_x, local_y, wx, wy, x, y
+                                        "[Symbolic Polyline] Entity #{}: local({:.2}, {:.2}) -> world({:.2}, {:.2}) -> shifted({:.2}, {:.2}) [{}]",
+                                        express_id, local_x, local_y, wx, wy, x, y, if is_2d { "2D" } else { "3D" }
                                     ).into());
                                 }
 
@@ -3090,9 +3104,14 @@ fn extract_symbolic_item(
                                 if let Some(coords) = coord.as_list() {
                                     let local_x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
                                     let local_y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                    let is_2d = coords.len() == 2;
 
-                                    // Apply placement transform to get world coordinates, then apply RTC offset
-                                    let (wx, wy) = transform.transform_point(local_x, local_y);
+                                    // For 2D representations, apply translation only (no rotation)
+                                    let (wx, wy) = if is_2d {
+                                        transform.translate_point(local_x, local_y)
+                                    } else {
+                                        transform.transform_point(local_x, local_y)
+                                    };
                                     let x = wx - rtc_x;
                                     let y = wy - rtc_z;
 
@@ -3133,7 +3152,7 @@ fn extract_symbolic_item(
             }
 
             // Get center from Position (attribute 0)
-            let (center_x, center_y) = if let Some(pos_ref) = item.get_ref(0) {
+            let (center_x, center_y, is_2d_center) = if let Some(pos_ref) = item.get_ref(0) {
                 if let Ok(placement) = decoder.decode_by_id(pos_ref) {
                     // IfcAxis2Placement2D/3D: Location
                     if let Some(loc_ref) = placement.get_ref(0) {
@@ -3142,24 +3161,24 @@ fn extract_symbolic_item(
                                 if let Some(coords) = coords_attr.as_list() {
                                     let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
                                     let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                                    (x, y)
+                                    (x, y, coords.len() == 2)
                                 } else {
-                                    (0.0, 0.0)
+                                    (0.0, 0.0, true)
                                 }
                             } else {
-                                (0.0, 0.0)
+                                (0.0, 0.0, true)
                             }
                         } else {
-                            (0.0, 0.0)
+                            (0.0, 0.0, true)
                         }
                     } else {
-                        (0.0, 0.0)
+                        (0.0, 0.0, true)
                     }
                 } else {
-                    (0.0, 0.0)
+                    (0.0, 0.0, true)
                 }
             } else {
-                (0.0, 0.0)
+                (0.0, 0.0, true)
             };
 
             // Validate center coordinates
@@ -3167,8 +3186,12 @@ fn extract_symbolic_item(
                 return;
             }
 
-            // Apply placement transform to get world coordinates, then apply RTC offset
-            let (wx, wy) = transform.transform_point(center_x, center_y);
+            // For 2D representations, apply translation only (no rotation)
+            let (wx, wy) = if is_2d_center {
+                transform.translate_point(center_x, center_y)
+            } else {
+                transform.transform_point(center_x, center_y)
+            };
             let world_cx = wx - rtc_x;
             let world_cy = wy - rtc_z;
 
@@ -3196,7 +3219,7 @@ fn extract_symbolic_item(
                             return;
                         }
 
-                        let (center_x, center_y) = if let Some(pos_ref) = basis_curve.get_ref(0) {
+                        let (center_x, center_y, is_2d_arc) = if let Some(pos_ref) = basis_curve.get_ref(0) {
                             if let Ok(placement) = decoder.decode_by_id(pos_ref) {
                                 if let Some(loc_ref) = placement.get_ref(0) {
                                     if let Ok(loc) = decoder.decode_by_id(loc_ref) {
@@ -3204,24 +3227,24 @@ fn extract_symbolic_item(
                                             if let Some(coords) = coords_attr.as_list() {
                                                 let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
                                                 let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                                                (x, y)
+                                                (x, y, coords.len() == 2)
                                             } else {
-                                                (0.0, 0.0)
+                                                (0.0, 0.0, true)
                                             }
                                         } else {
-                                            (0.0, 0.0)
+                                            (0.0, 0.0, true)
                                         }
                                     } else {
-                                        (0.0, 0.0)
+                                        (0.0, 0.0, true)
                                     }
                                 } else {
-                                    (0.0, 0.0)
+                                    (0.0, 0.0, true)
                                 }
                             } else {
-                                (0.0, 0.0)
+                                (0.0, 0.0, true)
                             }
                         } else {
-                            (0.0, 0.0)
+                            (0.0, 0.0, true)
                         };
 
                         // Validate center coordinates
@@ -3278,9 +3301,17 @@ fn extract_symbolic_item(
 
                         if is_near_collinear {
                             // Emit as simple line segment instead of tessellated arc
-                            // Apply placement transform to get world coordinates, then apply RTC offset
-                            let (wsx, wsy) = transform.transform_point(start_x, start_y);
-                            let (wex, wey) = transform.transform_point(end_x, end_y);
+                            // For 2D representations, apply translation only (no rotation)
+                            let (wsx, wsy) = if is_2d_arc {
+                                transform.translate_point(start_x, start_y)
+                            } else {
+                                transform.transform_point(start_x, start_y)
+                            };
+                            let (wex, wey) = if is_2d_arc {
+                                transform.translate_point(end_x, end_y)
+                            } else {
+                                transform.transform_point(end_x, end_y)
+                            };
                             let points = vec![wsx - rtc_x, wsy - rtc_z, wex - rtc_x, wey - rtc_z];
                             collection.add_polyline(SymbolicPolyline::new(
                                 express_id,
@@ -3301,8 +3332,12 @@ fn extract_symbolic_item(
                                 let local_x = center_x + radius * angle.cos();
                                 let local_y = center_y + radius * angle.sin();
 
-                                // Apply placement transform to get world coordinates, then apply RTC offset
-                                let (wx, wy) = transform.transform_point(local_x, local_y);
+                                // For 2D representations, apply translation only (no rotation)
+                                let (wx, wy) = if is_2d_arc {
+                                    transform.translate_point(local_x, local_y)
+                                } else {
+                                    transform.transform_point(local_x, local_y)
+                                };
                                 let x = wx - rtc_x;
                                 let y = wy - rtc_z;
 
