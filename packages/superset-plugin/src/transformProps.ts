@@ -1,3 +1,7 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
 import type { ChartProps } from './vendor/superset-types.js';
 import type { IFCViewerFormData, IFCViewerProps } from './types.js';
 import { DEFAULT_BACKGROUND } from './types.js';
@@ -96,17 +100,12 @@ export default function transformProps(chartProps: ChartProps): IFCViewerProps {
   const bgRaw: unknown = fd.backgroundColor;
   if (typeof bgRaw === 'string' && bgRaw.startsWith('#')) {
     backgroundColor = parseHexToNormalized(bgRaw);
-  } else if (
-    bgRaw &&
-    typeof bgRaw === 'object' &&
-    'r' in bgRaw
-  ) {
-    const bg = bgRaw as { r: number; g: number; b: number; a?: number };
+  } else if (isRgbaInput(bgRaw)) {
     backgroundColor = [
-      bg.r / 255,
-      bg.g / 255,
-      bg.b / 255,
-      bg.a ?? 1,
+      bgRaw.r / 255,
+      bgRaw.g / 255,
+      bgRaw.b / 255,
+      bgRaw.a ?? 1,
     ];
   }
 
@@ -154,4 +153,16 @@ function resolveMetricKey(
   if (!metric) return '';
   if (typeof metric === 'string') return metric;
   return metric.label ?? '';
+}
+
+function isRgbaInput(
+  value: unknown,
+): value is { r: number; g: number; b: number; a?: number } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'r' in value &&
+    'g' in value &&
+    'b' in value
+  );
 }

@@ -1,3 +1,7 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
 import { useMemo } from 'react';
 import type { RGBA } from '../utils/colorScale.js';
 
@@ -18,11 +22,19 @@ export function useEntityColorMap(
     if (entityColorMap.size === 0) return new Map<number, RGBA>();
 
     const numericMap = new Map<number, RGBA>();
+    let hasNonNumeric = false;
     for (const [key, rgba] of entityColorMap) {
       const id = Number(key);
       if (!isNaN(id) && isFinite(id)) {
         numericMap.set(id, rgba);
+      } else if (key) {
+        hasNonNumeric = true;
       }
+    }
+    if (hasNonNumeric) {
+      console.warn(
+        'IFC Viewer: entity_id_column must be numeric ExpressID; non-numeric IDs were ignored.',
+      );
     }
     return numericMap;
   }, [entityColorMap]);

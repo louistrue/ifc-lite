@@ -1,13 +1,12 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { GeometryProcessor } from '@ifc-lite/geometry';
 import type { MeshData } from '@ifc-lite/geometry';
 import type { Renderer } from '@ifc-lite/renderer';
-
-interface LoaderState {
-  loading: boolean;
-  progress: number;
-  error: string | null;
-}
+import type { LoaderState } from '../types.js';
 
 /**
  * Handles IFC model fetching, WASM geometry processing, and progressive
@@ -25,11 +24,13 @@ export function useIFCLoader(
   modelUrl: string,
 ) {
   const processorRef = useRef<GeometryProcessor | null>(null);
+  const processorReadyRef = useRef(false);
   const loadedUrlRef = useRef('');
   const allMeshesRef = useRef<MeshData[]>([]);
   const [state, setState] = useState<LoaderState>({
     loading: false,
     progress: 0,
+    totalMeshes: 0,
     error: null,
   });
 
@@ -37,19 +38,27 @@ export function useIFCLoader(
   useEffect(() => {
     const processor = new GeometryProcessor();
     processorRef.current = processor;
+    processorReadyRef.current = false;
 
     let disposed = false;
-    processor.init().catch((err: Error) => {
-      if (!disposed) {
-        setState((s) => ({
-          ...s,
-          error: `WASM init failed: ${err.message}`,
-        }));
-      }
-    });
+    processor.init()
+      .then(() => {
+        if (!disposed) {
+          processorReadyRef.current = true;
+        }
+      })
+      .catch((err: Error) => {
+        if (!disposed) {
+          setState((s) => ({
+            ...s,
+            error: `WASM init failed: ${err.message}`,
+          }));
+        }
+      });
 
     return () => {
       disposed = true;
+      processorReadyRef.current = false;
       processor.dispose();
       processorRef.current = null;
     };
@@ -60,13 +69,13 @@ export function useIFCLoader(
     const renderer = rendererRef.current;
     const processor = processorRef.current;
 
-    if (!renderer || !rendererReady || !processor || !modelUrl) return;
+    if (!renderer || !rendererReady || !processor || !processorReadyRef.current || !modelUrl) return;
     if (modelUrl === loadedUrlRef.current) return; // Already loaded
 
     let cancelled = false;
     allMeshesRef.current = [];
 
-    setState({ loading: true, progress: 0, error: null });
+    setState({ loading: true, progress: 0, totalMeshes: 0, error: null });
 
     (async () => {
       // Fetch the IFC file
@@ -106,6 +115,7 @@ export function useIFCLoader(
             setState((s) => ({
               ...s,
               progress: event.totalSoFar,
+              totalMeshes: event.totalSoFar,
             }));
             break;
           }
@@ -120,11 +130,11 @@ export function useIFCLoader(
 
       if (!cancelled) {
         loadedUrlRef.current = modelUrl;
-        setState({ loading: false, progress: allMeshesRef.current.length, error: null });
+        setState({ loading: false, progress: allMeshesRef.current.length, totalMeshes: allMeshesRef.current.length, error: null });
       }
     })().catch((err: Error) => {
       if (!cancelled) {
-        setState({ loading: false, progress: 0, error: `Load failed: ${err.message}` });
+        setState({ loading: false, progress: 0, totalMeshes: 0, error: `Load failed: ${err.message}` });
       }
     });
 

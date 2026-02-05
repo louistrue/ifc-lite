@@ -1,3 +1,7 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
 import React, { useRef, useEffect, useCallback, useMemo } from 'react';
 import type { IFCViewerProps } from './types.js';
 import { useIFCRenderer } from './hooks/useIFCRenderer.js';
@@ -90,7 +94,8 @@ const IFCViewerChart: React.FC<IFCViewerProps> = ({
       }
     };
   // Also re-render when loading completes (loading changes from true to false)
-  }, [rendererRef, numericColorMap, isolatedIds, backgroundColor, loading]);
+  // NOTE: numericColorMap intentionally excluded — add when renderer supports per-entity color overrides
+  }, [rendererRef, isolatedIds, backgroundColor, loading]);
 
   // ---- Click handler → cross-filter ----
   const handleClick = useCallback(
@@ -104,30 +109,34 @@ const IFCViewerChart: React.FC<IFCViewerProps> = ({
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
 
-      const result = await renderer.pick(x, y);
+      try {
+        const result = await renderer.pick(x, y);
 
-      if (result) {
-        // Entity clicked → apply cross-filter
-        setDataMask({
-          extraFormData: {
-            filters: [
-              {
-                col: entityIdColumn,
-                op: '==',
-                val: String(result.expressId),
-              },
-            ],
-          },
-          filterState: {
-            value: String(result.expressId),
-          },
-        });
-      } else {
-        // Background clicked → clear cross-filter
-        setDataMask({
-          extraFormData: { filters: [] },
-          filterState: { value: null },
-        });
+        if (result) {
+          // Entity clicked → apply cross-filter
+          setDataMask({
+            extraFormData: {
+              filters: [
+                {
+                  col: entityIdColumn,
+                  op: '==',
+                  val: String(result.expressId),
+                },
+              ],
+            },
+            filterState: {
+              value: String(result.expressId),
+            },
+          });
+        } else {
+          // Background clicked → clear cross-filter
+          setDataMask({
+            extraFormData: { filters: [] },
+            filterState: { value: null },
+          });
+        }
+      } catch {
+        // Pick failed — ignore silently (e.g., GPU context lost)
       }
     },
     [enablePicking, setDataMask, entityIdColumn, rendererRef],
@@ -164,8 +173,13 @@ const IFCViewerChart: React.FC<IFCViewerProps> = ({
     return null;
   }, [error, loading, progress, modelUrl]);
 
+  const containerStyle = useMemo(
+    () => ({ position: 'relative' as const, width, height, overflow: 'hidden' as const }),
+    [width, height],
+  );
+
   return (
-    <div style={{ position: 'relative', width, height, overflow: 'hidden' }}>
+    <div style={containerStyle}>
       <canvas
         ref={canvasRef}
         width={width}

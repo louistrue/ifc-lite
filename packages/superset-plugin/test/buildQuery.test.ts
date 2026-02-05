@@ -1,3 +1,7 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
 import { describe, it, expect } from 'vitest';
 import buildQuery from '../src/buildQuery.js';
 
@@ -13,11 +17,11 @@ describe('buildQuery', () => {
     expect(result.queries).toHaveLength(1);
   });
 
-  it('includes entity_id_column in columns and groupby', () => {
+  it('includes entityIdColumn in columns and groupby', () => {
     const result = buildQuery({
       datasource: '1__table',
       viz_type: 'ifc_viewer',
-      entity_id_column: 'global_id',
+      entityIdColumn: 'global_id',
     });
 
     const query = result.queries[0];
@@ -25,37 +29,37 @@ describe('buildQuery', () => {
     expect(query.groupby).toContain('global_id');
   });
 
-  it('includes model_url_column in columns', () => {
+  it('includes modelUrlColumn in columns', () => {
     const result = buildQuery({
       datasource: '1__table',
       viz_type: 'ifc_viewer',
-      model_url_column: 'model_url',
+      modelUrlColumn: 'model_url',
     });
 
     const query = result.queries[0];
     expect(query.columns).toContain('model_url');
   });
 
-  it('includes color_metric in metrics', () => {
+  it('includes colorMetric in metrics', () => {
     const result = buildQuery({
       datasource: '1__table',
       viz_type: 'ifc_viewer',
-      entity_id_column: 'global_id',
-      color_metric: 'total_cost',
+      entityIdColumn: 'global_id',
+      colorMetric: 'total_cost',
     });
 
     const query = result.queries[0];
     expect(query.metrics).toContain('total_cost');
   });
 
-  it('excludes color_metric when color_by_category is true', () => {
+  it('excludes colorMetric when colorByCategory is true', () => {
     const result = buildQuery({
       datasource: '1__table',
       viz_type: 'ifc_viewer',
-      entity_id_column: 'global_id',
-      color_metric: 'total_cost',
-      color_by_category: true,
-      category_column: 'element_type',
+      entityIdColumn: 'global_id',
+      colorMetric: 'total_cost',
+      colorByCategory: true,
+      categoryColumn: 'element_type',
     });
 
     const query = result.queries[0];
@@ -68,6 +72,7 @@ describe('buildQuery', () => {
     const result = buildQuery({
       datasource: '1__table',
       viz_type: 'ifc_viewer',
+      entityIdColumn: 'global_id',
     });
 
     const query = result.queries[0];
@@ -78,6 +83,7 @@ describe('buildQuery', () => {
     const result = buildQuery({
       datasource: '1__table',
       viz_type: 'ifc_viewer',
+      entityIdColumn: 'global_id',
       row_limit: 1000,
     });
 
@@ -85,11 +91,12 @@ describe('buildQuery', () => {
     expect(query.row_limit).toBe(1000);
   });
 
-  it('includes orderby when color_metric is set', () => {
+  it('includes orderby when colorMetric is set', () => {
     const result = buildQuery({
       datasource: '1__table',
       viz_type: 'ifc_viewer',
-      color_metric: 'cost',
+      entityIdColumn: 'global_id',
+      colorMetric: 'cost',
     });
 
     const query = result.queries[0];

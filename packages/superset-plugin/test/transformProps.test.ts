@@ -1,3 +1,7 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
 import { describe, it, expect } from 'vitest';
 import transformProps from '../src/transformProps.js';
 import type { ChartProps } from '../src/vendor/superset-types.js';
@@ -32,7 +36,7 @@ describe('transformProps', () => {
   it('resolves static model URL', () => {
     const result = transformProps(
       makeChartProps({
-        formData: { static_model_url: 'https://example.com/model.ifc' },
+        formData: { staticModelUrl: 'https://example.com/model.ifc' },
       }),
     );
 
@@ -43,8 +47,8 @@ describe('transformProps', () => {
     const result = transformProps(
       makeChartProps({
         formData: {
-          static_model_url: 'https://example.com/static.ifc',
-          model_url_column: 'url',
+          staticModelUrl: 'https://example.com/static.ifc',
+          modelUrlColumn: 'url',
         },
         queriesData: [
           {
@@ -63,8 +67,8 @@ describe('transformProps', () => {
     const result = transformProps(
       makeChartProps({
         formData: {
-          entity_id_column: 'global_id',
-          color_metric: 'cost',
+          entityIdColumn: 'global_id',
+          colorMetric: 'cost',
         },
         queriesData: [
           {
@@ -88,9 +92,9 @@ describe('transformProps', () => {
     const result = transformProps(
       makeChartProps({
         formData: {
-          entity_id_column: 'id',
-          color_metric: 'value',
-          color_scheme: 'reds',
+          entityIdColumn: 'id',
+          colorMetric: 'value',
+          colorScheme: 'reds',
         },
         queriesData: [
           {
@@ -114,13 +118,13 @@ describe('transformProps', () => {
     expect(color1).not.toEqual(color3);
   });
 
-  it('builds categorical color map when color_by_category is true', () => {
+  it('builds categorical color map when colorByCategory is true', () => {
     const result = transformProps(
       makeChartProps({
         formData: {
-          entity_id_column: 'id',
-          color_by_category: true,
-          category_column: 'type',
+          entityIdColumn: 'id',
+          colorByCategory: true,
+          categoryColumn: 'type',
         },
         queriesData: [
           {
@@ -145,7 +149,7 @@ describe('transformProps', () => {
   it('parses hex background color', () => {
     const result = transformProps(
       makeChartProps({
-        formData: { background_color: '#ff0000' },
+        formData: { backgroundColor: '#ff0000' },
       }),
     );
 
@@ -194,8 +198,8 @@ describe('transformProps', () => {
     const result = transformProps(
       makeChartProps({
         formData: {
-          entity_id_column: 'id',
-          color_metric: 'value',
+          entityIdColumn: 'id',
+          colorMetric: 'value',
         },
         queriesData: [
           {

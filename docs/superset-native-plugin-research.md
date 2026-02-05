@@ -70,7 +70,7 @@ const fd = formData as unknown as IFCViewerFormData;
 
 ## Current Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │                    Superset Frontend                     │
 ├─────────────────────────────────────────────────────────┤
@@ -114,7 +114,7 @@ Transform IFC file loading from a technical process into a seamless user experie
 
 ### Phase 1: Hosted Model Storage + Auto-Dataset Creation
 
-```
+```text
 ┌──────────────┐     ┌──────────────────┐     ┌─────────────────┐
 │  IFC File    │────▶│  Upload Service  │────▶│  Object Storage │
 │  (User)      │     │  (Parse + Store) │     │  (S3/GCS/R2)    │
@@ -158,7 +158,7 @@ Transform IFC file loading from a technical process into a seamless user experie
 
 ### Phase 3: SaaS Multi-Tenant Platform
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                      IFC-Lite Cloud                              │
 ├─────────────────────────────────────────────────────────────────┤

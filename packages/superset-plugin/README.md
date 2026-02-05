@@ -162,7 +162,7 @@ pnpm test
 
 ## Architecture
 
-```
+```text
 IFC File URL
     → fetch() ArrayBuffer
     → @ifc-lite/geometry GeometryProcessor (WASM)

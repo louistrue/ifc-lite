@@ -1,3 +1,7 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
 import {
   buildQueryContext,
   type QueryFormData,
@@ -39,11 +43,7 @@ export default function buildQuery(
 
     // Color-by metric (numeric, aggregated per entity)
     if (formData.colorMetric && !formData.colorByCategory) {
-      const metricValue =
-        typeof formData.colorMetric === 'object'
-          ? formData.colorMetric
-          : formData.colorMetric;
-      metrics.push(metricValue);
+      metrics.push(formData.colorMetric);
     }
 
     // Category column for categorical coloring
