@@ -9,7 +9,7 @@
  * and interaction event delegation.
  */
 
-import React, { useRef, useMemo, useEffect, useCallback } from 'react';
+import React, { useRef, useMemo, useEffect, useLayoutEffect, useCallback } from 'react';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import type {
@@ -152,6 +152,14 @@ export function ChartRenderer({
 }: ChartRendererProps) {
   const chartRef = useRef<ReactECharts>(null);
   const prevDataRef = useRef<AggregatedDataPoint[]>([]);
+  // Local ref to track animation state within this component instance
+  // This handles rapid re-renders before the parent's onAnimated callback completes
+  const localAnimatedRef = useRef(hasAnimated);
+
+  // Sync local ref with parent prop (handles remount scenarios)
+  if (hasAnimated && !localAnimatedRef.current) {
+    localAnimatedRef.current = true;
+  }
 
   // Stabilize data reference - only update if actual values changed
   // This prevents ECharts from re-animating when data reference changes but values are same
@@ -172,19 +180,23 @@ export function ChartRenderer({
   }, [data]);
 
   // Determine if animation should be enabled (only on first render with data)
-  // Animation state is tracked at parent level to survive component remounts
+  // Check both parent state (hasAnimated) and local state (localAnimatedRef)
+  // Local state handles rapid re-renders, parent state handles remounts
   const shouldAnimate = useMemo(() => {
     if (stableData.length === 0) return false;
     if (hasAnimated) return false;
+    if (localAnimatedRef.current) return false;
     return true;
   }, [stableData.length, hasAnimated]);
 
-  // Mark as animated after first render with data
-  useEffect(() => {
-    if (shouldAnimate && stableData.length > 0) {
-      // Small delay to ensure animation has started
-      const timer = setTimeout(() => onAnimated(), 50);
-      return () => clearTimeout(timer);
+  // Mark as animated IMMEDIATELY using useLayoutEffect (synchronous, before paint)
+  // This prevents double animation during rapid re-renders
+  useLayoutEffect(() => {
+    if (shouldAnimate && stableData.length > 0 && !localAnimatedRef.current) {
+      // Mark locally first (immediate)
+      localAnimatedRef.current = true;
+      // Then notify parent for persistence across remounts
+      onAnimated();
     }
   }, [shouldAnimate, stableData.length, onAnimated]);
 

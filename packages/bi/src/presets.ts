@@ -30,12 +30,6 @@ export const DASHBOARD_PRESETS: DashboardPreset[] = [
         options: { sortBy: 'value', sortOrder: 'desc' },
       },
       {
-        type: 'treemap',
-        title: 'Area by Type',
-        aggregation: { groupBy: 'ifcType', metric: 'sum', quantityField: 'area' },
-        layout: { x: 8, y: 0, w: 4, h: 3, minW: 2, minH: 2 },
-      },
-      {
         type: 'bar',
         title: 'Volume by Storey',
         aggregation: {
@@ -43,8 +37,14 @@ export const DASHBOARD_PRESETS: DashboardPreset[] = [
           metric: 'sum',
           quantityField: 'volume',
         },
-        layout: { x: 0, y: 3, w: 12, h: 3, minW: 4, minH: 2 },
+        layout: { x: 8, y: 0, w: 4, h: 3, minW: 2, minH: 2 },
         options: { sortBy: 'key' },
+      },
+      {
+        type: 'treemap',
+        title: 'Area by Type',
+        aggregation: { groupBy: 'ifcType', metric: 'sum', quantityField: 'area' },
+        layout: { x: 0, y: 3, w: 12, h: 3, minW: 4, minH: 2 },
       },
     ],
   },
