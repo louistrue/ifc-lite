@@ -1,0 +1,28 @@
+{
+  "name": "@ifc-lite/embed-sdk",
+  "version": "0.1.0",
+  "description": "SDK for embedding the IFC-Lite 3D viewer in any web page via iframe",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "dependencies": {
+    "@ifc-lite/embed-protocol": "workspace:^"
+  },
+  "license": "MPL-2.0",
+  "keywords": [
+    "ifc",
+    "bim",
+    "3d-viewer",
+    "embed",
+    "iframe",
+    "power-bi",
+    "superset",
+    "grafana"
+  ]
+}
