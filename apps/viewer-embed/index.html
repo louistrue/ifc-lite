@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IFC-Lite Embed</title>
+  <style>
+    /* Minimal inline styles - no Tailwind dependency for the shell */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body, #root { width: 100%; height: 100%; overflow: hidden; }
+    body { font-family: system-ui, -apple-system, sans-serif; }
+    html.dark body { background: #1a1b26; color: #a9b1d6; }
+    html.light body, html:not(.dark) body { background: #ffffff; color: #1a1b26; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>

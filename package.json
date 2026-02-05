@@ -10,8 +10,10 @@
   ],
   "scripts": {
     "dev": "pnpm build && pnpm --filter viewer dev",
+    "dev:embed": "pnpm build && pnpm --filter @ifc-lite/viewer-embed dev",
     "dev:desktop": "pnpm --filter @ifc-lite/desktop dev",
     "build": "pnpm -r build",
+    "build:embed": "pnpm --filter @ifc-lite/viewer-embed build",
     "build:desktop": "pnpm --filter @ifc-lite/desktop build",
     "build:desktop:windows": "pnpm --filter @ifc-lite/desktop build:windows",
     "build:desktop:macos": "pnpm --filter @ifc-lite/desktop build:macos",
