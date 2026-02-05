@@ -9,7 +9,7 @@
  * and interaction event delegation.
  */
 
-import React, { useRef, useMemo, useEffect, useLayoutEffect, useCallback } from 'react';
+import React, { useRef, useMemo, useEffect, useCallback } from 'react';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import type {
@@ -152,14 +152,9 @@ export function ChartRenderer({
 }: ChartRendererProps) {
   const chartRef = useRef<ReactECharts>(null);
   const prevDataRef = useRef<AggregatedDataPoint[]>([]);
-  // Local ref to track animation state within this component instance
-  // This handles rapid re-renders before the parent's onAnimated callback completes
-  const localAnimatedRef = useRef(hasAnimated);
-
-  // Sync local ref with parent prop (handles remount scenarios)
-  if (hasAnimated && !localAnimatedRef.current) {
-    localAnimatedRef.current = true;
-  }
+  // Local ref to track if we've already scheduled onAnimated callback
+  // This prevents multiple setTimeout calls during rapid re-renders
+  const onAnimatedCalledRef = useRef(false);
 
   // Stabilize data reference - only update if actual values changed
   // This prevents ECharts from re-animating when data reference changes but values are same
@@ -180,23 +175,23 @@ export function ChartRenderer({
   }, [data]);
 
   // Determine if animation should be enabled (only on first render with data)
-  // Check both parent state (hasAnimated) and local state (localAnimatedRef)
-  // Local state handles rapid re-renders, parent state handles remounts
+  // Only check parent's hasAnimated - this allows animation to play during re-renders
+  // while we wait for the animation to complete before marking it done
   const shouldAnimate = useMemo(() => {
     if (stableData.length === 0) return false;
     if (hasAnimated) return false;
-    if (localAnimatedRef.current) return false;
     return true;
   }, [stableData.length, hasAnimated]);
 
-  // Mark as animated IMMEDIATELY using useLayoutEffect (synchronous, before paint)
-  // This prevents double animation during rapid re-renders
-  useLayoutEffect(() => {
-    if (shouldAnimate && stableData.length > 0 && !localAnimatedRef.current) {
-      // Mark locally first (immediate)
-      localAnimatedRef.current = true;
-      // Then notify parent for persistence across remounts
-      onAnimated();
+  // Notify parent AFTER animation completes (300ms duration + 50ms buffer)
+  // Use local ref to ensure we only call onAnimated once per chart instance
+  // ECharts uses animationDurationUpdate: 0, so re-renders during animation won't re-animate
+  useEffect(() => {
+    if (shouldAnimate && stableData.length > 0 && !onAnimatedCalledRef.current) {
+      onAnimatedCalledRef.current = true;
+      // Wait for animation to complete before notifying parent
+      const timer = setTimeout(() => onAnimated(), 350);
+      return () => clearTimeout(timer);
     }
   }, [shouldAnimate, stableData.length, onAnimated]);
 
