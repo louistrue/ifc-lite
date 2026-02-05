@@ -142,6 +142,10 @@ export function StatusBar() {
             {webgpu.checking ? 'Checking...' : webgpu.supported ? 'WebGPU' : 'No WebGPU'}
           </span>
         </div>
+
+        <Separator orientation="vertical" className="h-3.5" />
+
+        <span className="opacity-60">v{__APP_VERSION__}</span>
       </div>
     </div>
   );

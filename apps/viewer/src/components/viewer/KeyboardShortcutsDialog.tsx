@@ -2,19 +2,37 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { useState, useEffect, useCallback } from 'react';
-import { X, Info, Keyboard, Github, ExternalLink } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { X, Info, Keyboard, Github, ExternalLink, Sparkles, ChevronDown, Zap, Wrench, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { KEYBOARD_SHORTCUTS } from '@/hooks/useKeyboardShortcuts';
 
-const VERSION = '1.3.0';
 const GITHUB_URL = 'https://github.com/louistrue/ifc-lite';
+const INITIAL_RELEASE_COUNT = 5;
 
 interface InfoDialogProps {
   open: boolean;
   onClose: () => void;
 }
+
+function formatBuildDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return iso;
+  }
+}
+
+const TYPE_CONFIG = {
+  feature: { icon: Plus, className: 'text-emerald-500' },
+  fix: { icon: Wrench, className: 'text-amber-500' },
+  perf: { icon: Zap, className: 'text-blue-500' },
+} as const;
 
 function AboutTab() {
   return (
@@ -22,7 +40,12 @@ function AboutTab() {
       {/* Header */}
       <div className="text-center pb-4 border-b">
         <h3 className="text-xl font-bold">ifc-lite</h3>
-        <p className="text-sm text-muted-foreground mt-1">Version {VERSION}</p>
+        <p className="text-sm text-muted-foreground mt-1">
+          Version {__APP_VERSION__}
+        </p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Built {formatBuildDate(__BUILD_DATE__)}
+        </p>
       </div>
 
       {/* Description */}
@@ -74,6 +97,80 @@ function AboutTab() {
         <p className="text-xs text-muted-foreground text-center">
           Licensed under Mozilla Public License 2.0
         </p>
+      </div>
+    </div>
+  );
+}
+
+function WhatsNewTab() {
+  const [showAll, setShowAll] = useState(false);
+  const releases = __RELEASE_HISTORY__;
+
+  const visibleReleases = useMemo(
+    () => (showAll ? releases : releases.slice(0, INITIAL_RELEASE_COUNT)),
+    [releases, showAll]
+  );
+
+  const hasMore = releases.length > INITIAL_RELEASE_COUNT;
+
+  if (releases.length === 0) {
+    return (
+      <div className="text-center py-8 text-sm text-muted-foreground">
+        No release history available.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {visibleReleases.map((release, i) => (
+        <div key={release.version}>
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="text-sm font-semibold">v{release.version}</span>
+            {i === 0 && (
+              <span className="px-1.5 py-0.5 text-[10px] font-medium bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 rounded">
+                latest
+              </span>
+            )}
+          </div>
+          <ul className="space-y-1 ml-0.5">
+            {release.highlights.map((h) => {
+              const { icon: Icon, className } = TYPE_CONFIG[h.type];
+              return (
+                <li key={h.text} className="flex items-start gap-2 text-sm text-muted-foreground">
+                  <Icon className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${className}`} />
+                  <span>{h.text}</span>
+                </li>
+              );
+            })}
+          </ul>
+          {i < visibleReleases.length - 1 && (
+            <div className="border-b mt-3" />
+          )}
+        </div>
+      ))}
+
+      {hasMore && !showAll && (
+        <button
+          onClick={() => setShowAll(true)}
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mx-auto"
+        >
+          <ChevronDown className="h-3.5 w-3.5" />
+          Show all {releases.length} releases
+        </button>
+      )}
+
+      {/* Legend */}
+      <div className="pt-3 border-t flex items-center justify-center gap-4 text-[11px] text-muted-foreground">
+        <span className="flex items-center gap-1">
+          <Plus className="h-3 w-3 text-emerald-500" /> Feature
+        </span>
+        <span className="flex items-center gap-1">
+          <Wrench className="h-3 w-3 text-amber-500" /> Fix
+        </span>
+        <span className="flex items-center gap-1">
+          <Zap className="h-3 w-3 text-blue-500" /> Perf
+        </span>
       </div>
     </div>
   );
@@ -151,6 +248,10 @@ export function KeyboardShortcutsDialog({ open, onClose }: InfoDialogProps) {
                 <Info className="h-3.5 w-3.5" />
                 About
               </TabsTrigger>
+              <TabsTrigger value="whatsnew" className="flex-1 gap-1.5 data-[state=active]:bg-background data-[state=active]:text-foreground">
+                <Sparkles className="h-3.5 w-3.5" />
+                What's New
+              </TabsTrigger>
               <TabsTrigger value="shortcuts" className="flex-1 gap-1.5 data-[state=active]:bg-background data-[state=active]:text-foreground">
                 <Keyboard className="h-3.5 w-3.5" />
                 Shortcuts
@@ -160,6 +261,10 @@ export function KeyboardShortcutsDialog({ open, onClose }: InfoDialogProps) {
 
           <TabsContent value="about" className="p-4 max-h-80 overflow-y-auto">
             <AboutTab />
+          </TabsContent>
+
+          <TabsContent value="whatsnew" className="p-4 max-h-96 overflow-y-auto">
+            <WhatsNewTab />
           </TabsContent>
 
           <TabsContent value="shortcuts" className="p-4 max-h-80 overflow-y-auto">
