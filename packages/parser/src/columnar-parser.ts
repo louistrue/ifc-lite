@@ -159,6 +159,9 @@ export class ColumnarParser {
 
         options.onProgress?.({ phase: 'building', percent: 0 });
 
+        // Detect schema version from FILE_SCHEMA header
+        const schemaVersion = this.detectSchemaVersion(uint8Buffer);
+
         // Initialize builders
         const strings = new StringTable();
         const entityTableBuilder = new EntityTableBuilder(totalEntities, strings);
@@ -385,7 +388,7 @@ export class ColumnarParser {
 
         return {
             fileSize: buffer.byteLength,
-            schemaVersion: 'IFC4' as const,
+            schemaVersion,
             entityCount: totalEntities,
             parseTime,
             source: uint8Buffer,
@@ -399,6 +402,30 @@ export class ColumnarParser {
             onDemandPropertyMap, // For instant property access
             onDemandQuantityMap, // For instant quantity access
         };
+    }
+
+    /**
+     * Detect IFC schema version from FILE_SCHEMA header
+     * Scans first 2KB of file for FILE_SCHEMA(('IFC2X3'|'IFC4'|'IFC4X3'))
+     */
+    private detectSchemaVersion(buffer: Uint8Array): 'IFC2X3' | 'IFC4' | 'IFC4X3' {
+        // Read header portion (first 2KB should contain FILE_SCHEMA)
+        const headerSize = Math.min(2048, buffer.length);
+        const headerText = new TextDecoder().decode(buffer.subarray(0, headerSize));
+        
+        // Match FILE_SCHEMA(('IFC2X3')) or FILE_SCHEMA(('IFC4')) or FILE_SCHEMA(('IFC4X3'))
+        const schemaMatch = headerText.match(/FILE_SCHEMA\s*\(\s*\(\s*'(IFC\w+)'/i);
+        
+        if (schemaMatch) {
+            const schema = schemaMatch[1].toUpperCase();
+            if (schema === 'IFC2X3') return 'IFC2X3';
+            if (schema === 'IFC4X3') return 'IFC4X3';
+            if (schema.startsWith('IFC4')) return 'IFC4';
+        }
+        
+        // Default to IFC4 if not detected
+        console.warn('[ColumnarParser] Could not detect schema version, defaulting to IFC4');
+        return 'IFC4';
     }
 
     /**

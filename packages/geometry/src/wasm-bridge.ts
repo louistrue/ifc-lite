@@ -47,7 +47,8 @@ export class WasmBridge implements IPlatformBridge {
 
     const startTime = performance.now();
     const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
-    const meshes = collector.collectMeshes();
+    const result = collector.collectMeshes();
+    const { meshes, rtcOffset, hasRtcOffset } = result;
     const endTime = performance.now();
 
     // Calculate totals
@@ -58,9 +59,10 @@ export class WasmBridge implements IPlatformBridge {
       totalTriangles += mesh.indices.length / 3;
     }
 
-    // Default coordinate info (coordinate handling is done by GeometryProcessor)
+    // Use WASM's RTC offset as the origin shift
+    // This is crucial for correct coordinate transformation during export
     const coordinateInfo: CoordinateInfo = {
-      originShift: { x: 0, y: 0, z: 0 },
+      originShift: hasRtcOffset ? rtcOffset : { x: 0, y: 0, z: 0 },
       originalBounds: {
         min: { x: 0, y: 0, z: 0 },
         max: { x: 0, y: 0, z: 0 },
@@ -69,8 +71,12 @@ export class WasmBridge implements IPlatformBridge {
         min: { x: 0, y: 0, z: 0 },
         max: { x: 0, y: 0, z: 0 },
       },
-      hasLargeCoordinates: false,
+      hasLargeCoordinates: hasRtcOffset,
     };
+
+    if (hasRtcOffset) {
+      console.log(`[WasmBridge] Using WASM RTC offset as originShift: (${rtcOffset.x.toFixed(2)}, ${rtcOffset.y.toFixed(2)}, ${rtcOffset.z.toFixed(2)})`);
+    }
 
     return {
       meshes,

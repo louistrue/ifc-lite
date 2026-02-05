@@ -310,6 +310,19 @@ export class CoordinateHandler {
     }
 
     /**
+     * Set the origin shift from external source (e.g., WASM RTC offset)
+     * Call this BEFORE processing meshes if you know the offset
+     */
+    setOriginShift(shift: Vec3): void {
+        this.originShift = { ...shift };
+        // Mark as having large coordinates if shift is significant
+        const hasShift = shift.x !== 0 || shift.y !== 0 || shift.z !== 0;
+        if (hasShift) {
+            console.log('[CoordinateHandler] Using external origin shift:', shift);
+        }
+    }
+
+    /**
      * Process meshes incrementally for streaming
      * Accumulates bounds and applies shift once calculated
      *

@@ -33,6 +33,30 @@ export interface StreamingCompleteEvent {
     totalVertices: number;
     totalTriangles: number;
   };
+  /** RTC offset applied by WASM (in Y-up coordinates after conversion) */
+  rtcOffset?: { x: number; y: number; z: number };
+  /** Whether WASM applied a significant RTC shift */
+  hasRtcOffset?: boolean;
+}
+
+/**
+ * Result from collecting meshes, including RTC offset from WASM
+ */
+export interface CollectMeshesResult {
+  meshes: MeshData[];
+  /** RTC offset applied by WASM (in Y-up coordinates after conversion) */
+  rtcOffset: { x: number; y: number; z: number };
+  /** Whether WASM applied a significant RTC shift */
+  hasRtcOffset: boolean;
+}
+
+/**
+ * RTC offset event emitted early in streaming
+ */
+export interface StreamingRtcOffsetEvent {
+  type: 'rtcOffset';
+  rtcOffset: { x: number; y: number; z: number };
+  hasRtcOffset: boolean;
 }
 
 export interface StreamingColorUpdateEvent {
@@ -40,7 +64,7 @@ export interface StreamingColorUpdateEvent {
   updates: Map<number, [number, number, number, number]>;
 }
 
-export type StreamingEvent = StreamingBatchEvent | StreamingCompleteEvent | StreamingColorUpdateEvent;
+export type StreamingEvent = StreamingBatchEvent | StreamingCompleteEvent | StreamingColorUpdateEvent | StreamingRtcOffsetEvent;
 
 export class IfcLiteMeshCollector {
   private ifcApi: IfcAPI;
@@ -93,14 +117,33 @@ export class IfcLiteMeshCollector {
   /**
    * Collect all meshes from IFC-Lite
    * Much faster than web-ifc (~1.9x speedup)
+   * Returns meshes along with RTC offset info from WASM
    */
-  collectMeshes(): MeshData[] {
+  collectMeshes(): CollectMeshesResult {
     let collection: MeshCollection;
     try {
       collection = this.ifcApi.parseMeshes(this.content);
     } catch (error) {
       log.error('WASM mesh parsing failed', error, { operation: 'collectMeshes' });
       throw error;
+    }
+
+    // Capture RTC offset from WASM BEFORE processing meshes
+    // WASM stores the offset in IFC Z-up coordinates, we need to convert to Y-up
+    const wasmRtcX = collection.rtcOffsetX || 0;
+    const wasmRtcY = collection.rtcOffsetY || 0;  // IFC Y = depth
+    const wasmRtcZ = collection.rtcOffsetZ || 0;  // IFC Z = height
+    
+    // Convert Z-up to Y-up: swap Y and Z, negate new Z
+    const rtcOffset = {
+      x: wasmRtcX,
+      y: wasmRtcZ,     // Y-up Y = Z-up Z (height)
+      z: -wasmRtcY,    // Y-up Z = -Z-up Y (depth, negated)
+    };
+    const hasRtcOffset = collection.hasRtcOffset?.() ?? false;
+    
+    if (hasRtcOffset) {
+      log.debug(`WASM RTC offset detected: (${rtcOffset.x.toFixed(2)}, ${rtcOffset.y.toFixed(2)}, ${rtcOffset.z.toFixed(2)})`, { operation: 'collectMeshes' });
     }
 
     const meshes: MeshData[] = [];
@@ -172,7 +215,7 @@ export class IfcLiteMeshCollector {
     }
 
     log.debug(`Collected ${meshes.length} meshes`, { operation: 'collectMeshes' });
-    return meshes;
+    return { meshes, rtcOffset, hasRtcOffset };
   }
 
   /**
@@ -180,9 +223,9 @@ export class IfcLiteMeshCollector {
    * Uses fast-first-frame streaming: simple geometry (walls, slabs) first
    * @param batchSize Number of meshes per batch (default: 25 for faster first frame)
    */
-  async *collectMeshesStreaming(batchSize: number = 25): AsyncGenerator<MeshData[] | StreamingColorUpdateEvent> {
+  async *collectMeshesStreaming(batchSize: number = 25): AsyncGenerator<MeshData[] | StreamingColorUpdateEvent | StreamingRtcOffsetEvent> {
     // Queue to hold batches produced by async callback
-    const batchQueue: (MeshData[] | StreamingColorUpdateEvent)[] = [];
+    const batchQueue: (MeshData[] | StreamingColorUpdateEvent | StreamingRtcOffsetEvent)[] = [];
     let resolveWaiting: (() => void) | null = null;
     let isComplete = false;
     let processingError: Error | null = null;
@@ -190,11 +233,39 @@ export class IfcLiteMeshCollector {
     const colorUpdates = new Map<number, [number, number, number, number]>();
     let totalMeshesProcessed = 0;
     let failedMeshCount = 0;
+    // Store RTC offset from WASM for the complete event
+    let capturedRtcOffset: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 };
+    let capturedHasRtcOffset = false;
 
     // Start async processing
     // NOTE: WASM now automatically defers style building for faster first frame
     const processingPromise = this.ifcApi.parseMeshesAsync(this.content, {
       batchSize,
+      // Capture RTC offset early so coordinate handler can be configured
+      onRtcOffset: (rtcInfo: { x: number; y: number; z: number; hasRtc: boolean }) => {
+        // Convert IFC Z-up to Y-up coordinates (same as collectMeshes)
+        capturedRtcOffset = {
+          x: rtcInfo.x,
+          y: rtcInfo.z,     // Y-up Y = Z-up Z (height)
+          z: -rtcInfo.y,    // Y-up Z = -Z-up Y (depth, negated)
+        };
+        capturedHasRtcOffset = rtcInfo.hasRtc;
+        
+        if (rtcInfo.hasRtc) {
+          log.debug(`WASM streaming RTC offset: (${capturedRtcOffset.x.toFixed(2)}, ${capturedRtcOffset.y.toFixed(2)}, ${capturedRtcOffset.z.toFixed(2)})`, { operation: 'collectMeshesStreaming' });
+        }
+        
+        // Emit RTC offset event so consumers can configure coordinate handler
+        batchQueue.push({
+          type: 'rtcOffset',
+          rtcOffset: capturedRtcOffset,
+          hasRtcOffset: capturedHasRtcOffset,
+        });
+        if (resolveWaiting) {
+          resolveWaiting();
+          resolveWaiting = null;
+        }
+      },
       onColorUpdate: (updates: Map<number, [number, number, number, number]>) => {
         // Store color updates
         for (const [expressId, color] of updates) {

@@ -159,6 +159,7 @@ export class GeometryProcessor {
     void entityIndex;
 
     let meshes: MeshData[];
+    let wasmRtcOffset: { x: number; y: number; z: number } | null = null;
 
     if (this.isNative && this.platformBridge) {
       // NATIVE PATH - Use Tauri commands
@@ -167,6 +168,10 @@ export class GeometryProcessor {
       const content = decoder.decode(buffer);
       const result = await this.platformBridge.processGeometry(content);
       meshes = result.meshes;
+      // Capture RTC offset from native bridge
+      if (result.coordinateInfo.hasLargeCoordinates) {
+        wasmRtcOffset = result.coordinateInfo.originShift;
+      }
       console.timeEnd('[GeometryProcessor] native-processing');
     } else {
       // WASM PATH - Synchronous processing on main thread
@@ -174,7 +179,18 @@ export class GeometryProcessor {
       if (!this.bridge?.isInitialized()) {
         await this.init();
       }
-      meshes = await this.collectMeshesMainThread(buffer);
+      const collectResult = await this.collectMeshesMainThread(buffer);
+      meshes = collectResult.meshes;
+      // Capture RTC offset from WASM
+      if (collectResult.hasRtcOffset) {
+        wasmRtcOffset = collectResult.rtcOffset;
+      }
+    }
+
+    // If WASM applied RTC, tell the coordinate handler what offset was used
+    // This is CRITICAL for correct coordinate transformation during export
+    if (wasmRtcOffset) {
+      this.coordinateHandler.setOriginShift(wasmRtcOffset);
     }
 
     // Handle large coordinates by shifting to origin
@@ -196,8 +212,9 @@ export class GeometryProcessor {
 
   /**
    * Collect meshes on main thread using IFC-Lite WASM
+   * Returns meshes and WASM's RTC offset (if any)
    */
-  private async collectMeshesMainThread(buffer: Uint8Array, _entityIndex?: Map<number, any>): Promise<MeshData[]> {
+  private async collectMeshesMainThread(buffer: Uint8Array, _entityIndex?: Map<number, any>): Promise<{ meshes: MeshData[]; rtcOffset: { x: number; y: number; z: number }; hasRtcOffset: boolean }> {
     if (!this.bridge) {
       throw new Error('WASM bridge not initialized');
     }
@@ -207,9 +224,7 @@ export class GeometryProcessor {
     const content = decoder.decode(buffer);
 
     const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
-    const meshes = collector.collectMeshes();
-
-    return meshes;
+    return collector.collectMeshes();
   }
 
   /**
@@ -257,6 +272,11 @@ export class GeometryProcessor {
       const result = await this.platformBridge.processGeometry(content);
       const totalMeshes = result.meshes.length;
 
+      // Capture RTC offset from native bridge
+      if (result.coordinateInfo.hasLargeCoordinates) {
+        this.coordinateHandler.setOriginShift(result.coordinateInfo.originShift);
+      }
+
       this.coordinateHandler.processMeshesIncremental(result.meshes);
       const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
 
@@ -285,6 +305,16 @@ export class GeometryProcessor {
 
       // Use WASM batches directly for maximum throughput
       for await (const item of collector.collectMeshesStreaming(wasmBatchSize)) {
+        // Handle RTC offset event (emitted early, before batches)
+        if (item && typeof item === 'object' && 'type' in item && (item as { type: string }).type === 'rtcOffset') {
+          const rtcEvent = item as { type: 'rtcOffset'; rtcOffset: { x: number; y: number; z: number }; hasRtcOffset: boolean };
+          if (rtcEvent.hasRtcOffset) {
+            // Tell the coordinate handler what RTC offset WASM applied
+            this.coordinateHandler.setOriginShift(rtcEvent.rtcOffset);
+          }
+          continue;
+        }
+        
         // Handle color update events
         if (item && typeof item === 'object' && 'type' in item && (item as StreamingColorUpdateEvent).type === 'colorUpdate') {
           yield { type: 'colorUpdate', updates: (item as StreamingColorUpdateEvent).updates };
@@ -439,17 +469,32 @@ export class GeometryProcessor {
       yield { type: 'model-open', modelID: 0 };
 
       let allMeshes: MeshData[];
+      let wasmRtcOffset: { x: number; y: number; z: number } | null = null;
 
       if (this.isNative && this.platformBridge) {
         // NATIVE PATH - single batch processing
         console.time('[GeometryProcessor] native-adaptive-sync');
         const result = await this.platformBridge.processGeometry(content);
         allMeshes = result.meshes;
+        // Capture RTC offset from native bridge
+        if (result.coordinateInfo.hasLargeCoordinates) {
+          wasmRtcOffset = result.coordinateInfo.originShift;
+        }
         console.timeEnd('[GeometryProcessor] native-adaptive-sync');
       } else {
         // WASM PATH
         const collector = new IfcLiteMeshCollector(this.bridge!.getApi(), content);
-        allMeshes = collector.collectMeshes();
+        const collectResult = collector.collectMeshes();
+        allMeshes = collectResult.meshes;
+        // Capture RTC offset from WASM
+        if (collectResult.hasRtcOffset) {
+          wasmRtcOffset = collectResult.rtcOffset;
+        }
+      }
+
+      // If WASM applied RTC, tell the coordinate handler what offset was used
+      if (wasmRtcOffset) {
+        this.coordinateHandler.setOriginShift(wasmRtcOffset);
       }
 
       // Process coordinate shifts

@@ -468,7 +468,11 @@ export class StepExporter {
   }
 
   /**
-   * Check if an entity type is a geometry-related type
+   * Check if an entity type is a geometry-related type that can be replaced
+   * NOTE: IFCGEOMETRICREPRESENTATIONCONTEXT and IFCGEOMETRICREPRESENTATIONSUBCONTEXT
+   * are NOT included here because they are shared infrastructure that should never
+   * be removed - they're referenced by multiple shape representations including
+   * new geometry we create.
    */
   private isGeometryEntity(type: string): boolean {
     const geometryTypes = new Set([
@@ -479,8 +483,8 @@ export class StepExporter {
       'IFCLOCALPLACEMENT',
       'IFCSHAPEREPRESENTATION',
       'IFCPRODUCTDEFINITIONSHAPE',
-      'IFCGEOMETRICREPRESENTATIONCONTEXT',
-      'IFCGEOMETRICREPRESENTATIONSUBCONTEXT',
+      // NOT included: IFCGEOMETRICREPRESENTATIONCONTEXT, IFCGEOMETRICREPRESENTATIONSUBCONTEXT
+      // These are shared infrastructure that should never be removed
       'IFCEXTRUDEDAREASOLID',
       'IFCFACETEDBREP',
       'IFCPOLYLOOP',
@@ -682,7 +686,7 @@ export class StepExporter {
 
   /**
    * Generate new geometry entities for an edited mesh
-   * Returns IfcTriangulatedFaceSet with supporting entities and the new IfcProductDefinitionShape ID
+   * Uses IfcFacetedBrep for IFC2X3 compatibility, IfcTriangulatedFaceSet for IFC4+
    */
   private generateGeometryEntities(
     entityId: number,
@@ -700,31 +704,63 @@ export class StepExporter {
     const inverseMatrix = placementMatrix ? this.invertMatrix4x4(placementMatrix) : null;
 
     if (inverseMatrix) {
-      console.log(`[StepExporter] Applying inverse placement transform for entity #${entityId}`);
+      console.log(`[StepExporter] Applying coordinate transform for entity #${entityId}`);
+      // Log first vertex transformation chain for debugging
+      if (meshData.positions.length >= 3) {
+        const shiftYUp = this.coordinateInfo?.originShift || { x: 0, y: 0, z: 0 };
+        
+        // Step 1: Y-up viewer coords
+        const viewerX = meshData.positions[0];
+        const viewerY = meshData.positions[1];
+        const viewerZ = meshData.positions[2];
+        console.log(`[StepExporter] First vertex Y-up viewer: (${viewerX.toFixed(2)}, ${viewerY.toFixed(2)}, ${viewerZ.toFixed(2)})`);
+        
+        // Step 2: Y-up world coords (add originShift)
+        const worldYUpX = viewerX + shiftYUp.x;
+        const worldYUpY = viewerY + shiftYUp.y;
+        const worldYUpZ = viewerZ + shiftYUp.z;
+        console.log(`[StepExporter] First vertex Y-up world: (${worldYUpX.toFixed(2)}, ${worldYUpY.toFixed(2)}, ${worldYUpZ.toFixed(2)}) [shift: ${shiftYUp.x.toFixed(0)}, ${shiftYUp.y.toFixed(0)}, ${shiftYUp.z.toFixed(0)}]`);
+        
+        // Step 3: Z-up world coords (convert Y-up to Z-up)
+        const worldZUpX = worldYUpX;
+        const worldZUpY = -worldYUpZ;
+        const worldZUpZ = worldYUpY;
+        console.log(`[StepExporter] First vertex Z-up world: (${worldZUpX.toFixed(2)}, ${worldZUpY.toFixed(2)}, ${worldZUpZ.toFixed(2)})`);
+        
+        // Step 4: Z-up local coords (apply inverse placement)
+        const m = inverseMatrix;
+        const localX = m[0] * worldZUpX + m[4] * worldZUpY + m[8] * worldZUpZ + m[12];
+        const localY = m[1] * worldZUpX + m[5] * worldZUpY + m[9] * worldZUpZ + m[13];
+        const localZ = m[2] * worldZUpX + m[6] * worldZUpY + m[10] * worldZUpZ + m[14];
+        console.log(`[StepExporter] First vertex Z-up local: (${localX.toFixed(2)}, ${localY.toFixed(2)}, ${localZ.toFixed(2)})`);
+      }
+    } else {
+      console.log(`[StepExporter] WARNING: No placement matrix found for entity #${entityId} - geometry may be in wrong position!`);
     }
 
-    // Generate IfcCartesianPointList3D for coordinates
-    const coordListId = this.nextExpressId++;
-    count++;
-    const coordinates = this.formatCoordinateList(meshData.positions, precision, inverseMatrix);
-    const coordLine = `#${coordListId}=IFCCARTESIANPOINTLIST3D((${coordinates}));`;
-    lines.push(coordLine);
+    // Check schema version to determine geometry format
+    const schema = this.dataStore.schemaVersion;
+    const useIfc4Tessellation = schema === 'IFC4' || schema === 'IFC4X3';
+    
+    console.log(`[StepExporter] Schema: ${schema}, using ${useIfc4Tessellation ? 'IFC4 IfcTriangulatedFaceSet' : 'IFC2X3 IfcFacetedBrep'}`);
 
-    // Log first few coordinates for debugging
-    const firstCoords = coordinates.split(',').slice(0, 3).join(',');
-    console.log(`[StepExporter] First 3 coordinates: ${firstCoords}...`);
-    console.log(`[StepExporter] Total vertices: ${meshData.positions.length / 3}, triangles: ${meshData.indices.length / 3}`);
+    let geometryItemId: number;
 
-    // Generate IfcTriangulatedFaceSet
-    const faceSetId = this.nextExpressId++;
-    count++;
-    const indices = this.formatIndicesList(meshData.indices);
-    // IfcTriangulatedFaceSet(Coordinates, Normals, Closed, CoordIndex, NormalIndex)
-    const faceSetLine = `#${faceSetId}=IFCTRIANGULATEDFACESET(#${coordListId},$,.U.,(${indices}),$);`;
-    lines.push(faceSetLine);
-    console.log(`[StepExporter] Generated IfcTriangulatedFaceSet #${faceSetId} with #${coordListId}`);
+    if (useIfc4Tessellation) {
+      // IFC4: Use IfcTriangulatedFaceSet (compact format)
+      const result = this.generateIfc4Tessellation(meshData, precision, inverseMatrix);
+      lines.push(...result.lines);
+      count += result.count;
+      geometryItemId = result.geometryItemId;
+    } else {
+      // IFC2X3: Use IfcFacetedBrep (verbose but compatible)
+      const result = this.generateIfc2x3FacetedBrep(meshData, precision, inverseMatrix);
+      lines.push(...result.lines);
+      count += result.count;
+      geometryItemId = result.geometryItemId;
+    }
 
-    // Generate color if available
+    // Generate color/style if available
     if (meshData.color) {
       const [r, g, b, a] = meshData.color;
 
@@ -747,16 +783,16 @@ export class StepExporter {
       // IfcStyledItem
       const styledItemId = this.nextExpressId++;
       count++;
-      lines.push(`#${styledItemId}=IFCSTYLEDITEM(#${faceSetId},(#${surfaceStyleId}),$);`);
+      lines.push(`#${styledItemId}=IFCSTYLEDITEM(#${geometryItemId},(#${surfaceStyleId}),$);`);
     }
 
     // Generate IfcShapeRepresentation
     const shapeRepId = this.nextExpressId++;
     count++;
-    // Find SubContext for 'Body' representation (or fall back to main context)
     const contextId = this.findBodyRepresentationContext() || this.findGeometricRepresentationContext() || 1;
-    console.log(`[StepExporter] Using context #${contextId} for shape representation`);
-    lines.push(`#${shapeRepId}=IFCSHAPEREPRESENTATION(#${contextId},'Body','Tessellation',(#${faceSetId}));`);
+    const repType = useIfc4Tessellation ? 'Tessellation' : 'Brep';
+    console.log(`[StepExporter] Using context #${contextId} for shape representation (${repType})`);
+    lines.push(`#${shapeRepId}=IFCSHAPEREPRESENTATION(#${contextId},'Body','${repType}',(#${geometryItemId}));`);
 
     // Generate IfcProductDefinitionShape
     const productDefShapeId = this.nextExpressId++;
@@ -767,6 +803,137 @@ export class StepExporter {
     lines.push(`/* Geometry replaced for entity #${entityId} */`);
 
     return { lines, count, newProductDefShapeId: productDefShapeId };
+  }
+
+  /**
+   * Generate IFC4 IfcTriangulatedFaceSet geometry
+   */
+  private generateIfc4Tessellation(
+    meshData: MeshData,
+    precision: number,
+    inverseMatrix: number[] | null
+  ): { lines: string[]; count: number; geometryItemId: number } {
+    const lines: string[] = [];
+    let count = 0;
+
+    // Generate IfcCartesianPointList3D for coordinates
+    const coordListId = this.nextExpressId++;
+    count++;
+    const coordinates = this.formatCoordinateList(meshData.positions, precision, inverseMatrix);
+    lines.push(`#${coordListId}=IFCCARTESIANPOINTLIST3D((${coordinates}));`);
+
+    const firstCoords = coordinates.split(',').slice(0, 3).join(',');
+    console.log(`[StepExporter] First 3 coordinates: ${firstCoords}...`);
+    console.log(`[StepExporter] Total vertices: ${meshData.positions.length / 3}, triangles: ${meshData.indices.length / 3}`);
+
+    // Generate IfcTriangulatedFaceSet
+    const faceSetId = this.nextExpressId++;
+    count++;
+    const indices = this.formatIndicesList(meshData.indices);
+    lines.push(`#${faceSetId}=IFCTRIANGULATEDFACESET(#${coordListId},$,.U.,(${indices}),$);`);
+    console.log(`[StepExporter] Generated IfcTriangulatedFaceSet #${faceSetId} with #${coordListId}`);
+
+    return { lines, count, geometryItemId: faceSetId };
+  }
+
+  /**
+   * Generate IFC2X3 IfcFacetedBrep geometry (compatible with older viewers)
+   */
+  private generateIfc2x3FacetedBrep(
+    meshData: MeshData,
+    precision: number,
+    inverseMatrix: number[] | null
+  ): { lines: string[]; count: number; geometryItemId: number } {
+    const lines: string[] = [];
+    let count = 0;
+    const shiftYUp = this.coordinateInfo?.originShift || { x: 0, y: 0, z: 0 };
+
+    console.log(`[StepExporter] Generating IFC2X3 IfcFacetedBrep...`);
+    console.log(`[StepExporter] Applying coordinate transform: Y-up originShift (${shiftYUp.x.toFixed(2)}, ${shiftYUp.y.toFixed(2)}, ${shiftYUp.z.toFixed(2)})`);
+
+    // First, create all cartesian points
+    const pointIds: number[] = [];
+    const numVertices = meshData.positions.length / 3;
+    
+    for (let i = 0; i < numVertices; i++) {
+      // Step 1: Start with Y-up viewer coordinates and add Y-up originShift to get Y-up world coords
+      const viewerX = meshData.positions[i * 3];
+      const viewerY = meshData.positions[i * 3 + 1];  // Y-up Y = height
+      const viewerZ = meshData.positions[i * 3 + 2];  // Y-up Z = depth
+      
+      const worldYUpX = viewerX + shiftYUp.x;
+      const worldYUpY = viewerY + shiftYUp.y;
+      const worldYUpZ = viewerZ + shiftYUp.z;
+      
+      // Step 2: Convert from Y-up to Z-up (IFC coordinate system)
+      // Y-up to Z-up: X stays, Y becomes Z, Z becomes -Y
+      // Reverse of: Z-up (x,y,z) → Y-up (x,z,-y)
+      // So: Y-up (x,y,z) → Z-up (x,-z,y)
+      let x = worldYUpX;
+      let y = -worldYUpZ;  // Z-up Y = -Y-up Z (negate to reverse handedness flip)
+      let z = worldYUpY;   // Z-up Z = Y-up Y (height)
+
+      // Step 3: Apply inverse placement transform if available to get Z-up local coords
+      if (inverseMatrix) {
+        const m = inverseMatrix;
+        const newX = m[0] * x + m[4] * y + m[8] * z + m[12];
+        const newY = m[1] * x + m[5] * y + m[9] * z + m[13];
+        const newZ = m[2] * x + m[6] * y + m[10] * z + m[14];
+        x = newX;
+        y = newY;
+        z = newZ;
+      }
+
+      const pointId = this.nextExpressId++;
+      count++;
+      lines.push(`#${pointId}=IFCCARTESIANPOINT((${x.toFixed(precision)},${y.toFixed(precision)},${z.toFixed(precision)}));`);
+      pointIds.push(pointId);
+    }
+
+    console.log(`[StepExporter] Created ${pointIds.length} cartesian points`);
+
+    // Create faces (each triangle = PolyLoop + FaceOuterBound + Face)
+    const faceIds: number[] = [];
+    const numTriangles = meshData.indices.length / 3;
+
+    for (let i = 0; i < numTriangles; i++) {
+      const i0 = meshData.indices[i * 3];
+      const i1 = meshData.indices[i * 3 + 1];
+      const i2 = meshData.indices[i * 3 + 2];
+
+      // IfcPolyLoop references the 3 points of the triangle
+      const polyLoopId = this.nextExpressId++;
+      count++;
+      lines.push(`#${polyLoopId}=IFCPOLYLOOP((#${pointIds[i0]},#${pointIds[i1]},#${pointIds[i2]}));`);
+
+      // IfcFaceOuterBound wraps the PolyLoop
+      const faceOuterBoundId = this.nextExpressId++;
+      count++;
+      lines.push(`#${faceOuterBoundId}=IFCFACEOUTERBOUND(#${polyLoopId},.T.);`);
+
+      // IfcFace wraps the FaceOuterBound
+      const faceId = this.nextExpressId++;
+      count++;
+      lines.push(`#${faceId}=IFCFACE((#${faceOuterBoundId}));`);
+      faceIds.push(faceId);
+    }
+
+    console.log(`[StepExporter] Created ${faceIds.length} faces`);
+
+    // Create IfcClosedShell with all faces
+    const closedShellId = this.nextExpressId++;
+    count++;
+    const faceRefs = faceIds.map(id => `#${id}`).join(',');
+    lines.push(`#${closedShellId}=IFCCLOSEDSHELL((${faceRefs}));`);
+
+    // Create IfcFacetedBrep
+    const facetedBrepId = this.nextExpressId++;
+    count++;
+    lines.push(`#${facetedBrepId}=IFCFACETEDBREP(#${closedShellId});`);
+
+    console.log(`[StepExporter] Generated IfcFacetedBrep #${facetedBrepId} with ${numTriangles} triangles`);
+
+    return { lines, count, geometryItemId: facetedBrepId };
   }
 
   /**
@@ -803,7 +970,15 @@ export class StepExporter {
   /**
    * Format coordinate list as STEP tuple list
    * Applies inverse origin shift and inverse placement transform to convert from viewer coords to local entity coords
-   * Note: Viewer uses Z-up coordinate system (same as IFC), so no axis conversion needed
+   * 
+   * Coordinate system transformations:
+   * 1. Viewer uses Y-up (WebGL convention): X=right, Y=up, Z=forward
+   * 2. IFC uses Z-up: X=right, Y=forward, Z=up
+   * 3. originShift is stored in Y-up coordinates
+   * 4. Placement matrix is in Z-up IFC coordinates
+   * 
+   * The transformation chain is:
+   * Y-up viewer coords → Y-up world coords (add originShift) → Z-up world coords → Z-up local coords
    */
   private formatCoordinateList(
     positions: Float32Array,
@@ -811,18 +986,30 @@ export class StepExporter {
     inversePlacementMatrix: number[] | null = null
   ): string {
     const tuples: string[] = [];
-    // Get origin shift (need to add it back to get world coordinates)
-    const shift = this.coordinateInfo?.originShift || { x: 0, y: 0, z: 0 };
+    // Get origin shift in Y-up coordinates (need to add it back to get Y-up world coordinates)
+    const shiftYUp = this.coordinateInfo?.originShift || { x: 0, y: 0, z: 0 };
 
-    console.log(`[StepExporter] Applying inverse origin shift: (${shift.x}, ${shift.y}, ${shift.z})`);
+    console.log(`[StepExporter] Applying coordinate transform: Y-up originShift (${shiftYUp.x.toFixed(2)}, ${shiftYUp.y.toFixed(2)}, ${shiftYUp.z.toFixed(2)})`);
 
     for (let i = 0; i < positions.length; i += 3) {
-      // Start with viewer coordinates (Z-up, same as IFC)
-      let x = positions[i] + shift.x;
-      let y = positions[i + 1] + shift.y;
-      let z = positions[i + 2] + shift.z;
+      // Step 1: Start with Y-up viewer coordinates and add Y-up originShift to get Y-up world coords
+      const viewerX = positions[i];
+      const viewerY = positions[i + 1];  // Y-up Y = height
+      const viewerZ = positions[i + 2];  // Y-up Z = depth
+      
+      const worldYUpX = viewerX + shiftYUp.x;
+      const worldYUpY = viewerY + shiftYUp.y;
+      const worldYUpZ = viewerZ + shiftYUp.z;
+      
+      // Step 2: Convert from Y-up to Z-up (IFC coordinate system)
+      // Y-up to Z-up: X stays, Y becomes Z, Z becomes -Y
+      // Reverse of: Z-up (x,y,z) → Y-up (x,z,-y)
+      // So: Y-up (x,y,z) → Z-up (x,-z,y)
+      let x = worldYUpX;
+      let y = -worldYUpZ;  // Z-up Y = -Y-up Z (negate to reverse handedness flip)
+      let z = worldYUpY;   // Z-up Z = Y-up Y (height)
 
-      // Apply inverse placement transform to get local entity coordinates
+      // Step 3: Apply inverse placement transform to get Z-up local entity coordinates
       // This removes the placement transform that was applied during geometry extraction
       if (inversePlacementMatrix) {
         const m = inversePlacementMatrix;
@@ -899,25 +1086,45 @@ export class StepExporter {
    */
   private getEntityPlacementMatrix(entityId: number): number[] | null {
     const entityRef = this.dataStore.entityIndex.byId.get(entityId);
-    if (!entityRef || !this.dataStore.source) return null;
+    if (!entityRef) {
+      console.log(`[StepExporter] getEntityPlacementMatrix: Entity #${entityId} not found in index`);
+      return null;
+    }
+    if (!this.dataStore.source) {
+      console.log(`[StepExporter] getEntityPlacementMatrix: No source buffer available`);
+      return null;
+    }
 
     const decoder = new TextDecoder();
     const entityText = decoder.decode(
       this.dataStore.source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength)
     );
 
+    console.log(`[StepExporter] Entity #${entityId} (${entityRef.type}): ${entityText.substring(0, 100)}...`);
+
     // Find ObjectPlacement reference - it's usually the 5th attribute in IfcProduct
     // Pattern: IFCWALL('guid',#owner,'name',$,#placement,#representation,...)
     const refMatches = [...entityText.matchAll(/#(\d+)/g)];
+
+    console.log(`[StepExporter] Found ${refMatches.length} references in entity text`);
 
     // For IFC products, placement is typically one of the first few references
     for (const match of refMatches) {
       const refId = parseInt(match[1], 10);
       const refEntity = this.dataStore.entityIndex.byId.get(refId);
-      if (refEntity && refEntity.type.toUpperCase() === 'IFCLOCALPLACEMENT') {
-        return this.parsePlacementMatrix(refId);
+      if (refEntity) {
+        console.log(`[StepExporter] Checking ref #${refId}: ${refEntity.type}`);
+        if (refEntity.type.toUpperCase() === 'IFCLOCALPLACEMENT') {
+          console.log(`[StepExporter] Found placement #${refId}, parsing matrix...`);
+          const matrix = this.parsePlacementMatrix(refId);
+          if (matrix) {
+            console.log(`[StepExporter] Placement matrix translation: (${matrix[12].toFixed(2)}, ${matrix[13].toFixed(2)}, ${matrix[14].toFixed(2)})`);
+          }
+          return matrix;
+        }
       }
     }
+    console.log(`[StepExporter] No IFCLOCALPLACEMENT found for entity #${entityId}`);
     return null;
   }
 
