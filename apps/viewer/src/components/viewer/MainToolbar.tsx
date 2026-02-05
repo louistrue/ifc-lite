@@ -165,18 +165,37 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const toggleIdsPanel = useViewerStore((state) => state.toggleIdsPanel);
   const setRightPanelCollapsed = useViewerStore((state) => state.setRightPanelCollapsed);
 
-  // Check which type geometries exist
+  // Check which type geometries exist across ALL loaded models (federation-aware)
   const typeGeometryExists = useMemo(() => {
-    if (!geometryResult?.meshes) {
-      return { spaces: false, openings: false, site: false };
+    const result = { spaces: false, openings: false, site: false };
+
+    // Check all federated models
+    if (models.size > 0) {
+      for (const [, model] of models) {
+        const meshes = model.geometryResult?.meshes;
+        if (!meshes) continue;
+        for (const m of meshes) {
+          if (m.ifcType === 'IfcSpace') result.spaces = true;
+          else if (m.ifcType === 'IfcOpeningElement') result.openings = true;
+          else if (m.ifcType === 'IfcSite') result.site = true;
+          // Early exit if all found
+          if (result.spaces && result.openings && result.site) return result;
+        }
+      }
     }
-    const meshes = geometryResult.meshes;
-    return {
-      spaces: meshes.some(m => m.ifcType === 'IfcSpace'),
-      openings: meshes.some(m => m.ifcType === 'IfcOpeningElement'),
-      site: meshes.some(m => m.ifcType === 'IfcSite'),
-    };
-  }, [geometryResult]);
+
+    // Fallback: also check legacy single-model geometryResult
+    if (geometryResult?.meshes) {
+      for (const m of geometryResult.meshes) {
+        if (m.ifcType === 'IfcSpace') result.spaces = true;
+        else if (m.ifcType === 'IfcOpeningElement') result.openings = true;
+        else if (m.ifcType === 'IfcSite') result.site = true;
+        if (result.spaces && result.openings && result.site) return result;
+      }
+    }
+
+    return result;
+  }, [models, geometryResult]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -591,7 +610,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm" disabled={!geometryResult}>
+              <Button variant="ghost" size="icon-sm" disabled={!geometryResult && models.size === 0}>
                 <Layers className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
