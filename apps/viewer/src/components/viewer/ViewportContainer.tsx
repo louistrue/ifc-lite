@@ -107,24 +107,24 @@ export function ViewportContainer() {
       return;
     }
 
-    // Filter to only IFC files
-    const ifcFiles = Array.from(e.dataTransfer.files).filter(
-      f => f.name.endsWith('.ifc') || f.name.endsWith('.ifcx')
+    // Filter to supported files (IFC, IFCX, GLB)
+    const supportedFiles = Array.from(e.dataTransfer.files).filter(
+      f => f.name.endsWith('.ifc') || f.name.endsWith('.ifcx') || f.name.endsWith('.glb')
     );
 
-    if (ifcFiles.length === 0) return;
+    if (supportedFiles.length === 0) return;
 
     if (hasModelsLoaded) {
       // Models already loaded - add new files sequentially
-      loadFilesSequentially(ifcFiles);
-    } else if (ifcFiles.length === 1) {
+      loadFilesSequentially(supportedFiles);
+    } else if (supportedFiles.length === 1) {
       // Single file, no models loaded - use loadFile
-      loadFile(ifcFiles[0]);
+      loadFile(supportedFiles[0]);
     } else {
       // Multiple files, no models loaded - use federation
       resetViewerState();
       clearAllModels();
-      loadFilesSequentially(ifcFiles);
+      loadFilesSequentially(supportedFiles);
     }
   }, [loadFile, loadFilesSequentially, resetViewerState, clearAllModels, webgpu.supported, hasModelsLoaded]);
 
@@ -137,22 +137,22 @@ export function ViewportContainer() {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    // Filter to only IFC files
-    const ifcFiles = Array.from(files).filter(
-      f => f.name.endsWith('.ifc') || f.name.endsWith('.ifcx')
+    // Filter to supported files (IFC, IFCX, GLB)
+    const supportedFiles = Array.from(files).filter(
+      f => f.name.endsWith('.ifc') || f.name.endsWith('.ifcx') || f.name.endsWith('.glb')
     );
 
-    if (ifcFiles.length === 0) return;
+    if (supportedFiles.length === 0) return;
 
-    if (ifcFiles.length === 1) {
+    if (supportedFiles.length === 1) {
       // Single file - use loadFile (simpler single-model path)
-      loadFile(ifcFiles[0]);
+      loadFile(supportedFiles[0]);
     } else {
       // Multiple files selected - use federation from the start
       // Clear everything and start fresh, then load sequentially
       resetViewerState();
       clearAllModels();
-      loadFilesSequentially(ifcFiles);
+      loadFilesSequentially(supportedFiles);
     }
 
     // Reset input so same file can be selected again
@@ -318,7 +318,7 @@ export function ViewportContainer() {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".ifc,.ifcx"
+          accept=".ifc,.ifcx,.glb"
           multiple
           onChange={handleFileSelect}
           className="hidden"

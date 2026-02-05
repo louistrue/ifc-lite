@@ -13,7 +13,7 @@ import { IfcParser, detectFormat, parseIfcx, parseFederatedIfcx, type IfcDataSto
 import { GeometryProcessor, GeometryQuality, type MeshData, type CoordinateInfo } from '@ifc-lite/geometry';
 import { IfcQuery } from '@ifc-lite/query';
 import { buildSpatialIndex } from '@ifc-lite/spatial';
-import { type GeometryData } from '@ifc-lite/cache';
+import { type GeometryData, loadGLBToMeshData } from '@ifc-lite/cache';
 import { IfcTypeEnum, RelationshipType, IfcTypeEnumFromString, IfcTypeEnumToString, EntityFlags, type SpatialHierarchy, type SpatialNode, type EntityTable, type RelationshipGraph } from '@ifc-lite/data';
 import { StringTable } from '@ifc-lite/data';
 import { IfcServerClient, decodeDataModel, type ParquetBatch, type DataModel, type ParquetParseResponse, type ParquetStreamResult, type ParseResponse, type ModelMetadata, type ProcessingStats, type MeshData as ServerMeshData } from '@ifc-lite/server-client';
@@ -557,7 +557,7 @@ export function useIfc() {
       const buffer = await file.arrayBuffer();
       const fileSizeMB = buffer.byteLength / (1024 * 1024);
 
-      // Detect file format (IFCX/IFC5 vs IFC4 STEP)
+      // Detect file format (IFCX/IFC5 vs IFC4 STEP vs GLB)
       const format = detectFormat(buffer);
 
       // IFCX files must be parsed client-side (server only supports IFC4 STEP)
@@ -649,6 +649,47 @@ export function useIfc() {
           console.error('[useIfc] IFCX parsing failed:', err);
           const message = err instanceof Error ? err.message : String(err);
           setError(`IFCX parsing failed: ${message}`);
+          setLoading(false);
+          return;
+        }
+      }
+
+      // GLB files: parse directly to MeshData (no data model, geometry only)
+      if (format === 'glb') {
+        setProgress({ phase: 'Parsing GLB', percent: 10 });
+
+        try {
+          const meshes = loadGLBToMeshData(new Uint8Array(buffer));
+
+          if (meshes.length === 0) {
+            setError('GLB file contains no geometry');
+            setLoading(false);
+            return;
+          }
+
+          const { bounds, stats } = calculateMeshBounds(meshes);
+          const coordinateInfo = createCoordinateInfo(bounds);
+
+          setGeometryResult({
+            meshes,
+            totalVertices: stats.totalVertices,
+            totalTriangles: stats.totalTriangles,
+            coordinateInfo,
+          });
+
+          // GLB files have no IFC data model - set a minimal store
+          setIfcDataStore(null);
+
+          setProgress({ phase: 'Complete', percent: 100 });
+
+          const totalElapsedMs = performance.now() - totalStartTime;
+          console.log(`[useIfc] GLB loaded: ${meshes.length} meshes, ${stats.totalTriangles} triangles in ${totalElapsedMs.toFixed(0)}ms`);
+          setLoading(false);
+          return;
+        } catch (err: unknown) {
+          console.error('[useIfc] GLB parsing failed:', err);
+          const message = err instanceof Error ? err.message : String(err);
+          setError(`GLB parsing failed: ${message}`);
           setLoading(false);
           return;
         }
@@ -1053,6 +1094,46 @@ export function useIfc() {
         } as unknown as IfcDataStore; // IFC5 schema extension
 
         schemaVersion = 'IFC5';
+
+      } else if (format === 'glb') {
+        // GLB files: parse directly to MeshData (geometry only, no IFC data model)
+        setProgress({ phase: 'Parsing GLB', percent: 10 });
+
+        const meshes = loadGLBToMeshData(new Uint8Array(buffer));
+
+        if (meshes.length === 0) {
+          setError('GLB file contains no geometry');
+          setLoading(false);
+          return null;
+        }
+
+        const { bounds, stats } = calculateMeshBounds(meshes);
+        const coordinateInfo = createCoordinateInfo(bounds);
+
+        parsedGeometry = {
+          meshes,
+          totalVertices: stats.totalVertices,
+          totalTriangles: stats.totalTriangles,
+          coordinateInfo,
+        };
+
+        // Create a minimal data store for GLB (no IFC properties)
+        parsedDataStore = {
+          fileSize: buffer.byteLength,
+          schemaVersion: 'IFC4' as const,
+          entityCount: meshes.length,
+          parseTime: 0,
+          source: new Uint8Array(0),
+          entityIndex: { byId: new Map(), byType: new Map() },
+          strings: { getString: () => undefined, getStringId: () => undefined, count: 0 } as unknown as IfcDataStore['strings'],
+          entities: { count: 0, getId: () => 0, getType: () => 0, getName: () => undefined, getGlobalId: () => undefined } as unknown as IfcDataStore['entities'],
+          properties: { count: 0, getPropertiesForEntity: () => [], getPropertySetForEntity: () => [] } as unknown as IfcDataStore['properties'],
+          quantities: { count: 0, getQuantitiesForEntity: () => [] } as unknown as IfcDataStore['quantities'],
+          relationships: { count: 0, getRelationships: () => [], getRelated: () => [] } as unknown as IfcDataStore['relationships'],
+          spatialHierarchy: null as unknown as IfcDataStore['spatialHierarchy'],
+        } as unknown as IfcDataStore;
+
+        schemaVersion = 'IFC4'; // GLB doesn't have a schema version, use IFC4 as default
 
       } else {
         // IFC4/IFC2X3 STEP format - use WASM parsing

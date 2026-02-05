@@ -301,9 +301,17 @@ function buildQuantities(
 }
 
 /**
- * Detect if a buffer contains IFCX (JSON) or IFC (STEP) format.
+ * Detect if a buffer contains IFCX (JSON), IFC (STEP), or GLB (binary glTF) format.
  */
-export function detectFormat(buffer: ArrayBuffer): 'ifcx' | 'ifc' | 'unknown' {
+export function detectFormat(buffer: ArrayBuffer): 'ifcx' | 'ifc' | 'glb' | 'unknown' {
+  // Check GLB magic bytes first (binary format, 4-byte magic: 0x46546C67 = 'glTF')
+  if (buffer.byteLength >= 4) {
+    const magic = new DataView(buffer).getUint32(0, true);
+    if (magic === 0x46546c67) {
+      return 'glb';
+    }
+  }
+
   const bytes = new Uint8Array(buffer, 0, Math.min(100, buffer.byteLength));
   const start = new TextDecoder().decode(bytes).trim();
 

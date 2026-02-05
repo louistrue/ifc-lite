@@ -182,19 +182,19 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    // Filter to only IFC files
-    const ifcFiles = Array.from(files).filter(
-      f => f.name.endsWith('.ifc') || f.name.endsWith('.ifcx')
+    // Filter to supported files (IFC, IFCX, GLB)
+    const supportedFiles = Array.from(files).filter(
+      f => f.name.endsWith('.ifc') || f.name.endsWith('.ifcx') || f.name.endsWith('.glb')
     );
 
-    if (ifcFiles.length === 0) return;
+    if (supportedFiles.length === 0) return;
 
-    if (ifcFiles.length === 1) {
+    if (supportedFiles.length === 1) {
       // Single file - use loadFile (simpler single-model path)
-      loadFile(ifcFiles[0]);
+      loadFile(supportedFiles[0]);
     } else {
       // Multiple files - check if ALL are IFCX (use federated loading for layer composition)
-      const allIfcx = ifcFiles.every(f => f.name.endsWith('.ifcx'));
+      const allIfcx = supportedFiles.every(f => f.name.endsWith('.ifcx'));
 
       resetViewerState();
       clearAllModels();
@@ -202,11 +202,11 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       if (allIfcx) {
         // IFCX files use federated loading (layer composition - later files override earlier ones)
         // This handles overlay files that add properties without geometry
-        console.log(`[MainToolbar] Loading ${ifcFiles.length} IFCX files with federated composition`);
-        loadFederatedIfcx(ifcFiles);
+        console.log(`[MainToolbar] Loading ${supportedFiles.length} IFCX files with federated composition`);
+        loadFederatedIfcx(supportedFiles);
       } else {
-        // Mixed or all IFC4 files - load sequentially as independent models
-        loadFilesSequentially(ifcFiles);
+        // Mixed or all IFC4/GLB files - load sequentially as independent models
+        loadFilesSequentially(supportedFiles);
       }
     }
 
@@ -218,28 +218,28 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    // Filter to only IFC files
-    const ifcFiles = Array.from(files).filter(
-      f => f.name.endsWith('.ifc') || f.name.endsWith('.ifcx')
+    // Filter to supported files (IFC, IFCX, GLB)
+    const supportedFiles = Array.from(files).filter(
+      f => f.name.endsWith('.ifc') || f.name.endsWith('.ifcx') || f.name.endsWith('.glb')
     );
 
-    if (ifcFiles.length === 0) return;
+    if (supportedFiles.length === 0) return;
 
     // Check if adding IFCX files
-    const newFilesAreIfcx = ifcFiles.every(f => f.name.endsWith('.ifcx'));
+    const newFilesAreIfcx = supportedFiles.every(f => f.name.endsWith('.ifcx'));
     const existingIsIfcx = isIfcxDataStore(ifcDataStore);
 
     if (newFilesAreIfcx && existingIsIfcx) {
       // Adding IFCX overlay(s) to existing IFCX model - re-compose with new layers
-      console.log(`[MainToolbar] Adding ${ifcFiles.length} IFCX overlay(s) to existing IFCX model - re-composing`);
-      addIfcxOverlays(ifcFiles);
+      console.log(`[MainToolbar] Adding ${supportedFiles.length} IFCX overlay(s) to existing IFCX model - re-composing`);
+      addIfcxOverlays(supportedFiles);
     } else if (newFilesAreIfcx && !existingIsIfcx && ifcDataStore) {
       // User trying to add IFCX to IFC4 model - won't work
       console.warn('[MainToolbar] Cannot add IFCX files to non-IFCX model');
       alert(`IFCX overlay files cannot be added to IFC4 models.\n\nPlease load IFCX files separately.`);
     } else {
-      // Standard case - add as independent models
-      loadFilesSequentially(ifcFiles);
+      // Standard case - add as independent models (IFC4, GLB, or mixed)
+      loadFilesSequentially(supportedFiles);
     }
 
     // Reset input so same files can be selected again
@@ -372,7 +372,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       <input
         ref={fileInputRef}
         type="file"
-        accept=".ifc,.ifcx"
+        accept=".ifc,.ifcx,.glb"
         multiple
         onChange={handleFileSelect}
         className="hidden"
@@ -380,7 +380,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       <input
         ref={addModelInputRef}
         type="file"
-        accept=".ifc,.ifcx"
+        accept=".ifc,.ifcx,.glb"
         multiple
         onChange={handleAddModelSelect}
         className="hidden"
