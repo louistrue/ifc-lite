@@ -16,16 +16,18 @@ import {
 export default function transformProps(chartProps: ChartProps): IFCViewerProps {
   const { width, height, formData, queriesData, hooks, filterState } =
     chartProps;
-  const fd = formData as ChartProps['formData'] & IFCViewerFormData;
-  const data = queriesData[0]?.data ?? [];
+  // Cast formData to our expected shape - Superset converts snake_case to camelCase
+  const fd = formData as unknown as IFCViewerFormData;
+  const data = (queriesData[0]?.data ?? []) as Array<Record<string, unknown>>;
 
   /* -------------------------------------------------------------------- */
   /*  Resolve model URL                                                    */
   /* -------------------------------------------------------------------- */
 
-  let modelUrl = fd.static_model_url ?? '';
-  if (fd.model_url_column && data.length > 0) {
-    const urlFromData = data[0][fd.model_url_column];
+  // Note: Superset converts snake_case control names to camelCase in formData
+  let modelUrl: string = fd.staticModelUrl ?? '';
+  if (fd.modelUrlColumn && data.length > 0) {
+    const urlFromData = data[0][fd.modelUrlColumn];
     if (typeof urlFromData === 'string' && urlFromData.length > 0) {
       modelUrl = urlFromData;
     }
@@ -36,12 +38,12 @@ export default function transformProps(chartProps: ChartProps): IFCViewerProps {
   /* -------------------------------------------------------------------- */
 
   const entityMetricMap = new Map<string, number>();
-  const metricKey = resolveMetricKey(fd.color_metric);
+  const metricKey = resolveMetricKey(fd.colorMetric);
 
-  if (fd.entity_id_column && metricKey && !fd.color_by_category) {
+  if (fd.entityIdColumn && metricKey && !fd.colorByCategory) {
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
-      const entityId = String(row[fd.entity_id_column] ?? '');
+      const entityId = String(row[fd.entityIdColumn] ?? '');
       const value = Number(row[metricKey]);
       if (entityId && !isNaN(value)) {
         entityMetricMap.set(entityId, value);
@@ -55,14 +57,14 @@ export default function transformProps(chartProps: ChartProps): IFCViewerProps {
 
   const entityCategoryMap = new Map<string, string>();
   if (
-    fd.entity_id_column &&
-    fd.color_by_category &&
-    fd.category_column
+    fd.entityIdColumn &&
+    fd.colorByCategory &&
+    fd.categoryColumn
   ) {
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
-      const entityId = String(row[fd.entity_id_column] ?? '');
-      const category = String(row[fd.category_column] ?? '');
+      const entityId = String(row[fd.entityIdColumn] ?? '');
+      const category = String(row[fd.categoryColumn] ?? '');
       if (entityId && category) {
         entityCategoryMap.set(entityId, category);
       }
@@ -73,10 +75,10 @@ export default function transformProps(chartProps: ChartProps): IFCViewerProps {
   /*  Build color map                                                      */
   /* -------------------------------------------------------------------- */
 
-  const colorScheme = fd.color_scheme ?? 'superset_seq_1';
+  const colorScheme: string = fd.colorScheme ?? 'superset_seq_1';
   let entityColorMap: Map<string, [number, number, number, number]>;
 
-  if (fd.color_by_category && entityCategoryMap.size > 0) {
+  if (fd.colorByCategory && entityCategoryMap.size > 0) {
     entityColorMap = buildCategoricalColorMap(entityCategoryMap);
   } else if (entityMetricMap.size > 0) {
     entityColorMap = buildSequentialColorMap(entityMetricMap, colorScheme);
@@ -91,7 +93,7 @@ export default function transformProps(chartProps: ChartProps): IFCViewerProps {
   let backgroundColor: [number, number, number, number] = DEFAULT_BACKGROUND;
   // background_color may be a hex string (TextControl) or an RGBA object
   // (ColorPickerControl), depending on how the control panel is configured.
-  const bgRaw: unknown = fd.background_color;
+  const bgRaw: unknown = fd.backgroundColor;
   if (typeof bgRaw === 'string' && bgRaw.startsWith('#')) {
     backgroundColor = parseHexToNormalized(bgRaw);
   } else if (
@@ -134,10 +136,10 @@ export default function transformProps(chartProps: ChartProps): IFCViewerProps {
     entityCategoryMap,
     colorScheme,
     backgroundColor,
-    enablePicking: fd.enable_picking ?? true,
-    sectionPlaneEnabled: fd.section_plane_enabled ?? false,
+    enablePicking: fd.enablePicking ?? true,
+    sectionPlaneEnabled: fd.sectionPlaneEnabled ?? false,
     setDataMask: hooks?.setDataMask,
-    entityIdColumn: fd.entity_id_column,
+    entityIdColumn: fd.entityIdColumn as string | undefined,
     filteredEntityIds,
   };
 }

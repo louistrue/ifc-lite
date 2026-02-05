@@ -70,15 +70,24 @@ export function useIFCLoader(
 
     (async () => {
       // Fetch the IFC file
+      console.log('[IFC Loader] Fetching:', modelUrl);
       const response = await fetch(modelUrl);
-      if (cancelled) return;
+      if (cancelled) {
+        console.log('[IFC Loader] Fetch cancelled (component unmounted)');
+        return;
+      }
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
+      console.log('[IFC Loader] Fetch succeeded, reading buffer...');
       const buffer = new Uint8Array(await response.arrayBuffer());
-      if (cancelled) return;
+      console.log('[IFC Loader] Buffer size:', buffer.length, 'bytes');
+      if (cancelled) {
+        console.log('[IFC Loader] Cancelled after buffer read');
+        return;
+      }
 
       // Process geometry with adaptive streaming
       for await (const event of processor.processAdaptive(buffer, {
@@ -102,6 +111,8 @@ export function useIFCLoader(
           }
           case 'complete': {
             renderer.fitToView();
+            // Render immediately after fitting to view
+            renderer.render();
             break;
           }
         }

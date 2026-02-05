@@ -54,6 +54,7 @@ export function useIFCRenderer(
     // Follows the deck.gl pattern (WEBGL_lose_context) adapted for WebGPU.
     // Without this, browsers exhaust their GPU context limit (~8-16 contexts).
     return () => {
+      console.log('[IFC Renderer] Component unmounting, destroying WebGPU device');
       destroyed = true;
       setIsReady(false);
       const device = renderer.getGPUDevice();

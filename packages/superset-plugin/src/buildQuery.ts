@@ -26,42 +26,66 @@ export default function buildQuery(
     const groupby: string[] = [];
 
     // Entity ID column is the primary join key
-    if (formData.entity_id_column) {
-      columns.push(formData.entity_id_column);
-      groupby.push(formData.entity_id_column);
+    // Note: Superset converts snake_case control names to camelCase in formData
+    if (formData.entityIdColumn) {
+      columns.push(formData.entityIdColumn);
+      groupby.push(formData.entityIdColumn);
     }
 
     // Model URL column (if dynamic, we just need the first value)
-    if (formData.model_url_column) {
-      columns.push(formData.model_url_column);
+    if (formData.modelUrlColumn) {
+      columns.push(formData.modelUrlColumn);
     }
 
     // Color-by metric (numeric, aggregated per entity)
-    if (formData.color_metric && !formData.color_by_category) {
+    if (formData.colorMetric && !formData.colorByCategory) {
       const metricValue =
-        typeof formData.color_metric === 'object'
-          ? formData.color_metric
-          : formData.color_metric;
+        typeof formData.colorMetric === 'object'
+          ? formData.colorMetric
+          : formData.colorMetric;
       metrics.push(metricValue);
     }
 
     // Category column for categorical coloring
-    if (formData.color_by_category && formData.category_column) {
-      columns.push(formData.category_column);
-      if (!groupby.includes(formData.category_column)) {
-        groupby.push(formData.category_column);
+    if (formData.colorByCategory && formData.categoryColumn) {
+      columns.push(formData.categoryColumn);
+      if (!groupby.includes(formData.categoryColumn)) {
+        groupby.push(formData.categoryColumn);
       }
+    }
+
+    // If no columns or metrics are configured, the user just wants to display
+    // the IFC model without any data overlay. We need at least one metric for
+    // Superset to accept the query, so we use COUNT(1).
+    // This allows "standalone" mode where only model_url is provided.
+    if (columns.length === 0 && metrics.length === 0) {
+      return [
+        {
+          ...baseQueryObject,
+          columns: [],
+          metrics: [
+            {
+              label: 'count',
+              expressionType: 'SQL',
+              sqlExpression: 'COUNT(1)',
+            },
+          ],
+          orderby: [],
+          row_limit: 1,
+          is_timeseries: false,
+        },
+      ];
     }
 
     // Order by metric descending for better color distribution visibility
     const colorMetricLabel =
-      typeof formData.color_metric === 'object'
-        ? formData.color_metric?.label ?? ''
-        : formData.color_metric ?? '';
+      typeof formData.colorMetric === 'object'
+        ? formData.colorMetric?.label ?? ''
+        : formData.colorMetric ?? '';
 
     const orderby: Array<[string | { label?: string }, boolean]> =
-      colorMetricLabel && !formData.color_by_category
-        ? [[formData.color_metric!, false]]
+      colorMetricLabel && !formData.colorByCategory
+        ? [[formData.colorMetric!, false]]
         : [];
 
     return [

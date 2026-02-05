@@ -8,36 +8,40 @@ import type { SetDataMaskHook } from './vendor/superset-types.js';
 /*  Form Data – what the user configures in the chart editor                  */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Form data interface using camelCase to match Superset's automatic
+ * conversion of snake_case control names in the control panel.
+ */
 export interface IFCViewerFormData {
   /** Column containing IFC model file URLs (one per row or single value). */
-  model_url_column?: string;
+  modelUrlColumn?: string;
 
   /** Static URL to an IFC file (used when no URL column is configured). */
-  static_model_url?: string;
+  staticModelUrl?: string;
 
   /** Column containing IFC entity GlobalId or ExpressID values. */
-  entity_id_column?: string;
+  entityIdColumn?: string;
 
   /** Numeric metric to map to entity colors (e.g. cost, area, energy). */
-  color_metric?: string | { label?: string };
+  colorMetric?: string | { label?: string };
 
   /** Superset color scheme name for sequential or categorical coloring. */
-  color_scheme?: string;
+  colorScheme?: string;
 
   /** Whether to color by a categorical column rather than a numeric metric. */
-  color_by_category?: boolean;
+  colorByCategory?: boolean;
 
   /** Column to use for categorical coloring. */
-  category_column?: string;
+  categoryColumn?: string;
 
   /** Background color for the 3D viewport. */
-  background_color?: { r: number; g: number; b: number; a: number };
+  backgroundColor?: { r: number; g: number; b: number; a: number } | string;
 
   /** Whether entity click triggers cross-filtering. */
-  enable_picking?: boolean;
+  enablePicking?: boolean;
 
   /** Whether the section plane control is shown. */
-  section_plane_enabled?: boolean;
+  sectionPlaneEnabled?: boolean;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -126,9 +130,9 @@ export const DEFAULT_BACKGROUND: [number, number, number, number] = [
 ];
 
 export const DEFAULT_FORM_DATA: Partial<IFCViewerFormData> = {
-  enable_picking: true,
-  section_plane_enabled: false,
-  color_scheme: 'superset_seq_1',
-  background_color: { r: 245, g: 245, b: 245, a: 1 },
-  color_by_category: false,
+  enablePicking: true,
+  sectionPlaneEnabled: false,
+  colorScheme: 'superset_seq_1',
+  backgroundColor: { r: 245, g: 245, b: 245, a: 1 },
+  colorByCategory: false,
 };

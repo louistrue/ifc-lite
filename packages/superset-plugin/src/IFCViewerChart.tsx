@@ -3,6 +3,7 @@ import type { IFCViewerProps } from './types.js';
 import { useIFCRenderer } from './hooks/useIFCRenderer.js';
 import { useIFCLoader } from './hooks/useIFCLoader.js';
 import { useEntityColorMap, useNumericEntitySet } from './hooks/useEntityColorMap.js';
+import { useCameraControls } from './hooks/useCameraControls.js';
 
 /**
  * IFC 3D Viewer chart component for Apache Superset.
@@ -45,6 +46,14 @@ const IFCViewerChart: React.FC<IFCViewerProps> = ({
   const numericColorMap = useEntityColorMap(entityColorMap);
   const isolatedIds = useNumericEntitySet(filteredEntityIds);
 
+  // ---- Camera controls (orbit, pan, zoom) ----
+  const { onPointerDown, onPointerMove, onPointerUp, onWheel } = useCameraControls(
+    rendererRef,
+    canvasRef,
+    isReady,
+    backgroundColor,
+  );
+
   // ---- Handle resize ----
   useEffect(() => {
     resize(width, height);
@@ -80,7 +89,8 @@ const IFCViewerChart: React.FC<IFCViewerProps> = ({
         rafRef.current = null;
       }
     };
-  }, [rendererRef, numericColorMap, isolatedIds, backgroundColor]);
+  // Also re-render when loading completes (loading changes from true to false)
+  }, [rendererRef, numericColorMap, isolatedIds, backgroundColor, loading]);
 
   // ---- Click handler → cross-filter ----
   const handleClick = useCallback(
@@ -161,6 +171,11 @@ const IFCViewerChart: React.FC<IFCViewerProps> = ({
         width={width}
         height={height}
         onClick={handleClick}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerLeave={onPointerUp}
+        onWheel={onWheel}
         style={styles.canvas}
       />
       {statusOverlay}
