@@ -34,6 +34,9 @@ export interface BISlice {
   /** Dashboard display mode */
   dashboardMode: DashboardMode;
 
+  /** Sidebar width in pixels (when dashboardMode is 'sidebar') */
+  sidebarWidth: number;
+
   /** Active dashboard configuration */
   activeDashboard: DashboardConfig | null;
 
@@ -75,6 +78,9 @@ export interface BISlice {
 
   /** Set dashboard display mode */
   setDashboardMode: (mode: DashboardMode) => void;
+
+  /** Set sidebar width */
+  setSidebarWidth: (width: number) => void;
 
   /** Toggle hide none values */
   toggleHideNoneValues: () => void;
@@ -136,6 +142,7 @@ export const createBISlice: StateCreator<BISlice, [], [], BISlice> = (set, get) 
   // Initial state
   isDashboardOpen: false,
   dashboardMode: 'fullscreen' as DashboardMode,
+  sidebarWidth: 400, // Default sidebar width in pixels
   activeDashboard: null,
   chartFilters: new Map(),
   crossFilterEnabled: true,
@@ -175,6 +182,8 @@ export const createBISlice: StateCreator<BISlice, [], [], BISlice> = (set, get) 
   toggleEditMode: () => set((state) => ({ isEditMode: !state.isEditMode })),
 
   setDashboardMode: (mode) => set({ dashboardMode: mode }),
+
+  setSidebarWidth: (width) => set({ sidebarWidth: width }),
 
   toggleHideNoneValues: () =>
     set((state) => ({ hideNoneValues: !state.hideNoneValues })),

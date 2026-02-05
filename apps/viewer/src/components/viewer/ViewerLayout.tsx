@@ -30,6 +30,10 @@ export function ViewerLayout() {
   const rightPanelCollapsed = useViewerStore((s) => s.rightPanelCollapsed);
   const setLeftPanelCollapsed = useViewerStore((s) => s.setLeftPanelCollapsed);
   const setRightPanelCollapsed = useViewerStore((s) => s.setRightPanelCollapsed);
+  
+  // BI Dashboard state for coordination
+  const isDashboardOpen = useViewerStore((s) => s.isDashboardOpen);
+  const dashboardMode = useViewerStore((s) => s.dashboardMode);
 
   // Detect mobile viewport
   useEffect(() => {
@@ -57,6 +61,14 @@ export function ViewerLayout() {
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
+
+  // Coordinate PropertiesPanel with BI Dashboard sidebar
+  // When BI Dashboard opens in sidebar mode, auto-collapse PropertiesPanel
+  useEffect(() => {
+    if (!isMobile && isDashboardOpen && dashboardMode === 'sidebar' && !rightPanelCollapsed) {
+      setRightPanelCollapsed(true);
+    }
+  }, [isMobile, isDashboardOpen, dashboardMode, rightPanelCollapsed, setRightPanelCollapsed]);
 
 
   return (

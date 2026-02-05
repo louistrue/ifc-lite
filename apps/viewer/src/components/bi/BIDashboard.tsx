@@ -14,7 +14,7 @@ import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react'
 import GridLayout, { type Layout, type LayoutItem } from 'react-grid-layout';
 import {
   X, Settings, Download, Plus, Filter, FilterX, Link, Unlink, LayoutTemplate,
-  Maximize2, Minimize2, PanelRight, PanelRightClose, EyeOff, Eye,
+  Maximize2, Minimize2, PanelRight, PanelRightClose, EyeOff, Eye, GripVertical,
 } from 'lucide-react';
 import {
   BIDataAggregator,
@@ -71,9 +71,15 @@ export function BIDashboard() {
   // Track which charts have animated to prevent double animation on remount
   const animatedChartsRef = useRef<Set<string>>(new Set());
 
+  // Resize handle refs
+  const isResizing = useRef(false);
+  const resizeStartPos = useRef({ x: 0, width: 0 });
+  const resizeHandlersRef = useRef<{ move: ((e: MouseEvent) => void) | null; up: (() => void) | null }>({ move: null, up: null });
+
   // Store state
   const isDashboardOpen = useViewerStore((state) => state.isDashboardOpen);
   const dashboardMode = useViewerStore((state) => state.dashboardMode);
+  const sidebarWidth = useViewerStore((state) => state.sidebarWidth);
   const activeDashboard = useViewerStore((state) => state.activeDashboard);
   const isEditMode = useViewerStore((state) => state.isEditMode);
   const chartFilters = useViewerStore((state) => state.chartFilters);
@@ -95,6 +101,7 @@ export function BIDashboard() {
   const updateChartLayout = useViewerStore((state) => state.updateChartLayout);
   const setActiveDashboard = useViewerStore((state) => state.setActiveDashboard);
   const setDashboardMode = useViewerStore((state) => state.setDashboardMode);
+  const setSidebarWidth = useViewerStore((state) => state.setSidebarWidth);
   const setChartFilter = useViewerStore((state) => state.setChartFilter);
   const clearChartFilter = useViewerStore((state) => state.clearChartFilter);
   const clearAllFilters = useViewerStore((state) => state.clearAllFilters);
@@ -512,8 +519,22 @@ export function BIDashboard() {
     return result;
   }, [activeDashboard, selectedEntity, selectedEntities, chartData]);
 
-  // Calculate grid columns based on mode - must be before layout useMemo that uses it
-  const gridCols = dashboardMode === 'sidebar' ? 6 : 12;
+  // Calculate grid columns based on mode and actual width - must be before layout useMemo that uses it
+  const gridCols = useMemo(() => {
+    if (dashboardMode === 'fullscreen') return 12;
+    // Sidebar: adapt columns based on actual container width
+    if (containerWidth < 320) return 4;
+    if (containerWidth < 450) return 6;
+    return 8; // Wider sidebars can fit 8 columns
+  }, [dashboardMode, containerWidth]);
+
+  // Calculate row height based on mode and container width
+  const rowHeight = useMemo(() => {
+    if (dashboardMode === 'fullscreen') return 100;
+    // Smaller row height for narrower panels
+    if (containerWidth < 350) return 60;
+    return 80;
+  }, [dashboardMode, containerWidth]);
 
   // Grid layout from chart configs - scale for sidebar mode
   // Templates are designed for 12 columns, scale to 6 for sidebar
@@ -657,12 +678,95 @@ export function BIDashboard() {
     return count;
   }, [chartFilters]);
 
+  // Calculate constrained sidebar width (min 280px, max 50% of viewport or 800px)
+  const constrainedSidebarWidth = useMemo(() => {
+    if (dashboardMode !== 'sidebar') return 0;
+    const maxWidth = Math.min(window.innerWidth * 0.5, 800);
+    const minWidth = 280;
+    return Math.max(minWidth, Math.min(sidebarWidth, maxWidth));
+  }, [dashboardMode, sidebarWidth]);
+
+  // Handle resize start (drag left edge of sidebar)
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    if (dashboardMode !== 'sidebar') return;
+    e.preventDefault();
+    e.stopPropagation();
+    isResizing.current = true;
+    resizeStartPos.current = {
+      x: e.clientX,
+      width: constrainedSidebarWidth,
+    };
+
+    // Remove any existing listeners first
+    if (resizeHandlersRef.current.move) {
+      window.removeEventListener('mousemove', resizeHandlersRef.current.move);
+    }
+    if (resizeHandlersRef.current.up) {
+      window.removeEventListener('mouseup', resizeHandlersRef.current.up);
+    }
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing.current) return;
+
+      // For right-side panel, dragging left (negative dx) increases width
+      const dx = resizeStartPos.current.x - e.clientX;
+      const newWidth = resizeStartPos.current.width + dx;
+
+      // Apply constraints
+      const maxWidth = Math.min(window.innerWidth * 0.5, 800);
+      const minWidth = 280;
+      const constrainedWidth = Math.max(minWidth, Math.min(newWidth, maxWidth));
+
+      setSidebarWidth(constrainedWidth);
+    };
+
+    const handleMouseUp = () => {
+      isResizing.current = false;
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      resizeHandlersRef.current = { move: null, up: null };
+    };
+
+    // Store refs for cleanup
+    resizeHandlersRef.current = { move: handleMouseMove, up: handleMouseUp };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  }, [dashboardMode, constrainedSidebarWidth, setSidebarWidth]);
+
+  // Cleanup resize listeners on unmount
+  useEffect(() => {
+    return () => {
+      if (resizeHandlersRef.current.move) {
+        window.removeEventListener('mousemove', resizeHandlersRef.current.move);
+      }
+      if (resizeHandlersRef.current.up) {
+        window.removeEventListener('mouseup', resizeHandlersRef.current.up);
+      }
+    };
+  }, []);
+
+  // Constrain sidebar width when viewport resizes
+  useEffect(() => {
+    if (dashboardMode !== 'sidebar') return;
+
+    const handleResize = () => {
+      const maxWidth = Math.min(window.innerWidth * 0.5, 800);
+      if (sidebarWidth > maxWidth) {
+        setSidebarWidth(maxWidth);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [dashboardMode, sidebarWidth, setSidebarWidth]);
+
   // Calculate container classes based on mode
   // IMPORTANT: This must be before early returns to follow React's rules of hooks
   const containerClasses = useMemo(() => {
     switch (dashboardMode) {
       case 'sidebar':
-        return 'absolute right-0 top-12 bottom-0 w-[450px] bg-background z-40 flex flex-col border-l shadow-lg';
+        return 'absolute right-0 top-12 bottom-0 bg-background z-40 flex flex-col border-l shadow-lg';
       case 'minimized':
         return 'absolute right-4 bottom-4 w-80 h-12 bg-background z-40 flex items-center rounded-lg border shadow-lg';
       case 'fullscreen':
@@ -691,9 +795,24 @@ export function BIDashboard() {
   }
 
   return (
-    <div className={containerClasses}>
+    <div
+      className={containerClasses}
+      style={dashboardMode === 'sidebar' ? { width: `${constrainedSidebarWidth}px` } : undefined}
+    >
       {/* Inject custom resize handle styles */}
       <style>{gridLayoutStyles}</style>
+
+      {/* Resize handle for sidebar mode */}
+      {dashboardMode === 'sidebar' && (
+        <div
+          className="absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize hover:bg-primary/50 active:bg-primary/70 transition-colors z-50 group"
+          onMouseDown={handleResizeStart}
+        >
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <GripVertical className="h-4 w-4 text-primary rotate-90" />
+          </div>
+        </div>
+      )}
 
       {/* Minimized mode - just show a bar to expand */}
       {dashboardMode === 'minimized' && (
@@ -838,7 +957,7 @@ export function BIDashboard() {
             width={containerWidth}
             gridConfig={{
               cols: gridCols,
-              rowHeight: dashboardMode === 'sidebar' ? 80 : 100,
+              rowHeight: rowHeight,
               margin: dashboardMode === 'sidebar' ? [8, 8] as const : [16, 16] as const,
               maxRows: Infinity,
               containerPadding: null,

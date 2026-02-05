@@ -152,9 +152,13 @@ export function ChartRenderer({
 }: ChartRendererProps) {
   const chartRef = useRef<ReactECharts>(null);
   const prevDataRef = useRef<AggregatedDataPoint[]>([]);
-  // Local ref to track if we've already scheduled onAnimated callback
-  // This prevents multiple setTimeout calls during rapid re-renders
-  const onAnimatedCalledRef = useRef(false);
+  // Track if we've started animation - prevents re-animation when data updates during load
+  const hasStartedAnimationRef = useRef(hasAnimated);
+
+  // Sync with parent's hasAnimated (for remount scenarios)
+  if (hasAnimated && !hasStartedAnimationRef.current) {
+    hasStartedAnimationRef.current = true;
+  }
 
   // Stabilize data reference - only update if actual values changed
   // This prevents ECharts from re-animating when data reference changes but values are same
@@ -174,22 +178,27 @@ export function ChartRenderer({
     return data;
   }, [data]);
 
-  // Determine if animation should be enabled (only on first render with data)
-  // Only check parent's hasAnimated - this allows animation to play during re-renders
-  // while we wait for the animation to complete before marking it done
+  // Determine if animation should be enabled (only ONCE per chart instance)
+  // Check both parent state (hasAnimated) and local state (hasStartedAnimationRef)
+  // This prevents re-animation when data progressively loads (200 → 421 → 5706 meshes etc.)
   const shouldAnimate = useMemo(() => {
     if (stableData.length === 0) return false;
     if (hasAnimated) return false;
+    if (hasStartedAnimationRef.current) return false;
     return true;
   }, [stableData.length, hasAnimated]);
 
-  // Notify parent AFTER animation completes (300ms duration + 50ms buffer)
-  // Use local ref to ensure we only call onAnimated once per chart instance
-  // ECharts uses animationDurationUpdate: 0, so re-renders during animation won't re-animate
+  // Mark animation as started SYNCHRONOUSLY during render
+  // This is critical: useEffect runs asynchronously, but during progressive loading
+  // multiple renders can happen before the effect runs. Setting the ref during render
+  // ensures any subsequent render in the same frame sees the updated value.
+  if (shouldAnimate && !hasStartedAnimationRef.current) {
+    hasStartedAnimationRef.current = true;
+  }
+
+  // Notify parent AFTER animation completes (300ms + buffer) for persistence across remounts
   useEffect(() => {
-    if (shouldAnimate && stableData.length > 0 && !onAnimatedCalledRef.current) {
-      onAnimatedCalledRef.current = true;
-      // Wait for animation to complete before notifying parent
+    if (shouldAnimate && stableData.length > 0) {
       const timer = setTimeout(() => onAnimated(), 350);
       return () => clearTimeout(timer);
     }
