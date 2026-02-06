@@ -24,6 +24,7 @@ import {
   Edit3,
   Sparkles,
   PenLine,
+  Crosshair,
 } from 'lucide-react';
 import { PropertyEditor, NewPropertyDialog, UndoRedoButtons } from './PropertyEditor';
 import { Button } from '@/components/ui/button';
@@ -240,7 +241,7 @@ export function PropertiesPanel() {
   const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
   const toggleEntityVisibility = useViewerStore((s) => s.toggleEntityVisibility);
   const isEntityVisible = useViewerStore((s) => s.isEntityVisible);
-  const { query, ifcDataStore, models, getQueryForModel } = useIfc();
+  const { query, ifcDataStore, geometryResult, models, getQueryForModel } = useIfc();
 
   // Get model-aware query based on selectedEntity
   const { modelQuery, model } = useMemo(() => {
@@ -370,6 +371,65 @@ export function PropertiesPanel() {
       height,
     };
   }, [selectedEntity, activeDataStore]);
+
+  // Compute entity bounding box and coordinates (local scene + world)
+  // Local = scene coordinates (Y-up, shifted to origin for rendering)
+  // World = real-world coordinates with origin shift restored (Y-up viewer convention)
+  const entityCoordinates = useMemo(() => {
+    if (!selectedEntity) return null;
+
+    // Get geometry source: prefer multi-model, fallback to legacy
+    const geoResult = model?.geometryResult ?? geometryResult;
+    if (!geoResult?.meshes?.length) return null;
+
+    // In multi-model mode, meshes use globalIds (originalExpressId + idOffset)
+    const targetExpressId = selectedEntity.expressId + (model?.idOffset ?? 0);
+
+    // Compute bounding box from matching mesh positions
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    let found = false;
+
+    for (const mesh of geoResult.meshes) {
+      if (mesh.expressId !== targetExpressId) continue;
+      found = true;
+      const pos = mesh.positions;
+      for (let i = 0; i < pos.length; i += 3) {
+        const x = pos[i], y = pos[i + 1], z = pos[i + 2];
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (z < minZ) minZ = z;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+        if (z > maxZ) maxZ = z;
+      }
+    }
+
+    if (!found) return null;
+
+    const coordInfo = geoResult.coordinateInfo;
+    const shift = coordInfo?.originShift ?? { x: 0, y: 0, z: 0 };
+
+    // Local (scene) center - what the renderer uses (Y-up, shifted)
+    const localCenter = {
+      x: (minX + maxX) / 2,
+      y: (minY + maxY) / 2,
+      z: (minZ + maxZ) / 2,
+    };
+
+    // World center - real-world position with shift restored (Y-up)
+    const worldCenter = {
+      x: localCenter.x + shift.x,
+      y: localCenter.y + shift.y,
+      z: localCenter.z + shift.z,
+    };
+
+    return {
+      local: { min: { x: minX, y: minY, z: minZ }, max: { x: maxX, y: maxY, z: maxZ }, center: localCenter },
+      world: { center: worldCenter },
+      hasLargeCoordinates: coordInfo?.hasLargeCoordinates ?? false,
+    };
+  }, [selectedEntity, model, geometryResult]);
 
   // Get entity node - must be computed before early return to maintain hook order
   // IMPORTANT: Use selectedEntity.expressId (original ID) for IfcDataStore lookups
@@ -655,6 +715,50 @@ export function PropertiesPanel() {
               )}
             </div>
           </div>
+        )}
+
+        {/* Entity Position - compact collapsible showing local + world coordinates */}
+        {entityCoordinates && (
+          <Collapsible>
+            <CollapsibleTrigger className="flex items-center gap-2 w-full text-xs border border-zinc-200 dark:border-zinc-800 px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-900 text-left">
+              <Crosshair className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+              <span className="font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Position</span>
+              <span className="font-mono text-[10px] text-zinc-400 dark:text-zinc-500 ml-auto truncate">
+                {entityCoordinates.local.center.x.toFixed(2)}, {entityCoordinates.local.center.y.toFixed(2)}, {entityCoordinates.local.center.z.toFixed(2)}
+              </span>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="border border-t-0 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-[11px]">
+                {/* Local (Scene) coordinates */}
+                <div className="px-2.5 py-1.5 border-b border-zinc-100 dark:border-zinc-900">
+                  <div className="font-bold uppercase tracking-wider text-[9px] text-zinc-400 dark:text-zinc-500 mb-1">Scene (Local)</div>
+                  <div className="font-mono text-zinc-700 dark:text-zinc-300 grid grid-cols-3 gap-1">
+                    <span>X: {entityCoordinates.local.center.x.toFixed(3)}</span>
+                    <span>Y: {entityCoordinates.local.center.y.toFixed(3)}</span>
+                    <span>Z: {entityCoordinates.local.center.z.toFixed(3)}</span>
+                  </div>
+                </div>
+                {/* World coordinates */}
+                <div className="px-2.5 py-1.5 border-b border-zinc-100 dark:border-zinc-900">
+                  <div className="font-bold uppercase tracking-wider text-[9px] text-zinc-400 dark:text-zinc-500 mb-1">World</div>
+                  <div className="font-mono text-zinc-700 dark:text-zinc-300 grid grid-cols-3 gap-1">
+                    <span>X: {entityCoordinates.world.center.x.toFixed(3)}</span>
+                    <span>Y: {entityCoordinates.world.center.y.toFixed(3)}</span>
+                    <span>Z: {entityCoordinates.world.center.z.toFixed(3)}</span>
+                  </div>
+                </div>
+                {/* Bounding box extent */}
+                <div className="px-2.5 py-1.5">
+                  <div className="font-bold uppercase tracking-wider text-[9px] text-zinc-400 dark:text-zinc-500 mb-1">Extent</div>
+                  <div className="font-mono text-zinc-500 dark:text-zinc-400 grid grid-cols-3 gap-1">
+                    <span>W: {(entityCoordinates.local.max.x - entityCoordinates.local.min.x).toFixed(3)}</span>
+                    <span>H: {(entityCoordinates.local.max.y - entityCoordinates.local.min.y).toFixed(3)}</span>
+                    <span>D: {(entityCoordinates.local.max.z - entityCoordinates.local.min.z).toFixed(3)}</span>
+                  </div>
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         )}
 
         {/* Model Source (when multiple models loaded) - below storey, less prominent */}

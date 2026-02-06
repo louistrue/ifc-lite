@@ -675,9 +675,12 @@ export class Scene {
   }
 
   /**
-   * Get or compute bounding box for a mesh
+   * Get or compute bounding box for an entity from its mesh vertex data.
+   * Results are cached per expressId for subsequent calls.
+   * @param expressId - The expressId (globalId) to look up
+   * @returns Bounding box with min/max corners, or null if no mesh data exists
    */
-  private getBoundingBox(expressId: number): BoundingBox | null {
+  getEntityBoundingBox(expressId: number): BoundingBox | null {
     // Check cache first
     const cached = this.boundingBoxes.get(expressId);
     if (cached) return cached;
@@ -814,7 +817,7 @@ export class Scene {
       // Skip non-isolated elements if isolation is active
       if (isolatedIds !== null && isolatedIds !== undefined && !isolatedIds.has(expressId)) continue;
 
-      const bbox = this.getBoundingBox(expressId);
+      const bbox = this.getEntityBoundingBox(expressId);
       if (!bbox) continue;
 
       if (this.rayIntersectsBox(rayOrigin, rayDirInv, rayDirSign, bbox)) {
