@@ -68,9 +68,8 @@ jobs:
         id: get-version
         if: steps.changesets.outputs.published == 'true'
         run: |
-          # Read version from @ifc-lite/wasm since that's the authoritative source
-          # (changesets updates individual packages but not the private workspace root)
-          VERSION=$(node -p "require('./packages/wasm/package.json').version")
+          # Read version from root package.json (sync-versions.js keeps this in sync)
+          VERSION=$(node -p "require('./package.json').version")
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
@@ -79,9 +78,14 @@ jobs:
           # Create the v* tag (changesets creates @scope/package@version tags, not v* tags)
           git tag "v${{ steps.get-version.outputs.version }}" || true
           git push origin "v${{ steps.get-version.outputs.version }}" || true
-          gh release create "v${{ steps.get-version.outputs.version }}" \
-            --title "v${{ steps.get-version.outputs.version }}" \
-            --notes "See CHANGELOG.md for details"
+          # Create release, skipping if it already exists
+          if gh release view "v${{ steps.get-version.outputs.version }}" > /dev/null 2>&1; then
+            echo "Release v${{ steps.get-version.outputs.version }} already exists, skipping"
+          else
+            gh release create "v${{ steps.get-version.outputs.version }}" \
+              --title "v${{ steps.get-version.outputs.version }}" \
+              --notes "See CHANGELOG.md for details"
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
