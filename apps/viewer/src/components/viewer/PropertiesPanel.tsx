@@ -24,6 +24,7 @@ import {
   Edit3,
   Sparkles,
   PenLine,
+  Crosshair,
 } from 'lucide-react';
 import { PropertyEditor, NewPropertyDialog, UndoRedoButtons } from './PropertyEditor';
 import { Button } from '@/components/ui/button';
@@ -232,6 +233,46 @@ function parsePropertyValue(value: unknown): ParsedPropertyValue {
   return { displayValue: String(value) };
 }
 
+/** Inline coordinate value with dim axis label */
+function CoordVal({ axis, value }: { axis: string; value: number }) {
+  return (
+    <span className="whitespace-nowrap"><span className="opacity-50">{axis}</span>{'\u2009'}{value.toFixed(3)}</span>
+  );
+}
+
+/** Copyable coordinate row: label + values with copy button hugging the values */
+function CoordRow({ label, values, primary, copyLabel, coordCopied, onCopy }: {
+  label: string;
+  values: { axis: string; value: number }[];
+  primary?: boolean;
+  copyLabel: string;
+  coordCopied: string | null;
+  onCopy: (label: string, text: string) => void;
+}) {
+  const isCopied = coordCopied === copyLabel;
+  const copyText = values.map(v => v.value.toFixed(3)).join(', ');
+  return (
+    <div className="flex items-start gap-1.5 group min-w-0">
+      {label && (
+        <span className={`text-[9px] font-medium uppercase tracking-wider w-[34px] shrink-0 pt-px ${primary ? 'text-muted-foreground' : 'text-muted-foreground/50'}`}>
+          {label}
+        </span>
+      )}
+      <span className={`font-mono text-[10px] min-w-0 tabular-nums leading-relaxed ${primary ? 'text-foreground' : 'text-muted-foreground/60'}`}>
+        {values.map((v, i) => (
+          <span key={v.axis}>{i > 0 && <>{' '}</>}<CoordVal axis={v.axis} value={v.value} /></span>
+        ))}
+      </span>
+      <button
+        className={`shrink-0 p-0.5 rounded mt-px transition-colors ${isCopied ? 'text-emerald-500' : 'text-muted-foreground/30 opacity-0 group-hover:opacity-100 hover:text-muted-foreground'}`}
+        onClick={(e) => { e.stopPropagation(); onCopy(copyLabel, copyText); }}
+      >
+        {isCopied ? <Check className="h-2.5 w-2.5" /> : <Copy className="h-2.5 w-2.5" />}
+      </button>
+    </div>
+  );
+}
+
 export function PropertiesPanel() {
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
   const selectedEntity = useViewerStore((s) => s.selectedEntity);
@@ -240,7 +281,7 @@ export function PropertiesPanel() {
   const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
   const toggleEntityVisibility = useViewerStore((s) => s.toggleEntityVisibility);
   const isEntityVisible = useViewerStore((s) => s.isEntityVisible);
-  const { query, ifcDataStore, models, getQueryForModel } = useIfc();
+  const { query, ifcDataStore, geometryResult, models, getQueryForModel } = useIfc();
 
   // Get model-aware query based on selectedEntity
   const { modelQuery, model } = useMemo(() => {
@@ -291,6 +332,8 @@ export function PropertiesPanel() {
 
   // Copy feedback state - must be before any early returns (Rules of Hooks)
   const [copied, setCopied] = useState(false);
+  const [coordCopied, setCoordCopied] = useState<string | null>(null);
+  const [coordOpen, setCoordOpen] = useState(false);
 
   // Edit mode toggle - allows inline property editing
   const [editMode, setEditMode] = useState(false);
@@ -299,6 +342,12 @@ export function PropertiesPanel() {
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  }, []);
+
+  const copyCoords = useCallback((label: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCoordCopied(label);
+    setTimeout(() => setCoordCopied(null), 1500);
   }, []);
 
   // Get spatial location info
@@ -370,6 +419,105 @@ export function PropertiesPanel() {
       height,
     };
   }, [selectedEntity, activeDataStore]);
+
+  // Compute entity bounding box and coordinates (local scene + world)
+  //
+  // The full coordinate pipeline is:
+  //   1. WASM extracts IFC positions (Z-up) and applies RTC offset (wasmRtcOffset, in Z-up)
+  //   2. Mesh collector converts Z-up → Y-up: newY = oldZ, newZ = -oldY
+  //   3. CoordinateHandler may apply additional originShift (in Y-up) for large coordinates
+  //   4. Multi-model alignment adjusts positions so all models share the first model's RTC frame
+  //
+  // To reverse back to world coordinates (Y-up):
+  //   world_yup = scene_local + originShift + wasmRtcOffset_converted_to_yup
+  //
+  // For multi-model: all models are aligned to the first model's RTC frame,
+  // so we always use the first model's wasmRtcOffset for reconstruction.
+  const entityCoordinates = useMemo(() => {
+    if (!selectedEntity) return null;
+
+    // Get geometry source: prefer multi-model, fallback to legacy
+    const geoResult = model?.geometryResult ?? geometryResult;
+    if (!geoResult?.meshes?.length) return null;
+
+    // In multi-model mode, meshes use globalIds (originalExpressId + idOffset)
+    const targetExpressId = selectedEntity.expressId + (model?.idOffset ?? 0);
+
+    // Compute bounding box from matching mesh positions
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    let found = false;
+
+    for (const mesh of geoResult.meshes) {
+      if (mesh.expressId !== targetExpressId) continue;
+      found = true;
+      const pos = mesh.positions;
+      for (let i = 0; i < pos.length; i += 3) {
+        const x = pos[i], y = pos[i + 1], z = pos[i + 2];
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (z < minZ) minZ = z;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+        if (z > maxZ) maxZ = z;
+      }
+    }
+
+    if (!found) return null;
+
+    const coordInfo = geoResult.coordinateInfo;
+    const shift = coordInfo?.originShift ?? { x: 0, y: 0, z: 0 };
+
+    // Get the reference WASM RTC offset for world coordinate reconstruction.
+    // For multi-model: all models are aligned to the first model's RTC frame,
+    // so we must use the first model's wasmRtcOffset (not the current model's).
+    // For single/legacy: use the geometry result's own offset.
+    let wasmRtcIfc = coordInfo?.wasmRtcOffset;
+    if (models.size > 1) {
+      let earliest = Infinity;
+      for (const [, m] of models) {
+        if (m.loadedAt < earliest) {
+          earliest = m.loadedAt;
+          wasmRtcIfc = m.geometryResult?.coordinateInfo?.wasmRtcOffset;
+        }
+      }
+    }
+
+    // Convert WASM RTC offset from IFC Z-up to viewer Y-up:
+    //   viewer X = IFC X, viewer Y = IFC Z, viewer Z = -IFC Y
+    const wasmRtcYup = wasmRtcIfc
+      ? { x: wasmRtcIfc.x, y: wasmRtcIfc.z, z: -wasmRtcIfc.y }
+      : { x: 0, y: 0, z: 0 };
+
+    // Local (scene) center - what the renderer uses (Y-up, shifted)
+    const localCenter = {
+      x: (minX + maxX) / 2,
+      y: (minY + maxY) / 2,
+      z: (minZ + maxZ) / 2,
+    };
+
+    // World center (Y-up) = scene_local + originShift + wasmRtcOffset_yup
+    const worldCenterYup = {
+      x: localCenter.x + shift.x + wasmRtcYup.x,
+      y: localCenter.y + shift.y + wasmRtcYup.y,
+      z: localCenter.z + shift.z + wasmRtcYup.z,
+    };
+
+    // Convert world Y-up to IFC Z-up for display:
+    //   IFC X = viewer X, IFC Y = -viewer Z, IFC Z = viewer Y
+    const worldCenterZup = {
+      x: worldCenterYup.x,
+      y: -worldCenterYup.z,
+      z: worldCenterYup.y,
+    };
+
+    return {
+      local: { min: { x: minX, y: minY, z: minZ }, max: { x: maxX, y: maxY, z: maxZ }, center: localCenter },
+      worldYup: { center: worldCenterYup },
+      worldZup: { center: worldCenterZup },
+      hasLargeCoordinates: (coordInfo?.hasLargeCoordinates ?? false) || !!wasmRtcIfc,
+    };
+  }, [selectedEntity, model, geometryResult, models]);
 
   // Get entity node - must be computed before early return to maintain hook order
   // IMPORTANT: Use selectedEntity.expressId (original ID) for IfcDataStore lookups
@@ -655,6 +803,59 @@ export function PropertiesPanel() {
               )}
             </div>
           </div>
+        )}
+
+        {/* Entity Position - teal tint to distinguish from emerald storey bar */}
+        {entityCoordinates && (
+          <Collapsible open={coordOpen} onOpenChange={setCoordOpen}>
+            <CollapsibleTrigger className="flex items-center gap-2 w-full text-xs border border-teal-500/30 px-2 py-1.5 text-teal-800 dark:text-teal-400 min-w-0 text-left group/coord">
+              <Crosshair className="h-3.5 w-3.5 shrink-0" />
+              <span className="font-bold uppercase tracking-wide shrink-0">World</span>
+              {!coordOpen && (
+                <>
+                  <span className="font-mono text-[10px] text-teal-600/70 dark:text-teal-500/70 truncate min-w-0 flex-1 tabular-nums">
+                    <CoordVal axis="E" value={entityCoordinates.worldZup.center.x} />{' '}
+                    <CoordVal axis="N" value={entityCoordinates.worldZup.center.y} />{' '}
+                    <CoordVal axis="Z" value={entityCoordinates.worldZup.center.z} />
+                  </span>
+                  <span className="text-[9px] text-teal-500/0 group-hover/coord:text-teal-500/40 transition-colors shrink-0">details</span>
+                </>
+              )}
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="px-2 py-1.5 space-y-0.5">
+                <CoordRow
+                  label=""
+                  values={[
+                    { axis: 'E', value: entityCoordinates.worldZup.center.x },
+                    { axis: 'N', value: entityCoordinates.worldZup.center.y },
+                    { axis: 'Z', value: entityCoordinates.worldZup.center.z },
+                  ]}
+                  primary
+                  copyLabel="world"
+                  coordCopied={coordCopied}
+                  onCopy={copyCoords}
+                />
+                <CoordRow
+                  label="Local"
+                  values={[
+                    { axis: 'X', value: entityCoordinates.local.center.x },
+                    { axis: 'Y', value: entityCoordinates.local.center.y },
+                    { axis: 'Z', value: entityCoordinates.local.center.z },
+                  ]}
+                  copyLabel="local"
+                  coordCopied={coordCopied}
+                  onCopy={copyCoords}
+                />
+                <div className="flex items-start gap-1.5">
+                  <span className="text-[9px] font-medium text-muted-foreground/50 uppercase tracking-wider w-[34px] shrink-0 pt-px">Size</span>
+                  <span className="font-mono text-[10px] text-muted-foreground/50 tabular-nums">
+                    {(entityCoordinates.local.max.x - entityCoordinates.local.min.x).toFixed(2)} x {(entityCoordinates.local.max.y - entityCoordinates.local.min.y).toFixed(2)} x {(entityCoordinates.local.max.z - entityCoordinates.local.min.z).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         )}
 
         {/* Model Source (when multiple models loaded) - below storey, less prominent */}
