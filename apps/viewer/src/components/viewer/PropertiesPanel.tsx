@@ -253,9 +253,11 @@ function CoordRow({ label, values, primary, copyLabel, coordCopied, onCopy }: {
   const copyText = values.map(v => v.value.toFixed(3)).join(', ');
   return (
     <div className="flex items-start gap-1.5 group min-w-0">
-      <span className={`text-[9px] font-medium uppercase tracking-wider w-[34px] shrink-0 pt-px ${primary ? 'text-muted-foreground' : 'text-muted-foreground/50'}`}>
-        {label}
-      </span>
+      {label && (
+        <span className={`text-[9px] font-medium uppercase tracking-wider w-[34px] shrink-0 pt-px ${primary ? 'text-muted-foreground' : 'text-muted-foreground/50'}`}>
+          {label}
+        </span>
+      )}
       <span className={`font-mono text-[10px] flex-1 min-w-0 tabular-nums leading-relaxed ${primary ? 'text-foreground' : 'text-muted-foreground/60'}`}>
         {values.map((v, i) => (
           <span key={v.axis}>{i > 0 && <>{' '}</>}<CoordVal axis={v.axis} value={v.value} /></span>
@@ -803,14 +805,14 @@ export function PropertiesPanel() {
           </div>
         )}
 
-        {/* Entity Position - styled like spatial location bar above */}
+        {/* Entity Position - same emerald style as storey bar */}
         {entityCoordinates && (
           <Collapsible open={coordOpen} onOpenChange={setCoordOpen}>
-            <CollapsibleTrigger className="flex items-center gap-2 w-full text-xs border border-blue-500/30 bg-blue-50/50 dark:bg-blue-900/10 px-2 py-1.5 text-blue-800 dark:text-blue-400 min-w-0 text-left">
+            <CollapsibleTrigger className="flex items-center gap-2 w-full text-xs border border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-900/10 px-2 py-1.5 text-emerald-800 dark:text-emerald-400 min-w-0 text-left">
               <Crosshair className="h-3.5 w-3.5 shrink-0" />
               <span className="font-bold uppercase tracking-wide shrink-0">World</span>
               {!coordOpen && (
-                <span className="font-mono text-[10px] text-blue-700/70 dark:text-blue-300/70 truncate min-w-0 flex-1 tabular-nums">
+                <span className="font-mono text-[10px] text-emerald-600/70 dark:text-emerald-500/70 truncate min-w-0 flex-1 tabular-nums">
                   <CoordVal axis="E" value={entityCoordinates.worldZup.center.x} />{' '}
                   <CoordVal axis="N" value={entityCoordinates.worldZup.center.y} />{' '}
                   <CoordVal axis="Z" value={entityCoordinates.worldZup.center.z} />
@@ -818,7 +820,7 @@ export function PropertiesPanel() {
               )}
             </CollapsibleTrigger>
             <CollapsibleContent>
-              <div className="px-2 py-1.5 space-y-0.5 border-x border-b border-blue-500/30">
+              <div className="px-2 py-1.5 space-y-0.5">
                 <CoordRow
                   label=""
                   values={[
