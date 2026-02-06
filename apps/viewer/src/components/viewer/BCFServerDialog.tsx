@@ -111,8 +111,12 @@ export function BCFServerDialog({ onClose }: BCFServerDialogProps) {
 
       // Start OAuth flow
       try {
-        const effectiveClientId = clientId.trim() || 'ifc-lite';
-        await connect(info, effectiveClientId);
+        if (!clientId.trim()) {
+          setError('A Client ID is required. Register your application with the BCF server provider to get one.');
+          setStep('url');
+          return;
+        }
+        await connect(info, clientId.trim());
         saveServer(serverUrl.trim());
         setStep('project');
       } catch (authError) {
@@ -205,17 +209,17 @@ export function BCFServerDialog({ onClose }: BCFServerDialogProps) {
 
             <div className="space-y-2">
               <Label htmlFor="client-id" className="text-xs">
-                Client ID <span className="text-muted-foreground">(optional)</span>
+                Client ID
               </Label>
               <Input
                 id="client-id"
                 value={clientId}
                 onChange={(e) => setClientId(e.target.value)}
-                placeholder="ifc-lite"
+                placeholder="your-registered-client-id"
                 className="text-sm"
               />
               <p className="text-xs text-muted-foreground">
-                OAuth2 client ID registered on the server. Leave empty for default.
+                OAuth2 client ID registered with the BCF server. Required for BIMcollab, Trimble Connect, etc.
               </p>
             </div>
 

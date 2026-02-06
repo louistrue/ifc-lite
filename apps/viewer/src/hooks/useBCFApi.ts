@@ -163,6 +163,8 @@ export function useBCFApi(): UseBCFApiResult {
           tokenUrl: serverInfo.tokenUrl,
           clientId,
           redirectUri,
+          // BIMcollab and other servers require specific scopes
+          scope: 'openid offline_access bcf',
         });
 
         // Get current user info
