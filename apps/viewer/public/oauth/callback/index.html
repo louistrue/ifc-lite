@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Authenticating...</title>
+</head>
+<body>
+  <p>Authentication complete. This window will close automatically.</p>
+  <script>
+    // Extract OAuth callback parameters and send to parent window
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const state = params.get('state');
+    const error = params.get('error');
+
+    if (window.opener) {
+      window.opener.postMessage({
+        type: 'oauth_callback',
+        code: code,
+        state: state,
+        error: error
+      }, window.location.origin);
+    }
+
+    // Close popup after a short delay
+    setTimeout(function() { window.close(); }, 1000);
+  </script>
+</body>
+</html>

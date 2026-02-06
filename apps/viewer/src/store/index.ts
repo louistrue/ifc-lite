@@ -193,13 +193,14 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       titleBlockEditorVisible: false,
       // Keep savedSheetTemplates - don't reset user's templates
 
-      // BCF - reset panel but keep project and author
+      // BCF - reset panel but keep project, author, and API connection
       bcfPanelVisible: false,
       bcfLoading: false,
       bcfError: null,
+      bcfSyncing: false,
       activeTopicId: null,
       activeViewpointId: null,
-      // Keep bcfProject and bcfAuthor - user's work
+      // Keep bcfProject, bcfAuthor, bcfApiConnection, bcfMode, bcfApiProjects - user's work
 
       // IDS - reset panel but keep document and results
       idsPanelVisible: false,

@@ -34,6 +34,10 @@ import {
   MousePointer2,
   Focus,
   EyeOff,
+  Globe,
+  Loader2,
+  Unplug,
+  RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -58,6 +62,8 @@ import {
   createBCFComment,
 } from '@ifc-lite/bcf';
 import { useBCF } from '@/hooks/useBCF';
+import { useBCFApi } from '@/hooks/useBCFApi';
+import { BCFServerDialog } from './BCFServerDialog';
 
 // ============================================================================
 // Constants
@@ -846,6 +852,12 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
   const setBcfAuthor = useViewerStore((s) => s.setBcfAuthor);
   const setBcfLoading = useViewerStore((s) => s.setBcfLoading);
 
+  // BCF-API state
+  const bcfMode = useViewerStore((s) => s.bcfMode);
+  const bcfApiConnection = useViewerStore((s) => s.bcfApiConnection);
+  const bcfSyncing = useViewerStore((s) => s.bcfSyncing);
+  const isApiMode = bcfMode === 'api' && bcfApiConnection !== null;
+
   // Viewer state for capture feedback
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
   const selectedEntityIds = useViewerStore((s) => s.selectedEntityIds);
@@ -869,10 +881,24 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
   // BCF hook for camera/snapshot integration
   const { createViewpointFromState, applyViewpoint } = useBCF();
 
+  // BCF-API hook for server operations
+  const {
+    disconnect: apiDisconnect,
+    refreshTopics: apiRefreshTopics,
+    syncCreateTopic,
+    syncUpdateTopic,
+    syncDeleteTopic,
+    syncAddComment,
+    syncDeleteComment,
+    syncAddViewpoint,
+    syncDeleteViewpoint,
+  } = useBCFApi();
+
   // Local state
   const [statusFilter, setStatusFilter] = useState('all');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showAuthorDialog, setShowAuthorDialog] = useState(false);
+  const [showServerDialog, setShowServerDialog] = useState(false);
   const [tempAuthor, setTempAuthor] = useState(bcfAuthor);
 
   // Get topics list
@@ -968,10 +994,14 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
         topicStatus: 'Open',
         priority: data.priority,
       });
-      addTopic(topic);
+      if (isApiMode) {
+        syncCreateTopic(topic);
+      } else {
+        addTopic(topic);
+      }
       setShowCreateForm(false);
     },
-    [ensureProject, bcfAuthor, addTopic]
+    [ensureProject, bcfAuthor, addTopic, isApiMode, syncCreateTopic]
   );
 
   // Add comment to topic (optionally associated with a viewpoint)
@@ -981,18 +1011,21 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
       const comment = createBCFComment({
         author: bcfAuthor,
         comment: text,
-        viewpointGuid, // Associate with viewpoint if provided
+        viewpointGuid,
       });
-      addComment(activeTopicId, comment);
+      if (isApiMode) {
+        syncAddComment(activeTopicId, comment);
+      } else {
+        addComment(activeTopicId, comment);
+      }
     },
-    [activeTopicId, bcfAuthor, addComment]
+    [activeTopicId, bcfAuthor, addComment, isApiMode, syncAddComment]
   );
 
   // Capture viewpoint from current viewer state
   const handleCaptureViewpoint = useCallback(async () => {
     if (!activeTopicId) return;
 
-    // Create viewpoint from current camera, section plane, and selection state
     const viewpoint = await createViewpointFromState({
       includeSnapshot: true,
       includeSelection: true,
@@ -1000,41 +1033,58 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
     });
 
     if (viewpoint) {
-      addViewpoint(activeTopicId, viewpoint);
+      if (isApiMode) {
+        syncAddViewpoint(activeTopicId, viewpoint);
+      } else {
+        addViewpoint(activeTopicId, viewpoint);
+      }
     } else {
       console.warn('[BCFPanel] Failed to capture viewpoint - no camera available');
     }
-  }, [activeTopicId, addViewpoint, createViewpointFromState]);
+  }, [activeTopicId, addViewpoint, createViewpointFromState, isApiMode, syncAddViewpoint]);
 
   // Activate viewpoint - apply camera and state to viewer
   const handleActivateViewpoint = useCallback((viewpoint: BCFViewpoint) => {
-    applyViewpoint(viewpoint, true); // Animate to viewpoint
+    applyViewpoint(viewpoint, true);
   }, [applyViewpoint]);
 
   // Delete viewpoint
   const handleDeleteViewpoint = useCallback(
     (viewpointGuid: string) => {
       if (!activeTopicId) return;
-      deleteViewpoint(activeTopicId, viewpointGuid);
+      if (isApiMode) {
+        syncDeleteViewpoint(activeTopicId, viewpointGuid);
+      } else {
+        deleteViewpoint(activeTopicId, viewpointGuid);
+      }
     },
-    [activeTopicId, deleteViewpoint]
+    [activeTopicId, deleteViewpoint, isApiMode, syncDeleteViewpoint]
   );
 
   // Update topic status
   const handleUpdateStatus = useCallback(
     (status: string) => {
       if (!activeTopicId) return;
-      updateTopic(activeTopicId, { topicStatus: status, modifiedAuthor: bcfAuthor });
+      const updates = { topicStatus: status, modifiedAuthor: bcfAuthor };
+      if (isApiMode) {
+        syncUpdateTopic(activeTopicId, updates);
+      } else {
+        updateTopic(activeTopicId, updates);
+      }
     },
-    [activeTopicId, updateTopic, bcfAuthor]
+    [activeTopicId, updateTopic, bcfAuthor, isApiMode, syncUpdateTopic]
   );
 
   // Delete topic
   const handleDeleteTopic = useCallback(() => {
     if (!activeTopicId) return;
-    deleteTopic(activeTopicId);
+    if (isApiMode) {
+      syncDeleteTopic(activeTopicId);
+    } else {
+      deleteTopic(activeTopicId);
+    }
     setActiveTopic(null);
-  }, [activeTopicId, deleteTopic, setActiveTopic]);
+  }, [activeTopicId, deleteTopic, setActiveTopic, isApiMode, syncDeleteTopic]);
 
   // Save author
   const handleSaveAuthor = useCallback(() => {
@@ -1056,6 +1106,9 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
               {topics.length}
             </Badge>
           )}
+          {bcfSyncing && (
+            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+          )}
         </div>
         <div className="flex items-center gap-1">
           <input
@@ -1065,25 +1118,71 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
             onChange={handleImport}
             className="hidden"
           />
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => fileInputRef.current?.click()}
-            title="Import BCF"
-          >
-            <Upload className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={handleExport}
-            disabled={!bcfProject || topics.length === 0}
-            title="Export BCF"
-          >
-            <Download className="h-4 w-4" />
-          </Button>
+          {/* Server connect/disconnect */}
+          {isApiMode ? (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={() => apiRefreshTopics()}
+                disabled={bcfSyncing}
+                title="Refresh from server"
+              >
+                <RefreshCw className={`h-4 w-4 ${bcfSyncing ? 'animate-spin' : ''}`} />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={handleExport}
+                disabled={!bcfProject || topics.length === 0}
+                title="Export as BCF file"
+              >
+                <Download className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-destructive hover:text-destructive"
+                onClick={apiDisconnect}
+                title="Disconnect from server"
+              >
+                <Unplug className="h-4 w-4" />
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={() => setShowServerDialog(true)}
+                title="Connect to BCF server"
+              >
+                <Globe className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={() => fileInputRef.current?.click()}
+                title="Import BCF"
+              >
+                <Upload className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={handleExport}
+                disabled={!bcfProject || topics.length === 0}
+                title="Export BCF"
+              >
+                <Download className="h-4 w-4" />
+              </Button>
+            </>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -1101,6 +1200,22 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
           </Button>
         </div>
       </div>
+
+      {/* API Connection Banner */}
+      {isApiMode && bcfApiConnection && (
+        <div className="px-3 py-1.5 border-b border-border bg-primary/5 text-xs">
+          <div className="flex items-center gap-1.5">
+            <Globe className="h-3 w-3 text-primary shrink-0" />
+            <span className="truncate text-muted-foreground">
+              <span className="font-medium text-foreground">
+                {bcfApiConnection.projectName || 'Server'}
+              </span>
+              {' on '}
+              {bcfApiConnection.serverUrl.replace(/^https?:\/\//, '')}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Content */}
       <div className="flex-1 overflow-hidden relative">
@@ -1157,6 +1272,11 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Server Connection Dialog */}
+        {showServerDialog && (
+          <BCFServerDialog onClose={() => setShowServerDialog(false)} />
         )}
       </div>
     </div>

@@ -6,6 +6,7 @@
  * BCF (BIM Collaboration Format) state slice
  *
  * Manages BCF topics, comments, and viewpoints for issue tracking.
+ * Supports both file-based BCF and BCF-API server connections.
  */
 
 import type { StateCreator } from 'zustand';
@@ -14,6 +15,8 @@ import type {
   BCFTopic,
   BCFComment,
   BCFViewpoint,
+  BCFApiConnectionState,
+  ApiProject,
 } from '@ifc-lite/bcf';
 
 // ============================================================================
@@ -35,6 +38,17 @@ export interface BCFSliceState {
   bcfError: string | null;
   /** Default author for new topics/comments */
   bcfAuthor: string;
+
+  // --- BCF-API connection state ---
+
+  /** Current API connection (null when in file mode) */
+  bcfApiConnection: BCFApiConnectionState | null;
+  /** Whether BCF is in API mode or file mode */
+  bcfMode: 'file' | 'api';
+  /** Whether an API sync operation is in progress */
+  bcfSyncing: boolean;
+  /** Available projects from the connected server */
+  bcfApiProjects: ApiProject[];
 }
 
 export interface BCFSlice extends BCFSliceState {
@@ -70,6 +84,21 @@ export interface BCFSlice extends BCFSliceState {
   getActiveTopic: () => BCFTopic | null;
   getActiveViewpoint: () => BCFViewpoint | null;
   getTopics: () => BCFTopic[];
+
+  // --- BCF-API actions ---
+
+  /** Set the API connection state */
+  setBcfApiConnection: (connection: BCFApiConnectionState | null) => void;
+  /** Set the BCF mode (file or api) */
+  setBcfMode: (mode: 'file' | 'api') => void;
+  /** Set syncing state */
+  setBcfSyncing: (syncing: boolean) => void;
+  /** Set available server projects */
+  setBcfApiProjects: (projects: ApiProject[]) => void;
+  /** Disconnect from the BCF server and return to file mode */
+  disconnectBcfApi: () => void;
+  /** Update tokens after refresh */
+  updateBcfApiTokens: (accessToken: string, refreshToken: string, tokenExpiry: number) => void;
 }
 
 // ============================================================================
@@ -102,6 +131,12 @@ export const createBcfSlice: StateCreator<BCFSlice, [], [], BCFSlice> = (set, ge
   bcfLoading: false,
   bcfError: null,
   bcfAuthor: getDefaultBcfAuthor(),
+
+  // API state
+  bcfApiConnection: null,
+  bcfMode: 'file',
+  bcfSyncing: false,
+  bcfApiProjects: [],
 
   // Project actions
   setBcfProject: (bcfProject) => set({
@@ -369,4 +404,38 @@ export const createBcfSlice: StateCreator<BCFSlice, [], [], BCFSlice> = (set, ge
     if (!state.bcfProject) return [];
     return Array.from(state.bcfProject.topics.values());
   },
+
+  // --- BCF-API actions ---
+
+  setBcfApiConnection: (bcfApiConnection) => set({ bcfApiConnection }),
+
+  setBcfMode: (bcfMode) => set({ bcfMode }),
+
+  setBcfSyncing: (bcfSyncing) => set({ bcfSyncing }),
+
+  setBcfApiProjects: (bcfApiProjects) => set({ bcfApiProjects }),
+
+  disconnectBcfApi: () => set({
+    bcfApiConnection: null,
+    bcfMode: 'file',
+    bcfSyncing: false,
+    bcfApiProjects: [],
+    bcfProject: null,
+    activeTopicId: null,
+    activeViewpointId: null,
+    bcfError: null,
+  }),
+
+  updateBcfApiTokens: (accessToken, refreshToken, tokenExpiry) =>
+    set((state) => {
+      if (!state.bcfApiConnection) return state;
+      return {
+        bcfApiConnection: {
+          ...state.bcfApiConnection,
+          accessToken,
+          refreshToken,
+          tokenExpiry,
+        },
+      };
+    }),
 });

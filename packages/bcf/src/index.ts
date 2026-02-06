@@ -215,3 +215,6 @@ export function toARGBColor(r: number, g: number, b: number, a = 255): string {
   const toHex = (n: number) => Math.round(Math.max(0, Math.min(255, n))).toString(16).padStart(2, '0');
   return `${toHex(a)}${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
 }
+
+// BCF-API client
+export * from './api/index.js';
