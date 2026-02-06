@@ -1,14 +1,10 @@
-# Railway deployment configuration for IFC-Lite Server
-# This file must be at the repo root for `railway up` to find it.
-
 [build]
 builder = "dockerfile"
 dockerfilePath = "apps/server/Dockerfile"
 
 [deploy]
-numReplicas = 1
-healthcheckPath = "/api/v1/health"
-healthcheckTimeout = 30
-startCommand = "/app/ifc-lite-server"
+startCommand = "/usr/local/bin/ifc-lite-server"
+healthcheckPath = "/health"
+healthcheckTimeout = 120
 restartPolicyType = "on_failure"
-restartPolicyMaxRetries = 3
+restartPolicyMaxRetries = 5
