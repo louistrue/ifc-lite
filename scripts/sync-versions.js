@@ -1,13 +1,12 @@
 #!/usr/bin/env node
 
 /**
- * Syncs version from @ifc-lite/wasm package.json to all workspace packages,
- * Cargo.toml workspace, and root package.json.
+ * Syncs all workspace package versions to the highest version found.
  * Run this after `changeset version` to keep all versions in sync.
  *
- * Why @ifc-lite/wasm? Because changesets updates individual package versions but not the
- * private workspace root. We use @ifc-lite/wasm as the source of truth since it's the npm
- * package that wraps the Rust WASM bindings.
+ * Finds the maximum semver across all non-private workspace packages,
+ * then bumps everything (packages, root package.json, Cargo.toml) to that version.
+ * Never downgrades — only bumps packages that are behind.
  */
 
 import { readFileSync, writeFileSync, readdirSync, statSync } from 'fs';
@@ -18,8 +17,18 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const rootDir = join(__dirname, '..');
 
-function getWorkspacePackageDirs() {
-  const dirs = [];
+/** Compare two semver strings. Returns >0 if a > b, <0 if a < b, 0 if equal. */
+function compareSemver(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if (pa[i] !== pb[i]) return pa[i] - pb[i];
+  }
+  return 0;
+}
+
+function getWorkspacePackages() {
+  const packages = [];
   for (const parent of ['packages', 'apps']) {
     const parentDir = join(rootDir, parent);
     try {
@@ -27,7 +36,7 @@ function getWorkspacePackageDirs() {
         const pkgJsonPath = join(parentDir, entry, 'package.json');
         try {
           statSync(pkgJsonPath);
-          dirs.push(pkgJsonPath);
+          packages.push(pkgJsonPath);
         } catch {
           // no package.json in this directory, skip
         }
@@ -36,23 +45,36 @@ function getWorkspacePackageDirs() {
       // parent directory doesn't exist, skip
     }
   }
-  return dirs;
+  return packages;
 }
 
 function syncVersions() {
-  // Read version from @ifc-lite/wasm (the npm package for Rust WASM bindings)
-  // This is the authoritative source since changesets updates it but not the root package.json
-  const wasmPackageJsonPath = join(rootDir, 'packages', 'wasm', 'package.json');
-  const wasmPackageJson = JSON.parse(readFileSync(wasmPackageJsonPath, 'utf8'));
-  const version = wasmPackageJson.version;
+  const packagePaths = getWorkspacePackages();
 
-  console.log(`📦 Syncing version: ${version}`);
+  // Find the highest version across all non-private workspace packages
+  let maxVersion = '0.0.0';
+  for (const pkgPath of packagePaths) {
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+    if (pkg.private) continue;
+    if (pkg.version && compareSemver(pkg.version, maxVersion) > 0) {
+      maxVersion = pkg.version;
+    }
+  }
+
+  // Also consider root package.json
+  const rootPackageJsonPath = join(rootDir, 'package.json');
+  const rootPackageJson = JSON.parse(readFileSync(rootPackageJsonPath, 'utf8'));
+  if (rootPackageJson.version && compareSemver(rootPackageJson.version, maxVersion) > 0) {
+    maxVersion = rootPackageJson.version;
+  }
+
+  const version = maxVersion;
+  console.log(`📦 Syncing all packages to version: ${version}`);
 
   // Update workspace Cargo.toml
   const cargoTomlPath = join(rootDir, 'Cargo.toml');
   let cargoToml = readFileSync(cargoTomlPath, 'utf8');
 
-  // Replace version in [workspace.package] section
   cargoToml = cargoToml.replace(
     /(\[workspace\.package\][^\[]*version\s*=\s*")[^"]+(")/,
     `$1${version}$2`
@@ -61,21 +83,18 @@ function syncVersions() {
   writeFileSync(cargoTomlPath, cargoToml);
   console.log(`✅ Updated Cargo.toml workspace version to ${version}`);
 
-  // Also update root package.json to keep it in sync
-  const rootPackageJsonPath = join(rootDir, 'package.json');
-  const rootPackageJson = JSON.parse(readFileSync(rootPackageJsonPath, 'utf8'));
+  // Update root package.json
   if (rootPackageJson.version !== version) {
     rootPackageJson.version = version;
     writeFileSync(rootPackageJsonPath, JSON.stringify(rootPackageJson, null, 2) + '\n');
     console.log(`✅ Updated root package.json version to ${version}`);
   }
 
-  // Sync all workspace package versions to match
-  const packagePaths = getWorkspacePackageDirs();
+  // Bump any lagging workspace packages (never downgrades)
   for (const pkgPath of packagePaths) {
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
-    if (pkg.private) continue; // skip private packages (apps, etc.)
-    if (pkg.version === version) continue; // already in sync
+    if (pkg.private) continue;
+    if (compareSemver(pkg.version, version) >= 0) continue; // already at or above target
 
     const oldVersion = pkg.version;
     pkg.version = version;
