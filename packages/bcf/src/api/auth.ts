@@ -199,6 +199,8 @@ export interface OAuthFlowOptions {
   tokenUrl: string;
   /** Client ID registered with the BCF server */
   clientId: string;
+  /** Client secret (required by some servers like BIMcollab) */
+  clientSecret?: string;
   /** Redirect URI for the OAuth callback */
   redirectUri: string;
   /** Additional scopes to request */
@@ -222,7 +224,7 @@ export interface OAuthResult {
 export async function startOAuthPopupFlow(
   options: OAuthFlowOptions
 ): Promise<OAuthResult> {
-  const { authUrl, tokenUrl, clientId, redirectUri, scope } = options;
+  const { authUrl, tokenUrl, clientId, clientSecret, redirectUri, scope } = options;
 
   // Generate PKCE pair
   const codeVerifier = generateCodeVerifier();
@@ -272,6 +274,9 @@ export async function startOAuthPopupFlow(
     client_id: clientId,
     code_verifier: codeVerifier,
   });
+  if (clientSecret) {
+    tokenBody.set('client_secret', clientSecret);
+  }
 
   const tokenResponse = await fetch(tokenUrl, {
     method: 'POST',

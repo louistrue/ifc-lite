@@ -83,6 +83,8 @@ export function BCFServerDialog({ onClose }: BCFServerDialogProps) {
   const [serverUrl, setServerUrl] = useState('');
   const [authMethod, setAuthMethod] = useState<AuthMethod>('apikey');
   const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
+  const [redirectUri, setRedirectUri] = useState('');
   const [apiKeyUser, setApiKeyUser] = useState('apikey');
   const [apiKeyValue, setApiKeyValue] = useState('');
   const [serverInfo, setServerInfo] = useState<ServerInfo | null>(null);
@@ -125,7 +127,12 @@ export function BCFServerDialog({ onClose }: BCFServerDialogProps) {
         setLoading(false);
 
         try {
-          await connect(info, clientId.trim());
+          await connect(
+            info,
+            clientId.trim(),
+            clientSecret.trim() || undefined,
+            redirectUri.trim() || undefined
+          );
           saveServer(serverUrl.trim());
           setStep('project');
         } catch (authError) {
@@ -153,7 +160,7 @@ export function BCFServerDialog({ onClose }: BCFServerDialogProps) {
       setError(discoverError instanceof Error ? discoverError.message : 'Failed to connect to server');
       setLoading(false);
     }
-  }, [serverUrl, authMethod, clientId, apiKeyUser, apiKeyValue, discover, connect, connectWithApiKey]);
+  }, [serverUrl, authMethod, clientId, clientSecret, redirectUri, apiKeyUser, apiKeyValue, discover, connect, connectWithApiKey]);
 
   // Step 3: Select project
   const handleSelectProject = useCallback(async () => {
@@ -296,19 +303,45 @@ export function BCFServerDialog({ onClose }: BCFServerDialogProps) {
               </div>
             ) : (
               <div className="space-y-2">
-                <Label htmlFor="client-id" className="text-xs">
-                  Client ID
-                </Label>
-                <Input
-                  id="client-id"
-                  value={clientId}
-                  onChange={(e) => setClientId(e.target.value)}
-                  placeholder="your-registered-client-id"
-                  className="text-sm"
-                />
+                <div className="space-y-1">
+                  <Label htmlFor="client-id" className="text-xs">
+                    Client ID
+                  </Label>
+                  <Input
+                    id="client-id"
+                    value={clientId}
+                    onChange={(e) => setClientId(e.target.value)}
+                    placeholder="your-registered-client-id"
+                    className="text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="client-secret" className="text-xs">
+                    Client Secret <span className="text-muted-foreground">(if required)</span>
+                  </Label>
+                  <Input
+                    id="client-secret"
+                    type="password"
+                    value={clientSecret}
+                    onChange={(e) => setClientSecret(e.target.value)}
+                    placeholder="optional"
+                    className="text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="redirect-uri" className="text-xs">
+                    Redirect URI <span className="text-muted-foreground">(auto-detected)</span>
+                  </Label>
+                  <Input
+                    id="redirect-uri"
+                    value={redirectUri}
+                    onChange={(e) => setRedirectUri(e.target.value)}
+                    placeholder={`${typeof window !== 'undefined' ? window.location.origin : ''}/oauth/callback`}
+                    className="text-sm text-muted-foreground"
+                  />
+                </div>
                 <p className="text-xs text-muted-foreground">
-                  OAuth2 client ID registered with the BCF server.
-                  Required for BIMcollab, Trimble Connect, etc.
+                  For BIMcollab: use Client ID, Secret, and Redirect URI from your developer credentials.
                 </p>
               </div>
             )}

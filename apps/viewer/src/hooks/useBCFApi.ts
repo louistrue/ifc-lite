@@ -42,7 +42,7 @@ export interface UseBCFApiResult {
   /** Discover a BCF server and get its capabilities */
   discover: (serverUrl: string) => Promise<ServerInfo>;
   /** Connect to a BCF server via OAuth2 */
-  connect: (serverInfo: ServerInfo, clientId: string) => Promise<void>;
+  connect: (serverInfo: ServerInfo, clientId: string, clientSecret?: string, redirectUri?: string) => Promise<void>;
   /** Connect to a BCF server via API key (Basic Auth) */
   connectWithApiKey: (serverInfo: ServerInfo, username: string, apiKey: string) => Promise<void>;
   /** Select a project and load its topics */
@@ -152,7 +152,7 @@ export function useBCFApi(): UseBCFApiResult {
    * Connect to a BCF server via OAuth2
    */
   const connect = useCallback(
-    async (serverInfo: ServerInfo, clientId: string): Promise<void> => {
+    async (serverInfo: ServerInfo, clientId: string, clientSecret?: string, redirectUri?: string): Promise<void> => {
       if (!serverInfo.authUrl || !serverInfo.tokenUrl) {
         throw new Error('Server does not support OAuth2 authentication');
       }
@@ -162,12 +162,13 @@ export function useBCFApi(): UseBCFApiResult {
 
       try {
         // Run OAuth2 popup flow
-        const redirectUri = `${window.location.origin}/oauth/callback`;
+        const callbackUri = redirectUri || `${window.location.origin}/oauth/callback`;
         const oauthResult = await startOAuthPopupFlow({
           authUrl: serverInfo.authUrl,
           tokenUrl: serverInfo.tokenUrl,
           clientId,
-          redirectUri,
+          clientSecret,
+          redirectUri: callbackUri,
           // BIMcollab and other servers require specific scopes
           scope: 'openid offline_access bcf',
         });
@@ -180,13 +181,15 @@ export function useBCFApi(): UseBCFApiResult {
           serverInfo.discoveryMethod
         );
 
-        // Create client
+        // Create client (include clientId/clientSecret for token refresh)
         const client = new BCFApiClient({
           baseUrl: serverInfo.baseUrl,
           version: serverInfo.apiVersion,
           accessToken: oauthResult.accessToken,
           refreshToken: oauthResult.refreshToken,
           tokenUrl: serverInfo.tokenUrl,
+          clientId,
+          clientSecret,
           onTokenRefresh: (accessToken, refreshToken, expiresIn) => {
             updateBcfApiTokens(
               accessToken,

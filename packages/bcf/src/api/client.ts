@@ -47,6 +47,10 @@ export interface BCFApiClientOptions {
   refreshToken?: string;
   /** OAuth2 token endpoint URL (OAuth2 only) */
   tokenUrl?: string;
+  /** OAuth2 client ID (needed for token refresh with servers that require client_secret) */
+  clientId?: string;
+  /** OAuth2 client secret (required by some servers like BIMcollab) */
+  clientSecret?: string;
   /** Callback when tokens are refreshed (OAuth2 only) */
   onTokenRefresh?: (accessToken: string, refreshToken: string, expiresIn: number) => void;
   /** Callback when authentication fails permanently */
@@ -60,6 +64,8 @@ export class BCFApiClient {
   private authMethod: 'oauth2' | 'basic';
   private refreshToken: string | undefined;
   private tokenUrl: string | undefined;
+  private clientId: string | undefined;
+  private clientSecret: string | undefined;
   private onTokenRefresh: BCFApiClientOptions['onTokenRefresh'];
   private onAuthFailure: BCFApiClientOptions['onAuthFailure'];
   private refreshPromise: Promise<boolean> | null = null;
@@ -71,6 +77,8 @@ export class BCFApiClient {
     this.authMethod = options.authMethod ?? 'oauth2';
     this.refreshToken = options.refreshToken;
     this.tokenUrl = options.tokenUrl;
+    this.clientId = options.clientId;
+    this.clientSecret = options.clientSecret;
     this.onTokenRefresh = options.onTokenRefresh;
     this.onAuthFailure = options.onAuthFailure;
   }
@@ -127,6 +135,12 @@ export class BCFApiClient {
           grant_type: 'refresh_token',
           refresh_token: this.refreshToken!,
         });
+        if (this.clientId) {
+          body.set('client_id', this.clientId);
+        }
+        if (this.clientSecret) {
+          body.set('client_secret', this.clientSecret);
+        }
 
         const response = await fetch(this.tokenUrl!, {
           method: 'POST',
