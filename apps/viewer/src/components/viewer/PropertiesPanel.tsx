@@ -233,6 +233,37 @@ function parsePropertyValue(value: unknown): ParsedPropertyValue {
   return { displayValue: String(value) };
 }
 
+/** Compact coordinate row with label, X/Y/Z values, and copy button */
+function CoordRow({ label, x, y, z, primary, copyLabel, coordCopied, onCopy }: {
+  label: string;
+  x: number;
+  y: number;
+  z: number;
+  primary?: boolean;
+  copyLabel: string;
+  coordCopied: string | null;
+  onCopy: (label: string, x: number, y: number, z: number) => void;
+}) {
+  const isCopied = coordCopied === copyLabel;
+  const textColor = primary ? 'text-foreground' : 'text-muted-foreground/70';
+  return (
+    <div className="flex items-center gap-1.5 group">
+      <span className={`text-[9px] font-medium uppercase tracking-wider w-10 shrink-0 ${primary ? 'text-muted-foreground' : 'text-muted-foreground/60'}`}>
+        {label}
+      </span>
+      <span className={`font-mono text-[10px] ${textColor} flex-1 truncate tabular-nums`}>
+        {x.toFixed(3)}, {y.toFixed(3)}, {z.toFixed(3)}
+      </span>
+      <button
+        className={`shrink-0 p-0.5 rounded transition-colors ${isCopied ? 'text-emerald-500' : 'text-muted-foreground/40 opacity-0 group-hover:opacity-100 hover:text-muted-foreground'}`}
+        onClick={(e) => { e.stopPropagation(); onCopy(copyLabel, x, y, z); }}
+      >
+        {isCopied ? <Check className="h-2.5 w-2.5" /> : <Copy className="h-2.5 w-2.5" />}
+      </button>
+    </div>
+  );
+}
+
 export function PropertiesPanel() {
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
   const selectedEntity = useViewerStore((s) => s.selectedEntity);
@@ -292,6 +323,7 @@ export function PropertiesPanel() {
 
   // Copy feedback state - must be before any early returns (Rules of Hooks)
   const [copied, setCopied] = useState(false);
+  const [coordCopied, setCoordCopied] = useState<string | null>(null);
 
   // Edit mode toggle - allows inline property editing
   const [editMode, setEditMode] = useState(false);
@@ -300,6 +332,12 @@ export function PropertiesPanel() {
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  }, []);
+
+  const copyCoords = useCallback((label: string, x: number, y: number, z: number) => {
+    navigator.clipboard.writeText(`${x.toFixed(3)}, ${y.toFixed(3)}, ${z.toFixed(3)}`);
+    setCoordCopied(label);
+    setTimeout(() => setCoordCopied(null), 1500);
   }, []);
 
   // Get spatial location info
@@ -757,44 +795,45 @@ export function PropertiesPanel() {
           </div>
         )}
 
-        {/* Entity Position - compact collapsible showing local + world coordinates */}
+        {/* Entity Position - collapsible coordinate section */}
         {entityCoordinates && (
           <Collapsible>
-            <CollapsibleTrigger className="flex items-center gap-2 w-full text-xs border border-zinc-200 dark:border-zinc-800 px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-900 text-left">
-              <Crosshair className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
-              <span className="font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Position</span>
-              <span className="font-mono text-[10px] text-zinc-400 dark:text-zinc-500 ml-auto truncate">
+            <CollapsibleTrigger className="flex items-center gap-1.5 w-full text-xs px-2 py-1.5 hover:bg-muted/50 text-left">
+              <Crosshair className="h-3 w-3 text-muted-foreground shrink-0" />
+              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Position</span>
+              <span className="font-mono text-[10px] text-muted-foreground/70 ml-auto truncate">
                 {entityCoordinates.worldZup.center.x.toFixed(2)}, {entityCoordinates.worldZup.center.y.toFixed(2)}, {entityCoordinates.worldZup.center.z.toFixed(2)}
               </span>
             </CollapsibleTrigger>
             <CollapsibleContent>
-              <div className="border border-t-0 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-[11px]">
-                {/* World coordinates in IFC convention (Z-up) - most useful for BIM users */}
-                <div className="px-2.5 py-1.5 border-b border-zinc-100 dark:border-zinc-900">
-                  <div className="font-bold uppercase tracking-wider text-[9px] text-zinc-400 dark:text-zinc-500 mb-1">World (IFC Z-up)</div>
-                  <div className="font-mono text-zinc-700 dark:text-zinc-300 grid grid-cols-3 gap-1">
-                    <span>X: {entityCoordinates.worldZup.center.x.toFixed(3)}</span>
-                    <span>Y: {entityCoordinates.worldZup.center.y.toFixed(3)}</span>
-                    <span>Z: {entityCoordinates.worldZup.center.z.toFixed(3)}</span>
-                  </div>
-                </div>
-                {/* Scene-local coordinates (Y-up, shifted) */}
-                <div className="px-2.5 py-1.5 border-b border-zinc-100 dark:border-zinc-900">
-                  <div className="font-bold uppercase tracking-wider text-[9px] text-zinc-400 dark:text-zinc-500 mb-1">Scene (Local Y-up)</div>
-                  <div className="font-mono text-zinc-500 dark:text-zinc-400 grid grid-cols-3 gap-1">
-                    <span>X: {entityCoordinates.local.center.x.toFixed(3)}</span>
-                    <span>Y: {entityCoordinates.local.center.y.toFixed(3)}</span>
-                    <span>Z: {entityCoordinates.local.center.z.toFixed(3)}</span>
-                  </div>
-                </div>
+              <div className="text-[11px] px-2 pb-2 space-y-1.5">
+                {/* World (IFC) coordinates - primary */}
+                <CoordRow
+                  label="World"
+                  x={entityCoordinates.worldZup.center.x}
+                  y={entityCoordinates.worldZup.center.y}
+                  z={entityCoordinates.worldZup.center.z}
+                  primary
+                  copyLabel="world"
+                  coordCopied={coordCopied}
+                  onCopy={copyCoords}
+                />
+                {/* Local (Scene) coordinates */}
+                <CoordRow
+                  label="Local"
+                  x={entityCoordinates.local.center.x}
+                  y={entityCoordinates.local.center.y}
+                  z={entityCoordinates.local.center.z}
+                  copyLabel="local"
+                  coordCopied={coordCopied}
+                  onCopy={copyCoords}
+                />
                 {/* Bounding box extent */}
-                <div className="px-2.5 py-1.5">
-                  <div className="font-bold uppercase tracking-wider text-[9px] text-zinc-400 dark:text-zinc-500 mb-1">Extent</div>
-                  <div className="font-mono text-zinc-500 dark:text-zinc-400 grid grid-cols-3 gap-1">
-                    <span>W: {(entityCoordinates.local.max.x - entityCoordinates.local.min.x).toFixed(3)}</span>
-                    <span>H: {(entityCoordinates.local.max.y - entityCoordinates.local.min.y).toFixed(3)}</span>
-                    <span>D: {(entityCoordinates.local.max.z - entityCoordinates.local.min.z).toFixed(3)}</span>
-                  </div>
+                <div className="flex items-center gap-1.5 pt-0.5">
+                  <span className="text-[9px] font-medium text-muted-foreground/60 uppercase tracking-wider w-10 shrink-0">Size</span>
+                  <span className="font-mono text-[10px] text-muted-foreground/70">
+                    {(entityCoordinates.local.max.x - entityCoordinates.local.min.x).toFixed(2)} x {(entityCoordinates.local.max.y - entityCoordinates.local.min.y).toFixed(2)} x {(entityCoordinates.local.max.z - entityCoordinates.local.min.z).toFixed(2)}
+                  </span>
                 </div>
               </div>
             </CollapsibleContent>
