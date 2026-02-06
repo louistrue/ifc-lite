@@ -76,6 +76,8 @@ fn build_cors_layer(config: &Config) -> CorsLayer {
 pub struct AppState {
     pub cache: Arc<DiskCache>,
     pub config: Arc<Config>,
+    /// Optional PostgreSQL pool for analytics (None if DATABASE_URL not set).
+    pub db_pool: Option<sqlx::PgPool>,
 }
 
 #[tokio::main]
@@ -108,9 +110,38 @@ async fn main() {
     // Initialize cache
     let cache = Arc::new(DiskCache::new(&config.cache_dir).await);
 
+    // Initialize PostgreSQL pool (optional — analytics disabled if DATABASE_URL not set)
+    let db_pool = if let Some(database_url) = &config.database_url {
+        match sqlx::postgres::PgPoolOptions::new()
+            .max_connections(10)
+            .connect(database_url)
+            .await
+        {
+            Ok(pool) => {
+                tracing::info!("Connected to PostgreSQL (analytics enabled)");
+
+                // Run migrations
+                match sqlx::migrate!("./migrations").run(&pool).await {
+                    Ok(_) => tracing::info!("Database migrations applied"),
+                    Err(e) => tracing::warn!(error = %e, "Migration failed (tables may already exist)"),
+                }
+
+                Some(pool)
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to connect to PostgreSQL — analytics disabled");
+                None
+            }
+        }
+    } else {
+        tracing::info!("DATABASE_URL not set — analytics disabled");
+        None
+    };
+
     let state = AppState {
         cache,
         config: Arc::new(config.clone()),
+        db_pool,
     };
 
     // Build router
@@ -131,6 +162,11 @@ async fn main() {
         .route("/api/v1/cache/{key}", get(routes::cache::get_cached))
         .route("/api/v1/cache/check/:hash", get(routes::parse::check_cache))
         .route("/api/v1/cache/geometry/:hash", get(routes::parse::get_cached_geometry))
+        // Analytics endpoints
+        .route("/api/v1/analytics/publish/:cache_key", post(routes::analytics::publish))
+        .route("/api/v1/analytics/status/:cache_key", get(routes::analytics::status))
+        .route("/api/v1/analytics/dashboard/:cache_key", get(routes::analytics::dashboard))
+        .route("/api/v1/analytics/guest-token/:dashboard_id", get(routes::analytics::guest_token))
         // Middleware
         .layer(DefaultBodyLimit::max(config.max_file_size_mb * 1024 * 1024)) // Match max_file_size_mb
         .layer(CompressionLayer::new()) // Compress responses (gzip)

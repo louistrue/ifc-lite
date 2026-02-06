@@ -4,6 +4,7 @@
 
 //! Service modules for IFC processing and caching.
 
+pub mod analytics;
 pub mod cache;
 pub mod data_model;
 pub mod parquet;
@@ -11,6 +12,7 @@ pub mod parquet_data_model;
 pub mod parquet_optimized;
 pub mod processor;
 pub mod streaming;
+pub mod superset_api;
 
 pub use cache::DiskCache;
 pub use data_model::{extract_data_model, DataModel};

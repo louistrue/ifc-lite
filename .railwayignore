@@ -1,0 +1,36 @@
+# Build artifacts
+target/
+
+# Node modules
+node_modules/
+
+# IDE / Editor
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo
+
+# Frontend build output
+apps/viewer/dist/
+apps/desktop/dist/
+packages/*/dist/
+
+# Test fixtures (large IFC files)
+test-fixtures/
+**/*.ifc
+**/*.ifcx
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Development files
+.env
+.env.local
+*.log

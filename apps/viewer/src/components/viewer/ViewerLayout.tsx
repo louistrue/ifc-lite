@@ -17,6 +17,7 @@ import { EntityContextMenu } from './EntityContextMenu';
 import { HoverTooltip } from './HoverTooltip';
 import { BCFPanel } from './BCFPanel';
 import { IDSPanel } from './IDSPanel';
+import { AnalyticsPanel } from './AnalyticsPanel';
 
 export function ViewerLayout() {
   // Initialize keyboard shortcuts
@@ -35,6 +36,8 @@ export function ViewerLayout() {
   const setBcfPanelVisible = useViewerStore((s) => s.setBcfPanelVisible);
   const idsPanelVisible = useViewerStore((s) => s.idsPanelVisible);
   const setIdsPanelVisible = useViewerStore((s) => s.setIdsPanelVisible);
+  const analyticsPanelVisible = useViewerStore((s) => s.analyticsPanelVisible);
+  const setAnalyticsPanelVisible = useViewerStore((s) => s.setAnalyticsPanelVisible);
 
   // Detect mobile viewport
   useEffect(() => {
@@ -104,7 +107,7 @@ export function ViewerLayout() {
 
             <PanelResizeHandle className="w-1.5 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-col-resize" />
 
-            {/* Right Panel - Properties, BCF, or IDS */}
+            {/* Right Panel - Properties, BCF, IDS, or Analytics */}
             <Panel
               id="right-panel"
               defaultSize={22}
@@ -113,7 +116,9 @@ export function ViewerLayout() {
               collapsedSize={0}
             >
               <div className="h-full w-full overflow-hidden">
-                {idsPanelVisible ? (
+                {analyticsPanelVisible ? (
+                  <AnalyticsPanel onClose={() => setAnalyticsPanelVisible(false)} />
+                ) : idsPanelVisible ? (
                   <IDSPanel onClose={() => setIdsPanelVisible(false)} />
                 ) : bcfPanelVisible ? (
                   <BCFPanel onClose={() => setBcfPanelVisible(false)} />
@@ -154,12 +159,12 @@ export function ViewerLayout() {
               </div>
             )}
 
-            {/* Mobile Bottom Sheet - Properties, BCF, or IDS */}
+            {/* Mobile Bottom Sheet - Properties, BCF, IDS, or Analytics */}
             {!rightPanelCollapsed && (
               <div className="absolute inset-x-0 bottom-0 h-[50vh] bg-background border-t rounded-t-xl shadow-xl z-40 animate-in slide-in-from-bottom">
                 <div className="flex items-center justify-between p-2 border-b">
                   <span className="font-medium text-sm">
-                    {idsPanelVisible ? 'IDS Validation' : bcfPanelVisible ? 'BCF Issues' : 'Properties'}
+                    {analyticsPanelVisible ? 'Analytics' : idsPanelVisible ? 'IDS Validation' : bcfPanelVisible ? 'BCF Issues' : 'Properties'}
                   </span>
                   <button
                     className="p-1 hover:bg-muted rounded"
@@ -167,6 +172,7 @@ export function ViewerLayout() {
                       setRightPanelCollapsed(true);
                       if (bcfPanelVisible) setBcfPanelVisible(false);
                       if (idsPanelVisible) setIdsPanelVisible(false);
+                      if (analyticsPanelVisible) setAnalyticsPanelVisible(false);
                     }}
                   >
                     <span className="sr-only">Close</span>
@@ -176,7 +182,9 @@ export function ViewerLayout() {
                   </button>
                 </div>
                 <div className="h-[calc(50vh-48px)] overflow-auto">
-                  {idsPanelVisible ? (
+                  {analyticsPanelVisible ? (
+                    <AnalyticsPanel onClose={() => setAnalyticsPanelVisible(false)} />
+                  ) : idsPanelVisible ? (
                     <IDSPanel onClose={() => setIdsPanelVisible(false)} />
                   ) : bcfPanelVisible ? (
                     <BCFPanel onClose={() => setBcfPanelVisible(false)} />

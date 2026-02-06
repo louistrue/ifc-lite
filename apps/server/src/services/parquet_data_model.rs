@@ -455,3 +455,297 @@ fn write_parquet_batch(batch: RecordBatch) -> Result<Vec<u8>, DataModelParquetEr
 
     Ok(buffer)
 }
+
+// ─── Deserialization ────────────────────────────────────────────────────────
+
+use arrow::array::{Array as ArrowArrayTrait, Float64Array};
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+
+/// Deserialize a DataModel from cached Parquet bytes.
+///
+/// This is the inverse of `serialize_data_model_to_parquet`.
+pub fn deserialize_data_model_from_parquet(data: &[u8]) -> Result<DataModel, DataModelParquetError> {
+    let mut offset = 0;
+
+    // Helper to read a length-prefixed Parquet table
+    let read_section = |offset: &mut usize| -> Result<Vec<u8>, DataModelParquetError> {
+        if *offset + 4 > data.len() {
+            return Err(DataModelParquetError::Io(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "Unexpected end of data model buffer",
+            )));
+        }
+        let len = u32::from_le_bytes(data[*offset..*offset + 4].try_into().unwrap()) as usize;
+        *offset += 4;
+        if *offset + len > data.len() {
+            return Err(DataModelParquetError::Io(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                format!("Section length {} exceeds remaining data", len),
+            )));
+        }
+        let section = data[*offset..*offset + len].to_vec();
+        *offset += len;
+        Ok(section)
+    };
+
+    let entities_data = read_section(&mut offset)?;
+    let properties_data = read_section(&mut offset)?;
+    let quantities_data = read_section(&mut offset)?;
+    let relationships_data = read_section(&mut offset)?;
+    let spatial_data = read_section(&mut offset)?;
+
+    let entities = deserialize_entities(&entities_data)?;
+    let property_sets = deserialize_properties(&properties_data)?;
+    let quantity_sets = deserialize_quantities(&quantities_data)?;
+    let relationships = deserialize_relationships(&relationships_data)?;
+    let spatial_hierarchy = deserialize_spatial_hierarchy(&spatial_data)?;
+
+    Ok(DataModel {
+        entities,
+        property_sets,
+        quantity_sets,
+        relationships,
+        spatial_hierarchy,
+    })
+}
+
+fn read_parquet_batch(data: &[u8]) -> Result<RecordBatch, DataModelParquetError> {
+    let reader = ParquetRecordBatchReaderBuilder::try_new(bytes::Bytes::from(data.to_vec()))?
+        .build()?;
+    let batches: Vec<RecordBatch> = reader.collect::<Result<Vec<_>, _>>()?;
+    if batches.is_empty() {
+        return Err(DataModelParquetError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Empty Parquet table",
+        )));
+    }
+    Ok(batches.into_iter().next().unwrap())
+}
+
+fn deserialize_entities(data: &[u8]) -> Result<Vec<EntityMetadata>, DataModelParquetError> {
+    let batch = read_parquet_batch(data)?;
+    let count = batch.num_rows();
+
+    let entity_ids = batch.column(0).as_any().downcast_ref::<UInt32Array>().unwrap();
+    let type_names = batch.column(1).as_any().downcast_ref::<StringArray>().unwrap();
+    let global_ids = batch.column(2).as_any().downcast_ref::<StringArray>().unwrap();
+    let names = batch.column(3).as_any().downcast_ref::<StringArray>().unwrap();
+    let has_geometry = batch.column(4).as_any().downcast_ref::<BooleanArray>().unwrap();
+
+    let mut result = Vec::with_capacity(count);
+    for i in 0..count {
+        let gid = global_ids.value(i).to_string();
+        let name = names.value(i).to_string();
+        result.push(EntityMetadata {
+            entity_id: entity_ids.value(i),
+            type_name: type_names.value(i).to_string(),
+            global_id: if gid.is_empty() { None } else { Some(gid) },
+            name: if name.is_empty() { None } else { Some(name) },
+            has_geometry: has_geometry.value(i),
+        });
+    }
+    Ok(result)
+}
+
+fn deserialize_properties(data: &[u8]) -> Result<Vec<PropertySet>, DataModelParquetError> {
+    let batch = read_parquet_batch(data)?;
+    let count = batch.num_rows();
+
+    let pset_ids = batch.column(0).as_any().downcast_ref::<UInt32Array>().unwrap();
+    let pset_names = batch.column(1).as_any().downcast_ref::<StringArray>().unwrap();
+    let property_names = batch.column(2).as_any().downcast_ref::<StringArray>().unwrap();
+    let property_values = batch.column(3).as_any().downcast_ref::<StringArray>().unwrap();
+    let property_types = batch.column(4).as_any().downcast_ref::<StringArray>().unwrap();
+
+    // Group properties by pset_id
+    use std::collections::BTreeMap;
+    let mut pset_map: BTreeMap<u32, (String, Vec<super::data_model::Property>)> = BTreeMap::new();
+    for i in 0..count {
+        let pset_id = pset_ids.value(i);
+        let entry = pset_map.entry(pset_id).or_insert_with(|| {
+            (pset_names.value(i).to_string(), Vec::new())
+        });
+        entry.1.push(super::data_model::Property {
+            property_name: property_names.value(i).to_string(),
+            property_value: property_values.value(i).to_string(),
+            property_type: property_types.value(i).to_string(),
+        });
+    }
+
+    Ok(pset_map.into_iter().map(|(pset_id, (pset_name, properties))| {
+        PropertySet { pset_id, pset_name, properties }
+    }).collect())
+}
+
+fn deserialize_quantities(data: &[u8]) -> Result<Vec<QuantitySet>, DataModelParquetError> {
+    let batch = read_parquet_batch(data)?;
+    let count = batch.num_rows();
+
+    let qset_ids = batch.column(0).as_any().downcast_ref::<UInt32Array>().unwrap();
+    let qset_names = batch.column(1).as_any().downcast_ref::<StringArray>().unwrap();
+    let methods = batch.column(2).as_any().downcast_ref::<StringArray>().unwrap();
+    let quantity_names = batch.column(3).as_any().downcast_ref::<StringArray>().unwrap();
+    let quantity_values = batch.column(4).as_any().downcast_ref::<Float64Array>().unwrap();
+    let quantity_types = batch.column(5).as_any().downcast_ref::<StringArray>().unwrap();
+
+    use std::collections::BTreeMap;
+    let mut qset_map: BTreeMap<u32, (String, Option<String>, Vec<super::data_model::Quantity>)> = BTreeMap::new();
+    for i in 0..count {
+        let qset_id = qset_ids.value(i);
+        let entry = qset_map.entry(qset_id).or_insert_with(|| {
+            let method = methods.value(i).to_string();
+            (
+                qset_names.value(i).to_string(),
+                if method.is_empty() { None } else { Some(method) },
+                Vec::new(),
+            )
+        });
+        entry.2.push(super::data_model::Quantity {
+            quantity_name: quantity_names.value(i).to_string(),
+            quantity_value: quantity_values.value(i),
+            quantity_type: quantity_types.value(i).to_string(),
+        });
+    }
+
+    Ok(qset_map.into_iter().map(|(qset_id, (qset_name, method, quantities))| {
+        QuantitySet { qset_id, qset_name, method_of_measurement: method, quantities }
+    }).collect())
+}
+
+fn deserialize_relationships(data: &[u8]) -> Result<Vec<Relationship>, DataModelParquetError> {
+    let batch = read_parquet_batch(data)?;
+    let count = batch.num_rows();
+
+    let rel_types = batch.column(0).as_any().downcast_ref::<StringArray>().unwrap();
+    let relating_ids = batch.column(1).as_any().downcast_ref::<UInt32Array>().unwrap();
+    let related_ids = batch.column(2).as_any().downcast_ref::<UInt32Array>().unwrap();
+
+    let mut result = Vec::with_capacity(count);
+    for i in 0..count {
+        result.push(Relationship {
+            rel_type: rel_types.value(i).to_string(),
+            relating_id: relating_ids.value(i),
+            related_id: related_ids.value(i),
+        });
+    }
+    Ok(result)
+}
+
+fn deserialize_spatial_hierarchy(data: &[u8]) -> Result<SpatialHierarchyData, DataModelParquetError> {
+    let mut offset = 0;
+    let read_section = |offset: &mut usize| -> Result<Vec<u8>, DataModelParquetError> {
+        if *offset + 4 > data.len() {
+            return Err(DataModelParquetError::Io(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "Unexpected end of spatial hierarchy buffer",
+            )));
+        }
+        let len = u32::from_le_bytes(data[*offset..*offset + 4].try_into().unwrap()) as usize;
+        *offset += 4;
+        let section = data[*offset..*offset + len].to_vec();
+        *offset += len;
+        Ok(section)
+    };
+
+    let nodes_data = read_section(&mut offset)?;
+    let element_to_storey_data = read_section(&mut offset)?;
+    let element_to_building_data = read_section(&mut offset)?;
+    let element_to_site_data = read_section(&mut offset)?;
+    let element_to_space_data = read_section(&mut offset)?;
+
+    // Read project_id
+    let project_id = if offset + 4 <= data.len() {
+        u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap())
+    } else {
+        0
+    };
+
+    let nodes = deserialize_spatial_nodes(&nodes_data)?;
+    let element_to_storey = deserialize_lookup_pairs(&element_to_storey_data)?;
+    let element_to_building = deserialize_lookup_pairs(&element_to_building_data)?;
+    let element_to_site = deserialize_lookup_pairs(&element_to_site_data)?;
+    let element_to_space = deserialize_lookup_pairs(&element_to_space_data)?;
+
+    Ok(SpatialHierarchyData {
+        nodes,
+        project_id,
+        element_to_storey,
+        element_to_building,
+        element_to_site,
+        element_to_space,
+    })
+}
+
+fn deserialize_spatial_nodes(data: &[u8]) -> Result<Vec<SpatialNode>, DataModelParquetError> {
+    let batch = read_parquet_batch(data)?;
+    let count = batch.num_rows();
+
+    let entity_ids = batch.column(0).as_any().downcast_ref::<UInt32Array>().unwrap();
+    let parent_ids = batch.column(1).as_any().downcast_ref::<UInt32Array>().unwrap();
+    let levels = batch.column(2).as_any().downcast_ref::<UInt16Array>().unwrap();
+    let paths = batch.column(3).as_any().downcast_ref::<StringArray>().unwrap();
+    let type_names = batch.column(4).as_any().downcast_ref::<StringArray>().unwrap();
+    let names = batch.column(5).as_any().downcast_ref::<StringArray>().unwrap();
+    let elevations = batch.column(6).as_any().downcast_ref::<Float64Array>().unwrap();
+    let children_ids_col = batch.column(7).as_any().downcast_ref::<ListArray>().unwrap();
+    let element_ids_col = batch.column(8).as_any().downcast_ref::<ListArray>().unwrap();
+
+    let mut result = Vec::with_capacity(count);
+    for i in 0..count {
+        let children_ids: Vec<u32> = if children_ids_col.is_valid(i) {
+            let arr = children_ids_col.value(i);
+            let u32_arr = arr.as_any().downcast_ref::<UInt32Array>().unwrap();
+            (0..u32_arr.len()).map(|j| u32_arr.value(j)).collect()
+        } else {
+            Vec::new()
+        };
+
+        let element_ids: Vec<u32> = if element_ids_col.is_valid(i) {
+            let arr = element_ids_col.value(i);
+            let u32_arr = arr.as_any().downcast_ref::<UInt32Array>().unwrap();
+            (0..u32_arr.len()).map(|j| u32_arr.value(j)).collect()
+        } else {
+            Vec::new()
+        };
+
+        let name_str = if names.is_valid(i) {
+            let s = names.value(i);
+            if s.is_empty() { None } else { Some(s.to_string()) }
+        } else {
+            None
+        };
+
+        let elevation = if elevations.is_valid(i) {
+            Some(elevations.value(i))
+        } else {
+            None
+        };
+
+        result.push(SpatialNode {
+            entity_id: entity_ids.value(i),
+            parent_id: if parent_ids.is_valid(i) { parent_ids.value(i) } else { 0 },
+            level: levels.value(i),
+            path: paths.value(i).to_string(),
+            type_name: type_names.value(i).to_string(),
+            name: name_str,
+            elevation,
+            children_ids,
+            element_ids,
+        });
+    }
+    Ok(result)
+}
+
+fn deserialize_lookup_pairs(data: &[u8]) -> Result<Vec<(u32, u32)>, DataModelParquetError> {
+    let batch = read_parquet_batch(data)?;
+    let count = batch.num_rows();
+
+    let element_ids = batch.column(0).as_any().downcast_ref::<UInt32Array>().unwrap();
+    let spatial_ids = batch.column(1).as_any().downcast_ref::<UInt32Array>().unwrap();
+
+    let mut result = Vec::with_capacity(count);
+    for i in 0..count {
+        result.push((element_ids.value(i), spatial_ids.value(i)));
+    }
+    Ok(result)
+}
