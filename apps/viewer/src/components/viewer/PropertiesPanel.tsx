@@ -24,7 +24,6 @@ import {
   Edit3,
   Sparkles,
   PenLine,
-  Crosshair,
 } from 'lucide-react';
 import { PropertyEditor, NewPropertyDialog, UndoRedoButtons } from './PropertyEditor';
 import { Button } from '@/components/ui/button';
@@ -233,10 +232,17 @@ function parsePropertyValue(value: unknown): ParsedPropertyValue {
   return { displayValue: String(value) };
 }
 
-/** Compact coordinate row with label, values, and copy button */
+/** Inline coordinate value with dim axis label */
+function CoordVal({ axis, value }: { axis: string; value: number }) {
+  return (
+    <span className="whitespace-nowrap"><span className="text-muted-foreground/40">{axis}</span>{'\u2009'}{value.toFixed(3)}</span>
+  );
+}
+
+/** Copyable coordinate row: label + values that wrap naturally at any width */
 function CoordRow({ label, values, primary, copyLabel, coordCopied, onCopy }: {
   label: string;
-  values: { label: string; value: number }[];
+  values: { axis: string; value: number }[];
   primary?: boolean;
   copyLabel: string;
   coordCopied: string | null;
@@ -245,17 +251,17 @@ function CoordRow({ label, values, primary, copyLabel, coordCopied, onCopy }: {
   const isCopied = coordCopied === copyLabel;
   const copyText = values.map(v => v.value.toFixed(3)).join(', ');
   return (
-    <div className="flex items-center gap-1.5 group">
-      <span className={`text-[9px] font-medium uppercase tracking-wider w-10 shrink-0 ${primary ? 'text-muted-foreground' : 'text-muted-foreground/50'}`}>
+    <div className="flex items-start gap-1.5 group min-w-0">
+      <span className={`text-[9px] font-medium uppercase tracking-wider w-[34px] shrink-0 pt-px ${primary ? 'text-muted-foreground' : 'text-muted-foreground/50'}`}>
         {label}
       </span>
-      <div className={`font-mono text-[10px] flex-1 truncate tabular-nums flex gap-2 ${primary ? 'text-foreground' : 'text-muted-foreground/60'}`}>
-        {values.map(v => (
-          <span key={v.label}><span className="text-muted-foreground/40">{v.label}</span> {v.value.toFixed(3)}</span>
+      <span className={`font-mono text-[10px] flex-1 min-w-0 tabular-nums leading-relaxed ${primary ? 'text-foreground' : 'text-muted-foreground/60'}`}>
+        {values.map((v, i) => (
+          <span key={v.axis}>{i > 0 && <>{' '}</>}<CoordVal axis={v.axis} value={v.value} /></span>
         ))}
-      </div>
+      </span>
       <button
-        className={`shrink-0 p-0.5 rounded transition-colors ${isCopied ? 'text-emerald-500' : 'text-muted-foreground/30 opacity-0 group-hover:opacity-100 hover:text-muted-foreground'}`}
+        className={`shrink-0 p-0.5 rounded mt-px transition-colors ${isCopied ? 'text-emerald-500' : 'text-muted-foreground/30 opacity-0 group-hover:opacity-100 hover:text-muted-foreground'}`}
         onClick={(e) => { e.stopPropagation(); onCopy(copyLabel, copyText); }}
       >
         {isCopied ? <Check className="h-2.5 w-2.5" /> : <Copy className="h-2.5 w-2.5" />}
@@ -795,54 +801,39 @@ export function PropertiesPanel() {
           </div>
         )}
 
-        {/* Entity Position - collapsible coordinate section */}
+        {/* Entity Position - always visible, wraps naturally at any sidebar width */}
         {entityCoordinates && (
-          <Collapsible>
-            {/* Collapsed: show world coords inline as preview */}
-            <CollapsibleTrigger className="flex items-center gap-1.5 w-full text-xs px-2 py-1.5 hover:bg-muted/50 text-left group/pos">
-              <Crosshair className="h-3 w-3 text-muted-foreground shrink-0" />
-              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider shrink-0">Pos</span>
-              <span className="font-mono text-[10px] text-muted-foreground/70 ml-auto truncate tabular-nums">
-                <span className="text-muted-foreground/40">E</span> {entityCoordinates.worldZup.center.x.toFixed(2)}{' '}
-                <span className="text-muted-foreground/40">N</span> {entityCoordinates.worldZup.center.y.toFixed(2)}{' '}
-                <span className="text-muted-foreground/40">Z</span> {entityCoordinates.worldZup.center.z.toFixed(2)}
+          <div className="px-2 py-1.5 space-y-0.5">
+            <CoordRow
+              label="World"
+              values={[
+                { axis: 'E', value: entityCoordinates.worldZup.center.x },
+                { axis: 'N', value: entityCoordinates.worldZup.center.y },
+                { axis: 'Z', value: entityCoordinates.worldZup.center.z },
+              ]}
+              primary
+              copyLabel="world"
+              coordCopied={coordCopied}
+              onCopy={copyCoords}
+            />
+            <CoordRow
+              label="Local"
+              values={[
+                { axis: 'X', value: entityCoordinates.local.center.x },
+                { axis: 'Y', value: entityCoordinates.local.center.y },
+                { axis: 'Z', value: entityCoordinates.local.center.z },
+              ]}
+              copyLabel="local"
+              coordCopied={coordCopied}
+              onCopy={copyCoords}
+            />
+            <div className="flex items-center gap-1.5">
+              <span className="text-[9px] font-medium text-muted-foreground/50 uppercase tracking-wider w-[34px] shrink-0">Size</span>
+              <span className="font-mono text-[10px] text-muted-foreground/50 tabular-nums">
+                {(entityCoordinates.local.max.x - entityCoordinates.local.min.x).toFixed(2)} x {(entityCoordinates.local.max.y - entityCoordinates.local.min.y).toFixed(2)} x {(entityCoordinates.local.max.z - entityCoordinates.local.min.z).toFixed(2)}
               </span>
-            </CollapsibleTrigger>
-            {/* Expanded: full coordinate detail */}
-            <CollapsibleContent>
-              <div className="text-[11px] px-2 pb-2 space-y-1">
-                <CoordRow
-                  label="World"
-                  values={[
-                    { label: 'E', value: entityCoordinates.worldZup.center.x },
-                    { label: 'N', value: entityCoordinates.worldZup.center.y },
-                    { label: 'Z', value: entityCoordinates.worldZup.center.z },
-                  ]}
-                  primary
-                  copyLabel="world"
-                  coordCopied={coordCopied}
-                  onCopy={copyCoords}
-                />
-                <CoordRow
-                  label="Local"
-                  values={[
-                    { label: 'X', value: entityCoordinates.local.center.x },
-                    { label: 'Y', value: entityCoordinates.local.center.y },
-                    { label: 'Z', value: entityCoordinates.local.center.z },
-                  ]}
-                  copyLabel="local"
-                  coordCopied={coordCopied}
-                  onCopy={copyCoords}
-                />
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[9px] font-medium text-muted-foreground/50 uppercase tracking-wider w-10 shrink-0">Size</span>
-                  <span className="font-mono text-[10px] text-muted-foreground/50 tabular-nums">
-                    {(entityCoordinates.local.max.x - entityCoordinates.local.min.x).toFixed(2)} x {(entityCoordinates.local.max.y - entityCoordinates.local.min.y).toFixed(2)} x {(entityCoordinates.local.max.z - entityCoordinates.local.min.z).toFixed(2)}
-                  </span>
-                </div>
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
+            </div>
+          </div>
         )}
 
         {/* Model Source (when multiple models loaded) - below storey, less prominent */}
