@@ -330,6 +330,7 @@ export function PropertiesPanel() {
   // Copy feedback state - must be before any early returns (Rules of Hooks)
   const [copied, setCopied] = useState(false);
   const [coordCopied, setCoordCopied] = useState<string | null>(null);
+  const [coordOpen, setCoordOpen] = useState(false);
 
   // Edit mode toggle - allows inline property editing
   const [editMode, setEditMode] = useState(false);
@@ -801,39 +802,56 @@ export function PropertiesPanel() {
           </div>
         )}
 
-        {/* Entity Position - always visible, wraps naturally at any sidebar width */}
+        {/* Entity Position - controlled collapsible: header hides values when expanded */}
         {entityCoordinates && (
-          <div className="px-2 py-1.5 space-y-0.5">
-            <CoordRow
-              label="World"
-              values={[
-                { axis: 'E', value: entityCoordinates.worldZup.center.x },
-                { axis: 'N', value: entityCoordinates.worldZup.center.y },
-                { axis: 'Z', value: entityCoordinates.worldZup.center.z },
-              ]}
-              primary
-              copyLabel="world"
-              coordCopied={coordCopied}
-              onCopy={copyCoords}
-            />
-            <CoordRow
-              label="Local"
-              values={[
-                { axis: 'X', value: entityCoordinates.local.center.x },
-                { axis: 'Y', value: entityCoordinates.local.center.y },
-                { axis: 'Z', value: entityCoordinates.local.center.z },
-              ]}
-              copyLabel="local"
-              coordCopied={coordCopied}
-              onCopy={copyCoords}
-            />
-            <div className="flex items-center gap-1.5">
-              <span className="text-[9px] font-medium text-muted-foreground/50 uppercase tracking-wider w-[34px] shrink-0">Size</span>
-              <span className="font-mono text-[10px] text-muted-foreground/50 tabular-nums">
-                {(entityCoordinates.local.max.x - entityCoordinates.local.min.x).toFixed(2)} x {(entityCoordinates.local.max.y - entityCoordinates.local.min.y).toFixed(2)} x {(entityCoordinates.local.max.z - entityCoordinates.local.min.z).toFixed(2)}
-              </span>
-            </div>
-          </div>
+          <Collapsible open={coordOpen} onOpenChange={setCoordOpen}>
+            <CollapsibleTrigger className="flex items-start gap-1.5 w-full px-2 py-1.5 hover:bg-muted/50 text-left min-w-0">
+              <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider w-[34px] shrink-0 pt-px">World</span>
+              {!coordOpen && (
+                <span className="font-mono text-[10px] text-foreground flex-1 min-w-0 tabular-nums leading-relaxed">
+                  <CoordVal axis="E" value={entityCoordinates.worldZup.center.x} />{' '}
+                  <CoordVal axis="N" value={entityCoordinates.worldZup.center.y} />{' '}
+                  <CoordVal axis="Z" value={entityCoordinates.worldZup.center.z} />
+                </span>
+              )}
+              {coordOpen && (
+                <span className="text-[9px] text-muted-foreground/50 pt-px">click to collapse</span>
+              )}
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="px-2 pb-1.5 space-y-0.5">
+                <CoordRow
+                  label="World"
+                  values={[
+                    { axis: 'E', value: entityCoordinates.worldZup.center.x },
+                    { axis: 'N', value: entityCoordinates.worldZup.center.y },
+                    { axis: 'Z', value: entityCoordinates.worldZup.center.z },
+                  ]}
+                  primary
+                  copyLabel="world"
+                  coordCopied={coordCopied}
+                  onCopy={copyCoords}
+                />
+                <CoordRow
+                  label="Local"
+                  values={[
+                    { axis: 'X', value: entityCoordinates.local.center.x },
+                    { axis: 'Y', value: entityCoordinates.local.center.y },
+                    { axis: 'Z', value: entityCoordinates.local.center.z },
+                  ]}
+                  copyLabel="local"
+                  coordCopied={coordCopied}
+                  onCopy={copyCoords}
+                />
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] font-medium text-muted-foreground/50 uppercase tracking-wider w-[34px] shrink-0">Size</span>
+                  <span className="font-mono text-[10px] text-muted-foreground/50 tabular-nums">
+                    {(entityCoordinates.local.max.x - entityCoordinates.local.min.x).toFixed(2)} x {(entityCoordinates.local.max.y - entityCoordinates.local.min.y).toFixed(2)} x {(entityCoordinates.local.max.z - entityCoordinates.local.min.z).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         )}
 
         {/* Model Source (when multiple models loaded) - below storey, less prominent */}
