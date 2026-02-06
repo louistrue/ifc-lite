@@ -373,8 +373,18 @@ export function PropertiesPanel() {
   }, [selectedEntity, activeDataStore]);
 
   // Compute entity bounding box and coordinates (local scene + world)
-  // Local = scene coordinates (Y-up, shifted to origin for rendering)
-  // World = real-world coordinates with origin shift restored (Y-up viewer convention)
+  //
+  // The full coordinate pipeline is:
+  //   1. WASM extracts IFC positions (Z-up) and applies RTC offset (wasmRtcOffset, in Z-up)
+  //   2. Mesh collector converts Z-up → Y-up: newY = oldZ, newZ = -oldY
+  //   3. CoordinateHandler may apply additional originShift (in Y-up) for large coordinates
+  //   4. Multi-model alignment adjusts positions so all models share the first model's RTC frame
+  //
+  // To reverse back to world coordinates (Y-up):
+  //   world_yup = scene_local + originShift + wasmRtcOffset_converted_to_yup
+  //
+  // For multi-model: all models are aligned to the first model's RTC frame,
+  // so we always use the first model's wasmRtcOffset for reconstruction.
   const entityCoordinates = useMemo(() => {
     if (!selectedEntity) return null;
 
@@ -410,6 +420,27 @@ export function PropertiesPanel() {
     const coordInfo = geoResult.coordinateInfo;
     const shift = coordInfo?.originShift ?? { x: 0, y: 0, z: 0 };
 
+    // Get the reference WASM RTC offset for world coordinate reconstruction.
+    // For multi-model: all models are aligned to the first model's RTC frame,
+    // so we must use the first model's wasmRtcOffset (not the current model's).
+    // For single/legacy: use the geometry result's own offset.
+    let wasmRtcIfc = coordInfo?.wasmRtcOffset;
+    if (models.size > 1) {
+      let earliest = Infinity;
+      for (const [, m] of models) {
+        if (m.loadedAt < earliest) {
+          earliest = m.loadedAt;
+          wasmRtcIfc = m.geometryResult?.coordinateInfo?.wasmRtcOffset;
+        }
+      }
+    }
+
+    // Convert WASM RTC offset from IFC Z-up to viewer Y-up:
+    //   viewer X = IFC X, viewer Y = IFC Z, viewer Z = -IFC Y
+    const wasmRtcYup = wasmRtcIfc
+      ? { x: wasmRtcIfc.x, y: wasmRtcIfc.z, z: -wasmRtcIfc.y }
+      : { x: 0, y: 0, z: 0 };
+
     // Local (scene) center - what the renderer uses (Y-up, shifted)
     const localCenter = {
       x: (minX + maxX) / 2,
@@ -417,19 +448,28 @@ export function PropertiesPanel() {
       z: (minZ + maxZ) / 2,
     };
 
-    // World center - real-world position with shift restored (Y-up)
-    const worldCenter = {
-      x: localCenter.x + shift.x,
-      y: localCenter.y + shift.y,
-      z: localCenter.z + shift.z,
+    // World center (Y-up) = scene_local + originShift + wasmRtcOffset_yup
+    const worldCenterYup = {
+      x: localCenter.x + shift.x + wasmRtcYup.x,
+      y: localCenter.y + shift.y + wasmRtcYup.y,
+      z: localCenter.z + shift.z + wasmRtcYup.z,
+    };
+
+    // Convert world Y-up to IFC Z-up for display:
+    //   IFC X = viewer X, IFC Y = -viewer Z, IFC Z = viewer Y
+    const worldCenterZup = {
+      x: worldCenterYup.x,
+      y: -worldCenterYup.z,
+      z: worldCenterYup.y,
     };
 
     return {
       local: { min: { x: minX, y: minY, z: minZ }, max: { x: maxX, y: maxY, z: maxZ }, center: localCenter },
-      world: { center: worldCenter },
-      hasLargeCoordinates: coordInfo?.hasLargeCoordinates ?? false,
+      worldYup: { center: worldCenterYup },
+      worldZup: { center: worldCenterZup },
+      hasLargeCoordinates: (coordInfo?.hasLargeCoordinates ?? false) || !!wasmRtcIfc,
     };
-  }, [selectedEntity, model, geometryResult]);
+  }, [selectedEntity, model, geometryResult, models]);
 
   // Get entity node - must be computed before early return to maintain hook order
   // IMPORTANT: Use selectedEntity.expressId (original ID) for IfcDataStore lookups
@@ -724,27 +764,27 @@ export function PropertiesPanel() {
               <Crosshair className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
               <span className="font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Position</span>
               <span className="font-mono text-[10px] text-zinc-400 dark:text-zinc-500 ml-auto truncate">
-                {entityCoordinates.local.center.x.toFixed(2)}, {entityCoordinates.local.center.y.toFixed(2)}, {entityCoordinates.local.center.z.toFixed(2)}
+                {entityCoordinates.worldZup.center.x.toFixed(2)}, {entityCoordinates.worldZup.center.y.toFixed(2)}, {entityCoordinates.worldZup.center.z.toFixed(2)}
               </span>
             </CollapsibleTrigger>
             <CollapsibleContent>
               <div className="border border-t-0 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-[11px]">
-                {/* Local (Scene) coordinates */}
+                {/* World coordinates in IFC convention (Z-up) - most useful for BIM users */}
                 <div className="px-2.5 py-1.5 border-b border-zinc-100 dark:border-zinc-900">
-                  <div className="font-bold uppercase tracking-wider text-[9px] text-zinc-400 dark:text-zinc-500 mb-1">Scene (Local)</div>
+                  <div className="font-bold uppercase tracking-wider text-[9px] text-zinc-400 dark:text-zinc-500 mb-1">World (IFC Z-up)</div>
                   <div className="font-mono text-zinc-700 dark:text-zinc-300 grid grid-cols-3 gap-1">
+                    <span>X: {entityCoordinates.worldZup.center.x.toFixed(3)}</span>
+                    <span>Y: {entityCoordinates.worldZup.center.y.toFixed(3)}</span>
+                    <span>Z: {entityCoordinates.worldZup.center.z.toFixed(3)}</span>
+                  </div>
+                </div>
+                {/* Scene-local coordinates (Y-up, shifted) */}
+                <div className="px-2.5 py-1.5 border-b border-zinc-100 dark:border-zinc-900">
+                  <div className="font-bold uppercase tracking-wider text-[9px] text-zinc-400 dark:text-zinc-500 mb-1">Scene (Local Y-up)</div>
+                  <div className="font-mono text-zinc-500 dark:text-zinc-400 grid grid-cols-3 gap-1">
                     <span>X: {entityCoordinates.local.center.x.toFixed(3)}</span>
                     <span>Y: {entityCoordinates.local.center.y.toFixed(3)}</span>
                     <span>Z: {entityCoordinates.local.center.z.toFixed(3)}</span>
-                  </div>
-                </div>
-                {/* World coordinates */}
-                <div className="px-2.5 py-1.5 border-b border-zinc-100 dark:border-zinc-900">
-                  <div className="font-bold uppercase tracking-wider text-[9px] text-zinc-400 dark:text-zinc-500 mb-1">World</div>
-                  <div className="font-mono text-zinc-700 dark:text-zinc-300 grid grid-cols-3 gap-1">
-                    <span>X: {entityCoordinates.world.center.x.toFixed(3)}</span>
-                    <span>Y: {entityCoordinates.world.center.y.toFixed(3)}</span>
-                    <span>Z: {entityCoordinates.world.center.z.toFixed(3)}</span>
                   </div>
                 </div>
                 {/* Bounding box extent */}
