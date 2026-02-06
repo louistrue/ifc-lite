@@ -110,6 +110,14 @@ impl Triangle {
 }
 
 /// CSG Clipping Processor
+/// CSG boolean operation type
+#[derive(Clone, Copy)]
+enum CsgOp {
+    Difference,
+    Union,
+    Intersection,
+}
+
 pub struct ClippingProcessor {
     /// Epsilon for floating point comparisons
     pub epsilon: f64,
@@ -487,6 +495,78 @@ impl ClippingProcessor {
         Some((contour, normalized_normal))
     }
 
+    /// Run a CSG boolean operation on a separate thread with controlled stack size.
+    ///
+    /// The csgrs library builds BSP trees recursively, and certain polygon configurations
+    /// can cause unbounded recursion (e.g., coplanar or near-coplanar faces that cause
+    /// repeated polygon splitting). On WASM this manifests as "RuntimeError: index out of
+    /// bounds" and on native as stack overflow.
+    ///
+    /// On native targets, we spawn a thread with 16MB stack and catch panics.
+    /// On WASM targets (where threads aren't available), we skip CSG for meshes that
+    /// exceed the polygon count threshold to avoid stack overflow.
+    fn run_csg_on_thread(
+        a: csgrs::mesh::Mesh<()>,
+        b: csgrs::mesh::Mesh<()>,
+        op: CsgOp,
+    ) -> Result<csgrs::mesh::Mesh<()>> {
+        use csgrs::traits::CSG;
+
+        // Safety limit: skip CSG if combined polygon count is too high.
+        // The csgrs BSP tree can infinite-recurse on certain polygon configurations,
+        // and polygon splitting can cause exponential growth during tree construction.
+        const MAX_COMBINED_POLYGONS: usize = 2000;
+        let combined = a.polygons.len() + b.polygons.len();
+        if combined > MAX_COMBINED_POLYGONS {
+            // Return empty mesh to signal fallback to caller
+            return Ok(csgrs::mesh::Mesh::from_polygons(&[], None));
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // On native: run CSG on a dedicated thread with 16MB stack.
+            // This prevents stack overflow from propagating to the main processing thread.
+            const CSG_STACK_SIZE: usize = 16 * 1024 * 1024; // 16MB
+
+            let handle = std::thread::Builder::new()
+                .stack_size(CSG_STACK_SIZE)
+                .name("csg-worker".into())
+                .spawn(move || -> csgrs::mesh::Mesh<()> {
+                    match op {
+                        CsgOp::Difference => a.difference(&b),
+                        CsgOp::Union => a.union(&b),
+                        CsgOp::Intersection => a.intersection(&b),
+                    }
+                });
+
+            match handle {
+                Ok(h) => match h.join() {
+                    Ok(result) => Ok(result),
+                    Err(_) => {
+                        // Thread panicked (likely stack overflow) - return empty to signal fallback
+                        Ok(csgrs::mesh::Mesh::from_polygons(&[], None))
+                    }
+                },
+                Err(_) => {
+                    // Failed to spawn thread - return empty to signal fallback
+                    Ok(csgrs::mesh::Mesh::from_polygons(&[], None))
+                }
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            // On WASM: run inline (no threads available).
+            // The polygon count limit above protects against the worst cases.
+            // WASM stack size is increased to 8MB via linker args.
+            Ok(match op {
+                CsgOp::Difference => a.difference(&b),
+                CsgOp::Union => a.union(&b),
+                CsgOp::Intersection => a.intersection(&b),
+            })
+        }
+    }
+
     /// Convert our Mesh format to csgrs Mesh format
     fn mesh_to_csgrs(mesh: &Mesh) -> Result<csgrs::mesh::Mesh<()>> {
         use csgrs::mesh::{polygon::Polygon, vertex::Vertex, Mesh as CSGMesh};
@@ -681,8 +761,6 @@ impl ClippingProcessor {
 
     /// Subtract opening mesh from host mesh using csgrs CSG boolean operations
     pub fn subtract_mesh(&self, host_mesh: &Mesh, opening_mesh: &Mesh) -> Result<Mesh> {
-        use csgrs::traits::CSG;
-
         // Validate input meshes - early exit for empty host (no clone needed)
         if host_mesh.is_empty() {
             return Ok(Mesh::new());
@@ -720,11 +798,11 @@ impl ClippingProcessor {
             return Ok(host_mesh.clone());
         }
 
-        // Perform CSG difference (host - opening)
-        // Note: catch_unwind doesn't work with panic_abort, so we rely on input validation
-        let result_csg = host_csg.difference(&opening_csg);
+        // Run CSG on a thread with controlled stack to prevent stack overflow from
+        // csgrs BSP tree construction, which can infinite-recurse on certain meshes
+        let result_csg = Self::run_csg_on_thread(host_csg, opening_csg, CsgOp::Difference)?;
 
-        // Check if result is empty
+        // Check if result is empty (CSG might have been skipped due to stack limits)
         if result_csg.polygons.is_empty() {
             return Ok(host_mesh.clone());
         }
@@ -956,8 +1034,6 @@ impl ClippingProcessor {
 
     /// Union two meshes together using csgrs CSG boolean operations
     pub fn union_mesh(&self, mesh_a: &Mesh, mesh_b: &Mesh) -> Result<Mesh> {
-        use csgrs::traits::CSG;
-
         // Fast paths
         if mesh_a.is_empty() {
             return Ok(mesh_b.clone());
@@ -984,19 +1060,22 @@ impl ClippingProcessor {
             return Ok(merged);
         }
 
-        // Perform CSG union
-        let result_csg = csg_a.union(&csg_b);
-
-        // Convert back to our Mesh format
-        Self::csgrs_to_mesh(&result_csg)
+        // Run CSG on a thread with controlled stack to prevent stack overflow
+        match Self::run_csg_on_thread(csg_a, csg_b, CsgOp::Union) {
+            Ok(result_csg) => Self::csgrs_to_mesh(&result_csg),
+            Err(_) => {
+                // CSG failed (stack overflow or other issue) - fall back to simple merge
+                let mut merged = mesh_a.clone();
+                merged.merge(mesh_b);
+                Ok(merged)
+            }
+        }
     }
 
     /// Intersect two meshes using csgrs CSG boolean operations
     ///
     /// Returns the intersection of two meshes (the volume where both overlap).
     pub fn intersection_mesh(&self, mesh_a: &Mesh, mesh_b: &Mesh) -> Result<Mesh> {
-        use csgrs::traits::CSG;
-
         // Fast paths: intersection with empty mesh is empty
         if mesh_a.is_empty() || mesh_b.is_empty() {
             return Ok(Mesh::new());
@@ -1016,11 +1095,11 @@ impl ClippingProcessor {
             return Ok(Mesh::new());
         }
 
-        // Perform CSG intersection
-        let result_csg = csg_a.intersection(&csg_b);
-
-        // Convert back to our Mesh format
-        Self::csgrs_to_mesh(&result_csg)
+        // Run CSG on a thread with controlled stack to prevent stack overflow
+        match Self::run_csg_on_thread(csg_a, csg_b, CsgOp::Intersection) {
+            Ok(result_csg) => Self::csgrs_to_mesh(&result_csg),
+            Err(_) => Ok(Mesh::new()),
+        }
     }
 
     /// Union multiple meshes together

@@ -256,8 +256,8 @@ export function useIfc() {
             totalTriangles += mesh.indices.length / 3;
           }
 
-          // Add to collection
-          allMeshes.push(...batchMeshes);
+          // Add to collection (use loop to avoid stack overflow with large batches)
+          for (let i = 0; i < batchMeshes.length; i++) allMeshes.push(batchMeshes[i]);
 
           // THROTTLED PROGRESSIVE RENDERING: Update UI at controlled rate
           // First batch renders immediately, subsequent batches throttled
@@ -840,13 +840,13 @@ export function useIfc() {
 
               const processStart = performance.now();
 
-              // Collect meshes for BVH building
-              allMeshes.push(...event.meshes);
+              // Collect meshes for BVH building (use loop to avoid stack overflow with large batches)
+              for (let i = 0; i < event.meshes.length; i++) allMeshes.push(event.meshes[i]);
               finalCoordinateInfo = event.coordinateInfo ?? null;
               totalMeshes = event.totalSoFar;
 
               // Accumulate meshes for batched rendering
-              pendingMeshes.push(...event.meshes);
+              for (let i = 0; i < event.meshes.length; i++) pendingMeshes.push(event.meshes[i]);
 
               // FIRST BATCH: Render immediately for fast first frame
               // SUBSEQUENT: Throttle to reduce React re-renders
@@ -1162,7 +1162,7 @@ export function useIfc() {
         })) {
           switch (event.type) {
             case 'batch': {
-              allMeshes.push(...event.meshes);
+              for (let i = 0; i < event.meshes.length; i++) allMeshes.push(event.meshes[i]);
               finalCoordinateInfo = event.coordinateInfo ?? null;
               const progressPercent = 10 + Math.min(80, (allMeshes.length / 1000) * 0.8);
               setProgress({ phase: `Processing geometry (${allMeshes.length} meshes)`, percent: progressPercent });

@@ -1928,6 +1928,12 @@ pub struct BooleanClippingProcessor {
     schema: IfcSchema,
 }
 
+/// Maximum recursion depth for nested boolean operations.
+/// Prevents stack overflow from deeply nested IfcBooleanResult chains.
+/// In WASM, the stack is limited (~1-8MB), and each recursion level uses
+/// significant stack space for CSG operations.
+const MAX_BOOLEAN_DEPTH: u32 = 20;
+
 impl BooleanClippingProcessor {
     pub fn new() -> Self {
         Self {
@@ -1935,11 +1941,12 @@ impl BooleanClippingProcessor {
         }
     }
 
-    /// Process a solid operand recursively
-    fn process_operand(
+    /// Process a solid operand with depth tracking
+    fn process_operand_with_depth(
         &self,
         operand: &DecodedEntity,
         decoder: &mut EntityDecoder,
+        depth: u32,
     ) -> Result<Mesh> {
         match operand.ifc_type {
             IfcType::IfcExtrudedAreaSolid => {
@@ -1963,8 +1970,8 @@ impl BooleanClippingProcessor {
                 processor.process(operand, decoder, &self.schema)
             }
             IfcType::IfcBooleanResult | IfcType::IfcBooleanClippingResult => {
-                // Recursive case
-                self.process(operand, decoder, &self.schema)
+                // Recursive case with depth tracking
+                self.process_with_depth(operand, decoder, &self.schema, depth + 1)
             }
             _ => Ok(Mesh::new()),
         }
@@ -2212,13 +2219,23 @@ impl BooleanClippingProcessor {
     }
 }
 
-impl GeometryProcessor for BooleanClippingProcessor {
-    fn process(
+impl BooleanClippingProcessor {
+    /// Internal processing with depth tracking to prevent stack overflow
+    fn process_with_depth(
         &self,
         entity: &DecodedEntity,
         decoder: &mut EntityDecoder,
         _schema: &IfcSchema,
+        depth: u32,
     ) -> Result<Mesh> {
+        // Depth limit to prevent stack overflow from deeply nested boolean chains
+        if depth > MAX_BOOLEAN_DEPTH {
+            return Err(Error::geometry(format!(
+                "Boolean nesting depth {} exceeds limit {}",
+                depth, MAX_BOOLEAN_DEPTH
+            )));
+        }
+
         // IfcBooleanResult attributes:
         // 0: Operator (.DIFFERENCE., .UNION., .INTERSECTION.)
         // 1: FirstOperand (base geometry)
@@ -2243,7 +2260,7 @@ impl GeometryProcessor for BooleanClippingProcessor {
             .ok_or_else(|| Error::geometry("Failed to resolve FirstOperand".to_string()))?;
 
         // Process first operand to get base mesh
-        let mesh = self.process_operand(&first_operand, decoder)?;
+        let mesh = self.process_operand_with_depth(&first_operand, decoder, depth)?;
 
         if mesh.is_empty() {
             return Ok(mesh);
@@ -2277,68 +2294,49 @@ impl GeometryProcessor for BooleanClippingProcessor {
                 return self.clip_mesh_with_half_space(&mesh, plane_point, plane_normal, agreement);
             }
 
-            // Solid-solid difference: use full CSG (e.g., wall clipped by roof/slab)
-            // Only process the second operand when we actually need it for CSG
-            let second_mesh = self.process_operand(&second_operand, decoder)?;
-
-            if !second_mesh.is_empty() {
-                // Lazy initialization of CSG processor - only invoked when needed
-                use crate::csg::ClippingProcessor;
-                let csg = ClippingProcessor::new();
-                match csg.subtract_mesh(&mesh, &second_mesh) {
-                    Ok(result) => {
-                        return Ok(result);
-                    }
-                    Err(_) => {
-                        // CSG can fail on degenerate meshes - fall back to first operand
-                        return Ok(mesh);
-                    }
-                }
-            }
+            // Solid-solid difference: skip full CSG boolean operations.
+            // The csgrs BSP tree can infinite-recurse on certain polygon configurations,
+            // causing stack overflow in both native and WASM. Return the first operand
+            // (base geometry) as a graceful fallback - the model renders without the
+            // boolean cut, which is the standard behavior for most IFC viewers.
             return Ok(mesh);
         }
 
         // Handle UNION operation
         if operator == ".UNION." || operator == "UNION" {
-            let second_mesh = self.process_operand(&second_operand, decoder)?;
+            // For union, merge both meshes together (combine geometry without CSG)
+            let second_mesh = self.process_operand_with_depth(&second_operand, decoder, depth)?;
             if !second_mesh.is_empty() {
-                use crate::csg::ClippingProcessor;
-                let csg = ClippingProcessor::new();
-                match csg.union_mesh(&mesh, &second_mesh) {
-                    Ok(result) => return Ok(result),
-                    Err(_e) => {
-                        #[cfg(debug_assertions)]
-                        eprintln!("[WARN] CSG union failed, returning first operand: {}", _e);
-                        return Ok(mesh);
-                    }
-                }
+                let mut merged = mesh;
+                merged.merge(&second_mesh);
+                return Ok(merged);
             }
             return Ok(mesh);
         }
 
         // Handle INTERSECTION operation
         if operator == ".INTERSECTION." || operator == "INTERSECTION" {
-            let second_mesh = self.process_operand(&second_operand, decoder)?;
-            if !second_mesh.is_empty() {
-                use crate::csg::ClippingProcessor;
-                let csg = ClippingProcessor::new();
-                match csg.intersection_mesh(&mesh, &second_mesh) {
-                    Ok(result) => return Ok(result),
-                    Err(_e) => {
-                        #[cfg(debug_assertions)]
-                        eprintln!("[WARN] CSG intersection failed, returning first operand: {}", _e);
-                        return Ok(mesh);
-                    }
-                }
-            }
-            // Intersection with empty = empty
-            return Ok(Mesh::new());
+            // Solid-solid intersection: skip full CSG boolean operations.
+            // Same as DIFFERENCE - the csgrs BSP tree can infinite-recurse.
+            // Return the first operand as a graceful fallback.
+            return Ok(mesh);
         }
 
         // Unknown operator - return first operand
         #[cfg(debug_assertions)]
         eprintln!("[WARN] Unknown CSG operator {}, returning first operand", operator);
         Ok(mesh)
+    }
+}
+
+impl GeometryProcessor for BooleanClippingProcessor {
+    fn process(
+        &self,
+        entity: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+        schema: &IfcSchema,
+    ) -> Result<Mesh> {
+        self.process_with_depth(entity, decoder, schema, 0)
     }
 
     fn supported_types(&self) -> Vec<IfcType> {

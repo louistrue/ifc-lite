@@ -389,7 +389,7 @@ export class IfcLiteMeshCollector {
         continue;
       }
       const wasmBatch = item as MeshData[];
-      accumulatedMeshes.push(...wasmBatch);
+      for (let i = 0; i < wasmBatch.length; i++) accumulatedMeshes.push(wasmBatch[i]);
 
       // Yield when we've accumulated enough for current dynamic batch size
       while (accumulatedMeshes.length >= currentBatchSize) {
