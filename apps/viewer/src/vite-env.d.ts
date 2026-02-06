@@ -5,8 +5,11 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
+  /** Server URL for IFC processing (also used by superset integration) */
   readonly VITE_IFC_SERVER_URL?: string;
+  /** Alternative server URL env var */
   readonly VITE_SERVER_URL?: string;
+  /** Set to 'true' to route IFC loading through server instead of client-side WASM */
   readonly VITE_USE_SERVER?: string;
 }
 
