@@ -523,6 +523,11 @@ export function useIfc() {
         }
       })(); // End of async data model fetch block - runs in background, doesn't block
 
+      // Store the server cache key so analytics panel can use it
+      if (result.cache_key) {
+        useViewerStore.getState().setAnalyticsServerCacheKey(result.cache_key);
+      }
+
       // Geometry is ready - mark complete immediately (data model loads in background)
       setProgress({ phase: 'Complete', percent: 100 });
       const totalServerTime = performance.now() - serverStart;

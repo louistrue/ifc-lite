@@ -231,6 +231,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       analyticsDashboardId: null,
       analyticsDashboardUrl: null,
       analyticsPublishedCacheKey: null,
+      analyticsServerCacheKey: null,
     });
   },
 }));

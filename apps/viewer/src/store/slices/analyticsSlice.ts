@@ -31,6 +31,8 @@ export interface AnalyticsSliceState {
   analyticsDashboardUrl: string | null;
   /** Cache key of the currently published model */
   analyticsPublishedCacheKey: string | null;
+  /** Server cache key from the most recent server-parsed model (SHA256 hash) */
+  analyticsServerCacheKey: string | null;
 }
 
 export interface AnalyticsSlice extends AnalyticsSliceState {
@@ -45,6 +47,7 @@ export interface AnalyticsSlice extends AnalyticsSliceState {
     dashboardUrl: string | null,
   ) => void;
   setAnalyticsError: (error: string) => void;
+  setAnalyticsServerCacheKey: (cacheKey: string) => void;
   resetAnalytics: () => void;
 }
 
@@ -61,6 +64,7 @@ const initialState: AnalyticsSliceState = {
   analyticsDashboardId: null,
   analyticsDashboardUrl: null,
   analyticsPublishedCacheKey: null,
+  analyticsServerCacheKey: null,
 };
 
 export const createAnalyticsSlice: StateCreator<AnalyticsSlice, [], [], AnalyticsSlice> = (set) => ({
@@ -103,6 +107,9 @@ export const createAnalyticsSlice: StateCreator<AnalyticsSlice, [], [], Analytic
       analyticsStatus: 'error',
       analyticsError: error,
     }),
+
+  setAnalyticsServerCacheKey: (cacheKey: string) =>
+    set({ analyticsServerCacheKey: cacheKey }),
 
   resetAnalytics: () => set(initialState),
 });

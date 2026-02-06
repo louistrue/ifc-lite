@@ -49,12 +49,14 @@ export function AnalyticsPanel({ onClose }: AnalyticsPanelProps) {
   const setAnalyticsError = useViewerStore((s) => s.setAnalyticsError);
   const setAnalyticsEmbedVisible = useViewerStore((s) => s.setAnalyticsEmbedVisible);
 
-  // Get the current model's cache key from the data store
+  // Get the server cache key (SHA256 hash from server-parsed model)
+  const analyticsServerCacheKey = useViewerStore((s) => s.analyticsServerCacheKey);
   const models = useViewerStore((s) => s.models);
 
-  // Find the cache key from the first loaded model
+  // Find the cache key: prefer published key, then server cache key, then model ID
   const cacheKey = (() => {
     if (analyticsPublishedCacheKey) return analyticsPublishedCacheKey;
+    if (analyticsServerCacheKey) return analyticsServerCacheKey;
     for (const [, model] of models) {
       if (model.id) return model.id;
     }

@@ -2,7 +2,7 @@
 # Optimized multi-stage build for Railway deployment
 
 # Stage 1: Chef - prepare recipe for dependency caching
-FROM lukemathwalker/cargo-chef:latest-rust-1.83 AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.88 AS chef
 WORKDIR /app
 
 # Stage 2: Planner - create dependency recipe
@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y \
 
 # Build dependencies first (cached layer)
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --release --recipe-path recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json --package ifc-lite-server
 
 # Copy source and build application
 COPY . .
