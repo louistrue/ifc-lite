@@ -808,7 +808,7 @@ export function PropertiesPanel() {
         {/* Entity Position - teal tint to distinguish from emerald storey bar */}
         {entityCoordinates && (
           <Collapsible open={coordOpen} onOpenChange={setCoordOpen}>
-            <CollapsibleTrigger className="flex items-center gap-2 w-full text-xs border border-teal-500/30 bg-teal-50/50 dark:bg-teal-900/10 px-2 py-1.5 text-teal-800 dark:text-teal-400 min-w-0 text-left group/coord">
+            <CollapsibleTrigger className="flex items-center gap-2 w-full text-xs border border-teal-500/30 px-2 py-1.5 text-teal-800 dark:text-teal-400 min-w-0 text-left group/coord">
               <Crosshair className="h-3.5 w-3.5 shrink-0" />
               <span className="font-bold uppercase tracking-wide shrink-0">World</span>
               {!coordOpen && (
