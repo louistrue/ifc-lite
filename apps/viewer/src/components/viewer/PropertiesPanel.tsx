@@ -24,6 +24,7 @@ import {
   Edit3,
   Sparkles,
   PenLine,
+  Crosshair,
 } from 'lucide-react';
 import { PropertyEditor, NewPropertyDialog, UndoRedoButtons } from './PropertyEditor';
 import { Button } from '@/components/ui/button';
@@ -235,7 +236,7 @@ function parsePropertyValue(value: unknown): ParsedPropertyValue {
 /** Inline coordinate value with dim axis label */
 function CoordVal({ axis, value }: { axis: string; value: number }) {
   return (
-    <span className="whitespace-nowrap"><span className="text-muted-foreground/40">{axis}</span>{'\u2009'}{value.toFixed(3)}</span>
+    <span className="whitespace-nowrap"><span className="opacity-50">{axis}</span>{'\u2009'}{value.toFixed(3)}</span>
   );
 }
 
@@ -802,26 +803,24 @@ export function PropertiesPanel() {
           </div>
         )}
 
-        {/* Entity Position - controlled collapsible: header hides values when expanded */}
+        {/* Entity Position - styled like spatial location bar above */}
         {entityCoordinates && (
           <Collapsible open={coordOpen} onOpenChange={setCoordOpen}>
-            <CollapsibleTrigger className="flex items-start gap-1.5 w-full px-2 py-1.5 hover:bg-muted/50 text-left min-w-0">
-              <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider w-[34px] shrink-0 pt-px">World</span>
+            <CollapsibleTrigger className="flex items-center gap-2 w-full text-xs border border-blue-500/30 bg-blue-50/50 dark:bg-blue-900/10 px-2 py-1.5 text-blue-800 dark:text-blue-400 min-w-0 text-left">
+              <Crosshair className="h-3.5 w-3.5 shrink-0" />
+              <span className="font-bold uppercase tracking-wide shrink-0">World</span>
               {!coordOpen && (
-                <span className="font-mono text-[10px] text-foreground flex-1 min-w-0 tabular-nums leading-relaxed">
+                <span className="font-mono text-[10px] text-blue-700/70 dark:text-blue-300/70 truncate min-w-0 flex-1 tabular-nums">
                   <CoordVal axis="E" value={entityCoordinates.worldZup.center.x} />{' '}
                   <CoordVal axis="N" value={entityCoordinates.worldZup.center.y} />{' '}
                   <CoordVal axis="Z" value={entityCoordinates.worldZup.center.z} />
                 </span>
               )}
-              {coordOpen && (
-                <span className="text-[9px] text-muted-foreground/50 pt-px">click to collapse</span>
-              )}
             </CollapsibleTrigger>
             <CollapsibleContent>
-              <div className="px-2 pb-1.5 space-y-0.5">
+              <div className="px-2 py-1.5 space-y-0.5 border-x border-b border-blue-500/30">
                 <CoordRow
-                  label="World"
+                  label=""
                   values={[
                     { axis: 'E', value: entityCoordinates.worldZup.center.x },
                     { axis: 'N', value: entityCoordinates.worldZup.center.y },
