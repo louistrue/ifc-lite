@@ -5,12 +5,20 @@
 /**
  * BCF-API OAuth2 Authentication
  *
- * Implements the OpenCDE Foundation API discovery and OAuth2 Authorization Code + PKCE flow.
+ * Supports two discovery methods:
+ * 1. OpenCDE Foundation API: /foundation/versions + /foundation/{version}/auth
+ * 2. BCF-API 2.1 native: /bcf/versions + /bcf/{version}/auth
+ *
+ * This ensures compatibility with both modern OpenCDE servers and older
+ * BCF-API servers like BIMcollab.
+ *
  * @see https://github.com/buildingSMART/foundation-API
+ * @see https://github.com/buildingSMART/BCF-API/tree/release_2_1
  */
 
 import type {
   ApiVersions,
+  BcfNativeVersions,
   ApiAuth,
   ApiTokenResponse,
   ApiCurrentUser,
@@ -25,6 +33,8 @@ export interface ServerInfo {
   baseUrl: string;
   /** Supported BCF API version */
   apiVersion: string;
+  /** Which discovery method was used */
+  discoveryMethod: 'foundation' | 'bcf-native';
   /** OAuth2 authorization URL */
   authUrl?: string;
   /** OAuth2 token exchange URL */
@@ -36,57 +46,112 @@ export interface ServerInfo {
 }
 
 /**
+ * Try to fetch JSON from a URL. Returns null on non-2xx or network errors.
+ */
+async function tryFetchJson<T>(url: string): Promise<T | null> {
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Discover a BCF-API server's capabilities.
- * Calls GET /foundation/versions then GET /foundation/{version}/auth.
+ *
+ * Tries two discovery methods in order:
+ * 1. OpenCDE Foundation API: GET /foundation/versions + GET /foundation/{version}/auth
+ * 2. BCF-API 2.1 native: GET /bcf/versions + GET /bcf/{version}/auth
+ *
+ * This ensures compatibility with both modern OpenCDE servers and older BCF-API
+ * servers like BIMcollab that predate the Foundation API standard.
  */
 export async function discoverServer(serverUrl: string): Promise<ServerInfo> {
   const baseUrl = serverUrl.replace(/\/+$/, '');
 
-  // Step 1: Discover supported versions
-  const versionsResponse = await fetch(`${baseUrl}/foundation/versions`, {
-    headers: { Accept: 'application/json' },
-  });
+  // ==========================================================================
+  // Strategy 1: OpenCDE Foundation API
+  // ==========================================================================
+  const foundationVersions = await tryFetchJson<ApiVersions>(
+    `${baseUrl}/foundation/versions`
+  );
 
-  if (!versionsResponse.ok) {
-    throw new Error(
-      `Server discovery failed: ${versionsResponse.status} ${versionsResponse.statusText}`
-    );
+  if (foundationVersions?.versions?.length) {
+    // Prefer BCF 3.0, fall back to 2.1, then any BCF entry
+    const bcfVersion =
+      foundationVersions.versions.find((v) => v.api_id === 'bcf' && v.version_id === '3.0') ??
+      foundationVersions.versions.find((v) => v.api_id === 'bcf' && v.version_id === '2.1') ??
+      foundationVersions.versions.find((v) => v.api_id === 'bcf');
+
+    if (bcfVersion) {
+      const apiVersion = bcfVersion.version_id;
+
+      // Try Foundation auth endpoint
+      const authData = await tryFetchJson<ApiAuth>(
+        `${baseUrl}/foundation/${apiVersion}/auth`
+      );
+
+      return {
+        baseUrl,
+        apiVersion,
+        discoveryMethod: 'foundation',
+        authUrl: authData?.oauth2_auth_url,
+        tokenUrl: authData?.oauth2_token_url,
+        supportedFlows: authData?.supported_oauth2_flows,
+        httpBasicSupported: authData?.http_basic_supported,
+      };
+    }
   }
 
-  const versionsData: ApiVersions = await versionsResponse.json();
+  // ==========================================================================
+  // Strategy 2: BCF-API 2.1 native (e.g., BIMcollab)
+  // Spec: GET /bcf/versions → { versions: [{ version_id, detailed_version }] }
+  //       GET /bcf/{version}/auth → { oauth2_auth_url, oauth2_token_url, ... }
+  // ==========================================================================
+  const bcfVersions = await tryFetchJson<BcfNativeVersions>(
+    `${baseUrl}/bcf/versions`
+  );
 
-  // Prefer BCF 3.0, fall back to 2.1
-  const bcfVersion =
-    versionsData.versions.find((v) => v.api_id === 'bcf' && v.version_id === '3.0') ??
-    versionsData.versions.find((v) => v.api_id === 'bcf' && v.version_id === '2.1') ??
-    versionsData.versions.find((v) => v.api_id === 'bcf');
+  if (bcfVersions?.versions?.length) {
+    // BCF native versions don't have api_id — just version_id
+    // Prefer 3.0, fall back to 2.1, then any available version
+    const bcfVersion =
+      bcfVersions.versions.find((v) => v.version_id === '3.0') ??
+      bcfVersions.versions.find((v) => v.version_id === '2.1') ??
+      bcfVersions.versions[0];
 
-  if (!bcfVersion) {
-    throw new Error('Server does not support the BCF API');
+    if (bcfVersion) {
+      const apiVersion = bcfVersion.version_id;
+
+      // Try BCF native auth endpoint: GET /bcf/{version}/auth
+      const authData = await tryFetchJson<ApiAuth>(
+        `${baseUrl}/bcf/${apiVersion}/auth`
+      );
+
+      return {
+        baseUrl,
+        apiVersion,
+        discoveryMethod: 'bcf-native',
+        authUrl: authData?.oauth2_auth_url,
+        tokenUrl: authData?.oauth2_token_url,
+        supportedFlows: authData?.supported_oauth2_flows,
+        httpBasicSupported: authData?.http_basic_supported,
+      };
+    }
   }
 
-  const apiVersion = bcfVersion.version_id;
-
-  // Step 2: Discover auth endpoints
-  const authResponse = await fetch(`${baseUrl}/foundation/${apiVersion}/auth`, {
-    headers: { Accept: 'application/json' },
-  });
-
-  if (!authResponse.ok) {
-    // Auth endpoint not available — server may not require authentication
-    return { baseUrl, apiVersion };
-  }
-
-  const authData: ApiAuth = await authResponse.json();
-
-  return {
-    baseUrl,
-    apiVersion,
-    authUrl: authData.oauth2_auth_url,
-    tokenUrl: authData.oauth2_token_url,
-    supportedFlows: authData.supported_oauth2_flows,
-    httpBasicSupported: authData.http_basic_supported,
-  };
+  // ==========================================================================
+  // Neither method worked
+  // ==========================================================================
+  throw new Error(
+    'Server discovery failed: no BCF API found. ' +
+    'Tried /foundation/versions and /bcf/versions. ' +
+    'Ensure the URL points to a BCF-API compatible server.'
+  );
 }
 
 // ============================================================================
@@ -312,26 +377,52 @@ function waitForOAuthCode(
 // ============================================================================
 
 /**
- * Get the current user's info from the Foundation API.
+ * Get the current user's info.
+ *
+ * Tries Foundation API (/foundation/{version}/current-user) first,
+ * then BCF native (/bcf/{version}/current-user) as fallback.
+ * If neither works, returns a minimal user object with the provided email.
  */
 export async function getCurrentUser(
   baseUrl: string,
   version: string,
-  accessToken: string
+  accessToken: string,
+  discoveryMethod: 'foundation' | 'bcf-native' = 'foundation'
 ): Promise<ApiCurrentUser> {
-  const response = await fetch(
-    `${baseUrl}/foundation/${version}/current-user`,
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/json',
-      },
-    }
-  );
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    Accept: 'application/json',
+  };
 
-  if (!response.ok) {
-    throw new Error(`Failed to get current user: ${response.status}`);
+  // Try the endpoint that matches the discovery method first
+  const primaryPath = discoveryMethod === 'foundation'
+    ? `${baseUrl}/foundation/${version}/current-user`
+    : `${baseUrl}/bcf/${version}/current-user`;
+
+  const fallbackPath = discoveryMethod === 'foundation'
+    ? `${baseUrl}/bcf/${version}/current-user`
+    : `${baseUrl}/foundation/${version}/current-user`;
+
+  // Try primary
+  try {
+    const response = await fetch(primaryPath, { headers });
+    if (response.ok) {
+      return await response.json();
+    }
+  } catch {
+    // Network error — try fallback
   }
 
-  return response.json();
+  // Try fallback
+  try {
+    const response = await fetch(fallbackPath, { headers });
+    if (response.ok) {
+      return await response.json();
+    }
+  } catch {
+    // Network error — return default
+  }
+
+  // Neither worked — return a placeholder user (auth still succeeded)
+  return { id: 'unknown', name: 'User' };
 }

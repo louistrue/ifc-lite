@@ -71,6 +71,8 @@ export {
 export type {
   ApiVersions,
   ApiVersion,
+  BcfNativeVersions,
+  BcfNativeVersion,
   ApiAuth,
   ApiTokenResponse,
   ApiCurrentUser,

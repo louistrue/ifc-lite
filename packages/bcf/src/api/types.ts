@@ -14,14 +14,26 @@
 // Foundation API
 // ============================================================================
 
+/** OpenCDE Foundation API version entry (has api_id) */
 export interface ApiVersion {
   api_id: string;
   version_id: string;
   detailed_version?: string;
+  api_base_url?: string;
 }
 
 export interface ApiVersions {
   versions: ApiVersion[];
+}
+
+/** BCF-API 2.1 native version entry (no api_id — only version_id) */
+export interface BcfNativeVersion {
+  version_id: string;
+  detailed_version?: string;
+}
+
+export interface BcfNativeVersions {
+  versions: BcfNativeVersion[];
 }
 
 export interface ApiAuth {

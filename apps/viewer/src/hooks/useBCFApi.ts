@@ -169,7 +169,8 @@ export function useBCFApi(): UseBCFApiResult {
         const user = await getCurrentUser(
           serverInfo.baseUrl,
           serverInfo.apiVersion,
-          oauthResult.accessToken
+          oauthResult.accessToken,
+          serverInfo.discoveryMethod
         );
 
         // Create client
