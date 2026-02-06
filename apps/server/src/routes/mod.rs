@@ -4,6 +4,7 @@
 
 //! API routes for the IFC server.
 
+pub mod analytics;
 pub mod cache;
 pub mod health;
 pub mod parse;

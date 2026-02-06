@@ -3,7 +3,9 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import type {
+  AnalyticsStatusResponse,
   ErrorResponse,
+  GuestTokenResponse,
   HealthResponse,
   MetadataResponse,
   ModelMetadata,
@@ -16,6 +18,8 @@ import type {
   ParquetStreamResult,
   ParseResponse,
   ProcessingStats,
+  PublishAnalyticsRequest,
+  PublishAnalyticsResponse,
   ServerConfig,
   StreamEvent,
 } from './types';
@@ -871,6 +875,95 @@ export class IfcServerClient {
     if (response.status === 404) {
       return null;
     }
+
+    if (!response.ok) {
+      throw await this.handleError(response);
+    }
+
+    return response.json();
+  }
+
+  // ============================================
+  // Analytics Methods
+  // ============================================
+
+  /**
+   * Publish a parsed model's data to the analytics database (PostgreSQL).
+   *
+   * The model must have been parsed first (via parseParquet or parseParquetStream)
+   * so that the data model is available in the server cache.
+   *
+   * If Superset is configured on the server, this will also create a dataset
+   * and dashboard automatically.
+   *
+   * @param cacheKey - Cache key from a previous parse result
+   * @param fileName - Original file name (used as dashboard title)
+   * @returns Publish result with model ID and optional dashboard URL
+   */
+  async publishToAnalytics(
+    cacheKey: string,
+    fileName?: string,
+  ): Promise<PublishAnalyticsResponse> {
+    const body: PublishAnalyticsRequest = {};
+    if (fileName) {
+      body.file_name = fileName;
+    }
+
+    const response = await fetch(
+      `${this.baseUrl}/api/v1/analytics/publish/${cacheKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(this.timeout),
+      },
+    );
+
+    if (!response.ok) {
+      throw await this.handleError(response);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Check the analytics publication status of a model.
+   *
+   * @param cacheKey - Cache key from a previous parse result
+   * @returns Status including model ID and dashboard URL if published
+   */
+  async getAnalyticsStatus(
+    cacheKey: string,
+  ): Promise<AnalyticsStatusResponse> {
+    const response = await fetch(
+      `${this.baseUrl}/api/v1/analytics/status/${cacheKey}`,
+      {
+        method: 'GET',
+        signal: AbortSignal.timeout(10000),
+      },
+    );
+
+    if (!response.ok) {
+      throw await this.handleError(response);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Get a guest token for embedding a Superset dashboard.
+   *
+   * @param dashboardId - The Superset dashboard ID
+   * @returns Guest token for the Superset embedded SDK
+   */
+  async getGuestToken(dashboardId: number): Promise<GuestTokenResponse> {
+    const response = await fetch(
+      `${this.baseUrl}/api/v1/analytics/guest-token/${dashboardId}`,
+      {
+        method: 'GET',
+        signal: AbortSignal.timeout(10000),
+      },
+    );
 
     if (!response.ok) {
       throw await this.handleError(response);

@@ -35,6 +35,7 @@ import {
   Plus,
   MessageSquare,
   ClipboardCheck,
+  BarChart3,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -163,6 +164,8 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const toggleBcfPanel = useViewerStore((state) => state.toggleBcfPanel);
   const idsPanelVisible = useViewerStore((state) => state.idsPanelVisible);
   const toggleIdsPanel = useViewerStore((state) => state.toggleIdsPanel);
+  const analyticsPanelVisible = useViewerStore((state) => state.analyticsPanelVisible);
+  const toggleAnalyticsPanel = useViewerStore((state) => state.toggleAnalyticsPanel);
   const setRightPanelCollapsed = useViewerStore((state) => state.setRightPanelCollapsed);
 
   // Check which type geometries exist across ALL loaded models (federation-aware)
@@ -583,6 +586,27 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
           </Button>
         </TooltipTrigger>
         <TooltipContent>IDS Validation</TooltipContent>
+      </Tooltip>
+
+      {/* Analytics Button */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={analyticsPanelVisible ? 'default' : 'ghost'}
+            size="icon-sm"
+            onClick={(e) => {
+              (e.currentTarget as HTMLButtonElement).blur();
+              if (!analyticsPanelVisible) {
+                setRightPanelCollapsed(false);
+              }
+              toggleAnalyticsPanel();
+            }}
+            className={cn(analyticsPanelVisible && 'bg-primary text-primary-foreground')}
+          >
+            <BarChart3 className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Analytics</TooltipContent>
       </Tooltip>
 
       <Separator orientation="vertical" className="h-6 mx-1" />

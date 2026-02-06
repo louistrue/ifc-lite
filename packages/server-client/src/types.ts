@@ -380,3 +380,51 @@ export interface ParquetStreamResult {
   /** Model metadata */
   metadata: ModelMetadata;
 }
+
+// ============================================
+// Analytics Types
+// ============================================
+
+/**
+ * Request body for publishing a model to analytics.
+ */
+export interface PublishAnalyticsRequest {
+  /** Original file name (used as dashboard title) */
+  file_name?: string;
+}
+
+/**
+ * Response from the analytics publish endpoint.
+ */
+export interface PublishAnalyticsResponse {
+  /** UUID of the published model */
+  model_id: string;
+  /** "created" or "already_exists" */
+  status: 'created' | 'already_exists';
+  /** Superset dataset ID (null if Superset not configured) */
+  dataset_id: number | null;
+  /** Superset dashboard ID (null if Superset not configured) */
+  dashboard_id: number | null;
+  /** URL to the Superset dashboard (null if not created) */
+  dashboard_url: string | null;
+}
+
+/**
+ * Response from the analytics status endpoint.
+ */
+export interface AnalyticsStatusResponse {
+  /** "published" or "not_published" */
+  status: 'published' | 'not_published';
+  /** UUID of the published model (null if not published) */
+  model_id: string | null;
+  /** URL to the Superset dashboard (null if not available) */
+  dashboard_url: string | null;
+}
+
+/**
+ * Response from the guest token endpoint.
+ */
+export interface GuestTokenResponse {
+  /** Superset embedded SDK guest token */
+  token: string;
+}

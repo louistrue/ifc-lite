@@ -27,6 +27,16 @@ pub struct Config {
     pub cache_max_age_days: u64,
     /// Allowed CORS origins (comma-separated, or "*" for all in development).
     pub cors_origins: Vec<String>,
+    /// PostgreSQL connection string (optional — analytics disabled if not set).
+    pub database_url: Option<String>,
+    /// Apache Superset base URL (optional — dashboard auto-generation disabled if not set).
+    pub superset_url: Option<String>,
+    /// Superset admin username for API authentication.
+    pub superset_username: Option<String>,
+    /// Superset admin password for API authentication.
+    pub superset_password: Option<String>,
+    /// Superset database ID for the BIM data database connection.
+    pub superset_database_id: Option<i32>,
 }
 
 impl Config {
@@ -88,6 +98,13 @@ impl Config {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect(),
+            database_url: std::env::var("DATABASE_URL").ok(),
+            superset_url: std::env::var("SUPERSET_URL").ok(),
+            superset_username: std::env::var("SUPERSET_ADMIN_USERNAME").ok(),
+            superset_password: std::env::var("SUPERSET_ADMIN_PASSWORD").ok(),
+            superset_database_id: std::env::var("SUPERSET_DATABASE_ID")
+                .ok()
+                .and_then(|s| s.parse().ok()),
         }
     }
 }
