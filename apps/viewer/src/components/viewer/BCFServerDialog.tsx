@@ -7,8 +7,9 @@
  *
  * Multi-step dialog:
  * 1. Enter server URL -> Discover server capabilities
- * 2. Authenticate via OAuth2 popup
- * 3. Select project from available projects
+ * 2. Choose auth method (OAuth2 or API Key)
+ * 3. Authenticate (OAuth2 popup or API key entry)
+ * 4. Select project from available projects
  */
 
 import React, { useCallback, useState } from 'react';
@@ -19,6 +20,8 @@ import {
   LogIn,
   FolderOpen,
   AlertTriangle,
+  Key,
+  Shield,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,6 +42,7 @@ import type { ServerInfo, ApiProject } from '@ifc-lite/bcf';
 // ============================================================================
 
 type DialogStep = 'url' | 'authenticating' | 'project';
+type AuthMethod = 'oauth2' | 'apikey';
 
 interface BCFServerDialogProps {
   onClose: () => void;
@@ -77,14 +81,17 @@ function saveServer(url: string): void {
 export function BCFServerDialog({ onClose }: BCFServerDialogProps) {
   const [step, setStep] = useState<DialogStep>('url');
   const [serverUrl, setServerUrl] = useState('');
+  const [authMethod, setAuthMethod] = useState<AuthMethod>('apikey');
   const [clientId, setClientId] = useState('');
+  const [apiKeyUser, setApiKeyUser] = useState('apikey');
+  const [apiKeyValue, setApiKeyValue] = useState('');
   const [serverInfo, setServerInfo] = useState<ServerInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
 
   const bcfApiProjects = useViewerStore((s) => s.bcfApiProjects);
-  const { discover, connect, selectProject } = useBCFApi();
+  const { discover, connect, connectWithApiKey, selectProject } = useBCFApi();
 
   const savedServers = getSavedServers();
 
@@ -99,35 +106,54 @@ export function BCFServerDialog({ onClose }: BCFServerDialogProps) {
       const info = await discover(serverUrl.trim());
       setServerInfo(info);
 
-      if (!info.authUrl || !info.tokenUrl) {
-        setError('Server does not support OAuth2 authentication. HTTP Basic auth is not currently supported.');
-        setLoading(false);
-        return;
-      }
-
-      // Proceed to authentication
-      setStep('authenticating');
-      setLoading(false);
-
-      // Start OAuth flow
-      try {
-        if (!clientId.trim()) {
-          setError('A Client ID is required. Register your application with the BCF server provider to get one.');
-          setStep('url');
+      if (authMethod === 'oauth2') {
+        // OAuth2 flow
+        if (!info.authUrl || !info.tokenUrl) {
+          setError('Server does not support OAuth2 authentication. Try using API Key instead.');
+          setLoading(false);
           return;
         }
-        await connect(info, clientId.trim());
-        saveServer(serverUrl.trim());
-        setStep('project');
-      } catch (authError) {
-        setError(authError instanceof Error ? authError.message : 'Authentication failed');
-        setStep('url');
+
+        if (!clientId.trim()) {
+          setError('A Client ID is required for OAuth2. Register your application with the BCF server provider, or use API Key authentication instead.');
+          setLoading(false);
+          return;
+        }
+
+        // Proceed to authentication
+        setStep('authenticating');
+        setLoading(false);
+
+        try {
+          await connect(info, clientId.trim());
+          saveServer(serverUrl.trim());
+          setStep('project');
+        } catch (authError) {
+          setError(authError instanceof Error ? authError.message : 'Authentication failed');
+          setStep('url');
+        }
+      } else {
+        // API Key flow
+        if (!apiKeyValue.trim()) {
+          setError('An API key is required.');
+          setLoading(false);
+          return;
+        }
+
+        try {
+          await connectWithApiKey(info, apiKeyUser.trim() || 'apikey', apiKeyValue.trim());
+          saveServer(serverUrl.trim());
+          setStep('project');
+        } catch (authError) {
+          setError(authError instanceof Error ? authError.message : 'Authentication failed');
+        }
+        setLoading(false);
       }
     } catch (discoverError) {
       setError(discoverError instanceof Error ? discoverError.message : 'Failed to connect to server');
       setLoading(false);
     }
-  }, [serverUrl, clientId, discover, connect]);
+  }, [serverUrl, authMethod, clientId, apiKeyUser, apiKeyValue, discover, connect, connectWithApiKey]);
 
   // Step 3: Select project
   const handleSelectProject = useCallback(async () => {
@@ -172,7 +198,7 @@ export function BCFServerDialog({ onClose }: BCFServerDialogProps) {
           </div>
         )}
 
-        {/* Step 1: Server URL */}
+        {/* Step 1: Server URL + Auth */}
         {step === 'url' && (
           <div className="space-y-3">
             <div className="space-y-2">
@@ -207,21 +233,85 @@ export function BCFServerDialog({ onClose }: BCFServerDialogProps) {
               )}
             </div>
 
+            {/* Auth Method Toggle */}
             <div className="space-y-2">
-              <Label htmlFor="client-id" className="text-xs">
-                Client ID
-              </Label>
-              <Input
-                id="client-id"
-                value={clientId}
-                onChange={(e) => setClientId(e.target.value)}
-                placeholder="your-registered-client-id"
-                className="text-sm"
-              />
-              <p className="text-xs text-muted-foreground">
-                OAuth2 client ID registered with the BCF server. Required for BIMcollab, Trimble Connect, etc.
-              </p>
+              <Label className="text-xs">Authentication</Label>
+              <div className="flex gap-1">
+                <Button
+                  variant={authMethod === 'apikey' ? 'default' : 'outline'}
+                  size="sm"
+                  className="flex-1 h-8 text-xs gap-1"
+                  onClick={() => setAuthMethod('apikey')}
+                >
+                  <Key className="h-3 w-3" />
+                  API Key
+                </Button>
+                <Button
+                  variant={authMethod === 'oauth2' ? 'default' : 'outline'}
+                  size="sm"
+                  className="flex-1 h-8 text-xs gap-1"
+                  onClick={() => setAuthMethod('oauth2')}
+                >
+                  <Shield className="h-3 w-3" />
+                  OAuth2
+                </Button>
+              </div>
             </div>
+
+            {/* Auth-specific fields */}
+            {authMethod === 'apikey' ? (
+              <div className="space-y-2">
+                <div className="space-y-1">
+                  <Label htmlFor="api-user" className="text-xs">
+                    Username
+                  </Label>
+                  <Input
+                    id="api-user"
+                    value={apiKeyUser}
+                    onChange={(e) => setApiKeyUser(e.target.value)}
+                    placeholder="apikey"
+                    className="text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="api-key" className="text-xs">
+                    API Key
+                  </Label>
+                  <Input
+                    id="api-key"
+                    type="password"
+                    value={apiKeyValue}
+                    onChange={(e) => setApiKeyValue(e.target.value)}
+                    placeholder="your-api-key"
+                    className="text-sm"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleDiscover();
+                    }}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  For OpenProject: use "apikey" as username and your API token as the key.
+                  Generate one at My Account {'>'} Access tokens.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="client-id" className="text-xs">
+                  Client ID
+                </Label>
+                <Input
+                  id="client-id"
+                  value={clientId}
+                  onChange={(e) => setClientId(e.target.value)}
+                  placeholder="your-registered-client-id"
+                  className="text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  OAuth2 client ID registered with the BCF server.
+                  Required for BIMcollab, Trimble Connect, etc.
+                </p>
+              </div>
+            )}
 
             <div className="flex gap-2 justify-end pt-2">
               <Button variant="outline" size="sm" onClick={onClose}>
@@ -230,7 +320,7 @@ export function BCFServerDialog({ onClose }: BCFServerDialogProps) {
               <Button
                 size="sm"
                 onClick={handleDiscover}
-                disabled={!serverUrl.trim() || loading}
+                disabled={!serverUrl.trim() || loading || (authMethod === 'apikey' && !apiKeyValue.trim())}
               >
                 {loading ? (
                   <>
@@ -248,7 +338,7 @@ export function BCFServerDialog({ onClose }: BCFServerDialogProps) {
           </div>
         )}
 
-        {/* Step 2: Authenticating */}
+        {/* Step 2: Authenticating (OAuth2 only) */}
         {step === 'authenticating' && (
           <div className="text-center py-6 space-y-3">
             <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />

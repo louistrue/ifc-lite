@@ -17,6 +17,8 @@ import {
   discoverServer,
   startOAuthPopupFlow,
   getCurrentUser,
+  encodeBasicAuth,
+  validateBasicAuth,
   getProjects,
   getTopics,
   getFullTopic,
@@ -41,6 +43,8 @@ export interface UseBCFApiResult {
   discover: (serverUrl: string) => Promise<ServerInfo>;
   /** Connect to a BCF server via OAuth2 */
   connect: (serverInfo: ServerInfo, clientId: string) => Promise<void>;
+  /** Connect to a BCF server via API key (Basic Auth) */
+  connectWithApiKey: (serverInfo: ServerInfo, username: string, apiKey: string) => Promise<void>;
   /** Select a project and load its topics */
   selectProject: (project: ApiProject) => Promise<void>;
   /** Disconnect from the BCF server */
@@ -111,6 +115,7 @@ export function useBCFApi(): UseBCFApiResult {
       baseUrl: connection.serverUrl,
       version: connection.apiVersion,
       accessToken: connection.accessToken,
+      authMethod: connection.authMethod,
       refreshToken: connection.refreshToken,
       onTokenRefresh: (accessToken, refreshToken, expiresIn) => {
         updateBcfApiTokens(
@@ -215,6 +220,7 @@ export function useBCFApi(): UseBCFApiResult {
           refreshToken: oauthResult.refreshToken,
           tokenExpiry: Date.now() + oauthResult.expiresIn * 1000,
           user,
+          authMethod: 'oauth2',
         };
 
         setBcfApiConnection(connection);
@@ -236,6 +242,85 @@ export function useBCFApi(): UseBCFApiResult {
       setBcfApiProjects,
       setBcfMode,
       updateBcfApiTokens,
+      disconnectBcfApi,
+    ]
+  );
+
+  /**
+   * Connect to a BCF server via API key (Basic Auth)
+   */
+  const connectWithApiKey = useCallback(
+    async (serverInfo: ServerInfo, username: string, apiKey: string): Promise<void> => {
+      setBcfLoading(true);
+      setBcfError(null);
+
+      try {
+        // Encode credentials for Basic Auth
+        const basicToken = encodeBasicAuth(username, apiKey);
+
+        // Validate credentials
+        const user = await validateBasicAuth(
+          serverInfo.baseUrl,
+          serverInfo.apiVersion,
+          basicToken,
+          serverInfo.discoveryMethod
+        );
+
+        // Create client with Basic auth
+        const client = new BCFApiClient({
+          baseUrl: serverInfo.baseUrl,
+          version: serverInfo.apiVersion,
+          accessToken: basicToken,
+          authMethod: 'basic',
+          onAuthFailure: () => {
+            setBcfError('Authentication failed. Check your API key.');
+            disconnectBcfApi();
+            clientRef.current = null;
+          },
+        });
+        clientRef.current = client;
+
+        // Fetch available projects
+        const projects = await getProjects(client);
+
+        // Set author from user info
+        if (user.email) {
+          setBcfAuthor(user.email);
+        } else if (username.includes('@')) {
+          setBcfAuthor(username);
+        }
+
+        // Store connection
+        const connection: BCFApiConnectionState = {
+          serverUrl: serverInfo.baseUrl,
+          apiVersion: serverInfo.apiVersion,
+          projectId: '',
+          projectName: '',
+          accessToken: basicToken,
+          refreshToken: '',
+          tokenExpiry: 0,
+          user,
+          authMethod: 'basic',
+        };
+
+        setBcfApiConnection(connection);
+        setBcfApiProjects(projects);
+        setBcfMode('api');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Authentication failed';
+        setBcfError(message);
+        throw error;
+      } finally {
+        setBcfLoading(false);
+      }
+    },
+    [
+      setBcfLoading,
+      setBcfError,
+      setBcfAuthor,
+      setBcfApiConnection,
+      setBcfApiProjects,
+      setBcfMode,
       disconnectBcfApi,
     ]
   );
@@ -587,6 +672,7 @@ export function useBCFApi(): UseBCFApiResult {
   return {
     discover,
     connect,
+    connectWithApiKey,
     selectProject,
     disconnect,
     refreshTopics,

@@ -39,13 +39,15 @@ export interface BCFApiClientOptions {
   baseUrl: string;
   /** BCF API version (e.g., "3.0" or "2.1") */
   version: string;
-  /** Current access token */
+  /** Current access token (Bearer token for OAuth2, Base64 "user:key" for Basic) */
   accessToken: string;
-  /** Refresh token for automatic renewal */
+  /** Authentication method ('oauth2' for Bearer, 'basic' for Basic Auth) */
+  authMethod?: 'oauth2' | 'basic';
+  /** Refresh token for automatic renewal (OAuth2 only) */
   refreshToken?: string;
-  /** OAuth2 token endpoint URL */
+  /** OAuth2 token endpoint URL (OAuth2 only) */
   tokenUrl?: string;
-  /** Callback when tokens are refreshed */
+  /** Callback when tokens are refreshed (OAuth2 only) */
   onTokenRefresh?: (accessToken: string, refreshToken: string, expiresIn: number) => void;
   /** Callback when authentication fails permanently */
   onAuthFailure?: () => void;
@@ -55,6 +57,7 @@ export class BCFApiClient {
   private baseUrl: string;
   private version: string;
   private accessToken: string;
+  private authMethod: 'oauth2' | 'basic';
   private refreshToken: string | undefined;
   private tokenUrl: string | undefined;
   private onTokenRefresh: BCFApiClientOptions['onTokenRefresh'];
@@ -65,6 +68,7 @@ export class BCFApiClient {
     this.baseUrl = options.baseUrl.replace(/\/+$/, '');
     this.version = options.version;
     this.accessToken = options.accessToken;
+    this.authMethod = options.authMethod ?? 'oauth2';
     this.refreshToken = options.refreshToken;
     this.tokenUrl = options.tokenUrl;
     this.onTokenRefresh = options.onTokenRefresh;
@@ -88,8 +92,11 @@ export class BCFApiClient {
 
   /** Common headers for all requests */
   private headers(contentType?: string): Record<string, string> {
+    const authHeader = this.authMethod === 'basic'
+      ? `Basic ${this.accessToken}`
+      : `Bearer ${this.accessToken}`;
     const h: Record<string, string> = {
-      Authorization: `Bearer ${this.accessToken}`,
+      Authorization: authHeader,
     };
     if (contentType) {
       h['Content-Type'] = contentType;
@@ -103,6 +110,8 @@ export class BCFApiClient {
    * Deduplicates concurrent refresh attempts.
    */
   private async tryRefreshToken(): Promise<boolean> {
+    // Basic auth doesn't use token refresh
+    if (this.authMethod === 'basic') return false;
     if (!this.refreshToken || !this.tokenUrl) {
       return false;
     }
@@ -168,7 +177,10 @@ export class BCFApiClient {
       if (refreshed) {
         // Update authorization header and retry
         const headers = new Headers(init.headers);
-        headers.set('Authorization', `Bearer ${this.accessToken}`);
+        const authHeader = this.authMethod === 'basic'
+          ? `Basic ${this.accessToken}`
+          : `Bearer ${this.accessToken}`;
+        headers.set('Authorization', authHeader);
         response = await fetch(url, { ...init, headers });
       }
 

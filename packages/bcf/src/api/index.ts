@@ -22,6 +22,8 @@ export {
   getCurrentUser,
   generateCodeVerifier,
   computeCodeChallenge,
+  encodeBasicAuth,
+  validateBasicAuth,
 } from './auth.js';
 export type { ServerInfo, OAuthFlowOptions, OAuthResult } from './auth.js';
 

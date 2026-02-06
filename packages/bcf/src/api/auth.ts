@@ -373,6 +373,78 @@ function waitForOAuthCode(
 }
 
 // ============================================================================
+// Basic Auth (API Key)
+// ============================================================================
+
+/**
+ * Encode credentials for HTTP Basic Authentication.
+ *
+ * This is used for servers like OpenProject that support API key auth.
+ * The returned string should be used as: `Authorization: Basic <result>`
+ */
+export function encodeBasicAuth(username: string, password: string): string {
+  const encoded = btoa(`${username}:${password}`);
+  return encoded;
+}
+
+/**
+ * Validate Basic Auth credentials by attempting to fetch the current user.
+ *
+ * Tries both Foundation API and BCF native paths, same as getCurrentUser.
+ * Throws on invalid credentials.
+ */
+export async function validateBasicAuth(
+  baseUrl: string,
+  version: string,
+  basicToken: string,
+  discoveryMethod: 'foundation' | 'bcf-native' = 'foundation'
+): Promise<ApiCurrentUser> {
+  const headers = {
+    Authorization: `Basic ${basicToken}`,
+    Accept: 'application/json',
+  };
+
+  const primaryPath = discoveryMethod === 'foundation'
+    ? `${baseUrl}/foundation/${version}/current-user`
+    : `${baseUrl}/bcf/${version}/current-user`;
+
+  const fallbackPath = discoveryMethod === 'foundation'
+    ? `${baseUrl}/bcf/${version}/current-user`
+    : `${baseUrl}/foundation/${version}/current-user`;
+
+  // Try primary
+  try {
+    const response = await fetch(primaryPath, { headers });
+    if (response.ok) {
+      return await response.json();
+    }
+    if (response.status === 401 || response.status === 403) {
+      throw new Error('Invalid credentials. Check your username and API key.');
+    }
+  } catch (e) {
+    if (e instanceof Error && e.message.includes('Invalid credentials')) throw e;
+    // Network error — try fallback
+  }
+
+  // Try fallback
+  try {
+    const response = await fetch(fallbackPath, { headers });
+    if (response.ok) {
+      return await response.json();
+    }
+    if (response.status === 401 || response.status === 403) {
+      throw new Error('Invalid credentials. Check your username and API key.');
+    }
+  } catch (e) {
+    if (e instanceof Error && e.message.includes('Invalid credentials')) throw e;
+    // Network error — return default
+  }
+
+  // Neither worked but no auth error — return placeholder
+  return { id: 'unknown', name: 'User' };
+}
+
+// ============================================================================
 // User Info
 // ============================================================================
 

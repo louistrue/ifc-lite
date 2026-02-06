@@ -297,12 +297,14 @@ export interface BCFApiConnectionState {
   projectId: string;
   /** Selected project name */
   projectName: string;
-  /** OAuth2 access token */
+  /** Access token (Bearer for OAuth2, Base64-encoded "user:key" for Basic) */
   accessToken: string;
-  /** OAuth2 refresh token */
+  /** OAuth2 refresh token (empty for Basic auth) */
   refreshToken: string;
-  /** Token expiry timestamp (ms since epoch) */
+  /** Token expiry timestamp (ms since epoch, 0 for Basic auth) */
   tokenExpiry: number;
   /** Authenticated user info */
   user: ApiCurrentUser;
+  /** Authentication method used */
+  authMethod: 'oauth2' | 'basic';
 }
