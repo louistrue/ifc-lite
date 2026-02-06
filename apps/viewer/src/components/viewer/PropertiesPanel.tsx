@@ -539,26 +539,15 @@ export function PropertiesPanel() {
       modelId = '__legacy__';
     }
 
-    // DEBUG: Log what we're working with
-    console.log('[PropertiesPanel] modelId:', modelId, 'expressId:', expressId, 'mutationVersion:', mutationVersion);
-    console.log('[PropertiesPanel] mutationViews keys:', [...mutationViews.keys()]);
-
     // Try to get properties from mutation view first (handles both base and mutations)
     const mutationView = modelId ? mutationViews.get(modelId) : null;
-    console.log('[PropertiesPanel] mutationView exists:', !!mutationView);
 
     if (mutationView && expressId) {
-      // DEBUG: Log mutation view state
-      const allMutations = mutationView.getMutations();
-      console.log('[PropertiesPanel] All mutations in view:', allMutations.length, allMutations);
-
       // Get merged properties from mutation view (base + mutations applied)
       const mergedProps = mutationView.getForEntity(expressId);
-      console.log('[PropertiesPanel] mergedProps from getForEntity:', mergedProps.length, mergedProps);
 
       // Get list of actual mutations to track which properties changed
       const mutations = mutationView.getMutationsForEntity(expressId);
-      console.log('[PropertiesPanel] mutations for this entity:', mutations.length, mutations);
 
       // Build a set of mutated property keys for quick lookup
       const mutatedKeys = new Set<string>();
