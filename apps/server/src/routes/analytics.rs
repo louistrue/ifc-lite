@@ -13,8 +13,15 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::services::analytics::{self, AnalyticsError, PublishStatus};
-use crate::services::superset_api::SupersetClient;
+use crate::services::superset_api::{detect_model_type, SupersetClient};
 use crate::AppState;
+
+/// Response from the dashboard endpoint.
+#[derive(Debug, Serialize)]
+pub struct DashboardResponse {
+    pub dashboard_id: Option<i32>,
+    pub dashboard_url: Option<String>,
+}
 
 /// Request body for the publish endpoint.
 #[derive(Debug, Deserialize)]
@@ -135,7 +142,14 @@ pub async fn publish(
 
         let mut client = SupersetClient::new(superset_url, username, password, db_id);
 
-        match client.create_all_resources(&model_id, model_name).await {
+        // Detect model type from entity distribution for chart template selection
+        let model_type = detect_model_type(&data_model);
+        tracing::info!(?model_type, "Detected model type for Superset chart selection");
+
+        match client
+            .create_all_resources(&model_id, model_name, model_type)
+            .await
+        {
             Ok(resources) => {
                 // Update the model record with Superset IDs
                 analytics::update_superset_ids(
@@ -198,6 +212,44 @@ pub async fn status(
     }
 }
 
+/// GET /api/v1/analytics/dashboard/:cache_key
+///
+/// Get dashboard URL for a published model.
+pub async fn dashboard(
+    State(state): State<AppState>,
+    Path(cache_key): Path<String>,
+) -> Result<impl IntoResponse, AnalyticsResponse> {
+    let pool = state
+        .db_pool
+        .as_ref()
+        .ok_or(AnalyticsResponse::not_configured())?;
+
+    match analytics::check_published(pool, &cache_key).await? {
+        Some(result) => {
+            let dashboard_url = if let (Some(superset_url), Some(dashboard_id)) =
+                (&state.config.superset_url, result.superset_dashboard_id)
+            {
+                Some(format!(
+                    "{}/superset/dashboard/{}/",
+                    superset_url, dashboard_id
+                ))
+            } else {
+                result.dashboard_url
+            };
+
+            Ok(Json(DashboardResponse {
+                dashboard_id: result.superset_dashboard_id,
+                dashboard_url,
+            }))
+        }
+        None => Err(AnalyticsResponse {
+            status: StatusCode::NOT_FOUND,
+            message: "Model not published".into(),
+            code: "MODEL_NOT_PUBLISHED".into(),
+        }),
+    }
+}
+
 /// GET /api/v1/analytics/guest-token/:dashboard_id
 ///
 /// Generate a Superset guest token for embedded dashboard access.
@@ -212,7 +264,13 @@ pub async fn guest_token(
         state.config.superset_database_id,
     ) {
         (Some(url), Some(u), Some(p), Some(db)) => (url, u, p, db),
-        _ => return Err(AnalyticsResponse::not_configured()),
+        _ => {
+            return Err(AnalyticsResponse {
+                status: StatusCode::SERVICE_UNAVAILABLE,
+                message: "Superset not configured".into(),
+                code: "SUPERSET_NOT_CONFIGURED".into(),
+            })
+        }
     };
 
     let mut client = SupersetClient::new(superset_url, username, password, db_id);

@@ -17,6 +17,8 @@ import type { StateCreator } from 'zustand';
 export interface AnalyticsSliceState {
   /** Whether analytics panel is visible */
   analyticsPanelVisible: boolean;
+  /** Whether the embedded dashboard iframe is visible */
+  analyticsEmbedVisible: boolean;
   /** Publication status per cache key */
   analyticsStatus: 'idle' | 'publishing' | 'published' | 'error';
   /** Error message from last publish attempt */
@@ -34,6 +36,7 @@ export interface AnalyticsSliceState {
 export interface AnalyticsSlice extends AnalyticsSliceState {
   toggleAnalyticsPanel: () => void;
   setAnalyticsPanelVisible: (visible: boolean) => void;
+  setAnalyticsEmbedVisible: (visible: boolean) => void;
   setAnalyticsPublishing: () => void;
   setAnalyticsPublished: (
     modelId: string,
@@ -51,6 +54,7 @@ export interface AnalyticsSlice extends AnalyticsSliceState {
 
 const initialState: AnalyticsSliceState = {
   analyticsPanelVisible: false,
+  analyticsEmbedVisible: false,
   analyticsStatus: 'idle',
   analyticsError: null,
   analyticsModelId: null,
@@ -69,6 +73,9 @@ export const createAnalyticsSlice: StateCreator<AnalyticsSlice, [], [], Analytic
 
   setAnalyticsPanelVisible: (visible: boolean) =>
     set({ analyticsPanelVisible: visible }),
+
+  setAnalyticsEmbedVisible: (visible: boolean) =>
+    set({ analyticsEmbedVisible: visible }),
 
   setAnalyticsPublishing: () =>
     set({

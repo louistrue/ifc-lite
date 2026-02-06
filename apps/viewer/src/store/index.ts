@@ -28,6 +28,7 @@ import { createSheetSlice, type SheetSlice } from './slices/sheetSlice.js';
 import { createBcfSlice, type BCFSlice } from './slices/bcfSlice.js';
 import { createIdsSlice, type IDSSlice } from './slices/idsSlice.js';
 import { createAnalyticsSlice, type AnalyticsSlice } from './slices/analyticsSlice.js';
+import { createServerSlice, type ServerSlice } from './slices/serverSlice.js';
 
 // Import constants for reset function
 import { CAMERA_DEFAULTS, SECTION_PLANE_DEFAULTS, UI_DEFAULTS, TYPE_VISIBILITY_DEFAULTS } from './constants.js';
@@ -56,6 +57,9 @@ export type { IDSSlice, IDSSliceState, IDSDisplayOptions, IDSFilterMode } from '
 // Re-export Analytics types
 export type { AnalyticsSlice, AnalyticsSliceState } from './slices/analyticsSlice.js';
 
+// Re-export Server types
+export type { ServerSlice, ServerSliceState } from './slices/serverSlice.js';
+
 // Combined store type
 export type ViewerState = LoadingSlice &
   SelectionSlice &
@@ -72,7 +76,8 @@ export type ViewerState = LoadingSlice &
   SheetSlice &
   BCFSlice &
   IDSSlice &
-  AnalyticsSlice & {
+  AnalyticsSlice &
+  ServerSlice & {
     resetViewerState: () => void;
   };
 
@@ -97,6 +102,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
   ...createBcfSlice(...args),
   ...createIdsSlice(...args),
   ...createAnalyticsSlice(...args),
+  ...createServerSlice(...args),
 
   // Reset all viewer state when loading new file
   // Note: Does NOT clear models - use clearAllModels() for that
@@ -218,6 +224,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
 
       // Analytics - reset on new file
       analyticsPanelVisible: false,
+      analyticsEmbedVisible: false,
       analyticsStatus: 'idle' as const,
       analyticsError: null,
       analyticsModelId: null,

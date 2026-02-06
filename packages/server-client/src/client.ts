@@ -4,6 +4,7 @@
 
 import type {
   AnalyticsStatusResponse,
+  DashboardResponse,
   ErrorResponse,
   GuestTokenResponse,
   HealthResponse,
@@ -937,6 +938,28 @@ export class IfcServerClient {
   ): Promise<AnalyticsStatusResponse> {
     const response = await fetch(
       `${this.baseUrl}/api/v1/analytics/status/${cacheKey}`,
+      {
+        method: 'GET',
+        signal: AbortSignal.timeout(10000),
+      },
+    );
+
+    if (!response.ok) {
+      throw await this.handleError(response);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Get dashboard information for a published model.
+   *
+   * @param cacheKey - Cache key from a previous parse result
+   * @returns Dashboard ID and URL if available
+   */
+  async getDashboard(cacheKey: string): Promise<DashboardResponse> {
+    const response = await fetch(
+      `${this.baseUrl}/api/v1/analytics/dashboard/${cacheKey}`,
       {
         method: 'GET',
         signal: AbortSignal.timeout(10000),

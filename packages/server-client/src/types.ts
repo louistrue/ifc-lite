@@ -422,6 +422,16 @@ export interface AnalyticsStatusResponse {
 }
 
 /**
+ * Response from the dashboard endpoint.
+ */
+export interface DashboardResponse {
+  /** Superset dashboard ID (null if not created) */
+  dashboard_id: number | null;
+  /** URL to the Superset dashboard (null if not created) */
+  dashboard_url: string | null;
+}
+
+/**
  * Response from the guest token endpoint.
  */
 export interface GuestTokenResponse {

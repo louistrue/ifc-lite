@@ -165,6 +165,7 @@ async fn main() {
         // Analytics endpoints
         .route("/api/v1/analytics/publish/:cache_key", post(routes::analytics::publish))
         .route("/api/v1/analytics/status/:cache_key", get(routes::analytics::status))
+        .route("/api/v1/analytics/dashboard/:cache_key", get(routes::analytics::dashboard))
         .route("/api/v1/analytics/guest-token/:dashboard_id", get(routes::analytics::guest_token))
         // Middleware
         .layer(DefaultBodyLimit::max(config.max_file_size_mb * 1024 * 1024)) // Match max_file_size_mb
