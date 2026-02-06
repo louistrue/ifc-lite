@@ -1,21 +1,43 @@
 #!/usr/bin/env node
 
 /**
- * Syncs version from @ifc-lite/wasm package.json to Cargo.toml workspace and root package.json
- * Run this after `changeset version` to keep Rust and npm versions in sync
+ * Syncs version from @ifc-lite/wasm package.json to all workspace packages,
+ * Cargo.toml workspace, and root package.json.
+ * Run this after `changeset version` to keep all versions in sync.
  *
  * Why @ifc-lite/wasm? Because changesets updates individual package versions but not the
  * private workspace root. We use @ifc-lite/wasm as the source of truth since it's the npm
  * package that wraps the Rust WASM bindings.
  */
 
-import { readFileSync, writeFileSync } from 'fs';
+import { readFileSync, writeFileSync, readdirSync, statSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const rootDir = join(__dirname, '..');
+
+function getWorkspacePackageDirs() {
+  const dirs = [];
+  for (const parent of ['packages', 'apps']) {
+    const parentDir = join(rootDir, parent);
+    try {
+      for (const entry of readdirSync(parentDir)) {
+        const pkgJsonPath = join(parentDir, entry, 'package.json');
+        try {
+          statSync(pkgJsonPath);
+          dirs.push(pkgJsonPath);
+        } catch {
+          // no package.json in this directory, skip
+        }
+      }
+    } catch {
+      // parent directory doesn't exist, skip
+    }
+  }
+  return dirs;
+}
 
 function syncVersions() {
   // Read version from @ifc-lite/wasm (the npm package for Rust WASM bindings)
@@ -46,6 +68,19 @@ function syncVersions() {
     rootPackageJson.version = version;
     writeFileSync(rootPackageJsonPath, JSON.stringify(rootPackageJson, null, 2) + '\n');
     console.log(`✅ Updated root package.json version to ${version}`);
+  }
+
+  // Sync all workspace package versions to match
+  const packagePaths = getWorkspacePackageDirs();
+  for (const pkgPath of packagePaths) {
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+    if (pkg.private) continue; // skip private packages (apps, etc.)
+    if (pkg.version === version) continue; // already in sync
+
+    const oldVersion = pkg.version;
+    pkg.version = version;
+    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
+    console.log(`✅ Updated ${pkg.name} from ${oldVersion} to ${version}`);
   }
 }
 
