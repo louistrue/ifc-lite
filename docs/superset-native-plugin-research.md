@@ -256,12 +256,18 @@ dashboard = {
 
 ## Next Steps
 
-1. **Immediate:** Fix remaining navigation/camera controls
-2. **Short-term:** Build model upload API with property extraction
-3. **Medium-term:** Auto-dashboard generation from uploaded models
-4. **Long-term:** Multi-tenant SaaS platform with billing
+1. **Immediate:** Deploy existing Rust server to Railway with PostgreSQL add-on
+2. **Short-term:** Add `POST /api/v1/analytics/publish/:cache_key` endpoint to write DataModel to PostgreSQL
+3. **Medium-term:** Superset API integration for auto-dashboard generation
+4. **Long-term:** Embedded SDK in viewer, NL queries, multi-tenant SaaS
+
+## Related Documents
+
+- **[Full Implementation Plan](./superset-integration-plan.md)** — Phased roadmap with effort estimates, covering infrastructure deployment through NL queries
+- **[Technical Architecture](./server-analytics-architecture.md)** — Deep technical reference: Rust code patterns, SQL schemas, bulk insert strategies, Superset API payloads, client-side component design
 
 ---
 
 *Document created: 2026-02-05*
-*Status: Research & Planning*
+*Last updated: 2026-02-06*
+*Status: Research & Planning → Implementation Ready*
