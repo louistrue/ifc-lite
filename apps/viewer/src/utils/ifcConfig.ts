@@ -13,11 +13,24 @@ import type { DynamicBatchConfig } from '@ifc-lite/geometry';
 // Server Configuration
 // ============================================================================
 
-/** IFC server URL - only set via environment variable, no default (pure client-side by default) */
+/** IFC server URL - set via environment variable for server-side IFC processing */
 export const SERVER_URL = import.meta.env.VITE_IFC_SERVER_URL || import.meta.env.VITE_SERVER_URL || '';
 
-/** Enable server parsing - only if server URL is explicitly configured */
-export const USE_SERVER = SERVER_URL !== '' && import.meta.env.VITE_USE_SERVER !== 'false';
+/**
+ * Enable server-side IFC parsing (disabled by default — uses client-side WASM).
+ *
+ * The server URL may be present for other features (e.g. superset integration)
+ * without intending to route normal IFC loading through it.
+ *
+ * To enable server-side IFC processing for development:
+ *   1. Set VITE_IFC_SERVER_URL (or VITE_SERVER_URL) to the server endpoint
+ *   2. Set VITE_USE_SERVER=true
+ *
+ * Example .env:
+ *   VITE_IFC_SERVER_URL=https://ifc-server.example.com
+ *   VITE_USE_SERVER=true
+ */
+export const USE_SERVER = SERVER_URL !== '' && import.meta.env.VITE_USE_SERVER === 'true';
 
 // ============================================================================
 // File Size Thresholds (in bytes unless noted)
