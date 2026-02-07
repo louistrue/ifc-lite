@@ -43,11 +43,11 @@ export function QuantitySetCard({ qset }: { qset: QuantitySet }) {
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="border-t-2 border-blue-200 dark:border-blue-800 divide-y divide-blue-100 dark:divide-blue-900/30">
-          {qset.quantities.map((q: { name: string; value: number; type: number }) => {
+          {qset.quantities.map((q: { name: string; value: number; type: number }, index: number) => {
             const decodedName = decodeIfcString(q.name);
             const typeName = QUANTITY_TYPE_NAMES[q.type];
             return (
-              <div key={q.name} className="flex flex-col gap-0.5 px-3 py-2 text-xs hover:bg-blue-50/50 dark:hover:bg-blue-900/20">
+              <div key={`${q.name}-${index}`} className="flex flex-col gap-0.5 px-3 py-2 text-xs hover:bg-blue-50/50 dark:hover:bg-blue-900/20">
                 {/* Quantity name with type tooltip */}
                 {typeName ? (
                   <Tooltip>

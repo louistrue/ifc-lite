@@ -11,7 +11,15 @@ import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { useWebGPU } from '@/hooks/useWebGPU';
 import { Upload, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown, ExternalLink, Plus } from 'lucide-react';
-import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
+import type { MeshData, CoordinateInfo, GeometryResult } from '@ifc-lite/geometry';
+
+const ZERO_VEC3 = { x: 0, y: 0, z: 0 };
+const DEFAULT_COORDINATE_INFO: CoordinateInfo = {
+  originShift: ZERO_VEC3,
+  originalBounds: { min: ZERO_VEC3, max: ZERO_VEC3 },
+  shiftedBounds: { min: ZERO_VEC3, max: ZERO_VEC3 },
+  hasLargeCoordinates: false,
+};
 
 export function ViewportContainer() {
   const { geometryResult, ifcDataStore, loadFile, loading, models, clearAllModels, loadFilesSequentially } = useIfc();
@@ -74,8 +82,8 @@ export function ViewportContainer() {
         meshes: allMeshes,
         totalVertices,
         totalTriangles,
-        coordinateInfo: mergedCoordinateInfo,
-      };
+        coordinateInfo: mergedCoordinateInfo ?? DEFAULT_COORDINATE_INFO,
+      } satisfies GeometryResult;
     }
 
     // Legacy mode (no federation): use original geometryResult

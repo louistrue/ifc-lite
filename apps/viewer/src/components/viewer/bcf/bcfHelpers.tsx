@@ -87,29 +87,23 @@ export function PriorityBadge({ priority }: { priority?: string }) {
 // ============================================================================
 
 export function formatDate(isoDate: string): string {
-  try {
-    const date = new Date(isoDate);
-    return date.toLocaleDateString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  } catch {
-    return isoDate;
-  }
+  const date = new Date(isoDate);
+  if (isNaN(date.getTime())) return isoDate;
+  return date.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
 }
 
 export function formatDateTime(isoDate: string): string {
-  try {
-    const date = new Date(isoDate);
-    return date.toLocaleString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return isoDate;
-  }
+  const date = new Date(isoDate);
+  if (isNaN(date.getTime())) return isoDate;
+  return date.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }

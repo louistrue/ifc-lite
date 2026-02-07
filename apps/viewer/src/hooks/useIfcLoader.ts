@@ -105,7 +105,7 @@ export function useIfcLoader() {
             const color = normalizeColor(m.color);
 
             return {
-              expressId: m.expressId || m.express_id || m.id || 0,
+              expressId: m.expressId ?? m.express_id ?? m.id ?? 0,
               positions,
               indices,
               normals,
