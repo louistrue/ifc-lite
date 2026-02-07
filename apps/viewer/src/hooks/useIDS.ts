@@ -1259,6 +1259,7 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
       return;
     }
 
+    try {
     const {
       topicGrouping,
       includePassingEntities,
@@ -1267,10 +1268,10 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
       loadIntoBcfPanel,
     } = settings;
 
-    // Phase 1: Collect entity bounds if camera is requested
+    // Phase 1: Collect entity bounds (needed for both camera and snapshots)
     let entityBounds: Map<string, EntityBoundsInput> | undefined;
 
-    if (includeCamera) {
+    if (includeCamera || includeSnapshots) {
       setBcfExportProgress({ phase: 'building', current: 0, total: 1, message: 'Computing entity bounds...' });
 
       entityBounds = new Map();
@@ -1335,13 +1336,15 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
       } else {
         const camera = renderer.getCamera();
 
-        // Collect all entities that need snapshots
+        // Collect all unique entities that need snapshots (Set-based O(1) dedup)
+        const seenKeys = new Set<string>();
         const entitiesToSnapshot: Array<{ modelId: string; expressId: number; boundsKey: string }> = [];
         for (const specResult of report.specificationResults) {
           for (const entity of specResult.entityResults) {
             if (entity.passed && !includePassingEntities) continue;
             const boundsKey = `${entity.modelId}:${entity.expressId}`;
-            if (!entitiesToSnapshot.some(e => e.boundsKey === boundsKey)) {
+            if (!seenKeys.has(boundsKey)) {
+              seenKeys.add(boundsKey);
               entitiesToSnapshot.push({
                 modelId: entity.modelId,
                 expressId: entity.expressId,
@@ -1372,14 +1375,9 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
           const bounds = entityBounds?.get(entity.boundsKey);
           if (!bounds) continue;
 
-          // Find the global expressId for isolation
-          let globalExpressId = entity.expressId;
-          for (const [, model] of models.entries()) {
-            if (model.id === entity.modelId) {
-              globalExpressId = entity.expressId + (model.idOffset ?? 0);
-              break;
-            }
-          }
+          // Find the global expressId for isolation (direct Map lookup)
+          const model = models.get(entity.modelId);
+          const globalExpressId = entity.expressId + (model?.idOffset ?? 0);
 
           // Frame the entity bounds directly via camera (properly centers the object)
           // duration=0 for instant positioning — no animation delay needed
@@ -1464,10 +1462,18 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
 
     // Clear progress after a delay
     setTimeout(() => setBcfExportProgress(null), 2000);
+
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'BCF export failed';
+      setIdsError(message);
+      console.error('[IDS] BCF export error:', err);
+      setBcfExportProgress(null);
+    }
   }, [
     report,
     models,
     bcfAuthor,
+    setIdsError,
     setBcfProject,
     setBcfPanelVisible,
   ]);

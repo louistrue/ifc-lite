@@ -616,6 +616,7 @@ function buildEntityViewpoint(
   bounds?: EntityBoundsInput,
   snapshot?: string,
 ): BCFViewpoint {
+  // Create independent component objects to prevent mutation side effects
   const viewpoint: BCFViewpoint = {
     guid: generateUuid(),
     components: {
@@ -657,15 +658,14 @@ function buildMultiEntityViewpoint(
   globalIds: string[],
   failureColor: string | undefined,
 ): BCFViewpoint {
-  const components = globalIds.map(id => ({ ifcGuid: id }));
-
+  // Use independent arrays per field to prevent mutation side effects
   const viewpoint: BCFViewpoint = {
     guid: generateUuid(),
     components: {
-      selection: components,
+      selection: globalIds.map(id => ({ ifcGuid: id })),
       visibility: {
         defaultVisibility: false,
-        exceptions: components,
+        exceptions: globalIds.map(id => ({ ifcGuid: id })),
       },
     },
   };
@@ -674,7 +674,7 @@ function buildMultiEntityViewpoint(
     viewpoint.components!.coloring = [
       {
         color: failureColor,
-        components: components,
+        components: globalIds.map(id => ({ ifcGuid: id })),
       },
     ];
   }

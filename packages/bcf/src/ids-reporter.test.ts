@@ -222,6 +222,28 @@ describe('IDS BCF Reporter', () => {
       expect(topics[1].priority).toBe('High');
     });
 
+    it('should set Medium priority when some requirements pass', () => {
+      const report = createMockReport();
+      // Modify entity to have 1 pass + 1 fail (mixed)
+      report.specificationResults[0].entityResults[0].requirementResults = [
+        {
+          status: 'fail',
+          facetType: 'property',
+          checkedDescription: 'Must have fire rating',
+          failureReason: 'Missing property',
+        },
+        {
+          status: 'pass',
+          facetType: 'attribute',
+          checkedDescription: 'Name must exist',
+        },
+      ];
+      const project = createBCFFromIDSReport(report);
+
+      const topic = [...project.topics.values()][0];
+      expect(topic.priority).toBe('Medium');
+    });
+
     it('should set labels with IDS and spec name', () => {
       const report = createMockReport();
       const project = createBCFFromIDSReport(report);
