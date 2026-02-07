@@ -263,8 +263,10 @@ export function useIfcLoader() {
       // This ensures geometry gets first crack at the CPU for fast first frame
       // Data model parsing is lower priority - UI can work without it initially
       let resolveDataStore: (dataStore: IfcDataStore) => void;
-      const dataStorePromise = new Promise<IfcDataStore>((resolve) => {
+      let rejectDataStore: (err: unknown) => void;
+      const dataStorePromise = new Promise<IfcDataStore>((resolve, reject) => {
         resolveDataStore = resolve;
+        rejectDataStore = reject;
       });
 
       const startDataModelParsing = () => {
@@ -287,6 +289,7 @@ export function useIfcLoader() {
           resolveDataStore(dataStore);
         }).catch(err => {
           console.error('[useIfc] Data model parsing failed:', err);
+          rejectDataStore(err);
         });
       };
 
@@ -442,6 +445,9 @@ export function useIfcLoader() {
                   };
                   saveToCache(cacheKey, dataStore, geometryData, buffer, file.name);
                 }
+              }).catch(err => {
+                // Data model parsing failed - spatial index and caching skipped
+                console.warn('[useIfc] Skipping spatial index/cache - data model unavailable:', err);
               });
               break;
           }
