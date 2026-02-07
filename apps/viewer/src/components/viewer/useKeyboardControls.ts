@@ -67,8 +67,12 @@ export function useKeyboardControls(params: UseKeyboardControlsParams): void {
     const keyState: { [key: string]: boolean } = {};
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (document.activeElement?.tagName === 'INPUT' ||
-        document.activeElement?.tagName === 'TEXTAREA') {
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      ) {
         return;
       }
 
