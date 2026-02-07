@@ -335,13 +335,11 @@ import { parseIfcx, detectFormat } from '@ifc-lite/ifcx';
 const result = await parseAuto(buffer);
 
 if (result.format === 'ifcx') {
-  // IFC5 file
-  const { entities, meshes, spatialHierarchy } = result;
-  console.log('IFC5 with', meshes.length, 'pre-tessellated meshes');
+  // IFC5 file (result.data is IfcxParseResult)
+  console.log('IFC5 with', result.meshes.length, 'pre-tessellated meshes');
 } else {
-  // IFC4 STEP file
-  const { store } = result;
-  console.log('IFC4 with', store.entityCount, 'entities');
+  // IFC4 STEP file (result.data is IfcDataStore)
+  console.log('IFC4 with', result.data.entityCount, 'entities');
 }
 
 // Or parse IFCX directly

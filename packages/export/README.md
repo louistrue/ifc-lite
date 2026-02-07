@@ -11,13 +11,18 @@ npm install @ifc-lite/export
 ## Quick Start
 
 ```typescript
-import { GeometryData } from '@ifc-lite/export';
+import { GLTFExporter, ParquetExporter, exportToStep } from '@ifc-lite/export';
 
 // Export geometry to GLB
-const glb = exportToGLB(geometryData);
+const gltfExporter = new GLTFExporter();
+const glb = await gltfExporter.export(parseResult, { format: 'glb' });
 
 // Export data to Parquet (15-50x smaller than JSON)
-const parquet = exportToParquet(dataStore);
+const parquetExporter = new ParquetExporter();
+const parquet = await parquetExporter.exportEntities(parseResult);
+
+// Export to IFC STEP (with mutations applied)
+const step = await exportToStep(dataStore, mutations);
 ```
 
 ## Features

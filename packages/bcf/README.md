@@ -11,7 +11,7 @@ npm install @ifc-lite/bcf
 ## Quick Start
 
 ```typescript
-import { readBCF, createBCFProject, createBCFTopic, writeBCF } from '@ifc-lite/bcf';
+import { readBCF, createBCFProject, createBCFTopic, addTopicToProject, writeBCF } from '@ifc-lite/bcf';
 
 // Read a BCF file
 const project = await readBCF(bcfBuffer);
@@ -21,8 +21,8 @@ const newProject = createBCFProject({ name: 'My Review', version: '2.1' });
 const topic = createBCFTopic({ title: 'Missing fire rating', author: 'user@example.com' });
 addTopicToProject(newProject, topic);
 
-// Export
-const bytes = await writeBCF(newProject);
+// Export (returns Blob)
+const blob = await writeBCF(newProject);
 ```
 
 ## Features

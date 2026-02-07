@@ -677,11 +677,11 @@ BCF (BIM Collaboration Format) support for issue tracking in BIM projects. Imple
 ### readBCF / writeBCF
 
 ```typescript
-// Read a BCF/BCFzip file
-function readBCF(buffer: ArrayBuffer): Promise<BCFProject>;
+// Read a BCF/BCFzip file (accepts File, Blob, or ArrayBuffer)
+function readBCF(file: File | Blob | ArrayBuffer): Promise<BCFProject>;
 
-// Write a BCF file
-function writeBCF(project: BCFProject): Promise<Uint8Array>;
+// Write a BCF file (returns a Blob)
+function writeBCF(project: BCFProject): Promise<Blob>;
 ```
 
 ### createBCFProject
@@ -724,11 +724,25 @@ function addViewpointToTopic(topic: BCFTopic, viewpoint: BCFViewpoint): void;
 ### Viewpoints
 
 ```typescript
-// Create a viewpoint from camera state
-function createViewpoint(state: CameraState): BCFViewpoint;
+// Create a viewpoint from viewer state
+function createViewpoint(options: {
+  camera: ViewerCameraState;
+  sectionPlane?: ViewerSectionPlane;
+  selectedGuids?: string[];
+  hiddenGuids?: string[];
+  visibleGuids?: string[];
+  snapshot?: string;
+}): BCFViewpoint;
 
-// Extract camera state from a viewpoint
-function extractViewpointState(viewpoint: BCFViewpoint): CameraState;
+// Extract viewer state from a BCF viewpoint
+function extractViewpointState(viewpoint: BCFViewpoint): {
+  camera?: ViewerCameraState;
+  sectionPlane?: ViewerSectionPlane;
+  selectedGuids: string[];
+  hiddenGuids: string[];
+  visibleGuids: string[];
+  coloredGuids: { color: string; guids: string[] }[];
+};
 ```
 
 ### GUID Utilities
@@ -777,18 +791,19 @@ IDS (Information Delivery Specification) validation. Implements IDS 1.0 with all
 ### parseIDS
 
 ```typescript
-// Parse an IDS XML file
-function parseIDS(xml: string): IDSDocument;
+// Parse an IDS XML file (accepts string or ArrayBuffer)
+function parseIDS(xmlContent: string | ArrayBuffer): IDSDocument;
 ```
 
 ### validateIDS
 
 ```typescript
-// Run validation against an IFC data store
+// Run validation against IFC data
 function validateIDS(
   document: IDSDocument,
   accessor: IFCDataAccessor,
-  options?: { onProgress?: (progress: Progress) => void }
+  modelInfo: IDSModelInfo,
+  options?: ValidatorOptions
 ): Promise<IDSValidationReport>;
 ```
 
@@ -855,39 +870,56 @@ Property editing with bidirectional change tracking.
 
 ### MutablePropertyView
 
-Wraps an IFC data store with a mutation overlay for non-destructive property editing.
+Wraps a PropertyTable with a mutation overlay for non-destructive property editing.
 
 ```typescript
 class MutablePropertyView {
-  constructor(store: IfcDataStore);
+  constructor(baseTable: PropertyTable | null, modelId: string);
 
-  // Set a property value
+  // Get properties for an entity (with mutations applied)
+  getForEntity(entityId: number): PropertySet[];
+
+  // Get a specific property value (with mutations applied)
+  getPropertyValue(entityId: number, psetName: string, propName: string): PropertyValue | null;
+
+  // Set a property value (returns the Mutation record)
   setProperty(
     entityId: number,
     psetName: string,
     propName: string,
     value: PropertyValue,
-    type?: string
-  ): void;
+    valueType?: PropertyValueType,
+    unit?: string
+  ): Mutation;
 
   // Delete a property
-  deleteProperty(entityId: number, psetName: string, propName: string): void;
+  deleteProperty(entityId: number, psetName: string, propName: string): Mutation | null;
 
   // Create a new property set
   createPropertySet(
     entityId: number,
     psetName: string,
-    properties: Record<string, PropertyValue>
-  ): void;
+    properties: Array<{ name: string; value: PropertyValue; type?: PropertyValueType }>
+  ): Mutation;
 
   // Delete a property set
-  deletePropertySet(entityId: number, psetName: string): void;
+  deletePropertySet(entityId: number, psetName: string): Mutation;
 
   // Get all recorded mutations
   getMutations(): Mutation[];
 
+  // Check if entity has changes
+  hasChanges(entityId?: number): boolean;
+
   // Count of modified entities
   getModifiedEntityCount(): number;
+
+  // Apply a batch of mutations
+  applyMutations(mutations: Mutation[]): void;
+
+  // Export/import mutations as JSON
+  exportMutations(): string;
+  importMutations(json: string): void;
 
   // Reset all mutations
   clear(): void;
@@ -900,10 +932,18 @@ Manage named groups of mutations.
 
 ```typescript
 class ChangeSetManager {
-  create(name: string): ChangeSet;
-  apply(changeSet: ChangeSet): void;
-  revert(changeSet: ChangeSet): void;
-  list(): ChangeSet[];
+  createChangeSet(name: string): ChangeSet;
+  getActiveChangeSet(): ChangeSet | null;
+  setActiveChangeSet(id: string | null): void;
+  addMutation(mutation: Mutation): void;
+  getChangeSet(id: string): ChangeSet | null;
+  getAllChangeSets(): ChangeSet[];
+  deleteChangeSet(id: string): boolean;
+  renameChangeSet(id: string, newName: string): void;
+  mergeChangeSets(ids: string[], newName: string): ChangeSet;
+  exportChangeSet(id: string): string;
+  importChangeSet(json: string): ChangeSet;
+  clear(): void;
 }
 ```
 
@@ -913,13 +953,22 @@ Query and update entities in bulk.
 
 ```typescript
 class BulkQueryEngine {
-  constructor(store: IfcDataStore, view: MutablePropertyView);
+  constructor(
+    entities: EntityTable,
+    mutationView: MutablePropertyView,
+    spatialHierarchy?: SpatialHierarchy | null,
+    properties?: PropertyTable | null,
+    strings?: { get(idx: number): string } | null
+  );
+
+  // Select entities matching criteria
+  select(criteria: SelectionCriteria): number[];
 
   // Preview which entities match the query
-  preview(query: BulkQuery): SelectionCriteria;
+  preview(query: BulkQuery): BulkQueryPreview;
 
   // Execute the bulk update
-  execute(query: BulkQuery): number;
+  execute(query: BulkQuery): BulkQueryResult;
 }
 ```
 
@@ -929,8 +978,20 @@ Import property updates from CSV files.
 
 ```typescript
 class CsvConnector {
-  parse(csv: string, options?: { matchStrategy?: MatchStrategy }): CsvRow[];
-  apply(rows: CsvRow[], view: MutablePropertyView): number;
+  constructor(
+    entities: EntityTable,
+    mutationView: MutablePropertyView,
+    strings?: { get(idx: number): string } | null
+  );
+
+  parse(content: string, options?: CsvParseOptions): CsvRow[];
+  match(rows: CsvRow[], mapping: DataMapping): MatchResult[];
+  generateMutations(matches: MatchResult[], mapping: DataMapping): Mutation[];
+  import(content: string, mapping: DataMapping, options?: CsvParseOptions): ImportStats;
+  preview(content: string, mapping: DataMapping, options?: CsvParseOptions): {
+    rows: CsvRow[]; matches: MatchResult[]; estimatedMutations: number;
+  };
+  autoDetectMappings(headers: string[]): PropertyMapping[];
 }
 ```
 
@@ -938,28 +999,76 @@ class CsvConnector {
 
 ```typescript
 interface Mutation {
-  // Recorded property change (set, delete, create, deleteSet)
+  id: string;
+  type: 'CREATE_PROPERTY' | 'UPDATE_PROPERTY' | 'DELETE_PROPERTY' | 'CREATE_PROPERTY_SET' | 'DELETE_PROPERTY_SET';
+  timestamp: number;
+  modelId: string;
+  entityId: number;
+  psetName?: string;
+  propName?: string;
+  oldValue?: PropertyValue;
+  newValue?: PropertyValue;
 }
 
 interface ChangeSet {
-  // Named group of mutations
+  id: string;
+  name: string;
+  createdAt: number;
+  mutations: Mutation[];
+  applied: boolean;
 }
 
-type PropertyValue = string | number | boolean;
+type PropertyValue = string | number | boolean | null | PropertyValue[];
 
 interface SelectionCriteria {
-  // Matched entity IDs and metadata
+  entityTypes?: number[];
+  storeys?: number[];
+  propertyFilters?: PropertyFilter[];
+  globalIds?: string[];
+  expressIds?: number[];
+  namePattern?: string;
 }
 
 interface BulkQuery {
-  // Query definition with filter and update operations
+  select: SelectionCriteria;
+  action: BulkAction;
+}
+
+interface BulkQueryPreview {
+  matchedEntityIds: number[];
+  matchedCount: number;
+  estimatedMutations: number;
+}
+
+interface BulkQueryResult {
+  mutations: Mutation[];
+  affectedEntityCount: number;
+  success: boolean;
+  errors?: string[];
 }
 
 interface CsvRow {
-  // Parsed CSV row mapped to entity properties
+  [column: string]: string;
 }
 
-type MatchStrategy = 'globalId' | 'name' | 'expressId';
+type MatchStrategy =
+  | { type: 'globalId'; column: string }
+  | { type: 'expressId'; column: string }
+  | { type: 'name'; column: string };
+
+interface DataMapping {
+  matchStrategy: MatchStrategy;
+  propertyMappings: PropertyMapping[];
+}
+
+interface ImportStats {
+  totalRows: number;
+  matchedRows: number;
+  unmatchedRows: number;
+  mutationsCreated: number;
+  errors: string[];
+  warnings: string[];
+}
 ```
 
 ---
@@ -985,9 +1094,24 @@ class Drawing2DGenerator {
 ### High-Level Functions
 
 ```typescript
-function generateFloorPlan(meshData: MeshData[], options?: FloorPlanOptions): Drawing2D;
-function generateSection(meshData: MeshData[], config: SectionConfig): Drawing2D;
-function createSectionConfig(options: Partial<SectionConfig>): SectionConfig;
+function generateFloorPlan(
+  meshes: MeshData[],
+  elevation: number,
+  options?: Partial<GeneratorOptions>
+): Promise<Drawing2D>;
+
+function generateSection(
+  meshes: MeshData[],
+  axis: 'x' | 'z',
+  position: number,
+  options?: Partial<GeneratorOptions>
+): Promise<Drawing2D>;
+
+function createSectionConfig(
+  axis: 'x' | 'y' | 'z',
+  position: number,
+  options?: Partial<Omit<SectionConfig, 'plane'>>
+): SectionConfig;
 ```
 
 ### Section Cutting
@@ -1076,7 +1200,7 @@ class GPUSectionCutter {
   cut(meshes: MeshData[], plane: Plane): Promise<DrawingLine[]>;
 }
 
-function isGPUComputeAvailable(): boolean;
+function isGPUComputeAvailable(): Promise<boolean>;
 ```
 
 ### Graphic Overrides

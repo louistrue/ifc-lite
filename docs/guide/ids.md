@@ -33,7 +33,7 @@ for (const spec of idsDocument.specifications) {
 
 ```typescript
 import { parseIDS, validateIDS } from '@ifc-lite/ids';
-import type { IFCDataAccessor } from '@ifc-lite/ids';
+import type { IFCDataAccessor, IDSModelInfo } from '@ifc-lite/ids';
 
 const idsDocument = parseIDS(idsXml);
 
@@ -48,8 +48,14 @@ const accessor: IFCDataAccessor = {
   getAttribute: (id, attr) => getAttributeValue(id, attr),
 };
 
-// Validate
-const report = await validateIDS(idsDocument, accessor, {
+// Model info for the validation report
+const modelInfo: IDSModelInfo = {
+  filename: 'model.ifc',
+  schema: 'IFC4',
+};
+
+// Validate (requires: document, accessor, modelInfo, options?)
+const report = await validateIDS(idsDocument, accessor, modelInfo, {
   onProgress: (progress) => console.log(`${progress.phase}: ${progress.percent}%`),
 });
 

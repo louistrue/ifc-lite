@@ -13,12 +13,9 @@ npm install @ifc-lite/mutations
 ```typescript
 import { MutablePropertyView } from '@ifc-lite/mutations';
 
-const view = new MutablePropertyView(ifcDataStore);
+// Create a mutable view (params: PropertyTable | null, modelId)
+const view = new MutablePropertyView(propertyTable, 'my-model');
 view.setProperty(entityId, 'Pset_WallCommon', 'FireRating', 'REI 120');
-
-// Undo/redo
-view.undo();
-view.redo();
 
 // Get all changes
 const mutations = view.getMutations();
@@ -27,7 +24,7 @@ const mutations = view.getMutations();
 ## Features
 
 - Mutation overlay on read-only IFC data
-- Full undo/redo support
+- Undo/redo support (via viewer store)
 - Change sets for grouping related mutations
 - Bulk query engine for updating many entities
 - CSV import for spreadsheet-based updates

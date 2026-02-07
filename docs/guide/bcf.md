@@ -66,8 +66,8 @@ addCommentToTopic(topic, comment);
 // Add to project
 addTopicToProject(project, topic);
 
-// Export as .bcf file
-const bcfBytes = await writeBCF(project);
+// Export as .bcf file (returns a Blob)
+const bcfBlob = await writeBCF(project);
 ```
 
 ## Viewpoints
@@ -77,14 +77,16 @@ Viewpoints capture the camera state and component visibility at the time an issu
 ### Creating Viewpoints
 
 ```typescript
-import { createViewpoint, cameraToPerspective } from '@ifc-lite/bcf';
+import { createViewpoint } from '@ifc-lite/bcf';
 
 // Create a viewpoint from current viewer state
 const viewpoint = createViewpoint({
-  camera: currentCameraState,        // { position, direction, up }
-  selectedComponents: selectedIds,    // IFC GlobalIds of selected entities
-  visibleComponents: visibleIds,      // IFC GlobalIds of visible entities
-  sectionPlanes: activeSectionPlanes, // Active clipping planes
+  camera: currentCameraState,   // { position, target, up, fov, isOrthographic?, orthoScale? }
+  selectedGuids: selectedGuids, // IFC GlobalIds of selected entities
+  hiddenGuids: hiddenGuids,     // IFC GlobalIds of hidden entities
+  visibleGuids: visibleGuids,   // IFC GlobalIds for isolation mode (optional)
+  sectionPlane: activePlane,    // Single active clipping plane (optional)
+  snapshot: base64Image,        // Screenshot as base64 (optional)
 });
 ```
 
@@ -95,9 +97,12 @@ import { extractViewpointState } from '@ifc-lite/bcf';
 
 // Convert BCF viewpoint back to viewer state
 const state = extractViewpointState(viewpoint);
-// state.camera - { position, direction, up }
-// state.sectionPlanes - clipping planes to apply
-// state.visibility - component visibility settings
+// state.camera - { position, target, up, fov, isOrthographic?, orthoScale? }
+// state.sectionPlane - clipping plane to apply (singular)
+// state.selectedGuids - entities to highlight
+// state.hiddenGuids - entities to hide
+// state.visibleGuids - entities for isolation mode
+// state.coloredGuids - entities with color overrides
 ```
 
 ## GUID Conversion

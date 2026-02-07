@@ -4,13 +4,13 @@ IFClite supports editing IFC properties in-place with full change tracking, undo
 
 ## How It Works
 
-Mutations are tracked through a **MutablePropertyView** that wraps the original read-only IFC data store. When you edit a property:
+Mutations are tracked through a **MutablePropertyView** that wraps the original read-only property table. When you edit a property:
 
 1. The original value is preserved
 2. The new value is stored in an overlay
 3. Reads return the mutated value transparently
 4. All changes are tracked as a `Mutation` with old/new values
-5. Changes can be undone, redone, exported, and applied to other models
+5. Changes can be exported, applied to other models, and shared via change sets
 
 ## Quick Start
 
@@ -19,36 +19,42 @@ Mutations are tracked through a **MutablePropertyView** that wraps the original 
 ```typescript
 import { MutablePropertyView } from '@ifc-lite/mutations';
 
-// Create a mutable view over the parsed IFC data
-const view = new MutablePropertyView(ifcDataStore);
+// Create a mutable view over the property table
+// Parameters: (baseTable: PropertyTable | null, modelId: string)
+const view = new MutablePropertyView(propertyTable, 'my-model');
 
 // Set a property value
 const mutation = view.setProperty(
-  entityId,       // Express ID of the entity
-  'Pset_WallCommon',  // Property set name
-  'FireRating',       // Property name
-  'REI 120',          // New value
+  entityId,             // Express ID of the entity
+  'Pset_WallCommon',    // Property set name
+  'FireRating',         // Property name
+  'REI 120',            // New value
 );
 
 console.log(`Changed from "${mutation.oldValue}" to "${mutation.newValue}"`);
 
 // Read the mutated value
-const value = view.getProperty(entityId, 'Pset_WallCommon', 'FireRating');
+const value = view.getPropertyValue(entityId, 'Pset_WallCommon', 'FireRating');
 // Returns 'REI 120'
 ```
 
-### Undo / Redo
+### Mutation History
 
 ```typescript
-// Get mutation history
+// Get all mutations applied to this view
 const mutations = view.getMutations();
 
-// Undo last change
-view.undo(); // FireRating reverts to original value
+// Check if an entity has changes
+const hasChanges = view.hasChanges(entityId);
 
-// Redo
-view.redo(); // FireRating back to 'REI 120'
+// Get count of modified entities
+const count = view.getModifiedEntityCount();
+
+// Clear all mutations (reset to original state)
+view.clear();
 ```
+
+> **Note:** Undo/redo is handled by the viewer's store (mutationSlice), not directly on MutablePropertyView. In the viewer, use Ctrl+Z / Ctrl+Shift+Z.
 
 ### Change Sets
 
@@ -59,15 +65,15 @@ import { ChangeSetManager } from '@ifc-lite/mutations';
 
 const manager = new ChangeSetManager();
 
-// Create a change set
+// Create a change set (becomes the active change set)
 const changeSet = manager.createChangeSet('Fire Safety Updates');
 
-// Record mutations in the change set
-changeSet.record(mutation1);
-changeSet.record(mutation2);
+// Add mutations to the active change set
+manager.addMutation(mutation1);
+manager.addMutation(mutation2);
 
 // Export as JSON
-const json = JSON.stringify(changeSet);
+const json = manager.exportChangeSet(changeSet.id);
 
 // Import on another instance
 const imported = manager.importChangeSet(json);
@@ -79,30 +85,38 @@ For updating many entities at once, use the `BulkQueryEngine`:
 
 ```typescript
 import { BulkQueryEngine } from '@ifc-lite/mutations';
+import { PropertyValueType } from '@ifc-lite/data';
 
-const engine = new BulkQueryEngine(ifcDataStore);
+// Constructor requires EntityTable and MutablePropertyView
+const engine = new BulkQueryEngine(entityTable, mutationView);
 
-// Define criteria - which entities to update
+// Define a bulk query - which entities to update and how
 const query = {
-  criteria: {
-    type: 'IFCWALL',                    // All walls
-    filter: { property: 'IsExternal', operator: 'equals', value: true },
+  select: {
+    entityTypes: [10],    // Type enum values (e.g., IfcWall)
+    propertyFilters: [{
+      psetName: 'Pset_WallCommon',
+      propName: 'IsExternal',
+      operator: '=' as const,
+      value: true,
+    }],
   },
   action: {
-    type: 'setProperty',
+    type: 'SET_PROPERTY' as const,
     psetName: 'Pset_WallCommon',
     propName: 'ThermalTransmittance',
     value: 0.18,
+    valueType: PropertyValueType.Real,
   },
 };
 
 // Preview changes before applying
 const preview = engine.preview(query);
-console.log(`Will update ${preview.matchCount} entities`);
+console.log(`Will update ${preview.matchedCount} entities`);
 
 // Apply
 const result = engine.execute(query);
-console.log(`Updated ${result.mutationCount} properties`);
+console.log(`Updated ${result.affectedEntityCount} properties`);
 ```
 
 ## CSV Import
@@ -111,28 +125,29 @@ Import property updates from spreadsheets:
 
 ```typescript
 import { CsvConnector } from '@ifc-lite/mutations';
+import { PropertyValueType } from '@ifc-lite/data';
 
-const connector = new CsvConnector(ifcDataStore);
+// Constructor requires EntityTable and MutablePropertyView
+const connector = new CsvConnector(entityTable, mutationView);
 
-// Parse CSV
+// Parse CSV (returns CsvRow[])
 const rows = connector.parse(csvString, {
   delimiter: ',',
-  header: true,
+  hasHeader: true,
 });
 
 // Define mapping from CSV columns to IFC properties
 const mapping = {
-  matchColumn: 'GlobalId',          // Column to match entities
-  matchStrategy: 'globalId',        // Match by IFC GlobalId
-  properties: [
-    { csvColumn: 'Fire Rating', psetName: 'Pset_WallCommon', propName: 'FireRating' },
-    { csvColumn: 'U-Value', psetName: 'Pset_WallCommon', propName: 'ThermalTransmittance' },
+  matchStrategy: { type: 'globalId' as const, column: 'GlobalId' },
+  propertyMappings: [
+    { sourceColumn: 'Fire Rating', targetPset: 'Pset_WallCommon', targetProperty: 'FireRating', valueType: PropertyValueType.String },
+    { sourceColumn: 'U-Value', targetPset: 'Pset_WallCommon', targetProperty: 'ThermalTransmittance', valueType: PropertyValueType.Real },
   ],
 };
 
-// Import
-const stats = connector.import(rows, mapping);
-console.log(`Matched: ${stats.matched}, Updated: ${stats.updated}, Skipped: ${stats.skipped}`);
+// Import (takes CSV string directly, not pre-parsed rows)
+const stats = connector.import(csvString, mapping);
+console.log(`Matched: ${stats.matchedRows}, Updated: ${stats.mutationsCreated}, Skipped: ${stats.unmatchedRows}`);
 ```
 
 ## Viewer Integration
@@ -160,7 +175,7 @@ In the IFClite viewer:
 
 | Type | Description |
 |------|-------------|
-| `MutablePropertyView` | Wraps IFC data store with mutation overlay |
+| `MutablePropertyView` | Wraps property table with mutation overlay |
 | `Mutation` | A single property change with old/new values |
 | `ChangeSet` | Named collection of mutations |
 | `ChangeSetManager` | Manages multiple change sets |

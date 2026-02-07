@@ -11,17 +11,22 @@ npm install @ifc-lite/data
 ## Quick Start
 
 ```typescript
-import { StringTable, EntityTable, RelationshipGraph } from '@ifc-lite/data';
+import { StringTableBuilder, EntityTableBuilder, RelationshipGraphBuilder } from '@ifc-lite/data';
+import type { EntityTable, RelationshipGraph } from '@ifc-lite/data';
 
 // String interning for efficient storage
-const strings = new StringTable();
+const strings = new StringTableBuilder();
 const id = strings.intern('IFCWALL');
 
-// Columnar entity storage
-const entities = new EntityTable(strings);
+// Columnar entity storage (builder pattern)
+const entityBuilder = new EntityTableBuilder();
+// ... add entities ...
+const entities: EntityTable = entityBuilder.build();
 
-// Relationship graph
-const graph = new RelationshipGraph();
+// Relationship graph (builder pattern)
+const graphBuilder = new RelationshipGraphBuilder();
+// ... add relationships ...
+const graph: RelationshipGraph = graphBuilder.build();
 ```
 
 ## Features

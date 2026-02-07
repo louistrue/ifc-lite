@@ -28,15 +28,14 @@ Each drawing includes:
 ```typescript
 import { generateFloorPlan } from '@ifc-lite/drawing-2d';
 
-// Generate a floor plan at 1.2m above ground
-const drawing = await generateFloorPlan(meshData, {
-  cutHeight: 1.2,
-  showHiddenLines: true,
-  showHatching: true,
+// generateFloorPlan(meshes: MeshData[], elevation: number, options?)
+const drawing = await generateFloorPlan(meshData, 1.2, {
+  includeHiddenLines: true,
+  includeProjection: true,
 });
 
-console.log(`${drawing.cutLines.length} cut lines`);
-console.log(`${drawing.projectionLines.length} projection lines`);
+console.log(`${drawing.stats.cutLineCount} cut lines`);
+console.log(`${drawing.stats.projectionLineCount} projection lines`);
 ```
 
 ### Generating a Section
@@ -44,13 +43,11 @@ console.log(`${drawing.projectionLines.length} projection lines`);
 ```typescript
 import { generateSection, createSectionConfig } from '@ifc-lite/drawing-2d';
 
-const config = createSectionConfig({
-  axis: 'y',          // Cut along Y axis
-  position: 5.0,      // At Y=5.0m
-  direction: 'positive',
-});
+// createSectionConfig(axis, position, options?)
+const config = createSectionConfig('z', 5.0);
 
-const drawing = await generateSection(meshData, config);
+// generateSection(meshes: MeshData[], axis: 'x' | 'z', position: number, options?)
+const drawing = await generateSection(meshData, 'z', 5.0);
 ```
 
 ### SVG Export
@@ -59,11 +56,10 @@ const drawing = await generateSection(meshData, config);
 import { exportToSVG } from '@ifc-lite/drawing-2d';
 
 const svg = exportToSVG(drawing, {
-  width: 800,
-  height: 600,
-  scale: 100,          // 1:100
   showHatching: true,
   showHiddenLines: true,
+  scale: { name: '1:100', factor: 100 },
+  title: 'Ground Floor Plan',
 });
 
 // svg is a string of SVG markup

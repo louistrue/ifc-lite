@@ -35,12 +35,17 @@ The `FederationRegistry` (singleton in `@ifc-lite/renderer`) assigns each model 
 ```
 
 ```typescript
-// Registration
+// Registration (maxExpressId = highest expressId in the model)
 const offset = federationRegistry.registerModel('arch', maxExpressId);
 
-// Conversion
-const globalId = localExpressId + offset;
-const { modelId, expressId } = federationRegistry.fromGlobalId(globalId);
+// To-global: O(1)
+const globalId = federationRegistry.toGlobalId('arch', localExpressId);
+
+// From-global: O(log N) binary search
+const lookup = federationRegistry.fromGlobalId(globalId);
+if (lookup) {
+  const { modelId, expressId } = lookup;
+}
 ```
 
 ### EntityRef Pattern

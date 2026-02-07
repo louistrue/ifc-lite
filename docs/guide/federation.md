@@ -40,16 +40,22 @@ import { federationRegistry } from '@ifc-lite/renderer';
 const parser = new IfcParser();
 
 // Load first model
-const archModel = await parser.parseColumnar(archBuffer);
-const archOffset = federationRegistry.registerModel('arch', archModel.maxExpressId);
+const archStore = await parser.parseColumnar(archBuffer);
+// Compute maxExpressId from entity index
+const archMaxId = Math.max(...archStore.entityIndex.byId.keys());
+const archOffset = federationRegistry.registerModel('arch', archMaxId);
 
 // Load second model - IDs start after the first model's range
-const structModel = await parser.parseColumnar(structBuffer);
-const structOffset = federationRegistry.registerModel('struct', structModel.maxExpressId);
+const structStore = await parser.parseColumnar(structBuffer);
+const structMaxId = Math.max(...structStore.entityIndex.byId.keys());
+const structOffset = federationRegistry.registerModel('struct', structMaxId);
 
 // Convert IDs
 const globalId = federationRegistry.toGlobalId('struct', 42);
-const { modelId, expressId } = federationRegistry.fromGlobalId(globalId);
+const lookup = federationRegistry.fromGlobalId(globalId);
+if (lookup) {
+  console.log(`Model: ${lookup.modelId}, Express ID: ${lookup.expressId}`);
+}
 ```
 
 ## Unified Interactions

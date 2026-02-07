@@ -91,9 +91,9 @@ npm install @ifc-lite/parser
 import { IfcParser } from '@ifc-lite/parser';
 
 const parser = new IfcParser();
-const result = parser.parse(ifcBuffer);
+const result = await parser.parse(ifcBuffer);
 
-console.log(`Found ${result.entities.length} entities`);
+console.log(`Found ${result.entityCount} entities`);
 ```
 
 For full 3D rendering, add geometry and renderer packages:
@@ -166,15 +166,16 @@ import { Renderer } from '@ifc-lite/renderer';
 
 // Parse IFC file
 const parser = new IfcParser();
-const result = parser.parse(ifcArrayBuffer);
+const result = await parser.parse(ifcArrayBuffer);
 
-// Access entities
-const walls = result.entities.filter(e => e.type === 'IFCWALL');
+// Access entities (Map<expressId, IfcEntity>)
+const walls = [...result.entities.values()].filter(e => e.type === 'IFCWALL');
 console.log(`Found ${walls.length} walls`);
 
-// Render geometry (requires @ifc-lite/renderer)
+// Render geometry (requires @ifc-lite/renderer + @ifc-lite/geometry)
 const renderer = new Renderer(canvas);
-await renderer.loadGeometry(result.geometry);
+await renderer.init();
+renderer.loadGeometry(meshData); // MeshData[] from geometry processing
 renderer.render();
 ```
 

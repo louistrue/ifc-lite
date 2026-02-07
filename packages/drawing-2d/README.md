@@ -13,11 +13,11 @@ npm install @ifc-lite/drawing-2d
 ```typescript
 import { generateFloorPlan, exportToSVG } from '@ifc-lite/drawing-2d';
 
-// Generate a floor plan
-const drawing = await generateFloorPlan(meshData, { cutHeight: 1.2 });
+// Generate a floor plan (meshes, elevation, options?)
+const drawing = await generateFloorPlan(meshData, 1.2);
 
 // Export as SVG
-const svg = exportToSVG(drawing, { width: 800, height: 600, scale: 100 });
+const svg = exportToSVG(drawing, { showHatching: true });
 ```
 
 ## Features

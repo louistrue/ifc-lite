@@ -190,8 +190,8 @@ IFClite supports two processing paradigms:
       // IFC5 with ECS composition and USD geometry
       console.log('IFC5 file with', result.meshes.length, 'meshes');
     } else {
-      // IFC4 STEP format
-      console.log('IFC4 file with', result.store.entityCount, 'entities');
+      // IFC4 STEP format (result.data is IfcDataStore)
+      console.log('IFC4 file with', result.data.entityCount, 'entities');
     }
     ```
 
