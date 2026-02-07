@@ -260,6 +260,34 @@ describe('IDS BCF Reporter', () => {
       expect(topic.creationAuthor).toBe('tester@example.com');
       expect(topic.comments[0].author).toBe('tester@example.com');
     });
+
+    it('should link comments to viewpoint via viewpointGuid', () => {
+      const report = createMockReport();
+      const project = createBCFFromIDSReport(report);
+
+      const topic = [...project.topics.values()][0];
+      expect(topic.viewpoints.length).toBe(1);
+      expect(topic.comments.length).toBe(2);
+
+      const vpGuid = topic.viewpoints[0].guid;
+      // Every comment should reference the viewpoint
+      for (const comment of topic.comments) {
+        expect(comment.viewpointGuid).toBe(vpGuid);
+      }
+    });
+
+    it('should not set viewpointGuid when entity has no globalId (no viewpoint created)', () => {
+      const report = createMockReport();
+      report.specificationResults[0].entityResults[0].globalId = undefined;
+      const project = createBCFFromIDSReport(report);
+
+      const topic = [...project.topics.values()][0];
+      expect(topic.viewpoints.length).toBe(0);
+      // Comments should have no viewpointGuid
+      for (const comment of topic.comments) {
+        expect(comment.viewpointGuid).toBeUndefined();
+      }
+    });
   });
 
   // ==========================================================================
@@ -370,6 +398,18 @@ describe('IDS BCF Reporter', () => {
       expect(vp.components?.selection).toHaveLength(2);
     });
 
+    it('should link entity comments to viewpoint', () => {
+      const report = createMockReport();
+      const project = createBCFFromIDSReport(report, { topicGrouping: 'per-specification' });
+
+      const topic = [...project.topics.values()][0];
+      const vpGuid = topic.viewpoints[0].guid;
+      // Entity failure comments should reference the viewpoint
+      for (const comment of topic.comments) {
+        expect(comment.viewpointGuid).toBe(vpGuid);
+      }
+    });
+
     it('should skip passing specifications', () => {
       const report = createPassingReport();
       const project = createBCFFromIDSReport(report, { topicGrouping: 'per-specification' });
@@ -405,6 +445,16 @@ describe('IDS BCF Reporter', () => {
 
       const topic = [...project.topics.values()][0];
       expect(topic.description).toContain('Wall Fire Rating');
+    });
+
+    it('should link comment to viewpoint', () => {
+      const report = createMockReport();
+      const project = createBCFFromIDSReport(report, { topicGrouping: 'per-requirement' });
+
+      const topic = [...project.topics.values()][0];
+      expect(topic.viewpoints.length).toBe(1);
+      expect(topic.comments.length).toBe(1);
+      expect(topic.comments[0].viewpointGuid).toBe(topic.viewpoints[0].guid);
     });
   });
 

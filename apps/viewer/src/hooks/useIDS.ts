@@ -39,6 +39,7 @@ import { createBCFFromIDSReport, writeBCF } from '@ifc-lite/bcf';
 import type { EntityBoundsInput, IDSBCFExportOptions } from '@ifc-lite/bcf';
 import type { IDSBCFExportSettings, IDSExportProgress } from '@/components/viewer/IDSExportDialog';
 import { getEntityBounds } from '@/utils/viewportUtils';
+import { getGlobalRenderer } from '@/hooks/useBCF';
 
 // ============================================================================
 // Types
@@ -1327,73 +1328,98 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     if (includeSnapshots) {
       entitySnapshots = new Map();
 
-      // Collect all entities that need snapshots
-      const entitiesToSnapshot: Array<{ modelId: string; expressId: number; boundsKey: string }> = [];
-      for (const specResult of report.specificationResults) {
-        for (const entity of specResult.entityResults) {
-          if (entity.passed && !includePassingEntities) continue;
-          const boundsKey = `${entity.modelId}:${entity.expressId}`;
-          if (!entitiesToSnapshot.some(e => e.boundsKey === boundsKey)) {
-            entitiesToSnapshot.push({
-              modelId: entity.modelId,
-              expressId: entity.expressId,
-              boundsKey,
-            });
+      // Get renderer for direct rendering control (no selection highlight)
+      const renderer = getGlobalRenderer();
+      if (!renderer) {
+        console.warn('[IDS] No renderer available for snapshot capture');
+      } else {
+        const camera = renderer.getCamera();
+
+        // Collect all entities that need snapshots
+        const entitiesToSnapshot: Array<{ modelId: string; expressId: number; boundsKey: string }> = [];
+        for (const specResult of report.specificationResults) {
+          for (const entity of specResult.entityResults) {
+            if (entity.passed && !includePassingEntities) continue;
+            const boundsKey = `${entity.modelId}:${entity.expressId}`;
+            if (!entitiesToSnapshot.some(e => e.boundsKey === boundsKey)) {
+              entitiesToSnapshot.push({
+                modelId: entity.modelId,
+                expressId: entity.expressId,
+                boundsKey,
+              });
+            }
           }
         }
-      }
 
-      const total = entitiesToSnapshot.length;
+        const total = entitiesToSnapshot.length;
 
-      for (let i = 0; i < total; i++) {
-        const entity = entitiesToSnapshot[i];
-        setBcfExportProgress({
-          phase: 'snapshots',
-          current: i + 1,
-          total,
-          message: `Capturing snapshot ${i + 1}/${total}...`,
+        // Save current viewer state to restore after snapshot batch
+        const storeState = useViewerStore.getState();
+        const savedSelection = storeState.selectedEntityId;
+        const savedIsolation = storeState.isolatedEntities;
+        const savedHidden = storeState.hiddenEntities;
+
+        for (let i = 0; i < total; i++) {
+          const entity = entitiesToSnapshot[i];
+          setBcfExportProgress({
+            phase: 'snapshots',
+            current: i + 1,
+            total,
+            message: `Capturing snapshot ${i + 1}/${total}...`,
+          });
+
+          // Get the entity's bounds for framing
+          const bounds = entityBounds?.get(entity.boundsKey);
+          if (!bounds) continue;
+
+          // Find the global expressId for isolation
+          let globalExpressId = entity.expressId;
+          for (const [, model] of models.entries()) {
+            if (model.id === entity.modelId) {
+              globalExpressId = entity.expressId + (model.idOffset ?? 0);
+              break;
+            }
+          }
+
+          // Frame the entity bounds directly via camera (properly centers the object)
+          // duration=0 for instant positioning — no animation delay needed
+          await camera.frameBounds(bounds.min, bounds.max, 0);
+
+          // Render with: entity isolated, NO selection highlight (no cyan), IDS colors intact
+          const isolationSet = new Set([globalExpressId]);
+          renderer.render({
+            isolatedIds: isolationSet,
+            selectedId: null,           // No cyan selection highlight
+            clearColor: [0.102, 0.106, 0.149, 1],
+          });
+
+          // Wait for GPU to finish rendering the frame
+          const device = renderer.getGPUDevice();
+          if (device) {
+            await device.queue.onSubmittedWorkDone();
+          }
+
+          // Capture screenshot
+          const dataUrl = await renderer.captureScreenshot();
+          if (dataUrl) {
+            entitySnapshots.set(entity.boundsKey, dataUrl);
+          }
+        }
+
+        // Restore viewer state — set store back to saved state directly
+        useViewerStore.setState({
+          selectedEntityId: savedSelection,
+          isolatedEntities: savedIsolation,
+          hiddenEntities: savedHidden,
         });
 
-        // Get the entity's bounds for framing
-        const bounds = entityBounds?.get(entity.boundsKey);
-        if (!bounds) continue;
-
-        // Find the global expressId for isolation/selection
-        let globalExpressId = entity.expressId;
-        for (const [, model] of models.entries()) {
-          if (model.id === entity.modelId) {
-            globalExpressId = entity.expressId + (model.idOffset ?? 0);
-            break;
-          }
-        }
-
-        // Isolate entity + frame it + capture
-        setIsolatedEntities(new Set([globalExpressId]));
-        setSelectedEntityId(globalExpressId);
-
-        // Frame the entity bounds and wait for animation
-        if (cameraCallbacks?.frameSelection) {
-          cameraCallbacks.frameSelection();
-        }
-
-        // Wait for render to settle (animation + GPU)
-        await new Promise(resolve => setTimeout(resolve, 400));
-
-        // Capture the canvas
-        const canvas = globalThis.document.querySelector('canvas');
-        if (canvas) {
-          try {
-            const dataUrl = canvas.toDataURL('image/png');
-            entitySnapshots.set(entity.boundsKey, dataUrl);
-          } catch {
-            // Canvas capture failed (e.g., tainted canvas)
-          }
-        }
+        // Re-render with restored state
+        renderer.render({
+          hiddenIds: savedHidden,
+          isolatedIds: savedIsolation,
+          selectedId: savedSelection,
+        });
       }
-
-      // Restore isolation/selection state
-      setIsolatedEntities(null);
-      setSelectedEntityId(null);
     }
 
     // Phase 3: Build BCF project
@@ -1442,9 +1468,6 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     report,
     models,
     bcfAuthor,
-    cameraCallbacks,
-    setIsolatedEntities,
-    setSelectedEntityId,
     setBcfProject,
     setBcfPanelVisible,
   ]);

@@ -61,12 +61,13 @@ function createTopic(opts: {
   };
 }
 
-function createComment(opts: { author: string; comment: string }): BCFComment {
+function createComment(opts: { author: string; comment: string; viewpointGuid?: string }): BCFComment {
   return {
     guid: generateUuid(),
     date: new Date().toISOString(),
     author: opts.author,
     comment: opts.comment,
+    viewpointGuid: opts.viewpointGuid,
   };
 }
 
@@ -305,16 +306,9 @@ function buildTopicsPerEntity(
         labels: ['IDS', specResult.specification.name],
       });
 
-      // Add a comment per failed requirement
-      for (const req of failedReqs) {
-        const comment = createComment({
-          author: opts.author,
-          comment: buildRequirementComment(req),
-        });
-        topic.comments.push(comment);
-      }
-
       // Add viewpoint with isolation + selection + coloring + optional camera/snapshot
+      // Viewpoint MUST be created first so comments can reference it via viewpointGuid
+      let viewpointGuid: string | undefined;
       if (entity.globalId) {
         const boundsKey = `${entity.modelId}:${entity.expressId}`;
         const bounds = opts.entityBounds?.get(boundsKey);
@@ -326,6 +320,17 @@ function buildTopicsPerEntity(
           snapshot,
         );
         topic.viewpoints.push(viewpoint);
+        viewpointGuid = viewpoint.guid;
+      }
+
+      // Add a comment per failed requirement, linked to the viewpoint
+      for (const req of failedReqs) {
+        const comment = createComment({
+          author: opts.author,
+          comment: buildRequirementComment(req),
+          viewpointGuid,
+        });
+        topic.comments.push(comment);
       }
 
       project.topics.set(topic.guid, topic);
@@ -361,7 +366,19 @@ function buildTopicsPerSpecification(
       labels: ['IDS', specResult.specification.name],
     });
 
-    // Add comments for failed entities (capped to avoid huge topics)
+    // Add viewpoint selecting all failed entities with globalIds (must be first for comment linking)
+    const failedGuids = failedEntities
+      .map(e => e.globalId)
+      .filter((g): g is string => g !== undefined);
+
+    let viewpointGuid: string | undefined;
+    if (failedGuids.length > 0) {
+      const viewpoint = buildMultiEntityViewpoint(failedGuids, opts.failureColor);
+      topic.viewpoints.push(viewpoint);
+      viewpointGuid = viewpoint.guid;
+    }
+
+    // Add comments for failed entities (capped to avoid huge topics), linked to viewpoint
     const maxCommentsPerTopic = 50;
     const entitiesToComment = failedEntities.slice(0, maxCommentsPerTopic);
 
@@ -375,6 +392,7 @@ function buildTopicsPerSpecification(
       const comment = createComment({
         author: opts.author,
         comment: `${entity.entityType}: ${entityLabel}${entity.globalId ? ` (${entity.globalId})` : ''}\n${failureSummary}`,
+        viewpointGuid,
       });
       topic.comments.push(comment);
     }
@@ -385,16 +403,6 @@ function buildTopicsPerSpecification(
         comment: `... and ${failedEntities.length - maxCommentsPerTopic} more failing entities`,
       });
       topic.comments.push(comment);
-    }
-
-    // Add viewpoint selecting all failed entities with globalIds
-    const failedGuids = failedEntities
-      .map(e => e.globalId)
-      .filter((g): g is string => g !== undefined);
-
-    if (failedGuids.length > 0) {
-      const viewpoint = buildMultiEntityViewpoint(failedGuids, opts.failureColor);
-      topic.viewpoints.push(viewpoint);
     }
 
     project.topics.set(topic.guid, topic);
@@ -434,21 +442,24 @@ function buildTopicsPerRequirement(
           labels: ['IDS', specResult.specification.name],
         });
 
-        // Single comment with full failure detail
-        const comment = createComment({
-          author: opts.author,
-          comment: buildRequirementComment(req),
-        });
-        topic.comments.push(comment);
-
-        // Viewpoint for single entity
+        // Viewpoint for single entity (must be first for comment linking)
+        let viewpointGuid: string | undefined;
         if (entity.globalId) {
           const boundsKey = `${entity.modelId}:${entity.expressId}`;
           const bounds = opts.entityBounds?.get(boundsKey);
           const snapshot = opts.entitySnapshots?.get(boundsKey);
           const viewpoint = buildEntityViewpoint(entity.globalId, opts.failureColor, bounds, snapshot);
           topic.viewpoints.push(viewpoint);
+          viewpointGuid = viewpoint.guid;
         }
+
+        // Single comment with full failure detail, linked to viewpoint
+        const comment = createComment({
+          author: opts.author,
+          comment: buildRequirementComment(req),
+          viewpointGuid,
+        });
+        topic.comments.push(comment);
 
         project.topics.set(topic.guid, topic);
         topicCount++;
