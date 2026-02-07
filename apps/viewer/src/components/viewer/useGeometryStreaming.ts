@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, type MutableRefObject } from 'react';
-import { Renderer, MathUtils } from '@ifc-lite/renderer';
+import { Renderer, MathUtils, type Scene, type RenderPipeline } from '@ifc-lite/renderer';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 
 export interface UseGeometryStreamingParams {
@@ -221,7 +221,7 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
       if (pipeline) {
         // Use batched rendering - groups meshes by color into single draw calls
         // Pass isStreaming flag to enable throttled batch rebuilding (reduces O(N^2) cost)
-        (scene as unknown as { appendToBatches: (meshes: MeshData[], device: GPUDevice, pipeline: unknown, isStreaming: boolean) => void }).appendToBatches(newMeshes, device, pipeline, isStreaming);
+        scene.appendToBatches(newMeshes, device, pipeline, isStreaming);
 
         // Note: addMeshData is now called inside appendToBatches, no need to duplicate
       } else {
@@ -362,8 +362,8 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
       const scene = renderer.getScene();
 
       // Rebuild any pending batches that were deferred during streaming
-      if (device && pipeline && (scene as unknown as { hasPendingBatches?: () => boolean }).hasPendingBatches?.()) {
-        (scene as unknown as { rebuildPendingBatches: (device: GPUDevice, pipeline: unknown) => void }).rebuildPendingBatches(device, pipeline);
+      if (device && pipeline && scene.hasPendingBatches()) {
+        scene.rebuildPendingBatches(device, pipeline);
       }
 
       renderer.render();
@@ -387,8 +387,8 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     const pipeline = renderer.getPipeline();
     const scene = renderer.getScene();
 
-    if (device && pipeline && (scene as unknown as { updateMeshColors?: (updates: Map<number, [number, number, number, number]>, device: GPUDevice, pipeline: unknown) => void }).updateMeshColors) {
-      (scene as unknown as { updateMeshColors: (updates: Map<number, [number, number, number, number]>, device: GPUDevice, pipeline: unknown) => void }).updateMeshColors(pendingColorUpdates, device, pipeline);
+    if (device && pipeline) {
+      scene.updateMeshColors(pendingColorUpdates, device, pipeline);
       renderer.render();
       clearPendingColorUpdates();
     }

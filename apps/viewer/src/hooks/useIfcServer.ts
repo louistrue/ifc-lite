@@ -53,7 +53,7 @@ function convertServerMesh(m: ServerMeshData): MeshData {
     expressId: m.express_id,
     positions: new Float32Array(m.positions),
     indices: new Uint32Array(m.indices),
-    normals: new Float32Array(m.normals),
+    normals: m.normals ? new Float32Array(m.normals) : new Float32Array(0),
     color: m.color,
     ifcType: m.ifc_type,
   };
@@ -195,14 +195,7 @@ export function useIfcServer() {
           batchCount++;
 
           // Convert batch meshes to viewer format (snake_case to camelCase, number[] to TypedArray)
-          const batchMeshes: MeshData[] = batch.meshes.map((m: ServerMeshData) => ({
-            expressId: m.express_id,
-            positions: new Float32Array(m.positions),
-            indices: new Uint32Array(m.indices),
-            normals: new Float32Array(m.normals),
-            color: m.color,
-            ifcType: m.ifc_type,
-          }));
+          const batchMeshes: MeshData[] = batch.meshes.map(convertServerMesh);
 
           // Update bounds incrementally
           for (const mesh of batchMeshes) {
@@ -318,14 +311,7 @@ export function useIfcServer() {
 
         // Convert server mesh format to viewer format (TypedArrays)
         const convertStart = performance.now();
-        allMeshes = parquetResult.meshes.map((m: ServerMeshData): MeshData => ({
-          expressId: m.express_id,
-          positions: new Float32Array(m.positions),
-          indices: new Uint32Array(m.indices),
-          normals: new Float32Array(m.normals),
-          color: m.color,
-          ifcType: m.ifc_type,
-        }));
+        allMeshes = parquetResult.meshes.map(convertServerMesh);
         convertTime = performance.now() - convertStart;
         console.log(`[useIfc] Mesh conversion: ${convertTime.toFixed(0)}ms for ${allMeshes.length} meshes`);
       } else {
@@ -345,16 +331,9 @@ export function useIfcServer() {
         setProgress({ phase: 'Converting meshes', percent: 70 });
 
         // Convert server mesh format to viewer format
-        // NOTE: Server sends colors as floats [0-1], viewer expects bytes [0-255]
         const convertStart = performance.now();
         const jsonResult = result as ParseResponse;
-        allMeshes = jsonResult.meshes.map((m: ServerMeshData) => ({
-          expressId: m.express_id,
-          positions: new Float32Array(m.positions),
-          indices: new Uint32Array(m.indices),
-          normals: m.normals ? new Float32Array(m.normals) : new Float32Array(0),
-          color: m.color,
-        }));
+        allMeshes = jsonResult.meshes.map(convertServerMesh);
         convertTime = performance.now() - convertStart;
         console.log(`[useIfc] Mesh conversion: ${convertTime.toFixed(0)}ms for ${allMeshes.length} meshes`);
       }
