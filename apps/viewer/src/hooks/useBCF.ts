@@ -78,6 +78,13 @@ export function setGlobalRendererRef(ref: React.RefObject<Renderer | null>): voi
 }
 
 /**
+ * Get the global renderer instance (for direct rendering control, e.g., IDS snapshot capture)
+ */
+export function getGlobalRenderer(): Renderer | null {
+  return globalRendererRef?.current ?? null;
+}
+
+/**
  * Clear the global references (called on unmount to prevent memory leaks)
  */
 export function clearGlobalRefs(): void {
