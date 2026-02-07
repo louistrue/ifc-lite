@@ -35,7 +35,7 @@ import { CAMERA_DEFAULTS, SECTION_PLANE_DEFAULTS, UI_DEFAULTS, TYPE_VISIBILITY_D
 export type * from './types.js';
 
 // Explicitly re-export multi-model types that need to be imported by name
-export type { EntityRef, SchemaVersion, FederatedModel, MeasurementConstraintEdge } from './types.js';
+export type { EntityRef, SchemaVersion, FederatedModel, MeasurementConstraintEdge, OrthogonalAxis } from './types.js';
 
 // Re-export utility functions for entity references
 export { entityRefToString, stringToEntityRef, entityRefEquals, isIfcxDataStore } from './types.js';
