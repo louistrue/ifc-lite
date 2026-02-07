@@ -116,7 +116,7 @@ export function IDSExportDialog({
     // Don't allow closing during export
     if (isExporting) return;
     setOpen(value);
-  }, [isExporting]);
+  }, [isExporting, setOpen]);
 
   const progressPercent = progress && progress.total > 0
     ? Math.round((progress.current / progress.total) * 100)
@@ -147,7 +147,12 @@ export function IDSExportDialog({
             <Label htmlFor="grouping">Topic Grouping</Label>
             <Select
               value={settings.topicGrouping}
-              onValueChange={(v) => setSettings(s => ({ ...s, topicGrouping: v as TopicGrouping }))}
+              onValueChange={(v) => setSettings(s => ({
+                ...s,
+                topicGrouping: v as TopicGrouping,
+                // Reset includePassingEntities when switching away from per-entity (only valid in per-entity mode)
+                ...(v !== 'per-entity' && { includePassingEntities: false }),
+              }))}
               disabled={isExporting}
             >
               <SelectTrigger id="grouping">

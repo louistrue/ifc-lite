@@ -389,6 +389,9 @@ function createDataAccessor(
 const DEFAULT_FAILED_COLOR: [number, number, number, number] = [0.9, 0.2, 0.2, 1.0];
 const DEFAULT_PASSED_COLOR: [number, number, number, number] = [0.2, 0.8, 0.2, 1.0];
 
+/** Dark background for BCF snapshot captures */
+const SNAPSHOT_CLEAR_COLOR: [number, number, number, number] = [0.102, 0.106, 0.149, 1];
+
 export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
   const {
     autoApplyColors = true,
@@ -1381,14 +1384,18 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
 
           // Frame the entity bounds directly via camera (properly centers the object)
           // duration=0 for instant positioning — no animation delay needed
-          await camera.frameBounds(bounds.min, bounds.max, 0);
+          // Timeout guards against camera.frameBounds hanging on degenerate bounds
+          await Promise.race([
+            camera.frameBounds(bounds.min, bounds.max, 0),
+            new Promise<void>(resolve => setTimeout(resolve, 2000)),
+          ]);
 
           // Render with: entity isolated, NO selection highlight (no cyan), IDS colors intact
           const isolationSet = new Set([globalExpressId]);
           renderer.render({
             isolatedIds: isolationSet,
             selectedId: null,           // No cyan selection highlight
-            clearColor: [0.102, 0.106, 0.149, 1],
+            clearColor: SNAPSHOT_CLEAR_COLOR,
           });
 
           // Wait for GPU to finish rendering the frame
@@ -1411,7 +1418,7 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
           hiddenEntities: savedHidden,
         });
 
-        // Re-render with restored state
+        // Re-render with restored state (original clearColor restored by omitting it)
         renderer.render({
           hiddenIds: savedHidden,
           isolatedIds: savedIsolation,

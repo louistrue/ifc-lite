@@ -177,6 +177,12 @@ const DEFAULT_MAX_TOPICS = 1000;
 const DEFAULT_FAILURE_COLOR = 'FFFF3333'; // Semi-opaque red
 const DEFAULT_FAILURE_TOPIC_TYPE = 'Error';
 const DEFAULT_PASS_TOPIC_TYPE = 'Info';
+/**
+ * Max comments per topic in per-specification grouping.
+ * Prevents oversized topics when a spec fails hundreds of entities.
+ * Remaining entities are summarized with a "... and N more" comment.
+ */
+const MAX_COMMENTS_PER_TOPIC = 50;
 
 // ============================================================================
 // Main export function
@@ -379,7 +385,7 @@ function buildTopicsPerSpecification(
     }
 
     // Add comments for failed entities (capped to avoid huge topics), linked to viewpoint
-    const maxCommentsPerTopic = 50;
+    const maxCommentsPerTopic = MAX_COMMENTS_PER_TOPIC;
     const entitiesToComment = failedEntities.slice(0, maxCommentsPerTopic);
 
     for (const entity of entitiesToComment) {
