@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { createBCFFromIDSReport } from './ids-reporter.js';
-import type { IDSReportInput } from './ids-reporter.js';
+import type { IDSReportInput, EntityBoundsInput } from './ids-reporter.js';
 
 // ============================================================================
 // Test fixtures
@@ -472,6 +472,157 @@ describe('IDS BCF Reporter', () => {
         .flatMap(t => t.viewpoints)
         .map(vp => vp.guid);
       expect(new Set(vpGuids).size).toBe(vpGuids.length);
+    });
+  });
+
+  // ==========================================================================
+  // Camera computation from entity bounds
+  // ==========================================================================
+
+  describe('per-entity camera from bounds', () => {
+    function createBoundsMap(): Map<string, EntityBoundsInput> {
+      const map = new Map<string, EntityBoundsInput>();
+      map.set('model-1:100', {
+        min: { x: 0, y: 0, z: 0 },
+        max: { x: 2, y: 3, z: 1 },
+      });
+      map.set('model-1:200', {
+        min: { x: 5, y: 0, z: 5 },
+        max: { x: 7, y: 4, z: 7 },
+      });
+      return map;
+    }
+
+    it('should include perspective camera when entityBounds provided', () => {
+      const report = createMockReport();
+      const project = createBCFFromIDSReport(report, {
+        entityBounds: createBoundsMap(),
+      });
+
+      const vp = [...project.topics.values()][0].viewpoints[0];
+      expect(vp.perspectiveCamera).toBeDefined();
+      expect(vp.perspectiveCamera!.fieldOfView).toBe(60);
+    });
+
+    it('should not include camera when entityBounds not provided', () => {
+      const report = createMockReport();
+      const project = createBCFFromIDSReport(report);
+
+      const vp = [...project.topics.values()][0].viewpoints[0];
+      expect(vp.perspectiveCamera).toBeUndefined();
+    });
+
+    it('should compute camera in BCF Z-up coordinates', () => {
+      const report = createMockReport();
+      const project = createBCFFromIDSReport(report, {
+        entityBounds: createBoundsMap(),
+      });
+
+      const cam = [...project.topics.values()][0].viewpoints[0].perspectiveCamera!;
+      // BCF up vector should be Z-up
+      expect(cam.cameraUpVector.z).toBe(1);
+      expect(cam.cameraUpVector.x).toBe(0);
+      expect(cam.cameraUpVector.y).toBe(0);
+    });
+
+    it('should point camera toward entity center', () => {
+      const report = createMockReport();
+      const bounds = new Map<string, EntityBoundsInput>();
+      bounds.set('model-1:100', {
+        min: { x: 0, y: 0, z: 0 },
+        max: { x: 2, y: 2, z: 2 },
+      });
+      const project = createBCFFromIDSReport(report, { entityBounds: bounds });
+
+      const cam = [...project.topics.values()][0].viewpoints[0].perspectiveCamera!;
+      // Camera direction vector should have non-zero components
+      const dirLen = Math.sqrt(
+        cam.cameraDirection.x ** 2 +
+        cam.cameraDirection.y ** 2 +
+        cam.cameraDirection.z ** 2,
+      );
+      // Should be unit vector (approximately 1)
+      expect(dirLen).toBeCloseTo(1, 3);
+    });
+
+    it('should position camera away from entity center', () => {
+      const report = createMockReport();
+      const bounds = new Map<string, EntityBoundsInput>();
+      bounds.set('model-1:100', {
+        min: { x: 0, y: 0, z: 0 },
+        max: { x: 2, y: 2, z: 2 },
+      });
+      const project = createBCFFromIDSReport(report, { entityBounds: bounds });
+
+      const cam = [...project.topics.values()][0].viewpoints[0].perspectiveCamera!;
+      // Camera should be displaced from entity center (BCF center would be at x=1, y=-1, z=1)
+      const distFromCenter = Math.sqrt(
+        (cam.cameraViewPoint.x - 1) ** 2 +
+        (cam.cameraViewPoint.y - (-1)) ** 2 +
+        (cam.cameraViewPoint.z - 1) ** 2,
+      );
+      // Should be significantly away from center (distance > entity max size)
+      expect(distFromCenter).toBeGreaterThan(2);
+    });
+
+    it('should skip camera for entities without bounds', () => {
+      const report = createMockReport();
+      const bounds = new Map<string, EntityBoundsInput>();
+      // Only provide bounds for entity 100, not 200
+      bounds.set('model-1:100', {
+        min: { x: 0, y: 0, z: 0 },
+        max: { x: 2, y: 2, z: 2 },
+      });
+      const project = createBCFFromIDSReport(report, { entityBounds: bounds });
+
+      const topics = [...project.topics.values()];
+      expect(topics[0].viewpoints[0].perspectiveCamera).toBeDefined();
+      expect(topics[1].viewpoints[0].perspectiveCamera).toBeUndefined();
+    });
+  });
+
+  // ==========================================================================
+  // Snapshot support
+  // ==========================================================================
+
+  describe('snapshot support', () => {
+    it('should attach snapshots when entitySnapshots provided', () => {
+      const report = createMockReport();
+      const snapshots = new Map<string, string>();
+      snapshots.set('model-1:100', 'data:image/png;base64,iVBOR...');
+
+      const project = createBCFFromIDSReport(report, { entitySnapshots: snapshots });
+
+      const vp = [...project.topics.values()][0].viewpoints[0];
+      expect(vp.snapshot).toBe('data:image/png;base64,iVBOR...');
+    });
+
+    it('should not attach snapshot for entities without one', () => {
+      const report = createMockReport();
+      const snapshots = new Map<string, string>();
+      // Only snapshot for entity 100
+      snapshots.set('model-1:100', 'data:image/png;base64,AAAA');
+
+      const project = createBCFFromIDSReport(report, { entitySnapshots: snapshots });
+
+      const topics = [...project.topics.values()];
+      expect(topics[0].viewpoints[0].snapshot).toBe('data:image/png;base64,AAAA');
+      expect(topics[1].viewpoints[0].snapshot).toBeUndefined();
+    });
+
+    it('should support both bounds and snapshots together', () => {
+      const report = createMockReport();
+      const bounds = new Map<string, EntityBoundsInput>();
+      bounds.set('model-1:100', { min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 1, z: 1 } });
+
+      const snapshots = new Map<string, string>();
+      snapshots.set('model-1:100', 'data:image/png;base64,BBBB');
+
+      const project = createBCFFromIDSReport(report, { entityBounds: bounds, entitySnapshots: snapshots });
+
+      const vp = [...project.topics.values()][0].viewpoints[0];
+      expect(vp.perspectiveCamera).toBeDefined();
+      expect(vp.snapshot).toBe('data:image/png;base64,BBBB');
     });
   });
 });

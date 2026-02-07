@@ -63,6 +63,7 @@ import type {
   IDSRequirementResult,
 } from '@ifc-lite/ids';
 import { cn } from '@/lib/utils';
+import { IDSExportDialog } from './IDSExportDialog';
 
 // ============================================================================
 // Types
@@ -356,6 +357,7 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
     exportReportJSON,
     exportReportHTML,
     exportReportBCF,
+    bcfExportProgress,
   } = useIDS();
 
   // Handle file selection
@@ -557,9 +559,17 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={exportReportBCF}>
-                <FileBox className="h-4 w-4 text-green-500" />
-              </Button>
+              <IDSExportDialog
+                hasReport={!!report}
+                failedCount={report.specificationResults.reduce((sum, s) => sum + s.failedCount, 0)}
+                onExport={exportReportBCF}
+                progress={bcfExportProgress}
+                trigger={
+                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                    <FileBox className="h-4 w-4 text-green-500" />
+                  </Button>
+                }
+              />
             </TooltipTrigger>
             <TooltipContent>Export BCF Report</TooltipContent>
           </Tooltip>

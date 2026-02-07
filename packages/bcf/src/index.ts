@@ -79,6 +79,7 @@ export type {
   IDSEntityResultInput,
   IDSRequirementResultInput,
   IDSBCFExportOptions,
+  EntityBoundsInput,
 } from './ids-reporter.js';
 export { createBCFFromIDSReport } from './ids-reporter.js';
 

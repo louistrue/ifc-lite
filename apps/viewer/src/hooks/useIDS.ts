@@ -13,7 +13,7 @@
  * - Isolate failed/passed entities
  */
 
-import { useCallback, useMemo, useEffect, useRef } from 'react';
+import { useCallback, useMemo, useEffect, useRef, useState } from 'react';
 import { useViewerStore } from '@/store';
 import type {
   IDSDocument,
@@ -36,6 +36,9 @@ import {
 } from '@ifc-lite/ids';
 import type { IfcDataStore } from '@ifc-lite/parser';
 import { createBCFFromIDSReport, writeBCF } from '@ifc-lite/bcf';
+import type { EntityBoundsInput, IDSBCFExportOptions } from '@ifc-lite/bcf';
+import type { IDSBCFExportSettings, IDSExportProgress } from '@/components/viewer/IDSExportDialog';
+import { getEntityBounds } from '@/utils/viewportUtils';
 
 // ============================================================================
 // Types
@@ -143,8 +146,10 @@ export interface UseIDSResult {
   exportReportJSON: () => void;
   /** Export validation report to HTML */
   exportReportHTML: () => void;
-  /** Export validation report to BCF (one topic per failing entity) */
-  exportReportBCF: () => Promise<void>;
+  /** Export validation report to BCF with configurable options */
+  exportReportBCF: (settings: IDSBCFExportSettings) => Promise<void>;
+  /** BCF export progress state */
+  bcfExportProgress: IDSExportProgress | null;
 }
 
 // ============================================================================
@@ -1007,11 +1012,169 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     URL.revokeObjectURL(url);
   }, [report, locale]);
 
-  const exportReportBCF = useCallback(async () => {
+  // BCF export progress state
+  const [bcfExportProgress, setBcfExportProgress] = useState<IDSExportProgress | null>(null);
+
+  // BCF store actions for 'load into panel'
+  const setBcfProject = useViewerStore((s) => s.setBcfProject);
+  const setBcfPanelVisible = useViewerStore((s) => s.setBcfPanelVisible);
+  const bcfAuthor = useViewerStore((s) => s.bcfAuthor);
+
+  const exportReportBCF = useCallback(async (settings: IDSBCFExportSettings) => {
     if (!report) {
       console.warn('[IDS] No report to export');
       return;
     }
+
+    const {
+      topicGrouping,
+      includePassingEntities,
+      includeCamera,
+      includeSnapshots,
+      loadIntoBcfPanel,
+    } = settings;
+
+    // Phase 1: Collect entity bounds if camera is requested
+    let entityBounds: Map<string, EntityBoundsInput> | undefined;
+
+    if (includeCamera) {
+      setBcfExportProgress({ phase: 'building', current: 0, total: 1, message: 'Computing entity bounds...' });
+
+      entityBounds = new Map();
+      const geomResult = geometryResultRef.current;
+
+      // Collect geometry from all models
+      const allMeshData: Array<{ meshes: unknown[]; idOffset: number; modelId: string }> = [];
+      for (const [modelId, model] of models.entries()) {
+        if (model.geometryResult?.meshes) {
+          allMeshData.push({
+            meshes: model.geometryResult.meshes,
+            idOffset: model.idOffset ?? 0,
+            modelId,
+          });
+        }
+      }
+
+      // Also include legacy single-model geometry
+      if (geomResult?.meshes && allMeshData.length === 0) {
+        allMeshData.push({
+          meshes: geomResult.meshes,
+          idOffset: 0,
+          modelId: 'default',
+        });
+      }
+
+      // Compute bounds for each entity that appears in the report
+      for (const specResult of report.specificationResults) {
+        for (const entity of specResult.entityResults) {
+          if (entity.passed && !includePassingEntities) continue;
+          const boundsKey = `${entity.modelId}:${entity.expressId}`;
+          if (entityBounds.has(boundsKey)) continue;
+
+          // Find matching model geometry
+          for (const modelData of allMeshData) {
+            if (modelData.modelId === entity.modelId || allMeshData.length === 1) {
+              const globalExpressId = entity.expressId + modelData.idOffset;
+              const bounds = getEntityBounds(
+                modelData.meshes as Parameters<typeof getEntityBounds>[0],
+                globalExpressId,
+              );
+              if (bounds) {
+                entityBounds.set(boundsKey, bounds);
+              }
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // Phase 2: Batch snapshots if requested
+    let entitySnapshots: Map<string, string> | undefined;
+
+    if (includeSnapshots) {
+      entitySnapshots = new Map();
+
+      // Collect all entities that need snapshots
+      const entitiesToSnapshot: Array<{ modelId: string; expressId: number; boundsKey: string }> = [];
+      for (const specResult of report.specificationResults) {
+        for (const entity of specResult.entityResults) {
+          if (entity.passed && !includePassingEntities) continue;
+          const boundsKey = `${entity.modelId}:${entity.expressId}`;
+          if (!entitiesToSnapshot.some(e => e.boundsKey === boundsKey)) {
+            entitiesToSnapshot.push({
+              modelId: entity.modelId,
+              expressId: entity.expressId,
+              boundsKey,
+            });
+          }
+        }
+      }
+
+      const total = entitiesToSnapshot.length;
+
+      for (let i = 0; i < total; i++) {
+        const entity = entitiesToSnapshot[i];
+        setBcfExportProgress({
+          phase: 'snapshots',
+          current: i + 1,
+          total,
+          message: `Capturing snapshot ${i + 1}/${total}...`,
+        });
+
+        // Get the entity's bounds for framing
+        const bounds = entityBounds?.get(entity.boundsKey);
+        if (!bounds) continue;
+
+        // Find the global expressId for isolation/selection
+        let globalExpressId = entity.expressId;
+        for (const [, model] of models.entries()) {
+          if (model.id === entity.modelId) {
+            globalExpressId = entity.expressId + (model.idOffset ?? 0);
+            break;
+          }
+        }
+
+        // Isolate entity + frame it + capture
+        setIsolatedEntities(new Set([globalExpressId]));
+        setSelectedEntityId(globalExpressId);
+
+        // Frame the entity bounds and wait for animation
+        if (cameraCallbacks?.frameSelection) {
+          cameraCallbacks.frameSelection();
+        }
+
+        // Wait for render to settle (animation + GPU)
+        await new Promise(resolve => setTimeout(resolve, 400));
+
+        // Capture the canvas
+        const canvas = globalThis.document.querySelector('canvas');
+        if (canvas) {
+          try {
+            const dataUrl = canvas.toDataURL('image/png');
+            entitySnapshots.set(entity.boundsKey, dataUrl);
+          } catch {
+            // Canvas capture failed (e.g., tainted canvas)
+          }
+        }
+      }
+
+      // Restore isolation/selection state
+      setIsolatedEntities(null);
+      setSelectedEntityId(null);
+    }
+
+    // Phase 3: Build BCF project
+    setBcfExportProgress({ phase: 'writing', current: 0, total: 1, message: 'Building BCF project...' });
+
+    const exportOptions: IDSBCFExportOptions = {
+      author: bcfAuthor || report.document.info.author || 'ids-validator@ifc-lite',
+      projectName: `IDS Report - ${report.document.info.title}`,
+      topicGrouping,
+      includePassingEntities,
+      entityBounds,
+      entitySnapshots,
+    };
 
     const bcfProject = createBCFFromIDSReport(
       {
@@ -1019,11 +1182,11 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
         description: report.document.info.description,
         specificationResults: report.specificationResults,
       },
-      {
-        author: report.document.info.author ?? 'ids-validator@ifc-lite',
-        projectName: `IDS Report - ${report.document.info.title}`,
-      },
+      exportOptions,
     );
+
+    // Phase 4: Write BCF and download
+    setBcfExportProgress({ phase: 'writing', current: 1, total: 2, message: 'Writing BCF file...' });
 
     const blob = await writeBCF(bcfProject);
     const url = URL.createObjectURL(blob);
@@ -1032,7 +1195,27 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     a.download = `ids-report-${new Date().toISOString().split('T')[0]}.bcf`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [report]);
+
+    // Phase 5: Load into BCF panel if requested
+    if (loadIntoBcfPanel) {
+      setBcfProject(bcfProject);
+      setBcfPanelVisible(true);
+    }
+
+    setBcfExportProgress({ phase: 'done', current: 1, total: 1, message: 'Export complete!' });
+
+    // Clear progress after a delay
+    setTimeout(() => setBcfExportProgress(null), 2000);
+  }, [
+    report,
+    models,
+    bcfAuthor,
+    cameraCallbacks,
+    setIsolatedEntities,
+    setSelectedEntityId,
+    setBcfProject,
+    setBcfPanelVisible,
+  ]);
 
   // ============================================================================
   // Return
@@ -1092,5 +1275,6 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     exportReportJSON,
     exportReportHTML,
     exportReportBCF,
+    bcfExportProgress,
   };
 }

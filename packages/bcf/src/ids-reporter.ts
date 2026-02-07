@@ -21,7 +21,7 @@
  * - Configurable grouping strategies
  */
 
-import type { BCFProject, BCFTopic, BCFComment, BCFViewpoint } from './types.js';
+import type { BCFProject, BCFTopic, BCFComment, BCFViewpoint, BCFPerspectiveCamera } from './types.js';
 import { generateUuid } from './guid.js';
 
 // ============================================================================
@@ -108,6 +108,12 @@ export interface IDSEntityResultInput {
   requirementResults: IDSRequirementResultInput[];
 }
 
+/** Bounds for an entity — used for camera computation in viewpoints (Y-up viewer coords) */
+export interface EntityBoundsInput {
+  min: { x: number; y: number; z: number };
+  max: { x: number; y: number; z: number };
+}
+
 /** Requirement result — structurally matches IDSRequirementResult */
 export interface IDSRequirementResultInput {
   status: 'pass' | 'fail' | 'not_applicable';
@@ -147,6 +153,18 @@ export interface IDSBCFExportOptions {
   maxTopics?: number;
   /** ARGB hex color for failing elements in viewpoints (default: "FFFF3333" — red) */
   failureColor?: string;
+  /**
+   * Entity bounds map for computing per-entity camera positions.
+   * Key: "modelId:expressId", Value: bounding box in viewer Y-up coordinates.
+   * When provided, viewpoints will include a perspective camera framing the entity.
+   */
+  entityBounds?: Map<string, EntityBoundsInput>;
+  /**
+   * Entity snapshot map for attaching screenshots to viewpoints.
+   * Key: "modelId:expressId", Value: data URL (PNG).
+   * When provided, viewpoints will include the snapshot image.
+   */
+  entitySnapshots?: Map<string, string>;
 }
 
 // ============================================================================
@@ -190,6 +208,8 @@ export function createBCFFromIDSReport(
     passTopicType = DEFAULT_PASS_TOPIC_TYPE,
     maxTopics = DEFAULT_MAX_TOPICS,
     failureColor = DEFAULT_FAILURE_COLOR,
+    entityBounds,
+    entitySnapshots,
   } = options;
 
   const project = createProject(projectName ?? report.title, version);
@@ -203,6 +223,8 @@ export function createBCFFromIDSReport(
         passTopicType,
         maxTopics,
         failureColor,
+        entityBounds,
+        entitySnapshots,
       });
       break;
     case 'per-specification':
@@ -211,6 +233,8 @@ export function createBCFFromIDSReport(
         failureTopicType,
         maxTopics,
         failureColor,
+        entityBounds,
+        entitySnapshots,
       });
       break;
     case 'per-requirement':
@@ -219,6 +243,8 @@ export function createBCFFromIDSReport(
         failureTopicType,
         maxTopics,
         failureColor,
+        entityBounds,
+        entitySnapshots,
       });
       break;
   }
@@ -237,6 +263,8 @@ interface BuildOptions {
   passTopicType?: string;
   maxTopics: number;
   failureColor: string;
+  entityBounds?: Map<string, EntityBoundsInput>;
+  entitySnapshots?: Map<string, string>;
 }
 
 function buildTopicsPerEntity(
@@ -286,9 +314,17 @@ function buildTopicsPerEntity(
         topic.comments.push(comment);
       }
 
-      // Add viewpoint with isolation + selection + coloring
+      // Add viewpoint with isolation + selection + coloring + optional camera/snapshot
       if (entity.globalId) {
-        const viewpoint = buildEntityViewpoint(entity.globalId, isFailed ? opts.failureColor : undefined);
+        const boundsKey = `${entity.modelId}:${entity.expressId}`;
+        const bounds = opts.entityBounds?.get(boundsKey);
+        const snapshot = opts.entitySnapshots?.get(boundsKey);
+        const viewpoint = buildEntityViewpoint(
+          entity.globalId,
+          isFailed ? opts.failureColor : undefined,
+          bounds,
+          snapshot,
+        );
         topic.viewpoints.push(viewpoint);
       }
 
@@ -407,7 +443,10 @@ function buildTopicsPerRequirement(
 
         // Viewpoint for single entity
         if (entity.globalId) {
-          const viewpoint = buildEntityViewpoint(entity.globalId, opts.failureColor);
+          const boundsKey = `${entity.modelId}:${entity.expressId}`;
+          const bounds = opts.entityBounds?.get(boundsKey);
+          const snapshot = opts.entitySnapshots?.get(boundsKey);
+          const viewpoint = buildEntityViewpoint(entity.globalId, opts.failureColor, bounds, snapshot);
           topic.viewpoints.push(viewpoint);
         }
 
@@ -489,16 +528,82 @@ function buildRequirementComment(req: IDSRequirementResultInput): string {
 }
 
 // ============================================================================
+// Helpers — Camera computation
+// ============================================================================
+
+/**
+ * Compute a BCF perspective camera from entity bounds.
+ *
+ * Bounds are in viewer coordinates (Y-up).
+ * BCF uses Z-up, so we convert:
+ *   BCF.x = Viewer.x
+ *   BCF.y = -Viewer.z
+ *   BCF.z = Viewer.y
+ *
+ * Camera is placed at a southeast-isometric angle from the entity center,
+ * at a distance that frames the entity's bounding box with padding.
+ */
+function computeCameraFromBounds(bounds: EntityBoundsInput): BCFPerspectiveCamera {
+  // Center in viewer coords (Y-up)
+  const cx = (bounds.min.x + bounds.max.x) / 2;
+  const cy = (bounds.min.y + bounds.max.y) / 2;
+  const cz = (bounds.min.z + bounds.max.z) / 2;
+
+  // Max extent for framing distance
+  const sx = bounds.max.x - bounds.min.x;
+  const sy = bounds.max.y - bounds.min.y;
+  const sz = bounds.max.z - bounds.min.z;
+  const maxSize = Math.max(sx, sy, sz, 0.1); // Floor to avoid zero
+
+  // Camera distance: fit maxSize into 60deg FOV with 1.5x padding
+  const fovRad = (60 * Math.PI) / 180;
+  const distance = (maxSize / 2) / Math.tan(fovRad / 2) * 1.5;
+
+  // Southeast-isometric offset in viewer coords (Y-up):
+  // camera position = center + normalized(0.6, 0.5, 0.6) * distance
+  const offsetLen = Math.sqrt(0.6 * 0.6 + 0.5 * 0.5 + 0.6 * 0.6);
+  const ox = (0.6 / offsetLen) * distance;
+  const oy = (0.5 / offsetLen) * distance;
+  const oz = (0.6 / offsetLen) * distance;
+
+  const camX = cx + ox;
+  const camY = cy + oy;
+  const camZ = cz + oz;
+
+  // Direction: from camera to center (viewer coords)
+  const dx = cx - camX;
+  const dy = cy - camY;
+  const dz = cz - camZ;
+  const dLen = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+  // Convert to BCF coords (Z-up)
+  // Viewer (x, y, z) → BCF (x, -z, y)
+  return {
+    cameraViewPoint: { x: camX, y: -camZ, z: camY },
+    cameraDirection: {
+      x: dx / dLen,
+      y: -dz / dLen,
+      z: dy / dLen,
+    },
+    cameraUpVector: { x: 0, y: 0, z: 1 }, // BCF Z-up
+    fieldOfView: 60,
+  };
+}
+
+// ============================================================================
 // Helpers — Viewpoint builders
 // ============================================================================
 
 /**
  * Build a viewpoint for a single entity: selected, isolated, colored.
- * No camera is set — the consuming viewer should zoom-to-fit on the selected entity.
+ * Optionally includes a perspective camera computed from entity bounds,
+ * and a snapshot image if provided.
  */
 function buildEntityViewpoint(
   globalId: string,
   failureColor: string | undefined,
+  bounds?: EntityBoundsInput,
+  snapshot?: string,
 ): BCFViewpoint {
   const viewpoint: BCFViewpoint = {
     guid: generateUuid(),
@@ -518,6 +623,16 @@ function buildEntityViewpoint(
         components: [{ ifcGuid: globalId }],
       },
     ];
+  }
+
+  // Compute camera from bounds (viewer Y-up → BCF Z-up)
+  if (bounds) {
+    viewpoint.perspectiveCamera = computeCameraFromBounds(bounds);
+  }
+
+  // Attach snapshot
+  if (snapshot) {
+    viewpoint.snapshot = snapshot;
   }
 
   return viewpoint;
