@@ -2294,17 +2294,22 @@ impl BooleanClippingProcessor {
                 return self.clip_mesh_with_half_space(&mesh, plane_point, plane_normal, agreement);
             }
 
-            // Solid-solid difference: skip full CSG boolean operations.
-            // The csgrs BSP tree can infinite-recurse on certain polygon configurations,
-            // causing stack overflow in both native and WASM. Return the first operand
-            // (base geometry) as a graceful fallback - the model renders without the
-            // boolean cut, which is the standard behavior for most IFC viewers.
+            // Solid-solid difference: return base geometry (first operand).
+            //
+            // The csgrs BSP tree can infinite-recurse on arbitrary solid combinations,
+            // causing unrecoverable stack overflow in WASM. Unlike half-space clipping
+            // (handled above), solid-solid CSG cannot be safely bounded.
+            //
+            // Opening subtraction (windows/doors from walls) is handled separately by
+            // the router via subtract_mesh, which works on controlled geometry. Here we
+            // only encounter IfcBooleanResult chains from CAD exports (Tekla, Revit)
+            // where the visual difference from skipping the boolean is negligible.
             return Ok(mesh);
         }
 
         // Handle UNION operation
         if operator == ".UNION." || operator == "UNION" {
-            // For union, merge both meshes together (combine geometry without CSG)
+            // Merge both meshes (combines geometry without CSG intersection removal)
             let second_mesh = self.process_operand_with_depth(&second_operand, decoder, depth)?;
             if !second_mesh.is_empty() {
                 let mut merged = mesh;
@@ -2316,9 +2321,7 @@ impl BooleanClippingProcessor {
 
         // Handle INTERSECTION operation
         if operator == ".INTERSECTION." || operator == "INTERSECTION" {
-            // Solid-solid intersection: skip full CSG boolean operations.
-            // Same as DIFFERENCE - the csgrs BSP tree can infinite-recurse.
-            // Return the first operand as a graceful fallback.
+            // Same as DIFFERENCE - return first operand to avoid csgrs BSP recursion
             return Ok(mesh);
         }
 
