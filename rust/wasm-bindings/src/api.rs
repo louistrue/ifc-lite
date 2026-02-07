@@ -495,12 +495,6 @@ impl IfcAPI {
                 // Use process_element_with_voids for ALL elements (simplified from separate paths)
                 // This ensures RTC offset is consistently applied via transform_mesh
                 
-                // #region agent log - Debug void processing
-                let is_wall = entity.ifc_type == ifc_lite_core::IfcType::IfcWall || entity.ifc_type == ifc_lite_core::IfcType::IfcWallStandardCase;
-                let has_voids = void_index.get(&id).map(|v| !v.is_empty()).unwrap_or(false);
-                
-                // #endregion
-                
                 match router.process_element_with_voids(&entity, &mut decoder, &void_index) {
                 Err(e) => {
                     // Log the specific error for debugging
@@ -2750,24 +2744,6 @@ impl Transform2D {
         (rx + self.tx, ry + self.ty)
     }
 
-    /// Apply translation only, no rotation.
-    /// Used for 2D representations (Axis, Plan) where 2D coordinates are already
-    /// in floor plan orientation and shouldn't be rotated by the 3D ObjectPlacement.
-    fn translate_point(&self, x: f32, y: f32) -> (f32, f32) {
-        (x + self.tx, y + self.ty)
-    }
-
-    /// Get rotation angle in degrees for logging
-    fn rotation_degrees(&self) -> f32 {
-        self.sin_theta.atan2(self.cos_theta).to_degrees()
-    }
-
-    /// Check if this is approximately identity transform
-    fn is_identity(&self) -> bool {
-        self.tx.abs() < 0.001 && self.ty.abs() < 0.001 
-            && (self.cos_theta - 1.0).abs() < 0.0001 
-            && self.sin_theta.abs() < 0.0001
-    }
 }
 
 /// Compose two 2D transforms: result = a * b (apply b first, then a)
@@ -2786,38 +2762,6 @@ fn compose_transforms(a: &Transform2D, b: &Transform2D) -> Transform2D {
         cos_theta: combined_cos,
         sin_theta: combined_sin,
     }
-}
-
-/// Get the 2D world transform from an entity's ObjectPlacement
-fn get_object_placement_transform(
-    entity: &ifc_lite_core::DecodedEntity,
-    decoder: &mut ifc_lite_core::EntityDecoder,
-    unit_scale: f32,
-) -> Transform2D {
-    // Get ObjectPlacement (attribute 5 for IfcProduct)
-    let placement_attr = match entity.get(5) {
-        Some(attr) if !attr.is_null() => attr,
-        _ => return Transform2D::identity(),
-    };
-
-    let placement = match decoder.resolve_ref(placement_attr) {
-        Ok(Some(p)) => p,
-        _ => return Transform2D::identity(),
-    };
-
-    // Recursively resolve the placement hierarchy
-    resolve_placement_transform(&placement, decoder, unit_scale, 0)
-}
-
-/// Get placement transform for symbolic 2D representations.
-/// Translations are accumulated directly (not rotated), but rotations are accumulated
-/// to properly orient door swings, window symbols, etc.
-fn get_object_placement_for_symbolic(
-    entity: &ifc_lite_core::DecodedEntity,
-    decoder: &mut ifc_lite_core::EntityDecoder,
-    unit_scale: f32,
-) -> Transform2D {
-    get_object_placement_for_symbolic_logged(entity, decoder, unit_scale, None)
 }
 
 /// Get placement transform for symbolic 2D representations with logging.
@@ -2842,91 +2786,9 @@ fn get_object_placement_for_symbolic_logged(
     resolve_placement_for_symbolic_with_logging(&placement, decoder, unit_scale, 0, log_entity_id)
 }
 
-/// Recursively resolve IfcLocalPlacement to get the full 2D transform
-fn resolve_placement_transform(
-    placement: &ifc_lite_core::DecodedEntity,
-    decoder: &mut ifc_lite_core::EntityDecoder,
-    unit_scale: f32,
-    depth: usize,
-) -> Transform2D {
-    use ifc_lite_core::IfcType;
-
-    // Prevent infinite recursion
-    if depth > 50 || placement.ifc_type != IfcType::IfcLocalPlacement {
-        return Transform2D::identity();
-    }
-
-    // Get parent transform first (attribute 0: PlacementRelTo)
-    let parent_transform = if let Some(parent_attr) = placement.get(0) {
-        if !parent_attr.is_null() {
-            if let Ok(Some(parent)) = decoder.resolve_ref(parent_attr) {
-                resolve_placement_transform(&parent, decoder, unit_scale, depth + 1)
-            } else {
-                Transform2D::identity()
-            }
-        } else {
-            Transform2D::identity()
-        }
-    } else {
-        Transform2D::identity()
-    };
-
-    // Get local transform (attribute 1: RelativePlacement - IfcAxis2Placement3D)
-    let local_transform = if let Some(rel_attr) = placement.get(1) {
-        if !rel_attr.is_null() {
-            if let Ok(Some(rel)) = decoder.resolve_ref(rel_attr) {
-                if rel.ifc_type == IfcType::IfcAxis2Placement3D {
-                    parse_axis2_placement_2d(&rel, decoder, unit_scale)
-                } else if rel.ifc_type == IfcType::IfcAxis2Placement2D {
-                    parse_axis2_placement_2d(&rel, decoder, unit_scale)
-                } else {
-                    Transform2D::identity()
-                }
-            } else {
-                Transform2D::identity()
-            }
-        } else {
-            Transform2D::identity()
-        }
-    } else {
-        Transform2D::identity()
-    };
-
-    // Compose: parent * local
-    // For rotation: combined_angle = parent_angle + local_angle
-    // For translation: combined_t = parent_R * local_t + parent_t
-    let combined_cos = parent_transform.cos_theta * local_transform.cos_theta
-                     - parent_transform.sin_theta * local_transform.sin_theta;
-    let combined_sin = parent_transform.sin_theta * local_transform.cos_theta
-                     + parent_transform.cos_theta * local_transform.sin_theta;
-
-    // Rotate local translation by parent rotation, then add parent translation
-    let rtx = local_transform.tx * parent_transform.cos_theta
-            - local_transform.ty * parent_transform.sin_theta;
-    let rty = local_transform.tx * parent_transform.sin_theta
-            + local_transform.ty * parent_transform.cos_theta;
-
-    Transform2D {
-        tx: rtx + parent_transform.tx,
-        ty: rty + parent_transform.ty,
-        cos_theta: combined_cos,
-        sin_theta: combined_sin,
-    }
-}
-
 /// Recursively resolve IfcLocalPlacement for 2D symbolic representations.
 /// Translations are accumulated directly (without rotating by parent rotations),
 /// but rotations ARE accumulated to orient the 2D geometry correctly.
-fn resolve_placement_for_symbolic(
-    placement: &ifc_lite_core::DecodedEntity,
-    decoder: &mut ifc_lite_core::EntityDecoder,
-    unit_scale: f32,
-    depth: usize,
-) -> Transform2D {
-    resolve_placement_for_symbolic_with_logging(placement, decoder, unit_scale, depth, None)
-}
-
-/// Helper for resolve_placement_for_symbolic with optional entity ID for logging
 fn resolve_placement_for_symbolic_with_logging(
     placement: &ifc_lite_core::DecodedEntity,
     decoder: &mut ifc_lite_core::EntityDecoder,
@@ -3029,7 +2891,7 @@ fn parse_axis2_placement_2d_with_logging(
     // Floor plan coordinates use X-Y plane (Z is up) to match section cut
     let is_3d = placement.ifc_type == IfcType::IfcAxis2Placement3D;
 
-    let (tx, ty, raw_coords) = if let Some(loc_ref) = placement.get_ref(0) {
+    let (tx, ty, _raw_coords) = if let Some(loc_ref) = placement.get_ref(0) {
         if let Ok(loc) = decoder.decode_by_id(loc_ref) {
             if loc.ifc_type == IfcType::IfcCartesianPoint {
                 if let Some(coords_attr) = loc.get(0) {
@@ -4067,13 +3929,10 @@ fn extract_building_rotation(
     let mut scanner = EntityScanner::new(content);
 
     // Find IfcSite entity
-    let mut found_site = false;
     while let Some((site_id, type_name, start, end)) = scanner.next_entity() {
         if type_name != "IFCSITE" {
             continue;
         }
-
-        found_site = true;
 
         // Decode IfcSite
         if let Ok(site_entity) = decoder.decode_at_with_id(site_id, start, end) {
