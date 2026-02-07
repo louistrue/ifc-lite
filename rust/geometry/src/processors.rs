@@ -2321,8 +2321,9 @@ impl BooleanClippingProcessor {
 
         // Handle INTERSECTION operation
         if operator == ".INTERSECTION." || operator == "INTERSECTION" {
-            // Same as DIFFERENCE - return first operand to avoid csgrs BSP recursion
-            return Ok(mesh);
+            // Return empty mesh - we can't safely compute the intersection due to
+            // csgrs BSP recursion, and returning the first operand would over-approximate
+            return Ok(Mesh::new());
         }
 
         // Unknown operator - return first operand
