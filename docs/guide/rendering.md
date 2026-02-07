@@ -40,6 +40,8 @@ flowchart TB
     style Output fill:#a855f7,stroke:#581c87,color:#fff
 ```
 
+Key rendering features include section planes for model slicing, snap detection for precision interaction, GPU picking for object selection, and measurement tools for calculating distances and angles between geometry points. For generating 2D plans and elevations from 3D models, see the [2D Drawing Guide](drawing-2d.md).
+
 ## Basic Setup
 
 ```typescript
@@ -822,4 +824,5 @@ async function createViewer() {
 - [Geometry Guide](geometry.md) - Geometry processing
 - [Query Guide](querying.md) - Query entity data
 - [Server Guide](server.md) - Server-based rendering
+- [2D Drawing Guide](drawing-2d.md) - Generate 2D plans and elevations
 - [API Reference](../api/typescript.md) - Complete API docs

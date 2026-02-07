@@ -401,8 +401,66 @@ flowchart TB
 | Geometry Buffers | ~20 MB | Triangulated meshes |
 | GPU Buffers | ~20 MB | Mirrors CPU |
 
+## Multi-Model Federation Data Flow
+
+When multiple IFC files are loaded, each model is assigned a unique ID offset by the `FederationRegistry`:
+
+```mermaid
+flowchart TB
+    subgraph Files["Input Files"]
+        File1["Model A.ifc"]
+        File2["Model B.ifc"]
+    end
+
+    subgraph Registry["FederationRegistry"]
+        Reg1["Model A: offset=0, max=5000"]
+        Reg2["Model B: offset=5000, max=3000"]
+    end
+
+    subgraph Store["Zustand Store"]
+        Models["models Map<br/>FederatedModel[]"]
+        Selection["selectionSlice<br/>EntityRef: modelId + expressId"]
+        Visibility["visibilitySlice<br/>globalIds in hiddenEntities"]
+    end
+
+    Files --> Registry
+    Registry --> Store
+
+    Click["User Click"] --> GlobalId["globalId from GPU"]
+    GlobalId --> Resolve["resolveGlobalIdFromModels"]
+    Resolve --> EntityRef["{ modelId, expressId }"]
+    EntityRef --> Selection
+```
+
+All mesh geometry uses **global IDs** (`expressId + offset`) for the GPU pick buffer, while the application logic uses **EntityRef** (`{ modelId, expressId }`) for unambiguous references.
+
+## Mutation Data Flow
+
+Property editing flows through the `MutablePropertyView` overlay:
+
+```mermaid
+flowchart LR
+    subgraph Read["Read Path"]
+        Query["Get Property"] --> Check["Check Overlay"]
+        Check -->|Has Override| Overlay["Return Mutated Value"]
+        Check -->|No Override| Original["Return Original Value"]
+    end
+
+    subgraph Write["Write Path"]
+        Edit["Set Property"] --> Record["Record Mutation<br/>(old + new value)"]
+        Record --> UpdateOverlay["Update Overlay Map"]
+        Record --> UndoStack["Push to Undo Stack"]
+    end
+
+    subgraph Export["Export"]
+        Changes["All Mutations"] --> ChangeSet["Change Set JSON"]
+        Changes --> IFCExport["Modified IFC File"]
+    end
+```
+
 ## Next Steps
 
 - [Parsing Pipeline](parsing-pipeline.md) - Parser details
 - [Geometry Pipeline](geometry-pipeline.md) - Geometry details
 - [Rendering Pipeline](rendering-pipeline.md) - Renderer details
+- [Federation Architecture](federation.md) - Multi-model federation details

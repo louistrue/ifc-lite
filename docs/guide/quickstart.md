@@ -2,6 +2,9 @@
 
 Get up and running with IFClite in under 5 minutes. Choose your path based on your use case.
 
+!!! tip "Beyond Single-Model Viewing"
+    IFClite also supports **multi-model federation** (loading and coordinating multiple IFC files), **BCF** (BIM Collaboration Format) for issue tracking, and **IDS** (Information Delivery Specification) for model validation. See the [Next Steps](#next-steps) section for links to these guides.
+
 ## Choose Your Approach
 
 | | Client-Side | Server + Client |
@@ -537,3 +540,8 @@ try {
 - [Geometry Guide](geometry.md) - Geometry processing details
 - [Rendering Guide](rendering.md) - WebGPU rendering features
 - [Query Guide](querying.md) - Query entities and properties
+- [Federation Guide](federation.md) - Multi-model loading and coordination
+- [BCF Guide](bcf.md) - BIM Collaboration Format for issue tracking
+- [IDS Guide](ids.md) - Information Delivery Specification for validation
+- [2D Drawing Guide](drawing-2d.md) - Generate 2D drawings from models
+- [Mutations Guide](mutations.md) - Programmatic model modifications

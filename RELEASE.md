@@ -47,10 +47,11 @@ Add support for IFC4X3 entities
      - Synced versions between npm and Rust
 
 2. **When "Version Packages" PR is merged**:
-   - Packages are automatically built
-   - npm packages are published to npm registry
-   - Rust crates are published to crates.io
+   - All packages are automatically built
+   - npm packages are published to npm registry (18 `@ifc-lite/*` packages + `create-ifc-lite`)
+   - Rust crates are published to crates.io (`ifc-lite-core`, `ifc-lite-geometry`, `ifc-lite-wasm`)
    - GitHub Release is created with version tag
+   - Server binaries are cross-compiled for 6 platforms (Linux x64/ARM64/musl, macOS x64/ARM64, Windows x64) and attached to the release
 
 ## Release Workflow Diagram
 
@@ -59,8 +60,12 @@ PR with changeset → Merge to main → "Version Packages" PR created
                                             ↓
                                     Review & Merge
                                             ↓
-                         Build → Publish npm → Publish Rust → Create GitHub Release
+                    Build → Publish npm (18 packages) → Publish Rust (3 crates)
+                                            ↓
+                    Create GitHub Release → Build server binaries (6 platforms)
 ```
+
+> **Workflow file**: [`.github/workflows/release.yml`](.github/workflows/release.yml)
 
 ## Manual Release (Emergency Only)
 
@@ -83,10 +88,11 @@ pnpm release
 
 ## Version Synchronization
 
-All packages (npm and Rust) are kept at the **same version** via:
+All 18 npm packages and 3 Rust crates are kept at the **same version** via:
 
-- **Linked packages**: All `@ifc-lite/*` packages bump together
-- **Automatic sync**: `scripts/sync-versions.js` syncs Cargo.toml after npm version bumps
+- **Fixed versioning**: All `@ifc-lite/*` packages bump together (configured in `.changeset/config.json`)
+- **Automatic sync**: `scripts/sync-versions.js` syncs `Cargo.toml` workspace version after npm version bumps
+- **Exception**: `@ifc-lite/desktop` may lag behind temporarily (currently 1.1.7) and will be synced on the next version bump
 
 ## Secrets Required
 

@@ -28,9 +28,11 @@ All new source files MUST include the Mozilla Public License 2.0 header at the t
 
 ## Project Structure
 
-- `rust/` - Rust/WASM core (parsing, geometry)
-- `packages/` - TypeScript packages
+- `rust/` - Rust/WASM core (parsing, geometry) - 3 crates
+- `packages/` - 18 TypeScript packages (parser, renderer, geometry, bcf, ids, mutations, drawing-2d, etc.)
 - `apps/viewer/` - React viewer application
+- `apps/server/` - Rust HTTP server (Axum)
+- `apps/desktop/` - Tauri desktop application
 - `docs/` - MkDocs documentation
 
 ## Generated Files (Do Not Edit)

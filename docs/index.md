@@ -30,9 +30,25 @@
 
     ---
 
-    Complete API documentation for all 12 TypeScript packages.
+    Complete API documentation for all 18 TypeScript packages.
 
     [:octicons-arrow-right-24: API Reference](api/typescript.md)
+
+-   :material-layers-triple:{ .lg .middle } __Multi-Model Federation__
+
+    ---
+
+    Load multiple IFC files simultaneously with unified selection and visibility.
+
+    [:octicons-arrow-right-24: Federation Guide](guide/federation.md)
+
+-   :material-check-decagram:{ .lg .middle } __BCF, IDS & 2D Drawings__
+
+    ---
+
+    Collaboration, validation, and 2D drawing generation from 3D models.
+
+    [:octicons-arrow-right-24: BCF Guide](guide/bcf.md)
 
 </div>
 
@@ -44,6 +60,8 @@
 - **Full IFC Support** - IFC4X3 (876 entities) + native IFC5 (IFCX) JSON format
 - **Fast Rendering** - WebGPU with first triangles in 300-500ms
 - **Tiny Bundle** - ~260 KB gzipped, 40% smaller than alternatives
+- **Multi-Model** - Load and federate multiple IFC files with unified interactions
+- **BIM Workflows** - BCF collaboration, IDS validation, 2D drawings, property editing
 
 ## Choose Your Path
 
@@ -179,11 +197,13 @@ IFClite supports two processing paradigms:
 
 ## Packages
 
-**TypeScript:** `@ifc-lite/parser` · `@ifc-lite/geometry` · `@ifc-lite/renderer` · `@ifc-lite/server-client` · `@ifc-lite/cache` · `@ifc-lite/query` · `@ifc-lite/export`
+**Core:** `@ifc-lite/parser` · `@ifc-lite/ifcx` · `@ifc-lite/geometry` · `@ifc-lite/renderer` · `@ifc-lite/data` · `@ifc-lite/spatial` · `@ifc-lite/wasm`
+
+**Features:** `@ifc-lite/bcf` · `@ifc-lite/ids` · `@ifc-lite/mutations` · `@ifc-lite/drawing-2d` · `@ifc-lite/query` · `@ifc-lite/export` · `@ifc-lite/cache`
+
+**Infrastructure:** `@ifc-lite/server-client` · `@ifc-lite/server-bin` · `@ifc-lite/codegen` · `create-ifc-lite`
 
 **Rust:** `ifc-lite-core` · `ifc-lite-geometry` · `ifc-lite-wasm` · `ifc-lite-server`
-
-**CLI:** `npx create-ifc-lite` to scaffold a new project
 
 ## Browser Support
 
@@ -205,6 +225,10 @@ Chrome 113+ · Edge 113+ · Firefox 127+ · Safari 18+ (all with WebGPU)
 
     Set up server-based processing with caching
 
+-   [:material-monitor: __Desktop App__](guide/desktop.md)
+
+    Native Tauri app with multi-threading and filesystem access
+
 -   [:material-school: __Tutorials__](tutorials/building-viewer.md)
 
     Build a complete IFC viewer from scratch
@@ -212,6 +236,10 @@ Chrome 113+ · Edge 113+ · Firefox 127+ · Safari 18+ (all with WebGPU)
 -   [:material-file-document: __Parsing Guide__](guide/parsing.md)
 
     Deep dive into parsing modes and IFC5 support
+
+-   [:material-layers-triple: __Federation__](guide/federation.md)
+
+    Load multiple models simultaneously
 
 -   [:material-github: __Source Code__](https://github.com/louistrue/ifc-lite)
 

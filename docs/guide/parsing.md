@@ -555,9 +555,14 @@ try {
 4. **Use server for large files** - Parallel processing and caching
 5. **Filter entity types** - Exclude IFCSPACE, IFCOPENINGELEMENT if not needed
 
+## Multi-Model Loading
+
+When working with multiple IFC files (e.g., architectural, structural, and MEP models), use the federation system to load and coordinate them with unified selection and visibility. Each model receives an ID offset to prevent express ID collisions across files. See the [Federation Guide](federation.md) for details on multi-model loading, global ID resolution, and coordinated visibility control.
+
 ## Next Steps
 
 - [Server Guide](server.md) - Server-based parsing with caching
 - [Geometry Guide](geometry.md) - Process geometry
 - [Query Guide](querying.md) - Query parsed data
+- [Federation Guide](federation.md) - Load and coordinate multiple models
 - [API Reference](../api/typescript.md) - Complete API docs

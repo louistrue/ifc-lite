@@ -667,3 +667,510 @@ interface Progress {
   stage?: string;
 }
 ```
+
+---
+
+## @ifc-lite/bcf
+
+BCF (BIM Collaboration Format) support for issue tracking in BIM projects. Implements BCF 2.1 and 3.0.
+
+### readBCF / writeBCF
+
+```typescript
+// Read a BCF/BCFzip file
+function readBCF(buffer: ArrayBuffer): Promise<BCFProject>;
+
+// Write a BCF file
+function writeBCF(project: BCFProject): Promise<Uint8Array>;
+```
+
+### createBCFProject
+
+```typescript
+function createBCFProject(options?: {
+  name?: string;
+  version?: '2.1' | '3.0';
+}): BCFProject;
+```
+
+### createBCFTopic / createBCFComment
+
+```typescript
+function createBCFTopic(options: {
+  title: string;
+  author: string;
+  // ... additional topic fields
+}): BCFTopic;
+
+function createBCFComment(options: {
+  author: string;
+  comment: string;
+}): BCFComment;
+```
+
+### Project Mutation Helpers
+
+```typescript
+// Add topic to project
+function addTopicToProject(project: BCFProject, topic: BCFTopic): void;
+
+// Add comment to topic
+function addCommentToTopic(topic: BCFTopic, comment: BCFComment): void;
+
+// Add viewpoint to topic
+function addViewpointToTopic(topic: BCFTopic, viewpoint: BCFViewpoint): void;
+```
+
+### Viewpoints
+
+```typescript
+// Create a viewpoint from camera state
+function createViewpoint(state: CameraState): BCFViewpoint;
+
+// Extract camera state from a viewpoint
+function extractViewpointState(viewpoint: BCFViewpoint): CameraState;
+```
+
+### GUID Utilities
+
+```typescript
+function uuidToIfcGuid(uuid: string): string;
+function ifcGuidToUuid(guid: string): string;
+function generateIfcGuid(): string;
+function isValidIfcGuid(guid: string): boolean;
+```
+
+### Types
+
+```typescript
+interface BCFProject {
+  // Project metadata and topics
+}
+
+interface BCFTopic {
+  // Topic with title, author, status, comments, viewpoints
+}
+
+interface BCFComment {
+  // Comment with author, text, and timestamp
+}
+
+interface BCFViewpoint {
+  // Viewpoint with camera position, components, and clipping planes
+}
+
+interface BCFComponents {
+  // Component visibility and selection state
+}
+
+interface BCFClippingPlane {
+  // Clipping plane definition
+}
+```
+
+---
+
+## @ifc-lite/ids
+
+IDS (Information Delivery Specification) validation. Implements IDS 1.0 with all facet and constraint types.
+
+### parseIDS
+
+```typescript
+// Parse an IDS XML file
+function parseIDS(xml: string): IDSDocument;
+```
+
+### validateIDS
+
+```typescript
+// Run validation against an IFC data store
+function validateIDS(
+  document: IDSDocument,
+  accessor: IFCDataAccessor,
+  options?: { onProgress?: (progress: Progress) => void }
+): Promise<IDSValidationReport>;
+```
+
+### Facet Checking
+
+```typescript
+function checkFacet(facet: IDSFacet, entity: EntityRef, accessor: IFCDataAccessor): boolean;
+function filterByFacet(facet: IDSFacet, entities: EntityRef[], accessor: IFCDataAccessor): EntityRef[];
+function checkEntityFacet(facet: IDSFacet, entity: EntityRef): boolean;
+function checkPropertyFacet(facet: IDSFacet, entity: EntityRef, accessor: IFCDataAccessor): boolean;
+```
+
+### Constraint Matching
+
+```typescript
+function matchConstraint(constraint: IDSConstraint, value: unknown): boolean;
+function formatConstraint(constraint: IDSConstraint): string;
+function getConstraintMismatchReason(constraint: IDSConstraint, value: unknown): string;
+```
+
+### Translation
+
+```typescript
+function createTranslationService(locale: 'en' | 'de' | 'fr'): TranslationService;
+```
+
+### Types
+
+```typescript
+interface IDSDocument {
+  // Parsed IDS document with specifications
+}
+
+interface IDSSpecification {
+  // A single specification with applicability and requirements
+}
+
+interface IDSFacet {
+  // Facet definition (entity, property, material, etc.)
+}
+
+interface IDSConstraint {
+  // Constraint definition (exact value, pattern, range, enumeration)
+}
+
+interface IDSValidationReport {
+  // Validation results with pass/fail per specification
+}
+
+interface IDSEntityResult {
+  // Result for a single entity against a specification
+}
+
+interface IFCDataAccessor {
+  // Abstraction for accessing IFC data during validation
+}
+```
+
+---
+
+## @ifc-lite/mutations
+
+Property editing with bidirectional change tracking.
+
+### MutablePropertyView
+
+Wraps an IFC data store with a mutation overlay for non-destructive property editing.
+
+```typescript
+class MutablePropertyView {
+  constructor(store: IfcDataStore);
+
+  // Set a property value
+  setProperty(
+    entityId: number,
+    psetName: string,
+    propName: string,
+    value: PropertyValue,
+    type?: string
+  ): void;
+
+  // Delete a property
+  deleteProperty(entityId: number, psetName: string, propName: string): void;
+
+  // Create a new property set
+  createPropertySet(
+    entityId: number,
+    psetName: string,
+    properties: Record<string, PropertyValue>
+  ): void;
+
+  // Delete a property set
+  deletePropertySet(entityId: number, psetName: string): void;
+
+  // Get all recorded mutations
+  getMutations(): Mutation[];
+
+  // Count of modified entities
+  getModifiedEntityCount(): number;
+
+  // Reset all mutations
+  clear(): void;
+}
+```
+
+### ChangeSetManager
+
+Manage named groups of mutations.
+
+```typescript
+class ChangeSetManager {
+  create(name: string): ChangeSet;
+  apply(changeSet: ChangeSet): void;
+  revert(changeSet: ChangeSet): void;
+  list(): ChangeSet[];
+}
+```
+
+### BulkQueryEngine
+
+Query and update entities in bulk.
+
+```typescript
+class BulkQueryEngine {
+  constructor(store: IfcDataStore, view: MutablePropertyView);
+
+  // Preview which entities match the query
+  preview(query: BulkQuery): SelectionCriteria;
+
+  // Execute the bulk update
+  execute(query: BulkQuery): number;
+}
+```
+
+### CsvConnector
+
+Import property updates from CSV files.
+
+```typescript
+class CsvConnector {
+  parse(csv: string, options?: { matchStrategy?: MatchStrategy }): CsvRow[];
+  apply(rows: CsvRow[], view: MutablePropertyView): number;
+}
+```
+
+### Types
+
+```typescript
+interface Mutation {
+  // Recorded property change (set, delete, create, deleteSet)
+}
+
+interface ChangeSet {
+  // Named group of mutations
+}
+
+type PropertyValue = string | number | boolean;
+
+interface SelectionCriteria {
+  // Matched entity IDs and metadata
+}
+
+interface BulkQuery {
+  // Query definition with filter and update operations
+}
+
+interface CsvRow {
+  // Parsed CSV row mapped to entity properties
+}
+
+type MatchStrategy = 'globalId' | 'name' | 'expressId';
+```
+
+---
+
+## @ifc-lite/drawing-2d
+
+2D architectural drawing generation from 3D IFC models.
+
+### Drawing2DGenerator
+
+```typescript
+class Drawing2DGenerator {
+  constructor(options?: DrawingGeneratorOptions);
+
+  // Generate a floor plan
+  generateFloorPlan(meshData: MeshData[], options?: FloorPlanOptions): Drawing2D;
+
+  // Generate a section view
+  generateSection(meshData: MeshData[], config: SectionConfig): Drawing2D;
+}
+```
+
+### High-Level Functions
+
+```typescript
+function generateFloorPlan(meshData: MeshData[], options?: FloorPlanOptions): Drawing2D;
+function generateSection(meshData: MeshData[], config: SectionConfig): Drawing2D;
+function createSectionConfig(options: Partial<SectionConfig>): SectionConfig;
+```
+
+### Section Cutting
+
+```typescript
+class SectionCutter {
+  cut(meshes: MeshData[], plane: Plane): DrawingLine[];
+}
+
+function cutMeshesStreaming(
+  meshes: AsyncIterable<MeshData>,
+  plane: Plane
+): AsyncGenerator<DrawingLine[]>;
+```
+
+### SVG Export
+
+```typescript
+class SVGExporter {
+  export(drawing: Drawing2D, options?: SVGExportOptions): string;
+}
+
+function exportToSVG(drawing: Drawing2D, options?: SVGExportOptions): string;
+```
+
+### Polygon Building
+
+```typescript
+class PolygonBuilder {
+  build(lines: DrawingLine[]): Polygon[];
+}
+
+function simplifyPolygon(polygon: Polygon, tolerance?: number): Polygon;
+```
+
+### Edge Extraction
+
+```typescript
+class EdgeExtractor {
+  extract(meshes: MeshData[], viewDir: Vector3): DrawingLine[];
+}
+
+function getViewDirection(preset: ViewPreset): Vector3;
+```
+
+### Hidden Line Removal
+
+```typescript
+class HiddenLineClassifier {
+  classify(lines: DrawingLine[], meshes: MeshData[]): ClassifiedLine[];
+}
+```
+
+### Hatching
+
+```typescript
+class HatchGenerator {
+  generate(polygon: Polygon, pattern: HatchPattern): DrawingLine[];
+}
+
+const HATCH_PATTERNS: Record<string, HatchPattern>;
+function getHatchPattern(materialName: string): HatchPattern;
+```
+
+### Styles and Constants
+
+```typescript
+const LINE_STYLES: Record<string, LineStyle>;
+const COMMON_SCALES: Record<string, number>;
+const PAPER_SIZES: Record<string, { width: number; height: number }>;
+```
+
+### Symbols
+
+```typescript
+function generateDoorSymbol(width: number, swing: number): DrawingLine[];
+function generateWindowSymbol(width: number): DrawingLine[];
+function generateStairArrow(start: Vector3, end: Vector3): DrawingLine[];
+```
+
+### GPU Acceleration
+
+```typescript
+class GPUSectionCutter {
+  constructor(device: GPUDevice);
+  cut(meshes: MeshData[], plane: Plane): Promise<DrawingLine[]>;
+}
+
+function isGPUComputeAvailable(): boolean;
+```
+
+### Graphic Overrides
+
+```typescript
+class GraphicOverrideEngine {
+  addRule(rule: GraphicOverrideRule): void;
+  apply(drawing: Drawing2D): Drawing2D;
+}
+
+function createOverrideEngine(preset?: GraphicOverridePreset): GraphicOverrideEngine;
+
+// Built-in presets
+const ARCHITECTURAL_PRESET: GraphicOverridePreset;
+const FIRE_SAFETY_PRESET: GraphicOverridePreset;
+```
+
+### Drawing Sheets
+
+```typescript
+function createFrame(options: FrameOptions): DrawingFrame;
+function createTitleBlock(options: TitleBlockOptions): TitleBlock;
+function renderFrame(frame: DrawingFrame): SVGElement;
+function renderTitleBlock(block: TitleBlock): SVGElement;
+function renderScaleBar(scale: number, options?: ScaleBarOptions): SVGElement;
+
+const PAPER_SIZE_REGISTRY: Record<string, PaperSize>;
+```
+
+### Types
+
+```typescript
+interface Drawing2D {
+  // Collection of drawing lines, polygons, and metadata
+}
+
+interface SectionConfig {
+  // Section plane position, direction, and depth
+}
+
+interface DrawingLine {
+  // Line segment with start, end, style, and layer
+}
+
+interface SVGExportOptions {
+  // SVG output settings (scale, stroke widths, colors)
+}
+
+interface GraphicOverrideRule {
+  // Rule matching entities to graphic styles
+}
+
+interface GraphicOverridePreset {
+  // Named collection of override rules
+}
+
+interface DrawingSheet {
+  // Sheet layout with frame, title block, and viewports
+}
+```
+
+---
+
+## @ifc-lite/codegen
+
+Code generation from IFC EXPRESS schemas.
+
+### Overview
+
+Generates TypeScript entity types from EXPRESS schema files. Used to produce the 876+ IFC4X3 entity definitions used by the parser. This is primarily a build-time tool, not used at runtime.
+
+```typescript
+// Build-time usage (typically invoked via package scripts)
+// Reads EXPRESS schema (.exp) files and outputs TypeScript type definitions
+// for all IFC entity types, enumerations, and select types.
+```
+
+---
+
+## @ifc-lite/server-bin
+
+Pre-built server binary distribution package.
+
+### Overview
+
+Distributes pre-compiled `ifc-lite-server` binaries for deployment without requiring a Rust toolchain.
+
+**Supported platforms:**
+
+| Platform         | Architecture |
+|------------------|-------------|
+| `linux-x64`      | x86_64      |
+| `linux-arm64`    | aarch64     |
+| `linux-x64-musl` | x86_64 (musl libc) |
+| `darwin-x64`     | x86_64 (macOS) |
+| `darwin-arm64`   | aarch64 (macOS Apple Silicon) |
+| `win32-x64`      | x86_64 (Windows) |

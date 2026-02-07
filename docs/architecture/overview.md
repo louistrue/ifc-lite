@@ -4,7 +4,7 @@ This document describes the high-level architecture of IFClite, including both c
 
 ## System Architecture
 
-IFClite supports two processing paradigms: **client-side** (WASM in browser) and **server-side** (native Rust).
+IFClite supports two processing paradigms: **client-side** (WASM in browser) and **server-side** (native Rust). It provides **multi-model federation** for loading and managing multiple IFC models simultaneously with unified selection, visibility control, and coordinated ID spaces.
 
 ### Layer Overview
 
@@ -15,6 +15,15 @@ flowchart TB
         Web["Web App"]
         Desktop["Desktop"]
         CLI["CLI"]
+    end
+
+    subgraph Features["Feature Layers"]
+        direction LR
+        Federation["Multi-Model Federation"]
+        BCFFeature["BCF"]
+        IDSFeature["IDS"]
+        Drawings["2D Drawings"]
+        MutationsFeature["Mutations"]
     end
 
     subgraph APIs["APIs"]
@@ -31,7 +40,8 @@ flowchart TB
         GPU["GPU Buffers"]
     end
 
-    Clients --> APIs
+    Clients --> Features
+    Features --> APIs
     APIs --> Storage
 ```
 
@@ -183,6 +193,8 @@ Combine the best of different data structures:
 
 ## Package Architecture
 
+The monorepo contains 18 TypeScript packages, 4 Rust crates, and multiple application targets.
+
 ```mermaid
 graph TB
     subgraph Rust["Rust Crates"]
@@ -192,7 +204,7 @@ graph TB
         Server["ifc-lite-server<br/>HTTP API"]
     end
 
-    subgraph TS["TypeScript Packages"]
+    subgraph TS["TypeScript Packages (18)"]
         Parser["@ifc-lite/parser"]
         IFCX["@ifc-lite/ifcx"]
         Geometry["@ifc-lite/geometry"]
@@ -203,6 +215,14 @@ graph TB
         Query["@ifc-lite/query"]
         Data["@ifc-lite/data"]
         Export["@ifc-lite/export"]
+        BCF["@ifc-lite/bcf"]
+        IDS["@ifc-lite/ids"]
+        Drawing2D["@ifc-lite/drawing-2d"]
+        Mutations["@ifc-lite/mutations"]
+        Spatial["@ifc-lite/spatial"]
+        Codegen["@ifc-lite/codegen"]
+        WasmTS["@ifc-lite/wasm"]
+        CreateCLI["@ifc-lite/create-ifc-lite"]
     end
 
     subgraph Apps["Applications"]
@@ -213,12 +233,18 @@ graph TB
 
     Wasm --> Core
     Wasm --> Geo
-    Parser --> Wasm
-    Geometry --> Wasm
+    Parser --> WasmTS
+    WasmTS --> Wasm
+    Geometry --> WasmTS
     Renderer --> Geometry
     ServerClient --> Server
     Query --> Data
     Export --> Data
+    BCF --> Data
+    IDS --> Data
+    Drawing2D --> Geometry
+    Mutations --> Data
+    Spatial --> Data
     Viewer --> Parser
     Viewer --> Renderer
     Viewer --> ServerClient
@@ -294,6 +320,8 @@ sequenceDiagram
 
 ### Client-Side Parse Flow
 
+Each model is parsed independently and then registered with the **FederationRegistry**, which assigns non-overlapping ID ranges (`idOffset`) so that multiple models can coexist with unique global IDs (`globalId = localExpressId + model.idOffset`).
+
 ```mermaid
 flowchart TB
     Input["IFC File<br/>(ArrayBuffer)"]
@@ -319,19 +347,26 @@ flowchart TB
         OnDemand["On-Demand Maps"]
     end
 
+    subgraph Federate["5. Federate"]
+        Registry["FederationRegistry"]
+        GlobalIDs["Global ID Assignment"]
+    end
+
     Output["IfcDataStore"]
 
     Input --> Tokenize
     Tokenize --> Scan
     Scan --> Decode
     Decode --> Store
-    Store --> Output
+    Store --> Federate
+    Federate --> Output
 
     style Input fill:#6366f1,stroke:#312e81,color:#fff
     style Tokenize fill:#2563eb,stroke:#1e3a8a,color:#fff
     style Scan fill:#10b981,stroke:#064e3b,color:#fff
     style Decode fill:#f59e0b,stroke:#7c2d12,color:#fff
     style Store fill:#a855f7,stroke:#581c87,color:#fff
+    style Federate fill:#ec4899,stroke:#831843,color:#fff
     style Output fill:#16a34a,stroke:#14532d,color:#fff
 ```
 
@@ -420,6 +455,8 @@ flowchart TB
 
 ## Memory Architecture
 
+In a multi-model federation scenario, each loaded model maintains its own data store in the JS heap. The **FederationRegistry** tracks ID ranges per model to enable O(1) global-to-local ID resolution without duplicating entity data across models.
+
 ```mermaid
 graph TB
     subgraph JS["JavaScript Heap"]
@@ -427,6 +464,8 @@ graph TB
         Metadata["Entity Metadata"]
         Query["Query Results"]
         OnDemand["On-Demand Maps"]
+        FedRegistry["FederationRegistry"]
+        Models["Models Map"]
     end
 
     subgraph Wasm["WASM Linear Memory"]

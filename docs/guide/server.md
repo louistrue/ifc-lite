@@ -12,6 +12,9 @@ The IFClite server processes IFC files on a high-performance Rust backend, provi
 - **SSE Streaming** - Progressive geometry for immediate rendering
 - **Full Data Model** - Properties, quantities, and spatial hierarchy computed upfront
 
+!!! info "Client-Side WASM Is Now the Default"
+    As of the latest release, **client-side WASM parsing is the default** processing mode. The server is no longer required for basic usage and must be explicitly opted into. Use the server when you need shared caching, parallel processing for very large files, or team-wide deployments.
+
 ## When to Use Server vs Client
 
 | Scenario | Recommendation |

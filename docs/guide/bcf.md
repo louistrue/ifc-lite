@@ -1,0 +1,138 @@
+# BCF Collaboration
+
+IFClite supports **BCF (BIM Collaboration Format)**, the buildingSMART standard for issue tracking in BIM projects. The `@ifc-lite/bcf` package implements BCF 2.1 and 3.0 specifications.
+
+## What is BCF?
+
+BCF allows teams to create, share, and manage issues (called **topics**) linked to specific locations and components in a BIM model. Each topic can include:
+
+- **Viewpoints** - Camera positions and component visibility snapshots
+- **Comments** - Discussion threads on the issue
+- **Component references** - Links to specific IFC entities via GlobalId
+
+## Quick Start
+
+### Reading BCF Files
+
+```typescript
+import { readBCF } from '@ifc-lite/bcf';
+
+// Read a .bcf or .bcfzip file
+const project = await readBCF(bcfBuffer);
+
+console.log(`Project: ${project.name}`);
+console.log(`Topics: ${project.topics.size}`);
+
+for (const [guid, topic] of project.topics) {
+  console.log(`  ${topic.title} [${topic.topicStatus}]`);
+  console.log(`    Comments: ${topic.comments.length}`);
+  console.log(`    Viewpoints: ${topic.viewpoints.length}`);
+}
+```
+
+### Creating BCF Projects
+
+```typescript
+import {
+  createBCFProject,
+  createBCFTopic,
+  createBCFComment,
+  addTopicToProject,
+  addCommentToTopic,
+  writeBCF,
+} from '@ifc-lite/bcf';
+
+// Create a new project
+const project = createBCFProject({ name: 'My BIM Review', version: '2.1' });
+
+// Create a topic (issue)
+const topic = createBCFTopic({
+  title: 'Missing fire rating on wall W-042',
+  description: 'Wall W-042 in corridor B3 requires 2-hour fire rating',
+  author: 'reviewer@example.com',
+  topicType: 'Issue',
+  topicStatus: 'Open',
+  priority: 'High',
+  labels: ['fire-safety', 'corridor-B3'],
+});
+
+// Add a comment
+const comment = createBCFComment({
+  author: 'reviewer@example.com',
+  comment: 'Please update the fire rating property in the model.',
+});
+addCommentToTopic(topic, comment);
+
+// Add to project
+addTopicToProject(project, topic);
+
+// Export as .bcf file
+const bcfBytes = await writeBCF(project);
+```
+
+## Viewpoints
+
+Viewpoints capture the camera state and component visibility at the time an issue is created. IFClite provides utilities to convert between viewer camera state and BCF viewpoint format.
+
+### Creating Viewpoints
+
+```typescript
+import { createViewpoint, cameraToPerspective } from '@ifc-lite/bcf';
+
+// Create a viewpoint from current viewer state
+const viewpoint = createViewpoint({
+  camera: currentCameraState,        // { position, direction, up }
+  selectedComponents: selectedIds,    // IFC GlobalIds of selected entities
+  visibleComponents: visibleIds,      // IFC GlobalIds of visible entities
+  sectionPlanes: activeSectionPlanes, // Active clipping planes
+});
+```
+
+### Restoring Viewpoints
+
+```typescript
+import { extractViewpointState } from '@ifc-lite/bcf';
+
+// Convert BCF viewpoint back to viewer state
+const state = extractViewpointState(viewpoint);
+// state.camera - { position, direction, up }
+// state.sectionPlanes - clipping planes to apply
+// state.visibility - component visibility settings
+```
+
+## GUID Conversion
+
+BCF uses UUID format while IFC uses a compressed 22-character GlobalId (base64). The package provides conversion utilities:
+
+```typescript
+import { uuidToIfcGuid, ifcGuidToUuid, isValidIfcGuid } from '@ifc-lite/bcf';
+
+const ifcGuid = uuidToIfcGuid('a1b2c3d4-e5f6-7890-abcd-ef1234567890');
+const uuid = ifcGuidToUuid('0YvctA6Hn0pgmBdv0cPwH6');
+
+if (isValidIfcGuid(guid)) {
+  // Valid 22-character IFC GlobalId
+}
+```
+
+## Viewer Integration
+
+In the IFClite viewer, BCF is integrated through the BCF panel:
+
+1. **Load BCF** - Drag and drop a `.bcf` file or use the BCF panel to import
+2. **Browse Topics** - View all issues with status, priority, and labels
+3. **Navigate Viewpoints** - Click a viewpoint to restore camera and visibility
+4. **Add Comments** - Discuss issues directly in the viewer
+5. **Create Topics** - Select entities, position camera, and create new issues
+6. **Export BCF** - Save the project as a `.bcf` file for sharing
+
+## Key Types
+
+| Type | Description |
+|------|-------------|
+| `BCFProject` | Top-level container with topics map and version |
+| `BCFTopic` | An issue with title, status, comments, and viewpoints |
+| `BCFComment` | A comment on a topic with author and timestamp |
+| `BCFViewpoint` | Camera state, component visibility, and clipping planes |
+| `BCFComponents` | Selected, visible, and colored component references |
+| `BCFClippingPlane` | Section plane definition (location + direction) |

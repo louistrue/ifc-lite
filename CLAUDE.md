@@ -4,13 +4,17 @@ This document provides instructions for AI agents working on the ifc-lite codeba
 
 ## Project Overview
 
-ifc-lite is a high-performance IFC (Industry Foundation Classes) viewer for BIM (Building Information Modeling) files. It supports both IFC4 and IFC5/IFCX formats with features including:
+ifc-lite is a high-performance IFC (Industry Foundation Classes) platform for BIM (Building Information Modeling). It supports both IFC4 and IFC5/IFCX formats with features including:
 
 - WebGPU-accelerated 3D rendering
 - Multi-model federation (loading multiple models with unified selection/visibility)
 - Property panels with IFC attributes, properties, and quantities
 - Spatial hierarchy navigation
 - Section planes and measurements
+- BCF collaboration (topics, viewpoints, comments)
+- IDS validation (Information Delivery Specification checking)
+- 2D architectural drawings (section cuts, floor plans, elevations)
+- Property editing with undo/redo and change tracking
 
 ## Critical Standards
 
@@ -81,14 +85,18 @@ function isIfcxDataStore(store: unknown): store is IfcxDataStore {
 
 **File Organization:**
 - `apps/viewer/` - React frontend application
-- `packages/` - Shared libraries (parser, renderer, geometry, etc.)
+- `apps/server/` - Rust HTTP server (Axum)
+- `apps/desktop/` - Tauri desktop application
+- `packages/` - 18 TypeScript packages (parser, renderer, geometry, bcf, ids, mutations, drawing-2d, etc.)
+- `rust/` - 3 Rust crates (core, geometry, wasm-bindings)
 - Tests co-located with source files (`*.test.ts`)
 
 **Key Patterns:**
-- Zustand for state management (slices pattern)
+- Zustand for state management (14 slices: selection, visibility, model, bcf, ids, mutation, drawing2D, sheet, section, measurement, camera, data, loading, hover, ui)
 - React hooks for business logic (`useIfc`, `useViewerSelectors`)
 - WebGPU for 3D rendering
 - Virtualized lists for large datasets
+- FederationRegistry singleton for multi-model ID management
 
 ### Multi-Model Federation
 

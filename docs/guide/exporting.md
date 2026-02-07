@@ -65,30 +65,37 @@ Export IFC to GLB directly in the browser with zero setup:
 
 ## Overview
 
-IFClite supports multiple export formats:
+IFClite supports multiple export formats, as well as GLB import for loading existing 3D assets:
 
 ```mermaid
 flowchart LR
     subgraph Input["Input"]
         IFC["ParseResult"]
+        GLBIn["GLB Import"]
     end
 
     subgraph Formats["Export Formats"]
         glTF["glTF/GLB"]
+        IFCOut["IFC (roundtrip)"]
         Parquet["Apache Parquet"]
+        Arrow["Apache Arrow"]
         JSON["JSON-LD"]
         CSV["CSV"]
     end
 
     subgraph Uses["Use Cases"]
         Viewer["3D Viewers"]
+        Roundtrip["IFC Roundtrip"]
         Analytics["Data Analytics"]
         Linked["Linked Data"]
         Spreadsheet["Spreadsheets"]
     end
 
+    GLBIn --> Viewer
     IFC --> glTF --> Viewer
+    IFC --> IFCOut --> Roundtrip
     IFC --> Parquet --> Analytics
+    IFC --> Arrow --> Analytics
     IFC --> JSON --> Linked
     IFC --> CSV --> Spreadsheet
 ```
@@ -359,6 +366,54 @@ await saveFile('quantities.csv', quantsCsv);
 expressId,type,globalId,name,IsExternal,FireRating,LoadBearing
 123,IFCWALL,2O2Fr$t4X7Zf8NOew3FL9r,Wall-001,true,60,true
 456,IFCWALLSTANDARDCASE,3P3Gs$u5Y8Ag9PQfx4GM0s,Wall-002,false,30,false
+```
+
+## IFC Export
+
+Export back to IFC format for roundtrip workflows and interoperability with other BIM tools:
+
+```typescript
+import { IfcExporter } from '@ifc-lite/export';
+
+const exporter = new IfcExporter();
+
+// Export to IFC4 STEP format
+const ifcData = await exporter.export(parseResult, {
+  schema: 'IFC4',
+  includeProperties: true,
+  includeQuantities: true
+});
+
+await saveFile('model_exported.ifc', ifcData);
+```
+
+## GLB Import
+
+Load existing GLB files for viewing alongside IFC models:
+
+```typescript
+import { GlbImporter } from '@ifc-lite/import';
+
+const importer = new GlbImporter();
+const glbBuffer = await fetch('model.glb').then(r => r.arrayBuffer());
+const meshes = await importer.import(new Uint8Array(glbBuffer));
+
+// Add imported meshes to the renderer
+renderer.addMeshes(meshes);
+```
+
+## Arrow Export
+
+Export to Apache Arrow for in-memory analytics and streaming pipelines:
+
+```typescript
+import { ArrowExporter } from '@ifc-lite/export';
+
+const exporter = new ArrowExporter();
+const arrowBuffer = await exporter.exportEntities(parseResult);
+
+// Use with Arrow-compatible tools (DuckDB, DataFusion, etc.)
+await saveFile('entities.arrow', arrowBuffer);
 ```
 
 ## Custom Export
