@@ -36,6 +36,7 @@ import {
   Trash2,
   FileJson,
   FileCode,
+  FileBox,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -354,6 +355,7 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
     clearIsolation,
     exportReportJSON,
     exportReportHTML,
+    exportReportBCF,
   } = useIDS();
 
   // Handle file selection
@@ -551,6 +553,15 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
               </Button>
             </TooltipTrigger>
             <TooltipContent>Export HTML Report</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={exportReportBCF}>
+                <FileBox className="h-4 w-4 text-green-500" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Export BCF Report</TooltipContent>
           </Tooltip>
         </div>
 

@@ -35,6 +35,7 @@ import {
   createTranslationService,
 } from '@ifc-lite/ids';
 import type { IfcDataStore } from '@ifc-lite/parser';
+import { createBCFFromIDSReport, writeBCF } from '@ifc-lite/bcf';
 
 // ============================================================================
 // Types
@@ -142,6 +143,8 @@ export interface UseIDSResult {
   exportReportJSON: () => void;
   /** Export validation report to HTML */
   exportReportHTML: () => void;
+  /** Export validation report to BCF (one topic per failing entity) */
+  exportReportBCF: () => Promise<void>;
 }
 
 // ============================================================================
@@ -1004,6 +1007,33 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     URL.revokeObjectURL(url);
   }, [report, locale]);
 
+  const exportReportBCF = useCallback(async () => {
+    if (!report) {
+      console.warn('[IDS] No report to export');
+      return;
+    }
+
+    const bcfProject = createBCFFromIDSReport(
+      {
+        title: report.document.info.title,
+        description: report.document.info.description,
+        specificationResults: report.specificationResults,
+      },
+      {
+        author: report.document.info.author ?? 'ids-validator@ifc-lite',
+        projectName: `IDS Report - ${report.document.info.title}`,
+      },
+    );
+
+    const blob = await writeBCF(bcfProject);
+    const url = URL.createObjectURL(blob);
+    const a = globalThis.document.createElement('a');
+    a.href = url;
+    a.download = `ids-report-${new Date().toISOString().split('T')[0]}.bcf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [report]);
+
   // ============================================================================
   // Return
   // ============================================================================
@@ -1061,5 +1091,6 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     // Export actions
     exportReportJSON,
     exportReportHTML,
+    exportReportBCF,
   };
 }
