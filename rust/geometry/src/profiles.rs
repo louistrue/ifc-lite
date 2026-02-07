@@ -11,6 +11,10 @@ use crate::{Error, Point2, Point3, Result, Vector3};
 use ifc_lite_core::{AttributeValue, DecodedEntity, EntityDecoder, IfcSchema, IfcType, ProfileCategory};
 use std::f64::consts::PI;
 
+/// Maximum recursion depth for nested curve processing.
+/// Prevents stack overflow from deeply nested CompositeCurve → TrimmedCurve → CompositeCurve chains.
+const MAX_CURVE_DEPTH: u32 = 50;
+
 /// Profile processor - processes IFC profiles into 2D contours
 pub struct ProfileProcessor {
     schema: IfcSchema,
@@ -552,11 +556,27 @@ impl ProfileProcessor {
         curve: &DecodedEntity,
         decoder: &mut EntityDecoder,
     ) -> Result<Vec<Point2<f64>>> {
+        self.process_curve_with_depth(curve, decoder, 0)
+    }
+
+    /// Process curve with depth tracking to prevent stack overflow
+    fn process_curve_with_depth(
+        &self,
+        curve: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+        depth: u32,
+    ) -> Result<Vec<Point2<f64>>> {
+        if depth > MAX_CURVE_DEPTH {
+            return Err(Error::geometry(format!(
+                "Curve nesting depth {} exceeds limit {}",
+                depth, MAX_CURVE_DEPTH
+            )));
+        }
         match curve.ifc_type {
             IfcType::IfcPolyline => self.process_polyline(curve, decoder),
             IfcType::IfcIndexedPolyCurve => self.process_indexed_polycurve(curve, decoder),
-            IfcType::IfcCompositeCurve => self.process_composite_curve(curve, decoder),
-            IfcType::IfcTrimmedCurve => self.process_trimmed_curve(curve, decoder),
+            IfcType::IfcCompositeCurve => self.process_composite_curve_with_depth(curve, decoder, depth),
+            IfcType::IfcTrimmedCurve => self.process_trimmed_curve_with_depth(curve, decoder, depth),
             IfcType::IfcCircle => self.process_circle_curve(curve, decoder),
             IfcType::IfcEllipse => self.process_ellipse_curve(curve, decoder),
             _ => Err(Error::geometry(format!(
@@ -573,13 +593,29 @@ impl ProfileProcessor {
         curve: &DecodedEntity,
         decoder: &mut EntityDecoder,
     ) -> Result<Vec<Point3<f64>>> {
+        self.get_curve_points_with_depth(curve, decoder, 0)
+    }
+
+    /// Get 3D curve points with depth tracking to prevent stack overflow
+    fn get_curve_points_with_depth(
+        &self,
+        curve: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+        depth: u32,
+    ) -> Result<Vec<Point3<f64>>> {
+        if depth > MAX_CURVE_DEPTH {
+            return Err(Error::geometry(format!(
+                "Curve nesting depth {} exceeds limit {}",
+                depth, MAX_CURVE_DEPTH
+            )));
+        }
         match curve.ifc_type {
             IfcType::IfcPolyline => self.process_polyline_3d(curve, decoder),
-            IfcType::IfcCompositeCurve => self.process_composite_curve_3d(curve, decoder),
+            IfcType::IfcCompositeCurve => self.process_composite_curve_3d_with_depth(curve, decoder, depth),
             IfcType::IfcCircle => self.process_circle_3d(curve, decoder),
             IfcType::IfcTrimmedCurve => {
                 // For trimmed curve, get 2D points and convert to 3D
-                let points_2d = self.process_trimmed_curve(curve, decoder)?;
+                let points_2d = self.process_trimmed_curve_with_depth(curve, decoder, depth)?;
                 Ok(points_2d
                     .into_iter()
                     .map(|p| Point3::new(p.x, p.y, 0.0))
@@ -587,7 +623,7 @@ impl ProfileProcessor {
             }
             _ => {
                 // Fallback: try 2D curve and convert to 3D
-                let points_2d = self.process_curve(curve, decoder)?;
+                let points_2d = self.process_curve_with_depth(curve, decoder, depth)?;
                 Ok(points_2d
                     .into_iter()
                     .map(|p| Point3::new(p.x, p.y, 0.0))
@@ -766,10 +802,11 @@ impl ProfileProcessor {
     }
 
     /// Process composite curve into 3D points
-    fn process_composite_curve_3d(
+    fn process_composite_curve_3d_with_depth(
         &self,
         curve: &DecodedEntity,
         decoder: &mut EntityDecoder,
+        depth: u32,
     ) -> Result<Vec<Point3<f64>>> {
         // IfcCompositeCurve: Segments, SelfIntersect
         let segments_attr = curve
@@ -799,7 +836,7 @@ impl ProfileProcessor {
                 .map(|e| e == "T" || e == "TRUE")
                 .unwrap_or(true);
 
-            let mut segment_points = self.get_curve_points(&parent_curve, decoder)?;
+            let mut segment_points = self.get_curve_points_with_depth(&parent_curve, decoder, depth + 1)?;
 
             if !same_sense {
                 segment_points.reverse();
@@ -818,10 +855,11 @@ impl ProfileProcessor {
 
     /// Process trimmed curve
     /// IfcTrimmedCurve: BasisCurve, Trim1, Trim2, SenseAgreement, MasterRepresentation
-    fn process_trimmed_curve(
+    fn process_trimmed_curve_with_depth(
         &self,
         curve: &DecodedEntity,
         decoder: &mut EntityDecoder,
+        depth: u32,
     ) -> Result<Vec<Point2<f64>>> {
         // Get basis curve (attribute 0)
         let basis_attr = curve
@@ -851,8 +889,8 @@ impl ProfileProcessor {
                 self.process_trimmed_conic(&basis_curve, trim1, trim2, sense, decoder)
             }
             _ => {
-                // Fallback: try to process as a regular curve
-                self.process_curve(&basis_curve, decoder)
+                // Fallback: try to process as a regular curve (with depth tracking)
+                self.process_curve_with_depth(&basis_curve, decoder, depth + 1)
             }
         }
     }
@@ -1316,10 +1354,11 @@ impl ProfileProcessor {
 
     /// Process composite curve into 2D points
     /// IfcCompositeCurve: Segments (list of IfcCompositeCurveSegment), SelfIntersect
-    fn process_composite_curve(
+    fn process_composite_curve_with_depth(
         &self,
         curve: &DecodedEntity,
         decoder: &mut EntityDecoder,
+        depth: u32,
     ) -> Result<Vec<Point2<f64>>> {
         // Get segments list (attribute 0)
         let segments_attr = curve
@@ -1355,8 +1394,8 @@ impl ProfileProcessor {
                 })
                 .unwrap_or(true);
 
-            // Process the parent curve
-            let mut segment_points = self.process_curve(&parent_curve, decoder)?;
+            // Process the parent curve (with depth tracking)
+            let mut segment_points = self.process_curve_with_depth(&parent_curve, decoder, depth + 1)?;
 
             if !same_sense {
                 segment_points.reverse();
