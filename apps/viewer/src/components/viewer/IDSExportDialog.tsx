@@ -65,7 +65,7 @@ export interface IDSExportProgress {
 }
 
 interface IDSExportDialogProps {
-  /** Trigger element (e.g., a button) */
+  /** Trigger element (e.g., a button) — only used for uncontrolled mode */
   trigger?: React.ReactNode;
   /** Whether a report is available */
   hasReport: boolean;
@@ -75,6 +75,10 @@ interface IDSExportDialogProps {
   onExport: (settings: IDSBCFExportSettings) => Promise<void>;
   /** Export progress (controlled externally) */
   progress: IDSExportProgress | null;
+  /** Controlled open state (if provided, dialog is controlled externally) */
+  open?: boolean;
+  /** Controlled open state callback */
+  onOpenChange?: (open: boolean) => void;
 }
 
 // ============================================================================
@@ -87,8 +91,12 @@ export function IDSExportDialog({
   failedCount,
   onExport,
   progress,
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange,
 }: IDSExportDialogProps) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = controlledOnOpenChange ?? setInternalOpen;
   const [settings, setSettings] = useState<IDSBCFExportSettings>({
     topicGrouping: 'per-entity',
     includePassingEntities: false,
@@ -116,13 +124,11 @@ export function IDSExportDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        {trigger ?? (
-          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" disabled={!hasReport}>
-            <FileBox className="h-4 w-4 text-green-500" />
-          </Button>
-        )}
-      </DialogTrigger>
+      {trigger && (
+        <DialogTrigger asChild>
+          {trigger}
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
