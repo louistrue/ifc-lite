@@ -42,6 +42,41 @@ export interface IfcxDataStore extends Omit<IfcDataStore, 'schemaVersion'> {
   _layerInfo?: Array<{ id: string; name: string; meshCount: number }>;
 }
 
+/** Shape of raw meshes returned from IFCX parsers before conversion to MeshData */
+interface RawIfcxMesh {
+  expressId?: number;
+  express_id?: number;
+  id?: number;
+  positions: Float32Array | number[];
+  indices: Uint32Array | number[];
+  normals: Float32Array | number[];
+  color?: [number, number, number, number] | [number, number, number];
+  ifcType?: string;
+  ifc_type?: string;
+}
+
+/**
+ * Convert raw IFCX parser meshes to viewer-compatible MeshData[].
+ * Ensures typed arrays, normalizes colors, and filters out empty meshes.
+ */
+function convertIfcxMeshes(rawMeshes: RawIfcxMesh[]): MeshData[] {
+  return rawMeshes.map((m) => {
+    const positions = m.positions instanceof Float32Array ? m.positions : new Float32Array(m.positions || []);
+    const indices = m.indices instanceof Uint32Array ? m.indices : new Uint32Array(m.indices || []);
+    const normals = m.normals instanceof Float32Array ? m.normals : new Float32Array(m.normals || []);
+    const color = normalizeColor(m.color);
+
+    return {
+      expressId: m.expressId ?? m.express_id ?? m.id ?? 0,
+      positions,
+      indices,
+      normals,
+      color,
+      ifcType: m.ifcType ?? m.ifc_type ?? 'IfcProduct',
+    };
+  }).filter((m) => m.positions.length > 0 && m.indices.length > 0);
+}
+
 /**
  * Hook providing multi-model federation operations
  * Includes addModel, removeModel, federated IFCX loading, overlay management,
@@ -150,21 +185,7 @@ export function useIfcFederation() {
         });
 
         // Convert IFCX meshes to viewer format
-        const meshes: MeshData[] = ifcxResult.meshes.map((m: { expressId?: number; express_id?: number; id?: number; positions: Float32Array | number[]; indices: Uint32Array | number[]; normals: Float32Array | number[]; color?: [number, number, number, number] | [number, number, number]; ifcType?: string; ifc_type?: string }) => {
-          const positions = m.positions instanceof Float32Array ? m.positions : new Float32Array(m.positions || []);
-          const indices = m.indices instanceof Uint32Array ? m.indices : new Uint32Array(m.indices || []);
-          const normals = m.normals instanceof Float32Array ? m.normals : new Float32Array(m.normals || []);
-          const color = normalizeColor(m.color);
-
-          return {
-            expressId: m.expressId || m.express_id || m.id || 0,
-            positions,
-            indices,
-            normals,
-            color,
-            ifcType: m.ifcType || m.ifc_type || 'IfcProduct',
-          };
-        }).filter((m: MeshData) => m.positions.length > 0 && m.indices.length > 0);
+        const meshes: MeshData[] = convertIfcxMeshes(ifcxResult.meshes);
 
         // Check if this is an overlay-only IFCX file (no geometry)
         if (meshes.length === 0 && ifcxResult.entityCount > 0) {
@@ -551,21 +572,7 @@ export function useIfcFederation() {
       });
 
       // Convert IFCX meshes to viewer format
-      const meshes: MeshData[] = result.meshes.map((m: { expressId?: number; express_id?: number; id?: number; positions: Float32Array | number[]; indices: Uint32Array | number[]; normals: Float32Array | number[]; color?: [number, number, number, number] | [number, number, number]; ifcType?: string; ifc_type?: string }) => {
-        const positions = m.positions instanceof Float32Array ? m.positions : new Float32Array(m.positions || []);
-        const indices = m.indices instanceof Uint32Array ? m.indices : new Uint32Array(m.indices || []);
-        const normals = m.normals instanceof Float32Array ? m.normals : new Float32Array(m.normals || []);
-        const color = normalizeColor(m.color);
-
-        return {
-          expressId: m.expressId || m.express_id || m.id || 0,
-          positions,
-          indices,
-          normals,
-          color,
-          ifcType: m.ifcType || m.ifc_type || 'IfcProduct',
-        };
-      }).filter((m: MeshData) => m.positions.length > 0 && m.indices.length > 0);
+      const meshes: MeshData[] = convertIfcxMeshes(result.meshes);
 
       // Calculate bounds
       const { bounds, stats } = calculateMeshBounds(meshes);

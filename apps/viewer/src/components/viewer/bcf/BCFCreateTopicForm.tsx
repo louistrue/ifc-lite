@@ -35,7 +35,7 @@ export interface BCFCreateTopicFormProps {
 // Component
 // ============================================================================
 
-export function BCFCreateTopicForm({ onSubmit, onCancel, author }: BCFCreateTopicFormProps) {
+export function BCFCreateTopicForm({ onSubmit, onCancel, author: _author }: BCFCreateTopicFormProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [topicType, setTopicType] = useState('Issue');

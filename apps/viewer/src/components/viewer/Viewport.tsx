@@ -6,7 +6,7 @@
  * 3D viewport component
  */
 
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { Renderer } from '@ifc-lite/renderer';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 import { useViewerStore, type MeasurePoint, type SnapVisualization } from '@/store';
@@ -78,7 +78,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   // IMPORTANT: pickResult.expressId is now a globalId (transformed at load time)
   // We use the store-based resolver to find (modelId, originalExpressId)
   // This is more reliable than the singleton registry which can have bundling issues
-  const handlePickForSelection = (pickResult: import('@ifc-lite/renderer').PickResult | null) => {
+  const handlePickForSelection = useCallback((pickResult: import('@ifc-lite/renderer').PickResult | null) => {
     if (!pickResult) {
       setSelectedEntityId(null);
       return;
@@ -105,7 +105,12 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         }
       }
     }
-  };
+  }, [setSelectedEntityId, setSelectedEntity, resolveGlobalIdFromModels, modelIndexToId]);
+
+  // Ref to always access latest handlePickForSelection from event handlers
+  // (useMouseControls/useTouchControls capture this at effect setup time)
+  const handlePickForSelectionRef = useRef(handlePickForSelection);
+  useEffect(() => { handlePickForSelectionRef.current = handlePickForSelection; }, [handlePickForSelection]);
 
   // Visibility state - use computedIsolatedIds from parent (includes storey selection)
   // Fall back to store isolation if computedIsolatedIds is not provided
@@ -607,7 +612,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     lastClickTimeRef,
     lastClickPosRef,
     lastCameraStateRef,
-    handlePickForSelection,
+    handlePickForSelection: (pickResult) => handlePickForSelectionRef.current(pickResult),
     setHoverState,
     clearHover,
     openContextMenu,
@@ -650,7 +655,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     sectionPlaneRef,
     sectionRangeRef,
     geometryRef,
-    handlePickForSelection,
+    handlePickForSelection: (pickResult) => handlePickForSelectionRef.current(pickResult),
     getPickOptions,
   });
 

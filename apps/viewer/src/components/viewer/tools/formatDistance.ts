@@ -11,7 +11,7 @@ export function formatDistance(meters: number): string {
   } else if (meters < 1) {
     return `${(meters * 100).toFixed(1)} cm`;
   } else if (meters < 1000) {
-    return `${meters.toFixed(2)} m`;
+    return `${meters.toFixed(3)} m`;
   } else {
     return `${(meters / 1000).toFixed(2)} km`;
   }

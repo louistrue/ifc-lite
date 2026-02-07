@@ -111,9 +111,7 @@ export function useDrawingGeneration({
       ? `${models.size}-${[...models.values()].filter(m => m.visible).map(m => m.id).sort().join(',')}`
       : (ifcDataStore?.source ? String(ifcDataStore.source.byteLength) : null);
 
-    const useSymbolic = displayOptions.useSymbolicRepresentations && (
-      models.size > 0 ? true : !!ifcDataStore?.source
-    );
+    const useSymbolic = displayOptions.useSymbolicRepresentations && !!ifcDataStore?.source;
 
     // Check if we can use cached symbolic data
     const cache = symbolicCacheRef.current;
@@ -502,6 +500,7 @@ export function useDrawingGeneration({
     combinedHiddenIds,
     combinedIsolatedIds,
     computedIsolatedIds,
+    models,
     setDrawing,
     setDrawingStatus,
     setDrawingProgress,

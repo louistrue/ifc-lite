@@ -52,13 +52,6 @@ export const MeasurementOverlays = React.memo(function MeasurementOverlays({ mea
     hoverPosition?.y,
   ]);
 
-  // Stable values for effect dependencies
-  const measurementsCount = measurements.length;
-  const hasActiveMeasurement = !!activeMeasurement;
-  const hasSnapTarget = !!snapTarget;
-  const hasSnapVisualization = !!snapVisualization;
-
-
   return (
     <>
       {/* SVG filter definitions for glow effect */}

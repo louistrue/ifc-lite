@@ -17,7 +17,7 @@ import type {
   EdgeLockState,
   SectionPlane,
 } from '@/store';
-import type { MeasurementConstraintEdge, OrthogonalAxis } from '@/store/types.js';
+import type { MeasurementConstraintEdge, OrthogonalAxis, Vec3 } from '@/store/types.js';
 import { getEntityCenter } from '../../utils/viewportUtils.js';
 
 export interface MouseState {
@@ -115,6 +115,59 @@ export interface UseMouseControlsParams {
   RENDER_THROTTLE_MS_SMALL: number;
   RENDER_THROTTLE_MS_LARGE: number;
   RENDER_THROTTLE_MS_HUGE: number;
+}
+
+/**
+ * Projects a world position onto the closest orthogonal constraint axis.
+ * Used by measurement tool when shift is held for axis-aligned measurements.
+ *
+ * Computes the dot product of the displacement vector (startWorld -> currentWorld)
+ * with each of the three orthogonal axes, then projects onto whichever axis has
+ * the largest absolute dot product (i.e., the axis most aligned with the cursor direction).
+ */
+function projectOntoConstraintAxis(
+  startWorld: Vec3,
+  currentWorld: Vec3,
+  constraint: MeasurementConstraintEdge,
+): { projectedPos: Vec3; activeAxis: OrthogonalAxis } {
+  const dx = currentWorld.x - startWorld.x;
+  const dy = currentWorld.y - startWorld.y;
+  const dz = currentWorld.z - startWorld.z;
+
+  const { axis1, axis2, axis3 } = constraint.axes;
+  const dot1 = dx * axis1.x + dy * axis1.y + dz * axis1.z;
+  const dot2 = dx * axis2.x + dy * axis2.y + dz * axis2.z;
+  const dot3 = dx * axis3.x + dy * axis3.y + dz * axis3.z;
+
+  const absDot1 = Math.abs(dot1);
+  const absDot2 = Math.abs(dot2);
+  const absDot3 = Math.abs(dot3);
+
+  let activeAxis: OrthogonalAxis;
+  let chosenDot: number;
+  let chosenDir: Vec3;
+
+  if (absDot1 >= absDot2 && absDot1 >= absDot3) {
+    activeAxis = 'axis1';
+    chosenDot = dot1;
+    chosenDir = axis1;
+  } else if (absDot2 >= absDot3) {
+    activeAxis = 'axis2';
+    chosenDot = dot2;
+    chosenDir = axis2;
+  } else {
+    activeAxis = 'axis3';
+    chosenDot = dot3;
+    chosenDir = axis3;
+  }
+
+  const projectedPos: Vec3 = {
+    x: startWorld.x + chosenDot * chosenDir.x,
+    y: startWorld.y + chosenDot * chosenDir.y,
+    z: startWorld.z + chosenDot * chosenDir.z,
+  };
+
+  return { projectedPos, activeAxis };
 }
 
 export function useMouseControls(params: UseMouseControlsParams): void {
@@ -481,50 +534,11 @@ export function useMouseControls(params: UseMouseControlsParams): void {
                 if (useOrthogonalConstraint && activeMeasurementRef.current) {
                   const constraint = measurementConstraintEdgeRef.current!;
                   const start = activeMeasurementRef.current.start;
-
-                  // Vector from start to cursor position
-                  const dx = pos.x - start.x;
-                  const dy = pos.y - start.y;
-                  const dz = pos.z - start.z;
-
-                  // Calculate dot product with each orthogonal axis
-                  const { axis1, axis2, axis3 } = constraint.axes;
-                  const dot1 = dx * axis1.x + dy * axis1.y + dz * axis1.z;
-                  const dot2 = dx * axis2.x + dy * axis2.y + dz * axis2.z;
-                  const dot3 = dx * axis3.x + dy * axis3.y + dz * axis3.z;
-
-                  // Find the axis with the largest absolute dot product (closest to cursor direction)
-                  const absDot1 = Math.abs(dot1);
-                  const absDot2 = Math.abs(dot2);
-                  const absDot3 = Math.abs(dot3);
-
-                  let activeAxis: OrthogonalAxis;
-                  let chosenDot: number;
-                  let chosenDir: { x: number; y: number; z: number };
-
-                  if (absDot1 >= absDot2 && absDot1 >= absDot3) {
-                    activeAxis = 'axis1';
-                    chosenDot = dot1;
-                    chosenDir = axis1;
-                  } else if (absDot2 >= absDot3) {
-                    activeAxis = 'axis2';
-                    chosenDot = dot2;
-                    chosenDir = axis2;
-                  } else {
-                    activeAxis = 'axis3';
-                    chosenDot = dot3;
-                    chosenDir = axis3;
-                  }
-
-                  // Project cursor position onto the chosen axis
-                  pos = {
-                    x: start.x + chosenDot * chosenDir.x,
-                    y: start.y + chosenDot * chosenDir.y,
-                    z: start.z + chosenDot * chosenDir.z,
-                  };
+                  const result = projectOntoConstraintAxis(start, pos, constraint);
+                  pos = result.projectedPos;
 
                   // Update active axis for visualization
-                  updateConstraintActiveAxis(activeAxis);
+                  updateConstraintActiveAxis(result.activeAxis);
                 } else if (!useOrthogonalConstraint && measurementConstraintEdgeRef.current?.activeAxis) {
                   // Clear active axis when shift is released
                   updateConstraintActiveAxis(null);
@@ -812,39 +826,8 @@ export function useMouseControls(params: UseMouseControlsParams): void {
             if (useOrthogonalConstraint && activeMeasurementRef.current) {
               const constraint = measurementConstraintEdgeRef.current!;
               const start = activeMeasurementRef.current.start;
-
-              const dx = pos.x - start.x;
-              const dy = pos.y - start.y;
-              const dz = pos.z - start.z;
-
-              const { axis1, axis2, axis3 } = constraint.axes;
-              const dot1 = dx * axis1.x + dy * axis1.y + dz * axis1.z;
-              const dot2 = dx * axis2.x + dy * axis2.y + dz * axis2.z;
-              const dot3 = dx * axis3.x + dy * axis3.y + dz * axis3.z;
-
-              const absDot1 = Math.abs(dot1);
-              const absDot2 = Math.abs(dot2);
-              const absDot3 = Math.abs(dot3);
-
-              let chosenDot: number;
-              let chosenDir: { x: number; y: number; z: number };
-
-              if (absDot1 >= absDot2 && absDot1 >= absDot3) {
-                chosenDot = dot1;
-                chosenDir = axis1;
-              } else if (absDot2 >= absDot3) {
-                chosenDot = dot2;
-                chosenDir = axis2;
-              } else {
-                chosenDot = dot3;
-                chosenDir = axis3;
-              }
-
-              pos = {
-                x: start.x + chosenDot * chosenDir.x,
-                y: start.y + chosenDot * chosenDir.y,
-                z: start.z + chosenDot * chosenDir.z,
-              };
+              const result = projectOntoConstraintAxis(start, pos, constraint);
+              pos = result.projectedPos;
             }
 
             const screenPos = camera.projectToScreen(pos, canvas.width, canvas.height);

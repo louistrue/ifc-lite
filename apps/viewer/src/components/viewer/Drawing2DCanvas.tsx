@@ -9,6 +9,7 @@ import {
   type Drawing2D,
   type ElementData,
 } from '@ifc-lite/drawing-2d';
+import { formatDistance } from './tools/formatDistance';
 
 // Fill colors for IFC types (architectural convention)
 const IFC_TYPE_FILL_COLORS: Record<string, string> = {
@@ -49,8 +50,9 @@ export function getFillColorForType(ifcType: string): string {
   return IFC_TYPE_FILL_COLORS[ifcType] || IFC_TYPE_FILL_COLORS.default;
 }
 
-// Static style constant to avoid creating new object on every render
+// Static constants to avoid creating new objects/arrays on every render
 const CANVAS_STYLE = { imageRendering: 'crisp-edges' as const };
+const EMPTY_MEASURE_RESULTS: Measure2DResultData[] = [];
 
 export interface Measure2DResultData {
   id: string;
@@ -94,7 +96,7 @@ export function Drawing2DCanvas({
   measureMode = false,
   measureStart = null,
   measureCurrent = null,
-  measureResults = [],
+  measureResults = EMPTY_MEASURE_RESULTS,
   measureSnapPoint = null,
   sheetEnabled = false,
   activeSheet = null,
@@ -968,15 +970,8 @@ export function Drawing2DCanvas({
       const midX = (screenStart.x + screenEnd.x) / 2;
       const midY = (screenStart.y + screenEnd.y) / 2;
 
-      // Format distance (assuming meters, convert to readable units)
-      let labelText: string;
-      if (distance < 0.01) {
-        labelText = `${(distance * 1000).toFixed(1)} mm`;
-      } else if (distance < 1) {
-        labelText = `${(distance * 100).toFixed(1)} cm`;
-      } else {
-        labelText = `${distance.toFixed(3)} m`;
-      }
+      // Format distance using shared utility
+      const labelText = formatDistance(distance);
 
       // Background for label
       ctx.font = '12px system-ui, sans-serif';

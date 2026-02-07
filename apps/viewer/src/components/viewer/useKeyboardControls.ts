@@ -65,6 +65,8 @@ export function useKeyboardControls(params: UseKeyboardControlsParams): void {
     let aborted = false;
 
     const keyState: { [key: string]: boolean } = {};
+    let moveLoopRunning = false;
+    let moveFrameId: number | null = null;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (document.activeElement?.tagName === 'INPUT' ||
@@ -73,6 +75,13 @@ export function useKeyboardControls(params: UseKeyboardControlsParams): void {
       }
 
       keyState[e.key.toLowerCase()] = true;
+
+      // Start movement loop when a movement key is pressed
+      const isMovementKey = ['arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(e.key.toLowerCase());
+      if (isMovementKey && !moveLoopRunning) {
+        moveLoopRunning = true;
+        keyboardMove();
+      }
 
       // Preset views - set view and re-render
       const setViewAndRender = (view: 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right') => {
@@ -138,17 +147,26 @@ export function useKeyboardControls(params: UseKeyboardControlsParams): void {
 
     const handleKeyUp = (e: KeyboardEvent) => {
       keyState[e.key.toLowerCase()] = false;
+
+      // Stop movement loop when no movement keys are held
+      const anyMovementKey = keyState['arrowup'] || keyState['arrowdown'] || keyState['arrowleft'] || keyState['arrowright'];
+      if (!anyMovementKey && moveLoopRunning) {
+        moveLoopRunning = false;
+        if (moveFrameId !== null) {
+          cancelAnimationFrame(moveFrameId);
+          moveFrameId = null;
+        }
+      }
     };
 
     keyboardHandlersRef.current.handleKeyDown = handleKeyDown;
     keyboardHandlersRef.current.handleKeyUp = handleKeyUp;
 
     const keyboardMove = () => {
-      if (aborted) return;
+      if (aborted || !moveLoopRunning) return;
 
       let moved = false;
       const panSpeed = 5;
-      const _zoomSpeed = 0.1;
 
       if (firstPersonModeRef.current) {
         // Arrow keys for first-person navigation (camera-relative)
@@ -178,15 +196,18 @@ export function useKeyboardControls(params: UseKeyboardControlsParams): void {
           } : undefined,
         });
       }
-      requestAnimationFrame(keyboardMove);
+      moveFrameId = requestAnimationFrame(keyboardMove);
     };
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
-    keyboardMove();
 
     return () => {
       aborted = true;
+      moveLoopRunning = false;
+      if (moveFrameId !== null) {
+        cancelAnimationFrame(moveFrameId);
+      }
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };

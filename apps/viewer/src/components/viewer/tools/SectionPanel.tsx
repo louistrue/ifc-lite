@@ -33,7 +33,10 @@ export function SectionOverlay() {
   }, [setSectionPlaneAxis]);
 
   const handlePositionChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setSectionPlanePosition(Number(e.target.value));
+    const value = Number(e.target.value);
+    if (!Number.isNaN(value)) {
+      setSectionPlanePosition(value);
+    }
   }, [setSectionPlanePosition]);
 
   const togglePanel = useCallback(() => {

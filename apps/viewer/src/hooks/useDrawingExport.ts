@@ -14,6 +14,7 @@ import {
   type TitleBlockExtras,
 } from '@ifc-lite/drawing-2d';
 import { getFillColorForType } from '@/components/viewer/Drawing2DCanvas';
+import { formatDistance } from '@/components/viewer/tools/formatDistance';
 
 interface UseDrawingExportParams {
   drawing: Drawing2D | null;
@@ -46,16 +47,6 @@ function useDrawingExport({
   sheetEnabled,
   activeSheet,
 }: UseDrawingExportParams): UseDrawingExportResult {
-  // Format distance for display (same logic as canvas)
-  const formatDistance = useCallback((distance: number): string => {
-    if (distance < 0.01) {
-      return `${(distance * 1000).toFixed(1)} mm`;
-    } else if (distance < 1) {
-      return `${(distance * 100).toFixed(1)} cm`;
-    } else {
-      return `${distance.toFixed(3)} m`;
-    }
-  }, []);
 
   // Generate SVG that matches the canvas rendering exactly
   const generateExportSVG = useCallback((): string | null => {
@@ -315,7 +306,7 @@ function useDrawingExport({
 
     svg += '</svg>';
     return svg;
-  }, [drawing, displayOptions, activePresetId, entityColorMap, overridesEnabled, overrideEngine, measure2DResults, formatDistance, sectionPlane.axis]);
+  }, [drawing, displayOptions, activePresetId, entityColorMap, overridesEnabled, overrideEngine, measure2DResults, sectionPlane.axis]);
 
   // Generate SVG with drawing sheet (frame, title block, scale bar)
   // This generates coordinates directly in paper mm space (like the canvas rendering)
