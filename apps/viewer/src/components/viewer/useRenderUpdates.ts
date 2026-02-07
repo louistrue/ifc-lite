@@ -8,8 +8,9 @@
  */
 
 import { useEffect, type MutableRefObject } from 'react';
-import type { Renderer } from '@ifc-lite/renderer';
+import type { Renderer, CutPolygon2D, DrawingLine2D } from '@ifc-lite/renderer';
 import type { CoordinateInfo } from '@ifc-lite/geometry';
+import type { Drawing2D } from '@ifc-lite/drawing-2d';
 import type { SectionPlane } from '@/store';
 import { getThemeClearColor } from '../../utils/viewportUtils.js';
 
@@ -43,7 +44,7 @@ export interface UseRenderUpdatesParams {
   activeToolRef: MutableRefObject<string>;
 
   // Drawing 2D
-  drawing2D: { cutPolygons: Array<{ polygon: { outer: Array<{ x: number; y: number }>; holes: Array<Array<{ x: number; y: number }>> }; ifcType: string; entityId: number }> } | null;
+  drawing2D: Drawing2D | null;
   show3DOverlay: boolean;
 }
 
@@ -99,14 +100,14 @@ export function useRenderUpdates(params: UseRenderUpdatesParams): void {
     // Only show overlay when section tool is active, we have a drawing, AND 3D overlay is enabled
     if (activeTool === 'section' && drawing2D && drawing2D.cutPolygons.length > 0 && show3DOverlay) {
       // Convert Drawing2D format to renderer format
-      const polygons = drawing2D.cutPolygons.map((cp) => ({
+      const polygons: CutPolygon2D[] = drawing2D.cutPolygons.map((cp) => ({
         polygon: cp.polygon,
         ifcType: cp.ifcType,
         expressId: cp.entityId,  // DrawingPolygon uses entityId
       }));
 
       // No hatching lines for 3D overlay (too dense)
-      const lines: Array<{ line: { start: { x: number; y: number }; end: { x: number; y: number } }; category: string }> = [];
+      const lines: DrawingLine2D[] = [];
 
       // Upload to renderer - will be drawn on the section plane
       // Pass sectionRange to match exactly what render() uses for section plane position
