@@ -2,7 +2,7 @@
 
 This project uses [Changesets](https://github.com/changesets/changesets) for automated version management and publishing.
 
-For full details, see [RELEASE.md](../../RELEASE.md) in the project root.
+For full details, see [RELEASE.md](https://github.com/louistrue/ifc-lite/blob/main/RELEASE.md) in the project root.
 
 ## Quick Reference
 
@@ -34,4 +34,4 @@ All packages use **fixed versioning** - when any package bumps, all bump to the 
 2. Merge to `main` - the Changesets bot creates a "Version Packages" PR
 3. Review and merge the "Version Packages" PR to trigger publishing
 
-See [RELEASE.md](../../RELEASE.md) for emergency manual release instructions, troubleshooting, and FAQ.
+See [RELEASE.md](https://github.com/louistrue/ifc-lite/blob/main/RELEASE.md) for emergency manual release instructions, troubleshooting, and FAQ.
