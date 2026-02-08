@@ -218,7 +218,7 @@ export function useIfcFederation() {
           quantities: ifcxResult.quantities,
           relationships: ifcxResult.relationships,
           spatialHierarchy: ifcxResult.spatialHierarchy,
-        } as unknown as IfcDataStore; // IFC5 schema extension
+        } as IfcxDataStore;
 
         schemaVersion = 'IFC5';
 

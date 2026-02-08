@@ -185,7 +185,7 @@ function buildSpatialHierarchy(
   const storeyHeights = new Map<number, number>();
 
   const nodesMap = new Map<number, ServerSpatialNode>(
-    (dataModel.spatialHierarchy.nodes as ServerSpatialNode[]).map((n) => [n.entity_id, n])
+    dataModel.spatialHierarchy.nodes.map((n: ServerSpatialNode) => [n.entity_id, n])
   );
 
   // Build lookup maps from spatial hierarchy data
@@ -622,13 +622,16 @@ export function convertServerDataModel(
       // Server-converted data: search all psets for matching property name + value
       const matchingEntityIds: number[] = [];
       for (const [entityId, psets] of entityToPsets) {
+        let found = false;
         for (const pset of psets) {
           for (const prop of pset.properties) {
             if (prop.property_name === propName && prop.property_value === value) {
               matchingEntityIds.push(entityId);
+              found = true;
               break;
             }
           }
+          if (found) break;
         }
       }
       return matchingEntityIds;
@@ -644,7 +647,7 @@ export function convertServerDataModel(
       case 'count': return QuantityType.Count;
       case 'weight': return QuantityType.Weight;
       case 'time': return QuantityType.Time;
-      default: return QuantityType.Length;
+      default: return QuantityType.Count;
     }
   };
 

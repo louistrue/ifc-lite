@@ -245,7 +245,7 @@ export function useIfcLoader() {
       // Cache key uses filename + size + content fingerprint + format version
       // Fingerprint prevents collisions for different files with the same name and size
       const fingerprint = computeFastFingerprint(buffer);
-      const cacheKey = `${file.name}-${buffer.byteLength}-${fingerprint}-v3`;
+      const cacheKey = `${file.name}-${buffer.byteLength}-${fingerprint}-v4`;
 
       if (buffer.byteLength >= CACHE_SIZE_THRESHOLD) {
         setProgress({ phase: 'Checking cache', percent: 5 });
