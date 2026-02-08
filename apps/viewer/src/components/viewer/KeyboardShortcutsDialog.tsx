@@ -297,6 +297,15 @@ export function useKeyboardShortcutsDialog() {
   // Listen for '?' key to toggle
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if typing in an input or textarea
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      ) {
+        return;
+      }
       if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
         e.preventDefault();
         toggle();

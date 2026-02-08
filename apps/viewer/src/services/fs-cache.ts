@@ -66,7 +66,7 @@ export async function getCached(key: string): Promise<ArrayBuffer | null> {
 
     const data = await fs.readFile(cachePath);
     // Slice to actual data range - Uint8Array.buffer may contain extra bytes
-    const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+    const buffer = (data.buffer as ArrayBuffer).slice(data.byteOffset, data.byteOffset + data.byteLength);
 
     console.log(`[FS Cache] Cache hit for key ${key} (${(buffer.byteLength / 1024 / 1024).toFixed(2)}MB)`);
     return buffer;

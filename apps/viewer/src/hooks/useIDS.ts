@@ -13,19 +13,12 @@
  * - Isolate failed/passed entities
  */
 
-import { useCallback, useMemo, useEffect, useRef } from 'react';
+import { useCallback, useMemo, useEffect, useRef, useState } from 'react';
 import { useViewerStore } from '@/store';
 import type {
   IDSDocument,
   IDSValidationReport,
   IDSModelInfo,
-  IFCDataAccessor,
-  PropertyValueResult,
-  PropertySetInfo,
-  ClassificationInfo,
-  MaterialInfo,
-  ParentInfo,
-  PartOfRelation,
   SupportedLocale,
   ValidationProgress,
 } from '@ifc-lite/ids';
@@ -35,6 +28,21 @@ import {
   createTranslationService,
 } from '@ifc-lite/ids';
 import type { IfcDataStore } from '@ifc-lite/parser';
+import { createBCFFromIDSReport, writeBCF } from '@ifc-lite/bcf';
+import type { EntityBoundsInput, IDSBCFExportOptions } from '@ifc-lite/bcf';
+import type { IDSBCFExportSettings, IDSExportProgress } from '@/components/viewer/IDSExportDialog';
+import { getEntityBounds } from '@/utils/viewportUtils';
+import { getGlobalRenderer } from '@/hooks/useBCF';
+
+import { createDataAccessor } from './ids/idsDataAccessor';
+import {
+  DEFAULT_FAILED_COLOR,
+  DEFAULT_PASSED_COLOR,
+  buildValidationColorUpdates,
+  buildRestoreColorUpdates,
+} from './ids/idsColorSystem';
+import type { ColorTuple } from './ids/idsColorSystem';
+import { downloadReportJSON, downloadReportHTML } from './ids/idsExportService';
 
 // ============================================================================
 // Types
@@ -142,243 +150,18 @@ export interface UseIDSResult {
   exportReportJSON: () => void;
   /** Export validation report to HTML */
   exportReportHTML: () => void;
-}
-
-// ============================================================================
-// IFC Data Accessor Factory
-// ============================================================================
-
-/**
- * Create an IFCDataAccessor from an IfcDataStore
- * This bridges the viewer's data store to the IDS validator's interface
- */
-function createDataAccessor(
-  dataStore: IfcDataStore,
-  modelId: string
-): IFCDataAccessor {
-  // Helper to get entity info
-  const getEntityInfo = (expressId: number) => {
-    return dataStore.entities?.getName ? {
-      name: dataStore.entities.getName(expressId),
-      type: dataStore.entities.getTypeName?.(expressId),
-      globalId: dataStore.entities.getGlobalId?.(expressId),
-    } : undefined;
-  };
-
-  return {
-    getEntityType(expressId: number): string | undefined {
-      // Try entities table first
-      const entityType = dataStore.entities?.getTypeName?.(expressId);
-      if (entityType) return entityType;
-
-      // Fallback to entityIndex
-      const byId = dataStore.entityIndex?.byId;
-      if (byId) {
-        const entry = byId.get(expressId);
-        if (entry) {
-          return typeof entry === 'object' && 'type' in entry ? String(entry.type) : undefined;
-        }
-      }
-      return undefined;
-    },
-
-    getEntityName(expressId: number): string | undefined {
-      return dataStore.entities?.getName?.(expressId);
-    },
-
-    getGlobalId(expressId: number): string | undefined {
-      return dataStore.entities?.getGlobalId?.(expressId);
-    },
-
-    getDescription(expressId: number): string | undefined {
-      return dataStore.entities?.getDescription?.(expressId);
-    },
-
-    getObjectType(expressId: number): string | undefined {
-      return dataStore.entities?.getObjectType?.(expressId);
-    },
-
-    getEntitiesByType(typeName: string): number[] {
-      const byType = dataStore.entityIndex?.byType;
-      if (byType) {
-        const ids = byType.get(typeName.toUpperCase());
-        if (ids) return Array.from(ids);
-      }
-      return [];
-    },
-
-    getAllEntityIds(): number[] {
-      const byId = dataStore.entityIndex?.byId;
-      if (byId) {
-        return Array.from(byId.keys());
-      }
-      return [];
-    },
-
-    getPropertyValue(
-      expressId: number,
-      propertySetName: string,
-      propertyName: string
-    ): PropertyValueResult | undefined {
-      const propertiesStore = dataStore.properties;
-      if (!propertiesStore) return undefined;
-
-      // Get property sets for this entity using getForEntity (returns PropertySet[])
-      const psets = propertiesStore.getForEntity?.(expressId);
-      if (!psets) return undefined;
-
-      for (const pset of psets) {
-        if (pset.name.toLowerCase() === propertySetName.toLowerCase()) {
-          const props = pset.properties || [];
-          for (const prop of props) {
-            if (prop.name.toLowerCase() === propertyName.toLowerCase()) {
-              // Convert value: ensure it's a primitive type (not array)
-              let value: string | number | boolean | null = null;
-              if (Array.isArray(prop.value)) {
-                // For arrays, convert to string representation
-                value = JSON.stringify(prop.value);
-              } else {
-                value = prop.value as string | number | boolean | null;
-              }
-              return {
-                value,
-                dataType: String(prop.type || 'IFCLABEL'),
-                propertySetName: pset.name,
-                propertyName: prop.name,
-              };
-            }
-          }
-        }
-      }
-      return undefined;
-    },
-
-    getPropertySets(expressId: number): PropertySetInfo[] {
-      const propertiesStore = dataStore.properties;
-      if (!propertiesStore) return [];
-
-      // Use getForEntity (returns PropertySet[])
-      const psets = propertiesStore.getForEntity?.(expressId);
-      if (!psets) return [];
-
-      return psets.map((pset) => ({
-        name: pset.name,
-        properties: (pset.properties || []).map((prop) => {
-          // Convert value: ensure it's a primitive type (not array)
-          let value: string | number | boolean | null = null;
-          if (Array.isArray(prop.value)) {
-            value = JSON.stringify(prop.value);
-          } else {
-            value = prop.value as string | number | boolean | null;
-          }
-          return {
-            name: prop.name,
-            value,
-            dataType: String(prop.type || 'IFCLABEL'),
-          };
-        }),
-      }));
-    },
-
-    getClassifications(expressId: number): ClassificationInfo[] {
-      // Classifications might be stored separately or in properties
-      // This is a placeholder - implement based on actual data structure
-      const classifications: ClassificationInfo[] = [];
-
-      // Check if there's a classifications accessor
-      const classStore = (dataStore as { classifications?: { getForEntity?: (id: number) => ClassificationInfo[] } }).classifications;
-      if (classStore?.getForEntity) {
-        return classStore.getForEntity(expressId);
-      }
-
-      return classifications;
-    },
-
-    getMaterials(expressId: number): MaterialInfo[] {
-      // Materials might be stored separately or in relationships
-      const materials: MaterialInfo[] = [];
-
-      // Check if there's a materials accessor
-      const matStore = (dataStore as { materials?: { getForEntity?: (id: number) => MaterialInfo[] } }).materials;
-      if (matStore?.getForEntity) {
-        return matStore.getForEntity(expressId);
-      }
-
-      return materials;
-    },
-
-    getParent(
-      expressId: number,
-      relationType: PartOfRelation
-    ): ParentInfo | undefined {
-      const relationships = dataStore.relationships;
-      if (!relationships) return undefined;
-
-      // Map IDS relation type to internal relation type
-      const relationMap: Record<PartOfRelation, string> = {
-        'IfcRelAggregates': 'Aggregates',
-        'IfcRelContainedInSpatialStructure': 'ContainedInSpatialStructure',
-        'IfcRelNests': 'Nests',
-        'IfcRelVoidsElement': 'VoidsElement',
-        'IfcRelFillsElement': 'FillsElement',
-      };
-
-      const relType = relationMap[relationType];
-      if (!relType) return undefined;
-
-      // Get related entities (parent direction)
-      const getRelated = relationships.getRelated;
-      if (getRelated) {
-        const parents = getRelated(expressId, relType as never, 'inverse');
-        if (parents && parents.length > 0) {
-          const parentId = parents[0];
-          return {
-            expressId: parentId,
-            entityType: this.getEntityType(parentId) || 'Unknown',
-            predefinedType: this.getObjectType(parentId),
-          };
-        }
-      }
-
-      return undefined;
-    },
-
-    getAttribute(expressId: number, attributeName: string): string | undefined {
-      const lowerName = attributeName.toLowerCase();
-
-      // Map common attribute names to accessor methods
-      switch (lowerName) {
-        case 'name':
-          return this.getEntityName(expressId);
-        case 'description':
-          return this.getDescription(expressId);
-        case 'globalid':
-          return this.getGlobalId(expressId);
-        case 'objecttype':
-        case 'predefinedtype':
-          return this.getObjectType(expressId);
-        default: {
-          // Try to get from entities table if available
-          const entities = dataStore.entities as {
-            getAttribute?: (id: number, attr: string) => string | undefined;
-          };
-          if (entities?.getAttribute) {
-            return entities.getAttribute(expressId, attributeName);
-          }
-          return undefined;
-        }
-      }
-    },
-  };
+  /** Export validation report to BCF with configurable options */
+  exportReportBCF: (settings: IDSBCFExportSettings) => Promise<void>;
+  /** BCF export progress state */
+  bcfExportProgress: IDSExportProgress | null;
 }
 
 // ============================================================================
 // Hook Implementation
 // ============================================================================
 
-// Stable default color constants (moved outside hook to prevent recreations)
-const DEFAULT_FAILED_COLOR: [number, number, number, number] = [0.9, 0.2, 0.2, 1.0];
-const DEFAULT_PASSED_COLOR: [number, number, number, number] = [0.2, 0.8, 0.2, 1.0];
+/** Dark background for BCF snapshot captures */
+const SNAPSHOT_CLEAR_COLOR: [number, number, number, number] = [0.102, 0.106, 0.149, 1];
 
 export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
   const {
@@ -434,7 +217,7 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
   const geometryResult = useViewerStore((s) => s.geometryResult);
 
   // Ref to store original colors before IDS color overrides
-  const originalColorsRef = useRef<Map<number, [number, number, number, number]>>(new Map());
+  const originalColorsRef = useRef<Map<number, ColorTuple>>(new Map());
 
   // Ref to access geometryResult without creating callback dependencies (prevents infinite loops)
   const geometryResultRef = useRef(geometryResult);
@@ -504,7 +287,6 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     }
 
     // Determine model ID - use '__legacy__' for legacy single-model mode
-    const isLegacyMode = ifcDataStore && models.size === 0;
     const modelId = activeModelId || (models.size > 0 ? Array.from(models.keys())[0] : '__legacy__');
 
     try {
@@ -635,50 +417,15 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
   const applyColors = useCallback(() => {
     if (!report) return;
 
-    const colorUpdates = new Map<number, [number, number, number, number]>();
-
-    // Get color options
-    const failedClr = displayOptions.failedColor ?? defaultFailedColor;
-    const passedClr = displayOptions.passedColor ?? defaultPassedColor;
-
-    // Build a set of globalIds we'll be updating
-    const globalIdsToUpdate = new Set<number>();
-    for (const specResult of report.specificationResults) {
-      for (const entityResult of specResult.entityResults) {
-        const model = models.get(entityResult.modelId);
-        const globalId = model
-          ? entityResult.expressId + (model.idOffset ?? 0)
-          : entityResult.expressId;
-        globalIdsToUpdate.add(globalId);
-      }
-    }
-
-    // Capture original colors before applying overrides (only if not already captured)
-    // Use ref to avoid dependency on geometryResult which would cause infinite loops
-    const currentGeometry = geometryResultRef.current;
-    if (currentGeometry?.meshes && originalColorsRef.current.size === 0) {
-      for (const mesh of currentGeometry.meshes) {
-        if (globalIdsToUpdate.has(mesh.expressId)) {
-          originalColorsRef.current.set(mesh.expressId, [...mesh.color] as [number, number, number, number]);
-        }
-      }
-    }
-
-    // Process all entity results
-    for (const specResult of report.specificationResults) {
-      for (const entityResult of specResult.entityResults) {
-        const model = models.get(entityResult.modelId);
-        const globalId = model
-          ? entityResult.expressId + (model.idOffset ?? 0)
-          : entityResult.expressId;
-
-        if (entityResult.passed && displayOptions.highlightPassed) {
-          colorUpdates.set(globalId, passedClr);
-        } else if (!entityResult.passed && displayOptions.highlightFailed) {
-          colorUpdates.set(globalId, failedClr);
-        }
-      }
-    }
+    const colorUpdates = buildValidationColorUpdates(
+      report,
+      models,
+      displayOptions,
+      defaultFailedColor,
+      defaultPassedColor,
+      geometryResultRef.current,
+      originalColorsRef.current
+    );
 
     if (colorUpdates.size > 0) {
       updateMeshColors(colorUpdates);
@@ -686,18 +433,9 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
   }, [report, models, displayOptions, defaultFailedColor, defaultPassedColor, updateMeshColors]);
 
   const clearColors = useCallback(() => {
-    // Restore original colors from the ref
-    if (originalColorsRef.current.size === 0) {
-      return;
-    }
-
-    // Create a new map with the original colors to restore
-    const colorUpdates = new Map<number, [number, number, number, number]>(originalColorsRef.current);
-
-    if (colorUpdates.size > 0) {
+    const colorUpdates = buildRestoreColorUpdates(originalColorsRef.current);
+    if (colorUpdates && colorUpdates.size > 0) {
       updateMeshColors(colorUpdates);
-      // Clear the stored original colors after restoring
-      originalColorsRef.current.clear();
     }
   }, [updateMeshColors]);
 
@@ -820,46 +558,7 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
       console.warn('[IDS] No report to export');
       return;
     }
-
-    const exportData = {
-      document: report.document,
-      modelInfo: report.modelInfo,
-      timestamp: report.timestamp.toISOString(),
-      summary: report.summary,
-      specificationResults: report.specificationResults.map(spec => ({
-        specification: spec.specification,
-        status: spec.status,
-        applicableCount: spec.applicableCount,
-        passedCount: spec.passedCount,
-        failedCount: spec.failedCount,
-        passRate: spec.passRate,
-        entityResults: spec.entityResults.map(entity => ({
-          expressId: entity.expressId,
-          modelId: entity.modelId,
-          entityType: entity.entityType,
-          entityName: entity.entityName,
-          globalId: entity.globalId,
-          passed: entity.passed,
-          requirementResults: entity.requirementResults.map(req => ({
-            requirement: req.requirement,
-            status: req.status,
-            facetType: req.facetType,
-            checkedDescription: req.checkedDescription,
-            failureReason: req.failureReason,
-            actualValue: req.actualValue,
-            expectedValue: req.expectedValue,
-          })),
-        })),
-      })),
-    };
-
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = globalThis.document.createElement('a');
-    a.href = url;
-    a.download = `ids-report-${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadReportJSON(report);
   }, [report]);
 
   const exportReportHTML = useCallback(() => {
@@ -867,142 +566,248 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
       console.warn('[IDS] No report to export');
       return;
     }
+    downloadReportHTML(report, locale);
+  }, [report, locale]);
 
-    // HTML escape helper to prevent XSS
-    const escapeHtml = (str: string | undefined | null): string => {
-      if (str == null) return '';
-      return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
+
+  // BCF export progress state
+  const [bcfExportProgress, setBcfExportProgress] = useState<IDSExportProgress | null>(null);
+
+  // BCF store actions for 'load into panel'
+  const setBcfProject = useViewerStore((s) => s.setBcfProject);
+  const setBcfPanelVisible = useViewerStore((s) => s.setBcfPanelVisible);
+  const bcfAuthor = useViewerStore((s) => s.bcfAuthor);
+
+  const exportReportBCF = useCallback(async (settings: IDSBCFExportSettings) => {
+    if (!report) {
+      console.warn('[IDS] No report to export');
+      return;
+    }
+
+    try {
+    const {
+      topicGrouping,
+      includePassingEntities,
+      includeCamera,
+      includeSnapshots,
+      loadIntoBcfPanel,
+    } = settings;
+
+    // Phase 1: Collect entity bounds (needed for both camera and snapshots)
+    let entityBounds: Map<string, EntityBoundsInput> | undefined;
+
+    if (includeCamera || includeSnapshots) {
+      setBcfExportProgress({ phase: 'building', current: 0, total: 1, message: 'Computing entity bounds...' });
+
+      entityBounds = new Map();
+      const geomResult = geometryResultRef.current;
+
+      // Collect geometry from all models
+      const allMeshData: Array<{ meshes: unknown[]; idOffset: number; modelId: string }> = [];
+      for (const [modelId, model] of models.entries()) {
+        if (model.geometryResult?.meshes) {
+          allMeshData.push({
+            meshes: model.geometryResult.meshes,
+            idOffset: model.idOffset ?? 0,
+            modelId,
+          });
+        }
+      }
+
+      // Also include legacy single-model geometry
+      if (geomResult?.meshes && allMeshData.length === 0) {
+        allMeshData.push({
+          meshes: geomResult.meshes,
+          idOffset: 0,
+          modelId: 'default',
+        });
+      }
+
+      // Compute bounds for each entity that appears in the report
+      for (const specResult of report.specificationResults) {
+        for (const entity of specResult.entityResults) {
+          if (entity.passed && !includePassingEntities) continue;
+          const boundsKey = `${entity.modelId}:${entity.expressId}`;
+          if (entityBounds.has(boundsKey)) continue;
+
+          // Find matching model geometry
+          for (const modelData of allMeshData) {
+            if (modelData.modelId === entity.modelId || allMeshData.length === 1) {
+              const globalExpressId = entity.expressId + modelData.idOffset;
+              const bounds = getEntityBounds(
+                modelData.meshes as Parameters<typeof getEntityBounds>[0],
+                globalExpressId,
+              );
+              if (bounds) {
+                entityBounds.set(boundsKey, bounds);
+              }
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // Phase 2: Batch snapshots if requested
+    let entitySnapshots: Map<string, string> | undefined;
+
+    if (includeSnapshots) {
+      entitySnapshots = new Map();
+
+      // Get renderer for direct rendering control (no selection highlight)
+      const renderer = getGlobalRenderer();
+      if (!renderer) {
+        console.warn('[IDS] No renderer available for snapshot capture');
+      } else {
+        const camera = renderer.getCamera();
+
+        // Collect all unique entities that need snapshots (Set-based O(1) dedup)
+        const seenKeys = new Set<string>();
+        const entitiesToSnapshot: Array<{ modelId: string; expressId: number; boundsKey: string }> = [];
+        for (const specResult of report.specificationResults) {
+          for (const entity of specResult.entityResults) {
+            if (entity.passed && !includePassingEntities) continue;
+            const boundsKey = `${entity.modelId}:${entity.expressId}`;
+            if (!seenKeys.has(boundsKey)) {
+              seenKeys.add(boundsKey);
+              entitiesToSnapshot.push({
+                modelId: entity.modelId,
+                expressId: entity.expressId,
+                boundsKey,
+              });
+            }
+          }
+        }
+
+        const total = entitiesToSnapshot.length;
+
+        // Save current viewer state to restore after snapshot batch
+        const storeState = useViewerStore.getState();
+        const savedSelection = storeState.selectedEntityId;
+        const savedIsolation = storeState.isolatedEntities;
+        const savedHidden = storeState.hiddenEntities;
+
+        for (let i = 0; i < total; i++) {
+          const entity = entitiesToSnapshot[i];
+          setBcfExportProgress({
+            phase: 'snapshots',
+            current: i + 1,
+            total,
+            message: `Capturing snapshot ${i + 1}/${total}...`,
+          });
+
+          // Get the entity's bounds for framing
+          const bounds = entityBounds?.get(entity.boundsKey);
+          if (!bounds) continue;
+
+          // Find the global expressId for isolation (direct Map lookup)
+          const model = models.get(entity.modelId);
+          const globalExpressId = entity.expressId + (model?.idOffset ?? 0);
+
+          // Frame the entity bounds directly via camera (properly centers the object)
+          // duration=1 (not 0) because the animator skips updates when duration===0,
+          // causing the camera to never move. 1ms is effectively instant.
+          await camera.frameBounds(bounds.min, bounds.max, 1);
+
+          // Render with: entity isolated, NO selection highlight (no cyan), IDS colors intact
+          const isolationSet = new Set([globalExpressId]);
+          renderer.render({
+            isolatedIds: isolationSet,
+            selectedId: null,           // No cyan selection highlight
+            clearColor: SNAPSHOT_CLEAR_COLOR,
+          });
+
+          // Wait for GPU commands to complete
+          const device = renderer.getGPUDevice();
+          if (device) {
+            await device.queue.onSubmittedWorkDone();
+          }
+
+          // Wait for the browser compositor to present the frame to the canvas.
+          // Without this, toDataURL() reads a stale canvas — only the last snapshot
+          // would show the entity because previous frames haven't been composited yet.
+          await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+
+          // Capture the now-presented frame
+          const dataUrl = await renderer.captureScreenshot();
+          if (dataUrl) {
+            entitySnapshots.set(entity.boundsKey, dataUrl);
+          }
+        }
+
+        // Restore viewer state — set store back to saved state directly
+        useViewerStore.setState({
+          selectedEntityId: savedSelection,
+          isolatedEntities: savedIsolation,
+          hiddenEntities: savedHidden,
+        });
+
+        // Re-render with restored state (original clearColor restored by omitting it)
+        renderer.render({
+          hiddenIds: savedHidden,
+          isolatedIds: savedIsolation,
+          selectedId: savedSelection,
+        });
+      }
+    }
+
+    // Phase 3: Build BCF project
+    setBcfExportProgress({ phase: 'writing', current: 0, total: 1, message: 'Building BCF project...' });
+
+    const exportOptions: IDSBCFExportOptions = {
+      author: bcfAuthor || report.document.info.author || 'ids-validator@ifc-lite',
+      projectName: `IDS Report - ${report.document.info.title}`,
+      topicGrouping,
+      includePassingEntities,
+      entityBounds,
+      entitySnapshots,
     };
 
-    const statusClass = (status: string) => {
-      if (status === 'pass') return 'color: #22c55e;';
-      if (status === 'fail') return 'color: #ef4444;';
-      return 'color: #eab308;';
-    };
+    const bcfProject = createBCFFromIDSReport(
+      {
+        title: report.document.info.title,
+        description: report.document.info.description,
+        specificationResults: report.specificationResults,
+      },
+      exportOptions,
+    );
 
-    const html = `<!DOCTYPE html>
-<html lang="${escapeHtml(locale)}">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>IDS Validation Report - ${escapeHtml(report.document.info.title)}</title>
-  <style>
-    * { box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background: #f5f5f5; }
-    h1, h2, h3 { margin-top: 0; }
-    .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; }
-    .summary-item { text-align: center; padding: 16px; background: #f9fafb; border-radius: 8px; }
-    .summary-item .value { font-size: 24px; font-weight: bold; }
-    .summary-item .label { color: #6b7280; font-size: 14px; }
-    .pass { color: #22c55e; }
-    .fail { color: #ef4444; }
-    .progress-bar { height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
-    .progress-fill { height: 100%; transition: width 0.3s; }
-    .spec-card { border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 12px; }
-    .spec-header { padding: 16px; cursor: pointer; }
-    .spec-header:hover { background: #f9fafb; }
-    .entity-list { border-top: 1px solid #e5e7eb; max-height: 400px; overflow-y: auto; }
-    .entity-row { padding: 12px 16px; border-bottom: 1px solid #f3f4f6; }
-    .entity-row:last-child { border-bottom: none; }
-    .requirement { font-size: 13px; padding: 4px 0; color: #6b7280; }
-    .failure-reason { color: #ef4444; font-size: 12px; margin-top: 2px; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }
-    th { background: #f9fafb; font-weight: 600; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>${escapeHtml(report.document.info.title)}</h1>
-    ${report.document.info.description ? `<p>${escapeHtml(report.document.info.description)}</p>` : ''}
-    <p><strong>Model:</strong> ${escapeHtml(report.modelInfo.modelId)} | <strong>Schema:</strong> ${escapeHtml(report.modelInfo.schemaVersion)} | <strong>Date:</strong> ${escapeHtml(report.timestamp.toLocaleString())}</p>
-  </div>
+    // Phase 4: Write BCF and download
+    setBcfExportProgress({ phase: 'writing', current: 1, total: 2, message: 'Writing BCF file...' });
 
-  <div class="card">
-    <h2>Summary</h2>
-    <div class="summary">
-      <div class="summary-item">
-        <div class="value">${report.summary.totalSpecifications}</div>
-        <div class="label">Specifications</div>
-      </div>
-      <div class="summary-item">
-        <div class="value pass">${report.summary.passedSpecifications}</div>
-        <div class="label">Passed</div>
-      </div>
-      <div class="summary-item">
-        <div class="value fail">${report.summary.failedSpecifications}</div>
-        <div class="label">Failed</div>
-      </div>
-      <div class="summary-item">
-        <div class="value">${report.summary.totalEntitiesChecked}</div>
-        <div class="label">Entities Checked</div>
-      </div>
-      <div class="summary-item">
-        <div class="value">${report.summary.overallPassRate}%</div>
-        <div class="label">Pass Rate</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2>Specifications</h2>
-    ${report.specificationResults.map(spec => `
-      <div class="spec-card">
-        <div class="spec-header">
-          <h3 style="${statusClass(spec.status)}">${spec.status === 'pass' ? '✓' : '✗'} ${escapeHtml(spec.specification.name)}</h3>
-          ${spec.specification.description ? `<p style="margin: 8px 0; color: #6b7280;">${escapeHtml(spec.specification.description)}</p>` : ''}
-          <div style="display: flex; gap: 16px; font-size: 14px; color: #6b7280;">
-            <span>${spec.applicableCount} entities</span>
-            <span class="pass">${spec.passedCount} passed</span>
-            <span class="fail">${spec.failedCount} failed</span>
-          </div>
-          <div class="progress-bar" style="margin-top: 8px;">
-            <div class="progress-fill" style="width: ${spec.passRate}%; background: ${spec.passRate >= 80 ? '#22c55e' : spec.passRate >= 50 ? '#eab308' : '#ef4444'};"></div>
-          </div>
-        </div>
-        ${spec.entityResults.length > 0 ? `
-        <div class="entity-list">
-          ${spec.entityResults.slice(0, 50).map(entity => `
-            <div class="entity-row">
-              <div style="${statusClass(entity.passed ? 'pass' : 'fail')}">
-                ${entity.passed ? '✓' : '✗'} <strong>${escapeHtml(entity.entityName) || '#' + entity.expressId}</strong>
-                <span style="color: #6b7280; font-size: 13px;"> - ${escapeHtml(entity.entityType)}${entity.globalId ? ' · ' + escapeHtml(entity.globalId) : ''}</span>
-              </div>
-              ${entity.requirementResults.filter(r => r.status === 'fail').map(req => `
-                <div class="requirement">
-                  ${escapeHtml(req.checkedDescription)}
-                  ${req.failureReason ? `<div class="failure-reason">${escapeHtml(req.failureReason)}</div>` : ''}
-                </div>
-              `).join('')}
-            </div>
-          `).join('')}
-          ${spec.entityResults.length > 50 ? `<div class="entity-row" style="text-align: center; color: #6b7280;">... and ${spec.entityResults.length - 50} more entities</div>` : ''}
-        </div>
-        ` : ''}
-      </div>
-    `).join('')}
-  </div>
-
-  <footer style="text-align: center; color: #6b7280; padding: 20px;">
-    Generated by IFC-Lite IDS Validator
-  </footer>
-</body>
-</html>`;
-
-    const blob = new Blob([html], { type: 'text/html' });
+    const blob = await writeBCF(bcfProject);
     const url = URL.createObjectURL(blob);
     const a = globalThis.document.createElement('a');
     a.href = url;
-    a.download = `ids-report-${new Date().toISOString().split('T')[0]}.html`;
+    a.download = `ids-report-${new Date().toISOString().split('T')[0]}.bcf`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [report, locale]);
+
+    // Phase 5: Load into BCF panel if requested
+    if (loadIntoBcfPanel) {
+      setBcfProject(bcfProject);
+      setBcfPanelVisible(true);
+    }
+
+    setBcfExportProgress({ phase: 'done', current: 1, total: 1, message: 'Export complete!' });
+
+    // Clear progress after a delay
+    setTimeout(() => setBcfExportProgress(null), 2000);
+
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'BCF export failed';
+      setIdsError(message);
+      console.error('[IDS] BCF export error:', err);
+      setBcfExportProgress(null);
+    }
+  }, [
+    report,
+    models,
+    bcfAuthor,
+    setIdsError,
+    setBcfProject,
+    setBcfPanelVisible,
+  ]);
 
   // ============================================================================
   // Return
@@ -1061,5 +866,7 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     // Export actions
     exportReportJSON,
     exportReportHTML,
+    exportReportBCF,
+    bcfExportProgress,
   };
 }

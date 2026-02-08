@@ -36,22 +36,26 @@ export {
     type ZeroCopyInstancedUploadResult,
 } from './zero-copy-uploader.js';
 
+// Extracted manager classes
+export { GeometryManager } from './geometry-manager.js';
+export { PickingManager } from './picking-manager.js';
+export { RaycastEngine } from './raycast-engine.js';
+
 import { WebGPUDevice } from './device.js';
 import { RenderPipeline, InstancedRenderPipeline } from './pipeline.js';
 import { Camera } from './camera.js';
 import { Scene } from './scene.js';
 import { Picker } from './picker.js';
 import { FrustumUtils } from '@ifc-lite/spatial';
-import type { RenderOptions, PickOptions, PickResult, Mesh, InstancedMesh, SectionPlaneAxis } from './types.js';
+import type { RenderOptions, PickOptions, PickResult, Mesh } from './types.js';
 import { SectionPlaneRenderer } from './section-plane.js';
 import { Section2DOverlayRenderer, type CutPolygon2D, type DrawingLine2D } from './section-2d-overlay.js';
-import type { MeshData } from '@ifc-lite/geometry';
-import { deduplicateMeshes } from '@ifc-lite/geometry';
 import type { InstancedGeometry } from '@ifc-lite/wasm';
-import { MathUtils } from './math.js';
-import { Raycaster, type Intersection, type Ray } from './raycaster.js';
+import { Raycaster, type Intersection } from './raycaster.js';
 import { SnapDetector, type SnapTarget, type SnapOptions, type EdgeLockInput, type MagneticSnapResult } from './snap-detector.js';
-import { BVH } from './bvh.js';
+import { GeometryManager } from './geometry-manager.js';
+import { PickingManager } from './picking-manager.js';
+import { RaycastEngine } from './raycast-engine.js';
 
 /**
  * Main renderer class
@@ -66,20 +70,11 @@ export class Renderer {
     private canvas: HTMLCanvasElement;
     private sectionPlaneRenderer: SectionPlaneRenderer | null = null;
     private section2DOverlayRenderer: Section2DOverlayRenderer | null = null;
-    private modelBounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | null = null;
-    private raycaster: Raycaster;
-    private snapDetector: SnapDetector;
-    private bvh: BVH;
 
-    // BVH cache
-    private bvhCache: {
-        meshCount: number;
-        meshData: MeshData[];
-        isBuilt: boolean;
-    } | null = null;
-
-    // Performance constants
-    private readonly BVH_THRESHOLD = 100;
+    // Composition: delegate to extracted managers
+    private geometryManager: GeometryManager;
+    private pickingManager: PickingManager;
+    private raycastEngine: RaycastEngine;
 
     // Error rate limiting (log at most once per second)
     private lastRenderErrorTime: number = 0;
@@ -90,10 +85,11 @@ export class Renderer {
         this.device = new WebGPUDevice();
         this.camera = new Camera();
         this.scene = new Scene();
-        this.raycaster = new Raycaster();
-        this.snapDetector = new SnapDetector();
-        this.bvh = new BVH();
-        this.bvhCache = null;
+
+        // Create composition managers
+        this.geometryManager = new GeometryManager(this.device, this.scene);
+        this.pickingManager = new PickingManager(this.camera, this.scene, null, this.canvas, this.geometryManager);
+        this.raycastEngine = new RaycastEngine(this.camera, this.scene, this.canvas);
     }
 
     /**
@@ -127,146 +123,50 @@ export class Renderer {
             this.pipeline.getSampleCount()
         );
         this.camera.setAspect(width / height);
+
+        // Update picking manager with initialized picker
+        this.pickingManager.setPicker(this.picker);
     }
 
     /**
      * Load geometry from GeometryResult or MeshData array
      * This is the main entry point for loading IFC geometry into the renderer
-     * 
+     *
      * @param geometry - Either a GeometryResult from geometry.process() or an array of MeshData
      */
     loadGeometry(geometry: import('@ifc-lite/geometry').GeometryResult | import('@ifc-lite/geometry').MeshData[]): void {
-        if (!this.device.isInitialized() || !this.pipeline) {
+        if (!this.pipeline) {
             throw new Error('Renderer not initialized. Call init() first.');
         }
-
-        const meshes = Array.isArray(geometry) ? geometry : geometry.meshes;
-
-        if (meshes.length === 0) {
-            console.warn('[Renderer] loadGeometry called with empty mesh array');
-            return;
-        }
-
-        // Use batched rendering for optimal performance
-        const device = this.device.getDevice();
-        this.scene.appendToBatches(meshes, device, this.pipeline, false);
-
-        // Calculate and store model bounds for fitToView
-        this.updateModelBounds(meshes);
-
-        console.log(`[Renderer] Loaded ${meshes.length} meshes`);
+        this.geometryManager.loadGeometry(geometry, this.pipeline);
     }
 
     /**
      * Add multiple meshes to the scene (convenience method for streaming)
-     * 
+     *
      * @param meshes - Array of MeshData to add
      * @param isStreaming - If true, throttles batch rebuilding for better streaming performance
      */
     addMeshes(meshes: import('@ifc-lite/geometry').MeshData[], isStreaming: boolean = false): void {
-        if (!this.device.isInitialized() || !this.pipeline) {
+        if (!this.pipeline) {
             throw new Error('Renderer not initialized. Call init() first.');
         }
-
-        if (meshes.length === 0) return;
-
-        const device = this.device.getDevice();
-        this.scene.appendToBatches(meshes, device, this.pipeline, isStreaming);
-
-        // Update model bounds incrementally
-        this.updateModelBounds(meshes);
-    }
-
-    /**
-     * Update model bounds from mesh data
-     */
-    private updateModelBounds(meshes: import('@ifc-lite/geometry').MeshData[]): void {
-        if (!this.modelBounds) {
-            this.modelBounds = {
-                min: { x: Infinity, y: Infinity, z: Infinity },
-                max: { x: -Infinity, y: -Infinity, z: -Infinity }
-            };
-        }
-
-        for (const mesh of meshes) {
-            const positions = mesh.positions;
-            for (let i = 0; i < positions.length; i += 3) {
-                const x = positions[i];
-                const y = positions[i + 1];
-                const z = positions[i + 2];
-                if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
-                    this.modelBounds.min.x = Math.min(this.modelBounds.min.x, x);
-                    this.modelBounds.min.y = Math.min(this.modelBounds.min.y, y);
-                    this.modelBounds.min.z = Math.min(this.modelBounds.min.z, z);
-                    this.modelBounds.max.x = Math.max(this.modelBounds.max.x, x);
-                    this.modelBounds.max.y = Math.max(this.modelBounds.max.y, y);
-                    this.modelBounds.max.z = Math.max(this.modelBounds.max.z, z);
-                }
-            }
-        }
+        this.geometryManager.addMeshes(meshes, this.pipeline, isStreaming);
     }
 
     /**
      * Fit camera to view all loaded geometry
      */
     fitToView(): void {
-        if (!this.modelBounds) {
-            console.warn('[Renderer] fitToView called but no geometry loaded');
-            return;
-        }
-
-        const { min, max } = this.modelBounds;
-
-        // Calculate center and size
-        const center = {
-            x: (min.x + max.x) / 2,
-            y: (min.y + max.y) / 2,
-            z: (min.z + max.z) / 2
-        };
-
-        const size = Math.max(
-            max.x - min.x,
-            max.y - min.y,
-            max.z - min.z
-        );
-
-        // Position camera to see entire model
-        const distance = size * 1.5;
-        this.camera.setPosition(
-            center.x + distance * 0.5,
-            center.y + distance * 0.5,
-            center.z + distance
-        );
-        this.camera.setTarget(center.x, center.y, center.z);
+        this.geometryManager.fitToView(this.camera);
     }
 
     /**
      * Add mesh to scene with per-mesh GPU resources for unique colors
      */
     addMesh(mesh: Mesh): void {
-        // Create per-mesh uniform buffer and bind group if not already created
-        if (!mesh.uniformBuffer && this.pipeline && this.device.isInitialized()) {
-            const device = this.device.getDevice();
-
-            // Create uniform buffer for this mesh
-            mesh.uniformBuffer = device.createBuffer({
-                size: this.pipeline.getUniformBufferSize(),
-                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-            });
-
-            // Create bind group for this mesh
-            mesh.bindGroup = device.createBindGroup({
-                layout: this.pipeline.getBindGroupLayout(),
-                entries: [
-                    {
-                        binding: 0,
-                        resource: { buffer: mesh.uniformBuffer },
-                    },
-                ],
-            });
-        }
-
-        this.scene.addMesh(mesh);
+        if (!this.pipeline) return;
+        this.geometryManager.addMesh(mesh, this.pipeline);
     }
 
     /**
@@ -274,83 +174,10 @@ export class Renderer {
      * Converts InstancedGeometry from geometry package to InstancedMesh for rendering
      */
     addInstancedGeometry(geometry: InstancedGeometry): void {
-        if (!this.instancedPipeline || !this.device.isInitialized()) {
+        if (!this.instancedPipeline) {
             throw new Error('Renderer not initialized. Call init() first.');
         }
-
-        const device = this.device.getDevice();
-
-        // Upload positions and normals interleaved
-        const vertexCount = geometry.positions.length / 3;
-        const vertexData = new Float32Array(vertexCount * 6);
-        for (let i = 0; i < vertexCount; i++) {
-            vertexData[i * 6 + 0] = geometry.positions[i * 3 + 0];
-            vertexData[i * 6 + 1] = geometry.positions[i * 3 + 1];
-            vertexData[i * 6 + 2] = geometry.positions[i * 3 + 2];
-            vertexData[i * 6 + 3] = geometry.normals[i * 3 + 0];
-            vertexData[i * 6 + 4] = geometry.normals[i * 3 + 1];
-            vertexData[i * 6 + 5] = geometry.normals[i * 3 + 2];
-        }
-
-        // Create vertex buffer with exact size needed (ensure it matches data size)
-        const vertexBufferSize = vertexData.byteLength;
-        const vertexBuffer = device.createBuffer({
-            size: vertexBufferSize,
-            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-        });
-        device.queue.writeBuffer(vertexBuffer, 0, vertexData);
-
-        // Create index buffer
-        const indexBuffer = device.createBuffer({
-            size: geometry.indices.byteLength,
-            usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-        });
-        device.queue.writeBuffer(indexBuffer, 0, geometry.indices);
-
-        // Create instance buffer: each instance is 80 bytes (20 floats: 16 for transform + 4 for color)
-        const instanceCount = geometry.instance_count;
-        const instanceData = new Float32Array(instanceCount * 20);
-        const expressIdToInstanceIndex = new Map<number, number>();
-
-        for (let i = 0; i < instanceCount; i++) {
-            const instance = geometry.get_instance(i);
-            if (!instance) continue;
-
-            const baseIdx = i * 20;
-
-            // Copy transform (16 floats)
-            instanceData.set(instance.transform, baseIdx);
-
-            // Copy color (4 floats)
-            instanceData[baseIdx + 16] = instance.color[0];
-            instanceData[baseIdx + 17] = instance.color[1];
-            instanceData[baseIdx + 18] = instance.color[2];
-            instanceData[baseIdx + 19] = instance.color[3];
-
-            expressIdToInstanceIndex.set(instance.expressId, i);
-        }
-
-        const instanceBuffer = device.createBuffer({
-            size: instanceData.byteLength,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        });
-        device.queue.writeBuffer(instanceBuffer, 0, instanceData);
-
-        // Create and cache bind group to avoid per-frame allocation
-        const bindGroup = this.instancedPipeline.createInstanceBindGroup(instanceBuffer);
-
-        const instancedMesh: InstancedMesh = {
-            geometryId: Number(geometry.geometryId),
-            vertexBuffer,
-            indexBuffer,
-            indexCount: geometry.indices.length,
-            instanceBuffer,
-            instanceCount: instanceCount,
-            expressIdToInstanceIndex,
-            bindGroup,
-        };
-
-        this.scene.addInstancedMesh(instancedMesh);
+        this.geometryManager.addInstancedGeometry(geometry, this.instancedPipeline);
     }
 
     /**
@@ -359,205 +186,19 @@ export class Renderer {
      * Call this in background after initial streaming completes
      */
     convertToInstanced(meshDataArray: import('@ifc-lite/geometry').MeshData[]): void {
-        if (!this.instancedPipeline || !this.device.isInitialized()) {
+        if (!this.instancedPipeline) {
             console.warn('[Renderer] Cannot convert to instanced: renderer not initialized');
             return;
         }
-
-        // Use deduplication function to group identical geometries
-        const instancedData = deduplicateMeshes(meshDataArray);
-
-        const device = this.device.getDevice();
-        let totalInstances = 0;
-
-        for (const group of instancedData) {
-            // Create vertex buffer (interleaved positions + normals)
-            const vertexCount = group.positions.length / 3;
-            const vertexData = new Float32Array(vertexCount * 6);
-            for (let i = 0; i < vertexCount; i++) {
-                vertexData[i * 6 + 0] = group.positions[i * 3 + 0];
-                vertexData[i * 6 + 1] = group.positions[i * 3 + 1];
-                vertexData[i * 6 + 2] = group.positions[i * 3 + 2];
-                vertexData[i * 6 + 3] = group.normals[i * 3 + 0];
-                vertexData[i * 6 + 4] = group.normals[i * 3 + 1];
-                vertexData[i * 6 + 5] = group.normals[i * 3 + 2];
-            }
-
-            const vertexBuffer = device.createBuffer({
-                size: vertexData.byteLength,
-                usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-            });
-            device.queue.writeBuffer(vertexBuffer, 0, vertexData);
-
-            // Create index buffer
-            const indexBuffer = device.createBuffer({
-                size: group.indices.byteLength,
-                usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-            });
-            device.queue.writeBuffer(indexBuffer, 0, group.indices);
-
-            // Create instance buffer: each instance is 80 bytes (20 floats: 16 for transform + 4 for color)
-            const instanceCount = group.instances.length;
-            const instanceData = new Float32Array(instanceCount * 20);
-            const expressIdToInstanceIndex = new Map<number, number>();
-
-            // Identity matrix for now (instances use same geometry, different colors)
-            const identityTransform = new Float32Array([
-                1, 0, 0, 0,
-                0, 1, 0, 0,
-                0, 0, 1, 0,
-                0, 0, 0, 1,
-            ]);
-
-            for (let i = 0; i < instanceCount; i++) {
-                const instance = group.instances[i];
-                const baseIdx = i * 20;
-
-                // Copy identity transform (16 floats)
-                instanceData.set(identityTransform, baseIdx);
-
-                // Copy color (4 floats)
-                instanceData[baseIdx + 16] = instance.color[0];
-                instanceData[baseIdx + 17] = instance.color[1];
-                instanceData[baseIdx + 18] = instance.color[2];
-                instanceData[baseIdx + 19] = instance.color[3];
-
-                expressIdToInstanceIndex.set(instance.expressId, i);
-            }
-
-            const instanceBuffer = device.createBuffer({
-                size: instanceData.byteLength,
-                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-            });
-            device.queue.writeBuffer(instanceBuffer, 0, instanceData);
-
-            // Create and cache bind group to avoid per-frame allocation
-            const bindGroup = this.instancedPipeline.createInstanceBindGroup(instanceBuffer);
-
-            // Convert hash string to number for geometryId
-            const geometryId = this.hashStringToNumber(group.geometryHash);
-
-            const instancedMesh: InstancedMesh = {
-                geometryId,
-                vertexBuffer,
-                indexBuffer,
-                indexCount: group.indices.length,
-                instanceBuffer,
-                instanceCount: instanceCount,
-                expressIdToInstanceIndex,
-                bindGroup,
-            };
-
-            this.scene.addInstancedMesh(instancedMesh);
-            totalInstances += instanceCount;
-        }
-
-        // Clear regular meshes after conversion to avoid double rendering
-        const regularMeshCount = this.scene.getMeshes().length;
-        this.scene.clearRegularMeshes();
-
-        console.log(
-            `[Renderer] Converted ${meshDataArray.length} meshes to ${instancedData.length} instanced geometries ` +
-            `(${totalInstances} total instances, ${(totalInstances / instancedData.length).toFixed(1)}x deduplication). ` +
-            `Cleared ${regularMeshCount} regular meshes.`
-        );
-    }
-
-    /**
-     * Hash string to number for geometryId
-     */
-    private hashStringToNumber(str: string): number {
-        let hash = 0;
-        for (let i = 0; i < str.length; i++) {
-            const char = str.charCodeAt(i);
-            hash = ((hash << 5) - hash) + char;
-            hash = hash & hash; // Convert to 32-bit integer
-        }
-        return Math.abs(hash);
-    }
-
-    /**
-     * Create a GPU Mesh from MeshData (lazy creation for selection highlighting)
-     * This is called on-demand when a mesh is selected, avoiding 2x buffer creation during streaming
-     */
-    private createMeshFromData(meshData: MeshData): void {
-        if (!this.device.isInitialized()) return;
-
-        const device = this.device.getDevice();
-        const vertexCount = meshData.positions.length / 3;
-        const interleaved = new Float32Array(vertexCount * 6);
-
-        for (let i = 0; i < vertexCount; i++) {
-            const base = i * 6;
-            const posBase = i * 3;
-            interleaved[base] = meshData.positions[posBase];
-            interleaved[base + 1] = meshData.positions[posBase + 1];
-            interleaved[base + 2] = meshData.positions[posBase + 2];
-            interleaved[base + 3] = meshData.normals[posBase];
-            interleaved[base + 4] = meshData.normals[posBase + 1];
-            interleaved[base + 5] = meshData.normals[posBase + 2];
-        }
-
-        const vertexBuffer = device.createBuffer({
-            size: interleaved.byteLength,
-            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-        });
-        device.queue.writeBuffer(vertexBuffer, 0, interleaved);
-
-        const indexBuffer = device.createBuffer({
-            size: meshData.indices.byteLength,
-            usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-        });
-        device.queue.writeBuffer(indexBuffer, 0, meshData.indices);
-
-        // Add to scene with identity transform (positions already in world space)
-        this.scene.addMesh({
-            expressId: meshData.expressId,
-            modelIndex: meshData.modelIndex,  // Preserve modelIndex for multi-model selection
-            vertexBuffer,
-            indexBuffer,
-            indexCount: meshData.indices.length,
-            transform: MathUtils.identity(),
-            color: meshData.color,
-        });
+        this.geometryManager.convertToInstanced(meshDataArray, this.instancedPipeline);
     }
 
     /**
      * Ensure all meshes have GPU resources (call after adding meshes if pipeline wasn't ready)
      */
     ensureMeshResources(): void {
-        if (!this.pipeline || !this.device.isInitialized()) return;
-
-        const device = this.device.getDevice();
-        let created = 0;
-
-        for (const mesh of this.scene.getMeshes()) {
-            if (!mesh.uniformBuffer) {
-                mesh.uniformBuffer = device.createBuffer({
-                    size: this.pipeline.getUniformBufferSize(),
-                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-                });
-
-                mesh.bindGroup = device.createBindGroup({
-                    layout: this.pipeline.getBindGroupLayout(),
-                    entries: [
-                        {
-                            binding: 0,
-                            resource: { buffer: mesh.uniformBuffer },
-                        },
-                    ],
-                });
-                created++;
-            }
-        }
-
-        if (created > 0) {
-            const totalMeshCount = this.scene.getMeshes().length;
-            // Only log every 250 meshes or when creating many at once to reduce noise
-            if (totalMeshCount % 250 === 0 || created > 100) {
-                console.log(`[Renderer] Created GPU resources for ${created} new meshes (${totalMeshCount} total)`);
-            }
-        }
+        if (!this.pipeline) return;
+        this.geometryManager.ensureMeshResources(this.pipeline);
     }
 
     /**
@@ -730,7 +371,7 @@ export class Renderer {
                 }
 
                 // Store bounds for section plane visual
-                this.modelBounds = { min: boundsMin, max: boundsMax };
+                this.geometryManager.setModelBounds({ min: boundsMin, max: boundsMax });
 
                 // Only calculate clipping data if section is enabled
                 if (options.sectionPlane.enabled) {
@@ -744,7 +385,6 @@ export class Renderer {
                     // Apply building rotation if present (rotate normal around Y axis)
                     // Building rotation is in X-Y plane (Z is up in IFC, Y is up in WebGL)
                     if (options.buildingRotation !== undefined && options.buildingRotation !== 0) {
-                        const originalNormal = [...normal] as [number, number, number];
                         const cosR = Math.cos(options.buildingRotation);
                         const sinR = Math.sin(options.buildingRotation);
                         // Rotate normal vector around Y axis (vertical)
@@ -996,10 +636,10 @@ export class Renderer {
                 // PERFORMANCE FIX: Render partially visible batches as sub-batches (not individual meshes!)
                 // This is the key optimization: instead of 10,000+ individual draw calls,
                 // we create cached sub-batches with only visible elements and render them as single draw calls
-                const allMeshes = this.scene.getMeshes();
+                const allMeshesFromScene = this.scene.getMeshes();
                 // Track existing meshes by (expressId:modelIndex) to handle multi-model expressId collisions
                 // E.g., door #535 in model 0 vs beam #535 in model 1 need separate tracking
-                const existingMeshKeys = new Set(allMeshes.map(m => `${m.expressId}:${m.modelIndex ?? 'any'}`));
+                const existingMeshKeys = new Set(allMeshesFromScene.map(m => `${m.expressId}:${m.modelIndex ?? 'any'}`));
 
                 if (partiallyVisibleBatches.length > 0) {
                     for (const { colorKey, visibleIds, color } of partiallyVisibleBatches) {
@@ -1049,7 +689,7 @@ export class Renderer {
                     const meshKey = `${selId}:${selectedModelIndex ?? 'any'}`;
                     if (!existingMeshKeys.has(meshKey) && this.scene.hasMeshData(selId, selectedModelIndex)) {
                         const meshData = this.scene.getMeshData(selId, selectedModelIndex)!;
-                        this.createMeshFromData(meshData);
+                        this.geometryManager.createMeshFromData(meshData);
                         existingMeshKeys.add(meshKey);
                     }
                 }
@@ -1224,13 +864,14 @@ export class Renderer {
 
             // Draw section plane visual BEFORE pass.end() (within same MSAA render pass)
             // Always show plane when sectionPlane options are provided (as preview or active)
-            if (options.sectionPlane && this.sectionPlaneRenderer && this.modelBounds) {
+            const modelBounds = this.geometryManager.getModelBounds();
+            if (options.sectionPlane && this.sectionPlaneRenderer && modelBounds) {
                 this.sectionPlaneRenderer.draw(
                     pass,
                     {
                         axis: options.sectionPlane.axis,
                         position: options.sectionPlane.position,
-                        bounds: this.modelBounds,
+                        bounds: modelBounds,
                         viewProj,
                         isPreview: !options.sectionPlane.enabled, // Preview mode when not enabled
                         min: options.sectionPlane.min,
@@ -1245,7 +886,7 @@ export class Renderer {
                         {
                             axis: options.sectionPlane.axis,
                             position: options.sectionPlane.position,
-                            bounds: this.modelBounds,
+                            bounds: modelBounds,
                             viewProj,
                             min: options.sectionPlane.min,
                             max: options.sectionPlane.max,
@@ -1274,131 +915,18 @@ export class Renderer {
      * Pick object at screen coordinates
      * Respects visibility filtering so users can only select visible elements
      * Returns PickResult with expressId and modelIndex for multi-model support
-     * 
+     *
      * Note: x, y are CSS pixel coordinates relative to the canvas element.
      * These are scaled internally to match the actual canvas pixel dimensions.
      */
     async pick(x: number, y: number, options?: PickOptions): Promise<PickResult | null> {
-        if (!this.picker) {
-            return null;
-        }
-
-        // Scale CSS pixel coordinates to canvas pixel coordinates
-        // The canvas.width may differ from CSS width due to 64-pixel alignment for WebGPU
-        const rect = this.canvas.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0) {
-            return null;
-        }
-        const scaleX = this.canvas.width / rect.width;
-        const scaleY = this.canvas.height / rect.height;
-        const scaledX = x * scaleX;
-        const scaledY = y * scaleY;
-
-        // Skip picker during streaming for consistent performance
-        // Picking during streaming would be slow and incomplete anyway
-        if (options?.isStreaming) {
-            return null;
-        }
-
-        let meshes = this.scene.getMeshes();
-        const batchedMeshes = this.scene.getBatchedMeshes();
-
-        // If we have batched meshes, check if we need CPU raycasting
-        // This handles the case where we have SOME individual meshes (e.g., from highlighting)
-        // but not enough for full GPU picking coverage
-        if (batchedMeshes.length > 0) {
-            // Collect all expressIds from batched meshes
-            const expressIds = new Set<number>();
-            for (const batch of batchedMeshes) {
-                for (const expressId of batch.expressIds) {
-                    expressIds.add(expressId);
-                }
-            }
-
-            // Track existing meshes by (expressId:modelIndex) for multi-model support
-            // This handles expressId collisions (e.g., door #535 in model 0 vs beam #535 in model 1)
-            const existingMeshKeys = new Set(meshes.map(m => `${m.expressId}:${m.modelIndex ?? 'any'}`));
-
-            // Count how many meshes we'd need to create for full GPU picking
-            // For multi-model, count all pieces with unique (expressId, modelIndex) pairs
-            let toCreate = 0;
-            for (const expressId of expressIds) {
-                if (options?.hiddenIds?.has(expressId)) continue;
-                if (options?.isolatedIds !== null && options?.isolatedIds !== undefined && !options.isolatedIds.has(expressId)) continue;
-
-                // Get all pieces for this expressId (handles multi-model)
-                const pieces = this.scene.getMeshDataPieces(expressId);
-                if (pieces) {
-                    for (const piece of pieces) {
-                        const meshKey = `${expressId}:${piece.modelIndex ?? 'any'}`;
-                        if (!existingMeshKeys.has(meshKey)) {
-                            toCreate++;
-                        }
-                    }
-                }
-            }
-
-            // PERFORMANCE FIX: Use CPU raycasting for large models instead of creating GPU meshes
-            // GPU picking requires individual mesh buffers; for 60K+ elements this is too slow
-            // CPU raycasting uses bounding box filtering + triangle tests - no GPU buffers needed
-            const MAX_PICK_MESH_CREATION = 500;
-            if (toCreate > MAX_PICK_MESH_CREATION) {
-                // Use CPU raycasting fallback - works regardless of how many individual meshes exist
-                const ray = this.camera.unprojectToRay(scaledX, scaledY, this.canvas.width, this.canvas.height);
-                const hit = this.scene.raycast(ray.origin, ray.direction, options?.hiddenIds, options?.isolatedIds);
-                if (!hit) return null;
-                // CPU raycasting returns expressId and modelIndex
-                return {
-                    expressId: hit.expressId,
-                    modelIndex: hit.modelIndex,
-                };
-            }
-
-            // For smaller models, create GPU meshes for picking
-            // Only create meshes for VISIBLE elements (not hidden, and either no isolation or in isolated set)
-            // For multi-model support: create meshes for ALL (expressId, modelIndex) pairs
-            for (const expressId of expressIds) {
-                // Skip if hidden
-                if (options?.hiddenIds?.has(expressId)) continue;
-                // Skip if isolation is active and this entity is not isolated
-                if (options?.isolatedIds !== null && options?.isolatedIds !== undefined && !options.isolatedIds.has(expressId)) continue;
-
-                // Get all pieces for this expressId (handles multi-model)
-                const pieces = this.scene.getMeshDataPieces(expressId);
-                if (pieces) {
-                    for (const piece of pieces) {
-                        const meshKey = `${piece.expressId}:${piece.modelIndex ?? 'any'}`;
-                        // Skip if mesh already exists for this (expressId, modelIndex) pair
-                        if (existingMeshKeys.has(meshKey)) continue;
-
-                        this.createMeshFromData(piece);
-                        existingMeshKeys.add(meshKey);
-                    }
-                }
-            }
-
-            // Get updated meshes list (includes newly created ones)
-            meshes = this.scene.getMeshes();
-        }
-
-        // Apply visibility filtering to meshes before picking
-        // This ensures users can only select elements that are actually visible
-        if (options?.hiddenIds && options.hiddenIds.size > 0) {
-            meshes = meshes.filter(mesh => !options.hiddenIds!.has(mesh.expressId));
-        }
-        if (options?.isolatedIds !== null && options?.isolatedIds !== undefined) {
-            meshes = meshes.filter(mesh => options.isolatedIds!.has(mesh.expressId));
-        }
-
-        const viewProj = this.camera.getViewProjMatrix().m;
-        const result = await this.picker.pick(scaledX, scaledY, this.canvas.width, this.canvas.height, meshes, viewProj);
-        return result;
+        return this.pickingManager.pick(x, y, options);
     }
 
     /**
      * Raycast into the scene to get precise 3D intersection point
      * This is more accurate than pick() as it returns the exact surface point
-     * 
+     *
      * Note: x, y are CSS pixel coordinates relative to the canvas element.
      * These are scaled internally to match the actual canvas pixel dimensions.
      */
@@ -1407,130 +935,13 @@ export class Renderer {
         y: number,
         options?: PickOptions & { snapOptions?: Partial<SnapOptions> }
     ): { intersection: Intersection; snap?: SnapTarget } | null {
-        try {
-            // Scale CSS pixel coordinates to canvas pixel coordinates
-            // The canvas.width may differ from CSS width due to 64-pixel alignment for WebGPU
-            const rect = this.canvas.getBoundingClientRect();
-            if (rect.width === 0 || rect.height === 0) {
-                return null;
-            }
-            const scaleX = this.canvas.width / rect.width;
-            const scaleY = this.canvas.height / rect.height;
-            const scaledX = x * scaleX;
-            const scaledY = y * scaleY;
-
-            // Create ray from screen coordinates
-            const ray = this.camera.unprojectToRay(scaledX, scaledY, this.canvas.width, this.canvas.height);
-
-            // Get all mesh data from scene
-            const allMeshData: MeshData[] = [];
-            const meshes = this.scene.getMeshes();
-            const batchedMeshes = this.scene.getBatchedMeshes();
-
-            // Collect mesh data from regular meshes
-            for (const mesh of meshes) {
-                const meshData = this.scene.getMeshData(mesh.expressId);
-                if (meshData) {
-                    // Apply visibility filtering
-                    if (options?.hiddenIds?.has(meshData.expressId)) continue;
-                    if (
-                        options?.isolatedIds !== null &&
-                        options?.isolatedIds !== undefined &&
-                        !options.isolatedIds.has(meshData.expressId)
-                    ) {
-                        continue;
-                    }
-                    allMeshData.push(meshData);
-                }
-            }
-
-            // Collect mesh data from batched meshes
-            for (const batch of batchedMeshes) {
-                for (const expressId of batch.expressIds) {
-                    const meshData = this.scene.getMeshData(expressId);
-                    if (meshData) {
-                        // Apply visibility filtering
-                        if (options?.hiddenIds?.has(meshData.expressId)) continue;
-                        if (
-                            options?.isolatedIds !== null &&
-                            options?.isolatedIds !== undefined &&
-                            !options.isolatedIds.has(meshData.expressId)
-                        ) {
-                            continue;
-                        }
-                        allMeshData.push(meshData);
-                    }
-                }
-            }
-
-            if (allMeshData.length === 0) {
-                return null;
-            }
-
-            // Use BVH for performance if we have many meshes
-            let meshesToTest = allMeshData;
-            if (allMeshData.length > this.BVH_THRESHOLD) {
-                // Check if BVH needs rebuilding
-                const needsRebuild =
-                    !this.bvhCache ||
-                    !this.bvhCache.isBuilt ||
-                    this.bvhCache.meshCount !== allMeshData.length;
-
-                if (needsRebuild) {
-                    // Build BVH only when needed
-                    this.bvh.build(allMeshData);
-                    this.bvhCache = {
-                        meshCount: allMeshData.length,
-                        meshData: allMeshData,
-                        isBuilt: true,
-                    };
-                }
-
-                // Use BVH to filter meshes
-                const meshIndices = this.bvh.getMeshesForRay(ray, allMeshData);
-                meshesToTest = meshIndices.map(i => allMeshData[i]);
-            }
-
-            // Perform raycasting
-            const intersection = this.raycaster.raycast(ray, meshesToTest);
-
-            if (!intersection) {
-                return null;
-            }
-
-            // Detect snap targets if requested
-            // Pass meshes near the ray to detect edges even when partially occluded
-            let snapTarget: SnapTarget | undefined;
-            if (options?.snapOptions) {
-                const cameraPos = this.camera.getPosition();
-                const cameraFov = this.camera.getFOV();
-
-                // Pass meshes that are near the ray (from BVH or all meshes if BVH not used)
-                // This allows detecting edges even when they're behind other objects
-                snapTarget = this.snapDetector.detectSnapTarget(
-                    ray,
-                    meshesToTest, // Pass all meshes near the ray
-                    intersection,
-                    { position: cameraPos, fov: cameraFov },
-                    this.canvas.height,
-                    options.snapOptions
-                ) || undefined;
-            }
-
-            return {
-                intersection,
-                snap: snapTarget,
-            };
-        } catch (error) {
-            console.error('Raycast error:', error);
-            return null;
-        }
+        return this.raycastEngine.raycastScene(x, y, options);
     }
 
     /**
      * Raycast with magnetic edge snapping behavior
      * This provides the "stick and slide along edges" experience
-     * 
+     *
      * Note: x, y are CSS pixel coordinates relative to the canvas element.
      * These are scaled internally to match the actual canvas pixel dimensions.
      */
@@ -1540,175 +951,35 @@ export class Renderer {
         currentEdgeLock: EdgeLockInput,
         options?: PickOptions & { snapOptions?: Partial<SnapOptions> }
     ): MagneticSnapResult & { intersection: Intersection | null } {
-        try {
-            // Scale CSS pixel coordinates to canvas pixel coordinates
-            // The canvas.width may differ from CSS width due to 64-pixel alignment for WebGPU
-            const rect = this.canvas.getBoundingClientRect();
-            if (rect.width === 0 || rect.height === 0) {
-                return {
-                    intersection: null,
-                    snapTarget: null,
-                    edgeLock: {
-                        edge: null,
-                        meshExpressId: null,
-                        edgeT: 0,
-                        shouldLock: false,
-                        shouldRelease: true,
-                        isCorner: false,
-                        cornerValence: 0,
-                    },
-                };
-            }
-            const scaleX = this.canvas.width / rect.width;
-            const scaleY = this.canvas.height / rect.height;
-            const scaledX = x * scaleX;
-            const scaledY = y * scaleY;
-
-            // Create ray from screen coordinates
-            const ray = this.camera.unprojectToRay(scaledX, scaledY, this.canvas.width, this.canvas.height);
-
-            // Get all mesh data from scene
-            const allMeshData: MeshData[] = [];
-            const meshes = this.scene.getMeshes();
-            const batchedMeshes = this.scene.getBatchedMeshes();
-
-            // Collect mesh data from regular meshes
-            for (const mesh of meshes) {
-                const meshData = this.scene.getMeshData(mesh.expressId);
-                if (meshData) {
-                    if (options?.hiddenIds?.has(meshData.expressId)) continue;
-                    if (
-                        options?.isolatedIds !== null &&
-                        options?.isolatedIds !== undefined &&
-                        !options.isolatedIds.has(meshData.expressId)
-                    ) {
-                        continue;
-                    }
-                    allMeshData.push(meshData);
-                }
-            }
-
-            // Collect mesh data from batched meshes
-            for (const batch of batchedMeshes) {
-                for (const expressId of batch.expressIds) {
-                    const meshData = this.scene.getMeshData(expressId);
-                    if (meshData) {
-                        if (options?.hiddenIds?.has(meshData.expressId)) continue;
-                        if (
-                            options?.isolatedIds !== null &&
-                            options?.isolatedIds !== undefined &&
-                            !options.isolatedIds.has(meshData.expressId)
-                        ) {
-                            continue;
-                        }
-                        allMeshData.push(meshData);
-                    }
-                }
-            }
-
-            if (allMeshData.length === 0) {
-                return {
-                    intersection: null,
-                    snapTarget: null,
-                    edgeLock: {
-                        edge: null,
-                        meshExpressId: null,
-                        edgeT: 0,
-                        shouldLock: false,
-                        shouldRelease: true,
-                        isCorner: false,
-                        cornerValence: 0,
-                    },
-                };
-            }
-
-            // Use BVH for performance if we have many meshes
-            let meshesToTest = allMeshData;
-            if (allMeshData.length > this.BVH_THRESHOLD) {
-                const needsRebuild =
-                    !this.bvhCache ||
-                    !this.bvhCache.isBuilt ||
-                    this.bvhCache.meshCount !== allMeshData.length;
-
-                if (needsRebuild) {
-                    this.bvh.build(allMeshData);
-                    this.bvhCache = {
-                        meshCount: allMeshData.length,
-                        meshData: allMeshData,
-                        isBuilt: true,
-                    };
-                }
-
-                const meshIndices = this.bvh.getMeshesForRay(ray, allMeshData);
-                meshesToTest = meshIndices.map(i => allMeshData[i]);
-            }
-
-            // Perform raycasting
-            const intersection = this.raycaster.raycast(ray, meshesToTest);
-
-            // Use magnetic snap detection
-            const cameraPos = this.camera.getPosition();
-            const cameraFov = this.camera.getFOV();
-
-            const magneticResult = this.snapDetector.detectMagneticSnap(
-                ray,
-                meshesToTest,
-                intersection,
-                { position: cameraPos, fov: cameraFov },
-                this.canvas.height,
-                currentEdgeLock,
-                options?.snapOptions || {}
-            );
-
-            return {
-                intersection,
-                ...magneticResult,
-            };
-        } catch (error) {
-            console.error('Magnetic raycast error:', error);
-            return {
-                intersection: null,
-                snapTarget: null,
-                edgeLock: {
-                    edge: null,
-                    meshExpressId: null,
-                    edgeT: 0,
-                    shouldLock: false,
-                    shouldRelease: true,
-                    isCorner: false,
-                    cornerValence: 0,
-                },
-            };
-        }
+        return this.raycastEngine.raycastSceneMagnetic(x, y, currentEdgeLock, options);
     }
 
     /**
      * Invalidate BVH cache (call when geometry changes)
      */
     invalidateBVHCache(): void {
-        this.bvhCache = null;
+        this.raycastEngine.invalidateBVHCache();
     }
 
     /**
      * Get the raycaster instance (for advanced usage)
      */
     getRaycaster(): Raycaster {
-        return this.raycaster;
+        return this.raycastEngine.getRaycaster();
     }
 
     /**
      * Get the snap detector instance (for advanced usage)
      */
     getSnapDetector(): SnapDetector {
-        return this.snapDetector;
+        return this.raycastEngine.getSnapDetector();
     }
 
     /**
      * Clear all caches (call when geometry changes)
      */
     clearCaches(): void {
-        this.invalidateBVHCache();
-        this.snapDetector.clearCache();
+        this.raycastEngine.clearCaches();
     }
 
     /**
@@ -1748,12 +1019,14 @@ export class Renderer {
         // maxVal = options.sectionPlane.max ?? boundsMax[axisIdx]
         const axisIdx = axis === 'side' ? 'x' : axis === 'down' ? 'y' : 'z';
 
+        const modelBounds = this.geometryManager.getModelBounds();
+
         // Allow upload if either sectionRange has both values, or modelBounds exists as fallback
         const hasFullRange = sectionRange?.min !== undefined && sectionRange?.max !== undefined;
-        if (!hasFullRange && !this.modelBounds) return;
+        if (!hasFullRange && !modelBounds) return;
 
-        const minVal = sectionRange?.min ?? this.modelBounds!.min[axisIdx];
-        const maxVal = sectionRange?.max ?? this.modelBounds!.max[axisIdx];
+        const minVal = sectionRange?.min ?? modelBounds!.min[axisIdx];
+        const maxVal = sectionRange?.max ?? modelBounds!.max[axisIdx];
         const planePosition = minVal + (position / 100) * (maxVal - minVal);
 
         this.section2DOverlayRenderer.uploadDrawing(polygons, lines, axis, planePosition, flipped);

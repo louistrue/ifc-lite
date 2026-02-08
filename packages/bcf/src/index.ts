@@ -72,6 +72,17 @@ export {
   extractViewpointState,
 } from './viewpoint.js';
 
+// IDS → BCF reporter
+export type {
+  IDSReportInput,
+  IDSSpecResultInput,
+  IDSEntityResultInput,
+  IDSRequirementResultInput,
+  IDSBCFExportOptions,
+  EntityBoundsInput,
+} from './ids-reporter.js';
+export { createBCFFromIDSReport } from './ids-reporter.js';
+
 // ============================================================================
 // Convenience functions
 // ============================================================================
