@@ -47,7 +47,10 @@ export function ViewerLayout() {
     const panel = bottomPanelRef.current;
     if (!panel) return;
     if (listPanelVisible) {
-      panel.expand();
+      // Use resize() instead of expand() to ensure a usable size,
+      // since expand() restores the "last known size" which may be tiny
+      // if autoSave stored a stale layout from before this panel existed.
+      panel.resize(35);
     } else {
       panel.collapse();
     }
@@ -96,7 +99,7 @@ export function ViewerLayout() {
 
         {/* Main Content Area - Desktop Layout */}
         {!isMobile && (
-          <PanelGroup orientation="vertical" className="flex-1 min-h-0" autoSaveId="viewer-vertical">
+          <PanelGroup orientation="vertical" className="flex-1 min-h-0" autoSaveId="viewer-vertical-v2">
             {/* Top: horizontal split (hierarchy | viewport | properties) */}
             <Panel id="main-panel" defaultSize={65} minSize={30}>
               <PanelGroup orientation="horizontal" className="h-full" autoSaveId="viewer-horizontal">
@@ -159,12 +162,11 @@ export function ViewerLayout() {
               maxSize={70}
               collapsible
               collapsedSize={0}
-              onCollapse={() => {
-                // Sync store when user collapses via drag
-                if (listPanelVisible) setListPanelVisible(false);
-              }}
-              onExpand={() => {
-                if (!listPanelVisible) setListPanelVisible(true);
+              onResize={(panelSize) => {
+                // Sync store when user collapses/expands via drag
+                const isCollapsed = panelSize.asPercentage === 0;
+                if (isCollapsed && listPanelVisible) setListPanelVisible(false);
+                if (!isCollapsed && !listPanelVisible) setListPanelVisible(true);
               }}
             >
               <div className="h-full w-full overflow-hidden border-t">
