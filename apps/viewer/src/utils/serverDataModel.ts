@@ -103,6 +103,19 @@ const REL_TYPE_MAP = new Map<string, RelationshipType>([
 // Spatial Hierarchy Building
 // ============================================================================
 
+/** Server spatial node shape (mirrors SpatialNode from @ifc-lite/server-client) */
+interface ServerSpatialNode {
+  entity_id: number;
+  parent_id: number;
+  level: number;
+  path: string;
+  type_name: string;
+  name?: string;
+  elevation?: number;
+  children_ids: number[];
+  element_ids: number[];
+}
+
 /** Maximum recursion depth for spatial tree building */
 const MAX_SPATIAL_TREE_DEPTH = 100;
 
@@ -116,7 +129,7 @@ const MAX_SPATIAL_TREE_DEPTH = 100;
  */
 function buildSpatialNodeTree(
   nodeId: number,
-  nodesMap: Map<number, DataModel['spatialHierarchy']['nodes'][0]>,
+  nodesMap: Map<number, ServerSpatialNode>,
   depth: number = 0,
   visited: Set<number> = new Set()
 ): SpatialNode {
@@ -145,7 +158,7 @@ function buildSpatialNodeTree(
     type: typeEnum,
     name: node.name || node.type_name,
     elevation: node.elevation,
-    children: node.children_ids.map((childId) =>
+    children: node.children_ids.map((childId: number) =>
       buildSpatialNodeTree(childId, nodesMap, depth + 1, visited)
     ),
     elements: node.element_ids,
@@ -171,7 +184,9 @@ function buildSpatialHierarchy(
   const storeyElevations = new Map<number, number>();
   const storeyHeights = new Map<number, number>();
 
-  const nodesMap = new Map(dataModel.spatialHierarchy.nodes.map((n) => [n.entity_id, n]));
+  const nodesMap = new Map<number, ServerSpatialNode>(
+    (dataModel.spatialHierarchy.nodes as ServerSpatialNode[]).map((n) => [n.entity_id, n])
+  );
 
   // Build lookup maps from spatial hierarchy data
   for (const node of dataModel.spatialHierarchy.nodes) {

@@ -129,7 +129,7 @@ export function useIfcFederation() {
         // Find max expressId in legacy model for registry
         // IMPORTANT: Include ALL entities, not just meshes, for proper globalId resolution
         const legacyMeshes = currentGeometryResult.meshes || [];
-        const legacyMaxExpressIdFromMeshes = legacyMeshes.reduce((max, m) => Math.max(max, m.expressId), 0);
+        const legacyMaxExpressIdFromMeshes = legacyMeshes.reduce((max: number, m: MeshData) => Math.max(max, m.expressId), 0);
         // FIXED: Use iteration instead of spread to avoid stack overflow with large Maps
         let legacyMaxExpressIdFromEntities = 0;
         if (currentIfcDataStore.entityIndex?.byId) {
@@ -388,7 +388,7 @@ export function useIfcFederation() {
       // - IFC Y → WebGL -Z
       // - IFC Z → WebGL Y (vertical)
       // =========================================================================
-      const existingModels = Array.from(useViewerStore.getState().models.values());
+      const existingModels = Array.from(useViewerStore.getState().models.values()) as FederatedModel[];
       if (existingModels.length > 0) {
         const firstModel = existingModels[0];
         const firstRtc = firstModel.geometryResult?.coordinateInfo?.wasmRtcOffset;
@@ -494,7 +494,7 @@ export function useIfcFederation() {
 
     // Read fresh state from store after removal to avoid stale closure
     const freshModels = useViewerStore.getState().models;
-    const remaining = Array.from(freshModels.values());
+    const remaining = Array.from(freshModels.values()) as FederatedModel[];
     if (remaining.length > 0) {
       const newActive = remaining[0];
       setIfcDataStore(newActive.ifcDataStore);
@@ -611,7 +611,7 @@ export function useIfcFederation() {
         relationships: result.relationships,
         spatialHierarchy: result.spatialHierarchy,
         // Federated-specific: store layer info and ORIGINAL BUFFERS for re-composition
-        _federatedLayers: layers.map(l => ({
+        _federatedLayers: layers.map((l: { id: string; name: string; enabled: boolean }) => ({
           id: l.id,
           name: l.name,
           enabled: l.enabled,
@@ -621,8 +621,9 @@ export function useIfcFederation() {
           name: b.name,
         })),
         _compositionStats: result.compositionStats,
-      } as unknown as IfcDataStore; // IFC5 schema extension
+      } as IfcxDataStore;
 
+      // IfcxDataStore extends IfcDataStore (with schemaVersion: 'IFC5'), so this is safe
       setIfcDataStore(dataStore);
 
       // Clear existing models and add each layer as a "model" in the Models panel
@@ -676,7 +677,7 @@ export function useIfcFederation() {
 
       console.log(`[useIfc] Federated IFCX loaded: ${layers.length} layers, ${result.entityCount} entities, ${meshes.length} meshes`);
       console.log(`[useIfc] Composition stats: ${result.compositionStats.inheritanceResolutions} inheritance resolutions, ${result.compositionStats.crossLayerReferences} cross-layer refs`);
-      console.log(`[useIfc] Layers in Models panel: ${layers.map(l => l.name).join(', ')}`);
+      console.log(`[useIfc] Layers in Models panel: ${layers.map((l: { name: string }) => l.name).join(', ')}`);
 
       setProgress({ phase: 'Complete', percent: 100 });
       setLoading(false);
