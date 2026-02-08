@@ -1,0 +1,446 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+/**
+ * ListPanel - Main container for the Lists feature
+ *
+ * Shows either:
+ * - List builder (when creating/editing a list)
+ * - List results table (when a list has been executed)
+ * - List library (saved lists + presets)
+ */
+
+import React, { useCallback, useState, useMemo } from 'react';
+import {
+  X,
+  Plus,
+  Play,
+  FileSpreadsheet,
+  Trash2,
+  Download,
+  Upload,
+  Loader2,
+  Table2,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useViewerStore } from '@/store';
+import { useIfc } from '@/hooks/useIfc';
+import {
+  executeList,
+  listResultToCSV,
+  LIST_PRESETS,
+  importListDefinition,
+  exportListDefinition,
+} from '@/lib/lists';
+import type { ListDefinition, ListResult } from '@/lib/lists';
+import { ListBuilder } from './ListBuilder';
+import { ListResultsTable } from './ListResultsTable';
+
+interface ListPanelProps {
+  onClose?: () => void;
+}
+
+type PanelView = 'library' | 'builder' | 'results';
+
+export function ListPanel({ onClose }: ListPanelProps) {
+  const { ifcDataStore, models } = useIfc();
+  const [view, setView] = useState<PanelView>('library');
+  const [editingList, setEditingList] = useState<ListDefinition | null>(null);
+
+  const listDefinitions = useViewerStore((s) => s.listDefinitions);
+  const activeListId = useViewerStore((s) => s.activeListId);
+  const listResult = useViewerStore((s) => s.listResult);
+  const listExecuting = useViewerStore((s) => s.listExecuting);
+  const addListDefinition = useViewerStore((s) => s.addListDefinition);
+  const deleteListDefinition = useViewerStore((s) => s.deleteListDefinition);
+  const setActiveListId = useViewerStore((s) => s.setActiveListId);
+  const setListResult = useViewerStore((s) => s.setListResult);
+  const setListExecuting = useViewerStore((s) => s.setListExecuting);
+
+  const importInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Get the first available data store (single model or first federated model)
+  const dataContext = useMemo(() => {
+    if (models.size > 0) {
+      const first = models.entries().next().value;
+      if (first) {
+        return { store: first[1].ifcDataStore, modelId: first[0] };
+      }
+    }
+    if (ifcDataStore) {
+      return { store: ifcDataStore, modelId: 'default' };
+    }
+    return null;
+  }, [models, ifcDataStore]);
+
+  const handleExecuteList = useCallback((definition: ListDefinition) => {
+    if (!dataContext) return;
+
+    setListExecuting(true);
+    setActiveListId(definition.id);
+
+    // Use requestAnimationFrame to avoid blocking UI during execution
+    requestAnimationFrame(() => {
+      try {
+        let combinedResult: ListResult | null = null;
+
+        if (models.size > 1) {
+          // Multi-model: execute against each model and combine
+          const allRows: ListResult['rows'] = [];
+          let totalTime = 0;
+
+          for (const [modelId, model] of models) {
+            const result = executeList(definition, model.ifcDataStore, modelId);
+            allRows.push(...result.rows);
+            totalTime += result.executionTime;
+          }
+
+          combinedResult = {
+            columns: definition.columns,
+            rows: allRows,
+            totalCount: allRows.length,
+            executionTime: totalTime,
+          };
+        } else {
+          combinedResult = executeList(definition, dataContext.store, dataContext.modelId);
+        }
+
+        setListResult(combinedResult);
+        setView('results');
+      } catch (err) {
+        console.error('[Lists] Execution failed:', err);
+      } finally {
+        setListExecuting(false);
+      }
+    });
+  }, [dataContext, models, setActiveListId, setListResult, setListExecuting]);
+
+  const handleCreateNew = useCallback(() => {
+    setEditingList(null);
+    setView('builder');
+  }, []);
+
+  const handleSaveList = useCallback((definition: ListDefinition) => {
+    addListDefinition(definition);
+    setView('library');
+  }, [addListDefinition]);
+
+  const handleDelete = useCallback((id: string) => {
+    deleteListDefinition(id);
+  }, [deleteListDefinition]);
+
+  const handleExportCSV = useCallback(() => {
+    if (!listResult) return;
+    const csv = listResultToCSV(listResult);
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'list-export.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [listResult]);
+
+  const handleImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const definition = await importListDefinition(file);
+      addListDefinition(definition);
+    } catch (err) {
+      console.error('[Lists] Import failed:', err);
+    }
+    e.target.value = '';
+  }, [addListDefinition]);
+
+  const handleExportDefinition = useCallback((definition: ListDefinition) => {
+    exportListDefinition(definition);
+  }, []);
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-2 border-b">
+        <div className="flex items-center gap-2">
+          <Table2 className="h-4 w-4" />
+          <span className="font-medium text-sm">
+            {view === 'library' && 'Lists'}
+            {view === 'builder' && (editingList ? 'Edit List' : 'New List')}
+            {view === 'results' && 'Results'}
+          </span>
+          {view === 'results' && listResult && (
+            <span className="text-xs text-muted-foreground">
+              ({listResult.totalCount} rows, {listResult.executionTime.toFixed(0)}ms)
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          {view === 'results' && (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" onClick={handleExportCSV}>
+                    <Download className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Export CSV</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" onClick={() => setView('library')}>
+                    <Table2 className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Back to Lists</TooltipContent>
+              </Tooltip>
+            </>
+          )}
+          {view === 'builder' && (
+            <Button variant="ghost" size="sm" onClick={() => setView('library')} className="text-xs h-7">
+              Cancel
+            </Button>
+          )}
+          {onClose && (
+            <Button variant="ghost" size="icon-sm" onClick={onClose}>
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Content */}
+      {view === 'library' && (
+        <ListLibrary
+          definitions={listDefinitions}
+          activeListId={activeListId}
+          executing={listExecuting}
+          hasData={!!dataContext}
+          onExecute={handleExecuteList}
+          onCreateNew={handleCreateNew}
+          onDelete={handleDelete}
+          onExport={handleExportDefinition}
+          onImport={() => importInputRef.current?.click()}
+        />
+      )}
+
+      {view === 'builder' && dataContext && (
+        <ListBuilder
+          store={dataContext.store}
+          initial={editingList}
+          onSave={handleSaveList}
+          onCancel={() => setView('library')}
+          onExecute={handleExecuteList}
+        />
+      )}
+
+      {view === 'results' && listResult && (
+        <ListResultsTable result={listResult} />
+      )}
+
+      {/* Hidden import input */}
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".json"
+        onChange={handleImport}
+        className="hidden"
+      />
+    </div>
+  );
+}
+
+// ============================================================================
+// List Library Sub-Component
+// ============================================================================
+
+interface ListLibraryProps {
+  definitions: ListDefinition[];
+  activeListId: string | null;
+  executing: boolean;
+  hasData: boolean;
+  onExecute: (def: ListDefinition) => void;
+  onCreateNew: () => void;
+  onDelete: (id: string) => void;
+  onExport: (def: ListDefinition) => void;
+  onImport: () => void;
+}
+
+function ListLibrary({
+  definitions,
+  activeListId,
+  executing,
+  hasData,
+  onExecute,
+  onCreateNew,
+  onDelete,
+  onExport,
+  onImport,
+}: ListLibraryProps) {
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+      {/* Actions */}
+      <div className="flex items-center gap-1 px-3 py-2 border-b">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onCreateNew}
+          disabled={!hasData}
+          className="text-xs h-7"
+        >
+          <Plus className="h-3 w-3 mr-1" />
+          New List
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onImport} className="text-xs h-7">
+          <Upload className="h-3 w-3 mr-1" />
+          Import
+        </Button>
+      </div>
+
+      <ScrollArea className="flex-1">
+        {/* User's saved lists */}
+        {definitions.length > 0 && (
+          <div className="px-3 py-2">
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              Saved Lists
+            </span>
+            <div className="mt-1 space-y-1">
+              {definitions.map(def => (
+                <ListItem
+                  key={def.id}
+                  definition={def}
+                  isActive={activeListId === def.id}
+                  executing={executing && activeListId === def.id}
+                  hasData={hasData}
+                  onExecute={onExecute}
+                  onDelete={onDelete}
+                  onExport={onExport}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {definitions.length > 0 && <Separator className="my-1" />}
+
+        {/* Presets */}
+        <div className="px-3 py-2">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            Templates
+          </span>
+          <div className="mt-1 space-y-1">
+            {LIST_PRESETS.map(preset => (
+              <ListItem
+                key={preset.id}
+                definition={preset}
+                isActive={activeListId === preset.id}
+                executing={executing && activeListId === preset.id}
+                hasData={hasData}
+                onExecute={onExecute}
+                isPreset
+              />
+            ))}
+          </div>
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}
+
+// ============================================================================
+// List Item
+// ============================================================================
+
+interface ListItemProps {
+  definition: ListDefinition;
+  isActive: boolean;
+  executing: boolean;
+  hasData: boolean;
+  onExecute: (def: ListDefinition) => void;
+  onDelete?: (id: string) => void;
+  onExport?: (def: ListDefinition) => void;
+  isPreset?: boolean;
+}
+
+function ListItem({ definition, isActive, executing, hasData, onExecute, onDelete, onExport, isPreset }: ListItemProps) {
+  return (
+    <div
+      className={`group flex items-center gap-2 px-2 py-1.5 rounded-md text-sm cursor-pointer hover:bg-muted/50 ${
+        isActive ? 'bg-muted' : ''
+      }`}
+      onClick={() => hasData && onExecute(definition)}
+    >
+      <FileSpreadsheet className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <div className="flex-1 min-w-0">
+        <div className="truncate text-xs font-medium">{definition.name}</div>
+        {definition.description && (
+          <div className="truncate text-xs text-muted-foreground">{definition.description}</div>
+        )}
+      </div>
+      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        {executing ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="h-6 w-6"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (hasData) onExecute(definition);
+                  }}
+                  disabled={!hasData}
+                >
+                  <Play className="h-3 w-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Run List</TooltipContent>
+            </Tooltip>
+            {!isPreset && onExport && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="h-6 w-6"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onExport(definition);
+                    }}
+                  >
+                    <Download className="h-3 w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Export Definition</TooltipContent>
+              </Tooltip>
+            )}
+            {!isPreset && onDelete && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="h-6 w-6 hover:text-destructive"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(definition.id);
+                    }}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Delete</TooltipContent>
+              </Tooltip>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

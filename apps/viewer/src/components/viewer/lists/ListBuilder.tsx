@@ -1,0 +1,454 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+/**
+ * ListBuilder - Configure a list by selecting entity types, columns, and conditions
+ */
+
+import React, { useCallback, useMemo, useState } from 'react';
+import {
+  Play,
+  Plus,
+  Trash2,
+  ChevronDown,
+  ChevronRight,
+  Save,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
+import { IfcTypeEnum } from '@ifc-lite/data';
+import type { IfcDataStore } from '@ifc-lite/parser';
+import { discoverColumns } from '@/lib/lists/column-discovery';
+import type {
+  ListDefinition,
+  ColumnDefinition,
+  DiscoveredColumns,
+  PropertyCondition,
+} from '@/lib/lists/types';
+
+// Building element types available for selection
+const SELECTABLE_TYPES: { type: IfcTypeEnum; label: string }[] = [
+  { type: IfcTypeEnum.IfcWall, label: 'Walls' },
+  { type: IfcTypeEnum.IfcWallStandardCase, label: 'Walls (Standard)' },
+  { type: IfcTypeEnum.IfcDoor, label: 'Doors' },
+  { type: IfcTypeEnum.IfcWindow, label: 'Windows' },
+  { type: IfcTypeEnum.IfcSlab, label: 'Slabs' },
+  { type: IfcTypeEnum.IfcColumn, label: 'Columns' },
+  { type: IfcTypeEnum.IfcBeam, label: 'Beams' },
+  { type: IfcTypeEnum.IfcStair, label: 'Stairs' },
+  { type: IfcTypeEnum.IfcRamp, label: 'Ramps' },
+  { type: IfcTypeEnum.IfcRoof, label: 'Roofs' },
+  { type: IfcTypeEnum.IfcCovering, label: 'Coverings' },
+  { type: IfcTypeEnum.IfcCurtainWall, label: 'Curtain Walls' },
+  { type: IfcTypeEnum.IfcRailing, label: 'Railings' },
+  { type: IfcTypeEnum.IfcSpace, label: 'Spaces' },
+  { type: IfcTypeEnum.IfcBuildingStorey, label: 'Storeys' },
+  { type: IfcTypeEnum.IfcDistributionElement, label: 'MEP Distribution' },
+  { type: IfcTypeEnum.IfcFlowTerminal, label: 'MEP Terminals' },
+  { type: IfcTypeEnum.IfcFlowSegment, label: 'MEP Segments' },
+  { type: IfcTypeEnum.IfcFlowFitting, label: 'MEP Fittings' },
+];
+
+interface ListBuilderProps {
+  store: IfcDataStore;
+  initial: ListDefinition | null;
+  onSave: (definition: ListDefinition) => void;
+  onCancel: () => void;
+  onExecute: (definition: ListDefinition) => void;
+}
+
+export function ListBuilder({ store, initial, onSave, onCancel, onExecute }: ListBuilderProps) {
+  const [name, setName] = useState(initial?.name ?? '');
+  const [description, setDescription] = useState(initial?.description ?? '');
+  const [selectedTypes, setSelectedTypes] = useState<Set<IfcTypeEnum>>(
+    new Set(initial?.entityTypes ?? [])
+  );
+  const [columns, setColumns] = useState<ColumnDefinition[]>(initial?.columns ?? []);
+  const [conditions, setConditions] = useState<PropertyCondition[]>(initial?.conditions ?? []);
+  const [columnsExpanded, setColumnsExpanded] = useState(true);
+
+  // Count entities per type for display
+  const typeCounts = useMemo(() => {
+    const counts = new Map<IfcTypeEnum, number>();
+    for (const { type } of SELECTABLE_TYPES) {
+      const ids = store.entities.getByType(type);
+      if (ids.length > 0) counts.set(type, ids.length);
+    }
+    return counts;
+  }, [store]);
+
+  // Discover available columns whenever selected types change
+  const discovered = useMemo<DiscoveredColumns | null>(() => {
+    if (selectedTypes.size === 0) return null;
+    return discoverColumns(store, Array.from(selectedTypes));
+  }, [store, selectedTypes]);
+
+  const toggleType = useCallback((type: IfcTypeEnum) => {
+    setSelectedTypes(prev => {
+      const next = new Set(prev);
+      if (next.has(type)) {
+        next.delete(type);
+      } else {
+        next.add(type);
+      }
+      return next;
+    });
+  }, []);
+
+  const addColumn = useCallback((col: ColumnDefinition) => {
+    setColumns(prev => {
+      if (prev.some(c => c.id === col.id)) return prev;
+      return [...prev, col];
+    });
+  }, []);
+
+  const removeColumn = useCallback((id: string) => {
+    setColumns(prev => prev.filter(c => c.id !== id));
+  }, []);
+
+  const buildDefinition = useCallback((): ListDefinition => {
+    return {
+      id: initial?.id ?? crypto.randomUUID(),
+      name: name || 'Untitled List',
+      description: description || undefined,
+      createdAt: initial?.createdAt ?? Date.now(),
+      updatedAt: Date.now(),
+      entityTypes: Array.from(selectedTypes),
+      conditions,
+      columns,
+    };
+  }, [initial, name, description, selectedTypes, conditions, columns]);
+
+  const handleSave = useCallback(() => {
+    onSave(buildDefinition());
+  }, [buildDefinition, onSave]);
+
+  const handleRun = useCallback(() => {
+    const def = buildDefinition();
+    onExecute(def);
+  }, [buildDefinition, onExecute]);
+
+  const totalSelectedEntities = useMemo(() => {
+    let count = 0;
+    for (const type of selectedTypes) {
+      count += typeCounts.get(type) ?? 0;
+    }
+    return count;
+  }, [selectedTypes, typeCounts]);
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+      <ScrollArea className="flex-1">
+        <div className="p-3 space-y-4">
+          {/* Name & Description */}
+          <div className="space-y-2">
+            <Input
+              placeholder="List name..."
+              value={name}
+              onChange={e => setName(e.target.value)}
+              className="h-8 text-sm"
+            />
+            <Input
+              placeholder="Description (optional)"
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              className="h-8 text-sm"
+            />
+          </div>
+
+          <Separator />
+
+          {/* Entity Type Selection */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Entity Types
+              </span>
+              {selectedTypes.size > 0 && (
+                <Badge variant="secondary" className="text-xs h-5">
+                  {totalSelectedEntities} entities
+                </Badge>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {SELECTABLE_TYPES.map(({ type, label }) => {
+                const count = typeCounts.get(type);
+                if (!count) return null; // Don't show types not in model
+                const selected = selectedTypes.has(type);
+                return (
+                  <button
+                    key={type}
+                    onClick={() => toggleType(type)}
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
+                      selected
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-background border-border hover:bg-muted'
+                    }`}
+                  >
+                    {label}
+                    <span className={selected ? 'opacity-75' : 'text-muted-foreground'}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {selectedTypes.size > 0 && discovered && (
+            <>
+              <Separator />
+
+              {/* Column Selection */}
+              <div>
+                <button
+                  className="flex items-center gap-1 text-xs font-medium text-muted-foreground uppercase tracking-wider w-full"
+                  onClick={() => setColumnsExpanded(!columnsExpanded)}
+                >
+                  {columnsExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                  Columns ({columns.length} selected)
+                </button>
+
+                {columnsExpanded && (
+                  <div className="mt-2 space-y-2">
+                    {/* Selected columns (reorderable) */}
+                    {columns.length > 0 && (
+                      <div className="space-y-0.5 mb-2">
+                        {columns.map((col, idx) => (
+                          <div
+                            key={col.id}
+                            className="flex items-center gap-1 px-2 py-1 rounded bg-muted/50 text-xs"
+                          >
+                            <span className="text-muted-foreground w-4 text-right">{idx + 1}</span>
+                            <span className="flex-1 truncate">
+                              {col.label ?? col.propertyName}
+                              {col.psetName && (
+                                <span className="text-muted-foreground ml-1">({col.psetName})</span>
+                              )}
+                            </span>
+                            <button
+                              onClick={() => removeColumn(col.id)}
+                              className="text-muted-foreground hover:text-destructive"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Available columns */}
+                    <ColumnPicker
+                      discovered={discovered}
+                      selectedIds={new Set(columns.map(c => c.id))}
+                      onAdd={addColumn}
+                    />
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </ScrollArea>
+
+      {/* Bottom Actions */}
+      <div className="flex items-center gap-2 px-3 py-2 border-t">
+        <Button
+          variant="default"
+          size="sm"
+          onClick={handleRun}
+          disabled={selectedTypes.size === 0 || columns.length === 0}
+          className="text-xs h-7"
+        >
+          <Play className="h-3 w-3 mr-1" />
+          Run
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleSave}
+          disabled={selectedTypes.size === 0 || columns.length === 0}
+          className="text-xs h-7"
+        >
+          <Save className="h-3 w-3 mr-1" />
+          Save
+        </Button>
+        <div className="flex-1" />
+        <Button variant="ghost" size="sm" onClick={onCancel} className="text-xs h-7">
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Column Picker
+// ============================================================================
+
+interface ColumnPickerProps {
+  discovered: DiscoveredColumns;
+  selectedIds: Set<string>;
+  onAdd: (col: ColumnDefinition) => void;
+}
+
+function ColumnPicker({ discovered, selectedIds, onAdd }: ColumnPickerProps) {
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['attributes']));
+
+  const toggleSection = (section: string) => {
+    setExpandedSections(prev => {
+      const next = new Set(prev);
+      if (next.has(section)) next.delete(section);
+      else next.add(section);
+      return next;
+    });
+  };
+
+  return (
+    <div className="space-y-1 text-xs">
+      {/* Attributes */}
+      <CollapsibleSection
+        title="Attributes"
+        expanded={expandedSections.has('attributes')}
+        onToggle={() => toggleSection('attributes')}
+      >
+        {discovered.attributes.map(attr => {
+          const id = `attr-${attr.toLowerCase()}`;
+          const isSelected = selectedIds.has(id);
+          return (
+            <PickerItem
+              key={id}
+              label={attr}
+              selected={isSelected}
+              onClick={() => {
+                if (!isSelected) {
+                  onAdd({ id, source: 'attribute', propertyName: attr });
+                }
+              }}
+            />
+          );
+        })}
+      </CollapsibleSection>
+
+      {/* Property Sets */}
+      {Array.from(discovered.properties.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([psetName, propNames]) => (
+          <CollapsibleSection
+            key={`pset-${psetName}`}
+            title={psetName}
+            badge="P"
+            expanded={expandedSections.has(`pset-${psetName}`)}
+            onToggle={() => toggleSection(`pset-${psetName}`)}
+          >
+            {propNames.map(propName => {
+              const id = `prop-${psetName}-${propName}`.toLowerCase().replace(/\s+/g, '-');
+              const isSelected = selectedIds.has(id);
+              return (
+                <PickerItem
+                  key={id}
+                  label={propName}
+                  selected={isSelected}
+                  onClick={() => {
+                    if (!isSelected) {
+                      onAdd({ id, source: 'property', psetName, propertyName: propName, label: propName });
+                    }
+                  }}
+                />
+              );
+            })}
+          </CollapsibleSection>
+        ))}
+
+      {/* Quantity Sets */}
+      {Array.from(discovered.quantities.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([qsetName, quantNames]) => (
+          <CollapsibleSection
+            key={`qset-${qsetName}`}
+            title={qsetName}
+            badge="Q"
+            expanded={expandedSections.has(`qset-${qsetName}`)}
+            onToggle={() => toggleSection(`qset-${qsetName}`)}
+          >
+            {quantNames.map(quantName => {
+              const id = `quant-${qsetName}-${quantName}`.toLowerCase().replace(/\s+/g, '-');
+              const isSelected = selectedIds.has(id);
+              return (
+                <PickerItem
+                  key={id}
+                  label={quantName}
+                  selected={isSelected}
+                  onClick={() => {
+                    if (!isSelected) {
+                      onAdd({ id, source: 'quantity', psetName: qsetName, propertyName: quantName, label: quantName });
+                    }
+                  }}
+                />
+              );
+            })}
+          </CollapsibleSection>
+        ))}
+    </div>
+  );
+}
+
+function CollapsibleSection({
+  title,
+  badge,
+  expanded,
+  onToggle,
+  children,
+}: {
+  title: string;
+  badge?: string;
+  expanded: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <button
+        className="flex items-center gap-1 w-full px-1 py-0.5 rounded hover:bg-muted/50 text-xs"
+        onClick={onToggle}
+      >
+        {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        <span className="font-medium truncate">{title}</span>
+        {badge && (
+          <span className="ml-auto text-[10px] bg-muted px-1 rounded">{badge}</span>
+        )}
+      </button>
+      {expanded && <div className="pl-4 space-y-0">{children}</div>}
+    </div>
+  );
+}
+
+function PickerItem({
+  label,
+  selected,
+  onClick,
+}: {
+  label: string;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={`flex items-center gap-1 w-full px-1 py-0.5 rounded text-xs ${
+        selected
+          ? 'text-muted-foreground cursor-default'
+          : 'hover:bg-muted/50 cursor-pointer'
+      }`}
+      onClick={onClick}
+      disabled={selected}
+    >
+      <Plus className={`h-2.5 w-2.5 ${selected ? 'invisible' : ''}`} />
+      <span className="truncate">{label}</span>
+      {selected && <span className="ml-auto text-[10px] text-muted-foreground">added</span>}
+    </button>
+  );
+}

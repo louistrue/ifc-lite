@@ -163,6 +163,8 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const toggleBcfPanel = useViewerStore((state) => state.toggleBcfPanel);
   const idsPanelVisible = useViewerStore((state) => state.idsPanelVisible);
   const toggleIdsPanel = useViewerStore((state) => state.toggleIdsPanel);
+  const listPanelVisible = useViewerStore((state) => state.listPanelVisible);
+  const toggleListPanel = useViewerStore((state) => state.toggleListPanel);
   const setRightPanelCollapsed = useViewerStore((state) => state.setRightPanelCollapsed);
 
   // Check which type geometries exist across ALL loaded models (federation-aware)
@@ -583,6 +585,27 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
           </Button>
         </TooltipTrigger>
         <TooltipContent>IDS Validation</TooltipContent>
+      </Tooltip>
+
+      {/* Lists Button */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={listPanelVisible ? 'default' : 'ghost'}
+            size="icon-sm"
+            onClick={(e) => {
+              (e.currentTarget as HTMLButtonElement).blur();
+              if (!listPanelVisible) {
+                setRightPanelCollapsed(false);
+              }
+              toggleListPanel();
+            }}
+            className={cn(listPanelVisible && 'bg-primary text-primary-foreground')}
+          >
+            <FileSpreadsheet className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Lists</TooltipContent>
       </Tooltip>
 
       <Separator orientation="vertical" className="h-6 mx-1" />
