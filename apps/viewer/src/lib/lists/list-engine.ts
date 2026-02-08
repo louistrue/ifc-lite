@@ -12,6 +12,7 @@
 import type { IfcDataStore } from '@ifc-lite/parser';
 import { extractPropertiesOnDemand, extractQuantitiesOnDemand } from '@ifc-lite/parser';
 import type { PropertySet, QuantitySet } from '@ifc-lite/data';
+import { parsePropertyValue } from '@/components/viewer/properties/encodingUtils';
 import type {
   ListDefinition,
   ListResult,
@@ -252,10 +253,7 @@ function findPropertyInSets(psets: PropertySet[], psetName: string, propName: st
     if (pset.name === psetName) {
       for (const prop of pset.properties) {
         if (prop.name === propName) {
-          const v = prop.value;
-          if (v === null || v === undefined) return null;
-          if (typeof v === 'object') return JSON.stringify(v);
-          return v as CellValue;
+          return resolvePropertyValue(prop.value);
         }
       }
     }
@@ -263,17 +261,55 @@ function findPropertyInSets(psets: PropertySet[], psetName: string, propName: st
   return null;
 }
 
+/**
+ * Resolve a raw IFC property value to a clean display value.
+ * Handles typed arrays [IFCTYPE, value], boolean enums (.T./.F./.U.),
+ * IFC string encodings, etc. — same logic as PropertiesPanel.
+ */
+function resolvePropertyValue(value: unknown): CellValue {
+  if (value === null || value === undefined) return null;
+
+  // Use the same parsing as PropertiesPanel
+  const parsed = parsePropertyValue(value);
+  const display = parsed.displayValue;
+
+  // Return null for em-dash (null indicator)
+  if (display === '\u2014') return null;
+
+  // Try to preserve numeric values for sorting
+  if (typeof value === 'number') return value;
+  if (typeof value === 'boolean') return display; // "True"/"False"
+
+  // For typed values like [IFCREAL, 5.3], check if the resolved value is numeric
+  if (Array.isArray(value) && value.length === 2 && typeof value[1] === 'number') {
+    return value[1];
+  }
+
+  return display;
+}
+
+/** Unit suffixes indexed by QuantityType enum */
+const QUANTITY_UNITS = ['m', 'm²', 'm³', '', 'kg', 's'];
+
 function findQuantityInSets(qsets: QuantitySet[], qsetName: string, quantName: string): CellValue {
   for (const qset of qsets) {
     if (qset.name === qsetName) {
       for (const quant of qset.quantities) {
         if (quant.name === quantName) {
-          return quant.value;
+          return formatQuantityValue(quant.value, quant.type);
         }
       }
     }
   }
   return null;
+}
+
+function formatQuantityValue(value: number, type: number): CellValue {
+  const formatted = Number.isInteger(value)
+    ? value.toLocaleString()
+    : value.toLocaleString(undefined, { maximumFractionDigits: 3 });
+  const unit = QUANTITY_UNITS[type];
+  return unit ? `${formatted} ${unit}` : formatted;
 }
 
 // ============================================================================
