@@ -720,13 +720,18 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
             clearColor: SNAPSHOT_CLEAR_COLOR,
           });
 
-          // Wait for GPU to finish rendering the frame
+          // Wait for GPU commands to complete
           const device = renderer.getGPUDevice();
           if (device) {
             await device.queue.onSubmittedWorkDone();
           }
 
-          // Capture screenshot
+          // Wait for the browser compositor to present the frame to the canvas.
+          // Without this, toDataURL() reads a stale canvas — only the last snapshot
+          // would show the entity because previous frames haven't been composited yet.
+          await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+
+          // Capture the now-presented frame
           const dataUrl = await renderer.captureScreenshot();
           if (dataUrl) {
             entitySnapshots.set(entity.boundsKey, dataUrl);

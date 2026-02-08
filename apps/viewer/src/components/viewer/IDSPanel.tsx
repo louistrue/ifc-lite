@@ -385,9 +385,9 @@ function ReportExportButton({
         <TooltipTrigger asChild>
           <div className="flex items-center">
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
-              className="h-8 px-2 rounded-r-none gap-1.5"
+              className="h-8 px-2 rounded-r-none border-r-0 gap-1.5"
               onClick={handleDirectExport}
             >
               <Download className="h-3.5 w-3.5" />
@@ -396,9 +396,9 @@ function ReportExportButton({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
-                  className="h-8 w-5 p-0 rounded-l-none border-l border-border"
+                  className="h-8 w-6 p-0 rounded-l-none"
                 >
                   <ChevronDown className="h-3 w-3" />
                 </Button>
