@@ -705,12 +705,9 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
           const globalExpressId = entity.expressId + (model?.idOffset ?? 0);
 
           // Frame the entity bounds directly via camera (properly centers the object)
-          // duration=0 for instant positioning — no animation delay needed
-          // Timeout guards against camera.frameBounds hanging on degenerate bounds
-          await Promise.race([
-            camera.frameBounds(bounds.min, bounds.max, 0),
-            new Promise<void>(resolve => setTimeout(resolve, 2000)),
-          ]);
+          // duration=1 (not 0) because the animator skips updates when duration===0,
+          // causing the camera to never move. 1ms is effectively instant.
+          await camera.frameBounds(bounds.min, bounds.max, 1);
 
           // Render with: entity isolated, NO selection highlight (no cyan), IDS colors intact
           const isolationSet = new Set([globalExpressId]);
