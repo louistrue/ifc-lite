@@ -82,51 +82,73 @@ export function ViewerLayout() {
 
         {/* Main Content Area - Desktop Layout */}
         {!isMobile && (
-          <PanelGroup orientation="horizontal" className="flex-1 min-h-0">
-            {/* Left Panel - Hierarchy */}
-            <Panel
-              id="left-panel"
-              defaultSize={20}
-              minSize={10}
-              collapsible
-              collapsedSize={0}
-            >
-              <div className="h-full w-full overflow-hidden">
-                <HierarchyPanel />
-              </div>
+          <PanelGroup orientation="vertical" className="flex-1 min-h-0">
+            {/* Top: horizontal split (hierarchy | viewport | properties) */}
+            <Panel id="main-panel" defaultSize={listPanelVisible ? 65 : 100} minSize={30}>
+              <PanelGroup orientation="horizontal" className="h-full">
+                {/* Left Panel - Hierarchy */}
+                <Panel
+                  id="left-panel"
+                  defaultSize={20}
+                  minSize={10}
+                  collapsible
+                  collapsedSize={0}
+                >
+                  <div className="h-full w-full overflow-hidden">
+                    <HierarchyPanel />
+                  </div>
+                </Panel>
+
+                <PanelResizeHandle className="w-1.5 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-col-resize" />
+
+                {/* Center - Viewport */}
+                <Panel id="viewport-panel" defaultSize={58} minSize={30}>
+                  <div className="h-full w-full overflow-hidden">
+                    <ViewportContainer />
+                  </div>
+                </Panel>
+
+                <PanelResizeHandle className="w-1.5 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-col-resize" />
+
+                {/* Right Panel - Properties, BCF, or IDS */}
+                <Panel
+                  id="right-panel"
+                  defaultSize={22}
+                  minSize={15}
+                  collapsible
+                  collapsedSize={0}
+                >
+                  <div className="h-full w-full overflow-hidden">
+                    {idsPanelVisible ? (
+                      <IDSPanel onClose={() => setIdsPanelVisible(false)} />
+                    ) : bcfPanelVisible ? (
+                      <BCFPanel onClose={() => setBcfPanelVisible(false)} />
+                    ) : (
+                      <PropertiesPanel />
+                    )}
+                  </div>
+                </Panel>
+              </PanelGroup>
             </Panel>
 
-            <PanelResizeHandle className="w-1.5 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-col-resize" />
-
-            {/* Center - Viewport */}
-            <Panel id="viewport-panel" defaultSize={58} minSize={30}>
-              <div className="h-full w-full overflow-hidden">
-                <ViewportContainer />
-              </div>
-            </Panel>
-
-            <PanelResizeHandle className="w-1.5 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-col-resize" />
-
-            {/* Right Panel - Properties, BCF, IDS, or Lists */}
-            <Panel
-              id="right-panel"
-              defaultSize={22}
-              minSize={15}
-              collapsible
-              collapsedSize={0}
-            >
-              <div className="h-full w-full overflow-hidden">
-                {listPanelVisible ? (
-                  <ListPanel onClose={() => setListPanelVisible(false)} />
-                ) : idsPanelVisible ? (
-                  <IDSPanel onClose={() => setIdsPanelVisible(false)} />
-                ) : bcfPanelVisible ? (
-                  <BCFPanel onClose={() => setBcfPanelVisible(false)} />
-                ) : (
-                  <PropertiesPanel />
-                )}
-              </div>
-            </Panel>
+            {/* Bottom Panel - Lists (vertically resizable) */}
+            {listPanelVisible && (
+              <>
+                <PanelResizeHandle className="h-1.5 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-row-resize" />
+                <Panel
+                  id="bottom-panel"
+                  defaultSize={35}
+                  minSize={15}
+                  maxSize={70}
+                  collapsible
+                  collapsedSize={0}
+                >
+                  <div className="h-full w-full overflow-hidden border-t">
+                    <ListPanel onClose={() => setListPanelVisible(false)} />
+                  </div>
+                </Panel>
+              </>
+            )}
           </PanelGroup>
         )}
 
@@ -159,7 +181,7 @@ export function ViewerLayout() {
               </div>
             )}
 
-            {/* Mobile Bottom Sheet - Properties, BCF, or IDS */}
+            {/* Mobile Bottom Sheet - Properties, BCF, IDS, or Lists */}
             {!rightPanelCollapsed && (
               <div className="absolute inset-x-0 bottom-0 h-[50vh] bg-background border-t rounded-t-xl shadow-xl z-40 animate-in slide-in-from-bottom">
                 <div className="flex items-center justify-between p-2 border-b">
