@@ -2,8 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels';
+import type { PanelImperativeHandle } from 'react-resizable-panels';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { MainToolbar } from './MainToolbar';
 import { HierarchyPanel } from './HierarchyPanel';
@@ -38,6 +39,19 @@ export function ViewerLayout() {
   const setIdsPanelVisible = useViewerStore((s) => s.setIdsPanelVisible);
   const listPanelVisible = useViewerStore((s) => s.listPanelVisible);
   const setListPanelVisible = useViewerStore((s) => s.setListPanelVisible);
+
+  const bottomPanelRef = useRef<PanelImperativeHandle>(null);
+
+  // Imperatively collapse/expand bottom panel when listPanelVisible changes
+  useEffect(() => {
+    const panel = bottomPanelRef.current;
+    if (!panel) return;
+    if (listPanelVisible) {
+      panel.expand();
+    } else {
+      panel.collapse();
+    }
+  }, [listPanelVisible]);
 
   // Detect mobile viewport
   useEffect(() => {
@@ -82,10 +96,10 @@ export function ViewerLayout() {
 
         {/* Main Content Area - Desktop Layout */}
         {!isMobile && (
-          <PanelGroup orientation="vertical" className="flex-1 min-h-0">
+          <PanelGroup orientation="vertical" className="flex-1 min-h-0" autoSaveId="viewer-vertical">
             {/* Top: horizontal split (hierarchy | viewport | properties) */}
-            <Panel id="main-panel" defaultSize={listPanelVisible ? 65 : 100} minSize={30}>
-              <PanelGroup orientation="horizontal" className="h-full">
+            <Panel id="main-panel" defaultSize={65} minSize={30}>
+              <PanelGroup orientation="horizontal" className="h-full" autoSaveId="viewer-horizontal">
                 {/* Left Panel - Hierarchy */}
                 <Panel
                   id="left-panel"
@@ -131,24 +145,32 @@ export function ViewerLayout() {
               </PanelGroup>
             </Panel>
 
-            {/* Bottom Panel - Lists (vertically resizable) */}
-            {listPanelVisible && (
-              <>
-                <PanelResizeHandle className="h-1.5 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-row-resize" />
-                <Panel
-                  id="bottom-panel"
-                  defaultSize={35}
-                  minSize={15}
-                  maxSize={70}
-                  collapsible
-                  collapsedSize={0}
-                >
-                  <div className="h-full w-full overflow-hidden border-t">
-                    <ListPanel onClose={() => setListPanelVisible(false)} />
-                  </div>
-                </Panel>
-              </>
-            )}
+            {/* Bottom Panel - Lists (vertically resizable, always in DOM) */}
+            <PanelResizeHandle
+              className="h-1.5 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-row-resize"
+              disabled={!listPanelVisible}
+              style={listPanelVisible ? undefined : { display: 'none' }}
+            />
+            <Panel
+              id="bottom-panel"
+              panelRef={bottomPanelRef}
+              defaultSize={35}
+              minSize={10}
+              maxSize={70}
+              collapsible
+              collapsedSize={0}
+              onCollapse={() => {
+                // Sync store when user collapses via drag
+                if (listPanelVisible) setListPanelVisible(false);
+              }}
+              onExpand={() => {
+                if (!listPanelVisible) setListPanelVisible(true);
+              }}
+            >
+              <div className="h-full w-full overflow-hidden border-t">
+                <ListPanel onClose={() => setListPanelVisible(false)} />
+              </div>
+            </Panel>
           </PanelGroup>
         )}
 
