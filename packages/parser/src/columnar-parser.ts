@@ -32,7 +32,7 @@ export interface SpatialIndex {
 
 export interface IfcDataStore {
     fileSize: number;
-    schemaVersion: 'IFC2X3' | 'IFC4' | 'IFC4X3';
+    schemaVersion: 'IFC2X3' | 'IFC4' | 'IFC4X3' | 'IFC5';
     entityCount: number;
     parseTime: number;
 

@@ -36,6 +36,33 @@ import { useIfcServer } from './useIfcServer.js';
 import type { IfcxDataStore } from './useIfcFederation.js';
 
 /**
+ * Compute a fast content fingerprint from the first and last 4KB of a buffer.
+ * Uses FNV-1a hash for speed — no crypto overhead, sufficient to distinguish
+ * files with identical name and byte length.
+ */
+function computeFastFingerprint(buffer: ArrayBuffer): string {
+  const CHUNK_SIZE = 4096;
+  const view = new Uint8Array(buffer);
+  const len = view.length;
+
+  // FNV-1a hash
+  let hash = 2166136261; // FNV offset basis (32-bit)
+  const firstEnd = Math.min(CHUNK_SIZE, len);
+  for (let i = 0; i < firstEnd; i++) {
+    hash ^= view[i];
+    hash = Math.imul(hash, 16777619); // FNV prime
+  }
+  if (len > CHUNK_SIZE) {
+    const lastStart = Math.max(CHUNK_SIZE, len - CHUNK_SIZE);
+    for (let i = lastStart; i < len; i++) {
+      hash ^= view[i];
+      hash = Math.imul(hash, 16777619);
+    }
+  }
+  return (hash >>> 0).toString(16);
+}
+
+/**
  * Hook providing file loading operations for single-model path
  * Includes binary cache support for fast subsequent loads
  */
@@ -159,8 +186,8 @@ export function useIfcLoader() {
             spatialHierarchy: ifcxResult.spatialHierarchy,
           } as IfcxDataStore;
 
-          // Cast to IfcDataStore for store compatibility (IFC5 schema extension)
-          setIfcDataStore(dataStore as unknown as IfcDataStore);
+          // IfcxDataStore extends IfcDataStore (with schemaVersion: 'IFC5'), so this is safe
+          setIfcDataStore(dataStore);
 
           setProgress({ phase: 'Complete', percent: 100 });
           setLoading(false);
@@ -215,10 +242,10 @@ export function useIfcLoader() {
         }
       }
 
-      // INSTANT cache lookup: Use filename + size + format version as key (no hashing!)
-      // Same filename + same size = same file (fast and reliable enough)
-      // Include format version to invalidate old caches when format changes
-      const cacheKey = `${file.name}-${buffer.byteLength}-v3`;
+      // Cache key uses filename + size + content fingerprint + format version
+      // Fingerprint prevents collisions for different files with the same name and size
+      const fingerprint = computeFastFingerprint(buffer);
+      const cacheKey = `${file.name}-${buffer.byteLength}-${fingerprint}-v4`;
 
       if (buffer.byteLength >= CACHE_SIZE_THRESHOLD) {
         setProgress({ phase: 'Checking cache', percent: 5 });
@@ -473,7 +500,7 @@ export function useIfcLoader() {
       setError(err instanceof Error ? err.message : 'Unknown error');
       setLoading(false);
     }
-  }, [setLoading, setError, setProgress, setIfcDataStore, setGeometryResult, appendGeometryBatch, updateCoordinateInfo, loadFromCache, saveToCache]);
+  }, [setLoading, setError, setProgress, setIfcDataStore, setGeometryResult, appendGeometryBatch, updateMeshColors, updateCoordinateInfo, loadFromCache, saveToCache, loadFromServer]);
 
   return { loadFile };
 }
