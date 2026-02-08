@@ -63,22 +63,23 @@ export function ListPanel({ onClose }: ListPanelProps) {
 
   const importInputRef = React.useRef<HTMLInputElement>(null);
 
-  // Get the first available data store (single model or first federated model)
-  const dataContext = useMemo(() => {
+  // Collect all available data stores for multi-model support
+  const allStores = useMemo(() => {
+    const stores: IfcDataStore[] = [];
     if (models.size > 0) {
-      const first = models.entries().next().value;
-      if (first) {
-        return { store: first[1].ifcDataStore, modelId: first[0] };
+      for (const [, model] of models) {
+        stores.push(model.ifcDataStore);
       }
+    } else if (ifcDataStore) {
+      stores.push(ifcDataStore);
     }
-    if (ifcDataStore) {
-      return { store: ifcDataStore, modelId: 'default' };
-    }
-    return null;
+    return stores;
   }, [models, ifcDataStore]);
 
+  const hasData = allStores.length > 0;
+
   const handleExecuteList = useCallback((definition: ListDefinition) => {
-    if (!dataContext) return;
+    if (!hasData) return;
 
     setListExecuting(true);
     setActiveListId(definition.id);
@@ -86,30 +87,27 @@ export function ListPanel({ onClose }: ListPanelProps) {
     // Use requestAnimationFrame to avoid blocking UI during execution
     requestAnimationFrame(() => {
       try {
-        let combinedResult: ListResult | null = null;
+        const allRows: ListResult['rows'] = [];
+        let totalTime = 0;
 
-        if (models.size > 1) {
-          // Multi-model: execute against each model and combine
-          const allRows: ListResult['rows'] = [];
-          let totalTime = 0;
-
+        if (models.size > 0) {
           for (const [modelId, model] of models) {
             const result = executeList(definition, model.ifcDataStore, modelId);
             allRows.push(...result.rows);
             totalTime += result.executionTime;
           }
-
-          combinedResult = {
-            columns: definition.columns,
-            rows: allRows,
-            totalCount: allRows.length,
-            executionTime: totalTime,
-          };
-        } else {
-          combinedResult = executeList(definition, dataContext.store, dataContext.modelId);
+        } else if (ifcDataStore) {
+          const result = executeList(definition, ifcDataStore, 'default');
+          allRows.push(...result.rows);
+          totalTime += result.executionTime;
         }
 
-        setListResult(combinedResult);
+        setListResult({
+          columns: definition.columns,
+          rows: allRows,
+          totalCount: allRows.length,
+          executionTime: totalTime,
+        });
         setView('results');
       } catch (err) {
         console.error('[Lists] Execution failed:', err);
@@ -117,7 +115,7 @@ export function ListPanel({ onClose }: ListPanelProps) {
         setListExecuting(false);
       }
     });
-  }, [dataContext, models, setActiveListId, setListResult, setListExecuting]);
+  }, [hasData, models, ifcDataStore, setActiveListId, setListResult, setListExecuting]);
 
   const handleCreateNew = useCallback(() => {
     setEditingList(null);
@@ -218,7 +216,7 @@ export function ListPanel({ onClose }: ListPanelProps) {
           definitions={listDefinitions}
           activeListId={activeListId}
           executing={listExecuting}
-          hasData={!!dataContext}
+          hasData={hasData}
           onExecute={handleExecuteList}
           onCreateNew={handleCreateNew}
           onDelete={handleDelete}
@@ -227,9 +225,9 @@ export function ListPanel({ onClose }: ListPanelProps) {
         />
       )}
 
-      {view === 'builder' && dataContext && (
+      {view === 'builder' && hasData && (
         <ListBuilder
-          store={dataContext.store}
+          stores={allStores}
           initial={editingList}
           onSave={handleSaveList}
           onCancel={() => setView('library')}

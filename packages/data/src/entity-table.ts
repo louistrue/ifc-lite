@@ -114,11 +114,24 @@ export class EntityTableBuilder {
       return arr.subarray(0, this.count) as T;
     };
 
-    // Build type ranges
+    // Build type ranges (kept for cache serialization backward compat)
     const typeRanges = new Map<IfcTypeEnum, { start: number; end: number }>();
     for (const [type, start] of this.typeStarts) {
       const count = this.typeCounts.get(type)!;
       typeRanges.set(type, { start, end: start + count });
+    }
+
+    // Build correct per-type index arrays for getByType()
+    // typeRanges assumes contiguous entities per type, which fails with interleaved IFC files
+    const typeIndices = new Map<IfcTypeEnum, number[]>();
+    for (let i = 0; i < this.count; i++) {
+      const t = trim(this.typeEnum)[i] as IfcTypeEnum;
+      let arr = typeIndices.get(t);
+      if (!arr) {
+        arr = [];
+        typeIndices.set(t, arr);
+      }
+      arr.push(i);
     }
 
     const expressId = trim(this.expressId);
@@ -190,11 +203,11 @@ export class EntityTableBuilder {
         return idx >= 0 ? (flags[idx] & EntityFlags.HAS_GEOMETRY) !== 0 : false;
       },
       getByType: (type) => {
-        const range = typeRanges.get(type);
-        if (!range) return [];
-        const ids: number[] = [];
-        for (let i = range.start; i < range.end; i++) {
-          ids.push(expressId[i]);
+        const indices = typeIndices.get(type);
+        if (!indices) return [];
+        const ids: number[] = new Array(indices.length);
+        for (let i = 0; i < indices.length; i++) {
+          ids[i] = expressId[indices[i]];
         }
         return ids;
       },

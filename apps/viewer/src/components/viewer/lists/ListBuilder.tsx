@@ -54,14 +54,14 @@ const SELECTABLE_TYPES: { type: IfcTypeEnum; label: string }[] = [
 ];
 
 interface ListBuilderProps {
-  store: IfcDataStore;
+  stores: IfcDataStore[];
   initial: ListDefinition | null;
   onSave: (definition: ListDefinition) => void;
   onCancel: () => void;
   onExecute: (definition: ListDefinition) => void;
 }
 
-export function ListBuilder({ store, initial, onSave, onCancel, onExecute }: ListBuilderProps) {
+export function ListBuilder({ stores, initial, onSave, onCancel, onExecute }: ListBuilderProps) {
   const [name, setName] = useState(initial?.name ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
   const [selectedTypes, setSelectedTypes] = useState<Set<IfcTypeEnum>>(
@@ -71,21 +71,24 @@ export function ListBuilder({ store, initial, onSave, onCancel, onExecute }: Lis
   const [conditions, setConditions] = useState<PropertyCondition[]>(initial?.conditions ?? []);
   const [columnsExpanded, setColumnsExpanded] = useState(true);
 
-  // Count entities per type for display
+  // Count entities per type across all stores
   const typeCounts = useMemo(() => {
     const counts = new Map<IfcTypeEnum, number>();
     for (const { type } of SELECTABLE_TYPES) {
-      const ids = store.entities.getByType(type);
-      if (ids.length > 0) counts.set(type, ids.length);
+      let total = 0;
+      for (const s of stores) {
+        total += s.entities.getByType(type).length;
+      }
+      if (total > 0) counts.set(type, total);
     }
     return counts;
-  }, [store]);
+  }, [stores]);
 
-  // Discover available columns whenever selected types change
+  // Discover available columns whenever selected types change (across all stores)
   const discovered = useMemo<DiscoveredColumns | null>(() => {
     if (selectedTypes.size === 0) return null;
-    return discoverColumns(store, Array.from(selectedTypes));
-  }, [store, selectedTypes]);
+    return discoverColumns(stores, Array.from(selectedTypes));
+  }, [stores, selectedTypes]);
 
   const toggleType = useCallback((type: IfcTypeEnum) => {
     setSelectedTypes(prev => {

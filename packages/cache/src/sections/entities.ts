@@ -88,6 +88,19 @@ export function readEntities(reader: BufferReader, strings: StringTable): Entity
   // Build EntityTable with methods
   const HAS_GEOMETRY = 0b00000001;
 
+  // Build correct per-type index arrays for getByType()
+  // typeRanges assumes contiguous entities per type, which fails with interleaved IFC files
+  const typeIndices = new Map<IfcTypeEnum, number[]>();
+  for (let i = 0; i < count; i++) {
+    const t = typeEnum[i] as IfcTypeEnum;
+    let arr = typeIndices.get(t);
+    if (!arr) {
+      arr = [];
+      typeIndices.set(t, arr);
+    }
+    arr.push(i);
+  }
+
   // PRE-BUILD INDEX MAP: O(n) once, then O(1) lookups
   // This eliminates O(n²) when getName/hasGeometry are called for every entity
   const idToIndex = new Map<number, number>();
@@ -147,11 +160,11 @@ export function readEntities(reader: BufferReader, strings: StringTable): Entity
       return idx >= 0 ? (flags[idx] & HAS_GEOMETRY) !== 0 : false;
     },
     getByType: (type) => {
-      const range = typeRanges.get(type);
-      if (!range) return [];
-      const ids: number[] = [];
-      for (let i = range.start; i < range.end; i++) {
-        ids.push(expressId[i]);
+      const indices = typeIndices.get(type);
+      if (!indices) return [];
+      const ids: number[] = new Array(indices.length);
+      for (let i = 0; i < indices.length; i++) {
+        ids[i] = expressId[indices[i]];
       }
       return ids;
     },
