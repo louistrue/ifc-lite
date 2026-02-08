@@ -2,9 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels';
-import type { PanelImperativeHandle } from 'react-resizable-panels';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { MainToolbar } from './MainToolbar';
 import { HierarchyPanel } from './HierarchyPanel';
@@ -19,6 +18,10 @@ import { HoverTooltip } from './HoverTooltip';
 import { BCFPanel } from './BCFPanel';
 import { IDSPanel } from './IDSPanel';
 import { ListPanel } from './lists/ListPanel';
+
+const BOTTOM_PANEL_MIN_HEIGHT = 120;
+const BOTTOM_PANEL_DEFAULT_HEIGHT = 300;
+const BOTTOM_PANEL_MAX_RATIO = 0.7; // max 70% of container
 
 export function ViewerLayout() {
   // Initialize keyboard shortcuts
@@ -40,21 +43,45 @@ export function ViewerLayout() {
   const listPanelVisible = useViewerStore((s) => s.listPanelVisible);
   const setListPanelVisible = useViewerStore((s) => s.setListPanelVisible);
 
-  const bottomPanelRef = useRef<PanelImperativeHandle>(null);
+  // Bottom panel resize state (pixel height, persisted in ref to avoid re-renders during drag)
+  const [bottomHeight, setBottomHeight] = useState(BOTTOM_PANEL_DEFAULT_HEIGHT);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
 
-  // Imperatively collapse/expand bottom panel when listPanelVisible changes
-  useEffect(() => {
-    const panel = bottomPanelRef.current;
-    if (!panel) return;
-    if (listPanelVisible) {
-      // Use resize() instead of expand() to ensure a usable size,
-      // since expand() restores the "last known size" which may be tiny
-      // if autoSave stored a stale layout from before this panel existed.
-      panel.resize(35);
-    } else {
-      panel.collapse();
-    }
-  }, [listPanelVisible]);
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingRef.current = true;
+
+    const startY = e.clientY;
+    const startHeight = bottomHeight;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      if (!isDraggingRef.current) return;
+      const container = containerRef.current;
+      if (!container) return;
+
+      const maxHeight = container.clientHeight * BOTTOM_PANEL_MAX_RATIO;
+      const delta = startY - moveEvent.clientY;
+      const newHeight = Math.min(
+        maxHeight,
+        Math.max(BOTTOM_PANEL_MIN_HEIGHT, startHeight + delta)
+      );
+      setBottomHeight(newHeight);
+    };
+
+    const onMouseUp = () => {
+      isDraggingRef.current = false;
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+  }, [bottomHeight]);
 
   // Detect mobile viewport
   useEffect(() => {
@@ -99,9 +126,9 @@ export function ViewerLayout() {
 
         {/* Main Content Area - Desktop Layout */}
         {!isMobile && (
-          <PanelGroup orientation="vertical" className="flex-1 min-h-0" autoSaveId="viewer-vertical-v2">
+          <div ref={containerRef} className="flex-1 min-h-0 flex flex-col">
             {/* Top: horizontal split (hierarchy | viewport | properties) */}
-            <Panel id="main-panel" defaultSize={65} minSize={30}>
+            <div className="flex-1 min-h-0">
               <PanelGroup orientation="horizontal" className="h-full" autoSaveId="viewer-horizontal">
                 {/* Left Panel - Hierarchy */}
                 <Panel
@@ -146,34 +173,22 @@ export function ViewerLayout() {
                   </div>
                 </Panel>
               </PanelGroup>
-            </Panel>
+            </div>
 
-            {/* Bottom Panel - Lists (vertically resizable, always in DOM) */}
-            <PanelResizeHandle
-              className="h-1.5 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-row-resize"
-              disabled={!listPanelVisible}
-              style={listPanelVisible ? undefined : { display: 'none' }}
-            />
-            <Panel
-              id="bottom-panel"
-              panelRef={bottomPanelRef}
-              defaultSize={35}
-              minSize={10}
-              maxSize={70}
-              collapsible
-              collapsedSize={0}
-              onResize={(panelSize) => {
-                // Sync store when user collapses/expands via drag
-                const isCollapsed = panelSize.asPercentage === 0;
-                if (isCollapsed && listPanelVisible) setListPanelVisible(false);
-                if (!isCollapsed && !listPanelVisible) setListPanelVisible(true);
-              }}
-            >
-              <div className="h-full w-full overflow-hidden border-t">
-                <ListPanel onClose={() => setListPanelVisible(false)} />
+            {/* Bottom Panel - Lists (custom resizable, outside PanelGroup) */}
+            {listPanelVisible && (
+              <div style={{ height: bottomHeight, flexShrink: 0 }} className="relative">
+                {/* Drag handle */}
+                <div
+                  className="absolute inset-x-0 top-0 h-1.5 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-row-resize z-10"
+                  onMouseDown={handleResizeStart}
+                />
+                <div className="h-full w-full overflow-hidden border-t pt-1.5">
+                  <ListPanel onClose={() => setListPanelVisible(false)} />
+                </div>
               </div>
-            </Panel>
-          </PanelGroup>
+            )}
+          </div>
         )}
 
         {/* Main Content Area - Mobile Layout */}
