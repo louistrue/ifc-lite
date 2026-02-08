@@ -12,16 +12,24 @@
 
 import type { MeshData } from '@ifc-lite/geometry';
 import type { DataModel } from '@ifc-lite/server-client';
+import type { IfcDataStore } from '@ifc-lite/parser';
 import {
   IfcTypeEnum,
   RelationshipType,
   IfcTypeEnumFromString,
   IfcTypeEnumToString,
   EntityFlags,
+  PropertyValueType,
+  QuantityType,
   type SpatialHierarchy,
   type SpatialNode,
   type EntityTable,
   type RelationshipGraph,
+  type PropertyTable,
+  type PropertySet,
+  type PropertyValue,
+  type QuantityTable,
+  type QuantitySet,
 } from '@ifc-lite/data';
 import { StringTable } from '@ifc-lite/data';
 import { buildSpatialIndex, type SpatialIndex } from '@ifc-lite/spatial';
@@ -64,83 +72,6 @@ export interface ServerParseResult {
     total_vertices: number;
     total_triangles: number;
   };
-}
-
-/**
- * Viewer data store format (compatible with IfcDataStore)
- */
-export interface ViewerDataStore {
-  fileSize: number;
-  schemaVersion: 'IFC2X3' | 'IFC4' | 'IFC4X3';
-  entityCount: number;
-  parseTime: number;
-  source: Uint8Array;
-  entityIndex: {
-    byId: Map<number, { expressId: number; type: string; byteOffset: number; byteLength: number; lineNumber: number }>;
-    byType: Map<string, number[]>;
-  };
-  strings: StringTable;
-  entities: EntityTable;
-  /** Server-converted property table with getForEntity method */
-  properties: ServerPropertyTable;
-  /** Server-converted quantity table with getForEntity method */
-  quantities: ViewerQuantityTable;
-  relationships: RelationshipGraph;
-  spatialHierarchy: SpatialHierarchy;
-  spatialIndex?: SpatialIndex;
-}
-
-/** Property set returned by server conversion */
-interface ServerPropertySet {
-  name: string;
-  globalId?: string;
-  properties: Array<{ name: string; type: number; value: string | number | boolean | null }>;
-}
-
-/** Property table interface for server-converted data */
-interface ServerPropertyTable {
-  count: number;
-  entityId: Uint32Array;
-  psetName: Uint32Array;
-  psetGlobalId: Uint32Array;
-  propName: Uint32Array;
-  propType: Uint8Array;
-  valueString: Uint32Array;
-  valueReal: Float64Array;
-  valueInt: Int32Array;
-  valueBool: Uint8Array;
-  unitId: Int32Array;
-  entityIndex: Map<number, number[]>;
-  psetIndex: Map<number, number[]>;
-  propIndex: Map<number, number[]>;
-  getForEntity(expressId: number): ServerPropertySet[];
-  getPropertyValue(expressId: number, psetName: string, propName: string): string | number | boolean | null;
-  findByProperty(psetName: string, propName: string, value: string | number | boolean): number[];
-}
-
-/** Quantity set returned by getForEntity (viewer format with camelCase) */
-interface ViewerQuantitySet {
-  name: string;
-  methodOfMeasurement?: string;
-  quantities: Array<{ name: string; type: string; value: number }>;
-}
-
-/** Quantity table interface for server-converted data */
-interface ViewerQuantityTable {
-  count: number;
-  entityId: Uint32Array;
-  qsetName: Uint32Array;
-  quantityName: Uint32Array;
-  quantityType: Uint8Array;
-  value: Float64Array;
-  unitId: Int32Array;
-  formula: Uint32Array;
-  entityIndex: Map<number, number[]>;
-  qsetIndex: Map<number, number[]>;
-  quantityIndex: Map<number, number[]>;
-  getForEntity(expressId: number): ViewerQuantitySet[];
-  getQuantityValue(expressId: number, qsetName: string, quantName: string): number | null;
-  sumByType(quantityName: string, elementType?: number): number;
 }
 
 // ============================================================================
@@ -597,14 +528,14 @@ function buildRelationships(
  * @param parseResult - Server parse result containing metadata and stats
  * @param file - Original file for size information
  * @param allMeshes - Parsed mesh data
- * @returns ViewerDataStore compatible with useIfc
+ * @returns IfcDataStore compatible with viewer store
  */
 export function convertServerDataModel(
   dataModel: DataModel,
   parseResult: ServerParseResult,
   file: { size: number },
   allMeshes: MeshData[]
-): ViewerDataStore {
+): IfcDataStore {
   const strings = new StringTable();
 
   // Build relationships first (needed for property/quantity mappings)
@@ -625,8 +556,8 @@ export function convertServerDataModel(
   // Build spatial hierarchy (needs entityToPsets for storey heights)
   const spatialHierarchy = buildSpatialHierarchy(dataModel, entityToPsets);
 
-  // Build property and quantity tables
-  const properties: ServerPropertyTable = {
+  // Build property and quantity tables conforming to IfcDataStore's interfaces
+  const properties: PropertyTable = {
     count: 0,
     entityId: new Uint32Array(0),
     psetName: new Uint32Array(0),
@@ -641,19 +572,22 @@ export function convertServerDataModel(
     entityIndex: new Map<number, number[]>(),
     psetIndex: new Map<number, number[]>(),
     propIndex: new Map<number, number[]>(),
-    getForEntity: (exprId: number): ServerPropertySet[] => {
+    getForEntity: (exprId: number): PropertySet[] => {
       const psets = entityToPsets.get(exprId) || [];
       return psets.map((pset) => ({
         name: pset.pset_name,
         globalId: '',
         properties: pset.properties.map((p: { property_name: string; property_value: string | number | boolean | null }) => ({
           name: p.property_name,
-          type: 0,
-          value: p.property_value,
+          type: typeof p.property_value === 'number'
+            ? (Number.isInteger(p.property_value) ? PropertyValueType.Integer : PropertyValueType.Real)
+            : typeof p.property_value === 'boolean' ? PropertyValueType.Boolean
+            : PropertyValueType.String,
+          value: p.property_value as PropertyValue,
         })),
       }));
     },
-    getPropertyValue: (expressId: number, psetName: string, propName: string): string | number | boolean | null => {
+    getPropertyValue: (expressId: number, psetName: string, propName: string): PropertyValue | null => {
       const psets = entityToPsets.get(expressId);
       if (!psets) {
         return null;
@@ -662,23 +596,22 @@ export function convertServerDataModel(
         if (pset.pset_name === psetName) {
           for (const prop of pset.properties) {
             if (prop.property_name === propName) {
-              return prop.property_value;
+              return prop.property_value as PropertyValue;
             }
           }
         }
       }
       return null;
     },
-    findByProperty: (psetName: string, propName: string, value: string | number | boolean): number[] => {
+    findByProperty: (propName: string, _operator: string, value: PropertyValue): number[] => {
+      // Server-converted data: search all psets for matching property name + value
       const matchingEntityIds: number[] = [];
       for (const [entityId, psets] of entityToPsets) {
         for (const pset of psets) {
-          if (pset.pset_name === psetName) {
-            for (const prop of pset.properties) {
-              if (prop.property_name === propName && prop.property_value === value) {
-                matchingEntityIds.push(entityId);
-                break;
-              }
+          for (const prop of pset.properties) {
+            if (prop.property_name === propName && prop.property_value === value) {
+              matchingEntityIds.push(entityId);
+              break;
             }
           }
         }
@@ -687,7 +620,20 @@ export function convertServerDataModel(
     },
   };
 
-  const quantities: ViewerQuantityTable = {
+  /** Map server quantity type strings to QuantityType enum */
+  const mapQuantityType = (type: string): QuantityType => {
+    switch (type.toLowerCase()) {
+      case 'length': return QuantityType.Length;
+      case 'area': return QuantityType.Area;
+      case 'volume': return QuantityType.Volume;
+      case 'count': return QuantityType.Count;
+      case 'weight': return QuantityType.Weight;
+      case 'time': return QuantityType.Time;
+      default: return QuantityType.Length;
+    }
+  };
+
+  const quantities: QuantityTable = {
     count: 0,
     entityId: new Uint32Array(0),
     qsetName: new Uint32Array(0),
@@ -699,14 +645,13 @@ export function convertServerDataModel(
     entityIndex: new Map<number, number[]>(),
     qsetIndex: new Map<number, number[]>(),
     quantityIndex: new Map<number, number[]>(),
-    getForEntity: (exprId: number): ViewerQuantitySet[] => {
+    getForEntity: (exprId: number): QuantitySet[] => {
       const qsets = entityToQsets.get(exprId) || [];
       return qsets.map((qset) => ({
         name: qset.qset_name,
-        methodOfMeasurement: qset.method_of_measurement,
         quantities: qset.quantities.map((q) => ({
           name: q.quantity_name,
-          type: q.quantity_type,
+          type: mapQuantityType(q.quantity_type),
           value: q.quantity_value,
         })),
       }));
@@ -754,7 +699,7 @@ export function convertServerDataModel(
   const spatialIndex = allMeshes.length > 0 ? buildSpatialIndex(allMeshes) : undefined;
 
   // Validate schemaVersion against allowed values
-  const VALID_SCHEMA_VERSIONS = ['IFC2X3', 'IFC4', 'IFC4X3'] as const;
+  const VALID_SCHEMA_VERSIONS = ['IFC2X3', 'IFC4', 'IFC4X3', 'IFC5'] as const;
   type SchemaVersion = typeof VALID_SCHEMA_VERSIONS[number];
   const rawSchemaVersion = parseResult.metadata.schema_version;
   let schemaVersion: SchemaVersion;

@@ -30,7 +30,7 @@ import {
  * Extended data store type for IFCX (IFC5) files.
  * IFCX uses schemaVersion 'IFC5' and may include federated composition metadata.
  */
-export interface IfcxDataStore extends Omit<IfcDataStore, 'schemaVersion'> {
+export interface IfcxDataStore extends IfcDataStore {
   schemaVersion: 'IFC5';
   /** Federated layer info for re-composition */
   _federatedLayers?: Array<{ id: string; name: string; enabled: boolean }>;
@@ -484,7 +484,7 @@ export function useIfcFederation() {
       setLoading(false);
       return null;
     }
-  }, [setLoading, setError, setProgress, setIfcDataStore, setGeometryResult, storeAddModel, hasModels]);
+  }, [setLoading, setError, setProgress, setIfcDataStore, setGeometryResult, storeAddModel, hasModels, registerModelOffset]);
 
   /**
    * Remove a model from the federation

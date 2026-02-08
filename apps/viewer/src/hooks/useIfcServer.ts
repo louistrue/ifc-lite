@@ -12,7 +12,6 @@
 
 import { useCallback } from 'react';
 import { useViewerStore } from '../store.js';
-import type { IfcDataStore } from '@ifc-lite/parser';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 import {
   IfcServerClient,
@@ -38,14 +37,6 @@ import {
 
 // Server data model conversion
 import { convertServerDataModel, type ServerParseResult } from '../utils/serverDataModel.js';
-
-// Define QuantitySet type inline (matches server-client's QuantitySet interface)
-interface ServerQuantitySet {
-  qset_id: number;
-  qset_name: string;
-  method_of_measurement?: string;
-  quantities: Array<{ quantity_name: string; quantity_value: number; quantity_type: string }>;
-}
 
 /** Convert server mesh data (snake_case) to viewer format (camelCase) */
 function convertServerMesh(m: ServerMeshData): MeshData {
@@ -125,20 +116,18 @@ async function isServerAvailable(serverUrl: string, client: IfcServerClient): Pr
  * and ServerClient lifecycle
  */
 export function useIfcServer() {
-  const {
-    setProgress,
-    setIfcDataStore,
-    setGeometryResult,
-  } = useViewerStore();
-
   /**
    * Load from server - uses server-side PARALLEL parsing for maximum speed
    * Uses full parse endpoint (not streaming) for all-at-once parallel processing
+   *
+   * Store actions are retrieved via getState() inside the callback to avoid
+   * subscribing the hook to the entire store (which would cause unnecessary re-renders).
    */
   const loadFromServer = useCallback(async (
     file: File,
     buffer: ArrayBuffer
   ): Promise<boolean> => {
+    const { setProgress, setIfcDataStore, setGeometryResult } = useViewerStore.getState();
     try {
       const serverStart = performance.now();
       setProgress({ phase: 'Connecting to server', percent: 5 });
@@ -439,14 +428,13 @@ export function useIfcServer() {
           console.log(`  Relationships: ${dataModel.relationships.length}`);
           console.log(`  Spatial nodes: ${dataModel.spatialHierarchy.nodes.length}`);
 
-          // Convert server data model to viewer data store format using utility
-          // ViewerDataStore is structurally compatible with IfcDataStore
+          // Convert server data model directly to IfcDataStore format
           const dataStore = convertServerDataModel(
             dataModel,
             result as ServerParseResult,
             file,
             allMeshes
-          ) as unknown as IfcDataStore;
+          );
 
           setIfcDataStore(dataStore);
           console.log('[useIfc] ✅ Property panel ready with server data model');
@@ -469,7 +457,7 @@ export function useIfcServer() {
       console.error('[useIfc] Server parse failed:', err);
       return false;
     }
-  }, [setProgress, setIfcDataStore, setGeometryResult]);
+  }, []);
 
   return { loadFromServer };
 }
