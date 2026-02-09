@@ -13,6 +13,7 @@ import {
   Trash2,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   Save,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -111,6 +112,18 @@ export function ListBuilder({ stores, initial, onSave, onCancel, onExecute }: Li
 
   const removeColumn = useCallback((id: string) => {
     setColumns(prev => prev.filter(c => c.id !== id));
+  }, []);
+
+  const moveColumn = useCallback((idx: number, direction: -1 | 1) => {
+    setColumns(prev => {
+      const target = idx + direction;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      const tmp = next[idx];
+      next[idx] = next[target];
+      next[target] = tmp;
+      return next;
+    });
   }, []);
 
   const buildDefinition = useCallback((): ListDefinition => {
@@ -233,6 +246,20 @@ export function ListBuilder({ stores, initial, onSave, onCancel, onExecute }: Li
                                 <span className="text-muted-foreground ml-1">({col.psetName})</span>
                               )}
                             </span>
+                            <button
+                              onClick={() => moveColumn(idx, -1)}
+                              disabled={idx === 0}
+                              className={`${idx === 0 ? 'text-muted-foreground/30' : 'text-muted-foreground hover:text-foreground'}`}
+                            >
+                              <ChevronUp className="h-3 w-3" />
+                            </button>
+                            <button
+                              onClick={() => moveColumn(idx, 1)}
+                              disabled={idx === columns.length - 1}
+                              className={`${idx === columns.length - 1 ? 'text-muted-foreground/30' : 'text-muted-foreground hover:text-foreground'}`}
+                            >
+                              <ChevronDown className="h-3 w-3" />
+                            </button>
                             <button
                               onClick={() => removeColumn(col.id)}
                               className="text-muted-foreground hover:text-destructive"

@@ -129,7 +129,7 @@ export function ViewerLayout() {
           <div ref={containerRef} className="flex-1 min-h-0 flex flex-col">
             {/* Top: horizontal split (hierarchy | viewport | properties) */}
             <div className="flex-1 min-h-0">
-              <PanelGroup orientation="horizontal" className="h-full" autoSaveId="viewer-horizontal">
+              <PanelGroup orientation="horizontal" className="h-full">
                 {/* Left Panel - Hierarchy */}
                 <Panel
                   id="left-panel"

@@ -22,6 +22,9 @@ import {
   Upload,
   Loader2,
   Table2,
+  Pencil,
+  Copy,
+  Settings2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -39,6 +42,7 @@ import {
 import type { ListDefinition, ListResult } from '@/lib/lists';
 import { ListBuilder } from './ListBuilder';
 import { ListResultsTable } from './ListResultsTable';
+import type { IfcDataStore } from '@ifc-lite/parser';
 
 interface ListPanelProps {
   onClose?: () => void;
@@ -56,6 +60,7 @@ export function ListPanel({ onClose }: ListPanelProps) {
   const listResult = useViewerStore((s) => s.listResult);
   const listExecuting = useViewerStore((s) => s.listExecuting);
   const addListDefinition = useViewerStore((s) => s.addListDefinition);
+  const updateListDefinition = useViewerStore((s) => s.updateListDefinition);
   const deleteListDefinition = useViewerStore((s) => s.deleteListDefinition);
   const setActiveListId = useViewerStore((s) => s.setActiveListId);
   const setListResult = useViewerStore((s) => s.setListResult);
@@ -83,6 +88,7 @@ export function ListPanel({ onClose }: ListPanelProps) {
 
     setListExecuting(true);
     setActiveListId(definition.id);
+    setEditingList(definition);
 
     // Use requestAnimationFrame to avoid blocking UI during execution
     requestAnimationFrame(() => {
@@ -122,14 +128,42 @@ export function ListPanel({ onClose }: ListPanelProps) {
     setView('builder');
   }, []);
 
-  const handleSaveList = useCallback((definition: ListDefinition) => {
-    addListDefinition(definition);
-    setView('library');
+  const handleEdit = useCallback((definition: ListDefinition) => {
+    setEditingList(definition);
+    setView('builder');
+  }, []);
+
+  const handleDuplicate = useCallback((definition: ListDefinition) => {
+    const clone: ListDefinition = {
+      ...definition,
+      id: crypto.randomUUID(),
+      name: `${definition.name} (Copy)`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    addListDefinition(clone);
   }, [addListDefinition]);
+
+  const handleSaveList = useCallback((definition: ListDefinition) => {
+    // Check if updating existing or adding new
+    const exists = listDefinitions.some(d => d.id === definition.id);
+    if (exists) {
+      updateListDefinition(definition.id, definition);
+    } else {
+      addListDefinition(definition);
+    }
+    setView('library');
+  }, [listDefinitions, addListDefinition, updateListDefinition]);
 
   const handleDelete = useCallback((id: string) => {
     deleteListDefinition(id);
   }, [deleteListDefinition]);
+
+  const handleEditFromResults = useCallback(() => {
+    if (editingList) {
+      setView('builder');
+    }
+  }, [editingList]);
 
   const handleExportCSV = useCallback(() => {
     if (!listResult) return;
@@ -181,6 +215,14 @@ export function ListPanel({ onClose }: ListPanelProps) {
             <>
               <Tooltip>
                 <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" onClick={handleEditFromResults}>
+                    <Settings2 className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Edit Configuration</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
                   <Button variant="ghost" size="icon-sm" onClick={handleExportCSV}>
                     <Download className="h-3.5 w-3.5" />
                   </Button>
@@ -219,6 +261,8 @@ export function ListPanel({ onClose }: ListPanelProps) {
           hasData={hasData}
           onExecute={handleExecuteList}
           onCreateNew={handleCreateNew}
+          onEdit={handleEdit}
+          onDuplicate={handleDuplicate}
           onDelete={handleDelete}
           onExport={handleExportDefinition}
           onImport={() => importInputRef.current?.click()}
@@ -262,6 +306,8 @@ interface ListLibraryProps {
   hasData: boolean;
   onExecute: (def: ListDefinition) => void;
   onCreateNew: () => void;
+  onEdit: (def: ListDefinition) => void;
+  onDuplicate: (def: ListDefinition) => void;
   onDelete: (id: string) => void;
   onExport: (def: ListDefinition) => void;
   onImport: () => void;
@@ -274,6 +320,8 @@ function ListLibrary({
   hasData,
   onExecute,
   onCreateNew,
+  onEdit,
+  onDuplicate,
   onDelete,
   onExport,
   onImport,
@@ -314,6 +362,8 @@ function ListLibrary({
                   executing={executing && activeListId === def.id}
                   hasData={hasData}
                   onExecute={onExecute}
+                  onEdit={onEdit}
+                  onDuplicate={onDuplicate}
                   onDelete={onDelete}
                   onExport={onExport}
                 />
@@ -338,6 +388,7 @@ function ListLibrary({
                 executing={executing && activeListId === preset.id}
                 hasData={hasData}
                 onExecute={onExecute}
+                onDuplicate={onDuplicate}
                 isPreset
               />
             ))}
@@ -358,12 +409,14 @@ interface ListItemProps {
   executing: boolean;
   hasData: boolean;
   onExecute: (def: ListDefinition) => void;
+  onEdit?: (def: ListDefinition) => void;
+  onDuplicate?: (def: ListDefinition) => void;
   onDelete?: (id: string) => void;
   onExport?: (def: ListDefinition) => void;
   isPreset?: boolean;
 }
 
-function ListItem({ definition, isActive, executing, hasData, onExecute, onDelete, onExport, isPreset }: ListItemProps) {
+function ListItem({ definition, isActive, executing, hasData, onExecute, onEdit, onDuplicate, onDelete, onExport, isPreset }: ListItemProps) {
   return (
     <div
       className={`group flex items-center gap-2 px-2 py-1.5 rounded-md text-sm cursor-pointer hover:bg-muted/50 ${
@@ -398,8 +451,44 @@ function ListItem({ definition, isActive, executing, hasData, onExecute, onDelet
                   <Play className="h-3 w-3" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Run List</TooltipContent>
+              <TooltipContent>Run</TooltipContent>
             </Tooltip>
+            {!isPreset && onEdit && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="h-6 w-6"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEdit(definition);
+                    }}
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Edit</TooltipContent>
+              </Tooltip>
+            )}
+            {onDuplicate && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="h-6 w-6"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDuplicate(definition);
+                    }}
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{isPreset ? 'Use as Template' : 'Duplicate'}</TooltipContent>
+              </Tooltip>
+            )}
             {!isPreset && onExport && (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -415,7 +504,7 @@ function ListItem({ definition, isActive, executing, hasData, onExecute, onDelet
                     <Download className="h-3 w-3" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Export Definition</TooltipContent>
+                <TooltipContent>Export</TooltipContent>
               </Tooltip>
             )}
             {!isPreset && onDelete && (
