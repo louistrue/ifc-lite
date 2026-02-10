@@ -7,7 +7,7 @@
  */
 
 import type { StateCreator } from 'zustand';
-import type { ListDefinition, ListResult } from '../../lib/lists/types.js';
+import type { ListDefinition, ListResult } from '@ifc-lite/lists';
 import { loadListDefinitions, saveListDefinitions } from '../../lib/lists/persistence.js';
 
 export interface ListSlice {

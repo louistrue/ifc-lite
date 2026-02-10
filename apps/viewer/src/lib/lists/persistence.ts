@@ -6,7 +6,7 @@
  * Persistence for list definitions via localStorage
  */
 
-import type { ListDefinition } from './types.js';
+import type { ListDefinition } from '@ifc-lite/lists';
 
 const STORAGE_KEY = 'ifc-lite-lists';
 

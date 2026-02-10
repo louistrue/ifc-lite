@@ -38,11 +38,11 @@ import {
   LIST_PRESETS,
   importListDefinition,
   exportListDefinition,
+  createListDataProvider,
 } from '@/lib/lists';
-import type { ListDefinition, ListResult } from '@/lib/lists';
+import type { ListDefinition, ListResult, ListDataProvider } from '@/lib/lists';
 import { ListBuilder } from './ListBuilder';
 import { ListResultsTable } from './ListResultsTable';
-import type { IfcDataStore } from '@ifc-lite/parser';
 
 interface ListPanelProps {
   onClose?: () => void;
@@ -68,20 +68,34 @@ export function ListPanel({ onClose }: ListPanelProps) {
 
   const importInputRef = React.useRef<HTMLInputElement>(null);
 
-  // Collect all available data stores for multi-model support
-  const allStores = useMemo(() => {
-    const stores: IfcDataStore[] = [];
+  // Collect all available data providers for multi-model support
+  const allProviders = useMemo(() => {
+    const providers: ListDataProvider[] = [];
     if (models.size > 0) {
       for (const [, model] of models) {
-        stores.push(model.ifcDataStore);
+        providers.push(createListDataProvider(model.ifcDataStore));
       }
     } else if (ifcDataStore) {
-      stores.push(ifcDataStore);
+      providers.push(createListDataProvider(ifcDataStore));
     }
-    return stores;
+    return providers;
   }, [models, ifcDataStore]);
 
-  const hasData = allStores.length > 0;
+  const hasData = allProviders.length > 0;
+
+  // Build a stable map of modelId → provider index for execution
+  const modelProviderPairs = useMemo(() => {
+    const pairs: Array<{ modelId: string; provider: ListDataProvider }> = [];
+    if (models.size > 0) {
+      let i = 0;
+      for (const [modelId] of models) {
+        pairs.push({ modelId, provider: allProviders[i++] });
+      }
+    } else if (allProviders.length > 0) {
+      pairs.push({ modelId: 'default', provider: allProviders[0] });
+    }
+    return pairs;
+  }, [models, allProviders]);
 
   const handleExecuteList = useCallback((definition: ListDefinition) => {
     if (!hasData) return;
@@ -96,14 +110,8 @@ export function ListPanel({ onClose }: ListPanelProps) {
         const allRows: ListResult['rows'] = [];
         let totalTime = 0;
 
-        if (models.size > 0) {
-          for (const [modelId, model] of models) {
-            const result = executeList(definition, model.ifcDataStore, modelId);
-            allRows.push(...result.rows);
-            totalTime += result.executionTime;
-          }
-        } else if (ifcDataStore) {
-          const result = executeList(definition, ifcDataStore, 'default');
+        for (const { modelId, provider } of modelProviderPairs) {
+          const result = executeList(definition, provider, modelId);
           allRows.push(...result.rows);
           totalTime += result.executionTime;
         }
@@ -121,7 +129,7 @@ export function ListPanel({ onClose }: ListPanelProps) {
         setListExecuting(false);
       }
     });
-  }, [hasData, models, ifcDataStore, setActiveListId, setListResult, setListExecuting]);
+  }, [hasData, modelProviderPairs, setActiveListId, setListResult, setListExecuting]);
 
   const handleCreateNew = useCallback(() => {
     setEditingList(null);
@@ -271,7 +279,7 @@ export function ListPanel({ onClose }: ListPanelProps) {
 
       {view === 'builder' && hasData && (
         <ListBuilder
-          stores={allStores}
+          providers={allProviders}
           initial={editingList}
           onSave={handleSaveList}
           onCancel={() => setView('library')}

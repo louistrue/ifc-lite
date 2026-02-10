@@ -15,7 +15,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowUp, ArrowDown, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useViewerStore } from '@/store';
-import type { ListResult, ListRow, CellValue } from '@/lib/lists/types';
+import type { ListResult, ListRow, CellValue } from '@ifc-lite/lists';
 import { cn } from '@/lib/utils';
 
 interface ListResultsTableProps {

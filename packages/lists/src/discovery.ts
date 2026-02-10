@@ -6,42 +6,38 @@
  * Column discovery - discovers available properties and quantities from model data.
  *
  * PERF: Samples a subset of entities per type to avoid scanning 100K+ entities.
- * Uses PropertyTable/QuantityTable indices when available for O(1) lookups,
- * falls back to on-demand extraction for WASM-parsed models.
  */
 
-import type { IfcDataStore } from '@ifc-lite/parser';
-import { extractPropertiesOnDemand, extractQuantitiesOnDemand } from '@ifc-lite/parser';
-import type { IfcTypeEnum, PropertySet, QuantitySet } from '@ifc-lite/data';
-import type { DiscoveredColumns } from './types.js';
+import type { IfcTypeEnum } from '@ifc-lite/data';
+import type { ListDataProvider, DiscoveredColumns } from './types.js';
 import { ENTITY_ATTRIBUTES } from './types.js';
 
-/** Max entities to sample per type per store for column discovery */
+/** Max entities to sample per type per provider for column discovery */
 const SAMPLE_SIZE = 50;
 
 /**
- * Discover available columns for a set of entity types across one or more stores.
+ * Discover available columns for a set of entity types across one or more data providers.
  * Samples entities to find all property sets and quantity sets available.
  */
 export function discoverColumns(
-  stores: IfcDataStore | IfcDataStore[],
+  providers: ListDataProvider | ListDataProvider[],
   entityTypes: IfcTypeEnum[],
 ): DiscoveredColumns {
-  const storeList = Array.isArray(stores) ? stores : [stores];
+  const providerList = Array.isArray(providers) ? providers : [providers];
   const properties = new Map<string, Set<string>>();
   const quantities = new Map<string, Set<string>>();
 
-  for (const store of storeList) {
+  for (const provider of providerList) {
     for (const type of entityTypes) {
-      const ids = store.entities.getByType(type);
-      // Sample up to SAMPLE_SIZE entities per type per store
+      const ids = provider.getEntitiesByType(type);
+      // Sample up to SAMPLE_SIZE entities per type per provider
       const sampleCount = Math.min(ids.length, SAMPLE_SIZE);
 
       for (let i = 0; i < sampleCount; i++) {
         const entityId = ids[i];
 
         // Discover properties
-        const psets = getPropertySetsForDiscovery(store, entityId);
+        const psets = provider.getPropertySets(entityId);
         for (const pset of psets) {
           if (!pset.name) continue;
           let propNames = properties.get(pset.name);
@@ -55,7 +51,7 @@ export function discoverColumns(
         }
 
         // Discover quantities
-        const qsets = getQuantitySetsForDiscovery(store, entityId);
+        const qsets = provider.getQuantitySets(entityId);
         for (const qset of qsets) {
           if (!qset.name) continue;
           let quantNames = quantities.get(qset.name);
@@ -87,18 +83,4 @@ export function discoverColumns(
     properties: propertiesResult,
     quantities: quantitiesResult,
   };
-}
-
-function getPropertySetsForDiscovery(store: IfcDataStore, entityId: number): PropertySet[] {
-  if (store.onDemandPropertyMap && store.source?.length > 0) {
-    return extractPropertiesOnDemand(store, entityId) as PropertySet[];
-  }
-  return store.properties?.getForEntity(entityId) ?? [];
-}
-
-function getQuantitySetsForDiscovery(store: IfcDataStore, entityId: number): QuantitySet[] {
-  if (store.onDemandQuantityMap && store.source?.length > 0) {
-    return extractQuantitiesOnDemand(store, entityId) as QuantitySet[];
-  }
-  return store.quantities?.getForEntity(entityId) ?? [];
 }

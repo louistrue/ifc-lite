@@ -5,15 +5,14 @@
 /**
  * List execution engine - resolves source sets and extracts column values
  *
- * PERF: Uses EntityTable.getByType() for O(typeRange) entity lookups,
- * and PropertyTable indices for O(1) property lookups per entity.
+ * PERF: Uses ListDataProvider.getEntitiesByType() for O(typeRange) entity lookups,
+ * and property/quantity accessors for O(1) lookups per entity.
  */
 
-import type { IfcDataStore } from '@ifc-lite/parser';
-import { extractPropertiesOnDemand, extractQuantitiesOnDemand } from '@ifc-lite/parser';
 import type { PropertySet, QuantitySet } from '@ifc-lite/data';
-import { parsePropertyValue } from '@/components/viewer/properties/encodingUtils';
+import { parsePropertyValue } from '@ifc-lite/encoding';
 import type {
+  ListDataProvider,
   ListDefinition,
   ListResult,
   ListRow,
@@ -23,25 +22,25 @@ import type {
 } from './types.js';
 
 /**
- * Execute a list definition against a data store.
+ * Execute a list definition against a data provider.
  * Returns a flat table result with matched entities and column values.
  */
 export function executeList(
   definition: ListDefinition,
-  store: IfcDataStore,
-  modelId: string,
+  provider: ListDataProvider,
+  modelId = 'default',
 ): ListResult {
   const startTime = performance.now();
 
   // Step 1: Resolve source set (which entities match)
-  const matchedIds = resolveSourceSet(definition, store);
+  const matchedIds = resolveSourceSet(definition, provider);
 
   // Step 2: Extract column values for matched entities
   const rows: ListRow[] = new Array(matchedIds.length);
 
   for (let i = 0; i < matchedIds.length; i++) {
     const entityId = matchedIds[i];
-    const values = extractColumnValues(definition.columns, entityId, store);
+    const values = extractColumnValues(definition.columns, entityId, provider);
     rows[i] = { entityId, modelId, values };
   }
 
@@ -66,13 +65,13 @@ export function executeList(
 // Source Set Resolution
 // ============================================================================
 
-function resolveSourceSet(definition: ListDefinition, store: IfcDataStore): number[] {
+function resolveSourceSet(definition: ListDefinition, provider: ListDataProvider): number[] {
   const { entityTypes, conditions } = definition;
 
   // Collect entity IDs by type
   let entityIds: number[] = [];
   for (const type of entityTypes) {
-    const ids = store.entities.getByType(type);
+    const ids = provider.getEntitiesByType(type);
     entityIds = entityIds.concat(ids);
   }
 
@@ -81,16 +80,16 @@ function resolveSourceSet(definition: ListDefinition, store: IfcDataStore): numb
     return entityIds;
   }
 
-  return entityIds.filter(id => matchesAllConditions(id, conditions, store));
+  return entityIds.filter(id => matchesAllConditions(id, conditions, provider));
 }
 
 function matchesAllConditions(
   entityId: number,
   conditions: PropertyCondition[],
-  store: IfcDataStore,
+  provider: ListDataProvider,
 ): boolean {
   for (const condition of conditions) {
-    if (!matchesCondition(entityId, condition, store)) {
+    if (!matchesCondition(entityId, condition, provider)) {
       return false;
     }
   }
@@ -100,9 +99,9 @@ function matchesAllConditions(
 function matchesCondition(
   entityId: number,
   condition: PropertyCondition,
-  store: IfcDataStore,
+  provider: ListDataProvider,
 ): boolean {
-  const actualValue = getConditionValue(entityId, condition, store);
+  const actualValue = getConditionValue(entityId, condition, provider);
 
   if (condition.operator === 'exists') {
     return actualValue !== null && actualValue !== undefined && actualValue !== '';
@@ -135,15 +134,15 @@ function matchesCondition(
 function getConditionValue(
   entityId: number,
   condition: PropertyCondition,
-  store: IfcDataStore,
+  provider: ListDataProvider,
 ): CellValue {
   switch (condition.source) {
     case 'attribute':
-      return getAttributeValue(entityId, condition.propertyName, store);
+      return getAttributeValue(entityId, condition.propertyName, provider);
     case 'property':
-      return getPropertyValue(entityId, condition.psetName ?? '', condition.propertyName, store);
+      return getPropertyValue(entityId, condition.psetName ?? '', condition.propertyName, provider);
     case 'quantity':
-      return getQuantityValue(entityId, condition.psetName ?? '', condition.propertyName, store);
+      return getQuantityValue(entityId, condition.psetName ?? '', condition.propertyName, provider);
     default:
       return null;
   }
@@ -156,10 +155,9 @@ function getConditionValue(
 function extractColumnValues(
   columns: ColumnDefinition[],
   entityId: number,
-  store: IfcDataStore,
+  provider: ListDataProvider,
 ): CellValue[] {
   // For efficiency, batch extract properties and quantities once per entity
-  // if any columns need them
   const needsProperties = columns.some(c => c.source === 'property');
   const needsQuantities = columns.some(c => c.source === 'quantity');
 
@@ -167,10 +165,10 @@ function extractColumnValues(
   let qsets: QuantitySet[] | undefined;
 
   if (needsProperties) {
-    psets = getPropertySets(entityId, store);
+    psets = provider.getPropertySets(entityId);
   }
   if (needsQuantities) {
-    qsets = getQuantitySets(entityId, store);
+    qsets = provider.getQuantitySets(entityId);
   }
 
   const values: CellValue[] = new Array(columns.length);
@@ -178,7 +176,7 @@ function extractColumnValues(
     const col = columns[i];
     switch (col.source) {
       case 'attribute':
-        values[i] = getAttributeValue(entityId, col.propertyName, store);
+        values[i] = getAttributeValue(entityId, col.propertyName, provider);
         break;
       case 'property':
         values[i] = findPropertyInSets(psets ?? [], col.psetName ?? '', col.propertyName);
@@ -197,44 +195,30 @@ function extractColumnValues(
 // Value Accessors
 // ============================================================================
 
-function getAttributeValue(entityId: number, attrName: string, store: IfcDataStore): CellValue {
+function getAttributeValue(entityId: number, attrName: string, provider: ListDataProvider): CellValue {
   switch (attrName) {
     case 'Name':
-      return store.entities.getName(entityId) || null;
+      return provider.getEntityName(entityId) || null;
     case 'GlobalId':
-      return store.entities.getGlobalId(entityId) || null;
+      return provider.getEntityGlobalId(entityId) || null;
     case 'Type':
-      return store.entities.getTypeName(entityId) || null;
+      return provider.getEntityTypeName(entityId) || null;
     case 'Description':
-      return store.entities.getDescription(entityId) || null;
+      return provider.getEntityDescription(entityId) || null;
     case 'ObjectType':
-      return store.entities.getObjectType(entityId) || null;
+      return provider.getEntityObjectType(entityId) || null;
     default:
       return null;
   }
-}
-
-function getPropertySets(entityId: number, store: IfcDataStore): PropertySet[] {
-  if (store.onDemandPropertyMap && store.source?.length > 0) {
-    return extractPropertiesOnDemand(store, entityId) as PropertySet[];
-  }
-  return store.properties?.getForEntity(entityId) ?? [];
-}
-
-function getQuantitySets(entityId: number, store: IfcDataStore): QuantitySet[] {
-  if (store.onDemandQuantityMap && store.source?.length > 0) {
-    return extractQuantitiesOnDemand(store, entityId) as QuantitySet[];
-  }
-  return store.quantities?.getForEntity(entityId) ?? [];
 }
 
 function getPropertyValue(
   entityId: number,
   psetName: string,
   propName: string,
-  store: IfcDataStore,
+  provider: ListDataProvider,
 ): CellValue {
-  const psets = getPropertySets(entityId, store);
+  const psets = provider.getPropertySets(entityId);
   return findPropertyInSets(psets, psetName, propName);
 }
 
@@ -242,9 +226,9 @@ function getQuantityValue(
   entityId: number,
   qsetName: string,
   quantName: string,
-  store: IfcDataStore,
+  provider: ListDataProvider,
 ): CellValue {
-  const qsets = getQuantitySets(entityId, store);
+  const qsets = provider.getQuantitySets(entityId);
   return findQuantityInSets(qsets, qsetName, quantName);
 }
 
@@ -264,12 +248,11 @@ function findPropertyInSets(psets: PropertySet[], psetName: string, propName: st
 /**
  * Resolve a raw IFC property value to a clean display value.
  * Handles typed arrays [IFCTYPE, value], boolean enums (.T./.F./.U.),
- * IFC string encodings, etc. — same logic as PropertiesPanel.
+ * IFC string encodings, etc.
  */
 function resolvePropertyValue(value: unknown): CellValue {
   if (value === null || value === undefined) return null;
 
-  // Use the same parsing as PropertiesPanel
   const parsed = parsePropertyValue(value);
   const display = parsed.displayValue;
 

@@ -2,8 +2,27 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-export * from './types.js';
-export { executeList, listResultToCSV } from './list-engine.js';
-export { discoverColumns } from './column-discovery.js';
+// Re-export from the @ifc-lite/lists package for convenient viewer imports
+export type {
+  ListDataProvider,
+  ListDefinition,
+  ListResult,
+  ListRow,
+  CellValue,
+  ColumnDefinition,
+  PropertyCondition,
+  ConditionOperator,
+  DiscoveredColumns,
+  EntityAttribute,
+} from '@ifc-lite/lists';
+export {
+  ENTITY_ATTRIBUTES,
+  executeList,
+  listResultToCSV,
+  discoverColumns,
+  LIST_PRESETS,
+} from '@ifc-lite/lists';
+
+// Viewer-specific: persistence (browser APIs) and adapter
 export { loadListDefinitions, saveListDefinitions, exportListDefinition, importListDefinition } from './persistence.js';
-export { LIST_PRESETS } from './presets.js';
+export { createListDataProvider } from './adapter.js';

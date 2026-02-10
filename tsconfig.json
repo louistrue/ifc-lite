@@ -65,11 +65,23 @@
       "@ifc-lite/drawing-2d/*": [
         "packages/drawing-2d/dist/*"
       ],
+      "@ifc-lite/encoding": [
+        "packages/encoding/dist/index.d.ts"
+      ],
+      "@ifc-lite/encoding/*": [
+        "packages/encoding/dist/*"
+      ],
       "@ifc-lite/ids": [
         "packages/ids/dist/index.d.ts"
       ],
       "@ifc-lite/ids/*": [
         "packages/ids/dist/*"
+      ],
+      "@ifc-lite/lists": [
+        "packages/lists/dist/index.d.ts"
+      ],
+      "@ifc-lite/lists/*": [
+        "packages/lists/dist/*"
       ]
     }
   },

@@ -6,7 +6,52 @@
  * Types for the Lists feature - configurable property tables from IFC data
  */
 
-import type { IfcTypeEnum } from '@ifc-lite/data';
+import type { IfcTypeEnum, PropertySet, QuantitySet } from '@ifc-lite/data';
+
+// ============================================================================
+// Data Provider Interface
+// ============================================================================
+
+/**
+ * Abstract interface for accessing IFC data during list execution.
+ *
+ * Consumers implement this to bridge their data source (e.g., IfcDataStore,
+ * server model, or custom store) to the list engine.
+ *
+ * @example
+ * ```typescript
+ * const provider: ListDataProvider = {
+ *   getEntitiesByType: (type) => myStore.entities.getByType(type),
+ *   getEntityName: (id) => myStore.entities.getName(id),
+ *   getEntityGlobalId: (id) => myStore.entities.getGlobalId(id),
+ *   getEntityDescription: (id) => myStore.entities.getDescription(id),
+ *   getEntityObjectType: (id) => myStore.entities.getObjectType(id),
+ *   getEntityTypeName: (id) => myStore.entities.getTypeName(id),
+ *   getPropertySets: (id) => myStore.properties.getForEntity(id),
+ *   getQuantitySets: (id) => myStore.quantities.getForEntity(id),
+ * };
+ * ```
+ */
+export interface ListDataProvider {
+  /** Get all entity IDs matching the given IFC type */
+  getEntitiesByType(type: IfcTypeEnum): number[];
+
+  /** Get entity name (IfcRoot.Name) by express ID */
+  getEntityName(expressId: number): string;
+  /** Get entity GlobalId by express ID */
+  getEntityGlobalId(expressId: number): string;
+  /** Get entity description by express ID */
+  getEntityDescription(expressId: number): string;
+  /** Get entity object type / predefined type by express ID */
+  getEntityObjectType(expressId: number): string;
+  /** Get IFC type name (e.g., "IfcWall") by express ID */
+  getEntityTypeName(expressId: number): string;
+
+  /** Get all property sets for an entity (handles on-demand extraction) */
+  getPropertySets(expressId: number): PropertySet[];
+  /** Get all quantity sets for an entity (handles on-demand extraction) */
+  getQuantitySets(expressId: number): QuantitySet[];
+}
 
 // ============================================================================
 // List Definition (persisted config)
