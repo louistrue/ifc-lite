@@ -191,10 +191,11 @@ function MaterialRow({ label, value }: { label: string; value: string }) {
 }
 
 function formatThickness(thickness: number): string {
+  if (thickness <= 0) return `${thickness.toFixed(1)} m`;
   if (thickness >= 1) {
-    return `${thickness.toLocaleString(undefined, { maximumFractionDigits: 1 })} m`;
+    return `${thickness.toFixed(1)} m`;
   }
   // Show in mm for sub-meter thicknesses
   const mm = thickness * 1000;
-  return `${mm.toLocaleString(undefined, { maximumFractionDigits: 1 })} mm`;
+  return `${mm.toFixed(1)} mm`;
 }

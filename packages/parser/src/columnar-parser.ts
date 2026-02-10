@@ -357,6 +357,8 @@ export class ColumnarParser {
                             }
                         }
                     } else if (typeUpper === 'IFCRELASSOCIATESMATERIAL') {
+                        // IFC allows multiple IfcRelAssociatesMaterial per element but typically
+                        // only one is valid. Last-write-wins: later relationships override earlier ones.
                         for (const objId of relatedObjects) {
                             if (typeof objId === 'number') {
                                 onDemandMaterialMap.set(objId, relatingRef);
@@ -755,16 +757,43 @@ export interface MaterialConstituentInfo {
 /**
  * Extract classifications for a single entity ON-DEMAND.
  * Uses the onDemandClassificationMap built during parsing.
+ * Falls back to relationship graph when on-demand map is not available (e.g., server-loaded models).
+ * Also checks type-level associations via IfcRelDefinesByType.
  * Returns an array of classification references with system info.
  */
 export function extractClassificationsOnDemand(
     store: IfcDataStore,
     entityId: number
 ): ClassificationInfo[] {
-    if (!store.onDemandClassificationMap) return [];
+    let classRefIds: number[] | undefined;
 
-    const classRefIds = store.onDemandClassificationMap.get(entityId);
+    if (store.onDemandClassificationMap) {
+        classRefIds = store.onDemandClassificationMap.get(entityId);
+    } else if (store.relationships) {
+        // Fallback: use relationship graph (server-loaded models)
+        const related = store.relationships.getRelated(entityId, RelationshipType.AssociatesClassification, 'inverse');
+        if (related.length > 0) classRefIds = related;
+    }
+
+    // Also check type-level classifications via IfcRelDefinesByType
+    if (store.relationships) {
+        const typeIds = store.relationships.getRelated(entityId, RelationshipType.DefinesByType, 'inverse');
+        for (const typeId of typeIds) {
+            let typeClassRefs: number[] | undefined;
+            if (store.onDemandClassificationMap) {
+                typeClassRefs = store.onDemandClassificationMap.get(typeId);
+            } else {
+                const related = store.relationships.getRelated(typeId, RelationshipType.AssociatesClassification, 'inverse');
+                if (related.length > 0) typeClassRefs = related;
+            }
+            if (typeClassRefs && typeClassRefs.length > 0) {
+                classRefIds = classRefIds ? [...classRefIds, ...typeClassRefs] : [...typeClassRefs];
+            }
+        }
+    }
+
     if (!classRefIds || classRefIds.length === 0) return [];
+    if (!store.source?.length) return [];
 
     const extractor = new EntityExtractor(store.source);
     const results: ClassificationInfo[] = [];
@@ -859,29 +888,58 @@ function walkClassificationChain(
 /**
  * Extract materials for a single entity ON-DEMAND.
  * Uses the onDemandMaterialMap built during parsing.
+ * Falls back to relationship graph when on-demand map is not available (e.g., server-loaded models).
+ * Also checks type-level material assignments via IfcRelDefinesByType.
  * Resolves the full material structure (layers, profiles, constituents, lists).
  */
 export function extractMaterialsOnDemand(
     store: IfcDataStore,
     entityId: number
 ): MaterialInfo | null {
-    if (!store.onDemandMaterialMap) return null;
+    let materialId: number | undefined;
 
-    const materialId = store.onDemandMaterialMap.get(entityId);
+    if (store.onDemandMaterialMap) {
+        materialId = store.onDemandMaterialMap.get(entityId);
+    } else if (store.relationships) {
+        // Fallback: use relationship graph (server-loaded models)
+        const related = store.relationships.getRelated(entityId, RelationshipType.AssociatesMaterial, 'inverse');
+        if (related.length > 0) materialId = related[0];
+    }
+
+    // Check type-level material if occurrence has none
+    if (materialId === undefined && store.relationships) {
+        const typeIds = store.relationships.getRelated(entityId, RelationshipType.DefinesByType, 'inverse');
+        for (const typeId of typeIds) {
+            if (store.onDemandMaterialMap) {
+                materialId = store.onDemandMaterialMap.get(typeId);
+            } else {
+                const related = store.relationships.getRelated(typeId, RelationshipType.AssociatesMaterial, 'inverse');
+                if (related.length > 0) materialId = related[0];
+            }
+            if (materialId !== undefined) break;
+        }
+    }
+
     if (materialId === undefined) return null;
+    if (!store.source?.length) return null;
 
     const extractor = new EntityExtractor(store.source);
-    return resolveMaterial(store, extractor, materialId);
+    return resolveMaterial(store, extractor, materialId, new Set());
 }
 
 /**
  * Resolve a material entity by ID, handling all IFC material types.
+ * Uses visited set to prevent infinite recursion on cyclic *Usage references.
  */
 function resolveMaterial(
     store: IfcDataStore,
     extractor: EntityExtractor,
-    materialId: number
+    materialId: number,
+    visited: Set<number> = new Set()
 ): MaterialInfo | null {
+    if (visited.has(materialId)) return null;
+    visited.add(materialId);
+
     const ref = store.entityIndex.byId.get(materialId);
     if (!ref) return null;
 
@@ -1049,7 +1107,7 @@ function resolveMaterial(
             // IfcMaterialLayerSetUsage: [ForLayerSet, LayerSetDirection, DirectionSense, OffsetFromReferenceLine, ...]
             const layerSetId = typeof attrs[0] === 'number' ? attrs[0] : undefined;
             if (layerSetId) {
-                return resolveMaterial(store, extractor, layerSetId);
+                return resolveMaterial(store, extractor, layerSetId, visited);
             }
             return null;
         }
@@ -1058,7 +1116,7 @@ function resolveMaterial(
             // IfcMaterialProfileSetUsage: [ForProfileSet, ...]
             const profileSetId = typeof attrs[0] === 'number' ? attrs[0] : undefined;
             if (profileSetId) {
-                return resolveMaterial(store, extractor, profileSetId);
+                return resolveMaterial(store, extractor, profileSetId, visited);
             }
             return null;
         }

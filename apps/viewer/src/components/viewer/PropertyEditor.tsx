@@ -642,7 +642,10 @@ export function AddClassificationDialog({ modelId, entityId, entityType }: AddCl
   }, [modelId, entityId, effectiveSystem, identification, name, createPropertySet, bumpMutationVersion]);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(o) => {
+      setOpen(o);
+      if (!o) { setSystem(''); setCustomSystem(''); setIdentification(''); setName(''); }
+    }}>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="h-7">
           <Tag className="h-3 w-3 mr-1" />
@@ -780,24 +783,14 @@ export function AddMaterialDialog({ modelId, entityId, entityType }: AddMaterial
     setOpen(false);
   }, [modelId, entityId, materialName, category, description, createPropertySet, bumpMutationVersion]);
 
-  // Common material categories
-  const materialCategories = useMemo(() => [
-    'Concrete',
-    'Steel',
-    'Wood',
-    'Masonry',
-    'Glass',
-    'Aluminium',
-    'Insulation',
-    'Gypsum',
-    'Stone',
-    'Ceramic',
-    'Plastic',
-    'Composite',
-  ], []);
+  // Common material categories (module-level constant used below)
+  const materialCategories = MATERIAL_CATEGORIES;
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(o) => {
+      setOpen(o);
+      if (!o) { setMaterialName(''); setCategory(''); setDescription(''); }
+    }}>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="h-7">
           <Layers className="h-3 w-3 mr-1" />
@@ -863,6 +856,12 @@ export function AddMaterialDialog({ modelId, entityId, entityType }: AddMaterial
     </Dialog>
   );
 }
+
+// Common material categories - static, hoisted to module scope
+const MATERIAL_CATEGORIES = [
+  'Concrete', 'Steel', 'Wood', 'Masonry', 'Glass', 'Aluminium',
+  'Insulation', 'Gypsum', 'Stone', 'Ceramic', 'Plastic', 'Composite',
+] as const;
 
 // ============================================================================
 // Edit Toolbar (combines all add actions)
@@ -1017,11 +1016,12 @@ function formatDisplayValue(value: unknown): string {
   }
   if (Array.isArray(raw)) return JSON.stringify(raw);
 
-  // Handle boolean strings
+  // Handle boolean strings (STEP enum format)
   const strVal = String(raw);
-  if (strVal === '.T.' || strVal.toUpperCase() === '.T.') return 'True';
-  if (strVal === '.F.' || strVal.toUpperCase() === '.F.') return 'False';
-  if (strVal === '.U.' || strVal.toUpperCase() === '.U.') return 'Unknown';
+  const upper = strVal.toUpperCase();
+  if (upper === '.T.') return 'True';
+  if (upper === '.F.') return 'False';
+  if (upper === '.U.') return 'Unknown';
   return strVal;
 }
 

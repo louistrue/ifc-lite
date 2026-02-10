@@ -541,6 +541,14 @@ export const CLASSIFICATION_SYSTEMS: ClassificationSystemDef[] = [
 // Lookup Functions
 // ============================================================================
 
+// Pre-computed uppercase -> PascalCase lookup map for all known types
+const KNOWN_TYPE_MAP = new Map<string, string>();
+for (const pset of PSET_DEFINITIONS) {
+  for (const t of pset.applicableTypes) {
+    KNOWN_TYPE_MAP.set(t.toUpperCase(), t);
+  }
+}
+
 /**
  * Normalize entity type name for lookup (handles IFCWALL -> IfcWall, etc.)
  */
@@ -549,22 +557,14 @@ function normalizeTypeName(type: string): string {
   const upper = type.toUpperCase();
   if (!upper.startsWith('IFC')) return type;
 
-  // Build a lookup map from known types in our definitions
-  const knownTypes = new Set<string>();
-  for (const pset of PSET_DEFINITIONS) {
-    for (const t of pset.applicableTypes) {
-      knownTypes.add(t);
-    }
-  }
+  // O(1) lookup from pre-computed map
+  const known = KNOWN_TYPE_MAP.get(upper);
+  if (known) return known;
 
-  // Try exact match first
-  for (const known of knownTypes) {
-    if (known.toUpperCase() === upper) return known;
-  }
-
-  // Fallback: simple conversion
-  const rest = type.slice(3);
-  return 'Ifc' + rest.charAt(0).toUpperCase() + rest.slice(1).toLowerCase();
+  // Fallback: convert IFCWALLSTANDARDCASE -> IfcWallstandardcase
+  // Preserves Ifc prefix with capitalized first letter after it
+  const rest = type.slice(3).toLowerCase();
+  return 'Ifc' + rest.charAt(0).toUpperCase() + rest.slice(1);
 }
 
 /**
