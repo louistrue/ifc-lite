@@ -68,12 +68,13 @@ export function executeList(
 function resolveSourceSet(definition: ListDefinition, provider: ListDataProvider): number[] {
   const { entityTypes, conditions } = definition;
 
-  // Collect entity IDs by type
-  let entityIds: number[] = [];
+  // Collect entity IDs by type - gather arrays first, then flatten once
+  const chunks: number[][] = [];
   for (const type of entityTypes) {
     const ids = provider.getEntitiesByType(type);
-    entityIds = entityIds.concat(ids);
+    if (ids.length > 0) chunks.push(ids);
   }
+  const entityIds = chunks.length === 1 ? chunks[0] : chunks.flat();
 
   // Apply conditions as filters
   if (conditions.length === 0) {
@@ -287,12 +288,10 @@ function findQuantityInSets(qsets: QuantitySet[], qsetName: string, quantName: s
   return null;
 }
 
-function formatQuantityValue(value: number, type: number): CellValue {
-  const formatted = Number.isInteger(value)
-    ? value.toLocaleString()
-    : value.toLocaleString(undefined, { maximumFractionDigits: 3 });
-  const unit = QUANTITY_UNITS[type];
-  return unit ? `${formatted} ${unit}` : formatted;
+function formatQuantityValue(value: number, _type: number): CellValue {
+  // Return raw number to preserve numeric sorting.
+  // Display formatting (locale, units) is handled by the UI layer.
+  return value;
 }
 
 // ============================================================================
@@ -316,7 +315,7 @@ function compareCellValues(a: CellValue, b: CellValue): number {
 // ============================================================================
 
 export function listResultToCSV(result: ListResult, delimiter = ','): string {
-  const escape = (val: CellValue): string => {
+  const csvEscape = (val: CellValue): string => {
     if (val === null || val === undefined) return '';
     const str = String(val);
     if (str.includes(delimiter) || str.includes('"') || str.includes('\n')) {
@@ -325,11 +324,11 @@ export function listResultToCSV(result: ListResult, delimiter = ','): string {
     return str;
   };
 
-  const headers = result.columns.map(c => escape(c.label ?? `${c.psetName ? c.psetName + '.' : ''}${c.propertyName}`));
+  const headers = result.columns.map(c => csvEscape(c.label ?? `${c.psetName ? c.psetName + '.' : ''}${c.propertyName}`));
   const lines = [headers.join(delimiter)];
 
   for (const row of result.rows) {
-    lines.push(row.values.map(escape).join(delimiter));
+    lines.push(row.values.map(csvEscape).join(delimiter));
   }
 
   return lines.join('\n');

@@ -147,8 +147,8 @@ describe('executeList', () => {
 
     const result = executeList(def, provider);
     expect(result.totalCount).toBe(2);
-    // Length = 5.0, type 0 (Length) → "5 m"
-    expect(result.rows[0].values[1]).toContain('m');
+    // Length = 5.0, returned as raw number for sortability
+    expect(result.rows[0].values[1]).toBe(5.0);
   });
 
   it('filters by conditions', () => {

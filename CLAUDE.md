@@ -13,6 +13,7 @@ ifc-lite is a high-performance IFC (Industry Foundation Classes) platform for BI
 - Section planes and measurements
 - BCF collaboration (topics, viewpoints, comments)
 - IDS validation (Information Delivery Specification checking)
+- Configurable property lists (BIMcollab-style entity tables with column discovery)
 - 2D architectural drawings (section cuts, floor plans, elevations)
 - Property editing with undo/redo and change tracking
 
@@ -87,12 +88,12 @@ function isIfcxDataStore(store: unknown): store is IfcxDataStore {
 - `apps/viewer/` - React frontend application
 - `apps/server/` - Rust HTTP server (Axum)
 - `apps/desktop/` - Tauri desktop application
-- `packages/` - 18 TypeScript packages (parser, renderer, geometry, bcf, ids, mutations, drawing-2d, etc.)
+- `packages/` - 20 TypeScript packages (parser, renderer, geometry, bcf, ids, mutations, drawing-2d, encoding, lists, etc.)
 - `rust/` - 3 Rust crates (core, geometry, wasm-bindings)
 - Tests co-located with source files (`*.test.ts`)
 
 **Key Patterns:**
-- Zustand for state management (14 slices: selection, visibility, model, bcf, ids, mutation, drawing2D, sheet, section, measurement, camera, data, loading, hover, ui)
+- Zustand for state management (15 slices: selection, visibility, model, bcf, ids, list, mutation, drawing2D, sheet, section, measurement, camera, data, loading, hover, ui)
 - React hooks for business logic (`useIfc`, `useViewerSelectors`)
 - WebGPU for 3D rendering
 - Virtualized lists for large datasets

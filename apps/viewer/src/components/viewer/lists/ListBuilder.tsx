@@ -148,6 +148,8 @@ export function ListBuilder({ providers, initial, onSave, onCancel, onExecute }:
     onExecute(def);
   }, [buildDefinition, onExecute]);
 
+  const selectedColumnIds = useMemo(() => new Set(columns.map(c => c.id)), [columns]);
+
   const totalSelectedEntities = useMemo(() => {
     let count = 0;
     for (const type of selectedTypes) {
@@ -274,7 +276,7 @@ export function ListBuilder({ providers, initial, onSave, onCancel, onExecute }:
                     {/* Available columns */}
                     <ColumnPicker
                       discovered={discovered}
-                      selectedIds={new Set(columns.map(c => c.id))}
+                      selectedIds={selectedColumnIds}
                       onAdd={addColumn}
                     />
                   </div>

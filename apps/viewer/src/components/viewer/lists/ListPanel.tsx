@@ -107,14 +107,13 @@ export function ListPanel({ onClose }: ListPanelProps) {
     // Use requestAnimationFrame to avoid blocking UI during execution
     requestAnimationFrame(() => {
       try {
-        const allRows: ListResult['rows'] = [];
-        let totalTime = 0;
-
+        const resultParts: ListResult[] = [];
         for (const { modelId, provider } of modelProviderPairs) {
-          const result = executeList(definition, provider, modelId);
-          allRows.push(...result.rows);
-          totalTime += result.executionTime;
+          resultParts.push(executeList(definition, provider, modelId));
         }
+
+        const allRows = resultParts.flatMap(r => r.rows);
+        const totalTime = resultParts.reduce((sum, r) => sum + r.executionTime, 0);
 
         setListResult({
           columns: definition.columns,
@@ -182,7 +181,7 @@ export function ListPanel({ onClose }: ListPanelProps) {
     a.href = url;
     a.download = 'list-export.csv';
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, [listResult]);
 
   const handleImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {

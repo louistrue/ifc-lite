@@ -47,6 +47,12 @@ export function ViewerLayout() {
   const [bottomHeight, setBottomHeight] = useState(BOTTOM_PANEL_DEFAULT_HEIGHT);
   const containerRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef(false);
+  const cleanupRef = useRef<(() => void) | null>(null);
+
+  // Cleanup drag listeners on unmount
+  useEffect(() => {
+    return () => { cleanupRef.current?.(); };
+  }, []);
 
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -69,18 +75,22 @@ export function ViewerLayout() {
       setBottomHeight(newHeight);
     };
 
-    const onMouseUp = () => {
+    const cleanup = () => {
       isDraggingRef.current = false;
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      cleanupRef.current = null;
     };
+
+    const onMouseUp = () => { cleanup(); };
 
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
     document.body.style.cursor = 'row-resize';
     document.body.style.userSelect = 'none';
+    cleanupRef.current = cleanup;
   }, [bottomHeight]);
 
   // Detect mobile viewport
