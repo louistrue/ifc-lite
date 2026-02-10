@@ -61,6 +61,19 @@ export interface IfcDataStore {
      * Use extractQuantitiesOnDemand() with this map for instant quantity retrieval.
      */
     onDemandQuantityMap?: Map<number, number[]>;
+
+    /**
+     * On-demand classification lookup: entityId -> array of IfcClassificationReference expressIds
+     * Built from IfcRelAssociatesClassification relationships during parsing.
+     */
+    onDemandClassificationMap?: Map<number, number[]>;
+
+    /**
+     * On-demand material lookup: entityId -> relatingMaterial expressId
+     * Built from IfcRelAssociatesMaterial relationships during parsing.
+     * Value is the expressId of IfcMaterial, IfcMaterialLayerSet, IfcMaterialProfileSet, or IfcMaterialConstituentSet.
+     */
+    onDemandMaterialMap?: Map<number, number>;
 }
 
 // Pre-computed type sets for O(1) lookups
@@ -130,6 +143,11 @@ const PROPERTY_REL_TYPES = new Set([
     'IFCRELDEFINESBYPROPERTIES',
 ]);
 
+// Relationship types for on-demand classification/material loading
+const ASSOCIATION_REL_TYPES = new Set([
+    'IFCRELASSOCIATESCLASSIFICATION', 'IFCRELASSOCIATESMATERIAL',
+]);
+
 // Property-related entity types for on-demand extraction
 const PROPERTY_ENTITY_TYPES = new Set([
     'IFCPROPERTYSET', 'IFCELEMENTQUANTITY',
@@ -178,6 +196,7 @@ export class ColumnarParser {
         const relationshipRefs: EntityRef[] = [];
         const propertyRelRefs: EntityRef[] = [];
         const propertyEntityRefs: EntityRef[] = [];
+        const associationRelRefs: EntityRef[] = [];
 
         for (const ref of entityRefs) {
             // Build entity index
@@ -201,6 +220,8 @@ export class ColumnarParser {
                 propertyRelRefs.push(ref);
             } else if (PROPERTY_ENTITY_TYPES.has(typeUpper)) {
                 propertyEntityRefs.push(ref);
+            } else if (ASSOCIATION_REL_TYPES.has(typeUpper)) {
+                associationRelRefs.push(ref);
             }
         }
 
@@ -299,6 +320,46 @@ export class ColumnarParser {
                                     }
                                     list.push(relatingDef);
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // === PARSE ASSOCIATION RELATIONSHIPS for on-demand classification/material loading ===
+        const onDemandClassificationMap = new Map<number, number[]>();
+        const onDemandMaterialMap = new Map<number, number>();
+
+        for (const ref of associationRelRefs) {
+            const entity = extractor.extractEntity(ref);
+            if (entity) {
+                const attrs = entity.attributes || [];
+                // IfcRelAssociatesClassification / IfcRelAssociatesMaterial:
+                // [0] GlobalId, [1] OwnerHistory, [2] Name, [3] Description
+                // [4] RelatedObjects (list of element IDs)
+                // [5] RelatingClassification / RelatingMaterial
+                const relatedObjects = attrs[4];
+                const relatingRef = attrs[5];
+
+                if (typeof relatingRef === 'number' && Array.isArray(relatedObjects)) {
+                    const typeUpper = ref.type.toUpperCase();
+
+                    if (typeUpper === 'IFCRELASSOCIATESCLASSIFICATION') {
+                        for (const objId of relatedObjects) {
+                            if (typeof objId === 'number') {
+                                let list = onDemandClassificationMap.get(objId);
+                                if (!list) {
+                                    list = [];
+                                    onDemandClassificationMap.set(objId, list);
+                                }
+                                list.push(relatingRef);
+                            }
+                        }
+                    } else if (typeUpper === 'IFCRELASSOCIATESMATERIAL') {
+                        for (const objId of relatedObjects) {
+                            if (typeof objId === 'number') {
+                                onDemandMaterialMap.set(objId, relatingRef);
                             }
                         }
                     }
@@ -414,6 +475,8 @@ export class ColumnarParser {
             spatialHierarchy,
             onDemandPropertyMap, // For instant property access
             onDemandQuantityMap, // For instant quantity access
+            onDemandClassificationMap, // For instant classification access
+            onDemandMaterialMap, // For instant material access
         };
     }
 
@@ -643,4 +706,364 @@ export function extractEntityAttributesOnDemand(
     const objectType = typeof attrs[4] === 'string' ? attrs[4] : '';
 
     return { globalId, name, description, objectType };
+}
+
+// ============================================================================
+// Classification and Material On-Demand Extractors
+// ============================================================================
+
+export interface ClassificationInfo {
+    system?: string;
+    identification?: string;
+    name?: string;
+    location?: string;
+    description?: string;
+    path?: string[];
+}
+
+export interface MaterialInfo {
+    type: 'Material' | 'MaterialLayerSet' | 'MaterialProfileSet' | 'MaterialConstituentSet' | 'MaterialList';
+    name?: string;
+    description?: string;
+    layers?: MaterialLayerInfo[];
+    profiles?: MaterialProfileInfo[];
+    constituents?: MaterialConstituentInfo[];
+    materials?: string[];
+}
+
+export interface MaterialLayerInfo {
+    materialName?: string;
+    thickness?: number;
+    isVentilated?: boolean;
+    name?: string;
+    category?: string;
+}
+
+export interface MaterialProfileInfo {
+    materialName?: string;
+    name?: string;
+    category?: string;
+}
+
+export interface MaterialConstituentInfo {
+    materialName?: string;
+    name?: string;
+    fraction?: number;
+    category?: string;
+}
+
+/**
+ * Extract classifications for a single entity ON-DEMAND.
+ * Uses the onDemandClassificationMap built during parsing.
+ * Returns an array of classification references with system info.
+ */
+export function extractClassificationsOnDemand(
+    store: IfcDataStore,
+    entityId: number
+): ClassificationInfo[] {
+    if (!store.onDemandClassificationMap) return [];
+
+    const classRefIds = store.onDemandClassificationMap.get(entityId);
+    if (!classRefIds || classRefIds.length === 0) return [];
+
+    const extractor = new EntityExtractor(store.source);
+    const results: ClassificationInfo[] = [];
+
+    for (const classRefId of classRefIds) {
+        const ref = store.entityIndex.byId.get(classRefId);
+        if (!ref) continue;
+
+        const entity = extractor.extractEntity(ref);
+        if (!entity) continue;
+
+        const typeUpper = entity.type.toUpperCase();
+        const attrs = entity.attributes || [];
+
+        if (typeUpper === 'IFCCLASSIFICATIONREFERENCE') {
+            // IfcClassificationReference: [Location, Identification, Name, ReferencedSource, Description, Sort]
+            const info: ClassificationInfo = {
+                location: typeof attrs[0] === 'string' ? attrs[0] : undefined,
+                identification: typeof attrs[1] === 'string' ? attrs[1] : undefined,
+                name: typeof attrs[2] === 'string' ? attrs[2] : undefined,
+                description: typeof attrs[4] === 'string' ? attrs[4] : undefined,
+            };
+
+            // Walk up to find the classification system name
+            const referencedSourceId = typeof attrs[3] === 'number' ? attrs[3] : undefined;
+            if (referencedSourceId) {
+                const path = walkClassificationChain(store, extractor, referencedSourceId);
+                info.system = path.systemName;
+                info.path = path.codes;
+            }
+
+            results.push(info);
+        } else if (typeUpper === 'IFCCLASSIFICATION') {
+            // IfcClassification: [Source, Edition, EditionDate, Name, Description, Location, ReferenceTokens]
+            results.push({
+                system: typeof attrs[3] === 'string' ? attrs[3] : undefined,
+                name: typeof attrs[3] === 'string' ? attrs[3] : undefined,
+                description: typeof attrs[4] === 'string' ? attrs[4] : undefined,
+                location: typeof attrs[5] === 'string' ? attrs[5] : undefined,
+            });
+        }
+    }
+
+    return results;
+}
+
+/**
+ * Walk up the IfcClassificationReference chain to find the root IfcClassification system.
+ */
+function walkClassificationChain(
+    store: IfcDataStore,
+    extractor: EntityExtractor,
+    startId: number
+): { systemName?: string; codes: string[] } {
+    const codes: string[] = [];
+    let currentId: number | undefined = startId;
+    const visited = new Set<number>();
+
+    while (currentId !== undefined && !visited.has(currentId)) {
+        visited.add(currentId);
+
+        const ref = store.entityIndex.byId.get(currentId);
+        if (!ref) break;
+
+        const entity = extractor.extractEntity(ref);
+        if (!entity) break;
+
+        const typeUpper = entity.type.toUpperCase();
+        const attrs = entity.attributes || [];
+
+        if (typeUpper === 'IFCCLASSIFICATION') {
+            // Root: IfcClassification [Source, Edition, EditionDate, Name, ...]
+            const systemName = typeof attrs[3] === 'string' ? attrs[3] : undefined;
+            return { systemName, codes };
+        }
+
+        if (typeUpper === 'IFCCLASSIFICATIONREFERENCE') {
+            // IfcClassificationReference [Location, Identification, Name, ReferencedSource, ...]
+            const code = typeof attrs[1] === 'string' ? attrs[1] :
+                         typeof attrs[2] === 'string' ? attrs[2] : undefined;
+            if (code) codes.unshift(code);
+
+            currentId = typeof attrs[3] === 'number' ? attrs[3] : undefined;
+        } else {
+            break;
+        }
+    }
+
+    return { codes };
+}
+
+/**
+ * Extract materials for a single entity ON-DEMAND.
+ * Uses the onDemandMaterialMap built during parsing.
+ * Resolves the full material structure (layers, profiles, constituents, lists).
+ */
+export function extractMaterialsOnDemand(
+    store: IfcDataStore,
+    entityId: number
+): MaterialInfo | null {
+    if (!store.onDemandMaterialMap) return null;
+
+    const materialId = store.onDemandMaterialMap.get(entityId);
+    if (materialId === undefined) return null;
+
+    const extractor = new EntityExtractor(store.source);
+    return resolveMaterial(store, extractor, materialId);
+}
+
+/**
+ * Resolve a material entity by ID, handling all IFC material types.
+ */
+function resolveMaterial(
+    store: IfcDataStore,
+    extractor: EntityExtractor,
+    materialId: number
+): MaterialInfo | null {
+    const ref = store.entityIndex.byId.get(materialId);
+    if (!ref) return null;
+
+    const entity = extractor.extractEntity(ref);
+    if (!entity) return null;
+
+    const typeUpper = entity.type.toUpperCase();
+    const attrs = entity.attributes || [];
+
+    switch (typeUpper) {
+        case 'IFCMATERIAL': {
+            // IfcMaterial: [Name, Description, Category]
+            return {
+                type: 'Material',
+                name: typeof attrs[0] === 'string' ? attrs[0] : undefined,
+                description: typeof attrs[1] === 'string' ? attrs[1] : undefined,
+            };
+        }
+
+        case 'IFCMATERIALLAYERSET': {
+            // IfcMaterialLayerSet: [MaterialLayers, LayerSetName, Description]
+            const layerIds = Array.isArray(attrs[0]) ? attrs[0].filter((id): id is number => typeof id === 'number') : [];
+            const layers: MaterialLayerInfo[] = [];
+
+            for (const layerId of layerIds) {
+                const layerRef = store.entityIndex.byId.get(layerId);
+                if (!layerRef) continue;
+                const layerEntity = extractor.extractEntity(layerRef);
+                if (!layerEntity) continue;
+
+                const la = layerEntity.attributes || [];
+                // IfcMaterialLayer: [Material, LayerThickness, IsVentilated, Name, Description, Category, Priority]
+                const matId = typeof la[0] === 'number' ? la[0] : undefined;
+                let materialName: string | undefined;
+                if (matId) {
+                    const matRef = store.entityIndex.byId.get(matId);
+                    if (matRef) {
+                        const matEntity = extractor.extractEntity(matRef);
+                        if (matEntity) {
+                            materialName = typeof matEntity.attributes?.[0] === 'string' ? matEntity.attributes[0] : undefined;
+                        }
+                    }
+                }
+
+                layers.push({
+                    materialName,
+                    thickness: typeof la[1] === 'number' ? la[1] : undefined,
+                    isVentilated: la[2] === true || la[2] === '.T.',
+                    name: typeof la[3] === 'string' ? la[3] : undefined,
+                    category: typeof la[5] === 'string' ? la[5] : undefined,
+                });
+            }
+
+            return {
+                type: 'MaterialLayerSet',
+                name: typeof attrs[1] === 'string' ? attrs[1] : undefined,
+                description: typeof attrs[2] === 'string' ? attrs[2] : undefined,
+                layers,
+            };
+        }
+
+        case 'IFCMATERIALPROFILESET': {
+            // IfcMaterialProfileSet: [Name, Description, MaterialProfiles, CompositeProfile]
+            const profileIds = Array.isArray(attrs[2]) ? attrs[2].filter((id): id is number => typeof id === 'number') : [];
+            const profiles: MaterialProfileInfo[] = [];
+
+            for (const profId of profileIds) {
+                const profRef = store.entityIndex.byId.get(profId);
+                if (!profRef) continue;
+                const profEntity = extractor.extractEntity(profRef);
+                if (!profEntity) continue;
+
+                const pa = profEntity.attributes || [];
+                // IfcMaterialProfile: [Name, Description, Material, Profile, Priority, Category]
+                const matId = typeof pa[2] === 'number' ? pa[2] : undefined;
+                let materialName: string | undefined;
+                if (matId) {
+                    const matRef = store.entityIndex.byId.get(matId);
+                    if (matRef) {
+                        const matEntity = extractor.extractEntity(matRef);
+                        if (matEntity) {
+                            materialName = typeof matEntity.attributes?.[0] === 'string' ? matEntity.attributes[0] : undefined;
+                        }
+                    }
+                }
+
+                profiles.push({
+                    materialName,
+                    name: typeof pa[0] === 'string' ? pa[0] : undefined,
+                    category: typeof pa[5] === 'string' ? pa[5] : undefined,
+                });
+            }
+
+            return {
+                type: 'MaterialProfileSet',
+                name: typeof attrs[0] === 'string' ? attrs[0] : undefined,
+                description: typeof attrs[1] === 'string' ? attrs[1] : undefined,
+                profiles,
+            };
+        }
+
+        case 'IFCMATERIALCONSTITUENTSET': {
+            // IfcMaterialConstituentSet: [Name, Description, MaterialConstituents]
+            const constituentIds = Array.isArray(attrs[2]) ? attrs[2].filter((id): id is number => typeof id === 'number') : [];
+            const constituents: MaterialConstituentInfo[] = [];
+
+            for (const constId of constituentIds) {
+                const constRef = store.entityIndex.byId.get(constId);
+                if (!constRef) continue;
+                const constEntity = extractor.extractEntity(constRef);
+                if (!constEntity) continue;
+
+                const ca = constEntity.attributes || [];
+                // IfcMaterialConstituent: [Name, Description, Material, Fraction, Category]
+                const matId = typeof ca[2] === 'number' ? ca[2] : undefined;
+                let materialName: string | undefined;
+                if (matId) {
+                    const matRef = store.entityIndex.byId.get(matId);
+                    if (matRef) {
+                        const matEntity = extractor.extractEntity(matRef);
+                        if (matEntity) {
+                            materialName = typeof matEntity.attributes?.[0] === 'string' ? matEntity.attributes[0] : undefined;
+                        }
+                    }
+                }
+
+                constituents.push({
+                    materialName,
+                    name: typeof ca[0] === 'string' ? ca[0] : undefined,
+                    fraction: typeof ca[3] === 'number' ? ca[3] : undefined,
+                    category: typeof ca[4] === 'string' ? ca[4] : undefined,
+                });
+            }
+
+            return {
+                type: 'MaterialConstituentSet',
+                name: typeof attrs[0] === 'string' ? attrs[0] : undefined,
+                description: typeof attrs[1] === 'string' ? attrs[1] : undefined,
+                constituents,
+            };
+        }
+
+        case 'IFCMATERIALLIST': {
+            // IfcMaterialList: [Materials]
+            const matIds = Array.isArray(attrs[0]) ? attrs[0].filter((id): id is number => typeof id === 'number') : [];
+            const materials: string[] = [];
+
+            for (const matId of matIds) {
+                const matRef = store.entityIndex.byId.get(matId);
+                if (!matRef) continue;
+                const matEntity = extractor.extractEntity(matRef);
+                if (matEntity) {
+                    const name = typeof matEntity.attributes?.[0] === 'string' ? matEntity.attributes[0] : `Material #${matId}`;
+                    materials.push(name);
+                }
+            }
+
+            return {
+                type: 'MaterialList',
+                materials,
+            };
+        }
+
+        case 'IFCMATERIALLAYERSETUSAGE': {
+            // IfcMaterialLayerSetUsage: [ForLayerSet, LayerSetDirection, DirectionSense, OffsetFromReferenceLine, ...]
+            const layerSetId = typeof attrs[0] === 'number' ? attrs[0] : undefined;
+            if (layerSetId) {
+                return resolveMaterial(store, extractor, layerSetId);
+            }
+            return null;
+        }
+
+        case 'IFCMATERIALPROFILESETUSAGE': {
+            // IfcMaterialProfileSetUsage: [ForProfileSet, ...]
+            const profileSetId = typeof attrs[0] === 'number' ? attrs[0] : undefined;
+            if (profileSetId) {
+                return resolveMaterial(store, extractor, profileSetId);
+            }
+            return null;
+        }
+
+        default:
+            return null;
+    }
 }

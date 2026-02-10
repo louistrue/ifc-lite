@@ -30,13 +30,15 @@ import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { IfcQuery } from '@ifc-lite/query';
 import { MutablePropertyView } from '@ifc-lite/mutations';
-import { extractPropertiesOnDemand, type IfcDataStore } from '@ifc-lite/parser';
+import { extractPropertiesOnDemand, extractClassificationsOnDemand, extractMaterialsOnDemand, type IfcDataStore } from '@ifc-lite/parser';
 import type { EntityRef, FederatedModel } from '@/store/types';
 
 import { CoordVal, CoordRow } from './properties/CoordinateDisplay';
 import { PropertySetCard } from './properties/PropertySetCard';
 import { QuantitySetCard } from './properties/QuantitySetCard';
 import { ModelMetadataPanel } from './properties/ModelMetadataPanel';
+import { ClassificationCard } from './properties/ClassificationCard';
+import { MaterialCard } from './properties/MaterialCard';
 import type { PropertySet, QuantitySet } from './properties/encodingUtils';
 
 export function PropertiesPanel() {
@@ -378,6 +380,22 @@ export function PropertiesPanel() {
     return attrs;
   }, [entityNode]);
 
+  // Extract classifications for the selected entity from the IFC data store
+  const classifications = useMemo(() => {
+    if (!selectedEntity) return [];
+    const dataStore = model?.ifcDataStore ?? ifcDataStore;
+    if (!dataStore) return [];
+    return extractClassificationsOnDemand(dataStore as IfcDataStore, selectedEntity.expressId);
+  }, [selectedEntity, model, ifcDataStore]);
+
+  // Extract materials for the selected entity from the IFC data store
+  const materialInfo = useMemo(() => {
+    if (!selectedEntity) return null;
+    const dataStore = model?.ifcDataStore ?? ifcDataStore;
+    if (!dataStore) return null;
+    return extractMaterialsOnDemand(dataStore as IfcDataStore, selectedEntity.expressId);
+  }, [selectedEntity, model, ifcDataStore]);
+
   // Model metadata display (when clicking top-level model in hierarchy)
   if (selectedModelId) {
     const selectedModel = models.get(selectedModelId);
@@ -677,7 +695,7 @@ export function PropertiesPanel() {
                 existingPsets={properties.map(p => p.name)}
               />
             )}
-            {properties.length === 0 ? (
+            {properties.length === 0 && classifications.length === 0 && !materialInfo ? (
               <p className="text-sm text-zinc-500 dark:text-zinc-500 text-center py-8 font-mono">No property sets</p>
             ) : (
               <div className="space-y-3 w-full overflow-hidden">
@@ -690,6 +708,28 @@ export function PropertiesPanel() {
                     enableEditing={editMode}
                   />
                 ))}
+
+                {/* Classifications */}
+                {classifications.length > 0 && (
+                  <>
+                    {properties.length > 0 && (
+                      <div className="border-t border-zinc-200 dark:border-zinc-800 pt-2 mt-2" />
+                    )}
+                    {classifications.map((classification, i) => (
+                      <ClassificationCard key={`class-${i}`} classification={classification} />
+                    ))}
+                  </>
+                )}
+
+                {/* Materials */}
+                {materialInfo && (
+                  <>
+                    {(properties.length > 0 || classifications.length > 0) && (
+                      <div className="border-t border-zinc-200 dark:border-zinc-800 pt-2 mt-2" />
+                    )}
+                    <MaterialCard material={materialInfo} />
+                  </>
+                )}
               </div>
             )}
           </TabsContent>
