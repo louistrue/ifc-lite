@@ -13,6 +13,7 @@ import type { EntityRef, IfcEntity, Relationship } from './types.js';
 import { SpatialHierarchyBuilder } from './spatial-hierarchy-builder.js';
 import { EntityExtractor } from './entity-extractor.js';
 import { extractLengthUnitScale } from './unit-extractor.js';
+import { getAttributeNames } from './ifc-schema.js';
 import {
     StringTable,
     EntityTableBuilder,
@@ -616,31 +617,75 @@ export function extractQuantitiesOnDemand(
 
 /**
  * Extract entity attributes on-demand from source buffer
- * Returns globalId, name, description, objectType for any IfcRoot-derived entity.
+ * Returns globalId, name, description, objectType, tag for any IfcRoot-derived entity.
  * This is used for entities that weren't fully parsed during initial load.
  */
 export function extractEntityAttributesOnDemand(
     store: IfcDataStore,
     entityId: number
-): { globalId: string; name: string; description: string; objectType: string } {
+): { globalId: string; name: string; description: string; objectType: string; tag: string } {
     const ref = store.entityIndex.byId.get(entityId);
     if (!ref) {
-        return { globalId: '', name: '', description: '', objectType: '' };
+        return { globalId: '', name: '', description: '', objectType: '', tag: '' };
     }
 
     const extractor = new EntityExtractor(store.source);
     const entity = extractor.extractEntity(ref);
     if (!entity) {
-        return { globalId: '', name: '', description: '', objectType: '' };
+        return { globalId: '', name: '', description: '', objectType: '', tag: '' };
     }
 
     const attrs = entity.attributes || [];
     // IfcRoot attributes: [GlobalId, OwnerHistory, Name, Description]
     // IfcObject adds: [ObjectType] at index 4
+    // IfcProduct adds: [ObjectPlacement, Representation] at indices 5-6
+    // IfcElement adds: [Tag] at index 7
     const globalId = typeof attrs[0] === 'string' ? attrs[0] : '';
     const name = typeof attrs[2] === 'string' ? attrs[2] : '';
     const description = typeof attrs[3] === 'string' ? attrs[3] : '';
     const objectType = typeof attrs[4] === 'string' ? attrs[4] : '';
+    const tag = typeof attrs[7] === 'string' ? attrs[7] : '';
 
-    return { globalId, name, description, objectType };
+    return { globalId, name, description, objectType, tag };
+}
+
+/**
+ * Extract ALL named entity attributes on-demand from source buffer.
+ * Uses the IFC schema to map attribute indices to names.
+ * Returns only string/enum attributes, skipping references and structural attributes.
+ */
+export function extractAllEntityAttributes(
+    store: IfcDataStore,
+    entityId: number
+): Array<{ name: string; value: string }> {
+    const ref = store.entityIndex.byId.get(entityId);
+    if (!ref) return [];
+
+    const extractor = new EntityExtractor(store.source);
+    const entity = extractor.extractEntity(ref);
+    if (!entity) return [];
+
+    const attrs = entity.attributes || [];
+    const attrNames = getAttributeNames(ref.type);
+
+    // Attributes shown separately or not meaningful for display
+    const SKIP = new Set(['GlobalId', 'OwnerHistory', 'ObjectPlacement', 'Representation']);
+
+    const result: Array<{ name: string; value: string }> = [];
+    const len = Math.min(attrs.length, attrNames.length);
+    for (let i = 0; i < len; i++) {
+        const attrName = attrNames[i];
+        if (SKIP.has(attrName)) continue;
+
+        const raw = attrs[i];
+        if (typeof raw === 'string' && raw) {
+            // Clean enum values: .NOTDEFINED. -> NOTDEFINED
+            const display = raw.startsWith('.') && raw.endsWith('.')
+                ? raw.slice(1, -1)
+                : raw;
+            result.push({ name: attrName, value: display });
+        }
+    }
+
+    return result;
 }

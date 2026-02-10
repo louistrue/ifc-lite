@@ -7,13 +7,13 @@
  */
 
 import type { IfcDataStore } from '@ifc-lite/parser';
-import { extractPropertiesOnDemand, extractQuantitiesOnDemand, extractEntityAttributesOnDemand } from '@ifc-lite/parser';
+import { extractPropertiesOnDemand, extractQuantitiesOnDemand, extractEntityAttributesOnDemand, extractAllEntityAttributes } from '@ifc-lite/parser';
 import { RelationshipType } from '@ifc-lite/data';
 
 export class EntityNode {
   private store: IfcDataStore;
   readonly expressId: number;
-  private _cachedAttributes: { globalId: string; name: string; description: string; objectType: string } | null = null;
+  private _cachedAttributes: { globalId: string; name: string; description: string; objectType: string; tag: string } | null = null;
 
   constructor(store: IfcDataStore, expressId: number) {
     this.store = store;
@@ -24,20 +24,18 @@ export class EntityNode {
    * Get on-demand extracted attributes (cached for performance)
    * Only extracts if stored values are empty and source buffer is available
    */
-  private getOnDemandAttributes(): { globalId: string; name: string; description: string; objectType: string } {
+  private getOnDemandAttributes(): { globalId: string; name: string; description: string; objectType: string; tag: string } {
     if (this._cachedAttributes) {
       return this._cachedAttributes;
     }
 
     // Only extract on-demand if source buffer is available
-    if (this.store.source && this.store.entityIndex) {
-      this._cachedAttributes = extractEntityAttributesOnDemand(this.store, this.expressId);
-    } else {
-      // No source available, return empty
-      this._cachedAttributes = { globalId: '', name: '', description: '', objectType: '' };
-    }
+    const attrs = (this.store.source && this.store.entityIndex)
+      ? extractEntityAttributesOnDemand(this.store, this.expressId)
+      : { globalId: '', name: '', description: '', objectType: '', tag: '' };
 
-    return this._cachedAttributes;
+    this._cachedAttributes = attrs;
+    return attrs;
   }
 
   get globalId(): string {
@@ -70,6 +68,29 @@ export class EntityNode {
     if (stored) return stored;
     // Fall back to on-demand extraction
     return this.getOnDemandAttributes().objectType;
+  }
+
+  get tag(): string {
+    // Tag is only stored on-demand (not in entity table)
+    return this.getOnDemandAttributes().tag;
+  }
+
+  /**
+   * Get all named string/enum attributes for this entity.
+   * Uses the IFC schema to determine attribute names per entity type.
+   * Skips GlobalId (shown separately), OwnerHistory, and geometry references.
+   */
+  allAttributes(): Array<{ name: string; value: string }> {
+    if (this.store.source && this.store.entityIndex) {
+      return extractAllEntityAttributes(this.store, this.expressId);
+    }
+    // Fallback: return individually known attributes
+    const attrs: Array<{ name: string; value: string }> = [];
+    if (this.name) attrs.push({ name: 'Name', value: this.name });
+    if (this.description) attrs.push({ name: 'Description', value: this.description });
+    if (this.objectType) attrs.push({ name: 'ObjectType', value: this.objectType });
+    if (this.tag) attrs.push({ name: 'Tag', value: this.tag });
+    return attrs;
   }
 
   get type(): string {

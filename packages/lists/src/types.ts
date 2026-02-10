@@ -44,6 +44,8 @@ export interface ListDataProvider {
   getEntityDescription(expressId: number): string;
   /** Get entity object type / predefined type by express ID */
   getEntityObjectType(expressId: number): string;
+  /** Get entity tag (IfcElement.Tag) by express ID */
+  getEntityTag(expressId: number): string;
   /** Get IFC type name (e.g., "IfcWall") by express ID */
   getEntityTypeName(expressId: number): string;
 
@@ -160,6 +162,7 @@ export const ENTITY_ATTRIBUTES = [
   'Type',
   'Description',
   'ObjectType',
+  'Tag',
 ] as const;
 
 export type EntityAttribute = typeof ENTITY_ATTRIBUTES[number];

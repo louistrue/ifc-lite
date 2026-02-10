@@ -368,14 +368,11 @@ export function PropertiesPanel() {
   }, [entityNode]);
 
   // Build attributes array for display - must be before early return to maintain hook order
+  // Uses schema-aware extraction to show ALL string/enum attributes for the entity type.
   // Note: GlobalId is intentionally excluded since it's shown in the dedicated GUID field above
   const attributes = useMemo(() => {
     if (!entityNode) return [];
-    const attrs: Array<{ name: string; value: string }> = [];
-    if (entityNode.name) attrs.push({ name: 'Name', value: entityNode.name });
-    if (entityNode.description) attrs.push({ name: 'Description', value: entityNode.description });
-    if (entityNode.objectType) attrs.push({ name: 'ObjectType', value: entityNode.objectType });
-    return attrs;
+    return entityNode.allAttributes();
   }, [entityNode]);
 
   // Model metadata display (when clicking top-level model in hierarchy)
@@ -803,15 +800,11 @@ function EntityDataSection({
     return entityNode.quantities();
   }, [entityNode]);
 
-  // Get attributes
+  // Get attributes - uses schema-aware extraction to show ALL string/enum attributes
   // Note: GlobalId is intentionally excluded since it's shown in the dedicated GUID field above
   const attributes = useMemo(() => {
     if (!entityNode) return [];
-    const attrs: Array<{ name: string; value: string }> = [];
-    if (entityNode.name) attrs.push({ name: 'Name', value: entityNode.name });
-    if (entityNode.description) attrs.push({ name: 'Description', value: entityNode.description });
-    if (entityNode.objectType) attrs.push({ name: 'ObjectType', value: entityNode.objectType });
-    return attrs;
+    return entityNode.allAttributes();
   }, [entityNode]);
 
   // Get elevation info

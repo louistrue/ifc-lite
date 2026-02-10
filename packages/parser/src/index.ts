@@ -16,7 +16,7 @@ export { RelationshipExtractor } from './relationship-extractor.js';
 export { StyleExtractor } from './style-extractor.js';
 export { SpatialHierarchyBuilder } from './spatial-hierarchy-builder.js';
 export { extractLengthUnitScale } from './unit-extractor.js';
-export { ColumnarParser, type IfcDataStore, extractPropertiesOnDemand, extractQuantitiesOnDemand, extractEntityAttributesOnDemand } from './columnar-parser.js';
+export { ColumnarParser, type IfcDataStore, extractPropertiesOnDemand, extractQuantitiesOnDemand, extractEntityAttributesOnDemand, extractAllEntityAttributes } from './columnar-parser.js';
 // WorkerParser is browser-only due to Vite worker imports
 // Import from '@ifc-lite/parser/browser' instead
 

@@ -72,6 +72,7 @@ function createMockProvider(): ListDataProvider {
     getEntityGlobalId: (id) => entities.get(id)?.globalId ?? '',
     getEntityDescription: (id) => entities.get(id)?.desc ?? '',
     getEntityObjectType: (id) => entities.get(id)?.objType ?? '',
+    getEntityTag: () => '',
     getEntityTypeName: (id) => entities.get(id)?.type ?? '',
     getPropertySets: (id) => propertySets.get(id) ?? [],
     getQuantitySets: (id) => quantitySets.get(id) ?? [],
