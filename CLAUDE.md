@@ -13,7 +13,7 @@ ifc-lite is a high-performance IFC (Industry Foundation Classes) platform for BI
 - Section planes and measurements
 - BCF collaboration (topics, viewpoints, comments)
 - IDS validation (Information Delivery Specification checking)
-- Configurable property lists (BIMcollab-style entity tables with column discovery)
+- Configurable property lists (entity tables with column discovery)
 - 2D architectural drawings (section cuts, floor plans, elevations)
 - Property editing with undo/redo and change tracking
 
