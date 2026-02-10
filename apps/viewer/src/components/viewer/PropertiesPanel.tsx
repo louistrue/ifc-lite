@@ -20,7 +20,7 @@ import {
   PenLine,
   Crosshair,
 } from 'lucide-react';
-import { NewPropertyDialog, UndoRedoButtons } from './PropertyEditor';
+import { EditToolbar } from './PropertyEditor';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -670,14 +670,12 @@ export function PropertiesPanel() {
           <TabsContent value="properties" className="m-0 p-3 overflow-hidden">
             {/* Edit toolbar - only shown when edit mode is active */}
             {editMode && selectedEntity && (
-              <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-purple-200 dark:border-purple-800 bg-purple-50/30 dark:bg-purple-950/20 -mx-3 -mt-3 px-3 pt-3">
-                <NewPropertyDialog
-                  modelId={selectedEntity.modelId}
-                  entityId={selectedEntity.expressId}
-                  existingPsets={properties.map(p => p.name)}
-                />
-                <UndoRedoButtons modelId={selectedEntity.modelId} />
-              </div>
+              <EditToolbar
+                modelId={selectedEntity.modelId}
+                entityId={selectedEntity.expressId}
+                entityType={entityType}
+                existingPsets={properties.map(p => p.name)}
+              />
             )}
             {properties.length === 0 ? (
               <p className="text-sm text-zinc-500 dark:text-zinc-500 text-center py-8 font-mono">No property sets</p>
