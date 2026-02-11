@@ -326,22 +326,48 @@ fn create_cap_mesh(triangulation: &Triangulation, z: f64, normal: Vector3<f64>, 
 /// Create side walls for a profile boundary
 #[inline]
 fn create_side_walls(boundary: &[nalgebra::Point2<f64>], depth: f64, mesh: &mut Mesh) {
+    let n = boundary.len();
+    if n < 2 {
+        return;
+    }
+
+    // Compute centroid of profile for smooth radial normals
+    let mut cx = 0.0;
+    let mut cy = 0.0;
+    for p in boundary.iter() {
+        cx += p.x;
+        cy += p.y;
+    }
+    cx /= n as f64;
+    cy /= n as f64;
+
+    // Pre-compute smooth vertex normals: radial direction from centroid to each vertex
+    let vertex_normals: Vec<Vector3<f64>> = boundary
+        .iter()
+        .map(|p| {
+            Vector3::new(p.x - cx, p.y - cy, 0.0)
+                .try_normalize(1e-10)
+                .unwrap_or(Vector3::new(0.0, 0.0, 1.0))
+        })
+        .collect();
+
     let base_index = mesh.vertex_count() as u32;
     let mut quad_count = 0u32;
 
-    for i in 0..boundary.len() {
-        let j = (i + 1) % boundary.len();
+    for i in 0..n {
+        let j = (i + 1) % n;
 
         let p0 = &boundary[i];
         let p1 = &boundary[j];
 
-        // Calculate normal for this edge
-        // Use try_normalize to handle degenerate edges (duplicate consecutive points)
+        // Skip degenerate edges (duplicate consecutive points)
         let edge = Vector3::new(p1.x - p0.x, p1.y - p0.y, 0.0);
-        let normal = match Vector3::new(-edge.y, edge.x, 0.0).try_normalize(1e-10) {
-            Some(n) => n,
-            None => continue, // Skip degenerate edge (duplicate points in profile)
-        };
+        if edge.magnitude_squared() < 1e-20 {
+            continue;
+        }
+
+        let n0 = vertex_normals[i];
+        let n1 = vertex_normals[j];
 
         // Bottom vertices
         let v0_bottom = Point3::new(p0.x, p0.y, 0.0);
@@ -351,12 +377,12 @@ fn create_side_walls(boundary: &[nalgebra::Point2<f64>], depth: f64, mesh: &mut 
         let v0_top = Point3::new(p0.x, p0.y, depth);
         let v1_top = Point3::new(p1.x, p1.y, depth);
 
-        // Add 4 vertices for this quad
+        // Add 4 vertices with smooth per-vertex normals
         let idx = base_index + (quad_count * 4);
-        mesh.add_vertex(v0_bottom, normal);
-        mesh.add_vertex(v1_bottom, normal);
-        mesh.add_vertex(v1_top, normal);
-        mesh.add_vertex(v0_top, normal);
+        mesh.add_vertex(v0_bottom, n0);
+        mesh.add_vertex(v1_bottom, n1);
+        mesh.add_vertex(v1_top, n1);
+        mesh.add_vertex(v0_top, n0);
 
         // Add 2 triangles for the quad
         mesh.add_triangle(idx, idx + 1, idx + 2);

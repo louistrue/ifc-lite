@@ -128,6 +128,10 @@ impl IfcAPI {
                 // Check if entity actually has representation (attribute index 6 for IfcProduct)
                 let has_representation = entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
                 if !has_representation {
+                    web_sys::console::debug_1(&format!(
+                        "[IFC-LITE] #{} ({}) has no representation — skipping geometry",
+                        id, entity.ifc_type.name()
+                    ).into());
                     stats.no_representation += 1;
                     continue;
                 }
@@ -224,15 +228,26 @@ impl IfcAPI {
             }
         }
 
-        // Emit warning if significant failures occurred
+        // Always emit geometry summary at debug level
         if stats.total > 0 {
-            let success_rate = stats.success as f64 / stats.total as f64;
-            if success_rate < 0.5 {
+            let actual_candidates = stats.total - stats.no_representation;
+            let candidate_success_rate = if actual_candidates > 0 {
+                stats.success as f64 / actual_candidates as f64
+            } else {
+                1.0 // No candidates = nothing failed
+            };
+
+            web_sys::console::debug_1(&format!(
+                "[IFC-LITE] Geometry: {}/{} meshes extracted ({} candidates had representation, {} skipped without)",
+                stats.success, stats.total, actual_candidates, stats.no_representation
+            ).into());
+
+            // Warn only on actual processing failures (not missing representations — those are expected)
+            let actual_failures = stats.decode_failed + stats.process_failed;
+            if actual_failures > 0 || candidate_success_rate < 0.5 {
                 web_sys::console::warn_1(&format!(
-                    "[IFC-LITE] Low geometry success rate: {:.1}% ({}/{} elements). \
-                     Decode failed: {}, No representation: {}, Process failed: {}, Empty: {}, Filtered: {}",
-                    success_rate * 100.0, stats.success, stats.total,
-                    stats.decode_failed, stats.no_representation, stats.process_failed,
+                    "[IFC-LITE] Geometry issues: decode failed: {}, process failed: {}, empty: {}, filtered: {}",
+                    stats.decode_failed, stats.process_failed,
                     stats.empty_mesh, stats.outlier_filtered
                 ).into());
             }

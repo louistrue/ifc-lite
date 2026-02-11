@@ -210,8 +210,8 @@ impl ProfileProcessor {
             .get_float(3)
             .ok_or_else(|| Error::geometry("Circle missing Radius".to_string()))?;
 
-        // Generate circle with 24 segments (matches web-ifc typical quality)
-        let segments = 24;
+        // Generate circle with 36 segments for smooth appearance
+        let segments = 36;
         let mut points = Vec::with_capacity(segments);
 
         for i in 0..segments {
@@ -279,7 +279,7 @@ impl ProfileProcessor {
             .ok_or_else(|| Error::geometry("CircleHollow missing WallThickness".to_string()))?;
 
         let inner_radius = radius - wall_thickness;
-        let segments = 24;
+        let segments = 36;
 
         // Outer circle
         let mut outer_points = Vec::with_capacity(segments);
@@ -754,8 +754,8 @@ impl ProfileProcessor {
             )
         };
 
-        // Generate circle points in 3D (16 segments for full circle)
-        let segments = 16usize;
+        // Generate circle points in 3D
+        let segments = 24usize;
         let mut points = Vec::with_capacity(segments + 1);
 
         for i in 0..=segments {
@@ -1034,7 +1034,7 @@ impl ProfileProcessor {
         let radius = curve.get_float(1).unwrap_or(1.0);
         let (center, rotation) = self.get_placement_2d(curve, decoder)?;
 
-        let segments = 24;
+        let segments = 36;
         let mut points = Vec::with_capacity(segments);
 
         for i in 0..segments {
@@ -1061,7 +1061,7 @@ impl ProfileProcessor {
         let semi_axis2 = curve.get_float(2).unwrap_or(1.0);
         let (center, rotation) = self.get_placement_2d(curve, decoder)?;
 
-        let segments = 24;
+        let segments = 36;
         let mut points = Vec::with_capacity(segments);
 
         for i in 0..segments {
@@ -1479,7 +1479,7 @@ mod tests {
         let profile_entity = decoder.decode_by_id(1).unwrap();
         let profile = processor.process(&profile_entity, &mut decoder).unwrap();
 
-        assert_eq!(profile.outer.len(), 24); // Circle with 24 segments
+        assert_eq!(profile.outer.len(), 36); // Circle with 36 segments
         assert!(!profile.outer.is_empty());
     }
 

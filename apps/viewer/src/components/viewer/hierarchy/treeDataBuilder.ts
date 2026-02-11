@@ -132,7 +132,9 @@ function buildSpatialNodes(
     id: nodeId,
     expressIds: [spatialNode.expressId],
     modelIds: [modelId],
-    name: spatialNode.name || `${nodeType} #${spatialNode.expressId}`,
+    name: (spatialNode.name && spatialNode.name.toLowerCase() !== 'unknown')
+      ? spatialNode.name
+      : nodeType,
     type: nodeType,
     depth,
     hasChildren,
