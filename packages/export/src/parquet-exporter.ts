@@ -512,6 +512,7 @@ function RelationshipTypeToString(type: RelationshipType): string {
         [RelationshipType.DefinesByType]: 'IfcRelDefinesByType',
         [RelationshipType.AssociatesMaterial]: 'IfcRelAssociatesMaterial',
         [RelationshipType.AssociatesClassification]: 'IfcRelAssociatesClassification',
+        [RelationshipType.AssociatesDocument]: 'IfcRelAssociatesDocument',
         [RelationshipType.VoidsElement]: 'IfcRelVoidsElement',
         [RelationshipType.FillsElement]: 'IfcRelFillsElement',
         [RelationshipType.ConnectsPathElements]: 'IfcRelConnectsPathElements',

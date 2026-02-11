@@ -20,7 +20,7 @@ import {
   PenLine,
   Crosshair,
 } from 'lucide-react';
-import { NewPropertyDialog, UndoRedoButtons } from './PropertyEditor';
+import { EditToolbar } from './PropertyEditor';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -30,13 +30,17 @@ import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { IfcQuery } from '@ifc-lite/query';
 import { MutablePropertyView } from '@ifc-lite/mutations';
-import { extractPropertiesOnDemand, type IfcDataStore } from '@ifc-lite/parser';
+import { extractPropertiesOnDemand, extractClassificationsOnDemand, extractMaterialsOnDemand, extractTypePropertiesOnDemand, extractDocumentsOnDemand, extractRelationshipsOnDemand, type IfcDataStore } from '@ifc-lite/parser';
 import type { EntityRef, FederatedModel } from '@/store/types';
 
 import { CoordVal, CoordRow } from './properties/CoordinateDisplay';
 import { PropertySetCard } from './properties/PropertySetCard';
 import { QuantitySetCard } from './properties/QuantitySetCard';
 import { ModelMetadataPanel } from './properties/ModelMetadataPanel';
+import { ClassificationCard } from './properties/ClassificationCard';
+import { MaterialCard } from './properties/MaterialCard';
+import { DocumentCard } from './properties/DocumentCard';
+import { RelationshipsCard } from './properties/RelationshipsCard';
 import type { PropertySet, QuantitySet } from './properties/encodingUtils';
 
 export function PropertiesPanel() {
@@ -375,6 +379,102 @@ export function PropertiesPanel() {
     return entityNode.allAttributes();
   }, [entityNode]);
 
+  // Extract classifications for the selected entity from the IFC data store
+  const classifications = useMemo(() => {
+    if (!selectedEntity) return [];
+    const dataStore = model?.ifcDataStore ?? ifcDataStore;
+    if (!dataStore) return [];
+    return extractClassificationsOnDemand(dataStore as IfcDataStore, selectedEntity.expressId);
+  }, [selectedEntity, model, ifcDataStore]);
+
+  // Extract materials for the selected entity from the IFC data store
+  const materialInfo = useMemo(() => {
+    if (!selectedEntity) return null;
+    const dataStore = model?.ifcDataStore ?? ifcDataStore;
+    if (!dataStore) return null;
+    return extractMaterialsOnDemand(dataStore as IfcDataStore, selectedEntity.expressId);
+  }, [selectedEntity, model, ifcDataStore]);
+
+  // Extract documents for the selected entity from the IFC data store
+  const documents = useMemo(() => {
+    if (!selectedEntity) return [];
+    const dataStore = model?.ifcDataStore ?? ifcDataStore;
+    if (!dataStore) return [];
+    return extractDocumentsOnDemand(dataStore as IfcDataStore, selectedEntity.expressId);
+  }, [selectedEntity, model, ifcDataStore]);
+
+  // Extract structural relationships (openings, fills, groups, connections)
+  const entityRelationships = useMemo(() => {
+    if (!selectedEntity) return null;
+    const dataStore = model?.ifcDataStore ?? ifcDataStore;
+    if (!dataStore) return null;
+    const rels = extractRelationshipsOnDemand(dataStore as IfcDataStore, selectedEntity.expressId);
+    const totalCount = rels.voids.length + rels.fills.length + rels.groups.length + rels.connections.length;
+    return totalCount > 0 ? rels : null;
+  }, [selectedEntity, model, ifcDataStore]);
+
+  // Extract type-level properties (e.g., from IfcWallType's HasPropertySets)
+  const typeProperties = useMemo(() => {
+    if (!selectedEntity) return null;
+    const dataStore = model?.ifcDataStore ?? ifcDataStore;
+    if (!dataStore) return null;
+    const result = extractTypePropertiesOnDemand(dataStore as IfcDataStore, selectedEntity.expressId);
+    if (!result) return null;
+    // Convert to PropertySet format for PropertySetCard
+    return {
+      typeName: result.typeName,
+      typeId: result.typeId,
+      psets: result.properties.map(pset => ({
+        name: pset.name,
+        properties: pset.properties.map(p => ({ name: p.name, value: p.value, isMutated: false })),
+        isNewPset: false,
+      })),
+    };
+  }, [selectedEntity, model, ifcDataStore]);
+
+  // Merge instance-level and type-level property sets into a single unified list.
+  // - Same-named psets: instance properties take precedence, type-level props are appended (deduped by name)
+  // - Type-only psets: added to the main list (no separate "Type" section)
+  // This matches how reference IFC viewers display properties.
+  const mergedProperties: PropertySet[] = useMemo(() => {
+    if (!typeProperties || typeProperties.psets.length === 0) return properties;
+    if (properties.length === 0) return typeProperties.psets;
+
+    const instanceByName = new Map<string, PropertySet>();
+    for (const pset of properties) {
+      instanceByName.set(pset.name, pset);
+    }
+
+    // Start with instance psets, merging type-level props into matching ones
+    const result: PropertySet[] = [];
+    const merged = new Set<string>();
+
+    for (const pset of properties) {
+      const typePset = typeProperties.psets.find(tp => tp.name === pset.name);
+      if (typePset) {
+        // Merge: add type-level properties not already present in instance pset
+        const existingNames = new Set(pset.properties.map(p => p.name));
+        const extraProps = typePset.properties.filter(p => !existingNames.has(p.name));
+        result.push({
+          ...pset,
+          properties: [...pset.properties, ...extraProps],
+        });
+        merged.add(pset.name);
+      } else {
+        result.push(pset);
+      }
+    }
+
+    // Add type-only psets that don't exist at instance level
+    for (const typePset of typeProperties.psets) {
+      if (!merged.has(typePset.name) && !instanceByName.has(typePset.name)) {
+        result.push(typePset);
+      }
+    }
+
+    return result;
+  }, [properties, typeProperties]);
+
   // Model metadata display (when clicking top-level model in hierarchy)
   if (selectedModelId) {
     const selectedModel = models.get(selectedModelId);
@@ -667,20 +767,27 @@ export function PropertiesPanel() {
           <TabsContent value="properties" className="m-0 p-3 overflow-hidden">
             {/* Edit toolbar - only shown when edit mode is active */}
             {editMode && selectedEntity && (
-              <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-purple-200 dark:border-purple-800 bg-purple-50/30 dark:bg-purple-950/20 -mx-3 -mt-3 px-3 pt-3">
-                <NewPropertyDialog
-                  modelId={selectedEntity.modelId}
-                  entityId={selectedEntity.expressId}
-                  existingPsets={properties.map(p => p.name)}
-                />
-                <UndoRedoButtons modelId={selectedEntity.modelId} />
-              </div>
+              <EditToolbar
+                modelId={selectedEntity.modelId}
+                entityId={selectedEntity.expressId}
+                entityType={entityType}
+                existingPsets={mergedProperties.map(p => p.name)}
+                existingQtos={quantities.map(q => q.name)}
+                schemaVersion={activeDataStore?.schemaVersion}
+              />
             )}
-            {properties.length === 0 ? (
+            {mergedProperties.length === 0 && classifications.length === 0 && !materialInfo && documents.length === 0 ? (
               <p className="text-sm text-zinc-500 dark:text-zinc-500 text-center py-8 font-mono">No property sets</p>
             ) : (
               <div className="space-y-3 w-full overflow-hidden">
-                {properties.map((pset: PropertySet) => (
+                {/* Type badge - show which type this element inherits from */}
+                {typeProperties && typeProperties.psets.length > 0 && (
+                  <div className="flex items-center gap-2 px-1 pb-0.5 text-[11px] text-indigo-600/70 dark:text-indigo-400/60">
+                    <Building2 className="h-3 w-3 shrink-0" />
+                    <span className="font-medium truncate">Type: {typeProperties.typeName}</span>
+                  </div>
+                )}
+                {mergedProperties.map((pset: PropertySet) => (
                   <PropertySetCard
                     key={pset.name}
                     pset={pset}
@@ -689,6 +796,48 @@ export function PropertiesPanel() {
                     enableEditing={editMode}
                   />
                 ))}
+
+                {/* Classifications */}
+                {classifications.length > 0 && (
+                  <>
+                    {mergedProperties.length > 0 && (
+                      <div className="border-t border-zinc-200 dark:border-zinc-800 pt-2 mt-2" />
+                    )}
+                    {classifications.map((classification, i) => (
+                      <ClassificationCard key={`class-${i}`} classification={classification} />
+                    ))}
+                  </>
+                )}
+
+                {/* Materials */}
+                {materialInfo && (
+                  <>
+                    {(mergedProperties.length > 0 || classifications.length > 0) && (
+                      <div className="border-t border-zinc-200 dark:border-zinc-800 pt-2 mt-2" />
+                    )}
+                    <MaterialCard material={materialInfo} />
+                  </>
+                )}
+
+                {/* Documents */}
+                {documents.length > 0 && (
+                  <>
+                    {(mergedProperties.length > 0 || classifications.length > 0 || materialInfo) && (
+                      <div className="border-t border-zinc-200 dark:border-zinc-800 pt-2 mt-2" />
+                    )}
+                    {documents.map((doc, i) => (
+                      <DocumentCard key={`doc-${i}`} document={doc} />
+                    ))}
+                  </>
+                )}
+
+                {/* Relationships */}
+                {entityRelationships && (
+                  <>
+                    <div className="border-t border-zinc-200 dark:border-zinc-800 pt-2 mt-2" />
+                    <RelationshipsCard relationships={entityRelationships} />
+                  </>
+                )}
               </div>
             )}
           </TabsContent>

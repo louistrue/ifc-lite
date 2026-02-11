@@ -18,11 +18,14 @@ import {
   Hash,
   Database,
   Building2,
+  Globe,
+  Ruler,
 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { PropertySetCard } from './PropertySetCard';
 import type { PropertySet } from './encodingUtils';
 import type { FederatedModel } from '@/store/types';
+import { extractGeoreferencingOnDemand, extractLengthUnitScale, type IfcDataStore } from '@ifc-lite/parser';
 
 /** Model metadata panel - displays file info, schema version, entity counts, etc. */
 export function ModelMetadataPanel({ model }: { model: FederatedModel }) {
@@ -76,6 +79,25 @@ export function ModelMetadataPanel({ model }: { model: FederatedModel }) {
       elementsWithGeometry += (elements as number[]).length;
     }
     return { storeys, elementsWithGeometry };
+  }, [dataStore]);
+
+  // Extract georeferencing info
+  const georef = useMemo(() => {
+    if (!dataStore) return null;
+    const info = extractGeoreferencingOnDemand(dataStore as IfcDataStore);
+    return info?.hasGeoreference ? info : null;
+  }, [dataStore]);
+
+  // Extract length unit scale
+  const unitInfo = useMemo(() => {
+    if (!dataStore?.source?.length || !dataStore?.entityIndex) return null;
+    const scale = extractLengthUnitScale(dataStore.source, dataStore.entityIndex);
+    let unitName = 'Meters';
+    if (Math.abs(scale - 0.001) < 0.0001) unitName = 'Millimeters';
+    else if (Math.abs(scale - 0.01) < 0.001) unitName = 'Centimeters';
+    else if (Math.abs(scale - 0.0254) < 0.001) unitName = 'Inches';
+    else if (Math.abs(scale - 0.3048) < 0.01) unitName = 'Feet';
+    return { scale, unitName };
   }, [dataStore]);
 
   return (
@@ -137,6 +159,19 @@ export function ModelMetadataPanel({ model }: { model: FederatedModel }) {
           </div>
         </div>
 
+        {/* Length Unit */}
+        {unitInfo && (
+          <div className="border-b border-zinc-200 dark:border-zinc-800">
+            <div className="flex items-center gap-3 px-3 py-2.5 bg-amber-50/50 dark:bg-amber-950/20">
+              <Ruler className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wide">Length Unit</span>
+              <span className="text-xs font-mono text-amber-800 dark:text-amber-300 ml-auto">
+                {unitInfo.unitName} ({unitInfo.scale})
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Entity Statistics */}
         <div className="border-b border-zinc-200 dark:border-zinc-800">
           <div className="p-3 bg-zinc-50 dark:bg-zinc-900/50">
@@ -175,6 +210,76 @@ export function ModelMetadataPanel({ model }: { model: FederatedModel }) {
             </div>
           </div>
         </div>
+
+        {/* Georeferencing */}
+        {georef && (
+          <div className="border-b border-zinc-200 dark:border-zinc-800">
+            <div className="p-3 bg-teal-50/50 dark:bg-teal-950/20">
+              <div className="flex items-center gap-2">
+                <Globe className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />
+                <h4 className="font-bold text-xs uppercase tracking-wide text-teal-700 dark:text-teal-300">
+                  Georeferencing
+                </h4>
+              </div>
+            </div>
+            <div className="divide-y divide-zinc-100 dark:divide-zinc-900">
+              {georef.projectedCRS?.name && (
+                <div className="flex items-center gap-3 px-3 py-2">
+                  <span className="text-xs text-zinc-500 shrink-0">CRS</span>
+                  <span className="text-xs font-mono text-teal-700 dark:text-teal-400 ml-auto truncate max-w-[65%]">
+                    {georef.projectedCRS.name}
+                  </span>
+                </div>
+              )}
+              {georef.projectedCRS?.geodeticDatum && (
+                <div className="flex items-center gap-3 px-3 py-2">
+                  <span className="text-xs text-zinc-500 shrink-0">Geodetic Datum</span>
+                  <span className="text-xs font-mono text-teal-700 dark:text-teal-400 ml-auto">
+                    {georef.projectedCRS.geodeticDatum}
+                  </span>
+                </div>
+              )}
+              {georef.projectedCRS?.mapProjection && (
+                <div className="flex items-center gap-3 px-3 py-2">
+                  <span className="text-xs text-zinc-500 shrink-0">Projection</span>
+                  <span className="text-xs font-mono text-teal-700 dark:text-teal-400 ml-auto truncate max-w-[65%]">
+                    {georef.projectedCRS.mapProjection}
+                  </span>
+                </div>
+              )}
+              {georef.mapConversion && (
+                <>
+                  <div className="flex items-center gap-3 px-3 py-2">
+                    <span className="text-xs text-zinc-500 shrink-0">Eastings</span>
+                    <span className="text-xs font-mono text-teal-700 dark:text-teal-400 ml-auto tabular-nums">
+                      {georef.mapConversion.eastings.toFixed(3)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 px-3 py-2">
+                    <span className="text-xs text-zinc-500 shrink-0">Northings</span>
+                    <span className="text-xs font-mono text-teal-700 dark:text-teal-400 ml-auto tabular-nums">
+                      {georef.mapConversion.northings.toFixed(3)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 px-3 py-2">
+                    <span className="text-xs text-zinc-500 shrink-0">Height</span>
+                    <span className="text-xs font-mono text-teal-700 dark:text-teal-400 ml-auto tabular-nums">
+                      {georef.mapConversion.orthogonalHeight.toFixed(3)}
+                    </span>
+                  </div>
+                  {georef.mapConversion.scale != null && georef.mapConversion.scale !== 1.0 && (
+                    <div className="flex items-center gap-3 px-3 py-2">
+                      <span className="text-xs text-zinc-500 shrink-0">Scale</span>
+                      <span className="text-xs font-mono text-teal-700 dark:text-teal-400 ml-auto">
+                        {georef.mapConversion.scale}
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* IfcProject Data */}
         {projectData && (
