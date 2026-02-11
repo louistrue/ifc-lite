@@ -75,6 +75,7 @@ export function useLens() {
       useViewerStore.getState().setLensColorMap(new Map());
       useViewerStore.getState().setLensHiddenIds(new Set());
       useViewerStore.getState().setLensRuleCounts(new Map());
+      useViewerStore.getState().setLensRuleEntityIds(new Map());
 
       // Restore original mesh colors via lightweight pending path
       if (originalColorsRef.current && originalColorsRef.current.size > 0) {
@@ -100,7 +101,7 @@ export function useLens() {
 
     // Create data provider and evaluate lens using @ifc-lite/lens package
     const provider = createLensDataProvider(models, ifcDataStore);
-    const { colorMap, hiddenIds, ruleCounts } = evaluateLens(activeLens, provider);
+    const { colorMap, hiddenIds, ruleCounts, ruleEntityIds } = evaluateLens(activeLens, provider);
 
     // Build hex color map for UI legend (exclude ghost entries)
     const hexColorMap = new Map<number, string>();
@@ -112,6 +113,7 @@ export function useLens() {
     useViewerStore.getState().setLensColorMap(hexColorMap);
     useViewerStore.getState().setLensHiddenIds(hiddenIds);
     useViewerStore.getState().setLensRuleCounts(ruleCounts);
+    useViewerStore.getState().setLensRuleEntityIds(ruleEntityIds);
 
     // Apply ALL colors to renderer via pendingColorUpdates only —
     // no mesh cloning needed, the renderer picks these up directly

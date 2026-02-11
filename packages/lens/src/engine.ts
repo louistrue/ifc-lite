@@ -37,6 +37,7 @@ export function evaluateLens(
       colorMap: new Map(),
       hiddenIds: new Set(),
       ruleCounts: new Map(),
+      ruleEntityIds: new Map(),
       executionTime: performance.now() - startTime,
     };
   }
@@ -44,10 +45,12 @@ export function evaluateLens(
   const colorMap = new Map<number, RGBAColor>();
   const hiddenIds = new Set<number>();
   const ruleCounts = new Map<string, number>();
+  const ruleEntityIds = new Map<string, number[]>();
 
-  // Initialize rule counts to 0
+  // Initialize rule counts and entity ID lists
   for (const rule of enabledRules) {
     ruleCounts.set(rule.id, 0);
+    ruleEntityIds.set(rule.id, []);
   }
 
   // Evaluate all entities
@@ -59,6 +62,7 @@ export function evaluateLens(
       if (matchesCriteria(rule.criteria, globalId, provider)) {
         matched = true;
         ruleCounts.set(rule.id, (ruleCounts.get(rule.id) ?? 0) + 1);
+        ruleEntityIds.get(rule.id)!.push(globalId);
         applyRuleAction(rule, globalId, colorMap, hiddenIds);
         break;
       }
@@ -74,6 +78,7 @@ export function evaluateLens(
     colorMap,
     hiddenIds,
     ruleCounts,
+    ruleEntityIds,
     executionTime: performance.now() - startTime,
   };
 }

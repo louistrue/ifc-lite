@@ -395,19 +395,9 @@ export function LensPanel({ onClose }: LensPanelProps) {
     const rule = lens.rules.find(r => r.id === ruleId);
     if (!rule || !rule.enabled) return;
 
-    // Don't isolate rules with 0 matching entities
-    const count = useViewerStore.getState().lensRuleCounts.get(ruleId) ?? 0;
-    if (count === 0) return;
-
-    // Collect all entity IDs matching this rule's color from the computed lens color map
-    const ruleColor = rule.color.toUpperCase();
-    const colorMap = useViewerStore.getState().lensColorMap;
-    const matchingIds: number[] = [];
-    colorMap.forEach((color, globalId) => {
-      if (color.toUpperCase() === ruleColor) {
-        matchingIds.push(globalId);
-      }
-    });
+    // Look up entities matched by this specific rule (not by color)
+    const matchingIds = useViewerStore.getState().lensRuleEntityIds.get(ruleId);
+    if (!matchingIds || matchingIds.length === 0) return;
 
     if (matchingIds.length > 0) {
       setIsolatedRuleId(ruleId);
@@ -472,8 +462,18 @@ export function LensPanel({ onClose }: LensPanelProps) {
     reader.onload = () => {
       try {
         const parsed = JSON.parse(reader.result as string);
-        const arr = Array.isArray(parsed) ? parsed : [parsed];
-        importLenses(arr as Lens[]);
+        const arr: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
+        // Validate each entry has required Lens structure
+        const valid = arr.filter((item): item is Lens => {
+          if (item === null || typeof item !== 'object') return false;
+          const obj = item as Record<string, unknown>;
+          return typeof obj.id === 'string' && obj.id.length > 0
+            && typeof obj.name === 'string' && obj.name.length > 0
+            && Array.isArray(obj.rules);
+        });
+        if (valid.length > 0) {
+          importLenses(valid);
+        }
       } catch {
         // invalid JSON — silently ignore
       }

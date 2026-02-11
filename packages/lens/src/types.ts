@@ -124,6 +124,8 @@ export interface LensEvaluationResult {
   hiddenIds: Set<number>;
   /** Rule ID → matched entity count */
   ruleCounts: Map<string, number>;
+  /** Rule ID → matched entity global IDs (for isolation) */
+  ruleEntityIds: Map<string, number[]>;
   /** Wall-clock evaluation time in milliseconds */
   executionTime: number;
 }
