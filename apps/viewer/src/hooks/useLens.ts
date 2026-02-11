@@ -76,10 +76,45 @@ function matchesCriteria(
   }
 }
 
+/** Evaluate rules for a single dataStore, accumulating into colorMap/hiddenIds */
+function evaluateDataStore(
+  enabledRules: Lens['rules'],
+  dataStore: IfcDataStore,
+  idOffset: number,
+  colorMap: Map<number, [number, number, number, number]>,
+  hiddenIds: Set<number>,
+): void {
+  if (!dataStore.entities) return;
+
+  for (let i = 0; i < dataStore.entities.count; i++) {
+    const expressId = dataStore.entities.expressId[i];
+    const globalId = expressId + idOffset;
+
+    // First matching rule wins
+    for (const rule of enabledRules) {
+      if (matchesCriteria(rule.criteria, expressId, dataStore)) {
+        switch (rule.action) {
+          case 'colorize':
+            colorMap.set(globalId, hexToRgba(rule.color, 1));
+            break;
+          case 'transparent':
+            colorMap.set(globalId, hexToRgba(rule.color, 0.3));
+            break;
+          case 'hide':
+            hiddenIds.add(globalId);
+            break;
+        }
+        break; // First match wins
+      }
+    }
+  }
+}
+
 /** Evaluate a lens against all entities, returning color map and hidden IDs */
 function evaluateLens(
   lens: Lens,
   models: Map<string, FederatedModel>,
+  legacyDataStore: IfcDataStore | null,
 ): { colorMap: Map<number, [number, number, number, number]>; hiddenIds: Set<number> } {
   const colorMap = new Map<number, [number, number, number, number]>();
   const hiddenIds = new Set<number>();
@@ -87,33 +122,15 @@ function evaluateLens(
   const enabledRules = lens.rules.filter(r => r.enabled);
   if (enabledRules.length === 0) return { colorMap, hiddenIds };
 
-  for (const [, model] of models) {
-    const dataStore = model.ifcDataStore;
-    if (!dataStore?.entities) continue;
-    const idOffset = model.idOffset ?? 0;
-
-    for (let i = 0; i < dataStore.entities.count; i++) {
-      const expressId = dataStore.entities.expressId[i];
-      const globalId = expressId + idOffset;
-
-      // First matching rule wins
-      for (const rule of enabledRules) {
-        if (matchesCriteria(rule.criteria, expressId, dataStore)) {
-          switch (rule.action) {
-            case 'colorize':
-              colorMap.set(globalId, hexToRgba(rule.color, 1));
-              break;
-            case 'transparent':
-              colorMap.set(globalId, hexToRgba(rule.color, 0.3));
-              break;
-            case 'hide':
-              hiddenIds.add(globalId);
-              break;
-          }
-          break; // First match wins
-        }
-      }
+  if (models.size > 0) {
+    // Federation mode: evaluate across all models
+    for (const [, model] of models) {
+      if (!model.ifcDataStore) continue;
+      evaluateDataStore(enabledRules, model.ifcDataStore, model.idOffset ?? 0, colorMap, hiddenIds);
     }
+  } else if (legacyDataStore) {
+    // Single-model (legacy) mode: offset = 0
+    evaluateDataStore(enabledRules, legacyDataStore, 0, colorMap, hiddenIds);
   }
 
   return { colorMap, hiddenIds };
@@ -123,6 +140,7 @@ export function useLens() {
   const activeLensId = useViewerStore((s) => s.activeLensId);
   const savedLenses = useViewerStore((s) => s.savedLenses);
   const models = useViewerStore((s) => s.models);
+  const ifcDataStore = useViewerStore((s) => s.ifcDataStore);
   const updateMeshColors = useViewerStore((s) => s.updateMeshColors);
   const setLensColorMap = useViewerStore((s) => s.setLensColorMap);
   const setLensHiddenIds = useViewerStore((s) => s.setLensHiddenIds);
@@ -156,7 +174,8 @@ export function useLens() {
     }
 
     if (!activeLens) return;
-    if (models.size === 0) return;
+    // Need at least one data source: federation models or legacy single-model dataStore
+    if (models.size === 0 && !ifcDataStore) return;
 
     // Save original colors before first application
     if (prevLensIdRef.current === null) {
@@ -172,8 +191,8 @@ export function useLens() {
 
     prevLensIdRef.current = activeLensId;
 
-    // Evaluate lens rules against all entities
-    const { colorMap, hiddenIds } = evaluateLens(activeLens, models);
+    // Evaluate lens rules against all entities (federation or legacy single-model)
+    const { colorMap, hiddenIds } = evaluateLens(activeLens, models, ifcDataStore);
 
     // Update store with computed maps
     const hexColorMap = new Map<number, string>();
@@ -190,7 +209,7 @@ export function useLens() {
     if (colorMap.size > 0) {
       updateMeshColors(colorMap);
     }
-  }, [activeLensId, savedLenses, models, updateMeshColors, setLensColorMap, setLensHiddenIds, getGeometryMeshes]);
+  }, [activeLensId, savedLenses, models, ifcDataStore, updateMeshColors, setLensColorMap, setLensHiddenIds, getGeometryMeshes]);
 
   return {
     activeLensId,
