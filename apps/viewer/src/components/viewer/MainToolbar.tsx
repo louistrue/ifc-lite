@@ -15,6 +15,7 @@ import {
   Eye,
   EyeOff,
   Focus,
+  Crosshair,
   Home,
   Maximize2,
   Grid3x3,
@@ -39,6 +40,7 @@ import {
   PinOff,
   Palette,
   Orbit,
+  Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -649,7 +651,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon-sm">
-                  <Layers className="h-4 w-4" />
+                  <Building2 className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
@@ -661,7 +663,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
                 key={`${storey.modelId}-${storey.expressId}`}
                 onClick={() => activateFloorplan(storey)}
               >
-                <Layers className="h-4 w-4 mr-2" />
+                <Building2 className="h-4 w-4 mr-2" />
                 {storey.name}
                 <span className="ml-auto text-xs opacity-60">{storey.elevation.toFixed(1)}m</span>
               </DropdownMenuItem>
@@ -744,63 +746,59 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 
-      {/* Pinboard */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={(e) => {
-              (e.currentTarget as HTMLButtonElement).blur();
-              if (selectedEntity) addToPinboard([selectedEntity]);
-            }}
+      {/* Pinboard dropdown */}
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant={pinboardEntities.size > 0 ? 'default' : 'ghost'}
+                size="icon-sm"
+                className={cn(pinboardEntities.size > 0 && 'bg-primary text-primary-foreground relative')}
+              >
+                <Pin className="h-4 w-4" />
+                {pinboardEntities.size > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[9px] font-bold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5 border border-background">
+                    {pinboardEntities.size}
+                  </span>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Pinboard ({pinboardEntities.size})</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent>
+          <DropdownMenuItem
+            onClick={() => { if (selectedEntity) addToPinboard([selectedEntity]); }}
             disabled={!selectedEntity}
           >
-            <Pin className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Pin Selection</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={(e) => {
-              (e.currentTarget as HTMLButtonElement).blur();
-              if (selectedEntity) removeFromPinboard([selectedEntity]);
-            }}
+            <Pin className="h-4 w-4 mr-2" />
+            Pin Selection
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => { if (selectedEntity) removeFromPinboard([selectedEntity]); }}
             disabled={!selectedEntity}
           >
-            <PinOff className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Unpin Selection</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant={pinboardEntities.size > 0 ? 'default' : 'ghost'}
-            size="icon-sm"
-            onClick={(e) => {
-              (e.currentTarget as HTMLButtonElement).blur();
-              showPinboard();
-            }}
+            <PinOff className="h-4 w-4 mr-2" />
+            Unpin Selection
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={() => showPinboard()}
             disabled={pinboardEntities.size === 0}
-            className={cn(pinboardEntities.size > 0 && 'bg-primary text-primary-foreground relative')}
           >
-            <Eye className="h-4 w-4" />
-            {pinboardEntities.size > 0 && (
-              <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[9px] font-bold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5 border border-background">
-                {pinboardEntities.size}
-              </span>
-            )}
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Show Pinboard ({pinboardEntities.size})</TooltipContent>
-      </Tooltip>
+            <Eye className="h-4 w-4 mr-2" />
+            Show Pinboard
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => clearPinboard()}
+            disabled={pinboardEntities.size === 0}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Clear Pinboard
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {/* Lens (rule-based filtering) */}
       <Tooltip>
@@ -829,32 +827,12 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       <ActionButton icon={Home} label="Home (Isometric)" onClick={() => cameraCallbacks.home?.()} shortcut="H" />
       <ActionButton icon={Maximize2} label="Fit All" onClick={() => cameraCallbacks.fitAll?.()} shortcut="Z" />
       <ActionButton
-        icon={Focus}
+        icon={Crosshair}
         label="Frame Selection"
         onClick={() => cameraCallbacks.frameSelection?.()}
         shortcut="F"
         disabled={!selectedEntityId}
       />
-
-      {/* Projection toggle */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant={projectionMode === 'orthographic' ? 'default' : 'ghost'}
-            size="icon-sm"
-            onClick={(e) => {
-              (e.currentTarget as HTMLButtonElement).blur();
-              toggleProjectionMode();
-            }}
-            className={cn(projectionMode === 'orthographic' && 'bg-primary text-primary-foreground')}
-          >
-            <Orbit className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          {projectionMode === 'perspective' ? 'Switch to Orthographic' : 'Switch to Perspective'} <span className="ml-2 text-xs opacity-60">(5)</span>
-        </TooltipContent>
-      </Tooltip>
 
       <DropdownMenu>
         <Tooltip>
@@ -872,7 +850,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
             checked={projectionMode === 'orthographic'}
             onCheckedChange={() => toggleProjectionMode()}
           >
-            <Orbit className="h-4 w-4 mr-2" /> Orthographic <span className="ml-auto text-xs opacity-60">5</span>
+            <Orbit className="h-4 w-4 mr-2" /> Orthographic
           </DropdownMenuCheckboxItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => cameraCallbacks.home?.()}>

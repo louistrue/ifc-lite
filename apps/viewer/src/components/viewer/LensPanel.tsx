@@ -6,22 +6,26 @@
  * Lens panel — rule-based 3D filtering and coloring
  *
  * Shows saved lens presets and allows activating/deactivating them.
+ * Users can create, edit, and delete custom lenses with full rule editing.
  * When a lens is active, a color legend displays the matched rules.
+ * Unmatched entities are ghosted (semi-transparent) for visual context.
  */
 
-import { useCallback } from 'react';
-import { X, Eye, EyeOff, Palette, Check } from 'lucide-react';
+import { useCallback, useState } from 'react';
+import { X, EyeOff, Palette, Check, Plus, Trash2, Pencil, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useViewerStore } from '@/store';
 import { useLens } from '@/hooks/useLens';
 import type { Lens, LensRule } from '@/store/slices/lensSlice';
+import { COMMON_IFC_TYPES, LENS_PALETTE } from '@/store/slices/lensSlice';
 
 interface LensPanelProps {
   onClose?: () => void;
 }
 
-/** Single rule row showing color swatch, name, and action */
+// ─── Rule display (read-only) ───────────────────────────────────────────────
+
 function RuleRow({ rule }: { rule: LensRule }) {
   return (
     <div
@@ -30,7 +34,6 @@ function RuleRow({ rule }: { rule: LensRule }) {
         !rule.enabled && 'opacity-40',
       )}
     >
-      {/* Color swatch */}
       <div
         className="w-3 h-3 border border-zinc-300 dark:border-zinc-600 flex-shrink-0"
         style={{ backgroundColor: rule.color }}
@@ -45,20 +48,183 @@ function RuleRow({ rule }: { rule: LensRule }) {
   );
 }
 
-/** Lens card showing name and activation state */
+// ─── Rule editor (inline editing) ───────────────────────────────────────────
+
+function RuleEditor({
+  rule,
+  onChange,
+  onRemove,
+}: {
+  rule: LensRule;
+  onChange: (patch: Partial<LensRule>) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-1 px-2 py-1">
+      <input
+        type="color"
+        value={rule.color}
+        onChange={(e) => onChange({ color: e.target.value })}
+        className="w-5 h-5 cursor-pointer border-0 p-0 bg-transparent flex-shrink-0"
+      />
+      <select
+        value={rule.criteria.ifcType ?? ''}
+        onChange={(e) => {
+          const ifcType = e.target.value;
+          onChange({
+            criteria: { type: 'ifcType', ifcType },
+            name: ifcType ? ifcType.replace('Ifc', '') : rule.name,
+          });
+        }}
+        className="flex-1 min-w-0 text-[11px] px-1 py-0.5 bg-zinc-100 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-none"
+      >
+        <option value="">Type...</option>
+        {COMMON_IFC_TYPES.map(t => (
+          <option key={t} value={t}>{t.replace('Ifc', '')}</option>
+        ))}
+      </select>
+      <select
+        value={rule.action}
+        onChange={(e) => onChange({ action: e.target.value as LensRule['action'] })}
+        className="text-[11px] px-1 py-0.5 bg-zinc-100 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-none w-16"
+      >
+        <option value="colorize">Color</option>
+        <option value="transparent">Transp</option>
+        <option value="hide">Hide</option>
+      </select>
+      <button
+        onClick={onRemove}
+        className="text-zinc-400 hover:text-red-500 p-0.5 flex-shrink-0"
+        title="Remove rule"
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
+// ─── Lens editor (create/edit mode) ─────────────────────────────────────────
+
+function LensEditor({
+  initial,
+  onSave,
+  onCancel,
+}: {
+  initial: Lens;
+  onSave: (lens: Lens) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(initial.name);
+  const [rules, setRules] = useState<LensRule[]>(() =>
+    initial.rules.map(r => ({ ...r })),
+  );
+
+  const addRule = () => {
+    const colorIndex = rules.length % LENS_PALETTE.length;
+    setRules([...rules, {
+      id: `rule-${Date.now()}-${rules.length}`,
+      name: 'New Rule',
+      enabled: true,
+      criteria: { type: 'ifcType', ifcType: '' },
+      action: 'colorize',
+      color: LENS_PALETTE[colorIndex],
+    }]);
+  };
+
+  const updateRule = (index: number, patch: Partial<LensRule>) => {
+    setRules(rules.map((r, i) => i === index ? { ...r, ...patch } : r));
+  };
+
+  const removeRule = (index: number) => {
+    setRules(rules.filter((_, i) => i !== index));
+  };
+
+  const handleSave = () => {
+    const validRules = rules.filter(r => r.criteria.ifcType);
+    if (!name.trim() || validRules.length === 0) return;
+    onSave({ ...initial, name: name.trim(), rules: validRules });
+  };
+
+  const canSave = name.trim().length > 0 && rules.some(r => r.criteria.ifcType);
+
+  return (
+    <div className="border-2 border-primary bg-primary/5 dark:bg-primary/10">
+      {/* Name input */}
+      <div className="px-3 pt-3 pb-2">
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Lens name..."
+          className="w-full px-2 py-1.5 text-xs font-bold uppercase tracking-wider bg-zinc-100 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100 rounded-none placeholder:normal-case placeholder:font-normal"
+          autoFocus
+        />
+      </div>
+
+      {/* Rules */}
+      <div className="border-t border-zinc-200 dark:border-zinc-800 py-1">
+        {rules.map((rule, i) => (
+          <RuleEditor
+            key={rule.id}
+            rule={rule}
+            onChange={(patch) => updateRule(i, patch)}
+            onRemove={() => removeRule(i)}
+          />
+        ))}
+
+        <button
+          onClick={addRule}
+          className="flex items-center gap-1 px-3 py-1.5 text-[11px] text-primary hover:text-primary/80 w-full"
+        >
+          <Plus className="h-3 w-3" />
+          Add Rule
+        </button>
+      </div>
+
+      {/* Actions */}
+      <div className="flex gap-1 p-2 border-t border-zinc-200 dark:border-zinc-800">
+        <Button
+          variant="default"
+          size="sm"
+          className="flex-1 h-7 text-[10px] uppercase tracking-wider rounded-none"
+          onClick={handleSave}
+          disabled={!canSave}
+        >
+          <Save className="h-3 w-3 mr-1" />
+          Save
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 text-[10px] uppercase tracking-wider rounded-none"
+          onClick={onCancel}
+        >
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Lens card (read-only display) ──────────────────────────────────────────
+
 function LensCard({
   lens,
   isActive,
   onToggle,
+  onEdit,
+  onDelete,
 }: {
   lens: Lens;
   isActive: boolean;
   onToggle: (id: string) => void;
+  onEdit?: (lens: Lens) => void;
+  onDelete?: (id: string) => void;
 }) {
   return (
     <div
       className={cn(
-        'border-2 transition-colors cursor-pointer',
+        'border-2 transition-colors cursor-pointer group',
         isActive
           ? 'border-primary bg-primary/5 dark:bg-primary/10'
           : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 hover:border-zinc-300 dark:hover:border-zinc-700',
@@ -67,19 +233,40 @@ function LensCard({
     >
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           {isActive ? (
-            <Check className="h-3.5 w-3.5 text-primary" />
+            <Check className="h-3.5 w-3.5 text-primary flex-shrink-0" />
           ) : (
-            <Palette className="h-3.5 w-3.5 text-zinc-400" />
+            <Palette className="h-3.5 w-3.5 text-zinc-400 flex-shrink-0" />
           )}
-          <span className="text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-zinc-100">
+          <span className="text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-zinc-100 truncate">
             {lens.name}
           </span>
         </div>
-        <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono">
-          {lens.rules.filter(r => r.enabled).length} rules
-        </span>
+        <div className="flex items-center gap-1">
+          {/* Edit/delete for custom lenses */}
+          {!lens.builtin && onEdit && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onEdit(lens); }}
+              className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 p-0.5"
+              title="Edit lens"
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
+          )}
+          {!lens.builtin && onDelete && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(lens.id); }}
+              className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-red-500 p-0.5"
+              title="Delete lens"
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          )}
+          <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono ml-1">
+            {lens.rules.filter(r => r.enabled).length} rules
+          </span>
+        </div>
       </div>
 
       {/* Color legend (shown when active) */}
@@ -94,16 +281,24 @@ function LensCard({
   );
 }
 
+// ─── Main panel ─────────────────────────────────────────────────────────────
+
 export function LensPanel({ onClose }: LensPanelProps) {
   const { activeLensId, savedLenses } = useLens();
   const setActiveLens = useViewerStore((s) => s.setActiveLens);
+  const createLens = useViewerStore((s) => s.createLens);
+  const updateLens = useViewerStore((s) => s.updateLens);
+  const deleteLens = useViewerStore((s) => s.deleteLens);
   const lensHiddenIds = useViewerStore((s) => s.lensHiddenIds);
+  const lensColorMap = useViewerStore((s) => s.lensColorMap);
   const hideEntities = useViewerStore((s) => s.hideEntities);
   const showAll = useViewerStore((s) => s.showAll);
 
+  // Editor state: null = not editing, Lens object = editing/creating
+  const [editingLens, setEditingLens] = useState<Lens | null>(null);
+
   const handleToggle = useCallback((id: string) => {
     if (activeLensId === id) {
-      // Deactivate — restore visibility
       setActiveLens(null);
       showAll();
     } else {
@@ -111,18 +306,45 @@ export function LensPanel({ onClose }: LensPanelProps) {
     }
   }, [activeLensId, setActiveLens, showAll]);
 
-  // When lens hidden IDs change and we have an active lens, apply hiding
-  // This runs as a side effect of lens evaluation (useLens hook)
-  // We apply the hiding here because HierarchyPanel's visibility system is used
+  const handleNewLens = useCallback(() => {
+    setEditingLens({
+      id: `lens-${Date.now()}`,
+      name: '',
+      rules: [],
+    });
+  }, []);
+
+  const handleEditLens = useCallback((lens: Lens) => {
+    setEditingLens({ ...lens, rules: lens.rules.map(r => ({ ...r })) });
+  }, []);
+
+  const handleSaveLens = useCallback((lens: Lens) => {
+    // Check if this is an existing lens or new
+    const exists = savedLenses.some(l => l.id === lens.id);
+    if (exists) {
+      updateLens(lens.id, { name: lens.name, rules: lens.rules });
+    } else {
+      createLens(lens);
+    }
+    setEditingLens(null);
+  }, [savedLenses, createLens, updateLens]);
+
+  const handleDeleteLens = useCallback((id: string) => {
+    if (activeLensId === id) {
+      setActiveLens(null);
+      showAll();
+    }
+    deleteLens(id);
+  }, [activeLensId, setActiveLens, showAll, deleteLens]);
+
+  // Apply hidden entities when they change
   const handleApplyHidden = useCallback(() => {
     if (lensHiddenIds.size > 0) {
       hideEntities(Array.from(lensHiddenIds));
     }
   }, [lensHiddenIds, hideEntities]);
 
-  // Apply hidden entities when they change
   if (lensHiddenIds.size > 0 && activeLensId) {
-    // Defer to avoid calling during render
     queueMicrotask(handleApplyHidden);
   }
 
@@ -161,31 +383,53 @@ export function LensPanel({ onClose }: LensPanelProps) {
         </div>
       </div>
 
-      {/* Lens list */}
+      {/* Lens list + editor */}
       <div className="flex-1 overflow-auto p-3 space-y-2">
-        {savedLenses.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            <Eye className="h-8 w-8 text-zinc-300 dark:text-zinc-700 mb-2" />
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              No lenses defined
-            </p>
-          </div>
-        ) : (
-          savedLenses.map(lens => (
+        {savedLenses.map(lens => (
+          editingLens?.id === lens.id ? (
+            <LensEditor
+              key={lens.id}
+              initial={editingLens}
+              onSave={handleSaveLens}
+              onCancel={() => setEditingLens(null)}
+            />
+          ) : (
             <LensCard
               key={lens.id}
               lens={lens}
               isActive={activeLensId === lens.id}
               onToggle={handleToggle}
+              onEdit={handleEditLens}
+              onDelete={handleDeleteLens}
             />
-          ))
+          )
+        ))}
+
+        {/* New lens editor (when creating) */}
+        {editingLens && !savedLenses.some(l => l.id === editingLens.id) && (
+          <LensEditor
+            initial={editingLens}
+            onSave={handleSaveLens}
+            onCancel={() => setEditingLens(null)}
+          />
+        )}
+
+        {/* New lens button */}
+        {!editingLens && (
+          <button
+            onClick={handleNewLens}
+            className="w-full border-2 border-dashed border-zinc-300 dark:border-zinc-700 hover:border-primary dark:hover:border-primary py-2.5 flex items-center justify-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400 hover:text-primary transition-colors"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New Lens
+          </button>
         )}
       </div>
 
       {/* Status footer */}
       <div className="p-2 border-t-2 border-zinc-200 dark:border-zinc-800 text-[10px] uppercase tracking-wide text-zinc-500 text-center bg-zinc-50 dark:bg-black font-mono">
         {activeLensId
-          ? `Active · ${lensHiddenIds.size > 0 ? `${lensHiddenIds.size} hidden` : 'Colorized'}`
+          ? `Active · ${lensColorMap.size} colored · ${lensHiddenIds.size > 0 ? `${lensHiddenIds.size} hidden` : 'ghosted'}`
           : 'Click a lens to activate'}
       </div>
     </div>

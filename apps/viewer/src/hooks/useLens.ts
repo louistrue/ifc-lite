@@ -7,12 +7,16 @@
  *
  * Evaluates active lens rules against all entities across all models,
  * producing a color map and hidden IDs set that are applied to the renderer.
+ * Unmatched entities with geometry are ghosted (semi-transparent).
  */
 
 import { useEffect, useRef, useCallback } from 'react';
 import type { IfcDataStore } from '@ifc-lite/parser';
 import { useViewerStore, type FederatedModel } from '@/store';
 import type { LensCriteria, Lens } from '@/store/slices/lensSlice';
+
+/** Ghost color for unmatched entities: faint gray at low opacity */
+const GHOST_COLOR: [number, number, number, number] = [0.6, 0.6, 0.6, 0.15];
 
 /** Parse hex color string to RGBA tuple (0-1 range) */
 function hexToRgba(hex: string, alpha: number): [number, number, number, number] {
@@ -91,8 +95,10 @@ function evaluateDataStore(
     const globalId = expressId + idOffset;
 
     // First matching rule wins
+    let matched = false;
     for (const rule of enabledRules) {
       if (matchesCriteria(rule.criteria, expressId, dataStore)) {
+        matched = true;
         switch (rule.action) {
           case 'colorize':
             colorMap.set(globalId, hexToRgba(rule.color, 1));
@@ -106,6 +112,11 @@ function evaluateDataStore(
         }
         break; // First match wins
       }
+    }
+
+    // Ghost unmatched entities — they'll be faded out for context
+    if (!matched) {
+      colorMap.set(globalId, GHOST_COLOR);
     }
   }
 }
@@ -150,10 +161,34 @@ export function useLens() {
   // Track original colors to restore when lens is deactivated
   const originalColorsRef = useRef<Map<number, [number, number, number, number]> | null>(null);
 
-  // Store reference to geometry for restoring colors
-  const getGeometryMeshes = useCallback(() => {
+  /** Collect original mesh colors from all geometry sources (federation + legacy) */
+  const captureOriginalColors = useCallback(() => {
     const state = useViewerStore.getState();
-    return state.geometryResult?.meshes ?? [];
+    const originals = new Map<number, [number, number, number, number]>();
+
+    // Federation mode: collect from all model geometries
+    if (state.models.size > 0) {
+      for (const [, model] of state.models) {
+        if (model.geometryResult?.meshes) {
+          for (const mesh of model.geometryResult.meshes) {
+            if (mesh.color) {
+              originals.set(mesh.expressId, mesh.color as [number, number, number, number]);
+            }
+          }
+        }
+      }
+    }
+
+    // Legacy mode: collect from store geometryResult
+    if (state.geometryResult?.meshes) {
+      for (const mesh of state.geometryResult.meshes) {
+        if (mesh.color) {
+          originals.set(mesh.expressId, mesh.color as [number, number, number, number]);
+        }
+      }
+    }
+
+    return originals;
   }, []);
 
   useEffect(() => {
@@ -168,8 +203,8 @@ export function useLens() {
       // Restore original mesh colors
       if (originalColorsRef.current && originalColorsRef.current.size > 0) {
         updateMeshColors(originalColorsRef.current);
-        originalColorsRef.current = null;
       }
+      originalColorsRef.current = null;
       return;
     }
 
@@ -177,26 +212,23 @@ export function useLens() {
     // Need at least one data source: federation models or legacy single-model dataStore
     if (models.size === 0 && !ifcDataStore) return;
 
-    // Save original colors before first application
+    // Save original colors before first lens application
     if (prevLensIdRef.current === null) {
-      const meshes = getGeometryMeshes();
-      const originals = new Map<number, [number, number, number, number]>();
-      for (const mesh of meshes) {
-        if (mesh.color) {
-          originals.set(mesh.expressId, mesh.color as [number, number, number, number]);
-        }
-      }
-      originalColorsRef.current = originals;
+      originalColorsRef.current = captureOriginalColors();
     }
 
     prevLensIdRef.current = activeLensId;
 
     // Evaluate lens rules against all entities (federation or legacy single-model)
+    // Ghost coloring is included: unmatched entities get GHOST_COLOR
+    // This ensures switching lenses fully overwrites all entities
     const { colorMap, hiddenIds } = evaluateLens(activeLens, models, ifcDataStore);
 
-    // Update store with computed maps
+    // Build hex color map for UI legend (exclude ghost entries)
     const hexColorMap = new Map<number, string>();
     for (const [id, rgba] of colorMap) {
+      // Skip ghost entries (alpha < 0.2) — they're only for rendering
+      if (rgba[3] < 0.2) continue;
       const r = Math.round(rgba[0] * 255).toString(16).padStart(2, '0');
       const g = Math.round(rgba[1] * 255).toString(16).padStart(2, '0');
       const b = Math.round(rgba[2] * 255).toString(16).padStart(2, '0');
@@ -205,11 +237,11 @@ export function useLens() {
     setLensColorMap(hexColorMap);
     setLensHiddenIds(hiddenIds);
 
-    // Apply colors to renderer via pendingColorUpdates
+    // Apply ALL colors to renderer (matched + ghost) via pendingColorUpdates
     if (colorMap.size > 0) {
       updateMeshColors(colorMap);
     }
-  }, [activeLensId, savedLenses, models, ifcDataStore, updateMeshColors, setLensColorMap, setLensHiddenIds, getGeometryMeshes]);
+  }, [activeLensId, savedLenses, models, ifcDataStore, updateMeshColors, setLensColorMap, setLensHiddenIds, captureOriginalColors]);
 
   return {
     activeLensId,

@@ -8,6 +8,7 @@
  * Rule-based 3D filtering and coloring system.
  * Users define rules matching IFC type/property/material criteria,
  * and entities are colorized, hidden, or made transparent accordingly.
+ * Unmatched entities are ghosted (semi-transparent) for context.
  */
 
 import type { StateCreator } from 'zustand';
@@ -45,6 +46,8 @@ export interface Lens {
   id: string;
   name: string;
   rules: LensRule[];
+  /** Built-in presets cannot be deleted */
+  builtin?: boolean;
   /** Auto-color mode: color entities by distinct property values */
   autoColorProperty?: {
     propertySetName: string;
@@ -52,11 +55,38 @@ export interface Lens {
   };
 }
 
+/** Common IFC types for the lens rule editor */
+export const COMMON_IFC_TYPES = [
+  'IfcWall', 'IfcWallStandardCase',
+  'IfcSlab', 'IfcSlabStandardCase',
+  'IfcColumn', 'IfcColumnStandardCase',
+  'IfcBeam', 'IfcBeamStandardCase',
+  'IfcDoor', 'IfcWindow',
+  'IfcStairFlight', 'IfcStair',
+  'IfcRoof', 'IfcRamp', 'IfcRampFlight',
+  'IfcRailing', 'IfcCovering',
+  'IfcCurtainWall', 'IfcPlate',
+  'IfcFooting', 'IfcPile',
+  'IfcMember', 'IfcBuildingElementProxy',
+  'IfcFurnishingElement', 'IfcSpace',
+  'IfcFlowSegment', 'IfcFlowTerminal', 'IfcFlowFitting',
+  'IfcDistributionElement',
+  'IfcOpeningElement',
+] as const;
+
+/** Preset colors for new lens rules */
+export const LENS_PALETTE = [
+  '#FF4444', '#FF8800', '#FFCC00', '#88CC44',
+  '#44BB88', '#4488CC', '#6644CC', '#CC44AA',
+  '#8B7355', '#A0A0A0', '#CD853F', '#87CEEB',
+] as const;
+
 /** Built-in Lens presets */
 const BUILTIN_LENSES: Lens[] = [
   {
     id: 'lens-by-type',
     name: 'By IFC Type',
+    builtin: true,
     rules: [
       { id: 'wall', name: 'Walls', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcWall' }, action: 'colorize', color: '#8B7355' },
       { id: 'slab', name: 'Slabs', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcSlab' }, action: 'colorize', color: '#A0A0A0' },
@@ -70,13 +100,37 @@ const BUILTIN_LENSES: Lens[] = [
   },
   {
     id: 'lens-structural',
-    name: 'Structural Elements',
+    name: 'Structural',
+    builtin: true,
     rules: [
       { id: 'col', name: 'Columns', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcColumn' }, action: 'colorize', color: '#FF4444' },
       { id: 'beam', name: 'Beams', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcBeam' }, action: 'colorize', color: '#FF8800' },
       { id: 'slab', name: 'Slabs', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcSlab' }, action: 'colorize', color: '#FFCC00' },
       { id: 'footing', name: 'Footings', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcFooting' }, action: 'colorize', color: '#88CC44' },
-      { id: 'wall', name: 'Walls', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcWall' }, action: 'transparent', color: '#CCCCCC' },
+    ],
+  },
+  {
+    id: 'lens-envelope',
+    name: 'Building Envelope',
+    builtin: true,
+    rules: [
+      { id: 'roof', name: 'Roofs', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcRoof' }, action: 'colorize', color: '#CC4444' },
+      { id: 'curtwall', name: 'Curtain Walls', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcCurtainWall' }, action: 'colorize', color: '#4488CC' },
+      { id: 'window', name: 'Windows', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcWindow' }, action: 'colorize', color: '#87CEEB' },
+      { id: 'door', name: 'Doors', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcDoor' }, action: 'colorize', color: '#4682B4' },
+      { id: 'wall', name: 'Walls', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcWall' }, action: 'colorize', color: '#D4A76A' },
+    ],
+  },
+  {
+    id: 'lens-openings',
+    name: 'Openings & Circulation',
+    builtin: true,
+    rules: [
+      { id: 'door', name: 'Doors', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcDoor' }, action: 'colorize', color: '#4682B4' },
+      { id: 'window', name: 'Windows', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcWindow' }, action: 'colorize', color: '#87CEEB' },
+      { id: 'stair', name: 'Stairs', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcStairFlight' }, action: 'colorize', color: '#DEB887' },
+      { id: 'ramp', name: 'Ramps', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcRamp' }, action: 'colorize', color: '#A0D468' },
+      { id: 'railing', name: 'Railings', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcRailing' }, action: 'colorize', color: '#888888' },
     ],
   },
 ];
@@ -121,10 +175,14 @@ export const createLensSlice: StateCreator<LensSlice, [], [], LensSlice> = (set,
     savedLenses: state.savedLenses.map(l => l.id === id ? { ...l, ...patch } : l),
   })),
 
-  deleteLens: (id) => set((state) => ({
-    savedLenses: state.savedLenses.filter(l => l.id !== id),
-    activeLensId: state.activeLensId === id ? null : state.activeLensId,
-  })),
+  deleteLens: (id) => set((state) => {
+    const lens = state.savedLenses.find(l => l.id === id);
+    if (lens?.builtin) return {};
+    return {
+      savedLenses: state.savedLenses.filter(l => l.id !== id),
+      activeLensId: state.activeLensId === id ? null : state.activeLensId,
+    };
+  }),
 
   setActiveLens: (activeLensId) => set({ activeLensId }),
 
