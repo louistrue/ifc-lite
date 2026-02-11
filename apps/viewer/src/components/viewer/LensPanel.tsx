@@ -35,13 +35,13 @@ function RuleRow({ rule }: { rule: LensRule }) {
       )}
     >
       <div
-        className="w-3 h-3 border border-zinc-300 dark:border-zinc-600 flex-shrink-0"
+        className="w-3 h-3 rounded-sm flex-shrink-0 ring-1 ring-black/10 dark:ring-white/20"
         style={{ backgroundColor: rule.color }}
       />
-      <span className="flex-1 truncate text-zinc-800 dark:text-zinc-200">
+      <span className="flex-1 truncate font-medium text-zinc-900 dark:text-zinc-50">
         {rule.name}
       </span>
-      <span className="text-[10px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+      <span className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 dark:text-zinc-400">
         {rule.action}
       </span>
     </div>
@@ -60,12 +60,12 @@ function RuleEditor({
   onRemove: () => void;
 }) {
   return (
-    <div className="flex items-center gap-1 px-2 py-1">
+    <div className="flex items-center gap-1.5 px-2 py-1.5">
       <input
         type="color"
         value={rule.color}
         onChange={(e) => onChange({ color: e.target.value })}
-        className="w-5 h-5 cursor-pointer border-0 p-0 bg-transparent flex-shrink-0"
+        className="w-6 h-6 cursor-pointer border-0 p-0 bg-transparent flex-shrink-0 rounded"
       />
       <select
         value={rule.criteria.ifcType ?? ''}
@@ -76,7 +76,7 @@ function RuleEditor({
             name: ifcType ? ifcType.replace('Ifc', '') : rule.name,
           });
         }}
-        className="flex-1 min-w-0 text-[11px] px-1 py-0.5 bg-zinc-100 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-none"
+        className="flex-1 min-w-0 text-xs px-1.5 py-1 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 text-zinc-900 dark:text-zinc-100 rounded-sm"
       >
         <option value="">Type...</option>
         {COMMON_IFC_TYPES.map(t => (
@@ -86,7 +86,7 @@ function RuleEditor({
       <select
         value={rule.action}
         onChange={(e) => onChange({ action: e.target.value as LensRule['action'] })}
-        className="text-[11px] px-1 py-0.5 bg-zinc-100 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-none w-16"
+        className="text-xs px-1.5 py-1 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 text-zinc-900 dark:text-zinc-100 rounded-sm w-[72px]"
       >
         <option value="colorize">Color</option>
         <option value="transparent">Transp</option>
@@ -94,10 +94,10 @@ function RuleEditor({
       </select>
       <button
         onClick={onRemove}
-        className="text-zinc-400 hover:text-red-500 p-0.5 flex-shrink-0"
+        className="text-zinc-400 hover:text-red-500 dark:text-zinc-500 dark:hover:text-red-400 p-0.5 flex-shrink-0"
         title="Remove rule"
       >
-        <X className="h-3 w-3" />
+        <X className="h-3.5 w-3.5" />
       </button>
     </div>
   );
@@ -148,7 +148,7 @@ function LensEditor({
   const canSave = name.trim().length > 0 && rules.some(r => r.criteria.ifcType);
 
   return (
-    <div className="border-2 border-primary bg-primary/5 dark:bg-primary/10">
+    <div className="border-2 border-primary bg-white dark:bg-zinc-900 rounded-sm">
       {/* Name input */}
       <div className="px-3 pt-3 pb-2">
         <input
@@ -156,13 +156,13 @@ function LensEditor({
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Lens name..."
-          className="w-full px-2 py-1.5 text-xs font-bold uppercase tracking-wider bg-zinc-100 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100 rounded-none placeholder:normal-case placeholder:font-normal"
+          className="w-full px-2 py-1.5 text-xs font-bold uppercase tracking-wider bg-zinc-50 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 text-zinc-900 dark:text-zinc-100 rounded-sm placeholder:normal-case placeholder:font-normal placeholder:text-zinc-400 dark:placeholder:text-zinc-500"
           autoFocus
         />
       </div>
 
       {/* Rules */}
-      <div className="border-t border-zinc-200 dark:border-zinc-800 py-1">
+      <div className="border-t border-zinc-200 dark:border-zinc-700 py-1 bg-zinc-50/50 dark:bg-zinc-800/50">
         {rules.map((rule, i) => (
           <RuleEditor
             key={rule.id}
@@ -174,19 +174,19 @@ function LensEditor({
 
         <button
           onClick={addRule}
-          className="flex items-center gap-1 px-3 py-1.5 text-[11px] text-primary hover:text-primary/80 w-full"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary hover:text-primary/80 w-full"
         >
-          <Plus className="h-3 w-3" />
+          <Plus className="h-3.5 w-3.5" />
           Add Rule
         </button>
       </div>
 
       {/* Actions */}
-      <div className="flex gap-1 p-2 border-t border-zinc-200 dark:border-zinc-800">
+      <div className="flex gap-1.5 p-2 border-t border-zinc-200 dark:border-zinc-700">
         <Button
           variant="default"
           size="sm"
-          className="flex-1 h-7 text-[10px] uppercase tracking-wider rounded-none"
+          className="flex-1 h-7 text-[10px] uppercase tracking-wider rounded-sm"
           onClick={handleSave}
           disabled={!canSave}
         >
@@ -196,7 +196,7 @@ function LensEditor({
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 text-[10px] uppercase tracking-wider rounded-none"
+          className="h-7 text-[10px] uppercase tracking-wider rounded-sm"
           onClick={onCancel}
         >
           Cancel
@@ -224,10 +224,10 @@ function LensCard({
   return (
     <div
       className={cn(
-        'border-2 transition-colors cursor-pointer group',
+        'border-2 transition-colors cursor-pointer group rounded-sm',
         isActive
-          ? 'border-primary bg-primary/5 dark:bg-primary/10'
-          : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 hover:border-zinc-300 dark:hover:border-zinc-700',
+          ? 'border-primary bg-white dark:bg-zinc-900'
+          : 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:border-zinc-400 dark:hover:border-zinc-500',
       )}
       onClick={() => onToggle(lens.id)}
     >
@@ -237,7 +237,7 @@ function LensCard({
           {isActive ? (
             <Check className="h-3.5 w-3.5 text-primary flex-shrink-0" />
           ) : (
-            <Palette className="h-3.5 w-3.5 text-zinc-400 flex-shrink-0" />
+            <Palette className="h-3.5 w-3.5 text-zinc-400 dark:text-zinc-500 flex-shrink-0" />
           )}
           <span className="text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-zinc-100 truncate">
             {lens.name}
@@ -248,7 +248,7 @@ function LensCard({
           {!lens.builtin && onEdit && (
             <button
               onClick={(e) => { e.stopPropagation(); onEdit(lens); }}
-              className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 p-0.5"
+              className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-200 p-0.5"
               title="Edit lens"
             >
               <Pencil className="h-3 w-3" />
@@ -257,13 +257,13 @@ function LensCard({
           {!lens.builtin && onDelete && (
             <button
               onClick={(e) => { e.stopPropagation(); onDelete(lens.id); }}
-              className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-red-500 p-0.5"
+              className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-red-500 dark:text-zinc-500 dark:hover:text-red-400 p-0.5"
               title="Delete lens"
             >
               <Trash2 className="h-3 w-3" />
             </button>
           )}
-          <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono ml-1">
+          <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-mono ml-1">
             {lens.rules.filter(r => r.enabled).length} rules
           </span>
         </div>
@@ -271,7 +271,7 @@ function LensCard({
 
       {/* Color legend (shown when active) */}
       {isActive && (
-        <div className="border-t border-zinc-200 dark:border-zinc-800 py-1">
+        <div className="border-t border-zinc-200 dark:border-zinc-700 py-1 bg-zinc-50 dark:bg-zinc-800/60">
           {lens.rules.map(rule => (
             <RuleRow key={rule.id} rule={rule} />
           ))}
@@ -349,9 +349,9 @@ export function LensPanel({ onClose }: LensPanelProps) {
   }
 
   return (
-    <div className="h-full flex flex-col bg-white dark:bg-black">
+    <div className="h-full flex flex-col bg-white dark:bg-zinc-950">
       {/* Header */}
-      <div className="flex items-center justify-between p-3 border-b-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-black">
+      <div className="flex items-center justify-between p-3 border-b-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900">
         <div className="flex items-center gap-2">
           <Palette className="h-4 w-4 text-primary" />
           <h2 className="font-bold uppercase tracking-wider text-xs text-zinc-900 dark:text-zinc-100">
@@ -363,7 +363,7 @@ export function LensPanel({ onClose }: LensPanelProps) {
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 text-[10px] uppercase tracking-wider rounded-none"
+              className="h-7 text-[10px] uppercase tracking-wider rounded-sm"
               onClick={() => { setActiveLens(null); showAll(); }}
             >
               <EyeOff className="h-3 w-3 mr-1" />
@@ -374,7 +374,7 @@ export function LensPanel({ onClose }: LensPanelProps) {
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 w-7 p-0 rounded-none"
+              className="h-7 w-7 p-0 rounded-sm"
               onClick={onClose}
             >
               <X className="h-4 w-4" />
@@ -418,7 +418,7 @@ export function LensPanel({ onClose }: LensPanelProps) {
         {!editingLens && (
           <button
             onClick={handleNewLens}
-            className="w-full border-2 border-dashed border-zinc-300 dark:border-zinc-700 hover:border-primary dark:hover:border-primary py-2.5 flex items-center justify-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400 hover:text-primary transition-colors"
+            className="w-full border-2 border-dashed border-zinc-300 dark:border-zinc-600 hover:border-primary dark:hover:border-primary py-2.5 flex items-center justify-center gap-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400 hover:text-primary transition-colors rounded-sm"
           >
             <Plus className="h-3.5 w-3.5" />
             New Lens
@@ -427,7 +427,7 @@ export function LensPanel({ onClose }: LensPanelProps) {
       </div>
 
       {/* Status footer */}
-      <div className="p-2 border-t-2 border-zinc-200 dark:border-zinc-800 text-[10px] uppercase tracking-wide text-zinc-500 text-center bg-zinc-50 dark:bg-black font-mono">
+      <div className="p-2 border-t-2 border-zinc-200 dark:border-zinc-800 text-[10px] uppercase tracking-wide text-zinc-600 dark:text-zinc-400 text-center bg-zinc-50 dark:bg-zinc-900 font-mono">
         {activeLensId
           ? `Active · ${lensColorMap.size} colored · ${lensHiddenIds.size > 0 ? `${lensHiddenIds.size} hidden` : 'ghosted'}`
           : 'Click a lens to activate'}

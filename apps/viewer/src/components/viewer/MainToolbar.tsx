@@ -411,7 +411,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
   return (
     <div className="flex items-center gap-1 px-2 h-12 border-b bg-white dark:bg-black border-zinc-200 dark:border-zinc-800 relative z-50">
-      {/* File Operations */}
+      {/* ── File Operations ── */}
       <input
         ref={fileInputRef}
         type="file"
@@ -565,6 +565,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       {/* Export Changes Button - shows when there are pending mutations */}
       <ExportChangesButton />
 
+      {/* ── Panels ── */}
       {/* BCF Issues Button */}
       <Tooltip>
         <TooltipTrigger asChild>
@@ -632,7 +633,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 
-      {/* Navigation Tools */}
+      {/* ── Navigation Tools ── */}
       <ToolButton tool="select" icon={MousePointer2} label="Select" shortcut="V" activeTool={activeTool} onToolChange={setActiveTool} />
       <ToolButton tool="pan" icon={Hand} label="Pan" shortcut="P" activeTool={activeTool} onToolChange={setActiveTool} />
       <ToolButton tool="orbit" icon={Rotate3d} label="Orbit" shortcut="O" activeTool={activeTool} onToolChange={setActiveTool} />
@@ -640,7 +641,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 
-      {/* Measurement & Section */}
+      {/* ── Measurement & Section ── */}
       <ToolButton tool="measure" icon={Ruler} label="Measure" shortcut="M" activeTool={activeTool} onToolChange={setActiveTool} />
       <ToolButton tool="section" icon={Scissors} label="Section" shortcut="X" activeTool={activeTool} onToolChange={setActiveTool} />
 
@@ -674,10 +675,18 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 
-      {/* Visibility */}
+      {/* ── Visibility & Filtering (all together) ── */}
       <ActionButton icon={Focus} label="Isolate Selection" onClick={handleIsolate} shortcut="I" disabled={!selectedEntityId} />
       <ActionButton icon={EyeOff} label="Hide Selection" onClick={handleHide} shortcut="Del" disabled={!selectedEntityId} />
       <ActionButton icon={Eye} label="Show All (Reset Filters)" onClick={handleShowAll} shortcut="A" />
+      <ActionButton icon={Maximize2} label="Fit All" onClick={() => cameraCallbacks.fitAll?.()} shortcut="Z" />
+      <ActionButton
+        icon={Crosshair}
+        label="Frame Selection"
+        onClick={() => cameraCallbacks.frameSelection?.()}
+        shortcut="F"
+        disabled={!selectedEntityId}
+      />
 
       <DropdownMenu>
         <Tooltip>
@@ -720,31 +729,6 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-
-      <Separator orientation="vertical" className="h-6 mx-1" />
-
-      {/* Display Options */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant={hoverTooltipsEnabled ? 'default' : 'ghost'}
-            size="icon-sm"
-            onClick={(e) => {
-              // Blur button to close tooltip after click
-              (e.currentTarget as HTMLButtonElement).blur();
-              toggleHoverTooltips();
-            }}
-            className={cn(hoverTooltipsEnabled && 'bg-primary text-primary-foreground')}
-          >
-            <Info className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          {hoverTooltipsEnabled ? 'Disable' : 'Enable'} Hover Tooltips
-        </TooltipContent>
-      </Tooltip>
-
-      <Separator orientation="vertical" className="h-6 mx-1" />
 
       {/* Pinboard dropdown */}
       <DropdownMenu>
@@ -823,17 +807,50 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 
-      {/* Camera */}
+      {/* ── Camera & View ── */}
       <ActionButton icon={Home} label="Home (Isometric)" onClick={() => cameraCallbacks.home?.()} shortcut="H" />
-      <ActionButton icon={Maximize2} label="Fit All" onClick={() => cameraCallbacks.fitAll?.()} shortcut="Z" />
-      <ActionButton
-        icon={Crosshair}
-        label="Frame Selection"
-        onClick={() => cameraCallbacks.frameSelection?.()}
-        shortcut="F"
-        disabled={!selectedEntityId}
-      />
 
+      {/* Orthographic / Perspective toggle */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={projectionMode === 'orthographic' ? 'default' : 'ghost'}
+            size="icon-sm"
+            onClick={(e) => {
+              (e.currentTarget as HTMLButtonElement).blur();
+              toggleProjectionMode();
+            }}
+            className={cn(projectionMode === 'orthographic' && 'bg-primary text-primary-foreground')}
+          >
+            <Orbit className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          {projectionMode === 'orthographic' ? 'Switch to Perspective' : 'Switch to Orthographic'}
+        </TooltipContent>
+      </Tooltip>
+
+      {/* Hover Tooltips toggle */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={hoverTooltipsEnabled ? 'default' : 'ghost'}
+            size="icon-sm"
+            onClick={(e) => {
+              (e.currentTarget as HTMLButtonElement).blur();
+              toggleHoverTooltips();
+            }}
+            className={cn(hoverTooltipsEnabled && 'bg-primary text-primary-foreground')}
+          >
+            <Info className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          {hoverTooltipsEnabled ? 'Disable' : 'Enable'} Hover Tooltips
+        </TooltipContent>
+      </Tooltip>
+
+      {/* Preset Views dropdown */}
       <DropdownMenu>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -843,16 +860,9 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent>Views &amp; Projections</TooltipContent>
+          <TooltipContent>Preset Views</TooltipContent>
         </Tooltip>
         <DropdownMenuContent>
-          <DropdownMenuCheckboxItem
-            checked={projectionMode === 'orthographic'}
-            onCheckedChange={() => toggleProjectionMode()}
-          >
-            <Orbit className="h-4 w-4 mr-2" /> Orthographic
-          </DropdownMenuCheckboxItem>
-          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => cameraCallbacks.home?.()}>
             <Box className="h-4 w-4 mr-2" /> Isometric <span className="ml-auto text-xs opacity-60">0</span>
           </DropdownMenuItem>
