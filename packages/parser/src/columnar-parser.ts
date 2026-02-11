@@ -760,7 +760,11 @@ export function extractAllEntityAttributes(
     if (!entity) return [];
 
     const attrs = entity.attributes || [];
-    const attrNames = getAttributeNames(ref.type);
+    // Use properly-cased type name from entity table (IfcTypeEnumToString)
+    // instead of ref.type which is UPPERCASE from STEP (e.g., IFCWALLSTANDARDCASE)
+    // and breaks multi-word type normalization in getAttributeNames
+    const typeName = store.entities.getTypeName(entityId);
+    const attrNames = getAttributeNames(typeName || ref.type);
 
     // Attributes shown separately or not meaningful for display
     const SKIP = new Set(['GlobalId', 'OwnerHistory', 'ObjectPlacement', 'Representation']);
