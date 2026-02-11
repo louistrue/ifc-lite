@@ -11,7 +11,7 @@
  * Unmatched entities are ghosted (semi-transparent) for visual context.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { X, EyeOff, Palette, Check, Plus, Trash2, Pencil, Save, Download, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -20,52 +20,93 @@ import { useLens } from '@/hooks/useLens';
 import type { Lens, LensRule } from '@/store/slices/lensSlice';
 import { COMMON_IFC_TYPES, LENS_PALETTE } from '@/store/slices/lensSlice';
 
+/** Format large counts compactly: 1234 → "1.2k" */
+function formatCount(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+  return String(n);
+}
+
 interface LensPanelProps {
   onClose?: () => void;
 }
 
 // ─── Rule display (read-only, clickable for isolation) ──────────────────────
 
-function RuleRow({
+const RuleRow = memo(function RuleRow({
   rule,
+  count,
   isIsolated,
   onClick,
 }: {
   rule: LensRule;
+  count: number;
   isIsolated?: boolean;
   onClick?: () => void;
 }) {
+  const isEmpty = count === 0;
+  const isClickable = !!onClick && !isEmpty;
+
   return (
     <div
       className={cn(
-        'flex items-center gap-2 px-3 py-1.5 text-xs transition-colors',
+        'group/row relative flex items-center gap-2 pl-3 pr-3 py-1.5 text-xs',
+        'border-l-2 transition-[border-color,background-color] duration-100',
         !rule.enabled && 'opacity-40',
-        onClick && 'cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-700/50',
-        isIsolated && 'bg-zinc-200 dark:bg-zinc-700',
+        // Default: transparent left border
+        !isIsolated && !isEmpty && 'border-l-transparent',
+        // Hover: accent left border + subtle bg (only for clickable rows)
+        isClickable && 'cursor-pointer hover:border-l-primary/70 hover:bg-zinc-100/80 dark:hover:bg-zinc-700/40',
+        // Isolated: solid accent border + bg
+        isIsolated && 'border-l-primary bg-primary/8 dark:bg-primary/15',
+        // Empty: muted, non-interactive
+        isEmpty && 'border-l-transparent opacity-50 cursor-default',
       )}
-      onClick={(e) => { if (onClick) { e.stopPropagation(); onClick(); } }}
-      title={onClick ? 'Click to isolate / show only this type' : undefined}
+      onClick={(e) => { if (isClickable) { e.stopPropagation(); onClick(); } }}
+      title={isClickable ? 'Click to isolate / show only this type' : isEmpty ? 'No matching entities' : undefined}
     >
       <div
-        className="w-3 h-3 rounded-sm flex-shrink-0 ring-1 ring-black/10 dark:ring-white/20"
+        className={cn(
+          'w-3 h-3 rounded-sm flex-shrink-0 ring-1 ring-black/10 dark:ring-white/20',
+          isEmpty && 'grayscale',
+        )}
         style={{ backgroundColor: rule.color }}
       />
-      <span className="flex-1 truncate font-medium text-zinc-900 dark:text-zinc-50">
+      <span className={cn(
+        'flex-1 truncate font-medium',
+        isIsolated
+          ? 'text-zinc-900 dark:text-zinc-50'
+          : isEmpty
+            ? 'text-zinc-400 dark:text-zinc-600'
+            : 'text-zinc-900 dark:text-zinc-50',
+      )}>
         {rule.name}
       </span>
-      {isIsolated && (
-        <span className="text-[10px] uppercase tracking-wider font-bold text-primary">
+      {/* Entity count */}
+      <span className={cn(
+        'text-[10px] tabular-nums font-mono min-w-[2ch] text-right',
+        isEmpty
+          ? 'text-zinc-300 dark:text-zinc-700'
+          : 'text-zinc-400 dark:text-zinc-500',
+      )}>
+        {formatCount(count)}
+      </span>
+      {isIsolated ? (
+        <span className="text-[10px] uppercase tracking-wider font-bold text-primary w-[52px] text-right">
           isolated
         </span>
-      )}
-      {!isIsolated && (
-        <span className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 dark:text-zinc-400">
+      ) : (
+        <span className={cn(
+          'text-[10px] uppercase tracking-wider font-medium w-[52px] text-right',
+          isEmpty
+            ? 'text-zinc-300 dark:text-zinc-700'
+            : 'text-zinc-500 dark:text-zinc-400',
+        )}>
           {rule.action}
         </span>
       )}
     </div>
   );
-}
+});
 
 // ─── Rule editor (inline editing) ───────────────────────────────────────────
 
@@ -235,6 +276,7 @@ function LensCard({
   onDelete,
   isolatedRuleId,
   onIsolateRule,
+  ruleCounts,
 }: {
   lens: Lens;
   isActive: boolean;
@@ -243,6 +285,7 @@ function LensCard({
   onDelete?: (id: string) => void;
   isolatedRuleId?: string | null;
   onIsolateRule?: (ruleId: string) => void;
+  ruleCounts?: Map<string, number>;
 }) {
   return (
     <div
@@ -294,15 +337,19 @@ function LensCard({
 
       {/* Color legend (shown when active) — click rules to isolate */}
       {isActive && (
-        <div className="border-t border-zinc-200 dark:border-zinc-700 py-1 bg-zinc-50 dark:bg-zinc-800/60">
-          {lens.rules.map(rule => (
-            <RuleRow
-              key={rule.id}
-              rule={rule}
-              isIsolated={isolatedRuleId === rule.id}
-              onClick={onIsolateRule ? () => onIsolateRule(rule.id) : undefined}
-            />
-          ))}
+        <div className="border-t border-zinc-200 dark:border-zinc-700 py-0.5 bg-zinc-50 dark:bg-zinc-800/60">
+          {lens.rules.map(rule => {
+            const count = ruleCounts?.get(rule.id) ?? 0;
+            return (
+              <RuleRow
+                key={rule.id}
+                rule={rule}
+                count={count}
+                isIsolated={isolatedRuleId === rule.id}
+                onClick={onIsolateRule ? () => onIsolateRule(rule.id) : undefined}
+              />
+            );
+          })}
         </div>
       )}
     </div>
@@ -326,6 +373,7 @@ export function LensPanel({ onClose }: LensPanelProps) {
   // For footer stats — cheap primitive subscriptions
   const lensColorMapSize = useViewerStore((s) => s.lensColorMap.size);
   const lensHiddenIdsSize = useViewerStore((s) => s.lensHiddenIds.size);
+  const lensRuleCounts = useViewerStore((s) => s.lensRuleCounts);
 
   // Editor state: null = not editing, Lens object = editing/creating
   const [editingLens, setEditingLens] = useState<Lens | null>(null);
@@ -356,6 +404,10 @@ export function LensPanel({ onClose }: LensPanelProps) {
 
     const rule = lens.rules.find(r => r.id === ruleId);
     if (!rule || !rule.enabled) return;
+
+    // Don't isolate rules with 0 matching entities
+    const count = useViewerStore.getState().lensRuleCounts.get(ruleId) ?? 0;
+    if (count === 0) return;
 
     // Collect all entity IDs matching this rule's color from the computed lens color map
     const ruleColor = rule.color.toUpperCase();
@@ -521,6 +573,7 @@ export function LensPanel({ onClose }: LensPanelProps) {
               onDelete={handleDeleteLens}
               isolatedRuleId={activeLensId === lens.id ? isolatedRuleId : null}
               onIsolateRule={activeLensId === lens.id ? handleIsolateRule : undefined}
+              ruleCounts={activeLensId === lens.id ? lensRuleCounts : undefined}
             />
           )
         ))}

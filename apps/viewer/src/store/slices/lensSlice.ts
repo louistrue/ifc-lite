@@ -170,6 +170,8 @@ export interface LensSlice {
   lensColorMap: Map<number, string>;
   /** Computed: globalIds to hide via lens rules */
   lensHiddenIds: Set<number>;
+  /** Computed: ruleId → matched entity count for the active lens */
+  lensRuleCounts: Map<string, number>;
 
   // Actions
   createLens: (lens: Lens) => void;
@@ -180,6 +182,7 @@ export interface LensSlice {
   setLensPanelVisible: (visible: boolean) => void;
   setLensColorMap: (map: Map<number, string>) => void;
   setLensHiddenIds: (ids: Set<number>) => void;
+  setLensRuleCounts: (counts: Map<string, number>) => void;
   /** Get the active lens configuration */
   getActiveLens: () => Lens | null;
   /** Import lenses from parsed JSON array */
@@ -195,6 +198,7 @@ export const createLensSlice: StateCreator<LensSlice, [], [], LensSlice> = (set,
   lensPanelVisible: false,
   lensColorMap: new Map(),
   lensHiddenIds: new Set(),
+  lensRuleCounts: new Map(),
 
   // Actions
   createLens: (lens) => set((state) => {
@@ -227,6 +231,7 @@ export const createLensSlice: StateCreator<LensSlice, [], [], LensSlice> = (set,
 
   setLensColorMap: (lensColorMap) => set({ lensColorMap }),
   setLensHiddenIds: (lensHiddenIds) => set({ lensHiddenIds }),
+  setLensRuleCounts: (lensRuleCounts) => set({ lensRuleCounts }),
 
   getActiveLens: () => {
     const { savedLenses, activeLensId } = get();

@@ -243,6 +243,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       lensPanelVisible: false,
       lensColorMap: new Map<number, string>(),
       lensHiddenIds: new Set<number>(),
+      lensRuleCounts: new Map<string, number>(),
     });
   },
 }));
