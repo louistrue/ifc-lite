@@ -343,12 +343,18 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
 
     const camera = renderer.getCamera();
     const viewportHeight = canvas.height;
-    const distance = camera.getDistance();
-    const fov = camera.getFOV();
     const scaleBarPixels = 96; // w-24 = 6rem = 96px
 
-    // Calculate world-space size: (screen pixels / viewport height) * (distance * tan(FOV/2) * 2)
-    const worldSize = (scaleBarPixels / viewportHeight) * (distance * Math.tan(fov / 2) * 2);
+    let worldSize: number;
+    if (camera.getProjectionMode() === 'orthographic') {
+      // Orthographic: orthoSize is half-height in world units, so full height = orthoSize * 2
+      worldSize = (scaleBarPixels / viewportHeight) * (camera.getOrthoSize() * 2);
+    } else {
+      const distance = camera.getDistance();
+      const fov = camera.getFOV();
+      // Calculate world-space size: (screen pixels / viewport height) * (distance * tan(FOV/2) * 2)
+      worldSize = (scaleBarPixels / viewportHeight) * (distance * Math.tan(fov / 2) * 2);
+    }
     updateScaleRealtime(worldSize);
   };
 
@@ -509,6 +515,39 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
           if (!c) return null;
           return camera.projectToScreen(worldPos, c.width, c.height);
         },
+        setProjectionMode: (mode) => {
+          camera.setProjectionMode(mode);
+          renderer.render({
+            hiddenIds: hiddenEntitiesRef.current,
+            isolatedIds: isolatedEntitiesRef.current,
+            selectedId: selectedEntityIdRef.current,
+            selectedModelIndex: selectedModelIndexRef.current,
+            clearColor: clearColorRef.current,
+            sectionPlane: activeToolRef.current === 'section' ? {
+              ...sectionPlaneRef.current,
+              min: sectionRangeRef.current?.min,
+              max: sectionRangeRef.current?.max,
+            } : undefined,
+          });
+          calculateScale();
+        },
+        toggleProjectionMode: () => {
+          camera.toggleProjectionMode();
+          renderer.render({
+            hiddenIds: hiddenEntitiesRef.current,
+            isolatedIds: isolatedEntitiesRef.current,
+            selectedId: selectedEntityIdRef.current,
+            selectedModelIndex: selectedModelIndexRef.current,
+            clearColor: clearColorRef.current,
+            sectionPlane: activeToolRef.current === 'section' ? {
+              ...sectionPlaneRef.current,
+              min: sectionRangeRef.current?.min,
+              max: sectionRangeRef.current?.max,
+            } : undefined,
+          });
+          calculateScale();
+        },
+        getProjectionMode: () => camera.getProjectionMode(),
       });
 
       // ResizeObserver

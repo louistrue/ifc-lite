@@ -71,12 +71,39 @@ export class CameraProjection {
    * @returns Ray origin and direction in world space
    */
   unprojectToRay(screenX: number, screenY: number, canvasWidth: number, canvasHeight: number): { origin: Vec3; direction: Vec3 } {
-    // For perspective camera, ray origin is always the camera position
-    // Direction is computed through the screen point
-
     // Convert screen coords to NDC (-1 to 1)
     const ndcX = (screenX / canvasWidth) * 2 - 1;
     const ndcY = 1 - (screenY / canvasHeight) * 2; // Flip Y
+
+    if (this.state.projectionMode === 'orthographic') {
+      // Orthographic: rays are parallel. Origin varies with screen position.
+      const halfH = this.state.orthoSize;
+      const halfW = halfH * this.state.camera.aspect;
+
+      // Forward direction (camera towards target)
+      const forward = MathUtils.normalize({
+        x: this.state.camera.target.x - this.state.camera.position.x,
+        y: this.state.camera.target.y - this.state.camera.position.y,
+        z: this.state.camera.target.z - this.state.camera.position.z,
+      });
+
+      // Right = forward x up
+      const right = MathUtils.normalize(MathUtils.cross(forward, this.state.camera.up));
+      // Actual up = right x forward
+      const actualUp = MathUtils.cross(right, forward);
+
+      // Ray origin: camera position offset by NDC * view extents
+      const origin = {
+        x: this.state.camera.position.x + right.x * ndcX * halfW + actualUp.x * ndcY * halfH,
+        y: this.state.camera.position.y + right.y * ndcX * halfW + actualUp.y * ndcY * halfH,
+        z: this.state.camera.position.z + right.z * ndcX * halfW + actualUp.z * ndcY * halfH,
+      };
+
+      return { origin, direction: forward };
+    }
+
+    // Perspective: ray origin is always the camera position
+    // Direction is computed through the screen point
 
     // Invert the view-projection matrix
     const invViewProj = MathUtils.invert(this.state.viewProjMatrix);

@@ -7,19 +7,22 @@
  */
 
 import type { StateCreator } from 'zustand';
-import type { CameraRotation, CameraCallbacks } from '../types.js';
+import type { CameraRotation, CameraCallbacks, ProjectionMode } from '../types.js';
 import { CAMERA_DEFAULTS } from '../constants.js';
 
 export interface CameraSlice {
   // State
   cameraRotation: CameraRotation;
   cameraCallbacks: CameraCallbacks;
+  projectionMode: ProjectionMode;
   onCameraRotationChange: ((rotation: CameraRotation) => void) | null;
   onScaleChange: ((scale: number) => void) | null;
 
   // Actions
   setCameraRotation: (rotation: CameraRotation) => void;
   setCameraCallbacks: (callbacks: CameraCallbacks) => void;
+  setProjectionMode: (mode: ProjectionMode) => void;
+  toggleProjectionMode: () => void;
   setOnCameraRotationChange: (callback: ((rotation: CameraRotation) => void) | null) => void;
   updateCameraRotationRealtime: (rotation: CameraRotation) => void;
   setOnScaleChange: (callback: ((scale: number) => void) | null) => void;
@@ -33,12 +36,22 @@ export const createCameraSlice: StateCreator<CameraSlice, [], [], CameraSlice> =
     elevation: CAMERA_DEFAULTS.ELEVATION,
   },
   cameraCallbacks: {},
+  projectionMode: 'perspective',
   onCameraRotationChange: null,
   onScaleChange: null,
 
   // Actions
   setCameraRotation: (cameraRotation) => set({ cameraRotation }),
   setCameraCallbacks: (cameraCallbacks) => set({ cameraCallbacks }),
+  setProjectionMode: (projectionMode) => {
+    get().cameraCallbacks.setProjectionMode?.(projectionMode);
+    set({ projectionMode });
+  },
+  toggleProjectionMode: () => {
+    const newMode = get().projectionMode === 'perspective' ? 'orthographic' : 'perspective';
+    get().cameraCallbacks.setProjectionMode?.(newMode);
+    set({ projectionMode: newMode });
+  },
   setOnCameraRotationChange: (onCameraRotationChange) => set({ onCameraRotationChange }),
 
   updateCameraRotationRealtime: (rotation) => {

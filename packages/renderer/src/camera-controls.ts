@@ -9,6 +9,9 @@
 
 import type { Camera as CameraType, Vec3, Mat4 } from './types.js';
 
+/** Projection mode for the camera */
+export type ProjectionMode = 'perspective' | 'orthographic';
+
 /**
  * Shared mutable state for camera sub-systems.
  * All sub-systems reference the same state object so changes are visible across them.
@@ -18,6 +21,10 @@ export interface CameraInternalState {
   viewMatrix: Mat4;
   projMatrix: Mat4;
   viewProjMatrix: Mat4;
+  /** Current projection mode */
+  projectionMode: ProjectionMode;
+  /** Orthographic half-height in world units (controls zoom level in ortho mode) */
+  orthoSize: number;
 }
 
 /**
@@ -238,7 +245,9 @@ export class CameraControls {
       };
 
       // Calculate view frustum size at target distance
-      const halfHeight = distance * Math.tan(this.state.camera.fov / 2);
+      const halfHeight = this.state.projectionMode === 'orthographic'
+        ? this.state.orthoSize
+        : distance * Math.tan(this.state.camera.fov / 2);
       const halfWidth = halfHeight * this.state.camera.aspect;
 
       // World offset from center towards mouse position
@@ -260,13 +269,23 @@ export class CameraControls {
       this.state.camera.target.z += (mouseWorldPoint.z - this.state.camera.target.z) * moveAmount;
     }
 
-    // Apply zoom (scale distance)
-    const newDistance = Math.max(0.1, distance * zoomFactor);
-    const scale = newDistance / distance;
-
-    this.state.camera.position.x = this.state.camera.target.x + dir.x * scale;
-    this.state.camera.position.y = this.state.camera.target.y + dir.y * scale;
-    this.state.camera.position.z = this.state.camera.target.z + dir.z * scale;
+    if (this.state.projectionMode === 'orthographic') {
+      // Orthographic: scale view volume instead of moving camera
+      this.state.orthoSize = Math.max(0.01, this.state.orthoSize * zoomFactor);
+      // Still move camera position to keep orbit distance consistent for when switching back
+      const newDistance = Math.max(0.1, distance * zoomFactor);
+      const scale = newDistance / distance;
+      this.state.camera.position.x = this.state.camera.target.x + dir.x * scale;
+      this.state.camera.position.y = this.state.camera.target.y + dir.y * scale;
+      this.state.camera.position.z = this.state.camera.target.z + dir.z * scale;
+    } else {
+      // Perspective: scale distance
+      const newDistance = Math.max(0.1, distance * zoomFactor);
+      const scale = newDistance / distance;
+      this.state.camera.position.x = this.state.camera.target.x + dir.x * scale;
+      this.state.camera.position.y = this.state.camera.target.y + dir.y * scale;
+      this.state.camera.position.z = this.state.camera.target.z + dir.z * scale;
+    }
 
     this.updateMatrices();
   }

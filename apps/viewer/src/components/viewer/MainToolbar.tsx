@@ -35,6 +35,10 @@ import {
   Plus,
   MessageSquare,
   ClipboardCheck,
+  Pin,
+  PinOff,
+  Palette,
+  Orbit,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -60,6 +64,7 @@ import { ExportDialog } from './ExportDialog';
 import { BulkPropertyEditor } from './BulkPropertyEditor';
 import { DataConnector } from './DataConnector';
 import { ExportChangesButton } from './ExportChangesButton';
+import { useFloorplanView } from '@/hooks/useFloorplanView';
 
 type Tool = 'select' | 'pan' | 'orbit' | 'walk' | 'measure' | 'section';
 
@@ -141,6 +146,9 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const addModelInputRef = useRef<HTMLInputElement>(null);
   const { loadFile, loading, progress, geometryResult, ifcDataStore, models, clearAllModels, loadFilesSequentially, loadFederatedIfcx, addIfcxOverlays, addModel } = useIfc();
 
+  // Floorplan view
+  const { availableStoreys, activateFloorplan } = useFloorplanView();
+
   // Check if we have models loaded (for showing add model button)
   const hasModelsLoaded = models.size > 0 || (geometryResult?.meshes && geometryResult.meshes.length > 0);
   const activeTool = useViewerStore((state) => state.activeTool);
@@ -166,6 +174,18 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const listPanelVisible = useViewerStore((state) => state.listPanelVisible);
   const toggleListPanel = useViewerStore((state) => state.toggleListPanel);
   const setRightPanelCollapsed = useViewerStore((state) => state.setRightPanelCollapsed);
+  const projectionMode = useViewerStore((state) => state.projectionMode);
+  const toggleProjectionMode = useViewerStore((state) => state.toggleProjectionMode);
+  // Pinboard state
+  const pinboardEntities = useViewerStore((state) => state.pinboardEntities);
+  const addToPinboard = useViewerStore((state) => state.addToPinboard);
+  const removeFromPinboard = useViewerStore((state) => state.removeFromPinboard);
+  const showPinboard = useViewerStore((state) => state.showPinboard);
+  const clearPinboard = useViewerStore((state) => state.clearPinboard);
+  const selectedEntity = useViewerStore((state) => state.selectedEntity);
+  // Lens state
+  const lensPanelVisible = useViewerStore((state) => state.lensPanelVisible);
+  const toggleLensPanel = useViewerStore((state) => state.toggleLensPanel);
 
   // Check which type geometries exist across ALL loaded models (federation-aware)
   const typeGeometryExists = useMemo(() => {
@@ -622,6 +642,34 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       <ToolButton tool="measure" icon={Ruler} label="Measure" shortcut="M" activeTool={activeTool} onToolChange={setActiveTool} />
       <ToolButton tool="section" icon={Scissors} label="Section" shortcut="X" activeTool={activeTool} onToolChange={setActiveTool} />
 
+      {/* Floorplan dropdown */}
+      {availableStoreys.length > 0 && (
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm">
+                  <Layers className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Quick Floorplan</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent>
+            {availableStoreys.map((storey) => (
+              <DropdownMenuItem
+                key={`${storey.modelId}-${storey.expressId}`}
+                onClick={() => activateFloorplan(storey)}
+              >
+                <Layers className="h-4 w-4 mr-2" />
+                {storey.name}
+                <span className="ml-auto text-xs opacity-60">{storey.elevation.toFixed(1)}m</span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+
       <Separator orientation="vertical" className="h-6 mx-1" />
 
       {/* Visibility */}
@@ -696,6 +744,87 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 
+      {/* Pinboard */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={(e) => {
+              (e.currentTarget as HTMLButtonElement).blur();
+              if (selectedEntity) addToPinboard([selectedEntity]);
+            }}
+            disabled={!selectedEntity}
+          >
+            <Pin className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Pin Selection</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={(e) => {
+              (e.currentTarget as HTMLButtonElement).blur();
+              if (selectedEntity) removeFromPinboard([selectedEntity]);
+            }}
+            disabled={!selectedEntity}
+          >
+            <PinOff className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Unpin Selection</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={pinboardEntities.size > 0 ? 'default' : 'ghost'}
+            size="icon-sm"
+            onClick={(e) => {
+              (e.currentTarget as HTMLButtonElement).blur();
+              showPinboard();
+            }}
+            disabled={pinboardEntities.size === 0}
+            className={cn(pinboardEntities.size > 0 && 'bg-primary text-primary-foreground relative')}
+          >
+            <Eye className="h-4 w-4" />
+            {pinboardEntities.size > 0 && (
+              <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[9px] font-bold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5 border border-background">
+                {pinboardEntities.size}
+              </span>
+            )}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Show Pinboard ({pinboardEntities.size})</TooltipContent>
+      </Tooltip>
+
+      {/* Lens (rule-based filtering) */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={lensPanelVisible ? 'default' : 'ghost'}
+            size="icon-sm"
+            onClick={(e) => {
+              (e.currentTarget as HTMLButtonElement).blur();
+              if (!lensPanelVisible) {
+                setRightPanelCollapsed(false);
+              }
+              toggleLensPanel();
+            }}
+            className={cn(lensPanelVisible && 'bg-primary text-primary-foreground')}
+          >
+            <Palette className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Lens (Color Rules)</TooltipContent>
+      </Tooltip>
+
+      <Separator orientation="vertical" className="h-6 mx-1" />
+
       {/* Camera */}
       <ActionButton icon={Home} label="Home (Isometric)" onClick={() => cameraCallbacks.home?.()} shortcut="H" />
       <ActionButton icon={Maximize2} label="Fit All" onClick={() => cameraCallbacks.fitAll?.()} shortcut="Z" />
@@ -707,6 +836,26 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
         disabled={!selectedEntityId}
       />
 
+      {/* Projection toggle */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={projectionMode === 'orthographic' ? 'default' : 'ghost'}
+            size="icon-sm"
+            onClick={(e) => {
+              (e.currentTarget as HTMLButtonElement).blur();
+              toggleProjectionMode();
+            }}
+            className={cn(projectionMode === 'orthographic' && 'bg-primary text-primary-foreground')}
+          >
+            <Orbit className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          {projectionMode === 'perspective' ? 'Switch to Orthographic' : 'Switch to Perspective'} <span className="ml-2 text-xs opacity-60">(5)</span>
+        </TooltipContent>
+      </Tooltip>
+
       <DropdownMenu>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -716,9 +865,16 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent>Preset Views (0-6)</TooltipContent>
+          <TooltipContent>Views &amp; Projections</TooltipContent>
         </Tooltip>
         <DropdownMenuContent>
+          <DropdownMenuCheckboxItem
+            checked={projectionMode === 'orthographic'}
+            onCheckedChange={() => toggleProjectionMode()}
+          >
+            <Orbit className="h-4 w-4 mr-2" /> Orthographic <span className="ml-auto text-xs opacity-60">5</span>
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => cameraCallbacks.home?.()}>
             <Box className="h-4 w-4 mr-2" /> Isometric <span className="ml-auto text-xs opacity-60">0</span>
           </DropdownMenuItem>

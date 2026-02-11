@@ -10,9 +10,12 @@ import {
   buildUnifiedStoreys,
   getUnifiedStoreyElements as getUnifiedStoreyElementsFn,
   buildTreeData,
+  buildTypeTree,
   filterNodes,
   splitNodes,
 } from './treeDataBuilder';
+
+export type GroupingMode = 'spatial' | 'type';
 
 interface UseHierarchyTreeParams {
   models: Map<string, FederatedModel>;
@@ -24,6 +27,9 @@ export function useHierarchyTree({ models, ifcDataStore, isMultiModel }: UseHier
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [hasInitializedExpansion, setHasInitializedExpansion] = useState(false);
+  const [groupingMode, setGroupingMode] = useState<GroupingMode>(() =>
+    (typeof window !== 'undefined' && localStorage.getItem('hierarchy-grouping') as GroupingMode) || 'spatial'
+  );
 
   // Build unified storey data for multi-model mode (moved before useEffect that depends on it)
   const unifiedStoreys = useMemo(
@@ -118,11 +124,16 @@ export function useHierarchyTree({ models, ifcDataStore, isMultiModel }: UseHier
     [models]
   );
 
-  // Build the tree data structure
+  // Build the tree data structure based on grouping mode
   // Note: hiddenEntities intentionally NOT in deps - visibility computed lazily for performance
   const treeData = useMemo(
-    (): TreeNode[] => buildTreeData(models, ifcDataStore, expandedNodes, isMultiModel, unifiedStoreys),
-    [models, ifcDataStore, expandedNodes, isMultiModel, unifiedStoreys]
+    (): TreeNode[] => {
+      if (groupingMode === 'type') {
+        return buildTypeTree(models, ifcDataStore, expandedNodes, isMultiModel);
+      }
+      return buildTreeData(models, ifcDataStore, expandedNodes, isMultiModel, unifiedStoreys);
+    },
+    [models, ifcDataStore, expandedNodes, isMultiModel, unifiedStoreys, groupingMode]
   );
 
   // Filter nodes based on search
@@ -149,8 +160,44 @@ export function useHierarchyTree({ models, ifcDataStore, isMultiModel }: UseHier
     });
   }, []);
 
-  // Get all elements for a node (handles unified storeys, single storeys, model contributions, and elements)
+  // Get all elements for a node (handles type groups, unified storeys, single storeys, model contributions, and elements)
   const getNodeElements = useCallback((node: TreeNode): number[] => {
+    if (node.type === 'type-group') {
+      // Get all element globalIds for this IFC type from treeData children
+      const groupPrefix = node.id; // e.g., "type-IfcWall"
+      const elements: number[] = [];
+      let inGroup = false;
+      for (const n of treeData) {
+        if (n.id === groupPrefix) { inGroup = true; continue; }
+        if (inGroup) {
+          if (n.type === 'element' && n.depth > 0) {
+            elements.push(n.expressIds[0]);
+          } else if (n.depth === 0) {
+            break; // Next top-level group
+          }
+        }
+      }
+      // If group is collapsed, rebuild element list from models
+      if (elements.length === 0) {
+        const typeName = node.name; // e.g., "IfcWall"
+        const collectFromStore = (dataStore: import('@ifc-lite/parser').IfcDataStore, offset: number) => {
+          for (let i = 0; i < dataStore.entities.count; i++) {
+            const expressId = dataStore.entities.expressId[i];
+            if (dataStore.entities.getTypeName(expressId) === typeName) {
+              elements.push(expressId + offset);
+            }
+          }
+        };
+        if (models.size > 0) {
+          for (const [, model] of models) {
+            if (model.ifcDataStore) collectFromStore(model.ifcDataStore, model.idOffset ?? 0);
+          }
+        } else if (ifcDataStore) {
+          collectFromStore(ifcDataStore, 0);
+        }
+      }
+      return elements;
+    }
     if (node.type === 'unified-storey') {
       // Get all elements from all models for this unified storey
       const unified = unifiedStoreys.find(u => `unified-${u.key}` === node.id);
@@ -191,11 +238,21 @@ export function useHierarchyTree({ models, ifcDataStore, isMultiModel }: UseHier
     }
     // Spatial containers (Project, Site, Building) and top-level models don't have direct element visibility toggle
     return [];
-  }, [models, ifcDataStore, unifiedStoreys, getUnifiedStoreyElements]);
+  }, [models, ifcDataStore, unifiedStoreys, getUnifiedStoreyElements, treeData]);
+
+  // Persist grouping mode preference
+  const handleSetGroupingMode = useCallback((mode: GroupingMode) => {
+    setGroupingMode(mode);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('hierarchy-grouping', mode);
+    }
+  }, []);
 
   return {
     searchQuery,
     setSearchQuery,
+    groupingMode,
+    setGroupingMode: handleSetGroupingMode,
     unifiedStoreys,
     treeData,
     filteredNodes,

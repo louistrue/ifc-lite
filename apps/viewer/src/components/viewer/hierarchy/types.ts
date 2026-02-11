@@ -10,6 +10,7 @@ export type NodeType =
   | 'IfcSite'             // Site node
   | 'IfcBuilding'         // Building node
   | 'IfcBuildingStorey'   // Storey node
+  | 'type-group'          // IFC type grouping header (e.g., "IfcWall (47)")
   | 'element';            // Individual element
 
 export interface TreeNode {

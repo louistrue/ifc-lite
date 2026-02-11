@@ -149,6 +149,8 @@ export interface CameraRotation {
   elevation: number;
 }
 
+export type ProjectionMode = 'perspective' | 'orthographic';
+
 export interface CameraCallbacks {
   setPresetView?: (view: 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right') => void;
   fitAll?: () => void;
@@ -158,6 +160,9 @@ export interface CameraCallbacks {
   frameSelection?: () => void;
   orbit?: (deltaX: number, deltaY: number) => void;
   projectToScreen?: (worldPos: { x: number; y: number; z: number }) => { x: number; y: number } | null;
+  setProjectionMode?: (mode: ProjectionMode) => void;
+  toggleProjectionMode?: () => void;
+  getProjectionMode?: () => ProjectionMode;
 }
 
 // ============================================================================

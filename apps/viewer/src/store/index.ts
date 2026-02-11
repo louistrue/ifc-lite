@@ -28,6 +28,8 @@ import { createSheetSlice, type SheetSlice } from './slices/sheetSlice.js';
 import { createBcfSlice, type BCFSlice } from './slices/bcfSlice.js';
 import { createIdsSlice, type IDSSlice } from './slices/idsSlice.js';
 import { createListSlice, type ListSlice } from './slices/listSlice.js';
+import { createPinboardSlice, type PinboardSlice } from './slices/pinboardSlice.js';
+import { createLensSlice, type LensSlice } from './slices/lensSlice.js';
 
 // Import constants for reset function
 import { CAMERA_DEFAULTS, SECTION_PLANE_DEFAULTS, UI_DEFAULTS, TYPE_VISIBILITY_DEFAULTS } from './constants.js';
@@ -56,6 +58,12 @@ export type { IDSSlice, IDSSliceState, IDSDisplayOptions, IDSFilterMode } from '
 // Re-export List types
 export type { ListSlice } from './slices/listSlice.js';
 
+// Re-export Pinboard types
+export type { PinboardSlice } from './slices/pinboardSlice.js';
+
+// Re-export Lens types
+export type { LensSlice, Lens, LensRule, LensCriteria } from './slices/lensSlice.js';
+
 // Combined store type
 export type ViewerState = LoadingSlice &
   SelectionSlice &
@@ -72,7 +80,9 @@ export type ViewerState = LoadingSlice &
   SheetSlice &
   BCFSlice &
   IDSSlice &
-  ListSlice & {
+  ListSlice &
+  PinboardSlice &
+  LensSlice & {
     resetViewerState: () => void;
   };
 
@@ -97,6 +107,8 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
   ...createBcfSlice(...args),
   ...createIdsSlice(...args),
   ...createListSlice(...args),
+  ...createPinboardSlice(...args),
+  ...createLensSlice(...args),
 
   // Reset all viewer state when loading new file
   // Note: Does NOT clear models - use clearAllModels() for that
@@ -159,6 +171,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
         azimuth: CAMERA_DEFAULTS.AZIMUTH,
         elevation: CAMERA_DEFAULTS.ELEVATION,
       },
+      projectionMode: 'perspective' as const,
 
       // UI
       activeTool: UI_DEFAULTS.ACTIVE_TOOL,
@@ -221,6 +234,15 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       activeListId: null,
       listResult: null,
       listExecuting: false,
+
+      // Pinboard - clear pinned entities on new file
+      pinboardEntities: new Set<string>(),
+
+      // Lens - deactivate but keep saved lenses
+      activeLensId: null,
+      lensPanelVisible: false,
+      lensColorMap: new Map<number, string>(),
+      lensHiddenIds: new Set<number>(),
     });
   },
 }));

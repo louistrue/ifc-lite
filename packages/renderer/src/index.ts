@@ -9,6 +9,7 @@
 export { WebGPUDevice } from './device.js';
 export { RenderPipeline, InstancedRenderPipeline } from './pipeline.js';
 export { Camera } from './camera.js';
+export type { ProjectionMode } from './camera-controls.js';
 export { Scene } from './scene.js';
 export { Picker } from './picker.js';
 export { MathUtils } from './math.js';
