@@ -74,11 +74,11 @@ export const COMMON_IFC_TYPES = [
   'IfcOpeningElement',
 ] as const;
 
-/** Preset colors for new lens rules */
+/** Preset colors for new lens rules — high contrast, perceptually distinct */
 export const LENS_PALETTE = [
-  '#FF4444', '#FF8800', '#FFCC00', '#88CC44',
-  '#44BB88', '#4488CC', '#6644CC', '#CC44AA',
-  '#8B7355', '#A0A0A0', '#CD853F', '#87CEEB',
+  '#E53935', '#1E88E5', '#FDD835', '#43A047',
+  '#8E24AA', '#00ACC1', '#FF8F00', '#6D4C41',
+  '#EC407A', '#5C6BC0', '#26A69A', '#78909C',
 ] as const;
 
 /** Built-in Lens presets */
@@ -88,14 +88,14 @@ const BUILTIN_LENSES: Lens[] = [
     name: 'By IFC Type',
     builtin: true,
     rules: [
-      { id: 'wall', name: 'Walls', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcWall' }, action: 'colorize', color: '#8B7355' },
-      { id: 'slab', name: 'Slabs', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcSlab' }, action: 'colorize', color: '#A0A0A0' },
-      { id: 'column', name: 'Columns', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcColumn' }, action: 'colorize', color: '#CD853F' },
-      { id: 'beam', name: 'Beams', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcBeam' }, action: 'colorize', color: '#B8860B' },
-      { id: 'door', name: 'Doors', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcDoor' }, action: 'colorize', color: '#4682B4' },
-      { id: 'window', name: 'Windows', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcWindow' }, action: 'colorize', color: '#87CEEB' },
-      { id: 'stair', name: 'Stairs', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcStairFlight' }, action: 'colorize', color: '#DEB887' },
-      { id: 'roof', name: 'Roofs', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcRoof' }, action: 'colorize', color: '#CC4444' },
+      { id: 'wall', name: 'Walls', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcWall' }, action: 'colorize', color: '#8D6E63' },
+      { id: 'slab', name: 'Slabs', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcSlab' }, action: 'colorize', color: '#607D8B' },
+      { id: 'column', name: 'Columns', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcColumn' }, action: 'colorize', color: '#E53935' },
+      { id: 'beam', name: 'Beams', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcBeam' }, action: 'colorize', color: '#1E88E5' },
+      { id: 'door', name: 'Doors', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcDoor' }, action: 'colorize', color: '#00897B' },
+      { id: 'window', name: 'Windows', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcWindow' }, action: 'colorize', color: '#42A5F5' },
+      { id: 'stair', name: 'Stairs', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcStairFlight' }, action: 'colorize', color: '#FF8F00' },
+      { id: 'roof', name: 'Roofs', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcRoof' }, action: 'colorize', color: '#8E24AA' },
     ],
   },
   {
@@ -103,10 +103,10 @@ const BUILTIN_LENSES: Lens[] = [
     name: 'Structural',
     builtin: true,
     rules: [
-      { id: 'col', name: 'Columns', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcColumn' }, action: 'colorize', color: '#FF4444' },
-      { id: 'beam', name: 'Beams', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcBeam' }, action: 'colorize', color: '#FF8800' },
-      { id: 'slab', name: 'Slabs', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcSlab' }, action: 'colorize', color: '#FFCC00' },
-      { id: 'footing', name: 'Footings', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcFooting' }, action: 'colorize', color: '#88CC44' },
+      { id: 'col', name: 'Columns', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcColumn' }, action: 'colorize', color: '#E53935' },
+      { id: 'beam', name: 'Beams', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcBeam' }, action: 'colorize', color: '#1E88E5' },
+      { id: 'slab', name: 'Slabs', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcSlab' }, action: 'colorize', color: '#FDD835' },
+      { id: 'footing', name: 'Footings', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcFooting' }, action: 'colorize', color: '#43A047' },
     ],
   },
   {
@@ -114,11 +114,11 @@ const BUILTIN_LENSES: Lens[] = [
     name: 'Building Envelope',
     builtin: true,
     rules: [
-      { id: 'roof', name: 'Roofs', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcRoof' }, action: 'colorize', color: '#CC4444' },
-      { id: 'curtwall', name: 'Curtain Walls', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcCurtainWall' }, action: 'colorize', color: '#4488CC' },
-      { id: 'window', name: 'Windows', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcWindow' }, action: 'colorize', color: '#87CEEB' },
-      { id: 'door', name: 'Doors', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcDoor' }, action: 'colorize', color: '#4682B4' },
-      { id: 'wall', name: 'Walls', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcWall' }, action: 'colorize', color: '#D4A76A' },
+      { id: 'roof', name: 'Roofs', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcRoof' }, action: 'colorize', color: '#C62828' },
+      { id: 'curtwall', name: 'Curtain Walls', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcCurtainWall' }, action: 'colorize', color: '#0277BD' },
+      { id: 'window', name: 'Windows', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcWindow' }, action: 'colorize', color: '#4FC3F7' },
+      { id: 'door', name: 'Doors', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcDoor' }, action: 'colorize', color: '#00695C' },
+      { id: 'wall', name: 'Walls', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcWall' }, action: 'colorize', color: '#8D6E63' },
     ],
   },
   {
@@ -126,14 +126,40 @@ const BUILTIN_LENSES: Lens[] = [
     name: 'Openings & Circulation',
     builtin: true,
     rules: [
-      { id: 'door', name: 'Doors', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcDoor' }, action: 'colorize', color: '#4682B4' },
-      { id: 'window', name: 'Windows', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcWindow' }, action: 'colorize', color: '#87CEEB' },
-      { id: 'stair', name: 'Stairs', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcStairFlight' }, action: 'colorize', color: '#DEB887' },
-      { id: 'ramp', name: 'Ramps', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcRamp' }, action: 'colorize', color: '#A0D468' },
-      { id: 'railing', name: 'Railings', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcRailing' }, action: 'colorize', color: '#888888' },
+      { id: 'door', name: 'Doors', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcDoor' }, action: 'colorize', color: '#00897B' },
+      { id: 'window', name: 'Windows', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcWindow' }, action: 'colorize', color: '#42A5F5' },
+      { id: 'stair', name: 'Stairs', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcStairFlight' }, action: 'colorize', color: '#FF8F00' },
+      { id: 'ramp', name: 'Ramps', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcRamp' }, action: 'colorize', color: '#7CB342' },
+      { id: 'railing', name: 'Railings', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcRailing' }, action: 'colorize', color: '#78909C' },
     ],
   },
 ];
+
+/** localStorage key for persisting custom lenses */
+const STORAGE_KEY = 'ifc-lite-custom-lenses';
+
+/** Load user-created lenses from localStorage */
+function loadCustomLenses(): Lens[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Lens[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(l => l.id && l.name && Array.isArray(l.rules));
+  } catch {
+    return [];
+  }
+}
+
+/** Persist custom (non-builtin) lenses to localStorage */
+function saveCustomLenses(lenses: Lens[]): void {
+  try {
+    const custom = lenses.filter(l => !l.builtin);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(custom));
+  } catch {
+    // quota exceeded or unavailable — silently ignore
+  }
+}
 
 export interface LensSlice {
   // State
@@ -156,30 +182,40 @@ export interface LensSlice {
   setLensHiddenIds: (ids: Set<number>) => void;
   /** Get the active lens configuration */
   getActiveLens: () => Lens | null;
+  /** Import lenses from parsed JSON array */
+  importLenses: (lenses: Lens[]) => void;
+  /** Export all lenses (builtins + custom) as serializable array */
+  exportLenses: () => Lens[];
 }
 
 export const createLensSlice: StateCreator<LensSlice, [], [], LensSlice> = (set, get) => ({
-  // Initial state
-  savedLenses: [...BUILTIN_LENSES],
+  // Initial state — builtins + any previously saved custom lenses
+  savedLenses: [...BUILTIN_LENSES, ...loadCustomLenses()],
   activeLensId: null,
   lensPanelVisible: false,
   lensColorMap: new Map(),
   lensHiddenIds: new Set(),
 
   // Actions
-  createLens: (lens) => set((state) => ({
-    savedLenses: [...state.savedLenses, lens],
-  })),
+  createLens: (lens) => set((state) => {
+    const next = [...state.savedLenses, lens];
+    saveCustomLenses(next);
+    return { savedLenses: next };
+  }),
 
-  updateLens: (id, patch) => set((state) => ({
-    savedLenses: state.savedLenses.map(l => l.id === id ? { ...l, ...patch } : l),
-  })),
+  updateLens: (id, patch) => set((state) => {
+    const next = state.savedLenses.map(l => l.id === id ? { ...l, ...patch } : l);
+    saveCustomLenses(next);
+    return { savedLenses: next };
+  }),
 
   deleteLens: (id) => set((state) => {
     const lens = state.savedLenses.find(l => l.id === id);
     if (lens?.builtin) return {};
+    const next = state.savedLenses.filter(l => l.id !== id);
+    saveCustomLenses(next);
     return {
-      savedLenses: state.savedLenses.filter(l => l.id !== id),
+      savedLenses: next,
       activeLensId: state.activeLensId === id ? null : state.activeLensId,
     };
   }),
@@ -195,5 +231,20 @@ export const createLensSlice: StateCreator<LensSlice, [], [], LensSlice> = (set,
   getActiveLens: () => {
     const { savedLenses, activeLensId } = get();
     return savedLenses.find(l => l.id === activeLensId) ?? null;
+  },
+
+  importLenses: (lenses) => set((state) => {
+    // Merge: skip duplicates by id, strip builtin flag from imports
+    const existingIds = new Set(state.savedLenses.map(l => l.id));
+    const newLenses = lenses
+      .filter(l => l.id && l.name && Array.isArray(l.rules) && !existingIds.has(l.id))
+      .map(l => ({ ...l, builtin: false }));
+    const next = [...state.savedLenses, ...newLenses];
+    saveCustomLenses(next);
+    return { savedLenses: next };
+  }),
+
+  exportLenses: () => {
+    return get().savedLenses.map(({ id, name, rules }) => ({ id, name, rules }));
   },
 });

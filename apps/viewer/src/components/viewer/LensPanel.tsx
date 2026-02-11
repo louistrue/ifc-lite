@@ -11,8 +11,8 @@
  * Unmatched entities are ghosted (semi-transparent) for visual context.
  */
 
-import { useCallback, useState } from 'react';
-import { X, EyeOff, Palette, Check, Plus, Trash2, Pencil, Save } from 'lucide-react';
+import { useCallback, useRef, useState } from 'react';
+import { X, EyeOff, Palette, Check, Plus, Trash2, Pencil, Save, Download, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useViewerStore } from '@/store';
@@ -289,6 +289,8 @@ export function LensPanel({ onClose }: LensPanelProps) {
   const createLens = useViewerStore((s) => s.createLens);
   const updateLens = useViewerStore((s) => s.updateLens);
   const deleteLens = useViewerStore((s) => s.deleteLens);
+  const importLenses = useViewerStore((s) => s.importLenses);
+  const exportLenses = useViewerStore((s) => s.exportLenses);
   const lensHiddenIds = useViewerStore((s) => s.lensHiddenIds);
   const lensColorMap = useViewerStore((s) => s.lensColorMap);
   const hideEntities = useViewerStore((s) => s.hideEntities);
@@ -296,6 +298,7 @@ export function LensPanel({ onClose }: LensPanelProps) {
 
   // Editor state: null = not editing, Lens object = editing/creating
   const [editingLens, setEditingLens] = useState<Lens | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleToggle = useCallback((id: string) => {
     if (activeLensId === id) {
@@ -344,6 +347,35 @@ export function LensPanel({ onClose }: LensPanelProps) {
     }
   }, [lensHiddenIds, hideEntities]);
 
+  const handleExport = useCallback(() => {
+    const data = exportLenses();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'lenses.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [exportLenses]);
+
+  const handleImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result as string);
+        const arr = Array.isArray(parsed) ? parsed : [parsed];
+        importLenses(arr as Lens[]);
+      } catch {
+        // invalid JSON — silently ignore
+      }
+    };
+    reader.readAsText(file);
+    // reset so same file can be re-imported
+    e.target.value = '';
+  }, [importLenses]);
+
   if (lensHiddenIds.size > 0 && activeLensId) {
     queueMicrotask(handleApplyHidden);
   }
@@ -359,6 +391,31 @@ export function LensPanel({ onClose }: LensPanelProps) {
           </h2>
         </div>
         <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0 rounded-sm"
+            onClick={handleExport}
+            title="Export lenses as JSON"
+          >
+            <Download className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0 rounded-sm"
+            onClick={() => fileInputRef.current?.click()}
+            title="Import lenses from JSON"
+          >
+            <Upload className="h-3.5 w-3.5" />
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            className="hidden"
+            onChange={handleImport}
+          />
           {activeLensId && (
             <Button
               variant="ghost"
