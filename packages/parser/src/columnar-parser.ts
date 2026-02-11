@@ -1292,16 +1292,10 @@ function extractPsetsFromIds(
 
     for (const psetId of psetIds) {
         const psetRef = store.entityIndex.byId.get(psetId);
-        if (!psetRef) {
-            console.log('[extractPsetsFromIds] psetId=%d NOT in entityIndex', psetId);
-            continue;
-        }
+        if (!psetRef) continue;
 
         // Only extract IFCPROPERTYSET entities (skip quantity sets etc.)
-        if (psetRef.type.toUpperCase() !== 'IFCPROPERTYSET') {
-            console.log('[extractPsetsFromIds] psetId=%d type=%s (skipping, not IFCPROPERTYSET)', psetId, psetRef.type);
-            continue;
-        }
+        if (psetRef.type.toUpperCase() !== 'IFCPROPERTYSET') continue;
 
         const psetEntity = extractor.extractEntity(psetRef);
         if (!psetEntity) continue;
@@ -1351,51 +1345,22 @@ export function extractTypePropertiesOnDemand(
     store: IfcDataStore,
     entityId: number
 ): TypePropertyInfo | null {
-    if (!store.relationships) {
-        console.warn('[TypeProps] No relationships graph for entity', entityId);
-        return null;
-    }
+    if (!store.relationships) return null;
 
     // Find type entity via DefinesByType relationship (inverse: element → type)
     const typeIds = store.relationships.getRelated(entityId, RelationshipType.DefinesByType, 'inverse');
-    console.log('[TypeProps] entityId=%d DefinesByType typeIds=%o', entityId, typeIds);
-    if (typeIds.length === 0) {
-        // Debug: dump all relationship types for this entity
-        const allRelTypes = [
-            RelationshipType.ContainsElements,
-            RelationshipType.Aggregates,
-            RelationshipType.DefinesByType,
-            RelationshipType.DefinesByProperties,
-            RelationshipType.AssociatesMaterial,
-            RelationshipType.AssociatesClassification,
-        ];
-        for (const rt of allRelTypes) {
-            const fwd = store.relationships.getRelated(entityId, rt, 'forward');
-            const inv = store.relationships.getRelated(entityId, rt, 'inverse');
-            if (fwd.length > 0 || inv.length > 0) {
-                console.log('[TypeProps]   relType=%d fwd=%o inv=%o', rt, fwd, inv);
-            }
-        }
-        return null;
-    }
+    if (typeIds.length === 0) return null;
 
     const typeId = typeIds[0]; // An element typically has one type
     const typeRef = store.entityIndex.byId.get(typeId);
-    if (!typeRef) {
-        console.warn('[TypeProps] typeId=%d not found in entityIndex', typeId);
-        return null;
-    }
+    if (!typeRef) return null;
 
-    if (!store.source?.length) {
-        console.warn('[TypeProps] No source buffer');
-        return null;
-    }
+    if (!store.source?.length) return null;
 
     const extractor = new EntityExtractor(store.source);
 
     // Get type name from entity
     const typeEntity = extractor.extractEntity(typeRef);
-    console.log('[TypeProps] typeRef=%o typeEntity type=%s attrCount=%d', typeRef, typeEntity?.type, typeEntity?.attributes?.length);
     const typeName = typeEntity && typeof typeEntity.attributes?.[2] === 'string'
         ? typeEntity.attributes[2]
         : typeRef.type;
@@ -1407,15 +1372,9 @@ export function extractTypePropertiesOnDemand(
     // Works for both IFC2X3 and IFC4
     if (typeEntity) {
         const hasPropertySets = typeEntity.attributes?.[5];
-        console.log('[TypeProps] HasPropertySets (attr[5])=%o isArray=%s', hasPropertySets, Array.isArray(hasPropertySets));
-        if (typeEntity.attributes) {
-            console.log('[TypeProps] All attrs (first 8):', typeEntity.attributes.slice(0, 8).map((a, i) => `[${i}]=${typeof a === 'object' ? JSON.stringify(a)?.slice(0, 80) : a}`));
-        }
         if (Array.isArray(hasPropertySets)) {
             const psetIds = hasPropertySets.filter((id): id is number => typeof id === 'number');
-            console.log('[TypeProps] psetIds from HasPropertySets=%o', psetIds);
             const psets = extractPsetsFromIds(store, extractor, psetIds);
-            console.log('[TypeProps] Extracted %d psets from HasPropertySets: %o', psets.length, psets.map(p => `${p.name}(${p.properties.length})`));
             for (const pset of psets) {
                 seenPsetNames.add(pset.name);
                 allPsets.push(pset);
@@ -1426,7 +1385,6 @@ export function extractTypePropertiesOnDemand(
     // Source 2: onDemandPropertyMap for the type entity (IFC4: via IFCRELDEFINESBYPROPERTIES)
     if (store.onDemandPropertyMap) {
         const typePsetIds = store.onDemandPropertyMap.get(typeId);
-        console.log('[TypeProps] onDemandPropertyMap for typeId=%d → %o', typeId, typePsetIds);
         if (typePsetIds && typePsetIds.length > 0) {
             const psets = extractPsetsFromIds(store, extractor, typePsetIds);
             for (const pset of psets) {
@@ -1435,11 +1393,7 @@ export function extractTypePropertiesOnDemand(
                 }
             }
         }
-    } else {
-        console.log('[TypeProps] No onDemandPropertyMap available');
     }
-
-    console.log('[TypeProps] FINAL: typeName=%s allPsets=%d: %o', typeName, allPsets.length, allPsets.map(p => `${p.name}(${p.properties.length})`));
 
     if (allPsets.length === 0) return null;
 
