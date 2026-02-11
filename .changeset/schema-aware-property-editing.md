@@ -3,13 +3,21 @@
 "@ifc-lite/viewer": minor
 ---
 
-Add schema-aware property editing and classification/material display
+Add schema-aware property editing, full property panel display, and document/relationship support
 
 - Property editor validates against IFC4 standard (ISO 16739-1:2018): walls get wall psets, doors get door psets, etc.
-- New dialogs for adding classifications (12 standard systems) and materials in edit mode
+- Schema-version-aware property editing: detects IFC2X3/IFC4/IFC4X3 from FILE_SCHEMA header
+- New dialogs for adding classifications (12 standard systems), materials, and quantities in edit mode
+- Quantity set definitions (Qto_) with schema-aware dialog for standard IFC4 base quantities
 - On-demand classification extraction from IfcRelAssociatesClassification with chain walking
 - On-demand material extraction supporting all IFC material types: IfcMaterial, IfcMaterialLayerSet, IfcMaterialProfileSet, IfcMaterialConstituentSet, IfcMaterialList, and *Usage wrappers
-- Classifications and materials displayed in the property panel with dedicated card components
+- On-demand document extraction from IfcRelAssociatesDocument with DocumentReference→DocumentInformation chain
+- Type-level property extraction from IfcTypeObject HasPropertySets attribute (fixes missing psets in IFC2X3)
+- Structural relationship display: openings, fills, groups, and connections
+- Advanced property type parsing: IfcPropertyEnumeratedValue, BoundedValue, ListValue, TableValue, ReferenceValue
+- Georeferencing display (IfcMapConversion + IfcProjectedCRS) in model metadata panel
+- Length unit display in model metadata panel
+- Classifications, materials, documents displayed with dedicated card components
 - Type-level material/classification inheritance via IfcRelDefinesByType
 - Relationship graph fallback for server-loaded models without on-demand maps
 - Cycle detection in material resolution and classification chain walking

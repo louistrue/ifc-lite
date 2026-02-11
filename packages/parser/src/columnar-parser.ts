@@ -1591,3 +1591,48 @@ export function extractRelationshipsOnDemand(
 
     return result;
 }
+
+// ============================================================================
+// On-Demand Georeferencing Extraction
+// ============================================================================
+
+import { extractGeoreferencing as extractGeorefFromEntities, type GeoreferenceInfo } from './georef-extractor.js';
+export type { GeoreferenceInfo as GeorefInfo };
+
+/**
+ * Extract georeferencing info from on-demand store (source buffer + entityIndex).
+ * Bridges to the entity-based georef extractor by resolving entities lazily.
+ */
+export function extractGeoreferencingOnDemand(store: IfcDataStore): GeoreferenceInfo | null {
+    if (!store.source?.length || !store.entityIndex) return null;
+
+    const extractor = new EntityExtractor(store.source);
+    const { byId, byType } = store.entityIndex;
+
+    // Build a lightweight entity map for just the georef-related types
+    const entityMap = new Map<number, { expressId: number; attributes: unknown[] }>();
+    const typeMap = new Map<string, number[]>();
+
+    for (const typeName of ['IFCMAPCONVERSION', 'IFCPROJECTEDCRS']) {
+        const ids = byType.get(typeName);
+        if (!ids?.length) continue;
+
+        // Use mixed-case for the georef extractor's type lookup
+        const displayName = typeName === 'IFCMAPCONVERSION' ? 'IfcMapConversion' : 'IfcProjectedCRS';
+        typeMap.set(displayName, ids);
+
+        for (const id of ids) {
+            const ref = byId.get(id);
+            if (!ref) continue;
+            const entity = extractor.extractEntity(ref);
+            if (entity) {
+                entityMap.set(id, entity);
+            }
+        }
+    }
+
+    if (entityMap.size === 0) return null;
+
+    // Cast to IfcEntity (they share the same shape)
+    return extractGeorefFromEntities(entityMap as Parameters<typeof extractGeorefFromEntities>[0], typeMap);
+}

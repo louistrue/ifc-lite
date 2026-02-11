@@ -732,6 +732,8 @@ export function PropertiesPanel() {
                 entityId={selectedEntity.expressId}
                 entityType={entityType}
                 existingPsets={properties.map(p => p.name)}
+                existingQtos={quantities.map(q => q.name)}
+                schemaVersion={activeDataStore?.schemaVersion}
               />
             )}
             {properties.length === 0 && classifications.length === 0 && !materialInfo && !typeProperties && documents.length === 0 ? (

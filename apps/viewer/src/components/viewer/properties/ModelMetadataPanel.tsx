@@ -25,7 +25,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { PropertySetCard } from './PropertySetCard';
 import type { PropertySet } from './encodingUtils';
 import type { FederatedModel } from '@/store/types';
-import { extractGeoreferencing, extractLengthUnitScale, type IfcDataStore } from '@ifc-lite/parser';
+import { extractGeoreferencingOnDemand, extractLengthUnitScale, type IfcDataStore } from '@ifc-lite/parser';
 
 /** Model metadata panel - displays file info, schema version, entity counts, etc. */
 export function ModelMetadataPanel({ model }: { model: FederatedModel }) {
@@ -83,9 +83,9 @@ export function ModelMetadataPanel({ model }: { model: FederatedModel }) {
 
   // Extract georeferencing info
   const georef = useMemo(() => {
-    if (!dataStore?.source?.length || !dataStore?.entityIndex) return null;
-    const info = extractGeoreferencing(dataStore.source, dataStore.entityIndex);
-    return info.hasGeoreference ? info : null;
+    if (!dataStore) return null;
+    const info = extractGeoreferencingOnDemand(dataStore as IfcDataStore);
+    return info?.hasGeoreference ? info : null;
   }, [dataStore]);
 
   // Extract length unit scale

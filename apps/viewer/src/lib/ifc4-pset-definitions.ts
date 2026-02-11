@@ -25,6 +25,8 @@ export interface PsetDefinition {
   description: string;
   applicableTypes: string[];
   properties: PsetPropertyDef[];
+  /** Schema versions this pset applies to. If undefined, applies to all. */
+  schemas?: Array<'IFC2X3' | 'IFC4' | 'IFC4X3'>;
 }
 
 // ============================================================================
@@ -569,14 +571,24 @@ function normalizeTypeName(type: string): string {
 
 /**
  * Get all valid property set definitions for a given IFC entity type.
+ * Optionally filters by schema version (IFC2X3, IFC4, IFC4X3).
  * Includes type-specific Psets and generic ones applicable to all building elements.
  */
-export function getPsetDefinitionsForType(entityType: string): PsetDefinition[] {
+export function getPsetDefinitionsForType(entityType: string, schemaVersion?: string): PsetDefinition[] {
   const normalized = normalizeTypeName(entityType);
 
-  return PSET_DEFINITIONS.filter(pset =>
-    pset.applicableTypes.some(t => t === normalized)
-  );
+  return PSET_DEFINITIONS.filter(pset => {
+    // Check type match
+    const typeMatch = pset.applicableTypes.some(t => t === normalized);
+    if (!typeMatch) return false;
+
+    // Check schema match (if specified and pset has schema restriction)
+    if (schemaVersion && pset.schemas) {
+      return pset.schemas.includes(schemaVersion as 'IFC2X3' | 'IFC4' | 'IFC4X3');
+    }
+
+    return true;
+  });
 }
 
 /**
