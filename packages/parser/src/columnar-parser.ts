@@ -159,6 +159,9 @@ const ASSOCIATION_REL_TYPES = new Set([
     'IFCRELASSOCIATESDOCUMENT',
 ]);
 
+// Attributes to skip in extractAllEntityAttributes (shown elsewhere or non-displayable)
+const SKIP_DISPLAY_ATTRS = new Set(['GlobalId', 'OwnerHistory', 'ObjectPlacement', 'Representation']);
+
 // Property-related entity types for on-demand extraction
 const PROPERTY_ENTITY_TYPES = new Set([
     'IFCPROPERTYSET', 'IFCELEMENTQUANTITY',
@@ -766,14 +769,11 @@ export function extractAllEntityAttributes(
     const typeName = store.entities.getTypeName(entityId);
     const attrNames = getAttributeNames(typeName || ref.type);
 
-    // Attributes shown separately or not meaningful for display
-    const SKIP = new Set(['GlobalId', 'OwnerHistory', 'ObjectPlacement', 'Representation']);
-
     const result: Array<{ name: string; value: string }> = [];
     const len = Math.min(attrs.length, attrNames.length);
     for (let i = 0; i < len; i++) {
         const attrName = attrNames[i];
-        if (SKIP.has(attrName)) continue;
+        if (SKIP_DISPLAY_ATTRS.has(attrName)) continue;
 
         const raw = attrs[i];
         if (typeof raw === 'string' && raw) {

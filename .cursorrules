@@ -35,6 +35,15 @@ All new source files MUST include the Mozilla Public License 2.0 header at the t
 - `apps/desktop/` - Tauri desktop application
 - `docs/` - MkDocs documentation
 
+## On-Demand Extraction Pattern
+
+Entity attributes (Description, ObjectType, Tag), properties, quantities, classifications, and materials are NOT stored during the initial fast parse. They are extracted lazily from the source buffer when accessed. When working with these values:
+
+- Use `EntityNode` getters (they cache internally) for single-entity access
+- Use the list adapter's cached provider for bulk/list access
+- **Never** call `extractEntityAttributesOnDemand` in a loop without caching results
+- Entity types from STEP files are UPPERCASE (`IFCWALLSTANDARDCASE`). Use `store.entities.getTypeName(id)` for properly-cased names (`IfcWallStandardCase`)
+
 ## Generated Files (Do Not Edit)
 
 - `packages/codegen/generated/`

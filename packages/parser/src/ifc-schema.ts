@@ -193,30 +193,43 @@ function normalizeTypeName(type: string): string {
     return type;
 }
 
+// Cache for getAttributeNames results - avoids repeated inheritance walks.
+// Only ~30 distinct IFC types exist in the registry, so this stays small.
+const _attrNameCache = new Map<string, string[]>();
+
 /**
- * Get all attributes for an IFC entity type by walking the inheritance chain
+ * Get all attributes for an IFC entity type by walking the inheritance chain.
+ * Results are cached per type for O(1) repeated lookups.
  */
 export function getAttributeNames(type: string): string[] {
     const normalized = normalizeTypeName(type);
-    const attributes: string[] = [];
-    const visited = new Set<string>();
 
+    const cached = _attrNameCache.get(normalized);
+    if (cached) return cached;
+
+    const chain: string[][] = [];
+    const visited = new Set<string>();
     let currentType: string | null = normalized;
 
-    // Walk up the inheritance chain
+    // Walk up the inheritance chain, collecting attribute arrays
     while (currentType && !visited.has(currentType)) {
         visited.add(currentType);
-
         const typeAttrs = TYPE_ATTRIBUTES.get(currentType);
-        if (typeAttrs) {
-            // Prepend attributes (parent attributes come first)
-            attributes.unshift(...typeAttrs);
+        if (typeAttrs && typeAttrs.length > 0) {
+            chain.push(typeAttrs);
         }
-
         currentType = getParentType(currentType);
     }
 
-    // If no attributes found, return empty array (will fallback to indexed)
+    // Build result with parent attributes first (reverse the chain)
+    const attributes: string[] = [];
+    for (let i = chain.length - 1; i >= 0; i--) {
+        for (const attr of chain[i]) {
+            attributes.push(attr);
+        }
+    }
+
+    _attrNameCache.set(normalized, attributes);
     return attributes;
 }
 

@@ -98,6 +98,7 @@ function isIfcxDataStore(store: unknown): store is IfcxDataStore {
 - WebGPU for 3D rendering
 - Virtualized lists for large datasets
 - FederationRegistry singleton for multi-model ID management
+- On-demand extraction: entity attributes, properties, quantities, classifications, and materials are extracted lazily from the source buffer when accessed, not during the initial parse. Use `EntityNode` or the adapter's cached getters to avoid redundant STEP parsing.
 
 ### Multi-Model Federation
 
@@ -142,6 +143,8 @@ npx tsc -p apps/viewer/tsconfig.json --noEmit
 2. **Memo dependencies**: Adding state to dependencies can cause cascade recomputation
 3. **Array operations**: `push(...spread)` is O(n²) in a loop - preallocate instead
 4. **ID confusion**: Always be clear if working with local expressId or global ID
+5. **IFC type name casing**: Entity types from STEP are UPPERCASE (e.g., `IFCWALLSTANDARDCASE`). Use `store.entities.getTypeName(id)` for properly-cased names (`IfcWallStandardCase`). The `normalizeTypeName` helper only handles single-word types correctly.
+6. **On-demand extraction in loops**: `extractEntityAttributesOnDemand` parses the source buffer per entity. When calling in a loop (e.g., lists with 5000+ rows), always cache results to avoid redundant STEP parsing.
 
 ## Commit Guidelines
 
