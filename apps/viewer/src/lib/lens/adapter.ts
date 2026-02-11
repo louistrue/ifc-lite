@@ -117,15 +117,21 @@ export function createLensDataProvider(
 /**
  * Resolve a global ID to (entry, local expressId).
  * O(m) where m = model count (typically 1–5).
+ * Reuses a single result object to avoid per-call allocation during
+ * hot-loop lens evaluation (100k+ calls).
  */
+const _resolved = { entry: null as unknown as ModelEntry, expressId: 0 };
+
 function resolveGlobalId(
   globalId: number,
   entries: ModelEntry[],
-): { entry: ModelEntry; expressId: number } | null {
+): typeof _resolved | null {
   for (const entry of entries) {
     const localId = globalId - entry.idOffset;
     if (localId >= 0 && localId <= entry.maxExpressId) {
-      return { entry, expressId: localId };
+      _resolved.entry = entry;
+      _resolved.expressId = localId;
+      return _resolved;
     }
   }
   return null;

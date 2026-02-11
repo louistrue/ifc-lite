@@ -4,7 +4,6 @@
 
 import { IfcTypeEnum, type SpatialNode } from '@ifc-lite/data';
 import type { IfcDataStore } from '@ifc-lite/parser';
-import type { GeometryResult } from '@ifc-lite/geometry';
 import type { FederatedModel } from '@/store';
 import type { TreeNode, NodeType, StoreyData, UnifiedStorey } from './types';
 
@@ -342,30 +341,15 @@ export function buildTreeData(
 }
 
 /** Build tree data grouped by IFC class instead of spatial hierarchy.
- *  Only includes entities that have geometry (visible in the 3D viewer). */
+ *  Only includes entities that have geometry (visible in the 3D viewer).
+ *  @param geometricIds Pre-computed set of global IDs with geometry (memoized by caller). */
 export function buildTypeTree(
   models: Map<string, FederatedModel>,
   ifcDataStore: IfcDataStore | null | undefined,
   expandedNodes: Set<string>,
   isMultiModel: boolean,
-  legacyGeometryResult?: GeometryResult | null,
+  geometricIds?: Set<number>,
 ): TreeNode[] {
-  // Build a set of global IDs that have geometry — O(meshes) once, O(1) lookup per entity
-  const geometricIds = new Set<number>();
-  if (models.size > 0) {
-    for (const [, model] of models) {
-      if (model.geometryResult) {
-        for (const mesh of model.geometryResult.meshes) {
-          geometricIds.add(mesh.expressId); // already global IDs
-        }
-      }
-    }
-  } else if (legacyGeometryResult) {
-    for (const mesh of legacyGeometryResult.meshes) {
-      geometricIds.add(mesh.expressId); // local = global (offset 0)
-    }
-  }
-
   // Collect entities grouped by IFC class across all models
   const typeGroups = new Map<string, Array<{ expressId: number; globalId: number; name: string; modelId: string }>>();
 
@@ -375,7 +359,7 @@ export function buildTypeTree(
       const globalId = expressId + idOffset;
 
       // Only include entities that have geometry
-      if (!geometricIds.has(globalId)) continue;
+      if (geometricIds && geometricIds.size > 0 && !geometricIds.has(globalId)) continue;
 
       const typeName = dataStore.entities.getTypeName(expressId) || 'Unknown';
       const entityName = dataStore.entities.getName(expressId) || `${typeName} #${expressId}`;
@@ -407,9 +391,13 @@ export function buildTypeTree(
     const groupNodeId = `type-${typeName}`;
     const isExpanded = expandedNodes.has(groupNodeId);
 
+    // Store all globalIds on the group node so getNodeElements is O(1),
+    // avoiding a full entity scan when the group is collapsed.
+    const groupGlobalIds = entities.map(e => e.globalId);
+
     nodes.push({
       id: groupNodeId,
-      expressIds: [],
+      expressIds: groupGlobalIds,
       modelIds: [],
       name: typeName,
       type: 'type-group',
