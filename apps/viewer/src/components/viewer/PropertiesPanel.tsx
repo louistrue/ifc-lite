@@ -420,8 +420,18 @@ export function PropertiesPanel() {
   const typeProperties = useMemo(() => {
     if (!selectedEntity) return null;
     const dataStore = model?.ifcDataStore ?? ifcDataStore;
-    if (!dataStore) return null;
+    if (!dataStore) {
+      console.log('[Panel] No dataStore for type properties');
+      return null;
+    }
+    console.log('[Panel] Extracting type properties for entity=%d, hasRelationships=%s, hasSource=%s, hasEntityIndex=%s',
+      selectedEntity.expressId,
+      !!dataStore.relationships,
+      !!(dataStore as IfcDataStore).source?.length,
+      !!(dataStore as IfcDataStore).entityIndex
+    );
     const result = extractTypePropertiesOnDemand(dataStore as IfcDataStore, selectedEntity.expressId);
+    console.log('[Panel] extractTypePropertiesOnDemand result:', result ? `typeName=${result.typeName} psets=${result.properties.length}: ${result.properties.map(p => p.name).join(', ')}` : 'null');
     if (!result) return null;
     // Convert to PropertySet format for PropertySetCard
     return {
@@ -440,6 +450,14 @@ export function PropertiesPanel() {
   // - Type-only psets: added to the main list (no separate "Type" section)
   // This matches how reference IFC viewers display properties.
   const mergedProperties: PropertySet[] = useMemo(() => {
+    console.log('[Panel] Merging: instancePsets=%d typePsets=%d',
+      properties.length,
+      typeProperties?.psets.length ?? 0
+    );
+    if (typeProperties) {
+      console.log('[Panel]   Type psets:', typeProperties.psets.map(p => `${p.name}(${p.properties.length})`));
+    }
+    console.log('[Panel]   Instance psets:', properties.map(p => `${p.name}(${p.properties.length})`));
     if (!typeProperties || typeProperties.psets.length === 0) return properties;
     if (properties.length === 0) return typeProperties.psets;
 
@@ -475,6 +493,7 @@ export function PropertiesPanel() {
       }
     }
 
+    console.log('[Panel] Merged result: %d psets: %o', result.length, result.map(p => `${p.name}(${p.properties.length})`));
     return result;
   }, [properties, typeProperties]);
 
