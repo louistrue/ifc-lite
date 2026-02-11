@@ -24,15 +24,27 @@ interface LensPanelProps {
   onClose?: () => void;
 }
 
-// ─── Rule display (read-only) ───────────────────────────────────────────────
+// ─── Rule display (read-only, clickable for isolation) ──────────────────────
 
-function RuleRow({ rule }: { rule: LensRule }) {
+function RuleRow({
+  rule,
+  isIsolated,
+  onClick,
+}: {
+  rule: LensRule;
+  isIsolated?: boolean;
+  onClick?: () => void;
+}) {
   return (
     <div
       className={cn(
-        'flex items-center gap-2 px-3 py-1.5 text-xs',
+        'flex items-center gap-2 px-3 py-1.5 text-xs transition-colors',
         !rule.enabled && 'opacity-40',
+        onClick && 'cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-700/50',
+        isIsolated && 'bg-zinc-200 dark:bg-zinc-700',
       )}
+      onClick={onClick}
+      title={onClick ? 'Click to isolate / show only this type' : undefined}
     >
       <div
         className="w-3 h-3 rounded-sm flex-shrink-0 ring-1 ring-black/10 dark:ring-white/20"
@@ -41,9 +53,16 @@ function RuleRow({ rule }: { rule: LensRule }) {
       <span className="flex-1 truncate font-medium text-zinc-900 dark:text-zinc-50">
         {rule.name}
       </span>
-      <span className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 dark:text-zinc-400">
-        {rule.action}
-      </span>
+      {isIsolated && (
+        <span className="text-[10px] uppercase tracking-wider font-bold text-primary">
+          isolated
+        </span>
+      )}
+      {!isIsolated && (
+        <span className="text-[10px] uppercase tracking-wider font-medium text-zinc-500 dark:text-zinc-400">
+          {rule.action}
+        </span>
+      )}
     </div>
   );
 }
@@ -214,12 +233,16 @@ function LensCard({
   onToggle,
   onEdit,
   onDelete,
+  isolatedRuleId,
+  onIsolateRule,
 }: {
   lens: Lens;
   isActive: boolean;
   onToggle: (id: string) => void;
   onEdit?: (lens: Lens) => void;
   onDelete?: (id: string) => void;
+  isolatedRuleId?: string | null;
+  onIsolateRule?: (ruleId: string) => void;
 }) {
   return (
     <div
@@ -269,11 +292,16 @@ function LensCard({
         </div>
       </div>
 
-      {/* Color legend (shown when active) */}
+      {/* Color legend (shown when active) — click rules to isolate */}
       {isActive && (
         <div className="border-t border-zinc-200 dark:border-zinc-700 py-1 bg-zinc-50 dark:bg-zinc-800/60">
           {lens.rules.map(rule => (
-            <RuleRow key={rule.id} rule={rule} />
+            <RuleRow
+              key={rule.id}
+              rule={rule}
+              isIsolated={isolatedRuleId === rule.id}
+              onClick={onIsolateRule ? () => onIsolateRule(rule.id) : undefined}
+            />
           ))}
         </div>
       )}
@@ -295,12 +323,16 @@ export function LensPanel({ onClose }: LensPanelProps) {
   const lensColorMap = useViewerStore((s) => s.lensColorMap);
   const hideEntities = useViewerStore((s) => s.hideEntities);
   const showAll = useViewerStore((s) => s.showAll);
+  const isolateEntities = useViewerStore((s) => s.isolateEntities);
+  const clearIsolation = useViewerStore((s) => s.clearIsolation);
 
   // Editor state: null = not editing, Lens object = editing/creating
   const [editingLens, setEditingLens] = useState<Lens | null>(null);
+  const [isolatedRuleId, setIsolatedRuleId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleToggle = useCallback((id: string) => {
+    setIsolatedRuleId(null);
     if (activeLensId === id) {
       setActiveLens(null);
       showAll();
@@ -308,6 +340,36 @@ export function LensPanel({ onClose }: LensPanelProps) {
       setActiveLens(id);
     }
   }, [activeLensId, setActiveLens, showAll]);
+
+  /** Click a rule row in the active lens to isolate matching entities */
+  const handleIsolateRule = useCallback((ruleId: string) => {
+    const lens = savedLenses.find(l => l.id === activeLensId);
+    if (!lens) return;
+
+    // Toggle off if clicking the already-isolated rule
+    if (isolatedRuleId === ruleId) {
+      setIsolatedRuleId(null);
+      clearIsolation();
+      return;
+    }
+
+    const rule = lens.rules.find(r => r.id === ruleId);
+    if (!rule || !rule.enabled) return;
+
+    // Collect all entity IDs matching this rule's color from the computed lens color map
+    const ruleColor = rule.color.toUpperCase();
+    const matchingIds: number[] = [];
+    lensColorMap.forEach((color, globalId) => {
+      if (color.toUpperCase() === ruleColor) {
+        matchingIds.push(globalId);
+      }
+    });
+
+    if (matchingIds.length > 0) {
+      setIsolatedRuleId(ruleId);
+      isolateEntities(matchingIds);
+    }
+  }, [activeLensId, savedLenses, isolatedRuleId, lensColorMap, isolateEntities, clearIsolation]);
 
   const handleNewLens = useCallback(() => {
     setEditingLens({
@@ -458,6 +520,8 @@ export function LensPanel({ onClose }: LensPanelProps) {
               onToggle={handleToggle}
               onEdit={handleEditLens}
               onDelete={handleDeleteLens}
+              isolatedRuleId={activeLensId === lens.id ? isolatedRuleId : null}
+              onIsolateRule={activeLensId === lens.id ? handleIsolateRule : undefined}
             />
           )
         ))}
