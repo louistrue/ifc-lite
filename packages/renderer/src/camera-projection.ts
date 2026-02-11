@@ -161,41 +161,16 @@ export class CameraProjection {
       z: center.z + distance * 0.6,   // Front
     };
 
-    // Dynamic near/far plane calculation to prevent Z-fighting
-    // Keep near/far ratio under 10000:1 for better depth precision
-    const optimalNear = Math.max(0.01, distance * 0.001);  // 0.1% of distance
-    const optimalFar = distance * 10;  // 10x distance for safety margin
-
-    // Ensure ratio is reasonable (max 10000:1)
-    const maxRatio = 10000;
-    if (optimalFar / optimalNear > maxRatio) {
-      // Adjust far plane to maintain ratio
-      this.state.camera.far = optimalNear * maxRatio;
-    } else {
-      this.state.camera.far = optimalFar;
-    }
-
-    this.state.camera.near = optimalNear;
-
+    // near/far are computed dynamically in updateMatrices() based on distance
     this.updateMatrices();
   }
 
   /**
-   * Update near/far planes dynamically based on camera distance
-   * Keeps ratio under 10000:1 to prevent Z-fighting
+   * Update near/far planes dynamically based on camera distance.
+   * Now a no-op since updateMatrices() handles this automatically.
+   * Kept for API compatibility with CameraAnimator.
    */
-  updateNearFarPlanes(distance: number): void {
-    const optimalNear = Math.max(0.01, distance * 0.001);  // 0.1% of distance
-    const optimalFar = distance * 10;  // 10x distance for safety margin
-
-    // Ensure ratio is reasonable (max 10000:1)
-    const maxRatio = 10000;
-    if (optimalFar / optimalNear > maxRatio) {
-      this.state.camera.far = optimalNear * maxRatio;
-    } else {
-      this.state.camera.far = Math.max(optimalFar, this.state.camera.far);
-    }
-
-    this.state.camera.near = Math.min(optimalNear, this.state.camera.near);
+  updateNearFarPlanes(_distance: number): void {
+    // near/far are computed dynamically in Camera.updateMatrices()
   }
 }

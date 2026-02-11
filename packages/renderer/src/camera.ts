@@ -381,6 +381,15 @@ export class Camera {
   }
 
   private updateMatrices(): void {
+    // Dynamically adapt near/far planes based on camera-to-target distance.
+    // This prevents near-plane clipping when zooming in close to geometry.
+    const dx = this.state.camera.position.x - this.state.camera.target.x;
+    const dy = this.state.camera.position.y - this.state.camera.target.y;
+    const dz = this.state.camera.position.z - this.state.camera.target.z;
+    const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    this.state.camera.near = Math.max(0.01, distance * 0.001);
+    this.state.camera.far = Math.max(distance * 10, 1000);
+
     this.state.viewMatrix = MathUtils.lookAt(
       this.state.camera.position,
       this.state.camera.target,
