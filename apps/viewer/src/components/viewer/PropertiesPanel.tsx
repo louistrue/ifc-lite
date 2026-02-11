@@ -30,7 +30,7 @@ import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { IfcQuery } from '@ifc-lite/query';
 import { MutablePropertyView } from '@ifc-lite/mutations';
-import { extractPropertiesOnDemand, extractClassificationsOnDemand, extractMaterialsOnDemand, extractTypePropertiesOnDemand, type IfcDataStore } from '@ifc-lite/parser';
+import { extractPropertiesOnDemand, extractClassificationsOnDemand, extractMaterialsOnDemand, extractTypePropertiesOnDemand, extractDocumentsOnDemand, type IfcDataStore } from '@ifc-lite/parser';
 import type { EntityRef, FederatedModel } from '@/store/types';
 
 import { CoordVal, CoordRow } from './properties/CoordinateDisplay';
@@ -39,6 +39,7 @@ import { QuantitySetCard } from './properties/QuantitySetCard';
 import { ModelMetadataPanel } from './properties/ModelMetadataPanel';
 import { ClassificationCard } from './properties/ClassificationCard';
 import { MaterialCard } from './properties/MaterialCard';
+import { DocumentCard } from './properties/DocumentCard';
 import type { PropertySet, QuantitySet } from './properties/encodingUtils';
 
 export function PropertiesPanel() {
@@ -396,6 +397,14 @@ export function PropertiesPanel() {
     return extractMaterialsOnDemand(dataStore as IfcDataStore, selectedEntity.expressId);
   }, [selectedEntity, model, ifcDataStore]);
 
+  // Extract documents for the selected entity from the IFC data store
+  const documents = useMemo(() => {
+    if (!selectedEntity) return [];
+    const dataStore = model?.ifcDataStore ?? ifcDataStore;
+    if (!dataStore) return [];
+    return extractDocumentsOnDemand(dataStore as IfcDataStore, selectedEntity.expressId);
+  }, [selectedEntity, model, ifcDataStore]);
+
   // Extract type-level properties (e.g., from IfcWallType's HasPropertySets)
   const typeProperties = useMemo(() => {
     if (!selectedEntity) return null;
@@ -714,7 +723,7 @@ export function PropertiesPanel() {
                 existingPsets={properties.map(p => p.name)}
               />
             )}
-            {properties.length === 0 && classifications.length === 0 && !materialInfo && !typeProperties ? (
+            {properties.length === 0 && classifications.length === 0 && !materialInfo && !typeProperties && documents.length === 0 ? (
               <p className="text-sm text-zinc-500 dark:text-zinc-500 text-center py-8 font-mono">No property sets</p>
             ) : (
               <div className="space-y-3 w-full overflow-hidden">
@@ -747,6 +756,18 @@ export function PropertiesPanel() {
                       <div className="border-t border-zinc-200 dark:border-zinc-800 pt-2 mt-2" />
                     )}
                     <MaterialCard material={materialInfo} />
+                  </>
+                )}
+
+                {/* Documents */}
+                {documents.length > 0 && (
+                  <>
+                    {(properties.length > 0 || classifications.length > 0 || materialInfo) && (
+                      <div className="border-t border-zinc-200 dark:border-zinc-800 pt-2 mt-2" />
+                    )}
+                    {documents.map((doc, i) => (
+                      <DocumentCard key={`doc-${i}`} document={doc} />
+                    ))}
                   </>
                 )}
 

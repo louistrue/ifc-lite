@@ -104,6 +104,7 @@ export enum RelationshipType {
   DefinesByType = 11,
   AssociatesMaterial = 20,
   AssociatesClassification = 30,
+  AssociatesDocument = 31,
   ConnectsPathElements = 40,
   FillsElement = 41,
   VoidsElement = 42,

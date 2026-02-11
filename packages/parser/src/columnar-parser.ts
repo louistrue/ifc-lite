@@ -74,6 +74,12 @@ export interface IfcDataStore {
      * Value is the expressId of IfcMaterial, IfcMaterialLayerSet, IfcMaterialProfileSet, or IfcMaterialConstituentSet.
      */
     onDemandMaterialMap?: Map<number, number>;
+
+    /**
+     * On-demand document lookup: entityId -> array of IfcDocumentReference/IfcDocumentInformation expressIds
+     * Built from IfcRelAssociatesDocument relationships during parsing.
+     */
+    onDemandDocumentMap?: Map<number, number[]>;
 }
 
 // Pre-computed type sets for O(1) lookups
@@ -93,6 +99,7 @@ const RELATIONSHIP_TYPES = new Set([
     'IFCRELCONTAINEDINSPATIALSTRUCTURE', 'IFCRELAGGREGATES',
     'IFCRELDEFINESBYPROPERTIES', 'IFCRELDEFINESBYTYPE',
     'IFCRELASSOCIATESMATERIAL', 'IFCRELASSOCIATESCLASSIFICATION',
+    'IFCRELASSOCIATESDOCUMENT',
     'IFCRELVOIDSELEMENT', 'IFCRELFILLSELEMENT',
     'IFCRELCONNECTSPATHELEMENTS', 'IFCRELCONNECTSELEMENTS',
     'IFCRELSPACEBOUNDARY',
@@ -109,6 +116,7 @@ const REL_TYPE_MAP: Record<string, RelationshipType> = {
     'IFCRELDEFINESBYTYPE': RelationshipType.DefinesByType,
     'IFCRELASSOCIATESMATERIAL': RelationshipType.AssociatesMaterial,
     'IFCRELASSOCIATESCLASSIFICATION': RelationshipType.AssociatesClassification,
+    'IFCRELASSOCIATESDOCUMENT': RelationshipType.AssociatesDocument,
     'IFCRELVOIDSELEMENT': RelationshipType.VoidsElement,
     'IFCRELFILLSELEMENT': RelationshipType.FillsElement,
     'IFCRELCONNECTSPATHELEMENTS': RelationshipType.ConnectsPathElements,
@@ -146,6 +154,7 @@ const PROPERTY_REL_TYPES = new Set([
 // Relationship types for on-demand classification/material loading
 const ASSOCIATION_REL_TYPES = new Set([
     'IFCRELASSOCIATESCLASSIFICATION', 'IFCRELASSOCIATESMATERIAL',
+    'IFCRELASSOCIATESDOCUMENT',
 ]);
 
 // Property-related entity types for on-demand extraction
@@ -157,6 +166,21 @@ const PROPERTY_ENTITY_TYPES = new Set([
     'IFCQUANTITYLENGTH', 'IFCQUANTITYAREA', 'IFCQUANTITYVOLUME',
     'IFCQUANTITYCOUNT', 'IFCQUANTITYWEIGHT', 'IFCQUANTITYTIME',
 ]);
+
+/**
+ * Detect the IFC schema version from the STEP FILE_SCHEMA header.
+ * Scans the first 2000 bytes for FILE_SCHEMA(('IFC2X3')), FILE_SCHEMA(('IFC4')), etc.
+ */
+function detectSchemaVersion(buffer: Uint8Array): IfcDataStore['schemaVersion'] {
+    const headerEnd = Math.min(buffer.length, 2000);
+    const headerText = new TextDecoder().decode(buffer.subarray(0, headerEnd)).toUpperCase();
+
+    if (headerText.includes('IFC4X3')) return 'IFC4X3';
+    if (headerText.includes('IFC4')) return 'IFC4';
+    if (headerText.includes('IFC2X3')) return 'IFC2X3';
+
+    return 'IFC4'; // Default fallback
+}
 
 export class ColumnarParser {
     /**
@@ -176,6 +200,9 @@ export class ColumnarParser {
         const totalEntities = entityRefs.length;
 
         options.onProgress?.({ phase: 'building', percent: 0 });
+
+        // Detect schema version from FILE_SCHEMA header
+        const schemaVersion = detectSchemaVersion(uint8Buffer);
 
         // Initialize builders
         const strings = new StringTable();
@@ -327,18 +354,19 @@ export class ColumnarParser {
             }
         }
 
-        // === PARSE ASSOCIATION RELATIONSHIPS for on-demand classification/material loading ===
+        // === PARSE ASSOCIATION RELATIONSHIPS for on-demand classification/material/document loading ===
         const onDemandClassificationMap = new Map<number, number[]>();
         const onDemandMaterialMap = new Map<number, number>();
+        const onDemandDocumentMap = new Map<number, number[]>();
 
         for (const ref of associationRelRefs) {
             const entity = extractor.extractEntity(ref);
             if (entity) {
                 const attrs = entity.attributes || [];
-                // IfcRelAssociatesClassification / IfcRelAssociatesMaterial:
+                // IfcRelAssociates subtypes:
                 // [0] GlobalId, [1] OwnerHistory, [2] Name, [3] Description
                 // [4] RelatedObjects (list of element IDs)
-                // [5] RelatingClassification / RelatingMaterial
+                // [5] RelatingClassification / RelatingMaterial / RelatingDocument
                 const relatedObjects = attrs[4];
                 const relatingRef = attrs[5];
 
@@ -362,6 +390,17 @@ export class ColumnarParser {
                         for (const objId of relatedObjects) {
                             if (typeof objId === 'number') {
                                 onDemandMaterialMap.set(objId, relatingRef);
+                            }
+                        }
+                    } else if (typeUpper === 'IFCRELASSOCIATESDOCUMENT') {
+                        for (const objId of relatedObjects) {
+                            if (typeof objId === 'number') {
+                                let list = onDemandDocumentMap.get(objId);
+                                if (!list) {
+                                    list = [];
+                                    onDemandDocumentMap.set(objId, list);
+                                }
+                                list.push(relatingRef);
                             }
                         }
                     }
@@ -464,7 +503,7 @@ export class ColumnarParser {
 
         return {
             fileSize: buffer.byteLength,
-            schemaVersion: 'IFC4' as const,
+            schemaVersion,
             entityCount: totalEntities,
             parseTime,
             source: uint8Buffer,
@@ -479,6 +518,7 @@ export class ColumnarParser {
             onDemandQuantityMap, // For instant quantity access
             onDemandClassificationMap, // For instant classification access
             onDemandMaterialMap, // For instant material access
+            onDemandDocumentMap, // For instant document access
         };
     }
 
@@ -1269,4 +1309,124 @@ export function extractTypePropertiesOnDemand(
         typeId,
         properties: allPsets,
     };
+}
+
+/**
+ * Structured document info from IFC document references.
+ */
+export interface DocumentInfo {
+    name?: string;
+    description?: string;
+    location?: string;
+    identification?: string;
+    purpose?: string;
+    intendedUse?: string;
+    revision?: string;
+    confidentiality?: string;
+}
+
+/**
+ * Extract documents for a single entity ON-DEMAND.
+ * Uses the onDemandDocumentMap built during parsing.
+ * Falls back to relationship graph when on-demand map is not available.
+ * Also checks type-level documents via IfcRelDefinesByType.
+ * Returns an array of document info objects.
+ */
+export function extractDocumentsOnDemand(
+    store: IfcDataStore,
+    entityId: number
+): DocumentInfo[] {
+    let docRefIds: number[] | undefined;
+
+    if (store.onDemandDocumentMap) {
+        docRefIds = store.onDemandDocumentMap.get(entityId);
+    } else if (store.relationships) {
+        const related = store.relationships.getRelated(entityId, RelationshipType.AssociatesDocument, 'inverse');
+        if (related.length > 0) docRefIds = related;
+    }
+
+    // Also check type-level documents via IfcRelDefinesByType
+    if (store.relationships) {
+        const typeIds = store.relationships.getRelated(entityId, RelationshipType.DefinesByType, 'inverse');
+        for (const typeId of typeIds) {
+            let typeDocRefs: number[] | undefined;
+            if (store.onDemandDocumentMap) {
+                typeDocRefs = store.onDemandDocumentMap.get(typeId);
+            } else {
+                const related = store.relationships.getRelated(typeId, RelationshipType.AssociatesDocument, 'inverse');
+                if (related.length > 0) typeDocRefs = related;
+            }
+            if (typeDocRefs && typeDocRefs.length > 0) {
+                docRefIds = docRefIds ? [...docRefIds, ...typeDocRefs] : [...typeDocRefs];
+            }
+        }
+    }
+
+    if (!docRefIds || docRefIds.length === 0) return [];
+    if (!store.source?.length) return [];
+
+    const extractor = new EntityExtractor(store.source);
+    const results: DocumentInfo[] = [];
+
+    for (const docId of docRefIds) {
+        const docRef = store.entityIndex.byId.get(docId);
+        if (!docRef) continue;
+
+        const docEntity = extractor.extractEntity(docRef);
+        if (!docEntity) continue;
+
+        const typeUpper = docEntity.type.toUpperCase();
+        const attrs = docEntity.attributes || [];
+
+        if (typeUpper === 'IFCDOCUMENTREFERENCE') {
+            // IFC4: [Location, Identification, Name, Description, ReferencedDocument]
+            // IFC2X3: [Location, ItemReference, Name]
+            const info: DocumentInfo = {
+                location: typeof attrs[0] === 'string' ? attrs[0] : undefined,
+                identification: typeof attrs[1] === 'string' ? attrs[1] : undefined,
+                name: typeof attrs[2] === 'string' ? attrs[2] : undefined,
+                description: typeof attrs[3] === 'string' ? attrs[3] : undefined,
+            };
+
+            // Walk to IfcDocumentInformation if ReferencedDocument is set (IFC4 attr[4])
+            if (typeof attrs[4] === 'number') {
+                const docInfoRef = store.entityIndex.byId.get(attrs[4]);
+                if (docInfoRef) {
+                    const docInfoEntity = extractor.extractEntity(docInfoRef);
+                    if (docInfoEntity && docInfoEntity.type.toUpperCase() === 'IFCDOCUMENTINFORMATION') {
+                        const ia = docInfoEntity.attributes || [];
+                        // IfcDocumentInformation: [Identification, Name, Description, Location, Purpose, IntendedUse, Scope, Revision, ...]
+                        if (!info.identification && typeof ia[0] === 'string') info.identification = ia[0];
+                        if (!info.name && typeof ia[1] === 'string') info.name = ia[1];
+                        if (!info.description && typeof ia[2] === 'string') info.description = ia[2];
+                        if (!info.location && typeof ia[3] === 'string') info.location = ia[3];
+                        if (typeof ia[4] === 'string') info.purpose = ia[4];
+                        if (typeof ia[5] === 'string') info.intendedUse = ia[5];
+                        if (typeof ia[7] === 'string') info.revision = ia[7];
+                    }
+                }
+            }
+
+            if (info.name || info.location || info.identification) {
+                results.push(info);
+            }
+        } else if (typeUpper === 'IFCDOCUMENTINFORMATION') {
+            // Direct IfcDocumentInformation (less common)
+            const info: DocumentInfo = {
+                identification: typeof attrs[0] === 'string' ? attrs[0] : undefined,
+                name: typeof attrs[1] === 'string' ? attrs[1] : undefined,
+                description: typeof attrs[2] === 'string' ? attrs[2] : undefined,
+                location: typeof attrs[3] === 'string' ? attrs[3] : undefined,
+                purpose: typeof attrs[4] === 'string' ? attrs[4] : undefined,
+                intendedUse: typeof attrs[5] === 'string' ? attrs[5] : undefined,
+                revision: typeof attrs[7] === 'string' ? attrs[7] : undefined,
+            };
+
+            if (info.name || info.location || info.identification) {
+                results.push(info);
+            }
+        }
+    }
+
+    return results;
 }
