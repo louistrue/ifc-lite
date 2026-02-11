@@ -253,7 +253,7 @@ export function useHierarchyTree({ models, ifcDataStore, isMultiModel, geometryR
     }
     // Spatial containers (Project, Site, Building) and top-level models don't have direct element visibility toggle
     return [];
-  }, [models, ifcDataStore, unifiedStoreys, getUnifiedStoreyElements, treeData]);
+  }, [models, ifcDataStore, unifiedStoreys, getUnifiedStoreyElements]);
 
   // Persist grouping mode preference
   const handleSetGroupingMode = useCallback((mode: GroupingMode) => {

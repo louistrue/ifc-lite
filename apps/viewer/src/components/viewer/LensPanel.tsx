@@ -448,11 +448,11 @@ export function LensPanel({ onClose }: LensPanelProps) {
 
   // Apply hidden entities when lens hidden IDs change (proper effect, not render side-effect)
   useEffect(() => {
-    const ids = useViewerStore.getState().lensHiddenIds;
-    if (ids.size > 0 && activeLensId) {
+    if (lensHiddenIdsSize > 0 && activeLensId) {
+      const ids = useViewerStore.getState().lensHiddenIds;
       hideEntities(Array.from(ids));
     }
-  }, [activeLensId, hideEntities]);
+  }, [activeLensId, lensHiddenIdsSize, hideEntities]);
 
   const handleExport = useCallback(() => {
     const data = exportLenses();

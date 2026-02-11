@@ -109,7 +109,7 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
     };
   }),
 
-  setPendingColorUpdates: (updates) => set({ pendingColorUpdates: updates }),
+  setPendingColorUpdates: (updates) => set({ pendingColorUpdates: new Map(updates) }),
 
   clearPendingColorUpdates: () => set({ pendingColorUpdates: null }),
 

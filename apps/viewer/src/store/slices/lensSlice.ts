@@ -23,27 +23,66 @@ export { COMMON_IFC_CLASSES, COMMON_IFC_TYPES, LENS_PALETTE } from '@ifc-lite/le
 /** localStorage key for persisting custom lenses */
 const STORAGE_KEY = 'ifc-lite-custom-lenses';
 
-/** Load user-created lenses from localStorage */
-function loadCustomLenses(): Lens[] {
+/** Built-in lens IDs — used to detect overrides */
+const BUILTIN_IDS = new Set(BUILTIN_LENSES.map(l => l.id));
+
+/**
+ * Load saved lenses from localStorage.
+ * Returns both custom lenses and built-in overrides (user edits to builtin lenses).
+ * Built-in overrides replace the default builtin when merging in initial state.
+ */
+function loadSavedLenses(): { custom: Lens[]; builtinOverrides: Map<string, Lens> } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
+    if (!raw) return { custom: [], builtinOverrides: new Map() };
     const parsed = JSON.parse(raw) as Lens[];
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(l => l.id && l.name && Array.isArray(l.rules));
+    if (!Array.isArray(parsed)) return { custom: [], builtinOverrides: new Map() };
+    const valid = parsed.filter(l => l.id && l.name && Array.isArray(l.rules));
+    const builtinOverrides = new Map<string, Lens>();
+    const custom: Lens[] = [];
+    for (const l of valid) {
+      if (BUILTIN_IDS.has(l.id)) {
+        builtinOverrides.set(l.id, { ...l, builtin: true });
+      } else {
+        custom.push(l);
+      }
+    }
+    return { custom, builtinOverrides };
   } catch {
-    return [];
+    return { custom: [], builtinOverrides: new Map() };
   }
 }
 
-/** Persist custom (non-builtin) lenses to localStorage */
-function saveCustomLenses(lenses: Lens[]): void {
+/**
+ * Persist lenses to localStorage.
+ * Saves custom lenses + any built-in lenses the user has edited (overrides).
+ */
+function saveLenses(lenses: Lens[]): void {
   try {
+    // Save non-builtin custom lenses
     const custom = lenses.filter(l => !l.builtin);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(custom));
+    // Also save built-in lenses that differ from their defaults (user overrides)
+    const builtinOverrides = lenses.filter(l => {
+      if (!l.builtin) return false;
+      const original = BUILTIN_LENSES.find(b => b.id === l.id);
+      if (!original) return false;
+      // Quick check: has the user changed the rules or name?
+      return l.name !== original.name ||
+        JSON.stringify(l.rules) !== JSON.stringify(original.rules);
+    });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([...custom, ...builtinOverrides]));
   } catch {
     // quota exceeded or unavailable — silently ignore
   }
+}
+
+/** Build initial lens list: builtins (with overrides applied) + custom */
+function buildInitialLenses(): Lens[] {
+  const { custom, builtinOverrides } = loadSavedLenses();
+  const builtins = BUILTIN_LENSES.map(l =>
+    builtinOverrides.has(l.id) ? builtinOverrides.get(l.id)! : { ...l },
+  );
+  return [...builtins, ...custom];
 }
 
 export interface LensSlice {
@@ -77,8 +116,8 @@ export interface LensSlice {
 }
 
 export const createLensSlice: StateCreator<LensSlice, [], [], LensSlice> = (set, get) => ({
-  // Initial state — builtins + any previously saved custom lenses
-  savedLenses: [...BUILTIN_LENSES, ...loadCustomLenses()],
+  // Initial state — builtins (with user overrides applied) + custom lenses
+  savedLenses: buildInitialLenses(),
   activeLensId: null,
   lensPanelVisible: false,
   lensColorMap: new Map(),
@@ -88,13 +127,13 @@ export const createLensSlice: StateCreator<LensSlice, [], [], LensSlice> = (set,
   // Actions
   createLens: (lens) => set((state) => {
     const next = [...state.savedLenses, lens];
-    saveCustomLenses(next);
+    saveLenses(next);
     return { savedLenses: next };
   }),
 
   updateLens: (id, patch) => set((state) => {
     const next = state.savedLenses.map(l => l.id === id ? { ...l, ...patch } : l);
-    saveCustomLenses(next);
+    saveLenses(next);
     return { savedLenses: next };
   }),
 
@@ -102,7 +141,7 @@ export const createLensSlice: StateCreator<LensSlice, [], [], LensSlice> = (set,
     const lens = state.savedLenses.find(l => l.id === id);
     if (lens?.builtin) return {};
     const next = state.savedLenses.filter(l => l.id !== id);
-    saveCustomLenses(next);
+    saveLenses(next);
     return {
       savedLenses: next,
       activeLensId: state.activeLensId === id ? null : state.activeLensId,
@@ -130,7 +169,7 @@ export const createLensSlice: StateCreator<LensSlice, [], [], LensSlice> = (set,
       .filter(l => l.id && l.name && Array.isArray(l.rules) && !existingIds.has(l.id))
       .map(l => ({ ...l, builtin: false }));
     const next = [...state.savedLenses, ...newLenses];
-    saveCustomLenses(next);
+    saveLenses(next);
     return { savedLenses: next };
   }),
 
