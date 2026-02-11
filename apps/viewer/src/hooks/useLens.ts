@@ -8,6 +8,14 @@
  * Evaluates active lens rules against all entities across all models,
  * producing a color map and hidden IDs set that are applied to the renderer.
  * Unmatched entities with geometry are ghosted (semi-transparent).
+ *
+ * Performance notes:
+ * - Does NOT subscribe to `models` or `ifcDataStore` — reads them from
+ *   getState() only when the active lens changes. This prevents re-evaluation
+ *   during model loading.
+ * - Uses `setPendingColorUpdates` instead of `updateMeshColors` to avoid
+ *   cloning the entire mesh array (O(n) mesh copies) on every lens switch.
+ * - Original mesh colors are captured once and restored on deactivation.
  */
 
 import { useEffect, useRef, useCallback } from 'react';
@@ -165,11 +173,6 @@ function evaluateLens(
 export function useLens() {
   const activeLensId = useViewerStore((s) => s.activeLensId);
   const savedLenses = useViewerStore((s) => s.savedLenses);
-  const models = useViewerStore((s) => s.models);
-  const ifcDataStore = useViewerStore((s) => s.ifcDataStore);
-  const updateMeshColors = useViewerStore((s) => s.updateMeshColors);
-  const setLensColorMap = useViewerStore((s) => s.setLensColorMap);
-  const setLensHiddenIds = useViewerStore((s) => s.setLensHiddenIds);
 
   // Track the previously active lens to detect deactivation
   const prevLensIdRef = useRef<string | null>(null);
@@ -209,22 +212,25 @@ export function useLens() {
   useEffect(() => {
     const activeLens = savedLenses.find(l => l.id === activeLensId) ?? null;
 
-    // Lens deactivated - restore original colors
+    // Lens deactivated — restore original colors
     if (!activeLens && prevLensIdRef.current !== null) {
       prevLensIdRef.current = null;
-      setLensColorMap(new Map());
-      setLensHiddenIds(new Set());
+      useViewerStore.getState().setLensColorMap(new Map());
+      useViewerStore.getState().setLensHiddenIds(new Set());
 
-      // Restore original mesh colors
+      // Restore original mesh colors via lightweight pending path
       if (originalColorsRef.current && originalColorsRef.current.size > 0) {
-        updateMeshColors(originalColorsRef.current);
+        useViewerStore.getState().setPendingColorUpdates(originalColorsRef.current);
       }
       originalColorsRef.current = null;
       return;
     }
 
     if (!activeLens) return;
-    // Need at least one data source: federation models or legacy single-model dataStore
+
+    // Read data sources from getState() — NOT subscribed, so model loading
+    // doesn't trigger re-evaluation
+    const { models, ifcDataStore } = useViewerStore.getState();
     if (models.size === 0 && !ifcDataStore) return;
 
     // Save original colors before first lens application
@@ -236,7 +242,6 @@ export function useLens() {
 
     // Evaluate lens rules against all entities (federation or legacy single-model)
     // Ghost coloring is included: unmatched entities get GHOST_COLOR
-    // This ensures switching lenses fully overwrites all entities
     const { colorMap, hiddenIds } = evaluateLens(activeLens, models, ifcDataStore);
 
     // Build hex color map for UI legend (exclude ghost entries)
@@ -249,14 +254,15 @@ export function useLens() {
       const b = Math.round(rgba[2] * 255).toString(16).padStart(2, '0');
       hexColorMap.set(id, `#${r}${g}${b}`);
     }
-    setLensColorMap(hexColorMap);
-    setLensHiddenIds(hiddenIds);
+    useViewerStore.getState().setLensColorMap(hexColorMap);
+    useViewerStore.getState().setLensHiddenIds(hiddenIds);
 
-    // Apply ALL colors to renderer (matched + ghost) via pendingColorUpdates
+    // Apply ALL colors to renderer via pendingColorUpdates only —
+    // no mesh cloning needed, the renderer picks these up directly
     if (colorMap.size > 0) {
-      updateMeshColors(colorMap);
+      useViewerStore.getState().setPendingColorUpdates(colorMap);
     }
-  }, [activeLensId, savedLenses, models, ifcDataStore, updateMeshColors, setLensColorMap, setLensHiddenIds, captureOriginalColors]);
+  }, [activeLensId, savedLenses, captureOriginalColors]);
 
   return {
     activeLensId,

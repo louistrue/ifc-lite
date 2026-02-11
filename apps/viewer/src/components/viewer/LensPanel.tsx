@@ -11,7 +11,7 @@
  * Unmatched entities are ghosted (semi-transparent) for visual context.
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { X, EyeOff, Palette, Check, Plus, Trash2, Pencil, Save, Download, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -319,12 +319,13 @@ export function LensPanel({ onClose }: LensPanelProps) {
   const deleteLens = useViewerStore((s) => s.deleteLens);
   const importLenses = useViewerStore((s) => s.importLenses);
   const exportLenses = useViewerStore((s) => s.exportLenses);
-  const lensHiddenIds = useViewerStore((s) => s.lensHiddenIds);
-  const lensColorMap = useViewerStore((s) => s.lensColorMap);
   const hideEntities = useViewerStore((s) => s.hideEntities);
   const showAll = useViewerStore((s) => s.showAll);
   const isolateEntities = useViewerStore((s) => s.isolateEntities);
   const clearIsolation = useViewerStore((s) => s.clearIsolation);
+  // For footer stats — cheap primitive subscriptions
+  const lensColorMapSize = useViewerStore((s) => s.lensColorMap.size);
+  const lensHiddenIdsSize = useViewerStore((s) => s.lensHiddenIds.size);
 
   // Editor state: null = not editing, Lens object = editing/creating
   const [editingLens, setEditingLens] = useState<Lens | null>(null);
@@ -358,8 +359,9 @@ export function LensPanel({ onClose }: LensPanelProps) {
 
     // Collect all entity IDs matching this rule's color from the computed lens color map
     const ruleColor = rule.color.toUpperCase();
+    const colorMap = useViewerStore.getState().lensColorMap;
     const matchingIds: number[] = [];
-    lensColorMap.forEach((color, globalId) => {
+    colorMap.forEach((color, globalId) => {
       if (color.toUpperCase() === ruleColor) {
         matchingIds.push(globalId);
       }
@@ -369,7 +371,7 @@ export function LensPanel({ onClose }: LensPanelProps) {
       setIsolatedRuleId(ruleId);
       isolateEntities(matchingIds);
     }
-  }, [activeLensId, savedLenses, isolatedRuleId, lensColorMap, isolateEntities, clearIsolation]);
+  }, [activeLensId, savedLenses, isolatedRuleId, isolateEntities, clearIsolation]);
 
   const handleNewLens = useCallback(() => {
     setEditingLens({
@@ -402,12 +404,13 @@ export function LensPanel({ onClose }: LensPanelProps) {
     deleteLens(id);
   }, [activeLensId, setActiveLens, showAll, deleteLens]);
 
-  // Apply hidden entities when they change
-  const handleApplyHidden = useCallback(() => {
-    if (lensHiddenIds.size > 0) {
-      hideEntities(Array.from(lensHiddenIds));
+  // Apply hidden entities when lens hidden IDs change (proper effect, not render side-effect)
+  useEffect(() => {
+    const ids = useViewerStore.getState().lensHiddenIds;
+    if (ids.size > 0 && activeLensId) {
+      hideEntities(Array.from(ids));
     }
-  }, [lensHiddenIds, hideEntities]);
+  }, [activeLensId, hideEntities]);
 
   const handleExport = useCallback(() => {
     const data = exportLenses();
@@ -437,10 +440,6 @@ export function LensPanel({ onClose }: LensPanelProps) {
     // reset so same file can be re-imported
     e.target.value = '';
   }, [importLenses]);
-
-  if (lensHiddenIds.size > 0 && activeLensId) {
-    queueMicrotask(handleApplyHidden);
-  }
 
   return (
     <div className="h-full flex flex-col bg-white dark:bg-zinc-950">
@@ -550,7 +549,7 @@ export function LensPanel({ onClose }: LensPanelProps) {
       {/* Status footer */}
       <div className="p-2 border-t-2 border-zinc-200 dark:border-zinc-800 text-[10px] uppercase tracking-wide text-zinc-600 dark:text-zinc-400 text-center bg-zinc-50 dark:bg-zinc-900 font-mono">
         {activeLensId
-          ? `Active · ${lensColorMap.size} colored · ${lensHiddenIds.size > 0 ? `${lensHiddenIds.size} hidden` : 'ghosted'}`
+          ? `Active · ${lensColorMapSize} colored · ${lensHiddenIdsSize > 0 ? `${lensHiddenIdsSize} hidden` : 'ghosted'}`
           : 'Click a lens to activate'}
       </div>
     </div>
