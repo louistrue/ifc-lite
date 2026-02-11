@@ -30,7 +30,7 @@ import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { IfcQuery } from '@ifc-lite/query';
 import { MutablePropertyView } from '@ifc-lite/mutations';
-import { extractPropertiesOnDemand, extractClassificationsOnDemand, extractMaterialsOnDemand, type IfcDataStore } from '@ifc-lite/parser';
+import { extractPropertiesOnDemand, extractClassificationsOnDemand, extractMaterialsOnDemand, extractTypePropertiesOnDemand, type IfcDataStore } from '@ifc-lite/parser';
 import type { EntityRef, FederatedModel } from '@/store/types';
 
 import { CoordVal, CoordRow } from './properties/CoordinateDisplay';
@@ -396,6 +396,25 @@ export function PropertiesPanel() {
     return extractMaterialsOnDemand(dataStore as IfcDataStore, selectedEntity.expressId);
   }, [selectedEntity, model, ifcDataStore]);
 
+  // Extract type-level properties (e.g., from IfcWallType's HasPropertySets)
+  const typeProperties = useMemo(() => {
+    if (!selectedEntity) return null;
+    const dataStore = model?.ifcDataStore ?? ifcDataStore;
+    if (!dataStore) return null;
+    const result = extractTypePropertiesOnDemand(dataStore as IfcDataStore, selectedEntity.expressId);
+    if (!result) return null;
+    // Convert to PropertySet format for PropertySetCard
+    return {
+      typeName: result.typeName,
+      typeId: result.typeId,
+      psets: result.properties.map(pset => ({
+        name: pset.name,
+        properties: pset.properties.map(p => ({ name: p.name, value: p.value, isMutated: false })),
+        isNewPset: false,
+      })),
+    };
+  }, [selectedEntity, model, ifcDataStore]);
+
   // Model metadata display (when clicking top-level model in hierarchy)
   if (selectedModelId) {
     const selectedModel = models.get(selectedModelId);
@@ -695,7 +714,7 @@ export function PropertiesPanel() {
                 existingPsets={properties.map(p => p.name)}
               />
             )}
-            {properties.length === 0 && classifications.length === 0 && !materialInfo ? (
+            {properties.length === 0 && classifications.length === 0 && !materialInfo && !typeProperties ? (
               <p className="text-sm text-zinc-500 dark:text-zinc-500 text-center py-8 font-mono">No property sets</p>
             ) : (
               <div className="space-y-3 w-full overflow-hidden">
@@ -728,6 +747,25 @@ export function PropertiesPanel() {
                       <div className="border-t border-zinc-200 dark:border-zinc-800 pt-2 mt-2" />
                     )}
                     <MaterialCard material={materialInfo} />
+                  </>
+                )}
+
+                {/* Type Properties */}
+                {typeProperties && typeProperties.psets.length > 0 && (
+                  <>
+                    <div className="border-t-2 border-indigo-200 dark:border-indigo-800 pt-2 mt-3" />
+                    <div className="flex items-center gap-2 px-1 pb-1">
+                      <Building2 className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
+                      <span className="font-bold text-xs text-indigo-700 dark:text-indigo-400 uppercase tracking-wide">
+                        Type: {typeProperties.typeName}
+                      </span>
+                    </div>
+                    {typeProperties.psets.map((pset: PropertySet) => (
+                      <PropertySetCard
+                        key={`type-${pset.name}`}
+                        pset={pset}
+                      />
+                    ))}
                   </>
                 )}
               </div>

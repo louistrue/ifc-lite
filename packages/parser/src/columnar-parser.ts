@@ -1125,3 +1125,148 @@ function resolveMaterial(
             return null;
     }
 }
+
+/**
+ * Result of type-level property extraction.
+ */
+export interface TypePropertyInfo {
+    typeName: string;
+    typeId: number;
+    properties: Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: any }> }>;
+}
+
+/**
+ * Extract property sets from a list of pset IDs using the entity index.
+ * Shared logic between instance-level and type-level property extraction.
+ */
+function extractPsetsFromIds(
+    store: IfcDataStore,
+    extractor: EntityExtractor,
+    psetIds: number[]
+): Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: any }> }> {
+    const result: Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: any }> }> = [];
+
+    for (const psetId of psetIds) {
+        const psetRef = store.entityIndex.byId.get(psetId);
+        if (!psetRef) continue;
+
+        // Only extract IFCPROPERTYSET entities (skip quantity sets etc.)
+        if (psetRef.type.toUpperCase() !== 'IFCPROPERTYSET') continue;
+
+        const psetEntity = extractor.extractEntity(psetRef);
+        if (!psetEntity) continue;
+
+        const psetAttrs = psetEntity.attributes || [];
+        const psetGlobalId = typeof psetAttrs[0] === 'string' ? psetAttrs[0] : undefined;
+        const psetName = typeof psetAttrs[2] === 'string' ? psetAttrs[2] : `PropertySet #${psetId}`;
+        const hasProperties = psetAttrs[4];
+
+        const properties: Array<{ name: string; type: number; value: any }> = [];
+
+        if (Array.isArray(hasProperties)) {
+            for (const propRef of hasProperties) {
+                if (typeof propRef !== 'number') continue;
+
+                const propEntityRef = store.entityIndex.byId.get(propRef);
+                if (!propEntityRef) continue;
+
+                const propEntity = extractor.extractEntity(propEntityRef);
+                if (!propEntity) continue;
+
+                const propAttrs = propEntity.attributes || [];
+                const propName = typeof propAttrs[0] === 'string' ? propAttrs[0] : '';
+                if (!propName) continue;
+
+                const nominalValue = propAttrs[2];
+                let type = 0; // String
+                let value: any = nominalValue;
+
+                if (typeof nominalValue === 'number') {
+                    type = 1; // Real
+                } else if (typeof nominalValue === 'boolean') {
+                    type = 2; // Boolean
+                } else if (nominalValue !== null && nominalValue !== undefined) {
+                    value = String(nominalValue);
+                }
+
+                properties.push({ name: propName, type, value });
+            }
+        }
+
+        if (properties.length > 0 || psetName) {
+            result.push({ name: psetName, globalId: psetGlobalId, properties });
+        }
+    }
+
+    return result;
+}
+
+/**
+ * Extract type-level properties for a single entity ON-DEMAND.
+ * Finds the element's type via IfcRelDefinesByType, then extracts property sets from:
+ * 1. The type entity's HasPropertySets attribute (IFC2X3/IFC4: index 5 on IfcTypeObject)
+ * 2. The onDemandPropertyMap for the type entity (IFC4 IFCRELDEFINESBYPROPERTIES → type)
+ * Returns null if no type relationship exists.
+ */
+export function extractTypePropertiesOnDemand(
+    store: IfcDataStore,
+    entityId: number
+): TypePropertyInfo | null {
+    if (!store.relationships) return null;
+
+    // Find type entity via DefinesByType relationship (inverse: element → type)
+    const typeIds = store.relationships.getRelated(entityId, RelationshipType.DefinesByType, 'inverse');
+    if (typeIds.length === 0) return null;
+
+    const typeId = typeIds[0]; // An element typically has one type
+    const typeRef = store.entityIndex.byId.get(typeId);
+    if (!typeRef) return null;
+
+    if (!store.source?.length) return null;
+
+    const extractor = new EntityExtractor(store.source);
+
+    // Get type name from entity
+    const typeEntity = extractor.extractEntity(typeRef);
+    const typeName = typeEntity && typeof typeEntity.attributes?.[2] === 'string'
+        ? typeEntity.attributes[2]
+        : typeRef.type;
+
+    const allPsets: Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: any }> }> = [];
+    const seenPsetNames = new Set<string>();
+
+    // Source 1: HasPropertySets attribute on the type entity (index 5 for IfcTypeObject subtypes)
+    // Works for both IFC2X3 and IFC4
+    if (typeEntity) {
+        const hasPropertySets = typeEntity.attributes?.[5];
+        if (Array.isArray(hasPropertySets)) {
+            const psetIds = hasPropertySets.filter((id): id is number => typeof id === 'number');
+            const psets = extractPsetsFromIds(store, extractor, psetIds);
+            for (const pset of psets) {
+                seenPsetNames.add(pset.name);
+                allPsets.push(pset);
+            }
+        }
+    }
+
+    // Source 2: onDemandPropertyMap for the type entity (IFC4: via IFCRELDEFINESBYPROPERTIES)
+    if (store.onDemandPropertyMap) {
+        const typePsetIds = store.onDemandPropertyMap.get(typeId);
+        if (typePsetIds && typePsetIds.length > 0) {
+            const psets = extractPsetsFromIds(store, extractor, typePsetIds);
+            for (const pset of psets) {
+                if (!seenPsetNames.has(pset.name)) {
+                    allPsets.push(pset);
+                }
+            }
+        }
+    }
+
+    if (allPsets.length === 0) return null;
+
+    return {
+        typeName,
+        typeId,
+        properties: allPsets,
+    };
+}
