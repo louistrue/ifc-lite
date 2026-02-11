@@ -180,10 +180,11 @@ export function HierarchyPanel() {
       return;
     }
 
-    // Type group nodes - just expand/collapse
+    // Type group nodes - click to isolate entities, expand via chevron only
     if (node.type === 'type-group') {
-      if (node.hasChildren) {
-        toggleExpand(node.id);
+      const elements = getNodeElements(node);
+      if (elements.length > 0) {
+        isolateEntities(elements);
       }
       return;
     }
@@ -281,7 +282,7 @@ export function HierarchyPanel() {
         setSelectedEntityId(elementId);
       }
     }
-  }, [selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntity, setSelectedEntities, setActiveModel, toggleExpand, unifiedStoreys, models]);
+  }, [selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntity, setSelectedEntities, setActiveModel, toggleExpand, unifiedStoreys, models, isolateEntities, getNodeElements]);
 
   // Compute selection and visibility state for a node
   const computeNodeState = useCallback((node: TreeNode): { isSelected: boolean; nodeHidden: boolean; modelVisible?: boolean } => {
