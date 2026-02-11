@@ -30,7 +30,7 @@ import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { IfcQuery } from '@ifc-lite/query';
 import { MutablePropertyView } from '@ifc-lite/mutations';
-import { extractPropertiesOnDemand, extractClassificationsOnDemand, extractMaterialsOnDemand, extractTypePropertiesOnDemand, extractDocumentsOnDemand, type IfcDataStore } from '@ifc-lite/parser';
+import { extractPropertiesOnDemand, extractClassificationsOnDemand, extractMaterialsOnDemand, extractTypePropertiesOnDemand, extractDocumentsOnDemand, extractRelationshipsOnDemand, type IfcDataStore } from '@ifc-lite/parser';
 import type { EntityRef, FederatedModel } from '@/store/types';
 
 import { CoordVal, CoordRow } from './properties/CoordinateDisplay';
@@ -40,6 +40,7 @@ import { ModelMetadataPanel } from './properties/ModelMetadataPanel';
 import { ClassificationCard } from './properties/ClassificationCard';
 import { MaterialCard } from './properties/MaterialCard';
 import { DocumentCard } from './properties/DocumentCard';
+import { RelationshipsCard } from './properties/RelationshipsCard';
 import type { PropertySet, QuantitySet } from './properties/encodingUtils';
 
 export function PropertiesPanel() {
@@ -405,6 +406,16 @@ export function PropertiesPanel() {
     return extractDocumentsOnDemand(dataStore as IfcDataStore, selectedEntity.expressId);
   }, [selectedEntity, model, ifcDataStore]);
 
+  // Extract structural relationships (openings, fills, groups, connections)
+  const entityRelationships = useMemo(() => {
+    if (!selectedEntity) return null;
+    const dataStore = model?.ifcDataStore ?? ifcDataStore;
+    if (!dataStore) return null;
+    const rels = extractRelationshipsOnDemand(dataStore as IfcDataStore, selectedEntity.expressId);
+    const totalCount = rels.voids.length + rels.fills.length + rels.groups.length + rels.connections.length;
+    return totalCount > 0 ? rels : null;
+  }, [selectedEntity, model, ifcDataStore]);
+
   // Extract type-level properties (e.g., from IfcWallType's HasPropertySets)
   const typeProperties = useMemo(() => {
     if (!selectedEntity) return null;
@@ -768,6 +779,14 @@ export function PropertiesPanel() {
                     {documents.map((doc, i) => (
                       <DocumentCard key={`doc-${i}`} document={doc} />
                     ))}
+                  </>
+                )}
+
+                {/* Relationships */}
+                {entityRelationships && (
+                  <>
+                    <div className="border-t border-zinc-200 dark:border-zinc-800 pt-2 mt-2" />
+                    <RelationshipsCard relationships={entityRelationships} />
                   </>
                 )}
 

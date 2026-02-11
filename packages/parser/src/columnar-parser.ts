@@ -601,20 +601,8 @@ export class ColumnarParser {
                     const propName = typeof propAttrs[0] === 'string' ? propAttrs[0] : '';
                     if (!propName) continue;
 
-                    // IfcPropertySingleValue: [name, description, nominalValue, unit]
-                    const nominalValue = propAttrs[2];
-                    let type = 0; // String
-                    let value: any = nominalValue;
-
-                    if (typeof nominalValue === 'number') {
-                        type = 1; // Real
-                    } else if (typeof nominalValue === 'boolean') {
-                        type = 2; // Boolean
-                    } else if (nominalValue !== null && nominalValue !== undefined) {
-                        value = String(nominalValue);
-                    }
-
-                    properties.push({ name: propName, type, value });
+                    const parsed = parsePropertyValue(propEntity);
+                    properties.push({ name: propName, type: parsed.type, value: parsed.value });
                 }
             }
 
@@ -1176,6 +1164,121 @@ export interface TypePropertyInfo {
 }
 
 /**
+ * Parse a property entity's value based on its IFC type.
+ * Handles all 6 IfcProperty subtypes:
+ * - IfcPropertySingleValue: direct value
+ * - IfcPropertyEnumeratedValue: list of enum values → joined string
+ * - IfcPropertyBoundedValue: upper/lower bounds → "value [min – max]"
+ * - IfcPropertyListValue: list of values → joined string
+ * - IfcPropertyTableValue: defining/defined value pairs → "Table(N rows)"
+ * - IfcPropertyReferenceValue: entity reference → "Reference #ID"
+ */
+function parsePropertyValue(propEntity: IfcEntity): { type: number; value: any } {
+    const attrs = propEntity.attributes || [];
+    const typeUpper = propEntity.type.toUpperCase();
+
+    switch (typeUpper) {
+        case 'IFCPROPERTYENUMERATEDVALUE': {
+            // [Name, Description, EnumerationValues (list), EnumerationReference]
+            const enumValues = attrs[2];
+            if (Array.isArray(enumValues)) {
+                const values = enumValues.map(v => {
+                    if (Array.isArray(v) && v.length === 2) return String(v[1]); // Typed value
+                    return String(v);
+                }).filter(v => v !== 'null' && v !== 'undefined');
+                return { type: 0, value: values.join(', ') };
+            }
+            return { type: 0, value: null };
+        }
+
+        case 'IFCPROPERTYBOUNDEDVALUE': {
+            // [Name, Description, UpperBoundValue, LowerBoundValue, Unit, SetPointValue]
+            const upper = extractNumericValue(attrs[2]);
+            const lower = extractNumericValue(attrs[3]);
+            const setPoint = extractNumericValue(attrs[5]);
+            const displayValue = setPoint ?? upper ?? lower;
+            let display = displayValue != null ? String(displayValue) : '';
+            if (lower != null && upper != null) {
+                display += ` [${lower} – ${upper}]`;
+            }
+            return { type: displayValue != null ? 1 : 0, value: display || null };
+        }
+
+        case 'IFCPROPERTYLISTVALUE': {
+            // [Name, Description, ListValues (list), Unit]
+            const listValues = attrs[2];
+            if (Array.isArray(listValues)) {
+                const values = listValues.map(v => {
+                    if (Array.isArray(v) && v.length === 2) return String(v[1]);
+                    return String(v);
+                }).filter(v => v !== 'null' && v !== 'undefined');
+                return { type: 0, value: values.join(', ') };
+            }
+            return { type: 0, value: null };
+        }
+
+        case 'IFCPROPERTYTABLEVALUE': {
+            // [Name, Description, DefiningValues, DefinedValues, ...]
+            const definingValues = attrs[2];
+            const definedValues = attrs[3];
+            const rowCount = Array.isArray(definingValues) ? definingValues.length : 0;
+            if (rowCount > 0 && Array.isArray(definedValues)) {
+                return { type: 0, value: `Table (${rowCount} rows)` };
+            }
+            return { type: 0, value: null };
+        }
+
+        case 'IFCPROPERTYREFERENCEVALUE': {
+            // [Name, Description, PropertyReference]
+            const refValue = attrs[2];
+            if (typeof refValue === 'number') {
+                return { type: 0, value: `#${refValue}` };
+            }
+            return { type: 0, value: null };
+        }
+
+        default: {
+            // IfcPropertySingleValue and fallback: [Name, Description, NominalValue, Unit]
+            const nominalValue = attrs[2];
+            let type = 0;
+            let value: any = nominalValue;
+
+            // Handle typed values like IFCBOOLEAN(.T.), IFCREAL(1.5)
+            if (Array.isArray(nominalValue) && nominalValue.length === 2) {
+                const innerValue = nominalValue[1];
+                const typeName = String(nominalValue[0]).toUpperCase();
+
+                if (typeName.includes('BOOLEAN') || typeName.includes('LOGICAL')) {
+                    type = 2;
+                    value = innerValue === '.T.' || innerValue === true;
+                } else if (typeof innerValue === 'number') {
+                    type = 1;
+                    value = innerValue;
+                } else {
+                    type = 0;
+                    value = String(innerValue);
+                }
+            } else if (typeof nominalValue === 'number') {
+                type = 1;
+            } else if (typeof nominalValue === 'boolean') {
+                type = 2;
+            } else if (nominalValue !== null && nominalValue !== undefined) {
+                value = String(nominalValue);
+            }
+
+            return { type, value };
+        }
+    }
+}
+
+/** Extract a numeric value from a possibly typed STEP value. */
+function extractNumericValue(attr: any): number | null {
+    if (typeof attr === 'number') return attr;
+    if (Array.isArray(attr) && attr.length === 2 && typeof attr[1] === 'number') return attr[1];
+    return null;
+}
+
+/**
  * Extract property sets from a list of pset IDs using the entity index.
  * Shared logic between instance-level and type-level property extraction.
  */
@@ -1217,19 +1320,8 @@ function extractPsetsFromIds(
                 const propName = typeof propAttrs[0] === 'string' ? propAttrs[0] : '';
                 if (!propName) continue;
 
-                const nominalValue = propAttrs[2];
-                let type = 0; // String
-                let value: any = nominalValue;
-
-                if (typeof nominalValue === 'number') {
-                    type = 1; // Real
-                } else if (typeof nominalValue === 'boolean') {
-                    type = 2; // Boolean
-                } else if (nominalValue !== null && nominalValue !== undefined) {
-                    value = String(nominalValue);
-                }
-
-                properties.push({ name: propName, type, value });
+                const parsed = parsePropertyValue(propEntity);
+                properties.push({ name: propName, type: parsed.type, value: parsed.value });
             }
         }
 
@@ -1429,4 +1521,73 @@ export function extractDocumentsOnDemand(
     }
 
     return results;
+}
+
+/**
+ * Structured relationship info for an entity.
+ */
+export interface EntityRelationships {
+    voids: Array<{ id: number; name?: string; type: string }>;
+    fills: Array<{ id: number; name?: string; type: string }>;
+    groups: Array<{ id: number; name?: string }>;
+    connections: Array<{ id: number; name?: string; type: string }>;
+}
+
+/**
+ * Extract structural relationships for a single entity ON-DEMAND.
+ * Finds openings (VoidsElement), fills (FillsElement), groups (AssignsToGroup),
+ * and path connections (ConnectsPathElements).
+ */
+export function extractRelationshipsOnDemand(
+    store: IfcDataStore,
+    entityId: number
+): EntityRelationships {
+    const result: EntityRelationships = {
+        voids: [],
+        fills: [],
+        groups: [],
+        connections: [],
+    };
+
+    if (!store.relationships) return result;
+
+    const getEntityInfo = (id: number): { name?: string; type: string } => {
+        const ref = store.entityIndex.byId.get(id);
+        if (!ref) return { type: 'Unknown' };
+        const name = store.entities?.getName(id);
+        return { name: name || undefined, type: ref.type };
+    };
+
+    // VoidsElement: openings that void this element
+    const voidsIds = store.relationships.getRelated(entityId, RelationshipType.VoidsElement, 'forward');
+    for (const id of voidsIds) {
+        const info = getEntityInfo(id);
+        result.voids.push({ id, ...info });
+    }
+
+    // FillsElement: this element fills an opening
+    const fillsIds = store.relationships.getRelated(entityId, RelationshipType.FillsElement, 'inverse');
+    for (const id of fillsIds) {
+        const info = getEntityInfo(id);
+        result.fills.push({ id, ...info });
+    }
+
+    // AssignsToGroup: groups this element belongs to
+    const groupIds = store.relationships.getRelated(entityId, RelationshipType.AssignsToGroup, 'inverse');
+    for (const id of groupIds) {
+        const name = store.entities?.getName(id);
+        result.groups.push({ id, name: name || undefined });
+    }
+
+    // ConnectsPathElements: connected walls
+    const connectedIds = store.relationships.getRelated(entityId, RelationshipType.ConnectsPathElements, 'forward');
+    const connectedInverseIds = store.relationships.getRelated(entityId, RelationshipType.ConnectsPathElements, 'inverse');
+    const allConnected = new Set([...connectedIds, ...connectedInverseIds]);
+    allConnected.delete(entityId);
+    for (const id of allConnected) {
+        const info = getEntityInfo(id);
+        result.connections.push({ id, ...info });
+    }
+
+    return result;
 }
