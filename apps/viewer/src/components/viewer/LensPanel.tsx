@@ -61,7 +61,10 @@ const RuleRow = memo(function RuleRow({
         // Empty: muted, non-interactive
         isEmpty && 'border-l-transparent opacity-50 cursor-default',
       )}
+      role={isClickable ? 'button' : undefined}
+      tabIndex={isClickable ? 0 : undefined}
       onClick={(e) => { if (isClickable) { e.stopPropagation(); onClick(); } }}
+      onKeyDown={(e) => { if (isClickable && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onClick(); } }}
       title={isClickable ? 'Click to isolate / show only this class' : isEmpty ? 'No matching entities' : undefined}
     >
       <div

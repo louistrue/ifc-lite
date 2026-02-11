@@ -55,7 +55,8 @@ describe('isGhostColor', () => {
     expect(isGhostColor([0, 0, 0, 0.19])).toBe(true);
   });
 
-  it('should not flag opaque colors', () => {
+  it('should not flag colors at or above alpha boundary (0.2)', () => {
+    expect(isGhostColor([1, 0, 0, 0.2])).toBe(false);
     expect(isGhostColor([1, 0, 0, 1])).toBe(false);
     expect(isGhostColor([0, 0, 0, 0.3])).toBe(false);
   });
