@@ -97,6 +97,7 @@ export interface LensSlice {
   deleteLens: (id: string) => void;
   setActiveLens: (id: string | null) => void;
   toggleLensPanel: () => void;
+  setLensPanelVisible: (visible: boolean) => void;
   setLensColorMap: (map: Map<number, string>) => void;
   setLensHiddenIds: (ids: Set<number>) => void;
   /** Get the active lens configuration */
@@ -128,6 +129,7 @@ export const createLensSlice: StateCreator<LensSlice, [], [], LensSlice> = (set,
   setActiveLens: (activeLensId) => set({ activeLensId }),
 
   toggleLensPanel: () => set((state) => ({ lensPanelVisible: !state.lensPanelVisible })),
+  setLensPanelVisible: (lensPanelVisible) => set({ lensPanelVisible }),
 
   setLensColorMap: (lensColorMap) => set({ lensColorMap }),
   setLensHiddenIds: (lensHiddenIds) => set({ lensHiddenIds }),

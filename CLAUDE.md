@@ -16,6 +16,11 @@ ifc-lite is a high-performance IFC (Industry Foundation Classes) platform for BI
 - Configurable property lists (entity tables with column discovery)
 - 2D architectural drawings (section cuts, floor plans, elevations)
 - Property editing with undo/redo and change tracking
+- Orthographic projection with seamless perspective switching
+- Automatic floorplan views per storey (section plane + ortho top-down)
+- Pinboard (selection basket) for collecting and isolating entities
+- Tree view by IFC type grouping (alongside spatial hierarchy)
+- Lens system (rule-based 3D colorization and filtering)
 
 ## Critical Standards
 
@@ -93,8 +98,8 @@ function isIfcxDataStore(store: unknown): store is IfcxDataStore {
 - Tests co-located with source files (`*.test.ts`)
 
 **Key Patterns:**
-- Zustand for state management (15 slices: selection, visibility, model, bcf, ids, list, mutation, drawing2D, sheet, section, measurement, camera, data, loading, hover, ui)
-- React hooks for business logic (`useIfc`, `useViewerSelectors`)
+- Zustand for state management (17 slices: selection, visibility, model, bcf, ids, list, mutation, drawing2D, sheet, section, measurement, camera, data, loading, hover, ui, pinboard, lens)
+- React hooks for business logic (`useIfc`, `useViewerSelectors`, `useLens`, `useFloorplanView`)
 - WebGPU for 3D rendering
 - Virtualized lists for large datasets
 - FederationRegistry singleton for multi-model ID management

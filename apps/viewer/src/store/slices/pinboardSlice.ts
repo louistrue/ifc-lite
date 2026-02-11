@@ -13,6 +13,12 @@ import type { StateCreator } from 'zustand';
 import type { EntityRef } from '../types.js';
 import { entityRefToString, stringToEntityRef } from '../types.js';
 
+/** Minimal interface for accessing isolation + models from the combined store */
+interface CombinedStoreAccess {
+  isolateEntities?: (ids: number[]) => void;
+  models?: Map<string, { idOffset: number }>;
+}
+
 export interface PinboardSlice {
   // State
   /** Serialized EntityRef strings for O(1) membership check */
@@ -73,28 +79,25 @@ export const createPinboardSlice: StateCreator<PinboardSlice, [], [], PinboardSl
   clearPinboard: () => set({ pinboardEntities: new Set() }),
 
   showPinboard: () => {
-    // This will be wired to isolateEntities via the store composition
-    // For now, we trigger isolation through a listener pattern
     const entities = get().getPinboardEntities();
     if (entities.length === 0) return;
 
-    // Use the store's isolateEntities - accessed via combined store
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const store = get() as any;
-    if (store.isolateEntities) {
-      // Convert EntityRef to global IDs for isolation
-      const globalIds: number[] = [];
-      for (const ref of entities) {
-        if (store.models) {
-          const model = store.models.get(ref.modelId);
-          const offset = model?.idOffset ?? 0;
-          globalIds.push(ref.expressId + offset);
-        } else {
-          globalIds.push(ref.expressId);
-        }
+    // Access combined store methods via typed interface
+    const store = get() as unknown as CombinedStoreAccess;
+    if (!store.isolateEntities) return;
+
+    // Convert EntityRef to global IDs for isolation
+    const globalIds: number[] = [];
+    for (const ref of entities) {
+      if (store.models) {
+        const model = store.models.get(ref.modelId);
+        const offset = model?.idOffset ?? 0;
+        globalIds.push(ref.expressId + offset);
+      } else {
+        globalIds.push(ref.expressId);
       }
-      store.isolateEntities(globalIds);
     }
+    store.isolateEntities(globalIds);
   },
 
   isInPinboard: (ref) => get().pinboardEntities.has(entityRefToString(ref)),

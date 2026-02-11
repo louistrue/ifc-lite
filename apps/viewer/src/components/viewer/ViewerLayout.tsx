@@ -17,6 +17,7 @@ import { EntityContextMenu } from './EntityContextMenu';
 import { HoverTooltip } from './HoverTooltip';
 import { BCFPanel } from './BCFPanel';
 import { IDSPanel } from './IDSPanel';
+import { LensPanel } from './LensPanel';
 import { ListPanel } from './lists/ListPanel';
 
 const BOTTOM_PANEL_MIN_HEIGHT = 120;
@@ -42,6 +43,8 @@ export function ViewerLayout() {
   const setIdsPanelVisible = useViewerStore((s) => s.setIdsPanelVisible);
   const listPanelVisible = useViewerStore((s) => s.listPanelVisible);
   const setListPanelVisible = useViewerStore((s) => s.setListPanelVisible);
+  const lensPanelVisible = useViewerStore((s) => s.lensPanelVisible);
+  const setLensPanelVisible = useViewerStore((s) => s.setLensPanelVisible);
 
   // Bottom panel resize state (pixel height, persisted in ref to avoid re-renders during drag)
   const [bottomHeight, setBottomHeight] = useState(BOTTOM_PANEL_DEFAULT_HEIGHT);
@@ -173,7 +176,9 @@ export function ViewerLayout() {
                   collapsedSize={0}
                 >
                   <div className="h-full w-full overflow-hidden">
-                    {idsPanelVisible ? (
+                    {lensPanelVisible ? (
+                      <LensPanel onClose={() => setLensPanelVisible(false)} />
+                    ) : idsPanelVisible ? (
                       <IDSPanel onClose={() => setIdsPanelVisible(false)} />
                     ) : bcfPanelVisible ? (
                       <BCFPanel onClose={() => setBcfPanelVisible(false)} />
@@ -235,7 +240,7 @@ export function ViewerLayout() {
               <div className="absolute inset-x-0 bottom-0 h-[50vh] bg-background border-t rounded-t-xl shadow-xl z-40 animate-in slide-in-from-bottom">
                 <div className="flex items-center justify-between p-2 border-b">
                   <span className="font-medium text-sm">
-                    {listPanelVisible ? 'Lists' : idsPanelVisible ? 'IDS Validation' : bcfPanelVisible ? 'BCF Issues' : 'Properties'}
+                    {listPanelVisible ? 'Lists' : lensPanelVisible ? 'Lens' : idsPanelVisible ? 'IDS Validation' : bcfPanelVisible ? 'BCF Issues' : 'Properties'}
                   </span>
                   <button
                     className="p-1 hover:bg-muted rounded"
@@ -243,6 +248,7 @@ export function ViewerLayout() {
                       setRightPanelCollapsed(true);
                       if (listPanelVisible) setListPanelVisible(false);
                       if (bcfPanelVisible) setBcfPanelVisible(false);
+                      if (lensPanelVisible) setLensPanelVisible(false);
                       if (idsPanelVisible) setIdsPanelVisible(false);
                     }}
                   >
@@ -255,6 +261,8 @@ export function ViewerLayout() {
                 <div className="h-[calc(50vh-48px)] overflow-auto">
                   {listPanelVisible ? (
                     <ListPanel onClose={() => setListPanelVisible(false)} />
+                  ) : lensPanelVisible ? (
+                    <LensPanel onClose={() => setLensPanelVisible(false)} />
                   ) : idsPanelVisible ? (
                     <IDSPanel onClose={() => setIdsPanelVisible(false)} />
                   ) : bcfPanelVisible ? (

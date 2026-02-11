@@ -69,23 +69,20 @@ export function useFloorplanView() {
     // Section cut at 1.2m above floor level (standard architectural practice)
     const cutHeight = storey.elevation + 1.2;
 
-    // Find Y bounds from all models
+    // Find Y bounds from all models using coordinateInfo (pre-computed AABB)
     let yMin = Infinity;
     let yMax = -Infinity;
     if (models.size > 0) {
       for (const [, model] of models) {
-        const meshes = model.geometryResult?.meshes;
-        if (!meshes) continue;
-        for (const mesh of meshes) {
-          if (mesh.bounds) {
-            yMin = Math.min(yMin, mesh.bounds.min[1]);
-            yMax = Math.max(yMax, mesh.bounds.max[1]);
-          }
+        const bounds = model.geometryResult?.coordinateInfo?.shiftedBounds;
+        if (bounds) {
+          yMin = Math.min(yMin, bounds.min.y);
+          yMax = Math.max(yMax, bounds.max.y);
         }
       }
     }
 
-    // Fallback bounds if no mesh bounds available
+    // Fallback bounds if no coordinate info available
     if (!Number.isFinite(yMin) || !Number.isFinite(yMax)) {
       yMin = -10;
       yMax = 50;
