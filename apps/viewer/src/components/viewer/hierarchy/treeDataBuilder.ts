@@ -4,6 +4,7 @@
 
 import { IfcTypeEnum, type SpatialNode } from '@ifc-lite/data';
 import type { IfcDataStore } from '@ifc-lite/parser';
+import type { GeometryResult } from '@ifc-lite/geometry';
 import type { FederatedModel } from '@/store';
 import type { TreeNode, NodeType, StoreyData, UnifiedStorey } from './types';
 
@@ -340,28 +341,43 @@ export function buildTreeData(
   return nodes;
 }
 
-/** Build tree data grouped by IFC type instead of spatial hierarchy */
+/** Build tree data grouped by IFC class instead of spatial hierarchy.
+ *  Only includes entities that have geometry (visible in the 3D viewer). */
 export function buildTypeTree(
   models: Map<string, FederatedModel>,
   ifcDataStore: IfcDataStore | null | undefined,
   expandedNodes: Set<string>,
   isMultiModel: boolean,
+  legacyGeometryResult?: GeometryResult | null,
 ): TreeNode[] {
-  // Collect entities grouped by IFC type across all models
+  // Build a set of global IDs that have geometry — O(meshes) once, O(1) lookup per entity
+  const geometricIds = new Set<number>();
+  if (models.size > 0) {
+    for (const [, model] of models) {
+      if (model.geometryResult) {
+        for (const mesh of model.geometryResult.meshes) {
+          geometricIds.add(mesh.expressId); // already global IDs
+        }
+      }
+    }
+  } else if (legacyGeometryResult) {
+    for (const mesh of legacyGeometryResult.meshes) {
+      geometricIds.add(mesh.expressId); // local = global (offset 0)
+    }
+  }
+
+  // Collect entities grouped by IFC class across all models
   const typeGroups = new Map<string, Array<{ expressId: number; globalId: number; name: string; modelId: string }>>();
 
   const processDataStore = (dataStore: IfcDataStore, modelId: string, idOffset: number) => {
     for (let i = 0; i < dataStore.entities.count; i++) {
       const expressId = dataStore.entities.expressId[i];
-      const typeName = dataStore.entities.getTypeName(expressId) || 'Unknown';
-
-      // Skip spatial structure types - they're containers, not elements
-      if (typeName === 'IfcProject' || typeName === 'IfcSite' ||
-          typeName === 'IfcBuilding' || typeName === 'IfcBuildingStorey') {
-        continue;
-      }
-
       const globalId = expressId + idOffset;
+
+      // Only include entities that have geometry
+      if (!geometricIds.has(globalId)) continue;
+
+      const typeName = dataStore.entities.getTypeName(expressId) || 'Unknown';
       const entityName = dataStore.entities.getName(expressId) || `${typeName} #${expressId}`;
 
       if (!typeGroups.has(typeName)) {

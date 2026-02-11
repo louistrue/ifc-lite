@@ -4,6 +4,7 @@
 
 import { useMemo, useState, useCallback, useEffect } from 'react';
 import type { IfcDataStore } from '@ifc-lite/parser';
+import type { GeometryResult } from '@ifc-lite/geometry';
 import type { FederatedModel } from '@/store';
 import type { TreeNode, UnifiedStorey } from './types';
 import {
@@ -21,9 +22,10 @@ interface UseHierarchyTreeParams {
   models: Map<string, FederatedModel>;
   ifcDataStore: IfcDataStore | null | undefined;
   isMultiModel: boolean;
+  geometryResult?: GeometryResult | null;
 }
 
-export function useHierarchyTree({ models, ifcDataStore, isMultiModel }: UseHierarchyTreeParams) {
+export function useHierarchyTree({ models, ifcDataStore, isMultiModel, geometryResult }: UseHierarchyTreeParams) {
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [hasInitializedExpansion, setHasInitializedExpansion] = useState(false);
@@ -129,11 +131,11 @@ export function useHierarchyTree({ models, ifcDataStore, isMultiModel }: UseHier
   const treeData = useMemo(
     (): TreeNode[] => {
       if (groupingMode === 'type') {
-        return buildTypeTree(models, ifcDataStore, expandedNodes, isMultiModel);
+        return buildTypeTree(models, ifcDataStore, expandedNodes, isMultiModel, geometryResult);
       }
       return buildTreeData(models, ifcDataStore, expandedNodes, isMultiModel, unifiedStoreys);
     },
-    [models, ifcDataStore, expandedNodes, isMultiModel, unifiedStoreys, groupingMode]
+    [models, ifcDataStore, expandedNodes, isMultiModel, unifiedStoreys, groupingMode, geometryResult]
   );
 
   // Filter nodes based on search

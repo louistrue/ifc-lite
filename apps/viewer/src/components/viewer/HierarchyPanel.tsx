@@ -26,6 +26,7 @@ import { HierarchyNode, SectionHeader } from './hierarchy/HierarchyNode';
 export function HierarchyPanel() {
   const {
     ifcDataStore,
+    geometryResult,
     models,
     activeModelId,
     setActiveModel,
@@ -70,7 +71,7 @@ export function HierarchyPanel() {
     modelsNodes,
     toggleExpand,
     getNodeElements,
-  } = useHierarchyTree({ models, ifcDataStore, isMultiModel });
+  } = useHierarchyTree({ models, ifcDataStore, isMultiModel, geometryResult });
 
   // Refs for both scroll areas
   const storeysRef = useRef<HTMLDivElement>(null);
