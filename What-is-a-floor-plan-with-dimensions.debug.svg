@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="619" viewBox="0 0 800 619">
+<defs>
+  <style>
+    .wall-line { stroke-linecap: round; }
+    .wall-h { stroke: #00cc00; stroke-opacity: 0.7; }
+    .wall-v { stroke: #0066ff; stroke-opacity: 0.7; }
+    .wall-thick { fill-opacity: 0.15; }
+    .wall-thick-h { fill: #00cc00; }
+    .wall-thick-v { fill: #0066ff; }
+    .endpoint { fill: red; }
+    .label { font-family: monospace; font-size: 9px; fill: #cc0000; font-weight: bold; }
+    .coord { font-family: monospace; font-size: 7px; fill: #666; }
+    .grid { stroke: #ccc; stroke-width: 0.5; stroke-dasharray: 4,4; }
+    .grid-label { font-family: monospace; font-size: 8px; fill: #999; }
+    .meter-label { font-family: monospace; font-size: 10px; fill: #0066ff; font-weight: bold; }
+  </style>
+</defs>
+<!-- Background: floor plan image -->
+<image href="What-is-a-floor-plan-with-dimensions.png" width="800" height="619" opacity="0.5"/>
+
+<!-- Grid every 100px -->
+<line x1="0" y1="0" x2="0" y2="619" class="grid"/>
+<text x="2" y="12" class="grid-label">0</text>
+<line x1="100" y1="0" x2="100" y2="619" class="grid"/>
+<text x="102" y="12" class="grid-label">100</text>
+<line x1="200" y1="0" x2="200" y2="619" class="grid"/>
+<text x="202" y="12" class="grid-label">200</text>
+<line x1="300" y1="0" x2="300" y2="619" class="grid"/>
+<text x="302" y="12" class="grid-label">300</text>
+<line x1="400" y1="0" x2="400" y2="619" class="grid"/>
+<text x="402" y="12" class="grid-label">400</text>
+<line x1="500" y1="0" x2="500" y2="619" class="grid"/>
+<text x="502" y="12" class="grid-label">500</text>
+<line x1="600" y1="0" x2="600" y2="619" class="grid"/>
+<text x="602" y="12" class="grid-label">600</text>
+<line x1="700" y1="0" x2="700" y2="619" class="grid"/>
+<text x="702" y="12" class="grid-label">700</text>
+<line x1="800" y1="0" x2="800" y2="619" class="grid"/>
+<text x="802" y="12" class="grid-label">800</text>
+<line x1="0" y1="0" x2="800" y2="0" class="grid"/>
+<text x="2" y="-2" class="grid-label">0</text>
+<line x1="0" y1="100" x2="800" y2="100" class="grid"/>
+<text x="2" y="98" class="grid-label">100</text>
+<line x1="0" y1="200" x2="800" y2="200" class="grid"/>
+<text x="2" y="198" class="grid-label">200</text>
+<line x1="0" y1="300" x2="800" y2="300" class="grid"/>
+<text x="2" y="298" class="grid-label">300</text>
+<line x1="0" y1="400" x2="800" y2="400" class="grid"/>
+<text x="2" y="398" class="grid-label">400</text>
+<line x1="0" y1="500" x2="800" y2="500" class="grid"/>
+<text x="2" y="498" class="grid-label">500</text>
+<line x1="0" y1="600" x2="800" y2="600" class="grid"/>
+<text x="2" y="598" class="grid-label">600</text>
+<rect x="145.0" y="39.8" width="594.8" height="13.3" class="wall-thick wall-thick-h"/>
+<line x1="145.0" y1="46.4" x2="739.8" y2="46.4" class="wall-line wall-h" stroke-width="2"/>
+<circle cx="145.0" cy="46.4" r="3" class="endpoint"/>
+<circle cx="739.8" cy="46.4" r="3" class="endpoint"/>
+<text x="434.4" y="41.4" class="label">W0</text>
+<text x="434.4" y="54.4" class="coord">11.15m t=13px</text>
+<text x="149.0" y="43.4" class="coord">(145,46)</text>
+<text x="743.8" y="58.4" class="coord">(740,46)</text>
+<rect x="145.0" y="144.8" width="594.8" height="13.3" class="wall-thick wall-thick-h"/>
+<line x1="145.0" y1="151.5" x2="739.8" y2="151.5" class="wall-line wall-h" stroke-width="2"/>
+<circle cx="145.0" cy="151.5" r="3" class="endpoint"/>
+<circle cx="739.8" cy="151.5" r="3" class="endpoint"/>
+<text x="434.4" y="146.5" class="label">W1</text>
+<text x="434.4" y="159.5" class="coord">11.15m t=13px</text>
+<text x="149.0" y="148.5" class="coord">(145,152)</text>
+<text x="743.8" y="163.5" class="coord">(740,152)</text>
+<rect x="735.8" y="46.4" width="8.0" height="520.6" class="wall-thick wall-thick-v"/>
+<line x1="739.8" y1="46.4" x2="739.8" y2="567.0" class="wall-line wall-v" stroke-width="2"/>
+<circle cx="739.8" cy="46.4" r="3" class="endpoint"/>
+<circle cx="739.8" cy="567.0" r="3" class="endpoint"/>
+<text x="731.8" y="301.7" class="label">W2</text>
+<text x="731.8" y="314.7" class="coord">9.76m t=8px</text>
+<text x="743.8" y="43.4" class="coord">(740,46)</text>
+<text x="743.8" y="579.0" class="coord">(740,567)</text>
+<rect x="187.8" y="422.3" width="310.0" height="13.3" class="wall-thick wall-thick-h"/>
+<line x1="187.8" y1="429.0" x2="497.8" y2="429.0" class="wall-line wall-h" stroke-width="2"/>
+<circle cx="187.8" cy="429.0" r="3" class="endpoint"/>
+<circle cx="497.8" cy="429.0" r="3" class="endpoint"/>
+<text x="334.8" y="424.0" class="label">W3</text>
+<text x="334.8" y="437.0" class="coord">5.81m t=13px</text>
+<text x="191.8" y="426.0" class="coord">(188,429)</text>
+<text x="501.8" y="441.0" class="coord">(498,429)</text>
+<rect x="138.3" y="46.4" width="13.3" height="520.6" class="wall-thick wall-thick-v"/>
+<line x1="145.0" y1="46.4" x2="145.0" y2="567.0" class="wall-line wall-v" stroke-width="2"/>
+<circle cx="145.0" cy="46.4" r="3" class="endpoint"/>
+<circle cx="145.0" cy="567.0" r="3" class="endpoint"/>
+<text x="137.0" y="301.7" class="label">W4</text>
+<text x="137.0" y="314.7" class="coord">9.76m t=13px</text>
+<text x="149.0" y="43.4" class="coord">(145,46)</text>
+<text x="149.0" y="579.0" class="coord">(145,567)</text>
+<rect x="763.8" y="212.0" width="13.3" height="119.0" class="wall-thick wall-thick-v"/>
+<line x1="770.5" y1="212.0" x2="770.5" y2="331.0" class="wall-line wall-v" stroke-width="2"/>
+<circle cx="770.5" cy="212.0" r="3" class="endpoint"/>
+<circle cx="770.5" cy="331.0" r="3" class="endpoint"/>
+<text x="762.5" y="266.5" class="label">W5</text>
+<text x="762.5" y="279.5" class="coord">2.23m t=13px</text>
+<text x="774.5" y="209.0" class="coord">(770,212)</text>
+<text x="774.5" y="343.0" class="coord">(770,331)</text>
+<rect x="371.0" y="188.2" width="229.0" height="8.0" class="wall-thick wall-thick-h"/>
+<line x1="371.0" y1="192.2" x2="600.0" y2="192.2" class="wall-line wall-h" stroke-width="2"/>
+<circle cx="371.0" cy="192.2" r="3" class="endpoint"/>
+<circle cx="600.0" cy="192.2" r="3" class="endpoint"/>
+<text x="477.5" y="187.2" class="label">W6</text>
+<text x="477.5" y="200.2" class="coord">4.29m t=8px</text>
+<text x="375.0" y="189.2" class="coord">(371,192)</text>
+<text x="604.0" y="204.2" class="coord">(600,192)</text>
+<rect x="145.0" y="202.1" width="226.0" height="13.3" class="wall-thick wall-thick-h"/>
+<line x1="145.0" y1="208.8" x2="371.0" y2="208.8" class="wall-line wall-h" stroke-width="2"/>
+<circle cx="145.0" cy="208.8" r="3" class="endpoint"/>
+<circle cx="371.0" cy="208.8" r="3" class="endpoint"/>
+<text x="250.0" y="203.8" class="label">W7</text>
+<text x="250.0" y="216.8" class="coord">4.24m t=13px</text>
+<text x="149.0" y="205.8" class="coord">(145,209)</text>
+<text x="375.0" y="220.8" class="coord">(371,209)</text>
+<rect x="493.8" y="428.0" width="8.0" height="139.0" class="wall-thick wall-thick-v"/>
+<line x1="497.8" y1="567.0" x2="497.8" y2="428.0" class="wall-line wall-v" stroke-width="2"/>
+<circle cx="497.8" cy="567.0" r="3" class="endpoint"/>
+<circle cx="497.8" cy="428.0" r="3" class="endpoint"/>
+<text x="489.8" y="492.5" class="label">W8</text>
+<text x="489.8" y="505.5" class="coord">2.61m t=8px</text>
+<text x="501.8" y="564.0" class="coord">(498,567)</text>
+<text x="501.8" y="440.0" class="coord">(498,428)</text>
+<rect x="254.5" y="46.4" width="8.0" height="163.6" class="wall-thick wall-thick-v"/>
+<line x1="258.5" y1="46.4" x2="258.5" y2="210.0" class="wall-line wall-v" stroke-width="2"/>
+<circle cx="258.5" cy="46.4" r="3" class="endpoint"/>
+<circle cx="258.5" cy="210.0" r="3" class="endpoint"/>
+<text x="250.5" y="123.2" class="label">W9</text>
+<text x="250.5" y="136.2" class="coord">3.07m t=8px</text>
+<text x="262.5" y="43.4" class="coord">(258,46)</text>
+<text x="262.5" y="222.0" class="coord">(258,210)</text>
+<rect x="181.1" y="46.4" width="13.3" height="382.6" class="wall-thick wall-thick-v"/>
+<line x1="187.8" y1="46.4" x2="187.8" y2="429.0" class="wall-line wall-v" stroke-width="2"/>
+<circle cx="187.8" cy="46.4" r="3" class="endpoint"/>
+<circle cx="187.8" cy="429.0" r="3" class="endpoint"/>
+<text x="179.8" y="232.7" class="label">W10</text>
+<text x="179.8" y="245.7" class="coord">7.17m t=13px</text>
+<text x="191.8" y="43.4" class="coord">(188,46)</text>
+<text x="191.8" y="441.0" class="coord">(188,429)</text>
+<rect x="367.0" y="46.4" width="8.0" height="145.8" class="wall-thick wall-thick-v"/>
+<line x1="371.0" y1="46.4" x2="371.0" y2="192.2" class="wall-line wall-v" stroke-width="2"/>
+<circle cx="371.0" cy="46.4" r="3" class="endpoint"/>
+<circle cx="371.0" cy="192.2" r="3" class="endpoint"/>
+<text x="363.0" y="114.3" class="label">W11</text>
+<text x="363.0" y="127.3" class="coord">2.73m t=8px</text>
+<text x="375.0" y="43.4" class="coord">(371,46)</text>
+<text x="375.0" y="204.2" class="coord">(371,192)</text>
+<rect x="270.0" y="270.7" width="330.0" height="13.3" class="wall-thick wall-thick-h"/>
+<line x1="270.0" y1="277.4" x2="600.0" y2="277.4" class="wall-line wall-h" stroke-width="2"/>
+<circle cx="270.0" cy="277.4" r="3" class="endpoint"/>
+<circle cx="600.0" cy="277.4" r="3" class="endpoint"/>
+<text x="427.0" y="272.4" class="label">W12</text>
+<text x="427.0" y="285.4" class="coord">6.19m t=13px</text>
+<text x="274.0" y="274.4" class="coord">(270,277)</text>
+<text x="604.0" y="289.4" class="coord">(600,277)</text>
+<rect x="320.2" y="277.4" width="8.0" height="151.6" class="wall-thick wall-thick-v"/>
+<line x1="324.2" y1="429.0" x2="324.2" y2="277.4" class="wall-line wall-v" stroke-width="2"/>
+<circle cx="324.2" cy="429.0" r="3" class="endpoint"/>
+<circle cx="324.2" cy="277.4" r="3" class="endpoint"/>
+<text x="316.2" y="348.2" class="label">W13</text>
+<text x="316.2" y="361.2" class="coord">2.84m t=8px</text>
+<text x="328.2" y="426.0" class="coord">(324,429)</text>
+<text x="328.2" y="289.4" class="coord">(324,277)</text>
+<rect x="314.2" y="46.4" width="8.0" height="104.6" class="wall-thick wall-thick-v"/>
+<line x1="318.2" y1="151.0" x2="318.2" y2="46.4" class="wall-line wall-v" stroke-width="2"/>
+<circle cx="318.2" cy="151.0" r="3" class="endpoint"/>
+<circle cx="318.2" cy="46.4" r="3" class="endpoint"/>
+<text x="310.2" y="93.7" class="label">W14</text>
+<text x="310.2" y="106.7" class="coord">1.96m t=8px</text>
+<text x="322.2" y="148.0" class="coord">(318,151)</text>
+<text x="322.2" y="58.4" class="coord">(318,46)</text>
+<rect x="593.3" y="151.5" width="13.3" height="125.9" class="wall-thick wall-thick-v"/>
+<line x1="600.0" y1="151.5" x2="600.0" y2="277.4" class="wall-line wall-v" stroke-width="2"/>
+<circle cx="600.0" cy="151.5" r="3" class="endpoint"/>
+<circle cx="600.0" cy="277.4" r="3" class="endpoint"/>
+<text x="592.0" y="209.4" class="label">W15</text>
+<text x="592.0" y="222.4" class="coord">2.36m t=13px</text>
+<text x="604.0" y="148.5" class="coord">(600,152)</text>
+<text x="604.0" y="289.4" class="coord">(600,277)</text>
+<rect x="145.0" y="125.0" width="113.5" height="8.0" class="wall-thick wall-thick-h"/>
+<line x1="258.5" y1="129.0" x2="145.0" y2="129.0" class="wall-line wall-h" stroke-width="2"/>
+<circle cx="258.5" cy="129.0" r="3" class="endpoint"/>
+<circle cx="145.0" cy="129.0" r="3" class="endpoint"/>
+<text x="193.8" y="124.0" class="label">W16</text>
+<text x="193.8" y="137.0" class="coord">2.13m t=8px</text>
+<text x="262.5" y="126.0" class="coord">(258,129)</text>
+<text x="149.0" y="141.0" class="coord">(145,129)</text>
+<rect x="493.0" y="245.5" width="107.0" height="8.0" class="wall-thick wall-thick-h"/>
+<line x1="600.0" y1="249.5" x2="493.0" y2="249.5" class="wall-line wall-h" stroke-width="2"/>
+<circle cx="600.0" cy="249.5" r="3" class="endpoint"/>
+<circle cx="493.0" cy="249.5" r="3" class="endpoint"/>
+<text x="538.5" y="244.5" class="label">W17</text>
+<text x="538.5" y="257.5" class="coord">2.01m t=8px</text>
+<text x="604.0" y="246.5" class="coord">(600,250)</text>
+<text x="497.0" y="261.5" class="coord">(493,250)</text>
+<rect x="187.8" y="332.8" width="136.5" height="13.3" class="wall-thick wall-thick-h"/>
+<line x1="187.8" y1="339.5" x2="324.2" y2="339.5" class="wall-line wall-h" stroke-width="2"/>
+<circle cx="187.8" cy="339.5" r="3" class="endpoint"/>
+<circle cx="324.2" cy="339.5" r="3" class="endpoint"/>
+<text x="248.0" y="334.5" class="label">W18</text>
+<text x="248.0" y="347.5" class="coord">2.56m t=13px</text>
+<text x="191.8" y="336.5" class="coord">(188,340)</text>
+<text x="328.2" y="351.5" class="coord">(324,340)</text>
+<line x1="20" y1="599" x2="73" y2="599" stroke="blue" stroke-width="3"/>
+<text x="20" y="611" class="meter-label">1m = 53px (scale=0.01875 m/px)</text>
+</svg>

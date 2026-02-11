@@ -229,7 +229,7 @@ function SortableStoreyItem({
                 min="10"
                 max="1000"
                 value={page.scale}
-                onChange={() => {/* TODO */}}
+                onChange={() => {/* TODO */ }}
                 className="w-full h-8 px-2 text-sm border rounded bg-background"
                 disabled
               />

@@ -39,3 +39,7 @@ web-sys = { version = "0.3", features = ["console"] }
 
 [dev-dependencies]
 approx = "0.5"
+
+[[bin]]
+name = "floorplan-to-3d"
+path = "src/bin/floorplan_to_3d.rs"

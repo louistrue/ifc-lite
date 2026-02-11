@@ -1,0 +1,84 @@
+=== WALL COORDINATE DUMP ===
+
+Image: 800x619 pixels
+Scale: 0.018750 m/px  (1m = 53.3px)
+Building size in meters: 15.00m x 11.61m
+
+=== EXPECTED WALLS (from floor plan dimensions) ===
+  Building width:  15'1" + 17'1" + 17'1" = 49'3" ≈ 15.0m
+  Building height: 11'1" + 14'0" + 9'9" ≈ 10.6m
+  Exterior walls should form a rectangle.
+  Top wall: ~y=43 (px)
+  Bottom wall: ~y=567 (px)
+  Left wall: ~x=36-47 (px)
+  Right wall: ~x=741 (px)
+
+=== DETECTED WALLS (pixel coordinates) ===
+ID   Orient     x1(px)   y1(px)   x2(px)   y2(px)  len(px)    thick   type
+--------------------------------------------------------------------------------
+W0   horiz       145.0     46.4    739.8     46.4    594.8     13.3 Exterior
+W1   horiz       145.0    151.5    739.8    151.5    594.8     13.3 Exterior
+W2   vert        739.8     46.4    739.8    567.0    520.6      8.0 Interior
+W3   horiz       187.8    429.0    497.8    429.0    310.0     13.3 Exterior
+W4   vert        145.0     46.4    145.0    567.0    520.6     13.3 Exterior
+W5   vert        770.5    212.0    770.5    331.0    119.0     13.3 Exterior
+W6   horiz       371.0    192.2    600.0    192.2    229.0      8.0 Interior
+W7   horiz       145.0    208.8    371.0    208.8    226.0     13.3 Exterior
+W8   vert        497.8    567.0    497.8    428.0    139.0      8.0 Interior
+W9   vert        258.5     46.4    258.5    210.0    163.6      8.0 Interior
+W10  vert        187.8     46.4    187.8    429.0    382.6     13.3 Exterior
+W11  vert        371.0     46.4    371.0    192.2    145.8      8.0 Interior
+W12  horiz       270.0    277.4    600.0    277.4    330.0     13.3 Exterior
+W13  vert        324.2    429.0    324.2    277.4    151.6      8.0 Interior
+W14  vert        318.2    151.0    318.2     46.4    104.6      8.0 Interior
+W15  vert        600.0    151.5    600.0    277.4    125.9     13.3 Exterior
+W16  horiz       258.5    129.0    145.0    129.0    113.5      8.0 Interior
+W17  horiz       600.0    249.5    493.0    249.5    107.0      8.0 Interior
+W18  horiz       187.8    339.5    324.2    339.5    136.5     13.3 Exterior
+
+=== WALLS IN METERS (what the 3D generator sees) ===
+NOTE: 3D coords = pixel coords * scale
+NOTE: Y in image = Y in 3D (but typically Y-up in 3D viewers)
+NOTE: Extrusion is along Z axis (floor elevation to ceiling)
+
+ID   Orient      x1(m)    y1(m)    x2(m)    y2(m)   len(m) thick(m)
+--------------------------------------------------------------------------------
+W0   horiz       2.719    0.870   13.870    0.870   11.152    0.250
+W1   horiz       2.719    2.841   13.870    2.841   11.152    0.250
+W2   vert       13.870    0.870   13.870   10.631    9.761    0.150
+W3   horiz       3.520    8.044    9.333    8.044    5.812    0.250
+W4   vert        2.719    0.870    2.719   10.631    9.761    0.250
+W5   vert       14.447    3.975   14.447    6.206    2.231    0.250
+W6   horiz       6.956    3.605   11.250    3.605    4.294    0.150
+W7   horiz       2.719    3.914    6.956    3.914    4.237    0.250
+W8   vert        9.333   10.631    9.333    8.025    2.606    0.150
+W9   vert        4.847    0.870    4.847    3.938    3.067    0.150
+W10  vert        3.520    0.870    3.520    8.044    7.173    0.250
+W11  vert        6.956    0.870    6.956    3.605    2.734    0.150
+W12  horiz       5.062    5.201   11.250    5.201    6.188    0.250
+W13  vert        6.080    8.044    6.080    5.201    2.843    0.150
+W14  vert        5.967    2.831    5.967    0.870    1.961    0.150
+W15  vert       11.250    2.841   11.250    5.201    2.360    0.250
+W16  horiz       4.847    2.419    2.719    2.419    2.128    0.150
+W17  horiz      11.250    4.678    9.244    4.678    2.006    0.150
+W18  horiz       3.520    6.366    6.080    6.366    2.559    0.250
+
+=== COVERAGE ANALYSIS ===
+  Detected bbox (px): (145, 46) to (770, 567)
+  Detected bbox (m):  (2.72, 0.87) to (14.45, 10.63)
+  Detected size (m):  11.73m x 9.76m
+
+  Exterior wall check:
+    Top    (~y=43): FOUND
+    Bottom (~y=567): MISSING!
+    Left   (~x=42): MISSING!
+    Right  (~x=741): FOUND
+
+  Wall orientation breakdown: 9 horizontal, 10 vertical
+
+=== OBJ 3D COORDINATE MAPPING (Y-up) ===
+  OBJ X =  pixel_x * scale  (left-right)
+  OBJ Y =  elevation         (height, 0 = ground)
+  OBJ Z = -pixel_y * scale  (depth, negated so plan isn't mirrored)
+  Wall profile = rectangle in XY plane, extruded along Z (internal).
+  write_obj() swaps Y↔Z and negates new-Z for Y-up OBJ convention.

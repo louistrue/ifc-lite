@@ -37,16 +37,18 @@ pub mod line_ops;
 pub mod room_detector;
 pub mod types;
 pub mod wall_detector;
+pub mod wall_filter;
 
 // Re-export commonly used types and functions
 pub use building_generator::{generate_building, generate_test_building, BuildingError};
-pub use image_ops::rgba_to_grayscale;
+pub use image_ops::{rgba_to_grayscale, detect_building_region, BuildingRegion};
 pub use room_detector::{detect_rooms, detect_rooms_from_walls};
 pub use types::{
     DetectedFloorPlan, DetectedOpening, DetectedRoom, DetectedWall, DetectionConfig,
     GeneratedBuilding, GeneratedStorey, OpeningType, Point2D, StoreyConfig, WallType,
 };
 pub use wall_detector::{detect_openings_in_walls, detect_walls, detect_walls_simple};
+pub use wall_filter::{filter_walls, apply_door_openings, FilterResult, WallFilterConfig};
 
 use image::GrayImage;
 
