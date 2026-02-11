@@ -43,7 +43,7 @@ function RuleRow({
         onClick && 'cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-700/50',
         isIsolated && 'bg-zinc-200 dark:bg-zinc-700',
       )}
-      onClick={onClick}
+      onClick={(e) => { if (onClick) { e.stopPropagation(); onClick(); } }}
       title={onClick ? 'Click to isolate / show only this type' : undefined}
     >
       <div
