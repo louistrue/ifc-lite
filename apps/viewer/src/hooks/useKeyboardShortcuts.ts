@@ -32,9 +32,6 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
   const clearMeasurements = useViewerStore((s) => s.clearMeasurements);
   const toggleSnap = useViewerStore((s) => s.toggleSnap);
 
-  // Camera
-  const toggleProjectionMode = useViewerStore((s) => s.toggleProjectionMode);
-
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     // Ignore if typing in an input or textarea
     const target = e.target as HTMLElement;
@@ -135,12 +132,6 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       toggleTheme();
     }
 
-    // Projection toggle (5 key - Blender/CAD convention for numpad 5)
-    if (key === '5' && !ctrl && !shift) {
-      e.preventDefault();
-      toggleProjectionMode();
-    }
-
     // Help - handled by KeyboardShortcutsDialog hook
     // The dialog hook listens for '?' key globally
   }, [
@@ -157,7 +148,6 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
     cancelMeasurement,
     clearMeasurements,
     toggleSnap,
-    toggleProjectionMode,
   ]);
 
   useEffect(() => {
@@ -187,8 +177,7 @@ export const KEYBOARD_SHORTCUTS = [
   { key: 'H', description: 'Home (Isometric view)', category: 'Camera' },
   { key: 'Z', description: 'Fit all (zoom extents)', category: 'Camera' },
   { key: 'F', description: 'Frame selection', category: 'Camera' },
-  { key: '0-6', description: 'Preset views', category: 'Camera' },
-  { key: '5', description: 'Toggle orthographic/perspective', category: 'Camera' },
+  { key: '1-6', description: 'Preset views', category: 'Camera' },
   { key: 'T', description: 'Toggle theme', category: 'UI' },
   { key: 'Esc', description: 'Reset all (clear selection, filters, isolation)', category: 'Selection' },
   { key: '?', description: 'Show info panel', category: 'Help' },

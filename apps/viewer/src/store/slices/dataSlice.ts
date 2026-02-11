@@ -79,9 +79,16 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
   }),
 
   updateMeshColors: (updates) => set((state) => {
-    if (!state.geometryResult) return {};
     // Clone the Map to prevent external mutation of pendingColorUpdates
     const clonedUpdates = new Map(updates);
+
+    if (!state.geometryResult) {
+      // Federation mode: no local geometryResult (geometry lives in models Map).
+      // Still set pendingColorUpdates so useGeometryStreaming applies to the WebGPU scene.
+      return { pendingColorUpdates: clonedUpdates };
+    }
+
+    // Legacy/single mode: update both the data model and pending color updates
     const updatedMeshes = state.geometryResult.meshes.map(mesh => {
       const newColor = clonedUpdates.get(mesh.expressId);
       if (newColor) {
