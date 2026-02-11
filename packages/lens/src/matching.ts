@@ -27,7 +27,7 @@ export function matchesCriteria(
   }
 }
 
-/** Match by IFC type with subtype support */
+/** Match by IFC class with subclass support */
 function matchesIfcType(
   criteria: LensCriteria,
   globalId: number,

@@ -6,7 +6,7 @@
  * @ifc-lite/lens — Rule-based 3D filtering and colorization
  *
  * Pure, framework-agnostic lens evaluation engine for IFC models.
- * Evaluate rules that match entities by IFC type, property value, or
+ * Evaluate rules that match entities by IFC class, property value, or
  * material name and apply visual actions (colorize, hide, transparent).
  *
  * @example
@@ -37,7 +37,9 @@ export type {
 } from './types.js';
 
 export {
-  COMMON_IFC_TYPES,
+  COMMON_IFC_CLASSES,
+  /** @deprecated Use COMMON_IFC_CLASSES instead */
+  COMMON_IFC_CLASSES as COMMON_IFC_TYPES,
   LENS_PALETTE,
   IFC_SUBTYPE_TO_BASE,
 } from './types.js';

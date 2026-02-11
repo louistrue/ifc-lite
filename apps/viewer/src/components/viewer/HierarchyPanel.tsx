@@ -377,7 +377,7 @@ export function HierarchyPanel() {
         onClick={() => setGroupingMode('type')}
       >
         <Layers className="h-3 w-3 mr-1" />
-        By Type
+        By Class
       </Button>
     </div>
   );
@@ -495,7 +495,7 @@ export function HierarchyPanel() {
       </div>
 
       {/* Section Header */}
-      <SectionHeader icon={groupingMode === 'type' ? Layers : Building2} title={groupingMode === 'type' ? 'By Type' : 'Hierarchy'} count={filteredNodes.length} />
+      <SectionHeader icon={groupingMode === 'type' ? Layers : Building2} title={groupingMode === 'type' ? 'By Class' : 'Hierarchy'} count={filteredNodes.length} />
 
       {/* Tree */}
       <div ref={parentRef} className="flex-1 overflow-auto scrollbar-thin bg-white dark:bg-black">

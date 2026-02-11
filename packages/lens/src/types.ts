@@ -5,7 +5,7 @@
 /**
  * @ifc-lite/lens — Rule-based 3D filtering and colorization
  *
- * A lens is a collection of rules that match entities by IFC type, property
+ * A lens is a collection of rules that match entities by IFC class, property
  * value, or material name, then apply a visual action (colorize, hide, or
  * make transparent). Unmatched entities are ghosted for context.
  *
@@ -34,7 +34,7 @@ export interface LensDataProvider {
    */
   forEachEntity(callback: (globalId: number, modelId: string) => void): void;
 
-  /** Get the IFC type name for an entity (e.g. "IfcWall") */
+  /** Get the IFC class name for an entity (e.g. "IfcWall") */
   getEntityType(globalId: number): string | undefined;
 
   /**
@@ -70,7 +70,7 @@ export interface PropertySetInfo {
 /** Criteria for matching entities */
 export interface LensCriteria {
   type: 'ifcType' | 'property' | 'material';
-  /** IFC type name (e.g. "IfcWall") — used when type === "ifcType" */
+  /** IFC class name (e.g. "IfcWall") — used when type === "ifcType" */
   ifcType?: string;
   /** Property set name (e.g. "Pset_WallCommon") — used when type === "property" */
   propertySet?: string;
@@ -132,8 +132,8 @@ export interface LensEvaluationResult {
 // Constants
 // ============================================================================
 
-/** Common IFC types for lens rule editor UI */
-export const COMMON_IFC_TYPES = [
+/** Common IFC classes for lens rule editor UI */
+export const COMMON_IFC_CLASSES = [
   'IfcWall', 'IfcWallStandardCase',
   'IfcSlab', 'IfcSlabStandardCase',
   'IfcColumn', 'IfcColumnStandardCase',
@@ -158,7 +158,7 @@ export const LENS_PALETTE = [
   '#EC407A', '#5C6BC0', '#26A69A', '#78909C',
 ] as const;
 
-/** IFC subtype → base type mapping for hierarchy-aware matching */
+/** IFC subclass → base class mapping for hierarchy-aware matching */
 export const IFC_SUBTYPE_TO_BASE: Readonly<Record<string, string>> = {
   IfcWallStandardCase: 'IfcWall',
   IfcSlabStandardCase: 'IfcSlab',

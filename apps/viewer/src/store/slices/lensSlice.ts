@@ -18,7 +18,7 @@ import { BUILTIN_LENSES } from '@ifc-lite/lens';
 export type { Lens, LensRule, LensCriteria };
 
 // Re-export constants for consumers that import from this file
-export { COMMON_IFC_TYPES, LENS_PALETTE } from '@ifc-lite/lens';
+export { COMMON_IFC_CLASSES, COMMON_IFC_TYPES, LENS_PALETTE } from '@ifc-lite/lens';
 
 /** localStorage key for persisting custom lenses */
 const STORAGE_KEY = 'ifc-lite-custom-lenses';

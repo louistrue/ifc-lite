@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils';
 import { useViewerStore } from '@/store';
 import { useLens } from '@/hooks/useLens';
 import type { Lens, LensRule } from '@/store/slices/lensSlice';
-import { COMMON_IFC_TYPES, LENS_PALETTE } from '@/store/slices/lensSlice';
+import { COMMON_IFC_CLASSES, LENS_PALETTE } from '@/store/slices/lensSlice';
 
 /** Format large counts compactly: 1234 → "1.2k" */
 function formatCount(n: number): string {
@@ -62,7 +62,7 @@ const RuleRow = memo(function RuleRow({
         isEmpty && 'border-l-transparent opacity-50 cursor-default',
       )}
       onClick={(e) => { if (isClickable) { e.stopPropagation(); onClick(); } }}
-      title={isClickable ? 'Click to isolate / show only this type' : isEmpty ? 'No matching entities' : undefined}
+      title={isClickable ? 'Click to isolate / show only this class' : isEmpty ? 'No matching entities' : undefined}
     >
       <div
         className={cn(
@@ -128,8 +128,8 @@ function RuleEditor({
         }}
         className="flex-1 min-w-0 text-xs px-1.5 py-1 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 text-zinc-900 dark:text-zinc-100 rounded-sm"
       >
-        <option value="">Type...</option>
-        {COMMON_IFC_TYPES.map(t => (
+        <option value="">Class...</option>
+        {COMMON_IFC_CLASSES.map(t => (
           <option key={t} value={t}>{t.replace('Ifc', '')}</option>
         ))}
       </select>

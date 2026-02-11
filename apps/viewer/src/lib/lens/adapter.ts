@@ -21,6 +21,17 @@ interface ModelEntry {
   maxExpressId: number;
 }
 
+/** Scan entity array to find the actual maximum expressId */
+function computeMaxExpressId(dataStore: IfcDataStore): number {
+  const entities = dataStore.entities;
+  if (!entities || entities.count === 0) return 0;
+  let max = 0;
+  for (let i = 0; i < entities.count; i++) {
+    if (entities.expressId[i] > max) max = entities.expressId[i];
+  }
+  return max;
+}
+
 /**
  * Create a LensDataProvider for the viewer's federated models.
  *
@@ -49,7 +60,7 @@ export function createLensDataProvider(
       id: 'legacy',
       ifcDataStore: legacyDataStore,
       idOffset: 0,
-      maxExpressId: legacyDataStore.entities?.count ?? 0,
+      maxExpressId: computeMaxExpressId(legacyDataStore),
     });
   }
 

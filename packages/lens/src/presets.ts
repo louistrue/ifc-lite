@@ -13,7 +13,7 @@ import type { Lens } from './types.js';
 export const BUILTIN_LENSES: readonly Lens[] = [
   {
     id: 'lens-by-type',
-    name: 'By IFC Type',
+    name: 'By IFC Class',
     builtin: true,
     rules: [
       { id: 'wall', name: 'Walls', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcWall' }, action: 'colorize', color: '#8D6E63' },

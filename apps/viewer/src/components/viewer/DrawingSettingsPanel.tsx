@@ -417,15 +417,15 @@ function CustomRuleItem({
         />
       </div>
 
-      {/* IFC Type */}
+      {/* IFC Class */}
       <div>
-        <Label className="text-xs">IFC Type</Label>
+        <Label className="text-xs">IFC Class</Label>
         <Select
           value={ifcTypes[0] || ''}
           onValueChange={handleIfcTypeChange}
         >
           <SelectTrigger className="h-8 text-sm mt-1">
-            <SelectValue placeholder="Select type..." />
+            <SelectValue placeholder="Select class..." />
           </SelectTrigger>
           <SelectContent>
             {COMMON_IFC_TYPES.map((type) => (

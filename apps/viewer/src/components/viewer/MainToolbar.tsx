@@ -697,7 +697,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent>Type Visibility</TooltipContent>
+          <TooltipContent>Class Visibility</TooltipContent>
         </Tooltip>
         <DropdownMenuContent>
           {typeGeometryExists.spaces && (
