@@ -1,6 +1,9 @@
 ---
 "@ifc-lite/parser": minor
 "@ifc-lite/viewer": minor
+"@ifc-lite/data": patch
+"@ifc-lite/cache": patch
+"@ifc-lite/export": patch
 ---
 
 Add schema-aware property editing, full property panel display, and document/relationship support
@@ -12,7 +15,7 @@ Add schema-aware property editing, full property panel display, and document/rel
 - On-demand classification extraction from IfcRelAssociatesClassification with chain walking
 - On-demand material extraction supporting all IFC material types: IfcMaterial, IfcMaterialLayerSet, IfcMaterialProfileSet, IfcMaterialConstituentSet, IfcMaterialList, and *Usage wrappers
 - On-demand document extraction from IfcRelAssociatesDocument with DocumentReference→DocumentInformation chain
-- Type-level property extraction from IfcTypeObject HasPropertySets attribute (fixes missing psets in IFC2X3)
+- Type-level property merging: properties from IfcTypeObject HasPropertySets merged with instance properties
 - Structural relationship display: openings, fills, groups, and connections
 - Advanced property type parsing: IfcPropertyEnumeratedValue, BoundedValue, ListValue, TableValue, ReferenceValue
 - Georeferencing display (IfcMapConversion + IfcProjectedCRS) in model metadata panel
@@ -21,3 +24,4 @@ Add schema-aware property editing, full property panel display, and document/rel
 - Type-level material/classification inheritance via IfcRelDefinesByType
 - Relationship graph fallback for server-loaded models without on-demand maps
 - Cycle detection in material resolution and classification chain walking
+- Removed `any` types from parser production code in favor of proper `PropertyValue` union type

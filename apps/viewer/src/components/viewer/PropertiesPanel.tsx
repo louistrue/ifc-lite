@@ -435,6 +435,49 @@ export function PropertiesPanel() {
     };
   }, [selectedEntity, model, ifcDataStore]);
 
+  // Merge instance-level and type-level property sets into a single unified list.
+  // - Same-named psets: instance properties take precedence, type-level props are appended (deduped by name)
+  // - Type-only psets: added to the main list (no separate "Type" section)
+  // This matches how reference IFC viewers display properties.
+  const mergedProperties: PropertySet[] = useMemo(() => {
+    if (!typeProperties || typeProperties.psets.length === 0) return properties;
+    if (properties.length === 0) return typeProperties.psets;
+
+    const instanceByName = new Map<string, PropertySet>();
+    for (const pset of properties) {
+      instanceByName.set(pset.name, pset);
+    }
+
+    // Start with instance psets, merging type-level props into matching ones
+    const result: PropertySet[] = [];
+    const merged = new Set<string>();
+
+    for (const pset of properties) {
+      const typePset = typeProperties.psets.find(tp => tp.name === pset.name);
+      if (typePset) {
+        // Merge: add type-level properties not already present in instance pset
+        const existingNames = new Set(pset.properties.map(p => p.name));
+        const extraProps = typePset.properties.filter(p => !existingNames.has(p.name));
+        result.push({
+          ...pset,
+          properties: [...pset.properties, ...extraProps],
+        });
+        merged.add(pset.name);
+      } else {
+        result.push(pset);
+      }
+    }
+
+    // Add type-only psets that don't exist at instance level
+    for (const typePset of typeProperties.psets) {
+      if (!merged.has(typePset.name) && !instanceByName.has(typePset.name)) {
+        result.push(typePset);
+      }
+    }
+
+    return result;
+  }, [properties, typeProperties]);
+
   // Model metadata display (when clicking top-level model in hierarchy)
   if (selectedModelId) {
     const selectedModel = models.get(selectedModelId);
@@ -731,16 +774,23 @@ export function PropertiesPanel() {
                 modelId={selectedEntity.modelId}
                 entityId={selectedEntity.expressId}
                 entityType={entityType}
-                existingPsets={properties.map(p => p.name)}
+                existingPsets={mergedProperties.map(p => p.name)}
                 existingQtos={quantities.map(q => q.name)}
                 schemaVersion={activeDataStore?.schemaVersion}
               />
             )}
-            {properties.length === 0 && classifications.length === 0 && !materialInfo && !typeProperties && documents.length === 0 ? (
+            {mergedProperties.length === 0 && classifications.length === 0 && !materialInfo && documents.length === 0 ? (
               <p className="text-sm text-zinc-500 dark:text-zinc-500 text-center py-8 font-mono">No property sets</p>
             ) : (
               <div className="space-y-3 w-full overflow-hidden">
-                {properties.map((pset: PropertySet) => (
+                {/* Type badge - show which type this element inherits from */}
+                {typeProperties && typeProperties.psets.length > 0 && (
+                  <div className="flex items-center gap-2 px-1 pb-0.5 text-[11px] text-indigo-600/70 dark:text-indigo-400/60">
+                    <Building2 className="h-3 w-3 shrink-0" />
+                    <span className="font-medium truncate">Type: {typeProperties.typeName}</span>
+                  </div>
+                )}
+                {mergedProperties.map((pset: PropertySet) => (
                   <PropertySetCard
                     key={pset.name}
                     pset={pset}
@@ -753,7 +803,7 @@ export function PropertiesPanel() {
                 {/* Classifications */}
                 {classifications.length > 0 && (
                   <>
-                    {properties.length > 0 && (
+                    {mergedProperties.length > 0 && (
                       <div className="border-t border-zinc-200 dark:border-zinc-800 pt-2 mt-2" />
                     )}
                     {classifications.map((classification, i) => (
@@ -765,7 +815,7 @@ export function PropertiesPanel() {
                 {/* Materials */}
                 {materialInfo && (
                   <>
-                    {(properties.length > 0 || classifications.length > 0) && (
+                    {(mergedProperties.length > 0 || classifications.length > 0) && (
                       <div className="border-t border-zinc-200 dark:border-zinc-800 pt-2 mt-2" />
                     )}
                     <MaterialCard material={materialInfo} />
@@ -775,7 +825,7 @@ export function PropertiesPanel() {
                 {/* Documents */}
                 {documents.length > 0 && (
                   <>
-                    {(properties.length > 0 || classifications.length > 0 || materialInfo) && (
+                    {(mergedProperties.length > 0 || classifications.length > 0 || materialInfo) && (
                       <div className="border-t border-zinc-200 dark:border-zinc-800 pt-2 mt-2" />
                     )}
                     {documents.map((doc, i) => (
@@ -789,25 +839,6 @@ export function PropertiesPanel() {
                   <>
                     <div className="border-t border-zinc-200 dark:border-zinc-800 pt-2 mt-2" />
                     <RelationshipsCard relationships={entityRelationships} />
-                  </>
-                )}
-
-                {/* Type Properties */}
-                {typeProperties && typeProperties.psets.length > 0 && (
-                  <>
-                    <div className="border-t-2 border-indigo-200 dark:border-indigo-800 pt-2 mt-3" />
-                    <div className="flex items-center gap-2 px-1 pb-1">
-                      <Building2 className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
-                      <span className="font-bold text-xs text-indigo-700 dark:text-indigo-400 uppercase tracking-wide">
-                        Type: {typeProperties.typeName}
-                      </span>
-                    </div>
-                    {typeProperties.psets.map((pset: PropertySet) => (
-                      <PropertySetCard
-                        key={`type-${pset.name}`}
-                        pset={pset}
-                      />
-                    ))}
                   </>
                 )}
               </div>

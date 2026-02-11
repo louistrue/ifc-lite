@@ -22,7 +22,7 @@ import {
     RelationshipType,
     QuantityType,
 } from '@ifc-lite/data';
-import type { SpatialHierarchy, QuantityTable } from '@ifc-lite/data';
+import type { SpatialHierarchy, QuantityTable, PropertyValue } from '@ifc-lite/data';
 
 // SpatialIndex interface - matches BVH from @ifc-lite/spatial
 export interface SpatialIndex {
@@ -529,8 +529,8 @@ export class ColumnarParser {
         const attrs = entity.attributes;
         if (attrs.length < 6) return null;
 
-        let relatingObject: any;
-        let relatedObjects: any;
+        let relatingObject: unknown;
+        let relatedObjects: unknown;
 
         if (typeUpper === 'IFCRELDEFINESBYPROPERTIES' || typeUpper === 'IFCRELCONTAINEDINSPATIALSTRUCTURE') {
             relatedObjects = attrs[4];
@@ -558,7 +558,7 @@ export class ColumnarParser {
     extractPropertiesOnDemand(
         store: IfcDataStore,
         entityId: number
-    ): Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: any }> }> {
+    ): Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: PropertyValue }> }> {
         // Use on-demand extraction if map is available (preferred for single-entity access)
         if (!store.onDemandPropertyMap) {
             // Fallback to pre-computed property table (e.g., server-parsed data)
@@ -571,7 +571,7 @@ export class ColumnarParser {
         }
 
         const extractor = new EntityExtractor(store.source);
-        const result: Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: any }> }> = [];
+        const result: Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: PropertyValue }> }> = [];
 
         for (const psetId of psetIds) {
             const psetRef = store.entityIndex.byId.get(psetId);
@@ -585,7 +585,7 @@ export class ColumnarParser {
             const psetName = typeof psetAttrs[2] === 'string' ? psetAttrs[2] : `PropertySet #${psetId}`;
             const hasProperties = psetAttrs[4];
 
-            const properties: Array<{ name: string; type: number; value: any }> = [];
+            const properties: Array<{ name: string; type: number; value: PropertyValue }> = [];
 
             if (Array.isArray(hasProperties)) {
                 for (const propRef of hasProperties) {
@@ -690,7 +690,7 @@ export class ColumnarParser {
 export function extractPropertiesOnDemand(
     store: IfcDataStore,
     entityId: number
-): Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: any }> }> {
+): Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: PropertyValue }> }> {
     const parser = new ColumnarParser();
     return parser.extractPropertiesOnDemand(store, entityId);
 }
@@ -1160,7 +1160,7 @@ function resolveMaterial(
 export interface TypePropertyInfo {
     typeName: string;
     typeId: number;
-    properties: Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: any }> }>;
+    properties: Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: PropertyValue }> }>;
 }
 
 /**
@@ -1173,7 +1173,7 @@ export interface TypePropertyInfo {
  * - IfcPropertyTableValue: defining/defined value pairs → "Table(N rows)"
  * - IfcPropertyReferenceValue: entity reference → "Reference #ID"
  */
-function parsePropertyValue(propEntity: IfcEntity): { type: number; value: any } {
+function parsePropertyValue(propEntity: IfcEntity): { type: number; value: PropertyValue } {
     const attrs = propEntity.attributes || [];
     const typeUpper = propEntity.type.toUpperCase();
 
@@ -1241,7 +1241,7 @@ function parsePropertyValue(propEntity: IfcEntity): { type: number; value: any }
             // IfcPropertySingleValue and fallback: [Name, Description, NominalValue, Unit]
             const nominalValue = attrs[2];
             let type = 0;
-            let value: any = nominalValue;
+            let value: PropertyValue = nominalValue as PropertyValue;
 
             // Handle typed values like IFCBOOLEAN(.T.), IFCREAL(1.5)
             if (Array.isArray(nominalValue) && nominalValue.length === 2) {
@@ -1272,7 +1272,7 @@ function parsePropertyValue(propEntity: IfcEntity): { type: number; value: any }
 }
 
 /** Extract a numeric value from a possibly typed STEP value. */
-function extractNumericValue(attr: any): number | null {
+function extractNumericValue(attr: unknown): number | null {
     if (typeof attr === 'number') return attr;
     if (Array.isArray(attr) && attr.length === 2 && typeof attr[1] === 'number') return attr[1];
     return null;
@@ -1286,8 +1286,8 @@ function extractPsetsFromIds(
     store: IfcDataStore,
     extractor: EntityExtractor,
     psetIds: number[]
-): Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: any }> }> {
-    const result: Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: any }> }> = [];
+): Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: PropertyValue }> }> {
+    const result: Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: PropertyValue }> }> = [];
 
     for (const psetId of psetIds) {
         const psetRef = store.entityIndex.byId.get(psetId);
@@ -1304,7 +1304,7 @@ function extractPsetsFromIds(
         const psetName = typeof psetAttrs[2] === 'string' ? psetAttrs[2] : `PropertySet #${psetId}`;
         const hasProperties = psetAttrs[4];
 
-        const properties: Array<{ name: string; type: number; value: any }> = [];
+        const properties: Array<{ name: string; type: number; value: PropertyValue }> = [];
 
         if (Array.isArray(hasProperties)) {
             for (const propRef of hasProperties) {
@@ -1364,7 +1364,7 @@ export function extractTypePropertiesOnDemand(
         ? typeEntity.attributes[2]
         : typeRef.type;
 
-    const allPsets: Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: any }> }> = [];
+    const allPsets: Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: PropertyValue }> }> = [];
     const seenPsetNames = new Set<string>();
 
     // Source 1: HasPropertySets attribute on the type entity (index 5 for IfcTypeObject subtypes)
