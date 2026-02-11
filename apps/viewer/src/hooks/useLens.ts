@@ -27,6 +27,16 @@ function hexToRgba(hex: string, alpha: number): [number, number, number, number]
   return [r, g, b, alpha];
 }
 
+/** IFC subtype → base type mapping for hierarchy-aware lens matching */
+const IFC_SUBTYPE_TO_BASE: Record<string, string> = {
+  IfcWallStandardCase: 'IfcWall',
+  IfcSlabStandardCase: 'IfcSlab',
+  IfcColumnStandardCase: 'IfcColumn',
+  IfcBeamStandardCase: 'IfcBeam',
+  IfcStairFlight: 'IfcStair',
+  IfcRampFlight: 'IfcRamp',
+};
+
 /** Check if an entity matches a LensCriteria */
 function matchesCriteria(
   criteria: LensCriteria,
@@ -37,7 +47,12 @@ function matchesCriteria(
     case 'ifcType': {
       if (!criteria.ifcType) return false;
       const typeName = dataStore.entities?.getTypeName?.(expressId);
-      return typeName === criteria.ifcType;
+      if (!typeName) return false;
+      // Exact match
+      if (typeName === criteria.ifcType) return true;
+      // Subtype match: e.g. IfcSlabStandardCase matches an IfcSlab rule
+      const baseType = IFC_SUBTYPE_TO_BASE[typeName];
+      return baseType === criteria.ifcType;
     }
     case 'property': {
       if (!criteria.propertySet || !criteria.propertyName) return false;

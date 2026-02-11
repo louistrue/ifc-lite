@@ -244,8 +244,8 @@ function LensCard({
           </span>
         </div>
         <div className="flex items-center gap-1">
-          {/* Edit/delete for custom lenses */}
-          {!lens.builtin && onEdit && (
+          {/* Edit for all lenses, delete for custom only */}
+          {onEdit && (
             <button
               onClick={(e) => { e.stopPropagation(); onEdit(lens); }}
               className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-200 p-0.5"
