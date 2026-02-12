@@ -1,500 +1,392 @@
-# Implementation Plan: Issue #198 — UI Enhancements
+# Plan: Universal Data Coloring — Lens + Lists Integration
 
-## Overview
+## Current State
 
-Issue #198 requests six UI enhancements inspired by BIMCollab Zoom:
+**Lens** supports 3 criteria types: `ifcType`, `property`, `material`. The `Lens` type already has an unused `autoColorProperty` field. The engine evaluates rules in a first-match-wins loop. `LensDataProvider` exposes: `getEntityType()`, `getPropertyValue()`, `getPropertySets()`.
 
-1. **Orthographic Projection** — Toggle between perspective and orthographic camera
-2. **Projections Menu** — Unified UI for view directions + projection mode
-3. **Automatic Floorplan** — One-click floor plan views per storey
-4. **My View (Selection Basket)** — Persistent selection set with add/remove/show operations
-5. **Tree View by Type** — Alternative hierarchy grouping elements by IFC type
-6. **Smart View** — Rule-based filtering/coloring system for 3D viewport
+**Lists** has column discovery (attributes, properties, quantities via sampling), an execution engine, and a virtualized results table. `ListDataProvider` exposes attributes, property sets, and quantity sets.
 
-## Current State Analysis
-
-| Feature | Existing Infrastructure | Gap |
-|---------|------------------------|-----|
-| Ortho projection | `perspectiveReverseZ()` in math.ts, Camera class with composition pattern | No orthographic matrix, no projection mode state |
-| Projections menu | 6 preset views + viewcube, `setPresetView()` in CameraAnimator | No unified dropdown combining presets + projection toggle |
-| Auto floorplan | Full 2D drawing generation pipeline, storey data via `query.storeys` | No one-click storey→section shortcut |
-| My View | Multi-model selection system (`EntityRef`, `selectedEntitiesSet`) | No persistence, no separate basket concept |
-| Tree by type | Spatial hierarchy only in `treeDataBuilder.ts`, 3 hardcoded type toggles | No type-based tree builder, no grouping mode toggle |
-| Smart View | `GraphicOverrideEngine` for 2D drawings with full rule system + presets | Rules only apply to 2D; no 3D viewport coloring UI |
+**Parser** provides on-demand extraction for: attributes, properties, quantities, classifications, materials — all lazy-cached.
 
 ---
 
-## Phase 1: Orthographic Projection + Projections Menu
+## Phase 1: Extend LensDataProvider with all IFC data sources
 
-**Rationale:** Foundation for Phase 2 (auto floorplan needs ortho top-down). Smallest surface area with highest user impact.
+**Goal**: Give the lens engine access to every data type the parser can extract.
 
-### Task 1.1 — Orthographic projection matrix
-
-**File:** `packages/renderer/src/math.ts`
-
-Add `orthographicReverseZ()` method to `MathUtils`:
+### 1A. Extend `LensDataProvider` interface (`packages/lens/src/types.ts`)
 
 ```typescript
-static orthographicReverseZ(
-  left: number, right: number,
-  bottom: number, top: number,
-  near: number, far: number
-): Mat4
-```
+export interface LensDataProvider {
+  // existing
+  getEntityCount(): number;
+  forEachEntity(callback: (globalId: number, modelId: string) => void): void;
+  getEntityType(globalId: number): string | undefined;
+  getPropertyValue(globalId: number, psetName: string, propName: string): unknown;
+  getPropertySets(globalId: number): PropertySetInfo[];
 
-Uses reverse-Z convention matching `perspectiveReverseZ()` (near=1.0, far=0.0) so the existing depth buffer compare function (`greater`) works unchanged.
-
-### Task 1.2 — Camera projection mode state
-
-**File:** `packages/renderer/src/camera.ts`
-
-Extend `CameraInternalState` with:
-- `projectionMode: 'perspective' | 'orthographic'`
-- `orthoSize: number` — half-height of orthographic view volume in world units
-
-Add methods to `Camera` class:
-- `setProjectionMode(mode)` — switch mode, recompute projection matrix
-- `getProjectionMode()` — getter
-- `setOrthoSize(size)` — set orthographic view volume
-- `getOrthoSize()` — getter
-
-Modify `updateMatrices()`:
-```typescript
-private updateMatrices(): void {
-  this.state.viewMatrix = MathUtils.lookAt(...);
-  if (this.state.projectionMode === 'orthographic') {
-    const h = this.state.orthoSize;
-    const w = h * this.state.camera.aspect;
-    this.state.projMatrix = MathUtils.orthographicReverseZ(-w, w, -h, h, near, far);
-  } else {
-    this.state.projMatrix = MathUtils.perspectiveReverseZ(...);
-  }
-  this.state.viewProjMatrix = MathUtils.multiply(...);
+  // NEW — optional for backward compat, engine checks before calling
+  getEntityAttribute?(globalId: number, attrName: string): string | undefined;
+  getQuantityValue?(globalId: number, qsetName: string, quantName: string): number | string | undefined;
+  getClassifications?(globalId: number): ClassificationInfo[];
+  getMaterialName?(globalId: number): string | undefined;
 }
 ```
 
-### Task 1.3 — Orthographic zoom behavior
-
-**File:** `packages/renderer/src/camera-controls.ts`
-
-Modify `zoom()` to scale `orthoSize` in orthographic mode instead of translating camera position. The mouse-toward-zoom behavior still works — just apply offset to target/position while scaling orthoSize.
-
-### Task 1.4 — Projection unproject for orthographic
-
-**File:** `packages/renderer/src/camera-projection.ts`
-
-Modify `unprojectToRay()`: In orthographic mode, the ray origin varies with screen position (parallel rays) instead of all originating from the camera position. This is critical for correct picking/measurement in orthographic mode.
-
-Modify `fitToBounds()` and `frameBounds()`: Calculate appropriate `orthoSize` from bounds instead of camera distance.
-
-### Task 1.5 — Store integration
-
-**File:** `apps/viewer/src/store/slices/cameraSlice.ts`
-
-Add to `CameraSlice`:
+Add `ClassificationInfo` type:
 ```typescript
-projectionMode: 'perspective' | 'orthographic';
-setProjectionMode: (mode: 'perspective' | 'orthographic') => void;
-toggleProjectionMode: () => void;
-```
-
-Add to `CameraCallbacks`:
-```typescript
-setProjectionMode?: (mode: 'perspective' | 'orthographic') => void;
-```
-
-### Task 1.6 — Projections menu UI
-
-**File:** `apps/viewer/src/components/viewer/MainToolbar.tsx`
-
-Replace the existing "Preset Views" dropdown with a unified "Projections" dropdown that contains:
-- **Projection toggle**: Perspective / Orthographic (with current state indicator)
-- **Separator**
-- **View directions**: Top, Bottom, Front, Back, Left, Right (existing presets)
-- **Separator**
-- **Home (Isometric)**: Existing home view
-
-Use `Grid3x3` or `Box` icon from lucide-react. Show current projection mode as badge/indicator.
-
-### Task 1.7 — Keyboard shortcut
-
-**File:** `apps/viewer/src/hooks/useKeyboardShortcuts.ts`
-
-Add `5` key to toggle orthographic (CAD convention: Numpad 5 = ortho toggle in Blender/FreeCAD). Update the keyboard shortcuts dialog.
-
-### Task 1.8 — Store reset
-
-**File:** `apps/viewer/src/store/index.ts`
-
-Add `projectionMode: 'perspective'` to `resetViewerState()`.
-
----
-
-## Phase 2: Automatic Floorplan Views
-
-**Rationale:** Builds on Phase 1's orthographic camera. High user value — one-click floor plan per storey.
-
-### Task 2.1 — Floorplan activation logic
-
-**File:** `apps/viewer/src/hooks/useFloorplanView.ts` (new hook)
-
-Create `useFloorplanView()` hook:
-```typescript
-function useFloorplanView() {
-  const activateFloorplan = useCallback((storeyExpressId: number, modelId: string) => {
-    // 1. Get storey elevation from ifcDataStore
-    // 2. Set section plane: axis='down', position = elevation + 1.2m offset (eye level), enabled=true
-    // 3. Set camera: orthographic, top-down view
-    // 4. Fit camera to storey bounding box
-    // 5. Optionally isolate storey elements
-  }, []);
-
-  return { activateFloorplan, availableStoreys };
+export interface ClassificationInfo {
+  system?: string;
+  identification?: string;
+  name?: string;
 }
 ```
 
-The 1.2m offset is standard architectural practice (section cut at 1.2m above floor level).
+### 1B. Implement in viewer adapter (`apps/viewer/src/lib/lens/adapter.ts`)
 
-### Task 2.2 — Storey data query
+- `getEntityAttribute`: resolve globalId -> model, call `entities.getName()` / `entities.getDescription()` / etc., fall back to `extractEntityAttributesOnDemand()`
+- `getQuantityValue`: resolve globalId -> model, call `extractQuantitiesOnDemand()`, search for qset+quantity name
+- `getClassifications`: resolve globalId -> model, call `extractClassificationsOnDemand()`
+- `getMaterialName`: resolve globalId -> model, call `extractMaterialsOnDemand()`, return top-level name or first layer/constituent name
 
-Use existing `query.storeys` API from `@ifc-lite/query` to get:
-- Storey name, elevation, expressId
-- Sort by elevation (highest first, matching BIMCollab convention)
-- Support multi-model: collect storeys from all loaded models
-
-### Task 2.3 — Floorplan menu UI
-
-**File:** `apps/viewer/src/components/viewer/MainToolbar.tsx`
-
-Add "Floorplan" dropdown button to toolbar (after section tool). Contents:
-- List of storeys sorted by elevation (descending)
-- Each item shows: storey name + elevation value
-- Clicking activates section + ortho top-down + fit-to-bounds
-- Multi-model: group by model name if >1 model
-- Empty state: "No storeys available"
-- Use `Layers` icon from lucide-react
-
-### Task 2.4 — Floorplan keyboard shortcuts
-
-Add `Ctrl+1` through `Ctrl+9` for quick storey access (1 = ground floor, ascending). Only as stretch goal; main access is via dropdown.
+### Files changed
+- `packages/lens/src/types.ts` — extend interface + add ClassificationInfo
+- `apps/viewer/src/lib/lens/adapter.ts` — implement new methods
 
 ---
 
-## Phase 3: My View (Selection Basket)
+## Phase 2: Add new criteria types to manual lens rules
 
-**Rationale:** Self-contained feature. Enables power users to build persistent component sets.
+**Goal**: Allow lens rules to match by attribute, quantity, and classification — not just ifcType/property/material.
 
-### Task 3.1 — My View store slice
-
-**File:** `apps/viewer/src/store/slices/myViewSlice.ts` (new)
+### 2A. Extend `LensCriteria` (`packages/lens/src/types.ts`)
 
 ```typescript
-interface MyViewSlice {
-  // State
-  myViewEntities: Set<string>;  // Serialized EntityRef ("modelId:expressId")
+export interface LensCriteria {
+  type: 'ifcType' | 'property' | 'material' | 'attribute' | 'quantity' | 'classification';
 
-  // Actions
-  addToMyView: (refs: EntityRef[]) => void;
-  removeFromMyView: (refs: EntityRef[]) => void;
-  setMyView: (refs: EntityRef[]) => void;  // Replace entire set
-  clearMyView: () => void;
-  showMyView: () => void;  // Isolate My View entities in 3D
-  isInMyView: (ref: EntityRef) => boolean;
-  getMyViewCount: () => number;
-  getMyViewEntities: () => EntityRef[];
+  // existing fields (ifcType, propertySet, propertyName, operator, propertyValue, materialName)
+
+  // NEW for attribute matching
+  attributeName?: string;     // e.g. "Name", "Description", "ObjectType", "Tag"
+  attributeValue?: string;
+
+  // NEW for quantity matching
+  quantitySet?: string;       // e.g. "Qto_WallBaseQuantities"
+  quantityName?: string;      // e.g. "Length"
+  quantityValue?: string;     // comparison value (stringified)
+
+  // NEW for classification matching
+  classificationSystem?: string;   // e.g. "Uniclass"
+  classificationCode?: string;     // e.g. "Pr_60_10_32"
 }
 ```
 
-Uses `entityRefToString()` / `stringToEntityRef()` from existing types — same serialization as `selectedEntitiesSet`.
+### 2B. Extend matching engine (`packages/lens/src/matching.ts`)
 
-### Task 3.2 — Register slice in combined store
+Add `matchesAttribute()`, `matchesQuantity()`, `matchesClassification()` functions. Wire into `matchesCriteria()` switch.
 
-**File:** `apps/viewer/src/store/index.ts`
+- **Attribute**: `provider.getEntityAttribute(globalId, attrName)` -> compare with operator
+- **Quantity**: `provider.getQuantityValue(globalId, qsetName, quantName)` -> compare (supports numeric gt/lt/gte/lte)
+- **Classification**: `provider.getClassifications(globalId)` -> match system name and/or code (contains/equals)
 
-Import and spread `createMyViewSlice`, add to `ViewerState` type, add reset logic (clear `myViewEntities`).
+### 2C. Extend rule editor UI (`LensPanel.tsx`)
 
-### Task 3.3 — My View toolbar controls
+Currently the editor only shows an IFC class dropdown. Change to:
+1. First dropdown: **criteria type** selector (`IFC Type | Attribute | Property | Quantity | Classification | Material`)
+2. Then show type-specific fields:
+   - **IFC Type**: class dropdown (existing)
+   - **Attribute**: attribute name dropdown + operator + value input
+   - **Property**: pset name + prop name + operator + value input
+   - **Quantity**: qset name + quantity name + operator + value input
+   - **Classification**: system input + code input + operator
+   - **Material**: material name input (existing)
 
-**File:** `apps/viewer/src/components/viewer/MainToolbar.tsx`
-
-Add My View button group after visibility controls:
-- **Show** (Eye icon): Isolate My View entities — uses existing `isolateEntities()` from visibility slice
-- **Add** (Plus icon): Add current selection to My View
-- **Remove** (Minus icon): Remove current selection from My View
-- **Set** (Equal icon): Replace My View with current selection
-- **Clear** (Trash2 icon): Clear My View
-
-Display entity count badge on the Show button.
-
-Buttons are enabled/disabled contextually:
-- Add: enabled when selection exists and not all selected are already in My View
-- Remove: enabled when selection exists and some selected are in My View
-- Show: enabled when My View is non-empty
-- Clear: enabled when My View is non-empty
-
-### Task 3.4 — Keyboard shortcuts
-
-**File:** `apps/viewer/src/hooks/useKeyboardShortcuts.ts`
-
-- `Shift+A`: Add selection to My View
-- `Shift+R`: Remove selection from My View
-- `Shift+S`: Show My View (isolate)
-
-### Task 3.5 — Visual indicator in hierarchy
-
-When My View has entities, show a small dot/badge on hierarchy tree nodes that are in My View. This is done lazily (check membership at render time) to avoid tree rebuild.
+### Files changed
+- `packages/lens/src/types.ts` — extend LensCriteria
+- `packages/lens/src/matching.ts` — add 3 new matchers
+- `packages/lens/src/matching.test.ts` — tests for new matchers
+- `apps/viewer/src/components/viewer/LensPanel.tsx` — extend RuleEditor
 
 ---
 
-## Phase 4: Tree View by Type
+## Phase 3: Auto-Color Mode (the core of "color by any data")
 
-**Rationale:** Requires changes to hierarchy panel internals. Self-contained but affects a complex component.
+**Goal**: Given a data column (attribute, property, quantity, classification, material, or type), automatically discover distinct values across all entities and assign a unique color to each. No manual rule authoring needed.
 
-### Task 4.1 — Grouping mode state
+### 3A. Generalize `autoColorProperty` on `Lens` type
 
-**File:** `apps/viewer/src/components/viewer/HierarchyPanel.tsx`
-
-Add local component state (persisted in `localStorage`):
-```typescript
-const [groupingMode, setGroupingMode] = useState<'spatial' | 'type'>(
-  () => (localStorage.getItem('hierarchy-grouping') as 'spatial' | 'type') || 'spatial'
-);
-```
-
-Not in Zustand store — this is a UI preference, not application state.
-
-### Task 4.2 — Type-based tree builder
-
-**File:** `apps/viewer/src/components/viewer/hierarchy/treeDataBuilder.ts`
-
-Add `buildTypeTree()` function alongside existing `buildTreeData()`:
+Replace the narrow `autoColorProperty` with:
 
 ```typescript
-function buildTypeTree(
-  models: Map<string, FederatedModel>,
-  expandedNodes: Set<string>,
-  isMultiModel: boolean
-): TreeNode[]
-```
+export interface AutoColorSpec {
+  source: 'ifcType' | 'attribute' | 'property' | 'quantity' | 'classification' | 'material';
+  psetName?: string;       // for property/quantity
+  propertyName?: string;   // for property/quantity/attribute
+}
 
-Tree structure:
-```
-IfcWall (47)
-  ├── Basic Wall:Interior-138mm... [Model A]
-  ├── Basic Wall:Exterior-300mm... [Model A]
-  └── ...
-IfcDoor (12)
-  ├── Single-Flush:0915x2032mm... [Model B]
-  └── ...
-IfcWindow (23)
-  └── ...
-```
-
-- Group by IFC type name (e.g., `IfcWall`, `IfcDoor`)
-- Sort types alphabetically
-- Show element count per type in parentheses
-- Elements within type sorted by name
-- Multi-model: show model name suffix `[ModelName]` if >1 model
-- Use existing `TreeNode` interface — set `type` to the IFC type string
-
-### Task 4.3 — Toggle UI in hierarchy header
-
-**File:** `apps/viewer/src/components/viewer/HierarchyPanel.tsx`
-
-Add segmented control in the hierarchy panel header (where search is):
-- Two options: `Spatial` | `By Type`
-- Small, unobtrusive — matches existing header style
-- Switches `groupingMode` and persists to localStorage
-- Use `Building2` icon for spatial, `Layers` icon for type
-
-### Task 4.4 — Wire tree to grouping mode
-
-In `HierarchyPanel.tsx`, switch tree data source based on `groupingMode`:
-```typescript
-const treeData = useMemo(() => {
-  if (groupingMode === 'type') {
-    return buildTypeTree(models, expandedNodes, isMultiModel);
-  }
-  return buildTreeData(models, expandedNodes, isMultiModel);
-}, [groupingMode, models, expandedNodes, isMultiModel]);
-```
-
-Selection, visibility, search, and context menu behavior remain the same — they all work with `TreeNode.expressIds` which is present in both tree structures.
-
-### Task 4.5 — Type tree performance
-
-Ensure type tree builds efficiently for 100k+ entities:
-- Pre-collect `Map<string, EntityRef[]>` in single pass over all entities
-- Sort types once (26-50 types typical)
-- Lazy child expansion (only build children when expanded)
-- Same virtualization as spatial tree (Tanstack React Virtual)
-
----
-
-## Phase 5: Smart View (Rule-Based 3D Filtering/Coloring)
-
-**Rationale:** Most complex feature. Builds on existing `GraphicOverrideEngine` for 2D but needs new 3D coloring path. Should be last.
-
-### Task 5.1 — Smart View store slice
-
-**File:** `apps/viewer/src/store/slices/smartViewSlice.ts` (new)
-
-```typescript
-interface SmartViewRule {
+export interface Lens {
   id: string;
   name: string;
-  enabled: boolean;
-  criteria: SmartViewCriteria;  // Reuse/adapt GraphicOverrideCriteria from drawing-2d
-  action: 'colorize' | 'hide' | 'isolate' | 'transparent';
-  color: string;  // Hex color for 'colorize' action
-}
-
-interface SmartView {
-  id: string;
-  name: string;
-  rules: SmartViewRule[];
-  autoColorProperty?: {  // "Auto-color by property" mode
-    propertySetName: string;
-    propertyName: string;
-  };
-}
-
-interface SmartViewSlice {
-  // State
-  savedSmartViews: SmartView[];
-  activeSmartViewId: string | null;
-  smartViewPanelVisible: boolean;
-  smartViewResults: Map<string, string>;  // entityKey → color hex
-
-  // Actions
-  createSmartView: (view: SmartView) => void;
-  updateSmartView: (id: string, view: Partial<SmartView>) => void;
-  deleteSmartView: (id: string) => void;
-  setActiveSmartView: (id: string | null) => void;
-  toggleSmartViewPanel: () => void;
-  setSmartViewResults: (results: Map<string, string>) => void;
+  rules: LensRule[];
+  builtin?: boolean;
+  autoColor?: AutoColorSpec;  // replaces autoColorProperty
 }
 ```
 
-### Task 5.2 — Smart View rule engine for 3D
+### 3B. Implement `evaluateAutoColorLens()` in engine (`packages/lens/src/engine.ts`)
 
-**File:** `apps/viewer/src/hooks/useSmartView.ts` (new hook)
+```
+evaluateAutoColorLens(autoColor: AutoColorSpec, provider: LensDataProvider): LensEvaluationResult
+```
 
-Create rule evaluation engine that:
-1. Iterates over all entities across all loaded models
-2. For each entity, evaluates rule criteria (IFC type, property values, material)
-3. Produces a `Map<globalId, color>` for entities matching colorize rules
-4. Produces `Set<globalId>` for entities matching hide/isolate/transparent rules
-5. Applies colors via existing `pendingColorUpdates` in `dataSlice` → renderer's `updateMeshColors()`
-6. Applies visibility via existing `hideEntities()` / `isolateEntities()` from visibility slice
+Algorithm:
+1. **Value extraction pass** (O(n)): iterate all entities, extract the target value, build `Map<string, number[]>` (value -> entity IDs)
+2. **Color assignment**: sort distinct values (alpha or by frequency), assign colors from `LENS_PALETTE` (cycle if >12 distinct values). Null/empty -> ghost color.
+3. **Build result**: construct `colorMap`, `ruleCounts`, `ruleEntityIds` using synthetic rule IDs per value. No `hiddenIds` in auto-color mode.
+4. Return `LensEvaluationResult` with synthetic rules named after the values, entity counts per value, and full color map.
 
-**Criteria evaluation** reuses the matching logic from `@ifc-lite/drawing-2d`'s `GraphicOverrideEngine` rule types:
-- IFC type matching (exact + subtype)
-- Property set + property name + operator (equals, contains, greater, less, exists)
-- Material name matching
-- AND/OR compound criteria
+Value extraction per source type:
+- `ifcType`: `provider.getEntityType(globalId)`
+- `attribute`: `provider.getEntityAttribute(globalId, attrName)`
+- `property`: `provider.getPropertyValue(globalId, psetName, propName)`
+- `quantity`: `provider.getQuantityValue(globalId, qsetName, quantName)` -> bucket numeric values into ranges
+- `classification`: `provider.getClassifications(globalId)` -> use `system:code` as the key
+- `material`: `provider.getMaterialName(globalId)`
 
-### Task 5.3 — Auto-color by property
+### 3C. Wire auto-color into `useLens` hook
 
-When `autoColorProperty` is set on a Smart View:
-1. Scan all entities for the specified property
-2. Collect distinct values
-3. Generate unique colors (HSL distribution for maximum visual separation)
-4. Apply via `pendingColorUpdates`
-5. Show color legend in panel
+In `useLens.ts`, check `activeLens.autoColor`:
+- If present: call `evaluateAutoColorLens(activeLens.autoColor, provider)`
+- If absent: call `evaluateLens(activeLens, provider)` (existing path)
 
-### Task 5.4 — Smart View panel UI
+Also store the synthetic rules in lensSlice so the UI legend can display them:
+- Add `lensAutoColorLegend: Array<{ id: string; name: string; color: string; count: number }>` to the slice
+- LensPanel reads this to render the legend when in auto-color mode
 
-**File:** `apps/viewer/src/components/viewer/SmartViewPanel.tsx` (new)
+### 3D. Auto-color UI in LensPanel
 
-Panel contents:
-- **Smart View selector** dropdown (saved views + "New Smart View")
-- **Rule list** with toggles, name, criteria summary, color swatch
-- **Add rule** button → rule editor dialog
-- **Auto-color** section: property set / property name selectors
-- **Color legend**: distinct value → color mapping with entity counts
-- **Apply / Reset** buttons
+When a lens has `autoColor` set (not manual rules):
+- Show a **data source picker** instead of rule editor
+- Show the color legend with discovered values + counts
+- Click a value row -> isolate entities with that value
+- Same export/import as regular lenses
 
-Rule editor dialog:
-- Criteria type selector (IFC Type, Property, Material)
-- Value input with appropriate widget (dropdown for types, text for property values)
-- Action selector (Colorize, Hide, Isolate, Transparent)
-- Color picker for Colorize action
-
-### Task 5.5 — Toolbar integration
-
-**File:** `apps/viewer/src/components/viewer/MainToolbar.tsx`
-
-Add Smart View toggle button (similar to BCF/IDS/Lists):
-- Use `Palette` or `Filter` icon from lucide-react
-- Toggle `smartViewPanelVisible`
-- Show panel in bottom area alongside BCF/IDS/Lists
-- Badge showing active rule count
-
-### Task 5.6 — Register in combined store + reset
-
-**File:** `apps/viewer/src/store/index.ts`
-
-Import and spread `createSmartViewSlice`, add to `ViewerState` type. Reset: clear `activeSmartViewId` and `smartViewResults` but keep `savedSmartViews`.
+### Files changed
+- `packages/lens/src/types.ts` — AutoColorSpec, update Lens
+- `packages/lens/src/engine.ts` — evaluateAutoColorLens()
+- `packages/lens/src/engine.test.ts` — tests
+- `apps/viewer/src/hooks/useLens.ts` — dispatch to auto-color path
+- `apps/viewer/src/store/slices/lensSlice.ts` — add autoColorLegend state
+- `apps/viewer/src/components/viewer/LensPanel.tsx` — auto-color legend display + data source picker
 
 ---
 
-## Implementation Order & Dependencies
+## Phase 4: Lists -> Lens Integration ("Color by Column")
+
+**Goal**: From any list results table, click a column header button to "Color by this column" — instantly creating and activating an auto-color lens.
+
+### 4A. Column header context action in `ListResultsTable.tsx`
+
+Add a small palette icon on column headers (appears on hover, next to sort arrows):
+- **"Color by {column}"** — creates a lens and activates it
+
+### 4B. Map `ColumnDefinition` -> `AutoColorSpec`
+
+```typescript
+function columnToAutoColor(col: ColumnDefinition): AutoColorSpec {
+  switch (col.source) {
+    case 'attribute':
+      if (col.propertyName === 'Type') return { source: 'ifcType' };
+      return { source: 'attribute', propertyName: col.propertyName };
+    case 'property':
+      return { source: 'property', psetName: col.psetName, propertyName: col.propertyName };
+    case 'quantity':
+      return { source: 'quantity', psetName: col.psetName, propertyName: col.propertyName };
+  }
+}
+```
+
+### 4C. Action flow
+
+When user clicks "Color by {column}":
+1. Convert ColumnDefinition -> AutoColorSpec
+2. Create a transient lens: `{ id: 'auto-color-from-list', name: 'Color by {label}', rules: [], autoColor: spec }`
+3. Add to savedLenses (or use a special "ephemeral" lens slot)
+4. Activate it -> `useLens` evaluates -> 3D model colored
+
+### 4D. Visual feedback in list table
+
+Once an auto-color lens is active from a list column:
+- The colored column header gets a colored indicator
+- Each cell in the colored column shows a small color swatch matching the entity's assigned color
+- This creates a visual link between the table and the 3D view
+
+### Files changed
+- `apps/viewer/src/components/viewer/lists/ListResultsTable.tsx` — column header action + cell swatches
+- `apps/viewer/src/lib/lists/columnToAutoColor.ts` — new mapping utility
+- `apps/viewer/src/store/slices/lensSlice.ts` — add `activateAutoColorFromColumn` action
+
+---
+
+## Phase 5: Bidirectional Lists <-> Lens Sync
+
+**Goal**: Lens and Lists stay in sync — activating a lens filters the list, and list interactions update the 3D view.
+
+### 5A. Lens-aware list filtering
+
+When a lens is active and a rule is isolated:
+- The list results table auto-filters to show only entities matching the isolated rule
+- Toggling isolation in the lens panel updates the list filter
+- Implementation: `useViewerStore(s => s.lensRuleEntityIds)` -> filter list rows by entity ID membership
+
+### 5B. List row hover -> 3D highlight
+
+Already partially exists (row click selects entity). Extend:
+- Row **hover** highlights entity in 3D (uses existing hover system)
+- Selected row(s) in list = selected entities in 3D = highlighted in lens
+
+### 5C. Multi-select in list -> batch operations
+
+- Checkbox column in list results
+- Select multiple rows -> "Color selected" / "Hide selected" / "Isolate selected" toolbar actions
+- These actions create ad-hoc lens rules or use visibility/isolation directly
+
+### Files changed
+- `apps/viewer/src/components/viewer/lists/ListResultsTable.tsx` — lens-aware filtering, hover, multi-select
+- `apps/viewer/src/components/viewer/lists/ListPanel.tsx` — toolbar actions
+
+---
+
+## Phase 6: Smart Presets & Discovery
+
+**Goal**: Auto-generate useful lenses from model content.
+
+### 6A. "Discover Lenses" feature
+
+Scan the loaded model(s) and suggest lenses based on available data:
+- "Color by Fire Rating" (if Pset_WallCommon.FireRating exists with >1 distinct value)
+- "Color by Classification" (if IfcClassificationReference entities exist)
+- "Color by Material" (if material associations exist)
+- "Color by Storey" (spatial containment)
+
+### 6B. Implementation
+
+Reuse list column discovery (`discoverColumns()` from `@ifc-lite/lists`) to find available data columns. For each discovered column with good cardinality (2-20 distinct values), generate a suggested auto-color lens.
+
+Display in LensPanel as a "Suggested" section below builtins.
+
+### 6C. Built-in auto-color presets
+
+Add to `presets.ts`:
+```typescript
+{ id: 'auto-by-type', name: 'By IFC Type (auto)', autoColor: { source: 'ifcType' }, rules: [] }
+{ id: 'auto-by-material', name: 'By Material', autoColor: { source: 'material' }, rules: [] }
+```
+
+### Files changed
+- `packages/lens/src/presets.ts` — new auto-color presets
+- `apps/viewer/src/lib/lens/discovery.ts` — new file for lens suggestion logic
+- `apps/viewer/src/components/viewer/LensPanel.tsx` — suggested lenses section
+
+---
+
+## Architecture Summary
 
 ```
-Phase 1 (Ortho + Projections) ← no dependencies
-  ↓
-Phase 2 (Auto Floorplan) ← depends on Phase 1 (orthographic camera)
-
-Phase 3 (My View) ← no dependencies (can run parallel to Phase 1-2)
-
-Phase 4 (Tree by Type) ← no dependencies (can run parallel to Phase 1-3)
-
-Phase 5 (Smart View) ← no dependencies (can run parallel, but largest scope — do last)
++----------------------------------------------------------+
+|                    User Interactions                       |
+|                                                           |
+|  LensPanel (manual rules)    ListResultsTable (color by)  |
+|      |                              |                     |
+|      |  create/edit lens            |  column header ->   |
+|      |  with criteria               |  AutoColorSpec      |
+|      v                              v                     |
+|  +---------------------------------------------+         |
+|  |           Lens Store (Zustand)               |         |
+|  |  savedLenses[]  activeLensId  autoColorLegend|         |
+|  +--------------------+------------------------+         |
+|                       |                                   |
+|                       v                                   |
+|  +---------------------------------------------+         |
+|  |           useLens() Hook                     |         |
+|  |  activeLens.autoColor?                       |         |
+|  |    -> evaluateAutoColorLens()                |         |
+|  |  activeLens.rules?                           |         |
+|  |    -> evaluateLens()                         |         |
+|  +--------------------+------------------------+         |
+|                       |                                   |
+|                       v                                   |
+|  +---------------------------------------------+         |
+|  |       @ifc-lite/lens Engine                  |         |
+|  |                                              |         |
+|  |  evaluateLens()        -- rule-based         |         |
+|  |  evaluateAutoColorLens() -- data-driven      |         |
+|  |                                              |         |
+|  |  Matching:                                   |         |
+|  |    ifcType | attribute | property |          |         |
+|  |    quantity | classification | material      |         |
+|  +--------------------+------------------------+         |
+|                       |                                   |
+|                       v                                   |
+|  +---------------------------------------------+         |
+|  |      LensDataProvider (adapter)              |         |
+|  |                                              |         |
+|  |  getEntityType()        getEntityAttribute() |         |
+|  |  getPropertyValue()     getQuantityValue()   |         |
+|  |  getPropertySets()      getClassifications() |         |
+|  |                         getMaterialName()    |         |
+|  +--------------------+------------------------+         |
+|                       |                                   |
+|                       v                                   |
+|  +---------------------------------------------+         |
+|  |          @ifc-lite/parser                    |         |
+|  |  On-demand extraction:                       |         |
+|  |  attributes, properties, quantities,         |         |
+|  |  classifications, materials                  |         |
+|  +---------------------------------------------+         |
+|                                                           |
+|                       v                                   |
+|  +---------------------------------------------+         |
+|  |  setPendingColorUpdates() -> WebGPU Renderer |         |
+|  |  Batch color updates -> GPU draw calls       |         |
+|  +---------------------------------------------+         |
++----------------------------------------------------------+
 ```
 
-**Suggested implementation sequence:**
-1. Phase 1 — Ortho + Projections Menu
-2. Phase 3 — My View (quick win while Phase 1 settles)
-3. Phase 2 — Auto Floorplan (uses Phase 1)
-4. Phase 4 — Tree by Type
-5. Phase 5 — Smart View
+---
 
-## Files Modified (Summary)
+## Implementation Order
 
-### New Files
-- `apps/viewer/src/store/slices/myViewSlice.ts`
-- `apps/viewer/src/store/slices/smartViewSlice.ts`
-- `apps/viewer/src/hooks/useFloorplanView.ts`
-- `apps/viewer/src/hooks/useSmartView.ts`
-- `apps/viewer/src/components/viewer/SmartViewPanel.tsx`
+| Step | Phase | Description | Complexity |
+|------|-------|-------------|------------|
+| 1 | 1A | Extend LensDataProvider interface | Small |
+| 2 | 1B | Implement new methods in adapter | Medium |
+| 3 | 3A | Define AutoColorSpec type | Small |
+| 4 | 3B | Implement evaluateAutoColorLens() | Medium |
+| 5 | 3C | Wire auto-color into useLens | Small |
+| 6 | 3D | Auto-color legend in LensPanel | Medium |
+| 7 | 4B | columnToAutoColor mapping | Small |
+| 8 | 4A+4C | "Color by column" in ListResultsTable | Medium |
+| 9 | 4D | Cell color swatches in list | Small |
+| 10 | 2A | New criteria types | Small |
+| 11 | 2B | New matching functions | Medium |
+| 12 | 2C | Extended rule editor UI | Medium |
+| 13 | 6C | Auto-color presets | Small |
+| 14 | 6A+6B | Discover lenses from model | Medium |
+| 15 | 5A | Lens <-> list filtering sync | Medium |
+| 16 | 5B+5C | Hover sync + multi-select | Medium |
 
-### Modified Files
-- `packages/renderer/src/math.ts` — add `orthographicReverseZ()`
-- `packages/renderer/src/camera.ts` — add projection mode, ortho size
-- `packages/renderer/src/camera-controls.ts` — ortho zoom behavior
-- `packages/renderer/src/camera-projection.ts` — ortho unproject, fit-to-bounds
-- `apps/viewer/src/store/slices/cameraSlice.ts` — projection mode state
-- `apps/viewer/src/store/types.ts` — CameraCallbacks extension
-- `apps/viewer/src/store/index.ts` — new slices, reset logic
-- `apps/viewer/src/store/constants.ts` — projection mode default
-- `apps/viewer/src/components/viewer/MainToolbar.tsx` — projections dropdown, floorplan dropdown, My View buttons, Smart View toggle
-- `apps/viewer/src/hooks/useKeyboardShortcuts.ts` — new shortcuts
-- `apps/viewer/src/components/viewer/HierarchyPanel.tsx` — grouping mode toggle
-- `apps/viewer/src/components/viewer/hierarchy/treeDataBuilder.ts` — `buildTypeTree()`
+**Steps 1-9 are the critical path** — they deliver auto-color from Lists.
+Steps 10-12 extend manual lens authoring to all data types.
+Steps 13-16 are polish and deep integration.
+
+---
 
 ## Performance Considerations
 
-1. **Orthographic projection**: Zero performance impact — same GPU pipeline, different mat4
-2. **Type tree builder**: Single O(n) pass to group entities by type, then sort O(t·log(t)) for ~30 types. Lazy child expansion prevents upfront cost.
-3. **Smart View rule evaluation**: O(n·r) where n=entities, r=rules. For 100k entities × 10 rules = 1M checks. Property lookups via existing indexed data store are O(1). Run evaluation in `requestIdleCallback` or debounce to avoid blocking.
-4. **My View**: O(1) Set operations for add/remove/check membership.
-5. **Auto floorplan**: Reuses existing section plane + camera animation — no new computation.
-
-## Testing Strategy
-
-- Unit tests for `orthographicReverseZ()` matrix correctness
-- Unit tests for `buildTypeTree()` with mock data
-- Unit tests for Smart View rule evaluation
-- Integration: verify ortho picking works (unproject produces correct parallel rays)
-- Manual: test with large models (100k+ entities) to verify no performance regression
+- **Auto-color value extraction** is O(n) — one pass through all entities. For property/quantity extraction, this hits on-demand parsing. With 100K entities and cached extraction, should be <500ms. Show a progress indicator for large models.
+- **Distinct value bucketing** for quantities: numeric values should be bucketed into ranges (e.g., 5-10 bins) rather than treating each float as a distinct value. Use equal-interval binning.
+- **Color palette cycling**: with >12 distinct values, cycle the palette. Consider generating additional colors via hue rotation for high-cardinality fields. Warn the user if >30 distinct values (suggest filtering first).
+- **Caching**: the adapter already caches on-demand extraction per entity. For auto-color re-evaluation (e.g., switching columns), cached values persist.
+- **No double iteration**: evaluateAutoColorLens() does a single pass — extract value + assign to group in one loop.
