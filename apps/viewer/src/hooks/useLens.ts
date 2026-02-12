@@ -22,7 +22,7 @@
  */
 
 import { useEffect, useRef, useCallback } from 'react';
-import { evaluateLens, rgbaToHex, isGhostColor } from '@ifc-lite/lens';
+import { evaluateLens, evaluateAutoColorLens, rgbaToHex, isGhostColor } from '@ifc-lite/lens';
 import type { RGBAColor } from '@ifc-lite/lens';
 import { useViewerStore } from '@/store';
 import { createLensDataProvider } from '@/lib/lens';
@@ -76,6 +76,7 @@ export function useLens() {
       useViewerStore.getState().setLensHiddenIds(new Set());
       useViewerStore.getState().setLensRuleCounts(new Map());
       useViewerStore.getState().setLensRuleEntityIds(new Map());
+      useViewerStore.getState().setLensAutoColorLegend([]);
 
       // Restore original mesh colors via lightweight pending path
       if (originalColorsRef.current && originalColorsRef.current.size > 0) {
@@ -101,7 +102,14 @@ export function useLens() {
 
     // Create data provider and evaluate lens using @ifc-lite/lens package
     const provider = createLensDataProvider(models, ifcDataStore);
-    const { colorMap, hiddenIds, ruleCounts, ruleEntityIds } = evaluateLens(activeLens, provider);
+
+    // Dispatch: auto-color mode vs. rule-based mode
+    const isAutoColor = !!activeLens.autoColor;
+    const result = isAutoColor
+      ? evaluateAutoColorLens(activeLens.autoColor!, provider)
+      : evaluateLens(activeLens, provider);
+
+    const { colorMap, hiddenIds, ruleCounts, ruleEntityIds } = result;
 
     // Build hex color map for UI legend (exclude ghost entries)
     const hexColorMap = new Map<number, string>();
@@ -114,6 +122,13 @@ export function useLens() {
     useViewerStore.getState().setLensHiddenIds(hiddenIds);
     useViewerStore.getState().setLensRuleCounts(ruleCounts);
     useViewerStore.getState().setLensRuleEntityIds(ruleEntityIds);
+
+    // Store auto-color legend entries for UI display
+    if (isAutoColor && 'legend' in result) {
+      useViewerStore.getState().setLensAutoColorLegend(result.legend);
+    } else {
+      useViewerStore.getState().setLensAutoColorLegend([]);
+    }
 
     // Apply ALL colors to renderer via pendingColorUpdates only —
     // no mesh cloning needed, the renderer picks these up directly

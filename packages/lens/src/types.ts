@@ -6,8 +6,12 @@
  * @ifc-lite/lens — Rule-based 3D filtering and colorization
  *
  * A lens is a collection of rules that match entities by IFC class, property
- * value, or material name, then apply a visual action (colorize, hide, or
- * make transparent). Unmatched entities are ghosted for context.
+ * value, material name, attribute, quantity, or classification, then apply a
+ * visual action (colorize, hide, or make transparent). Unmatched entities are
+ * ghosted for context.
+ *
+ * Auto-color mode: given a data source (e.g. property column, attribute),
+ * automatically discovers distinct values and assigns a unique color to each.
  *
  * Multi-model support: evaluation works across federated models using
  * global IDs. The {@link LensDataProvider} abstracts data access so
@@ -52,6 +56,35 @@ export interface LensDataProvider {
    * Used for material matching (scans psets whose name contains "material").
    */
   getPropertySets(globalId: number): PropertySetInfo[];
+
+  /**
+   * Get a single entity attribute by name (e.g. "Name", "Description",
+   * "ObjectType", "Tag"). Optional — engine skips attribute criteria
+   * when not implemented.
+   */
+  getEntityAttribute?(globalId: number, attrName: string): string | undefined;
+
+  /**
+   * Get a quantity value by quantity-set name and quantity name.
+   * Returns the numeric or string value, or `undefined` if not found.
+   */
+  getQuantityValue?(
+    globalId: number,
+    qsetName: string,
+    quantName: string,
+  ): number | string | undefined;
+
+  /**
+   * Get classification references for an entity.
+   * Returns an empty array when the entity has no classifications.
+   */
+  getClassifications?(globalId: number): ClassificationInfo[];
+
+  /**
+   * Get the material name for an entity.
+   * Returns the top-level material name, or the first layer/constituent name.
+   */
+  getMaterialName?(globalId: number): string | undefined;
 }
 
 /** Property set returned by {@link LensDataProvider.getPropertySets} */
@@ -63,13 +96,20 @@ export interface PropertySetInfo {
   }>;
 }
 
+/** Classification reference returned by {@link LensDataProvider.getClassifications} */
+export interface ClassificationInfo {
+  system?: string;
+  identification?: string;
+  name?: string;
+}
+
 // ============================================================================
 // Lens Configuration Types
 // ============================================================================
 
 /** Criteria for matching entities */
 export interface LensCriteria {
-  type: 'ifcType' | 'property' | 'material';
+  type: 'ifcType' | 'property' | 'material' | 'attribute' | 'quantity' | 'classification';
   /** IFC class name (e.g. "IfcWall") — used when type === "ifcType" */
   ifcType?: string;
   /** Property set name (e.g. "Pset_WallCommon") — used when type === "property" */
@@ -82,6 +122,20 @@ export interface LensCriteria {
   propertyValue?: string;
   /** Material name pattern — used when type === "material" */
   materialName?: string;
+  /** Attribute name (e.g. "Name", "Description") — used when type === "attribute" */
+  attributeName?: string;
+  /** Attribute value to compare against */
+  attributeValue?: string;
+  /** Quantity set name (e.g. "Qto_WallBaseQuantities") — used when type === "quantity" */
+  quantitySet?: string;
+  /** Quantity name (e.g. "Length") — used when type === "quantity" */
+  quantityName?: string;
+  /** Quantity value to compare against (stringified) */
+  quantityValue?: string;
+  /** Classification system (e.g. "Uniclass") — used when type === "classification" */
+  classificationSystem?: string;
+  /** Classification code (e.g. "Pr_60_10_32") — used when type === "classification" */
+  classificationCode?: string;
 }
 
 /** A single rule within a Lens */
@@ -95,6 +149,21 @@ export interface LensRule {
   color: string;
 }
 
+/**
+ * Data source specification for automatic coloring.
+ *
+ * In auto-color mode, the engine iterates all entities, extracts the
+ * specified value, groups by distinct values, and assigns a unique color
+ * to each group. No manual rule authoring needed.
+ */
+export interface AutoColorSpec {
+  source: 'ifcType' | 'attribute' | 'property' | 'quantity' | 'classification' | 'material';
+  /** Property/quantity set name — for source "property" or "quantity" */
+  psetName?: string;
+  /** Attribute, property, or quantity name */
+  propertyName?: string;
+}
+
 /** A saved Lens configuration */
 export interface Lens {
   id: string;
@@ -102,11 +171,8 @@ export interface Lens {
   rules: LensRule[];
   /** Built-in presets cannot be deleted */
   builtin?: boolean;
-  /** Auto-color mode: color entities by distinct property values */
-  autoColorProperty?: {
-    propertySetName: string;
-    propertyName: string;
-  };
+  /** Auto-color mode: color entities by distinct values from a data column */
+  autoColor?: AutoColorSpec;
 }
 
 // ============================================================================
@@ -133,6 +199,29 @@ export interface LensEvaluationResult {
 // ============================================================================
 // Constants
 // ============================================================================
+
+/** Auto-color legend entry (synthetic rule for UI display) */
+export interface AutoColorLegendEntry {
+  id: string;
+  name: string;
+  color: string;
+  count: number;
+}
+
+/** Supported auto-color data sources for display in UI */
+export const AUTO_COLOR_SOURCES = [
+  'ifcType', 'attribute', 'property', 'quantity', 'classification', 'material',
+] as const;
+
+/** All supported criteria types for lens rules */
+export const LENS_CRITERIA_TYPES = [
+  'ifcType', 'attribute', 'property', 'quantity', 'classification', 'material',
+] as const;
+
+/** Common entity attribute names for the lens rule editor */
+export const ENTITY_ATTRIBUTE_NAMES = [
+  'Name', 'Description', 'ObjectType', 'Tag',
+] as const;
 
 /** Common IFC classes for lens rule editor UI */
 export const COMMON_IFC_CLASSES = [

@@ -8,7 +8,10 @@ import type {
   LensDataProvider,
   RGBAColor,
   LensRule,
+  AutoColorSpec,
+  AutoColorLegendEntry,
 } from './types.js';
+import { LENS_PALETTE } from './types.js';
 import { matchesCriteria } from './matching.js';
 import { hexToRgba, GHOST_COLOR } from './colors.js';
 
@@ -100,5 +103,146 @@ function applyRuleAction(
     case 'hide':
       hiddenIds.add(globalId);
       break;
+  }
+}
+
+// ============================================================================
+// Auto-Color Evaluation
+// ============================================================================
+
+/**
+ * Result of auto-color lens evaluation, extends standard result
+ * with legend entries for UI display.
+ */
+export interface AutoColorEvaluationResult extends LensEvaluationResult {
+  /** Legend entries for UI — one per distinct value, sorted by count desc */
+  legend: AutoColorLegendEntry[];
+}
+
+/**
+ * Evaluate an auto-color lens against all entities.
+ *
+ * Single O(n) pass: extracts the target value for each entity, groups by
+ * distinct values, and assigns colors from the palette.
+ *
+ * @param autoColor - Data source specification
+ * @param provider - Data provider for entity access
+ * @returns Color map, legend, and per-value entity IDs
+ */
+export function evaluateAutoColorLens(
+  autoColor: AutoColorSpec,
+  provider: LensDataProvider,
+): AutoColorEvaluationResult {
+  const startTime = performance.now();
+
+  // Phase 1: Extract values and group entities by distinct value
+  const valueGroups = new Map<string, number[]>();
+  const ghostIds: number[] = [];
+
+  provider.forEachEntity((globalId) => {
+    const raw = extractAutoColorValue(autoColor, globalId, provider);
+    const value = raw != null ? String(raw).trim() : '';
+
+    if (value === '') {
+      ghostIds.push(globalId);
+      return;
+    }
+
+    let group = valueGroups.get(value);
+    if (!group) {
+      group = [];
+      valueGroups.set(value, group);
+    }
+    group.push(globalId);
+  });
+
+  // Phase 2: Sort distinct values by entity count (descending) for best color allocation
+  const sortedEntries = Array.from(valueGroups.entries())
+    .sort((a, b) => b[1].length - a[1].length);
+
+  // Phase 3: Assign colors and build result
+  const colorMap = new Map<number, RGBAColor>();
+  const hiddenIds = new Set<number>();
+  const ruleCounts = new Map<string, number>();
+  const ruleEntityIds = new Map<string, number[]>();
+  const legend: AutoColorLegendEntry[] = [];
+
+  for (let i = 0; i < sortedEntries.length; i++) {
+    const [value, entityIds] = sortedEntries[i];
+    const color = LENS_PALETTE[i % LENS_PALETTE.length];
+    const ruleId = `auto-${i}`;
+    const rgba = hexToRgba(color, 1);
+
+    for (const id of entityIds) {
+      colorMap.set(id, rgba);
+    }
+
+    ruleCounts.set(ruleId, entityIds.length);
+    ruleEntityIds.set(ruleId, entityIds);
+    legend.push({ id: ruleId, name: value, color, count: entityIds.length });
+  }
+
+  // Ghost unmatched (null/empty value) entities
+  for (const id of ghostIds) {
+    colorMap.set(id, GHOST_COLOR);
+  }
+
+  return {
+    colorMap,
+    hiddenIds,
+    ruleCounts,
+    ruleEntityIds,
+    legend,
+    executionTime: performance.now() - startTime,
+  };
+}
+
+/**
+ * Extract the target value for a single entity based on the auto-color spec.
+ * Returns the raw value (string, number, etc.) or undefined if not available.
+ */
+function extractAutoColorValue(
+  spec: AutoColorSpec,
+  globalId: number,
+  provider: LensDataProvider,
+): string | number | undefined {
+  switch (spec.source) {
+    case 'ifcType':
+      return provider.getEntityType(globalId);
+
+    case 'attribute':
+      if (!spec.propertyName || !provider.getEntityAttribute) return undefined;
+      return provider.getEntityAttribute(globalId, spec.propertyName);
+
+    case 'property':
+      if (!spec.psetName || !spec.propertyName) return undefined;
+      {
+        const val = provider.getPropertyValue(globalId, spec.psetName, spec.propertyName);
+        return val != null ? String(val) : undefined;
+      }
+
+    case 'quantity':
+      if (!spec.psetName || !spec.propertyName || !provider.getQuantityValue) return undefined;
+      return provider.getQuantityValue(globalId, spec.psetName, spec.propertyName);
+
+    case 'classification':
+      if (!provider.getClassifications) return undefined;
+      {
+        const cls = provider.getClassifications(globalId);
+        if (!cls || cls.length === 0) return undefined;
+        // Use "system: identification" as the grouping key
+        const c = cls[0];
+        const parts: string[] = [];
+        if (c.system) parts.push(c.system);
+        if (c.identification) parts.push(c.identification);
+        return parts.length > 0 ? parts.join(': ') : c.name;
+      }
+
+    case 'material':
+      if (!provider.getMaterialName) return undefined;
+      return provider.getMaterialName(globalId);
+
+    default:
+      return undefined;
   }
 }

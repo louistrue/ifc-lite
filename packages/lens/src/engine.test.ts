@@ -3,9 +3,10 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import { describe, it, expect } from 'vitest';
-import { evaluateLens } from './engine.js';
+import { evaluateLens, evaluateAutoColorLens } from './engine.js';
 import { GHOST_COLOR, hexToRgba } from './colors.js';
-import type { Lens, LensDataProvider } from './types.js';
+import type { Lens, LensDataProvider, AutoColorSpec } from './types.js';
+import { LENS_PALETTE } from './types.js';
 
 /** Simple mock provider from entity list */
 function createMockProvider(entities: Array<{
@@ -151,5 +152,134 @@ describe('evaluateLens', () => {
 
     expect(typeof result.executionTime).toBe('number');
     expect(result.executionTime).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// ============================================================================
+// evaluateAutoColorLens
+// ============================================================================
+
+describe('evaluateAutoColorLens', () => {
+  it('should group entities by IFC type and assign distinct colors', () => {
+    const provider = createMockProvider([
+      { id: 1, type: 'IfcWall' },
+      { id: 2, type: 'IfcWall' },
+      { id: 3, type: 'IfcSlab' },
+      { id: 4, type: 'IfcColumn' },
+    ]);
+
+    const spec: AutoColorSpec = { source: 'ifcType' };
+    const result = evaluateAutoColorLens(spec, provider);
+
+    // All 4 entities should have colors (3 groups)
+    expect(result.colorMap.size).toBe(4);
+    expect(result.legend.length).toBe(3);
+
+    // Walls (2 entities) should be the largest group → first color
+    const wallEntry = result.legend.find(e => e.name === 'IfcWall');
+    expect(wallEntry).toBeDefined();
+    expect(wallEntry!.count).toBe(2);
+
+    // Each group gets a distinct color from LENS_PALETTE
+    const colors = result.legend.map(e => e.color);
+    expect(new Set(colors).size).toBe(3); // all distinct
+  });
+
+  it('should ghost entities with empty/null values', () => {
+    const provider = createMockProvider([
+      { id: 1, type: 'IfcWall' },
+      { id: 2, type: '' },
+    ]);
+
+    const spec: AutoColorSpec = { source: 'ifcType' };
+    const result = evaluateAutoColorLens(spec, provider);
+
+    // Entity with empty type should be ghosted
+    expect(result.colorMap.get(2)).toEqual(GHOST_COLOR);
+    expect(result.legend.length).toBe(1); // Only "IfcWall"
+  });
+
+  it('should auto-color by attribute when provider supports it', () => {
+    const entities = [
+      { id: 1, type: 'IfcWall' },
+      { id: 2, type: 'IfcWall' },
+      { id: 3, type: 'IfcSlab' },
+    ];
+    const provider = createMockProvider(entities);
+    (provider as Record<string, unknown>).getEntityAttribute = (id: number, attr: string) => {
+      if (attr === 'Name') {
+        if (id === 1) return 'Wall A';
+        if (id === 2) return 'Wall A';
+        if (id === 3) return 'Slab B';
+      }
+      return undefined;
+    };
+
+    const spec: AutoColorSpec = { source: 'attribute', propertyName: 'Name' };
+    const result = evaluateAutoColorLens(spec, provider);
+
+    expect(result.legend.length).toBe(2); // "Wall A" and "Slab B"
+    const wallGroup = result.legend.find(e => e.name === 'Wall A');
+    expect(wallGroup!.count).toBe(2);
+  });
+
+  it('should sort legend by count descending (largest group first)', () => {
+    const provider = createMockProvider([
+      { id: 1, type: 'IfcWall' },
+      { id: 2, type: 'IfcWall' },
+      { id: 3, type: 'IfcWall' },
+      { id: 4, type: 'IfcSlab' },
+      { id: 5, type: 'IfcColumn' },
+      { id: 6, type: 'IfcColumn' },
+    ]);
+
+    const spec: AutoColorSpec = { source: 'ifcType' };
+    const result = evaluateAutoColorLens(spec, provider);
+
+    expect(result.legend[0].name).toBe('IfcWall');
+    expect(result.legend[0].count).toBe(3);
+    expect(result.legend[1].count).toBe(2);
+    expect(result.legend[2].count).toBe(1);
+  });
+
+  it('should populate ruleEntityIds for isolation', () => {
+    const provider = createMockProvider([
+      { id: 1, type: 'IfcWall' },
+      { id: 2, type: 'IfcSlab' },
+    ]);
+
+    const spec: AutoColorSpec = { source: 'ifcType' };
+    const result = evaluateAutoColorLens(spec, provider);
+
+    // Each legend entry has a corresponding ruleEntityIds entry
+    for (const entry of result.legend) {
+      const ids = result.ruleEntityIds.get(entry.id);
+      expect(ids).toBeDefined();
+      expect(ids!.length).toBe(entry.count);
+    }
+  });
+
+  it('should return execution time', () => {
+    const provider = createMockProvider([{ id: 1, type: 'IfcWall' }]);
+    const spec: AutoColorSpec = { source: 'ifcType' };
+    const result = evaluateAutoColorLens(spec, provider);
+
+    expect(typeof result.executionTime).toBe('number');
+    expect(result.executionTime).toBeGreaterThanOrEqual(0);
+  });
+
+  it('should cycle palette colors when more than 12 distinct values', () => {
+    const entities = Array.from({ length: 15 }, (_, i) => ({
+      id: i + 1,
+      type: `IfcType${i}`,
+    }));
+    const provider = createMockProvider(entities);
+
+    const spec: AutoColorSpec = { source: 'ifcType' };
+    const result = evaluateAutoColorLens(spec, provider);
+
+    expect(result.legend.length).toBe(15);
+    // 13th color should cycle back to first palette color
+    expect(result.legend[12].color).toBe(LENS_PALETTE[12 % LENS_PALETTE.length]);
   });
 });

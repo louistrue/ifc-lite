@@ -10,8 +10,14 @@
  * - Legacy single-model: uses offset = 0
  */
 
-import type { LensDataProvider, PropertySetInfo } from '@ifc-lite/lens';
+import type { LensDataProvider, PropertySetInfo, ClassificationInfo } from '@ifc-lite/lens';
 import type { IfcDataStore } from '@ifc-lite/parser';
+import {
+  extractEntityAttributesOnDemand,
+  extractQuantitiesOnDemand,
+  extractClassificationsOnDemand,
+  extractMaterialsOnDemand,
+} from '@ifc-lite/parser';
 import type { FederatedModel } from '@/store/types';
 
 interface ModelEntry {
@@ -110,6 +116,106 @@ export function createLensDataProvider(
       const psets = resolved.entry.ifcDataStore.properties?.getForEntity?.(resolved.expressId);
       if (!psets) return [];
       return psets as PropertySetInfo[];
+    },
+
+    getEntityAttribute(globalId: number, attrName: string): string | undefined {
+      const resolved = resolveGlobalId(globalId, entries);
+      if (!resolved) return undefined;
+      const store = resolved.entry.ifcDataStore;
+      const id = resolved.expressId;
+
+      // Fast path: columnar attributes stored during initial parse
+      switch (attrName) {
+        case 'Name':
+          return store.entities.getName(id) || undefined;
+        case 'Description': {
+          const desc = store.entities.getDescription?.(id);
+          if (desc) return desc;
+          break;
+        }
+        case 'ObjectType': {
+          const ot = store.entities.getObjectType?.(id);
+          if (ot) return ot;
+          break;
+        }
+        case 'Tag':
+          // Tag is not stored in columnar — always on-demand
+          break;
+        case 'GlobalId':
+          return store.entities.getGlobalId(id) || undefined;
+        case 'Type':
+          return store.entities.getTypeName?.(id) || undefined;
+      }
+
+      // Slow path: on-demand extraction from source buffer
+      if (store.source?.length > 0 && store.entityIndex) {
+        const attrs = extractEntityAttributesOnDemand(store, id);
+        switch (attrName) {
+          case 'Name': return attrs.name || undefined;
+          case 'Description': return attrs.description || undefined;
+          case 'ObjectType': return attrs.objectType || undefined;
+          case 'Tag': return attrs.tag || undefined;
+        }
+      }
+      return undefined;
+    },
+
+    getQuantityValue(
+      globalId: number,
+      qsetName: string,
+      quantName: string,
+    ): number | string | undefined {
+      const resolved = resolveGlobalId(globalId, entries);
+      if (!resolved) return undefined;
+      const store = resolved.entry.ifcDataStore;
+      const id = resolved.expressId;
+
+      // On-demand quantity extraction
+      if (store.onDemandQuantityMap && store.source?.length > 0) {
+        const qsets = extractQuantitiesOnDemand(store, id);
+        for (const qset of qsets) {
+          if (qset.name === qsetName) {
+            for (const q of qset.quantities) {
+              if (q.name === quantName) return q.value;
+            }
+          }
+        }
+        return undefined;
+      }
+
+      // Fallback: pre-built quantity tables
+      const qsets = store.quantities?.getForEntity?.(id);
+      if (!qsets) return undefined;
+      for (const qset of qsets) {
+        if (qset.name === qsetName) {
+          for (const q of (qset as { quantities: Array<{ name: string; value: number }> }).quantities) {
+            if (q.name === quantName) return q.value;
+          }
+        }
+      }
+      return undefined;
+    },
+
+    getClassifications(globalId: number): ClassificationInfo[] {
+      const resolved = resolveGlobalId(globalId, entries);
+      if (!resolved) return [];
+      const store = resolved.entry.ifcDataStore;
+      return extractClassificationsOnDemand(store, resolved.expressId);
+    },
+
+    getMaterialName(globalId: number): string | undefined {
+      const resolved = resolveGlobalId(globalId, entries);
+      if (!resolved) return undefined;
+      const store = resolved.entry.ifcDataStore;
+      const info = extractMaterialsOnDemand(store, resolved.expressId);
+      if (!info) return undefined;
+      // Return the top-level material name, or first layer/constituent name
+      if (info.name) return info.name;
+      if (info.layers?.length) return info.layers[0].materialName;
+      if (info.constituents?.length) return info.constituents[0].materialName;
+      if (info.profiles?.length) return info.profiles[0].materialName;
+      if (info.materials?.length) return info.materials[0];
+      return undefined;
     },
   };
 }

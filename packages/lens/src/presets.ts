@@ -61,4 +61,19 @@ export const BUILTIN_LENSES: readonly Lens[] = [
       { id: 'railing', name: 'Railings', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcRailing' }, action: 'colorize', color: '#78909C' },
     ],
   },
+  // Auto-color presets — automatically discover distinct values and assign colors
+  {
+    id: 'lens-auto-type',
+    name: 'By IFC Type (auto)',
+    builtin: true,
+    rules: [],
+    autoColor: { source: 'ifcType' },
+  },
+  {
+    id: 'lens-auto-material',
+    name: 'By Material',
+    builtin: true,
+    rules: [],
+    autoColor: { source: 'material' },
+  },
 ];

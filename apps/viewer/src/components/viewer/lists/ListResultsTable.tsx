@@ -12,11 +12,12 @@
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ArrowUp, ArrowDown, Search } from 'lucide-react';
+import { ArrowUp, ArrowDown, Search, Palette } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useViewerStore } from '@/store';
-import type { ListResult, ListRow, CellValue } from '@ifc-lite/lists';
+import type { ListResult, ListRow, CellValue, ColumnDefinition } from '@ifc-lite/lists';
 import { cn } from '@/lib/utils';
+import { columnToAutoColor } from '@/lib/lists/columnToAutoColor';
 
 interface ListResultsTableProps {
   result: ListResult;
@@ -31,6 +32,9 @@ export function ListResultsTable({ result }: ListResultsTableProps) {
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
   const setSelectedEntity = useViewerStore((s) => s.setSelectedEntity);
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
+  const activateAutoColorFromColumn = useViewerStore((s) => s.activateAutoColorFromColumn);
+  const activeLensId = useViewerStore((s) => s.activeLensId);
+  const [colorByColIdx, setColorByColIdx] = useState<number | null>(null);
 
   // Filter rows by search query
   const filteredRows = useMemo(() => {
@@ -61,6 +65,13 @@ export function ListResultsTable({ result }: ListResultsTableProps) {
       setSortDir('asc');
     }
   }, [sortCol]);
+
+  const handleColorByColumn = useCallback((col: ColumnDefinition, colIdx: number) => {
+    const spec = columnToAutoColor(col);
+    const label = col.label ?? col.propertyName;
+    activateAutoColorFromColumn(spec, label);
+    setColorByColIdx(colIdx);
+  }, [activateAutoColorFromColumn]);
 
   const handleRowClick = useCallback((row: ListRow) => {
     setSelectedEntity({ modelId: row.modelId, expressId: row.entityId });
@@ -108,23 +119,45 @@ export function ListResultsTable({ result }: ListResultsTableProps) {
         <div style={{ minWidth: totalWidth }}>
           {/* Header */}
           <div className="flex sticky top-0 bg-muted/80 backdrop-blur-sm border-b z-10">
-            {result.columns.map((col, colIdx) => (
-              <button
-                key={col.id}
-                className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground border-r border-border/50 shrink-0"
-                style={{ width: columnWidths[colIdx] }}
-                onClick={() => handleHeaderClick(colIdx)}
-              >
-                <span className="truncate">
-                  {col.label ?? col.propertyName}
-                </span>
-                {sortCol === colIdx && (
-                  sortDir === 'asc'
-                    ? <ArrowUp className="h-3 w-3 shrink-0" />
-                    : <ArrowDown className="h-3 w-3 shrink-0" />
-                )}
-              </button>
-            ))}
+            {result.columns.map((col, colIdx) => {
+              const isColoredCol = activeLensId === 'auto-color-from-list' && colorByColIdx === colIdx;
+              return (
+                <div
+                  key={col.id}
+                  className={cn(
+                    'flex items-center gap-0.5 px-2 py-1.5 text-xs font-medium text-muted-foreground border-r border-border/50 shrink-0 group/col',
+                    isColoredCol && 'bg-primary/10',
+                  )}
+                  style={{ width: columnWidths[colIdx] }}
+                >
+                  <button
+                    className="flex items-center gap-1 flex-1 min-w-0 hover:text-foreground"
+                    onClick={() => handleHeaderClick(colIdx)}
+                  >
+                    <span className="truncate">
+                      {col.label ?? col.propertyName}
+                    </span>
+                    {sortCol === colIdx && (
+                      sortDir === 'asc'
+                        ? <ArrowUp className="h-3 w-3 shrink-0" />
+                        : <ArrowDown className="h-3 w-3 shrink-0" />
+                    )}
+                  </button>
+                  <button
+                    className={cn(
+                      'shrink-0 p-0.5 rounded-sm transition-opacity',
+                      isColoredCol
+                        ? 'text-primary opacity-100'
+                        : 'opacity-0 group-hover/col:opacity-100 text-muted-foreground hover:text-primary',
+                    )}
+                    onClick={(e) => { e.stopPropagation(); handleColorByColumn(col, colIdx); }}
+                    title={`Color by ${col.label ?? col.propertyName}`}
+                  >
+                    <Palette className="h-3 w-3" />
+                  </button>
+                </div>
+              );
+            })}
           </div>
 
           {/* Virtualized rows */}
