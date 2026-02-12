@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { evaluateLens, evaluateAutoColorLens } from './engine.js';
 import { GHOST_COLOR, hexToRgba } from './colors.js';
 import type { Lens, LensDataProvider, AutoColorSpec } from './types.js';
-import { LENS_PALETTE } from './types.js';
+// uniqueColor generates unlimited distinct colors
 
 /** Simple mock provider from entity list */
 function createMockProvider(entities: Array<{
@@ -180,7 +180,7 @@ describe('evaluateAutoColorLens', () => {
     expect(wallEntry).toBeDefined();
     expect(wallEntry!.count).toBe(2);
 
-    // Each group gets a distinct color from LENS_PALETTE
+    // Each group gets a distinct color from uniqueColor()
     const colors = result.legend.map(e => e.color);
     expect(new Set(colors).size).toBe(3); // all distinct
   });
@@ -268,8 +268,8 @@ describe('evaluateAutoColorLens', () => {
     expect(result.executionTime).toBeGreaterThanOrEqual(0);
   });
 
-  it('should cycle palette colors when more than 12 distinct values', () => {
-    const entities = Array.from({ length: 15 }, (_, i) => ({
+  it('should generate unique colors for any number of distinct values', () => {
+    const entities = Array.from({ length: 30 }, (_, i) => ({
       id: i + 1,
       type: `IfcType${i}`,
     }));
@@ -278,8 +278,9 @@ describe('evaluateAutoColorLens', () => {
     const spec: AutoColorSpec = { source: 'ifcType' };
     const result = evaluateAutoColorLens(spec, provider);
 
-    expect(result.legend.length).toBe(15);
-    // 13th color should cycle back to first palette color
-    expect(result.legend[12].color).toBe(LENS_PALETTE[12 % LENS_PALETTE.length]);
+    expect(result.legend.length).toBe(30);
+    // All 30 colors should be unique (no repeats)
+    const colors = new Set(result.legend.map(l => l.color));
+    expect(colors.size).toBe(30);
   });
 });

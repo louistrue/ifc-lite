@@ -218,6 +218,6 @@ export const createLensSlice: StateCreator<LensSlice, [], [], LensSlice> = (set,
     // Replace existing ephemeral lens or add new
     const filtered = state.savedLenses.filter(l => l.id !== lensId);
     const next = [...filtered, lens];
-    return { savedLenses: next, activeLensId: lensId };
+    return { savedLenses: next, activeLensId: lensId, lensPanelVisible: true };
   }),
 });

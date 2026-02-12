@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import { describe, it, expect } from 'vitest';
-import { hexToRgba, rgbaToHex, isGhostColor, GHOST_COLOR } from './colors.js';
+import { hexToRgba, rgbaToHex, isGhostColor, GHOST_COLOR, uniqueColor } from './colors.js';
 
 describe('hexToRgba', () => {
   it('should parse hex with # prefix', () => {
@@ -59,5 +59,28 @@ describe('isGhostColor', () => {
     expect(isGhostColor([1, 0, 0, 0.2])).toBe(false);
     expect(isGhostColor([1, 0, 0, 1])).toBe(false);
     expect(isGhostColor([0, 0, 0, 0.3])).toBe(false);
+  });
+});
+
+describe('uniqueColor', () => {
+  it('returns valid hex strings', () => {
+    for (let i = 0; i < 50; i++) {
+      expect(uniqueColor(i)).toMatch(/^#[0-9a-f]{6}$/);
+    }
+  });
+
+  it('generates unique colors for first 100 indices', () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 100; i++) {
+      const color = uniqueColor(i);
+      expect(seen.has(color)).toBe(false);
+      seen.add(color);
+    }
+  });
+
+  it('is deterministic (same index always returns same color)', () => {
+    expect(uniqueColor(0)).toBe(uniqueColor(0));
+    expect(uniqueColor(42)).toBe(uniqueColor(42));
+    expect(uniqueColor(999)).toBe(uniqueColor(999));
   });
 });

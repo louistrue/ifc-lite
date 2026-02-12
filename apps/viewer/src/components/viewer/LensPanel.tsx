@@ -18,7 +18,7 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { X, EyeOff, Palette, Check, Plus, Trash2, Pencil, Save, Download, Upload, Sparkles, Search, ChevronDown } from 'lucide-react';
+import { X, EyeOff, Palette, Check, Plus, Trash2, Pencil, Save, Download, Upload, Sparkles, Search, ChevronDown, ArrowUpDown } from 'lucide-react';
 import { discoverDataSources } from '@ifc-lite/lens';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -933,7 +933,23 @@ function LensCard({
 }) {
   const isAutoColor = !!lens.autoColor;
   const enabledRuleCount = lens.rules.filter(r => r.enabled).length;
-  const legendToShow = isAutoColor ? autoColorLegend : undefined;
+  const [legendSort, setLegendSort] = useState<'count' | 'name-asc' | 'name-desc'>('count');
+
+  const legendToShow = useMemo(() => {
+    if (!isAutoColor || !autoColorLegend) return undefined;
+    if (legendSort === 'count') return autoColorLegend; // already sorted by count desc from engine
+    const sorted = [...autoColorLegend];
+    if (legendSort === 'name-asc') sorted.sort((a, b) => a.name.localeCompare(b.name));
+    else sorted.sort((a, b) => b.name.localeCompare(a.name));
+    return sorted;
+  }, [isAutoColor, autoColorLegend, legendSort]);
+
+  const cycleLegendSort = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setLegendSort(prev => prev === 'count' ? 'name-asc' : prev === 'name-asc' ? 'name-desc' : 'count');
+  }, []);
+
+  const sortLabel = legendSort === 'count' ? 'Count' : legendSort === 'name-asc' ? 'A→Z' : 'Z→A';
 
   return (
     <div
@@ -988,7 +1004,21 @@ function LensCard({
 
       {/* Auto-color legend (shown when active + auto-color lens) */}
       {isActive && legendToShow && legendToShow.length > 0 && (
-        <div className="border-t border-zinc-200 dark:border-zinc-700 py-0.5 bg-zinc-50 dark:bg-zinc-800/60 max-h-[240px] overflow-y-auto">
+        <div className="border-t border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/60">
+          <div className="flex items-center justify-between px-3 py-1 border-b border-zinc-200/60 dark:border-zinc-700/60">
+            <span className="text-[10px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500 font-medium">
+              {legendToShow.length} values
+            </span>
+            <button
+              onClick={cycleLegendSort}
+              className="flex items-center gap-0.5 text-[10px] uppercase tracking-wider text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300"
+              title="Sort legend entries"
+            >
+              <ArrowUpDown className="h-2.5 w-2.5" />
+              {sortLabel}
+            </button>
+          </div>
+          <div className="max-h-[220px] overflow-y-auto py-0.5">
           {legendToShow.map(entry => (
             <AutoColorRow
               key={entry.id}
@@ -997,6 +1027,7 @@ function LensCard({
               onClick={onIsolateRule ? () => onIsolateRule(entry.id) : undefined}
             />
           ))}
+          </div>
         </div>
       )}
 

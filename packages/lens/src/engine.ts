@@ -11,9 +11,8 @@ import type {
   AutoColorSpec,
   AutoColorLegendEntry,
 } from './types.js';
-import { LENS_PALETTE } from './types.js';
 import { matchesCriteria } from './matching.js';
-import { hexToRgba, GHOST_COLOR } from './colors.js';
+import { hexToRgba, GHOST_COLOR, uniqueColor } from './colors.js';
 
 /**
  * Evaluate a lens against all entities in the data provider.
@@ -169,7 +168,7 @@ export function evaluateAutoColorLens(
 
   for (let i = 0; i < sortedEntries.length; i++) {
     const [value, entityIds] = sortedEntries[i];
-    const color = LENS_PALETTE[i % LENS_PALETTE.length];
+    const color = uniqueColor(i);
     const ruleId = `auto-${i}`;
     const rgba = hexToRgba(color, 1);
 

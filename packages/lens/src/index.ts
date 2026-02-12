@@ -72,6 +72,7 @@ export {
   hexToRgba,
   rgbaToHex,
   isGhostColor,
+  uniqueColor,
 } from './colors.js';
 
 // ============================================================================
