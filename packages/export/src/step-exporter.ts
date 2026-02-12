@@ -198,15 +198,16 @@ export class StepExporter {
     // Build visible-only closure if requested
     let allowedEntityIds: Set<number> | null = null;
     if (options.visibleOnly && this.dataStore.source) {
-      const visibleRoots = getVisibleEntityIds(
+      const { roots, hiddenProductIds } = getVisibleEntityIds(
         this.dataStore,
         options.hiddenEntityIds ?? new Set(),
         options.isolatedEntityIds ?? null,
       );
       allowedEntityIds = collectReferencedEntityIds(
-        visibleRoots,
+        roots,
         this.dataStore.source,
         this.dataStore.entityIndex.byId,
+        hiddenProductIds,
       );
     }
 

@@ -155,6 +155,67 @@ describe('collectReferencedEntityIds', () => {
     expect(closure.has(999)).toBe(false); // Not in entity index
     expect(closure.size).toBe(1);
   });
+
+  it('should block excluded IDs from being followed', () => {
+    // Simulate: relationship references both a visible wall (#2) and a hidden wall (#3).
+    // Hidden wall's geometry (#30, #31) should NOT be pulled in.
+    const { source, entityIndex } = buildTestData([
+      [1, 'IFCRELCONTAINEDINSPATIALSTRUCTURE', "#1=IFCRELCONTAINEDINSPATIALSTRUCTURE('g',$,$,$,(#2,#3),#4);"],
+      [2, 'IFCWALL', "#2=IFCWALL('g2',$,'Visible',$,#20,#21,$,$);"],
+      [3, 'IFCWALL', "#3=IFCWALL('g3',$,'Hidden',$,#30,#31,$,$);"],
+      [4, 'IFCBUILDINGSTOREY', "#4=IFCBUILDINGSTOREY('g4',$,'S',$,$,$,$,$,$,$);"],
+      [20, 'IFCLOCALPLACEMENT', '#20=IFCLOCALPLACEMENT($,$);'],
+      [21, 'IFCPRODUCTDEFINITIONSHAPE', '#21=IFCPRODUCTDEFINITIONSHAPE($,$,(#22));'],
+      [22, 'IFCEXTRUDEDAREASOLID', '#22=IFCEXTRUDEDAREASOLID($,$,$,2.5);'],
+      [30, 'IFCLOCALPLACEMENT', '#30=IFCLOCALPLACEMENT($,$);'],
+      [31, 'IFCPRODUCTDEFINITIONSHAPE', '#31=IFCPRODUCTDEFINITIONSHAPE($,$,(#32));'],
+      [32, 'IFCEXTRUDEDAREASOLID', '#32=IFCEXTRUDEDAREASOLID($,$,$,3.0);'],
+    ]);
+
+    const closure = collectReferencedEntityIds(
+      new Set([1, 2, 4]),  // roots: relationship, visible wall, storey
+      source,
+      entityIndex,
+      new Set([3]),         // exclude: hidden wall
+    );
+
+    // Visible wall and its geometry should be included
+    expect(closure.has(1)).toBe(true);   // relationship (root)
+    expect(closure.has(2)).toBe(true);   // visible wall (root)
+    expect(closure.has(4)).toBe(true);   // storey (root)
+    expect(closure.has(20)).toBe(true);  // visible wall's placement
+    expect(closure.has(21)).toBe(true);  // visible wall's shape
+    expect(closure.has(22)).toBe(true);  // visible wall's geometry
+
+    // Hidden wall and its geometry should be excluded
+    expect(closure.has(3)).toBe(false);  // hidden wall (blocked)
+    expect(closure.has(30)).toBe(false); // hidden wall's placement (unreachable)
+    expect(closure.has(31)).toBe(false); // hidden wall's shape (unreachable)
+    expect(closure.has(32)).toBe(false); // hidden wall's geometry (unreachable)
+  });
+
+  it('should include shared geometry even when one referencing product is excluded', () => {
+    // Shared placement #10 is used by both visible wall #1 and hidden wall #2.
+    // It should still be included because visible wall references it.
+    const { source, entityIndex } = buildTestData([
+      [1, 'IFCWALL', "#1=IFCWALL('g1',$,'Visible',$,#10,$,$,$);"],
+      [2, 'IFCWALL', "#2=IFCWALL('g2',$,'Hidden',$,#10,$,$,$);"],
+      [10, 'IFCLOCALPLACEMENT', '#10=IFCLOCALPLACEMENT($,#11);'],
+      [11, 'IFCCARTESIANPOINT', '#11=IFCCARTESIANPOINT((0.,0.,0.));'],
+    ]);
+
+    const closure = collectReferencedEntityIds(
+      new Set([1]),    // root: visible wall only
+      source,
+      entityIndex,
+      new Set([2]),    // exclude: hidden wall
+    );
+
+    expect(closure.has(1)).toBe(true);   // visible wall
+    expect(closure.has(10)).toBe(true);  // shared placement (reached via visible wall)
+    expect(closure.has(11)).toBe(true);  // point (reached via placement)
+    expect(closure.has(2)).toBe(false);  // hidden wall (excluded)
+  });
 });
 
 describe('getVisibleEntityIds', () => {
@@ -177,7 +238,7 @@ describe('getVisibleEntityIds', () => {
     } as unknown as IfcDataStore;
   }
 
-  it('should include all entities when nothing is hidden', () => {
+  it('should categorize entities correctly when nothing is hidden', () => {
     const store = createMockDataStore([
       [1, 'IFCPROJECT'],
       [2, 'IFCSITE'],
@@ -186,30 +247,51 @@ describe('getVisibleEntityIds', () => {
       [5, 'IFCWALL'],
       [6, 'IFCDOOR'],
       [7, 'IFCOWNERHISTORY'],
+      [8, 'IFCRELCONTAINEDINSPATIALSTRUCTURE'],
+      [9, 'IFCCARTESIANPOINT'],
+      [10, 'IFCPROPERTYSET'],
     ]);
 
-    const visible = getVisibleEntityIds(store, new Set(), null);
+    const { roots, hiddenProductIds } = getVisibleEntityIds(store, new Set(), null);
 
-    expect(visible.size).toBe(7);
+    // Infrastructure, spatial, products, and relationships are roots
+    expect(roots.has(1)).toBe(true);   // IFCPROJECT (spatial)
+    expect(roots.has(2)).toBe(true);   // IFCSITE (spatial)
+    expect(roots.has(5)).toBe(true);   // IFCWALL (visible product)
+    expect(roots.has(6)).toBe(true);   // IFCDOOR (visible product)
+    expect(roots.has(7)).toBe(true);   // IFCOWNERHISTORY (infrastructure)
+    expect(roots.has(8)).toBe(true);   // IFCRELCONTAINEDINSPATIALSTRUCTURE (relationship)
+
+    // Geometry and properties are NOT roots
+    expect(roots.has(9)).toBe(false);  // IFCCARTESIANPOINT (reached via closure)
+    expect(roots.has(10)).toBe(false); // IFCPROPERTYSET (reached via closure)
+
+    expect(hiddenProductIds.size).toBe(0);
   });
 
-  it('should exclude hidden entities', () => {
+  it('should exclude hidden products and track them as hiddenProductIds', () => {
     const store = createMockDataStore([
       [1, 'IFCPROJECT'],
       [5, 'IFCWALL'],
       [6, 'IFCDOOR'],
       [7, 'IFCWINDOW'],
+      [8, 'IFCRELDEFINESBYPROPERTIES'],
     ]);
 
-    const visible = getVisibleEntityIds(store, new Set([5, 7]), null);
+    const { roots, hiddenProductIds } = getVisibleEntityIds(store, new Set([5, 7]), null);
 
-    expect(visible.has(1)).toBe(true);   // spatial structure, always included
-    expect(visible.has(5)).toBe(false);  // hidden wall
-    expect(visible.has(6)).toBe(true);   // visible door
-    expect(visible.has(7)).toBe(false);  // hidden window
+    expect(roots.has(1)).toBe(true);   // spatial (always)
+    expect(roots.has(6)).toBe(true);   // visible door
+    expect(roots.has(8)).toBe(true);   // relationship (always)
+    expect(roots.has(5)).toBe(false);  // hidden wall
+    expect(roots.has(7)).toBe(false);  // hidden window
+
+    expect(hiddenProductIds.has(5)).toBe(true);  // hidden wall tracked
+    expect(hiddenProductIds.has(7)).toBe(true);  // hidden window tracked
+    expect(hiddenProductIds.size).toBe(2);
   });
 
-  it('should respect isolation (only isolated entities visible)', () => {
+  it('should respect isolation (only isolated products visible)', () => {
     const store = createMockDataStore([
       [1, 'IFCPROJECT'],
       [2, 'IFCOWNERHISTORY'],
@@ -218,16 +300,19 @@ describe('getVisibleEntityIds', () => {
       [7, 'IFCWINDOW'],
     ]);
 
-    const visible = getVisibleEntityIds(store, new Set(), new Set([5]));
+    const { roots, hiddenProductIds } = getVisibleEntityIds(store, new Set(), new Set([5]));
 
-    expect(visible.has(1)).toBe(true);   // spatial structure, always included
-    expect(visible.has(2)).toBe(true);   // infrastructure, always included
-    expect(visible.has(5)).toBe(true);   // isolated wall
-    expect(visible.has(6)).toBe(false);  // not in isolated set
-    expect(visible.has(7)).toBe(false);  // not in isolated set
+    expect(roots.has(1)).toBe(true);   // spatial (always)
+    expect(roots.has(2)).toBe(true);   // infrastructure (always)
+    expect(roots.has(5)).toBe(true);   // isolated wall (visible)
+    expect(roots.has(6)).toBe(false);  // not in isolated set
+    expect(roots.has(7)).toBe(false);  // not in isolated set
+
+    expect(hiddenProductIds.has(6)).toBe(true);  // not isolated → hidden
+    expect(hiddenProductIds.has(7)).toBe(true);  // not isolated → hidden
   });
 
-  it('should always include spatial structure and infrastructure', () => {
+  it('should always include infrastructure and spatial regardless of filters', () => {
     const store = createMockDataStore([
       [1, 'IFCPROJECT'],
       [2, 'IFCSITE'],
@@ -242,18 +327,53 @@ describe('getVisibleEntityIds', () => {
     ]);
 
     // Hide the wall and isolate nothing visible
-    const visible = getVisibleEntityIds(store, new Set([10]), null);
+    const { roots, hiddenProductIds } = getVisibleEntityIds(store, new Set([10]), null);
 
     // All infrastructure and spatial structure must be present
-    expect(visible.has(1)).toBe(true);   // IFCPROJECT
-    expect(visible.has(2)).toBe(true);   // IFCSITE
-    expect(visible.has(3)).toBe(true);   // IFCBUILDING
-    expect(visible.has(4)).toBe(true);   // IFCBUILDINGSTOREY
-    expect(visible.has(5)).toBe(true);   // IFCOWNERHISTORY
-    expect(visible.has(6)).toBe(true);   // IFCAPPLICATION
-    expect(visible.has(7)).toBe(true);   // IFCGEOMETRICREPRESENTATIONCONTEXT
-    expect(visible.has(8)).toBe(true);   // IFCUNITASSIGNMENT
-    expect(visible.has(9)).toBe(true);   // IFCSIUNIT
-    expect(visible.has(10)).toBe(false); // hidden wall
+    expect(roots.has(1)).toBe(true);   // IFCPROJECT
+    expect(roots.has(2)).toBe(true);   // IFCSITE
+    expect(roots.has(3)).toBe(true);   // IFCBUILDING
+    expect(roots.has(4)).toBe(true);   // IFCBUILDINGSTOREY
+    expect(roots.has(5)).toBe(true);   // IFCOWNERHISTORY
+    expect(roots.has(6)).toBe(true);   // IFCAPPLICATION
+    expect(roots.has(7)).toBe(true);   // IFCGEOMETRICREPRESENTATIONCONTEXT
+    expect(roots.has(8)).toBe(true);   // IFCUNITASSIGNMENT
+    expect(roots.has(9)).toBe(true);   // IFCSIUNIT
+
+    expect(hiddenProductIds.has(10)).toBe(true); // hidden wall
+  });
+
+  it('should NOT include geometry/property types as roots', () => {
+    const store = createMockDataStore([
+      [1, 'IFCPROJECT'],
+      [2, 'IFCWALL'],
+      [10, 'IFCCARTESIANPOINT'],
+      [11, 'IFCDIRECTION'],
+      [12, 'IFCSHAPEREPRESENTATION'],
+      [13, 'IFCPRODUCTDEFINITIONSHAPE'],
+      [14, 'IFCEXTRUDEDAREASOLID'],
+      [15, 'IFCPROPERTYSET'],
+      [16, 'IFCPROPERTYSINGLEVALUE'],
+      [17, 'IFCMATERIAL'],
+      [18, 'IFCWALLTYPE'],
+      [19, 'IFCLOCALPLACEMENT'],
+    ]);
+
+    const { roots } = getVisibleEntityIds(store, new Set(), null);
+
+    expect(roots.has(1)).toBe(true);   // spatial
+    expect(roots.has(2)).toBe(true);   // product
+
+    // None of these should be roots — they are reached via closure only
+    expect(roots.has(10)).toBe(false);
+    expect(roots.has(11)).toBe(false);
+    expect(roots.has(12)).toBe(false);
+    expect(roots.has(13)).toBe(false);
+    expect(roots.has(14)).toBe(false);
+    expect(roots.has(15)).toBe(false);
+    expect(roots.has(16)).toBe(false);
+    expect(roots.has(17)).toBe(false);
+    expect(roots.has(18)).toBe(false);
+    expect(roots.has(19)).toBe(false);
   });
 });

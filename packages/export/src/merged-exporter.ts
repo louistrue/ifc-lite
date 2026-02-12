@@ -162,11 +162,12 @@ export class MergedExporter {
       if (options.visibleOnly) {
         const hiddenIds = options.hiddenEntityIdsByModel?.get(model.id) ?? new Set<number>();
         const isolatedIds = options.isolatedEntityIdsByModel?.get(model.id) ?? null;
-        const visibleRoots = getVisibleEntityIds(model.dataStore, hiddenIds, isolatedIds);
+        const { roots, hiddenProductIds } = getVisibleEntityIds(model.dataStore, hiddenIds, isolatedIds);
         includedEntityIds = collectReferencedEntityIds(
-          visibleRoots,
+          roots,
           source,
           model.dataStore.entityIndex.byId,
+          hiddenProductIds,
         );
       }
 
