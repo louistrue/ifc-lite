@@ -1,5 +1,7 @@
 # @ifc-lite/bcf
 
+## 1.7.0
+
 ## 1.4.0
 
 ### Minor Changes

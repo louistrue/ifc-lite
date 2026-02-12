@@ -1,5 +1,7 @@
 # @ifc-lite/server-client
 
+## 1.7.0
+
 ## 1.2.1
 
 ### Patch Changes

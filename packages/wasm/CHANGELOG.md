@@ -1,5 +1,7 @@
 # @ifc-lite/wasm
 
+## 1.7.0
+
 ## 1.5.0
 
 ### Minor Changes

@@ -1,5 +1,33 @@
 # @ifc-lite/renderer
 
+## 1.7.0
+
+### Minor Changes
+
+- [#204](https://github.com/louistrue/ifc-lite/pull/204) [`057bde9`](https://github.com/louistrue/ifc-lite/commit/057bde9e48f64c07055413c690c6bdabb6942d04) Thanks [@louistrue](https://github.com/louistrue)! - Add orthographic projection, pinboard, lens, type tree, and floorplan views
+
+  ### Renderer
+
+  - Orthographic reverse-Z projection matrix in math utilities
+  - Camera projection mode toggle (perspective/orthographic) with seamless switching
+  - Orthographic zoom scales view size instead of camera distance
+  - Parallel ray unprojection for orthographic picking
+
+  ### Viewer
+
+  - **Orthographic projection**: Toggle button, unified Views dropdown, numpad `5` keyboard shortcut
+  - **Automatic Floorplan**: Per-storey section cuts with top-down ortho view, dropdown in toolbar
+  - **Pinboard**: Selection basket with Pin/Unpin/Show, entity isolation via serialized EntityRef Set
+  - **Tree View by Type**: IFC type grouping mode alongside spatial hierarchy, localStorage persistence
+  - **Lens**: Rule-based 3D colorization/filtering with built-in presets (By IFC Type, Structural Elements), full panel UI with color legend and rule evaluation engine
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/geometry@1.7.0
+  - @ifc-lite/spatial@1.7.0
+  - @ifc-lite/wasm@1.7.0
+
 ## 1.5.0
 
 ### Minor Changes

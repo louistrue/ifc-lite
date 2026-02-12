@@ -1,5 +1,13 @@
 # @ifc-lite/ifcx
 
+## 1.7.0
+
+### Patch Changes
+
+- Updated dependencies [[`6c43c70`](https://github.com/louistrue/ifc-lite/commit/6c43c707ead13fc482ec367cb08d847b444a484a)]:
+  - @ifc-lite/data@1.7.0
+  - @ifc-lite/mutations@1.7.0
+
 ## 1.6.0
 
 ### Minor Changes
