@@ -19,10 +19,12 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { X, EyeOff, Palette, Check, Plus, Trash2, Pencil, Save, Download, Upload, Sparkles, Search, ChevronDown } from 'lucide-react';
+import { discoverDataSources } from '@ifc-lite/lens';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useViewerStore } from '@/store';
 import { useLens } from '@/hooks/useLens';
+import { createLensDataProvider } from '@/lib/lens';
 import type { Lens, LensRule, LensCriteria, AutoColorSpec, AutoColorLegendEntry, DiscoveredLensData } from '@/store/slices/lensSlice';
 import {
   LENS_PALETTE, ENTITY_ATTRIBUTE_NAMES, AUTO_COLOR_SOURCES,
@@ -36,7 +38,7 @@ function formatCount(n: number): string {
 
 /** Human-readable label for auto-color source types */
 const SOURCE_LABELS: Record<string, string> = {
-  ifcType: 'IFC Type',
+  ifcType: 'IFC Class',
   attribute: 'Attribute',
   property: 'Property',
   quantity: 'Quantity',
@@ -46,7 +48,7 @@ const SOURCE_LABELS: Record<string, string> = {
 
 /** Human-readable label for criteria types */
 const CRITERIA_TYPE_LABELS: Record<string, string> = {
-  ifcType: 'IFC Type',
+  ifcType: 'IFC Class',
   attribute: 'Attribute',
   property: 'Property',
   quantity: 'Quantity',
@@ -287,30 +289,46 @@ function RuleEditor({
   onChange,
   onRemove,
   discovered,
+  onRequestDiscovery,
 }: {
   rule: LensRule;
   onChange: (patch: Partial<LensRule>) => void;
   onRemove: () => void;
   discovered: DiscoveredLensData | null;
+  onRequestDiscovery: (categories: { properties?: boolean; quantities?: boolean; classifications?: boolean; materials?: boolean }) => void;
 }) {
   const criteriaType = rule.criteria.type;
 
+  // Trigger lazy discovery when user selects a criteria type that needs it
+  useEffect(() => {
+    if (!discovered) return;
+    if (criteriaType === 'property' && !discovered.propertySets) {
+      onRequestDiscovery({ properties: true });
+    } else if (criteriaType === 'quantity' && !discovered.quantitySets) {
+      onRequestDiscovery({ quantities: true });
+    } else if (criteriaType === 'classification' && !discovered.classificationSystems) {
+      onRequestDiscovery({ classifications: true });
+    } else if (criteriaType === 'material' && !discovered.materials) {
+      onRequestDiscovery({ materials: true });
+    }
+  }, [criteriaType, discovered, onRequestDiscovery]);
+
   // Derived lists from discovered data
-  const ifcTypes = useMemo(() => discovered?.types ?? [], [discovered]);
+  const ifcClasses = useMemo(() => discovered?.classes ?? [], [discovered]);
   const psetNames = useMemo(() => {
-    if (!discovered) return [];
+    if (!discovered?.propertySets) return [];
     return Array.from(discovered.propertySets.keys()).sort();
   }, [discovered]);
   const selectedPsetProps = useMemo(() => {
-    if (!discovered || !rule.criteria.propertySet) return [];
+    if (!discovered?.propertySets || !rule.criteria.propertySet) return [];
     return discovered.propertySets.get(rule.criteria.propertySet) ?? [];
   }, [discovered, rule.criteria.propertySet]);
   const qsetNames = useMemo(() => {
-    if (!discovered) return [];
+    if (!discovered?.quantitySets) return [];
     return Array.from(discovered.quantitySets.keys()).sort();
   }, [discovered]);
   const selectedQsetQuants = useMemo(() => {
-    if (!discovered || !rule.criteria.quantitySet) return [];
+    if (!discovered?.quantitySets || !rule.criteria.quantitySet) return [];
     return discovered.quantitySets.get(rule.criteria.quantitySet) ?? [];
   }, [discovered, rule.criteria.quantitySet]);
   const classificationSystems = useMemo(() => discovered?.classificationSystems ?? [], [discovered]);
@@ -389,7 +407,7 @@ function RuleEditor({
         {criteriaType === 'ifcType' && (
           <SearchableSelect
             value={rule.criteria.ifcType ?? ''}
-            options={ifcTypes}
+            options={ifcClasses}
             onChange={(ifcType) => {
               onChange({
                 criteria: { ...rule.criteria, ifcType },
@@ -596,11 +614,13 @@ function LensEditor({
   onSave,
   onCancel,
   discovered,
+  onRequestDiscovery,
 }: {
   initial: Lens;
   onSave: (lens: Lens) => void;
   onCancel: () => void;
   discovered: DiscoveredLensData | null;
+  onRequestDiscovery: (categories: { properties?: boolean; quantities?: boolean; classifications?: boolean; materials?: boolean }) => void;
 }) {
   const [name, setName] = useState(initial.name);
   const [rules, setRules] = useState<LensRule[]>(() =>
@@ -672,6 +692,7 @@ function LensEditor({
             onChange={(patch) => updateRule(i, patch)}
             onRemove={() => removeRule(i)}
             discovered={discovered}
+            onRequestDiscovery={onRequestDiscovery}
           />
         ))}
 
@@ -716,11 +737,13 @@ function AutoColorEditor({
   onSave,
   onCancel,
   discovered,
+  onRequestDiscovery,
 }: {
   initial: { name: string; autoColor: AutoColorSpec };
   onSave: (lens: Lens) => void;
   onCancel: () => void;
   discovered: DiscoveredLensData | null;
+  onRequestDiscovery: (categories: { properties?: boolean; quantities?: boolean; classifications?: boolean; materials?: boolean }) => void;
 }) {
   const [name, setName] = useState(initial.name);
   const [source, setSource] = useState<AutoColorSpec['source']>(initial.autoColor.source);
@@ -730,17 +753,31 @@ function AutoColorEditor({
   const needsPset = source === 'property' || source === 'quantity';
   const needsPropertyName = source === 'attribute' || source === 'property' || source === 'quantity';
 
+  // Trigger lazy discovery when source changes to a category that needs it
+  useEffect(() => {
+    if (!discovered) return;
+    if (source === 'property' && !discovered.propertySets) {
+      onRequestDiscovery({ properties: true });
+    } else if (source === 'quantity' && !discovered.quantitySets) {
+      onRequestDiscovery({ quantities: true });
+    } else if (source === 'material' && !discovered.materials) {
+      onRequestDiscovery({ materials: true });
+    } else if (source === 'classification' && !discovered.classificationSystems) {
+      onRequestDiscovery({ classifications: true });
+    }
+  }, [source, discovered, onRequestDiscovery]);
+
   // Dynamic options from discovered data
   const psetOptions = useMemo(() => {
     if (!discovered) return [];
-    if (source === 'quantity') return Array.from(discovered.quantitySets.keys()).sort();
-    return Array.from(discovered.propertySets.keys()).sort();
+    if (source === 'quantity') return discovered.quantitySets ? Array.from(discovered.quantitySets.keys()).sort() : [];
+    return discovered.propertySets ? Array.from(discovered.propertySets.keys()).sort() : [];
   }, [discovered, source]);
 
   const propertyOptions = useMemo(() => {
     if (!discovered) return [];
-    if (source === 'property') return discovered.propertySets.get(psetName) ?? [];
-    if (source === 'quantity') return discovered.quantitySets.get(psetName) ?? [];
+    if (source === 'property') return discovered.propertySets?.get(psetName) ?? [];
+    if (source === 'quantity') return discovered.quantitySets?.get(psetName) ?? [];
     return [];
   }, [discovered, source, psetName]);
 
@@ -1003,8 +1040,48 @@ export function LensPanel({ onClose }: LensPanelProps) {
   const lensHiddenIdsSize = useViewerStore((s) => s.lensHiddenIds.size);
   const lensRuleCounts = useViewerStore((s) => s.lensRuleCounts);
   const lensAutoColorLegend = useViewerStore((s) => s.lensAutoColorLegend);
-  // Discovered data from loaded models
+  // Discovered data from loaded models (classes = instant, rest = lazy)
   const discoveredLensData = useViewerStore((s) => s.discoveredLensData);
+  const mergeDiscoveredData = useViewerStore((s) => s.mergeDiscoveredData);
+
+  // Track which categories are currently being discovered (prevent double-fire)
+  const discoveringRef = useRef(new Set<string>());
+
+  /** Trigger lazy discovery for expensive data categories (psets, quantities, etc.) */
+  const handleRequestDiscovery = useCallback((categories: { properties?: boolean; quantities?: boolean; classifications?: boolean; materials?: boolean }) => {
+    // Skip categories already discovered or in-flight
+    const toDiscover: typeof categories = {};
+    const current = useViewerStore.getState().discoveredLensData;
+    if (!current) return;
+
+    if (categories.properties && !current.propertySets && !discoveringRef.current.has('properties')) {
+      toDiscover.properties = true;
+      discoveringRef.current.add('properties');
+    }
+    if (categories.quantities && !current.quantitySets && !discoveringRef.current.has('quantities')) {
+      toDiscover.quantities = true;
+      discoveringRef.current.add('quantities');
+    }
+    if (categories.classifications && !current.classificationSystems && !discoveringRef.current.has('classifications')) {
+      toDiscover.classifications = true;
+      discoveringRef.current.add('classifications');
+    }
+    if (categories.materials && !current.materials && !discoveringRef.current.has('materials')) {
+      toDiscover.materials = true;
+      discoveringRef.current.add('materials');
+    }
+
+    if (Object.keys(toDiscover).length === 0) return;
+
+    // Run discovery async to not block the UI
+    setTimeout(() => {
+      const { models, ifcDataStore } = useViewerStore.getState();
+      if (models.size === 0 && !ifcDataStore) return;
+      const provider = createLensDataProvider(models, ifcDataStore);
+      const result = discoverDataSources(provider, toDiscover);
+      mergeDiscoveredData(result);
+    }, 0);
+  }, [mergeDiscoveredData]);
 
   // Editor state: null = not editing, Lens object = editing/creating
   const [editingLens, setEditingLens] = useState<Lens | null>(null);
@@ -1191,6 +1268,7 @@ export function LensPanel({ onClose }: LensPanelProps) {
               onSave={handleSaveLens}
               onCancel={() => setEditingLens(null)}
               discovered={discoveredLensData}
+              onRequestDiscovery={handleRequestDiscovery}
             />
           ) : (
             <LensCard
@@ -1215,16 +1293,18 @@ export function LensPanel({ onClose }: LensPanelProps) {
             onSave={handleSaveLens}
             onCancel={() => setEditingLens(null)}
             discovered={discoveredLensData}
+            onRequestDiscovery={handleRequestDiscovery}
           />
         )}
 
         {/* Auto-color editor (when creating auto-color lens) */}
         {creatingAutoColor && (
           <AutoColorEditor
-            initial={{ name: 'Color by IFC Type', autoColor: { source: 'ifcType' } }}
+            initial={{ name: 'Color by IFC Class', autoColor: { source: 'ifcType' } }}
             onSave={handleSaveLens}
             onCancel={() => setCreatingAutoColor(false)}
             discovered={discoveredLensData}
+            onRequestDiscovery={handleRequestDiscovery}
           />
         )}
 

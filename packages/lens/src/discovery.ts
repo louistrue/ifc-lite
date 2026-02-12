@@ -5,17 +5,11 @@
 /**
  * Data discovery for the lens system.
  *
- * Samples loaded models to discover all available IFC types, property sets,
- * quantity sets, classification systems, and material names. Uses a sampling
- * strategy (not full scan) for performance on large models.
- *
- * @example
- * ```ts
- * const provider = createLensDataProvider(models, null);
- * const discovered = discoverLensData(provider);
- * // discovered.types → ['IfcWall', 'IfcSlab', 'IfcColumn', ...]
- * // discovered.propertySets → Map { 'Pset_WallCommon' => ['IsExternal', 'FireRating', ...] }
- * ```
+ * Two-phase approach for zero loading impact:
+ * 1. `discoverClasses()` — instant, reads unique type names from entity table
+ *    (O(n) array scan, zero STEP parsing). Called when models load.
+ * 2. `discoverDataSources()` — expensive, samples entities for psets/quantities/
+ *    materials/classifications. Called lazily when user opens a dropdown.
  */
 
 import type { LensDataProvider } from './types.js';
@@ -25,58 +19,82 @@ const SAMPLE_SIZE = 30;
 
 /** Result of lens data discovery */
 export interface DiscoveredLensData {
-  /** All IFC type names found in loaded models, sorted alphabetically */
-  types: string[];
-  /** Property set names → property names (sorted) */
-  propertySets: Map<string, string[]>;
-  /** Quantity set names → quantity names (sorted) */
-  quantitySets: Map<string, string[]>;
-  /** Classification system names found */
-  classificationSystems: string[];
-  /** Material names found */
-  materials: string[];
+  /** All IFC class names found in loaded models, sorted alphabetically */
+  classes: string[];
+  /** Property set names → property names (sorted). Null = not yet discovered. */
+  propertySets: Map<string, string[]> | null;
+  /** Quantity set names → quantity names (sorted). Null = not yet discovered. */
+  quantitySets: Map<string, string[]> | null;
+  /** Classification system names found. Null = not yet discovered. */
+  classificationSystems: string[] | null;
+  /** Material names found. Null = not yet discovered. */
+  materials: string[] | null;
 }
 
 /**
- * Discover available data from loaded models via the LensDataProvider.
+ * Discover IFC classes from loaded models — INSTANT.
  *
- * Single O(n) pass through entities (capped by sampling) to collect:
- * - Entity types (all, no sampling limit)
- * - Property set names + property names (sampled)
- * - Quantity set names + quantity names (sampled)
- * - Classification systems (sampled)
- * - Material names (sampled)
+ * O(n) scan of entity type names only. No STEP buffer parsing.
+ * Typically <5ms for 100k entities.
  */
-export function discoverLensData(provider: LensDataProvider): DiscoveredLensData {
-  const typeSet = new Set<string>();
-  const propertySets = new Map<string, Set<string>>();
-  const quantitySets = new Map<string, Set<string>>();
-  const classificationSystems = new Set<string>();
-  const materials = new Set<string>();
+export function discoverClasses(provider: LensDataProvider): string[] {
+  const classSet = new Set<string>();
+  provider.forEachEntity((globalId) => {
+    const typeName = provider.getEntityType(globalId);
+    if (typeName) classSet.add(typeName);
+  });
+  return Array.from(classSet).sort();
+}
 
-  // Group entity IDs by type (full pass — types are cheap to collect)
-  const entitiesByType = new Map<string, number[]>();
+/**
+ * Discover data sources by sampling entities — EXPENSIVE.
+ *
+ * Samples up to SAMPLE_SIZE entities per type to collect property sets,
+ * quantity sets, classification systems, and material names.
+ * Only call when the user actively needs this data (e.g., opens a dropdown).
+ */
+export function discoverDataSources(
+  provider: LensDataProvider,
+  categories: {
+    properties?: boolean;
+    quantities?: boolean;
+    classifications?: boolean;
+    materials?: boolean;
+  },
+): Partial<Pick<DiscoveredLensData, 'propertySets' | 'quantitySets' | 'classificationSystems' | 'materials'>> {
+  const result: Partial<Pick<DiscoveredLensData, 'propertySets' | 'quantitySets' | 'classificationSystems' | 'materials'>> = {};
+
+  const needsProperties = categories.properties === true;
+  const needsQuantities = categories.quantities === true;
+  const needsClassifications = categories.classifications === true;
+  const needsMaterials = categories.materials === true;
+
+  if (!needsProperties && !needsQuantities && !needsClassifications && !needsMaterials) {
+    return result;
+  }
+
+  const propertySets = needsProperties ? new Map<string, Set<string>>() : null;
+  const quantitySets = needsQuantities ? new Map<string, Set<string>>() : null;
+  const classificationSystems = needsClassifications ? new Set<string>() : null;
+  const materials = needsMaterials ? new Set<string>() : null;
+
+  // Collect sample IDs grouped by type
+  const sampleIds: number[] = [];
+  const seenPerType = new Map<string, number>();
 
   provider.forEachEntity((globalId) => {
     const typeName = provider.getEntityType(globalId);
     if (!typeName) return;
-    typeSet.add(typeName);
-
-    let ids = entitiesByType.get(typeName);
-    if (!ids) {
-      ids = [];
-      entitiesByType.set(typeName, ids);
-    }
-    // Only collect IDs up to sample size for the property/qty pass
-    if (ids.length < SAMPLE_SIZE) {
-      ids.push(globalId);
+    const count = seenPerType.get(typeName) ?? 0;
+    if (count < SAMPLE_SIZE) {
+      sampleIds.push(globalId);
+      seenPerType.set(typeName, count + 1);
     }
   });
 
-  // Sample entities to discover properties, quantities, classifications, materials
-  for (const [, sampleIds] of entitiesByType) {
-    for (const globalId of sampleIds) {
-      // Properties
+  // Sample entities
+  for (const globalId of sampleIds) {
+    if (propertySets) {
       const psets = provider.getPropertySets(globalId);
       for (const pset of psets) {
         if (!pset.name) continue;
@@ -89,55 +107,60 @@ export function discoverLensData(provider: LensDataProvider): DiscoveredLensData
           if (prop.name) propNames.add(prop.name);
         }
       }
+    }
 
-      // Quantities — use dedicated accessor when available
-      if (provider.getQuantitySets) {
-        const qsets = provider.getQuantitySets(globalId);
-        for (const qset of qsets) {
-          if (!qset.name) continue;
-          let quantNames = quantitySets.get(qset.name);
-          if (!quantNames) {
-            quantNames = new Set();
-            quantitySets.set(qset.name, quantNames);
-          }
-          for (const q of qset.quantities) {
-            if (q.name) quantNames.add(q.name);
-          }
+    if (quantitySets && provider.getQuantitySets) {
+      const qsets = provider.getQuantitySets(globalId);
+      for (const qset of qsets) {
+        if (!qset.name) continue;
+        let quantNames = quantitySets.get(qset.name);
+        if (!quantNames) {
+          quantNames = new Set();
+          quantitySets.set(qset.name, quantNames);
+        }
+        for (const q of qset.quantities) {
+          if (q.name) quantNames.add(q.name);
         }
       }
+    }
 
-      // Classifications
-      if (provider.getClassifications) {
-        const cls = provider.getClassifications(globalId);
-        for (const c of cls) {
-          if (c.system) classificationSystems.add(c.system);
-        }
+    if (classificationSystems && provider.getClassifications) {
+      const cls = provider.getClassifications(globalId);
+      for (const c of cls) {
+        if (c.system) classificationSystems.add(c.system);
       }
+    }
 
-      // Materials
-      if (provider.getMaterialName) {
-        const mat = provider.getMaterialName(globalId);
-        if (mat) materials.add(mat);
-      }
+    if (materials && provider.getMaterialName) {
+      const mat = provider.getMaterialName(globalId);
+      if (mat) materials.add(mat);
     }
   }
 
   // Convert sets to sorted arrays
-  const propertySetsResult = new Map<string, string[]>();
-  for (const [psetName, propSet] of propertySets) {
-    propertySetsResult.set(psetName, Array.from(propSet).sort());
+  if (propertySets) {
+    const psResult = new Map<string, string[]>();
+    for (const [name, propSet] of propertySets) {
+      psResult.set(name, Array.from(propSet).sort());
+    }
+    result.propertySets = psResult;
   }
 
-  const quantitySetsResult = new Map<string, string[]>();
-  for (const [qsetName, quantSet] of quantitySets) {
-    quantitySetsResult.set(qsetName, Array.from(quantSet).sort());
+  if (quantitySets) {
+    const qsResult = new Map<string, string[]>();
+    for (const [name, quantSet] of quantitySets) {
+      qsResult.set(name, Array.from(quantSet).sort());
+    }
+    result.quantitySets = qsResult;
   }
 
-  return {
-    types: Array.from(typeSet).sort(),
-    propertySets: propertySetsResult,
-    quantitySets: quantitySetsResult,
-    classificationSystems: Array.from(classificationSystems).sort(),
-    materials: Array.from(materials).sort(),
-  };
+  if (classificationSystems) {
+    result.classificationSystems = Array.from(classificationSystems).sort();
+  }
+
+  if (materials) {
+    result.materials = Array.from(materials).sort();
+  }
+
+  return result;
 }

@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import { describe, it, expect } from 'vitest';
-import { discoverLensData } from './discovery';
+import { discoverClasses, discoverDataSources } from './discovery';
 import type { LensDataProvider } from './types';
 
 function createMockProvider(overrides: Partial<LensDataProvider> = {}): LensDataProvider {
@@ -34,43 +34,65 @@ function createMockProvider(overrides: Partial<LensDataProvider> = {}): LensData
   };
 }
 
-describe('discoverLensData', () => {
-  it('discovers IFC types from all entities', () => {
+describe('discoverClasses', () => {
+  it('discovers IFC classes from all entities (instant)', () => {
     const provider = createMockProvider();
-    const result = discoverLensData(provider);
-    expect(result.types).toEqual(['IfcSlab', 'IfcWall']);
+    const classes = discoverClasses(provider);
+    expect(classes).toEqual(['IfcSlab', 'IfcWall']);
   });
 
-  it('discovers property sets and property names', () => {
-    const provider = createMockProvider();
-    const result = discoverLensData(provider);
-    expect(result.propertySets.get('Pset_WallCommon')).toEqual(['FireRating', 'IsExternal']);
-    expect(result.propertySets.get('Pset_SlabCommon')).toEqual(['IsExternal']);
+  it('returns empty array for empty model', () => {
+    const provider = createMockProvider({
+      forEachEntity: () => {},
+    });
+    expect(discoverClasses(provider)).toEqual([]);
   });
 
-  it('discovers quantity sets when getQuantitySets is provided', () => {
+  it('deduplicates classes across entities', () => {
+    const provider = createMockProvider({
+      forEachEntity: (cb) => {
+        cb(1, 'm'); cb(3, 'm'); // Both IfcWall
+      },
+    });
+    const classes = discoverClasses(provider);
+    expect(classes).toEqual(['IfcWall']);
+  });
+});
+
+describe('discoverDataSources', () => {
+  it('discovers property sets when requested', () => {
+    const provider = createMockProvider();
+    const result = discoverDataSources(provider, { properties: true });
+    expect(result.propertySets?.get('Pset_WallCommon')).toEqual(['FireRating', 'IsExternal']);
+    expect(result.propertySets?.get('Pset_SlabCommon')).toEqual(['IsExternal']);
+    expect(result.quantitySets).toBeUndefined();
+    expect(result.materials).toBeUndefined();
+  });
+
+  it('discovers quantity sets when requested', () => {
     const provider = createMockProvider({
       getQuantitySets: (id) => {
         if (id === 1) return [{ name: 'Qto_WallBaseQuantities', quantities: [{ name: 'Length' }, { name: 'Height' }] }];
         return [];
       },
     });
-    const result = discoverLensData(provider);
-    expect(result.quantitySets.get('Qto_WallBaseQuantities')).toEqual(['Height', 'Length']);
+    const result = discoverDataSources(provider, { quantities: true });
+    expect(result.quantitySets?.get('Qto_WallBaseQuantities')).toEqual(['Height', 'Length']);
+    expect(result.propertySets).toBeUndefined();
   });
 
-  it('discovers classification systems', () => {
+  it('discovers classifications when requested', () => {
     const provider = createMockProvider({
       getClassifications: (id) => {
         if (id === 1) return [{ system: 'Uniclass', identification: 'Pr_60' }];
         return [];
       },
     });
-    const result = discoverLensData(provider);
+    const result = discoverDataSources(provider, { classifications: true });
     expect(result.classificationSystems).toEqual(['Uniclass']);
   });
 
-  it('discovers material names', () => {
+  it('discovers materials when requested', () => {
     const provider = createMockProvider({
       getMaterialName: (id) => {
         if (id === 1) return 'Concrete';
@@ -78,34 +100,23 @@ describe('discoverLensData', () => {
         return undefined;
       },
     });
-    const result = discoverLensData(provider);
+    const result = discoverDataSources(provider, { materials: true });
     expect(result.materials).toEqual(['Concrete', 'Steel']);
   });
 
-  it('returns empty results for empty model', () => {
-    const provider = createMockProvider({
-      getEntityCount: () => 0,
-      forEachEntity: () => {},
-    });
-    const result = discoverLensData(provider);
-    expect(result.types).toEqual([]);
-    expect(result.propertySets.size).toBe(0);
-    expect(result.quantitySets.size).toBe(0);
-    expect(result.classificationSystems).toEqual([]);
-    expect(result.materials).toEqual([]);
+  it('returns empty result when no categories requested', () => {
+    const provider = createMockProvider();
+    const result = discoverDataSources(provider, {});
+    expect(Object.keys(result)).toHaveLength(0);
   });
 
-  it('deduplicates types and properties across entities', () => {
+  it('discovers multiple categories at once', () => {
     const provider = createMockProvider({
-      forEachEntity: (cb) => {
-        // Two walls with same pset
-        cb(1, 'm'); cb(3, 'm');
-      },
+      getMaterialName: (id) => id === 1 ? 'Concrete' : undefined,
     });
-    const result = discoverLensData(provider);
-    // IfcWall should appear only once
-    expect(result.types).toEqual(['IfcWall']);
-    // Properties should be deduplicated
-    expect(result.propertySets.get('Pset_WallCommon')?.length).toBe(2);
+    const result = discoverDataSources(provider, { properties: true, materials: true });
+    expect(result.propertySets?.has('Pset_WallCommon')).toBe(true);
+    expect(result.materials).toEqual(['Concrete']);
+    expect(result.quantitySets).toBeUndefined();
   });
 });

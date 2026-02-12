@@ -84,5 +84,5 @@ export { BUILTIN_LENSES } from './presets.js';
 // Discovery
 // ============================================================================
 
-export { discoverLensData } from './discovery.js';
+export { discoverClasses, discoverDataSources } from './discovery.js';
 export type { DiscoveredLensData } from './discovery.js';

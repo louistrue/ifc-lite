@@ -103,7 +103,7 @@ export interface LensSlice {
   lensRuleEntityIds: Map<string, number[]>;
   /** Auto-color legend entries (one per distinct value) for UI display */
   lensAutoColorLegend: AutoColorLegendEntry[];
-  /** Discovered data from loaded models (types, psets, quantities, etc.) */
+  /** Discovered data from loaded models (classes instant, rest lazy) */
   discoveredLensData: DiscoveredLensData | null;
 
   // Actions
@@ -119,6 +119,8 @@ export interface LensSlice {
   setLensRuleEntityIds: (ids: Map<string, number[]>) => void;
   setLensAutoColorLegend: (legend: AutoColorLegendEntry[]) => void;
   setDiscoveredLensData: (data: DiscoveredLensData | null) => void;
+  /** Merge lazy-discovered data sources (psets, quantities, etc.) into existing discovered data */
+  mergeDiscoveredData: (patch: Partial<DiscoveredLensData>) => void;
   /** Get the active lens configuration */
   getActiveLens: () => Lens | null;
   /** Import lenses from parsed JSON array */
@@ -176,6 +178,10 @@ export const createLensSlice: StateCreator<LensSlice, [], [], LensSlice> = (set,
   setLensRuleEntityIds: (lensRuleEntityIds) => set({ lensRuleEntityIds }),
   setLensAutoColorLegend: (lensAutoColorLegend) => set({ lensAutoColorLegend }),
   setDiscoveredLensData: (discoveredLensData) => set({ discoveredLensData }),
+  mergeDiscoveredData: (patch) => set((state) => {
+    if (!state.discoveredLensData) return {};
+    return { discoveredLensData: { ...state.discoveredLensData, ...patch } };
+  }),
 
   getActiveLens: () => {
     const { savedLenses, activeLensId } = get();

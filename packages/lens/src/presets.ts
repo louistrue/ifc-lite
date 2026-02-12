@@ -11,20 +11,13 @@ import type { Lens } from './types.js';
  * The viewer marks them with `builtin: true` so they cannot be deleted.
  */
 export const BUILTIN_LENSES: readonly Lens[] = [
+  // Auto-color by IFC Class — colors ALL classes automatically from model data
   {
-    id: 'lens-by-type',
+    id: 'lens-by-class',
     name: 'By IFC Class',
     builtin: true,
-    rules: [
-      { id: 'wall', name: 'Walls', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcWall' }, action: 'colorize', color: '#8D6E63' },
-      { id: 'slab', name: 'Slabs', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcSlab' }, action: 'colorize', color: '#607D8B' },
-      { id: 'column', name: 'Columns', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcColumn' }, action: 'colorize', color: '#E53935' },
-      { id: 'beam', name: 'Beams', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcBeam' }, action: 'colorize', color: '#1E88E5' },
-      { id: 'door', name: 'Doors', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcDoor' }, action: 'colorize', color: '#00897B' },
-      { id: 'window', name: 'Windows', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcWindow' }, action: 'colorize', color: '#42A5F5' },
-      { id: 'stair', name: 'Stairs', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcStairFlight' }, action: 'colorize', color: '#FF8F00' },
-      { id: 'roof', name: 'Roofs', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcRoof' }, action: 'colorize', color: '#8E24AA' },
-    ],
+    rules: [],
+    autoColor: { source: 'ifcType' },
   },
   {
     id: 'lens-structural',
@@ -61,14 +54,7 @@ export const BUILTIN_LENSES: readonly Lens[] = [
       { id: 'railing', name: 'Railings', enabled: true, criteria: { type: 'ifcType', ifcType: 'IfcRailing' }, action: 'colorize', color: '#78909C' },
     ],
   },
-  // Auto-color presets — automatically discover distinct values and assign colors
-  {
-    id: 'lens-auto-type',
-    name: 'By IFC Type (auto)',
-    builtin: true,
-    rules: [],
-    autoColor: { source: 'ifcType' },
-  },
+  // Auto-color by material
   {
     id: 'lens-auto-material',
     name: 'By Material',
