@@ -11,11 +11,11 @@
  */
 
 import type { StateCreator } from 'zustand';
-import type { Lens, LensRule, LensCriteria, AutoColorSpec, AutoColorLegendEntry } from '@ifc-lite/lens';
+import type { Lens, LensRule, LensCriteria, AutoColorSpec, AutoColorLegendEntry, DiscoveredLensData } from '@ifc-lite/lens';
 import { BUILTIN_LENSES } from '@ifc-lite/lens';
 
 // Re-export types so existing consumer imports from this file still work
-export type { Lens, LensRule, LensCriteria, AutoColorSpec, AutoColorLegendEntry };
+export type { Lens, LensRule, LensCriteria, AutoColorSpec, AutoColorLegendEntry, DiscoveredLensData };
 
 // Re-export constants for consumers that import from this file
 export {
@@ -103,6 +103,8 @@ export interface LensSlice {
   lensRuleEntityIds: Map<string, number[]>;
   /** Auto-color legend entries (one per distinct value) for UI display */
   lensAutoColorLegend: AutoColorLegendEntry[];
+  /** Discovered data from loaded models (types, psets, quantities, etc.) */
+  discoveredLensData: DiscoveredLensData | null;
 
   // Actions
   createLens: (lens: Lens) => void;
@@ -116,6 +118,7 @@ export interface LensSlice {
   setLensRuleCounts: (counts: Map<string, number>) => void;
   setLensRuleEntityIds: (ids: Map<string, number[]>) => void;
   setLensAutoColorLegend: (legend: AutoColorLegendEntry[]) => void;
+  setDiscoveredLensData: (data: DiscoveredLensData | null) => void;
   /** Get the active lens configuration */
   getActiveLens: () => Lens | null;
   /** Import lenses from parsed JSON array */
@@ -136,6 +139,7 @@ export const createLensSlice: StateCreator<LensSlice, [], [], LensSlice> = (set,
   lensRuleCounts: new Map(),
   lensRuleEntityIds: new Map(),
   lensAutoColorLegend: [],
+  discoveredLensData: null,
 
   // Actions
   createLens: (lens) => set((state) => {
@@ -171,6 +175,7 @@ export const createLensSlice: StateCreator<LensSlice, [], [], LensSlice> = (set,
   setLensRuleCounts: (lensRuleCounts) => set({ lensRuleCounts }),
   setLensRuleEntityIds: (lensRuleEntityIds) => set({ lensRuleEntityIds }),
   setLensAutoColorLegend: (lensAutoColorLegend) => set({ lensAutoColorLegend }),
+  setDiscoveredLensData: (discoveredLensData) => set({ discoveredLensData }),
 
   getActiveLens: () => {
     const { savedLenses, activeLensId } = get();

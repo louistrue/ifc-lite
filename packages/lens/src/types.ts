@@ -85,6 +85,15 @@ export interface LensDataProvider {
    * Returns the top-level material name, or the first layer/constituent name.
    */
   getMaterialName?(globalId: number): string | undefined;
+
+  /**
+   * Get quantity sets for an entity (used for discovery).
+   * Returns quantity set names and their quantity names.
+   */
+  getQuantitySets?(globalId: number): ReadonlyArray<{
+    name: string;
+    quantities: ReadonlyArray<{ name: string }>;
+  }>;
 }
 
 /** Property set returned by {@link LensDataProvider.getPropertySets} */

@@ -11,17 +11,21 @@
  * automatically color entities by distinct values of any IFC data column.
  * When a lens is active, a color legend displays the matched rules/values.
  * Unmatched entities are ghosted (semi-transparent) for visual context.
+ *
+ * All dropdowns are populated dynamically from the loaded model data
+ * via discoveredLensData (IFC types, property sets, quantity sets,
+ * classification systems, materials). No hardcoded IFC class lists.
  */
 
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { X, EyeOff, Palette, Check, Plus, Trash2, Pencil, Save, Download, Upload, Sparkles } from 'lucide-react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { X, EyeOff, Palette, Check, Plus, Trash2, Pencil, Save, Download, Upload, Sparkles, Search, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useViewerStore } from '@/store';
 import { useLens } from '@/hooks/useLens';
-import type { Lens, LensRule, LensCriteria, AutoColorSpec, AutoColorLegendEntry } from '@/store/slices/lensSlice';
+import type { Lens, LensRule, LensCriteria, AutoColorSpec, AutoColorLegendEntry, DiscoveredLensData } from '@/store/slices/lensSlice';
 import {
-  COMMON_IFC_CLASSES, LENS_PALETTE, ENTITY_ATTRIBUTE_NAMES, AUTO_COLOR_SOURCES,
+  LENS_PALETTE, ENTITY_ATTRIBUTE_NAMES, AUTO_COLOR_SOURCES,
 } from '@/store/slices/lensSlice';
 
 /** Format large counts compactly: 1234 → "1.2k" */
@@ -52,6 +56,109 @@ const CRITERIA_TYPE_LABELS: Record<string, string> = {
 
 interface LensPanelProps {
   onClose?: () => void;
+}
+
+// ─── Searchable dropdown (for large dynamic lists) ──────────────────────────
+
+function SearchableSelect({
+  value,
+  options,
+  onChange,
+  placeholder,
+  className,
+  displayFn,
+}: {
+  value: string;
+  options: readonly string[];
+  onChange: (value: string) => void;
+  placeholder?: string;
+  className?: string;
+  displayFn?: (v: string) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const filtered = useMemo(() => {
+    if (!filter) return options;
+    const q = filter.toLowerCase();
+    return options.filter(o => o.toLowerCase().includes(q));
+  }, [options, filter]);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setFilter('');
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const display = displayFn ?? ((v: string) => v);
+
+  return (
+    <div ref={containerRef} className={cn('relative', className)}>
+      <button
+        type="button"
+        onClick={() => {
+          setOpen(!open);
+          if (!open) setTimeout(() => inputRef.current?.focus(), 0);
+        }}
+        className={cn(
+          'w-full flex items-center justify-between gap-1 text-left',
+          'text-xs px-1.5 py-1 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 text-zinc-900 dark:text-zinc-100 rounded-sm',
+          !value && 'text-zinc-400 dark:text-zinc-500',
+        )}
+      >
+        <span className="truncate">{value ? display(value) : (placeholder ?? 'Select...')}</span>
+        <ChevronDown className="h-3 w-3 flex-shrink-0 opacity-50" />
+      </button>
+      {open && (
+        <div className="absolute z-50 top-full left-0 right-0 mt-0.5 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 rounded-sm shadow-lg max-h-[200px] flex flex-col">
+          {options.length > 8 && (
+            <div className="flex items-center gap-1 px-1.5 py-1 border-b border-zinc-200 dark:border-zinc-700">
+              <Search className="h-3 w-3 text-zinc-400 flex-shrink-0" />
+              <input
+                ref={inputRef}
+                type="text"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="Search..."
+                className="flex-1 text-xs bg-transparent border-0 outline-none text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400"
+              />
+            </div>
+          )}
+          <div className="overflow-y-auto flex-1">
+            {filtered.length === 0 && (
+              <div className="px-2 py-1.5 text-xs text-zinc-400">No matches</div>
+            )}
+            {filtered.map(opt => (
+              <button
+                key={opt}
+                type="button"
+                className={cn(
+                  'w-full text-left px-2 py-1 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-700 truncate',
+                  opt === value && 'bg-primary/10 text-primary font-medium',
+                )}
+                onClick={() => {
+                  onChange(opt);
+                  setOpen(false);
+                  setFilter('');
+                }}
+              >
+                {display(opt)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── Rule display (read-only, clickable for isolation) ──────────────────────
@@ -179,12 +286,35 @@ function RuleEditor({
   rule,
   onChange,
   onRemove,
+  discovered,
 }: {
   rule: LensRule;
   onChange: (patch: Partial<LensRule>) => void;
   onRemove: () => void;
+  discovered: DiscoveredLensData | null;
 }) {
   const criteriaType = rule.criteria.type;
+
+  // Derived lists from discovered data
+  const ifcTypes = useMemo(() => discovered?.types ?? [], [discovered]);
+  const psetNames = useMemo(() => {
+    if (!discovered) return [];
+    return Array.from(discovered.propertySets.keys()).sort();
+  }, [discovered]);
+  const selectedPsetProps = useMemo(() => {
+    if (!discovered || !rule.criteria.propertySet) return [];
+    return discovered.propertySets.get(rule.criteria.propertySet) ?? [];
+  }, [discovered, rule.criteria.propertySet]);
+  const qsetNames = useMemo(() => {
+    if (!discovered) return [];
+    return Array.from(discovered.quantitySets.keys()).sort();
+  }, [discovered]);
+  const selectedQsetQuants = useMemo(() => {
+    if (!discovered || !rule.criteria.quantitySet) return [];
+    return discovered.quantitySets.get(rule.criteria.quantitySet) ?? [];
+  }, [discovered, rule.criteria.quantitySet]);
+  const classificationSystems = useMemo(() => discovered?.classificationSystems ?? [], [discovered]);
+  const materialNames = useMemo(() => discovered?.materials ?? [], [discovered]);
 
   const handleCriteriaTypeChange = (newType: LensCriteria['type']) => {
     const base: LensCriteria = { type: newType };
@@ -255,26 +385,24 @@ function RuleEditor({
           ))}
         </select>
 
-        {/* Type-specific fields */}
+        {/* IFC Type: searchable dropdown from discovered types */}
         {criteriaType === 'ifcType' && (
-          <select
+          <SearchableSelect
             value={rule.criteria.ifcType ?? ''}
-            onChange={(e) => {
-              const ifcType = e.target.value;
+            options={ifcTypes}
+            onChange={(ifcType) => {
               onChange({
                 criteria: { ...rule.criteria, ifcType },
                 name: ifcType ? ifcType.replace('Ifc', '') : rule.name,
               });
             }}
-            className={cn(selectClass, 'flex-1 min-w-0')}
-          >
-            <option value="">Class...</option>
-            {COMMON_IFC_CLASSES.map(t => (
-              <option key={t} value={t}>{t.replace('Ifc', '')}</option>
-            ))}
-          </select>
+            placeholder="Class..."
+            className="flex-1 min-w-0"
+            displayFn={(v) => v.replace('Ifc', '')}
+          />
         )}
 
+        {/* Attribute: dropdown for name, text input for value */}
         {criteriaType === 'attribute' && (
           <>
             <select
@@ -300,58 +428,61 @@ function RuleEditor({
           </>
         )}
 
+        {/* Property: searchable dropdowns for pset + property name */}
         {criteriaType === 'property' && (
           <>
-            <input
-              type="text"
+            <SearchableSelect
               value={rule.criteria.propertySet ?? ''}
-              onChange={(e) => onChange({ criteria: { ...rule.criteria, propertySet: e.target.value } })}
+              options={psetNames}
+              onChange={(pset) => onChange({ criteria: { ...rule.criteria, propertySet: pset, propertyName: '' } })}
               placeholder="Pset..."
-              className={cn(inputClass, 'w-[80px]')}
+              className="w-[100px]"
             />
-            <input
-              type="text"
+            <SearchableSelect
               value={rule.criteria.propertyName ?? ''}
-              onChange={(e) => {
-                const updated = { ...rule.criteria, propertyName: e.target.value };
+              options={selectedPsetProps}
+              onChange={(prop) => {
+                const updated = { ...rule.criteria, propertyName: prop };
                 onChange({ criteria: updated, name: deriveRuleName(updated) });
               }}
               placeholder="Prop..."
-              className={cn(inputClass, 'flex-1 min-w-0')}
+              className="flex-1 min-w-0"
             />
           </>
         )}
 
+        {/* Quantity: searchable dropdowns for qset + quantity name */}
         {criteriaType === 'quantity' && (
           <>
-            <input
-              type="text"
+            <SearchableSelect
               value={rule.criteria.quantitySet ?? ''}
-              onChange={(e) => onChange({ criteria: { ...rule.criteria, quantitySet: e.target.value } })}
+              options={qsetNames}
+              onChange={(qset) => onChange({ criteria: { ...rule.criteria, quantitySet: qset, quantityName: '' } })}
               placeholder="Qset..."
-              className={cn(inputClass, 'w-[80px]')}
+              className="w-[100px]"
             />
-            <input
-              type="text"
+            <SearchableSelect
               value={rule.criteria.quantityName ?? ''}
-              onChange={(e) => {
-                const updated = { ...rule.criteria, quantityName: e.target.value };
+              options={selectedQsetQuants}
+              onChange={(qty) => {
+                const updated = { ...rule.criteria, quantityName: qty };
                 onChange({ criteria: updated, name: deriveRuleName(updated) });
               }}
               placeholder="Qty..."
-              className={cn(inputClass, 'flex-1 min-w-0')}
+              className="flex-1 min-w-0"
             />
           </>
         )}
 
+        {/* Classification: searchable dropdown for system, text input for code */}
         {criteriaType === 'classification' && (
           <>
-            <input
-              type="text"
+            <SearchableSelect
               value={rule.criteria.classificationSystem ?? ''}
-              onChange={(e) => onChange({ criteria: { ...rule.criteria, classificationSystem: e.target.value } })}
+              options={classificationSystems}
+              onChange={(sys) => onChange({ criteria: { ...rule.criteria, classificationSystem: sys } })}
               placeholder="System..."
-              className={cn(inputClass, 'w-[80px]')}
+              className="w-[100px]"
             />
             <input
               type="text"
@@ -366,16 +497,17 @@ function RuleEditor({
           </>
         )}
 
+        {/* Material: searchable dropdown from discovered materials */}
         {criteriaType === 'material' && (
-          <input
-            type="text"
+          <SearchableSelect
             value={rule.criteria.materialName ?? ''}
-            onChange={(e) => {
-              const updated = { ...rule.criteria, materialName: e.target.value };
+            options={materialNames}
+            onChange={(mat) => {
+              const updated = { ...rule.criteria, materialName: mat };
               onChange({ criteria: updated, name: deriveRuleName(updated) });
             }}
-            placeholder="Material name..."
-            className={cn(inputClass, 'flex-1 min-w-0')}
+            placeholder="Material..."
+            className="flex-1 min-w-0"
           />
         )}
 
@@ -463,10 +595,12 @@ function LensEditor({
   initial,
   onSave,
   onCancel,
+  discovered,
 }: {
   initial: Lens;
   onSave: (lens: Lens) => void;
   onCancel: () => void;
+  discovered: DiscoveredLensData | null;
 }) {
   const [name, setName] = useState(initial.name);
   const [rules, setRules] = useState<LensRule[]>(() =>
@@ -537,6 +671,7 @@ function LensEditor({
             rule={rule}
             onChange={(patch) => updateRule(i, patch)}
             onRemove={() => removeRule(i)}
+            discovered={discovered}
           />
         ))}
 
@@ -580,10 +715,12 @@ function AutoColorEditor({
   initial,
   onSave,
   onCancel,
+  discovered,
 }: {
   initial: { name: string; autoColor: AutoColorSpec };
   onSave: (lens: Lens) => void;
   onCancel: () => void;
+  discovered: DiscoveredLensData | null;
 }) {
   const [name, setName] = useState(initial.name);
   const [source, setSource] = useState<AutoColorSpec['source']>(initial.autoColor.source);
@@ -592,6 +729,20 @@ function AutoColorEditor({
 
   const needsPset = source === 'property' || source === 'quantity';
   const needsPropertyName = source === 'attribute' || source === 'property' || source === 'quantity';
+
+  // Dynamic options from discovered data
+  const psetOptions = useMemo(() => {
+    if (!discovered) return [];
+    if (source === 'quantity') return Array.from(discovered.quantitySets.keys()).sort();
+    return Array.from(discovered.propertySets.keys()).sort();
+  }, [discovered, source]);
+
+  const propertyOptions = useMemo(() => {
+    if (!discovered) return [];
+    if (source === 'property') return discovered.propertySets.get(psetName) ?? [];
+    if (source === 'quantity') return discovered.quantitySets.get(psetName) ?? [];
+    return [];
+  }, [discovered, source, psetName]);
 
   const handleSave = () => {
     if (!name.trim()) return;
@@ -615,7 +766,6 @@ function AutoColorEditor({
     && (!needsPropertyName || propertyName.trim().length > 0);
 
   const selectClass = 'text-xs px-1.5 py-1 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 text-zinc-900 dark:text-zinc-100 rounded-sm';
-  const inputClass = 'text-xs px-1.5 py-1 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 text-zinc-900 dark:text-zinc-100 rounded-sm';
 
   return (
     <div className="border-2 border-primary bg-white dark:bg-zinc-900 rounded-sm">
@@ -643,6 +793,8 @@ function AutoColorEditor({
             onChange={(e) => {
               const s = e.target.value as AutoColorSpec['source'];
               setSource(s);
+              setPsetName('');
+              setPropertyName('');
               if (!name || name.startsWith('Color by ')) {
                 setName(`Color by ${SOURCE_LABELS[s]}`);
               }
@@ -660,12 +812,12 @@ function AutoColorEditor({
             <label className="text-[10px] uppercase tracking-wider text-zinc-500 w-[50px]">
               {source === 'property' ? 'Pset' : 'Qset'}
             </label>
-            <input
-              type="text"
+            <SearchableSelect
               value={psetName}
-              onChange={(e) => setPsetName(e.target.value)}
-              placeholder={source === 'property' ? 'Pset_WallCommon' : 'Qto_WallBaseQuantities'}
-              className={cn(inputClass, 'flex-1')}
+              options={psetOptions}
+              onChange={(v) => { setPsetName(v); setPropertyName(''); }}
+              placeholder={source === 'property' ? 'Select property set...' : 'Select quantity set...'}
+              className="flex-1"
             />
           </div>
         )}
@@ -683,12 +835,12 @@ function AutoColorEditor({
                 {ENTITY_ATTRIBUTE_NAMES.map(a => <option key={a} value={a}>{a}</option>)}
               </select>
             ) : (
-              <input
-                type="text"
+              <SearchableSelect
                 value={propertyName}
-                onChange={(e) => setPropertyName(e.target.value)}
-                placeholder={source === 'property' ? 'IsExternal' : 'Length'}
-                className={cn(inputClass, 'flex-1')}
+                options={propertyOptions}
+                onChange={setPropertyName}
+                placeholder={source === 'property' ? 'Select property...' : 'Select quantity...'}
+                className="flex-1"
               />
             )}
           </div>
@@ -851,6 +1003,8 @@ export function LensPanel({ onClose }: LensPanelProps) {
   const lensHiddenIdsSize = useViewerStore((s) => s.lensHiddenIds.size);
   const lensRuleCounts = useViewerStore((s) => s.lensRuleCounts);
   const lensAutoColorLegend = useViewerStore((s) => s.lensAutoColorLegend);
+  // Discovered data from loaded models
+  const discoveredLensData = useViewerStore((s) => s.discoveredLensData);
 
   // Editor state: null = not editing, Lens object = editing/creating
   const [editingLens, setEditingLens] = useState<Lens | null>(null);
@@ -1036,6 +1190,7 @@ export function LensPanel({ onClose }: LensPanelProps) {
               initial={editingLens}
               onSave={handleSaveLens}
               onCancel={() => setEditingLens(null)}
+              discovered={discoveredLensData}
             />
           ) : (
             <LensCard
@@ -1059,6 +1214,7 @@ export function LensPanel({ onClose }: LensPanelProps) {
             initial={editingLens}
             onSave={handleSaveLens}
             onCancel={() => setEditingLens(null)}
+            discovered={discoveredLensData}
           />
         )}
 
@@ -1068,6 +1224,7 @@ export function LensPanel({ onClose }: LensPanelProps) {
             initial={{ name: 'Color by IFC Type', autoColor: { source: 'ifcType' } }}
             onSave={handleSaveLens}
             onCancel={() => setCreatingAutoColor(false)}
+            discovered={discoveredLensData}
           />
         )}
 

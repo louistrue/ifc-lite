@@ -203,6 +203,26 @@ export function createLensDataProvider(
       return extractClassificationsOnDemand(store, resolved.expressId);
     },
 
+    getQuantitySets(globalId: number): ReadonlyArray<{
+      name: string;
+      quantities: ReadonlyArray<{ name: string }>;
+    }> {
+      const resolved = resolveGlobalId(globalId, entries);
+      if (!resolved) return [];
+      const store = resolved.entry.ifcDataStore;
+      const id = resolved.expressId;
+
+      // On-demand quantity extraction
+      if (store.onDemandQuantityMap && store.source?.length > 0) {
+        return extractQuantitiesOnDemand(store, id);
+      }
+
+      // Fallback: pre-built quantity tables
+      const qsets = store.quantities?.getForEntity?.(id);
+      if (!qsets) return [];
+      return qsets as ReadonlyArray<{ name: string; quantities: ReadonlyArray<{ name: string }> }>;
+    },
+
     getMaterialName(globalId: number): string | undefined {
       const resolved = resolveGlobalId(globalId, entries);
       if (!resolved) return undefined;

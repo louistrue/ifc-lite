@@ -26,10 +26,14 @@ import { evaluateLens, evaluateAutoColorLens, rgbaToHex, isGhostColor } from '@i
 import type { RGBAColor } from '@ifc-lite/lens';
 import { useViewerStore } from '@/store';
 import { createLensDataProvider } from '@/lib/lens';
+import { useLensDiscovery } from './useLensDiscovery';
 
 export function useLens() {
   const activeLensId = useViewerStore((s) => s.activeLensId);
   const savedLenses = useViewerStore((s) => s.savedLenses);
+
+  // Run data discovery when models change (populates discoveredLensData in store)
+  useLensDiscovery();
 
   // Track the previously active lens to detect deactivation
   const prevLensIdRef = useRef<string | null>(null);
