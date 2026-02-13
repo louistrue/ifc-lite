@@ -403,10 +403,11 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
               </SelectTrigger>
               <SelectContent>
                 {modelList.map((m) => {
-                  const displayName = m.name.length > 35 ? m.name.slice(0, 35) + '\u2026' : m.name;
+                  const maxLen = 24;
+                  const displayName = m.name.length > maxLen ? m.name.slice(0, maxLen) + '\u2026' : m.name;
                   return (
-                  <SelectItem key={m.id} value={m.id}>
-                    <span title={m.name}>{displayName}{m.isDirty ? ' *' : ''}</span>
+                  <SelectItem key={m.id} value={m.id} title={m.name}>
+                    {displayName}{m.isDirty ? ' *' : ''}
                   </SelectItem>
                   );
                 })}
