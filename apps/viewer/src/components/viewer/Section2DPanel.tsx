@@ -12,7 +12,7 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react';
-import { X, Download, Eye, EyeOff, Maximize2, ZoomIn, ZoomOut, Loader2, Printer, GripVertical, MoreHorizontal, RefreshCw, Pin, PinOff, Palette, Ruler, Trash2, FileText, Shapes, Box } from 'lucide-react';
+import { X, Download, Eye, EyeOff, Maximize2, ZoomIn, ZoomOut, Loader2, Printer, GripVertical, MoreHorizontal, RefreshCw, Pin, PinOff, Palette, Ruler, Trash2, FileText, Shapes, Box, PenTool, Hexagon, Type, Cloud } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -28,9 +28,11 @@ import { type GeometryResult } from '@ifc-lite/geometry';
 import { DrawingSettingsPanel } from './DrawingSettingsPanel';
 import { SheetSetupPanel } from './SheetSetupPanel';
 import { TitleBlockEditor } from './TitleBlockEditor';
+import { TextAnnotationEditor } from './TextAnnotationEditor';
 import { Drawing2DCanvas } from './Drawing2DCanvas';
 import { useDrawingGeneration } from '@/hooks/useDrawingGeneration';
 import { useMeasure2D } from '@/hooks/useMeasure2D';
+import { useAnnotation2D } from '@/hooks/useAnnotation2D';
 import { useViewControls } from '@/hooks/useViewControls';
 import { useDrawingExport } from '@/hooks/useDrawingExport';
 
@@ -97,6 +99,34 @@ export function Section2DPanel({
   const clearMeasure2DResults = useViewerStore((s) => s.clearMeasure2DResults);
   const measure2DSnapPoint = useViewerStore((s) => s.measure2DSnapPoint);
   const setMeasure2DSnapPoint = useViewerStore((s) => s.setMeasure2DSnapPoint);
+
+  // Annotation tool state
+  const annotation2DActiveTool = useViewerStore((s) => s.annotation2DActiveTool);
+  const setAnnotation2DActiveTool = useViewerStore((s) => s.setAnnotation2DActiveTool);
+  const annotation2DCursorPos = useViewerStore((s) => s.annotation2DCursorPos);
+  const setAnnotation2DCursorPos = useViewerStore((s) => s.setAnnotation2DCursorPos);
+  // Polygon area state
+  const polygonArea2DPoints = useViewerStore((s) => s.polygonArea2DPoints);
+  const polygonArea2DResults = useViewerStore((s) => s.polygonArea2DResults);
+  const addPolygonArea2DPoint = useViewerStore((s) => s.addPolygonArea2DPoint);
+  const completePolygonArea2D = useViewerStore((s) => s.completePolygonArea2D);
+  const cancelPolygonArea2D = useViewerStore((s) => s.cancelPolygonArea2D);
+  const clearPolygonArea2DResults = useViewerStore((s) => s.clearPolygonArea2DResults);
+  // Text annotation state
+  const textAnnotations2D = useViewerStore((s) => s.textAnnotations2D);
+  const textAnnotation2DEditing = useViewerStore((s) => s.textAnnotation2DEditing);
+  const addTextAnnotation2D = useViewerStore((s) => s.addTextAnnotation2D);
+  const updateTextAnnotation2D = useViewerStore((s) => s.updateTextAnnotation2D);
+  const removeTextAnnotation2D = useViewerStore((s) => s.removeTextAnnotation2D);
+  const setTextAnnotation2DEditing = useViewerStore((s) => s.setTextAnnotation2DEditing);
+  // Cloud annotation state
+  const cloudAnnotation2DPoints = useViewerStore((s) => s.cloudAnnotation2DPoints);
+  const cloudAnnotations2D = useViewerStore((s) => s.cloudAnnotations2D);
+  const addCloudAnnotation2DPoint = useViewerStore((s) => s.addCloudAnnotation2DPoint);
+  const completeCloudAnnotation2D = useViewerStore((s) => s.completeCloudAnnotation2D);
+  const cancelCloudAnnotation2D = useViewerStore((s) => s.cancelCloudAnnotation2D);
+  // Bulk
+  const clearAllAnnotations2D = useViewerStore((s) => s.clearAllAnnotations2D);
 
   const sectionPlane = useViewerStore((s) => s.sectionPlane);
   const activeTool = useViewerStore((s) => s.activeTool);
@@ -228,7 +258,7 @@ export function Section2DPanel({
     isPinned, cachedSheetTransformRef,
   });
 
-  const { handleMouseDown, handleMouseMove, handleMouseUp, handleMouseLeave, handleMouseEnter } = useMeasure2D({
+  const measureHandlers = useMeasure2D({
     drawing, viewTransform, setViewTransform, sectionAxis: sectionPlane.axis, containerRef,
     measure2DMode, measure2DStart, measure2DCurrent,
     measure2DShiftLocked, measure2DLockedAxis,
@@ -236,10 +266,53 @@ export function Section2DPanel({
     setMeasure2DSnapPoint, cancelMeasure2D, completeMeasure2D,
   });
 
+  const annotationHandlers = useAnnotation2D({
+    drawing, viewTransform, sectionAxis: sectionPlane.axis, containerRef,
+    activeTool: annotation2DActiveTool,
+    polygonArea2DPoints, addPolygonArea2DPoint, completePolygonArea2D, cancelPolygonArea2D,
+    addTextAnnotation2D, setTextAnnotation2DEditing,
+    cloudAnnotation2DPoints, addCloudAnnotation2DPoint, completeCloudAnnotation2D, cancelCloudAnnotation2D,
+    setAnnotation2DCursorPos, setMeasure2DSnapPoint,
+  });
+
+  // Unified mouse handlers that dispatch to the right tool
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (annotation2DActiveTool === 'measure' || annotation2DActiveTool === 'none') {
+      measureHandlers.handleMouseDown(e);
+    } else {
+      annotationHandlers.handleMouseDown(e);
+    }
+  }, [annotation2DActiveTool, measureHandlers, annotationHandlers]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (annotation2DActiveTool === 'measure' || annotation2DActiveTool === 'none') {
+      measureHandlers.handleMouseMove(e);
+    } else {
+      annotationHandlers.handleMouseMove(e);
+    }
+  }, [annotation2DActiveTool, measureHandlers, annotationHandlers]);
+
+  const handleMouseUp = useCallback((e: React.MouseEvent) => {
+    measureHandlers.handleMouseUp();
+  }, [measureHandlers]);
+
+  const handleMouseLeave = useCallback(() => {
+    measureHandlers.handleMouseLeave();
+  }, [measureHandlers]);
+
+  const handleMouseEnter = useCallback((e: React.MouseEvent) => {
+    measureHandlers.handleMouseEnter(e);
+  }, [measureHandlers]);
+
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    annotationHandlers.handleDoubleClick(e);
+  }, [annotationHandlers]);
+
   const { formatDistance, handleExportSVG, handlePrint } = useDrawingExport({
     drawing, displayOptions, sectionPlane, activePresetId,
     entityColorMap, overridesEnabled, overrideEngine,
-    measure2DResults, sheetEnabled, activeSheet,
+    measure2DResults, polygonArea2DResults, textAnnotations2D, cloudAnnotations2D,
+    sheetEnabled, activeSheet,
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -270,6 +343,41 @@ export function Section2DPanel({
   const togglePinned = useCallback(() => {
     setIsPinned((prev) => !prev);
   }, []);
+
+  // Text editor handlers
+  const handleTextConfirm = useCallback((id: string, text: string) => {
+    updateTextAnnotation2D(id, { text });
+    setTextAnnotation2DEditing(null);
+  }, [updateTextAnnotation2D, setTextAnnotation2DEditing]);
+
+  const handleTextCancel = useCallback((id: string) => {
+    // If text is empty (just created), remove it
+    const annotation = textAnnotations2D.find((a) => a.id === id);
+    if (annotation && !annotation.text.trim()) {
+      removeTextAnnotation2D(id);
+    }
+    setTextAnnotation2DEditing(null);
+  }, [textAnnotations2D, removeTextAnnotation2D, setTextAnnotation2DEditing]);
+
+  // Check if any annotations exist
+  const hasAnnotations = measure2DResults.length > 0 ||
+    polygonArea2DResults.length > 0 ||
+    textAnnotations2D.length > 0 ||
+    cloudAnnotations2D.length > 0;
+
+  // Cursor style based on active tool
+  const cursorClass = useMemo(() => {
+    switch (annotation2DActiveTool) {
+      case 'measure':
+      case 'polygon-area':
+      case 'cloud':
+        return 'cursor-crosshair';
+      case 'text':
+        return 'cursor-text';
+      default:
+        return 'cursor-grab active:cursor-grabbing';
+    }
+  }, [annotation2DActiveTool]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // RESIZE HANDLING
@@ -400,25 +508,49 @@ export function Section2DPanel({
                 {displayOptions.useSymbolicRepresentations ? <Shapes className="h-4 w-4" /> : <Box className="h-4 w-4" />}
               </Button>
 
-              {/* 2D Measure Tool */}
-              <Button
-                variant={measure2DMode ? 'default' : 'ghost'}
-                size="icon-sm"
-                onClick={toggleMeasure2DMode}
-                title={measure2DMode ? 'Exit measure mode' : 'Measure distance'}
-              >
-                <Ruler className="h-4 w-4" />
-              </Button>
-              {measure2DResults.length > 0 && (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={clearMeasure2DResults}
-                  title="Clear measurements"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              )}
+              {/* Annotation Tools Dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant={annotation2DActiveTool !== 'none' ? 'default' : 'ghost'}
+                    size="icon-sm"
+                    title="Annotation tools"
+                  >
+                    <PenTool className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem onClick={() => setAnnotation2DActiveTool(annotation2DActiveTool === 'measure' ? 'none' : 'measure')}>
+                    <Ruler className="h-4 w-4 mr-2" />
+                    Distance Measure
+                    {annotation2DActiveTool === 'measure' && <span className="ml-auto text-xs text-primary">Active</span>}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setAnnotation2DActiveTool(annotation2DActiveTool === 'polygon-area' ? 'none' : 'polygon-area')}>
+                    <Hexagon className="h-4 w-4 mr-2" />
+                    Area Measure
+                    {annotation2DActiveTool === 'polygon-area' && <span className="ml-auto text-xs text-primary">Active</span>}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setAnnotation2DActiveTool(annotation2DActiveTool === 'text' ? 'none' : 'text')}>
+                    <Type className="h-4 w-4 mr-2" />
+                    Text Box
+                    {annotation2DActiveTool === 'text' && <span className="ml-auto text-xs text-primary">Active</span>}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setAnnotation2DActiveTool(annotation2DActiveTool === 'cloud' ? 'none' : 'cloud')}>
+                    <Cloud className="h-4 w-4 mr-2" />
+                    Revision Cloud
+                    {annotation2DActiveTool === 'cloud' && <span className="ml-auto text-xs text-primary">Active</span>}
+                  </DropdownMenuItem>
+                  {hasAnnotations && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={clearAllAnnotations2D}>
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Clear All Annotations
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               {/* Graphic Override Settings */}
               <Button
@@ -537,14 +669,26 @@ export function Section2DPanel({
                     {displayOptions.useSymbolicRepresentations ? <Shapes className="h-4 w-4 mr-2" /> : <Box className="h-4 w-4 mr-2" />}
                     {displayOptions.useSymbolicRepresentations ? 'Symbolic (Plan)' : 'Section Cut (Body)'}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={toggleMeasure2DMode}>
+                  <DropdownMenuItem onClick={() => setAnnotation2DActiveTool(annotation2DActiveTool === 'measure' ? 'none' : 'measure')}>
                     <Ruler className="h-4 w-4 mr-2" />
-                    Measure {measure2DMode ? 'On' : 'Off'}
+                    Distance Measure {annotation2DActiveTool === 'measure' ? '(On)' : ''}
                   </DropdownMenuItem>
-                  {measure2DResults.length > 0 && (
-                    <DropdownMenuItem onClick={clearMeasure2DResults}>
+                  <DropdownMenuItem onClick={() => setAnnotation2DActiveTool(annotation2DActiveTool === 'polygon-area' ? 'none' : 'polygon-area')}>
+                    <Hexagon className="h-4 w-4 mr-2" />
+                    Area Measure {annotation2DActiveTool === 'polygon-area' ? '(On)' : ''}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setAnnotation2DActiveTool(annotation2DActiveTool === 'text' ? 'none' : 'text')}>
+                    <Type className="h-4 w-4 mr-2" />
+                    Text Box {annotation2DActiveTool === 'text' ? '(On)' : ''}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setAnnotation2DActiveTool(annotation2DActiveTool === 'cloud' ? 'none' : 'cloud')}>
+                    <Cloud className="h-4 w-4 mr-2" />
+                    Revision Cloud {annotation2DActiveTool === 'cloud' ? '(On)' : ''}
+                  </DropdownMenuItem>
+                  {hasAnnotations && (
+                    <DropdownMenuItem onClick={clearAllAnnotations2D}>
                       <Trash2 className="h-4 w-4 mr-2" />
-                      Clear Measurements
+                      Clear All Annotations
                     </DropdownMenuItem>
                   )}
                   <DropdownMenuSeparator />
@@ -602,13 +746,13 @@ export function Section2DPanel({
       {/* Drawing Canvas */}
       <div
         ref={containerRef}
-        className={`relative flex-1 overflow-hidden bg-white dark:bg-zinc-950 rounded-b-lg ${measure2DMode ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
-          }`}
+        className={`relative flex-1 overflow-hidden bg-white dark:bg-zinc-950 rounded-b-lg ${cursorClass}`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
+        onDoubleClick={handleDoubleClick}
       >
         {status === 'generating' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80">
@@ -658,6 +802,14 @@ export function Section2DPanel({
               sectionAxis={sectionPlane.axis}
               isPinned={isPinned}
               cachedSheetTransformRef={cachedSheetTransformRef}
+              annotation2DActiveTool={annotation2DActiveTool}
+              annotation2DCursorPos={annotation2DCursorPos}
+              polygonAreaPoints={polygonArea2DPoints}
+              polygonAreaResults={polygonArea2DResults}
+              textAnnotations={textAnnotations2D}
+              textAnnotationEditing={textAnnotation2DEditing}
+              cloudAnnotationPoints={cloudAnnotation2DPoints}
+              cloudAnnotations={cloudAnnotations2D}
             />
             {/* Subtle updating indicator - shows while regenerating without hiding the drawing */}
             {isRegenerating && (
@@ -669,12 +821,60 @@ export function Section2DPanel({
           </>
         )}
 
+        {/* Text Annotation Editor Overlay */}
+        {textAnnotation2DEditing && (() => {
+          const editingAnnotation = textAnnotations2D.find((a) => a.id === textAnnotation2DEditing);
+          if (!editingAnnotation) return null;
+          const scaleX = sectionPlane.axis === 'side' ? -viewTransform.scale : viewTransform.scale;
+          const scaleY = sectionPlane.axis === 'down' ? viewTransform.scale : -viewTransform.scale;
+          const screenX = editingAnnotation.position.x * scaleX + viewTransform.x;
+          const screenY = editingAnnotation.position.y * scaleY + viewTransform.y;
+          return (
+            <TextAnnotationEditor
+              annotation={editingAnnotation}
+              screenX={screenX}
+              screenY={screenY}
+              onConfirm={handleTextConfirm}
+              onCancel={handleTextCancel}
+            />
+          );
+        })()}
+
         {/* Measure mode tip - bottom right */}
         {measure2DMode && measure2DStart && (
           <div className="absolute bottom-2 right-2 pointer-events-none z-10">
             <div className="flex items-center gap-1.5 text-[10px] text-black">
               <kbd className={`px-1 py-0.5 text-[9px] font-mono font-semibold ${measure2DShiftLocked ? 'text-primary' : 'text-black'}`}>Shift</kbd>
               <span className="text-black">perpendicular</span>
+            </div>
+          </div>
+        )}
+
+        {/* Polygon area tip */}
+        {annotation2DActiveTool === 'polygon-area' && (
+          <div className="absolute bottom-2 right-2 pointer-events-none z-10">
+            <div className="text-[10px] text-black bg-white/80 px-1.5 py-0.5 rounded">
+              {polygonArea2DPoints.length === 0 ? 'Click to place first vertex' :
+               polygonArea2DPoints.length < 3 ? `${polygonArea2DPoints.length} vertices — need at least 3` :
+               'Double-click or click first vertex to close'}
+            </div>
+          </div>
+        )}
+
+        {/* Cloud tool tip */}
+        {annotation2DActiveTool === 'cloud' && (
+          <div className="absolute bottom-2 right-2 pointer-events-none z-10">
+            <div className="text-[10px] text-black bg-white/80 px-1.5 py-0.5 rounded">
+              {cloudAnnotation2DPoints.length === 0 ? 'Click to place first corner' : 'Click to place second corner'}
+            </div>
+          </div>
+        )}
+
+        {/* Text tool tip */}
+        {annotation2DActiveTool === 'text' && !textAnnotation2DEditing && (
+          <div className="absolute bottom-2 right-2 pointer-events-none z-10">
+            <div className="text-[10px] text-black bg-white/80 px-1.5 py-0.5 rounded">
+              Click to place text box
             </div>
           </div>
         )}

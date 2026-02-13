@@ -44,7 +44,7 @@ export type { EntityRef, SchemaVersion, FederatedModel, MeasurementConstraintEdg
 export { entityRefToString, stringToEntityRef, entityRefEquals, isIfcxDataStore } from './types.js';
 
 // Re-export Drawing2D types
-export type { Drawing2DState, Drawing2DStatus } from './slices/drawing2DSlice.js';
+export type { Drawing2DState, Drawing2DStatus, Annotation2DTool, PolygonArea2DResult, TextAnnotation2D, CloudAnnotation2D } from './slices/drawing2DSlice.js';
 
 // Re-export Sheet types
 export type { SheetState } from './slices/sheetSlice.js';
@@ -205,6 +205,15 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       measure2DLockedAxis: null,
       measure2DResults: [],
       measure2DSnapPoint: null,
+      // Annotation tools
+      annotation2DActiveTool: 'none' as const,
+      annotation2DCursorPos: null,
+      polygonArea2DPoints: [],
+      polygonArea2DResults: [],
+      textAnnotations2D: [],
+      textAnnotation2DEditing: null,
+      cloudAnnotation2DPoints: [],
+      cloudAnnotations2D: [],
       // Drawing Sheet
       activeSheet: null,
       sheetEnabled: false,
