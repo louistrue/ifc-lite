@@ -1,500 +1,427 @@
-# Implementation Plan: Issue #198 — UI Enhancements
+# Implementation Plan: Polygon Area Measurement, Text Box, and Cloud Annotations
+
+**Issue #208 - Adding polygon annotations to 2D Section**
 
 ## Overview
 
-Issue #198 requests six UI enhancements inspired by BIMCollab Zoom:
+Add three new annotation tools to the 2D Section panel:
+1. **Polygon Area Measurement** - Draw a closed polygon, compute and display its area
+2. **Text Box Annotation** - Place and edit text annotations on the 2D drawing
+3. **Cloud Annotation** - Revision cloud markup (scalloped border around a rectangular region)
 
-1. **Orthographic Projection** — Toggle between perspective and orthographic camera
-2. **Projections Menu** — Unified UI for view directions + projection mode
-3. **Automatic Floorplan** — One-click floor plan views per storey
-4. **My View (Selection Basket)** — Persistent selection set with add/remove/show operations
-5. **Tree View by Type** — Alternative hierarchy grouping elements by IFC type
-6. **Smart View** — Rule-based filtering/coloring system for 3D viewport
-
-## Current State Analysis
-
-| Feature | Existing Infrastructure | Gap |
-|---------|------------------------|-----|
-| Ortho projection | `perspectiveReverseZ()` in math.ts, Camera class with composition pattern | No orthographic matrix, no projection mode state |
-| Projections menu | 6 preset views + viewcube, `setPresetView()` in CameraAnimator | No unified dropdown combining presets + projection toggle |
-| Auto floorplan | Full 2D drawing generation pipeline, storey data via `query.storeys` | No one-click storey→section shortcut |
-| My View | Multi-model selection system (`EntityRef`, `selectedEntitiesSet`) | No persistence, no separate basket concept |
-| Tree by type | Spatial hierarchy only in `treeDataBuilder.ts`, 3 hardcoded type toggles | No type-based tree builder, no grouping mode toggle |
-| Smart View | `GraphicOverrideEngine` for 2D drawings with full rule system + presets | Rules only apply to 2D; no 3D viewport coloring UI |
+All three tools follow the existing pattern established by the linear measure tool (`measure2DMode`, `useMeasure2D`, canvas rendering in `Drawing2DCanvas`, SVG export in `useDrawingExport`).
 
 ---
 
-## Phase 1: Orthographic Projection + Projections Menu
+## Architecture Decisions
 
-**Rationale:** Foundation for Phase 2 (auto floorplan needs ortho top-down). Smallest surface area with highest user impact.
+### Unified Annotation State
+Rather than adding separate state for each tool, introduce a single **annotation system** in the drawing2D slice. This keeps the store clean and makes it easy to add more annotation types later.
 
-### Task 1.1 — Orthographic projection matrix
+### Tool Mode Approach
+Extend the existing `measure2DMode` pattern to a `annotation2DActiveTool` discriminated union: `'none' | 'measure' | 'polygon-area' | 'text' | 'cloud'`. This ensures only one tool is active at a time and reuses the existing mouse-handling infrastructure.
 
-**File:** `packages/renderer/src/math.ts`
-
-Add `orthographicReverseZ()` method to `MathUtils`:
-
-```typescript
-static orthographicReverseZ(
-  left: number, right: number,
-  bottom: number, top: number,
-  near: number, far: number
-): Mat4
-```
-
-Uses reverse-Z convention matching `perspectiveReverseZ()` (near=1.0, far=0.0) so the existing depth buffer compare function (`greater`) works unchanged.
-
-### Task 1.2 — Camera projection mode state
-
-**File:** `packages/renderer/src/camera.ts`
-
-Extend `CameraInternalState` with:
-- `projectionMode: 'perspective' | 'orthographic'`
-- `orthoSize: number` — half-height of orthographic view volume in world units
-
-Add methods to `Camera` class:
-- `setProjectionMode(mode)` — switch mode, recompute projection matrix
-- `getProjectionMode()` — getter
-- `setOrthoSize(size)` — set orthographic view volume
-- `getOrthoSize()` — getter
-
-Modify `updateMatrices()`:
-```typescript
-private updateMatrices(): void {
-  this.state.viewMatrix = MathUtils.lookAt(...);
-  if (this.state.projectionMode === 'orthographic') {
-    const h = this.state.orthoSize;
-    const w = h * this.state.camera.aspect;
-    this.state.projMatrix = MathUtils.orthographicReverseZ(-w, w, -h, h, near, far);
-  } else {
-    this.state.projMatrix = MathUtils.perspectiveReverseZ(...);
-  }
-  this.state.viewProjMatrix = MathUtils.multiply(...);
-}
-```
-
-### Task 1.3 — Orthographic zoom behavior
-
-**File:** `packages/renderer/src/camera-controls.ts`
-
-Modify `zoom()` to scale `orthoSize` in orthographic mode instead of translating camera position. The mouse-toward-zoom behavior still works — just apply offset to target/position while scaling orthoSize.
-
-### Task 1.4 — Projection unproject for orthographic
-
-**File:** `packages/renderer/src/camera-projection.ts`
-
-Modify `unprojectToRay()`: In orthographic mode, the ray origin varies with screen position (parallel rays) instead of all originating from the camera position. This is critical for correct picking/measurement in orthographic mode.
-
-Modify `fitToBounds()` and `frameBounds()`: Calculate appropriate `orthoSize` from bounds instead of camera distance.
-
-### Task 1.5 — Store integration
-
-**File:** `apps/viewer/src/store/slices/cameraSlice.ts`
-
-Add to `CameraSlice`:
-```typescript
-projectionMode: 'perspective' | 'orthographic';
-setProjectionMode: (mode: 'perspective' | 'orthographic') => void;
-toggleProjectionMode: () => void;
-```
-
-Add to `CameraCallbacks`:
-```typescript
-setProjectionMode?: (mode: 'perspective' | 'orthographic') => void;
-```
-
-### Task 1.6 — Projections menu UI
-
-**File:** `apps/viewer/src/components/viewer/MainToolbar.tsx`
-
-Replace the existing "Preset Views" dropdown with a unified "Projections" dropdown that contains:
-- **Projection toggle**: Perspective / Orthographic (with current state indicator)
-- **Separator**
-- **View directions**: Top, Bottom, Front, Back, Left, Right (existing presets)
-- **Separator**
-- **Home (Isometric)**: Existing home view
-
-Use `Grid3x3` or `Box` icon from lucide-react. Show current projection mode as badge/indicator.
-
-### Task 1.7 — Keyboard shortcut
-
-**File:** `apps/viewer/src/hooks/useKeyboardShortcuts.ts`
-
-Add `5` key to toggle orthographic (CAD convention: Numpad 5 = ortho toggle in Blender/FreeCAD). Update the keyboard shortcuts dialog.
-
-### Task 1.8 — Store reset
-
-**File:** `apps/viewer/src/store/index.ts`
-
-Add `projectionMode: 'perspective'` to `resetViewerState()`.
+### Coordinate System
+All annotations are stored in **drawing coordinates** (meters, same as `Measure2DResult`). This ensures they scale correctly with pan/zoom and export properly to SVG.
 
 ---
 
-## Phase 2: Automatic Floorplan Views
+## Step-by-Step Implementation
 
-**Rationale:** Builds on Phase 1's orthographic camera. High user value — one-click floor plan per storey.
+### Step 1: Define Annotation Types
 
-### Task 2.1 — Floorplan activation logic
+**File: `apps/viewer/src/store/slices/drawing2DSlice.ts`**
 
-**File:** `apps/viewer/src/hooks/useFloorplanView.ts` (new hook)
-
-Create `useFloorplanView()` hook:
-```typescript
-function useFloorplanView() {
-  const activateFloorplan = useCallback((storeyExpressId: number, modelId: string) => {
-    // 1. Get storey elevation from ifcDataStore
-    // 2. Set section plane: axis='down', position = elevation + 1.2m offset (eye level), enabled=true
-    // 3. Set camera: orthographic, top-down view
-    // 4. Fit camera to storey bounding box
-    // 5. Optionally isolate storey elements
-  }, []);
-
-  return { activateFloorplan, availableStoreys };
-}
-```
-
-The 1.2m offset is standard architectural practice (section cut at 1.2m above floor level).
-
-### Task 2.2 — Storey data query
-
-Use existing `query.storeys` API from `@ifc-lite/query` to get:
-- Storey name, elevation, expressId
-- Sort by elevation (highest first, matching BIMCollab convention)
-- Support multi-model: collect storeys from all loaded models
-
-### Task 2.3 — Floorplan menu UI
-
-**File:** `apps/viewer/src/components/viewer/MainToolbar.tsx`
-
-Add "Floorplan" dropdown button to toolbar (after section tool). Contents:
-- List of storeys sorted by elevation (descending)
-- Each item shows: storey name + elevation value
-- Clicking activates section + ortho top-down + fit-to-bounds
-- Multi-model: group by model name if >1 model
-- Empty state: "No storeys available"
-- Use `Layers` icon from lucide-react
-
-### Task 2.4 — Floorplan keyboard shortcuts
-
-Add `Ctrl+1` through `Ctrl+9` for quick storey access (1 = ground floor, ascending). Only as stretch goal; main access is via dropdown.
-
----
-
-## Phase 3: My View (Selection Basket)
-
-**Rationale:** Self-contained feature. Enables power users to build persistent component sets.
-
-### Task 3.1 — My View store slice
-
-**File:** `apps/viewer/src/store/slices/myViewSlice.ts` (new)
+Add new interfaces alongside the existing `Measure2DResult`:
 
 ```typescript
-interface MyViewSlice {
-  // State
-  myViewEntities: Set<string>;  // Serialized EntityRef ("modelId:expressId")
+/** Active 2D annotation tool */
+export type Annotation2DTool = 'none' | 'measure' | 'polygon-area' | 'text' | 'cloud';
 
-  // Actions
-  addToMyView: (refs: EntityRef[]) => void;
-  removeFromMyView: (refs: EntityRef[]) => void;
-  setMyView: (refs: EntityRef[]) => void;  // Replace entire set
-  clearMyView: () => void;
-  showMyView: () => void;  // Isolate My View entities in 3D
-  isInMyView: (ref: EntityRef) => boolean;
-  getMyViewCount: () => number;
-  getMyViewEntities: () => EntityRef[];
-}
-```
-
-Uses `entityRefToString()` / `stringToEntityRef()` from existing types — same serialization as `selectedEntitiesSet`.
-
-### Task 3.2 — Register slice in combined store
-
-**File:** `apps/viewer/src/store/index.ts`
-
-Import and spread `createMyViewSlice`, add to `ViewerState` type, add reset logic (clear `myViewEntities`).
-
-### Task 3.3 — My View toolbar controls
-
-**File:** `apps/viewer/src/components/viewer/MainToolbar.tsx`
-
-Add My View button group after visibility controls:
-- **Show** (Eye icon): Isolate My View entities — uses existing `isolateEntities()` from visibility slice
-- **Add** (Plus icon): Add current selection to My View
-- **Remove** (Minus icon): Remove current selection from My View
-- **Set** (Equal icon): Replace My View with current selection
-- **Clear** (Trash2 icon): Clear My View
-
-Display entity count badge on the Show button.
-
-Buttons are enabled/disabled contextually:
-- Add: enabled when selection exists and not all selected are already in My View
-- Remove: enabled when selection exists and some selected are in My View
-- Show: enabled when My View is non-empty
-- Clear: enabled when My View is non-empty
-
-### Task 3.4 — Keyboard shortcuts
-
-**File:** `apps/viewer/src/hooks/useKeyboardShortcuts.ts`
-
-- `Shift+A`: Add selection to My View
-- `Shift+R`: Remove selection from My View
-- `Shift+S`: Show My View (isolate)
-
-### Task 3.5 — Visual indicator in hierarchy
-
-When My View has entities, show a small dot/badge on hierarchy tree nodes that are in My View. This is done lazily (check membership at render time) to avoid tree rebuild.
-
----
-
-## Phase 4: Tree View by Type
-
-**Rationale:** Requires changes to hierarchy panel internals. Self-contained but affects a complex component.
-
-### Task 4.1 — Grouping mode state
-
-**File:** `apps/viewer/src/components/viewer/HierarchyPanel.tsx`
-
-Add local component state (persisted in `localStorage`):
-```typescript
-const [groupingMode, setGroupingMode] = useState<'spatial' | 'type'>(
-  () => (localStorage.getItem('hierarchy-grouping') as 'spatial' | 'type') || 'spatial'
-);
-```
-
-Not in Zustand store — this is a UI preference, not application state.
-
-### Task 4.2 — Type-based tree builder
-
-**File:** `apps/viewer/src/components/viewer/hierarchy/treeDataBuilder.ts`
-
-Add `buildTypeTree()` function alongside existing `buildTreeData()`:
-
-```typescript
-function buildTypeTree(
-  models: Map<string, FederatedModel>,
-  expandedNodes: Set<string>,
-  isMultiModel: boolean
-): TreeNode[]
-```
-
-Tree structure:
-```
-IfcWall (47)
-  ├── Basic Wall:Interior-138mm... [Model A]
-  ├── Basic Wall:Exterior-300mm... [Model A]
-  └── ...
-IfcDoor (12)
-  ├── Single-Flush:0915x2032mm... [Model B]
-  └── ...
-IfcWindow (23)
-  └── ...
-```
-
-- Group by IFC type name (e.g., `IfcWall`, `IfcDoor`)
-- Sort types alphabetically
-- Show element count per type in parentheses
-- Elements within type sorted by name
-- Multi-model: show model name suffix `[ModelName]` if >1 model
-- Use existing `TreeNode` interface — set `type` to the IFC type string
-
-### Task 4.3 — Toggle UI in hierarchy header
-
-**File:** `apps/viewer/src/components/viewer/HierarchyPanel.tsx`
-
-Add segmented control in the hierarchy panel header (where search is):
-- Two options: `Spatial` | `By Type`
-- Small, unobtrusive — matches existing header style
-- Switches `groupingMode` and persists to localStorage
-- Use `Building2` icon for spatial, `Layers` icon for type
-
-### Task 4.4 — Wire tree to grouping mode
-
-In `HierarchyPanel.tsx`, switch tree data source based on `groupingMode`:
-```typescript
-const treeData = useMemo(() => {
-  if (groupingMode === 'type') {
-    return buildTypeTree(models, expandedNodes, isMultiModel);
-  }
-  return buildTreeData(models, expandedNodes, isMultiModel);
-}, [groupingMode, models, expandedNodes, isMultiModel]);
-```
-
-Selection, visibility, search, and context menu behavior remain the same — they all work with `TreeNode.expressIds` which is present in both tree structures.
-
-### Task 4.5 — Type tree performance
-
-Ensure type tree builds efficiently for 100k+ entities:
-- Pre-collect `Map<string, EntityRef[]>` in single pass over all entities
-- Sort types once (26-50 types typical)
-- Lazy child expansion (only build children when expanded)
-- Same virtualization as spatial tree (Tanstack React Virtual)
-
----
-
-## Phase 5: Smart View (Rule-Based 3D Filtering/Coloring)
-
-**Rationale:** Most complex feature. Builds on existing `GraphicOverrideEngine` for 2D but needs new 3D coloring path. Should be last.
-
-### Task 5.1 — Smart View store slice
-
-**File:** `apps/viewer/src/store/slices/smartViewSlice.ts` (new)
-
-```typescript
-interface SmartViewRule {
+/** Polygon area measurement result */
+export interface PolygonArea2DResult {
   id: string;
-  name: string;
-  enabled: boolean;
-  criteria: SmartViewCriteria;  // Reuse/adapt GraphicOverrideCriteria from drawing-2d
-  action: 'colorize' | 'hide' | 'isolate' | 'transparent';
-  color: string;  // Hex color for 'colorize' action
+  points: Point2D[];       // Closed polygon vertices (drawing coords)
+  area: number;            // Computed area in m²
+  perimeter: number;       // Computed perimeter in m
 }
 
-interface SmartView {
+/** Text box annotation */
+export interface TextAnnotation2D {
   id: string;
-  name: string;
-  rules: SmartViewRule[];
-  autoColorProperty?: {  // "Auto-color by property" mode
-    propertySetName: string;
-    propertyName: string;
-  };
+  position: Point2D;       // Top-left corner (drawing coords)
+  text: string;            // User-entered text
+  fontSize: number;        // Font size in screen px (default 14)
+  color: string;           // Text color (default '#000000')
+  backgroundColor: string; // Background fill (default 'rgba(255,255,255,0.9)')
+  borderColor: string;     // Border color (default '#333333')
 }
 
-interface SmartViewSlice {
-  // State
-  savedSmartViews: SmartView[];
-  activeSmartViewId: string | null;
-  smartViewPanelVisible: boolean;
-  smartViewResults: Map<string, string>;  // entityKey → color hex
-
-  // Actions
-  createSmartView: (view: SmartView) => void;
-  updateSmartView: (id: string, view: Partial<SmartView>) => void;
-  deleteSmartView: (id: string) => void;
-  setActiveSmartView: (id: string | null) => void;
-  toggleSmartViewPanel: () => void;
-  setSmartViewResults: (results: Map<string, string>) => void;
+/** Cloud (revision cloud) annotation */
+export interface CloudAnnotation2D {
+  id: string;
+  points: Point2D[];       // Rectangle/polygon corners (drawing coords)
+  color: string;           // Cloud stroke color (default '#E53935')
+  label: string;           // Optional label text inside cloud
 }
 ```
 
-### Task 5.2 — Smart View rule engine for 3D
+### Step 2: Extend the Drawing2D Store Slice
 
-**File:** `apps/viewer/src/hooks/useSmartView.ts` (new hook)
+**File: `apps/viewer/src/store/slices/drawing2DSlice.ts`**
 
-Create rule evaluation engine that:
-1. Iterates over all entities across all loaded models
-2. For each entity, evaluates rule criteria (IFC type, property values, material)
-3. Produces a `Map<globalId, color>` for entities matching colorize rules
-4. Produces `Set<globalId>` for entities matching hide/isolate/transparent rules
-5. Applies colors via existing `pendingColorUpdates` in `dataSlice` → renderer's `updateMeshColors()`
-6. Applies visibility via existing `hideEntities()` / `isolateEntities()` from visibility slice
+Add to `Drawing2DState`:
+```typescript
+// Annotation tool mode (replaces measure2DMode for tool selection)
+annotation2DActiveTool: Annotation2DTool;
 
-**Criteria evaluation** reuses the matching logic from `@ifc-lite/drawing-2d`'s `GraphicOverrideEngine` rule types:
-- IFC type matching (exact + subtype)
-- Property set + property name + operator (equals, contains, greater, less, exists)
-- Material name matching
-- AND/OR compound criteria
+// Polygon area measurement
+polygonArea2DPoints: Point2D[];            // Points being placed (in-progress)
+polygonArea2DResults: PolygonArea2DResult[];// Completed polygon measurements
 
-### Task 5.3 — Auto-color by property
+// Text annotations
+textAnnotations2D: TextAnnotation2D[];
+textAnnotation2DEditing: string | null;    // ID of text being edited
 
-When `autoColorProperty` is set on a Smart View:
-1. Scan all entities for the specified property
-2. Collect distinct values
-3. Generate unique colors (HSL distribution for maximum visual separation)
-4. Apply via `pendingColorUpdates`
-5. Show color legend in panel
+// Cloud annotations
+cloudAnnotation2DPoints: Point2D[];        // Rectangle corners being placed
+cloudAnnotations2D: CloudAnnotation2D[];
+```
 
-### Task 5.4 — Smart View panel UI
+Add actions to `Drawing2DSlice`:
+```typescript
+// Tool selection
+setAnnotation2DActiveTool: (tool: Annotation2DTool) => void;
 
-**File:** `apps/viewer/src/components/viewer/SmartViewPanel.tsx` (new)
+// Polygon area
+addPolygonArea2DPoint: (point: Point2D) => void;
+completePolygonArea2D: () => void;
+cancelPolygonArea2D: () => void;
+removePolygonArea2DResult: (id: string) => void;
+clearPolygonArea2DResults: () => void;
 
-Panel contents:
-- **Smart View selector** dropdown (saved views + "New Smart View")
-- **Rule list** with toggles, name, criteria summary, color swatch
-- **Add rule** button → rule editor dialog
-- **Auto-color** section: property set / property name selectors
-- **Color legend**: distinct value → color mapping with entity counts
-- **Apply / Reset** buttons
+// Text annotations
+addTextAnnotation2D: (annotation: TextAnnotation2D) => void;
+updateTextAnnotation2D: (id: string, updates: Partial<TextAnnotation2D>) => void;
+removeTextAnnotation2D: (id: string) => void;
+setTextAnnotation2DEditing: (id: string | null) => void;
+clearTextAnnotations2D: () => void;
 
-Rule editor dialog:
-- Criteria type selector (IFC Type, Property, Material)
-- Value input with appropriate widget (dropdown for types, text for property values)
-- Action selector (Colorize, Hide, Isolate, Transparent)
-- Color picker for Colorize action
+// Cloud annotations
+addCloudAnnotation2DPoint: (point: Point2D) => void;
+completeCloudAnnotation2D: (label?: string) => void;
+cancelCloudAnnotation2D: () => void;
+removeCloudAnnotation2D: (id: string) => void;
+clearCloudAnnotations2D: () => void;
 
-### Task 5.5 — Toolbar integration
+// Clear all annotations
+clearAllAnnotations2D: () => void;
+```
 
-**File:** `apps/viewer/src/components/viewer/MainToolbar.tsx`
+**Key implementation detail**: `setAnnotation2DActiveTool` should also set `measure2DMode` for backward compatibility (when tool is 'measure', set `measure2DMode = true`; otherwise `false`). Cancel any in-progress annotation when switching tools.
 
-Add Smart View toggle button (similar to BCF/IDS/Lists):
-- Use `Palette` or `Filter` icon from lucide-react
-- Toggle `smartViewPanelVisible`
-- Show panel in bottom area alongside BCF/IDS/Lists
-- Badge showing active rule count
+### Step 3: Create the Annotation Hook
 
-### Task 5.6 — Register in combined store + reset
+**File: `apps/viewer/src/hooks/useAnnotation2D.ts`**
 
-**File:** `apps/viewer/src/store/index.ts`
+Create a new hook that extends the pattern from `useMeasure2D.ts`. This hook handles mouse events for the polygon-area, text, and cloud tools. The existing `useMeasure2D` continues to handle the linear measure tool.
 
-Import and spread `createSmartViewSlice`, add to `ViewerState` type. Reset: clear `activeSmartViewId` and `smartViewResults` but keep `savedSmartViews`.
+```typescript
+export interface UseAnnotation2DParams {
+  drawing: Drawing2D | null;
+  viewTransform: { x: number; y: number; scale: number };
+  sectionAxis: 'down' | 'front' | 'side';
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  activeTool: Annotation2DTool;
+  // Polygon area state
+  polygonArea2DPoints: Point2D[];
+  addPolygonArea2DPoint: (pt: Point2D) => void;
+  completePolygonArea2D: () => void;
+  cancelPolygonArea2D: () => void;
+  // Text state
+  addTextAnnotation2D: (annotation: TextAnnotation2D) => void;
+  setTextAnnotation2DEditing: (id: string | null) => void;
+  // Cloud state
+  cloudAnnotation2DPoints: Point2D[];
+  addCloudAnnotation2DPoint: (pt: Point2D) => void;
+  completeCloudAnnotation2D: (label?: string) => void;
+  cancelCloudAnnotation2D: () => void;
+  // Snap
+  setMeasure2DSnapPoint: (pt: Point2D | null) => void;
+}
+
+export interface UseAnnotation2DResult {
+  handleMouseDown: (e: React.MouseEvent) => void;
+  handleMouseMove: (e: React.MouseEvent) => void;
+  handleDoubleClick: (e: React.MouseEvent) => void;
+  cursorPosition: Point2D | null;  // For preview lines
+}
+```
+
+**Behavior by tool:**
+
+- **`polygon-area`**: Click to place vertices. Double-click (or click near first point) to close polygon and compute area. Escape to cancel. Snap to geometry reuses `findSnapPoint` logic from `useMeasure2D`. Area computation uses the shoelace formula.
+- **`text`**: Click to place text box position. Immediately opens an inline text editing state (sets `textAnnotation2DEditing`). Enter to confirm, Escape to cancel.
+- **`cloud`**: Click first corner, move mouse, click second corner to define the rectangle. Escape to cancel. Two-click placement (like a rectangle selection).
+
+**Coordinate conversion** reuses the same `screenToDrawing` logic from `useMeasure2D`.
+
+### Step 4: Implement Area Computation Utility
+
+**File: `apps/viewer/src/components/viewer/tools/computePolygonArea.ts`**
+
+```typescript
+/** Compute area of a simple polygon using the shoelace formula */
+export function computePolygonArea(points: Point2D[]): number;
+
+/** Compute perimeter of a polygon */
+export function computePolygonPerimeter(points: Point2D[]): number;
+
+/** Format area for display */
+export function formatArea(squareMeters: number): string;
+```
+
+### Step 5: Implement Cloud Path Generator
+
+**File: `apps/viewer/src/components/viewer/tools/cloudPathGenerator.ts`**
+
+Generate the scalloped "revision cloud" path from a rectangle. This creates arc segments along the edges:
+
+```typescript
+/** Generate cloud arc data from rectangle corners */
+export function generateCloudArcs(
+  corners: Point2D[],     // 4 rectangle corners
+  arcRadius: number       // in drawing coords, controls scallop size
+): Array<{ cx: number; cy: number; r: number; startAngle: number; endAngle: number }>;
+```
+
+For each edge of the rectangle, divide into segments of length ~2*arcRadius and generate semicircular arcs bulging outward. This is purely a geometry utility - no React dependencies.
+
+### Step 6: Render Annotations in Drawing2DCanvas
+
+**File: `apps/viewer/src/components/viewer/Drawing2DCanvas.tsx`**
+
+Add new props:
+```typescript
+// Polygon area props
+polygonAreaPoints?: Point2D[];
+polygonAreaResults?: PolygonArea2DResult[];
+polygonAreaCursorPos?: Point2D | null;
+// Text annotation props
+textAnnotations?: TextAnnotation2D[];
+textAnnotationEditing?: string | null;
+// Cloud annotation props
+cloudAnnotationPoints?: Point2D[];
+cloudAnnotations?: CloudAnnotation2D[];
+// Active tool (for cursor/preview rendering)
+annotation2DActiveTool?: Annotation2DTool;
+```
+
+Add rendering sections after the existing measurement rendering (section 4):
+
+**5. RENDER POLYGON AREA MEASUREMENTS:**
+- Draw completed polygon fills with semi-transparent blue
+- Draw polygon outlines with dashed strokes
+- Draw vertex dots at each corner
+- Draw area + perimeter label at polygon centroid
+- Draw in-progress polygon: existing vertices connected, plus preview line from last vertex to cursor
+
+**6. RENDER TEXT ANNOTATIONS:**
+- Draw background rectangle with padding
+- Draw border
+- Draw text (respecting fontSize, color)
+- If editing, highlight border in blue
+
+**7. RENDER CLOUD ANNOTATIONS:**
+- Draw the scalloped cloud path using arcs from `generateCloudArcs`
+- Fill with semi-transparent color
+- Draw cloud label at center
+- Draw in-progress cloud: rectangle outline from first corner to cursor
+
+All rendering follows the existing pattern: convert drawing coords to screen coords using the axis-specific transform.
+
+### Step 7: Add UI Controls to Section2DPanel
+
+**File: `apps/viewer/src/components/viewer/Section2DPanel.tsx`**
+
+Replace the single measure button with a tool group or dropdown:
+
+```tsx
+{/* Annotation Tools Dropdown */}
+<DropdownMenu>
+  <DropdownMenuTrigger asChild>
+    <Button
+      variant={annotation2DActiveTool !== 'none' ? 'default' : 'ghost'}
+      size="icon-sm"
+      title="Annotation tools"
+    >
+      <PenTool className="h-4 w-4" />
+    </Button>
+  </DropdownMenuTrigger>
+  <DropdownMenuContent>
+    <DropdownMenuItem onClick={() => setAnnotation2DActiveTool('measure')}>
+      <Ruler className="h-4 w-4 mr-2" /> Distance Measure
+    </DropdownMenuItem>
+    <DropdownMenuItem onClick={() => setAnnotation2DActiveTool('polygon-area')}>
+      <Hexagon className="h-4 w-4 mr-2" /> Area Measure
+    </DropdownMenuItem>
+    <DropdownMenuItem onClick={() => setAnnotation2DActiveTool('text')}>
+      <Type className="h-4 w-4 mr-2" /> Text Box
+    </DropdownMenuItem>
+    <DropdownMenuItem onClick={() => setAnnotation2DActiveTool('cloud')}>
+      <Cloud className="h-4 w-4 mr-2" /> Revision Cloud
+    </DropdownMenuItem>
+  </DropdownMenuContent>
+</DropdownMenu>
+```
+
+Also add a "Clear All Annotations" button (trash icon) that appears when any annotations exist.
+
+The narrow-mode overflow menu gets matching entries.
+
+### Step 8: Wire Mouse Events
+
+**File: `apps/viewer/src/components/viewer/Section2DPanel.tsx`**
+
+Integrate `useAnnotation2D` alongside the existing `useMeasure2D`:
+
+- The container div's event handlers dispatch to either `useMeasure2D` or `useAnnotation2D` based on the active tool.
+- The existing `useMeasure2D` mouse handlers remain for `measure` tool.
+- The new hook handles the polygon-area, text, and cloud tools.
+- Add `onDoubleClick` handler on the container div (needed for polygon area completion).
+
+**Cursor styling** update the container's className:
+- `measure` / `polygon-area`: `cursor-crosshair`
+- `text`: `cursor-text`
+- `cloud`: `cursor-crosshair`
+- `none`: `cursor-grab`
+
+### Step 9: Inline Text Editor Component
+
+**File: `apps/viewer/src/components/viewer/TextAnnotationEditor.tsx`**
+
+A small overlay component positioned at the text annotation's screen location:
+
+```tsx
+interface TextAnnotationEditorProps {
+  annotation: TextAnnotation2D;
+  screenPosition: { x: number; y: number };
+  onConfirm: (text: string) => void;
+  onCancel: () => void;
+}
+```
+
+This is a positioned `<textarea>` overlay on the canvas, auto-focused. Enter (without Shift) confirms, Escape cancels. Renders as an absolute-positioned element within the container div in Section2DPanel.
+
+### Step 10: Export Annotations to SVG
+
+**File: `apps/viewer/src/hooks/useDrawingExport.ts`**
+
+Extend both `generateExportSVG` and `generateSheetSVG` to include the new annotation types. Add after the existing measurements section:
+
+**Polygon area measurements:**
+```svg
+<g id="polygon-area-measurements">
+  <polygon points="..." fill="rgba(33,150,243,0.1)" stroke="#2196F3"
+           stroke-width="..." stroke-dasharray="..."/>
+  <text ...>12.5 m²</text>
+</g>
+```
+
+**Text annotations:**
+```svg
+<g id="text-annotations">
+  <rect .../> <!-- background -->
+  <text ...>User text here</text>
+</g>
+```
+
+**Cloud annotations:**
+```svg
+<g id="cloud-annotations">
+  <path d="..." fill="rgba(229,57,53,0.05)" stroke="#E53935" stroke-width="..."/>
+  <text ...>Cloud label</text>
+</g>
+```
+
+### Step 11: Update Store Reset
+
+**File: `apps/viewer/src/store/index.ts`**
+
+Add the new state fields to the `resetViewerState` function:
+```typescript
+annotation2DActiveTool: 'none',
+polygonArea2DPoints: [],
+polygonArea2DResults: [],
+textAnnotations2D: [],
+textAnnotation2DEditing: null,
+cloudAnnotation2DPoints: [],
+cloudAnnotations2D: [],
+```
+
+### Step 12: Update `useMeasure2D` Integration
+
+**File: `apps/viewer/src/hooks/useMeasure2D.ts`**
+
+Minimal changes - this hook continues to work as-is for the linear measure tool. The `setAnnotation2DActiveTool` action sets `measure2DMode` accordingly for backward compatibility so the existing measure logic is unaffected.
 
 ---
 
-## Implementation Order & Dependencies
+## File Change Summary
 
-```
-Phase 1 (Ortho + Projections) ← no dependencies
-  ↓
-Phase 2 (Auto Floorplan) ← depends on Phase 1 (orthographic camera)
+| File | Change Type | Description |
+|------|------------|-------------|
+| `apps/viewer/src/store/slices/drawing2DSlice.ts` | **Modify** | Add annotation types, state, actions |
+| `apps/viewer/src/store/index.ts` | **Modify** | Add new fields to resetViewerState |
+| `apps/viewer/src/hooks/useAnnotation2D.ts` | **Create** | New hook for polygon/text/cloud mouse handling |
+| `apps/viewer/src/components/viewer/tools/computePolygonArea.ts` | **Create** | Shoelace formula for area, perimeter, formatting |
+| `apps/viewer/src/components/viewer/tools/cloudPathGenerator.ts` | **Create** | Revision cloud scalloped path geometry |
+| `apps/viewer/src/components/viewer/Drawing2DCanvas.tsx` | **Modify** | Render new annotation types on canvas |
+| `apps/viewer/src/components/viewer/Section2DPanel.tsx` | **Modify** | Add toolbar dropdown, wire new hooks |
+| `apps/viewer/src/components/viewer/TextAnnotationEditor.tsx` | **Create** | Inline text editor overlay |
+| `apps/viewer/src/hooks/useDrawingExport.ts` | **Modify** | Export annotations to SVG |
 
-Phase 3 (My View) ← no dependencies (can run parallel to Phase 1-2)
+**4 new files, 5 modified files.**
 
-Phase 4 (Tree by Type) ← no dependencies (can run parallel to Phase 1-3)
-
-Phase 5 (Smart View) ← no dependencies (can run parallel, but largest scope — do last)
-```
-
-**Suggested implementation sequence:**
-1. Phase 1 — Ortho + Projections Menu
-2. Phase 3 — My View (quick win while Phase 1 settles)
-3. Phase 2 — Auto Floorplan (uses Phase 1)
-4. Phase 4 — Tree by Type
-5. Phase 5 — Smart View
-
-## Files Modified (Summary)
-
-### New Files
-- `apps/viewer/src/store/slices/myViewSlice.ts`
-- `apps/viewer/src/store/slices/smartViewSlice.ts`
-- `apps/viewer/src/hooks/useFloorplanView.ts`
-- `apps/viewer/src/hooks/useSmartView.ts`
-- `apps/viewer/src/components/viewer/SmartViewPanel.tsx`
-
-### Modified Files
-- `packages/renderer/src/math.ts` — add `orthographicReverseZ()`
-- `packages/renderer/src/camera.ts` — add projection mode, ortho size
-- `packages/renderer/src/camera-controls.ts` — ortho zoom behavior
-- `packages/renderer/src/camera-projection.ts` — ortho unproject, fit-to-bounds
-- `apps/viewer/src/store/slices/cameraSlice.ts` — projection mode state
-- `apps/viewer/src/store/types.ts` — CameraCallbacks extension
-- `apps/viewer/src/store/index.ts` — new slices, reset logic
-- `apps/viewer/src/store/constants.ts` — projection mode default
-- `apps/viewer/src/components/viewer/MainToolbar.tsx` — projections dropdown, floorplan dropdown, My View buttons, Smart View toggle
-- `apps/viewer/src/hooks/useKeyboardShortcuts.ts` — new shortcuts
-- `apps/viewer/src/components/viewer/HierarchyPanel.tsx` — grouping mode toggle
-- `apps/viewer/src/components/viewer/hierarchy/treeDataBuilder.ts` — `buildTypeTree()`
+---
 
 ## Performance Considerations
 
-1. **Orthographic projection**: Zero performance impact — same GPU pipeline, different mat4
-2. **Type tree builder**: Single O(n) pass to group entities by type, then sort O(t·log(t)) for ~30 types. Lazy child expansion prevents upfront cost.
-3. **Smart View rule evaluation**: O(n·r) where n=entities, r=rules. For 100k entities × 10 rules = 1M checks. Property lookups via existing indexed data store are O(1). Run evaluation in `requestIdleCallback` or debounce to avoid blocking.
-4. **My View**: O(1) Set operations for add/remove/check membership.
-5. **Auto floorplan**: Reuses existing section plane + camera animation — no new computation.
+1. **Annotation rendering** is O(n) where n is the number of annotations - typically < 50, so negligible compared to the thousands of drawing lines already rendered.
+2. **Cloud path generation** runs once per cloud annotation (on creation), not on every frame. The generated arcs are cached in the annotation object.
+3. **No new store subscriptions** that would cause cascade re-renders: annotations are read in `Drawing2DCanvas` which already re-renders on every transform change.
+4. **Snap point search** for polygon-area reuses the existing `findSnapPoint` logic from `useMeasure2D` — no duplication.
+
+---
+
+## Interaction Details
+
+### Polygon Area Tool
+- **Click** → Place vertex (snaps to geometry)
+- **Double-click** or **click near first vertex** → Close polygon, compute area, add to results
+- **Escape** → Cancel current polygon
+- **Minimum 3 vertices** to form a valid area
+- Preview: dashed line from last vertex to cursor, semi-transparent fill preview when ≥3 points
+
+### Text Box Tool
+- **Click** → Place text box at position, open inline editor
+- **Enter** → Confirm text, add annotation
+- **Escape** → Cancel text placement
+- **Click existing text** → Re-open editor to modify
+
+### Cloud Tool
+- **Click** → Place first corner of rectangle
+- **Move + Click** → Place second corner, create cloud
+- **Escape** → Cancel cloud placement
+- Cloud auto-generates scalloped arcs along rectangle edges
+- Optional: prompt for label text after placement (via small inline input)
+
+---
 
 ## Testing Strategy
 
-- Unit tests for `orthographicReverseZ()` matrix correctness
-- Unit tests for `buildTypeTree()` with mock data
-- Unit tests for Smart View rule evaluation
-- Integration: verify ortho picking works (unproject produces correct parallel rays)
-- Manual: test with large models (100k+ entities) to verify no performance regression
+- Unit test `computePolygonArea` and `computePolygonPerimeter` with known shapes (triangle, square, irregular polygon)
+- Unit test `generateCloudArcs` produces correct number of arcs for given edge lengths
+- Unit test `formatArea` with various magnitudes
+- Integration: verify annotation state in store (add/remove/clear)
+- Manual: verify canvas rendering, SVG export, and interactions on actual IFC models
