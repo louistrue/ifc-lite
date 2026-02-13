@@ -209,6 +209,13 @@ export class MergedExporter {
           model.dataStore, decoder, spatialLookup, firstModelOffset,
           sharedRemap, skipEntityIds,
         );
+
+        // Skip IfcRelAggregates that become fully redundant after unification.
+        // e.g. Model2's Project→Site becomes FirstProject→FirstSite which
+        // already exists from Model1, causing duplicate tree nodes.
+        this.skipRedundantRelAggregates(
+          model.dataStore, decoder, sharedRemap, skipEntityIds,
+        );
       }
 
       // Emit entities for this model
@@ -423,6 +430,47 @@ export class MergedExporter {
         matchedFirstStoreys.add(match);
         sharedRemap.set(id, match + firstModelOffset);
         skipEntityIds.add(id);
+      }
+    }
+  }
+
+  /**
+   * Skip IfcRelAggregates that become fully redundant after spatial unification.
+   *
+   * When Model2's `IfcRelAggregates(Project, (Site))` gets remapped to
+   * `IfcRelAggregates(FirstProject, (FirstSite))`, it duplicates Model1's
+   * existing relationship, causing viewers to show Site multiple times.
+   *
+   * An IfcRelAggregates is redundant if both its RelatingObject (attr 4)
+   * and ALL its RelatedObjects (attr 5) were remapped via sharedRemap.
+   */
+  private skipRedundantRelAggregates(
+    dataStore: IfcDataStore,
+    decoder: TextDecoder,
+    sharedRemap: Map<number, number>,
+    skipEntityIds: Set<number>,
+  ): void {
+    for (const relId of this.findEntitiesByType(dataStore, 'IFCRELAGGREGATES')) {
+      // RelatingObject is attr 4 — single #ref
+      const relatingAttr = this.extractStepAttribute(relId, dataStore, decoder, 4);
+      if (!relatingAttr) continue;
+      const relatingRef = relatingAttr.match(/^#(\d+)$/);
+      if (!relatingRef || !sharedRemap.has(parseInt(relatingRef[1], 10))) continue;
+
+      // RelatedObjects is attr 5 — list of #refs like (#2,#3)
+      const relatedAttr = this.extractStepAttribute(relId, dataStore, decoder, 5);
+      if (!relatedAttr) continue;
+      const refs: number[] = [];
+      const refRegex = /#(\d+)/g;
+      let m;
+      while ((m = refRegex.exec(relatedAttr)) !== null) {
+        refs.push(parseInt(m[1], 10));
+      }
+      if (refs.length === 0) continue;
+
+      // If ALL related objects were also remapped, this rel is fully redundant
+      if (refs.every(ref => sharedRemap.has(ref))) {
+        skipEntityIds.add(relId);
       }
     }
   }

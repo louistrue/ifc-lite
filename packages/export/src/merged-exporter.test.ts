@@ -149,12 +149,12 @@ describe('MergedExporter', () => {
     expect(result.content).not.toContain("IFCPROJECT('g3'");
     expect(result.content).not.toContain("IFCSITE('g4'");
 
-    // Model2's RelAgg Project→Site: both project and site remapped to model1's
-    // #7=IFCRELAGGREGATES('r2',$,$,$,#1,(#2))
-    expect(result.content).toMatch(/#7=IFCRELAGGREGATES\('r2',\$,\$,\$,#1,\(#2\)\)/);
+    // Model2's RelAgg Project→Site: fully redundant (both project and site
+    // remapped to model1's) — should be SKIPPED to avoid duplicate tree nodes
+    expect(result.content).not.toContain("IFCRELAGGREGATES('r2'");
 
-    // Model2's RelAgg Site→Building: site→#2 (unified), building→#6 (offset)
-    // #8=IFCRELAGGREGATES('r3',$,$,$,#2,(#6))
+    // Model2's RelAgg Site→Building: NOT redundant (building is new, not remapped)
+    // site→#2 (unified), building→#6 (offset). Entity #5+offset(3)=#8
     expect(result.content).toMatch(/#8=IFCRELAGGREGATES\('r3',\$,\$,\$,#2,\(#6\)\)/);
 
     // Model2's building is kept (no building in model1 to match)

@@ -395,10 +395,10 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
 
           {/* Model selector (only for single-model export) */}
           {exportScope === 'single' && (
-          <div className="flex items-center gap-4 overflow-hidden">
-            <Label className="w-32 shrink-0">Model</Label>
+          <div className="flex items-center gap-4">
+            <Label className="w-32">Model</Label>
             <Select value={selectedModelId} onValueChange={setSelectedModelId}>
-              <SelectTrigger className="min-w-0 overflow-hidden">
+              <SelectTrigger>
                 <SelectValue placeholder="Select model" />
               </SelectTrigger>
               <SelectContent>
