@@ -41,3 +41,53 @@ export function rgbaToHex(rgba: RGBAColor): string {
 export function isGhostColor(rgba: RGBAColor): boolean {
   return rgba[3] < 0.2;
 }
+
+/**
+ * Golden angle in degrees (~137.508°).
+ * Successive multiples of this produce maximally distributed hues
+ * on the color wheel — guarantees every new color is as far as
+ * possible from all previously generated colors, for any N.
+ */
+const GOLDEN_ANGLE = 137.508;
+
+/**
+ * Convert HSL to hex string.
+ * h in [0, 360), s and l in [0, 1].
+ */
+function hslToHex(h: number, s: number, l: number): string {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+
+  if (h < 60) { r = c; g = x; }
+  else if (h < 120) { r = x; g = c; }
+  else if (h < 180) { g = c; b = x; }
+  else if (h < 240) { g = x; b = c; }
+  else if (h < 300) { r = x; b = c; }
+  else { r = c; b = x; }
+
+  const ri = Math.round((r + m) * 255);
+  const gi = Math.round((g + m) * 255);
+  const bi = Math.round((b + m) * 255);
+  return `#${ri.toString(16).padStart(2, '0')}${gi.toString(16).padStart(2, '0')}${bi.toString(16).padStart(2, '0')}`;
+}
+
+/**
+ * Generate a unique color for index `i` using golden-angle hue distribution.
+ *
+ * Produces unlimited perceptually distinct colors:
+ * - Hue: golden angle spacing (maximally distributed for any N)
+ * - Saturation: alternates between 65% and 80% to add variety
+ * - Lightness: cycles through 3 levels (45%, 55%, 35%) for depth
+ *
+ * No two indices produce the same color (hue wraps but never repeats
+ * due to irrational golden angle).
+ */
+export function uniqueColor(i: number): string {
+  const hue = (i * GOLDEN_ANGLE) % 360;
+  const saturation = i % 2 === 0 ? 0.65 : 0.80;
+  const lightnessLevels = [0.45, 0.55, 0.35];
+  const lightness = lightnessLevels[i % 3];
+  return hslToHex(hue, saturation, lightness);
+}

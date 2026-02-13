@@ -11,17 +11,23 @@
  */
 
 import type { StateCreator } from 'zustand';
-import type { Lens, LensRule, LensCriteria } from '@ifc-lite/lens';
+import type { Lens, LensRule, LensCriteria, AutoColorSpec, AutoColorLegendEntry, DiscoveredLensData } from '@ifc-lite/lens';
 import { BUILTIN_LENSES } from '@ifc-lite/lens';
 
 // Re-export types so existing consumer imports from this file still work
-export type { Lens, LensRule, LensCriteria };
+export type { Lens, LensRule, LensCriteria, AutoColorSpec, AutoColorLegendEntry, DiscoveredLensData };
 
 // Re-export constants for consumers that import from this file
-export { COMMON_IFC_CLASSES, COMMON_IFC_TYPES, LENS_PALETTE } from '@ifc-lite/lens';
+export {
+  COMMON_IFC_CLASSES, COMMON_IFC_TYPES, LENS_PALETTE,
+  LENS_CRITERIA_TYPES, AUTO_COLOR_SOURCES, ENTITY_ATTRIBUTE_NAMES,
+} from '@ifc-lite/lens';
 
 /** localStorage key for persisting custom lenses */
 const STORAGE_KEY = 'ifc-lite-custom-lenses';
+
+/** Ephemeral lens ID created when coloring from list column headers */
+export const AUTO_COLOR_FROM_LIST_ID = 'auto-color-from-list';
 
 /** Built-in lens IDs — used to detect overrides */
 const BUILTIN_IDS = new Set(BUILTIN_LENSES.map(l => l.id));
@@ -98,6 +104,10 @@ export interface LensSlice {
   lensRuleCounts: Map<string, number>;
   /** Computed: ruleId → matched entity global IDs for the active lens */
   lensRuleEntityIds: Map<string, number[]>;
+  /** Auto-color legend entries (one per distinct value) for UI display */
+  lensAutoColorLegend: AutoColorLegendEntry[];
+  /** Discovered data from loaded models (classes instant, rest lazy) */
+  discoveredLensData: DiscoveredLensData | null;
 
   // Actions
   createLens: (lens: Lens) => void;
@@ -110,12 +120,18 @@ export interface LensSlice {
   setLensHiddenIds: (ids: Set<number>) => void;
   setLensRuleCounts: (counts: Map<string, number>) => void;
   setLensRuleEntityIds: (ids: Map<string, number[]>) => void;
+  setLensAutoColorLegend: (legend: AutoColorLegendEntry[]) => void;
+  setDiscoveredLensData: (data: DiscoveredLensData | null) => void;
+  /** Merge lazy-discovered data sources (psets, quantities, etc.) into existing discovered data */
+  mergeDiscoveredData: (patch: Partial<DiscoveredLensData>) => void;
   /** Get the active lens configuration */
   getActiveLens: () => Lens | null;
   /** Import lenses from parsed JSON array */
   importLenses: (lenses: Lens[]) => void;
   /** Export all lenses (builtins + custom) as serializable array */
   exportLenses: () => Lens[];
+  /** Create and activate an auto-color lens from a data column spec */
+  activateAutoColorFromColumn: (spec: AutoColorSpec, label: string) => void;
 }
 
 export const createLensSlice: StateCreator<LensSlice, [], [], LensSlice> = (set, get) => ({
@@ -127,6 +143,8 @@ export const createLensSlice: StateCreator<LensSlice, [], [], LensSlice> = (set,
   lensHiddenIds: new Set(),
   lensRuleCounts: new Map(),
   lensRuleEntityIds: new Map(),
+  lensAutoColorLegend: [],
+  discoveredLensData: null,
 
   // Actions
   createLens: (lens) => set((state) => {
@@ -161,6 +179,12 @@ export const createLensSlice: StateCreator<LensSlice, [], [], LensSlice> = (set,
   setLensHiddenIds: (lensHiddenIds) => set({ lensHiddenIds }),
   setLensRuleCounts: (lensRuleCounts) => set({ lensRuleCounts }),
   setLensRuleEntityIds: (lensRuleEntityIds) => set({ lensRuleEntityIds }),
+  setLensAutoColorLegend: (lensAutoColorLegend) => set({ lensAutoColorLegend }),
+  setDiscoveredLensData: (discoveredLensData) => set({ discoveredLensData }),
+  mergeDiscoveredData: (patch) => set((state) => {
+    if (!state.discoveredLensData) return {};
+    return { discoveredLensData: { ...state.discoveredLensData, ...patch } };
+  }),
 
   getActiveLens: () => {
     const { savedLenses, activeLensId } = get();
@@ -179,6 +203,24 @@ export const createLensSlice: StateCreator<LensSlice, [], [], LensSlice> = (set,
   }),
 
   exportLenses: () => {
-    return get().savedLenses.map(({ id, name, rules }) => ({ id, name, rules }));
+    return get().savedLenses.map(({ id, name, rules, autoColor }) => {
+      const out: Lens = { id, name, rules };
+      if (autoColor) out.autoColor = autoColor;
+      return out;
+    });
   },
+
+  activateAutoColorFromColumn: (spec, label) => set((state) => {
+    const lensId = AUTO_COLOR_FROM_LIST_ID;
+    const lens: Lens = {
+      id: lensId,
+      name: `Color by ${label}`,
+      rules: [],
+      autoColor: spec,
+    };
+    // Replace existing ephemeral lens or add new
+    const filtered = state.savedLenses.filter(l => l.id !== lensId);
+    const next = [...filtered, lens];
+    return { savedLenses: next, activeLensId: lensId, lensPanelVisible: true };
+  }),
 });

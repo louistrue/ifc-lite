@@ -29,9 +29,12 @@
 export type {
   LensDataProvider,
   PropertySetInfo,
+  ClassificationInfo,
   LensCriteria,
   LensRule,
   Lens,
+  AutoColorSpec,
+  AutoColorLegendEntry,
   LensEvaluationResult,
   RGBAColor,
 } from './types.js';
@@ -42,13 +45,17 @@ export {
   COMMON_IFC_CLASSES as COMMON_IFC_TYPES,
   LENS_PALETTE,
   IFC_SUBTYPE_TO_BASE,
+  LENS_CRITERIA_TYPES,
+  AUTO_COLOR_SOURCES,
+  ENTITY_ATTRIBUTE_NAMES,
 } from './types.js';
 
 // ============================================================================
 // Engine
 // ============================================================================
 
-export { evaluateLens } from './engine.js';
+export { evaluateLens, evaluateAutoColorLens } from './engine.js';
+export type { AutoColorEvaluationResult } from './engine.js';
 
 // ============================================================================
 // Matching
@@ -65,6 +72,7 @@ export {
   hexToRgba,
   rgbaToHex,
   isGhostColor,
+  uniqueColor,
 } from './colors.js';
 
 // ============================================================================
@@ -72,3 +80,10 @@ export {
 // ============================================================================
 
 export { BUILTIN_LENSES } from './presets.js';
+
+// ============================================================================
+// Discovery
+// ============================================================================
+
+export { discoverClasses, discoverDataSources } from './discovery.js';
+export type { DiscoveredLensData } from './discovery.js';

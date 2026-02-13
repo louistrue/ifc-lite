@@ -8,7 +8,7 @@ import { IFC_SUBTYPE_TO_BASE } from './types.js';
 /**
  * Check if an entity matches a {@link LensCriteria}.
  *
- * Performance: O(1) for type matching, O(psets) for property/material.
+ * Performance: O(1) for type/attribute, O(psets) for property/material/classification.
  */
 export function matchesCriteria(
   criteria: LensCriteria,
@@ -22,6 +22,12 @@ export function matchesCriteria(
       return matchesProperty(criteria, globalId, provider);
     case 'material':
       return matchesMaterial(criteria, globalId, provider);
+    case 'attribute':
+      return matchesAttribute(criteria, globalId, provider);
+    case 'quantity':
+      return matchesQuantity(criteria, globalId, provider);
+    case 'classification':
+      return matchesClassification(criteria, globalId, provider);
     default:
       return false;
   }
@@ -76,7 +82,7 @@ function matchesProperty(
   return value !== null && value !== undefined;
 }
 
-/** Match by material (scans material-related property sets) */
+/** Match by material — prefers dedicated getMaterialName, falls back to pset scan */
 function matchesMaterial(
   criteria: LensCriteria,
   globalId: number,
@@ -84,10 +90,20 @@ function matchesMaterial(
 ): boolean {
   if (!criteria.materialName) return false;
 
+  const pattern = criteria.materialName.toLowerCase();
+
+  // Prefer dedicated material accessor if available
+  if (provider.getMaterialName) {
+    const matName = provider.getMaterialName(globalId);
+    if (matName) {
+      return matName.toLowerCase().includes(pattern);
+    }
+    return false;
+  }
+
+  // Fallback: scan material-related property sets
   const psets = provider.getPropertySets(globalId);
   if (!psets || psets.length === 0) return false;
-
-  const pattern = criteria.materialName.toLowerCase();
 
   for (const pset of psets) {
     if (pset.name.toLowerCase().includes('material')) {
@@ -97,6 +113,90 @@ function matchesMaterial(
         }
       }
     }
+  }
+
+  return false;
+}
+
+/** Match by entity attribute (Name, Description, ObjectType, Tag) */
+function matchesAttribute(
+  criteria: LensCriteria,
+  globalId: number,
+  provider: LensDataProvider,
+): boolean {
+  if (!criteria.attributeName) return false;
+  if (!provider.getEntityAttribute) return false;
+
+  const value = provider.getEntityAttribute(globalId, criteria.attributeName);
+
+  if (criteria.operator === 'exists') {
+    return value !== undefined && value !== '';
+  }
+
+  if (criteria.operator === 'contains' && criteria.attributeValue !== undefined) {
+    return (value ?? '').toLowerCase().includes(criteria.attributeValue.toLowerCase());
+  }
+
+  // Default: equals
+  if (criteria.attributeValue !== undefined) {
+    return (value ?? '') === criteria.attributeValue;
+  }
+
+  return value !== undefined && value !== '';
+}
+
+/** Match by quantity value (supports equals, contains, exists operators) */
+function matchesQuantity(
+  criteria: LensCriteria,
+  globalId: number,
+  provider: LensDataProvider,
+): boolean {
+  if (!criteria.quantitySet || !criteria.quantityName) return false;
+  if (!provider.getQuantityValue) return false;
+
+  const value = provider.getQuantityValue(
+    globalId,
+    criteria.quantitySet,
+    criteria.quantityName,
+  );
+
+  if (criteria.operator === 'exists') {
+    return value !== undefined && value !== null;
+  }
+
+  if (value === undefined || value === null) return false;
+
+  if (criteria.operator === 'contains' && criteria.quantityValue !== undefined) {
+    return String(value).toLowerCase().includes(criteria.quantityValue.toLowerCase());
+  }
+
+  // Default: equals (string comparison)
+  if (criteria.quantityValue !== undefined) {
+    return String(value) === criteria.quantityValue;
+  }
+
+  return true;
+}
+
+/** Match by classification system and/or code */
+function matchesClassification(
+  criteria: LensCriteria,
+  globalId: number,
+  provider: LensDataProvider,
+): boolean {
+  if (!criteria.classificationSystem && !criteria.classificationCode) return false;
+  if (!provider.getClassifications) return false;
+
+  const classifications = provider.getClassifications(globalId);
+  if (!classifications || classifications.length === 0) return false;
+
+  for (const cls of classifications) {
+    const systemMatch = !criteria.classificationSystem ||
+      (cls.system ?? '').toLowerCase().includes(criteria.classificationSystem.toLowerCase());
+    const codeMatch = !criteria.classificationCode ||
+      (cls.identification ?? '').toLowerCase().includes(criteria.classificationCode.toLowerCase());
+
+    if (systemMatch && codeMatch) return true;
   }
 
   return false;

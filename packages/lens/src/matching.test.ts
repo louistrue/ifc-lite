@@ -137,6 +137,156 @@ describe('matchesCriteria — property', () => {
   });
 });
 
+describe('matchesCriteria — attribute', () => {
+  const provider = createMockProvider([
+    { id: 1, type: 'IfcWall' },
+    { id: 2, type: 'IfcSlab' },
+  ]);
+
+  // Add attribute methods to the provider
+  (provider as Record<string, unknown>).getEntityAttribute = (id: number, attrName: string) => {
+    if (id === 1) {
+      if (attrName === 'Name') return 'Exterior Wall 200';
+      if (attrName === 'Description') return 'Load-bearing exterior wall';
+      if (attrName === 'ObjectType') return 'Standard';
+    }
+    if (id === 2) {
+      if (attrName === 'Name') return 'Floor Slab';
+    }
+    return undefined;
+  };
+
+  it('should match attribute by contains (case-insensitive)', () => {
+    const c: LensCriteria = {
+      type: 'attribute',
+      attributeName: 'Name',
+      operator: 'contains',
+      attributeValue: 'exterior',
+    };
+    expect(matchesCriteria(c, 1, provider)).toBe(true);
+    expect(matchesCriteria(c, 2, provider)).toBe(false);
+  });
+
+  it('should match attribute by equals (exact match)', () => {
+    const c: LensCriteria = {
+      type: 'attribute',
+      attributeName: 'ObjectType',
+      attributeValue: 'Standard',
+    };
+    expect(matchesCriteria(c, 1, provider)).toBe(true);
+  });
+
+  it('should match attribute exists', () => {
+    const c: LensCriteria = {
+      type: 'attribute',
+      attributeName: 'Description',
+      operator: 'exists',
+    };
+    expect(matchesCriteria(c, 1, provider)).toBe(true);
+    expect(matchesCriteria(c, 2, provider)).toBe(false);
+  });
+
+  it('should return false when attributeName is missing', () => {
+    expect(matchesCriteria({ type: 'attribute' }, 1, provider)).toBe(false);
+  });
+
+  it('should return false when provider lacks getEntityAttribute', () => {
+    const basicProvider = createMockProvider([{ id: 1, type: 'IfcWall' }]);
+    expect(matchesCriteria({ type: 'attribute', attributeName: 'Name' }, 1, basicProvider)).toBe(false);
+  });
+});
+
+describe('matchesCriteria — quantity', () => {
+  const provider = createMockProvider([
+    { id: 1, type: 'IfcWall' },
+    { id: 2, type: 'IfcSlab' },
+  ]);
+
+  (provider as Record<string, unknown>).getQuantityValue = (id: number, qset: string, qname: string) => {
+    if (id === 1 && qset === 'Qto_WallBaseQuantities') {
+      if (qname === 'Length') return 5.2;
+      if (qname === 'Height') return 2.8;
+    }
+    return undefined;
+  };
+
+  it('should match quantity exists', () => {
+    const c: LensCriteria = {
+      type: 'quantity',
+      quantitySet: 'Qto_WallBaseQuantities',
+      quantityName: 'Length',
+      operator: 'exists',
+    };
+    expect(matchesCriteria(c, 1, provider)).toBe(true);
+    expect(matchesCriteria(c, 2, provider)).toBe(false);
+  });
+
+  it('should match quantity equals (stringified)', () => {
+    const c: LensCriteria = {
+      type: 'quantity',
+      quantitySet: 'Qto_WallBaseQuantities',
+      quantityName: 'Length',
+      operator: 'equals',
+      quantityValue: '5.2',
+    };
+    expect(matchesCriteria(c, 1, provider)).toBe(true);
+  });
+
+  it('should return false when quantitySet/Name missing', () => {
+    expect(matchesCriteria({ type: 'quantity' }, 1, provider)).toBe(false);
+    expect(matchesCriteria({ type: 'quantity', quantitySet: 'x' }, 1, provider)).toBe(false);
+  });
+});
+
+describe('matchesCriteria — classification', () => {
+  const provider = createMockProvider([
+    { id: 1, type: 'IfcWall' },
+    { id: 2, type: 'IfcSlab' },
+  ]);
+
+  (provider as Record<string, unknown>).getClassifications = (id: number) => {
+    if (id === 1) {
+      return [{ system: 'Uniclass', identification: 'Pr_60_10_32', name: 'Walls' }];
+    }
+    return [];
+  };
+
+  it('should match classification by system', () => {
+    const c: LensCriteria = {
+      type: 'classification',
+      classificationSystem: 'Uniclass',
+    };
+    expect(matchesCriteria(c, 1, provider)).toBe(true);
+    expect(matchesCriteria(c, 2, provider)).toBe(false);
+  });
+
+  it('should match classification by code (case-insensitive substring)', () => {
+    const c: LensCriteria = {
+      type: 'classification',
+      classificationCode: 'pr_60',
+    };
+    expect(matchesCriteria(c, 1, provider)).toBe(true);
+  });
+
+  it('should match classification by system AND code', () => {
+    const c: LensCriteria = {
+      type: 'classification',
+      classificationSystem: 'uniclass',
+      classificationCode: 'Pr_60_10_32',
+    };
+    expect(matchesCriteria(c, 1, provider)).toBe(true);
+  });
+
+  it('should return false when neither system nor code specified', () => {
+    expect(matchesCriteria({ type: 'classification' }, 1, provider)).toBe(false);
+  });
+
+  it('should return false when provider lacks getClassifications', () => {
+    const basicProvider = createMockProvider([{ id: 1, type: 'IfcWall' }]);
+    expect(matchesCriteria({ type: 'classification', classificationSystem: 'x' }, 1, basicProvider)).toBe(false);
+  });
+});
+
 describe('matchesCriteria — material', () => {
   const provider = createMockProvider([
     {
