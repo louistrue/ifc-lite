@@ -8,7 +8,9 @@
 
 import { useCallback, useEffect, useRef, useMemo } from 'react';
 import {
-  Focus,
+  Equal,
+  Plus,
+  Minus,
   EyeOff,
   Eye,
   Layers,
@@ -22,21 +24,25 @@ import { useIfc } from '@/hooks/useIfc';
 export function EntityContextMenu() {
   const contextMenu = useViewerStore((s) => s.contextMenu);
   const closeContextMenu = useViewerStore((s) => s.closeContextMenu);
-  const isolateEntity = useViewerStore((s) => s.isolateEntity);
   const hideEntity = useViewerStore((s) => s.hideEntity);
   const showAll = useViewerStore((s) => s.showAll);
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
   const setSelectedEntityIds = useViewerStore((s) => s.setSelectedEntityIds);
   const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
   const resolveGlobalIdFromModels = useViewerStore((s) => s.resolveGlobalIdFromModels);
+  // Basket actions
+  const setBasket = useViewerStore((s) => s.setBasket);
+  const addToBasket = useViewerStore((s) => s.addToBasket);
+  const removeFromBasket = useViewerStore((s) => s.removeFromBasket);
+  const clearBasket = useViewerStore((s) => s.clearBasket);
   const menuRef = useRef<HTMLDivElement>(null);
   const { ifcDataStore, models } = useIfc();
 
   // Resolve contextMenu.entityId (globalId) to original expressId and model
   // This is needed because IfcDataStore uses original expressIds, not globalIds
-  const { resolvedExpressId, activeDataStore } = useMemo(() => {
+  const { resolvedExpressId, resolvedModelId, activeDataStore } = useMemo(() => {
     if (!contextMenu.entityId) {
-      return { resolvedExpressId: null, activeDataStore: ifcDataStore };
+      return { resolvedExpressId: null, resolvedModelId: null, activeDataStore: ifcDataStore };
     }
 
     // Use store-based resolver (more reliable than singleton)
@@ -45,12 +51,15 @@ export function EntityContextMenu() {
       const model = models.get(resolved.modelId);
       return {
         resolvedExpressId: resolved.expressId,
+        resolvedModelId: resolved.modelId,
         activeDataStore: model?.ifcDataStore ?? ifcDataStore,
       };
     }
 
     // Fallback for single-model mode (offset = 0)
-    return { resolvedExpressId: contextMenu.entityId, activeDataStore: ifcDataStore };
+    // Use the first model's ID or a default
+    const firstModelId = models.size > 0 ? models.keys().next().value as string : 'default';
+    return { resolvedExpressId: contextMenu.entityId, resolvedModelId: firstModelId, activeDataStore: ifcDataStore };
   }, [contextMenu.entityId, models, ifcDataStore, resolveGlobalIdFromModels]);
 
   // Close menu when clicking outside
@@ -89,12 +98,29 @@ export function EntityContextMenu() {
     closeContextMenu();
   }, [contextMenu.entityId, setSelectedEntityId, cameraCallbacks, closeContextMenu]);
 
-  const handleIsolate = useCallback(() => {
-    if (contextMenu.entityId) {
-      isolateEntity(contextMenu.entityId);
+  // Basket: = Set basket to this entity
+  const handleSetBasket = useCallback(() => {
+    if (resolvedExpressId !== null && resolvedModelId !== null) {
+      setBasket([{ modelId: resolvedModelId, expressId: resolvedExpressId }]);
     }
     closeContextMenu();
-  }, [contextMenu.entityId, isolateEntity, closeContextMenu]);
+  }, [resolvedExpressId, resolvedModelId, setBasket, closeContextMenu]);
+
+  // Basket: + Add to basket
+  const handleAddToBasket = useCallback(() => {
+    if (resolvedExpressId !== null && resolvedModelId !== null) {
+      addToBasket([{ modelId: resolvedModelId, expressId: resolvedExpressId }]);
+    }
+    closeContextMenu();
+  }, [resolvedExpressId, resolvedModelId, addToBasket, closeContextMenu]);
+
+  // Basket: − Remove from basket
+  const handleRemoveFromBasket = useCallback(() => {
+    if (resolvedExpressId !== null && resolvedModelId !== null) {
+      removeFromBasket([{ modelId: resolvedModelId, expressId: resolvedExpressId }]);
+    }
+    closeContextMenu();
+  }, [resolvedExpressId, resolvedModelId, removeFromBasket, closeContextMenu]);
 
   const handleHide = useCallback(() => {
     if (contextMenu.entityId) {
@@ -104,9 +130,10 @@ export function EntityContextMenu() {
   }, [contextMenu.entityId, hideEntity, closeContextMenu]);
 
   const handleShowAll = useCallback(() => {
+    clearBasket();
     showAll();
     closeContextMenu();
-  }, [showAll, closeContextMenu]);
+  }, [clearBasket, showAll, closeContextMenu]);
 
   const handleSelectSimilar = useCallback(() => {
     // Use resolvedExpressId (original ID) for IfcDataStore lookups
@@ -204,8 +231,14 @@ export function EntityContextMenu() {
           </div>
 
           <MenuItem icon={Maximize2} label="Zoom to" onClick={handleZoomTo} />
-          <MenuItem icon={Focus} label="Isolate" onClick={handleIsolate} />
           <MenuItem icon={EyeOff} label="Hide" onClick={handleHide} />
+
+          <div className="h-px bg-border my-1" />
+
+          {/* Basket operations */}
+          <MenuItem icon={Equal} label="Set as Basket (=)" onClick={handleSetBasket} />
+          <MenuItem icon={Plus} label="Add to Basket (+)" onClick={handleAddToBasket} />
+          <MenuItem icon={Minus} label="Remove from Basket (−)" onClick={handleRemoveFromBasket} />
 
           <div className="h-px bg-border my-1" />
 
