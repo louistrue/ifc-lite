@@ -91,18 +91,16 @@ describe('MergedExporter', () => {
 
     // Second model entities should have remapped IDs (offset = maxId of model1 = 3)
     // So #1→#4, #2→#5, #3→#6
-    // But IfcProject from model2 should be SKIPPED
+    // But IfcProject from model2 should be SKIPPED (entity not emitted)
     expect(result.content).not.toContain("#4=IFCPROJECT");
 
     // Building and Column should be remapped: #2→#5, #3→#6
     expect(result.content).toContain('#5=IFCBUILDING');
     expect(result.content).toContain('#6=IFCCOLUMN');
 
-    // Internal references should also be remapped
-    // Column originally referenced #1 (project) and #2 (building)
-    // #1 (project) is skipped, but the reference in column text gets remapped to #4
-    // #2 → #5
-    expect(result.content).toContain('#6=IFCCOLUMN');
+    // Column originally referenced #1 (project). After merge, that reference
+    // should be remapped to #1 (first model's project), NOT #4 (offset)
+    expect(result.content).toMatch(/#6=IFCCOLUMN\('g6',#1/);
 
     expect(result.stats.modelCount).toBe(2);
   });
@@ -127,23 +125,47 @@ describe('MergedExporter', () => {
     expect(result.content).not.toContain("#3=IFCDOOR"); // hidden door
   });
 
-  it('should create IfcRelAggregates linking subsequent models to first site', () => {
+  it('should preserve spatial chain by remapping project references', () => {
+    // Model1: Project#1 → (via RelAggregates#3) → Site#2
     const model1 = buildModel('m1', 'Arch', [
       [1, 'IFCPROJECT', "#1=IFCPROJECT('g1',$,'P',$,$,$,$,$,$);"],
       [2, 'IFCSITE', "#2=IFCSITE('g2',$,'S',$,$,$,$,$,$,$);"],
+      [3, 'IFCRELAGGREGATES', "#3=IFCRELAGGREGATES('r1',$,$,$,#1,(#2));"],
     ]);
 
+    // Model2: Project#1 → (via RelAggregates#4) → Site#2 → (via RelAggregates#5) → Building#3
     const model2 = buildModel('m2', 'Struct', [
       [1, 'IFCPROJECT', "#1=IFCPROJECT('g3',$,'P2',$,$,$,$,$,$);"],
-      [2, 'IFCBUILDING', "#2=IFCBUILDING('g4',$,'B',$,$,$,$,$,$,$);"],
+      [2, 'IFCSITE', "#2=IFCSITE('g4',$,'S2',$,$,$,$,$,$,$);"],
+      [3, 'IFCBUILDING', "#3=IFCBUILDING('g5',$,'B',$,$,$,$,$,$,$);"],
+      [4, 'IFCRELAGGREGATES', "#4=IFCRELAGGREGATES('r2',$,$,$,#1,(#2));"],
+      [5, 'IFCRELAGGREGATES', "#5=IFCRELAGGREGATES('r3',$,$,$,#2,(#3));"],
     ]);
 
     const exporter = new MergedExporter([model1, model2]);
     const result = exporter.export({ schema: 'IFC4', projectStrategy: 'keep-first' });
 
-    // Should have an IfcRelAggregates linking model2's building to model1's site
-    expect(result.content).toContain('IFCRELAGGREGATES');
-    expect(result.content).toContain('MergedModels');
+    // Model2's IfcProject entity should NOT be in the output
+    expect(result.content).not.toContain("IFCPROJECT('g3'");
+
+    // Model2's RelAggregates linking Project→Site should be remapped:
+    // Original: #4=IFCRELAGGREGATES('r2',$,$,$,#1,(#2))
+    // After offset (3): #7=IFCRELAGGREGATES('r2',$,$,$,#1,(#5))
+    //   #1 (project) → remapped to #1 (first model's project, NOT #4)
+    //   #2 (site) → #5 (offset by 3)
+    // This connects Model2's Site to Model1's Project
+    expect(result.content).toMatch(/#7=IFCRELAGGREGATES\('r2',\$,\$,\$,#1,\(#5\)\)/);
+
+    // Model2's RelAggregates linking Site→Building should be remapped:
+    // #8=IFCRELAGGREGATES('r3',$,$,$,#5,(#6))
+    expect(result.content).toMatch(/#8=IFCRELAGGREGATES\('r3',\$,\$,\$,#5,\(#6\)\)/);
+
+    // Both models' sites should exist
+    expect(result.content).toContain("#2=IFCSITE('g2'"); // model1 site
+    expect(result.content).toContain("#5=IFCSITE('g4'"); // model2 site (remapped)
+
+    // Model2 building should exist
+    expect(result.content).toContain("#6=IFCBUILDING('g5'");
   });
 
   it('should throw if no models provided', () => {

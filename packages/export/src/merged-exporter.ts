@@ -17,11 +17,6 @@ import { collectReferencedEntityIds, getVisibleEntityIds } from './reference-col
 /** Regex to match #ID references in STEP entity text. */
 const STEP_REF_REGEX = /#(\d+)/g;
 
-/** Entity types forming the spatial project root (deduplicated across models). */
-const PROJECT_ROOT_TYPES = new Set([
-  'IFCPROJECT',
-]);
-
 /** Entity types forming shared infrastructure (deduplicated across models). */
 const SHARED_INFRASTRUCTURE_TYPES = new Set([
   'IFCUNITASSIGNMENT',
@@ -93,13 +88,14 @@ export interface MergeExportResult {
 /**
  * Merges multiple IFC models into a single STEP file.
  *
- * Algorithm:
+ * Uses the same approach as IfcOpenShell's MergeProjects recipe:
  * 1. First model's entities use their original IDs
  * 2. Subsequent models' IDs are offset to avoid collisions
- * 3. Shared infrastructure (units, contexts) from subsequent models
- *    is deduplicated — references point to first model's versions
- * 4. IfcProject from subsequent models is skipped; their buildings
- *    are linked to the first model's site via IfcRelAggregates
+ * 3. All references to subsequent models' IfcProject are remapped to point
+ *    to the first model's IfcProject — this preserves the full spatial chain
+ *    (Project → Site → Building → Storey → Products) across all models
+ * 4. Duplicate IfcProject entities and shared infrastructure (units, contexts)
+ *    from subsequent models are skipped from the output
  */
 export class MergedExporter {
   private models: MergeModelInput[];
@@ -141,12 +137,11 @@ export class MergedExporter {
       nextAvailableId += maxId;
     }
 
-    // Collect first model's shared infrastructure IDs for deduplication
+    // Collect first model's info for deduplication
     const firstModel = this.models[0];
+    const firstModelOffset = modelOffsets.get(firstModel.id)!;
     const firstModelInfraMap = this.findInfrastructureEntities(firstModel.dataStore);
-
-    // Track IDs of IfcSite in first model for attaching other models' buildings
-    const firstModelSiteIds = this.findEntitiesByType(firstModel.dataStore, 'IFCSITE');
+    const firstProjectIds = this.findEntitiesByType(firstModel.dataStore, 'IFCPROJECT');
 
     // Process each model
     let isFirstModel = true;
@@ -171,26 +166,30 @@ export class MergedExporter {
         );
       }
 
-      // Build remap table for this model's shared entities → first model's equivalents
+      // Build remap table (references to remap) and skip set (entities to omit)
       const sharedRemap = new Map<number, number>();
+      const skipEntityIds = new Set<number>();
 
       if (!isFirstModel) {
-        // Map this model's shared infrastructure to first model's versions
-        const modelInfra = this.findInfrastructureEntities(model.dataStore);
-        for (const [type, firstModelIds] of firstModelInfraMap) {
-          const thisModelIds = modelInfra.get(type);
-          if (thisModelIds && firstModelIds.length > 0 && thisModelIds.length > 0) {
-            // Map first matching entity of this type to first model's version
-            // Apply the offset to the first model's ID since first model has offset 0
-            const firstModelOffset = modelOffsets.get(firstModel.id)!;
-            sharedRemap.set(thisModelIds[0], firstModelIds[0] + firstModelOffset);
+        // Remap this model's IfcProject references → first model's IfcProject.
+        // This preserves the spatial chain: existing IfcRelAggregates linking
+        // SecondProject→SecondSite becomes FirstProject→SecondSite.
+        const projectIds = this.findEntitiesByType(model.dataStore, 'IFCPROJECT');
+        if (firstProjectIds.length > 0) {
+          for (const pid of projectIds) {
+            sharedRemap.set(pid, firstProjectIds[0] + firstModelOffset);
+            skipEntityIds.add(pid); // Don't emit duplicate project entity
           }
         }
 
-        // Skip IfcProject from subsequent models
-        const projectIds = this.findEntitiesByType(model.dataStore, 'IFCPROJECT');
-        for (const pid of projectIds) {
-          sharedRemap.set(pid, -1); // -1 means "skip this entity"
+        // Remap and skip duplicate infrastructure (units, contexts)
+        const modelInfra = this.findInfrastructureEntities(model.dataStore);
+        for (const [type, firstIds] of firstModelInfraMap) {
+          const thisIds = modelInfra.get(type);
+          if (thisIds && firstIds.length > 0 && thisIds.length > 0) {
+            sharedRemap.set(thisIds[0], firstIds[0] + firstModelOffset);
+            skipEntityIds.add(thisIds[0]); // Don't emit duplicate infra entity
+          }
         }
       }
 
@@ -201,8 +200,8 @@ export class MergedExporter {
           continue;
         }
 
-        // Skip entities that are being deduplicated (mapped to -1 = skip)
-        if (sharedRemap.get(expressId) === -1) {
+        // Skip duplicate entities (project, infrastructure)
+        if (skipEntityIds.has(expressId)) {
           continue;
         }
 
@@ -217,25 +216,6 @@ export class MergedExporter {
         } else {
           const remapped = this.remapEntityText(entityText, offset, sharedRemap);
           allEntityLines.push(remapped);
-        }
-      }
-
-      // For subsequent models, create IfcRelAggregates linking their sites/buildings
-      // to the first model's site
-      if (!isFirstModel && firstModelSiteIds.length > 0) {
-        const firstSiteId = firstModelSiteIds[0] + (modelOffsets.get(firstModel.id) ?? 0);
-        const buildingIds = this.findEntitiesByType(model.dataStore, 'IFCBUILDING');
-        const siteIds = this.findEntitiesByType(model.dataStore, 'IFCSITE');
-        const attachIds = [...buildingIds, ...siteIds];
-
-        if (attachIds.length > 0) {
-          const remappedAttachIds = attachIds.map(id => id + offset);
-          const relId = nextAvailableId++;
-          const globalId = this.generateGlobalId();
-          const refs = remappedAttachIds.map(id => `#${id}`).join(',');
-          allEntityLines.push(
-            `#${relId}=IFCRELAGGREGATES('${globalId}',$,'MergedModels','Merged from ${model.name}',(${refs}),#${firstSiteId});`,
-          );
         }
       }
 
@@ -269,9 +249,9 @@ export class MergedExporter {
     return entityText.replace(STEP_REF_REGEX, (_match, idStr: string) => {
       const originalId = parseInt(idStr, 10);
 
-      // Check if this ID has a specific remap (shared infrastructure)
+      // Check if this ID has a specific remap (project, shared infrastructure)
       const remapped = sharedRemap.get(originalId);
-      if (remapped !== undefined && remapped !== -1) {
+      if (remapped !== undefined) {
         return `#${remapped}`;
       }
 
@@ -306,15 +286,4 @@ export class MergedExporter {
     return dataStore.entityIndex.byType.get(typeUpper) ?? [];
   }
 
-  /**
-   * Generate a new IFC GlobalId (22 character base64).
-   */
-  private generateGlobalId(): string {
-    const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$';
-    let result = '';
-    for (let i = 0; i < 22; i++) {
-      result += chars[Math.floor(Math.random() * 64)];
-    }
-    return result;
-  }
 }
