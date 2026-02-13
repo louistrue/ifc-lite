@@ -302,7 +302,7 @@ function RuleEditor({
 
   // Derived lists from discovered data
   const ifcClasses = useMemo(() => discovered?.classes ?? [], [discovered]);
-  const psetNames = useMemo(() => {
+  const psetNames = useMemo((): string[] => {
     if (!discovered?.propertySets) return [];
     return Array.from(discovered.propertySets.keys()).sort();
   }, [discovered]);
@@ -310,7 +310,7 @@ function RuleEditor({
     if (!discovered?.propertySets || !rule.criteria.propertySet) return [];
     return discovered.propertySets.get(rule.criteria.propertySet) ?? [];
   }, [discovered, rule.criteria.propertySet]);
-  const qsetNames = useMemo(() => {
+  const qsetNames = useMemo((): string[] => {
     if (!discovered?.quantitySets) return [];
     return Array.from(discovered.quantitySets.keys()).sort();
   }, [discovered]);
@@ -737,7 +737,7 @@ function AutoColorEditor({
   const [psetName, setPsetName] = useState(initial.autoColor.psetName ?? '');
   const [propertyName, setPropertyName] = useState(initial.autoColor.propertyName ?? '');
 
-  const needsPset = source === 'property' || source === 'quantity';
+  const needsPset = source === 'property' || source === 'quantity' || source === 'classification';
   const needsPropertyName = source === 'attribute' || source === 'property' || source === 'quantity';
 
   // Trigger lazy discovery when source changes to a category that needs it
@@ -758,6 +758,7 @@ function AutoColorEditor({
   const psetOptions = useMemo(() => {
     if (!discovered) return [];
     if (source === 'quantity') return discovered.quantitySets ? Array.from(discovered.quantitySets.keys()).sort() : [];
+    if (source === 'classification') return discovered.classificationSystems ?? [];
     return discovered.propertySets ? Array.from(discovered.propertySets.keys()).sort() : [];
   }, [discovered, source]);
 
@@ -834,13 +835,13 @@ function AutoColorEditor({
         {needsPset && (
           <div className="flex items-center gap-1.5">
             <label className="text-[10px] uppercase tracking-wider text-zinc-500 w-[50px]">
-              {source === 'property' ? 'Pset' : 'Qset'}
+              {source === 'property' ? 'Pset' : source === 'classification' ? 'System' : 'Qset'}
             </label>
             <SearchableSelect
               value={psetName}
               options={psetOptions}
               onChange={(v) => { setPsetName(v); setPropertyName(''); }}
-              placeholder={source === 'property' ? 'Select property set...' : 'Select quantity set...'}
+              placeholder={source === 'property' ? 'Select property set...' : source === 'classification' ? 'Select system...' : 'Select quantity set...'}
               className="flex-1"
             />
           </div>
