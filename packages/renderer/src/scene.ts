@@ -33,6 +33,12 @@ export class Scene {
   private partialBatchCache: Map<string, BatchedMesh> = new Map();
   private partialBatchCacheKeys: Map<string, string> = new Map(); // colorKey -> current cache key (for invalidation)
 
+  // Color overlay system for lens coloring — NEVER modifies original batches.
+  // Overlay batches render on top using depthCompare 'equal', so they only
+  // paint where original geometry already wrote depth. Clearing is instant.
+  private overrideBatches: BatchedMesh[] = [];
+  private colorOverrides: Map<number, [number, number, number, number]> | null = null;
+
   // Streaming optimization: track pending batch rebuilds
   private pendingBatchKeys: Set<string> = new Set();
   private lastBatchRebuildTime: number = 0;
@@ -603,6 +609,88 @@ export class Scene {
     return partialBatch;
   }
 
+  // ─── Color overlay system ────────────────────────────────────────────
+  // Builds overlay batches for lens coloring without modifying original batches.
+  // Overlay batches reuse the same geometry (re-merged from MeshData) but with
+  // override colors.  They are rendered on top of existing depth via the overlay
+  // pipeline (depthCompare 'equal'), so hidden entities never leak through.
+
+  /**
+   * Set color overrides for lens coloring.
+   * Builds overlay batches grouped by override color.
+   * Original batches are NEVER modified — clearing is instant.
+   */
+  setColorOverrides(
+    overrides: Map<number, [number, number, number, number]>,
+    device: GPUDevice,
+    pipeline: RenderPipeline
+  ): void {
+    // Destroy previous overlay batches
+    this.destroyOverrideBatches();
+
+    if (overrides.size === 0) {
+      this.colorOverrides = null;
+      return;
+    }
+
+    this.colorOverrides = overrides;
+
+    // Group expressIds by override color
+    const colorGroups = new Map<string, { color: [number, number, number, number]; meshData: MeshData[] }>();
+
+    for (const [expressId, color] of overrides) {
+      const key = this.colorKey(color);
+      let group = colorGroups.get(key);
+      if (!group) {
+        group = { color, meshData: [] };
+        colorGroups.set(key, group);
+      }
+      const pieces = this.meshDataMap.get(expressId);
+      if (pieces) {
+        for (const piece of pieces) {
+          group.meshData.push(piece);
+        }
+      }
+    }
+
+    // Build one overlay batch per override color
+    for (const [, { color, meshData }] of colorGroups) {
+      if (meshData.length === 0) continue;
+      const batch = this.createBatchedMesh(meshData, color, device, pipeline);
+      this.overrideBatches.push(batch);
+    }
+  }
+
+  /**
+   * Clear all color overrides — instant, no batch rebuild needed.
+   */
+  clearColorOverrides(): void {
+    this.destroyOverrideBatches();
+    this.colorOverrides = null;
+  }
+
+  /** Get overlay batches for rendering */
+  getOverrideBatches(): BatchedMesh[] {
+    return this.overrideBatches;
+  }
+
+  /** Check if color overrides are active */
+  hasColorOverrides(): boolean {
+    return this.overrideBatches.length > 0;
+  }
+
+  /** Destroy GPU resources for overlay batches */
+  private destroyOverrideBatches(): void {
+    for (const batch of this.overrideBatches) {
+      batch.vertexBuffer.destroy();
+      batch.indexBuffer.destroy();
+      if (batch.uniformBuffer) {
+        batch.uniformBuffer.destroy();
+      }
+    }
+    this.overrideBatches = [];
+  }
+
   /**
    * Clear regular meshes only (used when converting to instanced rendering)
    */
@@ -650,6 +738,8 @@ export class Scene {
         batch.uniformBuffer.destroy();
       }
     }
+    this.destroyOverrideBatches();
+    this.colorOverrides = null;
     this.meshes = [];
     this.instancedMeshes = [];
     this.batchedMeshes = [];

@@ -634,6 +634,18 @@ export class Renderer {
                     renderBatch(batch);
                 }
 
+                // Render color overlay batches (lens coloring) on top of original geometry.
+                // Uses 'equal' depth compare — only paints where original geometry wrote depth,
+                // so hidden entities never leak through. Original batches are never modified.
+                const overrideBatches = this.scene.getOverrideBatches();
+                if (overrideBatches.length > 0) {
+                    pass.setPipeline(this.pipeline.getOverlayPipeline());
+                    for (const batch of overrideBatches) {
+                        renderBatch(batch);
+                    }
+                    pass.setPipeline(this.pipeline.getPipeline());
+                }
+
                 // PERFORMANCE FIX: Render partially visible batches as sub-batches (not individual meshes!)
                 // This is the key optimization: instead of 10,000+ individual draw calls,
                 // we create cached sub-batches with only visible elements and render them as single draw calls

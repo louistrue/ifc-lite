@@ -372,10 +372,12 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     prevIsStreamingRef.current = isStreaming;
   }, [isStreaming, isInitialized]);
 
-  // Apply pending color updates to WebGPU scene
-  // Note: Color updates may arrive before viewport is initialized, so we wait
+  // Apply pending color updates as overlay batches (lens coloring).
+  // Uses scene.setColorOverrides() which builds overlay batches rendered on top
+  // of original geometry via depthCompare 'equal'. Original batches are NEVER
+  // modified, so clearing lens is instant (no batch rebuild).
   useEffect(() => {
-    if (!pendingColorUpdates || pendingColorUpdates.size === 0) return;
+    if (pendingColorUpdates === null) return;
 
     // Wait until viewport is initialized before applying color updates
     if (!isInitialized) return;
@@ -388,7 +390,13 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     const scene = renderer.getScene();
 
     if (device && pipeline) {
-      scene.updateMeshColors(pendingColorUpdates, device, pipeline);
+      if (pendingColorUpdates.size === 0) {
+        // Empty map = clear overrides (lens deactivated)
+        scene.clearColorOverrides();
+      } else {
+        // Non-empty map = set color overrides
+        scene.setColorOverrides(pendingColorUpdates, device, pipeline);
+      }
       renderer.render();
       clearPendingColorUpdates();
     }
