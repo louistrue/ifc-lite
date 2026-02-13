@@ -22,7 +22,7 @@
  *   lens is instant (no batch rebuild).
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import { evaluateLens, evaluateAutoColorLens, rgbaToHex, isGhostColor } from '@ifc-lite/lens';
 import { useViewerStore } from '@/store';
 import { createLensDataProvider } from '@/lib/lens';
@@ -32,6 +32,13 @@ export function useLens() {
   const activeLensId = useViewerStore((s) => s.activeLensId);
   const savedLenses = useViewerStore((s) => s.savedLenses);
 
+  // Derive the active lens object — only re-evaluates when activeLensId or
+  // the active lens entry itself changes, not when unrelated lenses are edited.
+  const activeLens = useMemo(
+    () => savedLenses.find(l => l.id === activeLensId) ?? null,
+    [activeLensId, savedLenses],
+  );
+
   // Run data discovery when models change (populates discoveredLensData in store)
   useLensDiscovery();
 
@@ -39,7 +46,6 @@ export function useLens() {
   const prevLensIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const activeLens = savedLenses.find(l => l.id === activeLensId) ?? null;
 
     // Lens deactivated — clear overlay (instant, no batch rebuild)
     if (!activeLens && prevLensIdRef.current !== null) {
@@ -98,7 +104,7 @@ export function useLens() {
     if (colorMap.size > 0) {
       useViewerStore.getState().setPendingColorUpdates(colorMap);
     }
-  }, [activeLensId, savedLenses]);
+  }, [activeLensId, activeLens]);
 
   return {
     activeLensId,

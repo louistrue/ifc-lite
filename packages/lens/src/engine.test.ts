@@ -6,7 +6,6 @@ import { describe, it, expect } from 'vitest';
 import { evaluateLens, evaluateAutoColorLens } from './engine.js';
 import { GHOST_COLOR, hexToRgba } from './colors.js';
 import type { Lens, LensDataProvider, AutoColorSpec } from './types.js';
-// uniqueColor generates unlimited distinct colors
 
 /** Simple mock provider from entity list */
 function createMockProvider(entities: Array<{
@@ -266,6 +265,112 @@ describe('evaluateAutoColorLens', () => {
 
     expect(typeof result.executionTime).toBe('number');
     expect(result.executionTime).toBeGreaterThanOrEqual(0);
+  });
+
+  it('should auto-color by property when provider supports getPropertyValue', () => {
+    const entities = [
+      { id: 1, type: 'IfcWall' },
+      { id: 2, type: 'IfcWall' },
+      { id: 3, type: 'IfcSlab' },
+    ];
+    const provider = createMockProvider(entities);
+    (provider as Record<string, unknown>).getPropertyValue = (id: number, pset: string, prop: string) => {
+      if (pset === 'Pset_WallCommon' && prop === 'IsExternal') {
+        if (id === 1) return 'True';
+        if (id === 2) return 'False';
+      }
+      return undefined;
+    };
+
+    const spec: AutoColorSpec = { source: 'property', psetName: 'Pset_WallCommon', propertyName: 'IsExternal' };
+    const result = evaluateAutoColorLens(spec, provider);
+
+    expect(result.legend.length).toBe(2); // "True" and "False"
+    expect(result.colorMap.size).toBe(3); // 2 matched + 1 ghosted (entity 3)
+    expect(result.colorMap.get(3)).toEqual(GHOST_COLOR);
+  });
+
+  it('should auto-color by quantity when provider supports getQuantityValue', () => {
+    const entities = [
+      { id: 1, type: 'IfcWall' },
+      { id: 2, type: 'IfcWall' },
+      { id: 3, type: 'IfcSlab' },
+    ];
+    const provider = createMockProvider(entities);
+    (provider as Record<string, unknown>).getQuantityValue = (id: number, qset: string, qname: string) => {
+      if (qset === 'Qto_WallBaseQuantities' && qname === 'Width') {
+        if (id === 1) return 0.3;
+        if (id === 2) return 0.3;
+      }
+      return undefined;
+    };
+
+    const spec: AutoColorSpec = { source: 'quantity', psetName: 'Qto_WallBaseQuantities', propertyName: 'Width' };
+    const result = evaluateAutoColorLens(spec, provider);
+
+    expect(result.legend.length).toBe(1); // "0.3"
+    const group = result.legend[0];
+    expect(group.count).toBe(2);
+    expect(result.colorMap.get(3)).toEqual(GHOST_COLOR);
+  });
+
+  it('should auto-color by classification when provider supports getClassifications', () => {
+    const entities = [
+      { id: 1, type: 'IfcWall' },
+      { id: 2, type: 'IfcSlab' },
+      { id: 3, type: 'IfcColumn' },
+    ];
+    const provider = createMockProvider(entities);
+    (provider as Record<string, unknown>).getClassifications = (id: number) => {
+      if (id === 1) return [{ system: 'Uniclass', identification: 'EF_25_10', name: 'Walls' }];
+      if (id === 2) return [{ system: 'Uniclass', identification: 'EF_25_30', name: 'Floors' }];
+      return [];
+    };
+
+    const spec: AutoColorSpec = { source: 'classification', psetName: 'Uniclass' };
+    const result = evaluateAutoColorLens(spec, provider);
+
+    expect(result.legend.length).toBe(2); // two classification values
+    expect(result.colorMap.get(3)).toEqual(GHOST_COLOR); // no classification → ghost
+  });
+
+  it('should auto-color by material when provider supports getMaterialName', () => {
+    const entities = [
+      { id: 1, type: 'IfcWall' },
+      { id: 2, type: 'IfcWall' },
+      { id: 3, type: 'IfcSlab' },
+    ];
+    const provider = createMockProvider(entities);
+    (provider as Record<string, unknown>).getMaterialName = (id: number) => {
+      if (id === 1) return 'Concrete';
+      if (id === 2) return 'Concrete';
+      if (id === 3) return 'Steel';
+      return undefined;
+    };
+
+    const spec: AutoColorSpec = { source: 'material' };
+    const result = evaluateAutoColorLens(spec, provider);
+
+    expect(result.legend.length).toBe(2); // "Concrete" and "Steel"
+    const concreteGroup = result.legend.find(e => e.name === 'Concrete');
+    expect(concreteGroup!.count).toBe(2);
+  });
+
+  it('should gracefully handle missing optional provider methods', () => {
+    const provider = createMockProvider([
+      { id: 1, type: 'IfcWall' },
+      { id: 2, type: 'IfcSlab' },
+    ]);
+    // Provider has no getPropertyValue, getMaterialName, etc.
+
+    const spec: AutoColorSpec = { source: 'property', psetName: 'Pset_WallCommon', propertyName: 'IsExternal' };
+    const result = evaluateAutoColorLens(spec, provider);
+
+    // All entities should be ghosted (no property data available)
+    expect(result.legend.length).toBe(0);
+    for (const [, color] of result.colorMap) {
+      expect(color).toEqual(GHOST_COLOR);
+    }
   });
 
   it('should generate unique colors for any number of distinct values', () => {

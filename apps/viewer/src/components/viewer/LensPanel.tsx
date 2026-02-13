@@ -36,18 +36,8 @@ function formatCount(n: number): string {
   return String(n);
 }
 
-/** Human-readable label for auto-color source types */
-const SOURCE_LABELS: Record<string, string> = {
-  ifcType: 'IFC Class',
-  attribute: 'Attribute',
-  property: 'Property',
-  quantity: 'Quantity',
-  classification: 'Classification',
-  material: 'Material',
-};
-
-/** Human-readable label for criteria types */
-const CRITERIA_TYPE_LABELS: Record<string, string> = {
+/** Human-readable label for source / criteria types (shared) */
+const TYPE_LABELS: Record<string, string> = {
   ifcType: 'IFC Class',
   attribute: 'Attribute',
   property: 'Property',
@@ -264,10 +254,7 @@ const AutoColorRow = memo(function AutoColorRow({
         className="w-3 h-3 rounded-sm flex-shrink-0 ring-1 ring-black/10 dark:ring-white/20"
         style={{ backgroundColor: entry.color }}
       />
-      <span className={cn(
-        'flex-1 truncate font-medium',
-        isIsolated ? 'text-zinc-900 dark:text-zinc-50' : 'text-zinc-900 dark:text-zinc-50',
-      )}>
+      <span className="flex-1 truncate font-medium text-zinc-900 dark:text-zinc-50">
         {entry.name}
       </span>
       {isIsolated && (
@@ -364,7 +351,7 @@ function RuleEditor({
         base.materialName = '';
         break;
     }
-    onChange({ criteria: base, name: rule.name === 'New Rule' ? CRITERIA_TYPE_LABELS[newType] : rule.name });
+    onChange({ criteria: base, name: rule.name === 'New Rule' ? TYPE_LABELS[newType] : rule.name });
   };
 
   /** Derive a human-readable name from the criteria */
@@ -398,7 +385,7 @@ function RuleEditor({
           onChange={(e) => handleCriteriaTypeChange(e.target.value as LensCriteria['type'])}
           className={cn(selectClass, 'w-[90px]')}
         >
-          {Object.entries(CRITERIA_TYPE_LABELS).map(([val, label]) => (
+          {Object.entries(TYPE_LABELS).map(([val, label]) => (
             <option key={val} value={val}>{label}</option>
           ))}
         </select>
@@ -833,13 +820,13 @@ function AutoColorEditor({
               setPsetName('');
               setPropertyName('');
               if (!name || name.startsWith('Color by ')) {
-                setName(`Color by ${SOURCE_LABELS[s]}`);
+                setName(`Color by ${TYPE_LABELS[s]}`);
               }
             }}
             className={cn(selectClass, 'flex-1')}
           >
             {AUTO_COLOR_SOURCES.map(s => (
-              <option key={s} value={s}>{SOURCE_LABELS[s]}</option>
+              <option key={s} value={s}>{TYPE_LABELS[s]}</option>
             ))}
           </select>
         </div>
@@ -996,7 +983,7 @@ function LensCard({
           )}
           <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-mono ml-1">
             {isAutoColor
-              ? SOURCE_LABELS[lens.autoColor!.source]
+              ? TYPE_LABELS[lens.autoColor!.source]
               : `${enabledRuleCount} rules`}
           </span>
         </div>
@@ -1077,6 +1064,13 @@ export function LensPanel({ onClose }: LensPanelProps) {
 
   // Track which categories are currently being discovered (prevent double-fire)
   const discoveringRef = useRef(new Set<string>());
+
+  // Reset discovery flags when discoveredLensData changes (e.g. new model loaded)
+  useEffect(() => {
+    if (!discoveredLensData) {
+      discoveringRef.current.clear();
+    }
+  }, [discoveredLensData]);
 
   /** Trigger lazy discovery for expensive data categories (psets, quantities, etc.) */
   const handleRequestDiscovery = useCallback((categories: { properties?: boolean; quantities?: boolean; classifications?: boolean; materials?: boolean }) => {

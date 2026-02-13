@@ -18,6 +18,7 @@ import { useViewerStore } from '@/store';
 import type { ListResult, ListRow, CellValue, ColumnDefinition } from '@ifc-lite/lists';
 import { cn } from '@/lib/utils';
 import { columnToAutoColor } from '@/lib/lists/columnToAutoColor';
+import { AUTO_COLOR_FROM_LIST_ID } from '@/store/slices/lensSlice';
 
 interface ListResultsTableProps {
   result: ListResult;
@@ -120,7 +121,7 @@ export function ListResultsTable({ result }: ListResultsTableProps) {
           {/* Header */}
           <div className="flex sticky top-0 bg-muted/80 backdrop-blur-sm border-b z-10">
             {result.columns.map((col, colIdx) => {
-              const isColoredCol = activeLensId === 'auto-color-from-list' && colorByColIdx === colIdx;
+              const isColoredCol = activeLensId === AUTO_COLOR_FROM_LIST_ID && colorByColIdx === colIdx;
               return (
                 <div
                   key={col.id}

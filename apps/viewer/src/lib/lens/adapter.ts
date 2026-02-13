@@ -188,7 +188,7 @@ export function createLensDataProvider(
       if (!qsets) return undefined;
       for (const qset of qsets) {
         if (qset.name === qsetName) {
-          for (const q of (qset as { quantities: Array<{ name: string; value: number }> }).quantities) {
+          for (const q of qset.quantities) {
             if (q.name === quantName) return q.value;
           }
         }

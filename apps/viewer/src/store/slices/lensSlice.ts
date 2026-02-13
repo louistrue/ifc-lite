@@ -26,6 +26,9 @@ export {
 /** localStorage key for persisting custom lenses */
 const STORAGE_KEY = 'ifc-lite-custom-lenses';
 
+/** Ephemeral lens ID created when coloring from list column headers */
+export const AUTO_COLOR_FROM_LIST_ID = 'auto-color-from-list';
+
 /** Built-in lens IDs — used to detect overrides */
 const BUILTIN_IDS = new Set(BUILTIN_LENSES.map(l => l.id));
 
@@ -208,7 +211,7 @@ export const createLensSlice: StateCreator<LensSlice, [], [], LensSlice> = (set,
   },
 
   activateAutoColorFromColumn: (spec, label) => set((state) => {
-    const lensId = 'auto-color-from-list';
+    const lensId = AUTO_COLOR_FROM_LIST_ID;
     const lens: Lens = {
       id: lensId,
       name: `Color by ${label}`,
