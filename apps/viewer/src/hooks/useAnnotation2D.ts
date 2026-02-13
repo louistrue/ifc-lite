@@ -10,7 +10,7 @@
  * The existing useMeasure2D hook continues to handle linear distance measurements.
  */
 
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { Drawing2D } from '@ifc-lite/drawing-2d';
 import type { Annotation2DTool, Point2D, TextAnnotation2D } from '@/store/slices/drawing2DSlice';
 import { computePolygonArea, computePolygonPerimeter } from '@/components/viewer/tools/computePolygonArea';
@@ -74,6 +74,9 @@ export function useAnnotation2D({
   setMeasure2DSnapPoint,
 }: UseAnnotation2DParams): UseAnnotation2DResult {
 
+  // Shift-constrain state for polygon area tool
+  const shiftHeldRef = useRef(false);
+
   // ── Coordinate conversion ─────────────────────────────────────────────
 
   const screenToDrawing = useCallback((screenX: number, screenY: number): Point2D => {
@@ -86,6 +89,20 @@ export function useAnnotation2D({
       y: (screenY - viewTransform.y) / scaleY,
     };
   }, [viewTransform, sectionAxis]);
+
+  // ── Orthogonal constraint (shift held) ────────────────────────────────
+
+  /** Constrain a point to horizontal or vertical relative to an anchor */
+  const applyShiftConstraint = useCallback((anchor: Point2D, point: Point2D): Point2D => {
+    const dx = Math.abs(point.x - anchor.x);
+    const dy = Math.abs(point.y - anchor.y);
+    // Lock to whichever axis has the larger delta
+    if (dx > dy) {
+      return { x: point.x, y: anchor.y }; // horizontal
+    } else {
+      return { x: anchor.x, y: point.y }; // vertical
+    }
+  }, []);
 
   // ── Snap point detection (reuses same logic as useMeasure2D) ──────────
 
@@ -169,7 +186,7 @@ export function useAnnotation2D({
     return Math.sqrt(dx * dx + dy * dy) < threshold;
   }, [polygonArea2DPoints, viewTransform.scale]);
 
-  // ── Keyboard shortcuts (Escape to cancel) ─────────────────────────────
+  // ── Keyboard shortcuts (Escape to cancel, Shift for constraint) ───────
 
   useEffect(() => {
     if (activeTool === 'none' || activeTool === 'measure') return;
@@ -180,10 +197,23 @@ export function useAnnotation2D({
         else if (activeTool === 'cloud') cancelCloudAnnotation2D();
         else if (activeTool === 'text') setTextAnnotation2DEditing(null);
       }
+      if (e.key === 'Shift') {
+        shiftHeldRef.current = true;
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') {
+        shiftHeldRef.current = false;
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
   }, [activeTool, cancelPolygonArea2D, cancelCloudAnnotation2D, setTextAnnotation2DEditing]);
 
   // ── Mouse handlers ────────────────────────────────────────────────────
@@ -199,10 +229,16 @@ export function useAnnotation2D({
     const screenY = e.clientY - rect.top;
     const drawingCoord = screenToDrawing(screenX, screenY);
     const snapPoint = findSnapPoint(drawingCoord);
-    const point = snapPoint || drawingCoord;
+    let point = snapPoint || drawingCoord;
 
     switch (activeTool) {
       case 'polygon-area': {
+        // Apply shift constraint relative to the last placed vertex
+        if (shiftHeldRef.current && polygonArea2DPoints.length > 0) {
+          const lastPt = polygonArea2DPoints[polygonArea2DPoints.length - 1];
+          point = applyShiftConstraint(lastPt, point);
+        }
+
         // Check if clicking near first vertex to close the polygon
         if (isNearFirstVertex(point)) {
           const area = computePolygonArea(polygonArea2DPoints);
@@ -228,14 +264,25 @@ export function useAnnotation2D({
         break;
       }
       case 'cloud': {
+        // Apply shift constraint for cloud second corner (square constraint)
+        if (shiftHeldRef.current && cloudAnnotation2DPoints.length === 1) {
+          const firstPt = cloudAnnotation2DPoints[0];
+          const dx = point.x - firstPt.x;
+          const dy = point.y - firstPt.y;
+          const maxDelta = Math.max(Math.abs(dx), Math.abs(dy));
+          point = {
+            x: firstPt.x + Math.sign(dx) * maxDelta,
+            y: firstPt.y + Math.sign(dy) * maxDelta,
+          };
+        }
+
         if (cloudAnnotation2DPoints.length === 0) {
           // First corner
           addCloudAnnotation2DPoint(point);
         } else {
           // Second corner - complete the cloud
           addCloudAnnotation2DPoint(point);
-          // completeCloudAnnotation2D is called with the second point already added
-          // We need to defer to next tick since state hasn't updated yet
+          // Defer to next tick since state hasn't updated yet
           setTimeout(() => completeCloudAnnotation2D(''), 0);
         }
         break;
@@ -243,7 +290,7 @@ export function useAnnotation2D({
     }
   }, [
     activeTool, containerRef, screenToDrawing, findSnapPoint, isNearFirstVertex,
-    polygonArea2DPoints, addPolygonArea2DPoint, completePolygonArea2D,
+    applyShiftConstraint, polygonArea2DPoints, addPolygonArea2DPoint, completePolygonArea2D,
     addTextAnnotation2D, setTextAnnotation2DEditing,
     cloudAnnotation2DPoints, addCloudAnnotation2DPoint, completeCloudAnnotation2D,
   ]);
@@ -263,9 +310,29 @@ export function useAnnotation2D({
     setMeasure2DSnapPoint(snapPoint);
 
     // Update cursor position for preview rendering
-    const point = snapPoint || drawingCoord;
+    let point = snapPoint || drawingCoord;
+
+    // Apply shift constraint for polygon area preview line
+    if (shiftHeldRef.current && activeTool === 'polygon-area' && polygonArea2DPoints.length > 0) {
+      const lastPt = polygonArea2DPoints[polygonArea2DPoints.length - 1];
+      point = applyShiftConstraint(lastPt, point);
+    }
+
+    // Apply shift constraint for cloud rectangle preview
+    if (shiftHeldRef.current && activeTool === 'cloud' && cloudAnnotation2DPoints.length === 1) {
+      const firstPt = cloudAnnotation2DPoints[0];
+      const dx = point.x - firstPt.x;
+      const dy = point.y - firstPt.y;
+      const maxDelta = Math.max(Math.abs(dx), Math.abs(dy));
+      point = {
+        x: firstPt.x + Math.sign(dx) * maxDelta,
+        y: firstPt.y + Math.sign(dy) * maxDelta,
+      };
+    }
+
     setAnnotation2DCursorPos(point);
-  }, [activeTool, containerRef, screenToDrawing, findSnapPoint, setMeasure2DSnapPoint, setAnnotation2DCursorPos]);
+  }, [activeTool, containerRef, screenToDrawing, findSnapPoint, setMeasure2DSnapPoint,
+    setAnnotation2DCursorPos, applyShiftConstraint, polygonArea2DPoints, cloudAnnotation2DPoints]);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     if (activeTool !== 'polygon-area') return;

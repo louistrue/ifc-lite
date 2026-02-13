@@ -202,8 +202,8 @@ export function drawCloudOnCanvas(
       const startAngle = Math.atan2(ssy - scy, ssx - scx);
       const endAngle = Math.atan2(sey - scy, sex - scx);
 
-      // Draw arc (counterclockwise for outward bulge)
-      ctx.arc(scx, scy, screenRadius, startAngle, endAngle, true);
+      // Draw arc clockwise (false) so the semicircle bulges outward from the rectangle
+      ctx.arc(scx, scy, screenRadius, startAngle, endAngle, false);
     }
   }
 
@@ -264,11 +264,9 @@ export function generateCloudSVGPath(
       }
 
       // SVG arc: A rx ry x-rotation large-arc-flag sweep-flag x y
-      // sweep-flag=0 for counterclockwise (outward bulge)
-      const scaledR = Math.abs(r); // radius in original units is fine, SVG handles transform
-      // We need the radius in transformed coordinates
+      // sweep-flag=1 for clockwise (outward bulge from rectangle)
       const trR = Math.sqrt((ex - sx) ** 2 + (ey - sy) ** 2) / 2;
-      path += ` A ${trR.toFixed(4)} ${trR.toFixed(4)} 0 0 0 ${ex.toFixed(4)} ${ey.toFixed(4)}`;
+      path += ` A ${trR.toFixed(4)} ${trR.toFixed(4)} 0 0 1 ${ex.toFixed(4)} ${ey.toFixed(4)}`;
     }
   }
 

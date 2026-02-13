@@ -76,6 +76,22 @@ describe('generateCloudSVGPath', () => {
     assert.ok(path.endsWith('Z'), 'Path should end with Z (close)');
   });
 
+  it('uses clockwise sweep flag (1) for outward-bulging arcs', () => {
+    const path = generateCloudSVGPath(
+      { x: 0, y: 0 },
+      { x: 4, y: 2 },
+      1.0,
+      (x) => x,
+      (y) => y,
+    );
+    // All arcs should use sweep-flag=1 (clockwise = outward bulge)
+    const arcMatches = path.match(/A\s+[\d.]+\s+[\d.]+\s+0\s+0\s+(\d)/g);
+    assert.ok(arcMatches && arcMatches.length > 0, 'Should have arc commands');
+    for (const match of arcMatches!) {
+      assert.ok(match.endsWith('1'), `Arc sweep flag should be 1 (clockwise/outward), got: ${match}`);
+    }
+  });
+
   it('applies coordinate transforms', () => {
     // Flip X
     const path = generateCloudSVGPath(

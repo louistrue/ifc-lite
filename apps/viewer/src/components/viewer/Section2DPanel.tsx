@@ -854,9 +854,9 @@ export function Section2DPanel({
         {annotation2DActiveTool === 'polygon-area' && (
           <div className="absolute bottom-2 right-2 pointer-events-none z-10">
             <div className="text-[10px] text-black bg-white/80 px-1.5 py-0.5 rounded">
-              {polygonArea2DPoints.length === 0 ? 'Click to place first vertex' :
-               polygonArea2DPoints.length < 3 ? `${polygonArea2DPoints.length} vertices — need at least 3` :
-               'Double-click or click first vertex to close'}
+              {polygonArea2DPoints.length === 0 ? 'Click to place first vertex · Hold Shift to constrain' :
+               polygonArea2DPoints.length < 3 ? `${polygonArea2DPoints.length} vertices — need at least 3 · Shift = constrain` :
+               'Double-click or click first vertex to close · Shift = constrain'}
             </div>
           </div>
         )}
@@ -865,7 +865,7 @@ export function Section2DPanel({
         {annotation2DActiveTool === 'cloud' && (
           <div className="absolute bottom-2 right-2 pointer-events-none z-10">
             <div className="text-[10px] text-black bg-white/80 px-1.5 py-0.5 rounded">
-              {cloudAnnotation2DPoints.length === 0 ? 'Click to place first corner' : 'Click to place second corner'}
+              {cloudAnnotation2DPoints.length === 0 ? 'Click to place first corner' : 'Click to place second corner · Shift = square'}
             </div>
           </div>
         )}

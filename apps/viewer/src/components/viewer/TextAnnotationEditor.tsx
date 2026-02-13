@@ -31,10 +31,20 @@ export function TextAnnotationEditor({
 }: TextAnnotationEditorProps): React.ReactElement {
   const [text, setText] = useState(annotation.text);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Guard against blur firing during the initial click that created this editor.
+  // Without this, the mouseup from the placement click can steal focus from the
+  // textarea before the user has a chance to type, causing an immediate cancel.
+  const readyRef = useRef(false);
 
-  // Auto-focus on mount
+  // Auto-focus on mount, but defer slightly so the originating mouseup
+  // from the placement click doesn't immediately steal focus / trigger blur.
   useEffect(() => {
-    textareaRef.current?.focus();
+    const timer = requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      // Mark ready after focus is established so blur handler is enabled
+      readyRef.current = true;
+    });
+    return () => cancelAnimationFrame(timer);
   }, []);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -55,6 +65,10 @@ export function TextAnnotationEditor({
   }, [text, annotation.id, onConfirm, onCancel]);
 
   const handleBlur = useCallback(() => {
+    // Ignore blur events that fire before the editor is fully ready
+    // (e.g. from the originating click's mouseup stealing focus)
+    if (!readyRef.current) return;
+
     const trimmed = text.trim();
     if (trimmed) {
       onConfirm(annotation.id, trimmed);
