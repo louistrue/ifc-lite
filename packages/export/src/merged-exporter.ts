@@ -24,6 +24,16 @@ const SHARED_INFRASTRUCTURE_TYPES = new Set([
   'IFCGEOMETRICREPRESENTATIONSUBCONTEXT',
 ]);
 
+/** Lookup tables for matching spatial entities from the first model. */
+interface SpatialLookup {
+  sitesByName: Map<string, number>;
+  buildingsByName: Map<string, number>;
+  storeysByName: Map<string, number>;
+  storeysByElevation: Array<{ expressId: number; elevation: number }>;
+  siteIds: number[];
+  buildingIds: number[];
+}
+
 /**
  * A model to be included in the merge, with its data store and metadata.
  */
@@ -88,14 +98,15 @@ export interface MergeExportResult {
 /**
  * Merges multiple IFC models into a single STEP file.
  *
- * Uses the same approach as IfcOpenShell's MergeProjects recipe:
+ * Uses the same approach as IfcOpenShell's MergeProjects recipe, extended
+ * with spatial hierarchy unification:
  * 1. First model's entities use their original IDs
  * 2. Subsequent models' IDs are offset to avoid collisions
- * 3. All references to subsequent models' IfcProject are remapped to point
- *    to the first model's IfcProject — this preserves the full spatial chain
- *    (Project → Site → Building → Storey → Products) across all models
- * 4. Duplicate IfcProject entities and shared infrastructure (units, contexts)
- *    from subsequent models are skipped from the output
+ * 3. IfcProject is unified — all references remapped to the first model's project
+ * 4. Spatial structure (Site, Building, Storey) is unified by name/elevation:
+ *    matching entities are remapped to the first model's equivalents so that
+ *    products from all models end up in the same unified tree
+ * 5. Duplicate entities and shared infrastructure (units, contexts) are skipped
  */
 export class MergedExporter {
   private models: MergeModelInput[];
@@ -143,6 +154,9 @@ export class MergedExporter {
     const firstModelInfraMap = this.findInfrastructureEntities(firstModel.dataStore);
     const firstProjectIds = this.findEntitiesByType(firstModel.dataStore, 'IFCPROJECT');
 
+    // Build spatial lookup from first model for Site/Building/Storey unification
+    const spatialLookup = this.buildSpatialLookup(firstModel.dataStore, decoder);
+
     // Process each model
     let isFirstModel = true;
 
@@ -172,13 +186,11 @@ export class MergedExporter {
 
       if (!isFirstModel) {
         // Remap this model's IfcProject references → first model's IfcProject.
-        // This preserves the spatial chain: existing IfcRelAggregates linking
-        // SecondProject→SecondSite becomes FirstProject→SecondSite.
         const projectIds = this.findEntitiesByType(model.dataStore, 'IFCPROJECT');
         if (firstProjectIds.length > 0) {
           for (const pid of projectIds) {
             sharedRemap.set(pid, firstProjectIds[0] + firstModelOffset);
-            skipEntityIds.add(pid); // Don't emit duplicate project entity
+            skipEntityIds.add(pid);
           }
         }
 
@@ -188,9 +200,15 @@ export class MergedExporter {
           const thisIds = modelInfra.get(type);
           if (thisIds && firstIds.length > 0 && thisIds.length > 0) {
             sharedRemap.set(thisIds[0], firstIds[0] + firstModelOffset);
-            skipEntityIds.add(thisIds[0]); // Don't emit duplicate infra entity
+            skipEntityIds.add(thisIds[0]);
           }
         }
+
+        // Unify spatial hierarchy: match Site, Building, Storey to first model
+        this.unifySpatialEntities(
+          model.dataStore, decoder, spatialLookup, firstModelOffset,
+          sharedRemap, skipEntityIds,
+        );
       }
 
       // Emit entities for this model
@@ -284,6 +302,225 @@ export class MergedExporter {
    */
   private findEntitiesByType(dataStore: IfcDataStore, typeUpper: string): number[] {
     return dataStore.entityIndex.byType.get(typeUpper) ?? [];
+  }
+
+  /**
+   * Build lookup tables from the first model's spatial entities for
+   * matching against subsequent models during merge.
+   */
+  private buildSpatialLookup(dataStore: IfcDataStore, decoder: TextDecoder): SpatialLookup {
+    const lookup: SpatialLookup = {
+      sitesByName: new Map(),
+      buildingsByName: new Map(),
+      storeysByName: new Map(),
+      storeysByElevation: [],
+      siteIds: [],
+      buildingIds: [],
+    };
+
+    for (const id of this.findEntitiesByType(dataStore, 'IFCSITE')) {
+      lookup.siteIds.push(id);
+      const name = this.extractEntityName(id, dataStore, decoder);
+      if (name) lookup.sitesByName.set(name.toLowerCase(), id);
+    }
+
+    for (const id of this.findEntitiesByType(dataStore, 'IFCBUILDING')) {
+      lookup.buildingIds.push(id);
+      const name = this.extractEntityName(id, dataStore, decoder);
+      if (name) lookup.buildingsByName.set(name.toLowerCase(), id);
+    }
+
+    for (const id of this.findEntitiesByType(dataStore, 'IFCBUILDINGSTOREY')) {
+      const name = this.extractEntityName(id, dataStore, decoder);
+      if (name) lookup.storeysByName.set(name.toLowerCase(), id);
+      const elevation = this.extractStoreyElevation(id, dataStore, decoder);
+      if (elevation !== undefined) {
+        lookup.storeysByElevation.push({ expressId: id, elevation });
+      }
+    }
+
+    return lookup;
+  }
+
+  /**
+   * Match a subsequent model's spatial entities (Site, Building, Storey)
+   * to the first model's equivalents. Matched entities are remapped and
+   * their duplicate entity is skipped from output.
+   *
+   * Matching strategy:
+   * - Sites/Buildings: by name (case-insensitive), or if only one in each model
+   * - Storeys: by name first, then by elevation (tolerance ±0.5 model units)
+   */
+  private unifySpatialEntities(
+    dataStore: IfcDataStore,
+    decoder: TextDecoder,
+    lookup: SpatialLookup,
+    firstModelOffset: number,
+    sharedRemap: Map<number, number>,
+    skipEntityIds: Set<number>,
+  ): void {
+    // Unify IfcSite
+    const sites = this.findEntitiesByType(dataStore, 'IFCSITE');
+    for (const id of sites) {
+      const name = this.extractEntityName(id, dataStore, decoder);
+      let match: number | undefined;
+      if (name) match = lookup.sitesByName.get(name.toLowerCase());
+      // If single site in both models, unify regardless of name
+      if (match === undefined && sites.length === 1 && lookup.siteIds.length === 1) {
+        match = lookup.siteIds[0];
+      }
+      if (match !== undefined) {
+        sharedRemap.set(id, match + firstModelOffset);
+        skipEntityIds.add(id);
+      }
+    }
+
+    // Unify IfcBuilding
+    const buildings = this.findEntitiesByType(dataStore, 'IFCBUILDING');
+    for (const id of buildings) {
+      const name = this.extractEntityName(id, dataStore, decoder);
+      let match: number | undefined;
+      if (name) match = lookup.buildingsByName.get(name.toLowerCase());
+      if (match === undefined && buildings.length === 1 && lookup.buildingIds.length === 1) {
+        match = lookup.buildingIds[0];
+      }
+      if (match !== undefined) {
+        sharedRemap.set(id, match + firstModelOffset);
+        skipEntityIds.add(id);
+      }
+    }
+
+    // Unify IfcBuildingStorey — name match first, then elevation fallback
+    const matchedFirstStoreys = new Set<number>();
+    for (const id of this.findEntitiesByType(dataStore, 'IFCBUILDINGSTOREY')) {
+      const name = this.extractEntityName(id, dataStore, decoder);
+      let match: number | undefined;
+
+      // Try name match
+      if (name) {
+        const candidate = lookup.storeysByName.get(name.toLowerCase());
+        if (candidate !== undefined && !matchedFirstStoreys.has(candidate)) {
+          match = candidate;
+        }
+      }
+
+      // Fallback: match by elevation
+      if (match === undefined) {
+        const elevation = this.extractStoreyElevation(id, dataStore, decoder);
+        if (elevation !== undefined) {
+          for (const entry of lookup.storeysByElevation) {
+            if (matchedFirstStoreys.has(entry.expressId)) continue;
+            const tolerance = Math.max(0.5, Math.abs(entry.elevation) * 0.01);
+            if (Math.abs(elevation - entry.elevation) <= tolerance) {
+              match = entry.expressId;
+              break;
+            }
+          }
+        }
+      }
+
+      if (match !== undefined) {
+        matchedFirstStoreys.add(match);
+        sharedRemap.set(id, match + firstModelOffset);
+        skipEntityIds.add(id);
+      }
+    }
+  }
+
+  /**
+   * Extract the Name attribute (index 2) from a STEP entity.
+   */
+  private extractEntityName(
+    expressId: number,
+    dataStore: IfcDataStore,
+    decoder: TextDecoder,
+  ): string | null {
+    const attr = this.extractStepAttribute(expressId, dataStore, decoder, 2);
+    if (!attr || attr === '$') return null;
+    if (attr.startsWith("'") && attr.endsWith("'")) {
+      return attr.slice(1, -1).replace(/''/g, "'");
+    }
+    return null;
+  }
+
+  /**
+   * Extract the Elevation attribute (index 9) from an IfcBuildingStorey.
+   */
+  private extractStoreyElevation(
+    expressId: number,
+    dataStore: IfcDataStore,
+    decoder: TextDecoder,
+  ): number | undefined {
+    const attr = this.extractStepAttribute(expressId, dataStore, decoder, 9);
+    if (!attr || attr === '$') return undefined;
+    // Handle typed value like IFCLENGTHMEASURE(3000.)
+    const typedMatch = attr.match(/^[A-Z_]+\(([^)]+)\)$/i);
+    const numStr = typedMatch ? typedMatch[1] : attr;
+    const num = parseFloat(numStr);
+    return isNaN(num) ? undefined : num;
+  }
+
+  /**
+   * Extract a specific attribute (by 0-based index) from a STEP entity's
+   * raw text. Returns the raw string value (e.g., "'Name'", "$", "#123").
+   */
+  private extractStepAttribute(
+    expressId: number,
+    dataStore: IfcDataStore,
+    decoder: TextDecoder,
+    attrIndex: number,
+  ): string | null {
+    const source = dataStore.source;
+    if (!source) return null;
+    const ref = dataStore.entityIndex.byId.get(expressId);
+    if (!ref) return null;
+
+    const entityText = decoder.decode(
+      source.subarray(ref.byteOffset, ref.byteOffset + ref.byteLength),
+    );
+
+    // Find opening paren after type name
+    const openParen = entityText.indexOf('(');
+    if (openParen === -1) return null;
+
+    let depth = 0;
+    let attrCount = 0;
+    let attrStart = openParen + 1;
+    let inString = false;
+
+    for (let i = openParen + 1; i < entityText.length; i++) {
+      const ch = entityText[i];
+
+      if (ch === "'" && !inString) {
+        inString = true;
+      } else if (ch === "'" && inString) {
+        // Check for escaped quote ''
+        if (i + 1 < entityText.length && entityText[i + 1] === "'") {
+          i++;
+          continue;
+        }
+        inString = false;
+      } else if (!inString) {
+        if (ch === '(') {
+          depth++;
+        } else if (ch === ')') {
+          if (depth === 0) {
+            return attrCount === attrIndex
+              ? entityText.substring(attrStart, i).trim()
+              : null;
+          }
+          depth--;
+        } else if (ch === ',' && depth === 0) {
+          if (attrCount === attrIndex) {
+            return entityText.substring(attrStart, i).trim();
+          }
+          attrCount++;
+          attrStart = i + 1;
+        }
+      }
+    }
+
+    return null;
   }
 
 }

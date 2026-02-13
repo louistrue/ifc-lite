@@ -365,7 +365,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md overflow-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Download className="h-5 w-5" />
@@ -398,16 +398,16 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
           <div className="flex items-center gap-4">
             <Label className="w-32">Model</Label>
             <Select value={selectedModelId} onValueChange={setSelectedModelId}>
-              <SelectTrigger>
+              <SelectTrigger className="min-w-0">
                 <SelectValue placeholder="Select model" />
               </SelectTrigger>
               <SelectContent>
                 {modelList.map((m) => (
                   <SelectItem key={m.id} value={m.id}>
-                    <div className="flex items-center gap-2">
-                      {m.name}
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="truncate">{m.name}</span>
                       {m.isDirty && (
-                        <Badge variant="secondary" className="text-xs">
+                        <Badge variant="secondary" className="text-xs shrink-0">
                           modified
                         </Badge>
                       )}

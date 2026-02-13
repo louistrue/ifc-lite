@@ -125,15 +125,15 @@ describe('MergedExporter', () => {
     expect(result.content).not.toContain("#3=IFCDOOR"); // hidden door
   });
 
-  it('should preserve spatial chain by remapping project references', () => {
-    // Model1: Project#1 → (via RelAggregates#3) → Site#2
+  it('should unify single site and remap spatial chain', () => {
+    // Model1: Project#1 → Site#2 (via RelAgg#3)
     const model1 = buildModel('m1', 'Arch', [
       [1, 'IFCPROJECT', "#1=IFCPROJECT('g1',$,'P',$,$,$,$,$,$);"],
       [2, 'IFCSITE', "#2=IFCSITE('g2',$,'S',$,$,$,$,$,$,$);"],
       [3, 'IFCRELAGGREGATES', "#3=IFCRELAGGREGATES('r1',$,$,$,#1,(#2));"],
     ]);
 
-    // Model2: Project#1 → (via RelAggregates#4) → Site#2 → (via RelAggregates#5) → Building#3
+    // Model2: Project#1 → Site#2 → Building#3
     const model2 = buildModel('m2', 'Struct', [
       [1, 'IFCPROJECT', "#1=IFCPROJECT('g3',$,'P2',$,$,$,$,$,$);"],
       [2, 'IFCSITE', "#2=IFCSITE('g4',$,'S2',$,$,$,$,$,$,$);"],
@@ -145,27 +145,101 @@ describe('MergedExporter', () => {
     const exporter = new MergedExporter([model1, model2]);
     const result = exporter.export({ schema: 'IFC4', projectStrategy: 'keep-first' });
 
-    // Model2's IfcProject entity should NOT be in the output
+    // Project and Site from model2 should be unified (single instance each)
     expect(result.content).not.toContain("IFCPROJECT('g3'");
+    expect(result.content).not.toContain("IFCSITE('g4'");
 
-    // Model2's RelAggregates linking Project→Site should be remapped:
-    // Original: #4=IFCRELAGGREGATES('r2',$,$,$,#1,(#2))
-    // After offset (3): #7=IFCRELAGGREGATES('r2',$,$,$,#1,(#5))
-    //   #1 (project) → remapped to #1 (first model's project, NOT #4)
-    //   #2 (site) → #5 (offset by 3)
-    // This connects Model2's Site to Model1's Project
-    expect(result.content).toMatch(/#7=IFCRELAGGREGATES\('r2',\$,\$,\$,#1,\(#5\)\)/);
+    // Model2's RelAgg Project→Site: both project and site remapped to model1's
+    // #7=IFCRELAGGREGATES('r2',$,$,$,#1,(#2))
+    expect(result.content).toMatch(/#7=IFCRELAGGREGATES\('r2',\$,\$,\$,#1,\(#2\)\)/);
 
-    // Model2's RelAggregates linking Site→Building should be remapped:
-    // #8=IFCRELAGGREGATES('r3',$,$,$,#5,(#6))
-    expect(result.content).toMatch(/#8=IFCRELAGGREGATES\('r3',\$,\$,\$,#5,\(#6\)\)/);
+    // Model2's RelAgg Site→Building: site→#2 (unified), building→#6 (offset)
+    // #8=IFCRELAGGREGATES('r3',$,$,$,#2,(#6))
+    expect(result.content).toMatch(/#8=IFCRELAGGREGATES\('r3',\$,\$,\$,#2,\(#6\)\)/);
 
-    // Both models' sites should exist
-    expect(result.content).toContain("#2=IFCSITE('g2'"); // model1 site
-    expect(result.content).toContain("#5=IFCSITE('g4'"); // model2 site (remapped)
-
-    // Model2 building should exist
+    // Model2's building is kept (no building in model1 to match)
     expect(result.content).toContain("#6=IFCBUILDING('g5'");
+  });
+
+  it('should unify storeys with matching names', () => {
+    // Model1: maxId=4, offset=0
+    const model1 = buildModel('m1', 'Arch', [
+      [1, 'IFCPROJECT', "#1=IFCPROJECT('g1',$,'P',$,$,$,$,$,$);"],
+      [2, 'IFCBUILDINGSTOREY', "#2=IFCBUILDINGSTOREY('g2',$,'Ground Floor',$,$,$,$,$,.ELEMENT.,0.);"],
+      [3, 'IFCBUILDINGSTOREY', "#3=IFCBUILDINGSTOREY('g3',$,'First Floor',$,$,$,$,$,.ELEMENT.,3000.);"],
+      [4, 'IFCWALL', "#4=IFCWALL('g4',$,'W1',$,#2,$,$,$);"],
+    ]);
+
+    // Model2: offset=4
+    const model2 = buildModel('m2', 'Struct', [
+      [1, 'IFCPROJECT', "#1=IFCPROJECT('g5',$,'P2',$,$,$,$,$,$);"],
+      [2, 'IFCBUILDINGSTOREY', "#2=IFCBUILDINGSTOREY('g6',$,'Ground Floor',$,$,$,$,$,.ELEMENT.,0.);"],
+      [3, 'IFCBUILDINGSTOREY', "#3=IFCBUILDINGSTOREY('g7',$,'First Floor',$,$,$,$,$,.ELEMENT.,3000.);"],
+      [4, 'IFCCOLUMN', "#4=IFCCOLUMN('g8',$,'C1',$,#2,$,$,$);"],
+      [5, 'IFCRELCONTAINEDINSPATIALSTRUCTURE', "#5=IFCRELCONTAINEDINSPATIALSTRUCTURE('r1',$,$,$,(#4),#2);"],
+    ]);
+
+    const exporter = new MergedExporter([model1, model2]);
+    const result = exporter.export({ schema: 'IFC4', projectStrategy: 'keep-first' });
+
+    // Both storeys should be unified (same names)
+    expect(result.content).not.toContain("IFCBUILDINGSTOREY('g6'");
+    expect(result.content).not.toContain("IFCBUILDINGSTOREY('g7'");
+
+    // Column from model2: #4→#8 (offset), references #2(storey)→#2 (unified)
+    expect(result.content).toMatch(/#8=IFCCOLUMN\('g8',\$,'C1',\$,#2/);
+
+    // RelContained: (#4→#8), #2→#2 (unified storey)
+    expect(result.content).toMatch(/#9=IFCRELCONTAINEDINSPATIALSTRUCTURE\('r1',\$,\$,\$,\(#8\),#2\)/);
+  });
+
+  it('should unify storeys by elevation when names differ', () => {
+    const model1 = buildModel('m1', 'Arch', [
+      [1, 'IFCPROJECT', "#1=IFCPROJECT('g1',$,'P',$,$,$,$,$,$);"],
+      [2, 'IFCBUILDINGSTOREY', "#2=IFCBUILDINGSTOREY('g2',$,'EG',$,$,$,$,$,.ELEMENT.,0.);"],
+      [3, 'IFCBUILDINGSTOREY', "#3=IFCBUILDINGSTOREY('g3',$,'OG1',$,$,$,$,$,.ELEMENT.,3000.);"],
+    ]);
+
+    const model2 = buildModel('m2', 'Struct', [
+      [1, 'IFCPROJECT', "#1=IFCPROJECT('g4',$,'P2',$,$,$,$,$,$);"],
+      [2, 'IFCBUILDINGSTOREY', "#2=IFCBUILDINGSTOREY('g5',$,'Ground',$,$,$,$,$,.ELEMENT.,0.);"],
+      [3, 'IFCBUILDINGSTOREY', "#3=IFCBUILDINGSTOREY('g6',$,'Level 1',$,$,$,$,$,.ELEMENT.,3000.);"],
+    ]);
+
+    const exporter = new MergedExporter([model1, model2]);
+    const result = exporter.export({ schema: 'IFC4', projectStrategy: 'keep-first' });
+
+    // Names differ but elevations match → storeys should be unified
+    expect(result.content).not.toContain("IFCBUILDINGSTOREY('g5'");
+    expect(result.content).not.toContain("IFCBUILDINGSTOREY('g6'");
+
+    // First model's storeys are preserved
+    expect(result.content).toContain("IFCBUILDINGSTOREY('g2'");
+    expect(result.content).toContain("IFCBUILDINGSTOREY('g3'");
+  });
+
+  it('should keep unmatched storeys as separate entities', () => {
+    // Model1: maxId=2, offset=0
+    const model1 = buildModel('m1', 'Arch', [
+      [1, 'IFCPROJECT', "#1=IFCPROJECT('g1',$,'P',$,$,$,$,$,$);"],
+      [2, 'IFCBUILDINGSTOREY', "#2=IFCBUILDINGSTOREY('g2',$,'Ground Floor',$,$,$,$,$,.ELEMENT.,0.);"],
+    ]);
+
+    // Model2: offset=2
+    const model2 = buildModel('m2', 'Struct', [
+      [1, 'IFCPROJECT', "#1=IFCPROJECT('g3',$,'P2',$,$,$,$,$,$);"],
+      [2, 'IFCBUILDINGSTOREY', "#2=IFCBUILDINGSTOREY('g4',$,'Ground Floor',$,$,$,$,$,.ELEMENT.,0.);"],
+      [3, 'IFCBUILDINGSTOREY', "#3=IFCBUILDINGSTOREY('g5',$,'Roof',$,$,$,$,$,.ELEMENT.,9000.);"],
+    ]);
+
+    const exporter = new MergedExporter([model1, model2]);
+    const result = exporter.export({ schema: 'IFC4', projectStrategy: 'keep-first' });
+
+    // Ground Floor should be unified
+    expect(result.content).not.toContain("IFCBUILDINGSTOREY('g4'");
+
+    // Roof has no match in model1 → kept as new entity (#3+2=#5)
+    expect(result.content).toContain("#5=IFCBUILDINGSTOREY('g5'");
   });
 
   it('should throw if no models provided', () => {
