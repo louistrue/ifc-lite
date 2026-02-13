@@ -10,7 +10,7 @@
  * The existing useMeasure2D hook continues to handle linear distance measurements.
  */
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect } from 'react';
 import type { Drawing2D } from '@ifc-lite/drawing-2d';
 import type { Annotation2DTool, Point2D, TextAnnotation2D } from '@/store/slices/drawing2DSlice';
 import { computePolygonArea, computePolygonPerimeter } from '@/components/viewer/tools/computePolygonArea';
@@ -73,9 +73,6 @@ export function useAnnotation2D({
   setAnnotation2DCursorPos,
   setMeasure2DSnapPoint,
 }: UseAnnotation2DParams): UseAnnotation2DResult {
-
-  const isPanning = useRef(false);
-  const lastPanPoint = useRef({ x: 0, y: 0 });
 
   // ── Coordinate conversion ─────────────────────────────────────────────
 
