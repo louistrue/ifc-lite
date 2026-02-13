@@ -157,6 +157,11 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
    * The store uses global IDs (localId + idOffset), but the exporter needs local IDs.
    */
   const getLocalHiddenIds = useCallback((modelId: string): Set<number> => {
+    // Legacy single-model path: no federation offset, global IDs = local IDs
+    if (modelId === '__legacy__') {
+      return hiddenEntities;
+    }
+
     const model = models.get(modelId);
     if (!model) return new Set();
     const offset = model.idOffset ?? 0;
@@ -167,7 +172,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
       return modelHidden; // Already local expressIds
     }
 
-    // Legacy single-model: convert global IDs to local
+    // Federated model: convert global IDs to local
     const localIds = new Set<number>();
     for (const globalId of hiddenEntities) {
       const localId = globalId - offset;
@@ -179,6 +184,11 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
   }, [models, hiddenEntities, hiddenEntitiesByModel]);
 
   const getLocalIsolatedIds = useCallback((modelId: string): Set<number> | null => {
+    // Legacy single-model path: no federation offset, global IDs = local IDs
+    if (modelId === '__legacy__') {
+      return isolatedEntities;
+    }
+
     const model = models.get(modelId);
     if (!model) return null;
     const offset = model.idOffset ?? 0;
@@ -189,7 +199,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
       return modelIsolated; // Already local expressIds
     }
 
-    // Legacy single-model: convert global IDs to local
+    // Federated model: convert global IDs to local
     if (!isolatedEntities) return null;
     const localIds = new Set<number>();
     for (const globalId of isolatedEntities) {

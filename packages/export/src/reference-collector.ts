@@ -54,21 +54,52 @@ const SPATIAL_STRUCTURE_TYPES = new Set([
 
 /**
  * Product/element entity types that have geometry and can be hidden by the user.
- * These are the ONLY types checked against visibility filters.
+ * This list covers common IFC4 subtypes of IfcProduct / IfcElement.
+ * Entities whose IDs appear in the viewer's hidden set are also treated as
+ * hidden products even if their type is not listed here (see fallback below).
  */
 const PRODUCT_TYPES = new Set([
-  'IFCWALL', 'IFCWALLSTANDARDCASE', 'IFCDOOR', 'IFCWINDOW', 'IFCSLAB',
+  // Building elements
+  'IFCWALL', 'IFCWALLSTANDARDCASE', 'IFCWALLELEMENTEDCASE',
+  'IFCDOOR', 'IFCWINDOW', 'IFCSLAB', 'IFCSLABELEMENTEDCASE',
   'IFCCOLUMN', 'IFCBEAM', 'IFCROOF', 'IFCSTAIR', 'IFCSTAIRFLIGHT',
   'IFCRAILING', 'IFCRAMP', 'IFCRAMPFLIGHT', 'IFCPLATE', 'IFCMEMBER',
   'IFCCURTAINWALL', 'IFCFOOTING', 'IFCPILE', 'IFCBUILDINGELEMENTPROXY',
-  'IFCFURNISHINGELEMENT', 'IFCFLOWSEGMENT', 'IFCFLOWTERMINAL',
-  'IFCFLOWCONTROLLER', 'IFCFLOWFITTING', 'IFCSPACE', 'IFCOPENINGELEMENT',
-  'IFCCOVERING', 'IFCPROXY', 'IFCBUILDINGPROXYTYPE',
+  'IFCCOVERING', 'IFCSHADINGDEVICE', 'IFCCHIMNEY',
+  'IFCBUILDINGELEMENTPART',
+  // Furnishing
+  'IFCFURNISHINGELEMENT', 'IFCFURNITURE', 'IFCSYSTEMFURNITUREELEMENT',
+  // Distribution / MEP
+  'IFCFLOWSEGMENT', 'IFCFLOWTERMINAL', 'IFCFLOWCONTROLLER',
+  'IFCFLOWFITTING', 'IFCFLOWSTORAGEDEVICE', 'IFCFLOWMOVINGDEVICE',
   'IFCDISTRIBUTIONELEMENT', 'IFCDISTRIBUTIONCONTROLELEMENT',
   'IFCDISTRIBUTIONFLOWELEMENT', 'IFCENERGYCONVERSIONDEVICE',
-  'IFCFLOWSTORAGEDEVICE', 'IFCFLOWMOVINGDEVICE', 'IFCFLOWTERMINALTYPE',
-  'IFCTRANSPORTELEMENT', 'IFCVIRTUALELEMENT', 'IFCGEOGRAPHICELEMENT',
-  'IFCCIVILELEMENTTYPE', 'IFCCIVILELMENT',
+  'IFCDUCTSEGMENT', 'IFCDUCTFITTING', 'IFCDUCTSILENCER',
+  'IFCPIPESEGMENT', 'IFCPIPEFITTING',
+  'IFCCABLESEGMENT', 'IFCCABLECARRIERSEGMENT',
+  'IFCCABLEFITTING', 'IFCCABLECARRIERFITTING',
+  'IFCSANITARYTERMINAL', 'IFCSTACKTERMINAL', 'IFCWASTETERMINAL',
+  'IFCAIRTERMINAL', 'IFCAIRTERMINALBOX', 'IFCAIRTOAIRHEATRECOVERY',
+  'IFCFIRESUPPRESSIONTERMINAL', 'IFCELECTRICAPPLIANCE',
+  'IFCLAMP', 'IFCLIGHTFIXTURE', 'IFCOUTLET', 'IFCJUNCTIONBOX',
+  'IFCSWITCHINGDEVICE', 'IFCPROTECTIVEDEVICE',
+  'IFCSENSOR', 'IFCALARM', 'IFCDETECTOR', 'IFCACTUATOR',
+  'IFCVALVE', 'IFCPUMP', 'IFCFAN', 'IFCCOMPRESSOR',
+  'IFCHEATEXCHANGER', 'IFCCHILLER', 'IFCBOILER', 'IFCCOOLEDBEAM',
+  'IFCCOOLINGTOWER', 'IFCUNITARYEQUIPMENT', 'IFCCOIL',
+  'IFCDAMPER', 'IFCFILTER', 'IFCHUMIDIFIER', 'IFCMEDICALDEVICE',
+  'IFCELECTRICGENERATOR', 'IFCELECTRICMOTOR', 'IFCTRANSFORMER',
+  'IFCSOLARDEVICE', 'IFCSPACEHEATER',
+  // Fasteners and accessories
+  'IFCFASTENER', 'IFCMECHANICALFASTENER', 'IFCDISCRETEACCESSORY',
+  // Openings and voids
+  'IFCOPENINGELEMENT', 'IFCVOIDINGFEATURE',
+  // Other products
+  'IFCSPACE', 'IFCPROXY', 'IFCTRANSPORTELEMENT',
+  'IFCVIRTUALELEMENT', 'IFCGEOGRAPHICELEMENT', 'IFCCIVILELEMENT',
+  'IFCGRID', 'IFCANNOTATION',
+  // Distribution ports
+  'IFCDISTRIBUTIONPORT',
 ]);
 
 /** Regex to extract all #ID references from STEP entity text. */
@@ -198,6 +229,20 @@ export function getVisibleEntityIds(
       continue;
     }
 
+    // Fallback: if the entity ID is explicitly hidden by the viewer, block it
+    // even if its type isn't in PRODUCT_TYPES (catches unknown product subtypes)
+    if (hiddenIds.has(expressId)) {
+      hiddenProductIds.add(expressId);
+      continue;
+    }
+
+    // Fallback: if isolation is active and this entity IS isolated, it must be
+    // a product the user wants to see — make it a root
+    if (isolatedIds !== null && isolatedIds.has(expressId)) {
+      roots.add(expressId);
+      continue;
+    }
+
     // All other entity types (geometry, properties, materials, type objects, etc.)
     // are NOT roots. They will only be included if transitively referenced by
     // a root entity during the closure walk. This ensures hidden products'
@@ -205,4 +250,88 @@ export function getVisibleEntityIds(
   }
 
   return { roots, hiddenProductIds };
+}
+
+/** Style-related entity types that reference geometry but aren't referenced back. */
+const STYLE_ENTITY_TYPES = new Set([
+  'IFCSTYLEDITEM',
+  'IFCSTYLEDREPRESENTATION',
+]);
+
+/**
+ * Collect style entities (IFCSTYLEDITEM, etc.) that reference geometry already
+ * in the closure, then transitively follow their style references.
+ *
+ * In IFC STEP, IFCSTYLEDITEM references a geometry RepresentationItem, but
+ * nothing references the StyledItem back. So the forward closure walk misses
+ * them entirely. This function does a reverse pass: for each styled item, check
+ * if its Item reference (first #ID in the entity) is in the closure. If yes,
+ * add the styled item and walk its style chain into the closure.
+ *
+ * Must be called AFTER collectReferencedEntityIds so the closure is complete.
+ *
+ * @param closure - The existing closure set (mutated in place)
+ * @param source - The original STEP file source buffer
+ * @param entityIndex - Full entity index with type info
+ */
+export function collectStyleEntities(
+  closure: Set<number>,
+  source: Uint8Array,
+  entityIndex: {
+    byId: Map<number, { type: string; byteOffset: number; byteLength: number }>;
+    byType: Map<string, number[]>;
+  },
+): void {
+  const decoder = new TextDecoder();
+  const queue: number[] = [];
+
+  // Find styled items whose geometry target is in the closure
+  for (const [expressId, entityRef] of entityIndex.byId) {
+    if (closure.has(expressId)) continue; // Already included
+    const typeUpper = entityRef.type.toUpperCase();
+    if (!STYLE_ENTITY_TYPES.has(typeUpper)) continue;
+
+    // Read entity text and check if any referenced ID is in the closure
+    const entityText = decoder.decode(
+      source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength),
+    );
+
+    STEP_REF_REGEX.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    let referencesClosureEntity = false;
+    while ((match = STEP_REF_REGEX.exec(entityText)) !== null) {
+      const refId = parseInt(match[1], 10);
+      if (closure.has(refId)) {
+        referencesClosureEntity = true;
+        break;
+      }
+    }
+
+    if (referencesClosureEntity) {
+      closure.add(expressId);
+      queue.push(expressId);
+    }
+  }
+
+  // Walk forward from newly added style entities to pull in their style chain
+  // (IfcPresentationStyleAssignment → IfcSurfaceStyle → IfcSurfaceStyleRendering → IfcColourRgb)
+  while (queue.length > 0) {
+    const entityId = queue.pop()!;
+    const ref = entityIndex.byId.get(entityId);
+    if (!ref) continue;
+
+    const entityText = decoder.decode(
+      source.subarray(ref.byteOffset, ref.byteOffset + ref.byteLength),
+    );
+
+    STEP_REF_REGEX.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = STEP_REF_REGEX.exec(entityText)) !== null) {
+      const referencedId = parseInt(match[1], 10);
+      if (!closure.has(referencedId) && entityIndex.byId.has(referencedId)) {
+        closure.add(referencedId);
+        queue.push(referencedId);
+      }
+    }
+  }
 }

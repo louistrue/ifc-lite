@@ -21,7 +21,7 @@ import {
 import type { MutablePropertyView } from '@ifc-lite/mutations';
 import type { PropertySet, Property } from '@ifc-lite/data';
 import { PropertyValueType } from '@ifc-lite/data';
-import { collectReferencedEntityIds, getVisibleEntityIds } from './reference-collector.js';
+import { collectReferencedEntityIds, getVisibleEntityIds, collectStyleEntities } from './reference-collector.js';
 
 /**
  * Options for STEP export
@@ -208,6 +208,14 @@ export class StepExporter {
         this.dataStore.source,
         this.dataStore.entityIndex.byId,
         hiddenProductIds,
+      );
+      // Second pass: collect IFCSTYLEDITEM entities that reference included
+      // geometry. Styled items reference geometry items but nothing references
+      // them back, so the forward closure misses them.
+      collectStyleEntities(
+        allowedEntityIds,
+        this.dataStore.source,
+        this.dataStore.entityIndex,
       );
     }
 

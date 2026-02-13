@@ -12,7 +12,7 @@
 
 import type { IfcDataStore } from '@ifc-lite/parser';
 import { generateHeader } from '@ifc-lite/parser';
-import { collectReferencedEntityIds, getVisibleEntityIds } from './reference-collector.js';
+import { collectReferencedEntityIds, getVisibleEntityIds, collectStyleEntities } from './reference-collector.js';
 
 /** Regex to match #ID references in STEP entity text. */
 const STEP_REF_REGEX = /#(\d+)/g;
@@ -178,6 +178,8 @@ export class MergedExporter {
           model.dataStore.entityIndex.byId,
           hiddenProductIds,
         );
+        // Second pass: collect style entities that reference included geometry
+        collectStyleEntities(includedEntityIds, source, model.dataStore.entityIndex);
       }
 
       // Build remap table (references to remap) and skip set (entities to omit)
