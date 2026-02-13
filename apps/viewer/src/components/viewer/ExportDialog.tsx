@@ -395,25 +395,21 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
 
           {/* Model selector (only for single-model export) */}
           {exportScope === 'single' && (
-          <div className="flex items-center gap-4">
-            <Label className="w-32">Model</Label>
+          <div className="flex items-center gap-4 overflow-hidden">
+            <Label className="w-32 shrink-0">Model</Label>
             <Select value={selectedModelId} onValueChange={setSelectedModelId}>
-              <SelectTrigger className="min-w-0">
+              <SelectTrigger className="min-w-0 overflow-hidden">
                 <SelectValue placeholder="Select model" />
               </SelectTrigger>
               <SelectContent>
-                {modelList.map((m) => (
+                {modelList.map((m) => {
+                  const displayName = m.name.length > 35 ? m.name.slice(0, 35) + '\u2026' : m.name;
+                  return (
                   <SelectItem key={m.id} value={m.id}>
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="truncate">{m.name}</span>
-                      {m.isDirty && (
-                        <Badge variant="secondary" className="text-xs shrink-0">
-                          modified
-                        </Badge>
-                      )}
-                    </div>
+                    <span title={m.name}>{displayName}{m.isDirty ? ' *' : ''}</span>
                   </SelectItem>
-                ))}
+                  );
+                })}
               </SelectContent>
             </Select>
           </div>
