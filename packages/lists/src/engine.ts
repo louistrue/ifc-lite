@@ -202,7 +202,7 @@ function getAttributeValue(entityId: number, attrName: string, provider: ListDat
       return provider.getEntityName(entityId) || null;
     case 'GlobalId':
       return provider.getEntityGlobalId(entityId) || null;
-    case 'Type':
+    case 'Class':
       return provider.getEntityTypeName(entityId) || null;
     case 'Description':
       return provider.getEntityDescription(entityId) || null;

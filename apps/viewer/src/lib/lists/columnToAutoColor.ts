@@ -21,7 +21,7 @@ import type { AutoColorSpec } from '@ifc-lite/lens';
 export function columnToAutoColor(col: ColumnDefinition): AutoColorSpec {
   switch (col.source) {
     case 'attribute':
-      if (col.propertyName === 'Type') return { source: 'ifcType' };
+      if (col.propertyName === 'Class') return { source: 'ifcType' };
       return { source: 'attribute', propertyName: col.propertyName };
     case 'property':
       return { source: 'property', psetName: col.psetName, propertyName: col.propertyName };

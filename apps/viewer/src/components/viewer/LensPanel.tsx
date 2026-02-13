@@ -390,7 +390,7 @@ function RuleEditor({
           ))}
         </select>
 
-        {/* IFC Type: searchable dropdown from discovered types */}
+        {/* IFC Class: searchable dropdown from discovered classes */}
         {criteriaType === 'ifcType' && (
           <SearchableSelect
             value={rule.criteria.ifcType ?? ''}

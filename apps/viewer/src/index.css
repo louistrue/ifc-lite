@@ -187,8 +187,14 @@ body {
   color: var(--tokyo-comment) !important;
 }
 
-.dark .text-zinc-200 {
+.dark .text-zinc-200,
+.dark .text-zinc-300 {
   color: var(--tokyo-fg-dark) !important;
+}
+
+.dark .text-zinc-700,
+.dark .text-zinc-800 {
+  color: var(--tokyo-fg) !important;
 }
 
 /* Primary accent */

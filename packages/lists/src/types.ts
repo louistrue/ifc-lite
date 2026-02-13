@@ -159,7 +159,7 @@ export interface DiscoveredColumns {
 export const ENTITY_ATTRIBUTES = [
   'Name',
   'GlobalId',
-  'Type',
+  'Class',
   'Description',
   'ObjectType',
   'Tag',

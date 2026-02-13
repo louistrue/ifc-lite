@@ -95,7 +95,7 @@ describe('executeList', () => {
       conditions: [],
       columns: [
         { id: 'name', source: 'attribute', propertyName: 'Name' },
-        { id: 'type', source: 'attribute', propertyName: 'Type' },
+        { id: 'class', source: 'attribute', propertyName: 'Class' },
       ],
     };
 
