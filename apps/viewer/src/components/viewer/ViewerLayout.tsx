@@ -113,12 +113,7 @@ export function ViewerLayout() {
     return () => window.removeEventListener('resize', checkMobile);
   }, [setIsMobile, setLeftPanelCollapsed, setRightPanelCollapsed]);
 
-  // Initialize theme on mount and sync with store
-  useEffect(() => {
-    const currentTheme = useViewerStore.getState().theme;
-    document.documentElement.classList.toggle('dark', currentTheme === 'dark');
-  }, []);
-
+  // Keep DOM class in sync when theme changes (initial class is set by inline script in index.html)
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
