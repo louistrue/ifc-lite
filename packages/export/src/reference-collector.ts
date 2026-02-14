@@ -171,6 +171,63 @@ export function collectReferencedEntityIds(
 }
 
 /**
+ * Propagate hidden status from building elements to their openings.
+ *
+ * In IFC, IfcOpeningElement is linked to its parent (wall, slab, etc.) via
+ * IfcRelVoidsElement. When the parent is hidden, the opening should also be
+ * excluded — otherwise it becomes an orphaned void in the exported file.
+ *
+ * Scans all IFCRELVOIDSELEMENT entities and for each where the
+ * RelatingBuildingElement (attr 4) is hidden, adds the RelatedOpeningElement
+ * (attr 5) to hiddenProductIds and removes the relationship from roots.
+ */
+function propagateOpeningExclusions(
+  dataStore: IfcDataStore,
+  roots: Set<number>,
+  hiddenProductIds: Set<number>,
+): void {
+  const source = dataStore.source;
+  if (!source) return;
+
+  const relVoidsIds = dataStore.entityIndex.byType.get('IFCRELVOIDSELEMENT') ?? [];
+  if (relVoidsIds.length === 0) return;
+
+  const decoder = new TextDecoder();
+
+  for (const relId of relVoidsIds) {
+    const entityRef = dataStore.entityIndex.byId.get(relId);
+    if (!entityRef) continue;
+
+    const entityText = decoder.decode(
+      source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength),
+    );
+
+    // Extract #ID references from entity body (after the opening paren).
+    // IFCRELVOIDSELEMENT(GlobalId, OwnerHistory, Name, Desc, #Relating, #Related)
+    // The last two #refs are always RelatingBuildingElement and RelatedOpeningElement.
+    const bodyStart = entityText.indexOf('(');
+    if (bodyStart === -1) continue;
+    const body = entityText.substring(bodyStart);
+
+    STEP_REF_REGEX.lastIndex = 0;
+    const refs: number[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = STEP_REF_REGEX.exec(body)) !== null) {
+      refs.push(parseInt(match[1], 10));
+    }
+
+    if (refs.length < 2) continue;
+    const relatingElementId = refs[refs.length - 2];
+    const relatedOpeningId = refs[refs.length - 1];
+
+    if (hiddenProductIds.has(relatingElementId)) {
+      hiddenProductIds.add(relatedOpeningId);
+      roots.delete(relId);
+    }
+  }
+}
+
+/**
  * Compute the root entity set and hidden product IDs for a visible-only export.
  *
  * Returns:
@@ -248,6 +305,11 @@ export function getVisibleEntityIds(
     // a root entity during the closure walk. This ensures hidden products'
     // exclusively-referenced geometry is excluded.
   }
+
+  // Propagate hidden status to openings whose parent element is hidden.
+  // IfcRelVoidsElement links a building element to its opening — if the
+  // building element (slab, wall) is hidden, the opening must be excluded too.
+  propagateOpeningExclusions(dataStore, roots, hiddenProductIds);
 
   return { roots, hiddenProductIds };
 }
