@@ -12,7 +12,7 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react';
-import { X, Download, Eye, EyeOff, Maximize2, ZoomIn, ZoomOut, Loader2, Printer, GripVertical, MoreHorizontal, RefreshCw, Pin, PinOff, Palette, Ruler, Trash2, FileText, Shapes, Box, PenTool, Hexagon, Type, Cloud } from 'lucide-react';
+import { X, Download, Eye, EyeOff, Maximize2, ZoomIn, ZoomOut, Loader2, Printer, GripVertical, MoreHorizontal, RefreshCw, Pin, PinOff, Palette, Ruler, Trash2, FileText, Shapes, Box, PenTool, Hexagon, Type, Cloud, MousePointer2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -546,6 +546,12 @@ export function Section2DPanel({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
+                  <DropdownMenuItem onClick={() => setAnnotation2DActiveTool('none')}>
+                    <MousePointer2 className="h-4 w-4 mr-2" />
+                    Select / Pan
+                    {annotation2DActiveTool === 'none' && <span className="ml-auto text-xs text-primary">Active</span>}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => setAnnotation2DActiveTool(annotation2DActiveTool === 'measure' ? 'none' : 'measure')}>
                     <Ruler className="h-4 w-4 mr-2" />
                     Distance Measure
@@ -694,6 +700,10 @@ export function Section2DPanel({
                   <DropdownMenuItem onClick={toggleSymbolicRepresentations}>
                     {displayOptions.useSymbolicRepresentations ? <Shapes className="h-4 w-4 mr-2" /> : <Box className="h-4 w-4 mr-2" />}
                     {displayOptions.useSymbolicRepresentations ? 'Symbolic (Plan)' : 'Section Cut (Body)'}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setAnnotation2DActiveTool('none')}>
+                    <MousePointer2 className="h-4 w-4 mr-2" />
+                    Select / Pan {annotation2DActiveTool === 'none' ? '(On)' : ''}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setAnnotation2DActiveTool(annotation2DActiveTool === 'measure' ? 'none' : 'measure')}>
                     <Ruler className="h-4 w-4 mr-2" />
