@@ -157,7 +157,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const theme = useViewerStore((state) => state.theme);
   const toggleTheme = useViewerStore((state) => state.toggleTheme);
   const selectedEntityId = useViewerStore((state) => state.selectedEntityId);
-  const hideEntity = useViewerStore((state) => state.hideEntity);
+  const hideEntities = useViewerStore((state) => state.hideEntities);
   const showAll = useViewerStore((state) => state.showAll);
   const clearStoreySelection = useViewerStore((state) => state.clearStoreySelection);
   const error = useViewerStore((state) => state.error);
@@ -353,12 +353,16 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const clearSelection = useViewerStore((state) => state.clearSelection);
 
   const handleHide = useCallback(() => {
-    if (selectedEntityId) {
-      hideEntity(selectedEntityId);
-      // Clear selection after hiding - element is no longer visible
+    // Hide ALL selected entities (multi-select or single)
+    const state = useViewerStore.getState();
+    const ids: number[] = state.selectedEntityIds.size > 0
+      ? Array.from(state.selectedEntityIds)
+      : selectedEntityId !== null ? [selectedEntityId] : [];
+    if (ids.length > 0) {
+      hideEntities(ids);
       clearSelection();
     }
-  }, [selectedEntityId, hideEntity, clearSelection]);
+  }, [selectedEntityId, hideEntities, clearSelection]);
 
   const handleShowAll = useCallback(() => {
     showAll();     // Clear hiddenEntities + isolatedEntities (basket contents preserved)

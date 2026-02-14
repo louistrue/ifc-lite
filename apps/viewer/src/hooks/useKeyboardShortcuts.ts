@@ -22,6 +22,18 @@ function clearMultiSelect(): void {
   }
 }
 
+/** Get all selected global IDs — multi-select if available, else single selectedEntityId */
+function getAllSelectedGlobalIds(): number[] {
+  const state = useViewerStore.getState();
+  if (state.selectedEntityIds.size > 0) {
+    return Array.from(state.selectedEntityIds);
+  }
+  if (state.selectedEntityId !== null) {
+    return [state.selectedEntityId];
+  }
+  return [];
+}
+
 /** Get current selection as EntityRef[] — multi-select if available, else single */
 function getSelectionRefsFromStore(): EntityRef[] {
   const state = useViewerStore.getState();
@@ -45,7 +57,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
   const activeTool = useViewerStore((s) => s.activeTool);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
-  const hideEntity = useViewerStore((s) => s.hideEntity);
+  const hideEntities = useViewerStore((s) => s.hideEntities);
   const showAll = useViewerStore((s) => s.showAll);
   const clearStoreySelection = useViewerStore((s) => s.clearStoreySelection);
   const toggleTheme = useViewerStore((s) => s.toggleTheme);
@@ -149,14 +161,18 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
 
     if ((key === 'delete' || key === 'backspace') && !ctrl && !shift && selectedEntityId) {
       e.preventDefault();
-      hideEntity(selectedEntityId);
+      const ids = getAllSelectedGlobalIds();
+      hideEntities(ids);
+      clearMultiSelect();
     }
     // Space to hide — skip when focused on buttons/selects/links where Space has native behavior
     if (key === ' ' && !ctrl && !shift && selectedEntityId) {
       const tag = document.activeElement?.tagName;
       if (tag !== 'BUTTON' && tag !== 'SELECT' && tag !== 'A') {
         e.preventDefault();
-        hideEntity(selectedEntityId);
+        const ids = getAllSelectedGlobalIds();
+        hideEntities(ids);
+        clearMultiSelect();
       }
     }
     if (key === 'a' && !ctrl && !shift) {
@@ -221,7 +237,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
     removeFromBasket,
     clearBasket,
     showPinboard,
-    hideEntity,
+    hideEntities,
     showAll,
     clearStoreySelection,
     toggleTheme,
