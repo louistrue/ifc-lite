@@ -64,11 +64,10 @@ export interface MergeExportOptions {
   filename?: string;
 
   /**
-   * Strategy for merging the project hierarchy:
+   * Strategy for merging the project hierarchy.
    * - 'keep-first': Keep the first model's IfcProject as the root
-   * - 'create-new': Generate a new IfcProject wrapping all models
    */
-  projectStrategy: 'keep-first' | 'create-new';
+  projectStrategy?: 'keep-first';
 
   /** Apply visibility filtering to each model before merging */
   visibleOnly?: boolean;

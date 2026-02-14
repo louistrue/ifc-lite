@@ -423,6 +423,7 @@ function propagateOpeningExclusions(
     if (hiddenProductIds.has(relatingElementId)) {
       hiddenProductIds.add(relatedOpeningId);
       roots.delete(relId);
+      roots.delete(relatedOpeningId);
     }
   }
 }
