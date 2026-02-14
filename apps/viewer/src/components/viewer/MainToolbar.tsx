@@ -308,6 +308,13 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   // Basket state
   const showPinboard = useViewerStore((state) => state.showPinboard);
 
+  // Clear multi-select state after basket operations so subsequent − targets a single entity
+  const clearMultiSelect = useCallback(() => {
+    if (selectedEntitiesSet.size > 0) {
+      useViewerStore.setState({ selectedEntitiesSet: new Set(), selectedEntityIds: new Set() });
+    }
+  }, [selectedEntitiesSet.size]);
+
   // Basket operations
   const handleSetBasket = useCallback(() => {
     // If basket already exists and user hasn't explicitly multi-selected,
@@ -320,22 +327,25 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     const refs = getSelectionRefs();
     if (refs.length > 0) {
       setBasket(refs);
+      clearMultiSelect();
     }
-  }, [getSelectionRefs, setBasket, pinboardEntities.size, selectedEntitiesSet.size, showPinboard]);
+  }, [getSelectionRefs, setBasket, pinboardEntities.size, selectedEntitiesSet.size, showPinboard, clearMultiSelect]);
 
   const handleAddToBasket = useCallback(() => {
     const refs = getSelectionRefs();
     if (refs.length > 0) {
       addToBasket(refs);
+      clearMultiSelect();
     }
-  }, [getSelectionRefs, addToBasket]);
+  }, [getSelectionRefs, addToBasket, clearMultiSelect]);
 
   const handleRemoveFromBasket = useCallback(() => {
     const refs = getSelectionRefs();
     if (refs.length > 0) {
       removeFromBasket(refs);
+      clearMultiSelect();
     }
-  }, [getSelectionRefs, removeFromBasket]);
+  }, [getSelectionRefs, removeFromBasket, clearMultiSelect]);
 
   const clearSelection = useViewerStore((state) => state.clearSelection);
 

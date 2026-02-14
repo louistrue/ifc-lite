@@ -14,6 +14,14 @@ interface KeyboardShortcutsOptions {
   enabled?: boolean;
 }
 
+/** Clear multi-select state so subsequent operations use single-entity selectedEntity */
+function clearMultiSelect(): void {
+  const state = useViewerStore.getState();
+  if (state.selectedEntitiesSet.size > 0) {
+    useViewerStore.setState({ selectedEntitiesSet: new Set(), selectedEntityIds: new Set() });
+  }
+}
+
 /** Get current selection as EntityRef[] — multi-select if available, else single */
 function getSelectionRefsFromStore(): EntityRef[] {
   const state = useViewerStore.getState();
@@ -111,6 +119,8 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
         if (refs.length > 0) {
           e.preventDefault();
           setBasket(refs);
+          // Consume multi-select so subsequent − removes a single entity
+          clearMultiSelect();
         }
       }
     }
@@ -121,6 +131,8 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       const refs = getSelectionRefsFromStore();
       if (refs.length > 0) {
         addToBasket(refs);
+        // Consume multi-select so subsequent − removes a single entity
+        clearMultiSelect();
       }
     }
 
@@ -130,6 +142,8 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       const refs = getSelectionRefsFromStore();
       if (refs.length > 0) {
         removeFromBasket(refs);
+        // Consume multi-select after removal
+        clearMultiSelect();
       }
     }
 
