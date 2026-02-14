@@ -310,15 +310,18 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
   // Basket operations
   const handleSetBasket = useCallback(() => {
+    // If basket already exists and user hasn't explicitly multi-selected,
+    // re-apply the basket instead of replacing it with a stale single selection.
+    // Only an explicit multi-selection (Ctrl+Click) should replace an existing basket.
+    if (pinboardEntities.size > 0 && selectedEntitiesSet.size === 0) {
+      showPinboard();
+      return;
+    }
     const refs = getSelectionRefs();
     if (refs.length > 0) {
-      // Selection exists → replace basket with selection
       setBasket(refs);
-    } else if (pinboardEntities.size > 0) {
-      // No selection but basket exists → re-apply basket isolation
-      showPinboard();
     }
-  }, [getSelectionRefs, setBasket, pinboardEntities.size, showPinboard]);
+  }, [getSelectionRefs, setBasket, pinboardEntities.size, selectedEntitiesSet.size, showPinboard]);
 
   const handleAddToBasket = useCallback(() => {
     const refs = getSelectionRefs();

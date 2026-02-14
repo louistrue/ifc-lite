@@ -100,13 +100,18 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
     // Basket / Visibility controls
     // I = Set basket (isolate selection as basket), or re-apply basket if no selection
     if (key === 'i' && !ctrl && !shift) {
-      const refs = getSelectionRefsFromStore();
-      if (refs.length > 0) {
-        e.preventDefault();
-        setBasket(refs);
-      } else if (useViewerStore.getState().pinboardEntities.size > 0) {
+      const state = useViewerStore.getState();
+      // If basket already exists and user hasn't explicitly multi-selected,
+      // re-apply the basket instead of replacing it with a stale single selection.
+      if (state.pinboardEntities.size > 0 && state.selectedEntitiesSet.size === 0) {
         e.preventDefault();
         showPinboard();
+      } else {
+        const refs = getSelectionRefsFromStore();
+        if (refs.length > 0) {
+          e.preventDefault();
+          setBasket(refs);
+        }
       }
     }
 
