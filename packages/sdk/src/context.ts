@@ -42,6 +42,7 @@ export class BimContext {
 
   private _queryNamespace: QueryNamespace;
   private _backend: BimBackend;
+  private _boundOn: EventsNamespace['on'];
 
   constructor(options: BimContextOptions) {
     if (options.backend) {
@@ -64,6 +65,8 @@ export class BimContext {
     this.list = new ListNamespace();
     this.spatial = new SpatialNamespace(this._backend);
     this.events = new EventsNamespace(this._backend);
+    // Cache the bound function so every access returns the same reference
+    this._boundOn = this.events.on.bind(this.events);
   }
 
   /**
@@ -89,8 +92,8 @@ export class BimContext {
    * Usage:
    *   bim.on('selection:changed', ({ refs }) => console.log(refs))
    */
-  get on() {
-    return this.events.on.bind(this.events);
+  get on(): EventsNamespace['on'] {
+    return this._boundOn;
   }
 }
 

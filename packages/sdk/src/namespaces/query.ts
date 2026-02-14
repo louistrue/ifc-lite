@@ -206,11 +206,13 @@ export class QueryBuilder {
 
   /** Execute and return count */
   count(): number {
+    // TODO: Add dedicated 'count' backend method to avoid fetching full entity data
     return (this.backend.dispatch('query', 'entities', [this.descriptor]) as EntityData[]).length;
   }
 
-  /** Execute and return just EntityRef[] (no data fetching) */
+  /** Execute and return just EntityRef[] (no property data) */
   refs(): EntityRef[] {
+    // TODO: Add dedicated 'refs' backend method to avoid fetching full entity data
     return (this.backend.dispatch('query', 'entities', [this.descriptor]) as EntityData[]).map(e => e.ref);
   }
 }

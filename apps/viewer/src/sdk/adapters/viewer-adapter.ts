@@ -46,6 +46,9 @@ export function createViewerAdapter(store: StoreApi): NamespaceAdapter {
           if (section) {
             state.setSectionPlaneAxis?.(AXIS_TO_STORE[section.axis] ?? 'down');
             state.setSectionPlanePosition?.(section.position);
+            if (section.flipped !== undefined && state.sectionPlane?.flipped !== section.flipped) {
+              state.flipSectionPlane?.();
+            }
             if (state.sectionPlane?.enabled !== section.enabled) {
               state.toggleSectionPlane?.();
             }

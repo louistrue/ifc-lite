@@ -31,7 +31,7 @@ export const viewerNodes: NodeDefinition[] = [
       sdk.viewer.colorize(entities.map(e => e.ref), color);
       return { entities };
     },
-    toCode: (params) => `bim.viewer.colorize(entities.map(e => e.ref), '${params.color}')`,
+    toCode: (params) => `bim.viewer.colorize(entities.map(e => e.ref), ${JSON.stringify(String(params.color))})`,
     fromCode: [{
       regex: /bim\.viewer\.colorize\((\w+)(?:\.map\([^)]+\))?,\s*['"]([^'"]+)['"]\)/,
       assigns: false,

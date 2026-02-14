@@ -28,7 +28,14 @@ export function entityRefToString(ref: EntityRef): EntityRefString {
 
 export function stringToEntityRef(s: EntityRefString): EntityRef {
   const idx = s.indexOf(':');
-  return { modelId: s.slice(0, idx), expressId: Number(s.slice(idx + 1)) };
+  if (idx < 1) {
+    throw new Error(`Invalid EntityRefString: "${s}" — expected "modelId:expressId"`);
+  }
+  const expressId = Number(s.slice(idx + 1));
+  if (!Number.isFinite(expressId) || expressId < 0) {
+    throw new Error(`Invalid expressId in EntityRefString: "${s}"`);
+  }
+  return { modelId: s.slice(0, idx), expressId };
 }
 
 // ============================================================================
