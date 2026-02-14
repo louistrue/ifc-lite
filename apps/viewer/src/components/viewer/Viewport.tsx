@@ -142,6 +142,11 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     const state = useViewerStore.getState();
     if (state.selectedEntitiesSet.size === 0 && state.selectedEntity) {
       addEntityToSelection(state.selectedEntity);
+      // Also seed legacy selectedEntityIds with previous entity's globalId
+      // so the renderer highlights both the old and new entity
+      if (state.selectedEntityId !== null) {
+        toggleSelection(state.selectedEntityId);
+      }
     }
 
     // Toggle the clicked entity in multi-select
