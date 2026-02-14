@@ -94,11 +94,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     // Set globalId for renderer (highlighting uses globalIds directly)
     setSelectedEntityId(globalId);
 
-    // Resolve globalId → EntityRef for property panel (single source of truth)
-    const ref = resolveEntityRef(globalId);
-    if (ref) {
-      setSelectedEntity(ref);
-    }
+    // Resolve globalId → EntityRef for property panel (single source of truth, never null)
+    setSelectedEntity(resolveEntityRef(globalId));
   }, [setSelectedEntityId, setSelectedEntity]);
 
   // Ref to always access latest handlePickForSelection from event handlers
@@ -109,9 +106,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   // Multi-select handler: Ctrl+Click adds/removes from multi-selection
   // Properly populates both selectedEntitiesSet (multi-model) and selectedEntityIds (legacy)
   const handleMultiSelect = useCallback((globalId: number) => {
-    // Resolve globalId → EntityRef (single source of truth)
+    // Resolve globalId → EntityRef (single source of truth, never null)
     const entityRef = resolveEntityRef(globalId);
-    if (!entityRef) return;
 
     // If this is the first Ctrl+click and there's already a single-selected entity,
     // add it to the multi-select set first (so it's not lost)

@@ -281,10 +281,7 @@ export function HierarchyPanel() {
         // Legacy single-model: expressId = globalId (offset is 0)
         setSelectedEntityId(elementId);
         // Also set selectedEntity for property panel (was missing, causing blank panel)
-        const ref = resolveEntityRef(elementId);
-        if (ref) {
-          setSelectedEntity(ref);
-        }
+        setSelectedEntity(resolveEntityRef(elementId));
       }
     }
   }, [selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntity, setSelectedEntities, setActiveModel, toggleExpand, unifiedStoreys, models, isolateEntities, getNodeElements]);

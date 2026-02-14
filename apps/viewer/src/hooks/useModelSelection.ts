@@ -38,10 +38,7 @@ export function useModelSelection() {
     }
 
     // Single source of truth: resolveEntityRef handles globalId → EntityRef
-    // including fallback for single-model mode (offset 0)
-    const ref = resolveEntityRef(selectedEntityId);
-    if (ref) {
-      setSelectedEntity(ref);
-    }
+    // including fallback for single-model mode (offset 0). Always returns an EntityRef.
+    setSelectedEntity(resolveEntityRef(selectedEntityId));
   }, [selectedEntityId, setSelectedEntity, models]);
 }

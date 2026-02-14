@@ -20,10 +20,12 @@ import { useViewerStore } from './index.js';
  * Resolution order:
  *  1. resolveGlobalIdFromModels (offset-based range check — the canonical path)
  *  2. First loaded model as fallback (single-model, offset 0)
+ *  3. 'legacy' sentinel for truly legacy single-model mode (no federation map)
  *
- * NEVER returns 'legacy', 'default', or any hardcoded sentinel as modelId.
+ * ALWAYS returns an EntityRef — never null.  This ensures all callers
+ * (multi-select, basket, context menu) can proceed without null-guards.
  */
-export function resolveEntityRef(globalId: number): EntityRef | null {
+export function resolveEntityRef(globalId: number): EntityRef {
   const state = useViewerStore.getState();
   const resolved = state.resolveGlobalIdFromModels(globalId);
   if (resolved) {
@@ -36,5 +38,7 @@ export function resolveEntityRef(globalId: number): EntityRef | null {
     return { modelId: firstModelId, expressId: globalId };
   }
 
-  return null;
+  // Legacy single-model mode: no models in federation map yet.
+  // 'legacy' is recognized by PropertiesPanel for fallback to legacy ifcDataStore.
+  return { modelId: 'legacy', expressId: globalId };
 }
