@@ -61,6 +61,19 @@ const DEFAULT_CODE = `// Write your BIM script here
 // The 'bim' object provides access to the SDK
 const models = bim.model.list()
 console.log('Loaded models:', models.length)
+
+// Query all entities
+const all = bim.query.all()
+console.log('Total entities:', all.length)
+
+// Count by type
+const counts = {}
+for (const e of all) {
+  counts[e.type] = (counts[e.type] || 0) + 1
+}
+for (const [type, count] of Object.entries(counts).sort((a, b) => b[1] - a[1])) {
+  console.log('  ' + type + ': ' + count)
+}
 `;
 
 export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> = (set, get) => ({

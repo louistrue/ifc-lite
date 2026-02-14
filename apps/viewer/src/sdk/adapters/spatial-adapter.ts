@@ -4,13 +4,14 @@
 
 import type { AABB, SpatialFrustum } from '@ifc-lite/sdk';
 import type { NamespaceAdapter, StoreApi } from './types.js';
+import { getModelForRef } from './model-compat.js';
 
 export function createSpatialAdapter(store: StoreApi): NamespaceAdapter {
   return {
     dispatch(method: string, args: unknown[]): unknown {
       const state = store.getState();
       const modelId = args[0] as string;
-      const model = state.models.get(modelId);
+      const model = getModelForRef(state, modelId);
       if (!model?.ifcDataStore?.spatialIndex) return [];
 
       switch (method) {

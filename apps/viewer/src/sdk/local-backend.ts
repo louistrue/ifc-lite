@@ -12,6 +12,7 @@
 
 import type { BimBackend, BimEventType } from '@ifc-lite/sdk';
 import type { NamespaceAdapter, StoreApi } from './adapters/types.js';
+import { LEGACY_MODEL_ID } from './adapters/model-compat.js';
 import { createModelAdapter } from './adapters/model-adapter.js';
 import { createQueryAdapter } from './adapters/query-adapter.js';
 import { createSelectionAdapter } from './adapters/selection-adapter.js';
@@ -60,6 +61,7 @@ export class LocalBackend implements BimBackend {
 
       case 'model:loaded':
         return this.store.subscribe((state, prev) => {
+          // Multi-model path: new model added to the Map
           if (state.models.size > prev.models.size) {
             for (const [id, model] of state.models) {
               if (!prev.models.has(id)) {
@@ -75,6 +77,19 @@ export class LocalBackend implements BimBackend {
                 });
               }
             }
+          }
+          // Legacy single-model path: ifcDataStore set while models Map is empty
+          if (state.ifcDataStore && !prev.ifcDataStore && state.models.size === 0) {
+            handler({
+              model: {
+                id: LEGACY_MODEL_ID,
+                name: 'Model',
+                schemaVersion: state.ifcDataStore.schemaVersion ?? 'IFC4',
+                entityCount: state.ifcDataStore.entities?.count ?? 0,
+                fileSize: state.ifcDataStore.source?.byteLength ?? 0,
+                loadedAt: 0,
+              },
+            });
           }
         });
 

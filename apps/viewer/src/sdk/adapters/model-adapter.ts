@@ -4,6 +4,7 @@
 
 import type { ModelInfo } from '@ifc-lite/sdk';
 import type { NamespaceAdapter, StoreApi } from './types.js';
+import { getAllModelEntries, LEGACY_MODEL_ID } from './model-compat.js';
 
 export function createModelAdapter(store: StoreApi): NamespaceAdapter {
   return {
@@ -12,7 +13,7 @@ export function createModelAdapter(store: StoreApi): NamespaceAdapter {
       switch (method) {
         case 'list': {
           const result: ModelInfo[] = [];
-          for (const [, model] of state.models) {
+          for (const [, model] of getAllModelEntries(state)) {
             result.push({
               id: model.id,
               name: model.name,
@@ -25,7 +26,8 @@ export function createModelAdapter(store: StoreApi): NamespaceAdapter {
           return result;
         }
         case 'activeId':
-          return state.activeModelId;
+          // For legacy single-model, return the sentinel ID when no active model is set
+          return state.activeModelId ?? (state.models.size === 0 && state.ifcDataStore ? LEGACY_MODEL_ID : null);
         default:
           throw new Error(`Unknown model method: ${method}`);
       }

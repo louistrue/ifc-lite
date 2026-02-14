@@ -12,6 +12,7 @@ import type {
 import type { NamespaceAdapter, StoreApi } from './types.js';
 import { EntityNode } from '@ifc-lite/query';
 import { RelationshipType } from '@ifc-lite/data';
+import { getModelForRef, getAllModelEntries } from './model-compat.js';
 
 const REL_TYPE_MAP: Record<string, RelationshipType> = {
   ContainsElements: RelationshipType.ContainsElements,
@@ -24,7 +25,7 @@ const REL_TYPE_MAP: Record<string, RelationshipType> = {
 export function createQueryAdapter(store: StoreApi): NamespaceAdapter {
   function getEntityData(ref: EntityRef): EntityData | null {
     const state = store.getState();
-    const model = state.models.get(ref.modelId);
+    const model = getModelForRef(state, ref.modelId);
     if (!model?.ifcDataStore) return null;
 
     const node = new EntityNode(model.ifcDataStore, ref.expressId);
@@ -40,7 +41,7 @@ export function createQueryAdapter(store: StoreApi): NamespaceAdapter {
 
   function getProperties(ref: EntityRef): PropertySetData[] {
     const state = store.getState();
-    const model = state.models.get(ref.modelId);
+    const model = getModelForRef(state, ref.modelId);
     if (!model?.ifcDataStore) return [];
 
     const node = new EntityNode(model.ifcDataStore, ref.expressId);
@@ -57,7 +58,7 @@ export function createQueryAdapter(store: StoreApi): NamespaceAdapter {
 
   function getQuantities(ref: EntityRef): QuantitySetData[] {
     const state = store.getState();
-    const model = state.models.get(ref.modelId);
+    const model = getModelForRef(state, ref.modelId);
     if (!model?.ifcDataStore) return [];
 
     const node = new EntityNode(model.ifcDataStore, ref.expressId);
@@ -76,8 +77,8 @@ export function createQueryAdapter(store: StoreApi): NamespaceAdapter {
     const results: EntityData[] = [];
 
     const modelEntries = descriptor.modelId
-      ? [[descriptor.modelId, state.models.get(descriptor.modelId)] as const].filter(([, m]) => m)
-      : [...state.models.entries()];
+      ? [[descriptor.modelId, getModelForRef(state, descriptor.modelId)] as const].filter(([, m]) => m)
+      : getAllModelEntries(state);
 
     for (const [modelId, model] of modelEntries) {
       if (!model?.ifcDataStore) continue;
@@ -167,7 +168,7 @@ export function createQueryAdapter(store: StoreApi): NamespaceAdapter {
           const relType = args[1] as string;
           const direction = args[2] as 'forward' | 'inverse';
           const state = store.getState();
-          const model = state.models.get(ref.modelId);
+          const model = getModelForRef(state, ref.modelId);
           if (!model?.ifcDataStore) return [];
           const relEnum = REL_TYPE_MAP[relType];
           if (relEnum === undefined) return [];

@@ -4,6 +4,7 @@
 
 import type { EntityRef } from '@ifc-lite/sdk';
 import type { NamespaceAdapter, StoreApi } from './types.js';
+import { getModelForRef } from './model-compat.js';
 
 export function createVisibilityAdapter(store: StoreApi): NamespaceAdapter {
   return {
@@ -28,7 +29,7 @@ export function createVisibilityAdapter(store: StoreApi): NamespaceAdapter {
           const refs = args[0] as EntityRef[];
           const globalIds: number[] = [];
           for (const ref of refs) {
-            const model = state.models.get(ref.modelId);
+            const model = getModelForRef(state, ref.modelId);
             if (model) {
               globalIds.push(ref.expressId + model.idOffset);
             }

@@ -5,6 +5,7 @@
 import type { NamespaceAdapter, StoreApi } from './types.js';
 import type { EntityRef, EntityData, PropertySetData } from '@ifc-lite/sdk';
 import { EntityNode } from '@ifc-lite/query';
+import { getModelForRef } from './model-compat.js';
 
 /** Options for CSV export */
 interface CsvOptions {
@@ -78,7 +79,7 @@ export function createExportAdapter(store: StoreApi): NamespaceAdapter {
   /** Resolve entity data via the query subsystem */
   function getEntityData(ref: EntityRef): EntityData | null {
     const state = store.getState();
-    const model = state.models.get(ref.modelId);
+    const model = getModelForRef(state, ref.modelId);
     if (!model?.ifcDataStore) return null;
 
     const node = new EntityNode(model.ifcDataStore, ref.expressId);
@@ -95,7 +96,7 @@ export function createExportAdapter(store: StoreApi): NamespaceAdapter {
   /** Resolve property sets for an entity */
   function getProperties(ref: EntityRef): PropertySetData[] {
     const state = store.getState();
-    const model = state.models.get(ref.modelId);
+    const model = getModelForRef(state, ref.modelId);
     if (!model?.ifcDataStore) return [];
 
     const node = new EntityNode(model.ifcDataStore, ref.expressId);

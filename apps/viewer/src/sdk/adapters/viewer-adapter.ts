@@ -4,6 +4,7 @@
 
 import type { EntityRef, SectionPlane, CameraState } from '@ifc-lite/sdk';
 import type { NamespaceAdapter, StoreApi } from './types.js';
+import { getModelForRef } from './model-compat.js';
 
 const AXIS_TO_STORE: Record<string, 'down' | 'front' | 'side'> = {
   x: 'side',
@@ -26,7 +27,7 @@ export function createViewerAdapter(store: StoreApi): NamespaceAdapter {
           const color = args[1] as [number, number, number, number];
           const colorMap = new Map<number, [number, number, number, number]>();
           for (const ref of refs) {
-            const model = state.models.get(ref.modelId);
+            const model = getModelForRef(state, ref.modelId);
             if (model) {
               const globalId = ref.expressId + model.idOffset;
               colorMap.set(globalId, color);
