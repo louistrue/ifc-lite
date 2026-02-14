@@ -1,8 +1,50 @@
 # ifc-lite Scripting Platform — Implementation Plan
 
-> **Status**: Draft — February 2026
+> **Status**: Phase 0-2 implemented in ifc-lite — February 2026
 > **Scope**: Three repositories — `ifc-lite`, `ifc-flow`, `ifc-scripts`
 > **Architecture**: SDK-first platform with QuickJS-in-WASM sandboxing and visual/code duality
+>
+> ## Implementation Status
+>
+> ### Done (ifc-lite repo)
+> - [x] `@ifc-lite/sdk` — BimContext, namespaces (model, query, viewer, mutate, lens, events), transport (broadcast, message-port), BimHost, BimBackend interface
+> - [x] `@ifc-lite/sandbox` — QuickJS-in-WASM integration, bim.* bridge, permission system, TS transpilation, memory/CPU limits
+> - [x] `@ifc-lite/node-registry` — NodeDefinition schema, NodeRegistry class, built-in nodes (query, viewer, export, script), graph-to-script compiler
+> - [x] Viewer: LocalBackend (Zustand store adapter), useBimHost hook, BroadcastChannel listener
+> - [x] Root tsconfig path aliases for all 3 new packages
+> - [x] All 3 packages build clean with `tsc`
+>
+> ### TODO (ifc-lite repo — next steps)
+> - [ ] Viewer slice refactor: migrate LensSlice, IDSSlice, BCFSlice, etc. to use SDK internally
+> - [ ] Add `bim.export` namespace (wraps @ifc-lite/export)
+> - [ ] Add `bim.ids` namespace (wraps @ifc-lite/ids)
+> - [ ] Add `bim.bcf` namespace (wraps @ifc-lite/bcf)
+> - [ ] Add `bim.drawing` namespace (wraps @ifc-lite/drawing-2d)
+> - [ ] Add `bim.list` namespace (wraps @ifc-lite/lists)
+> - [ ] Extend sandbox bridge for all new namespaces
+> - [ ] Add more built-in nodes (mutation, IDS, export, drawing)
+> - [ ] Script → Graph decompiler (AST analysis)
+> - [ ] Unit tests for SDK, sandbox, and node-registry
+> - [ ] WebSocket transport for Tauri / server-side
+>
+> ### TODO (ifc-scripts repo — new)
+> - [ ] Scaffold repo with pnpm workspaces
+> - [ ] Monaco editor with bim.* IntelliSense (load @ifc-lite/sdk .d.ts)
+> - [ ] Script runner (transpile → sandbox → execute)
+> - [ ] Viewer connection panel (BroadcastChannel bridge)
+> - [ ] Output panel (console, tables, errors)
+> - [ ] Script library (save/load, templates, import/export)
+> - [ ] CLI runner (`npx ifc-scripts run script.ts --model file.ifc`)
+>
+> ### TODO (ifc-flow repo — clean break rebuild)
+> - [ ] Strip web-ifc, IfcOpenShell, Pyodide, ifc-utils.ts, Three.js viewer
+> - [ ] Connect to @ifc-lite/sdk (BroadcastTransport or local)
+> - [ ] Auto-generate node palette from @ifc-lite/node-registry
+> - [ ] Generic NodeRenderer component from NodeDefinition
+> - [ ] Script node with Monaco editor
+> - [ ] Code view toggle (graph ↔ compiled script)
+> - [ ] Workflow executor via SDK
+> - [ ] Viewer connection mode (control real WebGPU viewer)
 
 ---
 
