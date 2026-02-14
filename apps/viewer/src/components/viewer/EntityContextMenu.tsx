@@ -18,7 +18,7 @@ import {
   Maximize2,
   Building2,
 } from 'lucide-react';
-import { useViewerStore } from '@/store';
+import { useViewerStore, resolveEntityRef } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 
 export function EntityContextMenu() {
@@ -29,7 +29,6 @@ export function EntityContextMenu() {
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
   const setSelectedEntityIds = useViewerStore((s) => s.setSelectedEntityIds);
   const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
-  const resolveGlobalIdFromModels = useViewerStore((s) => s.resolveGlobalIdFromModels);
   // Basket actions
   const setBasket = useViewerStore((s) => s.setBasket);
   const addToBasket = useViewerStore((s) => s.addToBasket);
@@ -44,22 +43,19 @@ export function EntityContextMenu() {
       return { resolvedExpressId: null, resolvedModelId: null, activeDataStore: ifcDataStore };
     }
 
-    // Use store-based resolver (more reliable than singleton)
-    const resolved = resolveGlobalIdFromModels(contextMenu.entityId);
-    if (resolved) {
-      const model = models.get(resolved.modelId);
+    // Single source of truth for globalId → EntityRef resolution
+    const ref = resolveEntityRef(contextMenu.entityId);
+    if (ref) {
+      const model = models.get(ref.modelId);
       return {
-        resolvedExpressId: resolved.expressId,
-        resolvedModelId: resolved.modelId,
+        resolvedExpressId: ref.expressId,
+        resolvedModelId: ref.modelId,
         activeDataStore: model?.ifcDataStore ?? ifcDataStore,
       };
     }
 
-    // Fallback for single-model mode (offset = 0)
-    // Use the first model's ID or a default
-    const firstModelId = models.size > 0 ? models.keys().next().value as string : 'default';
-    return { resolvedExpressId: contextMenu.entityId, resolvedModelId: firstModelId, activeDataStore: ifcDataStore };
-  }, [contextMenu.entityId, models, ifcDataStore, resolveGlobalIdFromModels]);
+    return { resolvedExpressId: contextMenu.entityId, resolvedModelId: null, activeDataStore: ifcDataStore };
+  }, [contextMenu.entityId, models, ifcDataStore]);
 
   // Close menu when clicking outside
   useEffect(() => {

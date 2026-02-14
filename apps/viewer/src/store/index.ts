@@ -43,6 +43,9 @@ export type { EntityRef, SchemaVersion, FederatedModel, MeasurementConstraintEdg
 // Re-export utility functions for entity references
 export { entityRefToString, stringToEntityRef, entityRefEquals, isIfcxDataStore } from './types.js';
 
+// Re-export single source of truth for globalId → EntityRef resolution
+export { resolveEntityRef } from './resolveEntityRef.js';
+
 // Re-export Drawing2D types
 export type { Drawing2DState, Drawing2DStatus } from './slices/drawing2DSlice.js';
 

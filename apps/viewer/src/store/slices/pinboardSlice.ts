@@ -78,6 +78,12 @@ function basketToGlobalIds(
   return globalIds;
 }
 
+/** Compute a single EntityRef's global ID */
+function refToGlobalId(ref: EntityRef, models?: Map<string, { idOffset: number }>): number {
+  const model = models?.get(ref.modelId);
+  return ref.expressId + (model?.idOffset ?? 0);
+}
+
 export const createPinboardSlice: StateCreator<PinboardSlice, [], [], PinboardSlice> = (set, get) => ({
   // Initial state
   pinboardEntities: new Set(),
@@ -187,7 +193,7 @@ export const createPinboardSlice: StateCreator<PinboardSlice, [], [], PinboardSl
     set({ pinboardEntities: next, isolatedEntities, hiddenEntities });
   },
 
-  /** + Add entities to basket and update isolation */
+  /** + Add entities to basket and update isolation (incremental — avoids re-parsing all strings) */
   addToBasket: (refs) => {
     if (refs.length === 0) return;
     set((state) => {
@@ -197,18 +203,19 @@ export const createPinboardSlice: StateCreator<PinboardSlice, [], [], PinboardSl
       }
       const store = state as unknown as CombinedStoreAccess;
       const hiddenEntities = new Set<number>(store.hiddenEntities ?? []);
-      // Unhide entities being added
+      // Incrementally add new globalIds to existing isolation set instead of re-parsing all
+      const prevIsolated = store.isolatedEntities;
+      const isolatedEntities = prevIsolated ? new Set<number>(prevIsolated) : basketToGlobalIds(state.pinboardEntities, store.models);
       for (const ref of refs) {
-        const model = store.models?.get(ref.modelId);
-        const offset = model?.idOffset ?? 0;
-        hiddenEntities.delete(ref.expressId + offset);
+        const gid = refToGlobalId(ref, store.models);
+        isolatedEntities.add(gid);
+        hiddenEntities.delete(gid);
       }
-      const isolatedEntities = basketToGlobalIds(next, store.models);
       return { pinboardEntities: next, isolatedEntities, hiddenEntities };
     });
   },
 
-  /** − Remove entities from basket and update isolation */
+  /** − Remove entities from basket and update isolation (incremental — avoids re-parsing all strings) */
   removeFromBasket: (refs) => {
     if (refs.length === 0) return;
     set((state) => {
@@ -220,6 +227,16 @@ export const createPinboardSlice: StateCreator<PinboardSlice, [], [], PinboardSl
         return { pinboardEntities: next, isolatedEntities: null };
       }
       const store = state as unknown as CombinedStoreAccess;
+      // Incrementally remove globalIds from existing isolation set instead of re-parsing all
+      const prevIsolated = store.isolatedEntities;
+      if (prevIsolated) {
+        const isolatedEntities = new Set<number>(prevIsolated);
+        for (const ref of refs) {
+          isolatedEntities.delete(refToGlobalId(ref, store.models));
+        }
+        return { pinboardEntities: next, isolatedEntities };
+      }
+      // Fallback: full recompute if no existing isolation set
       const isolatedEntities = basketToGlobalIds(next, store.models);
       return { pinboardEntities: next, isolatedEntities };
     });

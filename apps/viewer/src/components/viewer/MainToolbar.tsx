@@ -182,8 +182,8 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const addToBasket = useViewerStore((state) => state.addToBasket);
   const removeFromBasket = useViewerStore((state) => state.removeFromBasket);
   const clearBasket = useViewerStore((state) => state.clearBasket);
-  const selectedEntity = useViewerStore((state) => state.selectedEntity);
-  const selectedEntitiesSet = useViewerStore((state) => state.selectedEntitiesSet);
+  // NOTE: selectedEntity and selectedEntitiesSet accessed via getState() in callbacks
+  // to avoid re-rendering MainToolbar on every Cmd+Click selection change.
   // Lens state
   const lensPanelVisible = useViewerStore((state) => state.lensPanelVisible);
   const toggleLensPanel = useViewerStore((state) => state.toggleLensPanel);
@@ -288,20 +288,21 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     e.target.value = '';
   }, [loadFilesSequentially, addIfcxOverlays, ifcDataStore]);
 
-  /** Get current selection as EntityRef[] — uses multi-select if available, else single */
+  /** Get current selection as EntityRef[] — uses getState() to avoid reactive subscriptions */
   const getSelectionRefs = useCallback((): EntityRef[] => {
-    if (selectedEntitiesSet.size > 0) {
+    const state = useViewerStore.getState();
+    if (state.selectedEntitiesSet.size > 0) {
       const refs: EntityRef[] = [];
-      for (const str of selectedEntitiesSet) {
+      for (const str of state.selectedEntitiesSet) {
         refs.push(stringToEntityRef(str));
       }
       return refs;
     }
-    if (selectedEntity) {
-      return [selectedEntity];
+    if (state.selectedEntity) {
+      return [state.selectedEntity];
     }
     return [];
-  }, [selectedEntitiesSet, selectedEntity]);
+  }, []);
 
   const hasSelection = selectedEntityId !== null;
 
@@ -310,17 +311,19 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
   // Clear multi-select state after basket operations so subsequent − targets a single entity
   const clearMultiSelect = useCallback(() => {
-    if (selectedEntitiesSet.size > 0) {
+    const state = useViewerStore.getState();
+    if (state.selectedEntitiesSet.size > 0) {
       useViewerStore.setState({ selectedEntitiesSet: new Set(), selectedEntityIds: new Set() });
     }
-  }, [selectedEntitiesSet.size]);
+  }, []);
 
   // Basket operations
   const handleSetBasket = useCallback(() => {
+    const state = useViewerStore.getState();
     // If basket already exists and user hasn't explicitly multi-selected,
     // re-apply the basket instead of replacing it with a stale single selection.
     // Only an explicit multi-selection (Ctrl+Click) should replace an existing basket.
-    if (pinboardEntities.size > 0 && selectedEntitiesSet.size === 0) {
+    if (state.pinboardEntities.size > 0 && state.selectedEntitiesSet.size === 0) {
       showPinboard();
       return;
     }
@@ -329,7 +332,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       setBasket(refs);
       clearMultiSelect();
     }
-  }, [getSelectionRefs, setBasket, pinboardEntities.size, selectedEntitiesSet.size, showPinboard, clearMultiSelect]);
+  }, [getSelectionRefs, setBasket, showPinboard, clearMultiSelect]);
 
   const handleAddToBasket = useCallback(() => {
     const refs = getSelectionRefs();

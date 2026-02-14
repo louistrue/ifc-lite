@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { Renderer } from '@ifc-lite/renderer';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
-import { useViewerStore, type MeasurePoint, type SnapVisualization } from '@/store';
+import { useViewerStore, resolveEntityRef, type MeasurePoint, type SnapVisualization } from '@/store';
 import {
   useSelectionState,
   useVisibilityState,
@@ -53,11 +53,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   // Selection state
   const { selectedEntityId, selectedEntityIds, setSelectedEntityId, setSelectedEntity, toggleSelection, models } = useSelectionState();
   const selectedEntity = useViewerStore((s) => s.selectedEntity);
-  const selectedEntitiesSet = useViewerStore((s) => s.selectedEntitiesSet);
   const addEntityToSelection = useViewerStore((s) => s.addEntityToSelection);
   const toggleEntitySelection = useViewerStore((s) => s.toggleEntitySelection);
-  // Get the bulletproof store-based resolver (more reliable than singleton)
-  const resolveGlobalIdFromModels = useViewerStore((s) => s.resolveGlobalIdFromModels);
 
   // Sync selectedEntityId with model-aware selectedEntity for PropertiesPanel
   useModelSelection();
@@ -79,8 +76,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
 
   // Helper to handle pick result and set selection properly
   // IMPORTANT: pickResult.expressId is now a globalId (transformed at load time)
-  // We use the store-based resolver to find (modelId, originalExpressId)
-  // This is more reliable than the singleton registry which can have bundling issues
+  // resolveEntityRef is the single source of truth for globalId → EntityRef
   const handlePickForSelection = useCallback((pickResult: import('@ifc-lite/renderer').PickResult | null) => {
     // Normal click clears multi-select set (fresh single-selection)
     const currentState = useViewerStore.getState();
@@ -98,23 +94,12 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     // Set globalId for renderer (highlighting uses globalIds directly)
     setSelectedEntityId(globalId);
 
-    // Resolve globalId -> (modelId, originalExpressId) for property panel
-    // Use store-based resolver instead of singleton for reliability
-    const resolved = resolveGlobalIdFromModels(globalId);
-    if (resolved) {
-      // Set the EntityRef with ORIGINAL expressId (for property lookup in IfcDataStore)
-      setSelectedEntity({ modelId: resolved.modelId, expressId: resolved.expressId });
-    } else {
-      // Fallback for single-model mode (offset = 0, globalId = expressId)
-      // Try to find model from the old modelIndex if available
-      if (pickResult.modelIndex !== undefined && modelIndexToId) {
-        const modelId = modelIndexToId.get(pickResult.modelIndex);
-        if (modelId) {
-          setSelectedEntity({ modelId, expressId: globalId });
-        }
-      }
+    // Resolve globalId → EntityRef for property panel (single source of truth)
+    const ref = resolveEntityRef(globalId);
+    if (ref) {
+      setSelectedEntity(ref);
     }
-  }, [setSelectedEntityId, setSelectedEntity, resolveGlobalIdFromModels, modelIndexToId]);
+  }, [setSelectedEntityId, setSelectedEntity]);
 
   // Ref to always access latest handlePickForSelection from event handlers
   // (useMouseControls/useTouchControls capture this at effect setup time)
@@ -124,17 +109,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   // Multi-select handler: Ctrl+Click adds/removes from multi-selection
   // Properly populates both selectedEntitiesSet (multi-model) and selectedEntityIds (legacy)
   const handleMultiSelect = useCallback((globalId: number) => {
-    // Resolve globalId → EntityRef
-    const resolved = resolveGlobalIdFromModels(globalId);
-    let entityRef: import('@/store').EntityRef | null = null;
-    if (resolved) {
-      entityRef = { modelId: resolved.modelId, expressId: resolved.expressId };
-    } else if (modelIndexToId) {
-      // Fallback for single-model mode
-      const firstModelId = models.size > 0 ? models.keys().next().value as string : 'default';
-      entityRef = { modelId: firstModelId, expressId: globalId };
-    }
-
+    // Resolve globalId → EntityRef (single source of truth)
+    const entityRef = resolveEntityRef(globalId);
     if (!entityRef) return;
 
     // If this is the first Ctrl+click and there's already a single-selected entity,
@@ -157,7 +133,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
 
     // Ensure selectedEntityId is set for renderer highlighting
     setSelectedEntityId(globalId);
-  }, [resolveGlobalIdFromModels, modelIndexToId, models, addEntityToSelection, toggleEntitySelection, toggleSelection, setSelectedEntityId]);
+  }, [addEntityToSelection, toggleEntitySelection, toggleSelection, setSelectedEntityId]);
 
   const handleMultiSelectRef = useRef(handleMultiSelect);
   useEffect(() => { handleMultiSelectRef.current = handleMultiSelect; }, [handleMultiSelect]);
