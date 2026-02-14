@@ -139,6 +139,21 @@ export class BimHost {
       case 'mutate.undo': return this.backend.undo(args[0] as string);
       case 'mutate.redo': return this.backend.redo(args[0] as string);
 
+      // Spatial
+      case 'spatial.queryBounds': return this.backend.queryBounds(
+        args[0] as string,
+        args[1] as Parameters<BimBackend['queryBounds']>[1],
+      );
+      case 'spatial.raycast': return this.backend.spatialRaycast(
+        args[0] as string,
+        args[1] as [number, number, number],
+        args[2] as [number, number, number],
+      );
+      case 'spatial.queryFrustum': return this.backend.queryFrustum(
+        args[0] as string,
+        args[1] as Parameters<BimBackend['queryFrustum']>[1],
+      );
+
       default:
         throw new Error(`Unknown SDK method: ${namespace}.${method}`);
     }

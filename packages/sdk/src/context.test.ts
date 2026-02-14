@@ -38,6 +38,10 @@ function createMockBackend(): BimBackend {
     deleteProperty: vi.fn(),
     undo: vi.fn(() => false),
     redo: vi.fn(() => false),
+    // Spatial
+    queryBounds: vi.fn(() => []),
+    spatialRaycast: vi.fn(() => []),
+    queryFrustum: vi.fn(() => []),
     // Events
     subscribe: vi.fn(() => () => {}),
   } as unknown as BimBackend;
@@ -59,6 +63,7 @@ describe('BimContext', () => {
     expect(bim.drawing).toBeDefined();
     expect(bim.list).toBeDefined();
     expect(bim.events).toBeDefined();
+    expect(bim.spatial).toBeDefined();
   });
 
   it('throws without backend or transport', () => {
@@ -256,6 +261,47 @@ describe('LensNamespace', () => {
     });
     expect(lens.id).toBeDefined();
     expect(lens.name).toBe('Test Lens');
+  });
+});
+
+describe('SpatialNamespace', () => {
+  it('queryBounds() calls backend', () => {
+    const backend = createMockBackend();
+    (backend.queryBounds as ReturnType<typeof vi.fn>).mockReturnValue([
+      { modelId: 'm', expressId: 1 },
+      { modelId: 'm', expressId: 2 },
+    ]);
+
+    const bim = createBimContext({ backend });
+    const refs = bim.spatial.queryBounds('m', {
+      min: [0, 0, 0],
+      max: [10, 10, 10],
+    });
+
+    expect(refs).toHaveLength(2);
+    expect(backend.queryBounds).toHaveBeenCalledWith('m', {
+      min: [0, 0, 0],
+      max: [10, 10, 10],
+    });
+  });
+
+  it('raycast() calls backend', () => {
+    const backend = createMockBackend();
+    const bim = createBimContext({ backend });
+
+    bim.spatial.raycast('m', [0, 0, 0], [1, 0, 0]);
+    expect(backend.spatialRaycast).toHaveBeenCalledWith('m', [0, 0, 0], [1, 0, 0]);
+  });
+
+  it('queryRadius() converts to AABB and calls backend', () => {
+    const backend = createMockBackend();
+    const bim = createBimContext({ backend });
+
+    bim.spatial.queryRadius('m', [5, 5, 5], 2);
+    expect(backend.queryBounds).toHaveBeenCalledWith('m', {
+      min: [3, 3, 3],
+      max: [7, 7, 7],
+    });
   });
 });
 

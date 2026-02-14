@@ -23,6 +23,8 @@ import type {
   SectionPlane,
   CameraState,
   BimEventType,
+  AABB,
+  SpatialFrustum,
 } from '@ifc-lite/sdk';
 import type { ViewerState } from '../store/index.js';
 import { EntityNode } from '@ifc-lite/query';
@@ -369,6 +371,42 @@ export class LocalBackend implements BimBackend {
       return true;
     }
     return false;
+  }
+
+  // ── Spatial ────────────────────────────────────────────────
+
+  queryBounds(modelId: string, bounds: AABB): EntityRef[] {
+    const state = this.store.getState();
+    const model = state.models.get(modelId);
+    if (!model?.ifcDataStore?.spatialIndex) return [];
+
+    const expressIds = model.ifcDataStore.spatialIndex.queryAABB(bounds);
+    return expressIds.map(expressId => ({ modelId, expressId }));
+  }
+
+  spatialRaycast(modelId: string, origin: [number, number, number], direction: [number, number, number]): EntityRef[] {
+    const state = this.store.getState();
+    const model = state.models.get(modelId);
+    if (!model?.ifcDataStore?.spatialIndex) return [];
+
+    const expressIds = model.ifcDataStore.spatialIndex.raycast(origin, direction);
+    return expressIds.map(expressId => ({ modelId, expressId }));
+  }
+
+  queryFrustum(modelId: string, frustum: SpatialFrustum): EntityRef[] {
+    const state = this.store.getState();
+    const model = state.models.get(modelId);
+    if (!model?.ifcDataStore?.spatialIndex) return [];
+
+    // The runtime BVH has queryFrustum but the parser's SpatialIndex interface is a subset.
+    // Cast to access the full BVH API.
+    const index = model.ifcDataStore.spatialIndex as {
+      queryFrustum?: (frustum: SpatialFrustum) => number[];
+    };
+    if (!index.queryFrustum) return [];
+
+    const expressIds = index.queryFrustum(frustum);
+    return expressIds.map((expressId: number) => ({ modelId, expressId }));
   }
 
   // ── Events ─────────────────────────────────────────────────

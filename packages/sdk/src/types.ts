@@ -124,6 +124,24 @@ export interface SectionPlane {
 }
 
 // ============================================================================
+// Spatial Types
+// ============================================================================
+
+export interface AABB {
+  min: [number, number, number];
+  max: [number, number, number];
+}
+
+export interface SpatialPlane {
+  normal: [number, number, number];
+  distance: number;
+}
+
+export interface SpatialFrustum {
+  planes: SpatialPlane[];
+}
+
+// ============================================================================
 // Lens Types (re-export core types for SDK consumers)
 // ============================================================================
 
@@ -228,6 +246,11 @@ export interface BimBackend {
   deleteProperty(ref: EntityRef, psetName: string, propName: string): void;
   undo(modelId: string): boolean;
   redo(modelId: string): boolean;
+
+  // Spatial
+  queryBounds(modelId: string, bounds: AABB): EntityRef[];
+  spatialRaycast(modelId: string, origin: [number, number, number], direction: [number, number, number]): EntityRef[];
+  queryFrustum(modelId: string, frustum: SpatialFrustum): EntityRef[];
 
   // Events
   subscribe(event: BimEventType, handler: (data: unknown) => void): () => void;

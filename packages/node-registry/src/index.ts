@@ -58,6 +58,7 @@ import { exportNodes } from './built-in/export-nodes.js';
 import { mutationNodes } from './built-in/mutation-nodes.js';
 import { validationNodes } from './built-in/validation-nodes.js';
 import { lensNodes } from './built-in/lens-nodes.js';
+import { spatialNodes } from './built-in/spatial-nodes.js';
 import { scriptNode } from './built-in/script-node.js';
 import type { NodeDefinition } from './types.js';
 
@@ -70,6 +71,7 @@ export function getBuiltinNodes(): NodeDefinition[] {
     ...mutationNodes,
     ...validationNodes,
     ...lensNodes,
+    ...spatialNodes,
     scriptNode,
   ];
 }
@@ -80,3 +82,10 @@ export function getBuiltinNodes(): NodeDefinition[] {
 
 export { compileGraph } from './compiler.js';
 export type { CompileResult } from './compiler.js';
+
+// ============================================================================
+// Decompiler (Script → Graph)
+// ============================================================================
+
+export { decompileScript } from './decompiler.js';
+export type { DecompileResult } from './decompiler.js';

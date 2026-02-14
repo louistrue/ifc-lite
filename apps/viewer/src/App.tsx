@@ -7,14 +7,14 @@
  */
 
 import { ViewerLayout } from './components/viewer/ViewerLayout';
-import { useBimHost } from './sdk/useBimHost';
+import { BimProvider } from './sdk/BimProvider';
 
 export function App() {
-  // Initialize SDK backend and BimHost — external tools (ifc-scripts, ifc-flow)
-  // can connect via BroadcastChannel 'ifc-lite' to control the viewer.
-  useBimHost();
-
-  return <ViewerLayout />;
+  return (
+    <BimProvider>
+      <ViewerLayout />
+    </BimProvider>
+  );
 }
 
 export default App;

@@ -58,6 +58,11 @@ export type {
   ProjectionMode,
   SectionPlane,
 
+  // Spatial
+  AABB,
+  SpatialPlane,
+  SpatialFrustum,
+
   // Mutation
   MutationRecord,
 
@@ -97,6 +102,7 @@ export type { TopicOptions, CommentOptions } from './namespaces/bcf.js';
 export { DrawingNamespace } from './namespaces/drawing.js';
 export type { SectionCutOptions, FloorPlanOptions } from './namespaces/drawing.js';
 export { ListNamespace } from './namespaces/list.js';
+export { SpatialNamespace } from './namespaces/spatial.js';
 export { EventsNamespace } from './namespaces/events.js';
 
 // ============================================================================

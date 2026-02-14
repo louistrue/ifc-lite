@@ -21,6 +21,8 @@ import type {
   SectionPlane,
   CameraState,
   BimEventType,
+  AABB,
+  SpatialFrustum,
 } from '../types.js';
 
 let requestCounter = 0;
@@ -142,6 +144,19 @@ export class RemoteBackend implements BimBackend {
 
   redo(modelId: string): boolean {
     return this.call('mutate', 'redo', [modelId]) as boolean;
+  }
+
+  // ── Spatial ────────────────────────────────────────────────
+  queryBounds(modelId: string, bounds: AABB): EntityRef[] {
+    return this.call('spatial', 'queryBounds', [modelId, bounds]) as EntityRef[];
+  }
+
+  spatialRaycast(modelId: string, origin: [number, number, number], direction: [number, number, number]): EntityRef[] {
+    return this.call('spatial', 'raycast', [modelId, origin, direction]) as EntityRef[];
+  }
+
+  queryFrustum(modelId: string, frustum: SpatialFrustum): EntityRef[] {
+    return this.call('spatial', 'queryFrustum', [modelId, frustum]) as EntityRef[];
   }
 
   // ── Events ─────────────────────────────────────────────────
