@@ -1,5 +1,34 @@
 # @ifc-lite/renderer
 
+## 1.8.0
+
+### Minor Changes
+
+- [#213](https://github.com/louistrue/ifc-lite/pull/213) [`7ae9711`](https://github.com/louistrue/ifc-lite/commit/7ae971119ad92c05c521a4931105a9a977ffc667) Thanks [@louistrue](https://github.com/louistrue)! - Add basket-based multi-isolation with incremental add/remove
+
+  - Basket isolation system: build an isolation set incrementally with `=` (set), `+` (add), `−` (remove) via keyboard, toolbar, or context menu
+  - Cmd/Ctrl+Click multi-select feeds directly into basket operations — select multiple entities, then press `+` to add them all
+  - Spacebar as additional shortcut to hide selected entity (alongside Delete/Backspace)
+  - Escape now clears basket along with selection and filters
+  - Toolbar shows active basket with entity count badge; context menu exposes Set/Add/Remove actions per entity
+  - Unified EntityRef resolution via `resolveEntityRef()` — single source of truth for globalId-to-model mapping across all UI surfaces
+  - Fix: Cmd+Click multi-select now works reliably in all model configurations (single-model, multi-model, legacy)
+
+- [#205](https://github.com/louistrue/ifc-lite/pull/205) [`06ddd81`](https://github.com/louistrue/ifc-lite/commit/06ddd81ce922d8f356836d04ff634cba45520a81) Thanks [@louistrue](https://github.com/louistrue)! - Add flexible lens coloring system with GPU overlay rendering
+
+  - Color overlay system: renders lens colors on top of original geometry using depth-equal pipeline, eliminating batch rebuild and framerate drops
+  - Auto-color by any IFC data: properties, quantities, classifications, materials, attributes, and class
+  - Dynamic discovery of available data from loaded models (lazy on-demand for properties, quantities, classifications, materials)
+  - Classification system selector in AutoColorEditor (separates Uniclass/OmniClass)
+  - Unlimited unique colors with sortable legend
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/geometry@1.8.0
+  - @ifc-lite/spatial@1.8.0
+  - @ifc-lite/wasm@1.8.0
+
 ## 1.7.0
 
 ### Minor Changes

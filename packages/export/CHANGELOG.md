@@ -1,5 +1,25 @@
 # @ifc-lite/export
 
+## 1.8.0
+
+### Minor Changes
+
+- [#211](https://github.com/louistrue/ifc-lite/pull/211) [`0b6880a`](https://github.com/louistrue/ifc-lite/commit/0b6880ac9bafee78e8b604e8df5a8e14dc74bc28) Thanks [@louistrue](https://github.com/louistrue)! - Improve IFC export with visible-only filtering, material preservation, and full schema coverage
+
+  - **Visible-only export**: Single-model export now correctly filters hidden entities (fixes `__legacy__` model ID handling)
+  - **Material preservation**: Multi-model merged export preserves colors and materials by collecting `IfcStyledItem` entities via reverse reference pass
+  - **Full IFC schema coverage**: Expanded product type classification from ~30 hand-curated types to 202 schema-derived types (IFC4 + IFC4X3), covering all `IfcProduct` subtypes including infrastructure (bridges, roads, railways, marine facilities)
+  - **Orphaned opening removal**: Hidden elements' openings are automatically excluded via `IfcRelVoidsElement` propagation
+  - **Performance**: Replaced `TextDecoder` + regex with byte-level `#ID` scanning and `byType` index lookups for style/opening collection (~95% fewer iterations)
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.8.0
+  - @ifc-lite/geometry@1.8.0
+  - @ifc-lite/mutations@1.8.0
+  - @ifc-lite/parser@1.8.0
+
 ## 1.7.0
 
 ### Patch Changes
