@@ -88,6 +88,15 @@ export { ModelNamespace } from './namespaces/model.js';
 export { ViewerNamespace } from './namespaces/viewer.js';
 export { MutateNamespace } from './namespaces/mutate.js';
 export { LensNamespace } from './namespaces/lens.js';
+export { ExportNamespace } from './namespaces/export.js';
+export type { ExportCsvOptions, ExportGltfOptions, ExportStepOptions } from './namespaces/export.js';
+export { IDSNamespace } from './namespaces/ids.js';
+export type { IDSValidationSummary } from './namespaces/ids.js';
+export { BCFNamespace } from './namespaces/bcf.js';
+export type { TopicOptions, CommentOptions } from './namespaces/bcf.js';
+export { DrawingNamespace } from './namespaces/drawing.js';
+export type { SectionCutOptions, FloorPlanOptions } from './namespaces/drawing.js';
+export { ListNamespace } from './namespaces/list.js';
 export { EventsNamespace } from './namespaces/events.js';
 
 // ============================================================================

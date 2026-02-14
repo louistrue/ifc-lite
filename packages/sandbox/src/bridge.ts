@@ -58,6 +58,10 @@ export function buildBridge(
     buildLensNamespace(vm, bimHandle, sdk);
   }
 
+  if (perms.export) {
+    buildExportNamespace(vm, bimHandle, sdk);
+  }
+
   vm.setProp(vm.global, 'bim', bimHandle);
   bimHandle.dispose();
 
@@ -311,6 +315,35 @@ function buildLensNamespace(vm: QuickJSContext, bimHandle: QuickJSHandle, sdk: B
   presetsFn.dispose();
 
   vm.setProp(bimHandle, 'lens', ns);
+  ns.dispose();
+}
+
+// ── bim.export ────────────────────────────────────────────────
+
+function buildExportNamespace(vm: QuickJSContext, bimHandle: QuickJSHandle, sdk: BimContext): void {
+  const ns = vm.newObject();
+
+  // bim.export.csv(entities, options) → string
+  const csvFn = vm.newFunction('csv', (refsHandle: QuickJSHandle, optionsHandle: QuickJSHandle) => {
+    const refs = vm.dump(refsHandle) as Array<{ modelId: string; expressId: number }>;
+    const options = vm.dump(optionsHandle) as { columns: string[]; separator?: string };
+    const result = sdk.export.csv(refs, options);
+    return vm.newString(result);
+  });
+  vm.setProp(ns, 'csv', csvFn);
+  csvFn.dispose();
+
+  // bim.export.json(entities, columns) → object[]
+  const jsonFn = vm.newFunction('json', (refsHandle: QuickJSHandle, columnsHandle: QuickJSHandle) => {
+    const refs = vm.dump(refsHandle) as Array<{ modelId: string; expressId: number }>;
+    const columns = vm.dump(columnsHandle) as string[];
+    const result = sdk.export.json(refs, columns);
+    return marshalValue(vm, result);
+  });
+  vm.setProp(ns, 'json', jsonFn);
+  jsonFn.dispose();
+
+  vm.setProp(bimHandle, 'export', ns);
   ns.dispose();
 }
 

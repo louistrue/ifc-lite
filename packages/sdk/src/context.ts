@@ -18,6 +18,11 @@ import { QueryNamespace, QueryBuilder, EntityProxy } from './namespaces/query.js
 import { ViewerNamespace } from './namespaces/viewer.js';
 import { MutateNamespace } from './namespaces/mutate.js';
 import { LensNamespace } from './namespaces/lens.js';
+import { ExportNamespace } from './namespaces/export.js';
+import { IDSNamespace } from './namespaces/ids.js';
+import { BCFNamespace } from './namespaces/bcf.js';
+import { DrawingNamespace } from './namespaces/drawing.js';
+import { ListNamespace } from './namespaces/list.js';
 import { EventsNamespace } from './namespaces/events.js';
 import { RemoteBackend } from './transport/remote-backend.js';
 
@@ -26,6 +31,11 @@ export class BimContext {
   readonly viewer: ViewerNamespace;
   readonly mutate: MutateNamespace;
   readonly lens: LensNamespace;
+  readonly export: ExportNamespace;
+  readonly ids: IDSNamespace;
+  readonly bcf: BCFNamespace;
+  readonly drawing: DrawingNamespace;
+  readonly list: ListNamespace;
   readonly events: EventsNamespace;
 
   private _queryNamespace: QueryNamespace;
@@ -45,6 +55,11 @@ export class BimContext {
     this.viewer = new ViewerNamespace(this._backend);
     this.mutate = new MutateNamespace(this._backend);
     this.lens = new LensNamespace();
+    this.export = new ExportNamespace(this._backend);
+    this.ids = new IDSNamespace();
+    this.bcf = new BCFNamespace();
+    this.drawing = new DrawingNamespace();
+    this.list = new ListNamespace();
     this.events = new EventsNamespace(this._backend);
   }
 

@@ -25,12 +25,24 @@ import type {
   BimEventType,
 } from '@ifc-lite/sdk';
 import type { ViewerState } from '../store/index.js';
-import { EntityNode, IfcQuery } from '@ifc-lite/query';
+import { EntityNode } from '@ifc-lite/query';
 import { RelationshipType } from '@ifc-lite/data';
 
 type StoreApi = {
   getState: () => ViewerState;
   subscribe: (listener: (state: ViewerState, prevState: ViewerState) => void) => () => void;
+};
+
+/** Map SDK axis names ('x','y','z') to store axis names ('side','down','front') */
+const AXIS_TO_STORE: Record<string, 'down' | 'front' | 'side'> = {
+  x: 'side',
+  y: 'down',
+  z: 'front',
+};
+const STORE_TO_AXIS: Record<string, 'x' | 'y' | 'z'> = {
+  side: 'x',
+  down: 'y',
+  front: 'z',
 };
 
 /** Map relationship type strings to RelationshipType enum values */
@@ -80,16 +92,21 @@ export class LocalBackend implements BimBackend {
 
     for (const [modelId, model] of modelEntries) {
       if (!model?.ifcDataStore) continue;
-      const query = new IfcQuery(model.ifcDataStore);
 
-      // Apply type filter
-      let entityQuery = descriptor.types && descriptor.types.length > 0
-        ? query.ofType(...descriptor.types)
-        : query.all();
-
-      // Execute and convert to EntityData
-      const ids = entityQuery.ids();
-      for (const expressId of ids) {
+      // If type filter is set, use the indexed getByType for efficiency
+      // Otherwise iterate all entities
+      let entityIds: number[];
+      if (descriptor.types && descriptor.types.length > 0) {
+        entityIds = [];
+        for (const type of descriptor.types) {
+          const typeIds = model.ifcDataStore.entityIndex.byType.get(type) ?? [];
+          for (const id of typeIds) entityIds.push(id);
+        }
+      } else {
+        entityIds = Array.from(model.ifcDataStore.entities.expressId.slice(0, model.ifcDataStore.entities.count));
+      }
+      for (const expressId of entityIds) {
+        if (expressId === 0) continue;
         const node = new EntityNode(model.ifcDataStore, expressId);
         results.push({
           ref: { modelId, expressId },
@@ -158,10 +175,10 @@ export class LocalBackend implements BimBackend {
     if (!model?.ifcDataStore) return [];
 
     const node = new EntityNode(model.ifcDataStore, ref.expressId);
-    return node.properties().map(pset => ({
+    return node.properties().map((pset: { name: string; globalId?: string; properties: Array<{ name: string; type: number; value: string | number | boolean | null }> }) => ({
       name: pset.name,
       globalId: pset.globalId,
-      properties: pset.properties.map(p => ({
+      properties: pset.properties.map((p: { name: string; type: number; value: string | number | boolean | null }) => ({
         name: p.name,
         type: p.type,
         value: p.value,
@@ -237,21 +254,22 @@ export class LocalBackend implements BimBackend {
 
   isolateEntities(refs: EntityRef[]): void {
     const state = this.store.getState();
-    // Group by model
-    const byModel = new Map<string, Set<number>>();
+    // Use the legacy isolateEntities for global IDs
+    const globalIds: number[] = [];
     for (const ref of refs) {
-      let set = byModel.get(ref.modelId);
-      if (!set) { set = new Set(); byModel.set(ref.modelId, set); }
-      set.add(ref.expressId);
+      const model = state.models.get(ref.modelId);
+      if (model) {
+        globalIds.push(ref.expressId + model.idOffset);
+      }
     }
-    for (const [modelId, ids] of byModel) {
-      state.isolateEntitiesInModel?.(modelId, ids);
+    if (globalIds.length > 0) {
+      state.isolateEntities?.(globalIds);
     }
   }
 
   resetVisibility(): void {
     const state = this.store.getState();
-    state.resetVisibility?.();
+    state.showAllInAllModels?.();
   }
 
   // ── Viewer ─────────────────────────────────────────────────
@@ -284,11 +302,17 @@ export class LocalBackend implements BimBackend {
   setSection(section: SectionPlane | null): void {
     const state = this.store.getState();
     if (section) {
-      state.setSectionPlaneAxis?.(section.axis);
+      state.setSectionPlaneAxis?.(AXIS_TO_STORE[section.axis] ?? 'down');
       state.setSectionPlanePosition?.(section.position);
-      state.setSectionPlaneEnabled?.(section.enabled);
+      // Toggle section plane if current enabled state doesn't match desired
+      if (state.sectionPlane?.enabled !== section.enabled) {
+        state.toggleSectionPlane?.();
+      }
     } else {
-      state.setSectionPlaneEnabled?.(false);
+      // Disable section plane if currently enabled
+      if (state.sectionPlane?.enabled) {
+        state.toggleSectionPlane?.();
+      }
     }
   }
 
@@ -296,7 +320,7 @@ export class LocalBackend implements BimBackend {
     const state = this.store.getState();
     if (!state.sectionPlane?.enabled) return null;
     return {
-      axis: state.sectionPlane.axis,
+      axis: STORE_TO_AXIS[state.sectionPlane.axis] ?? 'y',
       position: state.sectionPlane.position,
       enabled: state.sectionPlane.enabled,
       flipped: state.sectionPlane.flipped,

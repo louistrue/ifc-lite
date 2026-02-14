@@ -7,25 +7,22 @@
 > ## Implementation Status
 >
 > ### Done (ifc-lite repo)
-> - [x] `@ifc-lite/sdk` — BimContext, namespaces (model, query, viewer, mutate, lens, events), transport (broadcast, message-port), BimHost, BimBackend interface
-> - [x] `@ifc-lite/sandbox` — QuickJS-in-WASM integration, bim.* bridge, permission system, TS transpilation, memory/CPU limits
-> - [x] `@ifc-lite/node-registry` — NodeDefinition schema, NodeRegistry class, built-in nodes (query, viewer, export, script), graph-to-script compiler
-> - [x] Viewer: LocalBackend (Zustand store adapter), useBimHost hook, BroadcastChannel listener
-> - [x] Root tsconfig path aliases for all 3 new packages
+> - [x] `@ifc-lite/sdk` — BimContext with all 10 namespaces: model, query, viewer, mutate, lens, export, ids, bcf, drawing, list, events
+> - [x] SDK transport layer: BroadcastTransport, MessagePortTransport, RemoteBackend
+> - [x] SDK host: BimHost with namespace dispatch, event forwarding, close()
+> - [x] SDK types: EntityRef, EntityData, PropertySetData, QuantitySetData, QueryDescriptor, BimBackend interface, Transport protocol
+> - [x] `@ifc-lite/sandbox` — QuickJS-in-WASM runtime, bim.* bridge (model, query, viewer, mutate, lens, export), permission system, TS transpilation (esbuild + naive fallback), memory/CPU limits
+> - [x] `@ifc-lite/node-registry` — NodeDefinition schema, NodeRegistry class, 21 built-in nodes (query ×3, viewer ×5, export ×3, mutation ×4, validation ×2, lens ×2, script ×1), graph-to-script compiler (Kahn's algorithm)
+> - [x] Viewer: LocalBackend (Zustand store adapter), useBimHost hook, BroadcastChannel listener, wired into App.tsx
+> - [x] Root tsconfig path aliases for all 3 new packages + viewer path aliases for SDK + lens
 > - [x] All 3 packages build clean with `tsc`
+> - [x] Unit tests: SDK (19 tests), node-registry (17 tests), sandbox transpile (8 tests)
 >
 > ### TODO (ifc-lite repo — next steps)
 > - [ ] Viewer slice refactor: migrate LensSlice, IDSSlice, BCFSlice, etc. to use SDK internally
-> - [ ] Add `bim.export` namespace (wraps @ifc-lite/export)
-> - [ ] Add `bim.ids` namespace (wraps @ifc-lite/ids)
-> - [ ] Add `bim.bcf` namespace (wraps @ifc-lite/bcf)
-> - [ ] Add `bim.drawing` namespace (wraps @ifc-lite/drawing-2d)
-> - [ ] Add `bim.list` namespace (wraps @ifc-lite/lists)
-> - [ ] Extend sandbox bridge for all new namespaces
-> - [ ] Add more built-in nodes (mutation, IDS, export, drawing)
 > - [ ] Script → Graph decompiler (AST analysis)
-> - [ ] Unit tests for SDK, sandbox, and node-registry
 > - [ ] WebSocket transport for Tauri / server-side
+> - [ ] `bim.spatial` namespace (wraps @ifc-lite/spatial for BVH spatial queries)
 >
 > ### TODO (ifc-scripts repo — new)
 > - [ ] Scaffold repo with pnpm workspaces

@@ -55,6 +55,9 @@ export { NodeRegistry, getRegistry } from './registry.js';
 import { queryNodes } from './built-in/query-nodes.js';
 import { viewerNodes } from './built-in/viewer-nodes.js';
 import { exportNodes } from './built-in/export-nodes.js';
+import { mutationNodes } from './built-in/mutation-nodes.js';
+import { validationNodes } from './built-in/validation-nodes.js';
+import { lensNodes } from './built-in/lens-nodes.js';
 import { scriptNode } from './built-in/script-node.js';
 import type { NodeDefinition } from './types.js';
 
@@ -64,6 +67,9 @@ export function getBuiltinNodes(): NodeDefinition[] {
     ...queryNodes,
     ...viewerNodes,
     ...exportNodes,
+    ...mutationNodes,
+    ...validationNodes,
+    ...lensNodes,
     scriptNode,
   ];
 }
