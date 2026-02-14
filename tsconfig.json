@@ -82,6 +82,24 @@
       ],
       "@ifc-lite/lists/*": [
         "packages/lists/dist/*"
+      ],
+      "@ifc-lite/sdk": [
+        "packages/sdk/dist/index.d.ts"
+      ],
+      "@ifc-lite/sdk/*": [
+        "packages/sdk/dist/*"
+      ],
+      "@ifc-lite/sandbox": [
+        "packages/sandbox/dist/index.d.ts"
+      ],
+      "@ifc-lite/sandbox/*": [
+        "packages/sandbox/dist/*"
+      ],
+      "@ifc-lite/node-registry": [
+        "packages/node-registry/dist/index.d.ts"
+      ],
+      "@ifc-lite/node-registry/*": [
+        "packages/node-registry/dist/*"
       ]
     }
   },

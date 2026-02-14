@@ -7,9 +7,14 @@
  */
 
 import { ViewerLayout } from './components/viewer/ViewerLayout';
+import { BimProvider } from './sdk/BimProvider';
 
 export function App() {
-  return <ViewerLayout />;
+  return (
+    <BimProvider>
+      <ViewerLayout />
+    </BimProvider>
+  );
 }
 
 export default App;

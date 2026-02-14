@@ -30,6 +30,7 @@ import { createIdsSlice, type IDSSlice } from './slices/idsSlice.js';
 import { createListSlice, type ListSlice } from './slices/listSlice.js';
 import { createPinboardSlice, type PinboardSlice } from './slices/pinboardSlice.js';
 import { createLensSlice, type LensSlice } from './slices/lensSlice.js';
+import { createScriptSlice, type ScriptSlice } from './slices/scriptSlice.js';
 
 // Import constants for reset function
 import { CAMERA_DEFAULTS, SECTION_PLANE_DEFAULTS, UI_DEFAULTS, TYPE_VISIBILITY_DEFAULTS } from './constants.js';
@@ -67,6 +68,9 @@ export type { PinboardSlice } from './slices/pinboardSlice.js';
 // Re-export Lens types
 export type { LensSlice, Lens, LensRule, LensCriteria } from './slices/lensSlice.js';
 
+// Re-export Script types
+export type { ScriptSlice } from './slices/scriptSlice.js';
+
 // Combined store type
 export type ViewerState = LoadingSlice &
   SelectionSlice &
@@ -85,7 +89,8 @@ export type ViewerState = LoadingSlice &
   IDSSlice &
   ListSlice &
   PinboardSlice &
-  LensSlice & {
+  LensSlice &
+  ScriptSlice & {
     resetViewerState: () => void;
   };
 
@@ -112,6 +117,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
   ...createListSlice(...args),
   ...createPinboardSlice(...args),
   ...createLensSlice(...args),
+  ...createScriptSlice(...args),
 
   // Reset all viewer state when loading new file
   // Note: Does NOT clear models - use clearAllModels() for that
@@ -250,6 +256,15 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
 
       // Pinboard - clear pinned entities on new file
       pinboardEntities: new Set<string>(),
+
+      // Script - reset execution state but keep saved scripts and editor content
+      scriptPanelVisible: false,
+      scriptExecutionState: 'idle' as const,
+      scriptLastResult: null,
+      scriptLastError: null,
+      scriptGraphMode: false,
+      scriptDeleteConfirmId: null,
+      scriptGraph: null,
 
       // Lens - deactivate but keep saved lenses
       activeLensId: null,
