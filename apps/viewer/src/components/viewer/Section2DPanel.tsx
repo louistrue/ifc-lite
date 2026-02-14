@@ -125,6 +125,14 @@ export function Section2DPanel({
   const addCloudAnnotation2DPoint = useViewerStore((s) => s.addCloudAnnotation2DPoint);
   const completeCloudAnnotation2D = useViewerStore((s) => s.completeCloudAnnotation2D);
   const cancelCloudAnnotation2D = useViewerStore((s) => s.cancelCloudAnnotation2D);
+  // Selection
+  const selectedAnnotation2D = useViewerStore((s) => s.selectedAnnotation2D);
+  const setSelectedAnnotation2D = useViewerStore((s) => s.setSelectedAnnotation2D);
+  const deleteSelectedAnnotation2D = useViewerStore((s) => s.deleteSelectedAnnotation2D);
+  const startDragAnnotation2D = useViewerStore((s) => s.startDragAnnotation2D);
+  const moveAnnotation2D = useViewerStore((s) => s.moveAnnotation2D);
+  const stopDragAnnotation2D = useViewerStore((s) => s.stopDragAnnotation2D);
+  const draggingAnnotation2D = useViewerStore((s) => s.draggingAnnotation2D);
   // Bulk
   const clearAllAnnotations2D = useViewerStore((s) => s.clearAllAnnotations2D);
 
@@ -270,31 +278,47 @@ export function Section2DPanel({
     drawing, viewTransform, sectionAxis: sectionPlane.axis, containerRef,
     activeTool: annotation2DActiveTool,
     polygonArea2DPoints, addPolygonArea2DPoint, completePolygonArea2D, cancelPolygonArea2D,
-    addTextAnnotation2D, setTextAnnotation2DEditing,
-    cloudAnnotation2DPoints, addCloudAnnotation2DPoint, completeCloudAnnotation2D, cancelCloudAnnotation2D,
+    textAnnotations2D, addTextAnnotation2D, setTextAnnotation2DEditing,
+    cloudAnnotation2DPoints, cloudAnnotations2D, addCloudAnnotation2DPoint, completeCloudAnnotation2D, cancelCloudAnnotation2D,
+    measure2DResults, polygonArea2DResults,
+    selectedAnnotation2D, setSelectedAnnotation2D, deleteSelectedAnnotation2D,
+    startDragAnnotation2D, moveAnnotation2D, stopDragAnnotation2D, draggingAnnotation2D,
     setAnnotation2DCursorPos, setMeasure2DSnapPoint,
   });
 
   // Unified mouse handlers that dispatch to the right tool
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (annotation2DActiveTool === 'measure' || annotation2DActiveTool === 'none') {
+    if (annotation2DActiveTool === 'measure') {
       measureHandlers.handleMouseDown(e);
+    } else if (annotation2DActiveTool === 'none') {
+      // In 'none' mode: first try annotation selection/drag, then fall through to pan
+      annotationHandlers.handleMouseDown(e);
+      // Also start panning (useMeasure2D handles pan when measure2DMode is false)
+      if (!selectedAnnotation2D && !draggingAnnotation2D) {
+        measureHandlers.handleMouseDown(e);
+      }
     } else {
       annotationHandlers.handleMouseDown(e);
     }
-  }, [annotation2DActiveTool, measureHandlers, annotationHandlers]);
+  }, [annotation2DActiveTool, measureHandlers, annotationHandlers, selectedAnnotation2D, draggingAnnotation2D]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    // If dragging an annotation, let the annotation handler handle it
+    if (draggingAnnotation2D) {
+      annotationHandlers.handleMouseMove(e);
+      return;
+    }
     if (annotation2DActiveTool === 'measure' || annotation2DActiveTool === 'none') {
       measureHandlers.handleMouseMove(e);
     } else {
       annotationHandlers.handleMouseMove(e);
     }
-  }, [annotation2DActiveTool, measureHandlers, annotationHandlers]);
+  }, [annotation2DActiveTool, measureHandlers, annotationHandlers, draggingAnnotation2D]);
 
   const handleMouseUp = useCallback((e: React.MouseEvent) => {
+    annotationHandlers.handleMouseUp(e);
     measureHandlers.handleMouseUp();
-  }, [measureHandlers]);
+  }, [measureHandlers, annotationHandlers]);
 
   const handleMouseLeave = useCallback(() => {
     measureHandlers.handleMouseLeave();
@@ -367,6 +391,8 @@ export function Section2DPanel({
 
   // Cursor style based on active tool
   const cursorClass = useMemo(() => {
+    if (draggingAnnotation2D) return 'cursor-grabbing';
+    if (selectedAnnotation2D && annotation2DActiveTool === 'none') return 'cursor-move';
     switch (annotation2DActiveTool) {
       case 'measure':
       case 'polygon-area':
@@ -377,7 +403,7 @@ export function Section2DPanel({
       default:
         return 'cursor-grab active:cursor-grabbing';
     }
-  }, [annotation2DActiveTool]);
+  }, [annotation2DActiveTool, selectedAnnotation2D, draggingAnnotation2D]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // RESIZE HANDLING
@@ -810,6 +836,7 @@ export function Section2DPanel({
               textAnnotationEditing={textAnnotation2DEditing}
               cloudAnnotationPoints={cloudAnnotation2DPoints}
               cloudAnnotations={cloudAnnotations2D}
+              selectedAnnotation={selectedAnnotation2D}
             />
             {/* Subtle updating indicator - shows while regenerating without hiding the drawing */}
             {isRegenerating && (
@@ -875,6 +902,15 @@ export function Section2DPanel({
           <div className="absolute bottom-2 right-2 pointer-events-none z-10">
             <div className="text-[10px] text-black bg-white/80 px-1.5 py-0.5 rounded">
               Click to place text box
+            </div>
+          </div>
+        )}
+
+        {/* Selection tip */}
+        {selectedAnnotation2D && annotation2DActiveTool === 'none' && (
+          <div className="absolute bottom-2 right-2 pointer-events-none z-10">
+            <div className="text-[10px] text-black bg-white/80 px-1.5 py-0.5 rounded">
+              {selectedAnnotation2D.type === 'text' ? 'Del = delete · Drag to move · Double-click to edit' : 'Del = delete · Drag to move'} · Esc = deselect
             </div>
           </div>
         )}

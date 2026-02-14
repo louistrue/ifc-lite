@@ -12,7 +12,8 @@ import {
 import { formatDistance } from './tools/formatDistance';
 import { formatArea, computePolygonCentroid } from './tools/computePolygonArea';
 import { drawCloudOnCanvas } from './tools/cloudPathGenerator';
-import type { PolygonArea2DResult, TextAnnotation2D, CloudAnnotation2D, Annotation2DTool, Point2D } from '@/store/slices/drawing2DSlice';
+import type { PolygonArea2DResult, TextAnnotation2D, CloudAnnotation2D, Annotation2DTool, Point2D, SelectedAnnotation2D } from '@/store/slices/drawing2DSlice';
+import { computePolygonCentroid as centroidForSelection } from './tools/computePolygonArea';
 
 // Fill colors for IFC types (architectural convention)
 const IFC_TYPE_FILL_COLORS: Record<string, string> = {
@@ -95,6 +96,8 @@ interface Drawing2DCanvasProps {
   textAnnotationEditing?: string | null;
   cloudAnnotationPoints?: Point2D[];
   cloudAnnotations?: CloudAnnotation2D[];
+  // Selection
+  selectedAnnotation?: SelectedAnnotation2D | null;
 }
 
 export function Drawing2DCanvas({
@@ -123,6 +126,7 @@ export function Drawing2DCanvas({
   textAnnotationEditing = null,
   cloudAnnotationPoints = [],
   cloudAnnotations = [],
+  selectedAnnotation = null,
 }: Drawing2DCanvasProps): React.ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
@@ -1299,7 +1303,104 @@ export function Drawing2DCanvas({
       );
       ctx.setLineDash([]);
     }
-  }, [drawing, transform, showHiddenLines, canvasSize, overrideEngine, overridesEnabled, entityColorMap, useIfcMaterials, measureMode, measureStart, measureCurrent, measureResults, measureSnapPoint, sheetEnabled, activeSheet, sectionAxis, isPinned, annotation2DActiveTool, annotation2DCursorPos, polygonAreaPoints, polygonAreaResults, textAnnotations, textAnnotationEditing, cloudAnnotationPoints, cloudAnnotations]);
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 8. RENDER SELECTION HIGHLIGHT
+    // ═══════════════════════════════════════════════════════════════════════
+    if (selectedAnnotation) {
+      const SEL_COLOR = '#1976D2';
+      const SEL_HANDLE_SIZE = 5;
+
+      const drawSelectionRect = (x: number, y: number, w: number, h: number) => {
+        const margin = 4;
+        ctx.strokeStyle = SEL_COLOR;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 3]);
+        ctx.strokeRect(x - margin, y - margin, w + margin * 2, h + margin * 2);
+        ctx.setLineDash([]);
+
+        // Corner handles
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = SEL_COLOR;
+        ctx.lineWidth = 1.5;
+        const corners = [
+          [x - margin, y - margin],
+          [x + w + margin, y - margin],
+          [x - margin, y + h + margin],
+          [x + w + margin, y + h + margin],
+        ];
+        for (const [cx, cy] of corners) {
+          ctx.fillRect(cx - SEL_HANDLE_SIZE, cy - SEL_HANDLE_SIZE, SEL_HANDLE_SIZE * 2, SEL_HANDLE_SIZE * 2);
+          ctx.strokeRect(cx - SEL_HANDLE_SIZE, cy - SEL_HANDLE_SIZE, SEL_HANDLE_SIZE * 2, SEL_HANDLE_SIZE * 2);
+        }
+      };
+
+      switch (selectedAnnotation.type) {
+        case 'measure': {
+          const result = measureResults.find((r) => r.id === selectedAnnotation.id);
+          if (result) {
+            const sa = { x: drawingToScreenX(result.start.x), y: drawingToScreenY(result.start.y) };
+            const sb = { x: drawingToScreenX(result.end.x), y: drawingToScreenY(result.end.y) };
+            const minX = Math.min(sa.x, sb.x);
+            const minY = Math.min(sa.y, sb.y);
+            const w = Math.abs(sb.x - sa.x);
+            const h = Math.abs(sb.y - sa.y);
+            drawSelectionRect(minX, minY, w, h);
+          }
+          break;
+        }
+        case 'polygon': {
+          const result = polygonAreaResults.find((r) => r.id === selectedAnnotation.id);
+          if (result && result.points.length >= 3) {
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (const pt of result.points) {
+              const sx = drawingToScreenX(pt.x);
+              const sy = drawingToScreenY(pt.y);
+              if (sx < minX) minX = sx;
+              if (sy < minY) minY = sy;
+              if (sx > maxX) maxX = sx;
+              if (sy > maxY) maxY = sy;
+            }
+            drawSelectionRect(minX, minY, maxX - minX, maxY - minY);
+          }
+          break;
+        }
+        case 'text': {
+          const annotation = textAnnotations.find((a) => a.id === selectedAnnotation.id);
+          if (annotation && annotation.text.trim()) {
+            const sx = drawingToScreenX(annotation.position.x);
+            const sy = drawingToScreenY(annotation.position.y);
+            ctx.font = `${annotation.fontSize}px system-ui, sans-serif`;
+            const lines = annotation.text.split('\n');
+            const lineHeight = annotation.fontSize * 1.3;
+            const padding = 6;
+            let maxWidth = 0;
+            for (const line of lines) {
+              const m = ctx.measureText(line);
+              if (m.width > maxWidth) maxWidth = m.width;
+            }
+            const bgW = maxWidth + padding * 2;
+            const bgH = lines.length * lineHeight + padding * 2;
+            drawSelectionRect(sx, sy, bgW, bgH);
+          }
+          break;
+        }
+        case 'cloud': {
+          const cloud = cloudAnnotations.find((a) => a.id === selectedAnnotation.id);
+          if (cloud && cloud.points.length >= 2) {
+            const sp1x = drawingToScreenX(cloud.points[0].x);
+            const sp1y = drawingToScreenY(cloud.points[0].y);
+            const sp2x = drawingToScreenX(cloud.points[1].x);
+            const sp2y = drawingToScreenY(cloud.points[1].y);
+            const minX = Math.min(sp1x, sp2x);
+            const minY = Math.min(sp1y, sp2y);
+            drawSelectionRect(minX, minY, Math.abs(sp2x - sp1x), Math.abs(sp2y - sp1y));
+          }
+          break;
+        }
+      }
+    }
+  }, [drawing, transform, showHiddenLines, canvasSize, overrideEngine, overridesEnabled, entityColorMap, useIfcMaterials, measureMode, measureStart, measureCurrent, measureResults, measureSnapPoint, sheetEnabled, activeSheet, sectionAxis, isPinned, annotation2DActiveTool, annotation2DCursorPos, polygonAreaPoints, polygonAreaResults, textAnnotations, textAnnotationEditing, cloudAnnotationPoints, cloudAnnotations, selectedAnnotation]);
 
   return (
     <canvas
