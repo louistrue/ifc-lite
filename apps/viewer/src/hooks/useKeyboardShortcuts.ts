@@ -133,7 +133,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       }
     }
 
-    if ((key === 'delete' || key === 'backspace') && !ctrl && !shift && selectedEntityId) {
+    if ((key === 'delete' || key === 'backspace' || key === ' ') && !ctrl && !shift && selectedEntityId) {
       e.preventDefault();
       hideEntity(selectedEntityId);
     }
@@ -233,7 +233,7 @@ export const KEYBOARD_SHORTCUTS = [
   { key: 'I', description: 'Set basket (isolate selection)', category: 'Visibility' },
   { key: '+', description: 'Add selection to basket', category: 'Visibility' },
   { key: '−', description: 'Remove selection from basket', category: 'Visibility' },
-  { key: 'Del', description: 'Hide selection', category: 'Visibility' },
+  { key: 'Del / Space', description: 'Hide selection', category: 'Visibility' },
   { key: 'A', description: 'Show all (clear basket & filters)', category: 'Visibility' },
   { key: 'H', description: 'Home (Isometric view)', category: 'Camera' },
   { key: 'Z', description: 'Fit all (zoom extents)', category: 'Camera' },

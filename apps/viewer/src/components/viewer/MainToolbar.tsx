@@ -747,7 +747,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       <ActionButton icon={Plus} label="Add to Basket" onClick={handleAddToBasket} shortcut="+" disabled={!hasSelection} />
       <ActionButton icon={Minus} label="Remove from Basket" onClick={handleRemoveFromBasket} shortcut="−" disabled={!hasSelection} />
 
-      <ActionButton icon={EyeOff} label="Hide Selection" onClick={handleHide} shortcut="Del" disabled={!hasSelection} />
+      <ActionButton icon={EyeOff} label="Hide Selection" onClick={handleHide} shortcut="Del / Space" disabled={!hasSelection} />
       <ActionButton icon={Eye} label="Show All (Reset Filters)" onClick={handleShowAll} shortcut="A" />
       <ActionButton icon={Maximize2} label="Fit All" onClick={() => cameraCallbacks.fitAll?.()} shortcut="Z" />
       <ActionButton
