@@ -43,6 +43,16 @@ export const mutationNodes: NodeDefinition[] = [
     },
     toCode: (params) =>
       `bim.mutate.batch('Set property', () => {\n  for (const e of entities) {\n    bim.mutate.setProperty(e.ref, '${params.psetName}', '${params.propName}', ${JSON.stringify(params.value)})\n  }\n})`,
+    fromCode: [{
+      regex: /bim\.mutate\.setProperty\((\w+)(?:\.\w+)?,\s*['"]([^'"]+)['"],\s*['"]([^'"]+)['"],\s*(?:['"]([^'"]*)['"]\s*|(\d+(?:\.\d+)?)\s*|(\w+)\s*)\)/,
+      assigns: false,
+      extractParams: (m) => ({
+        psetName: m[2],
+        propName: m[3],
+        value: m[4] ?? m[5] ?? m[6],
+      }),
+      extractInputs: (m) => [m[1]],
+    }],
   },
 
   {
@@ -76,6 +86,15 @@ export const mutationNodes: NodeDefinition[] = [
     },
     toCode: (params) =>
       `bim.mutate.batch('Delete property', () => {\n  for (const e of entities) {\n    bim.mutate.deleteProperty(e.ref, '${params.psetName}', '${params.propName}')\n  }\n})`,
+    fromCode: [{
+      regex: /bim\.mutate\.deleteProperty\((\w+)(?:\.\w+)?,\s*['"]([^'"]+)['"],\s*['"]([^'"]+)['"]\)/,
+      assigns: false,
+      extractParams: (m) => ({
+        psetName: m[2],
+        propName: m[3],
+      }),
+      extractInputs: (m) => [m[1]],
+    }],
   },
 
   {
@@ -94,6 +113,12 @@ export const mutationNodes: NodeDefinition[] = [
       return {};
     },
     toCode: (params) => `bim.mutate.undo('${params.modelId}')`,
+    fromCode: [{
+      regex: /bim\.mutate\.undo\(['"]([^'"]*)['"]\)/,
+      assigns: false,
+      extractParams: (m) => ({ modelId: m[1] }),
+      extractInputs: () => [],
+    }],
   },
 
   {
@@ -112,5 +137,11 @@ export const mutationNodes: NodeDefinition[] = [
       return {};
     },
     toCode: (params) => `bim.mutate.redo('${params.modelId}')`,
+    fromCode: [{
+      regex: /bim\.mutate\.redo\(['"]([^'"]*)['"]\)/,
+      assigns: false,
+      extractParams: (m) => ({ modelId: m[1] }),
+      extractInputs: () => [],
+    }],
   },
 ];

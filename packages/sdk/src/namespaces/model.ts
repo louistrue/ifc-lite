@@ -10,12 +10,12 @@ export class ModelNamespace {
 
   /** List all loaded models */
   list(): ModelInfo[] {
-    return this.backend.getModels();
+    return this.backend.dispatch('model', 'list', []) as ModelInfo[];
   }
 
   /** Get the currently active model ID */
   activeId(): string | null {
-    return this.backend.getActiveModelId();
+    return this.backend.dispatch('model', 'activeId', []) as string | null;
   }
 
   /** Get the active model info, or null */

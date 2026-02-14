@@ -11,14 +11,16 @@
  * - EntityProxy objects in the sandbox are lightweight refs { modelId, expressId }
  * - Property/quantity access triggers on-demand extraction on the host
  *
- * This module builds the `bim` global object inside QuickJS by creating
- * host functions for each SDK method and wiring them into a namespace tree.
+ * Most namespaces (model, viewer, mutate, lens, export) are built from
+ * declarative schemas in bridge-schema.ts. The query namespace needs
+ * custom handling because of the entity proxy object pattern.
  */
 
 import type { QuickJSContext, QuickJSHandle } from 'quickjs-emscripten';
 import type { BimContext } from '@ifc-lite/sdk';
 import type { SandboxPermissions, LogEntry } from './types.js';
 import { DEFAULT_PERMISSIONS } from './types.js';
+import { buildSchemaNamespaces, marshalValue } from './bridge-schema.js';
 
 /**
  * Build the `bim` API object inside the QuickJS VM.
@@ -29,7 +31,7 @@ export function buildBridge(
   sdk: BimContext,
   permissions: SandboxPermissions = {},
 ): { logs: LogEntry[] } {
-  const perms = { ...DEFAULT_PERMISSIONS, ...permissions };
+  const perms = { ...DEFAULT_PERMISSIONS, ...permissions } as Required<SandboxPermissions>;
   const logs: LogEntry[] = [];
 
   // ── console.log / warn / error / info ──────────────────────
@@ -38,28 +40,12 @@ export function buildBridge(
   // ── bim global ─────────────────────────────────────────────
   const bimHandle = vm.newObject();
 
-  if (perms.model) {
-    buildModelNamespace(vm, bimHandle, sdk);
-  }
+  // Schema-driven namespaces (model, viewer, mutate, lens, export)
+  buildSchemaNamespaces(vm, bimHandle, sdk, perms);
 
+  // Custom namespace: query (needs entity proxy marshaling)
   if (perms.query) {
     buildQueryNamespace(vm, bimHandle, sdk);
-  }
-
-  if (perms.viewer) {
-    buildViewerNamespace(vm, bimHandle, sdk);
-  }
-
-  if (perms.mutate) {
-    buildMutateNamespace(vm, bimHandle, sdk);
-  }
-
-  if (perms.lens) {
-    buildLensNamespace(vm, bimHandle, sdk);
-  }
-
-  if (perms.export) {
-    buildExportNamespace(vm, bimHandle, sdk);
   }
 
   vm.setProp(vm.global, 'bim', bimHandle);
@@ -86,37 +72,7 @@ function buildConsole(vm: QuickJSContext, logs: LogEntry[]): void {
   consoleHandle.dispose();
 }
 
-// ── bim.model ────────────────────────────────────────────────
-
-function buildModelNamespace(vm: QuickJSContext, bimHandle: QuickJSHandle, sdk: BimContext): void {
-  const ns = vm.newObject();
-
-  const listFn = vm.newFunction('list', () => {
-    const models = sdk.model.list();
-    return marshalValue(vm, models);
-  });
-  vm.setProp(ns, 'list', listFn);
-  listFn.dispose();
-
-  const activeFn = vm.newFunction('active', () => {
-    const model = sdk.model.active();
-    return marshalValue(vm, model);
-  });
-  vm.setProp(ns, 'active', activeFn);
-  activeFn.dispose();
-
-  const activeIdFn = vm.newFunction('activeId', () => {
-    const id = sdk.model.activeId();
-    return id ? vm.newString(id) : vm.null;
-  });
-  vm.setProp(ns, 'activeId', activeIdFn);
-  activeIdFn.dispose();
-
-  vm.setProp(bimHandle, 'model', ns);
-  ns.dispose();
-}
-
-// ── bim.query ────────────────────────────────────────────────
+// ── bim.query (custom — entity proxy marshaling) ─────────────
 
 function buildQueryNamespace(vm: QuickJSContext, bimHandle: QuickJSHandle, sdk: BimContext): void {
   const ns = vm.newObject();
@@ -129,7 +85,6 @@ function buildQueryNamespace(vm: QuickJSContext, bimHandle: QuickJSHandle, sdk: 
       builder.byType(...types);
     }
     const entities = builder.toArray();
-    // Return serializable entity data (refs + basic fields)
     const data = entities.map(e => ({
       ref: e.ref,
       globalId: e.globalId,
@@ -166,11 +121,18 @@ function buildQueryNamespace(vm: QuickJSContext, bimHandle: QuickJSHandle, sdk: 
     const entityObj = vm.newObject();
 
     // Static data
-    setPropStr(vm, entityObj, 'modelId', entity.modelId);
-    setPropNum(vm, entityObj, 'expressId', entity.expressId);
-    setPropStr(vm, entityObj, 'globalId', entity.globalId);
-    setPropStr(vm, entityObj, 'name', entity.name);
-    setPropStr(vm, entityObj, 'type', entity.type);
+    const fields: [string, string | number][] = [
+      ['modelId', entity.modelId],
+      ['expressId', entity.expressId],
+      ['globalId', entity.globalId],
+      ['name', entity.name],
+      ['type', entity.type],
+    ];
+    for (const [key, value] of fields) {
+      const handle = typeof value === 'number' ? vm.newNumber(value) : vm.newString(value);
+      vm.setProp(entityObj, key, handle);
+      handle.dispose();
+    }
 
     // properties() method
     const propsFn = vm.newFunction('properties', () => {
@@ -183,8 +145,7 @@ function buildQueryNamespace(vm: QuickJSContext, bimHandle: QuickJSHandle, sdk: 
     const propFn = vm.newFunction('property', (psetHandle: QuickJSHandle, propHandle: QuickJSHandle) => {
       const pset = vm.getString(psetHandle);
       const prop = vm.getString(propHandle);
-      const value = entity.property(pset, prop);
-      return marshalValue(vm, value);
+      return marshalValue(vm, entity.property(pset, prop));
     });
     vm.setProp(entityObj, 'property', propFn);
     propFn.dispose();
@@ -200,8 +161,7 @@ function buildQueryNamespace(vm: QuickJSContext, bimHandle: QuickJSHandle, sdk: 
     const qtyFn = vm.newFunction('quantity', (qsetHandle: QuickJSHandle, qNameHandle: QuickJSHandle) => {
       const qset = vm.getString(qsetHandle);
       const qName = vm.getString(qNameHandle);
-      const value = entity.quantity(qset, qName);
-      return marshalValue(vm, value);
+      return marshalValue(vm, entity.quantity(qset, qName));
     });
     vm.setProp(entityObj, 'quantity', qtyFn);
     qtyFn.dispose();
@@ -213,180 +173,4 @@ function buildQueryNamespace(vm: QuickJSContext, bimHandle: QuickJSHandle, sdk: 
 
   vm.setProp(bimHandle, 'query', ns);
   ns.dispose();
-}
-
-// ── bim.viewer ───────────────────────────────────────────────
-
-function buildViewerNamespace(vm: QuickJSContext, bimHandle: QuickJSHandle, sdk: BimContext): void {
-  const ns = vm.newObject();
-
-  const colorizeFn = vm.newFunction('colorize', (refsHandle: QuickJSHandle, colorHandle: QuickJSHandle) => {
-    const refs = vm.dump(refsHandle) as Array<{ ref: { modelId: string; expressId: number } }>;
-    const color = vm.getString(colorHandle);
-    const entityRefs = refs.map(r => r.ref ?? r);
-    sdk.viewer.colorize(entityRefs, color);
-  });
-  vm.setProp(ns, 'colorize', colorizeFn);
-  colorizeFn.dispose();
-
-  const hideFn = vm.newFunction('hide', (refsHandle: QuickJSHandle) => {
-    const refs = vm.dump(refsHandle) as Array<{ ref: { modelId: string; expressId: number } }>;
-    sdk.viewer.hide(refs.map(r => r.ref ?? r));
-  });
-  vm.setProp(ns, 'hide', hideFn);
-  hideFn.dispose();
-
-  const isolateFn = vm.newFunction('isolate', (refsHandle: QuickJSHandle) => {
-    const refs = vm.dump(refsHandle) as Array<{ ref: { modelId: string; expressId: number } }>;
-    sdk.viewer.isolate(refs.map(r => r.ref ?? r));
-  });
-  vm.setProp(ns, 'isolate', isolateFn);
-  isolateFn.dispose();
-
-  const selectFn = vm.newFunction('select', (refsHandle: QuickJSHandle) => {
-    const refs = vm.dump(refsHandle) as Array<{ ref: { modelId: string; expressId: number } }>;
-    sdk.viewer.select(refs.map(r => r.ref ?? r));
-  });
-  vm.setProp(ns, 'select', selectFn);
-  selectFn.dispose();
-
-  const resetColorsFn = vm.newFunction('resetColors', () => {
-    sdk.viewer.resetColors();
-  });
-  vm.setProp(ns, 'resetColors', resetColorsFn);
-  resetColorsFn.dispose();
-
-  const resetVisibilityFn = vm.newFunction('resetVisibility', () => {
-    sdk.viewer.resetVisibility();
-  });
-  vm.setProp(ns, 'resetVisibility', resetVisibilityFn);
-  resetVisibilityFn.dispose();
-
-  vm.setProp(bimHandle, 'viewer', ns);
-  ns.dispose();
-}
-
-// ── bim.mutate ───────────────────────────────────────────────
-
-function buildMutateNamespace(vm: QuickJSContext, bimHandle: QuickJSHandle, sdk: BimContext): void {
-  const ns = vm.newObject();
-
-  const setPropFn = vm.newFunction('setProperty', (
-    refHandle: QuickJSHandle,
-    psetHandle: QuickJSHandle,
-    propHandle: QuickJSHandle,
-    valueHandle: QuickJSHandle,
-  ) => {
-    const ref = vm.dump(refHandle) as { modelId: string; expressId: number };
-    const pset = vm.getString(psetHandle);
-    const prop = vm.getString(propHandle);
-    const value = vm.dump(valueHandle) as string | number | boolean;
-    sdk.mutate.setProperty(ref, pset, prop, value);
-  });
-  vm.setProp(ns, 'setProperty', setPropFn);
-  setPropFn.dispose();
-
-  const deletePropFn = vm.newFunction('deleteProperty', (
-    refHandle: QuickJSHandle,
-    psetHandle: QuickJSHandle,
-    propHandle: QuickJSHandle,
-  ) => {
-    const ref = vm.dump(refHandle) as { modelId: string; expressId: number };
-    const pset = vm.getString(psetHandle);
-    const prop = vm.getString(propHandle);
-    sdk.mutate.deleteProperty(ref, pset, prop);
-  });
-  vm.setProp(ns, 'deleteProperty', deletePropFn);
-  deletePropFn.dispose();
-
-  vm.setProp(bimHandle, 'mutate', ns);
-  ns.dispose();
-}
-
-// ── bim.lens ─────────────────────────────────────────────────
-
-function buildLensNamespace(vm: QuickJSContext, bimHandle: QuickJSHandle, sdk: BimContext): void {
-  const ns = vm.newObject();
-
-  const presetsFn = vm.newFunction('presets', () => {
-    return marshalValue(vm, sdk.lens.presets());
-  });
-  vm.setProp(ns, 'presets', presetsFn);
-  presetsFn.dispose();
-
-  vm.setProp(bimHandle, 'lens', ns);
-  ns.dispose();
-}
-
-// ── bim.export ────────────────────────────────────────────────
-
-function buildExportNamespace(vm: QuickJSContext, bimHandle: QuickJSHandle, sdk: BimContext): void {
-  const ns = vm.newObject();
-
-  // bim.export.csv(entities, options) → string
-  const csvFn = vm.newFunction('csv', (refsHandle: QuickJSHandle, optionsHandle: QuickJSHandle) => {
-    const refs = vm.dump(refsHandle) as Array<{ modelId: string; expressId: number }>;
-    const options = vm.dump(optionsHandle) as { columns: string[]; separator?: string };
-    const result = sdk.export.csv(refs, options);
-    return vm.newString(result);
-  });
-  vm.setProp(ns, 'csv', csvFn);
-  csvFn.dispose();
-
-  // bim.export.json(entities, columns) → object[]
-  const jsonFn = vm.newFunction('json', (refsHandle: QuickJSHandle, columnsHandle: QuickJSHandle) => {
-    const refs = vm.dump(refsHandle) as Array<{ modelId: string; expressId: number }>;
-    const columns = vm.dump(columnsHandle) as string[];
-    const result = sdk.export.json(refs, columns);
-    return marshalValue(vm, result);
-  });
-  vm.setProp(ns, 'json', jsonFn);
-  jsonFn.dispose();
-
-  vm.setProp(bimHandle, 'export', ns);
-  ns.dispose();
-}
-
-// ── Marshal helpers ──────────────────────────────────────────
-
-/** Convert a JS value to a QuickJS handle */
-function marshalValue(vm: QuickJSContext, value: unknown): QuickJSHandle {
-  if (value === null || value === undefined) return vm.null;
-  if (typeof value === 'string') return vm.newString(value);
-  if (typeof value === 'number') return vm.newNumber(value);
-  if (typeof value === 'boolean') return value ? vm.true : vm.false;
-
-  if (Array.isArray(value)) {
-    const arr = vm.newArray();
-    for (let i = 0; i < value.length; i++) {
-      const item = marshalValue(vm, value[i]);
-      vm.setProp(arr, i, item);
-      item.dispose();
-    }
-    return arr;
-  }
-
-  if (typeof value === 'object') {
-    const obj = vm.newObject();
-    for (const [k, v] of Object.entries(value)) {
-      const handle = marshalValue(vm, v);
-      vm.setProp(obj, k, handle);
-      handle.dispose();
-    }
-    return obj;
-  }
-
-  return vm.null;
-}
-
-function setPropStr(vm: QuickJSContext, obj: QuickJSHandle, key: string, value: string): void {
-  const handle = vm.newString(value);
-  vm.setProp(obj, key, handle);
-  handle.dispose();
-}
-
-function setPropNum(vm: QuickJSContext, obj: QuickJSHandle, key: string, value: number): void {
-  const handle = vm.newNumber(value);
-  vm.setProp(obj, key, handle);
-  handle.dispose();
 }

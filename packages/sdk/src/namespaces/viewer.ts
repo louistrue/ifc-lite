@@ -14,94 +14,94 @@ export class ViewerNamespace {
   /** Colorize entities with a hex color string */
   colorize(refs: EntityRef[], color: string): void {
     const rgba = hexToRgba(color, 1.0);
-    this.backend.colorize(refs, rgba);
+    this.backend.dispatch('viewer', 'colorize', [refs, rgba]);
   }
 
   /** Colorize with RGBA tuple [0-1] */
   colorizeRgba(refs: EntityRef[], color: RGBAColor): void {
-    this.backend.colorize(refs, color);
+    this.backend.dispatch('viewer', 'colorize', [refs, color]);
   }
 
   /** Reset color overrides */
   resetColors(refs?: EntityRef[]): void {
-    this.backend.resetColors(refs);
+    this.backend.dispatch('viewer', 'resetColors', [refs]);
   }
 
   // ── Visibility ─────────────────────────────────────────────
 
   /** Hide entities */
   hide(refs: EntityRef[]): void {
-    this.backend.hideEntities(refs);
+    this.backend.dispatch('visibility', 'hide', [refs]);
   }
 
   /** Show previously hidden entities */
   show(refs: EntityRef[]): void {
-    this.backend.showEntities(refs);
+    this.backend.dispatch('visibility', 'show', [refs]);
   }
 
   /** Isolate entities (hide everything else) */
   isolate(refs: EntityRef[]): void {
-    this.backend.isolateEntities(refs);
+    this.backend.dispatch('visibility', 'isolate', [refs]);
   }
 
   /** Reset all visibility to default */
   resetVisibility(): void {
-    this.backend.resetVisibility();
+    this.backend.dispatch('visibility', 'reset', []);
   }
 
   // ── Selection ──────────────────────────────────────────────
 
   /** Set the selection to given entities */
   select(refs: EntityRef[]): void {
-    this.backend.setSelection(refs);
+    this.backend.dispatch('selection', 'set', [refs]);
   }
 
   /** Clear selection */
   deselect(): void {
-    this.backend.setSelection([]);
+    this.backend.dispatch('selection', 'set', [[]]);
   }
 
   /** Get current selection */
   getSelection(): EntityRef[] {
-    return this.backend.getSelection();
+    return this.backend.dispatch('selection', 'get', []) as EntityRef[];
   }
 
   // ── Camera ─────────────────────────────────────────────────
 
   /** Fly camera to frame the given entities */
   flyTo(refs: EntityRef[]): void {
-    this.backend.flyTo(refs);
+    this.backend.dispatch('viewer', 'flyTo', [refs]);
   }
 
   /** Set camera state */
   setCamera(state: Partial<CameraState>): void {
-    this.backend.setCamera(state);
+    this.backend.dispatch('viewer', 'setCamera', [state]);
   }
 
   /** Get current camera state */
   getCamera(): CameraState {
-    return this.backend.getCamera();
+    return this.backend.dispatch('viewer', 'getCamera', []) as CameraState;
   }
 
   /** Switch projection mode */
   setProjection(mode: ProjectionMode): void {
-    this.backend.setCamera({ mode });
+    this.backend.dispatch('viewer', 'setCamera', [{ mode }]);
   }
 
   // ── Section planes ─────────────────────────────────────────
 
   /** Set a section plane */
   setSection(section: SectionPlane): void {
-    this.backend.setSection(section);
+    this.backend.dispatch('viewer', 'setSection', [section]);
   }
 
   /** Get current section plane */
   getSection(): SectionPlane | null {
-    return this.backend.getSection();
+    return this.backend.dispatch('viewer', 'getSection', []) as SectionPlane | null;
   }
 
   /** Remove section plane */
   clearSection(): void {
-    this.backend.setSection(null);
+    this.backend.dispatch('viewer', 'setSection', [null]);
   }
 }

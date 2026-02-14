@@ -118,6 +118,28 @@ export interface NodeDefinition {
   execute: NodeExecutor;
   /** Generate equivalent TypeScript code */
   toCode: (params: Record<string, unknown>) => string;
+
+  /**
+   * Decompile patterns — regex(es) for recognizing this node's code in scripts.
+   * When present, the decompiler uses these patterns from the registry
+   * instead of maintaining a separate hardcoded pattern list.
+   * Multiple patterns are supported (e.g., filterByProperty has 3 regex variants).
+   * Patterns across all nodes are tried in registration order, with earlier
+   * patterns in each node's array tried first.
+   */
+  fromCode?: FromCodePattern[];
+}
+
+/** A regex pattern for decompiling code back to a node */
+export interface FromCodePattern {
+  /** Regex to match the code line */
+  regex: RegExp;
+  /** Whether the first capture group is a variable assignment (const x = ...) */
+  assigns: boolean;
+  /** Extract params from regex match groups */
+  extractParams: (match: RegExpMatchArray) => Record<string, unknown>;
+  /** Extract input variable names from match */
+  extractInputs: (match: RegExpMatchArray) => string[];
 }
 
 /** Executor function signature */

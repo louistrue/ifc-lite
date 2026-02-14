@@ -38,6 +38,12 @@ export const spatialNodes: NodeDefinition[] = [
     },
     toCode: (params) =>
       `const refs = bim.spatial.queryBounds('${params.modelId}', { min: [${params.minX}, ${params.minY}, ${params.minZ}], max: [${params.maxX}, ${params.maxY}, ${params.maxZ}] })`,
+    fromCode: [{
+      regex: /(?:const|let|var)\s+(\w+)\s*=\s*bim\.spatial\.queryBounds\(['"]([^'"]+)['"],/,
+      assigns: true,
+      extractParams: (m) => ({ modelId: m[2] }),
+      extractInputs: () => [],
+    }],
   },
 
   {
@@ -67,6 +73,12 @@ export const spatialNodes: NodeDefinition[] = [
     },
     toCode: (params) =>
       `const refs = bim.spatial.raycast('${params.modelId}', [${params.originX}, ${params.originY}, ${params.originZ}], [${params.dirX}, ${params.dirY}, ${params.dirZ}])`,
+    fromCode: [{
+      regex: /(?:const|let|var)\s+(\w+)\s*=\s*bim\.spatial\.raycast\(['"]([^'"]+)['"],/,
+      assigns: true,
+      extractParams: (m) => ({ modelId: m[2] }),
+      extractInputs: () => [],
+    }],
   },
 
   {
@@ -93,5 +105,11 @@ export const spatialNodes: NodeDefinition[] = [
     },
     toCode: (params) =>
       `const refs = bim.spatial.queryRadius('${params.modelId}', [${params.centerX}, ${params.centerY}, ${params.centerZ}], ${params.radius})`,
+    fromCode: [{
+      regex: /(?:const|let|var)\s+(\w+)\s*=\s*bim\.spatial\.queryRadius\(['"]([^'"]+)['"],/,
+      assigns: true,
+      extractParams: (m) => ({ modelId: m[2] }),
+      extractInputs: () => [],
+    }],
   },
 ];

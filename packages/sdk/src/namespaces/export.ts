@@ -10,7 +10,7 @@
  * entities to include, and delegates to the appropriate exporter.
  */
 
-import type { BimBackend, EntityRef } from '../types.js';
+import type { BimBackend, EntityRef, EntityData, PropertySetData } from '../types.js';
 
 export interface ExportCsvOptions {
   columns: string[];
@@ -44,7 +44,7 @@ export class ExportNamespace {
 
     // Data rows
     for (const ref of refs) {
-      const data = this.backend.getEntityData(ref);
+      const data = this.backend.dispatch('query', 'entityData', [ref]) as EntityData | null;
       if (!data) continue;
 
       const row: string[] = [];
@@ -60,7 +60,7 @@ export class ExportNamespace {
         if (dotIdx > 0) {
           const psetName = col.slice(0, dotIdx);
           const propName = col.slice(dotIdx + 1);
-          const psets = this.backend.getEntityProperties(ref);
+          const psets = this.backend.dispatch('query', 'properties', [ref]) as PropertySetData[];
           const pset = psets.find(p => p.name === psetName);
           const prop = pset?.properties.find(p => p.name === propName);
           row.push(prop?.value != null ? String(prop.value) : '');
@@ -83,7 +83,7 @@ export class ExportNamespace {
     const result: Record<string, unknown>[] = [];
 
     for (const ref of refs) {
-      const data = this.backend.getEntityData(ref);
+      const data = this.backend.dispatch('query', 'entityData', [ref]) as EntityData | null;
       if (!data) continue;
 
       const row: Record<string, unknown> = {};
@@ -98,7 +98,7 @@ export class ExportNamespace {
         if (dotIdx > 0) {
           const psetName = col.slice(0, dotIdx);
           const propName = col.slice(dotIdx + 1);
-          const psets = this.backend.getEntityProperties(ref);
+          const psets = this.backend.dispatch('query', 'properties', [ref]) as PropertySetData[];
           const pset = psets.find(p => p.name === psetName);
           const prop = pset?.properties.find(p => p.name === propName);
           row[col] = prop?.value ?? null;

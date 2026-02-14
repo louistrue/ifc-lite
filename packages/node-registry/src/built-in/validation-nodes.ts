@@ -28,6 +28,12 @@ export const validationNodes: NodeDefinition[] = [
       return { idsDocument: doc };
     },
     toCode: () => `const idsDocument = await bim.ids.parse(xmlContent)`,
+    fromCode: [{
+      regex: /(?:const|let|var)\s+(\w+)\s*=\s*(?:await\s+)?bim\.ids\.parse\((\w+)\)/,
+      assigns: true,
+      extractParams: () => ({}),
+      extractInputs: (m) => [m[2]],
+    }],
   },
 
   {
@@ -53,5 +59,11 @@ export const validationNodes: NodeDefinition[] = [
       return { summary };
     },
     toCode: () => `const summary = bim.ids.summarize(report)`,
+    fromCode: [{
+      regex: /(?:const|let|var)\s+(\w+)\s*=\s*bim\.ids\.summarize\((\w+)\)/,
+      assigns: true,
+      extractParams: () => ({}),
+      extractInputs: (m) => [m[2]],
+    }],
   },
 ];

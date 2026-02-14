@@ -106,6 +106,76 @@ export const exportNodes: NodeDefinition[] = [
   },
 
   {
+    id: 'export.csv',
+    name: 'Export CSV',
+    category: 'Export',
+    description: 'Export entities as CSV string',
+    icon: 'file-text',
+    inputs: [
+      { id: 'entities', name: 'Entities', type: 'EntityProxy[]', required: true },
+    ],
+    outputs: [
+      { id: 'output', name: 'CSV', type: 'string', required: true },
+    ],
+    params: [
+      { id: 'columns', name: 'Columns', widget: 'text', default: 'name,type' },
+    ],
+    execute: (inputs, params, sdk) => {
+      const entities = inputs.entities as EntityProxy[];
+      const columns = String(params.columns).split(',').map(s => s.trim()).filter(Boolean);
+      const csv = sdk.export.csv(entities.map(e => e.ref), { columns });
+      return { output: csv };
+    },
+    toCode: (params) => {
+      const cols = String(params.columns).split(',').map(s => `'${s.trim()}'`).join(', ');
+      return `const csv = bim.export.csv(entities.map(e => e.ref), { columns: [${cols}] })`;
+    },
+    fromCode: [{
+      regex: /(?:const|let|var)\s+(\w+)\s*=\s*bim\.export\.csv\((\w+)(?:\.map\([^)]+\))?,\s*\{[^}]*columns:\s*\[([^\]]*)\]/,
+      assigns: true,
+      extractParams: (m) => ({
+        columns: m[3].split(',').map((s: string) => s.trim().replace(/['"]/g, '')).filter(Boolean),
+      }),
+      extractInputs: (m) => [m[2]],
+    }],
+  },
+
+  {
+    id: 'export.json',
+    name: 'Export JSON',
+    category: 'Export',
+    description: 'Export entities as JSON array',
+    icon: 'code',
+    inputs: [
+      { id: 'entities', name: 'Entities', type: 'EntityProxy[]', required: true },
+    ],
+    outputs: [
+      { id: 'output', name: 'JSON', type: 'object[]', required: true },
+    ],
+    params: [
+      { id: 'columns', name: 'Columns', widget: 'text', default: 'name,type' },
+    ],
+    execute: (inputs, params, sdk) => {
+      const entities = inputs.entities as EntityProxy[];
+      const columns = String(params.columns).split(',').map(s => s.trim()).filter(Boolean);
+      const data = sdk.export.json(entities.map(e => e.ref), columns);
+      return { output: data };
+    },
+    toCode: (params) => {
+      const cols = String(params.columns).split(',').map(s => `'${s.trim()}'`).join(', ');
+      return `const json = bim.export.json(entities.map(e => e.ref), [${cols}])`;
+    },
+    fromCode: [{
+      regex: /(?:const|let|var)\s+(\w+)\s*=\s*bim\.export\.json\((\w+)(?:\.map\([^)]+\))?,\s*\[([^\]]*)\]\)/,
+      assigns: true,
+      extractParams: (m) => ({
+        columns: m[3].split(',').map((s: string) => s.trim().replace(/['"]/g, '')).filter(Boolean),
+      }),
+      extractInputs: (m) => [m[2]],
+    }],
+  },
+
+  {
     id: 'export.watch',
     name: 'Watch',
     category: 'Export',

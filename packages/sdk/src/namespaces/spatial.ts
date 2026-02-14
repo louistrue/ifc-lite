@@ -17,49 +17,24 @@ import type { BimBackend, EntityRef, AABB, SpatialFrustum } from '../types.js';
 export class SpatialNamespace {
   constructor(private backend: BimBackend) {}
 
-  /**
-   * Find entities whose bounding boxes intersect the given AABB.
-   *
-   * @param modelId - Which model to query
-   * @param bounds - Axis-aligned bounding box to test against
-   * @returns Entity references within the bounds
-   */
   queryBounds(modelId: string, bounds: AABB): EntityRef[] {
-    return this.backend.queryBounds(modelId, bounds);
+    return this.backend.dispatch('spatial', 'queryBounds', [modelId, bounds]) as EntityRef[];
   }
 
-  /**
-   * Cast a ray and find entities that intersect it.
-   *
-   * @param modelId - Which model to query
-   * @param origin - Ray origin [x, y, z]
-   * @param direction - Ray direction [x, y, z] (will be normalized internally)
-   * @returns Entity references hit by the ray
-   */
   raycast(modelId: string, origin: [number, number, number], direction: [number, number, number]): EntityRef[] {
-    return this.backend.spatialRaycast(modelId, origin, direction);
+    return this.backend.dispatch('spatial', 'raycast', [modelId, origin, direction]) as EntityRef[];
   }
 
-  /**
-   * Find entities visible within a view frustum.
-   *
-   * @param modelId - Which model to query
-   * @param frustum - Frustum defined by clipping planes
-   * @returns Entity references within the frustum
-   */
   queryFrustum(modelId: string, frustum: SpatialFrustum): EntityRef[] {
-    return this.backend.queryFrustum(modelId, frustum);
+    return this.backend.dispatch('spatial', 'queryFrustum', [modelId, frustum]) as EntityRef[];
   }
 
-  /**
-   * Convenience: find entities near a point within a radius.
-   * Builds an AABB from center ± radius and delegates to queryBounds.
-   */
+  /** Convenience: find entities near a point within a radius. */
   queryRadius(modelId: string, center: [number, number, number], radius: number): EntityRef[] {
     const bounds: AABB = {
       min: [center[0] - radius, center[1] - radius, center[2] - radius],
       max: [center[0] + radius, center[1] + radius, center[2] + radius],
     };
-    return this.backend.queryBounds(modelId, bounds);
+    return this.backend.dispatch('spatial', 'queryBounds', [modelId, bounds]) as EntityRef[];
   }
 }

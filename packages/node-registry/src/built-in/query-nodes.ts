@@ -39,6 +39,14 @@ export const queryNodes: NodeDefinition[] = [
       const modelClause = params.modelId ? `.model('${params.modelId}')` : '';
       return `const entities = bim.query()${modelClause}.toArray()`;
     },
+    fromCode: [
+      {
+        regex: /(?:const|let|var)\s+(\w+)\s*=\s*bim\.query\(\)(?:\.model\(['"]([^'"]*)['"]\))?\.toArray\(\)/,
+        assigns: true,
+        extractParams: (m) => ({ modelId: m[2] || undefined }),
+        extractInputs: () => [],
+      },
+    ],
   },
 
   {
@@ -65,6 +73,14 @@ export const queryNodes: NodeDefinition[] = [
       return { result: sdk.query().byType(type).toArray() };
     },
     toCode: (params) => `const result = bim.query().byType('${params.type}').toArray()`,
+    fromCode: [
+      {
+        regex: /(?:const|let|var)\s+(\w+)\s*=\s*bim\.query\(\)(?:\.model\(['"]([^'"]*)['"]\))?\.byType\(['"](\w+)['"]\)\.toArray\(\)/,
+        assigns: true,
+        extractParams: (m) => ({ type: m[3], modelId: m[2] || undefined }),
+        extractInputs: () => [],
+      },
+    ],
   },
 
   {
@@ -123,5 +139,43 @@ export const queryNodes: NodeDefinition[] = [
       }
       return `const result = entities.filter(e => e.property('${params.psetName}', '${params.propName}') ${op} ${JSON.stringify(params.value)})`;
     },
+    fromCode: [
+      // byType().where() variant
+      {
+        regex: /(?:const|let|var)\s+(\w+)\s*=\s*bim\.query\(\)(?:\.model\(['"]([^'"]*)['"]\))?\.byType\(['"](\w+)['"]\)\.where\(['"]([^'"]+)['"],\s*['"]([^'"]+)['"],\s*['"]([^'"]+)['"],\s*(?:['"]([^'"]*)['"]\s*|(\d+(?:\.\d+)?)\s*|(\w+)\s*)\)\.toArray\(\)/,
+        assigns: true,
+        extractParams: (m) => ({
+          type: m[3],
+          psetName: m[4],
+          propName: m[5],
+          operator: m[6],
+          value: m[7] ?? m[8] ?? m[9],
+        }),
+        extractInputs: () => [],
+      },
+      // Exists filter (MUST be before general filter)
+      {
+        regex: /(?:const|let|var)\s+(\w+)\s*=\s*(\w+)\.filter\(\w+\s*=>\s*\w+\.property\(['"]([^'"]+)['"],\s*['"]([^'"]+)['"]\)\s*!=\s*null\)/,
+        assigns: true,
+        extractParams: (m) => ({
+          psetName: m[3],
+          propName: m[4],
+          operator: 'exists',
+        }),
+        extractInputs: (m) => [m[2]],
+      },
+      // General .filter() variant
+      {
+        regex: /(?:const|let|var)\s+(\w+)\s*=\s*(\w+)\.filter\(\w+\s*=>\s*\w+\.property\(['"]([^'"]+)['"],\s*['"]([^'"]+)['"]\)\s*(===?|!==?|>|<|>=|<=)\s*(?:['"]([^'"]*)['"]\s*|(\d+(?:\.\d+)?)\s*|(\w+)\s*)\)/,
+        assigns: true,
+        extractParams: (m) => ({
+          psetName: m[3],
+          propName: m[4],
+          operator: m[5] === '===' ? '=' : m[5] === '!==' ? '!=' : m[5],
+          value: m[6] ?? m[7] ?? m[8],
+        }),
+        extractInputs: (m) => [m[2]],
+      },
+    ],
   },
 ];

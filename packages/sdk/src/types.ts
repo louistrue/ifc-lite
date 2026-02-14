@@ -209,50 +209,27 @@ export interface SdkEvent {
 // Backend Interface (implemented by local store or remote proxy)
 // ============================================================================
 
-/** Abstraction over the viewer's internal state — SDK namespaces use this */
+/**
+ * Abstraction over the viewer's internal state — SDK namespaces use this.
+ *
+ * Uses a generic dispatch pattern: all calls go through `dispatch(namespace, method, args)`.
+ * This avoids a fat interface that must be updated every time a new SDK method is added.
+ * Type safety is provided at the namespace boundary (each namespace class casts internally).
+ *
+ * Namespace/method conventions match the SdkRequest protocol:
+ *   model.list, model.activeId
+ *   query.entities, query.entityData, query.properties, query.quantities, query.related
+ *   selection.get, selection.set
+ *   visibility.hide, visibility.show, visibility.isolate, visibility.reset
+ *   viewer.colorize, viewer.resetColors, viewer.flyTo, viewer.setSection, viewer.getSection, viewer.setCamera, viewer.getCamera
+ *   mutate.setProperty, mutate.deleteProperty, mutate.undo, mutate.redo
+ *   spatial.queryBounds, spatial.raycast, spatial.queryFrustum
+ */
 export interface BimBackend {
-  // Model
-  getModels(): ModelInfo[];
-  getActiveModelId(): string | null;
+  /** Dispatch an SDK call to the appropriate handler */
+  dispatch(namespace: string, method: string, args: unknown[]): unknown;
 
-  // Query — returns serializable entity data
-  queryEntities(descriptor: QueryDescriptor): EntityData[];
-  getEntityData(ref: EntityRef): EntityData | null;
-  getEntityProperties(ref: EntityRef): PropertySetData[];
-  getEntityQuantities(ref: EntityRef): QuantitySetData[];
-  getEntityRelated(ref: EntityRef, relType: string, direction: 'forward' | 'inverse'): EntityRef[];
-
-  // Selection
-  getSelection(): EntityRef[];
-  setSelection(refs: EntityRef[]): void;
-
-  // Visibility
-  hideEntities(refs: EntityRef[]): void;
-  showEntities(refs: EntityRef[]): void;
-  isolateEntities(refs: EntityRef[]): void;
-  resetVisibility(): void;
-
-  // Viewer
-  colorize(refs: EntityRef[], color: [number, number, number, number]): void;
-  resetColors(refs?: EntityRef[]): void;
-  flyTo(refs: EntityRef[]): void;
-  setSection(section: SectionPlane | null): void;
-  getSection(): SectionPlane | null;
-  setCamera(state: Partial<CameraState>): void;
-  getCamera(): CameraState;
-
-  // Mutation
-  setProperty(ref: EntityRef, psetName: string, propName: string, value: string | number | boolean): void;
-  deleteProperty(ref: EntityRef, psetName: string, propName: string): void;
-  undo(modelId: string): boolean;
-  redo(modelId: string): boolean;
-
-  // Spatial
-  queryBounds(modelId: string, bounds: AABB): EntityRef[];
-  spatialRaycast(modelId: string, origin: [number, number, number], direction: [number, number, number]): EntityRef[];
-  queryFrustum(modelId: string, frustum: SpatialFrustum): EntityRef[];
-
-  // Events
+  /** Subscribe to viewer events (kept separate — event subscriptions are stateful) */
   subscribe(event: BimEventType, handler: (data: unknown) => void): () => void;
 }
 

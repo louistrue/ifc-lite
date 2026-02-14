@@ -24,6 +24,12 @@ export const lensNodes: NodeDefinition[] = [
       return { presets: sdk.lens.presets() };
     },
     toCode: () => `const presets = bim.lens.presets()`,
+    fromCode: [{
+      regex: /(?:const|let|var)\s+(\w+)\s*=\s*bim\.lens\.presets\(\)/,
+      assigns: true,
+      extractParams: () => ({}),
+      extractInputs: () => [],
+    }],
   },
 
   {
@@ -64,5 +70,11 @@ export const lensNodes: NodeDefinition[] = [
     },
     toCode: (params) =>
       `const lens = bim.lens.create({\n  name: '${params.name}',\n  rules: [{\n    id: 'rule-1', name: '${params.propertySet}.${params.property}', enabled: true,\n    criteria: { type: 'property', propertySet: '${params.propertySet}', propertyName: '${params.property}', operator: 'exists' },\n    action: 'colorize', color: '#E53935'\n  }]\n})`,
+    fromCode: [{
+      regex: /(?:const|let|var)\s+(\w+)\s*=\s*bim\.lens\.create\(/,
+      assigns: true,
+      extractParams: () => ({}),
+      extractInputs: () => [],
+    }],
   },
 ];

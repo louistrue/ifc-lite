@@ -40,7 +40,7 @@ export class EntityProxy {
   /** Get all property sets (cached after first call) */
   properties(): PropertySetData[] {
     if (!this._properties) {
-      this._properties = this.backend.getEntityProperties(this.ref);
+      this._properties = this.backend.dispatch('query', 'properties', [this.ref]) as PropertySetData[];
     }
     return this._properties;
   }
@@ -57,7 +57,7 @@ export class EntityProxy {
   /** Get all quantity sets (cached after first call) */
   quantities(): QuantitySetData[] {
     if (!this._quantities) {
-      this._quantities = this.backend.getEntityQuantities(this.ref);
+      this._quantities = this.backend.dispatch('query', 'quantities', [this.ref]) as QuantitySetData[];
     }
     return this._quantities;
   }
@@ -73,43 +73,43 @@ export class EntityProxy {
 
   /** Spatial containment — what contains this entity */
   containedIn(): EntityProxy | null {
-    const refs = this.backend.getEntityRelated(this.ref, 'ContainsElements', 'inverse');
+    const refs = this.backend.dispatch('query', 'related', [this.ref, 'ContainsElements', 'inverse']) as EntityRef[];
     if (refs.length === 0) return null;
-    const data = this.backend.getEntityData(refs[0]);
+    const data = this.backend.dispatch('query', 'entityData', [refs[0]]) as EntityData | null;
     return data ? new EntityProxy(data, this.backend) : null;
   }
 
   /** Spatial containment — what this entity contains */
   contains(): EntityProxy[] {
-    const refs = this.backend.getEntityRelated(this.ref, 'ContainsElements', 'forward');
+    const refs = this.backend.dispatch('query', 'related', [this.ref, 'ContainsElements', 'forward']) as EntityRef[];
     return this.refsToProxies(refs);
   }
 
   /** Aggregation — parent */
   decomposedBy(): EntityProxy | null {
-    const refs = this.backend.getEntityRelated(this.ref, 'Aggregates', 'inverse');
+    const refs = this.backend.dispatch('query', 'related', [this.ref, 'Aggregates', 'inverse']) as EntityRef[];
     if (refs.length === 0) return null;
-    const data = this.backend.getEntityData(refs[0]);
+    const data = this.backend.dispatch('query', 'entityData', [refs[0]]) as EntityData | null;
     return data ? new EntityProxy(data, this.backend) : null;
   }
 
   /** Aggregation — children */
   decomposes(): EntityProxy[] {
-    const refs = this.backend.getEntityRelated(this.ref, 'Aggregates', 'forward');
+    const refs = this.backend.dispatch('query', 'related', [this.ref, 'Aggregates', 'forward']) as EntityRef[];
     return this.refsToProxies(refs);
   }
 
   /** Type definition */
   definingType(): EntityProxy | null {
-    const refs = this.backend.getEntityRelated(this.ref, 'DefinesByType', 'forward');
+    const refs = this.backend.dispatch('query', 'related', [this.ref, 'DefinesByType', 'forward']) as EntityRef[];
     if (refs.length === 0) return null;
-    const data = this.backend.getEntityData(refs[0]);
+    const data = this.backend.dispatch('query', 'entityData', [refs[0]]) as EntityData | null;
     return data ? new EntityProxy(data, this.backend) : null;
   }
 
   /** Openings that void this element */
   voids(): EntityProxy[] {
-    const refs = this.backend.getEntityRelated(this.ref, 'VoidsElement', 'forward');
+    const refs = this.backend.dispatch('query', 'related', [this.ref, 'VoidsElement', 'forward']) as EntityRef[];
     return this.refsToProxies(refs);
   }
 
@@ -130,7 +130,7 @@ export class EntityProxy {
   private refsToProxies(refs: EntityRef[]): EntityProxy[] {
     const result: EntityProxy[] = [];
     for (const ref of refs) {
-      const data = this.backend.getEntityData(ref);
+      const data = this.backend.dispatch('query', 'entityData', [ref]) as EntityData | null;
       if (data) result.push(new EntityProxy(data, this.backend));
     }
     return result;
@@ -191,7 +191,7 @@ export class QueryBuilder {
 
   /** Execute and return EntityProxy array */
   toArray(): EntityProxy[] {
-    const entities = this.backend.queryEntities(this.descriptor);
+    const entities = this.backend.dispatch('query', 'entities', [this.descriptor]) as EntityData[];
     return entities.map(e => new EntityProxy(e, this.backend));
   }
 
@@ -206,12 +206,12 @@ export class QueryBuilder {
 
   /** Execute and return count */
   count(): number {
-    return this.backend.queryEntities(this.descriptor).length;
+    return (this.backend.dispatch('query', 'entities', [this.descriptor]) as EntityData[]).length;
   }
 
   /** Execute and return just EntityRef[] (no data fetching) */
   refs(): EntityRef[] {
-    return this.backend.queryEntities(this.descriptor).map(e => e.ref);
+    return (this.backend.dispatch('query', 'entities', [this.descriptor]) as EntityData[]).map(e => e.ref);
   }
 }
 
@@ -226,7 +226,7 @@ export class QueryNamespace {
 
   /** Get a single entity by ref */
   entity(ref: EntityRef): EntityProxy | null {
-    const data = this.backend.getEntityData(ref);
+    const data = this.backend.dispatch('query', 'entityData', [ref]) as EntityData | null;
     return data ? new EntityProxy(data, this.backend) : null;
   }
 }

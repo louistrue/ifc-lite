@@ -37,6 +37,7 @@ export type {
   NodeCategory,
   NodeDefinition,
   NodeExecutor,
+  FromCodePattern,
   GraphNode,
   GraphEdge,
   Graph,
