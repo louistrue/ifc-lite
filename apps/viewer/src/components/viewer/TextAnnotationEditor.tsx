@@ -95,9 +95,14 @@ export function TextAnnotationEditor({
         onKeyDown={handleKeyDown}
         onBlur={handleBlur}
         placeholder="Type annotation text..."
-        className="min-w-[120px] max-w-[300px] min-h-[32px] px-2 py-1 text-sm border-2 border-blue-500 rounded bg-white text-black resize shadow-lg outline-none"
+        className="min-w-[120px] max-w-[300px] min-h-[32px] px-2 py-1 text-sm border-2 border-blue-500 rounded resize shadow-lg outline-none"
         rows={2}
-        style={{ fontSize: annotation.fontSize }}
+        style={{
+          fontSize: annotation.fontSize,
+          backgroundColor: '#ffffff',
+          color: '#000000',
+          caretColor: '#000000',
+        }}
       />
       <div className="text-[10px] text-muted-foreground mt-0.5 bg-white/80 px-1 rounded">
         Enter to confirm · Shift+Enter for newline · Esc to cancel
