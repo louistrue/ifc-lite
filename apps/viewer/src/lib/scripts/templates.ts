@@ -28,23 +28,29 @@ const counts = {}
 for (const e of all) {
   counts[e.type] = (counts[e.type] || 0) + 1
 }
-console.log('\\nEntity types:')
+console.log('\\nEntity types (' + all.length + ' total):')
 for (const [type, count] of Object.entries(counts).sort((a, b) => b[1] - a[1])) {
   console.log('  ' + type + ': ' + count)
 }`,
   },
   {
-    name: 'Color walls by type',
-    description: 'Find all walls and colorize them red',
+    name: 'Color walls red',
+    description: 'Find all walls (including IfcWallStandardCase) and colorize them',
     code: `// Find all walls and colorize them red
+// byType('IfcWall') automatically includes subtypes like IfcWallStandardCase
 const walls = bim.query.byType('IfcWall')
-bim.viewer.colorize(walls, '#e74c3c')
-console.log('Colored ' + walls.length + ' walls')`,
+if (walls.length > 0) {
+  bim.viewer.colorize(walls, '#e74c3c')
+  console.log('Colored ' + walls.length + ' walls red')
+} else {
+  console.log('No walls found in the model')
+}`,
   },
   {
     name: 'Color by IFC type',
     description: 'Assign unique colors to each IFC type',
     code: `// Assign a unique color to each IFC type
+bim.viewer.resetColors()
 const colors = [
   '#e74c3c', '#3498db', '#2ecc71', '#f39c12',
   '#9b59b6', '#1abc9c', '#e67e22', '#34495e',
@@ -65,19 +71,22 @@ for (const [type, entities] of Object.entries(types)) {
   },
   {
     name: 'Inspect entity properties',
-    description: 'Print all properties of the first entity',
-    code: `// Inspect all property sets of the first entity
-const all = bim.query.all()
-if (all.length === 0) {
+    description: 'Print all properties of the first wall (or first entity)',
+    code: `// Inspect properties and quantities of an entity
+// Try walls first, fall back to any entity
+let entities = bim.query.byType('IfcWall')
+if (entities.length === 0) entities = bim.query.all()
+
+if (entities.length === 0) {
   console.log('No entities found')
 } else {
-  const entity = all[0]
+  const entity = entities[0]
   console.log('Entity: ' + entity.name + ' (' + entity.type + ')')
   console.log('GlobalId: ' + entity.globalId)
   console.log('')
 
-  // Get property sets
-  const psets = entity.properties()
+  // Use bim.query.properties() to get property sets
+  const psets = bim.query.properties(entity)
   if (psets.length === 0) {
     console.log('No property sets')
   }
@@ -89,7 +98,7 @@ if (all.length === 0) {
   }
 
   // Get quantity sets
-  const qsets = entity.quantities()
+  const qsets = bim.query.quantities(entity)
   for (const qset of qsets) {
     console.log('--- ' + qset.name + ' (quantities) ---')
     for (const q of qset.quantities) {
@@ -99,40 +108,40 @@ if (all.length === 0) {
 }`,
   },
   {
-    name: 'Export doors to CSV',
-    description: 'Export all doors with name and global ID',
-    code: `// Export all doors as CSV
-const doors = bim.query.byType('IfcDoor')
-if (doors.length === 0) {
-  console.log('No doors found')
+    name: 'Export to CSV',
+    description: 'Export walls (or all entities) with name and global ID',
+    code: `// Export entities as CSV
+let entities = bim.query.byType('IfcWall')
+let label = 'walls'
+if (entities.length === 0) {
+  entities = bim.query.all()
+  label = 'entities'
+}
+if (entities.length === 0) {
+  console.log('No entities found')
 } else {
-  const csv = bim.export.csv(doors, { columns: ['name', 'type', 'globalId'] })
+  const csv = bim.export.csv(entities, { columns: ['name', 'type', 'globalId'] })
   console.log(csv)
-  console.log('\\nExported ' + doors.length + ' doors')
+  console.log('\\nExported ' + entities.length + ' ' + label)
 }`,
   },
   {
-    name: 'Hide structural elements',
-    description: 'Hide beams, columns, and footings',
-    code: `// Hide structural elements
-const beams = bim.query.byType('IfcBeam')
-const columns = bim.query.byType('IfcColumn')
-const footings = bim.query.byType('IfcFooting')
-const structural = [...beams, ...columns, ...footings]
-if (structural.length > 0) {
-  bim.viewer.hide(structural)
-  console.log('Hidden ' + structural.length + ' structural elements')
-  console.log('  Beams: ' + beams.length)
-  console.log('  Columns: ' + columns.length)
-  console.log('  Footings: ' + footings.length)
+    name: 'Hide openings',
+    description: 'Hide opening elements to see clean walls',
+    code: `// Hide opening elements (IfcOpeningElement / IfcOpeningStandardCase)
+const openings = bim.query.byType('IfcOpeningElement')
+if (openings.length > 0) {
+  bim.viewer.hide(openings)
+  console.log('Hidden ' + openings.length + ' openings')
 } else {
-  console.log('No structural elements found')
+  console.log('No openings found')
 }`,
   },
   {
     name: 'Isolate walls',
     description: 'Show only walls, hiding everything else',
     code: `// Isolate walls — hide everything else
+// byType('IfcWall') automatically includes IfcWallStandardCase
 const walls = bim.query.byType('IfcWall')
 if (walls.length > 0) {
   bim.viewer.isolate(walls)

@@ -22,6 +22,44 @@ const REL_TYPE_MAP: Record<string, RelationshipType> = {
   FillsElement: RelationshipType.FillsElement,
 };
 
+/**
+ * IFC4 subtype map — maps parent types to their StandardCase/ElementedCase subtypes.
+ * In IFC4, many element types have *StandardCase subtypes that the parser stores
+ * as the full type name. This map lets byType('IfcWall') also find IfcWallStandardCase.
+ */
+const IFC_SUBTYPES: Record<string, string[]> = {
+  IfcWall: ['IfcWallStandardCase', 'IfcWallElementedCase'],
+  IfcBeam: ['IfcBeamStandardCase'],
+  IfcColumn: ['IfcColumnStandardCase'],
+  IfcDoor: ['IfcDoorStandardCase'],
+  IfcWindow: ['IfcWindowStandardCase'],
+  IfcSlab: ['IfcSlabStandardCase', 'IfcSlabElementedCase'],
+  IfcMember: ['IfcMemberStandardCase'],
+  IfcPlate: ['IfcPlateStandardCase'],
+  IfcOpeningElement: ['IfcOpeningStandardCase'],
+};
+
+/** Expand a type list to include known IFC subtypes */
+function expandTypes(types: string[]): string[] {
+  const result: string[] = [];
+  for (const type of types) {
+    result.push(type);
+    const subtypes = IFC_SUBTYPES[type];
+    if (subtypes) {
+      for (const sub of subtypes) result.push(sub);
+    }
+  }
+  return result;
+}
+
+/** Check if a type name represents a product/spatial entity (not a relationship or definition) */
+function isProductType(type: string): boolean {
+  if (type.startsWith('IfcRel')) return false;
+  if (type.startsWith('IfcProperty')) return false;
+  if (type.startsWith('IfcQuantity')) return false;
+  return true;
+}
+
 export function createQueryAdapter(store: StoreApi): NamespaceAdapter {
   function getEntityData(ref: EntityRef): EntityData | null {
     const state = store.getState();
@@ -85,13 +123,20 @@ export function createQueryAdapter(store: StoreApi): NamespaceAdapter {
 
       let entityIds: number[];
       if (descriptor.types && descriptor.types.length > 0) {
+        // Expand types to include IFC4 subtypes (e.g., IfcWall → IfcWallStandardCase)
         entityIds = [];
-        for (const type of descriptor.types) {
+        for (const type of expandTypes(descriptor.types)) {
           const typeIds = model.ifcDataStore.entityIndex.byType.get(type) ?? [];
           for (const id of typeIds) entityIds.push(id);
         }
       } else {
-        entityIds = Array.from(model.ifcDataStore.entities.expressId.slice(0, model.ifcDataStore.entities.count));
+        // No type filter — return product entities only (skip relationships, property defs)
+        entityIds = [];
+        for (const [typeName, ids] of model.ifcDataStore.entityIndex.byType) {
+          if (isProductType(typeName)) {
+            for (const id of ids) entityIds.push(id);
+          }
+        }
       }
       for (const expressId of entityIds) {
         if (expressId === 0) continue;

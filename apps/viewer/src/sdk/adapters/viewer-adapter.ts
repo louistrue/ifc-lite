@@ -25,7 +25,9 @@ export function createViewerAdapter(store: StoreApi): NamespaceAdapter {
         case 'colorize': {
           const refs = args[0] as EntityRef[];
           const color = args[1] as [number, number, number, number];
-          const colorMap = new Map<number, [number, number, number, number]>();
+          // Merge with existing pending colors (supports multiple colorize calls per script)
+          const existing = state.pendingColorUpdates;
+          const colorMap = existing ? new Map(existing) : new Map<number, [number, number, number, number]>();
           for (const ref of refs) {
             const model = getModelForRef(state, ref.modelId);
             if (model) {
@@ -37,7 +39,8 @@ export function createViewerAdapter(store: StoreApi): NamespaceAdapter {
           return undefined;
         }
         case 'resetColors':
-          state.clearPendingColorUpdates();
+          // Set empty map to trigger scene.clearColorOverrides() (null skips the effect)
+          state.setPendingColorUpdates(new Map());
           return undefined;
         case 'flyTo':
           // flyTo requires renderer access — wired via useBimHost

@@ -171,6 +171,33 @@ function buildQueryNamespace(vm: QuickJSContext, bimHandle: QuickJSHandle, sdk: 
   vm.setProp(ns, 'entity', entityFn);
   entityFn.dispose();
 
+  // bim.query.properties(entity) → PropertySetData[]
+  // Convenience method: accepts entity from all()/byType() without needing bim.query.entity()
+  const propsFn = vm.newFunction('properties', (entityHandle: QuickJSHandle) => {
+    const raw = vm.dump(entityHandle) as { ref?: { modelId: string; expressId: number }; modelId?: string; expressId?: number };
+    const modelId = raw.ref?.modelId ?? raw.modelId;
+    const expressId = raw.ref?.expressId ?? raw.expressId;
+    if (!modelId || expressId === undefined) return marshalValue(vm, []);
+    const entity = sdk.entity({ modelId, expressId });
+    if (!entity) return marshalValue(vm, []);
+    return marshalValue(vm, entity.properties());
+  });
+  vm.setProp(ns, 'properties', propsFn);
+  propsFn.dispose();
+
+  // bim.query.quantities(entity) → QuantitySetData[]
+  const qtsFn = vm.newFunction('quantities', (entityHandle: QuickJSHandle) => {
+    const raw = vm.dump(entityHandle) as { ref?: { modelId: string; expressId: number }; modelId?: string; expressId?: number };
+    const modelId = raw.ref?.modelId ?? raw.modelId;
+    const expressId = raw.ref?.expressId ?? raw.expressId;
+    if (!modelId || expressId === undefined) return marshalValue(vm, []);
+    const entity = sdk.entity({ modelId, expressId });
+    if (!entity) return marshalValue(vm, []);
+    return marshalValue(vm, entity.quantities());
+  });
+  vm.setProp(ns, 'quantities', qtsFn);
+  qtsFn.dispose();
+
   vm.setProp(bimHandle, 'query', ns);
   ns.dispose();
 }
