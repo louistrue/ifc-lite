@@ -151,10 +151,10 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       e.preventDefault();
       hideEntity(selectedEntityId);
     }
-    // Space to hide — only when focused on the viewport canvas (not body/scrollable areas)
+    // Space to hide — skip when focused on buttons/selects/links where Space has native behavior
     if (key === ' ' && !ctrl && !shift && selectedEntityId) {
-      const active = document.activeElement;
-      if (active && (active.tagName === 'CANVAS' || active.closest('[data-viewport]'))) {
+      const tag = document.activeElement?.tagName;
+      if (tag !== 'BUTTON' && tag !== 'SELECT' && tag !== 'A') {
         e.preventDefault();
         hideEntity(selectedEntityId);
       }
