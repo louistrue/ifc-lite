@@ -13,7 +13,6 @@ import { formatDistance } from './tools/formatDistance';
 import { formatArea, computePolygonCentroid } from './tools/computePolygonArea';
 import { drawCloudOnCanvas } from './tools/cloudPathGenerator';
 import type { PolygonArea2DResult, TextAnnotation2D, CloudAnnotation2D, Annotation2DTool, Point2D, SelectedAnnotation2D } from '@/store/slices/drawing2DSlice';
-import { computePolygonCentroid as centroidForSelection } from './tools/computePolygonArea';
 
 // Fill colors for IFC types (architectural convention)
 const IFC_TYPE_FILL_COLORS: Record<string, string> = {

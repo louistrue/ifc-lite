@@ -144,10 +144,6 @@ export interface Drawing2DState {
   // Selection
   /** Currently selected annotation (null = none) */
   selectedAnnotation2D: SelectedAnnotation2D | null;
-  /** Whether user is currently dragging a selected annotation */
-  draggingAnnotation2D: boolean;
-  /** Drag offset from mouse to annotation origin (for smooth dragging) */
-  dragOffset2D: Point2D | null;
 }
 
 export interface Drawing2DSlice extends Drawing2DState {
@@ -222,12 +218,8 @@ export interface Drawing2DSlice extends Drawing2DState {
   setSelectedAnnotation2D: (sel: SelectedAnnotation2D | null) => void;
   /** Delete the currently selected annotation */
   deleteSelectedAnnotation2D: () => void;
-  /** Start dragging the selected annotation */
-  startDragAnnotation2D: (offset: Point2D) => void;
-  /** Move the selected annotation by updating its position during drag */
-  moveAnnotation2D: (drawingPos: Point2D) => void;
-  /** Stop dragging */
-  stopDragAnnotation2D: () => void;
+  /** Move an annotation to a new origin position (used during drag) */
+  moveAnnotation2D: (sel: SelectedAnnotation2D, newOrigin: Point2D) => void;
 
   // Bulk Actions
   /** Clear all annotations (measurements, polygons, text, clouds) */
@@ -277,8 +269,6 @@ const getDefaultState = (): Drawing2DState => ({
   cloudAnnotations2D: [],
   // Selection
   selectedAnnotation2D: null,
-  draggingAnnotation2D: false,
-  dragOffset2D: null,
 });
 
 export const createDrawing2DSlice: StateCreator<Drawing2DSlice, [], [], Drawing2DSlice> = (set, get) => ({
@@ -484,8 +474,6 @@ export const createDrawing2DSlice: StateCreator<Drawing2DSlice, [], [], Drawing2
       cloudAnnotation2DPoints: [],
       textAnnotation2DEditing: null,
       selectedAnnotation2D: null,
-      draggingAnnotation2D: false,
-      dragOffset2D: null,
     };
     set(resetState);
   },
@@ -593,16 +581,10 @@ export const createDrawing2DSlice: StateCreator<Drawing2DSlice, [], [], Drawing2
 
     switch (sel.type) {
       case 'measure':
-        set({
-          measure2DResults: state.measure2DResults.filter((r) => r.id !== sel.id),
-          selectedAnnotation2D: null,
-        });
+        set({ measure2DResults: state.measure2DResults.filter((r) => r.id !== sel.id), selectedAnnotation2D: null });
         break;
       case 'polygon':
-        set({
-          polygonArea2DResults: state.polygonArea2DResults.filter((r) => r.id !== sel.id),
-          selectedAnnotation2D: null,
-        });
+        set({ polygonArea2DResults: state.polygonArea2DResults.filter((r) => r.id !== sel.id), selectedAnnotation2D: null });
         break;
       case 'text':
         set({
@@ -612,87 +594,52 @@ export const createDrawing2DSlice: StateCreator<Drawing2DSlice, [], [], Drawing2
         });
         break;
       case 'cloud':
-        set({
-          cloudAnnotations2D: state.cloudAnnotations2D.filter((a) => a.id !== sel.id),
-          selectedAnnotation2D: null,
-        });
+        set({ cloudAnnotations2D: state.cloudAnnotations2D.filter((a) => a.id !== sel.id), selectedAnnotation2D: null });
         break;
     }
   },
 
-  startDragAnnotation2D: (offset) => set({ draggingAnnotation2D: true, dragOffset2D: offset }),
-
-  moveAnnotation2D: (drawingPos) => {
+  moveAnnotation2D: (sel, newOrigin) => {
     const state = get();
-    const sel = state.selectedAnnotation2D;
-    if (!sel || !state.draggingAnnotation2D || !state.dragOffset2D) return;
-
-    const newPos: Point2D = {
-      x: drawingPos.x - state.dragOffset2D.x,
-      y: drawingPos.y - state.dragOffset2D.y,
-    };
-
     switch (sel.type) {
       case 'measure': {
         const result = state.measure2DResults.find((r) => r.id === sel.id);
         if (!result) return;
-        const dx = newPos.x - result.start.x;
-        const dy = newPos.y - result.start.y;
-        set({
-          measure2DResults: state.measure2DResults.map((r) =>
-            r.id === sel.id ? {
-              ...r,
-              start: { x: r.start.x + dx, y: r.start.y + dy },
-              end: { x: r.end.x + dx, y: r.end.y + dy },
-            } : r
-          ),
-        });
+        const dx = newOrigin.x - result.start.x;
+        const dy = newOrigin.y - result.start.y;
+        set({ measure2DResults: state.measure2DResults.map((r) =>
+          r.id === sel.id ? { ...r, start: { x: r.start.x + dx, y: r.start.y + dy }, end: { x: r.end.x + dx, y: r.end.y + dy } } : r
+        ) });
         break;
       }
       case 'polygon': {
         const result = state.polygonArea2DResults.find((r) => r.id === sel.id);
         if (!result) return;
-        // Move all points by the same delta
-        const firstPt = result.points[0];
-        const dx = newPos.x - firstPt.x;
-        const dy = newPos.y - firstPt.y;
-        set({
-          polygonArea2DResults: state.polygonArea2DResults.map((r) =>
-            r.id === sel.id ? {
-              ...r,
-              points: r.points.map((p) => ({ x: p.x + dx, y: p.y + dy })),
-            } : r
-          ),
-        });
+        const dx = newOrigin.x - result.points[0].x;
+        const dy = newOrigin.y - result.points[0].y;
+        set({ polygonArea2DResults: state.polygonArea2DResults.map((r) =>
+          r.id === sel.id ? { ...r, points: r.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) } : r
+        ) });
         break;
       }
       case 'text': {
-        set({
-          textAnnotations2D: state.textAnnotations2D.map((a) =>
-            a.id === sel.id ? { ...a, position: newPos } : a
-          ),
-        });
+        set({ textAnnotations2D: state.textAnnotations2D.map((a) =>
+          a.id === sel.id ? { ...a, position: newOrigin } : a
+        ) });
         break;
       }
       case 'cloud': {
         const cloud = state.cloudAnnotations2D.find((a) => a.id === sel.id);
         if (!cloud || cloud.points.length < 2) return;
-        const dx = newPos.x - cloud.points[0].x;
-        const dy = newPos.y - cloud.points[0].y;
-        set({
-          cloudAnnotations2D: state.cloudAnnotations2D.map((a) =>
-            a.id === sel.id ? {
-              ...a,
-              points: a.points.map((p) => ({ x: p.x + dx, y: p.y + dy })),
-            } : a
-          ),
-        });
+        const dx = newOrigin.x - cloud.points[0].x;
+        const dy = newOrigin.y - cloud.points[0].y;
+        set({ cloudAnnotations2D: state.cloudAnnotations2D.map((a) =>
+          a.id === sel.id ? { ...a, points: a.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) } : a
+        ) });
         break;
       }
     }
   },
-
-  stopDragAnnotation2D: () => set({ draggingAnnotation2D: false, dragOffset2D: null }),
 
   // Bulk Actions
   clearAllAnnotations2D: () => set({
@@ -710,7 +657,5 @@ export const createDrawing2DSlice: StateCreator<Drawing2DSlice, [], [], Drawing2
     cloudAnnotations2D: [],
     annotation2DCursorPos: null,
     selectedAnnotation2D: null,
-    draggingAnnotation2D: false,
-    dragOffset2D: null,
   }),
 });

@@ -215,8 +215,6 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       cloudAnnotation2DPoints: [],
       cloudAnnotations2D: [],
       selectedAnnotation2D: null,
-      draggingAnnotation2D: false,
-      dragOffset2D: null,
       // Drawing Sheet
       activeSheet: null,
       sheetEnabled: false,
