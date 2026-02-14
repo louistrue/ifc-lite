@@ -1,0 +1,371 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+/**
+ * ScriptPanel — Code editor + output console for BIM scripting.
+ *
+ * Uses CodeMirror 6 for the code editor with bim.* autocomplete.
+ * Connects to the QuickJS sandbox via useSandbox() and displays results
+ * in a log console.
+ */
+
+import { useCallback, useMemo, useState } from 'react';
+import {
+  Play,
+  Save,
+  Plus,
+  Trash2,
+  X,
+  ChevronDown,
+  FileCode2,
+  RotateCcw,
+  AlertCircle,
+  CheckCircle2,
+  Info,
+  AlertTriangle,
+  Code2,
+  GitBranch,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { cn } from '@/lib/utils';
+import { formatDuration } from '@/lib/utils';
+import { useViewerStore } from '@/store';
+import { useSandbox } from '@/hooks/useSandbox';
+import { SCRIPT_TEMPLATES } from '@/lib/scripts/templates';
+import { CodeEditor } from './CodeEditor';
+import { GraphEditor } from './GraphEditor';
+import type { LogEntry } from '@/store/slices/scriptSlice';
+
+interface ScriptPanelProps {
+  onClose?: () => void;
+}
+
+export function ScriptPanel({ onClose }: ScriptPanelProps) {
+  const editorContent = useViewerStore((s) => s.scriptEditorContent);
+  const setEditorContent = useViewerStore((s) => s.setScriptEditorContent);
+  const executionState = useViewerStore((s) => s.scriptExecutionState);
+  const lastResult = useViewerStore((s) => s.scriptLastResult);
+  const lastError = useViewerStore((s) => s.scriptLastError);
+  const savedScripts = useViewerStore((s) => s.savedScripts);
+  const activeScriptId = useViewerStore((s) => s.activeScriptId);
+  const editorDirty = useViewerStore((s) => s.scriptEditorDirty);
+  const createScript = useViewerStore((s) => s.createScript);
+  const saveActiveScript = useViewerStore((s) => s.saveActiveScript);
+  const deleteScript = useViewerStore((s) => s.deleteScript);
+  const setActiveScriptId = useViewerStore((s) => s.setActiveScriptId);
+
+  const graphMode = useViewerStore((s) => s.scriptGraphMode);
+  const setGraphMode = useViewerStore((s) => s.setScriptGraphMode);
+
+  const { execute, reset } = useSandbox();
+  const [outputCollapsed, setOutputCollapsed] = useState(false);
+
+  const activeScript = useMemo(
+    () => savedScripts.find((s) => s.id === activeScriptId),
+    [savedScripts, activeScriptId],
+  );
+
+  const handleRun = useCallback(async () => {
+    if (executionState === 'running') return;
+    await execute(editorContent);
+  }, [execute, editorContent, executionState]);
+
+  const handleSave = useCallback(() => {
+    if (activeScriptId) {
+      saveActiveScript();
+    } else {
+      createScript('Untitled Script');
+    }
+  }, [activeScriptId, saveActiveScript, createScript]);
+
+  const handleNew = useCallback((name: string, code?: string) => {
+    createScript(name, code);
+  }, [createScript]);
+
+  return (
+    <div className="h-full flex flex-col bg-background">
+      {/* Header */}
+      <div className="flex items-center gap-1 px-2 py-1.5 border-b shrink-0">
+        <FileCode2 className="h-4 w-4 text-muted-foreground shrink-0" />
+        <span className="text-sm font-medium truncate">
+          {activeScript ? activeScript.name : 'Script Editor'}
+          {editorDirty && <span className="text-muted-foreground ml-1">*</span>}
+        </span>
+        <div className="flex-1" />
+
+        {/* Script selector dropdown */}
+        {savedScripts.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-xs">
+                <ChevronDown className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {savedScripts.map((s) => (
+                <DropdownMenuItem
+                  key={s.id}
+                  onClick={() => setActiveScriptId(s.id)}
+                  className={cn(s.id === activeScriptId && 'bg-accent')}
+                >
+                  <FileCode2 className="h-3.5 w-3.5 mr-2" />
+                  {s.name}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              {activeScriptId && (
+                <DropdownMenuItem
+                  onClick={() => deleteScript(activeScriptId)}
+                  className="text-destructive"
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-2" />
+                  Delete
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+
+        {onClose && (
+          <Button variant="ghost" size="icon-xs" onClick={onClose}>
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        )}
+      </div>
+
+      {/* Toolbar */}
+      <div className="flex items-center gap-1 px-2 py-1 border-b shrink-0">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleRun}
+              disabled={executionState === 'running'}
+              className="gap-1"
+            >
+              <Play className="h-3.5 w-3.5" />
+              Run
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Run script (Ctrl+Enter)</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon-xs" onClick={handleSave}>
+              <Save className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Save (Ctrl+S)</TooltipContent>
+        </Tooltip>
+
+        {/* New script dropdown with templates */}
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-xs">
+                  <Plus className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>New script</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onClick={() => handleNew('Untitled Script')}>
+              <FileCode2 className="h-3.5 w-3.5 mr-2" />
+              Blank Script
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {SCRIPT_TEMPLATES.map((t) => (
+              <DropdownMenuItem key={t.name} onClick={() => handleNew(t.name, t.code)}>
+                <FileCode2 className="h-3.5 w-3.5 mr-2" />
+                {t.name}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon-xs" onClick={reset}>
+              <RotateCcw className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Reset sandbox</TooltipContent>
+        </Tooltip>
+
+        <div className="w-px h-4 bg-border mx-0.5" />
+
+        {/* Code / Graph toggle */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={graphMode ? 'ghost' : 'secondary'}
+              size="icon-xs"
+              onClick={() => setGraphMode(false)}
+            >
+              <Code2 className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Code view</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={graphMode ? 'secondary' : 'ghost'}
+              size="icon-xs"
+              onClick={() => setGraphMode(true)}
+            >
+              <GitBranch className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Graph view</TooltipContent>
+        </Tooltip>
+
+        {/* Status indicator */}
+        <div className="flex-1" />
+        {executionState === 'running' && (
+          <span className="text-xs text-muted-foreground animate-pulse">Running...</span>
+        )}
+        {executionState === 'success' && lastResult && (
+          <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+            <CheckCircle2 className="h-3 w-3" />
+            {formatDuration(lastResult.durationMs)}
+          </span>
+        )}
+        {executionState === 'error' && (
+          <span className="text-xs text-destructive flex items-center gap-1">
+            <AlertCircle className="h-3 w-3" />
+            Error
+          </span>
+        )}
+      </div>
+
+      {/* Code Editor / Graph Editor */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        {graphMode ? (
+          <GraphEditor />
+        ) : (
+          <CodeEditor
+            value={editorContent}
+            onChange={setEditorContent}
+            onRun={handleRun}
+            onSave={handleSave}
+            className="h-full"
+          />
+        )}
+      </div>
+
+      {/* Output Console */}
+      <div className="shrink-0 border-t">
+        {/* Output header */}
+        <button
+          className="flex items-center gap-1.5 px-2 py-1 w-full hover:bg-muted/50 transition-colors text-left"
+          onClick={() => setOutputCollapsed(!outputCollapsed)}
+        >
+          <ChevronDown
+            className={cn('h-3 w-3 transition-transform', outputCollapsed && '-rotate-90')}
+          />
+          <span className="text-xs font-medium text-muted-foreground">Output</span>
+          {lastResult && lastResult.logs.length > 0 && (
+            <span className="text-xs text-muted-foreground">({lastResult.logs.length})</span>
+          )}
+        </button>
+
+        {!outputCollapsed && (
+          <ScrollArea className="h-[140px]">
+            <div className="px-2 pb-2 font-mono text-xs space-y-0.5">
+              {/* Error message */}
+              {lastError && (
+                <div className="flex items-start gap-1.5 text-destructive">
+                  <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+                  <span className="whitespace-pre-wrap break-all">{lastError}</span>
+                </div>
+              )}
+
+              {/* Log entries */}
+              {lastResult?.logs.map((log, i) => (
+                <LogLine key={i} log={log} />
+              ))}
+
+              {/* Return value */}
+              {lastResult && lastResult.value !== undefined && lastResult.value !== null && (
+                <div className="text-muted-foreground mt-1 pt-1 border-t border-border/50">
+                  <span className="opacity-60">Return: </span>
+                  <span className="text-foreground">
+                    {typeof lastResult.value === 'object'
+                      ? JSON.stringify(lastResult.value, null, 2)
+                      : String(lastResult.value)}
+                  </span>
+                </div>
+              )}
+
+              {/* Empty state */}
+              {!lastError && !lastResult && (
+                <div className="text-muted-foreground py-2 text-center">
+                  Press Run or Ctrl+Enter to execute
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Render a single log entry with appropriate icon and color */
+function LogLine({ log }: { log: LogEntry }) {
+  const formatted = log.args.map((a) => {
+    if (typeof a === 'object' && a !== null) {
+      try {
+        return JSON.stringify(a, null, 2);
+      } catch {
+        return String(a);
+      }
+    }
+    return String(a);
+  }).join(' ');
+
+  switch (log.level) {
+    case 'error':
+      return (
+        <div className="flex items-start gap-1.5 text-destructive">
+          <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+          <span className="whitespace-pre-wrap break-all">{formatted}</span>
+        </div>
+      );
+    case 'warn':
+      return (
+        <div className="flex items-start gap-1.5 text-yellow-600 dark:text-yellow-400">
+          <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+          <span className="whitespace-pre-wrap break-all">{formatted}</span>
+        </div>
+      );
+    case 'info':
+      return (
+        <div className="flex items-start gap-1.5 text-blue-600 dark:text-blue-400">
+          <Info className="h-3 w-3 mt-0.5 shrink-0" />
+          <span className="whitespace-pre-wrap break-all">{formatted}</span>
+        </div>
+      );
+    default:
+      return (
+        <div className="flex items-start gap-1.5">
+          <span className="whitespace-pre-wrap break-all">{formatted}</span>
+        </div>
+      );
+  }
+}

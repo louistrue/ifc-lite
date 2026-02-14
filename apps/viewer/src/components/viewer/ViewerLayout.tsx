@@ -19,6 +19,7 @@ import { BCFPanel } from './BCFPanel';
 import { IDSPanel } from './IDSPanel';
 import { LensPanel } from './LensPanel';
 import { ListPanel } from './lists/ListPanel';
+import { ScriptPanel } from './ScriptPanel';
 
 const BOTTOM_PANEL_MIN_HEIGHT = 120;
 const BOTTOM_PANEL_DEFAULT_HEIGHT = 300;
@@ -45,6 +46,8 @@ export function ViewerLayout() {
   const setListPanelVisible = useViewerStore((s) => s.setListPanelVisible);
   const lensPanelVisible = useViewerStore((s) => s.lensPanelVisible);
   const setLensPanelVisible = useViewerStore((s) => s.setLensPanelVisible);
+  const scriptPanelVisible = useViewerStore((s) => s.scriptPanelVisible);
+  const setScriptPanelVisible = useViewerStore((s) => s.setScriptPanelVisible);
 
   // Bottom panel resize state (pixel height, persisted in ref to avoid re-renders during drag)
   const [bottomHeight, setBottomHeight] = useState(BOTTOM_PANEL_DEFAULT_HEIGHT);
@@ -190,8 +193,8 @@ export function ViewerLayout() {
               </PanelGroup>
             </div>
 
-            {/* Bottom Panel - Lists (custom resizable, outside PanelGroup) */}
-            {listPanelVisible && (
+            {/* Bottom Panel - Lists or Script (custom resizable, outside PanelGroup) */}
+            {(listPanelVisible || scriptPanelVisible) && (
               <div style={{ height: bottomHeight, flexShrink: 0 }} className="relative">
                 {/* Drag handle */}
                 <div
@@ -199,7 +202,11 @@ export function ViewerLayout() {
                   onMouseDown={handleResizeStart}
                 />
                 <div className="h-full w-full overflow-hidden border-t pt-1.5">
-                  <ListPanel onClose={() => setListPanelVisible(false)} />
+                  {scriptPanelVisible ? (
+                    <ScriptPanel onClose={() => setScriptPanelVisible(false)} />
+                  ) : (
+                    <ListPanel onClose={() => setListPanelVisible(false)} />
+                  )}
                 </div>
               </div>
             )}
@@ -240,12 +247,13 @@ export function ViewerLayout() {
               <div className="absolute inset-x-0 bottom-0 h-[50vh] bg-background border-t rounded-t-xl shadow-xl z-40 animate-in slide-in-from-bottom">
                 <div className="flex items-center justify-between p-2 border-b">
                   <span className="font-medium text-sm">
-                    {listPanelVisible ? 'Lists' : lensPanelVisible ? 'Lens' : idsPanelVisible ? 'IDS Validation' : bcfPanelVisible ? 'BCF Issues' : 'Properties'}
+                    {scriptPanelVisible ? 'Script' : listPanelVisible ? 'Lists' : lensPanelVisible ? 'Lens' : idsPanelVisible ? 'IDS Validation' : bcfPanelVisible ? 'BCF Issues' : 'Properties'}
                   </span>
                   <button
                     className="p-1 hover:bg-muted rounded"
                     onClick={() => {
                       setRightPanelCollapsed(true);
+                      if (scriptPanelVisible) setScriptPanelVisible(false);
                       if (listPanelVisible) setListPanelVisible(false);
                       if (bcfPanelVisible) setBcfPanelVisible(false);
                       if (lensPanelVisible) setLensPanelVisible(false);
@@ -259,7 +267,9 @@ export function ViewerLayout() {
                   </button>
                 </div>
                 <div className="h-[calc(50vh-48px)] overflow-auto">
-                  {listPanelVisible ? (
+                  {scriptPanelVisible ? (
+                    <ScriptPanel onClose={() => setScriptPanelVisible(false)} />
+                  ) : listPanelVisible ? (
                     <ListPanel onClose={() => setListPanelVisible(false)} />
                   ) : lensPanelVisible ? (
                     <LensPanel onClose={() => setLensPanelVisible(false)} />

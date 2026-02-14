@@ -19,6 +19,8 @@ import { createVisibilityAdapter } from './adapters/visibility-adapter.js';
 import { createViewerAdapter } from './adapters/viewer-adapter.js';
 import { createMutateAdapter } from './adapters/mutate-adapter.js';
 import { createSpatialAdapter } from './adapters/spatial-adapter.js';
+import { createLensAdapter } from './adapters/lens-adapter.js';
+import { createExportAdapter } from './adapters/export-adapter.js';
 
 export class LocalBackend implements BimBackend {
   private adapters: Map<string, NamespaceAdapter>;
@@ -34,6 +36,8 @@ export class LocalBackend implements BimBackend {
       ['viewer', createViewerAdapter(store)],
       ['mutate', createMutateAdapter(store)],
       ['spatial', createSpatialAdapter(store)],
+      ['lens', createLensAdapter(store)],
+      ['export', createExportAdapter(store)],
     ]);
   }
 
@@ -82,6 +86,31 @@ export class LocalBackend implements BimBackend {
                 handler({ modelId: id });
               }
             }
+          }
+        });
+
+      case 'visibility:changed':
+        return this.store.subscribe((state, prev) => {
+          if (
+            state.hiddenEntities !== prev.hiddenEntities ||
+            state.isolatedEntities !== prev.isolatedEntities ||
+            state.hiddenEntitiesByModel !== prev.hiddenEntitiesByModel
+          ) {
+            handler({});
+          }
+        });
+
+      case 'mutation:changed':
+        return this.store.subscribe((state, prev) => {
+          if (state.mutationHistory !== prev.mutationHistory) {
+            handler({});
+          }
+        });
+
+      case 'lens:changed':
+        return this.store.subscribe((state, prev) => {
+          if (state.activeLensId !== prev.activeLensId) {
+            handler({ lensId: state.activeLensId });
           }
         });
 

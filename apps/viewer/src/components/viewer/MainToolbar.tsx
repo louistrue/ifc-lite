@@ -41,6 +41,7 @@ import {
   Palette,
   Orbit,
   Trash2,
+  FileCode2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -175,6 +176,8 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const toggleIdsPanel = useViewerStore((state) => state.toggleIdsPanel);
   const listPanelVisible = useViewerStore((state) => state.listPanelVisible);
   const toggleListPanel = useViewerStore((state) => state.toggleListPanel);
+  const scriptPanelVisible = useViewerStore((state) => state.scriptPanelVisible);
+  const toggleScriptPanel = useViewerStore((state) => state.toggleScriptPanel);
   const setRightPanelCollapsed = useViewerStore((state) => state.setRightPanelCollapsed);
   const projectionMode = useViewerStore((state) => state.projectionMode);
   const toggleProjectionMode = useViewerStore((state) => state.toggleProjectionMode);
@@ -629,6 +632,27 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
           </Button>
         </TooltipTrigger>
         <TooltipContent>Lists</TooltipContent>
+      </Tooltip>
+
+      {/* Script Button */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={scriptPanelVisible ? 'default' : 'ghost'}
+            size="icon-sm"
+            onClick={(e) => {
+              (e.currentTarget as HTMLButtonElement).blur();
+              if (!scriptPanelVisible) {
+                setRightPanelCollapsed(false);
+              }
+              toggleScriptPanel();
+            }}
+            className={cn(scriptPanelVisible && 'bg-primary text-primary-foreground')}
+          >
+            <FileCode2 className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Script Editor</TooltipContent>
       </Tooltip>
 
       <Separator orientation="vertical" className="h-6 mx-1" />
