@@ -26,25 +26,32 @@ const REL_TYPE_MAP: Record<string, RelationshipType> = {
  * IFC4 subtype map — maps parent types to their StandardCase/ElementedCase subtypes.
  * In IFC4, many element types have *StandardCase subtypes that the parser stores
  * as the full type name. This map lets byType('IfcWall') also find IfcWallStandardCase.
+ *
+ * Keys and values are UPPERCASE because entityIndex.byType uses UPPERCASE keys
+ * (raw STEP type names, e.g. IFCWALLSTANDARDCASE).
  */
 const IFC_SUBTYPES: Record<string, string[]> = {
-  IfcWall: ['IfcWallStandardCase', 'IfcWallElementedCase'],
-  IfcBeam: ['IfcBeamStandardCase'],
-  IfcColumn: ['IfcColumnStandardCase'],
-  IfcDoor: ['IfcDoorStandardCase'],
-  IfcWindow: ['IfcWindowStandardCase'],
-  IfcSlab: ['IfcSlabStandardCase', 'IfcSlabElementedCase'],
-  IfcMember: ['IfcMemberStandardCase'],
-  IfcPlate: ['IfcPlateStandardCase'],
-  IfcOpeningElement: ['IfcOpeningStandardCase'],
+  IFCWALL: ['IFCWALLSTANDARDCASE', 'IFCWALLELEMENTEDCASE'],
+  IFCBEAM: ['IFCBEAMSTANDARDCASE'],
+  IFCCOLUMN: ['IFCCOLUMNSTANDARDCASE'],
+  IFCDOOR: ['IFCDOORSTANDARDCASE'],
+  IFCWINDOW: ['IFCWINDOWSTANDARDCASE'],
+  IFCSLAB: ['IFCSLABSTANDARDCASE', 'IFCSLABELEMENTEDCASE'],
+  IFCMEMBER: ['IFCMEMBERSTANDARDCASE'],
+  IFCPLATE: ['IFCPLATESTANDARDCASE'],
+  IFCOPENINGELEMENT: ['IFCOPENINGSTANDARDCASE'],
 };
 
-/** Expand a type list to include known IFC subtypes */
+/**
+ * Expand a type list to include known IFC subtypes.
+ * Converts PascalCase input (e.g. 'IfcWall') to UPPERCASE for entityIndex lookup.
+ */
 function expandTypes(types: string[]): string[] {
   const result: string[] = [];
   for (const type of types) {
-    result.push(type);
-    const subtypes = IFC_SUBTYPES[type];
+    const upper = type.toUpperCase();
+    result.push(upper);
+    const subtypes = IFC_SUBTYPES[upper];
     if (subtypes) {
       for (const sub of subtypes) result.push(sub);
     }
@@ -52,11 +59,15 @@ function expandTypes(types: string[]): string[] {
   return result;
 }
 
-/** Check if a type name represents a product/spatial entity (not a relationship or definition) */
+/**
+ * Check if a type name represents a product/spatial entity (not a relationship or definition).
+ * Type names from entityIndex.byType are UPPERCASE (e.g. IFCRELCONTAINEDINSPATIALSTRUCTURE).
+ */
 function isProductType(type: string): boolean {
-  if (type.startsWith('IfcRel')) return false;
-  if (type.startsWith('IfcProperty')) return false;
-  if (type.startsWith('IfcQuantity')) return false;
+  const upper = type.toUpperCase();
+  if (upper.startsWith('IFCREL')) return false;
+  if (upper.startsWith('IFCPROPERTY')) return false;
+  if (upper.startsWith('IFCQUANTITY')) return false;
   return true;
 }
 
