@@ -15,7 +15,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { useViewerStore } from '@/store';
+import { useViewerStore, resolveEntityRef } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 
 import type { TreeNode } from './hierarchy/types';
@@ -280,6 +280,8 @@ export function HierarchyPanel() {
       } else {
         // Legacy single-model: expressId = globalId (offset is 0)
         setSelectedEntityId(elementId);
+        // Also set selectedEntity for property panel (was missing, causing blank panel)
+        setSelectedEntity(resolveEntityRef(elementId));
       }
     }
   }, [selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntity, setSelectedEntities, setActiveModel, toggleExpand, unifiedStoreys, models, isolateEntities, getNodeElements]);

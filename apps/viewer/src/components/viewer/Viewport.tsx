@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { Renderer } from '@ifc-lite/renderer';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
-import { useViewerStore, type MeasurePoint, type SnapVisualization } from '@/store';
+import { useViewerStore, resolveEntityRef, type MeasurePoint, type SnapVisualization } from '@/store';
 import {
   useSelectionState,
   useVisibilityState,
@@ -53,8 +53,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   // Selection state
   const { selectedEntityId, selectedEntityIds, setSelectedEntityId, setSelectedEntity, toggleSelection, models } = useSelectionState();
   const selectedEntity = useViewerStore((s) => s.selectedEntity);
-  // Get the bulletproof store-based resolver (more reliable than singleton)
-  const resolveGlobalIdFromModels = useViewerStore((s) => s.resolveGlobalIdFromModels);
+  const addEntityToSelection = useViewerStore((s) => s.addEntityToSelection);
+  const toggleEntitySelection = useViewerStore((s) => s.toggleEntitySelection);
 
   // Sync selectedEntityId with model-aware selectedEntity for PropertiesPanel
   useModelSelection();
@@ -76,9 +76,14 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
 
   // Helper to handle pick result and set selection properly
   // IMPORTANT: pickResult.expressId is now a globalId (transformed at load time)
-  // We use the store-based resolver to find (modelId, originalExpressId)
-  // This is more reliable than the singleton registry which can have bundling issues
+  // resolveEntityRef is the single source of truth for globalId → EntityRef
   const handlePickForSelection = useCallback((pickResult: import('@ifc-lite/renderer').PickResult | null) => {
+    // Normal click clears multi-select set (fresh single-selection)
+    const currentState = useViewerStore.getState();
+    if (currentState.selectedEntitiesSet.size > 0) {
+      useViewerStore.setState({ selectedEntitiesSet: new Set(), selectedEntityIds: new Set() });
+    }
+
     if (!pickResult) {
       setSelectedEntityId(null);
       return;
@@ -89,28 +94,57 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     // Set globalId for renderer (highlighting uses globalIds directly)
     setSelectedEntityId(globalId);
 
-    // Resolve globalId -> (modelId, originalExpressId) for property panel
-    // Use store-based resolver instead of singleton for reliability
-    const resolved = resolveGlobalIdFromModels(globalId);
-    if (resolved) {
-      // Set the EntityRef with ORIGINAL expressId (for property lookup in IfcDataStore)
-      setSelectedEntity({ modelId: resolved.modelId, expressId: resolved.expressId });
-    } else {
-      // Fallback for single-model mode (offset = 0, globalId = expressId)
-      // Try to find model from the old modelIndex if available
-      if (pickResult.modelIndex !== undefined && modelIndexToId) {
-        const modelId = modelIndexToId.get(pickResult.modelIndex);
-        if (modelId) {
-          setSelectedEntity({ modelId, expressId: globalId });
-        }
-      }
-    }
-  }, [setSelectedEntityId, setSelectedEntity, resolveGlobalIdFromModels, modelIndexToId]);
+    // Resolve globalId → EntityRef for property panel (single source of truth, never null)
+    setSelectedEntity(resolveEntityRef(globalId));
+  }, [setSelectedEntityId, setSelectedEntity]);
 
   // Ref to always access latest handlePickForSelection from event handlers
   // (useMouseControls/useTouchControls capture this at effect setup time)
   const handlePickForSelectionRef = useRef(handlePickForSelection);
   useEffect(() => { handlePickForSelectionRef.current = handlePickForSelection; }, [handlePickForSelection]);
+
+  // Multi-select handler: Ctrl+Click adds/removes from multi-selection
+  // Properly populates both selectedEntitiesSet (multi-model) and selectedEntityIds (legacy)
+  const handleMultiSelect = useCallback((globalId: number) => {
+    // Resolve globalId → EntityRef (single source of truth, never null)
+    const entityRef = resolveEntityRef(globalId);
+
+    // If this is the first Ctrl+click and there's already a single-selected entity,
+    // add it to the multi-select set first (so it's not lost)
+    const state = useViewerStore.getState();
+    if (state.selectedEntitiesSet.size === 0 && state.selectedEntity) {
+      addEntityToSelection(state.selectedEntity);
+      // Also seed legacy selectedEntityIds with previous entity's globalId
+      // so the renderer highlights both the old and new entity
+      if (state.selectedEntityId !== null) {
+        toggleSelection(state.selectedEntityId);
+      }
+    }
+
+    // Toggle the clicked entity in multi-select
+    toggleEntitySelection(entityRef);
+
+    // Also sync legacy selectedEntityIds and selectedEntityId
+    toggleSelection(globalId);
+
+    // Read post-toggle state to keep renderer highlighting in sync:
+    // If the entity was toggled OFF, don't force-highlight it.
+    const updated = useViewerStore.getState();
+    if (updated.selectedEntityIds.has(globalId)) {
+      // Entity was toggled ON — highlight it
+      setSelectedEntityId(globalId);
+    } else if (updated.selectedEntityIds.size > 0) {
+      // Entity was toggled OFF but others remain — highlight the last remaining
+      const remaining = Array.from(updated.selectedEntityIds);
+      setSelectedEntityId(remaining[remaining.length - 1]);
+    } else {
+      // Nothing left selected
+      setSelectedEntityId(null);
+    }
+  }, [addEntityToSelection, toggleEntitySelection, toggleSelection, setSelectedEntityId]);
+
+  const handleMultiSelectRef = useRef(handleMultiSelect);
+  useEffect(() => { handleMultiSelectRef.current = handleMultiSelect; }, [handleMultiSelect]);
 
   // Visibility state - use computedIsolatedIds from parent (includes storey selection)
   // Fall back to store isolation if computedIsolatedIds is not provided
@@ -668,7 +702,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     updateConstraintActiveAxis,
     updateMeasurementScreenCoords,
     updateCameraRotationRealtime,
-    toggleSelection,
+    toggleSelection: (entityId: number) => handleMultiSelectRef.current(entityId),
     calculateScale,
     getPickOptions,
     hasPendingMeasurements,

@@ -1,5 +1,7 @@
 # @ifc-lite/data
 
+## 1.8.0
+
 ## 1.7.0
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @ifc-lite/lists
 
+## 1.8.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.8.0
+  - @ifc-lite/encoding@1.8.0
+
 ## 1.7.0
 
 ### Minor Changes

@@ -51,11 +51,19 @@ export const EDGE_LOCK_DEFAULTS = {
 // UI Defaults
 // ============================================================================
 
+/** Resolve the initial theme: localStorage override > system preference > dark fallback */
+function getInitialTheme(): 'light' | 'dark' {
+  if (typeof window === 'undefined') return 'dark';
+  const saved = localStorage.getItem('ifc-lite-theme');
+  if (saved === 'light' || saved === 'dark') return saved;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
 export const UI_DEFAULTS = {
   /** Default active tool */
   ACTIVE_TOOL: 'select',
-  /** Default theme */
-  THEME: 'dark' as const,
+  /** Default theme – respects user's OS colour-scheme preference */
+  THEME: getInitialTheme(),
   /** Default hover tooltips state */
   HOVER_TOOLTIPS_ENABLED: false,
 } as const;

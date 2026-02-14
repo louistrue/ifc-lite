@@ -509,6 +509,36 @@ renderer.render({
 });
 ```
 
+### Basket Isolation (Viewer App)
+
+The viewer app provides a **basket** — an incremental isolation set that lets you build up a working set of entities interactively. Unlike simple isolation which replaces the set each time, the basket supports add/remove operations:
+
+| Operation | Keyboard | Toolbar | Context Menu | Description |
+|-----------|----------|---------|--------------|-------------|
+| **Set** | `I` | `=` button | Set as Basket (=) | Replace basket with current selection |
+| **Add** | `+` | `+` button | Add to Basket (+) | Add current selection to basket |
+| **Remove** | `-` | `-` button | Remove from Basket (-) | Remove current selection from basket |
+| **Clear** | `Esc` | — | — | Clear basket and all filters |
+| **Show All** | `A` | Eye icon | Show All | Clear hidden/isolated state |
+
+**Workflow example:**
+
+1. Click a wall, press `I` — basket now contains just that wall (everything else hidden)
+2. Cmd+Click two doors to multi-select them, press `+` — doors are added to the basket
+3. Click a window, press `+` — window added too
+4. Click the wall, press `-` — wall removed from basket, only doors and window remain
+
+The toolbar `=` button shows a badge with the current basket count when active. Multi-select (Cmd/Ctrl+Click) works with all basket operations — select multiple entities first, then press `+` or `-` to add/remove them all at once.
+
+**Additional visibility shortcuts:**
+
+| Shortcut | Action |
+|----------|--------|
+| `Del` / `Backspace` | Hide selected entity |
+| `Space` | Hide selected entity (viewport-focused only) |
+| `A` | Show all (reset hidden + isolation) |
+| `Esc` | Reset all (clear selection, basket, isolation, tools) |
+
 ## Render Options
 
 ```typescript

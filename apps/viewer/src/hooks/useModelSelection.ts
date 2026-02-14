@@ -20,14 +20,13 @@
 
 import { useEffect } from 'react';
 import { useViewerStore } from '../store.js';
+import { resolveEntityRef } from '../store/resolveEntityRef.js';
 
 export function useModelSelection() {
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
   const setSelectedEntity = useViewerStore((s) => s.setSelectedEntity);
   // Subscribe to models for reactivity (when models are added/removed)
   const models = useViewerStore((s) => s.models);
-  // Use the bulletproof store-based resolver
-  const resolveGlobalIdFromModels = useViewerStore((s) => s.resolveGlobalIdFromModels);
 
   useEffect(() => {
     if (selectedEntityId === null) {
@@ -38,24 +37,8 @@ export function useModelSelection() {
       return;
     }
 
-    // selectedEntityId is now a globalId
-    // Resolve it back to (modelId, originalExpressId) using the store-based resolver
-    // This is more reliable than the singleton registry which might have bundling issues
-    const resolved = resolveGlobalIdFromModels(selectedEntityId);
-    if (resolved) {
-      // Set EntityRef with ORIGINAL expressId (for property lookup in IfcDataStore)
-      setSelectedEntity({ modelId: resolved.modelId, expressId: resolved.expressId });
-    } else {
-      // Fallback for single-model mode (offset = 0, globalId = expressId)
-      // In this case, try to find the first model and use the globalId as expressId
-      if (models.size > 0) {
-        const firstModelId = Array.from(models.keys())[0];
-        setSelectedEntity({ modelId: firstModelId, expressId: selectedEntityId });
-      } else {
-        // Legacy single-model mode: use 'legacy' as modelId
-        // This allows PropertiesPanel to fall back to the legacy query
-        setSelectedEntity({ modelId: 'legacy', expressId: selectedEntityId });
-      }
-    }
-  }, [selectedEntityId, setSelectedEntity, models, resolveGlobalIdFromModels]);
+    // Single source of truth: resolveEntityRef handles globalId → EntityRef
+    // including fallback for single-model mode (offset 0). Always returns an EntityRef.
+    setSelectedEntity(resolveEntityRef(selectedEntityId));
+  }, [selectedEntityId, setSelectedEntity, models]);
 }

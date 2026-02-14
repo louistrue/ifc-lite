@@ -1,5 +1,40 @@
 # @ifc-lite/viewer
 
+## 1.8.0
+
+### Minor Changes
+
+- [#212](https://github.com/louistrue/ifc-lite/pull/212) [`5d4dd1e`](https://github.com/louistrue/ifc-lite/commit/5d4dd1e40539b02af666ef8329c749d708a09e17) Thanks [@louistrue](https://github.com/louistrue)! - Add annotation selection, deletion, move, and text re-editing in 2D drawings
+
+  - Click any annotation (measure, polygon area, text box, cloud) to select it — highlighted with a dashed blue border and corner handles
+  - Press Delete/Backspace to remove the selected annotation
+  - Drag to reposition any selected annotation
+  - Double-click text annotations to re-enter edit mode
+  - Escape exits annotation tools back to Select/Pan mode and deselects
+  - "Select / Pan" option added to annotation toolbar dropdown
+  - Performance: ephemeral drag state uses local refs instead of store updates, stable coordinate callbacks via refs, hit-test reads from storeRef to prevent callback cascade
+
+### Patch Changes
+
+- Updated dependencies [[`7ae9711`](https://github.com/louistrue/ifc-lite/commit/7ae971119ad92c05c521a4931105a9a977ffc667), [`06ddd81`](https://github.com/louistrue/ifc-lite/commit/06ddd81ce922d8f356836d04ff634cba45520a81), [`0b6880a`](https://github.com/louistrue/ifc-lite/commit/0b6880ac9bafee78e8b604e8df5a8e14dc74bc28)]:
+  - @ifc-lite/renderer@1.8.0
+  - @ifc-lite/lens@1.8.0
+  - @ifc-lite/export@1.8.0
+  - @ifc-lite/bcf@1.8.0
+  - @ifc-lite/cache@1.8.0
+  - @ifc-lite/data@1.8.0
+  - @ifc-lite/drawing-2d@1.8.0
+  - @ifc-lite/encoding@1.8.0
+  - @ifc-lite/geometry@1.8.0
+  - @ifc-lite/ids@1.8.0
+  - @ifc-lite/lists@1.8.0
+  - @ifc-lite/mutations@1.8.0
+  - @ifc-lite/parser@1.8.0
+  - @ifc-lite/query@1.8.0
+  - @ifc-lite/server-client@1.8.0
+  - @ifc-lite/spatial@1.8.0
+  - @ifc-lite/wasm@1.8.0
+
 ## 1.7.0
 
 ### Minor Changes

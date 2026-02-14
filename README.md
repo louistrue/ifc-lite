@@ -54,6 +54,7 @@
 | **WebGPU Rendering** | Modern GPU-accelerated 3D with depth testing and frustum culling |
 | **Zero-Copy GPU** | Direct WASM memory to GPU buffers, 60-70% less RAM |
 | **Multi-Model Federation** | Load multiple IFC files with unified selection, visibility, and ID management |
+| **Basket Isolation** | Incremental isolation set with `=` set / `+` add / `-` remove, Cmd+Click multi-select |
 | **BCF Collaboration** | BIM Collaboration Format support with topics, viewpoints, and comments |
 | **IDS Validation** | Information Delivery Specification checking against IFC data |
 | **2D Drawings** | Section cuts, floor plans, and elevations with interactive annotations (measure, area, text, clouds) |
