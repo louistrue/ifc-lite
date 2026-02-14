@@ -14,6 +14,7 @@ import type { SdkRequest, SdkResponse, SdkEvent, Transport } from '../types.js';
 export class MessagePortTransport implements Transport {
   private pending = new Map<string, {
     resolve: (response: SdkResponse) => void;
+    reject: (error: Error) => void;
     timer: ReturnType<typeof setTimeout>;
   }>();
   private eventHandlers = new Set<(event: SdkEvent) => void>();
@@ -52,7 +53,7 @@ export class MessagePortTransport implements Transport {
         reject(new Error(`MessagePortTransport: Request ${request.id} timed out after ${this.timeoutMs}ms`));
       }, this.timeoutMs);
 
-      this.pending.set(request.id, { resolve, timer });
+      this.pending.set(request.id, { resolve, reject, timer });
       this.port.postMessage(request);
     });
   }
@@ -63,8 +64,10 @@ export class MessagePortTransport implements Transport {
   }
 
   close(): void {
+    const closeError = new Error('MessagePortTransport: Transport closed');
     for (const entry of this.pending.values()) {
       clearTimeout(entry.timer);
+      entry.reject(closeError);
     }
     this.pending.clear();
     this.eventHandlers.clear();

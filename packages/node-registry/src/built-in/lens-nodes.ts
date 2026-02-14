@@ -69,7 +69,7 @@ export const lensNodes: NodeDefinition[] = [
       return { lens };
     },
     toCode: (params) =>
-      `const lens = bim.lens.create({\n  name: '${params.name}',\n  rules: [{\n    id: 'rule-1', name: '${params.propertySet}.${params.property}', enabled: true,\n    criteria: { type: 'property', propertySet: '${params.propertySet}', propertyName: '${params.property}', operator: 'exists' },\n    action: 'colorize', color: '#E53935'\n  }]\n})`,
+      `const lens = bim.lens.create({\n  name: ${JSON.stringify(String(params.name))},\n  rules: [{\n    id: 'rule-1', name: ${JSON.stringify(`${params.propertySet}.${params.property}`)}, enabled: true,\n    criteria: { type: 'property', propertySet: ${JSON.stringify(String(params.propertySet))}, propertyName: ${JSON.stringify(String(params.property))}, operator: 'exists' },\n    action: 'colorize', color: '#E53935'\n  }]\n})`,
     fromCode: [{
       regex: /(?:const|let|var)\s+(\w+)\s*=\s*bim\.lens\.create\(/,
       assigns: true,

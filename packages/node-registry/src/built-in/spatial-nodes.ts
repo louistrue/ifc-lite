@@ -37,7 +37,7 @@ export const spatialNodes: NodeDefinition[] = [
       return { refs: sdk.spatial.queryBounds(modelId, bounds) };
     },
     toCode: (params) =>
-      `const refs = bim.spatial.queryBounds('${params.modelId}', { min: [${params.minX}, ${params.minY}, ${params.minZ}], max: [${params.maxX}, ${params.maxY}, ${params.maxZ}] })`,
+      `const refs = bim.spatial.queryBounds(${JSON.stringify(String(params.modelId))}, { min: [${params.minX}, ${params.minY}, ${params.minZ}], max: [${params.maxX}, ${params.maxY}, ${params.maxZ}] })`,
     fromCode: [{
       regex: /(?:const|let|var)\s+(\w+)\s*=\s*bim\.spatial\.queryBounds\(['"]([^'"]+)['"],/,
       assigns: true,
@@ -72,7 +72,7 @@ export const spatialNodes: NodeDefinition[] = [
       return { refs: sdk.spatial.raycast(modelId, origin, direction) };
     },
     toCode: (params) =>
-      `const refs = bim.spatial.raycast('${params.modelId}', [${params.originX}, ${params.originY}, ${params.originZ}], [${params.dirX}, ${params.dirY}, ${params.dirZ}])`,
+      `const refs = bim.spatial.raycast(${JSON.stringify(String(params.modelId))}, [${params.originX}, ${params.originY}, ${params.originZ}], [${params.dirX}, ${params.dirY}, ${params.dirZ}])`,
     fromCode: [{
       regex: /(?:const|let|var)\s+(\w+)\s*=\s*bim\.spatial\.raycast\(['"]([^'"]+)['"],/,
       assigns: true,
@@ -104,7 +104,7 @@ export const spatialNodes: NodeDefinition[] = [
       return { refs: sdk.spatial.queryRadius(modelId, center, Number(params.radius)) };
     },
     toCode: (params) =>
-      `const refs = bim.spatial.queryRadius('${params.modelId}', [${params.centerX}, ${params.centerY}, ${params.centerZ}], ${params.radius})`,
+      `const refs = bim.spatial.queryRadius(${JSON.stringify(String(params.modelId))}, [${params.centerX}, ${params.centerY}, ${params.centerZ}], ${params.radius})`,
     fromCode: [{
       regex: /(?:const|let|var)\s+(\w+)\s*=\s*bim\.spatial\.queryRadius\(['"]([^'"]+)['"],/,
       assigns: true,

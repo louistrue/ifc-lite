@@ -71,8 +71,9 @@ function naiveTypeStrip(code: string): string {
   // Remove function return type annotations: function f(): Type {
   result = result.replace(/\):\s*(?:string|number|boolean|void|any|unknown|never|null|undefined|Promise<[^>]+>|\w+(?:\[\])?)\s*\{/g, ') {');
 
-  // Remove `as Type` casts
-  result = result.replace(/\s+as\s+\w+(?:\[\])?/g, '');
+  // Remove `as Type` casts — but not import aliases like `import { Foo as Bar }`
+  // Negative lookbehind ensures we don't match after `{`, `,`, or word chars typical of imports
+  result = result.replace(/(?<![{,]\s*\w+\s)\s+as\s+\w+(?:\[\])?/g, '');
 
   // Remove generic type parameters: <T>, <T extends U>
   result = result.replace(/<\w+(?:\s+extends\s+\w+)?>/g, '');

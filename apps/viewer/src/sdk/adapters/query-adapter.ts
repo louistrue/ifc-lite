@@ -108,14 +108,26 @@ export function createQueryAdapter(store: StoreApi): NamespaceAdapter {
 
     // Apply property filters
     let filtered = results;
-    if (descriptor.filters) {
+    if (descriptor.filters && descriptor.filters.length > 0) {
+      // Cache properties per entity to avoid O(n²) re-extraction per filter
+      const propsCache = new Map<string, PropertySetData[]>();
+      const getCachedProps = (ref: EntityRef): PropertySetData[] => {
+        const key = `${ref.modelId}:${ref.expressId}`;
+        let cached = propsCache.get(key);
+        if (!cached) {
+          cached = getProperties(ref);
+          propsCache.set(key, cached);
+        }
+        return cached;
+      };
+
       for (const filter of descriptor.filters) {
         filtered = filtered.filter(entity => {
-          const props = getProperties(entity.ref);
+          const props = getCachedProps(entity.ref);
           const pset = props.find(p => p.name === filter.psetName);
           if (!pset) return false;
           const prop = pset.properties.find(p => p.name === filter.propName);
-          if (!prop) return filter.operator === 'exists' ? false : false;
+          if (!prop) return false;
           if (filter.operator === 'exists') return true;
 
           const val = prop.value;

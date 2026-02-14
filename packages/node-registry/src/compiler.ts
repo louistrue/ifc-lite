@@ -53,7 +53,6 @@ export function compileGraph(graph: Graph, registry: NodeRegistry): CompileResul
   // Generate code
   const lines: string[] = [
     `// Generated from graph: ${graph.name}`,
-    `// ${new Date().toISOString()}`,
     '',
   ];
 
@@ -111,7 +110,9 @@ export function compileGraph(graph: Graph, registry: NodeRegistry): CompileResul
 
     // Replace references to input ports with their variable names
     for (const [portId, varName] of Object.entries(inputVars)) {
-      emittedCode = emittedCode.replace(new RegExp(`\\b${portId}\\b`, 'g'), varName);
+      // Escape regex special characters to prevent injection from portIds
+      const escaped = portId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      emittedCode = emittedCode.replace(new RegExp(`\\b${escaped}\\b`, 'g'), varName);
     }
 
     // If the node has outputs, assign them
@@ -161,8 +162,9 @@ function topologicalSort(nodes: GraphNode[], incomingEdges: Map<string, GraphEdg
   }
 
   const sorted: GraphNode[] = [];
-  while (queue.length > 0) {
-    const nodeId = queue.shift()!;
+  let queueHead = 0;
+  while (queueHead < queue.length) {
+    const nodeId = queue[queueHead++];
     const node = nodeMap.get(nodeId);
     if (node) sorted.push(node);
 

@@ -32,23 +32,23 @@ const BROADCAST_CHANNEL = 'ifc-lite';
  */
 export function useBimHost(): BimContext {
   const hostRef = useRef<BimHost | null>(null);
+  const backendRef = useRef<LocalBackend | null>(null);
 
-  // Create local backend and BimContext once
+  // Create local backend and BimContext once — single shared backend
   const bim = useMemo(() => {
     const storeApi = {
       getState: useViewerStore.getState,
       subscribe: useViewerStore.subscribe,
     };
     const backend = new LocalBackend(storeApi);
+    backendRef.current = backend;
     return createBimContext({ backend });
   }, []);
 
-  // Start BimHost for external connections
+  // Start BimHost for external connections — reuse the same backend
   useEffect(() => {
-    const backend = new LocalBackend({
-      getState: useViewerStore.getState,
-      subscribe: useViewerStore.subscribe,
-    });
+    const backend = backendRef.current;
+    if (!backend) return;
     const host = new BimHost(backend);
 
     try {

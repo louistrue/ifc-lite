@@ -26,6 +26,9 @@ export function GraphEditor() {
 
   const [warnings, setWarnings] = useState<string[]>([]);
   const isInitRef = useRef(false);
+  // Use ref to read current editorContent in effect without it being a dependency
+  const editorContentRef = useRef(editorContent);
+  editorContentRef.current = editorContent;
 
   // Build a definition map for NodeCanvas (stable since getNodes is stable)
   const nodeDefMap = useMemo(() => {
@@ -39,7 +42,7 @@ export function GraphEditor() {
   // Decompile code → graph ONLY when toggling into graph mode (not on content change)
   useEffect(() => {
     if (graphMode && !isInitRef.current) {
-      const result = codeToGraph(editorContent, 'Script');
+      const result = codeToGraph(editorContentRef.current, 'Script');
       setGraph(result.graph);
       setWarnings(result.warnings);
       isInitRef.current = true;
@@ -47,8 +50,6 @@ export function GraphEditor() {
     if (!graphMode) {
       isInitRef.current = false;
     }
-    // Intentionally excluding editorContent — we only decompile on mode toggle
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graphMode, codeToGraph, setGraph]);
 
   /** Compile graph → code and update the store */

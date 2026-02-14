@@ -191,17 +191,9 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         },
         returns: 'void',
       },
-      {
-        name: 'batch',
-        args: ['string', 'dump'],
-        call: (sdk, args) => {
-          // Note: batch takes a callback in the SDK but in the sandbox
-          // we can't pass QuickJS functions through. Scripts use
-          // individual setProperty calls instead.
-          sdk.mutate.batch(args[0] as string, args[1] as () => void);
-        },
-        returns: 'void',
-      },
+      // Note: batch is intentionally omitted — it takes a callback in the SDK
+      // but QuickJS cannot marshal functions through vm.dump(). Scripts should
+      // use individual setProperty calls instead.
       {
         name: 'undo',
         args: ['string'],

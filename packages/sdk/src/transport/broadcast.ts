@@ -18,6 +18,7 @@ export class BroadcastTransport implements Transport {
   private channel: BroadcastChannel;
   private pending = new Map<string, {
     resolve: (response: SdkResponse) => void;
+    reject: (error: Error) => void;
     timer: ReturnType<typeof setTimeout>;
   }>();
   private eventHandlers = new Set<(event: SdkEvent) => void>();
@@ -59,7 +60,7 @@ export class BroadcastTransport implements Transport {
         reject(new Error(`BroadcastTransport: Request ${request.id} timed out after ${this.timeoutMs}ms`));
       }, this.timeoutMs);
 
-      this.pending.set(request.id, { resolve, timer });
+      this.pending.set(request.id, { resolve, reject, timer });
       this.channel.postMessage(request);
     });
   }
@@ -70,8 +71,10 @@ export class BroadcastTransport implements Transport {
   }
 
   close(): void {
+    const closeError = new Error('BroadcastTransport: Transport closed');
     for (const entry of this.pending.values()) {
       clearTimeout(entry.timer);
+      entry.reject(closeError);
     }
     this.pending.clear();
     this.eventHandlers.clear();

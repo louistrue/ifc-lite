@@ -10,7 +10,7 @@
 import type { StateCreator } from 'zustand';
 import type { Graph } from '@ifc-lite/node-registry';
 import type { SavedScript } from '../../lib/scripts/persistence.js';
-import { loadSavedScripts, saveScripts, validateScriptName, canCreateScript } from '../../lib/scripts/persistence.js';
+import { loadSavedScripts, saveScripts, validateScriptName, canCreateScript, isScriptWithinSizeLimit } from '../../lib/scripts/persistence.js';
 
 export type ScriptExecutionState = 'idle' | 'running' | 'error' | 'success';
 
@@ -86,12 +86,17 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
     }
 
     const validName = validateScriptName(name) ?? 'Untitled Script';
+    const scriptCode = code ?? DEFAULT_CODE;
+    if (!isScriptWithinSizeLimit(scriptCode)) {
+      console.warn('[Scripts] Script code exceeds maximum size limit');
+      return '';
+    }
     const id = crypto.randomUUID();
     const now = Date.now();
     const script: SavedScript = {
       id,
       name: validName,
-      code: code ?? DEFAULT_CODE,
+      code: scriptCode,
       createdAt: now,
       updatedAt: now,
       version: 1,

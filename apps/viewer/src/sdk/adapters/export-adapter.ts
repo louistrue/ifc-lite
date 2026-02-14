@@ -4,6 +4,7 @@
 
 import type { NamespaceAdapter, StoreApi } from './types.js';
 import type { EntityRef, EntityData, PropertySetData } from '@ifc-lite/sdk';
+import { EntityNode } from '@ifc-lite/query';
 
 /** Options for CSV export */
 interface CsvOptions {
@@ -16,12 +17,11 @@ interface CsvOptions {
  * Validate that a value is a CsvOptions object.
  */
 function isCsvOptions(v: unknown): v is CsvOptions {
-  return (
-    v !== null &&
-    typeof v === 'object' &&
-    'columns' in v &&
-    Array.isArray((v as CsvOptions).columns)
-  );
+  if (v === null || typeof v !== 'object' || !('columns' in v)) return false;
+  const columns = (v as CsvOptions).columns;
+  if (!Array.isArray(columns)) return false;
+  // Validate all column entries are strings
+  return columns.every((c): c is string => typeof c === 'string');
 }
 
 /**
@@ -32,10 +32,14 @@ function isEntityRefArray(v: unknown): v is EntityRef[] {
   if (v.length === 0) return true;
   const first = v[0] as Record<string, unknown>;
   // Accept both raw EntityRef and entity proxy objects with .ref
-  return (
-    ('modelId' in first && 'expressId' in first) ||
-    ('ref' in first && typeof first.ref === 'object')
-  );
+  if ('modelId' in first && 'expressId' in first) {
+    return typeof first.modelId === 'string' && typeof first.expressId === 'number';
+  }
+  if ('ref' in first && first.ref !== null && typeof first.ref === 'object') {
+    const ref = first.ref as Record<string, unknown>;
+    return typeof ref.modelId === 'string' && typeof ref.expressId === 'number';
+  }
+  return false;
 }
 
 /**
@@ -77,8 +81,6 @@ export function createExportAdapter(store: StoreApi): NamespaceAdapter {
     const model = state.models.get(ref.modelId);
     if (!model?.ifcDataStore) return null;
 
-    // Use EntityNode for on-demand extraction
-    const { EntityNode } = require('@ifc-lite/query');
     const node = new EntityNode(model.ifcDataStore, ref.expressId);
     return {
       ref,
@@ -96,7 +98,6 @@ export function createExportAdapter(store: StoreApi): NamespaceAdapter {
     const model = state.models.get(ref.modelId);
     if (!model?.ifcDataStore) return [];
 
-    const { EntityNode } = require('@ifc-lite/query');
     const node = new EntityNode(model.ifcDataStore, ref.expressId);
     return node.properties().map((pset: { name: string; globalId?: string; properties: Array<{ name: string; type: number; value: string | number | boolean | null }> }) => ({
       name: pset.name,

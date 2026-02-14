@@ -47,32 +47,39 @@ export function loadSavedScripts(): SavedScript[] {
       return migrateFromLegacy(parsed);
     }
 
-    // Versioned format
-    const stored = parsed as StoredScripts;
-    if (stored.schemaVersion === SCHEMA_VERSION) {
-      return stored.scripts;
+    // Versioned format — validate structure
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      'schemaVersion' in parsed &&
+      'scripts' in parsed &&
+      Array.isArray((parsed as StoredScripts).scripts)
+    ) {
+      return (parsed as StoredScripts).scripts;
     }
 
-    // Future migrations would go here
-    return stored.scripts;
+    return [];
   } catch {
     return [];
   }
 }
 
-/** Migrate from the original unversioned format */
+/** Migrate from the original unversioned format — discards corrupted entries */
 function migrateFromLegacy(scripts: unknown[]): SavedScript[] {
-  const migrated = scripts.map((s) => {
+  const migrated: SavedScript[] = [];
+  for (const s of scripts) {
+    if (s === null || typeof s !== 'object') continue;
     const script = s as Record<string, unknown>;
-    return {
-      id: String(script.id ?? crypto.randomUUID()),
-      name: String(script.name ?? 'Untitled'),
-      code: String(script.code ?? ''),
-      createdAt: Number(script.createdAt ?? Date.now()),
-      updatedAt: Number(script.updatedAt ?? Date.now()),
-      version: SCHEMA_VERSION,
-    };
-  });
+
+    // Validate essential fields — discard garbage values from String()/Number() coercion
+    const id = typeof script.id === 'string' && script.id.length > 0 ? script.id : crypto.randomUUID();
+    const name = typeof script.name === 'string' && script.name.length > 0 ? script.name : 'Untitled';
+    const code = typeof script.code === 'string' ? script.code : '';
+    const createdAt = typeof script.createdAt === 'number' && isFinite(script.createdAt) ? script.createdAt : Date.now();
+    const updatedAt = typeof script.updatedAt === 'number' && isFinite(script.updatedAt) ? script.updatedAt : Date.now();
+
+    migrated.push({ id, name, code, createdAt, updatedAt, version: SCHEMA_VERSION });
+  }
   // Save in new format
   saveScripts(migrated);
   return migrated;

@@ -21,14 +21,14 @@ import { DEFAULT_LIMITS, DEFAULT_PERMISSIONS } from './types.js';
 import { buildBridge } from './bridge.js';
 import { transpileTypeScript } from './transpile.js';
 
-/** Cached WASM module — loaded once, reused for all sandboxes */
-let cachedModule: QuickJSWASMModule | null = null;
+/** Cached WASM module promise — deduplicates concurrent init calls */
+let modulePromise: Promise<QuickJSWASMModule> | null = null;
 
-async function getModule(): Promise<QuickJSWASMModule> {
-  if (!cachedModule) {
-    cachedModule = await getQuickJS();
+function getModule(): Promise<QuickJSWASMModule> {
+  if (!modulePromise) {
+    modulePromise = getQuickJS();
   }
-  return cachedModule;
+  return modulePromise;
 }
 
 export class Sandbox {
@@ -36,6 +36,8 @@ export class Sandbox {
   private vm: QuickJSContext | null = null;
   private logs: LogEntry[] = [];
   private config: Required<SandboxConfig>;
+  /** Mutable start time — updated by eval(), read by interrupt handler */
+  private evalStartTime = 0;
 
   constructor(
     private sdk: BimContext,
@@ -56,11 +58,10 @@ export class Sandbox {
     this.runtime.setMemoryLimit(this.config.limits.memoryBytes ?? DEFAULT_LIMITS.memoryBytes);
     this.runtime.setMaxStackSize(this.config.limits.maxStackBytes ?? DEFAULT_LIMITS.maxStackBytes);
 
-    // CPU limit via interrupt handler
+    // CPU limit via interrupt handler — reads instance field set by eval()
     const timeoutMs = this.config.limits.timeoutMs ?? DEFAULT_LIMITS.timeoutMs;
-    let startTime = 0;
     this.runtime.setInterruptHandler(() => {
-      if (startTime > 0 && Date.now() - startTime > timeoutMs) {
+      if (this.evalStartTime > 0 && Date.now() - this.evalStartTime > timeoutMs) {
         return true; // Interrupt execution
       }
       return false;
@@ -92,10 +93,11 @@ export class Sandbox {
       jsCode = await transpileTypeScript(code);
     }
 
-    const startTime = Date.now();
+    this.evalStartTime = Date.now();
 
     const result = this.vm.evalCode(jsCode, options?.filename ?? 'script.js');
-    const durationMs = Date.now() - startTime;
+    const durationMs = Date.now() - this.evalStartTime;
+    this.evalStartTime = 0;
 
     if (result.error) {
       const errorData = this.vm.dump(result.error);

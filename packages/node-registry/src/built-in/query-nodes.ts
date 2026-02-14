@@ -36,7 +36,7 @@ export const queryNodes: NodeDefinition[] = [
       return { entities: builder.toArray() };
     },
     toCode: (params) => {
-      const modelClause = params.modelId ? `.model('${params.modelId}')` : '';
+      const modelClause = params.modelId ? `.model(${JSON.stringify(String(params.modelId))})` : '';
       return `const entities = bim.query()${modelClause}.toArray()`;
     },
     fromCode: [
@@ -72,7 +72,7 @@ export const queryNodes: NodeDefinition[] = [
       }
       return { result: sdk.query().byType(type).toArray() };
     },
-    toCode: (params) => `const result = bim.query().byType('${params.type}').toArray()`,
+    toCode: (params) => `const result = bim.query().byType(${JSON.stringify(String(params.type))}).toArray()`,
     fromCode: [
       {
         regex: /(?:const|let|var)\s+(\w+)\s*=\s*bim\.query\(\)(?:\.model\(['"]([^'"]*)['"]\))?\.byType\(['"](\w+)['"]\)\.toArray\(\)/,
@@ -134,10 +134,12 @@ export const queryNodes: NodeDefinition[] = [
     },
     toCode: (params) => {
       const op = params.operator === '=' ? '===' : params.operator;
+      const pset = JSON.stringify(String(params.psetName));
+      const prop = JSON.stringify(String(params.propName));
       if (params.operator === 'exists') {
-        return `const result = entities.filter(e => e.property('${params.psetName}', '${params.propName}') != null)`;
+        return `const result = entities.filter(e => e.property(${pset}, ${prop}) != null)`;
       }
-      return `const result = entities.filter(e => e.property('${params.psetName}', '${params.propName}') ${op} ${JSON.stringify(params.value)})`;
+      return `const result = entities.filter(e => e.property(${pset}, ${prop}) ${op} ${JSON.stringify(params.value)})`;
     },
     fromCode: [
       // byType().where() variant
