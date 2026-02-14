@@ -18,9 +18,18 @@ export class MutateNamespace {
     this.backend.dispatch('mutate', 'deleteProperty', [ref, psetName, propName]);
   }
 
-  /** Batch multiple mutations into a single undo step */
+  /**
+   * Batch multiple mutations into a single undo step.
+   * Sends begin/end markers to the backend so the mutation adapter
+   * can group all enclosed mutations into one undoable operation.
+   */
   batch(label: string, fn: () => void): void {
-    fn();
+    this.backend.dispatch('mutate', 'batchBegin', [label]);
+    try {
+      fn();
+    } finally {
+      this.backend.dispatch('mutate', 'batchEnd', [label]);
+    }
   }
 
   /** Undo last mutation for a model */

@@ -39,6 +39,9 @@ export class ExportNamespace {
   csv(refs: EntityRef[], options: ExportCsvOptions): string {
     const rows: string[][] = [];
 
+    // Check if any columns need property lookups (Pset.Property paths)
+    const hasPropertyColumns = options.columns.some(c => c.indexOf('.') > 0);
+
     // Header row
     rows.push(options.columns);
 
@@ -46,6 +49,12 @@ export class ExportNamespace {
     for (const ref of refs) {
       const data = this.backend.dispatch('query', 'entityData', [ref]) as EntityData | null;
       if (!data) continue;
+
+      // Fetch properties once per entity (not per column)
+      let psets: PropertySetData[] | null = null;
+      if (hasPropertyColumns) {
+        psets = this.backend.dispatch('query', 'properties', [ref]) as PropertySetData[];
+      }
 
       const row: string[] = [];
       for (const col of options.columns) {
@@ -57,10 +66,9 @@ export class ExportNamespace {
 
         // Property path: "PsetName.PropertyName"
         const dotIdx = col.indexOf('.');
-        if (dotIdx > 0) {
+        if (dotIdx > 0 && psets) {
           const psetName = col.slice(0, dotIdx);
           const propName = col.slice(dotIdx + 1);
-          const psets = this.backend.dispatch('query', 'properties', [ref]) as PropertySetData[];
           const pset = psets.find(p => p.name === psetName);
           const prop = pset?.properties.find(p => p.name === propName);
           row.push(prop?.value != null ? String(prop.value) : '');
@@ -88,10 +96,17 @@ export class ExportNamespace {
    */
   json(refs: EntityRef[], columns: string[]): Record<string, unknown>[] {
     const result: Record<string, unknown>[] = [];
+    const hasPropertyColumns = columns.some(c => c.indexOf('.') > 0);
 
     for (const ref of refs) {
       const data = this.backend.dispatch('query', 'entityData', [ref]) as EntityData | null;
       if (!data) continue;
+
+      // Fetch properties once per entity (not per column)
+      let psets: PropertySetData[] | null = null;
+      if (hasPropertyColumns) {
+        psets = this.backend.dispatch('query', 'properties', [ref]) as PropertySetData[];
+      }
 
       const row: Record<string, unknown> = {};
       for (const col of columns) {
@@ -102,10 +117,9 @@ export class ExportNamespace {
         if (col === 'objectType') { row[col] = data.objectType; continue; }
 
         const dotIdx = col.indexOf('.');
-        if (dotIdx > 0) {
+        if (dotIdx > 0 && psets) {
           const psetName = col.slice(0, dotIdx);
           const propName = col.slice(dotIdx + 1);
-          const psets = this.backend.dispatch('query', 'properties', [ref]) as PropertySetData[];
           const pset = psets.find(p => p.name === psetName);
           const prop = pset?.properties.find(p => p.name === propName);
           row[col] = prop?.value ?? null;

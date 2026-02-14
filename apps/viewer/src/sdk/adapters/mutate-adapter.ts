@@ -41,6 +41,12 @@ export function createMutateAdapter(store: StoreApi): NamespaceAdapter {
           }
           return false;
         }
+        case 'batchBegin':
+          // TODO: Implement batch grouping when the mutation store supports it.
+          // For now, individual mutations each create their own undo step.
+          return undefined;
+        case 'batchEnd':
+          return undefined;
         default:
           throw new Error(`Unknown mutate method: ${method}`);
       }
