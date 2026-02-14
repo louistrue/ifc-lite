@@ -72,7 +72,14 @@ export class ExportNamespace {
     }
 
     const sep = options.separator ?? ',';
-    return rows.map(r => r.map(cell => this.escapeCsv(cell, sep)).join(sep)).join('\n');
+    const csvString = rows.map(r => r.map(cell => this.escapeCsv(cell, sep)).join(sep)).join('\n');
+
+    // Trigger browser download if filename specified
+    if (options.filename) {
+      this.backend.dispatch('export', 'download', [csvString, options.filename, 'text/csv;charset=utf-8;']);
+    }
+
+    return csvString;
   }
 
   /**

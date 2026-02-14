@@ -234,7 +234,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
     methods: [
       {
         name: 'csv',
-        args: ['dump', 'dump'],
+        args: ['entityRefs', 'dump'],
         call: (sdk, args) => {
           return sdk.export.csv(
             args[0] as EntityRef[],
@@ -245,7 +245,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
       },
       {
         name: 'json',
-        args: ['dump', 'dump'],
+        args: ['entityRefs', 'dump'],
         call: (sdk, args) => {
           return sdk.export.json(
             args[0] as EntityRef[],

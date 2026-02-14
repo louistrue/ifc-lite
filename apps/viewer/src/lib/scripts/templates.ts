@@ -110,7 +110,7 @@ if (entities.length === 0) {
   {
     name: 'Export to CSV',
     description: 'Export walls (or all entities) with name and global ID',
-    code: `// Export entities as CSV
+    code: `// Export entities as CSV (triggers file download)
 let entities = bim.query.byType('IfcWall')
 let label = 'walls'
 if (entities.length === 0) {
@@ -120,9 +120,11 @@ if (entities.length === 0) {
 if (entities.length === 0) {
   console.log('No entities found')
 } else {
-  const csv = bim.export.csv(entities, { columns: ['name', 'type', 'globalId'] })
-  console.log(csv)
-  console.log('\\nExported ' + entities.length + ' ' + label)
+  const csv = bim.export.csv(entities, {
+    columns: ['name', 'type', 'globalId'],
+    filename: 'export.csv'
+  })
+  console.log('Exported ' + entities.length + ' ' + label + ' to export.csv')
 }`,
   },
   {
