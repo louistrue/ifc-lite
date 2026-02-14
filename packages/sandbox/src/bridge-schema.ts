@@ -103,6 +103,21 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         returns: 'void',
       },
       {
+        name: 'colorizeAll',
+        args: ['dump'],
+        call: (sdk, args) => {
+          // batches: Array<{ entities: EntityData[], color: string }>
+          // Extract .ref from entity data objects and pass to SDK
+          const raw = args[0] as Array<{ entities: Array<{ ref?: EntityRef } & EntityRef>; color: string }>;
+          const batches = raw.map(b => ({
+            refs: b.entities.map(e => e.ref ?? e),
+            color: b.color,
+          }));
+          sdk.viewer.colorizeAll(batches);
+        },
+        returns: 'void',
+      },
+      {
         name: 'hide',
         args: ['entityRefs'],
         call: (sdk, args) => {

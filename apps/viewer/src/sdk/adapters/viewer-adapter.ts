@@ -38,6 +38,22 @@ export function createViewerAdapter(store: StoreApi): NamespaceAdapter {
           state.setPendingColorUpdates(colorMap);
           return undefined;
         }
+        case 'colorizeAll': {
+          // Batch colorize: build the complete color map in a single call.
+          // Avoids accumulation issues when React effects fire between calls.
+          const batches = args[0] as Array<{ refs: EntityRef[]; color: [number, number, number, number] }>;
+          const batchMap = new Map<number, [number, number, number, number]>();
+          for (const batch of batches) {
+            for (const ref of batch.refs) {
+              const model = getModelForRef(state, ref.modelId);
+              if (model) {
+                batchMap.set(ref.expressId + model.idOffset, batch.color);
+              }
+            }
+          }
+          state.setPendingColorUpdates(batchMap);
+          return undefined;
+        }
         case 'resetColors':
           // Set empty map to trigger scene.clearColorOverrides() (null skips the effect)
           state.setPendingColorUpdates(new Map());

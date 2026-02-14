@@ -22,6 +22,12 @@ export class ViewerNamespace {
     this.backend.dispatch('viewer', 'colorize', [refs, color]);
   }
 
+  /** Batch colorize: apply multiple entity-color pairs in a single call */
+  colorizeAll(batches: Array<{ refs: EntityRef[]; color: string }>): void {
+    const resolved = batches.map(b => ({ refs: b.refs, color: hexToRgba(b.color, 1.0) }));
+    this.backend.dispatch('viewer', 'colorizeAll', [resolved]);
+  }
+
   /** Reset color overrides */
   resetColors(refs?: EntityRef[]): void {
     this.backend.dispatch('viewer', 'resetColors', [refs]);
