@@ -34,7 +34,6 @@ export function EntityContextMenu() {
   const setBasket = useViewerStore((s) => s.setBasket);
   const addToBasket = useViewerStore((s) => s.addToBasket);
   const removeFromBasket = useViewerStore((s) => s.removeFromBasket);
-  const clearBasket = useViewerStore((s) => s.clearBasket);
   const menuRef = useRef<HTMLDivElement>(null);
   const { ifcDataStore, models } = useIfc();
 
@@ -130,10 +129,9 @@ export function EntityContextMenu() {
   }, [contextMenu.entityId, hideEntity, closeContextMenu]);
 
   const handleShowAll = useCallback(() => {
-    clearBasket();
-    showAll();
+    showAll(); // Clear hidden + isolation (basket preserved)
     closeContextMenu();
-  }, [clearBasket, showAll, closeContextMenu]);
+  }, [showAll, closeContextMenu]);
 
   const handleSelectSimilar = useCallback(() => {
     // Use resolvedExpressId (original ID) for IfcDataStore lookups

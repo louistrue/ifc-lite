@@ -47,6 +47,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
   const addToBasket = useViewerStore((s) => s.addToBasket);
   const removeFromBasket = useViewerStore((s) => s.removeFromBasket);
   const clearBasket = useViewerStore((s) => s.clearBasket);
+  const showPinboard = useViewerStore((s) => s.showPinboard);
 
   // Measure tool specific actions
   const activeMeasurement = useViewerStore((s) => s.activeMeasurement);
@@ -97,12 +98,15 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
     }
 
     // Basket / Visibility controls
-    // I = Set basket (isolate selection as basket)
-    if (key === 'i' && !ctrl && !shift && selectedEntityId) {
-      e.preventDefault();
+    // I = Set basket (isolate selection as basket), or re-apply basket if no selection
+    if (key === 'i' && !ctrl && !shift) {
       const refs = getSelectionRefsFromStore();
       if (refs.length > 0) {
+        e.preventDefault();
         setBasket(refs);
+      } else if (useViewerStore.getState().pinboardEntities.size > 0) {
+        e.preventDefault();
+        showPinboard();
       }
     }
 
@@ -130,8 +134,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
     }
     if (key === 'a' && !ctrl && !shift) {
       e.preventDefault();
-      clearBasket();
-      showAll();
+      showAll();             // Clear hiddenEntities + isolatedEntities (basket preserved)
       clearStoreySelection(); // Also clear storey filtering
     }
 
@@ -190,6 +193,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
     addToBasket,
     removeFromBasket,
     clearBasket,
+    showPinboard,
     hideEntity,
     showAll,
     clearStoreySelection,

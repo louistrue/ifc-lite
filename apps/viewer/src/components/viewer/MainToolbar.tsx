@@ -305,13 +305,20 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
   const hasSelection = selectedEntityId !== null;
 
+  // Basket state
+  const showPinboard = useViewerStore((state) => state.showPinboard);
+
   // Basket operations
   const handleSetBasket = useCallback(() => {
     const refs = getSelectionRefs();
     if (refs.length > 0) {
+      // Selection exists → replace basket with selection
       setBasket(refs);
+    } else if (pinboardEntities.size > 0) {
+      // No selection but basket exists → re-apply basket isolation
+      showPinboard();
     }
-  }, [getSelectionRefs, setBasket]);
+  }, [getSelectionRefs, setBasket, pinboardEntities.size, showPinboard]);
 
   const handleAddToBasket = useCallback(() => {
     const refs = getSelectionRefs();
@@ -338,10 +345,9 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   }, [selectedEntityId, hideEntity, clearSelection]);
 
   const handleShowAll = useCallback(() => {
-    clearBasket(); // Clear basket (also clears isolatedEntities)
-    showAll();     // Clear hiddenEntities
+    showAll();     // Clear hiddenEntities + isolatedEntities (basket contents preserved)
     clearStoreySelection(); // Also clear storey filtering
-  }, [clearBasket, showAll, clearStoreySelection]);
+  }, [showAll, clearStoreySelection]);
 
   const handleExportGLB = useCallback(() => {
     if (!geometryResult) return;
@@ -718,7 +724,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
               (e.currentTarget as HTMLButtonElement).blur();
               handleSetBasket();
             }}
-            disabled={!hasSelection}
+            disabled={!hasSelection && pinboardEntities.size === 0}
             className={cn(
               pinboardEntities.size > 0 && 'bg-primary text-primary-foreground relative',
             )}
