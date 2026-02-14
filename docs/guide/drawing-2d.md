@@ -160,9 +160,30 @@ In the IFClite viewer:
 1. **Activate section plane** - Position a section plane in the 3D view
 2. **Open 2D panel** - The 2D drawing panel shows the section cut
 3. **Toggle layers** - Show/hide cut lines, projection, hidden lines, hatching
-4. **Measure** - Use the 2D measurement tool with snap-to-geometry
-5. **Graphic overrides** - Apply presets to change element appearance
-6. **Export SVG** - Download the drawing as vector SVG
+4. **Annotate** - Add measurements, polygon areas, text boxes, and revision clouds
+5. **Select & edit** - Click annotations to select, drag to move, Delete to remove
+6. **Graphic overrides** - Apply presets to change element appearance
+7. **Export SVG** - Download the drawing as vector SVG
+
+### Annotation Tools
+
+| Tool | Description | Shortcuts |
+|------|-------------|-----------|
+| **Distance Measure** | Click two points to measure distance | Shift = lock axis |
+| **Area Measure** | Click polygon vertices, close near first point or double-click | Shift = orthogonal |
+| **Text Box** | Click to place, type text, Enter to confirm | Double-click to re-edit |
+| **Revision Cloud** | Click two corners to define rectangle | Shift = square |
+| **Select / Pan** | Click annotations to select, drag to move | Escape = exit tool / deselect |
+
+### Annotation Selection
+
+When using the Select / Pan tool (or after pressing Escape to exit a creation tool):
+
+- **Click** any annotation to select it (blue dashed border with corner handles)
+- **Drag** the selected annotation to reposition it
+- **Delete** or **Backspace** to remove the selected annotation
+- **Double-click** a text annotation to re-enter edit mode
+- **Escape** to deselect or exit annotation tools
 
 ### Display Options
 

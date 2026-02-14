@@ -10,6 +10,9 @@ import {
   type ElementData,
 } from '@ifc-lite/drawing-2d';
 import { formatDistance } from './tools/formatDistance';
+import { formatArea, computePolygonCentroid } from './tools/computePolygonArea';
+import { drawCloudOnCanvas } from './tools/cloudPathGenerator';
+import type { PolygonArea2DResult, TextAnnotation2D, CloudAnnotation2D, Annotation2DTool, Point2D, SelectedAnnotation2D } from '@/store/slices/drawing2DSlice';
 
 // Fill colors for IFC types (architectural convention)
 const IFC_TYPE_FILL_COLORS: Record<string, string> = {
@@ -83,6 +86,17 @@ interface Drawing2DCanvasProps {
   // Pinned mode - keep model fixed in place on sheet
   isPinned?: boolean;
   cachedSheetTransformRef?: React.MutableRefObject<{ translateX: number; translateY: number; scaleFactor: number } | null>;
+  // Annotation props
+  annotation2DActiveTool?: Annotation2DTool;
+  annotation2DCursorPos?: Point2D | null;
+  polygonAreaPoints?: Point2D[];
+  polygonAreaResults?: PolygonArea2DResult[];
+  textAnnotations?: TextAnnotation2D[];
+  textAnnotationEditing?: string | null;
+  cloudAnnotationPoints?: Point2D[];
+  cloudAnnotations?: CloudAnnotation2D[];
+  // Selection
+  selectedAnnotation?: SelectedAnnotation2D | null;
 }
 
 export function Drawing2DCanvas({
@@ -103,6 +117,15 @@ export function Drawing2DCanvas({
   sectionAxis,
   isPinned = false,
   cachedSheetTransformRef,
+  annotation2DActiveTool = 'none',
+  annotation2DCursorPos = null,
+  polygonAreaPoints = [],
+  polygonAreaResults = [],
+  textAnnotations = [],
+  textAnnotationEditing = null,
+  cloudAnnotationPoints = [],
+  cloudAnnotations = [],
+  selectedAnnotation = null,
 }: Drawing2DCanvasProps): React.ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
@@ -1036,7 +1059,347 @@ export function Drawing2DCanvas({
       ctx.arc(screenSnap.x, screenSnap.y, 6, 0, Math.PI * 2);
       ctx.stroke();
     }
-  }, [drawing, transform, showHiddenLines, canvasSize, overrideEngine, overridesEnabled, entityColorMap, useIfcMaterials, measureMode, measureStart, measureCurrent, measureResults, measureSnapPoint, sheetEnabled, activeSheet, sectionAxis, isPinned]);
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 5. RENDER POLYGON AREA MEASUREMENTS (in screen space)
+    // ═══════════════════════════════════════════════════════════════════════
+    const annotScaleX = sectionAxis === 'side' ? -transform.scale : transform.scale;
+    const annotScaleY = sectionAxis === 'down' ? transform.scale : -transform.scale;
+    const drawingToScreenX = (x: number) => x * annotScaleX + transform.x;
+    const drawingToScreenY = (y: number) => y * annotScaleY + transform.y;
+
+    // Draw completed polygon areas
+    for (const result of polygonAreaResults) {
+      if (result.points.length < 3) continue;
+
+      // Draw filled polygon
+      ctx.globalAlpha = 0.1;
+      ctx.fillStyle = '#2196F3';
+      ctx.beginPath();
+      const first = result.points[0];
+      ctx.moveTo(drawingToScreenX(first.x), drawingToScreenY(first.y));
+      for (let i = 1; i < result.points.length; i++) {
+        ctx.lineTo(drawingToScreenX(result.points[i].x), drawingToScreenY(result.points[i].y));
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
+      // Draw outline
+      ctx.strokeStyle = '#2196F3';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 3]);
+      ctx.beginPath();
+      ctx.moveTo(drawingToScreenX(first.x), drawingToScreenY(first.y));
+      for (let i = 1; i < result.points.length; i++) {
+        ctx.lineTo(drawingToScreenX(result.points[i].x), drawingToScreenY(result.points[i].y));
+      }
+      ctx.closePath();
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Draw vertex dots
+      ctx.fillStyle = '#2196F3';
+      for (const pt of result.points) {
+        ctx.beginPath();
+        ctx.arc(drawingToScreenX(pt.x), drawingToScreenY(pt.y), 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Draw area label at centroid
+      const centroid = computePolygonCentroid(result.points);
+      const cx = drawingToScreenX(centroid.x);
+      const cy = drawingToScreenY(centroid.y);
+      const areaText = formatArea(result.area);
+      const perimText = `P: ${formatDistance(result.perimeter)}`;
+
+      ctx.font = 'bold 12px system-ui, sans-serif';
+      const areaMetrics = ctx.measureText(areaText);
+      ctx.font = '10px system-ui, sans-serif';
+      const perimMetrics = ctx.measureText(perimText);
+      const labelW = Math.max(areaMetrics.width, perimMetrics.width) + 12;
+      const labelH = 32;
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+      ctx.fillRect(cx - labelW / 2, cy - labelH / 2, labelW, labelH);
+      ctx.strokeStyle = '#2196F3';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(cx - labelW / 2, cy - labelH / 2, labelW, labelH);
+
+      ctx.fillStyle = '#000000';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = 'bold 12px system-ui, sans-serif';
+      ctx.fillText(areaText, cx, cy - 6);
+      ctx.font = '10px system-ui, sans-serif';
+      ctx.fillStyle = '#666666';
+      ctx.fillText(perimText, cx, cy + 8);
+    }
+
+    // Draw in-progress polygon
+    if (polygonAreaPoints.length > 0 && annotation2DActiveTool === 'polygon-area') {
+      // Draw lines between placed vertices
+      ctx.strokeStyle = '#FF5722';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 3]);
+      ctx.beginPath();
+      const first = polygonAreaPoints[0];
+      ctx.moveTo(drawingToScreenX(first.x), drawingToScreenY(first.y));
+      for (let i = 1; i < polygonAreaPoints.length; i++) {
+        ctx.lineTo(drawingToScreenX(polygonAreaPoints[i].x), drawingToScreenY(polygonAreaPoints[i].y));
+      }
+
+      // Draw preview line from last vertex to cursor
+      if (annotation2DCursorPos) {
+        ctx.lineTo(drawingToScreenX(annotation2DCursorPos.x), drawingToScreenY(annotation2DCursorPos.y));
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // If 3+ points and cursor is near first vertex, show closing preview
+      if (polygonAreaPoints.length >= 3 && annotation2DCursorPos) {
+        ctx.globalAlpha = 0.08;
+        ctx.fillStyle = '#FF5722';
+        ctx.beginPath();
+        ctx.moveTo(drawingToScreenX(first.x), drawingToScreenY(first.y));
+        for (let i = 1; i < polygonAreaPoints.length; i++) {
+          ctx.lineTo(drawingToScreenX(polygonAreaPoints[i].x), drawingToScreenY(polygonAreaPoints[i].y));
+        }
+        ctx.lineTo(drawingToScreenX(annotation2DCursorPos.x), drawingToScreenY(annotation2DCursorPos.y));
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+
+      // Draw vertex dots
+      ctx.fillStyle = '#FF5722';
+      for (const pt of polygonAreaPoints) {
+        ctx.beginPath();
+        ctx.arc(drawingToScreenX(pt.x), drawingToScreenY(pt.y), 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // First vertex indicator (larger, shows it can be clicked to close)
+      if (polygonAreaPoints.length >= 3) {
+        ctx.strokeStyle = '#FF5722';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(drawingToScreenX(first.x), drawingToScreenY(first.y), 8, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 6. RENDER TEXT ANNOTATIONS (in screen space)
+    // ═══════════════════════════════════════════════════════════════════════
+    for (const textAnnotation of textAnnotations) {
+      // Don't render text that is currently being edited (the editor overlay handles it)
+      if (textAnnotation.id === textAnnotationEditing) continue;
+      if (!textAnnotation.text.trim()) continue;
+
+      const sx = drawingToScreenX(textAnnotation.position.x);
+      const sy = drawingToScreenY(textAnnotation.position.y);
+
+      ctx.font = `${textAnnotation.fontSize}px system-ui, sans-serif`;
+      const lines = textAnnotation.text.split('\n');
+      const lineHeight = textAnnotation.fontSize * 1.3;
+      let maxWidth = 0;
+      for (const line of lines) {
+        const m = ctx.measureText(line);
+        if (m.width > maxWidth) maxWidth = m.width;
+      }
+
+      const padding = 6;
+      const bgW = maxWidth + padding * 2;
+      const bgH = lines.length * lineHeight + padding * 2;
+
+      // Background
+      ctx.fillStyle = textAnnotation.backgroundColor;
+      ctx.fillRect(sx, sy, bgW, bgH);
+
+      // Border
+      ctx.strokeStyle = textAnnotation.borderColor;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(sx, sy, bgW, bgH);
+
+      // Text
+      ctx.fillStyle = textAnnotation.color;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      for (let i = 0; i < lines.length; i++) {
+        ctx.fillText(lines[i], sx + padding, sy + padding + i * lineHeight);
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 7. RENDER CLOUD ANNOTATIONS (in screen space)
+    // ═══════════════════════════════════════════════════════════════════════
+    const screenScale = Math.abs(transform.scale);
+
+    // Draw completed clouds
+    for (const cloud of cloudAnnotations) {
+      if (cloud.points.length < 2) continue;
+      const p1 = cloud.points[0];
+      const p2 = cloud.points[1];
+
+      // Determine arc radius based on rectangle size (in drawing coords)
+      const rectW = Math.abs(p2.x - p1.x);
+      const rectH = Math.abs(p2.y - p1.y);
+      const arcRadius = Math.min(rectW, rectH) * 0.15 || 0.2;
+
+      // Draw cloud fill
+      ctx.globalAlpha = 0.05;
+      ctx.fillStyle = cloud.color;
+      drawCloudOnCanvas(ctx, p1, p2, arcRadius, drawingToScreenX, drawingToScreenY, screenScale);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
+      // Draw cloud stroke
+      ctx.strokeStyle = cloud.color;
+      ctx.lineWidth = 2;
+      drawCloudOnCanvas(ctx, p1, p2, arcRadius, drawingToScreenX, drawingToScreenY, screenScale);
+      ctx.stroke();
+
+      // Draw label at center
+      if (cloud.label) {
+        const labelX = drawingToScreenX((p1.x + p2.x) / 2);
+        const labelY = drawingToScreenY((p1.y + p2.y) / 2);
+
+        ctx.font = 'bold 12px system-ui, sans-serif';
+        const labelMetrics = ctx.measureText(cloud.label);
+        const lW = labelMetrics.width + 10;
+        const lH = 20;
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.fillRect(labelX - lW / 2, labelY - lH / 2, lW, lH);
+        ctx.strokeStyle = cloud.color;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(labelX - lW / 2, labelY - lH / 2, lW, lH);
+
+        ctx.fillStyle = cloud.color;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(cloud.label, labelX, labelY);
+      }
+    }
+
+    // Draw in-progress cloud (rectangle preview from first corner to cursor)
+    if (cloudAnnotationPoints.length === 1 && annotation2DCursorPos && annotation2DActiveTool === 'cloud') {
+      const p1 = cloudAnnotationPoints[0];
+      const p2 = annotation2DCursorPos;
+
+      const sx1 = drawingToScreenX(p1.x);
+      const sy1 = drawingToScreenY(p1.y);
+      const sx2 = drawingToScreenX(p2.x);
+      const sy2 = drawingToScreenY(p2.y);
+
+      ctx.strokeStyle = '#E53935';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 3]);
+      ctx.strokeRect(
+        Math.min(sx1, sx2), Math.min(sy1, sy2),
+        Math.abs(sx2 - sx1), Math.abs(sy2 - sy1)
+      );
+      ctx.setLineDash([]);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 8. RENDER SELECTION HIGHLIGHT
+    // ═══════════════════════════════════════════════════════════════════════
+    if (selectedAnnotation) {
+      const SEL_COLOR = '#1976D2';
+      const SEL_HANDLE_SIZE = 5;
+
+      const drawSelectionRect = (x: number, y: number, w: number, h: number) => {
+        const margin = 4;
+        ctx.strokeStyle = SEL_COLOR;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 3]);
+        ctx.strokeRect(x - margin, y - margin, w + margin * 2, h + margin * 2);
+        ctx.setLineDash([]);
+
+        // Corner handles
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = SEL_COLOR;
+        ctx.lineWidth = 1.5;
+        const corners = [
+          [x - margin, y - margin],
+          [x + w + margin, y - margin],
+          [x - margin, y + h + margin],
+          [x + w + margin, y + h + margin],
+        ];
+        for (const [cx, cy] of corners) {
+          ctx.fillRect(cx - SEL_HANDLE_SIZE, cy - SEL_HANDLE_SIZE, SEL_HANDLE_SIZE * 2, SEL_HANDLE_SIZE * 2);
+          ctx.strokeRect(cx - SEL_HANDLE_SIZE, cy - SEL_HANDLE_SIZE, SEL_HANDLE_SIZE * 2, SEL_HANDLE_SIZE * 2);
+        }
+      };
+
+      switch (selectedAnnotation.type) {
+        case 'measure': {
+          const result = measureResults.find((r) => r.id === selectedAnnotation.id);
+          if (result) {
+            const sa = { x: drawingToScreenX(result.start.x), y: drawingToScreenY(result.start.y) };
+            const sb = { x: drawingToScreenX(result.end.x), y: drawingToScreenY(result.end.y) };
+            const minX = Math.min(sa.x, sb.x);
+            const minY = Math.min(sa.y, sb.y);
+            const w = Math.abs(sb.x - sa.x);
+            const h = Math.abs(sb.y - sa.y);
+            drawSelectionRect(minX, minY, w, h);
+          }
+          break;
+        }
+        case 'polygon': {
+          const result = polygonAreaResults.find((r) => r.id === selectedAnnotation.id);
+          if (result && result.points.length >= 3) {
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (const pt of result.points) {
+              const sx = drawingToScreenX(pt.x);
+              const sy = drawingToScreenY(pt.y);
+              if (sx < minX) minX = sx;
+              if (sy < minY) minY = sy;
+              if (sx > maxX) maxX = sx;
+              if (sy > maxY) maxY = sy;
+            }
+            drawSelectionRect(minX, minY, maxX - minX, maxY - minY);
+          }
+          break;
+        }
+        case 'text': {
+          const annotation = textAnnotations.find((a) => a.id === selectedAnnotation.id);
+          if (annotation && annotation.text.trim()) {
+            const sx = drawingToScreenX(annotation.position.x);
+            const sy = drawingToScreenY(annotation.position.y);
+            ctx.font = `${annotation.fontSize}px system-ui, sans-serif`;
+            const lines = annotation.text.split('\n');
+            const lineHeight = annotation.fontSize * 1.3;
+            const padding = 6;
+            let maxWidth = 0;
+            for (const line of lines) {
+              const m = ctx.measureText(line);
+              if (m.width > maxWidth) maxWidth = m.width;
+            }
+            const bgW = maxWidth + padding * 2;
+            const bgH = lines.length * lineHeight + padding * 2;
+            drawSelectionRect(sx, sy, bgW, bgH);
+          }
+          break;
+        }
+        case 'cloud': {
+          const cloud = cloudAnnotations.find((a) => a.id === selectedAnnotation.id);
+          if (cloud && cloud.points.length >= 2) {
+            const sp1x = drawingToScreenX(cloud.points[0].x);
+            const sp1y = drawingToScreenY(cloud.points[0].y);
+            const sp2x = drawingToScreenX(cloud.points[1].x);
+            const sp2y = drawingToScreenY(cloud.points[1].y);
+            const minX = Math.min(sp1x, sp2x);
+            const minY = Math.min(sp1y, sp2y);
+            drawSelectionRect(minX, minY, Math.abs(sp2x - sp1x), Math.abs(sp2y - sp1y));
+          }
+          break;
+        }
+      }
+    }
+  }, [drawing, transform, showHiddenLines, canvasSize, overrideEngine, overridesEnabled, entityColorMap, useIfcMaterials, measureMode, measureStart, measureCurrent, measureResults, measureSnapPoint, sheetEnabled, activeSheet, sectionAxis, isPinned, annotation2DActiveTool, annotation2DCursorPos, polygonAreaPoints, polygonAreaResults, textAnnotations, textAnnotationEditing, cloudAnnotationPoints, cloudAnnotations, selectedAnnotation]);
 
   return (
     <canvas

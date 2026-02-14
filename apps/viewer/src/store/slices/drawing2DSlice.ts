@@ -15,6 +15,9 @@ import { BUILT_IN_PRESETS } from '@ifc-lite/drawing-2d';
 
 export type Drawing2DStatus = 'idle' | 'generating' | 'ready' | 'error';
 
+/** Active 2D annotation tool */
+export type Annotation2DTool = 'none' | 'measure' | 'polygon-area' | 'text' | 'cloud';
+
 /** Point in 2D drawing coordinates */
 export interface Point2D {
   x: number;
@@ -27,6 +30,39 @@ export interface Measure2DResult {
   start: Point2D;
   end: Point2D;
   distance: number; // in drawing units (typically meters)
+}
+
+/** Polygon area measurement result */
+export interface PolygonArea2DResult {
+  id: string;
+  points: Point2D[];  // Closed polygon vertices (drawing coords)
+  area: number;       // Computed area in m²
+  perimeter: number;  // Computed perimeter in m
+}
+
+/** Text box annotation */
+export interface TextAnnotation2D {
+  id: string;
+  position: Point2D;       // Top-left corner (drawing coords)
+  text: string;
+  fontSize: number;        // Font size in screen px (default 14)
+  color: string;           // Text color (default '#000000')
+  backgroundColor: string; // Background fill
+  borderColor: string;     // Border color
+}
+
+/** Cloud (revision cloud) annotation */
+export interface CloudAnnotation2D {
+  id: string;
+  points: Point2D[];  // Rectangle corners (drawing coords, 2 points: topLeft, bottomRight)
+  color: string;      // Cloud stroke color (default '#E53935')
+  label: string;      // Optional label text inside cloud
+}
+
+/** Reference to a selected annotation */
+export interface SelectedAnnotation2D {
+  type: 'measure' | 'polygon' | 'text' | 'cloud';
+  id: string;
 }
 
 export interface Drawing2DState {
@@ -80,6 +116,34 @@ export interface Drawing2DState {
   measure2DResults: Measure2DResult[];
   /** Current snap point (if snapping to geometry) */
   measure2DSnapPoint: Point2D | null;
+
+  // Annotation Tool System
+  /** Active annotation tool (none = pan mode) */
+  annotation2DActiveTool: Annotation2DTool;
+  /** Current cursor position in drawing coords for preview rendering */
+  annotation2DCursorPos: Point2D | null;
+
+  // Polygon Area Measurement
+  /** Points being placed for in-progress polygon */
+  polygonArea2DPoints: Point2D[];
+  /** Completed polygon area measurements */
+  polygonArea2DResults: PolygonArea2DResult[];
+
+  // Text Annotations
+  /** Placed text annotations */
+  textAnnotations2D: TextAnnotation2D[];
+  /** ID of text annotation currently being edited (null = none) */
+  textAnnotation2DEditing: string | null;
+
+  // Cloud Annotations
+  /** Rectangle corners being placed for in-progress cloud (0-2 points) */
+  cloudAnnotation2DPoints: Point2D[];
+  /** Completed cloud annotations */
+  cloudAnnotations2D: CloudAnnotation2D[];
+
+  // Selection
+  /** Currently selected annotation (null = none) */
+  selectedAnnotation2D: SelectedAnnotation2D | null;
 }
 
 export interface Drawing2DSlice extends Drawing2DState {
@@ -121,6 +185,45 @@ export interface Drawing2DSlice extends Drawing2DState {
   completeMeasure2D: () => void;
   /** Cancel current measurement */
   cancelMeasure2D: () => void;
+
+  // Annotation Tool Actions
+  /** Set active annotation tool (also manages measure2DMode for backward compat) */
+  setAnnotation2DActiveTool: (tool: Annotation2DTool) => void;
+  /** Update cursor position for annotation previews */
+  setAnnotation2DCursorPos: (pos: Point2D | null) => void;
+
+  // Polygon Area Actions
+  addPolygonArea2DPoint: (point: Point2D) => void;
+  completePolygonArea2D: (area: number, perimeter: number) => void;
+  cancelPolygonArea2D: () => void;
+  removePolygonArea2DResult: (id: string) => void;
+  clearPolygonArea2DResults: () => void;
+
+  // Text Annotation Actions
+  addTextAnnotation2D: (annotation: TextAnnotation2D) => void;
+  updateTextAnnotation2D: (id: string, updates: Partial<TextAnnotation2D>) => void;
+  removeTextAnnotation2D: (id: string) => void;
+  setTextAnnotation2DEditing: (id: string | null) => void;
+  clearTextAnnotations2D: () => void;
+
+  // Cloud Annotation Actions
+  addCloudAnnotation2DPoint: (point: Point2D) => void;
+  completeCloudAnnotation2D: (label?: string) => void;
+  cancelCloudAnnotation2D: () => void;
+  removeCloudAnnotation2D: (id: string) => void;
+  clearCloudAnnotations2D: () => void;
+
+  // Selection Actions
+  /** Set the selected annotation (null to deselect) */
+  setSelectedAnnotation2D: (sel: SelectedAnnotation2D | null) => void;
+  /** Delete the currently selected annotation */
+  deleteSelectedAnnotation2D: () => void;
+  /** Move an annotation to a new origin position (used during drag) */
+  moveAnnotation2D: (sel: SelectedAnnotation2D, newOrigin: Point2D) => void;
+
+  // Bulk Actions
+  /** Clear all annotations (measurements, polygons, text, clouds) */
+  clearAllAnnotations2D: () => void;
 }
 
 const getDefaultDisplayOptions = (): Drawing2DState['drawing2DDisplayOptions'] => ({
@@ -155,6 +258,17 @@ const getDefaultState = (): Drawing2DState => ({
   measure2DLockedAxis: null,
   measure2DResults: [],
   measure2DSnapPoint: null,
+  // Annotation tools
+  annotation2DActiveTool: 'none',
+  annotation2DCursorPos: null,
+  polygonArea2DPoints: [],
+  polygonArea2DResults: [],
+  textAnnotations2D: [],
+  textAnnotation2DEditing: null,
+  cloudAnnotation2DPoints: [],
+  cloudAnnotations2D: [],
+  // Selection
+  selectedAnnotation2D: null,
 });
 
 export const createDrawing2DSlice: StateCreator<Drawing2DSlice, [], [], Drawing2DSlice> = (set, get) => ({
@@ -336,5 +450,212 @@ export const createDrawing2DSlice: StateCreator<Drawing2DSlice, [], [], Drawing2
     measure2DShiftLocked: false,
     measure2DLockedAxis: null,
     measure2DSnapPoint: null,
+  }),
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // ANNOTATION TOOL ACTIONS
+  // ═══════════════════════════════════════════════════════════════════════
+
+  setAnnotation2DActiveTool: (tool) => {
+    const state = get();
+    // Cancel any in-progress work from previous tool
+    const resetState: Partial<Drawing2DState> = {
+      annotation2DActiveTool: tool,
+      annotation2DCursorPos: null,
+      // Keep measure2DMode in sync for backward compatibility
+      measure2DMode: tool === 'measure',
+      // Clear in-progress state from all tools
+      measure2DStart: null,
+      measure2DCurrent: null,
+      measure2DShiftLocked: false,
+      measure2DLockedAxis: null,
+      measure2DSnapPoint: null,
+      polygonArea2DPoints: [],
+      cloudAnnotation2DPoints: [],
+      textAnnotation2DEditing: null,
+      selectedAnnotation2D: null,
+    };
+    set(resetState);
+  },
+
+  setAnnotation2DCursorPos: (pos) => set({ annotation2DCursorPos: pos }),
+
+  // Polygon Area Actions
+  addPolygonArea2DPoint: (point) => set((state) => ({
+    polygonArea2DPoints: [...state.polygonArea2DPoints, point],
+  })),
+
+  completePolygonArea2D: (area, perimeter) => {
+    const state = get();
+    if (state.polygonArea2DPoints.length < 3) return;
+
+    const result: PolygonArea2DResult = {
+      id: `poly-area-${Date.now()}`,
+      points: [...state.polygonArea2DPoints],
+      area,
+      perimeter,
+    };
+
+    set({
+      polygonArea2DResults: [...state.polygonArea2DResults, result],
+      polygonArea2DPoints: [],
+      annotation2DCursorPos: null,
+    });
+  },
+
+  cancelPolygonArea2D: () => set({
+    polygonArea2DPoints: [],
+    annotation2DCursorPos: null,
+  }),
+
+  removePolygonArea2DResult: (id) => set((state) => ({
+    polygonArea2DResults: state.polygonArea2DResults.filter((r) => r.id !== id),
+  })),
+
+  clearPolygonArea2DResults: () => set({ polygonArea2DResults: [] }),
+
+  // Text Annotation Actions
+  addTextAnnotation2D: (annotation) => set((state) => ({
+    textAnnotations2D: [...state.textAnnotations2D, annotation],
+  })),
+
+  updateTextAnnotation2D: (id, updates) => set((state) => ({
+    textAnnotations2D: state.textAnnotations2D.map((a) =>
+      a.id === id ? { ...a, ...updates } : a
+    ),
+  })),
+
+  removeTextAnnotation2D: (id) => set((state) => ({
+    textAnnotations2D: state.textAnnotations2D.filter((a) => a.id !== id),
+    textAnnotation2DEditing: state.textAnnotation2DEditing === id ? null : state.textAnnotation2DEditing,
+  })),
+
+  setTextAnnotation2DEditing: (id) => set({ textAnnotation2DEditing: id }),
+
+  clearTextAnnotations2D: () => set({
+    textAnnotations2D: [],
+    textAnnotation2DEditing: null,
+  }),
+
+  // Cloud Annotation Actions
+  addCloudAnnotation2DPoint: (point) => set((state) => ({
+    cloudAnnotation2DPoints: [...state.cloudAnnotation2DPoints, point],
+  })),
+
+  completeCloudAnnotation2D: (label = '') => {
+    const state = get();
+    if (state.cloudAnnotation2DPoints.length < 2) return;
+
+    const result: CloudAnnotation2D = {
+      id: `cloud-${Date.now()}`,
+      points: [...state.cloudAnnotation2DPoints],
+      color: '#E53935',
+      label,
+    };
+
+    set({
+      cloudAnnotations2D: [...state.cloudAnnotations2D, result],
+      cloudAnnotation2DPoints: [],
+      annotation2DCursorPos: null,
+    });
+  },
+
+  cancelCloudAnnotation2D: () => set({
+    cloudAnnotation2DPoints: [],
+    annotation2DCursorPos: null,
+  }),
+
+  removeCloudAnnotation2D: (id) => set((state) => ({
+    cloudAnnotations2D: state.cloudAnnotations2D.filter((a) => a.id !== id),
+  })),
+
+  clearCloudAnnotations2D: () => set({ cloudAnnotations2D: [] }),
+
+  // Selection Actions
+  setSelectedAnnotation2D: (sel) => set({ selectedAnnotation2D: sel }),
+
+  deleteSelectedAnnotation2D: () => {
+    const state = get();
+    const sel = state.selectedAnnotation2D;
+    if (!sel) return;
+
+    switch (sel.type) {
+      case 'measure':
+        set({ measure2DResults: state.measure2DResults.filter((r) => r.id !== sel.id), selectedAnnotation2D: null });
+        break;
+      case 'polygon':
+        set({ polygonArea2DResults: state.polygonArea2DResults.filter((r) => r.id !== sel.id), selectedAnnotation2D: null });
+        break;
+      case 'text':
+        set({
+          textAnnotations2D: state.textAnnotations2D.filter((a) => a.id !== sel.id),
+          selectedAnnotation2D: null,
+          textAnnotation2DEditing: state.textAnnotation2DEditing === sel.id ? null : state.textAnnotation2DEditing,
+        });
+        break;
+      case 'cloud':
+        set({ cloudAnnotations2D: state.cloudAnnotations2D.filter((a) => a.id !== sel.id), selectedAnnotation2D: null });
+        break;
+    }
+  },
+
+  moveAnnotation2D: (sel, newOrigin) => {
+    const state = get();
+    switch (sel.type) {
+      case 'measure': {
+        const result = state.measure2DResults.find((r) => r.id === sel.id);
+        if (!result) return;
+        const dx = newOrigin.x - result.start.x;
+        const dy = newOrigin.y - result.start.y;
+        set({ measure2DResults: state.measure2DResults.map((r) =>
+          r.id === sel.id ? { ...r, start: { x: r.start.x + dx, y: r.start.y + dy }, end: { x: r.end.x + dx, y: r.end.y + dy } } : r
+        ) });
+        break;
+      }
+      case 'polygon': {
+        const result = state.polygonArea2DResults.find((r) => r.id === sel.id);
+        if (!result) return;
+        const dx = newOrigin.x - result.points[0].x;
+        const dy = newOrigin.y - result.points[0].y;
+        set({ polygonArea2DResults: state.polygonArea2DResults.map((r) =>
+          r.id === sel.id ? { ...r, points: r.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) } : r
+        ) });
+        break;
+      }
+      case 'text': {
+        set({ textAnnotations2D: state.textAnnotations2D.map((a) =>
+          a.id === sel.id ? { ...a, position: newOrigin } : a
+        ) });
+        break;
+      }
+      case 'cloud': {
+        const cloud = state.cloudAnnotations2D.find((a) => a.id === sel.id);
+        if (!cloud || cloud.points.length < 2) return;
+        const dx = newOrigin.x - cloud.points[0].x;
+        const dy = newOrigin.y - cloud.points[0].y;
+        set({ cloudAnnotations2D: state.cloudAnnotations2D.map((a) =>
+          a.id === sel.id ? { ...a, points: a.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) } : a
+        ) });
+        break;
+      }
+    }
+  },
+
+  // Bulk Actions
+  clearAllAnnotations2D: () => set({
+    measure2DResults: [],
+    measure2DStart: null,
+    measure2DCurrent: null,
+    measure2DShiftLocked: false,
+    measure2DLockedAxis: null,
+    measure2DSnapPoint: null,
+    polygonArea2DPoints: [],
+    polygonArea2DResults: [],
+    textAnnotations2D: [],
+    textAnnotation2DEditing: null,
+    cloudAnnotation2DPoints: [],
+    cloudAnnotations2D: [],
+    annotation2DCursorPos: null,
+    selectedAnnotation2D: null,
   }),
 });

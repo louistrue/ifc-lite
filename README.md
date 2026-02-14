@@ -56,7 +56,7 @@
 | **Multi-Model Federation** | Load multiple IFC files with unified selection, visibility, and ID management |
 | **BCF Collaboration** | BIM Collaboration Format support with topics, viewpoints, and comments |
 | **IDS Validation** | Information Delivery Specification checking against IFC data |
-| **2D Drawings** | Generate section cuts, floor plans, and elevations as SVG |
+| **2D Drawings** | Section cuts, floor plans, and elevations with interactive annotations (measure, area, text, clouds) |
 | **Property Editing** | Edit IFC properties in-place with bidirectional change tracking |
 
 ## Quick Start
