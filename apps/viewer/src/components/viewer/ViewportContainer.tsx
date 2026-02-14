@@ -317,6 +317,7 @@ export function ViewportContainer() {
     return (
       <div
         className="relative h-full w-full bg-white dark:bg-black text-zinc-900 dark:text-zinc-50 overflow-hidden"
+        data-viewport
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
@@ -556,6 +557,7 @@ export function ViewportContainer() {
   return (
     <div
       className="relative h-full w-full bg-zinc-50 dark:bg-black overflow-hidden"
+      data-viewport
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}

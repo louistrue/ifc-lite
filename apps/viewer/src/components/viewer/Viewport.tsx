@@ -127,8 +127,20 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     // Also sync legacy selectedEntityIds and selectedEntityId
     toggleSelection(globalId);
 
-    // Ensure selectedEntityId is set for renderer highlighting
-    setSelectedEntityId(globalId);
+    // Read post-toggle state to keep renderer highlighting in sync:
+    // If the entity was toggled OFF, don't force-highlight it.
+    const updated = useViewerStore.getState();
+    if (updated.selectedEntityIds.has(globalId)) {
+      // Entity was toggled ON — highlight it
+      setSelectedEntityId(globalId);
+    } else if (updated.selectedEntityIds.size > 0) {
+      // Entity was toggled OFF but others remain — highlight the last remaining
+      const remaining = Array.from(updated.selectedEntityIds);
+      setSelectedEntityId(remaining[remaining.length - 1]);
+    } else {
+      // Nothing left selected
+      setSelectedEntityId(null);
+    }
   }, [addEntityToSelection, toggleEntitySelection, toggleSelection, setSelectedEntityId]);
 
   const handleMultiSelectRef = useRef(handleMultiSelect);

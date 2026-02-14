@@ -534,7 +534,8 @@ The toolbar `=` button shows a badge with the current basket count when active. 
 
 | Shortcut | Action |
 |----------|--------|
-| `Del` / `Backspace` / `Space` | Hide selected entity |
+| `Del` / `Backspace` | Hide selected entity |
+| `Space` | Hide selected entity (viewport-focused only) |
 | `A` | Show all (reset hidden + isolation) |
 | `Esc` | Reset all (clear selection, basket, isolation, tools) |
 
