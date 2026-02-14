@@ -5,12 +5,12 @@
 /**
  * GraphEditor — Manages graph state and wraps NodeCanvas.
  *
- * Maintains a local graph state derived from the editor code,
- * and syncs changes back to code via the compiler.
+ * Graph state lives in the store (scriptGraph) so it survives unmount/remount.
+ * Decompilation code→graph happens once on mode switch, not on every keystroke.
  */
 
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import type { Graph, GraphNode, GraphEdge, NodeDefinition } from '@ifc-lite/node-registry';
+import type { Graph, GraphEdge, GraphNode, NodeDefinition } from '@ifc-lite/node-registry';
 import { useGraph } from '@/hooks/useGraph';
 import { useViewerStore } from '@/store';
 import { NodeCanvas } from './NodeCanvas';
@@ -19,15 +19,15 @@ export function GraphEditor() {
   const editorContent = useViewerStore((s) => s.scriptEditorContent);
   const setEditorContent = useViewerStore((s) => s.setScriptEditorContent);
   const graphMode = useViewerStore((s) => s.scriptGraphMode);
+  const graph = useViewerStore((s) => s.scriptGraph);
+  const setGraph = useViewerStore((s) => s.setScriptGraph);
 
   const { codeToGraph, graphToCode, getNodes } = useGraph();
 
-  // Local graph state — decompiled from code on mount/mode switch
-  const [graph, setGraph] = useState<Graph>({ name: 'Script', description: '', nodes: [], edges: [] });
   const [warnings, setWarnings] = useState<string[]>([]);
   const isInitRef = useRef(false);
 
-  // Build a definition map for NodeCanvas
+  // Build a definition map for NodeCanvas (stable since getNodes is stable)
   const nodeDefMap = useMemo(() => {
     const map = new Map<string, NodeDefinition>();
     for (const def of getNodes()) {
@@ -36,7 +36,7 @@ export function GraphEditor() {
     return map;
   }, [getNodes]);
 
-  // Decompile code → graph when switching to graph mode
+  // Decompile code → graph ONLY when toggling into graph mode (not on content change)
   useEffect(() => {
     if (graphMode && !isInitRef.current) {
       const result = codeToGraph(editorContent, 'Script');
@@ -47,7 +47,9 @@ export function GraphEditor() {
     if (!graphMode) {
       isInitRef.current = false;
     }
-  }, [graphMode, editorContent, codeToGraph]);
+    // Intentionally excluding editorContent — we only decompile on mode toggle
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graphMode, codeToGraph, setGraph]);
 
   /** Compile graph → code and update the store */
   const syncCodeFromGraph = useCallback(
@@ -65,101 +67,95 @@ export function GraphEditor() {
 
   const handleNodeMove = useCallback(
     (nodeId: string, x: number, y: number) => {
-      setGraph((prev) => {
-        const updated = {
-          ...prev,
-          nodes: prev.nodes.map((n) => (n.id === nodeId ? { ...n, position: { x, y } } : n)),
-        };
-        // Don't recompile on every drag frame — just update position
-        return updated;
-      });
+      setGraph(
+        graph
+          ? {
+              ...graph,
+              nodes: graph.nodes.map((n) => (n.id === nodeId ? { ...n, position: { x, y } } : n)),
+            }
+          : null,
+      );
     },
-    [],
+    [graph, setGraph],
   );
-
-  const handleNodeMoveEnd = useCallback(() => {
-    // Recompile after drag ends (positions don't affect code, but keep in sync)
-  }, []);
 
   const handleEdgeAdd = useCallback(
     (edge: GraphEdge) => {
-      setGraph((prev) => {
-        // Prevent duplicates
-        const exists = prev.edges.some(
-          (e) =>
-            e.sourceNodeId === edge.sourceNodeId &&
-            e.sourcePortId === edge.sourcePortId &&
-            e.targetNodeId === edge.targetNodeId &&
-            e.targetPortId === edge.targetPortId,
-        );
-        if (exists) return prev;
-        const updated = { ...prev, edges: [...prev.edges, edge] };
-        syncCodeFromGraph(updated);
-        return updated;
-      });
+      if (!graph) return;
+      // Prevent duplicates
+      const exists = graph.edges.some(
+        (e) =>
+          e.sourceNodeId === edge.sourceNodeId &&
+          e.sourcePortId === edge.sourcePortId &&
+          e.targetNodeId === edge.targetNodeId &&
+          e.targetPortId === edge.targetPortId,
+      );
+      if (exists) return;
+      const updated = { ...graph, edges: [...graph.edges, edge] };
+      setGraph(updated);
+      syncCodeFromGraph(updated);
     },
-    [syncCodeFromGraph],
+    [graph, setGraph, syncCodeFromGraph],
   );
 
   const handleEdgeRemove = useCallback(
     (sourceNodeId: string, sourcePortId: string, targetNodeId: string, targetPortId: string) => {
-      setGraph((prev) => {
-        const updated = {
-          ...prev,
-          edges: prev.edges.filter(
-            (e) =>
-              !(
-                e.sourceNodeId === sourceNodeId &&
-                e.sourcePortId === sourcePortId &&
-                e.targetNodeId === targetNodeId &&
-                e.targetPortId === targetPortId
-              ),
-          ),
-        };
-        syncCodeFromGraph(updated);
-        return updated;
-      });
+      if (!graph) return;
+      const updated = {
+        ...graph,
+        edges: graph.edges.filter(
+          (e) =>
+            !(
+              e.sourceNodeId === sourceNodeId &&
+              e.sourcePortId === sourcePortId &&
+              e.targetNodeId === targetNodeId &&
+              e.targetPortId === targetPortId
+            ),
+        ),
+      };
+      setGraph(updated);
+      syncCodeFromGraph(updated);
     },
-    [syncCodeFromGraph],
+    [graph, setGraph, syncCodeFromGraph],
   );
 
   const handleNodeRemove = useCallback(
     (nodeId: string) => {
-      setGraph((prev) => {
-        const updated = {
-          ...prev,
-          nodes: prev.nodes.filter((n) => n.id !== nodeId),
-          edges: prev.edges.filter((e) => e.sourceNodeId !== nodeId && e.targetNodeId !== nodeId),
-        };
-        syncCodeFromGraph(updated);
-        return updated;
-      });
+      if (!graph) return;
+      const updated = {
+        ...graph,
+        nodes: graph.nodes.filter((n) => n.id !== nodeId),
+        edges: graph.edges.filter((e) => e.sourceNodeId !== nodeId && e.targetNodeId !== nodeId),
+      };
+      setGraph(updated);
+      syncCodeFromGraph(updated);
     },
-    [syncCodeFromGraph],
+    [graph, setGraph, syncCodeFromGraph],
   );
 
   const handleNodeAdd = useCallback(
     (definitionId: string, x: number, y: number) => {
-      const id = `node_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      if (!graph) return;
+      const id = crypto.randomUUID();
       const newNode: GraphNode = {
         id,
         definitionId,
         params: {},
         position: { x, y },
       };
-      setGraph((prev) => {
-        const updated = { ...prev, nodes: [...prev.nodes, newNode] };
-        syncCodeFromGraph(updated);
-        return updated;
-      });
+      const updated = { ...graph, nodes: [...graph.nodes, newNode] };
+      setGraph(updated);
+      syncCodeFromGraph(updated);
     },
-    [syncCodeFromGraph],
+    [graph, setGraph, syncCodeFromGraph],
   );
+
+  const currentGraph = graph ?? { name: 'Script', description: '', nodes: [], edges: [] };
 
   return (
     <div className="h-full w-full relative bg-background">
       <NodeCanvas
-        graph={graph}
+        graph={currentGraph}
         nodeDefinitions={nodeDefMap}
         onNodeMove={handleNodeMove}
         onEdgeAdd={handleEdgeAdd}

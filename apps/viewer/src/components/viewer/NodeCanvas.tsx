@@ -8,10 +8,12 @@
  * Renders a DAG of nodes connected by bezier curve edges.
  * Supports drag-to-move, port-to-port connections, zoom, and pan.
  * All state lives in the parent component (or store) via callbacks.
+ *
+ * Broken into sub-components: NodeCard, EdgePath, WireDrag, NodePalette.
  */
 
-import { useState, useCallback, useRef, useMemo } from 'react';
-import type { Graph, GraphNode, GraphEdge, NodeDefinition } from '@ifc-lite/node-registry';
+import { useState, useCallback, useRef, useMemo, memo } from 'react';
+import type { Graph, GraphNode, GraphEdge, NodeDefinition, PortDefinition } from '@ifc-lite/node-registry';
 import { cn } from '@/lib/utils';
 
 // ============================================================================
@@ -24,21 +26,23 @@ const PORT_RADIUS = 6;
 const PORT_SPACING = 28;
 const NODE_PADDING = 8;
 const GRID_SIZE = 20;
+const PALETTE_WIDTH = 220;
+const PALETTE_HEIGHT = 300;
 
 /** Category → color mapping */
 const CATEGORY_COLORS: Record<string, string> = {
-  Query: '#3b82f6',      // blue
-  Viewer: '#8b5cf6',     // violet
-  Data: '#06b6d4',       // cyan
-  Mutation: '#f59e0b',   // amber
-  Export: '#10b981',     // emerald
-  Validation: '#ef4444', // red
-  Drawing: '#ec4899',    // pink
-  Analysis: '#6366f1',   // indigo
-  Script: '#64748b',     // slate
-  Input: '#84cc16',      // lime
-  Spatial: '#14b8a6',    // teal
-  Lens: '#a855f7',       // purple
+  Query: '#3b82f6',
+  Viewer: '#8b5cf6',
+  Data: '#06b6d4',
+  Mutation: '#f59e0b',
+  Export: '#10b981',
+  Validation: '#ef4444',
+  Drawing: '#ec4899',
+  Analysis: '#6366f1',
+  Script: '#64748b',
+  Input: '#84cc16',
+  Spatial: '#14b8a6',
+  Lens: '#a855f7',
 };
 
 // ============================================================================
@@ -61,13 +65,11 @@ interface DragState {
   nodeId?: string;
   offsetX?: number;
   offsetY?: number;
-  // Wire drag state
   sourceNodeId?: string;
   sourcePortId?: string;
   sourceIsOutput?: boolean;
   wireEndX?: number;
   wireEndY?: number;
-  // Pan state
   startViewX?: number;
   startViewY?: number;
   startMouseX?: number;
@@ -75,7 +77,334 @@ interface DragState {
 }
 
 // ============================================================================
-// Component
+// Port Position Calculation
+// ============================================================================
+
+function getPortPos(
+  node: GraphNode,
+  portId: string,
+  isOutput: boolean,
+  def: NodeDefinition,
+): { x: number; y: number } {
+  const ports = isOutput ? def.outputs : def.inputs;
+  const idx = ports.findIndex((p) => p.id === portId);
+  if (idx < 0) {
+    console.warn(`[NodeCanvas] Port "${portId}" not found on node "${node.id}" (def: ${node.definitionId})`);
+    return { x: node.position.x, y: node.position.y };
+  }
+
+  const yStart = node.position.y + NODE_HEADER_HEIGHT + PORT_SPACING / 2;
+  return {
+    x: isOutput ? node.position.x + NODE_WIDTH : node.position.x,
+    y: yStart + idx * PORT_SPACING,
+  };
+}
+
+function getPortPosFromMap(
+  node: GraphNode,
+  portId: string,
+  isOutput: boolean,
+  nodeDefinitions: Map<string, NodeDefinition>,
+): { x: number; y: number } {
+  const def = nodeDefinitions.get(node.definitionId);
+  if (!def) {
+    console.warn(`[NodeCanvas] Missing definition for node "${node.id}" (definitionId: ${node.definitionId})`);
+    return { x: node.position.x, y: node.position.y };
+  }
+  return getPortPos(node, portId, isOutput, def);
+}
+
+// ============================================================================
+// Sub-Components
+// ============================================================================
+
+/** Renders a single port (circle + label) */
+const PortCircle = memo(function PortCircle({
+  port,
+  index,
+  isOutput,
+  nodeId,
+  color,
+  onMouseDown,
+}: {
+  port: PortDefinition;
+  index: number;
+  isOutput: boolean;
+  nodeId: string;
+  color: string;
+  onMouseDown: (e: React.MouseEvent, nodeId: string, portId: string, isOutput: boolean) => void;
+}) {
+  const py = NODE_HEADER_HEIGHT + PORT_SPACING / 2 + index * PORT_SPACING;
+  const cx = isOutput ? NODE_WIDTH : 0;
+
+  return (
+    <g>
+      <circle
+        cx={cx}
+        cy={py}
+        r={PORT_RADIUS}
+        fill="var(--background)"
+        stroke={isOutput ? color : 'var(--border)'}
+        strokeWidth="1.5"
+        className="cursor-crosshair"
+        data-node-id={nodeId}
+        data-port-id={port.id}
+        data-is-output={String(isOutput)}
+        onMouseDown={(e) => onMouseDown(e, nodeId, port.id, isOutput)}
+      />
+      <text
+        x={isOutput ? NODE_WIDTH - PORT_RADIUS - 6 : PORT_RADIUS + 6}
+        y={py}
+        dominantBaseline="middle"
+        textAnchor={isOutput ? 'end' : 'start'}
+        fill="var(--muted-foreground)"
+        fontSize="10"
+        fontFamily="system-ui, sans-serif"
+        className="pointer-events-none"
+      >
+        {port.name}
+      </text>
+    </g>
+  );
+});
+
+/** Renders a complete node card */
+const NodeCard = memo(function NodeCard({
+  node,
+  def,
+  isSelected,
+  onMouseDown,
+  onPortMouseDown,
+}: {
+  node: GraphNode;
+  def: NodeDefinition;
+  isSelected: boolean;
+  onMouseDown: (e: React.MouseEvent, nodeId: string) => void;
+  onPortMouseDown: (e: React.MouseEvent, nodeId: string, portId: string, isOutput: boolean) => void;
+}) {
+  const maxPorts = Math.max(def.inputs.length, def.outputs.length, 1);
+  const nodeHeight = NODE_HEADER_HEIGHT + maxPorts * PORT_SPACING + NODE_PADDING;
+  const color = CATEGORY_COLORS[def.category] ?? '#64748b';
+
+  return (
+    <g transform={`translate(${node.position.x}, ${node.position.y})`}>
+      {/* Node body */}
+      <rect
+        width={NODE_WIDTH}
+        height={nodeHeight}
+        rx="6"
+        ry="6"
+        fill="var(--card, #1c1c22)"
+        stroke={isSelected ? 'var(--primary)' : 'var(--border)'}
+        strokeWidth={isSelected ? 2 : 1}
+        className="cursor-grab"
+        onMouseDown={(e) => onMouseDown(e, node.id)}
+      />
+
+      {/* Header background */}
+      <rect
+        width={NODE_WIDTH}
+        height={NODE_HEADER_HEIGHT}
+        rx="6"
+        ry="6"
+        fill={color}
+        opacity="0.15"
+        className="pointer-events-none"
+      />
+      <rect
+        y={NODE_HEADER_HEIGHT - 1}
+        width={NODE_WIDTH}
+        height="6"
+        fill={color}
+        opacity="0.15"
+        className="pointer-events-none"
+      />
+
+      {/* Header bar accent */}
+      <rect width={NODE_WIDTH} height="3" rx="6" ry="6" fill={color} opacity="0.6" className="pointer-events-none" />
+
+      {/* Node name */}
+      <text
+        x="10"
+        y={NODE_HEADER_HEIGHT / 2 + 1}
+        dominantBaseline="middle"
+        fill="var(--foreground)"
+        fontSize="11"
+        fontWeight="600"
+        fontFamily="system-ui, sans-serif"
+        className="pointer-events-none"
+      >
+        {def.name}
+      </text>
+
+      {/* Category badge */}
+      <text
+        x={NODE_WIDTH - 10}
+        y={NODE_HEADER_HEIGHT / 2 + 1}
+        dominantBaseline="middle"
+        textAnchor="end"
+        fill={color}
+        fontSize="9"
+        fontFamily="system-ui, sans-serif"
+        opacity="0.8"
+        className="pointer-events-none"
+      >
+        {def.category}
+      </text>
+
+      {/* Input ports */}
+      {def.inputs.map((port, i) => (
+        <PortCircle
+          key={port.id}
+          port={port}
+          index={i}
+          isOutput={false}
+          nodeId={node.id}
+          color={color}
+          onMouseDown={onPortMouseDown}
+        />
+      ))}
+
+      {/* Output ports */}
+      {def.outputs.map((port, i) => (
+        <PortCircle
+          key={port.id}
+          port={port}
+          index={i}
+          isOutput={true}
+          nodeId={node.id}
+          color={color}
+          onMouseDown={onPortMouseDown}
+        />
+      ))}
+
+      {/* Params display */}
+      {def.params.length > 0 && (
+        <text
+          x="10"
+          y={NODE_HEADER_HEIGHT + maxPorts * PORT_SPACING + 4}
+          fill="var(--muted-foreground)"
+          fontSize="9"
+          fontFamily="ui-monospace, monospace"
+          opacity="0.6"
+          className="pointer-events-none"
+        >
+          {def.params.map((p) => {
+            const val = node.params[p.id];
+            return val !== undefined ? `${p.id}: ${String(val).slice(0, 20)}` : null;
+          }).filter(Boolean).join(', ').slice(0, 30)}
+        </text>
+      )}
+    </g>
+  );
+});
+
+/** Renders a bezier edge between two ports */
+const EdgePath = memo(function EdgePath({
+  edge,
+  start,
+  end,
+  onRemove,
+}: {
+  edge: GraphEdge;
+  start: { x: number; y: number };
+  end: { x: number; y: number };
+  onRemove: (sourceNodeId: string, sourcePortId: string, targetNodeId: string, targetPortId: string) => void;
+}) {
+  const dx = Math.abs(end.x - start.x) * 0.5;
+  const path = `M ${start.x} ${start.y} C ${start.x + dx} ${start.y}, ${end.x - dx} ${end.y}, ${end.x} ${end.y}`;
+
+  return (
+    <g>
+      {/* Wider invisible hit area */}
+      <path
+        d={path}
+        fill="none"
+        stroke="transparent"
+        strokeWidth="12"
+        className="cursor-pointer"
+        onClick={() => onRemove(edge.sourceNodeId, edge.sourcePortId, edge.targetNodeId, edge.targetPortId)}
+      />
+      <path d={path} fill="none" stroke="var(--border)" strokeWidth="2" opacity="0.7" className="pointer-events-none" />
+    </g>
+  );
+});
+
+/** Renders the temporary wire while dragging from a port */
+function WireDrag({
+  dragState,
+  graph,
+  nodeDefinitions,
+}: {
+  dragState: DragState;
+  graph: Graph;
+  nodeDefinitions: Map<string, NodeDefinition>;
+}) {
+  if (dragState.wireEndX == null || dragState.wireEndY == null) return null;
+
+  const sourceNode = graph.nodes.find((n) => n.id === dragState.sourceNodeId);
+  if (!sourceNode) return null;
+
+  const start = getPortPosFromMap(sourceNode, dragState.sourcePortId!, dragState.sourceIsOutput!, nodeDefinitions);
+  const end = { x: dragState.wireEndX, y: dragState.wireEndY };
+  const dx = Math.abs(end.x - start.x) * 0.5;
+  const path = dragState.sourceIsOutput
+    ? `M ${start.x} ${start.y} C ${start.x + dx} ${start.y}, ${end.x - dx} ${end.y}, ${end.x} ${end.y}`
+    : `M ${end.x} ${end.y} C ${end.x + dx} ${end.y}, ${start.x - dx} ${start.y}, ${start.x} ${start.y}`;
+
+  return <path d={path} fill="none" stroke="var(--primary)" strokeWidth="2" strokeDasharray="6 3" opacity="0.8" />;
+}
+
+/** Node palette shown on double-click */
+const NodePalette = memo(function NodePalette({
+  position,
+  groups,
+  onAdd,
+  onClose,
+}: {
+  position: { x: number; y: number };
+  groups: Map<string, NodeDefinition[]>;
+  onAdd: (definitionId: string, x: number, y: number) => void;
+  onClose: () => void;
+}) {
+  return (
+    <foreignObject x={position.x} y={position.y} width={PALETTE_WIDTH} height={PALETTE_HEIGHT}>
+      <div
+        className="bg-popover border border-border rounded-lg shadow-xl overflow-auto text-xs"
+        style={{ maxHeight: PALETTE_HEIGHT - 20 }}
+      >
+        <div className="px-2 py-1.5 border-b text-muted-foreground font-medium">
+          Add Node
+        </div>
+        {Array.from(groups.entries()).map(([category, defs]) => (
+          <div key={category}>
+            <div
+              className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider"
+              style={{ color: CATEGORY_COLORS[category] ?? '#64748b' }}
+            >
+              {category}
+            </div>
+            {defs.map((def) => (
+              <button
+                key={def.id}
+                className="w-full text-left px-2 py-1 hover:bg-accent text-foreground"
+                onClick={() => {
+                  onAdd(def.id, position.x, position.y);
+                  onClose();
+                }}
+              >
+                {def.name}
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+    </foreignObject>
+  );
+});
+
+// ============================================================================
+// Main Component
 // ============================================================================
 
 export function NodeCanvas({
@@ -108,33 +437,11 @@ export function NodeCanvas({
     [viewBox],
   );
 
-  /** Get port position for a node */
-  const getPortPos = useCallback(
-    (node: GraphNode, portId: string, isOutput: boolean) => {
-      const def = nodeDefinitions.get(node.definitionId);
-      if (!def) return { x: node.position.x, y: node.position.y };
-
-      const ports = isOutput ? def.outputs : def.inputs;
-      const idx = ports.findIndex((p) => p.id === portId);
-      if (idx < 0) return { x: node.position.x, y: node.position.y };
-
-      const nodeHeight = NODE_HEADER_HEIGHT + Math.max(def.inputs.length, def.outputs.length) * PORT_SPACING + NODE_PADDING;
-      const yStart = node.position.y + NODE_HEADER_HEIGHT + PORT_SPACING / 2;
-
-      return {
-        x: isOutput ? node.position.x + NODE_WIDTH : node.position.x,
-        y: yStart + idx * PORT_SPACING,
-      };
-    },
-    [nodeDefinitions],
-  );
-
   // ── Mouse handlers ──
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
       if (e.button !== 0) return;
-      // Click on background → start pan or deselect
       if ((e.target as Element).tagName === 'svg' || (e.target as Element).classList?.contains('canvas-bg')) {
         setSelectedNodeId(null);
         setShowPalette(null);
@@ -187,7 +494,6 @@ export function NodeCanvas({
   const handleMouseUp = useCallback(
     (e: React.MouseEvent) => {
       if (dragState?.type === 'wire') {
-        // Check if we dropped on a port
         const target = e.target as Element;
         const portEl = target.closest('[data-port-id]');
         if (portEl) {
@@ -195,7 +501,6 @@ export function NodeCanvas({
           const targetPortId = portEl.getAttribute('data-port-id')!;
           const targetIsOutput = portEl.getAttribute('data-is-output') === 'true';
 
-          // Ensure we're connecting output → input (or input → output)
           if (dragState.sourceIsOutput !== targetIsOutput && targetNodeId !== dragState.sourceNodeId) {
             const edge: GraphEdge = dragState.sourceIsOutput
               ? {
@@ -227,7 +532,6 @@ export function NodeCanvas({
       if (!svg) return;
       const rect = svg.getBoundingClientRect();
 
-      // Zoom centered on mouse position
       const mx = (e.clientX - rect.left) / rect.width;
       const my = (e.clientY - rect.top) / rect.height;
 
@@ -266,7 +570,7 @@ export function NodeCanvas({
       e.stopPropagation();
       const node = graph.nodes.find((n) => n.id === nodeId);
       if (!node) return;
-      const portPos = getPortPos(node, portId, isOutput);
+      const portPos = getPortPosFromMap(node, portId, isOutput, nodeDefinitions);
       setDragState({
         type: 'wire',
         sourceNodeId: nodeId,
@@ -276,7 +580,7 @@ export function NodeCanvas({
         wireEndY: portPos.y,
       });
     },
-    [graph.nodes, getPortPos],
+    [graph.nodes, nodeDefinitions],
   );
 
   const handleDoubleClick = useCallback(
@@ -305,22 +609,22 @@ export function NodeCanvas({
     [selectedNodeId, onNodeRemove],
   );
 
-  // ── Render ──
+  const closePalette = useCallback(() => setShowPalette(null), []);
 
-  // Compute edges with positions
+  // ── Memoized derived data ──
+
   const edgePaths = useMemo(() => {
     const nodeMap = new Map(graph.nodes.map((n) => [n.id, n]));
     return graph.edges.map((edge) => {
       const sourceNode = nodeMap.get(edge.sourceNodeId);
       const targetNode = nodeMap.get(edge.targetNodeId);
       if (!sourceNode || !targetNode) return null;
-      const start = getPortPos(sourceNode, edge.sourcePortId, true);
-      const end = getPortPos(targetNode, edge.targetPortId, false);
+      const start = getPortPosFromMap(sourceNode, edge.sourcePortId, true, nodeDefinitions);
+      const end = getPortPosFromMap(targetNode, edge.targetPortId, false, nodeDefinitions);
       return { edge, start, end };
     }).filter(Boolean) as Array<{ edge: GraphEdge; start: { x: number; y: number }; end: { x: number; y: number } }>;
-  }, [graph.nodes, graph.edges, getPortPos]);
+  }, [graph.nodes, graph.edges, nodeDefinitions]);
 
-  // Grouped node definitions for palette
   const paletteGroups = useMemo(() => {
     const groups = new Map<string, NodeDefinition[]>();
     for (const [, def] of nodeDefinitions) {
@@ -361,238 +665,51 @@ export function NodeCanvas({
 
       {/* Edges */}
       <g>
-        {edgePaths.map(({ edge, start, end }) => {
-          const dx = Math.abs(end.x - start.x) * 0.5;
-          const path = `M ${start.x} ${start.y} C ${start.x + dx} ${start.y}, ${end.x - dx} ${end.y}, ${end.x} ${end.y}`;
-          return (
-            <g key={`${edge.sourceNodeId}:${edge.sourcePortId}-${edge.targetNodeId}:${edge.targetPortId}`}>
-              {/* Wider invisible hit area */}
-              <path d={path} fill="none" stroke="transparent" strokeWidth="12" className="cursor-pointer"
-                onClick={() => onEdgeRemove(edge.sourceNodeId, edge.sourcePortId, edge.targetNodeId, edge.targetPortId)}
-              />
-              <path d={path} fill="none" stroke="var(--border)" strokeWidth="2" opacity="0.7" className="pointer-events-none" />
-            </g>
-          );
-        })}
+        {edgePaths.map(({ edge, start, end }) => (
+          <EdgePath
+            key={`${edge.sourceNodeId}:${edge.sourcePortId}-${edge.targetNodeId}:${edge.targetPortId}`}
+            edge={edge}
+            start={start}
+            end={end}
+            onRemove={onEdgeRemove}
+          />
+        ))}
 
         {/* Dragging wire */}
-        {dragState?.type === 'wire' && dragState.wireEndX != null && dragState.wireEndY != null && (() => {
-          const sourceNode = graph.nodes.find((n) => n.id === dragState.sourceNodeId);
-          if (!sourceNode) return null;
-          const start = getPortPos(sourceNode, dragState.sourcePortId!, dragState.sourceIsOutput!);
-          const end = { x: dragState.wireEndX!, y: dragState.wireEndY! };
-          const dx = Math.abs(end.x - start.x) * 0.5;
-          const path = dragState.sourceIsOutput
-            ? `M ${start.x} ${start.y} C ${start.x + dx} ${start.y}, ${end.x - dx} ${end.y}, ${end.x} ${end.y}`
-            : `M ${end.x} ${end.y} C ${end.x + dx} ${end.y}, ${start.x - dx} ${start.y}, ${start.x} ${start.y}`;
-          return <path d={path} fill="none" stroke="var(--primary)" strokeWidth="2" strokeDasharray="6 3" opacity="0.8" />;
-        })()}
+        {dragState?.type === 'wire' && (
+          <WireDrag dragState={dragState} graph={graph} nodeDefinitions={nodeDefinitions} />
+        )}
       </g>
 
       {/* Nodes */}
       <g>
         {graph.nodes.map((node) => {
           const def = nodeDefinitions.get(node.definitionId);
-          if (!def) return null;
-          const maxPorts = Math.max(def.inputs.length, def.outputs.length, 1);
-          const nodeHeight = NODE_HEADER_HEIGHT + maxPorts * PORT_SPACING + NODE_PADDING;
-          const color = CATEGORY_COLORS[def.category] ?? '#64748b';
-          const isSelected = selectedNodeId === node.id;
-
+          if (!def) {
+            console.warn(`[NodeCanvas] Skipping node "${node.id}" — definition "${node.definitionId}" not found`);
+            return null;
+          }
           return (
-            <g key={node.id} transform={`translate(${node.position.x}, ${node.position.y})`}>
-              {/* Node body */}
-              <rect
-                width={NODE_WIDTH}
-                height={nodeHeight}
-                rx="6"
-                ry="6"
-                fill="var(--card, #1c1c22)"
-                stroke={isSelected ? 'var(--primary)' : 'var(--border)'}
-                strokeWidth={isSelected ? 2 : 1}
-                className="cursor-grab"
-                onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
-              />
-
-              {/* Header */}
-              <rect
-                width={NODE_WIDTH}
-                height={NODE_HEADER_HEIGHT}
-                rx="6"
-                ry="6"
-                fill={color}
-                opacity="0.15"
-                className="pointer-events-none"
-              />
-              <rect
-                y={NODE_HEADER_HEIGHT - 1}
-                width={NODE_WIDTH}
-                height="6"
-                fill={color}
-                opacity="0.15"
-                className="pointer-events-none"
-              />
-
-              {/* Header bar accent */}
-              <rect width={NODE_WIDTH} height="3" rx="6" ry="6" fill={color} opacity="0.6" className="pointer-events-none" />
-
-              {/* Node name */}
-              <text
-                x="10"
-                y={NODE_HEADER_HEIGHT / 2 + 1}
-                dominantBaseline="middle"
-                fill="var(--foreground)"
-                fontSize="11"
-                fontWeight="600"
-                fontFamily="system-ui, sans-serif"
-                className="pointer-events-none"
-              >
-                {def.name}
-              </text>
-
-              {/* Category badge */}
-              <text
-                x={NODE_WIDTH - 10}
-                y={NODE_HEADER_HEIGHT / 2 + 1}
-                dominantBaseline="middle"
-                textAnchor="end"
-                fill={color}
-                fontSize="9"
-                fontFamily="system-ui, sans-serif"
-                opacity="0.8"
-                className="pointer-events-none"
-              >
-                {def.category}
-              </text>
-
-              {/* Input ports */}
-              {def.inputs.map((port, i) => {
-                const py = NODE_HEADER_HEIGHT + PORT_SPACING / 2 + i * PORT_SPACING;
-                return (
-                  <g key={port.id}>
-                    <circle
-                      cx={0}
-                      cy={py}
-                      r={PORT_RADIUS}
-                      fill="var(--background)"
-                      stroke="var(--border)"
-                      strokeWidth="1.5"
-                      className="cursor-crosshair"
-                      data-node-id={node.id}
-                      data-port-id={port.id}
-                      data-is-output="false"
-                      onMouseDown={(e) => handlePortMouseDown(e, node.id, port.id, false)}
-                    />
-                    <text
-                      x={PORT_RADIUS + 6}
-                      y={py}
-                      dominantBaseline="middle"
-                      fill="var(--muted-foreground)"
-                      fontSize="10"
-                      fontFamily="system-ui, sans-serif"
-                      className="pointer-events-none"
-                    >
-                      {port.name}
-                    </text>
-                  </g>
-                );
-              })}
-
-              {/* Output ports */}
-              {def.outputs.map((port, i) => {
-                const py = NODE_HEADER_HEIGHT + PORT_SPACING / 2 + i * PORT_SPACING;
-                return (
-                  <g key={port.id}>
-                    <circle
-                      cx={NODE_WIDTH}
-                      cy={py}
-                      r={PORT_RADIUS}
-                      fill="var(--background)"
-                      stroke={color}
-                      strokeWidth="1.5"
-                      className="cursor-crosshair"
-                      data-node-id={node.id}
-                      data-port-id={port.id}
-                      data-is-output="true"
-                      onMouseDown={(e) => handlePortMouseDown(e, node.id, port.id, true)}
-                    />
-                    <text
-                      x={NODE_WIDTH - PORT_RADIUS - 6}
-                      y={py}
-                      dominantBaseline="middle"
-                      textAnchor="end"
-                      fill="var(--muted-foreground)"
-                      fontSize="10"
-                      fontFamily="system-ui, sans-serif"
-                      className="pointer-events-none"
-                    >
-                      {port.name}
-                    </text>
-                  </g>
-                );
-              })}
-
-              {/* Params display */}
-              {def.params.length > 0 && (
-                <text
-                  x="10"
-                  y={NODE_HEADER_HEIGHT + maxPorts * PORT_SPACING + 4}
-                  fill="var(--muted-foreground)"
-                  fontSize="9"
-                  fontFamily="ui-monospace, monospace"
-                  opacity="0.6"
-                  className="pointer-events-none"
-                >
-                  {def.params.map((p) => {
-                    const val = node.params[p.id];
-                    return val !== undefined ? `${p.id}: ${String(val).slice(0, 20)}` : null;
-                  }).filter(Boolean).join(', ').slice(0, 30)}
-                </text>
-              )}
-            </g>
+            <NodeCard
+              key={node.id}
+              node={node}
+              def={def}
+              isSelected={selectedNodeId === node.id}
+              onMouseDown={handleNodeMouseDown}
+              onPortMouseDown={handlePortMouseDown}
+            />
           );
         })}
       </g>
 
       {/* Node palette (shown on double-click) */}
       {showPalette && (
-        <foreignObject
-          x={showPalette.x}
-          y={showPalette.y}
-          width={220}
-          height={300}
-        >
-          <div
-            className="bg-popover border border-border rounded-lg shadow-xl overflow-auto text-xs"
-            style={{ maxHeight: 280 }}
-          >
-            <div className="px-2 py-1.5 border-b text-muted-foreground font-medium">
-              Add Node
-            </div>
-            {Array.from(paletteGroups.entries()).map(([category, defs]) => (
-              <div key={category}>
-                <div
-                  className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider"
-                  style={{ color: CATEGORY_COLORS[category] ?? '#64748b' }}
-                >
-                  {category}
-                </div>
-                {defs.map((def) => (
-                  <button
-                    key={def.id}
-                    className="w-full text-left px-2 py-1 hover:bg-accent text-foreground"
-                    onClick={() => {
-                      onNodeAdd(def.id, showPalette.x, showPalette.y);
-                      setShowPalette(null);
-                    }}
-                  >
-                    {def.name}
-                  </button>
-                ))}
-              </div>
-            ))}
-          </div>
-        </foreignObject>
+        <NodePalette
+          position={showPalette}
+          groups={paletteGroups}
+          onAdd={onNodeAdd}
+          onClose={closePalette}
+        />
       )}
     </svg>
   );

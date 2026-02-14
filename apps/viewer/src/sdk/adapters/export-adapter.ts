@@ -3,32 +3,244 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import type { NamespaceAdapter, StoreApi } from './types.js';
+import type { EntityRef, EntityData, PropertySetData } from '@ifc-lite/sdk';
+
+/** Options for CSV export */
+interface CsvOptions {
+  columns: string[];
+  separator?: string;
+  filename?: string;
+}
 
 /**
- * Export adapter — delegates to the ExportNamespace on the SDK.
+ * Validate that a value is a CsvOptions object.
+ */
+function isCsvOptions(v: unknown): v is CsvOptions {
+  return (
+    v !== null &&
+    typeof v === 'object' &&
+    'columns' in v &&
+    Array.isArray((v as CsvOptions).columns)
+  );
+}
+
+/**
+ * Validate that a value is an array of EntityRef objects.
+ */
+function isEntityRefArray(v: unknown): v is EntityRef[] {
+  if (!Array.isArray(v)) return false;
+  if (v.length === 0) return true;
+  const first = v[0] as Record<string, unknown>;
+  // Accept both raw EntityRef and entity proxy objects with .ref
+  return (
+    ('modelId' in first && 'expressId' in first) ||
+    ('ref' in first && typeof first.ref === 'object')
+  );
+}
+
+/**
+ * Normalize entity refs — entities from the sandbox may be EntityProxy
+ * objects with a .ref property, or raw EntityRef { modelId, expressId }.
+ */
+function normalizeRefs(raw: unknown[]): EntityRef[] {
+  return raw.map((item) => {
+    const r = item as Record<string, unknown>;
+    if (r.ref && typeof r.ref === 'object') {
+      return r.ref as EntityRef;
+    }
+    return { modelId: r.modelId as string, expressId: r.expressId as number };
+  });
+}
+
+/**
+ * Escape a CSV cell value — wrap in quotes if it contains the separator,
+ * double-quotes, or newlines.
+ */
+function escapeCsv(value: string, sep: string): string {
+  if (value.includes(sep) || value.includes('"') || value.includes('\n')) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+/**
+ * Export adapter — implements CSV and JSON export directly.
  *
- * Since ExportNamespace already uses `backend.dispatch('query', ...)`,
- * the export adapter can simply re-dispatch to the query adapter for
- * entity data. But for the LocalBackend, we implement csv/json inline
- * to avoid circular dispatch.
+ * This adapter resolves entity data by dispatching to the query adapter
+ * on the same LocalBackend, providing full export support for both
+ * direct dispatch calls and SDK namespace usage.
  */
 export function createExportAdapter(store: StoreApi): NamespaceAdapter {
+  /** Resolve entity data via the query subsystem */
+  function getEntityData(ref: EntityRef): EntityData | null {
+    const state = store.getState();
+    const model = state.models.get(ref.modelId);
+    if (!model?.ifcDataStore) return null;
+
+    // Use EntityNode for on-demand extraction
+    const { EntityNode } = require('@ifc-lite/query');
+    const node = new EntityNode(model.ifcDataStore, ref.expressId);
+    return {
+      ref,
+      globalId: node.globalId,
+      name: node.name,
+      type: node.type,
+      description: node.description,
+      objectType: node.objectType,
+    };
+  }
+
+  /** Resolve property sets for an entity */
+  function getProperties(ref: EntityRef): PropertySetData[] {
+    const state = store.getState();
+    const model = state.models.get(ref.modelId);
+    if (!model?.ifcDataStore) return [];
+
+    const { EntityNode } = require('@ifc-lite/query');
+    const node = new EntityNode(model.ifcDataStore, ref.expressId);
+    return node.properties().map((pset: { name: string; globalId?: string; properties: Array<{ name: string; type: number; value: string | number | boolean | null }> }) => ({
+      name: pset.name,
+      globalId: pset.globalId,
+      properties: pset.properties.map((p: { name: string; type: number; value: string | number | boolean | null }) => ({
+        name: p.name,
+        type: p.type,
+        value: p.value,
+      })),
+    }));
+  }
+
+  /** Resolve a single column value from entity data + properties */
+  function resolveColumnValue(data: EntityData, col: string, getProps: () => PropertySetData[]): string {
+    // Standard entity attributes
+    switch (col) {
+      case 'name': return data.name;
+      case 'type': return data.type;
+      case 'globalId': return data.globalId;
+      case 'description': return data.description;
+      case 'objectType': return data.objectType;
+      case 'modelId': return data.ref.modelId;
+      case 'expressId': return String(data.ref.expressId);
+    }
+
+    // Property path: "PsetName.PropertyName"
+    const dotIdx = col.indexOf('.');
+    if (dotIdx > 0) {
+      const psetName = col.slice(0, dotIdx);
+      const propName = col.slice(dotIdx + 1);
+      const psets = getProps();
+      const pset = psets.find(p => p.name === psetName);
+      const prop = pset?.properties.find(p => p.name === propName);
+      return prop?.value != null ? String(prop.value) : '';
+    }
+
+    return '';
+  }
+
   return {
     dispatch(method: string, args: unknown[]): unknown {
       switch (method) {
-        case 'csv':
-        case 'json':
-          // The ExportNamespace in @ifc-lite/sdk handles csv/json via
-          // backend.dispatch('query', ...). Since this adapter is registered
-          // on LocalBackend, the SDK namespace is used directly by BimContext.
-          // This adapter is a pass-through that signals the namespace exists.
-          throw new Error(
-            `Export '${method}' should be called via bim.export.${method}(), not dispatched directly. ` +
-            `The ExportNamespace handles this internally.`,
-          );
+        case 'csv': {
+          const rawRefs = args[0];
+          const rawOptions = args[1];
+          if (!isEntityRefArray(rawRefs)) {
+            throw new Error('export.csv: first argument must be an array of entity references');
+          }
+          if (!isCsvOptions(rawOptions)) {
+            throw new Error('export.csv: second argument must be { columns: string[], separator?: string }');
+          }
+
+          const refs = normalizeRefs(rawRefs);
+          const options = rawOptions;
+          const sep = options.separator ?? ',';
+          const rows: string[][] = [];
+
+          // Header row
+          rows.push(options.columns);
+
+          // Data rows
+          for (const ref of refs) {
+            const data = getEntityData(ref);
+            if (!data) continue;
+
+            // Lazy-load properties only if a column needs them
+            let cachedProps: PropertySetData[] | null = null;
+            const getProps = (): PropertySetData[] => {
+              if (!cachedProps) cachedProps = getProperties(ref);
+              return cachedProps;
+            };
+
+            const row = options.columns.map(col => resolveColumnValue(data, col, getProps));
+            rows.push(row);
+          }
+
+          const csvString = rows.map(r => r.map(cell => escapeCsv(cell, sep)).join(sep)).join('\n');
+
+          // If filename specified, trigger browser download
+          if (options.filename) {
+            triggerDownload(csvString, options.filename, 'text/csv;charset=utf-8;');
+          }
+
+          return csvString;
+        }
+
+        case 'json': {
+          const rawRefs = args[0];
+          const columns = args[1];
+          if (!isEntityRefArray(rawRefs)) {
+            throw new Error('export.json: first argument must be an array of entity references');
+          }
+          if (!Array.isArray(columns)) {
+            throw new Error('export.json: second argument must be a string[] of column names');
+          }
+
+          const refs = normalizeRefs(rawRefs);
+          const result: Record<string, unknown>[] = [];
+
+          for (const ref of refs) {
+            const data = getEntityData(ref);
+            if (!data) continue;
+
+            let cachedProps: PropertySetData[] | null = null;
+            const getProps = (): PropertySetData[] => {
+              if (!cachedProps) cachedProps = getProperties(ref);
+              return cachedProps;
+            };
+
+            const row: Record<string, unknown> = {};
+            for (const col of columns as string[]) {
+              const value = resolveColumnValue(data, col, getProps);
+              // Try to parse numeric values
+              const numVal = Number(value);
+              row[col] = value === '' ? null : !isNaN(numVal) && value.trim() !== '' ? numVal : value;
+            }
+            result.push(row);
+          }
+
+          return result;
+        }
+
+        case 'download': {
+          const content = args[0] as string;
+          const filename = args[1] as string;
+          const mimeType = (args[2] as string) ?? 'text/plain';
+          triggerDownload(content, filename, mimeType);
+          return undefined;
+        }
+
         default:
           throw new Error(`Unknown export method: ${method}`);
       }
     },
   };
+}
+
+/** Trigger a browser file download */
+function triggerDownload(content: string, filename: string, mimeType: string): void {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }

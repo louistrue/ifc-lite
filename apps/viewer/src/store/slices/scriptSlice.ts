@@ -4,12 +4,13 @@
 
 /**
  * Script state slice — manages script editor state, saved scripts,
- * and execution results.
+ * execution results, and graph editor state.
  */
 
 import type { StateCreator } from 'zustand';
+import type { Graph } from '@ifc-lite/node-registry';
 import type { SavedScript } from '../../lib/scripts/persistence.js';
-import { loadSavedScripts, saveScripts } from '../../lib/scripts/persistence.js';
+import { loadSavedScripts, saveScripts, validateScriptName, canCreateScript } from '../../lib/scripts/persistence.js';
 
 export type ScriptExecutionState = 'idle' | 'running' | 'error' | 'success';
 
@@ -36,6 +37,8 @@ export interface ScriptSlice {
   scriptLastError: string | null;
   scriptPanelVisible: boolean;
   scriptGraphMode: boolean;
+  scriptDeleteConfirmId: string | null;
+  scriptGraph: Graph | null;
 
   // Actions
   createScript: (name: string, code?: string) => string;
@@ -50,6 +53,8 @@ export interface ScriptSlice {
   setScriptPanelVisible: (visible: boolean) => void;
   toggleScriptPanel: () => void;
   setScriptGraphMode: (graphMode: boolean) => void;
+  setScriptDeleteConfirmId: (id: string | null) => void;
+  setScriptGraph: (graph: Graph | null) => void;
 }
 
 const DEFAULT_CODE = `// Write your BIM script here
@@ -69,26 +74,39 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
   scriptLastError: null,
   scriptPanelVisible: false,
   scriptGraphMode: false,
+  scriptDeleteConfirmId: null,
+  scriptGraph: null,
 
   // Actions
   createScript: (name, code) => {
+    const { savedScripts } = get();
+    if (!canCreateScript(savedScripts.length)) {
+      console.warn('[Scripts] Maximum script limit reached');
+      return '';
+    }
+
+    const validName = validateScriptName(name) ?? 'Untitled Script';
     const id = crypto.randomUUID();
     const now = Date.now();
     const script: SavedScript = {
       id,
-      name,
+      name: validName,
       code: code ?? DEFAULT_CODE,
       createdAt: now,
       updatedAt: now,
+      version: 1,
     };
-    const updated = [...get().savedScripts, script];
+    const updated = [...savedScripts, script];
     set({
       savedScripts: updated,
       activeScriptId: id,
       scriptEditorContent: script.code,
       scriptEditorDirty: false,
     });
-    saveScripts(updated);
+    const result = saveScripts(updated);
+    if (!result.ok) {
+      console.warn('[Scripts] Save failed:', result.message);
+    }
     return id;
   },
 
@@ -101,7 +119,10 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
         : s,
     );
     set({ savedScripts: updated, scriptEditorDirty: false });
-    saveScripts(updated);
+    const result = saveScripts(updated);
+    if (!result.ok) {
+      console.warn('[Scripts] Save failed:', result.message);
+    }
   },
 
   deleteScript: (id) => {
@@ -113,13 +134,16 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
       activeScriptId,
       scriptEditorContent,
       scriptEditorDirty: false,
+      scriptDeleteConfirmId: null,
     });
     saveScripts(updated);
   },
 
   renameScript: (id, name) => {
+    const validName = validateScriptName(name);
+    if (!validName) return;
     const updated = get().savedScripts.map((s) =>
-      s.id === id ? { ...s, name, updatedAt: Date.now() } : s,
+      s.id === id ? { ...s, name: validName, updatedAt: Date.now() } : s,
     );
     set({ savedScripts: updated });
     saveScripts(updated);
@@ -142,6 +166,7 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
           scriptLastResult: null,
           scriptLastError: null,
           scriptExecutionState: 'idle',
+          scriptGraph: null,
         });
         return;
       }
@@ -153,6 +178,7 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
       scriptLastResult: null,
       scriptLastError: null,
       scriptExecutionState: 'idle',
+      scriptGraph: null,
     });
   },
 
@@ -165,12 +191,23 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
   setScriptResult: (scriptLastResult) =>
     set({ scriptLastResult, scriptLastError: null, scriptExecutionState: 'success' }),
 
-  setScriptError: (scriptLastError) =>
-    set({ scriptLastError, scriptExecutionState: scriptLastError ? 'error' : 'idle' }),
+  // Error and execution state are set independently — clearing an error
+  // does NOT change execution state unless explicitly transitioned
+  setScriptError: (scriptLastError) => {
+    if (scriptLastError) {
+      set({ scriptLastError, scriptExecutionState: 'error' });
+    } else {
+      set({ scriptLastError: null });
+    }
+  },
 
   setScriptPanelVisible: (scriptPanelVisible) => set({ scriptPanelVisible }),
 
   toggleScriptPanel: () => set((state) => ({ scriptPanelVisible: !state.scriptPanelVisible })),
 
   setScriptGraphMode: (scriptGraphMode) => set({ scriptGraphMode }),
+
+  setScriptDeleteConfirmId: (scriptDeleteConfirmId) => set({ scriptDeleteConfirmId }),
+
+  setScriptGraph: (scriptGraph) => set({ scriptGraph }),
 });

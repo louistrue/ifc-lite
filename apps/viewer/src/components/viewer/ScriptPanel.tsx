@@ -10,7 +10,7 @@
  * in a log console.
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, memo } from 'react';
 import {
   Play,
   Save,
@@ -36,9 +36,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { cn } from '@/lib/utils';
-import { formatDuration } from '@/lib/utils';
+import { cn, formatDuration } from '@/lib/utils';
 import { useViewerStore } from '@/store';
 import { useSandbox } from '@/hooks/useSandbox';
 import { SCRIPT_TEMPLATES } from '@/lib/scripts/templates';
@@ -50,7 +57,8 @@ interface ScriptPanelProps {
   onClose?: () => void;
 }
 
-export function ScriptPanel({ onClose }: ScriptPanelProps) {
+/** Consolidated script state selector — single subscription instead of 14 */
+function useScriptState() {
   const editorContent = useViewerStore((s) => s.scriptEditorContent);
   const setEditorContent = useViewerStore((s) => s.setScriptEditorContent);
   const executionState = useViewerStore((s) => s.scriptExecutionState);
@@ -63,9 +71,50 @@ export function ScriptPanel({ onClose }: ScriptPanelProps) {
   const saveActiveScript = useViewerStore((s) => s.saveActiveScript);
   const deleteScript = useViewerStore((s) => s.deleteScript);
   const setActiveScriptId = useViewerStore((s) => s.setActiveScriptId);
-
   const graphMode = useViewerStore((s) => s.scriptGraphMode);
   const setGraphMode = useViewerStore((s) => s.setScriptGraphMode);
+  const deleteConfirmId = useViewerStore((s) => s.scriptDeleteConfirmId);
+  const setDeleteConfirmId = useViewerStore((s) => s.setScriptDeleteConfirmId);
+
+  return {
+    editorContent,
+    setEditorContent,
+    executionState,
+    lastResult,
+    lastError,
+    savedScripts,
+    activeScriptId,
+    editorDirty,
+    createScript,
+    saveActiveScript,
+    deleteScript,
+    setActiveScriptId,
+    graphMode,
+    setGraphMode,
+    deleteConfirmId,
+    setDeleteConfirmId,
+  };
+}
+
+export function ScriptPanel({ onClose }: ScriptPanelProps) {
+  const {
+    editorContent,
+    setEditorContent,
+    executionState,
+    lastResult,
+    lastError,
+    savedScripts,
+    activeScriptId,
+    editorDirty,
+    createScript,
+    saveActiveScript,
+    deleteScript,
+    setActiveScriptId,
+    graphMode,
+    setGraphMode,
+    deleteConfirmId,
+    setDeleteConfirmId,
+  } = useScriptState();
 
   const { execute, reset } = useSandbox();
   const [outputCollapsed, setOutputCollapsed] = useState(false);
@@ -73,6 +122,11 @@ export function ScriptPanel({ onClose }: ScriptPanelProps) {
   const activeScript = useMemo(
     () => savedScripts.find((s) => s.id === activeScriptId),
     [savedScripts, activeScriptId],
+  );
+
+  const deleteConfirmScript = useMemo(
+    () => (deleteConfirmId ? savedScripts.find((s) => s.id === deleteConfirmId) : null),
+    [savedScripts, deleteConfirmId],
   );
 
   const handleRun = useCallback(async () => {
@@ -91,6 +145,12 @@ export function ScriptPanel({ onClose }: ScriptPanelProps) {
   const handleNew = useCallback((name: string, code?: string) => {
     createScript(name, code);
   }, [createScript]);
+
+  const handleDeleteConfirm = useCallback(() => {
+    if (deleteConfirmId) {
+      deleteScript(deleteConfirmId);
+    }
+  }, [deleteConfirmId, deleteScript]);
 
   return (
     <div className="h-full flex flex-col bg-background">
@@ -125,7 +185,7 @@ export function ScriptPanel({ onClose }: ScriptPanelProps) {
               <DropdownMenuSeparator />
               {activeScriptId && (
                 <DropdownMenuItem
-                  onClick={() => deleteScript(activeScriptId)}
+                  onClick={() => setDeleteConfirmId(activeScriptId)}
                   className="text-destructive"
                 >
                   <Trash2 className="h-3.5 w-3.5 mr-2" />
@@ -297,7 +357,7 @@ export function ScriptPanel({ onClose }: ScriptPanelProps) {
 
               {/* Log entries */}
               {lastResult?.logs.map((log, i) => (
-                <LogLine key={i} log={log} />
+                <MemoizedLogLine key={i} log={log} />
               ))}
 
               {/* Return value */}
@@ -322,13 +382,34 @@ export function ScriptPanel({ onClose }: ScriptPanelProps) {
           </ScrollArea>
         )}
       </div>
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={deleteConfirmId !== null} onOpenChange={(open) => { if (!open) setDeleteConfirmId(null); }}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Delete Script</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete &ldquo;{deleteConfirmScript?.name ?? 'this script'}&rdquo;?
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDeleteConfirmId(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteConfirm}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-/** Render a single log entry with appropriate icon and color */
-function LogLine({ log }: { log: LogEntry }) {
-  const formatted = log.args.map((a) => {
+/** Format a log entry's args into a display string */
+function formatLogArgs(args: unknown[]): string {
+  return args.map((a) => {
     if (typeof a === 'object' && a !== null) {
       try {
         return JSON.stringify(a, null, 2);
@@ -338,6 +419,11 @@ function LogLine({ log }: { log: LogEntry }) {
     }
     return String(a);
   }).join(' ');
+}
+
+/** Render a single log entry with appropriate icon and color — memoized */
+const MemoizedLogLine = memo(function LogLine({ log }: { log: LogEntry }) {
+  const formatted = useMemo(() => formatLogArgs(log.args), [log.args]);
 
   switch (log.level) {
     case 'error':
@@ -368,4 +454,4 @@ function LogLine({ log }: { log: LogEntry }) {
         </div>
       );
   }
-}
+});

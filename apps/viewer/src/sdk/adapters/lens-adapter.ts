@@ -5,25 +5,36 @@
 import type { NamespaceAdapter, StoreApi } from './types.js';
 import { BUILTIN_LENSES } from '@ifc-lite/lens';
 
+/** Type guard for lens config object */
+function isLensConfig(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
 export function createLensAdapter(store: StoreApi): NamespaceAdapter {
   return {
-    dispatch(method: string, _args: unknown[]): unknown {
+    dispatch(method: string, args: unknown[]): unknown {
       const state = store.getState();
       switch (method) {
         case 'presets':
           return BUILTIN_LENSES;
         case 'create': {
-          const lens = _args[0] as Record<string, unknown>;
-          const id = `lens-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          if (!isLensConfig(args[0])) {
+            throw new Error('lens.create: argument must be a lens configuration object');
+          }
+          const lens = args[0];
+          const id = crypto.randomUUID();
           return { ...lens, id };
         }
         case 'activate': {
-          const lensId = _args[0] as string;
-          state.setActiveLensId?.(lensId);
+          const lensId = args[0];
+          if (typeof lensId !== 'string') {
+            throw new Error('lens.activate: argument must be a lens ID string');
+          }
+          state.setActiveLens?.(lensId);
           return undefined;
         }
         case 'deactivate':
-          state.setActiveLensId?.(null);
+          state.setActiveLens?.(null);
           return undefined;
         case 'getActive':
           return state.activeLensId ?? null;
