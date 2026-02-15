@@ -61,6 +61,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  // Track whether last navigation was keyboard-driven (scroll) vs mouse (no scroll)
+  const navigatedByKeyboard = useRef(false);
 
   const { execute } = useSandbox();
 
@@ -217,10 +219,11 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     }
   }, [open]);
 
-  // Scroll selected item into view
+  // Scroll selected item into view — only when keyboard navigated
   useEffect(() => {
-    if (!listRef.current) return;
-    const item = listRef.current.children[selectedIndex] as HTMLElement | undefined;
+    if (!navigatedByKeyboard.current || !listRef.current) return;
+    navigatedByKeyboard.current = false;
+    const item = listRef.current.querySelector(`[data-index="${selectedIndex}"]`) as HTMLElement | null;
     item?.scrollIntoView({ block: 'nearest' });
   }, [selectedIndex]);
 
@@ -233,9 +236,11 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
+      navigatedByKeyboard.current = true;
       setSelectedIndex((i) => Math.min(i + 1, filtered.length - 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
+      navigatedByKeyboard.current = true;
       setSelectedIndex((i) => Math.max(i - 1, 0));
     } else if (e.key === 'Enter') {
       e.preventDefault();
@@ -254,9 +259,6 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     }
     return groups;
   }, [filtered]);
-
-  // Build flat list for arrow-key indexing with category headers excluded
-  const flatItems = useMemo(() => filtered, [filtered]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -281,7 +283,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
         {/* Command list */}
         <div ref={listRef} className="max-h-[320px] overflow-y-auto py-1" role="listbox">
-          {flatItems.length === 0 && (
+          {filtered.length === 0 && (
             <div className="px-3 py-6 text-center text-sm text-muted-foreground">
               No matching commands
             </div>
@@ -293,19 +295,22 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 {group.category}
               </div>
               {group.commands.map((cmd) => {
-                const idx = flatItems.indexOf(cmd);
+                const idx = filtered.indexOf(cmd);
                 const Icon = cmd.icon;
                 return (
                   <button
                     key={cmd.id}
                     role="option"
+                    data-index={idx}
                     aria-selected={idx === selectedIndex}
                     className={cn(
-                      'flex items-center gap-2 w-full px-3 py-1.5 text-left text-sm hover:bg-accent/50 transition-colors',
-                      idx === selectedIndex && 'bg-accent',
+                      'flex items-center gap-2 w-full px-3 py-1.5 text-left text-sm transition-colors',
+                      idx === selectedIndex ? 'bg-accent' : 'hover:bg-accent/50',
                     )}
                     onClick={() => runCommand(cmd)}
-                    onMouseEnter={() => setSelectedIndex(idx)}
+                    onMouseMove={() => {
+                      if (selectedIndex !== idx) setSelectedIndex(idx);
+                    }}
                   >
                     <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
                     <div className="flex-1 min-w-0">
