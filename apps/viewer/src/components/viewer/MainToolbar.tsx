@@ -169,8 +169,10 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const resetViewerState = useViewerStore((state) => state.resetViewerState);
   const bcfPanelVisible = useViewerStore((state) => state.bcfPanelVisible);
   const toggleBcfPanel = useViewerStore((state) => state.toggleBcfPanel);
+  const setBcfPanelVisible = useViewerStore((state) => state.setBcfPanelVisible);
   const idsPanelVisible = useViewerStore((state) => state.idsPanelVisible);
   const toggleIdsPanel = useViewerStore((state) => state.toggleIdsPanel);
+  const setIdsPanelVisible = useViewerStore((state) => state.setIdsPanelVisible);
   const listPanelVisible = useViewerStore((state) => state.listPanelVisible);
   const toggleListPanel = useViewerStore((state) => state.toggleListPanel);
   const setRightPanelCollapsed = useViewerStore((state) => state.setRightPanelCollapsed);
@@ -187,6 +189,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   // Lens state
   const lensPanelVisible = useViewerStore((state) => state.lensPanelVisible);
   const toggleLensPanel = useViewerStore((state) => state.toggleLensPanel);
+  const setLensPanelVisible = useViewerStore((state) => state.setLensPanelVisible);
 
   // Check which type geometries exist across ALL loaded models (federation-aware)
   const typeGeometryExists = useMemo(() => {
@@ -633,8 +636,10 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
             size="icon-sm"
             onClick={(e) => {
               (e.currentTarget as HTMLButtonElement).blur();
-              // If BCF is being shown, also expand the right panel
               if (!bcfPanelVisible) {
+                // Close other right-panel content first, then expand
+                setIdsPanelVisible(false);
+                setLensPanelVisible(false);
                 setRightPanelCollapsed(false);
               }
               toggleBcfPanel();
@@ -655,8 +660,10 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
             size="icon-sm"
             onClick={(e) => {
               (e.currentTarget as HTMLButtonElement).blur();
-              // If IDS is being shown, also expand the right panel
               if (!idsPanelVisible) {
+                // Close other right-panel content first, then expand
+                setBcfPanelVisible(false);
+                setLensPanelVisible(false);
                 setRightPanelCollapsed(false);
               }
               toggleIdsPanel();
@@ -826,6 +833,9 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
             onClick={(e) => {
               (e.currentTarget as HTMLButtonElement).blur();
               if (!lensPanelVisible) {
+                // Close other right-panel content first, then expand
+                setBcfPanelVisible(false);
+                setIdsPanelVisible(false);
                 setRightPanelCollapsed(false);
               }
               toggleLensPanel();

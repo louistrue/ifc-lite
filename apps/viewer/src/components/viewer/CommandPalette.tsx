@@ -182,6 +182,31 @@ function clearMultiSelect() {
     useViewerStore.setState({ selectedEntitiesSet: new Set(), selectedEntityIds: new Set() });
 }
 
+/** Exclusively activate a right-panel content panel (BCF / IDS / Lens).
+ *  Closes all others first so the if-else chain in ViewerLayout renders it.
+ *  If the target is already active, closes it (back to Properties). */
+function activateRightPanel(panel: 'bcf' | 'ids' | 'lens') {
+  const s = useViewerStore.getState();
+  const isActive =
+    panel === 'bcf' ? s.bcfPanelVisible :
+    panel === 'ids' ? s.idsPanelVisible :
+    s.lensPanelVisible;
+
+  // Close all content panels
+  s.setBcfPanelVisible(false);
+  s.setIdsPanelVisible(false);
+  s.setLensPanelVisible(false);
+
+  if (!isActive) {
+    // Open the target, expand right panel
+    s.setRightPanelCollapsed(false);
+    if (panel === 'bcf') s.setBcfPanelVisible(true);
+    else if (panel === 'ids') s.setIdsPanelVisible(true);
+    else s.setLensPanelVisible(true);
+  }
+  // If was active → all closed → falls back to Properties
+}
+
 // ── Component ──────────────────────────────────────────────────────────
 
 interface CommandPaletteProps {
@@ -292,13 +317,13 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       { id: 'panel:script', label: 'Script Editor', keywords: 'code automation console', category: 'Panels', icon: FileCode2,
         action: () => { useViewerStore.getState().toggleScriptPanel(); } },
       { id: 'panel:bcf', label: 'BCF Issues', keywords: 'collaboration topics comments viewpoint', category: 'Panels', icon: MessageSquare,
-        action: () => { const s = useViewerStore.getState(); if (!s.bcfPanelVisible) s.setRightPanelCollapsed(false); s.toggleBcfPanel(); } },
+        action: () => { activateRightPanel('bcf'); } },
       { id: 'panel:ids', label: 'IDS Validation', keywords: 'information delivery specification check', category: 'Panels', icon: ClipboardCheck,
-        action: () => { const s = useViewerStore.getState(); if (!s.idsPanelVisible) s.setRightPanelCollapsed(false); s.toggleIdsPanel(); } },
+        action: () => { activateRightPanel('ids'); } },
       { id: 'panel:lists', label: 'Entity Lists', keywords: 'table spreadsheet schedule', category: 'Panels', icon: FileSpreadsheet,
-        action: () => { const s = useViewerStore.getState(); if (!s.listPanelVisible) s.setRightPanelCollapsed(false); s.toggleListPanel(); } },
+        action: () => { useViewerStore.getState().toggleListPanel(); } },
       { id: 'panel:lens', label: 'Lens Rules', keywords: 'color filter highlight', category: 'Panels', icon: Palette,
-        action: () => { const s = useViewerStore.getState(); if (!s.lensPanelVisible) s.setRightPanelCollapsed(false); s.toggleLensPanel(); } },
+        action: () => { activateRightPanel('lens'); } },
     );
 
     // ── Export ──
@@ -437,7 +462,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="p-0 gap-0 max-w-lg overflow-hidden" aria-label="Command palette">
+      <DialogContent className="p-0 gap-0 max-w-lg overflow-hidden" aria-label="Command palette" hideCloseButton>
         {/* Search */}
         <div className="flex items-center gap-2 px-3 py-2.5 border-b">
           <Search className="h-4 w-4 text-muted-foreground shrink-0" />
