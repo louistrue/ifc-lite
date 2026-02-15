@@ -279,5 +279,6 @@ export const KEYBOARD_SHORTCUTS = [
   { key: '1-6', description: 'Preset views', category: 'Camera' },
   { key: 'T', description: 'Toggle theme', category: 'UI' },
   { key: 'Esc', description: 'Reset all (clear selection, basket, isolation)', category: 'Selection' },
+  { key: 'Ctrl+K', description: 'Command palette', category: 'UI' },
   { key: '?', description: 'Show info panel', category: 'Help' },
 ] as const;

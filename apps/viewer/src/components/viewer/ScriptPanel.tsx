@@ -24,8 +24,6 @@ import {
   CheckCircle2,
   Info,
   AlertTriangle,
-  Code2,
-  GitBranch,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -50,7 +48,6 @@ import { useViewerStore } from '@/store';
 import { useSandbox } from '@/hooks/useSandbox';
 import { SCRIPT_TEMPLATES } from '@/lib/scripts/templates';
 import { CodeEditor } from './CodeEditor';
-import { GraphEditor } from './GraphEditor';
 import type { LogEntry } from '@/store/slices/scriptSlice';
 
 interface ScriptPanelProps {
@@ -71,8 +68,6 @@ function useScriptState() {
   const saveActiveScript = useViewerStore((s) => s.saveActiveScript);
   const deleteScript = useViewerStore((s) => s.deleteScript);
   const setActiveScriptId = useViewerStore((s) => s.setActiveScriptId);
-  const graphMode = useViewerStore((s) => s.scriptGraphMode);
-  const setGraphMode = useViewerStore((s) => s.setScriptGraphMode);
   const deleteConfirmId = useViewerStore((s) => s.scriptDeleteConfirmId);
   const setDeleteConfirmId = useViewerStore((s) => s.setScriptDeleteConfirmId);
 
@@ -89,8 +84,6 @@ function useScriptState() {
     saveActiveScript,
     deleteScript,
     setActiveScriptId,
-    graphMode,
-    setGraphMode,
     deleteConfirmId,
     setDeleteConfirmId,
   };
@@ -110,8 +103,6 @@ export function ScriptPanel({ onClose }: ScriptPanelProps) {
     saveActiveScript,
     deleteScript,
     setActiveScriptId,
-    graphMode,
-    setGraphMode,
     deleteConfirmId,
     setDeleteConfirmId,
   } = useScriptState();
@@ -266,34 +257,6 @@ export function ScriptPanel({ onClose }: ScriptPanelProps) {
           <TooltipContent>Reset sandbox</TooltipContent>
         </Tooltip>
 
-        <div className="w-px h-4 bg-border mx-0.5" />
-
-        {/* Code / Graph toggle */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant={graphMode ? 'ghost' : 'secondary'}
-              size="icon-xs"
-              onClick={() => setGraphMode(false)}
-            >
-              <Code2 className="h-3.5 w-3.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Code view</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant={graphMode ? 'secondary' : 'ghost'}
-              size="icon-xs"
-              onClick={() => setGraphMode(true)}
-            >
-              <GitBranch className="h-3.5 w-3.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Graph view</TooltipContent>
-        </Tooltip>
-
         {/* Status indicator */}
         <div className="flex-1" />
         {executionState === 'running' && (
@@ -313,19 +276,15 @@ export function ScriptPanel({ onClose }: ScriptPanelProps) {
         )}
       </div>
 
-      {/* Code Editor / Graph Editor */}
+      {/* Code Editor */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {graphMode ? (
-          <GraphEditor />
-        ) : (
-          <CodeEditor
-            value={editorContent}
-            onChange={setEditorContent}
-            onRun={handleRun}
-            onSave={handleSave}
-            className="h-full"
-          />
-        )}
+        <CodeEditor
+          value={editorContent}
+          onChange={setEditorContent}
+          onRun={handleRun}
+          onSave={handleSave}
+          className="h-full"
+        />
       </div>
 
       {/* Output Console */}

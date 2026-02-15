@@ -4,11 +4,10 @@
 
 /**
  * Script state slice — manages script editor state, saved scripts,
- * execution results, and graph editor state.
+ * and execution results.
  */
 
 import type { StateCreator } from 'zustand';
-import type { Graph } from '@ifc-lite/node-registry';
 import type { SavedScript } from '../../lib/scripts/persistence.js';
 import { loadSavedScripts, saveScripts, validateScriptName, canCreateScript, isScriptWithinSizeLimit } from '../../lib/scripts/persistence.js';
 
@@ -36,9 +35,7 @@ export interface ScriptSlice {
   scriptLastResult: ScriptResult | null;
   scriptLastError: string | null;
   scriptPanelVisible: boolean;
-  scriptGraphMode: boolean;
   scriptDeleteConfirmId: string | null;
-  scriptGraph: Graph | null;
 
   // Actions
   createScript: (name: string, code?: string) => string;
@@ -52,9 +49,7 @@ export interface ScriptSlice {
   setScriptError: (error: string | null) => void;
   setScriptPanelVisible: (visible: boolean) => void;
   toggleScriptPanel: () => void;
-  setScriptGraphMode: (graphMode: boolean) => void;
   setScriptDeleteConfirmId: (id: string | null) => void;
-  setScriptGraph: (graph: Graph | null) => void;
 }
 
 const DEFAULT_CODE = `// Write your BIM script here
@@ -86,9 +81,7 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
   scriptLastResult: null,
   scriptLastError: null,
   scriptPanelVisible: false,
-  scriptGraphMode: false,
   scriptDeleteConfirmId: null,
-  scriptGraph: null,
 
   // Actions
   createScript: (name, code) => {
@@ -184,7 +177,6 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
           scriptLastResult: null,
           scriptLastError: null,
           scriptExecutionState: 'idle',
-          scriptGraph: null,
         });
         return;
       }
@@ -196,7 +188,6 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
       scriptLastResult: null,
       scriptLastError: null,
       scriptExecutionState: 'idle',
-      scriptGraph: null,
     });
   },
 
@@ -223,9 +214,5 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
 
   toggleScriptPanel: () => set((state) => ({ scriptPanelVisible: !state.scriptPanelVisible })),
 
-  setScriptGraphMode: (scriptGraphMode) => set({ scriptGraphMode }),
-
   setScriptDeleteConfirmId: (scriptDeleteConfirmId) => set({ scriptDeleteConfirmId }),
-
-  setScriptGraph: (scriptGraph) => set({ scriptGraph }),
 });

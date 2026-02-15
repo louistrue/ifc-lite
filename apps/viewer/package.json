@@ -28,7 +28,6 @@
     "@ifc-lite/lens": "workspace:^",
     "@ifc-lite/lists": "workspace:^",
     "@ifc-lite/mutations": "workspace:^",
-    "@ifc-lite/node-registry": "workspace:^",
     "@ifc-lite/parser": "workspace:^",
     "@ifc-lite/query": "workspace:^",
     "@ifc-lite/renderer": "workspace:^",

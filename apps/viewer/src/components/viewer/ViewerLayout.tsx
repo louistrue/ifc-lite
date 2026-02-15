@@ -20,6 +20,7 @@ import { IDSPanel } from './IDSPanel';
 import { LensPanel } from './LensPanel';
 import { ListPanel } from './lists/ListPanel';
 import { ScriptPanel } from './ScriptPanel';
+import { CommandPalette } from './CommandPalette';
 
 const BOTTOM_PANEL_MIN_HEIGHT = 120;
 const BOTTOM_PANEL_DEFAULT_HEIGHT = 300;
@@ -29,6 +30,21 @@ export function ViewerLayout() {
   // Initialize keyboard shortcuts
   useKeyboardShortcuts();
   const shortcutsDialog = useKeyboardShortcutsDialog();
+
+  // Command palette state
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+
+  // Ctrl+K / Cmd+K to open command palette
+  useEffect(() => {
+    const handler = (e: globalThis.KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   // Initialize theme on mount
   const theme = useViewerStore((s) => s.theme);
@@ -131,6 +147,7 @@ export function ViewerLayout() {
         {/* Global Overlays */}
         <EntityContextMenu />
         <HoverTooltip />
+        <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
 
         {/* Main Toolbar */}
         <MainToolbar onShowShortcuts={shortcutsDialog.toggle} />

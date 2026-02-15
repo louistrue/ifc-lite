@@ -86,7 +86,7 @@ interface NamespaceCompletions {
 }
 
 /**
- * Build completions from the node registry.
+ * Build completions for bim.* SDK methods.
  * Lazily initialized once, then cached for all CodeEditor instances.
  */
 let cachedCompletionMap: Map<string, NamespaceCompletions> | null = null;
@@ -96,41 +96,7 @@ function getCompletionMap(): Map<string, NamespaceCompletions> {
 
   const map = new Map<string, NamespaceCompletions>();
 
-  // Try to load from node registry (may not be available yet)
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { getBuiltinNodes } = require('@ifc-lite/node-registry');
-    const nodes = getBuiltinNodes();
-
-    for (const node of nodes) {
-      // Node IDs are like "query.allEntities", "viewer.colorize", "export.csv"
-      const dotIdx = node.id.indexOf('.');
-      if (dotIdx < 0) continue;
-      const ns = node.id.slice(0, dotIdx);
-
-      if (!map.has(ns)) {
-        map.set(ns, {
-          namespace: ns,
-          detail: `${ns.charAt(0).toUpperCase() + ns.slice(1)} operations`,
-          methods: [],
-        });
-      }
-
-      // Generate completion from the node's toCode output
-      const hasInputs = node.inputs.length > 0;
-      const label = hasInputs ? `bim.${ns}.${node.name.charAt(0).toLowerCase() + node.name.slice(1).replace(/\s+/g, '')}(` : `bim.${ns}.${node.name.charAt(0).toLowerCase() + node.name.slice(1).replace(/\s+/g, '')}()`;
-
-      map.get(ns)!.methods.push({
-        label,
-        type: 'function',
-        detail: node.description,
-      });
-    }
-  } catch {
-    // Fallback: registry not available yet, use hardcoded defaults
-  }
-
-  // Ensure core namespaces always exist with essential methods
+  // Core namespaces with essential methods
   ensureNamespace(map, 'query', 'Query entities', [
     { label: 'bim.query.all()', type: 'function', detail: 'Get all entities' },
     { label: 'bim.query.byType(', type: 'function', detail: "Filter by IFC type e.g. 'IfcWall'" },
