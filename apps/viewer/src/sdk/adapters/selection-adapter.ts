@@ -3,32 +3,27 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import type { EntityRef } from '@ifc-lite/sdk';
-import type { NamespaceAdapter, StoreApi } from './types.js';
+import type { Adapter, StoreApi } from './types.js';
 
-export function createSelectionAdapter(store: StoreApi): NamespaceAdapter {
+export function createSelectionAdapter(store: StoreApi): Adapter {
   return {
-    dispatch(method: string, args: unknown[]): unknown {
+    get() {
       const state = store.getState();
-      switch (method) {
-        case 'get':
-          return state.selectedEntities ?? [];
-        case 'set': {
-          const refs = args[0] as EntityRef[];
-          if (refs.length === 0) {
-            state.clearEntitySelection?.();
-          } else if (refs.length === 1) {
-            state.setSelectedEntity?.(refs[0]);
-          } else {
-            state.clearEntitySelection?.();
-            for (const ref of refs) {
-              state.addEntityToSelection?.(ref);
-            }
-          }
-          return undefined;
+      return state.selectedEntities ?? [];
+    },
+    set(refs: EntityRef[]) {
+      const state = store.getState();
+      if (refs.length === 0) {
+        state.clearEntitySelection?.();
+      } else if (refs.length === 1) {
+        state.setSelectedEntity?.(refs[0]);
+      } else {
+        state.clearEntitySelection?.();
+        for (const ref of refs) {
+          state.addEntityToSelection?.(ref);
         }
-        default:
-          throw new Error(`Unknown selection method: ${method}`);
       }
+      return undefined;
     },
   };
 }

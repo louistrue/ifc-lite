@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import type { NamespaceAdapter, StoreApi } from './types.js';
+import type { Adapter, StoreApi } from './types.js';
 import type { EntityRef, EntityData, PropertySetData } from '@ifc-lite/sdk';
 import { EntityNode } from '@ifc-lite/query';
 import { getModelForRef } from './model-compat.js';
@@ -75,7 +75,7 @@ function escapeCsv(value: string, sep: string): string {
  * on the same LocalBackend, providing full export support for both
  * direct dispatch calls and SDK namespace usage.
  */
-export function createExportAdapter(store: StoreApi): NamespaceAdapter {
+export function createExportAdapter(store: StoreApi): Adapter {
   /** Resolve entity data via the query subsystem */
   function getEntityData(ref: EntityRef): EntityData | null {
     const state = store.getState();
@@ -140,99 +140,85 @@ export function createExportAdapter(store: StoreApi): NamespaceAdapter {
   }
 
   return {
-    dispatch(method: string, args: unknown[]): unknown {
-      switch (method) {
-        case 'csv': {
-          const rawRefs = args[0];
-          const rawOptions = args[1];
-          if (!isEntityRefArray(rawRefs)) {
-            throw new Error('export.csv: first argument must be an array of entity references');
-          }
-          if (!isCsvOptions(rawOptions)) {
-            throw new Error('export.csv: second argument must be { columns: string[], separator?: string }');
-          }
-
-          const refs = normalizeRefs(rawRefs);
-          const options = rawOptions;
-          const sep = options.separator ?? ',';
-          const rows: string[][] = [];
-
-          // Header row
-          rows.push(options.columns);
-
-          // Data rows
-          for (const ref of refs) {
-            const data = getEntityData(ref);
-            if (!data) continue;
-
-            // Lazy-load properties only if a column needs them
-            let cachedProps: PropertySetData[] | null = null;
-            const getProps = (): PropertySetData[] => {
-              if (!cachedProps) cachedProps = getProperties(ref);
-              return cachedProps;
-            };
-
-            const row = options.columns.map(col => resolveColumnValue(data, col, getProps));
-            rows.push(row);
-          }
-
-          const csvString = rows.map(r => r.map(cell => escapeCsv(cell, sep)).join(sep)).join('\n');
-
-          // If filename specified, trigger browser download
-          if (options.filename) {
-            triggerDownload(csvString, options.filename, 'text/csv;charset=utf-8;');
-          }
-
-          return csvString;
-        }
-
-        case 'json': {
-          const rawRefs = args[0];
-          const columns = args[1];
-          if (!isEntityRefArray(rawRefs)) {
-            throw new Error('export.json: first argument must be an array of entity references');
-          }
-          if (!Array.isArray(columns)) {
-            throw new Error('export.json: second argument must be a string[] of column names');
-          }
-
-          const refs = normalizeRefs(rawRefs);
-          const result: Record<string, unknown>[] = [];
-
-          for (const ref of refs) {
-            const data = getEntityData(ref);
-            if (!data) continue;
-
-            let cachedProps: PropertySetData[] | null = null;
-            const getProps = (): PropertySetData[] => {
-              if (!cachedProps) cachedProps = getProperties(ref);
-              return cachedProps;
-            };
-
-            const row: Record<string, unknown> = {};
-            for (const col of columns as string[]) {
-              const value = resolveColumnValue(data, col, getProps);
-              // Try to parse numeric values
-              const numVal = Number(value);
-              row[col] = value === '' ? null : !isNaN(numVal) && value.trim() !== '' ? numVal : value;
-            }
-            result.push(row);
-          }
-
-          return result;
-        }
-
-        case 'download': {
-          const content = args[0] as string;
-          const filename = args[1] as string;
-          const mimeType = (args[2] as string) ?? 'text/plain';
-          triggerDownload(content, filename, mimeType);
-          return undefined;
-        }
-
-        default:
-          throw new Error(`Unknown export method: ${method}`);
+    csv(rawRefs: unknown, rawOptions: unknown) {
+      if (!isEntityRefArray(rawRefs)) {
+        throw new Error('export.csv: first argument must be an array of entity references');
       }
+      if (!isCsvOptions(rawOptions)) {
+        throw new Error('export.csv: second argument must be { columns: string[], separator?: string }');
+      }
+
+      const refs = normalizeRefs(rawRefs);
+      const options = rawOptions;
+      const sep = options.separator ?? ',';
+      const rows: string[][] = [];
+
+      // Header row
+      rows.push(options.columns);
+
+      // Data rows
+      for (const ref of refs) {
+        const data = getEntityData(ref);
+        if (!data) continue;
+
+        // Lazy-load properties only if a column needs them
+        let cachedProps: PropertySetData[] | null = null;
+        const getProps = (): PropertySetData[] => {
+          if (!cachedProps) cachedProps = getProperties(ref);
+          return cachedProps;
+        };
+
+        const row = options.columns.map(col => resolveColumnValue(data, col, getProps));
+        rows.push(row);
+      }
+
+      const csvString = rows.map(r => r.map(cell => escapeCsv(cell, sep)).join(sep)).join('\n');
+
+      // If filename specified, trigger browser download
+      if (options.filename) {
+        triggerDownload(csvString, options.filename, 'text/csv;charset=utf-8;');
+      }
+
+      return csvString;
+    },
+
+    json(rawRefs: unknown, columns: unknown) {
+      if (!isEntityRefArray(rawRefs)) {
+        throw new Error('export.json: first argument must be an array of entity references');
+      }
+      if (!Array.isArray(columns)) {
+        throw new Error('export.json: second argument must be a string[] of column names');
+      }
+
+      const refs = normalizeRefs(rawRefs);
+      const result: Record<string, unknown>[] = [];
+
+      for (const ref of refs) {
+        const data = getEntityData(ref);
+        if (!data) continue;
+
+        let cachedProps: PropertySetData[] | null = null;
+        const getProps = (): PropertySetData[] => {
+          if (!cachedProps) cachedProps = getProperties(ref);
+          return cachedProps;
+        };
+
+        const row: Record<string, unknown> = {};
+        for (const col of columns as string[]) {
+          const value = resolveColumnValue(data, col, getProps);
+          // Try to parse numeric values
+          const numVal = Number(value);
+          row[col] = value === '' ? null : !isNaN(numVal) && value.trim() !== '' ? numVal : value;
+        }
+        result.push(row);
+      }
+
+      return result;
+    },
+
+    download(content: string, filename: string, mimeType?: string) {
+      triggerDownload(content, filename, mimeType ?? 'text/plain');
+      return undefined;
     },
   };
 }

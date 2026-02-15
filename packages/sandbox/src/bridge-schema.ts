@@ -37,9 +37,11 @@ type ReturnType =
   | 'string'     // Return as vm.newString()
   | 'value'      // Return as marshalValue() (generic)
 
-interface MethodSchema {
+export interface MethodSchema {
   /** Method name exposed in QuickJS (e.g., 'colorize') */
   name: string;
+  /** Human-readable description for editor completions */
+  doc: string;
   /** Argument types, in order */
   args: ArgType[];
   /** Execute the SDK call and return a native JS value */
@@ -48,9 +50,11 @@ interface MethodSchema {
   returns: ReturnType;
 }
 
-interface NamespaceSchema {
+export interface NamespaceSchema {
   /** Namespace name on the `bim` object (e.g., 'viewer') */
   name: string;
+  /** Human-readable description for editor completions */
+  doc: string;
   /** Permission key — if false, this namespace is skipped */
   permission: keyof SandboxPermissions;
   /** Methods in this namespace */
@@ -103,22 +107,26 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
   // ── bim.model ──────────────────────────────────────────────
   {
     name: 'model',
+    doc: 'Model operations',
     permission: 'model',
     methods: [
       {
         name: 'list',
+        doc: 'List loaded models',
         args: [],
         call: (sdk) => sdk.model.list(),
         returns: 'value',
       },
       {
         name: 'active',
+        doc: 'Get active model',
         args: [],
         call: (sdk) => sdk.model.active(),
         returns: 'value',
       },
       {
         name: 'activeId',
+        doc: 'Get active model ID',
         args: [],
         call: (sdk) => sdk.model.activeId(),
         returns: 'value',
@@ -129,10 +137,12 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
   // ── bim.query ─────────────────────────────────────────────
   {
     name: 'query',
+    doc: 'Query entities',
     permission: 'query',
     methods: [
       {
         name: 'all',
+        doc: 'Get all entities',
         args: [],
         call: (sdk) => {
           return sdk.query().toArray().map(withAliases);
@@ -141,6 +151,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
       },
       {
         name: 'byType',
+        doc: "Filter by IFC type e.g. 'IfcWall'",
         args: ['...strings'],
         call: (sdk, args) => {
           const types = args[0] as string[];
@@ -152,6 +163,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
       },
       {
         name: 'entity',
+        doc: 'Get entity by model ID and express ID',
         args: ['string', 'number'],
         call: (sdk, args) => {
           const modelId = args[0] as string;
@@ -163,6 +175,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
       },
       {
         name: 'properties',
+        doc: 'Get all IfcPropertySet data for an entity',
         args: ['dump'],
         call: (sdk, args) => {
           const ref = toRef(args[0]);
@@ -173,6 +186,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
       },
       {
         name: 'quantities',
+        doc: 'Get all IfcElementQuantity data for an entity',
         args: ['dump'],
         call: (sdk, args) => {
           const ref = toRef(args[0]);
@@ -187,10 +201,12 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
   // ── bim.viewer ─────────────────────────────────────────────
   {
     name: 'viewer',
+    doc: 'Viewer control',
     permission: 'viewer',
     methods: [
       {
         name: 'colorize',
+        doc: "Colorize entities e.g. '#ff0000'",
         args: ['entityRefs', 'string'],
         call: (sdk, args) => {
           sdk.viewer.colorize(args[0] as EntityRef[], args[1] as string);
@@ -199,6 +215,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
       },
       {
         name: 'colorizeAll',
+        doc: 'Batch colorize with [{entities, color}]',
         args: ['dump'],
         call: (sdk, args) => {
           // batches: Array<{ entities: EntityData[], color: string }>
@@ -214,6 +231,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
       },
       {
         name: 'hide',
+        doc: 'Hide entities',
         args: ['entityRefs'],
         call: (sdk, args) => {
           sdk.viewer.hide(args[0] as EntityRef[]);
@@ -222,6 +240,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
       },
       {
         name: 'show',
+        doc: 'Show entities',
         args: ['entityRefs'],
         call: (sdk, args) => {
           sdk.viewer.show(args[0] as EntityRef[]);
@@ -230,6 +249,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
       },
       {
         name: 'isolate',
+        doc: 'Isolate entities',
         args: ['entityRefs'],
         call: (sdk, args) => {
           sdk.viewer.isolate(args[0] as EntityRef[]);
@@ -238,6 +258,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
       },
       {
         name: 'select',
+        doc: 'Select entities',
         args: ['entityRefs'],
         call: (sdk, args) => {
           sdk.viewer.select(args[0] as EntityRef[]);
@@ -246,6 +267,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
       },
       {
         name: 'flyTo',
+        doc: 'Fly camera to entities',
         args: ['entityRefs'],
         call: (sdk, args) => {
           sdk.viewer.flyTo(args[0] as EntityRef[]);
@@ -254,6 +276,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
       },
       {
         name: 'resetColors',
+        doc: 'Reset all colors',
         args: [],
         call: (sdk) => {
           sdk.viewer.resetColors();
@@ -262,6 +285,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
       },
       {
         name: 'resetVisibility',
+        doc: 'Reset all visibility',
         args: [],
         call: (sdk) => {
           sdk.viewer.resetVisibility();
@@ -274,10 +298,12 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
   // ── bim.mutate ─────────────────────────────────────────────
   {
     name: 'mutate',
+    doc: 'Property editing',
     permission: 'mutate',
     methods: [
       {
         name: 'setProperty',
+        doc: 'Set a property value',
         args: ['dump', 'string', 'string', 'dump'],
         call: (sdk, args) => {
           sdk.mutate.setProperty(
@@ -291,6 +317,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
       },
       {
         name: 'deleteProperty',
+        doc: 'Delete a property',
         args: ['dump', 'string', 'string'],
         call: (sdk, args) => {
           sdk.mutate.deleteProperty(
@@ -306,6 +333,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
       // use individual setProperty calls instead.
       {
         name: 'undo',
+        doc: 'Undo last mutation',
         args: ['string'],
         call: (sdk, args) => {
           sdk.mutate.undo(args[0] as string);
@@ -314,6 +342,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
       },
       {
         name: 'redo',
+        doc: 'Redo undone mutation',
         args: ['string'],
         call: (sdk, args) => {
           sdk.mutate.redo(args[0] as string);
@@ -326,10 +355,12 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
   // ── bim.lens ───────────────────────────────────────────────
   {
     name: 'lens',
+    doc: 'Lens visualization',
     permission: 'lens',
     methods: [
       {
         name: 'presets',
+        doc: 'Get built-in lens presets',
         args: [],
         call: (sdk) => sdk.lens.presets(),
         returns: 'value',
@@ -340,10 +371,12 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
   // ── bim.export ─────────────────────────────────────────────
   {
     name: 'export',
+    doc: 'Data export',
     permission: 'export',
     methods: [
       {
         name: 'csv',
+        doc: 'Export entities to CSV string',
         args: ['entityRefs', 'dump'],
         call: (sdk, args) => {
           return sdk.export.csv(
@@ -355,6 +388,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
       },
       {
         name: 'json',
+        doc: 'Export entities to JSON array',
         args: ['entityRefs', 'dump'],
         call: (sdk, args) => {
           return sdk.export.json(

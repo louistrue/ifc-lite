@@ -18,5 +18,6 @@
       "@ifc-lite/lens": ["../../packages/lens/src"]
     }
   },
-  "include": ["src/**/*", "../../packages/renderer/src/webgpu-types.d.ts"]
+  "include": ["src/**/*", "../../packages/renderer/src/webgpu-types.d.ts"],
+  "exclude": ["src/lib/scripts/templates"]
 }

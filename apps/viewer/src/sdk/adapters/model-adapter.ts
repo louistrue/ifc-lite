@@ -3,34 +3,30 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import type { ModelInfo } from '@ifc-lite/sdk';
-import type { NamespaceAdapter, StoreApi } from './types.js';
+import type { Adapter, StoreApi } from './types.js';
 import { getAllModelEntries, LEGACY_MODEL_ID } from './model-compat.js';
 
-export function createModelAdapter(store: StoreApi): NamespaceAdapter {
+export function createModelAdapter(store: StoreApi): Adapter {
   return {
-    dispatch(method: string): unknown {
+    list() {
       const state = store.getState();
-      switch (method) {
-        case 'list': {
-          const result: ModelInfo[] = [];
-          for (const [, model] of getAllModelEntries(state)) {
-            result.push({
-              id: model.id,
-              name: model.name,
-              schemaVersion: model.schemaVersion,
-              entityCount: model.ifcDataStore?.entities?.count ?? 0,
-              fileSize: model.fileSize,
-              loadedAt: model.loadedAt,
-            });
-          }
-          return result;
-        }
-        case 'activeId':
-          // For legacy single-model, return the sentinel ID when no active model is set
-          return state.activeModelId ?? (state.models.size === 0 && state.ifcDataStore ? LEGACY_MODEL_ID : null);
-        default:
-          throw new Error(`Unknown model method: ${method}`);
+      const result: ModelInfo[] = [];
+      for (const [, model] of getAllModelEntries(state)) {
+        result.push({
+          id: model.id,
+          name: model.name,
+          schemaVersion: model.schemaVersion,
+          entityCount: model.ifcDataStore?.entities?.count ?? 0,
+          fileSize: model.fileSize,
+          loadedAt: model.loadedAt,
+        });
       }
+      return result;
+    },
+    activeId() {
+      const state = store.getState();
+      // For legacy single-model, return the sentinel ID when no active model is set
+      return state.activeModelId ?? (state.models.size === 0 && state.ifcDataStore ? LEGACY_MODEL_ID : null);
     },
   };
 }

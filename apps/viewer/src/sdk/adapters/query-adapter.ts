@@ -9,7 +9,7 @@ import type {
   QuantitySetData,
   QueryDescriptor,
 } from '@ifc-lite/sdk';
-import type { NamespaceAdapter, StoreApi } from './types.js';
+import type { Adapter, StoreApi } from './types.js';
 import { EntityNode } from '@ifc-lite/query';
 import { RelationshipType } from '@ifc-lite/data';
 import { getModelForRef, getAllModelEntries } from './model-compat.js';
@@ -73,7 +73,7 @@ function isProductType(type: string): boolean {
   return true;
 }
 
-export function createQueryAdapter(store: StoreApi): NamespaceAdapter {
+export function createQueryAdapter(store: StoreApi): Adapter {
   function getEntityData(ref: EntityRef): EntityData | null {
     const state = store.getState();
     const model = getModelForRef(state, ref.modelId);
@@ -211,31 +211,18 @@ export function createQueryAdapter(store: StoreApi): NamespaceAdapter {
   }
 
   return {
-    dispatch(method: string, args: unknown[]): unknown {
-      switch (method) {
-        case 'entities':
-          return queryEntities(args[0] as QueryDescriptor);
-        case 'entityData':
-          return getEntityData(args[0] as EntityRef);
-        case 'properties':
-          return getProperties(args[0] as EntityRef);
-        case 'quantities':
-          return getQuantities(args[0] as EntityRef);
-        case 'related': {
-          const ref = args[0] as EntityRef;
-          const relType = args[1] as string;
-          const direction = args[2] as 'forward' | 'inverse';
-          const state = store.getState();
-          const model = getModelForRef(state, ref.modelId);
-          if (!model?.ifcDataStore) return [];
-          const relEnum = REL_TYPE_MAP[relType];
-          if (relEnum === undefined) return [];
-          const targets = model.ifcDataStore.relationships.getRelated(ref.expressId, relEnum, direction);
-          return targets.map((expressId: number) => ({ modelId: ref.modelId, expressId }));
-        }
-        default:
-          throw new Error(`Unknown query method: ${method}`);
-      }
+    entities: queryEntities,
+    entityData: getEntityData,
+    properties: getProperties,
+    quantities: getQuantities,
+    related(ref: EntityRef, relType: string, direction: 'forward' | 'inverse') {
+      const state = store.getState();
+      const model = getModelForRef(state, ref.modelId);
+      if (!model?.ifcDataStore) return [];
+      const relEnum = REL_TYPE_MAP[relType];
+      if (relEnum === undefined) return [];
+      const targets = model.ifcDataStore.relationships.getRelated(ref.expressId, relEnum, direction);
+      return targets.map((expressId: number) => ({ modelId: ref.modelId, expressId }));
     },
   };
 }
