@@ -1,7 +1,6 @@
 export {} // module boundary (stripped by transpiler)
 
 // Model overview — comprehensive model summary
-console.log('[debug] Script started — model overview')
 const models = bim.model.list()
 console.log('=== Models (' + models.length + ') ===')
 for (const m of models) {

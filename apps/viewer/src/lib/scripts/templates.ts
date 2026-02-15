@@ -38,8 +38,8 @@ export const SCRIPT_TEMPLATES: ScriptTemplate[] = [
     code: stripModuleLine(modelOverview),
   },
   {
-    name: 'Color by IFC type',
-    description: 'Assign unique colors to each product type (batch colorize)',
+    name: 'Color by IFC class',
+    description: 'Assign unique colors to each IFC class (batch colorize)',
     code: stripModuleLine(colorByType),
   },
   {

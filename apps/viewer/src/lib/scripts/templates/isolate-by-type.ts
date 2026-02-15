@@ -15,13 +15,8 @@ if (entities.length === 0) {
     console.log('  ' + t + ': ' + c)
   }
 } else {
-  console.log('[debug] First entity ref: ' + JSON.stringify(entities[0].ref))
-  console.log('[debug] Calling bim.viewer.isolate with ' + entities.length + ' entities...')
   bim.viewer.isolate(entities)
-  console.log('[debug] isolate done')
-  console.log('[debug] Calling bim.viewer.colorize...')
   bim.viewer.colorize(entities, '#e74c3c')
-  console.log('[debug] colorize done')
   console.log('Isolated ' + entities.length + ' ' + TARGET_TYPE + ' entities')
   console.log('\nNames:')
   const names: Record<string, number> = {}

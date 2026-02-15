@@ -11,7 +11,7 @@ import type {
 } from '@ifc-lite/sdk';
 import type { Adapter, StoreApi } from './types.js';
 import { EntityNode } from '@ifc-lite/query';
-import { RelationshipType } from '@ifc-lite/data';
+import { RelationshipType, IfcTypeEnum, IfcTypeEnumFromString } from '@ifc-lite/data';
 import { getModelForRef, getAllModelEntries } from './model-compat.js';
 
 /** Map IFC relationship entity names to internal RelationshipType enum.
@@ -62,14 +62,26 @@ function expandTypes(types: string[]): string[] {
 }
 
 /**
- * Check if a type name represents a product/spatial entity (not a relationship or definition).
- * Type names from entityIndex.byType are UPPERCASE (e.g. IFCRELCONTAINEDINSPATIALSTRUCTURE).
+ * Check if a type name represents a product/spatial entity.
+ *
+ * Uses IfcTypeEnum as a whitelist — only known IFC types pass.
+ * Excludes relationships, properties, quantities, element quantities,
+ * and type objects (IfcWallType, IfcDoorType, etc.).
+ *
+ * Type names from entityIndex.byType are UPPERCASE (e.g. IFCWALLSTANDARDCASE).
  */
 function isProductType(type: string): boolean {
+  const enumVal = IfcTypeEnumFromString(type);
+  // Unknown = not a recognized product/spatial type (geometry definitions, placements, etc.)
+  if (enumVal === IfcTypeEnum.Unknown) return false;
+  // Exclude relationships, properties, quantities
   const upper = type.toUpperCase();
   if (upper.startsWith('IFCREL')) return false;
   if (upper.startsWith('IFCPROPERTY')) return false;
   if (upper.startsWith('IFCQUANTITY')) return false;
+  if (upper === 'IFCELEMENTQUANTITY') return false;
+  // Exclude type objects (IfcWallType, IfcDoorType, etc.) — metadata, not instances
+  if (upper.endsWith('TYPE')) return false;
   return true;
 }
 

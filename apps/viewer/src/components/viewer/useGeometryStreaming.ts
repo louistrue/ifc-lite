@@ -20,11 +20,8 @@ export interface UseGeometryStreamingParams {
   geometryBoundsRef: MutableRefObject<{ min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } }>;
   pendingColorUpdates: Map<number, [number, number, number, number]> | null;
   clearPendingColorUpdates: () => void;
-  // Render state refs — color update renders must preserve theme background and visibility
+  // Clear color ref — color update renders must preserve theme background
   clearColorRef: MutableRefObject<[number, number, number, number]>;
-  hiddenEntitiesRef: MutableRefObject<Set<number>>;
-  isolatedEntitiesRef: MutableRefObject<Set<number> | null>;
-  selectedEntityIdRef: MutableRefObject<number | null>;
 }
 
 export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
@@ -38,9 +35,6 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     pendingColorUpdates,
     clearPendingColorUpdates,
     clearColorRef,
-    hiddenEntitiesRef,
-    isolatedEntitiesRef,
-    selectedEntityIdRef,
   } = params;
 
   // Track processed meshes for incremental updates
@@ -406,13 +400,15 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
         // Non-empty map = set color overrides
         scene.setColorOverrides(pendingColorUpdates, device, pipeline);
       }
-      // Re-render with current theme background and visibility state —
-      // render() without options defaults to black background
+      // Re-render with current theme background — render() without options
+      // defaults to black background.  Do NOT pass hiddenIds/isolatedIds here:
+      // visibility filtering causes partial batches which write depth only for
+      // visible elements, but overlay batches cover all geometry.  Without
+      // filtering, all original batches write depth for every entity, ensuring
+      // depthCompare 'equal' matches exactly for the overlay pass.
+      // The next render from useRenderUpdates will apply the correct visibility.
       renderer.render({
         clearColor: clearColorRef.current,
-        hiddenIds: hiddenEntitiesRef.current,
-        isolatedIds: isolatedEntitiesRef.current,
-        selectedId: selectedEntityIdRef.current,
       });
       clearPendingColorUpdates();
     }

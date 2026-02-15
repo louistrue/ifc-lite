@@ -784,9 +784,6 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     pendingColorUpdates,
     clearPendingColorUpdates,
     clearColorRef,
-    hiddenEntitiesRef,
-    isolatedEntitiesRef,
-    selectedEntityIdRef,
   });
 
   useRenderUpdates({
