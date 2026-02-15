@@ -202,8 +202,8 @@ export function createQueryAdapter(store: StoreApi): NamespaceAdapter {
       }
     }
 
-    if (descriptor.offset) filtered = filtered.slice(descriptor.offset);
-    if (descriptor.limit) filtered = filtered.slice(0, descriptor.limit);
+    if (descriptor.offset != null && descriptor.offset > 0) filtered = filtered.slice(descriptor.offset);
+    if (descriptor.limit != null && descriptor.limit > 0) filtered = filtered.slice(0, descriptor.limit);
 
     return filtered;
   }

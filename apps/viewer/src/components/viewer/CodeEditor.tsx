@@ -184,7 +184,7 @@ function bimCompletions(context: CompletionContext): CompletionResult | null {
   // Entity proxy completions (works on any variable)
   if (text.endsWith('.properties') || text.endsWith('.property') || text.endsWith('.quantities') || text.endsWith('.quantity')) {
     return {
-      from: word.from - text.split('.').pop()!.length,
+      from: word.from + text.lastIndexOf('.') + 1,
       options: [
         { label: 'properties()', type: 'function', detail: 'Get all property sets' },
         { label: 'property(', type: 'function', detail: "Get a property e.g. 'Pset', 'Name'" },
