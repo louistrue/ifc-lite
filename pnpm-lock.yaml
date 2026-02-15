@@ -216,9 +216,6 @@ importers:
       '@ifc-lite/mutations':
         specifier: workspace:^
         version: link:../../packages/mutations
-      '@ifc-lite/node-registry':
-        specifier: workspace:^
-        version: link:../../packages/node-registry
       '@ifc-lite/parser':
         specifier: workspace:^
         version: link:../../packages/parser
@@ -547,19 +544,6 @@ importers:
       '@ifc-lite/parser':
         specifier: workspace:^
         version: link:../parser
-    devDependencies:
-      typescript:
-        specifier: ^5.3.0
-        version: 5.9.3
-      vitest:
-        specifier: ^1.6.0
-        version: 1.6.1(@types/node@20.19.28)(lightningcss@1.30.2)
-
-  packages/node-registry:
-    dependencies:
-      '@ifc-lite/sdk':
-        specifier: workspace:^
-        version: link:../sdk
     devDependencies:
       typescript:
         specifier: ^5.3.0
