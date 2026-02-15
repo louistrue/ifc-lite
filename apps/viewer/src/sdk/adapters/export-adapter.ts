@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import type { Adapter, StoreApi } from './types.js';
-import type { EntityRef, EntityData, PropertySetData } from '@ifc-lite/sdk';
+import type { StoreApi } from './types.js';
+import type { EntityRef, EntityData, PropertySetData, ExportBackendMethods } from '@ifc-lite/sdk';
 import { EntityNode } from '@ifc-lite/query';
 import { getModelForRef } from './model-compat.js';
 
@@ -75,7 +75,7 @@ function escapeCsv(value: string, sep: string): string {
  * on the same LocalBackend, providing full export support for both
  * direct dispatch calls and SDK namespace usage.
  */
-export function createExportAdapter(store: StoreApi): Adapter {
+export function createExportAdapter(store: StoreApi): ExportBackendMethods {
   /** Resolve entity data via the query subsystem */
   function getEntityData(ref: EntityRef): EntityData | null {
     const state = store.getState();

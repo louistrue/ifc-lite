@@ -2,11 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import type { EntityRef } from '@ifc-lite/sdk';
-import type { Adapter, StoreApi } from './types.js';
+import type { EntityRef, VisibilityBackendMethods } from '@ifc-lite/sdk';
+import type { StoreApi } from './types.js';
 import { getModelForRef } from './model-compat.js';
 
-export function createVisibilityAdapter(store: StoreApi): Adapter {
+export function createVisibilityAdapter(store: StoreApi): VisibilityBackendMethods {
   return {
     hide(refs: EntityRef[]) {
       const state = store.getState();

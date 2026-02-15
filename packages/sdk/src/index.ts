@@ -80,9 +80,20 @@ export type {
   // Backend
   BimBackend,
   BimContextOptions,
+
+  // Backend namespace interfaces
+  ModelBackendMethods,
+  QueryBackendMethods,
+  SelectionBackendMethods,
+  VisibilityBackendMethods,
+  ViewerBackendMethods,
+  MutateBackendMethods,
+  SpatialBackendMethods,
+  ExportBackendMethods,
+  LensBackendMethods,
 } from './types.js';
 
-export { entityRefToString, stringToEntityRef } from './types.js';
+export { entityRefToString, stringToEntityRef, dispatchToBackend } from './types.js';
 
 // ============================================================================
 // Namespaces (for type access)

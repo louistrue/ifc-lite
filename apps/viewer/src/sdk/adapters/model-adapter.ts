@@ -2,11 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import type { ModelInfo } from '@ifc-lite/sdk';
-import type { Adapter, StoreApi } from './types.js';
+import type { ModelInfo, ModelBackendMethods } from '@ifc-lite/sdk';
+import type { StoreApi } from './types.js';
 import { getAllModelEntries, LEGACY_MODEL_ID } from './model-compat.js';
 
-export function createModelAdapter(store: StoreApi): Adapter {
+export function createModelAdapter(store: StoreApi): ModelBackendMethods {
   return {
     list() {
       const state = store.getState();

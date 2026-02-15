@@ -8,8 +8,9 @@ import type {
   PropertySetData,
   QuantitySetData,
   QueryDescriptor,
+  QueryBackendMethods,
 } from '@ifc-lite/sdk';
-import type { Adapter, StoreApi } from './types.js';
+import type { StoreApi } from './types.js';
 import { EntityNode } from '@ifc-lite/query';
 import { RelationshipType, IfcTypeEnum, IfcTypeEnumFromString } from '@ifc-lite/data';
 import { getModelForRef, getAllModelEntries } from './model-compat.js';
@@ -85,7 +86,7 @@ function isProductType(type: string): boolean {
   return true;
 }
 
-export function createQueryAdapter(store: StoreApi): Adapter {
+export function createQueryAdapter(store: StoreApi): QueryBackendMethods {
   function getEntityData(ref: EntityRef): EntityData | null {
     const state = store.getState();
     const model = getModelForRef(state, ref.modelId);

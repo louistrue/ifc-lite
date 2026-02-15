@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "NODE_OPTIONS='--max-old-space-size=4096' bash -c '(tsc || true) && vite build'",
     "preview": "vite preview",
-    "test": "bash -c 'shopt -s globstar && tsx --test src/**/*.test.ts'"
+    "test": "bash -c 'shopt -s globstar && tsx --test src/**/*.test.ts'",
+    "check:templates": "tsc -p src/lib/scripts/templates/tsconfig.json --noEmit"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.0",

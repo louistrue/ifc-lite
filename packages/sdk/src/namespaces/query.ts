@@ -67,7 +67,7 @@ export class QueryBuilder {
 
   /** Execute and return EntityData array */
   toArray(): EntityData[] {
-    return this.backend.dispatch('query', 'entities', [this.descriptor]) as EntityData[];
+    return this.backend.query.entities(this.descriptor);
   }
 
   /** Execute and return first match or null */
@@ -81,12 +81,12 @@ export class QueryBuilder {
 
   /** Execute and return count */
   count(): number {
-    return (this.backend.dispatch('query', 'entities', [this.descriptor]) as EntityData[]).length;
+    return this.backend.query.entities(this.descriptor).length;
   }
 
   /** Execute and return just EntityRef[] (no property data) */
   refs(): EntityRef[] {
-    return (this.backend.dispatch('query', 'entities', [this.descriptor]) as EntityData[]).map(e => e.ref);
+    return this.backend.query.entities(this.descriptor).map(e => e.ref);
   }
 }
 
@@ -101,12 +101,12 @@ export class QueryNamespace {
 
   /** Get a single entity by ref */
   entity(ref: EntityRef): EntityData | null {
-    return this.backend.dispatch('query', 'entityData', [ref]) as EntityData | null;
+    return this.backend.query.entityData(ref);
   }
 
   /** Get all property sets for an entity */
   properties(ref: EntityRef): PropertySetData[] {
-    return this.backend.dispatch('query', 'properties', [ref]) as PropertySetData[];
+    return this.backend.query.properties(ref);
   }
 
   /** Get a single property value */
@@ -120,7 +120,7 @@ export class QueryNamespace {
 
   /** Get all quantity sets for an entity */
   quantities(ref: EntityRef): QuantitySetData[] {
-    return this.backend.dispatch('query', 'quantities', [ref]) as QuantitySetData[];
+    return this.backend.query.quantities(ref);
   }
 
   /** Get a single quantity value */
@@ -134,10 +134,10 @@ export class QueryNamespace {
 
   /** Get related entities by IFC relationship type */
   related(ref: EntityRef, relType: string, direction: 'forward' | 'inverse'): EntityData[] {
-    const refs = this.backend.dispatch('query', 'related', [ref, relType, direction]) as EntityRef[];
+    const refs = this.backend.query.related(ref, relType, direction);
     const result: EntityData[] = [];
     for (const r of refs) {
-      const data = this.backend.dispatch('query', 'entityData', [r]) as EntityData | null;
+      const data = this.backend.query.entityData(r);
       if (data) result.push(data);
     }
     return result;
@@ -145,9 +145,9 @@ export class QueryNamespace {
 
   /** IfcRelContainedInSpatialStructure (inverse) — what spatial element contains this entity */
   containedIn(ref: EntityRef): EntityData | null {
-    const refs = this.backend.dispatch('query', 'related', [ref, 'IfcRelContainedInSpatialStructure', 'inverse']) as EntityRef[];
+    const refs = this.backend.query.related(ref, 'IfcRelContainedInSpatialStructure', 'inverse');
     if (refs.length === 0) return null;
-    return this.backend.dispatch('query', 'entityData', [refs[0]]) as EntityData | null;
+    return this.backend.query.entityData(refs[0]);
   }
 
   /** IfcRelContainedInSpatialStructure (forward) — elements contained in this spatial element */
@@ -157,9 +157,9 @@ export class QueryNamespace {
 
   /** IfcRelAggregates (inverse) — the whole that this entity is a part of */
   decomposedBy(ref: EntityRef): EntityData | null {
-    const refs = this.backend.dispatch('query', 'related', [ref, 'IfcRelAggregates', 'inverse']) as EntityRef[];
+    const refs = this.backend.query.related(ref, 'IfcRelAggregates', 'inverse');
     if (refs.length === 0) return null;
-    return this.backend.dispatch('query', 'entityData', [refs[0]]) as EntityData | null;
+    return this.backend.query.entityData(refs[0]);
   }
 
   /** IfcRelAggregates (forward) — parts that this entity aggregates */

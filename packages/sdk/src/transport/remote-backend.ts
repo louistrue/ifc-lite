@@ -6,32 +6,50 @@
  * RemoteBackend — implements BimBackend by proxying all calls over a Transport.
  *
  * Used when the SDK is in a different context than the viewer (cross-tab, iframe, etc).
- * With the generic dispatch pattern, this is a simple transport proxy:
- * every dispatch() call serializes to an SdkRequest and sends it through the transport.
+ * Each typed namespace is a Proxy that throws synchronously, since the remote transport
+ * requires async implementation (future iteration).
  */
 
 import type {
   BimBackend,
   Transport,
   BimEventType,
+  ModelBackendMethods,
+  QueryBackendMethods,
+  SelectionBackendMethods,
+  VisibilityBackendMethods,
+  ViewerBackendMethods,
+  MutateBackendMethods,
+  SpatialBackendMethods,
+  ExportBackendMethods,
+  LensBackendMethods,
 } from '../types.js';
 
-let requestCounter = 0;
+function makeRemoteProxy<T extends object>(namespace: string): T {
+  return new Proxy(Object.create(null) as T, {
+    get(_, method: string) {
+      return (..._args: unknown[]): never => {
+        throw new Error(
+          `RemoteBackend: Cannot call ${namespace}.${method}() synchronously. ` +
+          `Remote transport requires async implementation.`
+        );
+      };
+    },
+  });
+}
 
 export class RemoteBackend implements BimBackend {
-  constructor(private transport: Transport) {}
+  readonly model: ModelBackendMethods = makeRemoteProxy('model');
+  readonly query: QueryBackendMethods = makeRemoteProxy('query');
+  readonly selection: SelectionBackendMethods = makeRemoteProxy('selection');
+  readonly visibility: VisibilityBackendMethods = makeRemoteProxy('visibility');
+  readonly viewer: ViewerBackendMethods = makeRemoteProxy('viewer');
+  readonly mutate: MutateBackendMethods = makeRemoteProxy('mutate');
+  readonly spatial: SpatialBackendMethods = makeRemoteProxy('spatial');
+  readonly export: ExportBackendMethods = makeRemoteProxy('export');
+  readonly lens: LensBackendMethods = makeRemoteProxy('lens');
 
-  dispatch(namespace: string, method: string, args: unknown[]): unknown {
-    const id = `req-${requestCounter++}`;
-    // Note: In a real async implementation, this would return a Promise.
-    // For the initial SDK, we use synchronous semantics for the BimBackend
-    // interface. A future iteration will make dispatch async and use the
-    // transport's send() to await the response.
-    throw new Error(
-      `RemoteBackend: Cannot call ${namespace}.${method} synchronously. ` +
-      `Remote transport requires async implementation. Request ID: ${id}`
-    );
-  }
+  constructor(private transport: Transport) {}
 
   subscribe(event: BimEventType, handler: (data: unknown) => void): () => void {
     return this.transport.subscribe((sdkEvent) => {

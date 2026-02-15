@@ -152,7 +152,8 @@ export interface SpatialFrustum {
 // Lens Types (re-export core types for SDK consumers)
 // ============================================================================
 
-export type { Lens, LensRule, LensCriteria, RGBAColor } from '@ifc-lite/lens';
+import type { Lens, LensRule, LensCriteria, RGBAColor } from '@ifc-lite/lens';
+export type { Lens, LensRule, LensCriteria, RGBAColor };
 
 // ============================================================================
 // Mutation Types
@@ -213,31 +214,116 @@ export interface SdkEvent {
 }
 
 // ============================================================================
+// Backend Namespace Interfaces (typed method contracts per adapter)
+// ============================================================================
+
+export interface ModelBackendMethods {
+  list(): ModelInfo[];
+  activeId(): string | null;
+}
+
+export interface QueryBackendMethods {
+  entities(descriptor: QueryDescriptor): EntityData[];
+  entityData(ref: EntityRef): EntityData | null;
+  properties(ref: EntityRef): PropertySetData[];
+  quantities(ref: EntityRef): QuantitySetData[];
+  related(ref: EntityRef, relType: string, direction: 'forward' | 'inverse'): EntityRef[];
+}
+
+export interface SelectionBackendMethods {
+  get(): EntityRef[];
+  set(refs: EntityRef[]): void;
+}
+
+export interface VisibilityBackendMethods {
+  hide(refs: EntityRef[]): void;
+  show(refs: EntityRef[]): void;
+  isolate(refs: EntityRef[]): void;
+  reset(): void;
+}
+
+export interface ViewerBackendMethods {
+  colorize(refs: EntityRef[], color: RGBAColor): void;
+  colorizeAll(batches: Array<{ refs: EntityRef[]; color: RGBAColor }>): void;
+  resetColors(refs?: EntityRef[]): void;
+  flyTo(refs: EntityRef[]): void;
+  setSection(section: SectionPlane | null): void;
+  getSection(): SectionPlane | null;
+  setCamera(state: Partial<CameraState>): void;
+  getCamera(): CameraState;
+}
+
+export interface MutateBackendMethods {
+  setProperty(ref: EntityRef, psetName: string, propName: string, value: string | number | boolean): void;
+  deleteProperty(ref: EntityRef, psetName: string, propName: string): void;
+  batchBegin(label: string): void;
+  batchEnd(label: string): void;
+  undo(modelId: string): boolean;
+  redo(modelId: string): boolean;
+}
+
+export interface SpatialBackendMethods {
+  queryBounds(modelId: string, bounds: AABB): EntityRef[];
+  raycast(modelId: string, origin: [number, number, number], direction: [number, number, number]): EntityRef[];
+  queryFrustum(modelId: string, frustum: SpatialFrustum): EntityRef[];
+}
+
+export interface ExportBackendMethods {
+  csv(refs: unknown, options: unknown): string;
+  json(refs: unknown, columns: unknown): Record<string, unknown>[];
+  download(content: string, filename: string, mimeType: string): void;
+}
+
+export interface LensBackendMethods {
+  presets(): unknown[];
+  create(config: unknown): unknown;
+  activate(lensId: string): void;
+  deactivate(): void;
+  getActive(): string | null;
+}
+
+// ============================================================================
 // Backend Interface (implemented by local store or remote proxy)
 // ============================================================================
 
 /**
  * Abstraction over the viewer's internal state — SDK namespaces use this.
  *
- * Uses a generic dispatch pattern: all calls go through `dispatch(namespace, method, args)`.
- * This avoids a fat interface that must be updated every time a new SDK method is added.
- * Type safety is provided at the namespace boundary (each namespace class casts internally).
+ * Each namespace is a typed property with methods matching the adapter contract.
+ * SDK namespace classes call backend.query.entities(...) instead of dispatch().
  *
- * Namespace/method conventions match the SdkRequest protocol:
- *   model.list, model.activeId
- *   query.entities, query.entityData, query.properties, query.quantities, query.related
- *   selection.get, selection.set
- *   visibility.hide, visibility.show, visibility.isolate, visibility.reset
- *   viewer.colorize, viewer.resetColors, viewer.flyTo, viewer.setSection, viewer.getSection, viewer.setCamera, viewer.getCamera
- *   mutate.setProperty, mutate.deleteProperty, mutate.undo, mutate.redo
- *   spatial.queryBounds, spatial.raycast, spatial.queryFrustum
+ * BimHost (wire protocol) uses dispatchToBackend() to route string-based
+ * SdkRequests to the typed namespace methods.
  */
 export interface BimBackend {
-  /** Dispatch an SDK call to the appropriate handler */
-  dispatch(namespace: string, method: string, args: unknown[]): unknown;
+  readonly model: ModelBackendMethods;
+  readonly query: QueryBackendMethods;
+  readonly selection: SelectionBackendMethods;
+  readonly visibility: VisibilityBackendMethods;
+  readonly viewer: ViewerBackendMethods;
+  readonly mutate: MutateBackendMethods;
+  readonly spatial: SpatialBackendMethods;
+  readonly export: ExportBackendMethods;
+  readonly lens: LensBackendMethods;
 
-  /** Subscribe to viewer events (kept separate — event subscriptions are stateful) */
+  /** Subscribe to viewer events */
   subscribe(event: BimEventType, handler: (data: unknown) => void): () => void;
+}
+
+/**
+ * Route a string-based SdkRequest to the appropriate typed method on a BimBackend.
+ * Used by BimHost for wire protocol compatibility.
+ */
+export function dispatchToBackend(backend: BimBackend, namespace: string, method: string, args: unknown[]): unknown {
+  const ns = (backend as unknown as Record<string, Record<string, (...a: unknown[]) => unknown>>)[namespace];
+  if (!ns || typeof ns !== 'object') {
+    throw new Error(`Unknown namespace '${namespace}'`);
+  }
+  const fn = ns[method];
+  if (typeof fn !== 'function') {
+    throw new Error(`Unknown method '${namespace}.${method}'`);
+  }
+  return fn(...args);
 }
 
 // ============================================================================

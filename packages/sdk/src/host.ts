@@ -9,8 +9,8 @@
  * External tools (ifc-scripts, ifc-flow) connect via transport and
  * send SdkRequests, which the host dispatches to the backend.
  *
- * With the generic dispatch pattern, this is a thin pass-through:
- * every SdkRequest maps directly to `backend.dispatch(ns, method, args)`.
+ * Uses dispatchToBackend() to route string-based SdkRequests to the
+ * typed namespace methods on the BimBackend.
  */
 
 import type {
@@ -20,6 +20,7 @@ import type {
   SdkEvent,
   BimEventType,
 } from './types.js';
+import { dispatchToBackend } from './types.js';
 
 export class BimHost {
   private backend: BimBackend;
@@ -71,7 +72,7 @@ export class BimHost {
   /** Dispatch an SdkRequest to the backend and return the response */
   dispatch(request: SdkRequest): SdkResponse {
     try {
-      const result = this.backend.dispatch(request.namespace, request.method, request.args);
+      const result = dispatchToBackend(this.backend, request.namespace, request.method, request.args);
       return { id: request.id, result };
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));

@@ -18,15 +18,15 @@ export class SpatialNamespace {
   constructor(private backend: BimBackend) {}
 
   queryBounds(modelId: string, bounds: AABB): EntityRef[] {
-    return this.backend.dispatch('spatial', 'queryBounds', [modelId, bounds]) as EntityRef[];
+    return this.backend.spatial.queryBounds(modelId, bounds);
   }
 
   raycast(modelId: string, origin: [number, number, number], direction: [number, number, number]): EntityRef[] {
-    return this.backend.dispatch('spatial', 'raycast', [modelId, origin, direction]) as EntityRef[];
+    return this.backend.spatial.raycast(modelId, origin, direction);
   }
 
   queryFrustum(modelId: string, frustum: SpatialFrustum): EntityRef[] {
-    return this.backend.dispatch('spatial', 'queryFrustum', [modelId, frustum]) as EntityRef[];
+    return this.backend.spatial.queryFrustum(modelId, frustum);
   }
 
   /** Convenience: find entities near a point within a radius. */
@@ -35,6 +35,6 @@ export class SpatialNamespace {
       min: [center[0] - radius, center[1] - radius, center[2] - radius],
       max: [center[0] + radius, center[1] + radius, center[2] + radius],
     };
-    return this.backend.dispatch('spatial', 'queryBounds', [modelId, bounds]) as EntityRef[];
+    return this.backend.spatial.queryBounds(modelId, bounds);
   }
 }

@@ -2,11 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import type { AABB, SpatialFrustum } from '@ifc-lite/sdk';
-import type { Adapter, StoreApi } from './types.js';
+import type { AABB, SpatialFrustum, SpatialBackendMethods } from '@ifc-lite/sdk';
+import type { StoreApi } from './types.js';
 import { getModelForRef } from './model-compat.js';
 
-export function createSpatialAdapter(store: StoreApi): Adapter {
+export function createSpatialAdapter(store: StoreApi): SpatialBackendMethods {
   return {
     queryBounds(modelId: string, bounds: AABB) {
       const state = store.getState();

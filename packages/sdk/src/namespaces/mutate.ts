@@ -10,12 +10,12 @@ export class MutateNamespace {
 
   /** Set a property on an entity */
   setProperty(ref: EntityRef, psetName: string, propName: string, value: string | number | boolean): void {
-    this.backend.dispatch('mutate', 'setProperty', [ref, psetName, propName, value]);
+    this.backend.mutate.setProperty(ref, psetName, propName, value);
   }
 
   /** Delete a property from an entity */
   deleteProperty(ref: EntityRef, psetName: string, propName: string): void {
-    this.backend.dispatch('mutate', 'deleteProperty', [ref, psetName, propName]);
+    this.backend.mutate.deleteProperty(ref, psetName, propName);
   }
 
   /**
@@ -24,21 +24,21 @@ export class MutateNamespace {
    * can group all enclosed mutations into one undoable operation.
    */
   batch(label: string, fn: () => void): void {
-    this.backend.dispatch('mutate', 'batchBegin', [label]);
+    this.backend.mutate.batchBegin(label);
     try {
       fn();
     } finally {
-      this.backend.dispatch('mutate', 'batchEnd', [label]);
+      this.backend.mutate.batchEnd(label);
     }
   }
 
   /** Undo last mutation for a model */
   undo(modelId: string): boolean {
-    return this.backend.dispatch('mutate', 'undo', [modelId]) as boolean;
+    return this.backend.mutate.undo(modelId);
   }
 
   /** Redo last undone mutation for a model */
   redo(modelId: string): boolean {
-    return this.backend.dispatch('mutate', 'redo', [modelId]) as boolean;
+    return this.backend.mutate.redo(modelId);
   }
 }

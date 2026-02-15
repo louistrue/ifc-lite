@@ -44,6 +44,12 @@ export interface MethodSchema {
   doc: string;
   /** Argument types, in order */
   args: ArgType[];
+  /** Parameter names for generated TypeScript declarations (optional) */
+  paramNames?: string[];
+  /** Override TypeScript parameter types (indexed by position, undefined = use default) */
+  tsParamTypes?: (string | undefined)[];
+  /** TypeScript return type for generated declarations (default: inferred from returns) */
+  tsReturn?: string;
   /** Execute the SDK call and return a native JS value */
   call: (sdk: BimContext, args: unknown[]) => unknown;
   /** How to marshal the return value */
@@ -114,6 +120,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'list',
         doc: 'List loaded models',
         args: [],
+        tsReturn: 'BimModelInfo[]',
         call: (sdk) => sdk.model.list(),
         returns: 'value',
       },
@@ -121,6 +128,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'active',
         doc: 'Get active model',
         args: [],
+        tsReturn: 'BimModelInfo | null',
         call: (sdk) => sdk.model.active(),
         returns: 'value',
       },
@@ -128,6 +136,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'activeId',
         doc: 'Get active model ID',
         args: [],
+        tsReturn: 'string | null',
         call: (sdk) => sdk.model.activeId(),
         returns: 'value',
       },
@@ -144,6 +153,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'all',
         doc: 'Get all entities',
         args: [],
+        tsReturn: 'BimEntity[]',
         call: (sdk) => {
           return sdk.query().toArray().map(withAliases);
         },
@@ -153,6 +163,8 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'byType',
         doc: "Filter by IFC type e.g. 'IfcWall'",
         args: ['...strings'],
+        paramNames: ['types'],
+        tsReturn: 'BimEntity[]',
         call: (sdk, args) => {
           const types = args[0] as string[];
           const builder = sdk.query();
@@ -165,6 +177,8 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'entity',
         doc: 'Get entity by model ID and express ID',
         args: ['string', 'number'],
+        paramNames: ['modelId', 'expressId'],
+        tsReturn: 'BimEntity | null',
         call: (sdk, args) => {
           const modelId = args[0] as string;
           const expressId = args[1] as number;
@@ -177,6 +191,9 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'properties',
         doc: 'Get all IfcPropertySet data for an entity',
         args: ['dump'],
+        paramNames: ['entity'],
+        tsParamTypes: ['BimEntity'],
+        tsReturn: 'BimPropertySet[]',
         call: (sdk, args) => {
           const ref = toRef(args[0]);
           if (!ref) return [];
@@ -188,6 +205,9 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'quantities',
         doc: 'Get all IfcElementQuantity data for an entity',
         args: ['dump'],
+        paramNames: ['entity'],
+        tsParamTypes: ['BimEntity'],
+        tsReturn: 'BimQuantitySet[]',
         call: (sdk, args) => {
           const ref = toRef(args[0]);
           if (!ref) return [];
@@ -208,6 +228,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'colorize',
         doc: "Colorize entities e.g. '#ff0000'",
         args: ['entityRefs', 'string'],
+        paramNames: ['entities', 'color'],
         call: (sdk, args) => {
           sdk.viewer.colorize(args[0] as EntityRef[], args[1] as string);
         },
@@ -217,6 +238,9 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'colorizeAll',
         doc: 'Batch colorize with [{entities, color}]',
         args: ['dump'],
+        paramNames: ['batches'],
+        tsParamTypes: ['Array<{ entities: BimEntity[]; color: string }>'],
+        tsReturn: 'void',
         call: (sdk, args) => {
           // batches: Array<{ entities: EntityData[], color: string }>
           // Extract .ref from entity data objects and pass to SDK
@@ -233,6 +257,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'hide',
         doc: 'Hide entities',
         args: ['entityRefs'],
+        paramNames: ['entities'],
         call: (sdk, args) => {
           sdk.viewer.hide(args[0] as EntityRef[]);
         },
@@ -242,6 +267,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'show',
         doc: 'Show entities',
         args: ['entityRefs'],
+        paramNames: ['entities'],
         call: (sdk, args) => {
           sdk.viewer.show(args[0] as EntityRef[]);
         },
@@ -251,6 +277,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'isolate',
         doc: 'Isolate entities',
         args: ['entityRefs'],
+        paramNames: ['entities'],
         call: (sdk, args) => {
           sdk.viewer.isolate(args[0] as EntityRef[]);
         },
@@ -260,6 +287,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'select',
         doc: 'Select entities',
         args: ['entityRefs'],
+        paramNames: ['entities'],
         call: (sdk, args) => {
           sdk.viewer.select(args[0] as EntityRef[]);
         },
@@ -269,6 +297,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'flyTo',
         doc: 'Fly camera to entities',
         args: ['entityRefs'],
+        paramNames: ['entities'],
         call: (sdk, args) => {
           sdk.viewer.flyTo(args[0] as EntityRef[]);
         },
@@ -305,6 +334,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'setProperty',
         doc: 'Set a property value',
         args: ['dump', 'string', 'string', 'dump'],
+        paramNames: ['entity', 'psetName', 'propName', 'value'],
         call: (sdk, args) => {
           sdk.mutate.setProperty(
             args[0] as EntityRef,
@@ -319,6 +349,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'deleteProperty',
         doc: 'Delete a property',
         args: ['dump', 'string', 'string'],
+        paramNames: ['entity', 'psetName', 'propName'],
         call: (sdk, args) => {
           sdk.mutate.deleteProperty(
             args[0] as EntityRef,
@@ -335,6 +366,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'undo',
         doc: 'Undo last mutation',
         args: ['string'],
+        paramNames: ['modelId'],
         call: (sdk, args) => {
           sdk.mutate.undo(args[0] as string);
         },
@@ -344,6 +376,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'redo',
         doc: 'Redo undone mutation',
         args: ['string'],
+        paramNames: ['modelId'],
         call: (sdk, args) => {
           sdk.mutate.redo(args[0] as string);
         },
@@ -362,6 +395,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'presets',
         doc: 'Get built-in lens presets',
         args: [],
+        tsReturn: 'unknown[]',
         call: (sdk) => sdk.lens.presets(),
         returns: 'value',
       },
@@ -378,6 +412,9 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'csv',
         doc: 'Export entities to CSV string',
         args: ['entityRefs', 'dump'],
+        paramNames: ['entities', 'options'],
+        tsParamTypes: [undefined, '{ columns: string[]; filename?: string; separator?: string }'],
+        tsReturn: 'string',
         call: (sdk, args) => {
           return sdk.export.csv(
             args[0] as EntityRef[],
@@ -390,6 +427,9 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'json',
         doc: 'Export entities to JSON array',
         args: ['entityRefs', 'dump'],
+        paramNames: ['entities', 'columns'],
+        tsParamTypes: [undefined, 'string[]'],
+        tsReturn: 'Record<string, unknown>[]',
         call: (sdk, args) => {
           return sdk.export.json(
             args[0] as EntityRef[],

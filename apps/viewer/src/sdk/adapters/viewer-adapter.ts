@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import type { EntityRef, SectionPlane, CameraState } from '@ifc-lite/sdk';
-import type { Adapter, StoreApi } from './types.js';
+import type { EntityRef, SectionPlane, CameraState, ViewerBackendMethods, RGBAColor } from '@ifc-lite/sdk';
+import type { StoreApi } from './types.js';
 import { getModelForRef } from './model-compat.js';
 
 const AXIS_TO_STORE: Record<string, 'down' | 'front' | 'side'> = {
@@ -17,7 +17,7 @@ const STORE_TO_AXIS: Record<string, 'x' | 'y' | 'z'> = {
   front: 'z',
 };
 
-export function createViewerAdapter(store: StoreApi): Adapter {
+export function createViewerAdapter(store: StoreApi): ViewerBackendMethods {
   return {
     colorize(refs: EntityRef[], color: [number, number, number, number]) {
       const state = store.getState();

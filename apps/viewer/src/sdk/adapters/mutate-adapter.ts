@@ -2,10 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import type { EntityRef } from '@ifc-lite/sdk';
-import type { Adapter, StoreApi } from './types.js';
+import type { EntityRef, MutateBackendMethods } from '@ifc-lite/sdk';
+import type { StoreApi } from './types.js';
 
-export function createMutateAdapter(store: StoreApi): Adapter {
+export function createMutateAdapter(store: StoreApi): MutateBackendMethods {
   return {
     setProperty(ref: EntityRef, psetName: string, propName: string, value: string | number | boolean) {
       const state = store.getState();

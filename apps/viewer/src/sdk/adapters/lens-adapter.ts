@@ -2,7 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import type { Adapter, StoreApi } from './types.js';
+import type { LensBackendMethods } from '@ifc-lite/sdk';
+import type { StoreApi } from './types.js';
 import { BUILTIN_LENSES } from '@ifc-lite/lens';
 
 /** Type guard for lens config object */
@@ -10,7 +11,7 @@ function isLensConfig(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
 
-export function createLensAdapter(store: StoreApi): Adapter {
+export function createLensAdapter(store: StoreApi): LensBackendMethods {
   return {
     presets() {
       return BUILTIN_LENSES;

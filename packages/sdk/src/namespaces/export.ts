@@ -47,13 +47,13 @@ export class ExportNamespace {
 
     // Data rows
     for (const ref of refs) {
-      const data = this.backend.dispatch('query', 'entityData', [ref]) as EntityData | null;
+      const data = this.backend.query.entityData(ref);
       if (!data) continue;
 
       // Fetch properties once per entity (not per column)
       let psets: PropertySetData[] | null = null;
       if (hasPropertyColumns) {
-        psets = this.backend.dispatch('query', 'properties', [ref]) as PropertySetData[];
+        psets = this.backend.query.properties(ref);
       }
 
       const row: string[] = [];
@@ -85,7 +85,7 @@ export class ExportNamespace {
 
     // Trigger browser download if filename specified
     if (options.filename) {
-      this.backend.dispatch('export', 'download', [csvString, options.filename, 'text/csv;charset=utf-8;']);
+      this.backend.export.download(csvString, options.filename, 'text/csv;charset=utf-8;');
     }
 
     return csvString;
@@ -100,13 +100,13 @@ export class ExportNamespace {
     const hasPropertyColumns = columns.some(c => c.indexOf('.') > 0);
 
     for (const ref of refs) {
-      const data = this.backend.dispatch('query', 'entityData', [ref]) as EntityData | null;
+      const data = this.backend.query.entityData(ref);
       if (!data) continue;
 
       // Fetch properties once per entity (not per column)
       let psets: PropertySetData[] | null = null;
       if (hasPropertyColumns) {
-        psets = this.backend.dispatch('query', 'properties', [ref]) as PropertySetData[];
+        psets = this.backend.query.properties(ref);
       }
 
       const row: Record<string, unknown> = {};

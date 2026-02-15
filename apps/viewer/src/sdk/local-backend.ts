@@ -6,12 +6,23 @@
  * LocalBackend — implements BimBackend via per-namespace adapters.
  *
  * This is the viewer's internal backend: zero serialization overhead.
- * Each namespace is a plain object with named methods — no switch/dispatch.
- * LocalBackend routes via adapter[method](...args).
+ * Each namespace is a typed property with named methods.
  */
 
-import type { BimBackend, BimEventType } from '@ifc-lite/sdk';
-import type { Adapter, StoreApi } from './adapters/types.js';
+import type {
+  BimBackend,
+  BimEventType,
+  ModelBackendMethods,
+  QueryBackendMethods,
+  SelectionBackendMethods,
+  VisibilityBackendMethods,
+  ViewerBackendMethods,
+  MutateBackendMethods,
+  SpatialBackendMethods,
+  ExportBackendMethods,
+  LensBackendMethods,
+} from '@ifc-lite/sdk';
+import type { StoreApi } from './adapters/types.js';
 import { LEGACY_MODEL_ID } from './adapters/model-compat.js';
 import { createModelAdapter } from './adapters/model-adapter.js';
 import { createQueryAdapter } from './adapters/query-adapter.js';
@@ -24,34 +35,29 @@ import { createLensAdapter } from './adapters/lens-adapter.js';
 import { createExportAdapter } from './adapters/export-adapter.js';
 
 export class LocalBackend implements BimBackend {
-  private adapters: Record<string, Adapter>;
+  readonly model: ModelBackendMethods;
+  readonly query: QueryBackendMethods;
+  readonly selection: SelectionBackendMethods;
+  readonly visibility: VisibilityBackendMethods;
+  readonly viewer: ViewerBackendMethods;
+  readonly mutate: MutateBackendMethods;
+  readonly spatial: SpatialBackendMethods;
+  readonly export: ExportBackendMethods;
+  readonly lens: LensBackendMethods;
+
   private store: StoreApi;
 
   constructor(store: StoreApi) {
     this.store = store;
-    this.adapters = {
-      model: createModelAdapter(store),
-      query: createQueryAdapter(store),
-      selection: createSelectionAdapter(store),
-      visibility: createVisibilityAdapter(store),
-      viewer: createViewerAdapter(store),
-      mutate: createMutateAdapter(store),
-      spatial: createSpatialAdapter(store),
-      lens: createLensAdapter(store),
-      export: createExportAdapter(store),
-    };
-  }
-
-  dispatch(namespace: string, method: string, args: unknown[]): unknown {
-    const adapter = this.adapters[namespace];
-    if (!adapter) {
-      throw new Error(`LocalBackend: Unknown namespace '${namespace}'`);
-    }
-    const fn = adapter[method];
-    if (typeof fn !== 'function') {
-      throw new Error(`LocalBackend: Unknown method '${namespace}.${method}'`);
-    }
-    return fn(...args);
+    this.model = createModelAdapter(store);
+    this.query = createQueryAdapter(store);
+    this.selection = createSelectionAdapter(store);
+    this.visibility = createVisibilityAdapter(store);
+    this.viewer = createViewerAdapter(store);
+    this.mutate = createMutateAdapter(store);
+    this.spatial = createSpatialAdapter(store);
+    this.lens = createLensAdapter(store);
+    this.export = createExportAdapter(store);
   }
 
   subscribe(event: BimEventType, handler: (data: unknown) => void): () => void {
