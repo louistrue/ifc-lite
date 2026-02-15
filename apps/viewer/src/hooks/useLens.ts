@@ -24,6 +24,7 @@
 
 import { useEffect, useRef, useMemo } from 'react';
 import { evaluateLens, evaluateAutoColorLens, rgbaToHex, isGhostColor } from '@ifc-lite/lens';
+import type { AutoColorEvaluationResult } from '@ifc-lite/lens';
 import { useViewerStore } from '@/store';
 import { createLensDataProvider } from '@/lib/lens';
 import { useLensDiscovery } from './useLensDiscovery';
@@ -95,7 +96,7 @@ export function useLens() {
 
     // Store auto-color legend entries for UI display
     if (isAutoColor && 'legend' in result) {
-      useViewerStore.getState().setLensAutoColorLegend(result.legend);
+      useViewerStore.getState().setLensAutoColorLegend((result as AutoColorEvaluationResult).legend);
     } else {
       useViewerStore.getState().setLensAutoColorLegend([]);
     }

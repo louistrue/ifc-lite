@@ -18,11 +18,11 @@ import type { StateCreator } from 'zustand';
 import type { EntityRef } from '../types.js';
 import { entityRefToString, stringToEntityRef } from '../types.js';
 
-/** Minimal interface for accessing isolation + models from the combined store */
-interface CombinedStoreAccess {
-  isolatedEntities?: Set<number> | null;
-  hiddenEntities?: Set<number>;
-  models?: Map<string, { idOffset: number }>;
+/** Cross-slice state that pinboard reads/writes via the combined store */
+interface PinboardCrossSliceState {
+  isolatedEntities: Set<number> | null;
+  hiddenEntities: Set<number>;
+  models: Map<string, { idOffset: number }>;
 }
 
 export interface PinboardSlice {
@@ -62,29 +62,30 @@ export interface PinboardSlice {
 /** Convert basket EntityRefs to global IDs using model offsets */
 function basketToGlobalIds(
   basketEntities: Set<string>,
-  models?: Map<string, { idOffset: number }>,
+  models: Map<string, { idOffset: number }>,
 ): Set<number> {
   const globalIds = new Set<number>();
   for (const str of basketEntities) {
     const ref = stringToEntityRef(str);
-    if (models) {
-      const model = models.get(ref.modelId);
-      const offset = model?.idOffset ?? 0;
-      globalIds.add(ref.expressId + offset);
-    } else {
-      globalIds.add(ref.expressId);
-    }
+    const model = models.get(ref.modelId);
+    const offset = model?.idOffset ?? 0;
+    globalIds.add(ref.expressId + offset);
   }
   return globalIds;
 }
 
 /** Compute a single EntityRef's global ID */
-function refToGlobalId(ref: EntityRef, models?: Map<string, { idOffset: number }>): number {
-  const model = models?.get(ref.modelId);
+function refToGlobalId(ref: EntityRef, models: Map<string, { idOffset: number }>): number {
+  const model = models.get(ref.modelId);
   return ref.expressId + (model?.idOffset ?? 0);
 }
 
-export const createPinboardSlice: StateCreator<PinboardSlice, [], [], PinboardSlice> = (set, get) => ({
+export const createPinboardSlice: StateCreator<
+  PinboardSlice & PinboardCrossSliceState,
+  [],
+  [],
+  PinboardSlice
+> = (set, get) => ({
   // Initial state
   pinboardEntities: new Set(),
 
@@ -95,12 +96,11 @@ export const createPinboardSlice: StateCreator<PinboardSlice, [], [], PinboardSl
       for (const ref of refs) {
         next.add(entityRefToString(ref));
       }
-      const store = state as unknown as CombinedStoreAccess;
-      const isolatedEntities = basketToGlobalIds(next, store.models);
-      const hiddenEntities = new Set<number>(store.hiddenEntities ?? []);
+      const isolatedEntities = basketToGlobalIds(next, state.models);
+      const hiddenEntities = new Set<number>(state.hiddenEntities);
       // Unhide any entities being added to basket
       for (const ref of refs) {
-        const model = store.models?.get(ref.modelId);
+        const model = state.models.get(ref.modelId);
         const offset = model?.idOffset ?? 0;
         hiddenEntities.delete(ref.expressId + offset);
       }
@@ -117,8 +117,7 @@ export const createPinboardSlice: StateCreator<PinboardSlice, [], [], PinboardSl
       if (next.size === 0) {
         return { pinboardEntities: next, isolatedEntities: null };
       }
-      const store = state as unknown as CombinedStoreAccess;
-      const isolatedEntities = basketToGlobalIds(next, store.models);
+      const isolatedEntities = basketToGlobalIds(next, state.models);
       return { pinboardEntities: next, isolatedEntities };
     });
   },
@@ -132,15 +131,15 @@ export const createPinboardSlice: StateCreator<PinboardSlice, [], [], PinboardSl
       set({ pinboardEntities: next, isolatedEntities: null });
       return;
     }
-    const store = get() as unknown as CombinedStoreAccess;
-    const hiddenEntities = new Set<number>(store.hiddenEntities ?? []);
+    const s = get();
+    const hiddenEntities = new Set<number>(s.hiddenEntities);
     // Unhide basket entities
     for (const ref of refs) {
-      const model = store.models?.get(ref.modelId);
+      const model = s.models.get(ref.modelId);
       const offset = model?.idOffset ?? 0;
       hiddenEntities.delete(ref.expressId + offset);
     }
-    const isolatedEntities = basketToGlobalIds(next, store.models);
+    const isolatedEntities = basketToGlobalIds(next, s.models);
     set({ pinboardEntities: next, isolatedEntities, hiddenEntities });
   },
 
@@ -149,8 +148,7 @@ export const createPinboardSlice: StateCreator<PinboardSlice, [], [], PinboardSl
   showPinboard: () => {
     const state = get();
     if (state.pinboardEntities.size === 0) return;
-    const store = state as unknown as CombinedStoreAccess;
-    const isolatedEntities = basketToGlobalIds(state.pinboardEntities, store.models);
+    const isolatedEntities = basketToGlobalIds(state.pinboardEntities, state.models);
     set({ isolatedEntities });
   },
 
@@ -181,15 +179,15 @@ export const createPinboardSlice: StateCreator<PinboardSlice, [], [], PinboardSl
     for (const ref of refs) {
       next.add(entityRefToString(ref));
     }
-    const store = get() as unknown as CombinedStoreAccess;
-    const hiddenEntities = new Set<number>(store.hiddenEntities ?? []);
+    const s = get();
+    const hiddenEntities = new Set<number>(s.hiddenEntities);
     // Unhide basket entities
     for (const ref of refs) {
-      const model = store.models?.get(ref.modelId);
+      const model = s.models.get(ref.modelId);
       const offset = model?.idOffset ?? 0;
       hiddenEntities.delete(ref.expressId + offset);
     }
-    const isolatedEntities = basketToGlobalIds(next, store.models);
+    const isolatedEntities = basketToGlobalIds(next, s.models);
     set({ pinboardEntities: next, isolatedEntities, hiddenEntities });
   },
 
@@ -201,13 +199,12 @@ export const createPinboardSlice: StateCreator<PinboardSlice, [], [], PinboardSl
       for (const ref of refs) {
         next.add(entityRefToString(ref));
       }
-      const store = state as unknown as CombinedStoreAccess;
-      const hiddenEntities = new Set<number>(store.hiddenEntities ?? []);
+      const hiddenEntities = new Set<number>(state.hiddenEntities);
       // Incrementally add new globalIds to existing isolation set instead of re-parsing all
-      const prevIsolated = store.isolatedEntities;
-      const isolatedEntities = prevIsolated ? new Set<number>(prevIsolated) : basketToGlobalIds(state.pinboardEntities, store.models);
+      const prevIsolated = state.isolatedEntities;
+      const isolatedEntities = prevIsolated ? new Set<number>(prevIsolated) : basketToGlobalIds(state.pinboardEntities, state.models);
       for (const ref of refs) {
-        const gid = refToGlobalId(ref, store.models);
+        const gid = refToGlobalId(ref, state.models);
         isolatedEntities.add(gid);
         hiddenEntities.delete(gid);
       }
@@ -226,18 +223,17 @@ export const createPinboardSlice: StateCreator<PinboardSlice, [], [], PinboardSl
       if (next.size === 0) {
         return { pinboardEntities: next, isolatedEntities: null };
       }
-      const store = state as unknown as CombinedStoreAccess;
       // Incrementally remove globalIds from existing isolation set instead of re-parsing all
-      const prevIsolated = store.isolatedEntities;
+      const prevIsolated = state.isolatedEntities;
       if (prevIsolated) {
         const isolatedEntities = new Set<number>(prevIsolated);
         for (const ref of refs) {
-          isolatedEntities.delete(refToGlobalId(ref, store.models));
+          isolatedEntities.delete(refToGlobalId(ref, state.models));
         }
         return { pinboardEntities: next, isolatedEntities };
       }
       // Fallback: full recompute if no existing isolation set
-      const isolatedEntities = basketToGlobalIds(next, store.models);
+      const isolatedEntities = basketToGlobalIds(next, state.models);
       return { pinboardEntities: next, isolatedEntities };
     });
   },

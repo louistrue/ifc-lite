@@ -66,6 +66,7 @@ import { BulkPropertyEditor } from './BulkPropertyEditor';
 import { DataConnector } from './DataConnector';
 import { ExportChangesButton } from './ExportChangesButton';
 import { useFloorplanView } from '@/hooks/useFloorplanView';
+import { recordRecentFiles } from '@/lib/recent-files';
 
 type Tool = 'select' | 'pan' | 'orbit' | 'walk' | 'measure' | 'section';
 
@@ -233,6 +234,9 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     );
 
     if (supportedFiles.length === 0) return;
+
+    // Track recently opened files
+    recordRecentFiles(supportedFiles.map(f => ({ name: f.name, size: f.size })));
 
     if (supportedFiles.length === 1) {
       // Single file - use loadFile (simpler single-model path)
@@ -475,6 +479,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     <div className="flex items-center gap-1 px-2 h-12 border-b bg-white dark:bg-black border-zinc-200 dark:border-zinc-800 relative z-50">
       {/* ── File Operations ── */}
       <input
+        id="file-input-open"
         ref={fileInputRef}
         type="file"
         accept=".ifc,.ifcx,.glb"
@@ -684,6 +689,8 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
             size="icon-sm"
             onClick={(e) => {
               (e.currentTarget as HTMLButtonElement).blur();
+              // Close script panel (bottom-panel exclusivity)
+              useViewerStore.getState().setScriptPanelVisible(false);
               if (!listPanelVisible) {
                 setRightPanelCollapsed(false);
               }

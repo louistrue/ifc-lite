@@ -117,7 +117,7 @@ export class LocalBackend implements BimBackend {
 
       case 'mutation:changed':
         return this.store.subscribe((state, prev) => {
-          if (state.mutationHistory !== prev.mutationHistory) {
+          if (state.mutationVersion !== prev.mutationVersion) {
             handler({});
           }
         });

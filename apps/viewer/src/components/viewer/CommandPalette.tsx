@@ -52,6 +52,8 @@ import {
   Sun,
   Info,
   Orbit,
+  FolderOpen,
+  Clock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useViewerStore, stringToEntityRef } from '@/store';
@@ -59,11 +61,14 @@ import type { EntityRef } from '@/store';
 import { useSandbox } from '@/hooks/useSandbox';
 import { SCRIPT_TEMPLATES } from '@/lib/scripts/templates';
 import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
+import { getRecentFiles, formatFileSize } from '@/lib/recent-files';
+import type { RecentFileEntry } from '@/lib/recent-files';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
 type Category =
   | 'Recent'
+  | 'File'
   | 'View'
   | 'Tools'
   | 'Visibility'
@@ -79,6 +84,7 @@ interface Command {
   category: Exclude<Category, 'Recent'>;
   icon: React.ElementType;
   shortcut?: string;
+  detail?: string;            // subtle secondary text (e.g. file size)
   action: () => void;
 }
 
@@ -92,7 +98,7 @@ interface FlatItem {
 const RECENT_KEY = 'ifc-lite:cmd-palette:recent';
 const MAX_RECENT = 5;
 const CATEGORY_ORDER: Category[] = [
-  'Recent', 'View', 'Tools', 'Visibility', 'Panels', 'Export', 'Automation', 'Preferences',
+  'Recent', 'File', 'View', 'Tools', 'Visibility', 'Panels', 'Export', 'Automation', 'Preferences',
 ];
 
 // ── Search scoring ─────────────────────────────────────────────────────
@@ -207,6 +213,23 @@ function activateRightPanel(panel: 'bcf' | 'ids' | 'lens') {
   // If was active → all closed → falls back to Properties
 }
 
+/** Exclusively activate a bottom panel (Script / List).
+ *  Closes the other first so the if-else chain in ViewerLayout renders it.
+ *  If the target is already active, closes it. */
+function activateBottomPanel(panel: 'script' | 'list') {
+  const s = useViewerStore.getState();
+  const isActive = panel === 'script' ? s.scriptPanelVisible : s.listPanelVisible;
+
+  // Close all bottom panels
+  s.setScriptPanelVisible(false);
+  s.setListPanelVisible(false);
+
+  if (!isActive) {
+    if (panel === 'script') s.setScriptPanelVisible(true);
+    else s.setListPanelVisible(true);
+  }
+}
+
 // ── Component ──────────────────────────────────────────────────────────
 
 interface CommandPaletteProps {
@@ -218,6 +241,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [recentIds, setRecentIds] = useState<string[]>([]);
+  const [recentFiles, setRecentFiles] = useState<RecentFileEntry[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const navigatedByKeyboard = useRef(false);
@@ -227,6 +251,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   useEffect(() => {
     if (open) {
       setRecentIds(getRecentIds());
+      setRecentFiles(getRecentFiles());
       setQuery('');
       requestAnimationFrame(() => inputRef.current?.focus());
     }
@@ -235,6 +260,27 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   // ── Command definitions ──
   const commands = useMemo<Command[]>(() => {
     const c: Command[] = [];
+
+    // ── File ──
+    c.push(
+      { id: 'file:open', label: 'Open File', keywords: 'ifc ifcx glb load model browse', category: 'File', icon: FolderOpen,
+        action: () => {
+          const input = document.getElementById('file-input-open') as HTMLInputElement | null;
+          if (input) input.click();
+        } },
+    );
+    for (const rf of recentFiles) {
+      c.push({
+        id: `file:recent:${rf.name}`, label: rf.name,
+        keywords: `recent open ${formatFileSize(rf.size)}`,
+        category: 'File', icon: Clock,
+        detail: formatFileSize(rf.size),
+        action: () => {
+          const input = document.getElementById('file-input-open') as HTMLInputElement | null;
+          if (input) input.click();
+        },
+      });
+    }
 
     // ── View ──
     c.push(
@@ -315,13 +361,13 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       { id: 'panel:tree', label: 'Spatial Tree', keywords: 'hierarchy left panel', category: 'Panels', icon: TreeDeciduous,
         action: () => { const s = useViewerStore.getState(); s.setLeftPanelCollapsed(!s.leftPanelCollapsed); } },
       { id: 'panel:script', label: 'Script Editor', keywords: 'code automation console', category: 'Panels', icon: FileCode2,
-        action: () => { useViewerStore.getState().toggleScriptPanel(); } },
+        action: () => { activateBottomPanel('script'); } },
       { id: 'panel:bcf', label: 'BCF Issues', keywords: 'collaboration topics comments viewpoint', category: 'Panels', icon: MessageSquare,
         action: () => { activateRightPanel('bcf'); } },
       { id: 'panel:ids', label: 'IDS Validation', keywords: 'information delivery specification check', category: 'Panels', icon: ClipboardCheck,
         action: () => { activateRightPanel('ids'); } },
       { id: 'panel:lists', label: 'Entity Lists', keywords: 'table spreadsheet schedule', category: 'Panels', icon: FileSpreadsheet,
-        action: () => { useViewerStore.getState().toggleListPanel(); } },
+        action: () => { activateBottomPanel('list'); } },
       { id: 'panel:lens', label: 'Lens Rules', keywords: 'color filter highlight', category: 'Panels', icon: Palette,
         action: () => { activateRightPanel('lens'); } },
     );
@@ -365,7 +411,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       c.push({
         id: `auto:${t.name}`, label: t.name, keywords: `script run ${t.description}`,
         category: 'Automation', icon: Play,
-        action: () => { const s = useViewerStore.getState(); s.setScriptPanelVisible(true); s.setScriptEditorContent(t.code); execute(t.code); },
+        action: () => { const s = useViewerStore.getState(); s.setListPanelVisible(false); s.setScriptPanelVisible(true); s.setScriptEditorContent(t.code); execute(t.code); },
       });
     }
 
@@ -378,7 +424,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     );
 
     return c;
-  }, [execute]);
+  }, [execute, recentFiles]);
 
   // ── Search: score, filter, sort ──
   // When searching, results are FLAT sorted by relevance — no category grouping.
@@ -515,6 +561,9 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                   >
                     <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
                     <span className="flex-1 truncate">{cmd.label}</span>
+                    {cmd.detail && (
+                      <span className="text-[11px] text-muted-foreground shrink-0">{cmd.detail}</span>
+                    )}
                     {cmd.shortcut && (
                       <kbd className="ml-auto hidden sm:inline-flex h-5 min-w-[20px] items-center justify-center rounded border bg-muted px-1.5 text-[10px] font-medium text-muted-foreground shrink-0">
                         {cmd.shortcut}
