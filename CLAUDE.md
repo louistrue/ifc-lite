@@ -24,6 +24,54 @@ ifc-lite is a high-performance IFC (Industry Foundation Classes) platform for BI
 
 ## Critical Standards
 
+### IFC Schema Compliance is MANDATORY
+
+This project works with the IFC (Industry Foundation Classes) standard. **All user-facing APIs, scripting interfaces, and data exports MUST use correct IFC schema nomenclature.** Never invent simplified names or deviate from the IFC EXPRESS specification.
+
+**Entity Attributes — PascalCase per IFC EXPRESS:**
+- `GlobalId` (not `globalId`) — `IfcGloballyUniqueId`
+- `Name` (not `name`) — `IfcLabel`
+- `Description` (not `description`) — `IfcText`
+- `ObjectType` (not `objectType`) — `IfcLabel`
+- `Type` — the IFC entity type name (e.g. `IfcWall`, `IfcBuildingStorey`)
+
+The `EntityProxy` class exposes both PascalCase (primary, IFC-compliant) and camelCase (legacy) getters. Always prefer PascalCase in new code, scripts, templates, and documentation.
+
+**Relationship Entities — use full IFC names:**
+- `IfcRelContainedInSpatialStructure` (not `ContainsElements`)
+- `IfcRelAggregates` (not `Aggregates`)
+- `IfcRelDefinesByType` (not `DefinesByType`)
+- `IfcRelDefinesByProperties` (not `DefinesByProperties`)
+- `IfcRelVoidsElement` (not `VoidsElement`)
+- `IfcRelFillsElement` (not `FillsElement`)
+- `IfcRelAssociatesMaterial`, `IfcRelAssociatesClassification`, etc.
+
+**Entity Type Names — PascalCase with Ifc prefix:**
+- `IfcWall`, `IfcWallStandardCase`, `IfcBeam`, `IfcColumn`, `IfcSlab`, etc.
+- Internal storage uses UPPERCASE (`IFCWALLSTANDARDCASE`) — always convert for display
+
+**Property/Quantity Sets — use standard Pset_/Qto_ prefixes:**
+- `Pset_WallCommon`, `Pset_DoorCommon`, etc.
+- `Qto_WallBaseQuantities`, `Qto_SlabBaseQuantities`, etc.
+
+**Architecture: Internal vs. User-Facing naming:**
+- `EntityData` interface uses camelCase internally (TypeScript convention, 170+ consumers)
+- `EntityProxy` and script bridge expose IFC PascalCase names at the user boundary
+- Export columns accept both `Name` and `name` (PascalCase preferred, camelCase for backward compat)
+- Relationship type strings in the SDK wire protocol use full IFC names (e.g. `IfcRelAggregates`)
+
+```typescript
+// BAD — non-compliant simplified names
+const refs = dispatch('query', 'related', [ref, 'Aggregates', 'forward']);
+entity.name  // legacy, acceptable internally
+columns: ['name', 'type', 'globalId']  // legacy
+
+// GOOD — IFC schema compliant
+const refs = dispatch('query', 'related', [ref, 'IfcRelAggregates', 'forward']);
+entity.Name  // IFC PascalCase — preferred
+columns: ['Name', 'Type', 'GlobalId']  // IFC PascalCase
+```
+
 ### Performance is NON-NEGOTIABLE
 
 This is a performance-critical application. Users load models with millions of triangles and thousands of entities. Every millisecond matters.

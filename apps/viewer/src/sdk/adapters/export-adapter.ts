@@ -111,15 +111,16 @@ export function createExportAdapter(store: StoreApi): NamespaceAdapter {
     }));
   }
 
-  /** Resolve a single column value from entity data + properties */
+  /** Resolve a single column value from entity data + properties.
+   * Accepts both IFC PascalCase (Name, GlobalId) and legacy camelCase (name, globalId). */
   function resolveColumnValue(data: EntityData, col: string, getProps: () => PropertySetData[]): string {
-    // Standard entity attributes
+    // IFC schema attribute names (PascalCase) + legacy camelCase
     switch (col) {
-      case 'name': return data.name;
-      case 'type': return data.type;
-      case 'globalId': return data.globalId;
-      case 'description': return data.description;
-      case 'objectType': return data.objectType;
+      case 'Name': case 'name': return data.name;
+      case 'Type': case 'type': return data.type;
+      case 'GlobalId': case 'globalId': return data.globalId;
+      case 'Description': case 'description': return data.description;
+      case 'ObjectType': case 'objectType': return data.objectType;
       case 'modelId': return data.ref.modelId;
       case 'expressId': return String(data.ref.expressId);
     }

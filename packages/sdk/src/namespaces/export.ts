@@ -58,11 +58,12 @@ export class ExportNamespace {
 
       const row: string[] = [];
       for (const col of options.columns) {
-        if (col === 'name') { row.push(data.name); continue; }
-        if (col === 'type') { row.push(data.type); continue; }
-        if (col === 'globalId') { row.push(data.globalId); continue; }
-        if (col === 'description') { row.push(data.description); continue; }
-        if (col === 'objectType') { row.push(data.objectType); continue; }
+        // IFC PascalCase attribute names (per IFC EXPRESS schema) — also accept legacy camelCase
+        if (col === 'Name' || col === 'name') { row.push(data.name); continue; }
+        if (col === 'Type' || col === 'type') { row.push(data.type); continue; }
+        if (col === 'GlobalId' || col === 'globalId') { row.push(data.globalId); continue; }
+        if (col === 'Description' || col === 'description') { row.push(data.description); continue; }
+        if (col === 'ObjectType' || col === 'objectType') { row.push(data.objectType); continue; }
 
         // Property path: "PsetName.PropertyName"
         const dotIdx = col.indexOf('.');
@@ -110,11 +111,12 @@ export class ExportNamespace {
 
       const row: Record<string, unknown> = {};
       for (const col of columns) {
-        if (col === 'name') { row[col] = data.name; continue; }
-        if (col === 'type') { row[col] = data.type; continue; }
-        if (col === 'globalId') { row[col] = data.globalId; continue; }
-        if (col === 'description') { row[col] = data.description; continue; }
-        if (col === 'objectType') { row[col] = data.objectType; continue; }
+        // IFC PascalCase attribute names (per IFC EXPRESS schema) — also accept legacy camelCase
+        if (col === 'Name' || col === 'name') { row[col] = data.name; continue; }
+        if (col === 'Type' || col === 'type') { row[col] = data.type; continue; }
+        if (col === 'GlobalId' || col === 'globalId') { row[col] = data.globalId; continue; }
+        if (col === 'Description' || col === 'description') { row[col] = data.description; continue; }
+        if (col === 'ObjectType' || col === 'objectType') { row[col] = data.objectType; continue; }
 
         const dotIdx = col.indexOf('.');
         if (dotIdx > 0 && psets) {

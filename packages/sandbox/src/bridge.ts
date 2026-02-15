@@ -77,7 +77,7 @@ function buildConsole(vm: QuickJSContext, logs: LogEntry[]): void {
 function buildQueryNamespace(vm: QuickJSContext, bimHandle: QuickJSHandle, sdk: BimContext): void {
   const ns = vm.newObject();
 
-  // bim.query.byType(type) → EntityData[]
+  // bim.query.byType(type) → entity objects with IFC PascalCase attribute names
   const byTypeFn = vm.newFunction('byType', (...args: QuickJSHandle[]) => {
     const types = args.map(a => vm.getString(a));
     const builder = sdk.query();
@@ -87,23 +87,23 @@ function buildQueryNamespace(vm: QuickJSContext, bimHandle: QuickJSHandle, sdk: 
     const entities = builder.toArray();
     const data = entities.map(e => ({
       ref: e.ref,
-      globalId: e.globalId,
-      name: e.name,
-      type: e.type,
+      GlobalId: e.GlobalId,
+      Name: e.Name,
+      Type: e.Type,
     }));
     return marshalValue(vm, data);
   });
   vm.setProp(ns, 'byType', byTypeFn);
   byTypeFn.dispose();
 
-  // bim.query.all() → EntityData[]
+  // bim.query.all() → entity objects with IFC PascalCase attribute names
   const allFn = vm.newFunction('all', () => {
     const entities = sdk.query().toArray();
     const data = entities.map(e => ({
       ref: e.ref,
-      globalId: e.globalId,
-      name: e.name,
-      type: e.type,
+      GlobalId: e.GlobalId,
+      Name: e.Name,
+      Type: e.Type,
     }));
     return marshalValue(vm, data);
   });
@@ -120,13 +120,13 @@ function buildQueryNamespace(vm: QuickJSContext, bimHandle: QuickJSHandle, sdk: 
     // Build an entity object with lazy methods
     const entityObj = vm.newObject();
 
-    // Static data
+    // Static data — IFC PascalCase attribute names per IFC EXPRESS schema
     const fields: [string, string | number][] = [
       ['modelId', entity.modelId],
       ['expressId', entity.expressId],
-      ['globalId', entity.globalId],
-      ['name', entity.name],
-      ['type', entity.type],
+      ['GlobalId', entity.GlobalId],
+      ['Name', entity.Name],
+      ['Type', entity.Type],
     ];
     for (const [key, value] of fields) {
       const handle = typeof value === 'number' ? vm.newNumber(value) : vm.newString(value);

@@ -181,18 +181,21 @@ function bimCompletions(context: CompletionContext): CompletionResult | null {
     }
   }
 
-  // Entity proxy completions (works on any variable)
-  if (text.endsWith('.properties') || text.endsWith('.property') || text.endsWith('.quantities') || text.endsWith('.quantity')) {
+  // Entity proxy completions — IFC PascalCase attribute names per IFC EXPRESS schema
+  if (text.endsWith('.properties') || text.endsWith('.property') || text.endsWith('.quantities') || text.endsWith('.quantity')
+    || text.endsWith('.Name') || text.endsWith('.Type') || text.endsWith('.GlobalId') || text.endsWith('.Description') || text.endsWith('.ObjectType')) {
     return {
       from: word.from + text.lastIndexOf('.') + 1,
       options: [
-        { label: 'properties()', type: 'function', detail: 'Get all property sets' },
-        { label: 'property(', type: 'function', detail: "Get a property e.g. 'Pset', 'Name'" },
-        { label: 'quantities()', type: 'function', detail: 'Get all quantity sets' },
-        { label: 'quantity(', type: 'function', detail: "Get a quantity e.g. 'Qto', 'Length'" },
-        { label: 'name', type: 'property', detail: 'Entity name' },
-        { label: 'type', type: 'property', detail: 'IFC type name' },
-        { label: 'globalId', type: 'property', detail: 'IFC GlobalId' },
+        { label: 'properties()', type: 'function', detail: 'Get all IfcPropertySet data' },
+        { label: 'property(', type: 'function', detail: "Get a property e.g. 'Pset_WallCommon', 'IsExternal'" },
+        { label: 'quantities()', type: 'function', detail: 'Get all IfcElementQuantity data' },
+        { label: 'quantity(', type: 'function', detail: "Get a quantity e.g. 'Qto_WallBaseQuantities', 'Length'" },
+        { label: 'Name', type: 'property', detail: 'IFC Name attribute (IfcLabel)' },
+        { label: 'Type', type: 'property', detail: 'IFC entity type (e.g. IfcWall)' },
+        { label: 'GlobalId', type: 'property', detail: 'IFC GlobalId (IfcGloballyUniqueId)' },
+        { label: 'Description', type: 'property', detail: 'IFC Description attribute (IfcText)' },
+        { label: 'ObjectType', type: 'property', detail: 'IFC ObjectType attribute (IfcLabel)' },
         { label: 'ref', type: 'property', detail: 'Entity reference { modelId, expressId }' },
       ],
     };

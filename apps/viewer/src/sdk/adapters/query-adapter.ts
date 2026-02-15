@@ -14,12 +14,14 @@ import { EntityNode } from '@ifc-lite/query';
 import { RelationshipType } from '@ifc-lite/data';
 import { getModelForRef, getAllModelEntries } from './model-compat.js';
 
+/** Map IFC relationship entity names to internal RelationshipType enum.
+ * Keys use proper IFC schema names (e.g. IfcRelAggregates, not "Aggregates"). */
 const REL_TYPE_MAP: Record<string, RelationshipType> = {
-  ContainsElements: RelationshipType.ContainsElements,
-  Aggregates: RelationshipType.Aggregates,
-  DefinesByType: RelationshipType.DefinesByType,
-  VoidsElement: RelationshipType.VoidsElement,
-  FillsElement: RelationshipType.FillsElement,
+  IfcRelContainedInSpatialStructure: RelationshipType.ContainsElements,
+  IfcRelAggregates: RelationshipType.Aggregates,
+  IfcRelDefinesByType: RelationshipType.DefinesByType,
+  IfcRelVoidsElement: RelationshipType.VoidsElement,
+  IfcRelFillsElement: RelationshipType.FillsElement,
 };
 
 /**

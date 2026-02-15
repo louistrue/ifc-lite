@@ -31,6 +31,15 @@ export class EntityProxy {
   get ref(): EntityRef { return this._data.ref; }
   get modelId(): string { return this._data.ref.modelId; }
   get expressId(): number { return this._data.ref.expressId; }
+
+  // IFC schema attribute names (PascalCase per IFC EXPRESS specification)
+  get GlobalId(): string { return this._data.globalId; }
+  get Name(): string { return this._data.name; }
+  get Type(): string { return this._data.type; }
+  get Description(): string { return this._data.description; }
+  get ObjectType(): string { return this._data.objectType; }
+
+  // camelCase aliases for backward compatibility
   get globalId(): string { return this._data.globalId; }
   get name(): string { return this._data.name; }
   get type(): string { return this._data.type; }
@@ -71,45 +80,45 @@ export class EntityProxy {
     return qty?.value ?? null;
   }
 
-  /** Spatial containment — what contains this entity */
+  /** IfcRelContainedInSpatialStructure (inverse) — what spatial element contains this entity */
   containedIn(): EntityProxy | null {
-    const refs = this.backend.dispatch('query', 'related', [this.ref, 'ContainsElements', 'inverse']) as EntityRef[];
+    const refs = this.backend.dispatch('query', 'related', [this.ref, 'IfcRelContainedInSpatialStructure', 'inverse']) as EntityRef[];
     if (refs.length === 0) return null;
     const data = this.backend.dispatch('query', 'entityData', [refs[0]]) as EntityData | null;
     return data ? new EntityProxy(data, this.backend) : null;
   }
 
-  /** Spatial containment — what this entity contains */
+  /** IfcRelContainedInSpatialStructure (forward) — elements contained in this spatial element */
   contains(): EntityProxy[] {
-    const refs = this.backend.dispatch('query', 'related', [this.ref, 'ContainsElements', 'forward']) as EntityRef[];
+    const refs = this.backend.dispatch('query', 'related', [this.ref, 'IfcRelContainedInSpatialStructure', 'forward']) as EntityRef[];
     return this.refsToProxies(refs);
   }
 
-  /** Aggregation — parent */
+  /** IfcRelAggregates (inverse) — the whole that this entity is a part of */
   decomposedBy(): EntityProxy | null {
-    const refs = this.backend.dispatch('query', 'related', [this.ref, 'Aggregates', 'inverse']) as EntityRef[];
+    const refs = this.backend.dispatch('query', 'related', [this.ref, 'IfcRelAggregates', 'inverse']) as EntityRef[];
     if (refs.length === 0) return null;
     const data = this.backend.dispatch('query', 'entityData', [refs[0]]) as EntityData | null;
     return data ? new EntityProxy(data, this.backend) : null;
   }
 
-  /** Aggregation — children */
+  /** IfcRelAggregates (forward) — parts that this entity aggregates */
   decomposes(): EntityProxy[] {
-    const refs = this.backend.dispatch('query', 'related', [this.ref, 'Aggregates', 'forward']) as EntityRef[];
+    const refs = this.backend.dispatch('query', 'related', [this.ref, 'IfcRelAggregates', 'forward']) as EntityRef[];
     return this.refsToProxies(refs);
   }
 
-  /** Type definition */
+  /** IfcRelDefinesByType (forward) — the type object defining this entity */
   definingType(): EntityProxy | null {
-    const refs = this.backend.dispatch('query', 'related', [this.ref, 'DefinesByType', 'forward']) as EntityRef[];
+    const refs = this.backend.dispatch('query', 'related', [this.ref, 'IfcRelDefinesByType', 'forward']) as EntityRef[];
     if (refs.length === 0) return null;
     const data = this.backend.dispatch('query', 'entityData', [refs[0]]) as EntityData | null;
     return data ? new EntityProxy(data, this.backend) : null;
   }
 
-  /** Openings that void this element */
+  /** IfcRelVoidsElement (forward) — openings that void this element */
   voids(): EntityProxy[] {
-    const refs = this.backend.dispatch('query', 'related', [this.ref, 'VoidsElement', 'forward']) as EntityRef[];
+    const refs = this.backend.dispatch('query', 'related', [this.ref, 'IfcRelVoidsElement', 'forward']) as EntityRef[];
     return this.refsToProxies(refs);
   }
 

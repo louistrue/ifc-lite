@@ -3,7 +3,11 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 /**
- * Built-in script templates for the script editor
+ * Built-in script templates for the script editor.
+ *
+ * Entity objects from bim.query use IFC PascalCase attribute names:
+ *   e.Name, e.Type, e.GlobalId, e.ObjectType, e.Description
+ * (matches the IFC EXPRESS schema specification)
  */
 
 export interface ScriptTemplate {
@@ -27,7 +31,7 @@ for (const m of models) {
 const all = bim.query.all()
 const counts = {}
 for (const e of all) {
-  counts[e.type] = (counts[e.type] || 0) + 1
+  counts[e.Type] = (counts[e.Type] || 0) + 1
 }
 const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1])
 
@@ -63,8 +67,8 @@ const palette = [
 const all = bim.query.all()
 const groups = {}
 for (const e of all) {
-  if (!groups[e.type]) groups[e.type] = []
-  groups[e.type].push(e)
+  if (!groups[e.Type]) groups[e.Type] = []
+  groups[e.Type].push(e)
 }
 
 // Build batch colorize entries
@@ -114,7 +118,7 @@ if (walls.length > 0) {
   console.log('\\n=== Wall Details (first 5) ===')
   const sample = walls.slice(0, 5)
   for (const wall of sample) {
-    console.log('\\n' + (wall.name || 'Unnamed') + ' (' + wall.type + ')')
+    console.log('\\n' + (wall.Name || 'Unnamed') + ' (' + wall.Type + ')')
     const psets = bim.query.properties(wall)
     for (const pset of psets) {
       for (const p of pset.properties) {
@@ -202,9 +206,9 @@ if (entities.length === 0) {
 if (entities.length === 0) {
   console.log('No entities found')
 } else {
-  // Export basic attributes
+  // Export basic IFC attributes (PascalCase per IFC schema)
   const csv = bim.export.csv(entities, {
-    columns: ['name', 'type', 'globalId'],
+    columns: ['Name', 'Type', 'GlobalId'],
     filename: 'ifc-export.csv'
   })
   console.log('Exported ' + entities.length + ' ' + label + ' to ifc-export.csv')
@@ -214,7 +218,7 @@ if (entities.length === 0) {
   console.log('Name | Type | GlobalId')
   console.log('-'.repeat(60))
   for (const e of entities.slice(0, 10)) {
-    console.log((e.name || '-') + ' | ' + e.type + ' | ' + e.globalId)
+    console.log((e.Name || '-') + ' | ' + e.Type + ' | ' + e.GlobalId)
   }
   if (entities.length > 10) {
     console.log('... and ' + (entities.length - 10) + ' more')
@@ -234,7 +238,7 @@ if (entities.length === 0) {
   console.log('No ' + TARGET_TYPE + ' found. Available types:')
   const all = bim.query.all()
   const types = {}
-  for (const e of all) types[e.type] = (types[e.type] || 0) + 1
+  for (const e of all) types[e.Type] = (types[e.Type] || 0) + 1
   for (const [t, c] of Object.entries(types).sort((a, b) => b[1] - a[1])) {
     console.log('  ' + t + ': ' + c)
   }
@@ -245,7 +249,7 @@ if (entities.length === 0) {
   console.log('\\nNames:')
   const names = {}
   for (const e of entities) {
-    const key = e.name || 'Unnamed'
+    const key = e.Name || 'Unnamed'
     names[key] = (names[key] || 0) + 1
   }
   for (const [name, count] of Object.entries(names).sort((a, b) => b[1] - a[1])) {
@@ -265,7 +269,7 @@ if (doors.length === 0) {
   console.log('No doors found')
 } else {
   for (const door of doors) {
-    const label = door.name || door.objectType || 'Door'
+    const label = door.Name || door.ObjectType || 'Door'
     const qsets = bim.query.quantities(door)
     let dims = ''
     for (const qset of qsets) {
@@ -284,7 +288,7 @@ if (windows.length === 0) {
   console.log('No windows found')
 } else {
   for (const win of windows) {
-    const label = win.name || win.objectType || 'Window'
+    const label = win.Name || win.ObjectType || 'Window'
     const qsets = bim.query.quantities(win)
     let dims = ''
     for (const qset of qsets) {
