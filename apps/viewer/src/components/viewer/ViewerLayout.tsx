@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels';
+import type { PanelImperativeHandle } from 'react-resizable-panels';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { MainToolbar } from './MainToolbar';
 import { HierarchyPanel } from './HierarchyPanel';
@@ -64,6 +65,25 @@ export function ViewerLayout() {
   const setLensPanelVisible = useViewerStore((s) => s.setLensPanelVisible);
   const scriptPanelVisible = useViewerStore((s) => s.scriptPanelVisible);
   const setScriptPanelVisible = useViewerStore((s) => s.setScriptPanelVisible);
+
+  // Panel refs for programmatic collapse/expand (command palette, keyboard shortcuts)
+  const leftPanelRef = useRef<PanelImperativeHandle>(null);
+  const rightPanelRef = useRef<PanelImperativeHandle>(null);
+
+  // Sync store state → Panel collapse/expand on desktop
+  useEffect(() => {
+    const panel = leftPanelRef.current;
+    if (!panel) return;
+    if (leftPanelCollapsed && !panel.isCollapsed()) panel.collapse();
+    else if (!leftPanelCollapsed && panel.isCollapsed()) panel.expand();
+  }, [leftPanelCollapsed]);
+
+  useEffect(() => {
+    const panel = rightPanelRef.current;
+    if (!panel) return;
+    if (rightPanelCollapsed && !panel.isCollapsed()) panel.collapse();
+    else if (!rightPanelCollapsed && panel.isCollapsed()) panel.expand();
+  }, [rightPanelCollapsed]);
 
   // Bottom panel resize state (pixel height, persisted in ref to avoid re-renders during drag)
   const [bottomHeight, setBottomHeight] = useState(BOTTOM_PANEL_DEFAULT_HEIGHT);
@@ -165,6 +185,11 @@ export function ViewerLayout() {
                   minSize={10}
                   collapsible
                   collapsedSize={0}
+                  panelRef={leftPanelRef}
+                  onResize={() => {
+                    const collapsed = leftPanelRef.current?.isCollapsed() ?? false;
+                    if (collapsed !== leftPanelCollapsed) setLeftPanelCollapsed(collapsed);
+                  }}
                 >
                   <div className="h-full w-full overflow-hidden">
                     <HierarchyPanel />
@@ -189,6 +214,11 @@ export function ViewerLayout() {
                   minSize={15}
                   collapsible
                   collapsedSize={0}
+                  panelRef={rightPanelRef}
+                  onResize={() => {
+                    const collapsed = rightPanelRef.current?.isCollapsed() ?? false;
+                    if (collapsed !== rightPanelCollapsed) setRightPanelCollapsed(collapsed);
+                  }}
                 >
                   <div className="h-full w-full overflow-hidden">
                     {lensPanelVisible ? (
