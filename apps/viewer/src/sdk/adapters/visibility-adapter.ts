@@ -10,15 +10,31 @@ export function createVisibilityAdapter(store: StoreApi): Adapter {
   return {
     hide(refs: EntityRef[]) {
       const state = store.getState();
+      // Convert EntityRef to global IDs — the renderer subscribes to the flat
+      // hiddenEntities set (global IDs), not hiddenEntitiesByModel.
+      const globalIds: number[] = [];
       for (const ref of refs) {
-        state.hideEntityInModel?.(ref.modelId, ref.expressId);
+        const model = getModelForRef(state, ref.modelId);
+        if (model) {
+          globalIds.push(ref.expressId + model.idOffset);
+        }
+      }
+      if (globalIds.length > 0) {
+        state.hideEntities(globalIds);
       }
       return undefined;
     },
     show(refs: EntityRef[]) {
       const state = store.getState();
+      const globalIds: number[] = [];
       for (const ref of refs) {
-        state.showEntityInModel?.(ref.modelId, ref.expressId);
+        const model = getModelForRef(state, ref.modelId);
+        if (model) {
+          globalIds.push(ref.expressId + model.idOffset);
+        }
+      }
+      if (globalIds.length > 0) {
+        state.showEntities(globalIds);
       }
       return undefined;
     },
