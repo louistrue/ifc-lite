@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import { describe, it, expect } from 'vitest';
-import { transpileTypeScript } from './transpile.js';
+import { transpileTypeScript, naiveTypeStrip } from './transpile.js';
 
 describe('transpileTypeScript', () => {
   it('strips interface declarations', async () => {
@@ -75,5 +75,65 @@ const c = { name: 'test' };
     const result = await transpileTypeScript(code);
     expect(result).not.toContain('<string>');
     expect(result).toContain('foo()');
+  });
+});
+
+describe('naiveTypeStrip (fallback)', () => {
+  it('strips tuple type annotations: [string, number][]', () => {
+    const code = `const sorted: [string, number][] = Object.entries(counts)`;
+    const result = naiveTypeStrip(code);
+    expect(result).not.toContain('[string, number]');
+    expect(result).toContain('const sorted');
+    expect(result).toContain('= Object.entries(counts)');
+  });
+
+  it('strips complex tuple: [string, BimEntity[]][]', () => {
+    const code = `const sorted: [string, BimEntity[]][] = Object.entries(groups)`;
+    const result = naiveTypeStrip(code);
+    expect(result).not.toContain('[string, BimEntity');
+    expect(result).toContain('const sorted');
+    expect(result).toContain('= Object.entries(groups)');
+  });
+
+  it('strips Array<{ ... }> with semicolons inside', () => {
+    const code = `const batches: Array<{ entities: BimEntity[]; color: string }> = []`;
+    const result = naiveTypeStrip(code);
+    expect(result).not.toContain('Array<');
+    expect(result).not.toContain('BimEntity');
+    expect(result).toContain('const batches');
+    expect(result).toContain('= []');
+  });
+
+  it('strips Record<string, number> annotation', () => {
+    const code = `const counts: Record<string, number> = {}`;
+    const result = naiveTypeStrip(code);
+    expect(result).not.toContain('Record<');
+    expect(result).toContain('const counts');
+    expect(result).toContain('= {}');
+  });
+
+  it('strips uninitialized variable annotations', () => {
+    const code = `let scanned: number`;
+    const result = naiveTypeStrip(code);
+    expect(result).not.toContain(': number');
+    expect(result).toContain('let scanned');
+  });
+
+  it('handles multiple annotated variables in sequence', () => {
+    const code = [
+      `const a: string = 'hello'`,
+      `const b: [string, number][] = []`,
+      `const c: Array<{ x: number; y: string }> = []`,
+      `let d: number`,
+    ].join('\n');
+    const result = naiveTypeStrip(code);
+    expect(result).not.toContain(': string');
+    expect(result).not.toContain('[string, number]');
+    expect(result).not.toContain('Array<');
+    expect(result).not.toContain(': number');
+    expect(result).toContain(`const a = 'hello'`);
+    expect(result).toContain('const b = []');
+    expect(result).toContain('const c = []');
+    expect(result).toContain('let d');
   });
 });

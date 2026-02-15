@@ -5,44 +5,69 @@
 /**
  * TypeScript → JavaScript transpilation for the QuickJS sandbox.
  *
- * Strategy (two-tier, same as Node.js --experimental-strip-types):
- * 1. If esbuild is available (bundled in host app), use esbuild.transform()
- * 2. Fallback: regex-based type stripping for common patterns
+ * Strategy:
+ * 1. Use esbuild-wasm for full TypeScript support (lazy-loaded, ~10MB WASM)
+ * 2. Fallback: improved regex-based type stripping
  *
  * After transpilation, import/export statements are stripped since QuickJS
  * has no module system — scripts use the global `bim` object.
- *
- * Future: esbuild-wasm's build() API with a CDN resolver plugin would
- * enable npm package imports (e.g., import lodash from 'lodash').
  */
 
-/** Esbuild-compatible transform interface */
+// ============================================================================
+// esbuild-wasm (primary transpiler)
+// ============================================================================
+
 interface EsbuildLike {
+  initialize: (options: { wasmURL?: string; worker?: boolean }) => Promise<void>;
   transform: (code: string, options: { loader: string; target: string }) => Promise<{ code: string }>;
 }
 
-/** Cached esbuild module */
-let cachedEsbuild: EsbuildLike | null | undefined;
+let esbuildReady: Promise<EsbuildLike | null> | null = null;
 
-/** Try to dynamically import esbuild */
-async function importEsbuild(): Promise<EsbuildLike | null> {
-  if (cachedEsbuild !== undefined) return cachedEsbuild;
-  try {
-    const moduleName = 'esbuild';
-    cachedEsbuild = await import(/* webpackIgnore: true */ moduleName) as EsbuildLike;
-  } catch {
-    cachedEsbuild = null;
-  }
-  return cachedEsbuild;
+/**
+ * Lazy-load and initialize esbuild-wasm.
+ * First script run pays the ~10MB WASM download; subsequent runs are instant.
+ * Returns null if unavailable (WASM blocked, CDN down, etc.).
+ */
+function getEsbuild(): Promise<EsbuildLike | null> {
+  if (esbuildReady) return esbuildReady;
+  esbuildReady = (async () => {
+    try {
+      // Dynamic import — Vite code-splits esbuild-wasm into a separate chunk
+      const mod = await import('esbuild-wasm');
+      const esbuild = (mod.default ?? mod) as EsbuildLike;
+
+      // Resolve WASM binary URL
+      let wasmURL: string | undefined;
+      try {
+        // Vite: import the .wasm as a URL asset (works in dev + production)
+        // @ts-expect-error — Vite-specific ?url suffix for asset imports
+        const wasmMod = await import('esbuild-wasm/esbuild.wasm?url');
+        wasmURL = (wasmMod as { default: string }).default;
+      } catch {
+        // Fallback: CDN (version-pinned to match installed package)
+        wasmURL = `https://unpkg.com/esbuild-wasm@0.27.3/esbuild.wasm`;
+      }
+
+      await esbuild.initialize({ wasmURL, worker: false });
+      return esbuild;
+    } catch {
+      return null;
+    }
+  })();
+  return esbuildReady;
 }
+
+// ============================================================================
+// Public API
+// ============================================================================
 
 /** Transpile TypeScript to JavaScript by stripping types, then strip imports */
 export async function transpileTypeScript(code: string): Promise<string> {
   let js: string;
 
-  // Try esbuild first (available if host app bundles it)
   try {
-    const esbuild = await importEsbuild();
+    const esbuild = await getEsbuild();
     if (esbuild) {
       const result = await esbuild.transform(code, {
         loader: 'ts',
@@ -59,6 +84,10 @@ export async function transpileTypeScript(code: string): Promise<string> {
   // Strip import/export statements — QuickJS has no module system
   return stripModuleSyntax(js);
 }
+
+// ============================================================================
+// Module syntax stripping
+// ============================================================================
 
 /**
  * Strip import/export statements from JavaScript code.
@@ -83,11 +112,15 @@ function stripModuleSyntax(code: string): string {
   return result;
 }
 
+// ============================================================================
+// Naive type stripping (fallback when esbuild-wasm unavailable)
+// ============================================================================
+
 /**
- * Naive type stripping — removes common TypeScript-only syntax.
- * Not a full parser, but handles the most common patterns in user scripts.
+ * Regex-based type stripping — removes TypeScript-only syntax.
+ * Not a full parser, but handles patterns commonly used in BIM scripts.
  */
-function naiveTypeStrip(code: string): string {
+export function naiveTypeStrip(code: string): string {
   let result = code;
 
   // Remove interface declarations (including multiline)
@@ -96,11 +129,15 @@ function naiveTypeStrip(code: string): string {
   // Remove type alias declarations
   result = result.replace(/^\s*(?:export\s+)?type\s+\w+\s*=\s*[^;]+;/gm, '');
 
-  // Remove type annotations from variable declarations: const x: Type = ...
-  result = result.replace(/:\s*(?:string|number|boolean|void|any|unknown|never|null|undefined|Record<[^>]+>|Array<[^>]+>|\w+(?:\[\])?)\s*(?=[=,);])/g, '');
+  // Strip variable type annotations using balanced-bracket scanner.
+  // Handles: const x: [string, number][] = ..., const y: Array<{ a: T; b: U }> = ...
+  result = stripVariableAnnotations(result);
 
-  // Remove function return type annotations: function f(): Type {
-  result = result.replace(/\):\s*(?:string|number|boolean|void|any|unknown|never|null|undefined|Promise<[^>]+>|\w+(?:\[\])?)\s*\{/g, ') {');
+  // Remove function parameter type annotations: (x: TYPE, y: TYPE)
+  result = result.replace(/(\w+)\s*:\s*(?:string|number|boolean|void|any|unknown|never|null|undefined|Record<[^>]+>|Array<[^>]+>|Map<[^>]+>|Set<[^>]+>|\[[^\]]*\](?:\[\])?|\w+(?:\[\])?(?:\s*\|\s*(?:string|number|boolean|null|undefined|\w+))*)\s*(?=[,)])/g, '$1');
+
+  // Remove function return type annotations: ): Type {
+  result = result.replace(/\):\s*[^{]+\{/g, ') {');
 
   // Remove `as Type` casts — but not import aliases like `import { Foo as Bar }`
   result = result.replace(/(?<![{,]\s*\w+\s)\s+as\s+\w+(?:\[\])?/g, '');
@@ -109,4 +146,43 @@ function naiveTypeStrip(code: string): string {
   result = result.replace(/<\w+(?:\s+extends\s+\w+)?>/g, '');
 
   return result;
+}
+
+/**
+ * Strip type annotations from variable declarations using bracket-depth tracking.
+ * Handles complex types like `Array<{ a: T; b: U }>` that contain semicolons
+ * inside nested brackets — a simple regex `[^=;]*` would fail on these.
+ */
+function stripVariableAnnotations(code: string): string {
+  const lines = code.split('\n');
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li];
+    // Match: const/let/var NAME:
+    const m = line.match(/^(\s*(?:const|let|var)\s+\w+)\s*:\s*/);
+    if (!m) continue;
+
+    const prefix = m[1];
+    let i = m[0].length;
+    let depth = 0;
+    let found = false;
+
+    // Scan through the type annotation, tracking bracket nesting
+    while (i < line.length) {
+      const ch = line[i];
+      if (ch === '<' || ch === '{' || ch === '(' || ch === '[') depth++;
+      else if (ch === '>' || ch === '}' || ch === ')' || ch === ']') depth--;
+      else if (ch === '=' && depth === 0) {
+        // Found assignment at depth 0 — strip the type annotation
+        lines[li] = prefix + ' ' + line.substring(i);
+        found = true;
+        break;
+      }
+      i++;
+    }
+    // If no '=' found, this is an uninitialized variable: `let x: Type`
+    if (!found) {
+      lines[li] = prefix;
+    }
+  }
+  return lines.join('\n');
 }

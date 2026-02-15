@@ -15,12 +15,22 @@ console.log('Columns: ' + columns.length)
 console.log('Beams: ' + beams.length)
 
 // Colorize structural elements by category (single batch call)
+console.log('[debug] Calling bim.viewer.resetColors()...')
+console.log('[debug] resetColors done')
 const batches: Array<{ entities: BimEntity[]; color: string }> = []
 if (walls.length > 0) batches.push({ entities: walls, color: '#e74c3c' })
 if (slabs.length > 0) batches.push({ entities: slabs, color: '#3498db' })
 if (columns.length > 0) batches.push({ entities: columns, color: '#f39c12' })
 if (beams.length > 0) batches.push({ entities: beams, color: '#2ecc71' })
-if (batches.length > 0) bim.viewer.colorizeAll(batches)
+console.log('[debug] Built ' + batches.length + ' batches for colorizeAll')
+if (batches.length > 0) {
+  if (batches[0].entities[0]) {
+    console.log('[debug] First entity ref: ' + JSON.stringify(batches[0].entities[0].ref))
+  }
+  console.log('[debug] Calling bim.viewer.colorizeAll...')
+  bim.viewer.colorizeAll(batches)
+  console.log('[debug] colorizeAll done')
+}
 
 console.log('\nColors: Walls=red, Slabs=blue, Columns=orange, Beams=green')
 

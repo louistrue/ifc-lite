@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@ifc-lite/sdk": "workspace:^",
+    "esbuild-wasm": "^0.27.3",
     "quickjs-emscripten": "^0.31.0"
   },
   "devDependencies": {
