@@ -90,14 +90,43 @@ const CATEGORY_ORDER: Category[] = [
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-/** Simple fuzzy match: all characters of query appear in order in target */
-function fuzzyMatch(query: string, target: string): boolean {
-  const lower = target.toLowerCase();
+/** Scored fuzzy match — returns 0 (no match) or a positive score.
+ *  Higher = better match. Prefers substring > word-start > fuzzy.
+ *  This avoids the "IDS" matching "Structural analysIs" problem. */
+function matchScore(query: string, target: string): number {
+  const q = query.toLowerCase();
+  const t = target.toLowerCase();
+
+  // Exact substring — best score
+  if (t.includes(q)) return 100;
+
+  // Word-start match: every query char starts a word boundary
+  // e.g. "csv" matches "Export CSV: Spatial" via C-S-V word starts
+  const words = t.split(/[\s\-_:\/]+/);
+  let wi = 0;
   let qi = 0;
-  for (let i = 0; i < lower.length && qi < query.length; i++) {
-    if (lower[i] === query[qi]) qi++;
+  while (wi < words.length && qi < q.length) {
+    if (words[wi].length > 0 && words[wi][0] === q[qi]) qi++;
+    wi++;
   }
-  return qi === query.length;
+  if (qi === q.length) return 50;
+
+  // Strict fuzzy: characters must appear in order, but penalize large gaps.
+  // Reject if the average gap between matched chars is too large.
+  let lastIdx = -1;
+  let totalGap = 0;
+  qi = 0;
+  for (let i = 0; i < t.length && qi < q.length; i++) {
+    if (t[i] === q[qi]) {
+      if (lastIdx >= 0) totalGap += (i - lastIdx - 1);
+      lastIdx = i;
+      qi++;
+    }
+  }
+  if (qi < q.length) return 0; // no match at all
+  const avgGap = q.length > 1 ? totalGap / (q.length - 1) : 0;
+  if (avgGap > 5) return 0; // reject loose matches (chars scattered too far apart)
+  return Math.max(1, 25 - Math.round(avgGap * 3));
 }
 
 function getRecentIds(): string[] {
@@ -476,13 +505,21 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     return cmds;
   }, [execute]);
 
-  // Filter commands by query
+  // Filter and rank commands by query relevance
   const filtered = useMemo(() => {
     if (!query) return commands;
-    const q = query.toLowerCase();
-    return commands.filter(
-      (cmd) => fuzzyMatch(q, cmd.label) || fuzzyMatch(q, cmd.description) || fuzzyMatch(q, cmd.category),
-    );
+    const scored = commands
+      .map((cmd) => {
+        // Score against label (primary), description, category
+        const labelScore = matchScore(query, cmd.label);
+        const descScore = matchScore(query, cmd.description);
+        const catScore = matchScore(query, cmd.category);
+        const best = Math.max(labelScore, descScore * 0.8, catScore * 0.6);
+        return { cmd, score: best };
+      })
+      .filter(({ score }) => score > 0);
+    scored.sort((a, b) => b.score - a.score);
+    return scored.map(({ cmd }) => cmd);
   }, [commands, query]);
 
   // Build grouped display with proper flat indices for keyboard navigation.
