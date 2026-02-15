@@ -100,7 +100,9 @@ function getCompletionMap(): Map<string, NamespaceCompletions> {
   ensureNamespace(map, 'query', 'Query entities', [
     { label: 'bim.query.all()', type: 'function', detail: 'Get all entities' },
     { label: 'bim.query.byType(', type: 'function', detail: "Filter by IFC type e.g. 'IfcWall'" },
-    { label: 'bim.query.entity(', type: 'function', detail: 'Get a specific entity by model ID and express ID' },
+    { label: 'bim.query.entity(', type: 'function', detail: 'Get entity by model ID and express ID' },
+    { label: 'bim.query.properties(', type: 'function', detail: 'Get all IfcPropertySet data for an entity' },
+    { label: 'bim.query.quantities(', type: 'function', detail: 'Get all IfcElementQuantity data for an entity' },
   ]);
   ensureNamespace(map, 'model', 'Model operations', [
     { label: 'bim.model.list()', type: 'function', detail: 'List loaded models' },
@@ -181,22 +183,21 @@ function bimCompletions(context: CompletionContext): CompletionResult | null {
     }
   }
 
-  // Entity proxy completions — IFC PascalCase attribute names per IFC EXPRESS schema
-  if (text.endsWith('.properties') || text.endsWith('.property') || text.endsWith('.quantities') || text.endsWith('.quantity')
-    || text.endsWith('.Name') || text.endsWith('.Type') || text.endsWith('.GlobalId') || text.endsWith('.Description') || text.endsWith('.ObjectType')) {
+  // Entity data field completions — IFC attribute names (both PascalCase and camelCase work)
+  if (text.endsWith('.Name') || text.endsWith('.Type') || text.endsWith('.GlobalId')
+    || text.endsWith('.name') || text.endsWith('.type') || text.endsWith('.ref')) {
     return {
       from: word.from + text.lastIndexOf('.') + 1,
       options: [
-        { label: 'properties()', type: 'function', detail: 'Get all IfcPropertySet data' },
-        { label: 'property(', type: 'function', detail: "Get a property e.g. 'Pset_WallCommon', 'IsExternal'" },
-        { label: 'quantities()', type: 'function', detail: 'Get all IfcElementQuantity data' },
-        { label: 'quantity(', type: 'function', detail: "Get a quantity e.g. 'Qto_WallBaseQuantities', 'Length'" },
         { label: 'Name', type: 'property', detail: 'IFC Name attribute (IfcLabel)' },
         { label: 'Type', type: 'property', detail: 'IFC entity type (e.g. IfcWall)' },
         { label: 'GlobalId', type: 'property', detail: 'IFC GlobalId (IfcGloballyUniqueId)' },
         { label: 'Description', type: 'property', detail: 'IFC Description attribute (IfcText)' },
         { label: 'ObjectType', type: 'property', detail: 'IFC ObjectType attribute (IfcLabel)' },
         { label: 'ref', type: 'property', detail: 'Entity reference { modelId, expressId }' },
+        { label: 'name', type: 'property', detail: 'IFC Name (camelCase alias)' },
+        { label: 'type', type: 'property', detail: 'IFC type (camelCase alias)' },
+        { label: 'globalId', type: 'property', detail: 'IFC GlobalId (camelCase alias)' },
       ],
     };
   }

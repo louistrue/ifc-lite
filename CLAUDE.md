@@ -35,7 +35,7 @@ This project works with the IFC (Industry Foundation Classes) standard. **All us
 - `ObjectType` (not `objectType`) — `IfcLabel`
 - `Type` — the IFC entity type name (e.g. `IfcWall`, `IfcBuildingStorey`)
 
-The `EntityProxy` class exposes both PascalCase (primary, IFC-compliant) and camelCase (legacy) getters. Always prefer PascalCase in new code, scripts, templates, and documentation.
+Entity data in scripts exposes both PascalCase (IFC-compliant) and camelCase aliases. Both are accepted everywhere.
 
 **Relationship Entities — use full IFC names:**
 - `IfcRelContainedInSpatialStructure` (not `ContainsElements`)
@@ -56,7 +56,7 @@ The `EntityProxy` class exposes both PascalCase (primary, IFC-compliant) and cam
 
 **Architecture: Internal vs. User-Facing naming:**
 - `EntityData` interface uses camelCase internally (TypeScript convention, 170+ consumers)
-- `EntityProxy` and script bridge expose IFC PascalCase names at the user boundary
+- Script bridge adds PascalCase aliases to EntityData at the boundary
 - Export columns accept both `Name` and `name` (PascalCase preferred, camelCase for backward compat)
 - Relationship type strings in the SDK wire protocol use full IFC names (e.g. `IfcRelAggregates`)
 

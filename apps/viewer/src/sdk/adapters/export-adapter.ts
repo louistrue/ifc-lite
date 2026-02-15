@@ -44,7 +44,7 @@ function isEntityRefArray(v: unknown): v is EntityRef[] {
 }
 
 /**
- * Normalize entity refs — entities from the sandbox may be EntityProxy
+ * Normalize entity refs — entities from the sandbox may be EntityData
  * objects with a .ref property, or raw EntityRef { modelId, expressId }.
  */
 function normalizeRefs(raw: unknown[]): EntityRef[] {

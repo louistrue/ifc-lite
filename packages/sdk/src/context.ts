@@ -12,9 +12,9 @@
  *   bim.viewer.colorize(refs, '#ff0000')
  */
 
-import type { BimBackend, BimContextOptions, Transport } from './types.js';
+import type { BimBackend, BimContextOptions, Transport, EntityData, EntityRef, PropertySetData, QuantitySetData } from './types.js';
 import { ModelNamespace } from './namespaces/model.js';
-import { QueryNamespace, QueryBuilder, EntityProxy } from './namespaces/query.js';
+import { QueryNamespace, QueryBuilder } from './namespaces/query.js';
 import { ViewerNamespace } from './namespaces/viewer.js';
 import { MutateNamespace } from './namespaces/mutate.js';
 import { LensNamespace } from './namespaces/lens.js';
@@ -82,8 +82,22 @@ export class BimContext {
   /**
    * Get a single entity by reference.
    */
-  entity(ref: { modelId: string; expressId: number }): EntityProxy | null {
+  entity(ref: EntityRef): EntityData | null {
     return this._queryNamespace.entity(ref);
+  }
+
+  /**
+   * Get all property sets for an entity.
+   */
+  properties(ref: EntityRef): PropertySetData[] {
+    return this._queryNamespace.properties(ref);
+  }
+
+  /**
+   * Get all quantity sets for an entity.
+   */
+  quantities(ref: EntityRef): QuantitySetData[] {
+    return this._queryNamespace.quantities(ref);
   }
 
   /**

@@ -6,7 +6,7 @@
  * bim.export — Multi-format data export
  *
  * Wraps @ifc-lite/export for GLTF, CSV, STEP, and Parquet export.
- * The export namespace works with EntityProxy refs to determine which
+ * The export namespace works with EntityRef to determine which
  * entities to include, and delegates to the appropriate exporter.
  */
 

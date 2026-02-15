@@ -13,12 +13,10 @@
  * - Adding a new SDK method = adding one schema entry (no boilerplate)
  * - Impossible to forget handle disposal (generic builder handles it)
  * - Consistent arg validation and error handling
- *
- * The query namespace is excluded (needs custom entity proxy marshaling).
  */
 
 import type { QuickJSContext, QuickJSHandle } from 'quickjs-emscripten';
-import type { BimContext, EntityRef } from '@ifc-lite/sdk';
+import type { BimContext, EntityRef, EntityData } from '@ifc-lite/sdk';
 import type { SandboxPermissions } from './types.js';
 
 // ============================================================================
@@ -27,10 +25,11 @@ import type { SandboxPermissions } from './types.js';
 
 /** How to unmarshal a single argument from QuickJS */
 type ArgType =
-  | 'string'     // vm.getString(handle)
-  | 'number'     // vm.getNumber(handle)
-  | 'dump'       // vm.dump(handle) — generic JSON-like value
-  | 'entityRefs' // vm.dump(handle) — array of entities, map to .ref
+  | 'string'       // vm.getString(handle)
+  | 'number'       // vm.getNumber(handle)
+  | 'dump'         // vm.dump(handle) — generic JSON-like value
+  | 'entityRefs'   // vm.dump(handle) — array of entities, map to .ref
+  | '...strings'   // rest: collect all remaining args as strings
 
 /** How to marshal the return value back to QuickJS */
 type ReturnType =
@@ -59,6 +58,44 @@ interface NamespaceSchema {
 }
 
 // ============================================================================
+// Helpers
+// ============================================================================
+
+/**
+ * Add PascalCase IFC aliases to entity data for script flexibility.
+ * Scripts can use either e.name or e.Name, e.type or e.Type, etc.
+ */
+function withAliases(entity: EntityData): Record<string, unknown> {
+  return {
+    ref: entity.ref,
+    globalId: entity.globalId, GlobalId: entity.globalId,
+    name: entity.name, Name: entity.name,
+    type: entity.type, Type: entity.type,
+    description: entity.description, Description: entity.description,
+    objectType: entity.objectType, ObjectType: entity.objectType,
+  };
+}
+
+/**
+ * Extract an EntityRef from a dumped entity object.
+ * Accepts both { ref: { modelId, expressId } } and { modelId, expressId }.
+ */
+function toRef(raw: unknown): EntityRef | null {
+  const obj = raw as Record<string, unknown> | null;
+  if (!obj) return null;
+  if (obj.ref && typeof obj.ref === 'object') {
+    const ref = obj.ref as Record<string, unknown>;
+    if (typeof ref.modelId === 'string' && typeof ref.expressId === 'number') {
+      return ref as unknown as EntityRef;
+    }
+  }
+  if (typeof obj.modelId === 'string' && typeof obj.expressId === 'number') {
+    return obj as unknown as EntityRef;
+  }
+  return null;
+}
+
+// ============================================================================
 // Schema Definitions
 // ============================================================================
 
@@ -84,6 +121,64 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         name: 'activeId',
         args: [],
         call: (sdk) => sdk.model.activeId(),
+        returns: 'value',
+      },
+    ],
+  },
+
+  // ── bim.query ─────────────────────────────────────────────
+  {
+    name: 'query',
+    permission: 'query',
+    methods: [
+      {
+        name: 'all',
+        args: [],
+        call: (sdk) => {
+          return sdk.query().toArray().map(withAliases);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'byType',
+        args: ['...strings'],
+        call: (sdk, args) => {
+          const types = args[0] as string[];
+          const builder = sdk.query();
+          if (types.length > 0) builder.byType(...types);
+          return builder.toArray().map(withAliases);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'entity',
+        args: ['string', 'number'],
+        call: (sdk, args) => {
+          const modelId = args[0] as string;
+          const expressId = args[1] as number;
+          const entity = sdk.entity({ modelId, expressId });
+          return entity ? withAliases(entity) : null;
+        },
+        returns: 'value',
+      },
+      {
+        name: 'properties',
+        args: ['dump'],
+        call: (sdk, args) => {
+          const ref = toRef(args[0]);
+          if (!ref) return [];
+          return sdk.properties(ref);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'quantities',
+        args: ['dump'],
+        call: (sdk, args) => {
+          const ref = toRef(args[0]);
+          if (!ref) return [];
+          return sdk.quantities(ref);
+        },
         returns: 'value',
       },
     ],
@@ -324,25 +419,37 @@ function buildNamespace(
 function unmarshalArgs(vm: QuickJSContext, handles: QuickJSHandle[], argTypes: ArgType[]): unknown[] {
   const result: unknown[] = [];
   for (let i = 0; i < argTypes.length; i++) {
-    const handle = handles[i];
-    if (!handle) {
-      result.push(undefined);
-      continue;
-    }
     switch (argTypes[i]) {
-      case 'string':
-        result.push(vm.getString(handle));
+      case 'string': {
+        const handle = handles[i];
+        result.push(handle ? vm.getString(handle) : undefined);
         break;
-      case 'number':
-        result.push(vm.getNumber(handle));
+      }
+      case 'number': {
+        const handle = handles[i];
+        result.push(handle ? vm.getNumber(handle) : undefined);
         break;
-      case 'dump':
-        result.push(vm.dump(handle));
+      }
+      case 'dump': {
+        const handle = handles[i];
+        result.push(handle ? vm.dump(handle) : undefined);
         break;
+      }
       case 'entityRefs': {
+        const handle = handles[i];
+        if (!handle) { result.push([]); break; }
         const raw = vm.dump(handle) as Array<{ ref?: EntityRef } & EntityRef>;
         result.push(raw.map(r => r.ref ?? r));
         break;
+      }
+      case '...strings': {
+        // Collect all remaining handles as strings
+        const rest: string[] = [];
+        for (let j = i; j < handles.length; j++) {
+          if (handles[j]) rest.push(vm.getString(handles[j]));
+        }
+        result.push(rest);
+        return result; // No more args after rest
       }
     }
   }

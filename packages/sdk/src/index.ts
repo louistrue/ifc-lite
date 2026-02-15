@@ -88,7 +88,7 @@ export { entityRefToString, stringToEntityRef } from './types.js';
 // Namespaces (for type access)
 // ============================================================================
 
-export { EntityProxy, QueryBuilder } from './namespaces/query.js';
+export { QueryBuilder, QueryNamespace } from './namespaces/query.js';
 export { ModelNamespace } from './namespaces/model.js';
 export { ViewerNamespace } from './namespaces/viewer.js';
 export { MutateNamespace } from './namespaces/mutate.js';
