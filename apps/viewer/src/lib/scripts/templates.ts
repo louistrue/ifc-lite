@@ -18,6 +18,7 @@ import propertyFinder from './templates/property-finder.ts?raw';
 import exportCsv from './templates/export-csv.ts?raw';
 import isolateByType from './templates/isolate-by-type.ts?raw';
 import doorWindowSchedule from './templates/door-window-schedule.ts?raw';
+import solarAnalysis from './templates/solar-analysis.ts?raw';
 import resetView from './templates/reset-view.ts?raw';
 
 export interface ScriptTemplate {
@@ -66,6 +67,11 @@ export const SCRIPT_TEMPLATES: ScriptTemplate[] = [
     name: 'Door & window schedule',
     description: 'Generate a schedule listing all doors and windows with dimensions',
     code: stripModuleLine(doorWindowSchedule),
+  },
+  {
+    name: 'Solar analysis',
+    description: 'NOAA sun position + heat-map colorization by solar exposure',
+    code: stripModuleLine(solarAnalysis),
   },
   {
     name: 'Reset view',
