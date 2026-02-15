@@ -20,6 +20,11 @@ export interface UseGeometryStreamingParams {
   geometryBoundsRef: MutableRefObject<{ min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } }>;
   pendingColorUpdates: Map<number, [number, number, number, number]> | null;
   clearPendingColorUpdates: () => void;
+  // Render state refs — color update renders must preserve theme background and visibility
+  clearColorRef: MutableRefObject<[number, number, number, number]>;
+  hiddenEntitiesRef: MutableRefObject<Set<number>>;
+  isolatedEntitiesRef: MutableRefObject<Set<number> | null>;
+  selectedEntityIdRef: MutableRefObject<number | null>;
 }
 
 export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
@@ -32,6 +37,10 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     geometryBoundsRef,
     pendingColorUpdates,
     clearPendingColorUpdates,
+    clearColorRef,
+    hiddenEntitiesRef,
+    isolatedEntitiesRef,
+    selectedEntityIdRef,
   } = params;
 
   // Track processed meshes for incremental updates
@@ -397,7 +406,14 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
         // Non-empty map = set color overrides
         scene.setColorOverrides(pendingColorUpdates, device, pipeline);
       }
-      renderer.render();
+      // Re-render with current theme background and visibility state —
+      // render() without options defaults to black background
+      renderer.render({
+        clearColor: clearColorRef.current,
+        hiddenIds: hiddenEntitiesRef.current,
+        isolatedIds: isolatedEntitiesRef.current,
+        selectedId: selectedEntityIdRef.current,
+      });
       clearPendingColorUpdates();
     }
   }, [pendingColorUpdates, isInitialized, clearPendingColorUpdates]);
