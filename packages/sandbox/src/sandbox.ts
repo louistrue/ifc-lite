@@ -87,9 +87,11 @@ export class Sandbox {
     // Clear previous logs
     this.logs.length = 0;
 
-    // Transpile TypeScript if needed
+    // Transpile TypeScript — always strip types for safety.
+    // The transpiler is a no-op for plain JavaScript, and the heuristic
+    // looksLikeTypeScript missed patterns like Record<string, number>.
     let jsCode = code;
-    if (options?.typescript !== false && this.looksLikeTypeScript(code)) {
+    if (options?.typescript !== false) {
       jsCode = await transpileTypeScript(code);
     }
 
@@ -133,10 +135,7 @@ export class Sandbox {
     }
   }
 
-  /** Simple heuristic: does the code contain TypeScript syntax? */
-  private looksLikeTypeScript(code: string): boolean {
-    return /(?::\s*(?:string|number|boolean|void|any|unknown|never)\b)|(?:interface\s+\w)|(?:<\w+>)/.test(code);
-  }
+
 }
 
 /** Error thrown when a sandboxed script fails */
