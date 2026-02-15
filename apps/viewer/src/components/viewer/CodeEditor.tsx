@@ -12,7 +12,7 @@
 
 import { useRef, useEffect } from 'react';
 import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection } from '@codemirror/view';
-import { EditorState } from '@codemirror/state';
+import { EditorState, Compartment } from '@codemirror/state';
 import { javascript } from '@codemirror/lang-javascript';
 import { autocompletion, type CompletionContext, type CompletionResult, type Completion } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
@@ -20,11 +20,10 @@ import { syntaxHighlighting, defaultHighlightStyle, bracketMatching, indentOnInp
 import { highlightSelectionMatches } from '@codemirror/search';
 import { NAMESPACE_SCHEMAS } from '@ifc-lite/sandbox/schema';
 
-/** Dark theme matching the viewer's dark mode */
-const darkTheme = EditorView.theme({
+/** Shared structural styles (mode-agnostic) */
+const baseTheme = EditorView.theme({
   '&': {
     backgroundColor: 'transparent',
-    color: 'var(--foreground, #e4e4e7)',
     fontSize: '13px',
     height: '100%',
   },
@@ -35,45 +34,76 @@ const darkTheme = EditorView.theme({
   },
   '.cm-content': {
     padding: '8px 0',
-    caretColor: 'var(--foreground, #e4e4e7)',
   },
   '.cm-gutters': {
     backgroundColor: 'transparent',
-    color: 'var(--muted-foreground, #71717a)',
     border: 'none',
     paddingRight: '4px',
   },
   '.cm-activeLineGutter': {
     backgroundColor: 'transparent',
-    color: 'var(--foreground, #e4e4e7)',
-  },
-  '.cm-activeLine': {
-    backgroundColor: 'rgba(255,255,255,0.04)',
-  },
-  '.cm-selectionMatch': {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-  },
-  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
-    backgroundColor: 'rgba(99,102,241,0.3)',
-  },
-  '.cm-cursor': {
-    borderLeftColor: 'var(--foreground, #e4e4e7)',
-  },
-  '.cm-tooltip': {
-    backgroundColor: 'var(--popover, #1c1c22)',
-    color: 'var(--popover-foreground, #e4e4e7)',
-    border: '1px solid var(--border, #27272a)',
-    borderRadius: '6px',
-  },
-  '.cm-tooltip-autocomplete': {
-    '& > ul > li[aria-selected]': {
-      backgroundColor: 'rgba(99,102,241,0.2)',
-    },
   },
   '.cm-completionIcon': {
     display: 'none',
   },
+});
+
+/** Dark mode colors */
+const darkTheme = EditorView.theme({
+  '&': { color: '#e4e4e7' },
+  '.cm-content': { caretColor: '#e4e4e7' },
+  '.cm-gutters': { color: '#71717a' },
+  '.cm-activeLineGutter': { color: '#e4e4e7' },
+  '.cm-activeLine': { backgroundColor: 'rgba(255,255,255,0.04)' },
+  '.cm-selectionMatch': { backgroundColor: 'rgba(255,255,255,0.1)' },
+  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
+    backgroundColor: 'rgba(99,102,241,0.3)',
+  },
+  '.cm-cursor': { borderLeftColor: '#e4e4e7' },
+  '.cm-tooltip': {
+    backgroundColor: '#1c1c22',
+    color: '#e4e4e7',
+    border: '1px solid #27272a',
+    borderRadius: '6px',
+  },
+  '.cm-tooltip-autocomplete': {
+    '& > ul > li[aria-selected]': { backgroundColor: 'rgba(99,102,241,0.2)' },
+  },
 }, { dark: true });
+
+/** Light mode colors */
+const lightTheme = EditorView.theme({
+  '&': { color: '#18181b' },
+  '.cm-content': { caretColor: '#18181b' },
+  '.cm-gutters': { color: '#a1a1aa' },
+  '.cm-activeLineGutter': { color: '#52525b' },
+  '.cm-activeLine': { backgroundColor: 'rgba(0,0,0,0.03)' },
+  '.cm-selectionMatch': { backgroundColor: 'rgba(99,102,241,0.15)' },
+  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
+    backgroundColor: 'rgba(99,102,241,0.2)',
+  },
+  '.cm-cursor': { borderLeftColor: '#18181b' },
+  '.cm-tooltip': {
+    backgroundColor: '#ffffff',
+    color: '#18181b',
+    border: '1px solid #e4e4e7',
+    borderRadius: '6px',
+  },
+  '.cm-tooltip-autocomplete': {
+    '& > ul > li[aria-selected]': { backgroundColor: 'rgba(99,102,241,0.12)' },
+  },
+}, { dark: false });
+
+/** Compartment for swapping light/dark theme at runtime */
+const themeCompartment = new Compartment();
+
+function isDarkMode(): boolean {
+  return document.documentElement.classList.contains('dark');
+}
+
+function getColorTheme() {
+  return isDarkMode() ? darkTheme : lightTheme;
+}
 
 // ============================================================================
 // Completion Generation (auto-generated from bridge-schema)
@@ -232,7 +262,8 @@ export function CodeEditor({ value, onChange, onRun, onSave, className }: CodeEd
         runKeymap,
         keymap.of([indentWithTab, ...defaultKeymap, ...historyKeymap]),
         updateListener,
-        darkTheme,
+        baseTheme,
+        themeCompartment.of(getColorTheme()),
         EditorView.lineWrapping,
       ],
     });
@@ -244,7 +275,14 @@ export function CodeEditor({ value, onChange, onRun, onSave, className }: CodeEd
 
     viewRef.current = view;
 
+    // Watch for light/dark mode changes on <html> class
+    const observer = new MutationObserver(() => {
+      view.dispatch({ effects: themeCompartment.reconfigure(getColorTheme()) });
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+
     return () => {
+      observer.disconnect();
       view.destroy();
       viewRef.current = null;
     };
