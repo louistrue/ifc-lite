@@ -18,7 +18,7 @@ import { autocompletion, type CompletionContext, type CompletionResult, type Com
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { syntaxHighlighting, defaultHighlightStyle, bracketMatching, indentOnInput } from '@codemirror/language';
 import { highlightSelectionMatches } from '@codemirror/search';
-import { NAMESPACE_SCHEMAS } from '@ifc-lite/sandbox';
+import { NAMESPACE_SCHEMAS } from '@ifc-lite/sandbox/schema';
 
 /** Dark theme matching the viewer's dark mode */
 const darkTheme = EditorView.theme({
