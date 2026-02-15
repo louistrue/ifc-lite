@@ -77,7 +77,7 @@ function buildConsole(vm: QuickJSContext, logs: LogEntry[]): void {
 function buildQueryNamespace(vm: QuickJSContext, bimHandle: QuickJSHandle, sdk: BimContext): void {
   const ns = vm.newObject();
 
-  // bim.query.byType(type) → entity objects with IFC PascalCase attribute names
+  // bim.query.byType(type) → entity objects (both PascalCase and camelCase for flexibility)
   const byTypeFn = vm.newFunction('byType', (...args: QuickJSHandle[]) => {
     const types = args.map(a => vm.getString(a));
     const builder = sdk.query();
@@ -87,23 +87,23 @@ function buildQueryNamespace(vm: QuickJSContext, bimHandle: QuickJSHandle, sdk: 
     const entities = builder.toArray();
     const data = entities.map(e => ({
       ref: e.ref,
-      GlobalId: e.GlobalId,
-      Name: e.Name,
-      Type: e.Type,
+      GlobalId: e.GlobalId, globalId: e.GlobalId,
+      Name: e.Name, name: e.Name,
+      Type: e.Type, type: e.Type,
     }));
     return marshalValue(vm, data);
   });
   vm.setProp(ns, 'byType', byTypeFn);
   byTypeFn.dispose();
 
-  // bim.query.all() → entity objects with IFC PascalCase attribute names
+  // bim.query.all() → entity objects (both PascalCase and camelCase for flexibility)
   const allFn = vm.newFunction('all', () => {
     const entities = sdk.query().toArray();
     const data = entities.map(e => ({
       ref: e.ref,
-      GlobalId: e.GlobalId,
-      Name: e.Name,
-      Type: e.Type,
+      GlobalId: e.GlobalId, globalId: e.GlobalId,
+      Name: e.Name, name: e.Name,
+      Type: e.Type, type: e.Type,
     }));
     return marshalValue(vm, data);
   });
@@ -120,13 +120,13 @@ function buildQueryNamespace(vm: QuickJSContext, bimHandle: QuickJSHandle, sdk: 
     // Build an entity object with lazy methods
     const entityObj = vm.newObject();
 
-    // Static data — IFC PascalCase attribute names per IFC EXPRESS schema
+    // Static data — both IFC PascalCase and camelCase for flexibility
     const fields: [string, string | number][] = [
       ['modelId', entity.modelId],
       ['expressId', entity.expressId],
-      ['GlobalId', entity.GlobalId],
-      ['Name', entity.Name],
-      ['Type', entity.Type],
+      ['GlobalId', entity.GlobalId], ['globalId', entity.GlobalId],
+      ['Name', entity.Name], ['name', entity.Name],
+      ['Type', entity.Type], ['type', entity.Type],
     ];
     for (const [key, value] of fields) {
       const handle = typeof value === 'number' ? vm.newNumber(value) : vm.newString(value);
