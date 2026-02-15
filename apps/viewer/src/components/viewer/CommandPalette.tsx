@@ -61,7 +61,7 @@ import type { EntityRef } from '@/store';
 import { useSandbox } from '@/hooks/useSandbox';
 import { SCRIPT_TEMPLATES } from '@/lib/scripts/templates';
 import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
-import { getRecentFiles, formatFileSize } from '@/lib/recent-files';
+import { getRecentFiles, formatFileSize, getCachedFile } from '@/lib/recent-files';
 import type { RecentFileEntry } from '@/lib/recent-files';
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -270,14 +270,23 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
         } },
     );
     for (const rf of recentFiles) {
+      const fileName = rf.name;
       c.push({
-        id: `file:recent:${rf.name}`, label: rf.name,
+        id: `file:recent:${fileName}`, label: fileName,
         keywords: `recent open ${formatFileSize(rf.size)}`,
         category: 'File', icon: Clock,
         detail: formatFileSize(rf.size),
         action: () => {
-          const input = document.getElementById('file-input-open') as HTMLInputElement | null;
-          if (input) input.click();
+          // Try loading from IndexedDB blob cache → dispatches to MainToolbar's loadFile
+          getCachedFile(fileName).then(file => {
+            if (file) {
+              window.dispatchEvent(new CustomEvent('ifc-lite:load-file', { detail: file }));
+            } else {
+              // Cache miss — fall back to file picker
+              const input = document.getElementById('file-input-open') as HTMLInputElement | null;
+              if (input) input.click();
+            }
+          });
         },
       });
     }

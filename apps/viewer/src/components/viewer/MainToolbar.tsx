@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import React, { useRef, useCallback, useMemo } from 'react';
+import React, { useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   FolderOpen,
   Download,
@@ -66,7 +66,7 @@ import { BulkPropertyEditor } from './BulkPropertyEditor';
 import { DataConnector } from './DataConnector';
 import { ExportChangesButton } from './ExportChangesButton';
 import { useFloorplanView } from '@/hooks/useFloorplanView';
-import { recordRecentFiles } from '@/lib/recent-files';
+import { recordRecentFiles, cacheFileBlobs } from '@/lib/recent-files';
 
 type Tool = 'select' | 'pan' | 'orbit' | 'walk' | 'measure' | 'section';
 
@@ -147,6 +147,16 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const fileInputRef = useRef<HTMLInputElement>(null);
   const addModelInputRef = useRef<HTMLInputElement>(null);
   const { loadFile, loading, progress, geometryResult, ifcDataStore, models, clearAllModels, loadFilesSequentially, loadFederatedIfcx, addIfcxOverlays, addModel } = useIfc();
+
+  // Listen for programmatic file-load requests (from command palette recent files)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const file = (e as CustomEvent<File>).detail;
+      if (file) loadFile(file);
+    };
+    window.addEventListener('ifc-lite:load-file', handler);
+    return () => window.removeEventListener('ifc-lite:load-file', handler);
+  }, [loadFile]);
 
   // Floorplan view
   const { availableStoreys, activateFloorplan } = useFloorplanView();
@@ -235,8 +245,9 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
     if (supportedFiles.length === 0) return;
 
-    // Track recently opened files
+    // Track recently opened files (metadata + blob cache for instant reload)
     recordRecentFiles(supportedFiles.map(f => ({ name: f.name, size: f.size })));
+    cacheFileBlobs(supportedFiles);
 
     if (supportedFiles.length === 1) {
       // Single file - use loadFile (simpler single-model path)
