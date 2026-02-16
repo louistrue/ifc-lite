@@ -39,6 +39,8 @@ interface EnvelopeResult {
 }
 
 const results: EnvelopeResult[] = []
+// Collect property paths for CSV export
+const envelopePropPaths = new Set<string>()
 
 for (const entity of candidates) {
   const result: EnvelopeResult = { entity, isExternal: null, thermalTransmittance: null, thermalSource: '' }
@@ -48,10 +50,16 @@ for (const entity of candidates) {
       const lower = p.name.toLowerCase()
       if (lower === 'isexternal' && p.value !== null) {
         result.isExternal = p.value === true || p.value === 'TRUE' || p.value === '.T.'
+        envelopePropPaths.add(pset.name + '.IsExternal')
       }
       if (lower === 'thermaltransmittance' && p.value !== null && p.value !== '') {
         result.thermalTransmittance = typeof p.value === 'number' ? p.value : parseFloat(String(p.value))
         result.thermalSource = pset.name
+        envelopePropPaths.add(pset.name + '.ThermalTransmittance')
+      }
+      // Also capture other thermal-related properties
+      if ((lower === 'firerating' || lower === 'loadbearing' || lower === 'acousticrating') && p.value !== null && p.value !== '') {
+        envelopePropPaths.add(pset.name + '.' + p.name)
       }
     }
   }
@@ -136,10 +144,21 @@ if (extNoThermal.length > 0) {
   }
   if (extNoThermal.length > 15) console.warn('  ... and ' + (extNoThermal.length - 15) + ' more')
 
+  const envPropCols = Array.from(envelopePropPaths).sort()
   bim.export.csv(extNoThermal.map(r => r.entity), {
-    columns: ['Name', 'Type', 'GlobalId', 'ObjectType'],
+    columns: ['Name', 'Type', 'GlobalId', 'ObjectType', ...envPropCols],
     filename: 'envelope-missing-thermal.csv'
   })
   console.log('')
   console.log('Exported ' + extNoThermal.length + ' elements to envelope-missing-thermal.csv')
+}
+
+// Export full envelope dataset with all discovered properties
+if (external.length > 0) {
+  const envPropCols = Array.from(envelopePropPaths).sort()
+  bim.export.csv(external.map(r => r.entity), {
+    columns: ['Name', 'Type', 'GlobalId', 'ObjectType', ...envPropCols],
+    filename: 'envelope-analysis.csv'
+  })
+  console.log('Exported ' + external.length + ' external elements (' + (4 + envPropCols.length) + ' columns) to envelope-analysis.csv')
 }

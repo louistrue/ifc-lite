@@ -46,6 +46,9 @@ interface SpaceData {
 }
 
 const spaceData: SpaceData[] = []
+// Collect property/quantity paths for CSV export
+const spacePropPaths = new Set<string>()
+const spaceQtyPaths = new Set<string>()
 
 for (const space of spaces) {
   const data: SpaceData = {
@@ -62,6 +65,7 @@ for (const space of spaces) {
       if (lower.includes('volume') && data.volume === null) data.volume = q.value
       if (lower.includes('perimeter') && data.perimeter === null) data.perimeter = q.value
       if (lower.includes('height') && data.height === null) data.height = q.value
+      if (q.value !== null && q.value !== 0) spaceQtyPaths.add(qset.name + '.' + q.name)
     }
   }
 
@@ -73,6 +77,7 @@ for (const space of spaces) {
       if (lower === 'longname' && p.value) data.longName = String(p.value)
       if (lower === 'category' && p.value) data.category = String(p.value)
       if (lower === 'occupancytype' && p.value) data.occupancy = String(p.value)
+      if (p.value !== null && p.value !== '') spacePropPaths.add(pset.name + '.' + p.name)
     }
   }
 
@@ -174,9 +179,11 @@ if (incomplete.length > 0) {
 }
 
 // ── 8. Export ────────────────────────────────────────────────────────────
+const spPropCols = Array.from(spacePropPaths).sort().slice(0, 15)
+const spQtyCols = Array.from(spaceQtyPaths).sort().slice(0, 15)
 bim.export.csv(spaces, {
-  columns: ['Name', 'Type', 'GlobalId', 'Description', 'ObjectType'],
+  columns: ['Name', 'Type', 'GlobalId', 'Description', 'ObjectType', ...spPropCols, ...spQtyCols],
   filename: 'room-schedule.csv'
 })
 console.log('')
-console.log('Exported ' + spaces.length + ' spaces to room-schedule.csv')
+console.log('Exported ' + spaces.length + ' spaces (' + (5 + spPropCols.length + spQtyCols.length) + ' columns) to room-schedule.csv')

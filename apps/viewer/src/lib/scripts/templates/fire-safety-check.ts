@@ -31,6 +31,9 @@ interface FireResult {
   isExternal: boolean | null
 }
 
+// Collect fire-related property paths for CSV export
+const firePropPaths = new Set<string>()
+
 function extractFireData(entity: BimEntity): FireResult {
   const result: FireResult = { entity, rating: null, isLoadBearing: null, isExternal: null }
   const psets = bim.query.properties(entity)
@@ -39,12 +42,15 @@ function extractFireData(entity: BimEntity): FireResult {
       const lower = p.name.toLowerCase()
       if (lower === 'firerating' && p.value !== null && p.value !== '') {
         result.rating = String(p.value)
+        firePropPaths.add(pset.name + '.FireRating')
       }
       if (lower === 'loadbearing' && p.value !== null) {
         result.isLoadBearing = p.value === true || p.value === 'TRUE' || p.value === '.T.'
+        firePropPaths.add(pset.name + '.LoadBearing')
       }
       if (lower === 'isexternal' && p.value !== null) {
         result.isExternal = p.value === true || p.value === 'TRUE' || p.value === '.T.'
+        firePropPaths.add(pset.name + '.IsExternal')
       }
     }
   }
@@ -144,12 +150,12 @@ if (loadBearingUnrated.length > 0) {
   if (loadBearingUnrated.length > 15) console.warn('  ... and ' + (loadBearingUnrated.length - 15) + ' more')
 }
 
-// ── 10. Export non-compliant elements ───────────────────────────────────
-if (unrated.length > 0) {
-  bim.export.csv(unrated, {
-    columns: ['Name', 'Type', 'GlobalId', 'ObjectType'],
-    filename: 'fire-safety-issues.csv'
-  })
-  console.log('')
-  console.log('Exported ' + unrated.length + ' non-compliant elements to fire-safety-issues.csv')
-}
+// ── 10. Export all scanned elements with fire properties ────────────────
+const allFireElements = [...walls, ...doors, ...slabs]
+const fireCols = Array.from(firePropPaths).sort()
+bim.export.csv(allFireElements, {
+  columns: ['Name', 'Type', 'GlobalId', 'ObjectType', ...fireCols],
+  filename: 'fire-safety-report.csv'
+})
+console.log('')
+console.log('Exported ' + allFireElements.length + ' elements (' + (4 + fireCols.length) + ' columns) to fire-safety-report.csv')

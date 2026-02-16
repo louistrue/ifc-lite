@@ -10,7 +10,7 @@
  * entities to include, and delegates to the appropriate exporter.
  */
 
-import type { BimBackend, EntityRef, EntityData, PropertySetData } from '../types.js';
+import type { BimBackend, EntityRef, EntityData, PropertySetData, QuantitySetData } from '../types.js';
 
 export interface ExportCsvOptions {
   columns: string[];
@@ -39,8 +39,8 @@ export class ExportNamespace {
   csv(refs: EntityRef[], options: ExportCsvOptions): string {
     const rows: string[][] = [];
 
-    // Check if any columns need property lookups (Pset.Property paths)
-    const hasPropertyColumns = options.columns.some(c => c.indexOf('.') > 0);
+    // Check if any columns need property/quantity lookups (Set.Value paths)
+    const hasDotColumns = options.columns.some(c => c.indexOf('.') > 0);
 
     // Header row
     rows.push(options.columns);
@@ -50,10 +50,12 @@ export class ExportNamespace {
       const data = this.backend.query.entityData(ref);
       if (!data) continue;
 
-      // Fetch properties once per entity (not per column)
+      // Fetch properties/quantities once per entity (not per column)
       let psets: PropertySetData[] | null = null;
-      if (hasPropertyColumns) {
+      let qsets: QuantitySetData[] | null = null;
+      if (hasDotColumns) {
         psets = this.backend.query.properties(ref);
+        qsets = this.backend.query.quantities(ref);
       }
 
       const row: string[] = [];
@@ -65,14 +67,31 @@ export class ExportNamespace {
         if (col === 'Description' || col === 'description') { row.push(data.description); continue; }
         if (col === 'ObjectType' || col === 'objectType') { row.push(data.objectType); continue; }
 
-        // Property path: "PsetName.PropertyName"
+        // Property/Quantity path: "SetName.ValueName"
         const dotIdx = col.indexOf('.');
-        if (dotIdx > 0 && psets) {
-          const psetName = col.slice(0, dotIdx);
-          const propName = col.slice(dotIdx + 1);
-          const pset = psets.find(p => p.name === psetName);
-          const prop = pset?.properties.find(p => p.name === propName);
-          row.push(prop?.value != null ? String(prop.value) : '');
+        if (dotIdx > 0) {
+          const setName = col.slice(0, dotIdx);
+          const valueName = col.slice(dotIdx + 1);
+
+          // Try property sets first
+          if (psets) {
+            const pset = psets.find(p => p.name === setName);
+            if (pset) {
+              const prop = pset.properties.find(p => p.name === valueName);
+              if (prop?.value != null) { row.push(String(prop.value)); continue; }
+            }
+          }
+
+          // Fall back to quantity sets
+          if (qsets) {
+            const qset = qsets.find(q => q.name === setName);
+            if (qset) {
+              const qty = qset.quantities.find(q => q.name === valueName);
+              if (qty?.value != null) { row.push(String(qty.value)); continue; }
+            }
+          }
+
+          row.push('');
         } else {
           row.push('');
         }
@@ -97,16 +116,18 @@ export class ExportNamespace {
    */
   json(refs: EntityRef[], columns: string[]): Record<string, unknown>[] {
     const result: Record<string, unknown>[] = [];
-    const hasPropertyColumns = columns.some(c => c.indexOf('.') > 0);
+    const hasDotColumns = columns.some(c => c.indexOf('.') > 0);
 
     for (const ref of refs) {
       const data = this.backend.query.entityData(ref);
       if (!data) continue;
 
-      // Fetch properties once per entity (not per column)
+      // Fetch properties/quantities once per entity (not per column)
       let psets: PropertySetData[] | null = null;
-      if (hasPropertyColumns) {
+      let qsets: QuantitySetData[] | null = null;
+      if (hasDotColumns) {
         psets = this.backend.query.properties(ref);
+        qsets = this.backend.query.quantities(ref);
       }
 
       const row: Record<string, unknown> = {};
@@ -119,12 +140,30 @@ export class ExportNamespace {
         if (col === 'ObjectType' || col === 'objectType') { row[col] = data.objectType; continue; }
 
         const dotIdx = col.indexOf('.');
-        if (dotIdx > 0 && psets) {
-          const psetName = col.slice(0, dotIdx);
-          const propName = col.slice(dotIdx + 1);
-          const pset = psets.find(p => p.name === psetName);
-          const prop = pset?.properties.find(p => p.name === propName);
-          row[col] = prop?.value ?? null;
+        if (dotIdx > 0) {
+          const setName = col.slice(0, dotIdx);
+          const valueName = col.slice(dotIdx + 1);
+          let resolved = false;
+
+          // Try property sets first
+          if (psets) {
+            const pset = psets.find(p => p.name === setName);
+            if (pset) {
+              const prop = pset.properties.find(p => p.name === valueName);
+              if (prop?.value != null) { row[col] = prop.value; resolved = true; }
+            }
+          }
+
+          // Fall back to quantity sets
+          if (!resolved && qsets) {
+            const qset = qsets.find(q => q.name === setName);
+            if (qset) {
+              const qty = qset.quantities.find(q => q.name === valueName);
+              if (qty?.value != null) { row[col] = qty.value; resolved = true; }
+            }
+          }
+
+          if (!resolved) row[col] = null;
         }
       }
       result.push(row);

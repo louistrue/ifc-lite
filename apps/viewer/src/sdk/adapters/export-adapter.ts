@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import type { StoreApi } from './types.js';
-import type { EntityRef, EntityData, PropertySetData, ExportBackendMethods } from '@ifc-lite/sdk';
+import type { EntityRef, EntityData, PropertySetData, QuantitySetData, ExportBackendMethods } from '@ifc-lite/sdk';
 import { EntityNode } from '@ifc-lite/query';
 import { getModelForRef } from './model-compat.js';
 
@@ -111,9 +111,33 @@ export function createExportAdapter(store: StoreApi): ExportBackendMethods {
     }));
   }
 
-  /** Resolve a single column value from entity data + properties.
-   * Accepts both IFC PascalCase (Name, GlobalId) and legacy camelCase (name, globalId). */
-  function resolveColumnValue(data: EntityData, col: string, getProps: () => PropertySetData[]): string {
+  /** Resolve quantity sets for an entity */
+  function getQuantities(ref: EntityRef): QuantitySetData[] {
+    const state = store.getState();
+    const model = getModelForRef(state, ref.modelId);
+    if (!model?.ifcDataStore) return [];
+
+    const node = new EntityNode(model.ifcDataStore, ref.expressId);
+    return node.quantities().map((qset: { name: string; quantities: Array<{ name: string; type: number; value: number }> }) => ({
+      name: qset.name,
+      quantities: qset.quantities.map((q: { name: string; type: number; value: number }) => ({
+        name: q.name,
+        type: q.type,
+        value: q.value,
+      })),
+    }));
+  }
+
+  /** Resolve a single column value from entity data + properties + quantities.
+   * Accepts both IFC PascalCase (Name, GlobalId) and legacy camelCase (name, globalId).
+   * Dot-path columns (e.g. "Pset_WallCommon.FireRating" or "Qto_WallBaseQuantities.GrossVolume")
+   * resolve against property sets first, then quantity sets. */
+  function resolveColumnValue(
+    data: EntityData,
+    col: string,
+    getProps: () => PropertySetData[],
+    getQties: () => QuantitySetData[],
+  ): string {
     // IFC schema attribute names (PascalCase) + legacy camelCase
     switch (col) {
       case 'Name': case 'name': return data.name;
@@ -125,15 +149,29 @@ export function createExportAdapter(store: StoreApi): ExportBackendMethods {
       case 'expressId': return String(data.ref.expressId);
     }
 
-    // Property path: "PsetName.PropertyName"
+    // Property/Quantity path: "SetName.ValueName"
     const dotIdx = col.indexOf('.');
     if (dotIdx > 0) {
-      const psetName = col.slice(0, dotIdx);
-      const propName = col.slice(dotIdx + 1);
+      const setName = col.slice(0, dotIdx);
+      const valueName = col.slice(dotIdx + 1);
+
+      // Try property sets first
       const psets = getProps();
-      const pset = psets.find(p => p.name === psetName);
-      const prop = pset?.properties.find(p => p.name === propName);
-      return prop?.value != null ? String(prop.value) : '';
+      const pset = psets.find(p => p.name === setName);
+      if (pset) {
+        const prop = pset.properties.find(p => p.name === valueName);
+        if (prop?.value != null) return String(prop.value);
+      }
+
+      // Fall back to quantity sets
+      const qsets = getQties();
+      const qset = qsets.find(q => q.name === setName);
+      if (qset) {
+        const qty = qset.quantities.find(q => q.name === valueName);
+        if (qty?.value != null) return String(qty.value);
+      }
+
+      return '';
     }
 
     return '';
@@ -161,14 +199,19 @@ export function createExportAdapter(store: StoreApi): ExportBackendMethods {
         const data = getEntityData(ref);
         if (!data) continue;
 
-        // Lazy-load properties only if a column needs them
+        // Lazy-load properties/quantities only if a column needs them
         let cachedProps: PropertySetData[] | null = null;
         const getProps = (): PropertySetData[] => {
           if (!cachedProps) cachedProps = getProperties(ref);
           return cachedProps;
         };
+        let cachedQties: QuantitySetData[] | null = null;
+        const getQties = (): QuantitySetData[] => {
+          if (!cachedQties) cachedQties = getQuantities(ref);
+          return cachedQties;
+        };
 
-        const row = options.columns.map(col => resolveColumnValue(data, col, getProps));
+        const row = options.columns.map(col => resolveColumnValue(data, col, getProps, getQties));
         rows.push(row);
       }
 
@@ -202,10 +245,15 @@ export function createExportAdapter(store: StoreApi): ExportBackendMethods {
           if (!cachedProps) cachedProps = getProperties(ref);
           return cachedProps;
         };
+        let cachedQties: QuantitySetData[] | null = null;
+        const getQties = (): QuantitySetData[] => {
+          if (!cachedQties) cachedQties = getQuantities(ref);
+          return cachedQties;
+        };
 
         const row: Record<string, unknown> = {};
         for (const col of columns as string[]) {
-          const value = resolveColumnValue(data, col, getProps);
+          const value = resolveColumnValue(data, col, getProps, getQties);
           // Try to parse numeric values
           const numVal = Number(value);
           row[col] = value === '' ? null : !isNaN(numVal) && value.trim() !== '' ? numVal : value;

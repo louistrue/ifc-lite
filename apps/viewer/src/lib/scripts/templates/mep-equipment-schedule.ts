@@ -82,6 +82,8 @@ interface EquipmentEntry {
 }
 
 const schedule: Record<string, EquipmentEntry[]> = {}
+// Collect all unique property paths for CSV export columns
+const propertyColumns = new Set<string>()
 
 for (const [type, entities] of Object.entries(byType).sort((a, b) => b[1].length - a[1].length)) {
   schedule[type] = []
@@ -96,7 +98,9 @@ for (const [type, entities] of Object.entries(byType).sort((a, b) => b[1].length
       for (const p of pset.properties) {
         const lower = p.name.toLowerCase()
         if (MEP_PROPS.some(k => lower.includes(k)) && p.value !== null && p.value !== '') {
-          entry.props[pset.name + '.' + p.name] = p.value
+          const path = pset.name + '.' + p.name
+          entry.props[path] = p.value
+          propertyColumns.add(path)
         }
       }
     }
@@ -161,10 +165,11 @@ for (const [type, entities] of Object.entries(byType).sort((a, b) => b[1].length
 }
 
 // ── 7. Export ────────────────────────────────────────────────────────────
+const propCols = Array.from(propertyColumns).sort()
 bim.export.csv(elements, {
-  columns: ['Name', 'Type', 'ObjectType', 'GlobalId', 'Description'],
+  columns: ['Name', 'Type', 'ObjectType', 'GlobalId', 'Description', ...propCols],
   filename: 'mep-equipment-schedule.csv'
 })
 console.log('')
-console.log('Exported ' + elements.length + ' MEP elements to mep-equipment-schedule.csv')
+console.log('Exported ' + elements.length + ' MEP elements (' + (5 + propCols.length) + ' columns) to mep-equipment-schedule.csv')
 console.log('Elements are isolated and color-coded by type in 3D view')

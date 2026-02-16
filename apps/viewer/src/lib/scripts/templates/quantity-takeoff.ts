@@ -44,6 +44,8 @@ console.log('')
 
 const takeoffs: TypeTakeoff[] = []
 let totalElements = 0
+// Collect all unique Qto set+quantity paths for CSV export columns
+const quantityColumns = new Set<string>()
 
 for (const ifcType of ELEMENT_TYPES) {
   const entities = bim.query.byType(ifcType)
@@ -69,6 +71,8 @@ for (const ifcType of ELEMENT_TYPES) {
         if (!takeoff.quantities[key]) takeoff.quantities[key] = { sum: 0, count: 0, unit: '' }
         takeoff.quantities[key].sum += q.value
         takeoff.quantities[key].count++
+        // Track the full path for CSV export
+        quantityColumns.add(qset.name + '.' + q.name)
       }
     }
   }
@@ -131,10 +135,11 @@ for (const t of takeoffs.sort((a, b) => b.count - a.count)) {
 // Build a flat entity list with quantities for CSV export
 const allElements = bim.query.byType(...ELEMENT_TYPES)
 if (allElements.length > 0) {
+  const qtyCols = Array.from(quantityColumns).sort()
   bim.export.csv(allElements, {
-    columns: ['Name', 'Type', 'ObjectType', 'GlobalId'],
+    columns: ['Name', 'Type', 'ObjectType', 'GlobalId', ...qtyCols],
     filename: 'quantity-takeoff.csv'
   })
   console.log('')
-  console.log('Exported ' + allElements.length + ' elements to quantity-takeoff.csv')
+  console.log('Exported ' + allElements.length + ' elements (' + (4 + qtyCols.length) + ' columns) to quantity-takeoff.csv')
 }

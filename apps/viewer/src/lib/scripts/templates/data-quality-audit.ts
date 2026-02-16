@@ -115,13 +115,35 @@ if (tiers.poor.length > 0) {
   }
 }
 
-// ── 8. Export issues list ───────────────────────────────────────────────
-if (tiers.poor.length + tiers.partial.length > 0) {
-  const problemEntities = [...tiers.poor, ...tiers.partial]
-  bim.export.csv(problemEntities, {
-    columns: ['Name', 'Type', 'GlobalId', 'Description', 'ObjectType'],
-    filename: 'data-quality-issues.csv'
-  })
-  console.log('')
-  console.log('Exported ' + problemEntities.length + ' problem entities to data-quality-issues.csv')
+// ── 8. Export all entities with discovered property/quantity data ────────
+// Discover common property columns from a sample
+const sampleForDiscovery = all.slice(0, 200)
+const discoveredPropPaths = new Set<string>()
+const discoveredQtyPaths = new Set<string>()
+for (const e of sampleForDiscovery) {
+  const psets = bim.query.properties(e)
+  for (const pset of psets) {
+    for (const p of pset.properties) {
+      if (p.value !== null && p.value !== '') {
+        discoveredPropPaths.add(pset.name + '.' + p.name)
+      }
+    }
+  }
+  const qsets = bim.query.quantities(e)
+  for (const qset of qsets) {
+    for (const q of qset.quantities) {
+      if (q.value !== null && q.value !== 0) {
+        discoveredQtyPaths.add(qset.name + '.' + q.name)
+      }
+    }
+  }
 }
+// Cap columns to keep CSV manageable
+const auditPropCols = Array.from(discoveredPropPaths).sort().slice(0, 20)
+const auditQtyCols = Array.from(discoveredQtyPaths).sort().slice(0, 10)
+bim.export.csv(all, {
+  columns: ['Name', 'Type', 'GlobalId', 'Description', 'ObjectType', ...auditPropCols, ...auditQtyCols],
+  filename: 'data-quality-audit.csv'
+})
+console.log('')
+console.log('Exported ' + all.length + ' entities (' + (5 + auditPropCols.length + auditQtyCols.length) + ' columns) to data-quality-audit.csv')
