@@ -8,16 +8,20 @@
  * Templates are real .ts files in ./templates/ that are type-checked
  * against the bim-globals.d.ts declaration. They are loaded as raw
  * strings via Vite's ?raw import and served to the sandbox transpiler.
+ *
+ * Each template targets a specific stakeholder and combines multiple
+ * API calls into automated workflows that go beyond what the UI can
+ * do through manual clicking.
  */
 
 // Raw source imports — Vite returns the file content as a string
-import modelOverview from './templates/model-overview.ts?raw';
-import colorByType from './templates/color-by-type.ts?raw';
-import structuralAnalysis from './templates/structural-analysis.ts?raw';
-import propertyFinder from './templates/property-finder.ts?raw';
-import exportCsv from './templates/export-csv.ts?raw';
-import isolateByType from './templates/isolate-by-type.ts?raw';
-import doorWindowSchedule from './templates/door-window-schedule.ts?raw';
+import dataQualityAudit from './templates/data-quality-audit.ts?raw';
+import fireSafetyCheck from './templates/fire-safety-check.ts?raw';
+import quantityTakeoff from './templates/quantity-takeoff.ts?raw';
+import envelopeCheck from './templates/envelope-check.ts?raw';
+import mepEquipmentSchedule from './templates/mep-equipment-schedule.ts?raw';
+import spaceValidation from './templates/space-validation.ts?raw';
+import federationCompare from './templates/federation-compare.ts?raw';
 import resetView from './templates/reset-view.ts?raw';
 
 export interface ScriptTemplate {
@@ -33,43 +37,50 @@ function stripModuleLine(raw: string): string {
 
 export const SCRIPT_TEMPLATES: ScriptTemplate[] = [
   {
-    name: 'Model overview',
-    description: 'Summarize models, count entities by type, compute statistics',
-    code: stripModuleLine(modelOverview),
+    name: 'Data quality audit',
+    description:
+      'BIM Manager — scan all entities for missing names, properties, and quantities; score model completeness; color-code by data quality',
+    code: stripModuleLine(dataQualityAudit),
   },
   {
-    name: 'Color by IFC class',
-    description: 'Assign unique colors to each IFC class (batch colorize)',
-    code: stripModuleLine(colorByType),
+    name: 'Fire safety compliance',
+    description:
+      'Architect — check fire ratings across walls, doors, and slabs; flag load-bearing elements without ratings; export non-compliant list',
+    code: stripModuleLine(fireSafetyCheck),
   },
   {
-    name: 'Structural analysis',
-    description: 'Analyze walls, slabs, columns with properties and color by material',
-    code: stripModuleLine(structuralAnalysis),
+    name: 'Quantity takeoff',
+    description:
+      'Cost Estimator — aggregate area, volume, and length quantities across all element types; generate material takeoff table and CSV',
+    code: stripModuleLine(quantityTakeoff),
   },
   {
-    name: 'Property finder',
-    description: 'Search for entities with specific property values',
-    code: stripModuleLine(propertyFinder),
+    name: 'Envelope & thermal check',
+    description:
+      'Energy Consultant — identify external elements, check thermal transmittance values, isolate building envelope, flag missing data',
+    code: stripModuleLine(envelopeCheck),
   },
   {
-    name: 'Export to CSV',
-    description: 'Export entity data with properties to CSV file download',
-    code: stripModuleLine(exportCsv),
+    name: 'MEP equipment schedule',
+    description:
+      'HVAC Engineer — discover all distribution elements, extract equipment properties, generate schedule, isolate and color by system',
+    code: stripModuleLine(mepEquipmentSchedule),
   },
   {
-    name: 'Isolate by type',
-    description: 'Isolate walls, doors, or windows — change the type to explore',
-    code: stripModuleLine(isolateByType),
+    name: 'Space & room validation',
+    description:
+      'Facility Manager — validate IfcSpace entities for area, volume, naming; generate room schedule with totals; flag incomplete spaces',
+    code: stripModuleLine(spaceValidation),
   },
   {
-    name: 'Door & window schedule',
-    description: 'Generate a schedule listing all doors and windows with dimensions',
-    code: stripModuleLine(doorWindowSchedule),
+    name: 'Federation comparison',
+    description:
+      'Project Manager — compare multiple loaded models side by side: entity counts, type coverage, naming consistency, coordination issues',
+    code: stripModuleLine(federationCompare),
   },
   {
     name: 'Reset view',
-    description: 'Remove all color overrides and show all entities',
+    description: 'Utility — remove all color overrides and show all entities',
     code: stripModuleLine(resetView),
   },
 ];
