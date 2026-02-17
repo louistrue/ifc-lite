@@ -91,8 +91,8 @@ function resolveStoreyElements(
 }
 
 /**
- * Get expanded selection refs — resolves storey/hierarchy selections into children.
- * Priority: multi-select → storey selection → single entity.
+ * Get expanded selection refs — resolves hierarchy container selections into children.
+ * Priority: multi-select → hierarchy container (storey/type-group/building) → storey filter → single entity.
  */
 function getExpandedSelectionRefs(): EntityRef[] {
   const state = useViewerStore.getState();
@@ -106,7 +106,13 @@ function getExpandedSelectionRefs(): EntityRef[] {
     return refs;
   }
 
-  // 2. If storeys are selected in hierarchy, resolve all storey elements
+  // 2. Hierarchy container refs (set when a container node was clicked in the hierarchy panel)
+  //    This covers storeys, type groups, buildings, sites, spaces, etc.
+  if (state.hierarchyContainerRefs.length > 0) {
+    return state.hierarchyContainerRefs;
+  }
+
+  // 3. If storeys are selected in hierarchy filter, resolve all storey elements
   if (state.selectedStoreys.size > 0) {
     const storeyRefs = resolveStoreyElements(
       state.selectedStoreys,
@@ -116,7 +122,7 @@ function getExpandedSelectionRefs(): EntityRef[] {
     if (storeyRefs.length > 0) return storeyRefs;
   }
 
-  // 3. Fall back to single selectedEntity
+  // 4. Fall back to single selectedEntity
   if (state.selectedEntity) {
     return [state.selectedEntity];
   }

@@ -60,6 +60,9 @@ export function HierarchyPanel() {
   const addToBasket = useViewerStore((s) => s.addToBasket);
   const removeFromBasket = useViewerStore((s) => s.removeFromBasket);
 
+  // Hierarchy container refs for basket keyboard shortcuts
+  const setHierarchyContainerRefs = useViewerStore((s) => s.setHierarchyContainerRefs);
+
   // Context menu state for hierarchy nodes
   const [hierarchyContextMenu, setHierarchyContextMenu] = useState<{
     node: TreeNode;
@@ -259,6 +262,8 @@ export function HierarchyPanel() {
       const elements = getNodeElements(node);
       if (elements.length > 0) {
         isolateEntities(elements);
+        // Store resolved child refs so basket shortcuts (I/+/−) work on all children
+        setHierarchyContainerRefs(getEntityRefsForNode(node));
       }
       return;
     }
@@ -281,6 +286,9 @@ export function HierarchyPanel() {
         setSelectedEntity({ modelId: 'legacy', expressId: entityId });
       }
 
+      // Store resolved child refs so basket shortcuts (I/+/−) work on all children
+      setHierarchyContainerRefs(getEntityRefsForNode(node));
+
       // Also toggle expand if has children
       if (node.hasChildren) {
         toggleExpand(node.id);
@@ -296,6 +304,9 @@ export function HierarchyPanel() {
       const storeyIds = unified
         ? unified.storeys.map(s => s.storeyId)
         : node.expressIds;
+
+      // Store resolved child refs so basket shortcuts (I/+/−) work on all children
+      setHierarchyContainerRefs(getEntityRefsForNode(node));
 
       // Set entity refs for property panel display
       if (unified && unified.storeys.length > 1) {
@@ -340,7 +351,8 @@ export function HierarchyPanel() {
         }
       }
     } else if (node.type === 'element') {
-      // Element click - select it
+      // Element click - select it (clear container refs since this is a leaf)
+      setHierarchyContainerRefs([]);
       const elementId = node.expressIds[0];  // Original expressId
       const modelId = node.modelIds[0];
 
@@ -358,7 +370,7 @@ export function HierarchyPanel() {
         setSelectedEntity(resolveEntityRef(elementId));
       }
     }
-  }, [selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntity, setSelectedEntities, setActiveModel, toggleExpand, unifiedStoreys, models, isolateEntities, getNodeElements]);
+  }, [selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntity, setSelectedEntities, setActiveModel, toggleExpand, unifiedStoreys, models, isolateEntities, getNodeElements, setHierarchyContainerRefs, getEntityRefsForNode]);
 
   // Compute selection and visibility state for a node
   const computeNodeState = useCallback((node: TreeNode): { isSelected: boolean; nodeHidden: boolean; modelVisible?: boolean } => {

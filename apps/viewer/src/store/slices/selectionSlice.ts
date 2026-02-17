@@ -60,6 +60,12 @@ export interface SelectionSlice {
   setSelectedEntities: (refs: EntityRef[]) => void;
   /** Set selected model for metadata display */
   setSelectedModelId: (modelId: string | null) => void;
+
+  /** Resolved child EntityRefs for the currently selected hierarchy container.
+   *  Set when a container node (storey, type-group, building, etc.) is clicked
+   *  in the hierarchy panel. Keyboard shortcuts use this for basket operations. */
+  hierarchyContainerRefs: EntityRef[];
+  setHierarchyContainerRefs: (refs: EntityRef[]) => void;
 }
 
 export const createSelectionSlice: StateCreator<SelectionSlice, [], [], SelectionSlice> = (set, get) => ({
@@ -73,6 +79,7 @@ export const createSelectionSlice: StateCreator<SelectionSlice, [], [], Selectio
   selectedEntitiesSet: new Set(),
   selectedEntities: [],
   selectedModelId: null,
+  hierarchyContainerRefs: [],
 
   // Actions (legacy - maintained for backward compatibility)
   setSelectedEntityId: (selectedEntityId) => set((state) => ({
@@ -227,6 +234,7 @@ export const createSelectionSlice: StateCreator<SelectionSlice, [], [], Selectio
     selectedEntityId: null,
     selectedEntityIds: new Set(),
     selectedModelId: null,
+    hierarchyContainerRefs: [],
   }),
 
   isEntitySelected: (ref) => {
@@ -259,5 +267,8 @@ export const createSelectionSlice: StateCreator<SelectionSlice, [], [], Selectio
     selectedEntity: null,
     selectedEntities: [],
     selectedEntityId: null,
+    hierarchyContainerRefs: [],
   }),
+
+  setHierarchyContainerRefs: (refs) => set({ hierarchyContainerRefs: refs }),
 });
