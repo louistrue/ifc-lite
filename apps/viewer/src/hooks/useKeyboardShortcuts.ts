@@ -8,7 +8,7 @@
 
 import { useEffect, useCallback } from 'react';
 import { useViewerStore, stringToEntityRef } from '@/store';
-import type { EntityRef } from '@/store';
+import type { EntityRef, FederatedModel } from '@/store';
 
 interface KeyboardShortcutsOptions {
   enabled?: boolean;
@@ -47,6 +47,80 @@ function getSelectionRefsFromStore(): EntityRef[] {
   if (state.selectedEntity) {
     return [state.selectedEntity];
   }
+  return [];
+}
+
+/**
+ * Resolve storey elements from a model's spatial hierarchy.
+ * Returns EntityRef[] for all elements contained in the selected storeys.
+ */
+function resolveStoreyElements(
+  selectedStoreys: Set<number>,
+  models: Map<string, FederatedModel>,
+  ifcDataStore: { spatialHierarchy?: { byStorey: Map<number, number[]> } } | null,
+): EntityRef[] {
+  const refs: EntityRef[] = [];
+
+  // Federation mode: iterate models to find storey elements
+  for (const [modelId, model] of models) {
+    const hierarchy = model.ifcDataStore?.spatialHierarchy;
+    if (!hierarchy) continue;
+    for (const storeyId of selectedStoreys) {
+      const elements = hierarchy.byStorey.get(storeyId);
+      if (elements) {
+        for (const localId of elements) {
+          refs.push({ modelId, expressId: localId as number });
+        }
+      }
+    }
+  }
+
+  // Legacy single-model mode (no models in federation map)
+  if (models.size === 0 && ifcDataStore?.spatialHierarchy) {
+    for (const storeyId of selectedStoreys) {
+      const elements = ifcDataStore.spatialHierarchy.byStorey.get(storeyId);
+      if (elements) {
+        for (const localId of elements) {
+          refs.push({ modelId: 'legacy', expressId: localId as number });
+        }
+      }
+    }
+  }
+
+  return refs;
+}
+
+/**
+ * Get expanded selection refs — resolves storey/hierarchy selections into children.
+ * Priority: multi-select → storey selection → single entity.
+ */
+function getExpandedSelectionRefs(): EntityRef[] {
+  const state = useViewerStore.getState();
+
+  // 1. Multi-select takes priority
+  if (state.selectedEntitiesSet.size > 0) {
+    const refs: EntityRef[] = [];
+    for (const str of state.selectedEntitiesSet) {
+      refs.push(stringToEntityRef(str));
+    }
+    return refs;
+  }
+
+  // 2. If storeys are selected in hierarchy, resolve all storey elements
+  if (state.selectedStoreys.size > 0) {
+    const storeyRefs = resolveStoreyElements(
+      state.selectedStoreys,
+      state.models as Map<string, FederatedModel>,
+      state.ifcDataStore,
+    );
+    if (storeyRefs.length > 0) return storeyRefs;
+  }
+
+  // 3. Fall back to single selectedEntity
+  if (state.selectedEntity) {
+    return [state.selectedEntity];
+  }
+
   return [];
 }
 
@@ -121,13 +195,13 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
     // I = Set basket (isolate selection as basket), or re-apply basket if no selection
     if (key === 'i' && !ctrl && !shift) {
       const state = useViewerStore.getState();
-      // If basket already exists and user hasn't explicitly multi-selected,
-      // re-apply the basket instead of replacing it with a stale single selection.
-      if (state.pinboardEntities.size > 0 && state.selectedEntitiesSet.size === 0) {
+      // If basket already exists and user hasn't explicitly multi-selected
+      // and no storeys are selected, re-apply the basket.
+      if (state.pinboardEntities.size > 0 && state.selectedEntitiesSet.size === 0 && state.selectedStoreys.size === 0) {
         e.preventDefault();
         showPinboard();
       } else {
-        const refs = getSelectionRefsFromStore();
+        const refs = getExpandedSelectionRefs();
         if (refs.length > 0) {
           e.preventDefault();
           setBasket(refs);
@@ -140,7 +214,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
     // + or = (with shift) = Add to basket
     if ((e.key === '+' || (e.key === '=' && shift)) && !ctrl) {
       e.preventDefault();
-      const refs = getSelectionRefsFromStore();
+      const refs = getExpandedSelectionRefs();
       if (refs.length > 0) {
         addToBasket(refs);
         // Consume multi-select so subsequent − removes a single entity
@@ -151,7 +225,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
     // - or _ = Remove from basket
     if ((e.key === '-' || e.key === '_') && !ctrl) {
       e.preventDefault();
-      const refs = getSelectionRefsFromStore();
+      const refs = getExpandedSelectionRefs();
       if (refs.length > 0) {
         removeFromBasket(refs);
         // Consume multi-select after removal

@@ -50,6 +50,7 @@ export interface HierarchyNodeProps {
   onModelVisibilityToggle: (modelId: string, e: React.MouseEvent) => void;
   onRemoveModel: (modelId: string, e: React.MouseEvent) => void;
   onModelHeaderClick: (modelId: string, nodeId: string, hasChildren: boolean) => void;
+  onContextMenu?: (node: TreeNode, e: React.MouseEvent) => void;
 }
 
 export function HierarchyNode({
@@ -66,6 +67,7 @@ export function HierarchyNode({
   onModelVisibilityToggle,
   onRemoveModel,
   onModelHeaderClick,
+  onContextMenu,
 }: HierarchyNodeProps) {
   const Icon = TYPE_ICONS[node.type] || TYPE_ICONS.default;
 
@@ -202,6 +204,12 @@ export function HierarchyNode({
         onMouseDown={(e) => {
           if ((e.target as HTMLElement).closest('button') === null) {
             e.preventDefault();
+          }
+        }}
+        onContextMenu={(e) => {
+          if (onContextMenu) {
+            e.preventDefault();
+            onContextMenu(node, e);
           }
         }}
       >

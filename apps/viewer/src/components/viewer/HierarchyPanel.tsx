@@ -11,11 +11,15 @@ import {
   LayoutTemplate,
   FileBox,
   GripHorizontal,
+  Equal,
+  Plus,
+  Minus,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useViewerStore, resolveEntityRef } from '@/store';
+import type { EntityRef } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 
 import type { TreeNode } from './hierarchy/types';
@@ -50,6 +54,19 @@ export function HierarchyPanel() {
   const showEntities = useViewerStore((s) => s.showEntities);
   const toggleEntityVisibility = useViewerStore((s) => s.toggleEntityVisibility);
   const clearSelection = useViewerStore((s) => s.clearSelection);
+
+  // Basket actions
+  const setBasket = useViewerStore((s) => s.setBasket);
+  const addToBasket = useViewerStore((s) => s.addToBasket);
+  const removeFromBasket = useViewerStore((s) => s.removeFromBasket);
+
+  // Context menu state for hierarchy nodes
+  const [hierarchyContextMenu, setHierarchyContextMenu] = useState<{
+    node: TreeNode;
+    x: number;
+    y: number;
+  } | null>(null);
+  const hierarchyMenuRef = useRef<HTMLDivElement>(null);
 
   // Resizable panel split (percentage for storeys section, 0.5 = 50%)
   const [splitRatio, setSplitRatio] = useState(0.5);
@@ -172,6 +189,63 @@ export function HierarchyPanel() {
     setSelectedModelId(modelId);
     if (hasChildren) toggleExpand(nodeId);
   }, [setSelectedModelId, toggleExpand]);
+
+  // Convert global IDs from getNodeElements to EntityRefs for basket operations
+  const getEntityRefsForNode = useCallback((node: TreeNode): EntityRef[] => {
+    const elements = getNodeElements(node);
+    return elements.map(globalId => resolveEntityRef(globalId));
+  }, [getNodeElements]);
+
+  // Context menu handlers for hierarchy nodes
+  const handleHierarchyContextMenu = useCallback((node: TreeNode, e: React.MouseEvent) => {
+    e.preventDefault();
+    const elements = getNodeElements(node);
+    if (elements.length > 0) {
+      setHierarchyContextMenu({ node, x: e.clientX, y: e.clientY });
+    }
+  }, [getNodeElements]);
+
+  const closeHierarchyContextMenu = useCallback(() => setHierarchyContextMenu(null), []);
+
+  const handleHierarchyBasketSet = useCallback(() => {
+    if (!hierarchyContextMenu) return;
+    const refs = getEntityRefsForNode(hierarchyContextMenu.node);
+    setBasket(refs);
+    closeHierarchyContextMenu();
+  }, [hierarchyContextMenu, getEntityRefsForNode, setBasket, closeHierarchyContextMenu]);
+
+  const handleHierarchyBasketAdd = useCallback(() => {
+    if (!hierarchyContextMenu) return;
+    const refs = getEntityRefsForNode(hierarchyContextMenu.node);
+    addToBasket(refs);
+    closeHierarchyContextMenu();
+  }, [hierarchyContextMenu, getEntityRefsForNode, addToBasket, closeHierarchyContextMenu]);
+
+  const handleHierarchyBasketRemove = useCallback(() => {
+    if (!hierarchyContextMenu) return;
+    const refs = getEntityRefsForNode(hierarchyContextMenu.node);
+    removeFromBasket(refs);
+    closeHierarchyContextMenu();
+  }, [hierarchyContextMenu, getEntityRefsForNode, removeFromBasket, closeHierarchyContextMenu]);
+
+  // Close hierarchy context menu when clicking outside
+  useEffect(() => {
+    if (!hierarchyContextMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (hierarchyMenuRef.current && !hierarchyMenuRef.current.contains(e.target as Node)) {
+        closeHierarchyContextMenu();
+      }
+    };
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeHierarchyContextMenu();
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [hierarchyContextMenu, closeHierarchyContextMenu]);
 
   // Handle node click - for selection/isolation or expand/collapse
   const handleNodeClick = useCallback((node: TreeNode, e: React.MouseEvent) => {
@@ -357,9 +431,52 @@ export function HierarchyPanel() {
         onModelVisibilityToggle={handleModelVisibilityToggle}
         onRemoveModel={handleRemoveModel}
         onModelHeaderClick={handleModelHeaderClick}
+        onContextMenu={handleHierarchyContextMenu}
       />
     );
   };
+
+  // Context menu overlay for hierarchy basket operations
+  const hierarchyContextMenuOverlay = hierarchyContextMenu && (
+    <div
+      ref={hierarchyMenuRef}
+      className="fixed z-50 bg-popover border rounded-lg shadow-lg py-1 min-w-48"
+      style={{
+        left: hierarchyContextMenu.x,
+        top: hierarchyContextMenu.y,
+      }}
+    >
+      <div className="px-3 py-2 border-b">
+        <div className="font-medium text-sm truncate">
+          {hierarchyContextMenu.node.name}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {hierarchyContextMenu.node.elementCount ?? getNodeElements(hierarchyContextMenu.node).length} elements
+        </div>
+      </div>
+      <button
+        className="w-full px-3 py-1.5 text-sm text-left flex items-center gap-2 hover:bg-muted"
+        onClick={handleHierarchyBasketSet}
+      >
+        <Equal className="h-4 w-4 text-muted-foreground" />
+        <span>Set as Basket (=)</span>
+      </button>
+      <button
+        className="w-full px-3 py-1.5 text-sm text-left flex items-center gap-2 hover:bg-muted"
+        onClick={handleHierarchyBasketAdd}
+      >
+        <Plus className="h-4 w-4 text-muted-foreground" />
+        <span>Add to Basket (+)</span>
+      </button>
+      <button
+        className="w-full px-3 py-1.5 text-sm text-left flex items-center gap-2 hover:bg-muted"
+        onClick={handleHierarchyBasketRemove}
+      >
+        <Minus className="h-4 w-4 text-muted-foreground" />
+        <span>Remove from Basket (−)</span>
+      </button>
+    </div>
+  );
 
   // Multi-model layout with resizable split
   // Grouping mode toggle component (shared by both layouts)
@@ -479,6 +596,8 @@ export function HierarchyPanel() {
             {models.size} models · Drag divider to resize
           </div>
         )}
+
+        {hierarchyContextMenuOverlay}
       </div>
     );
   }
@@ -542,6 +661,8 @@ export function HierarchyPanel() {
           Click to filter · Ctrl toggle
         </div>
       )}
+
+      {hierarchyContextMenuOverlay}
     </div>
   );
 }
