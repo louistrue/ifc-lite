@@ -55,8 +55,8 @@ import {
   DropdownMenuSubContent,
 } from '@/components/ui/dropdown-menu';
 import { Progress } from '@/components/ui/progress';
-import { useViewerStore, isIfcxDataStore, stringToEntityRef } from '@/store';
-import type { EntityRef } from '@/store';
+import { useViewerStore, isIfcxDataStore } from '@/store';
+import { getBasketSelectionRefsFromStore } from '@/store/basketSelection';
 import { useIfc } from '@/hooks/useIfc';
 import { cn } from '@/lib/utils';
 import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
@@ -306,22 +306,6 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     e.target.value = '';
   }, [loadFilesSequentially, addIfcxOverlays, ifcDataStore]);
 
-  /** Get current selection as EntityRef[] — uses getState() to avoid reactive subscriptions */
-  const getSelectionRefs = useCallback((): EntityRef[] => {
-    const state = useViewerStore.getState();
-    if (state.selectedEntitiesSet.size > 0) {
-      const refs: EntityRef[] = [];
-      for (const str of state.selectedEntitiesSet) {
-        refs.push(stringToEntityRef(str));
-      }
-      return refs;
-    }
-    if (state.selectedEntity) {
-      return [state.selectedEntity];
-    }
-    return [];
-  }, []);
-
   const hasSelection = selectedEntityId !== null;
 
   // Basket state
@@ -330,7 +314,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   // Clear multi-select state after basket operations so subsequent − targets a single entity
   const clearMultiSelect = useCallback(() => {
     const state = useViewerStore.getState();
-    if (state.selectedEntitiesSet.size > 0) {
+    if (state.selectedEntitiesSet.size > 0 || state.selectedEntityIds.size > 0) {
       useViewerStore.setState({ selectedEntitiesSet: new Set(), selectedEntityIds: new Set() });
     }
   }, []);
@@ -345,28 +329,28 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       showPinboard();
       return;
     }
-    const refs = getSelectionRefs();
+    const refs = getBasketSelectionRefsFromStore();
     if (refs.length > 0) {
       setBasket(refs);
       clearMultiSelect();
     }
-  }, [getSelectionRefs, setBasket, showPinboard, clearMultiSelect]);
+  }, [setBasket, showPinboard, clearMultiSelect]);
 
   const handleAddToBasket = useCallback(() => {
-    const refs = getSelectionRefs();
+    const refs = getBasketSelectionRefsFromStore();
     if (refs.length > 0) {
       addToBasket(refs);
       clearMultiSelect();
     }
-  }, [getSelectionRefs, addToBasket, clearMultiSelect]);
+  }, [addToBasket, clearMultiSelect]);
 
   const handleRemoveFromBasket = useCallback(() => {
-    const refs = getSelectionRefs();
+    const refs = getBasketSelectionRefsFromStore();
     if (refs.length > 0) {
       removeFromBasket(refs);
       clearMultiSelect();
     }
-  }, [getSelectionRefs, removeFromBasket, clearMultiSelect]);
+  }, [removeFromBasket, clearMultiSelect]);
 
   const clearSelection = useViewerStore((state) => state.clearSelection);
 

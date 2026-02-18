@@ -7,8 +7,8 @@
  */
 
 import { useEffect, useCallback } from 'react';
-import { useViewerStore, stringToEntityRef } from '@/store';
-import type { EntityRef } from '@/store';
+import { useViewerStore } from '@/store';
+import { getBasketSelectionRefsFromStore } from '@/store/basketSelection';
 
 interface KeyboardShortcutsOptions {
   enabled?: boolean;
@@ -17,7 +17,7 @@ interface KeyboardShortcutsOptions {
 /** Clear multi-select state so subsequent operations use single-entity selectedEntity */
 function clearMultiSelect(): void {
   const state = useViewerStore.getState();
-  if (state.selectedEntitiesSet.size > 0) {
+  if (state.selectedEntitiesSet.size > 0 || state.selectedEntityIds.size > 0) {
     useViewerStore.setState({ selectedEntitiesSet: new Set(), selectedEntityIds: new Set() });
   }
 }
@@ -30,22 +30,6 @@ function getAllSelectedGlobalIds(): number[] {
   }
   if (state.selectedEntityId !== null) {
     return [state.selectedEntityId];
-  }
-  return [];
-}
-
-/** Get current selection as EntityRef[] — multi-select if available, else single */
-function getSelectionRefsFromStore(): EntityRef[] {
-  const state = useViewerStore.getState();
-  if (state.selectedEntitiesSet.size > 0) {
-    const refs: EntityRef[] = [];
-    for (const str of state.selectedEntitiesSet) {
-      refs.push(stringToEntityRef(str));
-    }
-    return refs;
-  }
-  if (state.selectedEntity) {
-    return [state.selectedEntity];
   }
   return [];
 }
@@ -127,7 +111,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
         e.preventDefault();
         showPinboard();
       } else {
-        const refs = getSelectionRefsFromStore();
+        const refs = getBasketSelectionRefsFromStore();
         if (refs.length > 0) {
           e.preventDefault();
           setBasket(refs);
@@ -140,7 +124,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
     // + or = (with shift) = Add to basket
     if ((e.key === '+' || (e.key === '=' && shift)) && !ctrl) {
       e.preventDefault();
-      const refs = getSelectionRefsFromStore();
+      const refs = getBasketSelectionRefsFromStore();
       if (refs.length > 0) {
         addToBasket(refs);
         // Consume multi-select so subsequent − removes a single entity
@@ -151,7 +135,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
     // - or _ = Remove from basket
     if ((e.key === '-' || e.key === '_') && !ctrl) {
       e.preventDefault();
-      const refs = getSelectionRefsFromStore();
+      const refs = getBasketSelectionRefsFromStore();
       if (refs.length > 0) {
         removeFromBasket(refs);
         // Consume multi-select after removal

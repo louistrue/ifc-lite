@@ -56,8 +56,8 @@ import {
   Clock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useViewerStore, stringToEntityRef } from '@/store';
-import type { EntityRef } from '@/store';
+import { useViewerStore } from '@/store';
+import { getBasketSelectionRefsFromStore } from '@/store/basketSelection';
 import { useSandbox } from '@/hooks/useSandbox';
 import { SCRIPT_TEMPLATES } from '@/lib/scripts/templates';
 import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
@@ -172,19 +172,13 @@ function downloadBlob(data: BlobPart, name: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
-function getSelectionRefs(): EntityRef[] {
-  const s = useViewerStore.getState();
-  if (s.selectedEntitiesSet.size > 0) {
-    const refs: EntityRef[] = [];
-    for (const str of s.selectedEntitiesSet) refs.push(stringToEntityRef(str));
-    return refs;
-  }
-  return s.selectedEntity ? [s.selectedEntity] : [];
+function getSelectionRefs() {
+  return getBasketSelectionRefsFromStore();
 }
 
 function clearMultiSelect() {
   const s = useViewerStore.getState();
-  if (s.selectedEntitiesSet.size > 0)
+  if (s.selectedEntitiesSet.size > 0 || s.selectedEntityIds.size > 0)
     useViewerStore.setState({ selectedEntitiesSet: new Set(), selectedEntityIds: new Set() });
 }
 

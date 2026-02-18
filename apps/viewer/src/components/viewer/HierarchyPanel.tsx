@@ -36,6 +36,7 @@ export function HierarchyPanel() {
   } = useIfc();
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
+  const setSelectedEntityIds = useViewerStore((s) => s.setSelectedEntityIds);
   const setSelectedEntity = useViewerStore((s) => s.setSelectedEntity);
   const setSelectedEntities = useViewerStore((s) => s.setSelectedEntities);
   const setSelectedModelId = useViewerStore((s) => s.setSelectedModelId);
@@ -184,6 +185,9 @@ export function HierarchyPanel() {
     if (node.type === 'type-group') {
       const elements = getNodeElements(node);
       if (elements.length > 0) {
+        // Also mark as selection so basket operations can consume type-group picks.
+        setSelectedEntityIds(elements);
+        setSelectedEntity(resolveEntityRef(elements[0]));
         isolateEntities(elements);
       }
       return;
@@ -284,7 +288,7 @@ export function HierarchyPanel() {
         setSelectedEntity(resolveEntityRef(elementId));
       }
     }
-  }, [selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntity, setSelectedEntities, setActiveModel, toggleExpand, unifiedStoreys, models, isolateEntities, getNodeElements]);
+  }, [selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntityIds, setSelectedEntity, setSelectedEntities, setActiveModel, toggleExpand, unifiedStoreys, models, isolateEntities, getNodeElements]);
 
   // Compute selection and visibility state for a node
   const computeNodeState = useCallback((node: TreeNode): { isSelected: boolean; nodeHidden: boolean; modelVisible?: boolean } => {
