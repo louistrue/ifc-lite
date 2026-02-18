@@ -46,6 +46,7 @@ export interface UseRenderUpdatesParams {
   // Drawing 2D
   drawing2D: Drawing2D | null;
   show3DOverlay: boolean;
+  showHiddenLines: boolean;
 }
 
 export function useRenderUpdates(params: UseRenderUpdatesParams): void {
@@ -73,6 +74,7 @@ export function useRenderUpdates(params: UseRenderUpdatesParams): void {
     activeToolRef,
     drawing2D,
     show3DOverlay,
+    showHiddenLines,
   } = params;
 
   // Theme-aware clear color update
@@ -106,8 +108,13 @@ export function useRenderUpdates(params: UseRenderUpdatesParams): void {
         expressId: cp.entityId,  // DrawingPolygon uses entityId
       }));
 
-      // No hatching lines for 3D overlay (too dense)
-      const lines: DrawingLine2D[] = [];
+      // Include linework from the generated drawing on the section plane overlay.
+      const lines: DrawingLine2D[] = drawing2D.lines
+        .filter((line) => showHiddenLines || line.visibility !== 'hidden')
+        .map((line) => ({
+          line: line.line,
+          category: line.category,
+        }));
 
       // Upload to renderer - will be drawn on the section plane
       // Pass sectionRange to match exactly what render() uses for section plane position
@@ -138,7 +145,7 @@ export function useRenderUpdates(params: UseRenderUpdatesParams): void {
         max: sectionRangeRef.current?.max,
       } : undefined,
     });
-  }, [drawing2D, activeTool, sectionPlane, isInitialized, coordinateInfo, show3DOverlay]);
+  }, [drawing2D, activeTool, sectionPlane, isInitialized, coordinateInfo, show3DOverlay, showHiddenLines]);
 
   // Re-render when visibility, selection, or section plane changes
   useEffect(() => {

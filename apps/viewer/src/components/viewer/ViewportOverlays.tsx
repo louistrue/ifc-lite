@@ -12,7 +12,9 @@ import {
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useViewerStore } from '@/store';
+import { goHomeFromStore } from '@/store/homeView';
 import { useIfc } from '@/hooks/useIfc';
+import { cn } from '@/lib/utils';
 import { ViewCube, type ViewCubeRef } from './ViewCube';
 import { AxisHelper } from './AxisHelper';
 
@@ -20,6 +22,7 @@ export function ViewportOverlays() {
   const selectedStoreys = useViewerStore((s) => s.selectedStoreys);
   const hiddenEntities = useViewerStore((s) => s.hiddenEntities);
   const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
+  const basketPresentationVisible = useViewerStore((s) => s.basketPresentationVisible);
   const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
   const setOnCameraRotationChange = useViewerStore((s) => s.setOnCameraRotationChange);
   const setOnScaleChange = useViewerStore((s) => s.setOnScaleChange);
@@ -99,8 +102,8 @@ export function ViewportOverlays() {
   }, [cameraCallbacks]);
 
   const handleHome = useCallback(() => {
-    cameraCallbacks.home?.();
-  }, [cameraCallbacks]);
+    goHomeFromStore();
+  }, []);
 
   const handleFitAll = useCallback(() => {
     cameraCallbacks.fitAll?.();
@@ -161,7 +164,10 @@ export function ViewportOverlays() {
 
       {/* Context Info (bottom-center) - Storey names */}
       {storeyNames && storeyNames.length > 0 && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-background/80 backdrop-blur-sm rounded-full border shadow-sm">
+        <div className={cn(
+          'absolute left-1/2 -translate-x-1/2 px-4 py-2 bg-background/80 backdrop-blur-sm rounded-full border shadow-sm',
+          basketPresentationVisible ? 'bottom-28' : 'bottom-4',
+        )}>
           <div className="flex items-center gap-2 text-sm">
             <Layers className="h-4 w-4 text-primary" />
             <span className="font-medium">

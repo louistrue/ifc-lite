@@ -151,6 +151,15 @@ export interface CameraRotation {
 
 export type ProjectionMode = 'perspective' | 'orthographic';
 
+export interface CameraViewpoint {
+  position: { x: number; y: number; z: number };
+  target: { x: number; y: number; z: number };
+  up: { x: number; y: number; z: number };
+  fov: number;
+  projectionMode: ProjectionMode;
+  orthoSize?: number;
+}
+
 export interface CameraCallbacks {
   setPresetView?: (view: 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right') => void;
   fitAll?: () => void;
@@ -163,6 +172,8 @@ export interface CameraCallbacks {
   setProjectionMode?: (mode: ProjectionMode) => void;
   toggleProjectionMode?: () => void;
   getProjectionMode?: () => ProjectionMode;
+  getViewpoint?: () => CameraViewpoint | null;
+  applyViewpoint?: (viewpoint: CameraViewpoint, animate?: boolean) => void;
 }
 
 // ============================================================================

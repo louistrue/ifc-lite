@@ -73,6 +73,22 @@ export class Camera {
   }
 
   /**
+   * Set camera up vector
+   */
+  setUp(x: number, y: number, z: number): void {
+    this.state.camera.up = { x, y, z };
+    this.updateMatrices();
+  }
+
+  /**
+   * Set camera field of view in radians
+   */
+  setFOV(fov: number): void {
+    this.state.camera.fov = Math.max(0.01, Math.min(Math.PI - 0.01, fov));
+    this.updateMatrices();
+  }
+
+  /**
    * Set temporary orbit pivot (for orbiting around selected element or cursor point)
    * When set, orbit() will rotate around this point instead of the camera target
    */
@@ -378,6 +394,14 @@ export class Camera {
    */
   getOrthoSize(): number {
     return this.state.orthoSize;
+  }
+
+  /**
+   * Set orthographic view half-height
+   */
+  setOrthoSize(size: number): void {
+    this.state.orthoSize = Math.max(0.01, size);
+    this.updateMatrices();
   }
 
   private updateMatrices(): void {

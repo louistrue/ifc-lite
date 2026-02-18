@@ -256,6 +256,10 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
 
       // Pinboard - clear pinned entities on new file
       pinboardEntities: new Set<string>(),
+      basketViews: [],
+      activeBasketViewId: null,
+      basketPresentationVisible: true,
+      hierarchyBasketSelection: new Set<string>(),
 
       // Script - reset execution state but keep saved scripts and editor content
       scriptPanelVisible: false,

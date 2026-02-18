@@ -54,10 +54,16 @@ import {
   Orbit,
   FolderOpen,
   Clock,
+  Save,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useViewerStore } from '@/store';
-import { getBasketSelectionRefsFromStore } from '@/store/basketSelection';
+import { goHomeFromStore, resetVisibilityForHomeFromStore } from '@/store/homeView';
+import { saveBasketViewWithThumbnailFromStore } from '@/store/basketSave';
+import {
+  getSmartBasketInputFromStore,
+  isBasketIsolationActiveFromStore,
+} from '@/store/basketVisibleSet';
 import { useSandbox } from '@/hooks/useSandbox';
 import { SCRIPT_TEMPLATES } from '@/lib/scripts/templates';
 import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
@@ -172,14 +178,8 @@ function downloadBlob(data: BlobPart, name: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
-function getSelectionRefs() {
-  return getBasketSelectionRefsFromStore();
-}
-
-function clearMultiSelect() {
-  const s = useViewerStore.getState();
-  if (s.selectedEntitiesSet.size > 0 || s.selectedEntityIds.size > 0)
-    useViewerStore.setState({ selectedEntitiesSet: new Set(), selectedEntityIds: new Set() });
+function getSmartBasketRefs() {
+  return getSmartBasketInputFromStore().refs;
 }
 
 /** Exclusively activate a right-panel content panel (BCF / IDS / Lens).
@@ -288,7 +288,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     // ── View ──
     c.push(
       { id: 'view:home', label: 'Home', keywords: 'isometric reset camera', category: 'View', icon: Home, shortcut: 'H',
-        action: () => { useViewerStore.getState().cameraCallbacks.home?.(); } },
+        action: () => { goHomeFromStore(); } },
       { id: 'view:fit', label: 'Fit All', keywords: 'zoom extents entire model', category: 'View', icon: Maximize2, shortcut: 'Z',
         action: () => { useViewerStore.getState().cameraCallbacks.fitAll?.(); } },
       { id: 'view:frame', label: 'Frame Selection', keywords: 'zoom focus selected', category: 'View', icon: Crosshair, shortcut: 'F',
@@ -334,18 +334,33 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
           if (ids.length > 0) { s.hideEntities(ids); s.clearSelection(); }
         } },
       { id: 'vis:show', label: 'Show All', keywords: 'unhide reset visible', category: 'Visibility', icon: Eye, shortcut: 'A',
-        action: () => { const s = useViewerStore.getState(); s.showAll(); s.clearStoreySelection(); } },
-      { id: 'vis:isolate', label: 'Isolate Selection', keywords: 'basket set pinboard', category: 'Visibility', icon: Equal, shortcut: 'I',
+        action: () => { resetVisibilityForHomeFromStore(); } },
+      { id: 'vis:set-iso', label: 'Isolate (Set Basket)', keywords: 'basket isolate set selection hierarchy view equals', category: 'Visibility', icon: Equal, shortcut: 'I',
+        action: () => { const r = getSmartBasketRefs(); if (r.length > 0) { useViewerStore.getState().setBasket(r); } } },
+      { id: 'vis:add-iso', label: 'Add to Basket', keywords: 'basket plus selection hierarchy view', category: 'Visibility', icon: Plus, shortcut: '+',
+        action: () => { const r = getSmartBasketRefs(); if (r.length > 0) { useViewerStore.getState().addToBasket(r); } } },
+      { id: 'vis:remove-iso', label: 'Remove from Basket', keywords: 'basket minus selection hierarchy view', category: 'Visibility', icon: Minus, shortcut: '−',
+        action: () => { const r = getSmartBasketRefs(); if (r.length > 0) { useViewerStore.getState().removeFromBasket(r); } } },
+      { id: 'vis:toggle-iso', label: 'Toggle Basket Visibility', keywords: 'basket show hide', category: 'Visibility', icon: Eye,
         action: () => {
           const s = useViewerStore.getState();
-          if (s.pinboardEntities.size > 0 && s.selectedEntitiesSet.size === 0) { s.showPinboard(); }
-          else { const r = getSelectionRefs(); if (r.length > 0) { s.setBasket(r); clearMultiSelect(); } }
+          if (s.pinboardEntities.size === 0) return;
+          if (isBasketIsolationActiveFromStore()) {
+            s.clearIsolation();
+          } else {
+            s.showPinboard();
+          }
         } },
-      { id: 'vis:add-iso', label: 'Add to Isolation', keywords: 'basket plus', category: 'Visibility', icon: Plus, shortcut: '+',
-        action: () => { const r = getSelectionRefs(); if (r.length > 0) { useViewerStore.getState().addToBasket(r); clearMultiSelect(); } } },
-      { id: 'vis:remove-iso', label: 'Remove from Isolation', keywords: 'basket minus', category: 'Visibility', icon: Minus, shortcut: '−',
-        action: () => { const r = getSelectionRefs(); if (r.length > 0) { useViewerStore.getState().removeFromBasket(r); clearMultiSelect(); } } },
-      { id: 'vis:clear-iso', label: 'Clear Isolation', keywords: 'basket reset', category: 'Visibility', icon: RotateCcw,
+      { id: 'vis:save-view', label: 'Save Basket as View', keywords: 'basket presentation thumbnail', category: 'Visibility', icon: Save,
+        action: () => {
+          const s = useViewerStore.getState();
+          if (s.pinboardEntities.size === 0) return;
+          void saveBasketViewWithThumbnailFromStore('manual');
+          s.setBasketPresentationVisible(true);
+        } },
+      { id: 'vis:toggle-presentation', label: 'Toggle Basket Presentation Dock', keywords: 'basket panel carousel thumbnails', category: 'Visibility', icon: Layout,
+        action: () => { useViewerStore.getState().toggleBasketPresentationVisible(); } },
+      { id: 'vis:clear-iso', label: 'Clear Basket', keywords: 'basket clear reset', category: 'Visibility', icon: RotateCcw, shortcut: '0',
         action: () => { useViewerStore.getState().clearBasket(); } },
       { id: 'vis:spaces', label: 'Spaces', keywords: 'IfcSpace rooms show hide', category: 'Visibility', icon: Box,
         action: () => { useViewerStore.getState().toggleTypeVisibility('spaces'); } },

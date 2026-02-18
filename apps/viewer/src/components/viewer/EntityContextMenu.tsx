@@ -17,15 +17,18 @@ import {
   Copy,
   Maximize2,
   Building2,
+  Save,
 } from 'lucide-react';
 import { useViewerStore, resolveEntityRef } from '@/store';
+import { saveBasketViewWithThumbnailFromStore } from '@/store/basketSave';
+import { resetVisibilityForHomeFromStore } from '@/store/homeView';
+import { getSmartBasketInputFromStore } from '@/store/basketVisibleSet';
 import { useIfc } from '@/hooks/useIfc';
 
 export function EntityContextMenu() {
   const contextMenu = useViewerStore((s) => s.contextMenu);
   const closeContextMenu = useViewerStore((s) => s.closeContextMenu);
   const hideEntity = useViewerStore((s) => s.hideEntity);
-  const showAll = useViewerStore((s) => s.showAll);
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
   const setSelectedEntityIds = useViewerStore((s) => s.setSelectedEntityIds);
   const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
@@ -33,14 +36,15 @@ export function EntityContextMenu() {
   const setBasket = useViewerStore((s) => s.setBasket);
   const addToBasket = useViewerStore((s) => s.addToBasket);
   const removeFromBasket = useViewerStore((s) => s.removeFromBasket);
+  const setBasketPresentationVisible = useViewerStore((s) => s.setBasketPresentationVisible);
   const menuRef = useRef<HTMLDivElement>(null);
   const { ifcDataStore, models } = useIfc();
 
   // Resolve contextMenu.entityId (globalId) to original expressId and model
   // This is needed because IfcDataStore uses original expressIds, not globalIds
-  const { resolvedExpressId, resolvedModelId, activeDataStore } = useMemo(() => {
+  const { resolvedExpressId, activeDataStore } = useMemo(() => {
     if (!contextMenu.entityId) {
-      return { resolvedExpressId: null, resolvedModelId: null, activeDataStore: ifcDataStore };
+      return { resolvedExpressId: null, activeDataStore: ifcDataStore };
     }
 
     // Single source of truth for globalId → EntityRef resolution
@@ -49,12 +53,11 @@ export function EntityContextMenu() {
       const model = models.get(ref.modelId);
       return {
         resolvedExpressId: ref.expressId,
-        resolvedModelId: ref.modelId,
         activeDataStore: model?.ifcDataStore ?? ifcDataStore,
       };
     }
 
-    return { resolvedExpressId: contextMenu.entityId, resolvedModelId: null, activeDataStore: ifcDataStore };
+    return { resolvedExpressId: contextMenu.entityId, activeDataStore: ifcDataStore };
   }, [contextMenu.entityId, models, ifcDataStore]);
 
   // Close menu when clicking outside
@@ -93,29 +96,52 @@ export function EntityContextMenu() {
     closeContextMenu();
   }, [contextMenu.entityId, setSelectedEntityId, cameraCallbacks, closeContextMenu]);
 
+  const getBasketRefsFromSelectionOrContext = useCallback(() => {
+    const refs = getSmartBasketInputFromStore().refs;
+    if (refs.length > 0) return refs;
+    if (contextMenu.entityId === null) return refs;
+    const fallback = resolveEntityRef(contextMenu.entityId);
+    return fallback ? [fallback] : refs;
+  }, [contextMenu.entityId]);
+
   // Basket: = Set basket to this entity
   const handleSetBasket = useCallback(() => {
-    if (resolvedExpressId !== null && resolvedModelId !== null) {
-      setBasket([{ modelId: resolvedModelId, expressId: resolvedExpressId }]);
+    const refs = getBasketRefsFromSelectionOrContext();
+    if (refs.length > 0) {
+      setBasket(refs);
     }
     closeContextMenu();
-  }, [resolvedExpressId, resolvedModelId, setBasket, closeContextMenu]);
+  }, [setBasket, closeContextMenu, getBasketRefsFromSelectionOrContext]);
 
   // Basket: + Add to basket
   const handleAddToBasket = useCallback(() => {
-    if (resolvedExpressId !== null && resolvedModelId !== null) {
-      addToBasket([{ modelId: resolvedModelId, expressId: resolvedExpressId }]);
+    const refs = getBasketRefsFromSelectionOrContext();
+    if (refs.length > 0) {
+      addToBasket(refs);
     }
     closeContextMenu();
-  }, [resolvedExpressId, resolvedModelId, addToBasket, closeContextMenu]);
+  }, [addToBasket, closeContextMenu, getBasketRefsFromSelectionOrContext]);
 
   // Basket: − Remove from basket
   const handleRemoveFromBasket = useCallback(() => {
-    if (resolvedExpressId !== null && resolvedModelId !== null) {
-      removeFromBasket([{ modelId: resolvedModelId, expressId: resolvedExpressId }]);
+    const refs = getBasketRefsFromSelectionOrContext();
+    if (refs.length > 0) {
+      removeFromBasket(refs);
     }
     closeContextMenu();
-  }, [resolvedExpressId, resolvedModelId, removeFromBasket, closeContextMenu]);
+  }, [removeFromBasket, closeContextMenu, getBasketRefsFromSelectionOrContext]);
+
+  const handleSaveBasketView = useCallback(() => {
+    const state = useViewerStore.getState();
+    if (state.pinboardEntities.size === 0) {
+      closeContextMenu();
+      return;
+    }
+
+    void saveBasketViewWithThumbnailFromStore('manual');
+    setBasketPresentationVisible(true);
+    closeContextMenu();
+  }, [setBasketPresentationVisible, closeContextMenu]);
 
   const handleHide = useCallback(() => {
     if (contextMenu.entityId) {
@@ -125,9 +151,9 @@ export function EntityContextMenu() {
   }, [contextMenu.entityId, hideEntity, closeContextMenu]);
 
   const handleShowAll = useCallback(() => {
-    showAll(); // Clear hidden + isolation (basket preserved)
+    resetVisibilityForHomeFromStore();
     closeContextMenu();
-  }, [showAll, closeContextMenu]);
+  }, [resetVisibilityForHomeFromStore, closeContextMenu]);
 
   const handleSelectSimilar = useCallback(() => {
     // Use resolvedExpressId (original ID) for IfcDataStore lookups
@@ -230,9 +256,10 @@ export function EntityContextMenu() {
           <div className="h-px bg-border my-1" />
 
           {/* Basket operations */}
-          <MenuItem icon={Equal} label="Set as Basket (=)" onClick={handleSetBasket} />
+          <MenuItem icon={Equal} label="Set Basket (=)" onClick={handleSetBasket} />
           <MenuItem icon={Plus} label="Add to Basket (+)" onClick={handleAddToBasket} />
           <MenuItem icon={Minus} label="Remove from Basket (−)" onClick={handleRemoveFromBasket} />
+          <MenuItem icon={Save} label="Save Basket View (B)" onClick={handleSaveBasketView} />
 
           <div className="h-px bg-border my-1" />
 

@@ -5,30 +5,79 @@
 /**
  * Pinboard (Basket) state slice
  *
- * The basket is an incremental isolation set. Users build it with:
- *   = (set)    — replace basket with current selection
- *   + (add)    — add current selection to basket
- *   − (remove) — remove current selection from basket
+ * The basket is an incremental isolation set. Users can build it from
+ * selection / visible scene / hierarchy sources via presentation controls:
+ *   = (set)    — replace basket with source set
+ *   + (add)    — add source set to basket
+ *   − (remove) — remove source set from basket
  *
  * When the basket is non-empty, only basket entities are visible (isolation).
  * The basket also syncs to isolatedEntities for renderer consumption.
+ * Users can persist any basket as a saved "view" with a thumbnail preview.
  */
 
 import type { StateCreator } from 'zustand';
-import type { EntityRef } from '../types.js';
+import type { Drawing2D } from '@ifc-lite/drawing-2d';
+import type { CameraCallbacks, CameraViewpoint, EntityRef, SectionPlane } from '../types.js';
 import { entityRefToString, stringToEntityRef } from '../types.js';
+
+export type BasketSource = 'selection' | 'visible' | 'hierarchy' | 'manual';
+
+export interface BasketSectionSnapshot {
+  plane: SectionPlane;
+  drawing2D: Drawing2D | null;
+  show3DOverlay: boolean;
+  showHiddenLines: boolean;
+}
+
+export interface BasketView {
+  id: string;
+  name: string;
+  entityRefs: string[];
+  thumbnailDataUrl: string | null;
+  viewpoint: CameraViewpoint | null;
+  section: BasketSectionSnapshot | null;
+  source: BasketSource;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface SaveBasketViewOptions {
+  name?: string;
+  thumbnailDataUrl?: string | null;
+  source?: BasketSource;
+  viewpoint?: CameraViewpoint | null;
+  section?: BasketSectionSnapshot | null;
+}
 
 /** Cross-slice state that pinboard reads/writes via the combined store */
 interface PinboardCrossSliceState {
   isolatedEntities: Set<number> | null;
   hiddenEntities: Set<number>;
   models: Map<string, { idOffset: number }>;
+  cameraCallbacks: CameraCallbacks;
+  sectionPlane: SectionPlane;
+  drawing2D: Drawing2D | null;
+  drawing2DDisplayOptions: { show3DOverlay: boolean; showHiddenLines: boolean };
+  setDrawing2D: (drawing: Drawing2D | null) => void;
+  updateDrawing2DDisplayOptions: (options: { show3DOverlay?: boolean; showHiddenLines?: boolean }) => void;
+  setActiveTool: (tool: string) => void;
+  clearEntitySelection: () => void;
+  activeTool: string;
 }
 
 export interface PinboardSlice {
   // State
   /** Serialized EntityRef strings for O(1) membership check */
   pinboardEntities: Set<string>;
+  /** Saved basket presets with optional viewport thumbnails */
+  basketViews: BasketView[];
+  /** Active saved view currently restored into the live basket */
+  activeBasketViewId: string | null;
+  /** Floating presentation dock visibility */
+  basketPresentationVisible: boolean;
+  /** Last hierarchy-derived set used for "Hierarchy" basket source */
+  hierarchyBasketSelection: Set<string>;
 
   // Actions
   /** Add entities to pinboard/basket */
@@ -57,6 +106,24 @@ export interface PinboardSlice {
   removeFromBasket: (refs: EntityRef[]) => void;
   /** Clear basket and clear isolation */
   clearBasket: () => void;
+  /** Set hierarchy-derived basket source */
+  setHierarchyBasketSelection: (refs: EntityRef[]) => void;
+  /** Clear hierarchy-derived basket source */
+  clearHierarchyBasketSelection: () => void;
+  /** Show/hide presentation dock */
+  setBasketPresentationVisible: (visible: boolean) => void;
+  /** Toggle presentation dock */
+  toggleBasketPresentationVisible: () => void;
+  /** Save current basket as a reusable view preset */
+  saveCurrentBasketView: (options?: SaveBasketViewOptions) => string | null;
+  /** Restore a saved basket view into the live basket */
+  activateBasketView: (viewId: string) => void;
+  /** Remove a saved basket view */
+  removeBasketView: (viewId: string) => void;
+  /** Rename a saved basket view */
+  renameBasketView: (viewId: string, name: string) => void;
+  /** Refresh thumbnail and viewpoint capture for a saved basket view */
+  refreshBasketViewThumbnail: (viewId: string, thumbnailDataUrl: string | null, viewpoint?: CameraViewpoint | null) => void;
 }
 
 /** Convert basket EntityRefs to global IDs using model offsets */
@@ -80,6 +147,45 @@ function refToGlobalId(ref: EntityRef, models: Map<string, { idOffset: number }>
   return ref.expressId + (model?.idOffset ?? 0);
 }
 
+function refsToEntityKeySet(refs: EntityRef[]): Set<string> {
+  const keys = new Set<string>();
+  for (const ref of refs) keys.add(entityRefToString(ref));
+  return keys;
+}
+
+function entityKeysToRefs(keys: Iterable<string>): EntityRef[] {
+  const refs: EntityRef[] = [];
+  for (const key of keys) refs.push(stringToEntityRef(key));
+  return refs;
+}
+
+function createViewId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `basket-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+}
+
+function createNextViewName(views: BasketView[]): string {
+  let idx = 1;
+  const names = new Set(views.map((v) => v.name));
+  while (names.has(`Basket ${idx}`)) idx++;
+  return `Basket ${idx}`;
+}
+
+function captureSectionSnapshot(state: PinboardCrossSliceState): BasketSectionSnapshot | null {
+  if (state.activeTool !== 'section' || !state.sectionPlane.enabled) {
+    return null;
+  }
+
+  return {
+    plane: { ...state.sectionPlane },
+    drawing2D: state.drawing2D,
+    show3DOverlay: state.drawing2DDisplayOptions.show3DOverlay,
+    showHiddenLines: state.drawing2DDisplayOptions.showHiddenLines,
+  };
+}
+
 export const createPinboardSlice: StateCreator<
   PinboardSlice & PinboardCrossSliceState,
   [],
@@ -88,9 +194,16 @@ export const createPinboardSlice: StateCreator<
 > = (set, get) => ({
   // Initial state
   pinboardEntities: new Set(),
+  basketViews: [],
+  activeBasketViewId: null,
+  basketPresentationVisible: true,
+  hierarchyBasketSelection: new Set(),
 
   // Legacy actions (kept for backward compat, but now they also sync isolation)
   addToPinboard: (refs) => {
+    if (refs.length > 0) {
+      get().clearEntitySelection();
+    }
     set((state) => {
       const next = new Set<string>(state.pinboardEntities);
       for (const ref of refs) {
@@ -104,7 +217,12 @@ export const createPinboardSlice: StateCreator<
         const offset = model?.idOffset ?? 0;
         hiddenEntities.delete(ref.expressId + offset);
       }
-      return { pinboardEntities: next, isolatedEntities, hiddenEntities };
+      return {
+        pinboardEntities: next,
+        isolatedEntities,
+        hiddenEntities,
+        activeBasketViewId: null,
+      };
     });
   },
 
@@ -115,20 +233,23 @@ export const createPinboardSlice: StateCreator<
         next.delete(entityRefToString(ref));
       }
       if (next.size === 0) {
-        return { pinboardEntities: next, isolatedEntities: null };
+        return { pinboardEntities: next, isolatedEntities: null, activeBasketViewId: null };
       }
       const isolatedEntities = basketToGlobalIds(next, state.models);
-      return { pinboardEntities: next, isolatedEntities };
+      return { pinboardEntities: next, isolatedEntities, activeBasketViewId: null };
     });
   },
 
   setPinboard: (refs) => {
+    if (refs.length > 0) {
+      get().clearEntitySelection();
+    }
     const next = new Set<string>();
     for (const ref of refs) {
       next.add(entityRefToString(ref));
     }
     if (next.size === 0) {
-      set({ pinboardEntities: next, isolatedEntities: null });
+      set({ pinboardEntities: next, isolatedEntities: null, activeBasketViewId: null });
       return;
     }
     const s = get();
@@ -140,10 +261,10 @@ export const createPinboardSlice: StateCreator<
       hiddenEntities.delete(ref.expressId + offset);
     }
     const isolatedEntities = basketToGlobalIds(next, s.models);
-    set({ pinboardEntities: next, isolatedEntities, hiddenEntities });
+    set({ pinboardEntities: next, isolatedEntities, hiddenEntities, activeBasketViewId: null });
   },
 
-  clearPinboard: () => set({ pinboardEntities: new Set(), isolatedEntities: null }),
+  clearPinboard: () => set({ pinboardEntities: new Set(), isolatedEntities: null, activeBasketViewId: null }),
 
   showPinboard: () => {
     const state = get();
@@ -172,9 +293,10 @@ export const createPinboardSlice: StateCreator<
   /** = Set basket to exactly these entities and isolate them */
   setBasket: (refs) => {
     if (refs.length === 0) {
-      set({ pinboardEntities: new Set(), isolatedEntities: null });
+      set({ pinboardEntities: new Set(), isolatedEntities: null, activeBasketViewId: null });
       return;
     }
+    get().clearEntitySelection();
     const next = new Set<string>();
     for (const ref of refs) {
       next.add(entityRefToString(ref));
@@ -188,12 +310,13 @@ export const createPinboardSlice: StateCreator<
       hiddenEntities.delete(ref.expressId + offset);
     }
     const isolatedEntities = basketToGlobalIds(next, s.models);
-    set({ pinboardEntities: next, isolatedEntities, hiddenEntities });
+    set({ pinboardEntities: next, isolatedEntities, hiddenEntities, activeBasketViewId: null });
   },
 
   /** + Add entities to basket and update isolation (incremental — avoids re-parsing all strings) */
   addToBasket: (refs) => {
     if (refs.length === 0) return;
+    get().clearEntitySelection();
     set((state) => {
       const next = new Set<string>(state.pinboardEntities);
       for (const ref of refs) {
@@ -208,7 +331,7 @@ export const createPinboardSlice: StateCreator<
         isolatedEntities.add(gid);
         hiddenEntities.delete(gid);
       }
-      return { pinboardEntities: next, isolatedEntities, hiddenEntities };
+      return { pinboardEntities: next, isolatedEntities, hiddenEntities, activeBasketViewId: null };
     });
   },
 
@@ -221,7 +344,7 @@ export const createPinboardSlice: StateCreator<
         next.delete(entityRefToString(ref));
       }
       if (next.size === 0) {
-        return { pinboardEntities: next, isolatedEntities: null };
+        return { pinboardEntities: next, isolatedEntities: null, activeBasketViewId: null };
       }
       // Incrementally remove globalIds from existing isolation set instead of re-parsing all
       const prevIsolated = state.isolatedEntities;
@@ -230,14 +353,123 @@ export const createPinboardSlice: StateCreator<
         for (const ref of refs) {
           isolatedEntities.delete(refToGlobalId(ref, state.models));
         }
-        return { pinboardEntities: next, isolatedEntities };
+        return { pinboardEntities: next, isolatedEntities, activeBasketViewId: null };
       }
       // Fallback: full recompute if no existing isolation set
       const isolatedEntities = basketToGlobalIds(next, state.models);
-      return { pinboardEntities: next, isolatedEntities };
+      return { pinboardEntities: next, isolatedEntities, activeBasketViewId: null };
     });
   },
 
   /** Clear basket and clear isolation */
-  clearBasket: () => set({ pinboardEntities: new Set(), isolatedEntities: null }),
+  clearBasket: () => set({ pinboardEntities: new Set(), isolatedEntities: null, activeBasketViewId: null }),
+
+  setHierarchyBasketSelection: (refs) => set({ hierarchyBasketSelection: refsToEntityKeySet(refs) }),
+  clearHierarchyBasketSelection: () => set({ hierarchyBasketSelection: new Set() }),
+
+  setBasketPresentationVisible: (basketPresentationVisible) => set({ basketPresentationVisible }),
+  toggleBasketPresentationVisible: () =>
+    set((state) => ({ basketPresentationVisible: !state.basketPresentationVisible })),
+
+  saveCurrentBasketView: (options) => {
+    const state = get();
+    if (state.pinboardEntities.size === 0) return null;
+
+    const id = createViewId();
+    const now = Date.now();
+    const view: BasketView = {
+      id,
+      name: options?.name?.trim() || createNextViewName(state.basketViews),
+      entityRefs: Array.from(state.pinboardEntities),
+      thumbnailDataUrl: options?.thumbnailDataUrl ?? null,
+      viewpoint: options?.viewpoint ?? state.cameraCallbacks.getViewpoint?.() ?? null,
+      section: options?.section ?? captureSectionSnapshot(state),
+      source: options?.source ?? 'manual',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    set((current) => ({
+      basketViews: [...current.basketViews, view],
+      activeBasketViewId: id,
+    }));
+    return id;
+  },
+
+  activateBasketView: (viewId) => {
+    const state = get();
+    const view = state.basketViews.find((item) => item.id === viewId);
+    if (!view) return;
+    get().clearEntitySelection();
+
+    set((current) => {
+      const nextPinboard = new Set<string>(view.entityRefs);
+      if (nextPinboard.size === 0) {
+        return { pinboardEntities: new Set(), isolatedEntities: null, activeBasketViewId: viewId };
+      }
+
+      const hiddenEntities = new Set<number>(current.hiddenEntities);
+      const refs = entityKeysToRefs(nextPinboard);
+      for (const ref of refs) {
+        hiddenEntities.delete(refToGlobalId(ref, current.models));
+      }
+
+      return {
+        pinboardEntities: nextPinboard,
+        isolatedEntities: basketToGlobalIds(nextPinboard, current.models),
+        hiddenEntities,
+        activeBasketViewId: viewId,
+      };
+    });
+
+    if (view.viewpoint) {
+      get().cameraCallbacks.applyViewpoint?.(view.viewpoint, true);
+    }
+
+    if (view.section) {
+      const sectionSnapshot = view.section;
+      set({ sectionPlane: { ...sectionSnapshot.plane } });
+      get().setDrawing2D(sectionSnapshot.plane.enabled ? sectionSnapshot.drawing2D : null);
+      get().updateDrawing2DDisplayOptions({
+        show3DOverlay: sectionSnapshot.show3DOverlay,
+        showHiddenLines: sectionSnapshot.showHiddenLines,
+      });
+      if (sectionSnapshot.plane.enabled) {
+        get().setActiveTool('section');
+      }
+    } else {
+      set((current) => ({ sectionPlane: { ...current.sectionPlane, enabled: false } }));
+      if (get().activeTool === 'section') {
+        get().setActiveTool('select');
+      }
+    }
+  },
+
+  removeBasketView: (viewId) => {
+    set((state) => ({
+      basketViews: state.basketViews.filter((view) => view.id !== viewId),
+      activeBasketViewId: state.activeBasketViewId === viewId ? null : state.activeBasketViewId,
+    }));
+  },
+
+  renameBasketView: (viewId, name) => {
+    const nextName = name.trim();
+    if (!nextName) return;
+    set((state) => ({
+      basketViews: state.basketViews.map((view) =>
+        view.id === viewId ? { ...view, name: nextName, updatedAt: Date.now() } : view,
+      ),
+    }));
+  },
+
+  refreshBasketViewThumbnail: (viewId, thumbnailDataUrl, viewpoint) => {
+    set((state) => {
+      const nextViewpoint = viewpoint === undefined ? state.cameraCallbacks.getViewpoint?.() ?? null : viewpoint;
+      return {
+        basketViews: state.basketViews.map((view) =>
+          view.id === viewId ? { ...view, thumbnailDataUrl, viewpoint: nextViewpoint, updatedAt: Date.now() } : view,
+        ),
+      };
+    });
+  },
 });

@@ -11,6 +11,7 @@ import { useEffect, type MutableRefObject } from 'react';
 import type { Renderer } from '@ifc-lite/renderer';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 import type { SectionPlane } from '@/store';
+import { goHomeFromStore } from '@/store/homeView';
 import { getEntityBounds } from '../../utils/viewportUtils.js';
 
 export interface UseKeyboardControlsParams {
@@ -132,8 +133,7 @@ export function useKeyboardControls(params: UseKeyboardControlsParams): void {
 
       // Home view (H) - reset to isometric
       if (e.key === 'h' || e.key === 'H') {
-        camera.zoomToFit(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 500);
-        calculateScale();
+        goHomeFromStore();
       }
 
       // Fit all / Zoom extents (Z)

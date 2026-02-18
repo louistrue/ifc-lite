@@ -445,6 +445,20 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
       setIsInitialized(true);
 
       const camera = renderer.getCamera();
+      const renderCurrent = () => {
+        renderer.render({
+          hiddenIds: hiddenEntitiesRef.current,
+          isolatedIds: isolatedEntitiesRef.current,
+          selectedId: selectedEntityIdRef.current,
+          selectedModelIndex: selectedModelIndexRef.current,
+          clearColor: clearColorRef.current,
+          sectionPlane: activeToolRef.current === 'section' ? {
+            ...sectionPlaneRef.current,
+            min: sectionRangeRef.current?.min,
+            max: sectionRangeRef.current?.max,
+          } : undefined,
+        });
+      };
 
       // Register camera callbacks for ViewCube and other controls
       setCameraCallbacks({
@@ -453,18 +467,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
           const rotation = coordinateInfoRef.current?.buildingRotation;
           camera.setPresetView(view, geometryBoundsRef.current, rotation);
           // Initial render - animation loop will continue rendering during animation
-          renderer.render({
-            hiddenIds: hiddenEntitiesRef.current,
-            isolatedIds: isolatedEntitiesRef.current,
-            selectedId: selectedEntityIdRef.current,
-            selectedModelIndex: selectedModelIndexRef.current,
-            clearColor: clearColorRef.current,
-            sectionPlane: activeToolRef.current === 'section' ? {
-              ...sectionPlaneRef.current,
-              min: sectionRangeRef.current?.min,
-              max: sectionRangeRef.current?.max,
-            } : undefined,
-          });
+          renderCurrent();
           calculateScale();
         },
         fitAll: () => {
@@ -479,34 +482,12 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         },
         zoomIn: () => {
           camera.zoom(-50, false);
-          renderer.render({
-            hiddenIds: hiddenEntitiesRef.current,
-            isolatedIds: isolatedEntitiesRef.current,
-            selectedId: selectedEntityIdRef.current,
-            selectedModelIndex: selectedModelIndexRef.current,
-            clearColor: clearColorRef.current,
-            sectionPlane: activeToolRef.current === 'section' ? {
-              ...sectionPlaneRef.current,
-              min: sectionRangeRef.current?.min,
-              max: sectionRangeRef.current?.max,
-            } : undefined,
-          });
+          renderCurrent();
           calculateScale();
         },
         zoomOut: () => {
           camera.zoom(50, false);
-          renderer.render({
-            hiddenIds: hiddenEntitiesRef.current,
-            isolatedIds: isolatedEntitiesRef.current,
-            selectedId: selectedEntityIdRef.current,
-            selectedModelIndex: selectedModelIndexRef.current,
-            clearColor: clearColorRef.current,
-            sectionPlane: activeToolRef.current === 'section' ? {
-              ...sectionPlaneRef.current,
-              min: sectionRangeRef.current?.min,
-              max: sectionRangeRef.current?.max,
-            } : undefined,
-          });
+          renderCurrent();
           calculateScale();
         },
         frameSelection: () => {
@@ -528,18 +509,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         orbit: (deltaX: number, deltaY: number) => {
           // Orbit camera from ViewCube drag
           camera.orbit(deltaX, deltaY, false);
-          renderer.render({
-            hiddenIds: hiddenEntitiesRef.current,
-            isolatedIds: isolatedEntitiesRef.current,
-            selectedId: selectedEntityIdRef.current,
-            selectedModelIndex: selectedModelIndexRef.current,
-            clearColor: clearColorRef.current,
-            sectionPlane: activeToolRef.current === 'section' ? {
-              ...sectionPlaneRef.current,
-              min: sectionRangeRef.current?.min,
-              max: sectionRangeRef.current?.max,
-            } : undefined,
-          });
+          renderCurrent();
           updateCameraRotationRealtime(camera.getRotation());
           calculateScale();
         },
@@ -551,37 +521,47 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         },
         setProjectionMode: (mode) => {
           camera.setProjectionMode(mode);
-          renderer.render({
-            hiddenIds: hiddenEntitiesRef.current,
-            isolatedIds: isolatedEntitiesRef.current,
-            selectedId: selectedEntityIdRef.current,
-            selectedModelIndex: selectedModelIndexRef.current,
-            clearColor: clearColorRef.current,
-            sectionPlane: activeToolRef.current === 'section' ? {
-              ...sectionPlaneRef.current,
-              min: sectionRangeRef.current?.min,
-              max: sectionRangeRef.current?.max,
-            } : undefined,
-          });
+          renderCurrent();
           calculateScale();
         },
         toggleProjectionMode: () => {
           camera.toggleProjectionMode();
-          renderer.render({
-            hiddenIds: hiddenEntitiesRef.current,
-            isolatedIds: isolatedEntitiesRef.current,
-            selectedId: selectedEntityIdRef.current,
-            selectedModelIndex: selectedModelIndexRef.current,
-            clearColor: clearColorRef.current,
-            sectionPlane: activeToolRef.current === 'section' ? {
-              ...sectionPlaneRef.current,
-              min: sectionRangeRef.current?.min,
-              max: sectionRangeRef.current?.max,
-            } : undefined,
-          });
+          renderCurrent();
           calculateScale();
         },
         getProjectionMode: () => camera.getProjectionMode(),
+        getViewpoint: () => ({
+          position: camera.getPosition(),
+          target: camera.getTarget(),
+          up: camera.getUp(),
+          fov: camera.getFOV(),
+          projectionMode: camera.getProjectionMode(),
+          orthoSize: camera.getProjectionMode() === 'orthographic' ? camera.getOrthoSize() : undefined,
+        }),
+        applyViewpoint: (viewpoint, animate = true) => {
+          camera.setProjectionMode(viewpoint.projectionMode);
+          useViewerStore.setState({ projectionMode: viewpoint.projectionMode });
+          camera.setFOV(viewpoint.fov);
+          if (
+            viewpoint.projectionMode === 'orthographic' &&
+            typeof viewpoint.orthoSize === 'number' &&
+            Number.isFinite(viewpoint.orthoSize)
+          ) {
+            camera.setOrthoSize(viewpoint.orthoSize);
+          }
+
+          if (animate) {
+            camera.animateToWithUp(viewpoint.position, viewpoint.target, viewpoint.up, 300);
+          } else {
+            camera.setPosition(viewpoint.position.x, viewpoint.position.y, viewpoint.position.z);
+            camera.setTarget(viewpoint.target.x, viewpoint.target.y, viewpoint.target.z);
+            camera.setUp(viewpoint.up.x, viewpoint.up.y, viewpoint.up.z);
+          }
+
+          renderCurrent();
+          updateCameraRotationRealtime(camera.getRotation());
+          calculateScale();
+        },
       });
 
       // ResizeObserver
@@ -643,6 +623,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   // ===== Drawing 2D state for render updates =====
   const drawing2D = useViewerStore((s) => s.drawing2D);
   const show3DOverlay = useViewerStore((s) => s.drawing2DDisplayOptions.show3DOverlay);
+  const showHiddenLines = useViewerStore((s) => s.drawing2DDisplayOptions.showHiddenLines);
 
   // ===== Streaming progress =====
   const progress = useViewerStore((state) => state.progress);
@@ -810,6 +791,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     activeToolRef,
     drawing2D,
     show3DOverlay,
+    showHiddenLines,
   });
 
   return (
