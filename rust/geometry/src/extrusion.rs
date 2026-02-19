@@ -331,26 +331,6 @@ fn create_side_walls(boundary: &[nalgebra::Point2<f64>], depth: f64, mesh: &mut 
         return;
     }
 
-    // Compute centroid of profile for smooth radial normals
-    let mut cx = 0.0;
-    let mut cy = 0.0;
-    for p in boundary.iter() {
-        cx += p.x;
-        cy += p.y;
-    }
-    cx /= n as f64;
-    cy /= n as f64;
-
-    // Pre-compute smooth vertex normals: radial direction from centroid to each vertex
-    let vertex_normals: Vec<Vector3<f64>> = boundary
-        .iter()
-        .map(|p| {
-            Vector3::new(p.x - cx, p.y - cy, 0.0)
-                .try_normalize(1e-10)
-                .unwrap_or(Vector3::new(0.0, 0.0, 1.0))
-        })
-        .collect();
-
     let base_index = mesh.vertex_count() as u32;
     let mut quad_count = 0u32;
 
@@ -362,12 +342,13 @@ fn create_side_walls(boundary: &[nalgebra::Point2<f64>], depth: f64, mesh: &mut 
 
         // Skip degenerate edges (duplicate consecutive points)
         let edge = Vector3::new(p1.x - p0.x, p1.y - p0.y, 0.0);
+        let edge_normal = match Vector3::new(-edge.y, edge.x, 0.0).try_normalize(1e-10) {
+            Some(n) => n,
+            None => continue,
+        };
         if edge.magnitude_squared() < 1e-20 {
             continue;
         }
-
-        let n0 = vertex_normals[i];
-        let n1 = vertex_normals[j];
 
         // Bottom vertices
         let v0_bottom = Point3::new(p0.x, p0.y, 0.0);
@@ -377,12 +358,14 @@ fn create_side_walls(boundary: &[nalgebra::Point2<f64>], depth: f64, mesh: &mut 
         let v0_top = Point3::new(p0.x, p0.y, depth);
         let v1_top = Point3::new(p1.x, p1.y, depth);
 
-        // Add 4 vertices with smooth per-vertex normals
+        // Add 4 vertices using face normal per side segment.
+        // For cylindrical profiles this preserves straight segment shading
+        // (closer to BIM viewers that render tesselated cylindrical faces).
         let idx = base_index + (quad_count * 4);
-        mesh.add_vertex(v0_bottom, n0);
-        mesh.add_vertex(v1_bottom, n1);
-        mesh.add_vertex(v1_top, n1);
-        mesh.add_vertex(v0_top, n0);
+        mesh.add_vertex(v0_bottom, edge_normal);
+        mesh.add_vertex(v1_bottom, edge_normal);
+        mesh.add_vertex(v1_top, edge_normal);
+        mesh.add_vertex(v0_top, edge_normal);
 
         // Add 2 triangles for the quad
         mesh.add_triangle(idx, idx + 1, idx + 2);
@@ -409,7 +392,9 @@ pub fn apply_transform(mesh: &mut Mesh, transform: &Matrix4<f64>) {
 
     mesh.normals.chunks_exact_mut(3).for_each(|chunk| {
         let normal = Vector3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
-        let transformed = (normal_matrix * normal.to_homogeneous()).xyz().normalize();
+        // Normals are directions (w = 0), not points (w = 1).
+        // Using w = 1 incorrectly applies translation and skews lighting.
+        let transformed = (normal_matrix * normal.push(0.0)).xyz().normalize();
         chunk[0] = transformed.x as f32;
         chunk[1] = transformed.y as f32;
         chunk[2] = transformed.z as f32;
@@ -452,7 +437,9 @@ pub fn apply_transform_with_rtc(
 
     mesh.normals.chunks_exact_mut(3).for_each(|chunk| {
         let normal = Vector3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
-        let transformed = (normal_matrix * normal.to_homogeneous()).xyz().normalize();
+        // Normals are directions (w = 0), not points (w = 1).
+        // Using w = 1 incorrectly applies translation and skews lighting.
+        let transformed = (normal_matrix * normal.push(0.0)).xyz().normalize();
         chunk[0] = transformed.x as f32;
         chunk[1] = transformed.y as f32;
         chunk[2] = transformed.z as f32;
@@ -518,6 +505,20 @@ mod tests {
         assert!((max.x - 5.0).abs() < 0.1);
         assert!((min.y - -5.0).abs() < 0.1);
         assert!((max.y - 5.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_normal_transform_ignores_translation() {
+        let mut mesh = Mesh::new();
+        mesh.add_vertex(Point3::new(0.0, 0.0, 0.0), Vector3::new(1.0, 0.0, 0.0));
+
+        let transform = Matrix4::new_translation(&Vector3::new(1000.0, -500.0, 250.0));
+        apply_transform(&mut mesh, &transform);
+
+        // Pure translation must not affect normal direction.
+        assert!((mesh.normals[0] - 1.0).abs() < 1e-6);
+        assert!(mesh.normals[1].abs() < 1e-6);
+        assert!(mesh.normals[2].abs() < 1e-6);
     }
 
     #[test]

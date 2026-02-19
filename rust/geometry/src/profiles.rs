@@ -15,6 +15,21 @@ use std::f64::consts::PI;
 /// Prevents stack overflow from deeply nested CompositeCurve → TrimmedCurve → CompositeCurve chains.
 const MAX_CURVE_DEPTH: u32 = 50;
 
+/// Compute dynamic tessellation for circular profiles.
+///
+/// Target segment chord length keeps large piles/pipes from looking too glossy/rounded
+/// while preserving performance on small radii.
+#[inline]
+fn circle_segments_for_radius(radius: f64) -> usize {
+    const MIN_SEGMENTS: usize = 24;
+    const MAX_SEGMENTS: usize = 96;
+    const TARGET_CHORD_LENGTH: f64 = 0.12; // meters
+
+    let circumference = 2.0 * PI * radius.abs();
+    let adaptive = (circumference / TARGET_CHORD_LENGTH).ceil() as usize;
+    adaptive.clamp(MIN_SEGMENTS, MAX_SEGMENTS)
+}
+
 /// Profile processor - processes IFC profiles into 2D contours
 pub struct ProfileProcessor {
     schema: IfcSchema,
@@ -210,8 +225,8 @@ impl ProfileProcessor {
             .get_float(3)
             .ok_or_else(|| Error::geometry("Circle missing Radius".to_string()))?;
 
-        // Generate circle with 36 segments for smooth appearance
-        let segments = 36;
+        // Generate circle with dynamic segments based on radius.
+        let segments = circle_segments_for_radius(radius);
         let mut points = Vec::with_capacity(segments);
 
         for i in 0..segments {
@@ -279,7 +294,7 @@ impl ProfileProcessor {
             .ok_or_else(|| Error::geometry("CircleHollow missing WallThickness".to_string()))?;
 
         let inner_radius = radius - wall_thickness;
-        let segments = 36;
+        let segments = circle_segments_for_radius(radius);
 
         // Outer circle
         let mut outer_points = Vec::with_capacity(segments);
@@ -1034,7 +1049,7 @@ impl ProfileProcessor {
         let radius = curve.get_float(1).unwrap_or(1.0);
         let (center, rotation) = self.get_placement_2d(curve, decoder)?;
 
-        let segments = 36;
+        let segments = circle_segments_for_radius(radius);
         let mut points = Vec::with_capacity(segments);
 
         for i in 0..segments {
@@ -1061,7 +1076,7 @@ impl ProfileProcessor {
         let semi_axis2 = curve.get_float(2).unwrap_or(1.0);
         let (center, rotation) = self.get_placement_2d(curve, decoder)?;
 
-        let segments = 36;
+        let segments = circle_segments_for_radius(semi_axis1.max(semi_axis2));
         let mut points = Vec::with_capacity(segments);
 
         for i in 0..segments {
@@ -1479,8 +1494,14 @@ mod tests {
         let profile_entity = decoder.decode_by_id(1).unwrap();
         let profile = processor.process(&profile_entity, &mut decoder).unwrap();
 
-        assert_eq!(profile.outer.len(), 36); // Circle with 36 segments
+        assert_eq!(profile.outer.len(), 96); // Radius 50.0 uses max adaptive segments
         assert!(!profile.outer.is_empty());
+    }
+
+    #[test]
+    fn test_circle_segments_adaptive_bounds() {
+        assert_eq!(circle_segments_for_radius(0.01), 24);
+        assert_eq!(circle_segments_for_radius(50.0), 96);
     }
 
     #[test]
