@@ -409,7 +409,9 @@ pub fn apply_transform(mesh: &mut Mesh, transform: &Matrix4<f64>) {
 
     mesh.normals.chunks_exact_mut(3).for_each(|chunk| {
         let normal = Vector3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
-        let transformed = (normal_matrix * normal.to_homogeneous()).xyz().normalize();
+        // Normals are directions (w = 0), not points (w = 1).
+        // Using w = 1 incorrectly applies translation and skews lighting.
+        let transformed = (normal_matrix * normal.push(0.0)).xyz().normalize();
         chunk[0] = transformed.x as f32;
         chunk[1] = transformed.y as f32;
         chunk[2] = transformed.z as f32;
@@ -452,7 +454,9 @@ pub fn apply_transform_with_rtc(
 
     mesh.normals.chunks_exact_mut(3).for_each(|chunk| {
         let normal = Vector3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
-        let transformed = (normal_matrix * normal.to_homogeneous()).xyz().normalize();
+        // Normals are directions (w = 0), not points (w = 1).
+        // Using w = 1 incorrectly applies translation and skews lighting.
+        let transformed = (normal_matrix * normal.push(0.0)).xyz().normalize();
         chunk[0] = transformed.x as f32;
         chunk[1] = transformed.y as f32;
         chunk[2] = transformed.z as f32;
@@ -518,6 +522,20 @@ mod tests {
         assert!((max.x - 5.0).abs() < 0.1);
         assert!((min.y - -5.0).abs() < 0.1);
         assert!((max.y - 5.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_normal_transform_ignores_translation() {
+        let mut mesh = Mesh::new();
+        mesh.add_vertex(Point3::new(0.0, 0.0, 0.0), Vector3::new(1.0, 0.0, 0.0));
+
+        let transform = Matrix4::new_translation(&Vector3::new(1000.0, -500.0, 250.0));
+        apply_transform(&mut mesh, &transform);
+
+        // Pure translation must not affect normal direction.
+        assert!((mesh.normals[0] - 1.0).abs() < 1e-6);
+        assert!(mesh.normals[1].abs() < 1e-6);
+        assert!(mesh.normals[2].abs() < 1e-6);
     }
 
     #[test]

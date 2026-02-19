@@ -24,6 +24,25 @@ impl SweptDiskSolidProcessor {
             profile_processor: ProfileProcessor::new(schema),
         }
     }
+
+    #[inline]
+    fn segments_for_radius(radius: f64) -> usize {
+        const MIN_SEGMENTS: usize = 24;
+        const MAX_SEGMENTS: usize = 120;
+        const TARGET_CHORD_LENGTH: f64 = 0.08;
+
+        if !radius.is_finite() {
+            return MIN_SEGMENTS;
+        }
+
+        let r = radius.abs();
+        if r <= f64::EPSILON {
+            return MIN_SEGMENTS;
+        }
+
+        let estimated = ((2.0 * std::f64::consts::PI * r) / TARGET_CHORD_LENGTH).ceil() as usize;
+        estimated.clamp(MIN_SEGMENTS, MAX_SEGMENTS)
+    }
 }
 
 impl GeometryProcessor for SweptDiskSolidProcessor {
@@ -65,8 +84,9 @@ impl GeometryProcessor for SweptDiskSolidProcessor {
             return Ok(Mesh::new()); // Not enough points
         }
 
-        // Generate tube mesh by sweeping circle along curve
-        let segments = 24; // Number of segments around the circle
+        // Generate tube mesh by sweeping circle along curve.
+        // Use adaptive radial tessellation for large-radius pipes/piles.
+        let segments = Self::segments_for_radius(radius);
         let mut positions = Vec::new();
         let mut indices = Vec::new();
 
