@@ -66,7 +66,7 @@ impl GeometryProcessor for SweptDiskSolidProcessor {
         }
 
         // Generate tube mesh by sweeping circle along curve
-        let segments = 12; // Number of segments around the circle
+        let segments = 24; // Number of segments around the circle
         let mut positions = Vec::new();
         let mut indices = Vec::new();
 

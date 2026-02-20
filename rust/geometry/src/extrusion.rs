@@ -326,21 +326,64 @@ fn create_cap_mesh(triangulation: &Triangulation, z: f64, normal: Vector3<f64>, 
 /// Create side walls for a profile boundary
 #[inline]
 fn create_side_walls(boundary: &[nalgebra::Point2<f64>], depth: f64, mesh: &mut Mesh) {
+    let n = boundary.len();
+    if n < 2 {
+        return;
+    }
+
+    // Compute centroid of profile for smooth radial normals
+    let mut cx = 0.0;
+    let mut cy = 0.0;
+    for p in boundary.iter() {
+        cx += p.x;
+        cy += p.y;
+    }
+    cx /= n as f64;
+    cy /= n as f64;
+
+    // Smooth radial normals are correct for circular-ish profiles, but produce
+    // incorrect shading on rectangular/polygonal extrusions.
+    let use_smooth_radial_normals = is_approximately_circular_profile(boundary, cx, cy);
+    let vertex_normals: Vec<Vector3<f64>> = if use_smooth_radial_normals {
+        boundary
+            .iter()
+            .map(|p| {
+                Vector3::new(p.x - cx, p.y - cy, 0.0)
+                    .try_normalize(1e-10)
+                    .unwrap_or(Vector3::new(0.0, 0.0, 1.0))
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
     let base_index = mesh.vertex_count() as u32;
     let mut quad_count = 0u32;
 
-    for i in 0..boundary.len() {
-        let j = (i + 1) % boundary.len();
+    for i in 0..n {
+        let j = (i + 1) % n;
 
         let p0 = &boundary[i];
         let p1 = &boundary[j];
 
-        // Calculate normal for this edge
-        // Use try_normalize to handle degenerate edges (duplicate consecutive points)
+        // Skip degenerate edges (duplicate consecutive points)
         let edge = Vector3::new(p1.x - p0.x, p1.y - p0.y, 0.0);
-        let normal = match Vector3::new(-edge.y, edge.x, 0.0).try_normalize(1e-10) {
-            Some(n) => n,
-            None => continue, // Skip degenerate edge (duplicate points in profile)
+        if edge.magnitude_squared() < 1e-20 {
+            continue;
+        }
+
+        let flat_normal = Vector3::new(-edge.y, edge.x, 0.0)
+            .try_normalize(1e-10)
+            .unwrap_or(Vector3::new(0.0, 0.0, 1.0));
+        let n0 = if use_smooth_radial_normals {
+            vertex_normals[i]
+        } else {
+            flat_normal
+        };
+        let n1 = if use_smooth_radial_normals {
+            vertex_normals[j]
+        } else {
+            flat_normal
         };
 
         // Bottom vertices
@@ -351,12 +394,12 @@ fn create_side_walls(boundary: &[nalgebra::Point2<f64>], depth: f64, mesh: &mut 
         let v0_top = Point3::new(p0.x, p0.y, depth);
         let v1_top = Point3::new(p1.x, p1.y, depth);
 
-        // Add 4 vertices for this quad
+        // Add 4 vertices with smooth per-vertex normals
         let idx = base_index + (quad_count * 4);
-        mesh.add_vertex(v0_bottom, normal);
-        mesh.add_vertex(v1_bottom, normal);
-        mesh.add_vertex(v1_top, normal);
-        mesh.add_vertex(v0_top, normal);
+        mesh.add_vertex(v0_bottom, n0);
+        mesh.add_vertex(v1_bottom, n1);
+        mesh.add_vertex(v1_top, n1);
+        mesh.add_vertex(v0_top, n0);
 
         // Add 2 triangles for the quad
         mesh.add_triangle(idx, idx + 1, idx + 2);
@@ -364,6 +407,44 @@ fn create_side_walls(boundary: &[nalgebra::Point2<f64>], depth: f64, mesh: &mut 
 
         quad_count += 1;
     }
+}
+
+/// Heuristic for detecting circular-ish profiles from boundary points.
+///
+/// Circular profiles generated from IFC circles typically have many segments with
+/// low radial variance relative to the centroid. Rectangles/most polygons do not.
+#[inline]
+fn is_approximately_circular_profile(boundary: &[Point2<f64>], cx: f64, cy: f64) -> bool {
+    if boundary.len() < 12 {
+        return false;
+    }
+
+    let mut radii: Vec<f64> = Vec::with_capacity(boundary.len());
+    for p in boundary {
+        let r = ((p.x - cx).powi(2) + (p.y - cy).powi(2)).sqrt();
+        if !r.is_finite() || r < 1e-9 {
+            return false;
+        }
+        radii.push(r);
+    }
+
+    let mean = radii.iter().sum::<f64>() / radii.len() as f64;
+    if mean < 1e-9 {
+        return false;
+    }
+
+    let variance = radii
+        .iter()
+        .map(|r| {
+            let d = r - mean;
+            d * d
+        })
+        .sum::<f64>()
+        / radii.len() as f64;
+    let std_dev = variance.sqrt();
+    let coeff_var = std_dev / mean;
+
+    coeff_var < 0.15
 }
 
 /// Apply transformation matrix to mesh
@@ -510,5 +591,37 @@ mod tests {
         let profile = create_rectangle(10.0, 5.0);
         let result = extrude_profile(&profile, -1.0, None);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_circular_profile_detection() {
+        use crate::profile::create_circle;
+
+        let circle = create_circle(5.0, None);
+        let mut cx = 0.0;
+        let mut cy = 0.0;
+        for p in &circle.outer {
+            cx += p.x;
+            cy += p.y;
+        }
+        cx /= circle.outer.len() as f64;
+        cy /= circle.outer.len() as f64;
+
+        assert!(is_approximately_circular_profile(&circle.outer, cx, cy));
+    }
+
+    #[test]
+    fn test_rectangular_profile_not_detected_as_circular() {
+        let rect = create_rectangle(10.0, 5.0);
+        let mut cx = 0.0;
+        let mut cy = 0.0;
+        for p in &rect.outer {
+            cx += p.x;
+            cy += p.y;
+        }
+        cx /= rect.outer.len() as f64;
+        cy /= rect.outer.len() as f64;
+
+        assert!(!is_approximately_circular_profile(&rect.outer, cx, cy));
     }
 }

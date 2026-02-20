@@ -184,6 +184,16 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
 
       // UI
       activeTool: UI_DEFAULTS.ACTIVE_TOOL,
+      visualEnhancementsEnabled: UI_DEFAULTS.VISUAL_ENHANCEMENTS_ENABLED,
+      edgeContrastEnabled: UI_DEFAULTS.EDGE_CONTRAST_ENABLED,
+      edgeContrastIntensity: UI_DEFAULTS.EDGE_CONTRAST_INTENSITY,
+      contactShadingQuality: UI_DEFAULTS.CONTACT_SHADING_QUALITY,
+      contactShadingIntensity: UI_DEFAULTS.CONTACT_SHADING_INTENSITY,
+      contactShadingRadius: UI_DEFAULTS.CONTACT_SHADING_RADIUS,
+      separationLinesEnabled: UI_DEFAULTS.SEPARATION_LINES_ENABLED,
+      separationLinesQuality: UI_DEFAULTS.SEPARATION_LINES_QUALITY,
+      separationLinesIntensity: UI_DEFAULTS.SEPARATION_LINES_INTENSITY,
+      separationLinesRadius: UI_DEFAULTS.SEPARATION_LINES_RADIUS,
 
       // Drawing 2D
       drawing2D: null,
