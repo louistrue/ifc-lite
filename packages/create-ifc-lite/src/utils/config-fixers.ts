@@ -6,17 +6,39 @@ import { existsSync, readFileSync, writeFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { execSync } from 'child_process';
 
+/** Cache of npm-resolved versions to avoid redundant registry queries. */
+const versionCache = new Map<string, string>();
+
+/**
+ * Fetch the latest published version of a specific npm package.
+ * Results are cached so repeated calls for the same package are free.
+ * Falls back to '^1.0.0' when the registry is unreachable.
+ */
+export function getPackageVersion(packageName: string): string {
+  if (versionCache.has(packageName)) {
+    return versionCache.get(packageName)!;
+  }
+  try {
+    const result = execSync(`npm view ${packageName} version`, { stdio: 'pipe' });
+    const version = `^${result.toString().trim()}`;
+    versionCache.set(packageName, version);
+    return version;
+  } catch {
+    const fallback = '^1.0.0';
+    versionCache.set(packageName, fallback);
+    return fallback;
+  }
+}
+
 /**
  * Fetch the latest published version of @ifc-lite/parser from npm.
  * Falls back to '^1.0.0' when the registry is unreachable.
+ *
+ * @deprecated Use getPackageVersion(packageName) to query each package
+ * individually and avoid version mismatches between packages.
  */
 export function getLatestVersion(): string {
-  try {
-    const result = execSync('npm view @ifc-lite/parser version', { stdio: 'pipe' });
-    return `^${result.toString().trim()}`;
-  } catch {
-    return '^1.0.0'; // fallback
-  }
+  return getPackageVersion('@ifc-lite/parser');
 }
 
 /**
@@ -34,8 +56,9 @@ export function fixPackageJson(targetDir: string, projectName: string) {
   // Update name
   pkg.name = projectName;
 
-  // Replace workspace protocol with latest npm version in all dependency fields
-  const latestVersion = getLatestVersion();
+  // Replace workspace protocol with the actual published version of each package.
+  // Each @ifc-lite/* package is queried individually so a package that was not
+  // published in the latest release does not end up with a non-existent version.
   const depFields = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
 
   for (const field of depFields) {
@@ -44,7 +67,7 @@ export function fixPackageJson(targetDir: string, projectName: string) {
 
     for (const [name, version] of Object.entries(deps)) {
       if (typeof version === 'string' && version.includes('workspace:')) {
-        deps[name] = latestVersion;
+        deps[name] = getPackageVersion(name);
       }
     }
   }
