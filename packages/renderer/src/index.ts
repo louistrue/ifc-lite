@@ -721,9 +721,12 @@ export class Renderer {
                 // This is the key optimization: instead of 10,000+ individual draw calls,
                 // we create cached sub-batches with only visible elements and render them as single draw calls
                 const allMeshesFromScene = this.scene.getMeshes();
-                // Track existing meshes by (expressId:modelIndex) to handle multi-model expressId collisions
-                // E.g., door #535 in model 0 vs beam #535 in model 1 need separate tracking
-                const existingMeshKeys = new Set(allMeshesFromScene.map(m => `${m.expressId}:${m.modelIndex ?? 'any'}`));
+                // Track existing mesh piece counts by (expressId:modelIndex) for multi-piece elements.
+                const existingPieceCounts = new Map<string, number>();
+                for (const mesh of allMeshesFromScene) {
+                    const key = `${mesh.expressId}:${mesh.modelIndex ?? 'any'}`;
+                    existingPieceCounts.set(key, (existingPieceCounts.get(key) ?? 0) + 1);
+                }
 
                 if (partiallyVisibleBatches.length > 0) {
                     for (const { colorKey, visibleIds, color } of partiallyVisibleBatches) {
@@ -764,99 +767,36 @@ export class Renderer {
                     pass.setPipeline(this.pipeline.getPipeline());
                 }
 
-                // Render selected meshes individually for proper highlighting
-                // First, check if we have Mesh objects for selected IDs
-                // If not, create them lazily from stored MeshData
-
-                // FIX: Filter selected IDs by visibility BEFORE creating GPU resources
-                // This ensures highlights don't appear for hidden elements
+                // Prepare selected meshes once, then render them LAST so transparent batches
+                // don't overwrite highlight color (glass otherwise appears unhighlighted).
                 const visibleSelectedIds = new Set<number>();
                 for (const selId of selectedExpressIds) {
-                    // Skip if hidden
                     if (options.hiddenIds?.has(selId)) continue;
-                    // Skip if isolation is active and this entity is not isolated
                     if (hasIsolatedFilter && !options.isolatedIds!.has(selId)) continue;
                     visibleSelectedIds.add(selId);
                 }
 
-                // Create GPU resources lazily for visible selected meshes that don't have them yet
-                // Pass selectedModelIndex to get mesh data from the correct model (for multi-model support)
-                // Use composite key to handle expressId collisions between models
+                const baselineExistingCounts = new Map(existingPieceCounts);
                 for (const selId of visibleSelectedIds) {
-                    const meshKey = `${selId}:${selectedModelIndex ?? 'any'}`;
-                    if (!existingMeshKeys.has(meshKey) && this.scene.hasMeshData(selId, selectedModelIndex)) {
-                        const meshData = this.scene.getMeshData(selId, selectedModelIndex)!;
-                        this.geometryManager.createMeshFromData(meshData);
-                        existingMeshKeys.add(meshKey);
+                    const pieces = this.scene.getMeshDataPieces(selId, selectedModelIndex);
+                    if (!pieces || pieces.length === 0) continue;
+
+                    const seenOrdinalsByKey = new Map<string, number>();
+                    for (const piece of pieces) {
+                        const meshKey = `${piece.expressId}:${piece.modelIndex ?? 'any'}`;
+                        const ordinal = seenOrdinalsByKey.get(meshKey) ?? 0;
+                        seenOrdinalsByKey.set(meshKey, ordinal + 1);
+                        const baselineExisting = baselineExistingCounts.get(meshKey) ?? 0;
+                        if (ordinal < baselineExisting) continue;
+                        this.geometryManager.createMeshFromData(piece);
                     }
                 }
 
-                // Now get selected meshes (only visible ones)
-                // For multi-model support: also filter by modelIndex if provided
                 const selectedMeshes = this.scene.getMeshes().filter(mesh => {
                     if (!visibleSelectedIds.has(mesh.expressId)) return false;
-                    // If selectedModelIndex is provided, also match modelIndex
                     if (selectedModelIndex !== undefined && mesh.modelIndex !== selectedModelIndex) return false;
                     return true;
                 });
-
-                // Ensure selected meshes have uniform buffers and bind groups
-                for (const mesh of selectedMeshes) {
-                    if (!mesh.uniformBuffer && this.pipeline) {
-                        mesh.uniformBuffer = device.createBuffer({
-                            size: this.pipeline.getUniformBufferSize(),
-                            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-                        });
-                        mesh.bindGroup = device.createBindGroup({
-                            layout: this.pipeline.getBindGroupLayout(),
-                            entries: [
-                                {
-                                    binding: 0,
-                                    resource: { buffer: mesh.uniformBuffer },
-                                },
-                            ],
-                        });
-                    }
-                }
-
-                // Render selected meshes with highlight
-                for (const mesh of selectedMeshes) {
-                    if (!mesh.bindGroup || !mesh.uniformBuffer) {
-                        continue;
-                    }
-
-                    const buffer = new Float32Array(48);
-                    const flagBuffer = new Uint32Array(buffer.buffer, 176, 4);
-
-                    buffer.set(viewProj, 0);
-                    buffer.set(mesh.transform.m, 16);
-                    buffer.set(mesh.color, 32);
-                    buffer[36] = mesh.material?.metallic ?? 0.0;
-                    buffer[37] = mesh.material?.roughness ?? 0.6;
-
-                    // Section plane data
-                    if (sectionPlaneData) {
-                        buffer[40] = sectionPlaneData.normal[0];
-                        buffer[41] = sectionPlaneData.normal[1];
-                        buffer[42] = sectionPlaneData.normal[2];
-                        buffer[43] = sectionPlaneData.distance;
-                    }
-
-                    // Flags (selected)
-                    flagBuffer[0] = 1; // isSelected
-                    flagBuffer[1] = sectionPlaneData?.enabled ? 1 : 0;
-                    flagBuffer[2] = edgeEnabledU32;
-                    flagBuffer[3] = edgeIntensityMilliU32;
-
-                    device.queue.writeBuffer(mesh.uniformBuffer, 0, buffer);
-
-                    // Use selection pipeline to render on top of batched meshes
-                    pass.setPipeline(this.pipeline.getSelectionPipeline());
-                    pass.setBindGroup(0, mesh.bindGroup);
-                    pass.setVertexBuffer(0, mesh.vertexBuffer);
-                    pass.setIndexBuffer(mesh.indexBuffer, 'uint32');
-                    pass.drawIndexed(mesh.indexCount, 1, 0, 0, 0);
-                }
 
                 // Render transparent BATCHED meshes with transparent pipeline (after opaque batches and selections)
                 if (transparentBatches.length > 0) {
@@ -904,6 +844,61 @@ export class Renderer {
                         pass.setIndexBuffer(mesh.indexBuffer, 'uint32');
                         pass.drawIndexed(mesh.indexCount, 1, 0, 0, 0);
                     }
+                }
+
+                // Ensure selected meshes have uniform buffers and bind groups
+                for (const mesh of selectedMeshes) {
+                    if (!mesh.uniformBuffer && this.pipeline) {
+                        mesh.uniformBuffer = device.createBuffer({
+                            size: this.pipeline.getUniformBufferSize(),
+                            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+                        });
+                        mesh.bindGroup = device.createBindGroup({
+                            layout: this.pipeline.getBindGroupLayout(),
+                            entries: [
+                                {
+                                    binding: 0,
+                                    resource: { buffer: mesh.uniformBuffer },
+                                },
+                            ],
+                        });
+                    }
+                }
+
+                // Render selected meshes with highlight LAST (on top of transparent geometry too)
+                for (const mesh of selectedMeshes) {
+                    if (!mesh.bindGroup || !mesh.uniformBuffer) {
+                        continue;
+                    }
+
+                    const buffer = new Float32Array(48);
+                    const flagBuffer = new Uint32Array(buffer.buffer, 176, 4);
+
+                    buffer.set(viewProj, 0);
+                    buffer.set(mesh.transform.m, 16);
+                    buffer.set(mesh.color, 32);
+                    buffer[36] = mesh.material?.metallic ?? 0.0;
+                    buffer[37] = mesh.material?.roughness ?? 0.6;
+
+                    if (sectionPlaneData) {
+                        buffer[40] = sectionPlaneData.normal[0];
+                        buffer[41] = sectionPlaneData.normal[1];
+                        buffer[42] = sectionPlaneData.normal[2];
+                        buffer[43] = sectionPlaneData.distance;
+                    }
+
+                    flagBuffer[0] = 1;
+                    flagBuffer[1] = sectionPlaneData?.enabled ? 1 : 0;
+                    flagBuffer[2] = edgeEnabledU32;
+                    flagBuffer[3] = edgeIntensityMilliU32;
+
+                    device.queue.writeBuffer(mesh.uniformBuffer, 0, buffer);
+
+                    pass.setPipeline(this.pipeline.getSelectionPipeline());
+                    pass.setBindGroup(0, mesh.bindGroup);
+                    pass.setVertexBuffer(0, mesh.vertexBuffer);
+                    pass.setIndexBuffer(mesh.indexBuffer, 'uint32');
+                    pass.drawIndexed(mesh.indexCount, 1, 0, 0, 0);
                 }
             } else {
                 // Fallback: render individual meshes (only when no batches exist)

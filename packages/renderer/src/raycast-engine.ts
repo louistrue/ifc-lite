@@ -49,40 +49,40 @@ export class RaycastEngine {
         const allMeshData: MeshData[] = [];
         const meshes = this.scene.getMeshes();
         const batchedMeshes = this.scene.getBatchedMeshes();
+        const seenKeys = new Set<string>();
 
-        // Collect mesh data from regular meshes
-        for (const mesh of meshes) {
-            const meshData = this.scene.getMeshData(mesh.expressId);
-            if (meshData) {
+        const pushVisiblePieces = (expressId: number, modelIndex?: number) => {
+            const pieces = this.scene.getMeshDataPieces(expressId, modelIndex);
+            if (!pieces) return;
+
+            for (const piece of pieces) {
                 // Apply visibility filtering
-                if (options?.hiddenIds?.has(meshData.expressId)) continue;
+                if (options?.hiddenIds?.has(piece.expressId)) continue;
                 if (
                     options?.isolatedIds !== null &&
                     options?.isolatedIds !== undefined &&
-                    !options.isolatedIds.has(meshData.expressId)
+                    !options.isolatedIds.has(piece.expressId)
                 ) {
                     continue;
                 }
-                allMeshData.push(meshData);
+
+                // Avoid duplicates when a piece is reachable from both regular and batched passes
+                const key = `${piece.expressId}:${piece.modelIndex ?? 'any'}:${piece.positions.length}:${piece.indices.length}`;
+                if (seenKeys.has(key)) continue;
+                seenKeys.add(key);
+                allMeshData.push(piece);
             }
+        };
+
+        // Collect mesh data from regular meshes
+        for (const mesh of meshes) {
+            pushVisiblePieces(mesh.expressId, mesh.modelIndex);
         }
 
         // Collect mesh data from batched meshes
         for (const batch of batchedMeshes) {
             for (const expressId of batch.expressIds) {
-                const meshData = this.scene.getMeshData(expressId);
-                if (meshData) {
-                    // Apply visibility filtering
-                    if (options?.hiddenIds?.has(meshData.expressId)) continue;
-                    if (
-                        options?.isolatedIds !== null &&
-                        options?.isolatedIds !== undefined &&
-                        !options.isolatedIds.has(meshData.expressId)
-                    ) {
-                        continue;
-                    }
-                    allMeshData.push(meshData);
-                }
+                pushVisiblePieces(expressId);
             }
         }
 

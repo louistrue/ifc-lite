@@ -193,10 +193,15 @@ export class Scene {
   }
 
   /**
-   * Get all MeshData pieces for an expressId (without merging)
+   * Get all MeshData pieces for an expressId (without merging).
+   * Optionally filter by modelIndex for multi-model safety.
    */
-  getMeshDataPieces(expressId: number): MeshData[] | undefined {
-    return this.meshDataMap.get(expressId);
+  getMeshDataPieces(expressId: number, modelIndex?: number): MeshData[] | undefined {
+    const pieces = this.meshDataMap.get(expressId);
+    if (!pieces || pieces.length === 0) return undefined;
+    if (modelIndex === undefined) return pieces;
+    const filtered = pieces.filter((p) => p.modelIndex === modelIndex);
+    return filtered.length > 0 ? filtered : undefined;
   }
 
   /**

@@ -86,26 +86,37 @@ export class PickingManager {
                 }
             }
 
-            // Track existing meshes by (expressId:modelIndex) for multi-model support
-            // This handles expressId collisions (e.g., door #535 in model 0 vs beam #535 in model 1)
-            const existingMeshKeys = new Set(meshes.map(m => `${m.expressId}:${m.modelIndex ?? 'any'}`));
+            // Track how many individual mesh pieces already exist for each (expressId:modelIndex).
+            // Multi-piece elements (windows/doors with submeshes) need all pieces for reliable picking.
+            const existingPieceCounts = new Map<string, number>();
+            for (const mesh of meshes) {
+                const key = `${mesh.expressId}:${mesh.modelIndex ?? 'any'}`;
+                existingPieceCounts.set(key, (existingPieceCounts.get(key) ?? 0) + 1);
+            }
 
-            // Count how many meshes we'd need to create for full GPU picking
-            // For multi-model, count all pieces with unique (expressId, modelIndex) pairs
-            let toCreate = 0;
+            // Build required piece counts from MeshData for all visible entities.
+            const requiredPieceCounts = new Map<string, number>();
+            const visibleExpressIds: number[] = [];
             for (const expressId of expressIds) {
                 if (options?.hiddenIds?.has(expressId)) continue;
                 if (options?.isolatedIds !== null && options?.isolatedIds !== undefined && !options.isolatedIds.has(expressId)) continue;
+                visibleExpressIds.push(expressId);
 
-                // Get all pieces for this expressId (handles multi-model)
                 const pieces = this.scene.getMeshDataPieces(expressId);
-                if (pieces) {
-                    for (const piece of pieces) {
-                        const meshKey = `${expressId}:${piece.modelIndex ?? 'any'}`;
-                        if (!existingMeshKeys.has(meshKey)) {
-                            toCreate++;
-                        }
-                    }
+                if (!pieces) continue;
+                for (const piece of pieces) {
+                    const key = `${piece.expressId}:${piece.modelIndex ?? 'any'}`;
+                    requiredPieceCounts.set(key, (requiredPieceCounts.get(key) ?? 0) + 1);
+                }
+            }
+
+            // Count how many meshes we'd need to create for full GPU picking
+            // For multi-model and multi-piece elements, count missing piece instances per key.
+            let toCreate = 0;
+            for (const [key, requiredCount] of requiredPieceCounts) {
+                const existingCount = existingPieceCounts.get(key) ?? 0;
+                if (requiredCount > existingCount) {
+                    toCreate += requiredCount - existingCount;
                 }
             }
 
@@ -128,22 +139,21 @@ export class PickingManager {
             // For smaller models, create GPU meshes for picking
             // Only create meshes for VISIBLE elements (not hidden, and either no isolation or in isolated set)
             // For multi-model support: create meshes for ALL (expressId, modelIndex) pairs
-            for (const expressId of expressIds) {
-                // Skip if hidden
-                if (options?.hiddenIds?.has(expressId)) continue;
-                // Skip if isolation is active and this entity is not isolated
-                if (options?.isolatedIds !== null && options?.isolatedIds !== undefined && !options.isolatedIds.has(expressId)) continue;
-
-                // Get all pieces for this expressId (handles multi-model)
+            const baselineExistingCounts = new Map(existingPieceCounts);
+            const seenOrdinalsByKey = new Map<string, number>();
+            for (const expressId of visibleExpressIds) {
                 const pieces = this.scene.getMeshDataPieces(expressId);
                 if (pieces) {
                     for (const piece of pieces) {
                         const meshKey = `${piece.expressId}:${piece.modelIndex ?? 'any'}`;
-                        // Skip if mesh already exists for this (expressId, modelIndex) pair
-                        if (existingMeshKeys.has(meshKey)) continue;
+                        const ordinal = seenOrdinalsByKey.get(meshKey) ?? 0;
+                        seenOrdinalsByKey.set(meshKey, ordinal + 1);
+                        const baselineExisting = baselineExistingCounts.get(meshKey) ?? 0;
+
+                        // Assume existing pieces correspond to the first N pieces in stable order.
+                        if (ordinal < baselineExisting) continue;
 
                         this.geometryManager.createMeshFromData(piece);
-                        existingMeshKeys.add(meshKey);
                     }
                 }
             }
