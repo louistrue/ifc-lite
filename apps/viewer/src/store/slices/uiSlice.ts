@@ -8,7 +8,7 @@
 
 import type { StateCreator } from 'zustand';
 import { UI_DEFAULTS } from '../constants.js';
-import type { ContactShadingQuality } from '@ifc-lite/renderer';
+import type { ContactShadingQuality, SeparationLinesQuality } from '@ifc-lite/renderer';
 
 export interface UISlice {
   // State
@@ -24,6 +24,10 @@ export interface UISlice {
   contactShadingQuality: ContactShadingQuality;
   contactShadingIntensity: number;
   contactShadingRadius: number;
+  separationLinesEnabled: boolean;
+  separationLinesQuality: SeparationLinesQuality;
+  separationLinesIntensity: number;
+  separationLinesRadius: number;
 
   // Actions
   setLeftPanelCollapsed: (collapsed: boolean) => void;
@@ -39,6 +43,10 @@ export interface UISlice {
   setContactShadingQuality: (quality: ContactShadingQuality) => void;
   setContactShadingIntensity: (intensity: number) => void;
   setContactShadingRadius: (radius: number) => void;
+  setSeparationLinesEnabled: (enabled: boolean) => void;
+  setSeparationLinesQuality: (quality: SeparationLinesQuality) => void;
+  setSeparationLinesIntensity: (intensity: number) => void;
+  setSeparationLinesRadius: (radius: number) => void;
 }
 
 export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set, get) => ({
@@ -55,6 +63,10 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set, get) 
   contactShadingQuality: UI_DEFAULTS.CONTACT_SHADING_QUALITY,
   contactShadingIntensity: UI_DEFAULTS.CONTACT_SHADING_INTENSITY,
   contactShadingRadius: UI_DEFAULTS.CONTACT_SHADING_RADIUS,
+  separationLinesEnabled: UI_DEFAULTS.SEPARATION_LINES_ENABLED,
+  separationLinesQuality: UI_DEFAULTS.SEPARATION_LINES_QUALITY,
+  separationLinesIntensity: UI_DEFAULTS.SEPARATION_LINES_INTENSITY,
+  separationLinesRadius: UI_DEFAULTS.SEPARATION_LINES_RADIUS,
 
   // Actions
   setLeftPanelCollapsed: (leftPanelCollapsed) => set({ leftPanelCollapsed }),
@@ -82,4 +94,8 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set, get) 
   setContactShadingQuality: (contactShadingQuality) => set({ contactShadingQuality }),
   setContactShadingIntensity: (contactShadingIntensity) => set({ contactShadingIntensity }),
   setContactShadingRadius: (contactShadingRadius) => set({ contactShadingRadius }),
+  setSeparationLinesEnabled: (separationLinesEnabled) => set({ separationLinesEnabled }),
+  setSeparationLinesQuality: (separationLinesQuality) => set({ separationLinesQuality }),
+  setSeparationLinesIntensity: (separationLinesIntensity) => set({ separationLinesIntensity }),
+  setSeparationLinesRadius: (separationLinesRadius) => set({ separationLinesRadius }),
 });

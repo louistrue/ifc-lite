@@ -98,6 +98,7 @@ export interface SectionPlane {
 }
 
 export type ContactShadingQuality = 'off' | 'low' | 'high';
+export type SeparationLinesQuality = 'off' | 'low' | 'high';
 
 export interface VisualEnhancementOptions {
   enabled?: boolean;
@@ -107,6 +108,11 @@ export interface VisualEnhancementOptions {
   };
   contactShading?: {
     quality?: ContactShadingQuality;
+    intensity?: number;
+    radius?: number;
+  };
+  separationLines?: {
+    quality?: SeparationLinesQuality;
     intensity?: number;
     radius?: number;
   };

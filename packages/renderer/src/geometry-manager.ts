@@ -364,10 +364,10 @@ export class GeometryManager {
 
         const device = this.device.getDevice();
         const vertexCount = meshData.positions.length / 3;
-        const interleaved = new Float32Array(vertexCount * 6);
+        const interleaved = new Float32Array(vertexCount * 7);
 
         for (let i = 0; i < vertexCount; i++) {
-            const base = i * 6;
+            const base = i * 7;
             const posBase = i * 3;
             interleaved[base] = meshData.positions[posBase];
             interleaved[base + 1] = meshData.positions[posBase + 1];
@@ -375,6 +375,7 @@ export class GeometryManager {
             interleaved[base + 3] = meshData.normals[posBase];
             interleaved[base + 4] = meshData.normals[posBase + 1];
             interleaved[base + 5] = meshData.normals[posBase + 2];
+            interleaved[base + 6] = meshData.expressId;
         }
 
         const vertexBuffer = device.createBuffer({

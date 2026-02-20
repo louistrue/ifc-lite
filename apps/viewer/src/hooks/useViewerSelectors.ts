@@ -164,6 +164,10 @@ export function useThemeState() {
   const contactShadingQuality = useViewerStore((state) => state.contactShadingQuality);
   const contactShadingIntensity = useViewerStore((state) => state.contactShadingIntensity);
   const contactShadingRadius = useViewerStore((state) => state.contactShadingRadius);
+  const separationLinesEnabled = useViewerStore((state) => state.separationLinesEnabled);
+  const separationLinesQuality = useViewerStore((state) => state.separationLinesQuality);
+  const separationLinesIntensity = useViewerStore((state) => state.separationLinesIntensity);
+  const separationLinesRadius = useViewerStore((state) => state.separationLinesRadius);
 
   return {
     theme,
@@ -174,6 +178,10 @@ export function useThemeState() {
     contactShadingQuality,
     contactShadingIntensity,
     contactShadingRadius,
+    separationLinesEnabled,
+    separationLinesQuality,
+    separationLinesIntensity,
+    separationLinesRadius,
   };
 }
 

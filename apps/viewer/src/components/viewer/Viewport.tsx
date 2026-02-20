@@ -167,6 +167,10 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     contactShadingQuality,
     contactShadingIntensity,
     contactShadingRadius,
+    separationLinesEnabled,
+    separationLinesQuality,
+    separationLinesIntensity,
+    separationLinesRadius,
   } = useThemeState();
 
   // Hover state
@@ -235,6 +239,12 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
       intensity: contactShadingIntensity,
       radius: contactShadingRadius,
     },
+    separationLines: {
+      enabled: separationLinesEnabled,
+      quality: isMobile ? 'low' : separationLinesQuality,
+      intensity: isMobile ? Math.min(0.4, separationLinesIntensity) : separationLinesIntensity,
+      radius: isMobile ? 1.0 : separationLinesRadius,
+    },
   }), [
     visualEnhancementsEnabled,
     edgeContrastEnabled,
@@ -243,6 +253,10 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     contactShadingQuality,
     contactShadingIntensity,
     contactShadingRadius,
+    separationLinesEnabled,
+    separationLinesQuality,
+    separationLinesIntensity,
+    separationLinesRadius,
   ]);
   const visualEnhancementRef = useRef<VisualEnhancementOptions>(visualEnhancement);
 

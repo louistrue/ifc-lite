@@ -55,6 +55,7 @@ import type {
     Mesh,
     VisualEnhancementOptions,
     ContactShadingQuality,
+    SeparationLinesQuality,
 } from './types.js';
 import { SectionPlaneRenderer } from './section-plane.js';
 import { Section2DOverlayRenderer, type CutPolygon2D, type DrawingLine2D } from './section-2d-overlay.js';
@@ -74,6 +75,11 @@ type ResolvedVisualEnhancement = {
     };
     contactShading: {
         quality: ContactShadingQuality;
+        intensity: number;
+        radius: number;
+    };
+    separationLines: {
+        quality: SeparationLinesQuality;
         intensity: number;
         radius: number;
     };
@@ -97,6 +103,7 @@ export class Renderer {
         enabled: true,
         edgeContrast: { enabled: true, intensity: 1.0 },
         contactShading: { quality: 'off', intensity: 0.3, radius: 1.0 },
+        separationLines: { quality: 'low', intensity: 0.5, radius: 1.0 },
     };
 
     // Composition: delegate to extracted managers
@@ -249,6 +256,11 @@ export class Renderer {
                 intensity: options.contactShading?.intensity ?? this.visualEnhancementState.contactShading.intensity,
                 radius: options.contactShading?.radius ?? this.visualEnhancementState.contactShading.radius,
             },
+            separationLines: {
+                quality: options.separationLines?.quality ?? this.visualEnhancementState.separationLines.quality,
+                intensity: options.separationLines?.intensity ?? this.visualEnhancementState.separationLines.intensity,
+                radius: options.separationLines?.radius ?? this.visualEnhancementState.separationLines.radius,
+            },
         };
         this.visualEnhancementState = merged;
         return merged;
@@ -358,6 +370,7 @@ export class Renderer {
                 : { r: 0.1, g: 0.1, b: 0.1, a: 1 };
 
             const textureView = currentTexture.createView();
+            const objectIdView = this.pipeline.getObjectIdTextureView();
 
             // Separate meshes into opaque and transparent
             const opaqueMeshes: typeof meshes = [];
@@ -537,6 +550,12 @@ export class Renderer {
                         loadOp: 'clear',
                         clearValue: clearColor,
                         storeOp: useMSAA ? 'discard' : 'store',  // Discard MSAA buffer after resolve
+                    },
+                    {
+                        view: objectIdView,
+                        loadOp: 'clear',
+                        clearValue: { r: 0, g: 0, b: 0, a: 0 },
+                        storeOp: 'store',
                     },
                 ],
                 depthStencilAttachment: {
@@ -969,21 +988,27 @@ export class Renderer {
             pass.end();
 
             const contactEnabled = visualEnhancement.enabled && visualEnhancement.contactShading.quality !== 'off';
-            const canRunContactPass = contactEnabled
+            const separationEnabled = visualEnhancement.enabled && visualEnhancement.separationLines.quality !== 'off';
+            const canRunPostPass = (contactEnabled || separationEnabled)
                 && this.postProcessor !== null
                 && this.pipeline.getSampleCount() > 1;
-            if (canRunContactPass && this.postProcessor) {
+            if (canRunPostPass && this.postProcessor) {
                 this.postProcessor.updateOptions({
-                    enableContactShading: true,
+                    enableContactShading: contactEnabled,
                     contactRadius: visualEnhancement.contactShading.radius,
                     contactIntensity: visualEnhancement.contactShading.intensity,
                 });
                 this.postProcessor.apply(encoder, {
                     targetView: textureView,
                     depthView: this.pipeline.getDepthTextureView(),
-                    quality: visualEnhancement.contactShading.quality === 'high' ? 'high' : 'low',
-                    radius: Math.max(1.0, visualEnhancement.contactShading.radius),
-                    intensity: Math.min(1.0, Math.max(0.0, visualEnhancement.contactShading.intensity)),
+                    objectIdView: this.pipeline.getObjectIdTextureView(),
+                    contactQuality: contactEnabled && visualEnhancement.contactShading.quality === 'high' ? 'high' : 'low',
+                    radius: Math.min(3.0, Math.max(1.0, visualEnhancement.contactShading.radius)),
+                    intensity: contactEnabled ? Math.min(1.0, Math.max(0.0, visualEnhancement.contactShading.intensity)) : 0.0,
+                    separationQuality: visualEnhancement.separationLines.quality === 'high' ? 'high' : 'low',
+                    separationRadius: Math.min(2.0, Math.max(1.0, visualEnhancement.separationLines.radius)),
+                    separationIntensity: separationEnabled ? Math.min(1.0, Math.max(0.0, visualEnhancement.separationLines.intensity)) : 0.0,
+                    enableSeparationLines: separationEnabled,
                 });
             }
 

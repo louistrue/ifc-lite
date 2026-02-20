@@ -78,6 +78,14 @@ export const UI_DEFAULTS = {
   CONTACT_SHADING_INTENSITY: 0.35,
   /** Contact shading radius in pixels */
   CONTACT_SHADING_RADIUS: 1.5,
+  /** Separation-line overlay default */
+  SEPARATION_LINES_ENABLED: true,
+  /** Separation-line quality preset */
+  SEPARATION_LINES_QUALITY: 'low' as const,
+  /** Separation-line intensity */
+  SEPARATION_LINES_INTENSITY: 0.38,
+  /** Separation-line radius in pixels */
+  SEPARATION_LINES_RADIUS: 1.0,
 } as const;
 
 // ============================================================================

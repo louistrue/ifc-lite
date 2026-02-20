@@ -487,7 +487,7 @@ export class Scene {
     }
 
     // Create merged buffers
-    const vertexData = new Float32Array(totalVertices * 6); // 6 floats per vertex (pos + normal)
+    const vertexData = new Float32Array(totalVertices * 7); // 7 floats per vertex (pos + normal + entityId)
     const indices = new Uint32Array(totalIndices);
 
     let indexOffset = 0;
@@ -500,7 +500,8 @@ export class Scene {
 
       // Interleave vertex data (position + normal)
       // This loop is O(n) per mesh and unavoidable for interleaving
-      let outIdx = vertexBase * 6;
+      let outIdx = vertexBase * 7;
+      const entityId = mesh.expressId;
       for (let i = 0; i < vertexCount; i++) {
         const srcIdx = i * 3;
         vertexData[outIdx++] = positions[srcIdx];
@@ -509,6 +510,7 @@ export class Scene {
         vertexData[outIdx++] = normals[srcIdx];
         vertexData[outIdx++] = normals[srcIdx + 1];
         vertexData[outIdx++] = normals[srcIdx + 2];
+        vertexData[outIdx++] = entityId;
       }
 
       // Copy indices with vertex base offset

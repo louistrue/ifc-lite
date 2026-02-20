@@ -20,9 +20,14 @@ export type PostProcessQuality = 'low' | 'high';
 export interface ContactShadingPassOptions {
     targetView: GPUTextureView;
     depthView: GPUTextureView;
-    quality: PostProcessQuality;
+    objectIdView: GPUTextureView;
+    contactQuality: PostProcessQuality;
     radius: number;
     intensity: number;
+    separationQuality: PostProcessQuality;
+    separationRadius: number;
+    separationIntensity: number;
+    enableSeparationLines: boolean;
 }
 
 /**
@@ -64,6 +69,11 @@ export class PostProcessor {
                 {
                     binding: 1,
                     visibility: GPUShaderStage.FRAGMENT,
+                    texture: { sampleType: 'unfilterable-float', viewDimension: '2d', multisampled: true },
+                },
+                {
+                    binding: 2,
+                    visibility: GPUShaderStage.FRAGMENT,
                     buffer: { type: 'uniform' },
                 },
             ],
@@ -72,15 +82,16 @@ export class PostProcessor {
         const shader = this._device.createShaderModule({
             code: `
 struct Params {
-  invSize: vec2<f32>,
-  radiusPx: f32,
-  intensity: f32,
-  quality: u32,
-  _pad0: vec3<u32>,
+  contactRadiusPx: f32,
+  contactIntensity: f32,
+  seamRadiusPx: f32,
+  seamIntensity: f32,
+  flags: vec4<u32>, // x=contactQuality y=seamQuality z=seamsEnabled w=reserved
 }
 
 @group(0) @binding(0) var depthTex: texture_depth_multisampled_2d;
-@group(0) @binding(1) var<uniform> params: Params;
+@group(0) @binding(1) var idTex: texture_multisampled_2d<f32>;
+@group(0) @binding(2) var<uniform> params: Params;
 
 struct VsOut {
   @builtin(position) pos: vec4<f32>,
@@ -103,6 +114,18 @@ fn sampleDepthClamped(ip: vec2<i32>, dims: vec2<i32>) -> f32 {
   return textureLoad(depthTex, c, 0u);
 }
 
+fn decodeId24(encoded: vec4<f32>) -> u32 {
+  let r = u32(round(encoded.r * 255.0)) & 255u;
+  let g = u32(round(encoded.g * 255.0)) & 255u;
+  let b = u32(round(encoded.b * 255.0)) & 255u;
+  return (r << 16u) | (g << 8u) | b;
+}
+
+fn sampleIdClamped(ip: vec2<i32>, dims: vec2<i32>) -> u32 {
+  let c = vec2<i32>(clamp(ip.x, 0, dims.x - 1), clamp(ip.y, 0, dims.y - 1));
+  return decodeId24(textureLoad(idTex, c, 0u));
+}
+
 @fragment
 fn fs_main(@builtin(position) fragPos: vec4<f32>) -> @location(0) vec4<f32> {
   let dimsU = textureDimensions(depthTex);
@@ -114,7 +137,7 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(0.0, 0.0, 0.0, 0.0);
   }
 
-  let r = max(1, i32(params.radiusPx));
+  let r = max(1, i32(params.contactRadiusPx));
   var accum = 0.0;
   var count = 0.0;
 
@@ -129,7 +152,7 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>) -> @location(0) vec4<f32> {
   accum += max(0.0, d4 - center);
   count += 4.0;
 
-  if (params.quality == 1u) {
+  if (params.flags.x == 1u) {
     let d5 = sampleDepthClamped(p + vec2<i32>( r,  r), dims);
     let d6 = sampleDepthClamped(p + vec2<i32>(-r,  r), dims);
     let d7 = sampleDepthClamped(p + vec2<i32>( r, -r), dims);
@@ -141,8 +164,44 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>) -> @location(0) vec4<f32> {
     count += 4.0;
   }
 
-  let occlusion = clamp((accum / max(count, 1.0)) * (120.0 * params.intensity), 0.0, 0.7);
-  return vec4<f32>(0.0, 0.0, 0.0, occlusion);
+  let contact = clamp((accum / max(count, 1.0)) * (120.0 * params.contactIntensity), 0.0, 0.7);
+
+  var seam = 0.0;
+  if (params.flags.z == 1u) {
+    let idCenter = sampleIdClamped(p, dims);
+    if (idCenter != 0u) {
+      let rs = max(1, i32(params.seamRadiusPx));
+      let idX1 = sampleIdClamped(p + vec2<i32>( rs, 0), dims);
+      let idX0 = sampleIdClamped(p + vec2<i32>(-rs, 0), dims);
+      let idY1 = sampleIdClamped(p + vec2<i32>(0,  rs), dims);
+      let idY0 = sampleIdClamped(p + vec2<i32>(0, -rs), dims);
+
+      let edge4Count =
+        f32(idX1 != idCenter && idX1 != 0u) +
+        f32(idX0 != idCenter && idX0 != 0u) +
+        f32(idY1 != idCenter && idY1 != 0u) +
+        f32(idY0 != idCenter && idY0 != 0u);
+      seam = edge4Count * 0.25;
+
+      if (params.flags.y == 1u) {
+        let idD1 = sampleIdClamped(p + vec2<i32>( rs,  rs), dims);
+        let idD2 = sampleIdClamped(p + vec2<i32>(-rs,  rs), dims);
+        let idD3 = sampleIdClamped(p + vec2<i32>( rs, -rs), dims);
+        let idD4 = sampleIdClamped(p + vec2<i32>(-rs, -rs), dims);
+        let edgeDiagCount =
+          f32(idD1 != idCenter && idD1 != 0u) +
+          f32(idD2 != idCenter && idD2 != 0u) +
+          f32(idD3 != idCenter && idD3 != 0u) +
+          f32(idD4 != idCenter && idD4 != 0u);
+        let edgeDiag = edgeDiagCount * 0.25;
+        seam = max(seam, (seam + edgeDiag) * 0.5);
+      }
+    }
+  }
+
+  let seamDarken = clamp(seam * params.seamIntensity, 0.0, 0.35);
+  let overlay = max(contact, seamDarken);
+  return vec4<f32>(0.0, 0.0, 0.0, overlay);
 }
 `,
         });
@@ -181,22 +240,24 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>) -> @location(0) vec4<f32> {
      * Apply lightweight contact shading in a fullscreen overlay pass.
      */
     apply(commandEncoder: GPUCommandEncoder, options: ContactShadingPassOptions): void {
-        if (!this.options.enableContactShading) {
+        if (!this.options.enableContactShading && !options.enableSeparationLines) {
             return;
         }
 
-        const qualityFlag = options.quality === 'high' ? 1 : 0;
-        const radiusPx = options.quality === 'high' ? options.radius : options.radius * 0.5;
+        const contactQualityFlag = options.contactQuality === 'high' ? 1 : 0;
+        const seamQualityFlag = options.separationQuality === 'high' ? 1 : 0;
+        const contactRadiusPx = options.contactQuality === 'high' ? options.radius : options.radius * 0.5;
+        const seamRadiusPx = options.separationQuality === 'high' ? options.separationRadius : 1.0;
         const uniformBuffer = new ArrayBuffer(48);
         const f32 = new Float32Array(uniformBuffer);
         const u32 = new Uint32Array(uniformBuffer);
-        f32[0] = 0; // invSize.x (reserved for future use)
-        f32[1] = 0; // invSize.y (reserved for future use)
-        f32[2] = radiusPx;
-        f32[3] = options.intensity;
-        u32[4] = qualityFlag;
-        u32[5] = 0;
-        u32[6] = 0;
+        f32[0] = contactRadiusPx;
+        f32[1] = options.intensity;
+        f32[2] = seamRadiusPx;
+        f32[3] = options.separationIntensity;
+        u32[4] = contactQualityFlag;
+        u32[5] = seamQualityFlag;
+        u32[6] = options.enableSeparationLines ? 1 : 0;
         u32[7] = 0;
         this._device.queue.writeBuffer(this.uniformBuffer, 0, uniformBuffer);
 
@@ -204,7 +265,8 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>) -> @location(0) vec4<f32> {
             layout: this.bindGroupLayout,
             entries: [
                 { binding: 0, resource: options.depthView },
-                { binding: 1, resource: { buffer: this.uniformBuffer } },
+                { binding: 1, resource: options.objectIdView },
+                { binding: 2, resource: { buffer: this.uniformBuffer } },
             ],
         });
 
