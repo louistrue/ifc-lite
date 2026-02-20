@@ -9,6 +9,7 @@
 export { WebGPUDevice } from './device.js';
 export { RenderPipeline, InstancedRenderPipeline } from './pipeline.js';
 export { Camera } from './camera.js';
+export type { ProjectionMode } from './camera-controls.js';
 export { Scene } from './scene.js';
 export { Picker } from './picker.js';
 export { MathUtils } from './math.js';
@@ -664,6 +665,19 @@ export class Renderer {
                         }
                     }
                     // Reset to opaque pipeline for subsequent rendering
+                    pass.setPipeline(this.pipeline.getPipeline());
+                }
+
+                // Render color overlay batches (lens coloring) on top of ALL opaque geometry.
+                // Placed AFTER partial batches so depth buffer is complete for both full
+                // and partial batches. Uses 'equal' depth compare — only paints where
+                // original geometry wrote depth, so hidden entities never leak through.
+                const overrideBatches = this.scene.getOverrideBatches();
+                if (overrideBatches.length > 0) {
+                    pass.setPipeline(this.pipeline.getOverlayPipeline());
+                    for (const batch of overrideBatches) {
+                        renderBatch(batch);
+                    }
                     pass.setPipeline(this.pipeline.getPipeline());
                 }
 

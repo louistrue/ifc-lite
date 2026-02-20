@@ -50,6 +50,7 @@ export enum IfcTypeEnum {
   IfcDiscreteAccessory = 38,
   IfcMechanicalFastener = 39,
 
+
   // MEP
   IfcDistributionElement = 40,
   IfcFlowTerminal = 41,

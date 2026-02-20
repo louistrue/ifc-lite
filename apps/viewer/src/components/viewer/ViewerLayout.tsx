@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels';
+import type { PanelImperativeHandle } from 'react-resizable-panels';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { MainToolbar } from './MainToolbar';
 import { HierarchyPanel } from './HierarchyPanel';
@@ -17,7 +18,10 @@ import { EntityContextMenu } from './EntityContextMenu';
 import { HoverTooltip } from './HoverTooltip';
 import { BCFPanel } from './BCFPanel';
 import { IDSPanel } from './IDSPanel';
+import { LensPanel } from './LensPanel';
 import { ListPanel } from './lists/ListPanel';
+import { ScriptPanel } from './ScriptPanel';
+import { CommandPalette } from './CommandPalette';
 
 const BOTTOM_PANEL_MIN_HEIGHT = 120;
 const BOTTOM_PANEL_DEFAULT_HEIGHT = 300;
@@ -27,6 +31,21 @@ export function ViewerLayout() {
   // Initialize keyboard shortcuts
   useKeyboardShortcuts();
   const shortcutsDialog = useKeyboardShortcutsDialog();
+
+  // Command palette state
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+
+  // Ctrl+K / Cmd+K to open command palette
+  useEffect(() => {
+    const handler = (e: globalThis.KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   // Initialize theme on mount
   const theme = useViewerStore((s) => s.theme);
@@ -42,6 +61,29 @@ export function ViewerLayout() {
   const setIdsPanelVisible = useViewerStore((s) => s.setIdsPanelVisible);
   const listPanelVisible = useViewerStore((s) => s.listPanelVisible);
   const setListPanelVisible = useViewerStore((s) => s.setListPanelVisible);
+  const lensPanelVisible = useViewerStore((s) => s.lensPanelVisible);
+  const setLensPanelVisible = useViewerStore((s) => s.setLensPanelVisible);
+  const scriptPanelVisible = useViewerStore((s) => s.scriptPanelVisible);
+  const setScriptPanelVisible = useViewerStore((s) => s.setScriptPanelVisible);
+
+  // Panel refs for programmatic collapse/expand (command palette, keyboard shortcuts)
+  const leftPanelRef = useRef<PanelImperativeHandle>(null);
+  const rightPanelRef = useRef<PanelImperativeHandle>(null);
+
+  // Sync store state → Panel collapse/expand on desktop
+  useEffect(() => {
+    const panel = leftPanelRef.current;
+    if (!panel) return;
+    if (leftPanelCollapsed && !panel.isCollapsed()) panel.collapse();
+    else if (!leftPanelCollapsed && panel.isCollapsed()) panel.expand();
+  }, [leftPanelCollapsed]);
+
+  useEffect(() => {
+    const panel = rightPanelRef.current;
+    if (!panel) return;
+    if (rightPanelCollapsed && !panel.isCollapsed()) panel.collapse();
+    else if (!rightPanelCollapsed && panel.isCollapsed()) panel.expand();
+  }, [rightPanelCollapsed]);
 
   // Bottom panel resize state (pixel height, persisted in ref to avoid re-renders during drag)
   const [bottomHeight, setBottomHeight] = useState(BOTTOM_PANEL_DEFAULT_HEIGHT);
@@ -110,12 +152,7 @@ export function ViewerLayout() {
     return () => window.removeEventListener('resize', checkMobile);
   }, [setIsMobile, setLeftPanelCollapsed, setRightPanelCollapsed]);
 
-  // Initialize theme on mount and sync with store
-  useEffect(() => {
-    const currentTheme = useViewerStore.getState().theme;
-    document.documentElement.classList.toggle('dark', currentTheme === 'dark');
-  }, []);
-
+  // Keep DOM class in sync when theme changes (initial class is set by inline script in index.html)
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
@@ -130,6 +167,7 @@ export function ViewerLayout() {
         {/* Global Overlays */}
         <EntityContextMenu />
         <HoverTooltip />
+        <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
 
         {/* Main Toolbar */}
         <MainToolbar onShowShortcuts={shortcutsDialog.toggle} />
@@ -147,6 +185,11 @@ export function ViewerLayout() {
                   minSize={10}
                   collapsible
                   collapsedSize={0}
+                  panelRef={leftPanelRef}
+                  onResize={() => {
+                    const collapsed = leftPanelRef.current?.isCollapsed() ?? false;
+                    if (collapsed !== leftPanelCollapsed) setLeftPanelCollapsed(collapsed);
+                  }}
                 >
                   <div className="h-full w-full overflow-hidden">
                     <HierarchyPanel />
@@ -171,9 +214,16 @@ export function ViewerLayout() {
                   minSize={15}
                   collapsible
                   collapsedSize={0}
+                  panelRef={rightPanelRef}
+                  onResize={() => {
+                    const collapsed = rightPanelRef.current?.isCollapsed() ?? false;
+                    if (collapsed !== rightPanelCollapsed) setRightPanelCollapsed(collapsed);
+                  }}
                 >
                   <div className="h-full w-full overflow-hidden">
-                    {idsPanelVisible ? (
+                    {lensPanelVisible ? (
+                      <LensPanel onClose={() => setLensPanelVisible(false)} />
+                    ) : idsPanelVisible ? (
                       <IDSPanel onClose={() => setIdsPanelVisible(false)} />
                     ) : bcfPanelVisible ? (
                       <BCFPanel onClose={() => setBcfPanelVisible(false)} />
@@ -185,8 +235,8 @@ export function ViewerLayout() {
               </PanelGroup>
             </div>
 
-            {/* Bottom Panel - Lists (custom resizable, outside PanelGroup) */}
-            {listPanelVisible && (
+            {/* Bottom Panel - Lists or Script (custom resizable, outside PanelGroup) */}
+            {(listPanelVisible || scriptPanelVisible) && (
               <div style={{ height: bottomHeight, flexShrink: 0 }} className="relative">
                 {/* Drag handle */}
                 <div
@@ -194,7 +244,11 @@ export function ViewerLayout() {
                   onMouseDown={handleResizeStart}
                 />
                 <div className="h-full w-full overflow-hidden border-t pt-1.5">
-                  <ListPanel onClose={() => setListPanelVisible(false)} />
+                  {scriptPanelVisible ? (
+                    <ScriptPanel onClose={() => setScriptPanelVisible(false)} />
+                  ) : (
+                    <ListPanel onClose={() => setListPanelVisible(false)} />
+                  )}
                 </div>
               </div>
             )}
@@ -235,14 +289,16 @@ export function ViewerLayout() {
               <div className="absolute inset-x-0 bottom-0 h-[50vh] bg-background border-t rounded-t-xl shadow-xl z-40 animate-in slide-in-from-bottom">
                 <div className="flex items-center justify-between p-2 border-b">
                   <span className="font-medium text-sm">
-                    {listPanelVisible ? 'Lists' : idsPanelVisible ? 'IDS Validation' : bcfPanelVisible ? 'BCF Issues' : 'Properties'}
+                    {scriptPanelVisible ? 'Script' : listPanelVisible ? 'Lists' : lensPanelVisible ? 'Lens' : idsPanelVisible ? 'IDS Validation' : bcfPanelVisible ? 'BCF Issues' : 'Properties'}
                   </span>
                   <button
                     className="p-1 hover:bg-muted rounded"
                     onClick={() => {
                       setRightPanelCollapsed(true);
+                      if (scriptPanelVisible) setScriptPanelVisible(false);
                       if (listPanelVisible) setListPanelVisible(false);
                       if (bcfPanelVisible) setBcfPanelVisible(false);
+                      if (lensPanelVisible) setLensPanelVisible(false);
                       if (idsPanelVisible) setIdsPanelVisible(false);
                     }}
                   >
@@ -253,8 +309,12 @@ export function ViewerLayout() {
                   </button>
                 </div>
                 <div className="h-[calc(50vh-48px)] overflow-auto">
-                  {listPanelVisible ? (
+                  {scriptPanelVisible ? (
+                    <ScriptPanel onClose={() => setScriptPanelVisible(false)} />
+                  ) : listPanelVisible ? (
                     <ListPanel onClose={() => setListPanelVisible(false)} />
+                  ) : lensPanelVisible ? (
+                    <LensPanel onClose={() => setLensPanelVisible(false)} />
                   ) : idsPanelVisible ? (
                     <IDSPanel onClose={() => setIdsPanelVisible(false)} />
                   ) : bcfPanelVisible ? (

@@ -44,12 +44,14 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set, get) 
 
   setTheme: (theme) => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
+    localStorage.setItem('ifc-lite-theme', theme);
     set({ theme });
   },
 
   toggleTheme: () => {
     const newTheme = get().theme === 'dark' ? 'light' : 'dark';
     document.documentElement.classList.toggle('dark', newTheme === 'dark');
+    localStorage.setItem('ifc-lite-theme', newTheme);
     set({ theme: newTheme });
   },
 

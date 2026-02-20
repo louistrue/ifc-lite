@@ -15,6 +15,7 @@ export class RenderPipeline {
     private pipeline: GPURenderPipeline;
     private selectionPipeline: GPURenderPipeline;  // Pipeline for selected meshes (renders on top)
     private transparentPipeline: GPURenderPipeline;  // Pipeline for transparent meshes with alpha blending
+    private overlayPipeline: GPURenderPipeline;  // Pipeline for color overlays (lens) - renders at exact same depth
     private depthTexture: GPUTexture;
     private depthTextureView: GPUTextureView;
     private depthFormat: GPUTextureFormat = 'depth24plus';
@@ -417,6 +418,46 @@ export class RenderPipeline {
 
         this.transparentPipeline = this.device.createRenderPipeline(transparentPipelineDescriptor);
 
+        // Create overlay pipeline for lens color overrides
+        // Uses depthCompare 'equal' so it ONLY renders where original geometry already wrote depth.
+        // This prevents hidden entities from "leaking through" overlay batches.
+        // depthWriteEnabled: false — don't disturb the depth buffer for subsequent passes.
+        const overlayPipelineDescriptor: GPURenderPipelineDescriptor = {
+            layout: pipelineLayout,
+            vertex: {
+                module: shaderModule,
+                entryPoint: 'vs_main',
+                buffers: [
+                    {
+                        arrayStride: 24,
+                        attributes: [
+                            { shaderLocation: 0, offset: 0, format: 'float32x3' },
+                            { shaderLocation: 1, offset: 12, format: 'float32x3' },
+                        ],
+                    },
+                ],
+            },
+            fragment: {
+                module: shaderModule,
+                entryPoint: 'fs_main',
+                targets: [{ format: this.colorFormat }],
+            },
+            primitive: {
+                topology: 'triangle-list',
+                cullMode: 'none',
+            },
+            depthStencil: {
+                format: this.depthFormat,
+                depthWriteEnabled: false,
+                depthCompare: 'equal',  // Only draw where depth matches exactly (same geometry)
+            },
+            multisample: {
+                count: this.sampleCount,
+            },
+        } as GPURenderPipelineDescriptor;
+
+        this.overlayPipeline = this.device.createRenderPipeline(overlayPipelineDescriptor);
+
         // Create bind group using the explicit bind group layout
         this.bindGroup = this.device.createBindGroup({
             layout: this.bindGroupLayout,
@@ -539,6 +580,10 @@ export class RenderPipeline {
 
     getTransparentPipeline(): GPURenderPipeline {
         return this.transparentPipeline;
+    }
+
+    getOverlayPipeline(): GPURenderPipeline {
+        return this.overlayPipeline;
     }
 
     getDepthTextureView(): GPUTextureView {

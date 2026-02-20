@@ -1,5 +1,65 @@
 # @ifc-lite/export
 
+## 1.9.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.9.0
+  - @ifc-lite/geometry@1.9.0
+  - @ifc-lite/mutations@1.9.0
+  - @ifc-lite/parser@1.9.0
+
+## 1.8.0
+
+### Minor Changes
+
+- [#211](https://github.com/louistrue/ifc-lite/pull/211) [`0b6880a`](https://github.com/louistrue/ifc-lite/commit/0b6880ac9bafee78e8b604e8df5a8e14dc74bc28) Thanks [@louistrue](https://github.com/louistrue)! - Improve IFC export with visible-only filtering, material preservation, and full schema coverage
+
+  - **Visible-only export**: Single-model export now correctly filters hidden entities (fixes `__legacy__` model ID handling)
+  - **Material preservation**: Multi-model merged export preserves colors and materials by collecting `IfcStyledItem` entities via reverse reference pass
+  - **Full IFC schema coverage**: Expanded product type classification from ~30 hand-curated types to 202 schema-derived types (IFC4 + IFC4X3), covering all `IfcProduct` subtypes including infrastructure (bridges, roads, railways, marine facilities)
+  - **Orphaned opening removal**: Hidden elements' openings are automatically excluded via `IfcRelVoidsElement` propagation
+  - **Performance**: Replaced `TextDecoder` + regex with byte-level `#ID` scanning and `byType` index lookups for style/opening collection (~95% fewer iterations)
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.8.0
+  - @ifc-lite/geometry@1.8.0
+  - @ifc-lite/mutations@1.8.0
+  - @ifc-lite/parser@1.8.0
+
+## 1.7.0
+
+### Patch Changes
+
+- [#200](https://github.com/louistrue/ifc-lite/pull/200) [`6c43c70`](https://github.com/louistrue/ifc-lite/commit/6c43c707ead13fc482ec367cb08d847b444a484a) Thanks [@louistrue](https://github.com/louistrue)! - Add schema-aware property editing, full property panel display, and document/relationship support
+
+  - Property editor validates against IFC4 standard (ISO 16739-1:2018): walls get wall psets, doors get door psets, etc.
+  - Schema-version-aware property editing: detects IFC2X3/IFC4/IFC4X3 from FILE_SCHEMA header
+  - New dialogs for adding classifications (12 standard systems), materials, and quantities in edit mode
+  - Quantity set definitions (Qto\_) with schema-aware dialog for standard IFC4 base quantities
+  - On-demand classification extraction from IfcRelAssociatesClassification with chain walking
+  - On-demand material extraction supporting all IFC material types: IfcMaterial, IfcMaterialLayerSet, IfcMaterialProfileSet, IfcMaterialConstituentSet, IfcMaterialList, and \*Usage wrappers
+  - On-demand document extraction from IfcRelAssociatesDocument with DocumentReference→DocumentInformation chain
+  - Type-level property merging: properties from IfcTypeObject HasPropertySets merged with instance properties
+  - Structural relationship display: openings, fills, groups, and connections
+  - Advanced property type parsing: IfcPropertyEnumeratedValue, BoundedValue, ListValue, TableValue, ReferenceValue
+  - Georeferencing display (IfcMapConversion + IfcProjectedCRS) in model metadata panel
+  - Length unit display in model metadata panel
+  - Classifications, materials, documents displayed with dedicated card components
+  - Type-level material/classification inheritance via IfcRelDefinesByType
+  - Relationship graph fallback for server-loaded models without on-demand maps
+  - Cycle detection in material resolution and classification chain walking
+  - Removed `any` types from parser production code in favor of proper `PropertyValue` union type
+
+- Updated dependencies [[`e0af898`](https://github.com/louistrue/ifc-lite/commit/e0af898608c2f706dc2d82154c612c64e2de010c), [`6c43c70`](https://github.com/louistrue/ifc-lite/commit/6c43c707ead13fc482ec367cb08d847b444a484a)]:
+  - @ifc-lite/parser@1.7.0
+  - @ifc-lite/data@1.7.0
+  - @ifc-lite/geometry@1.7.0
+  - @ifc-lite/mutations@1.7.0
+
 ## 1.3.0
 
 ### Patch Changes

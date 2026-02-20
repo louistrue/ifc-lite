@@ -21,6 +21,7 @@ import {
 import type { MutablePropertyView } from '@ifc-lite/mutations';
 import type { PropertySet, Property } from '@ifc-lite/data';
 import { PropertyValueType } from '@ifc-lite/data';
+import { collectReferencedEntityIds, getVisibleEntityIds, collectStyleEntities } from './reference-collector.js';
 
 /**
  * Options for STEP export
@@ -52,6 +53,13 @@ export interface StepExportOptions {
   applyMutations?: boolean;
   /** Only export entities with mutations (delta export) */
   deltaOnly?: boolean;
+
+  /** Only export entities currently visible in the viewer */
+  visibleOnly?: boolean;
+  /** Hidden entity IDs (local expressIds) — required when visibleOnly is true */
+  hiddenEntityIds?: Set<number>;
+  /** Isolated entity IDs (local expressIds, null = no isolation active) */
+  isolatedEntityIds?: Set<number> | null;
 }
 
 /**
@@ -187,6 +195,30 @@ export class StepExporter {
       };
     }
 
+    // Build visible-only closure if requested
+    let allowedEntityIds: Set<number> | null = null;
+    if (options.visibleOnly && this.dataStore.source) {
+      const { roots, hiddenProductIds } = getVisibleEntityIds(
+        this.dataStore,
+        options.hiddenEntityIds ?? new Set(),
+        options.isolatedEntityIds ?? null,
+      );
+      allowedEntityIds = collectReferencedEntityIds(
+        roots,
+        this.dataStore.source,
+        this.dataStore.entityIndex.byId,
+        hiddenProductIds,
+      );
+      // Second pass: collect IFCSTYLEDITEM entities that reference included
+      // geometry. Styled items reference geometry items but nothing references
+      // them back, so the forward closure misses them.
+      collectStyleEntities(
+        allowedEntityIds,
+        this.dataStore.source,
+        this.dataStore.entityIndex,
+      );
+    }
+
     // Export original entities from source buffer, SKIPPING modified property sets
     if (!options.deltaOnly && this.dataStore.source) {
       const decoder = new TextDecoder();
@@ -194,6 +226,11 @@ export class StepExporter {
 
       // Extract existing entities from source
       for (const [expressId, entityRef] of this.dataStore.entityIndex.byId) {
+        // Skip entities outside the visible closure
+        if (allowedEntityIds !== null && !allowedEntityIds.has(expressId)) {
+          continue;
+        }
+
         // Skip property sets/relationships that are being replaced
         if (skipPropertySetIds.has(expressId) || skipRelationshipIds.has(expressId)) {
           continue;

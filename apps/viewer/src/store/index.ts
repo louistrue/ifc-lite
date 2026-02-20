@@ -28,6 +28,9 @@ import { createSheetSlice, type SheetSlice } from './slices/sheetSlice.js';
 import { createBcfSlice, type BCFSlice } from './slices/bcfSlice.js';
 import { createIdsSlice, type IDSSlice } from './slices/idsSlice.js';
 import { createListSlice, type ListSlice } from './slices/listSlice.js';
+import { createPinboardSlice, type PinboardSlice } from './slices/pinboardSlice.js';
+import { createLensSlice, type LensSlice } from './slices/lensSlice.js';
+import { createScriptSlice, type ScriptSlice } from './slices/scriptSlice.js';
 
 // Import constants for reset function
 import { CAMERA_DEFAULTS, SECTION_PLANE_DEFAULTS, UI_DEFAULTS, TYPE_VISIBILITY_DEFAULTS } from './constants.js';
@@ -41,8 +44,11 @@ export type { EntityRef, SchemaVersion, FederatedModel, MeasurementConstraintEdg
 // Re-export utility functions for entity references
 export { entityRefToString, stringToEntityRef, entityRefEquals, isIfcxDataStore } from './types.js';
 
+// Re-export single source of truth for globalId → EntityRef resolution
+export { resolveEntityRef } from './resolveEntityRef.js';
+
 // Re-export Drawing2D types
-export type { Drawing2DState, Drawing2DStatus } from './slices/drawing2DSlice.js';
+export type { Drawing2DState, Drawing2DStatus, Annotation2DTool, PolygonArea2DResult, TextAnnotation2D, CloudAnnotation2D, SelectedAnnotation2D } from './slices/drawing2DSlice.js';
 
 // Re-export Sheet types
 export type { SheetState } from './slices/sheetSlice.js';
@@ -55,6 +61,15 @@ export type { IDSSlice, IDSSliceState, IDSDisplayOptions, IDSFilterMode } from '
 
 // Re-export List types
 export type { ListSlice } from './slices/listSlice.js';
+
+// Re-export Pinboard types
+export type { PinboardSlice } from './slices/pinboardSlice.js';
+
+// Re-export Lens types
+export type { LensSlice, Lens, LensRule, LensCriteria } from './slices/lensSlice.js';
+
+// Re-export Script types
+export type { ScriptSlice } from './slices/scriptSlice.js';
 
 // Combined store type
 export type ViewerState = LoadingSlice &
@@ -72,7 +87,10 @@ export type ViewerState = LoadingSlice &
   SheetSlice &
   BCFSlice &
   IDSSlice &
-  ListSlice & {
+  ListSlice &
+  PinboardSlice &
+  LensSlice &
+  ScriptSlice & {
     resetViewerState: () => void;
   };
 
@@ -97,6 +115,9 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
   ...createBcfSlice(...args),
   ...createIdsSlice(...args),
   ...createListSlice(...args),
+  ...createPinboardSlice(...args),
+  ...createLensSlice(...args),
+  ...createScriptSlice(...args),
 
   // Reset all viewer state when loading new file
   // Note: Does NOT clear models - use clearAllModels() for that
@@ -159,6 +180,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
         azimuth: CAMERA_DEFAULTS.AZIMUTH,
         elevation: CAMERA_DEFAULTS.ELEVATION,
       },
+      projectionMode: 'perspective' as const,
 
       // UI
       activeTool: UI_DEFAULTS.ACTIVE_TOOL,
@@ -192,6 +214,16 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       measure2DLockedAxis: null,
       measure2DResults: [],
       measure2DSnapPoint: null,
+      // Annotation tools
+      annotation2DActiveTool: 'none' as const,
+      annotation2DCursorPos: null,
+      polygonArea2DPoints: [],
+      polygonArea2DResults: [],
+      textAnnotations2D: [],
+      textAnnotation2DEditing: null,
+      cloudAnnotation2DPoints: [],
+      cloudAnnotations2D: [],
+      selectedAnnotation2D: null,
       // Drawing Sheet
       activeSheet: null,
       sheetEnabled: false,
@@ -221,6 +253,24 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       activeListId: null,
       listResult: null,
       listExecuting: false,
+
+      // Pinboard - clear pinned entities on new file
+      pinboardEntities: new Set<string>(),
+
+      // Script - reset execution state but keep saved scripts and editor content
+      scriptPanelVisible: false,
+      scriptExecutionState: 'idle' as const,
+      scriptLastResult: null,
+      scriptLastError: null,
+      scriptDeleteConfirmId: null,
+
+      // Lens - deactivate but keep saved lenses
+      activeLensId: null,
+      lensPanelVisible: false,
+      lensColorMap: new Map<number, string>(),
+      lensHiddenIds: new Set<number>(),
+      lensRuleCounts: new Map<string, number>(),
+      lensRuleEntityIds: new Map<string, number[]>(),
     });
   },
 }));

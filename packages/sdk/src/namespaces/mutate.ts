@@ -1,0 +1,44 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+import type { BimBackend, EntityRef } from '../types.js';
+
+/** bim.mutate — Property editing with undo/redo */
+export class MutateNamespace {
+  constructor(private backend: BimBackend) {}
+
+  /** Set a property on an entity */
+  setProperty(ref: EntityRef, psetName: string, propName: string, value: string | number | boolean): void {
+    this.backend.mutate.setProperty(ref, psetName, propName, value);
+  }
+
+  /** Delete a property from an entity */
+  deleteProperty(ref: EntityRef, psetName: string, propName: string): void {
+    this.backend.mutate.deleteProperty(ref, psetName, propName);
+  }
+
+  /**
+   * Batch multiple mutations into a single undo step.
+   * Sends begin/end markers to the backend so the mutation adapter
+   * can group all enclosed mutations into one undoable operation.
+   */
+  batch(label: string, fn: () => void): void {
+    this.backend.mutate.batchBegin(label);
+    try {
+      fn();
+    } finally {
+      this.backend.mutate.batchEnd(label);
+    }
+  }
+
+  /** Undo last mutation for a model */
+  undo(modelId: string): boolean {
+    return this.backend.mutate.undo(modelId);
+  }
+
+  /** Redo last undone mutation for a model */
+  redo(modelId: string): boolean {
+    return this.backend.mutate.redo(modelId);
+  }
+}

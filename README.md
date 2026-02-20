@@ -54,10 +54,12 @@
 | **WebGPU Rendering** | Modern GPU-accelerated 3D with depth testing and frustum culling |
 | **Zero-Copy GPU** | Direct WASM memory to GPU buffers, 60-70% less RAM |
 | **Multi-Model Federation** | Load multiple IFC files with unified selection, visibility, and ID management |
+| **Basket Isolation** | Incremental isolation set with `=` set / `+` add / `-` remove, Cmd+Click multi-select |
 | **BCF Collaboration** | BIM Collaboration Format support with topics, viewpoints, and comments |
 | **IDS Validation** | Information Delivery Specification checking against IFC data |
-| **2D Drawings** | Generate section cuts, floor plans, and elevations as SVG |
+| **2D Drawings** | Section cuts, floor plans, and elevations with interactive annotations (measure, area, text, clouds) |
 | **Property Editing** | Edit IFC properties in-place with bidirectional change tracking |
+| **IFC Export** | Visible-only and merged multi-model export with full IFC4/IFC4X3 schema coverage |
 
 ## Quick Start
 
@@ -507,7 +509,7 @@ bash scripts/build-wasm.sh  # Rebuild WASM after Rust changes
 | `@ifc-lite/spatial` | Spatial indexing & culling | 🚧 Beta | [API](docs/api/typescript.md#spatial) |
 | `@ifc-lite/query` | Fluent & SQL query system | 🚧 Beta | [API](docs/api/typescript.md#query) |
 | `@ifc-lite/cache` | Binary cache for instant loading | ✅ Stable | [API](docs/api/typescript.md#cache) |
-| `@ifc-lite/export` | Export (glTF, Parquet, IFC) | 🚧 Beta | [API](docs/api/typescript.md#export) |
+| `@ifc-lite/export` | Export (glTF, Parquet, IFC) with visible-only filtering | 🚧 Beta | [API](docs/api/typescript.md#export) |
 | `@ifc-lite/bcf` | BIM Collaboration Format (topics, viewpoints) | 🚧 Beta | [Guide](docs/guide/bcf.md) |
 | `@ifc-lite/ids` | IDS validation against IFC data | 🚧 Beta | [Guide](docs/guide/ids.md) |
 | `@ifc-lite/mutations` | Property editing & change tracking | 🚧 Beta | [Guide](docs/guide/mutations.md) |

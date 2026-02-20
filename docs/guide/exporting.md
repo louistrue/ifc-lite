@@ -373,18 +373,52 @@ expressId,type,globalId,name,IsExternal,FireRating,LoadBearing
 Export back to IFC format for roundtrip workflows and interoperability with other BIM tools:
 
 ```typescript
-import { IfcExporter } from '@ifc-lite/export';
+import { StepExporter } from '@ifc-lite/export';
 
-const exporter = new IfcExporter();
+const exporter = new StepExporter(dataStore, sourceBuffer);
 
-// Export to IFC4 STEP format
-const ifcData = await exporter.export(parseResult, {
-  schema: 'IFC4',
-  includeProperties: true,
-  includeQuantities: true
+// Full export
+const result = exporter.export();
+await saveFile('model.ifc', result.content);
+
+// Visible-only export (exclude hidden entities)
+const visibleResult = exporter.export({
+  visibleOnly: true,
+  hiddenEntityIds: hiddenSet,       // Set<number> of local expressIds
+  isolatedEntityIds: isolatedSet,   // Set<number> | null
 });
+await saveFile('visible_only.ifc', visibleResult.content);
+```
 
-await saveFile('model_exported.ifc', ifcData);
+### Visible-Only Export
+
+When `visibleOnly` is enabled, the exporter:
+
+1. Always includes infrastructure (units, owner history) and spatial structure
+2. Checks each product entity against `hiddenEntityIds` / `isolatedEntityIds`
+3. Walks `#ID` references transitively to include all dependent geometry, properties, and materials
+4. Collects `IfcStyledItem` entities via reverse reference pass (preserves colors/materials)
+5. Propagates visibility to openings via `IfcRelVoidsElement` (hidden slab = hidden openings)
+
+Supports all 202 `IfcProduct` subtypes from IFC4 and IFC4X3 schemas, including infrastructure types (bridges, roads, railways, marine facilities).
+
+### Multi-Model Merged Export
+
+Merge multiple IFC models into a single file:
+
+```typescript
+import { MergedExporter } from '@ifc-lite/export';
+
+const exporter = new MergedExporter();
+const result = await exporter.export([
+  { dataStore: store1, source: buffer1, name: 'Architecture' },
+  { dataStore: store2, source: buffer2, name: 'Structure' },
+], {
+  visibleOnly: true,
+  hiddenEntityIds: hiddenSet,
+  isolatedEntityIds: isolatedSet,
+});
+await saveFile('merged.ifc', result.content);
 ```
 
 ## GLB Import

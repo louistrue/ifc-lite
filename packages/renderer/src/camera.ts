@@ -12,7 +12,7 @@
 
 import type { Vec3, Mat4 } from './types.js';
 import { MathUtils } from './math.js';
-import { CameraControls, type CameraInternalState } from './camera-controls.js';
+import { CameraControls, type CameraInternalState, type ProjectionMode } from './camera-controls.js';
 import { CameraAnimator } from './camera-animation.js';
 import { CameraProjection } from './camera-projection.js';
 
@@ -37,6 +37,8 @@ export class Camera {
       viewMatrix: MathUtils.identity(),
       projMatrix: MathUtils.identity(),
       viewProjMatrix: MathUtils.identity(),
+      projectionMode: 'perspective',
+      orthoSize: 50, // Default half-height in world units
     };
 
     const updateMatrices = () => this.updateMatrices();
@@ -340,19 +342,78 @@ export class Camera {
     return this.projection.projectToScreen(worldPos, canvasWidth, canvasHeight);
   }
 
+  /**
+   * Set projection mode (perspective or orthographic)
+   * When switching to orthographic, calculates initial orthoSize from current view.
+   */
+  setProjectionMode(mode: ProjectionMode): void {
+    if (this.state.projectionMode === mode) return;
+
+    if (mode === 'orthographic') {
+      // Calculate orthoSize from current perspective view so the model appears the same size
+      const distance = this.getDistance();
+      this.state.orthoSize = distance * Math.tan(this.state.camera.fov / 2);
+    }
+
+    this.state.projectionMode = mode;
+    this.updateMatrices();
+  }
+
+  /**
+   * Toggle between perspective and orthographic projection
+   */
+  toggleProjectionMode(): void {
+    this.setProjectionMode(this.state.projectionMode === 'perspective' ? 'orthographic' : 'perspective');
+  }
+
+  /**
+   * Get current projection mode
+   */
+  getProjectionMode(): ProjectionMode {
+    return this.state.projectionMode;
+  }
+
+  /**
+   * Get orthographic view half-height
+   */
+  getOrthoSize(): number {
+    return this.state.orthoSize;
+  }
+
   private updateMatrices(): void {
+    // Dynamically adapt near/far planes based on camera-to-target distance.
+    // This prevents near-plane clipping when zooming in close to geometry.
+    const dx = this.state.camera.position.x - this.state.camera.target.x;
+    const dy = this.state.camera.position.y - this.state.camera.target.y;
+    const dz = this.state.camera.position.z - this.state.camera.target.z;
+    const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    this.state.camera.near = Math.max(0.01, distance * 0.001);
+    this.state.camera.far = Math.max(distance * 10, 1000);
+
     this.state.viewMatrix = MathUtils.lookAt(
       this.state.camera.position,
       this.state.camera.target,
       this.state.camera.up
     );
-    // Use reverse-Z projection for better depth precision
-    this.state.projMatrix = MathUtils.perspectiveReverseZ(
-      this.state.camera.fov,
-      this.state.camera.aspect,
-      this.state.camera.near,
-      this.state.camera.far
-    );
+
+    if (this.state.projectionMode === 'orthographic') {
+      const h = this.state.orthoSize;
+      const w = h * this.state.camera.aspect;
+      this.state.projMatrix = MathUtils.orthographicReverseZ(
+        -w, w, -h, h,
+        this.state.camera.near,
+        this.state.camera.far
+      );
+    } else {
+      // Use reverse-Z projection for better depth precision
+      this.state.projMatrix = MathUtils.perspectiveReverseZ(
+        this.state.camera.fov,
+        this.state.camera.aspect,
+        this.state.camera.near,
+        this.state.camera.far
+      );
+    }
+
     this.state.viewProjMatrix = MathUtils.multiply(this.state.projMatrix, this.state.viewMatrix);
   }
 }

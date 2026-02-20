@@ -168,7 +168,7 @@ function RelationshipTypeToString(type: RelationshipType): string {
     [RelationshipType.SpaceBoundary]: 'IfcRelSpaceBoundary',
     [RelationshipType.AssignsToGroup]: 'IfcRelAssignsToGroup',
     [RelationshipType.AssignsToProduct]: 'IfcRelAssignsToProduct',
-    [RelationshipType.ReferencedInSpatialStructure]: 'ReferencedInSpatialStructure',
+    [RelationshipType.ReferencedInSpatialStructure]: 'IfcRelReferencedInSpatialStructure',
   };
   return names[type] || 'Unknown';
 }

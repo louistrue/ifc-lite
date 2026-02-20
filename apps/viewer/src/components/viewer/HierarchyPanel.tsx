@@ -15,7 +15,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { useViewerStore } from '@/store';
+import { useViewerStore, resolveEntityRef } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 
 import type { TreeNode } from './hierarchy/types';
@@ -26,6 +26,7 @@ import { HierarchyNode, SectionHeader } from './hierarchy/HierarchyNode';
 export function HierarchyPanel() {
   const {
     ifcDataStore,
+    geometryResult,
     models,
     activeModelId,
     setActiveModel,
@@ -62,13 +63,15 @@ export function HierarchyPanel() {
   const {
     searchQuery,
     setSearchQuery,
+    groupingMode,
+    setGroupingMode,
     unifiedStoreys,
     filteredNodes,
     storeysNodes,
     modelsNodes,
     toggleExpand,
     getNodeElements,
-  } = useHierarchyTree({ models, ifcDataStore, isMultiModel });
+  } = useHierarchyTree({ models, ifcDataStore, isMultiModel, geometryResult });
 
   // Refs for both scroll areas
   const storeysRef = useRef<HTMLDivElement>(null);
@@ -177,6 +180,15 @@ export function HierarchyPanel() {
       return;
     }
 
+    // Type group nodes - click to isolate entities, expand via chevron only
+    if (node.type === 'type-group') {
+      const elements = getNodeElements(node);
+      if (elements.length > 0) {
+        isolateEntities(elements);
+      }
+      return;
+    }
+
     // Spatial container nodes (IfcProject/IfcSite/IfcBuilding) - select for property panel + expand
     if (isSpatialContainer(node.type)) {
       const entityId = node.expressIds[0];
@@ -268,9 +280,11 @@ export function HierarchyPanel() {
       } else {
         // Legacy single-model: expressId = globalId (offset is 0)
         setSelectedEntityId(elementId);
+        // Also set selectedEntity for property panel (was missing, causing blank panel)
+        setSelectedEntity(resolveEntityRef(elementId));
       }
     }
-  }, [selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntity, setSelectedEntities, setActiveModel, toggleExpand, unifiedStoreys, models]);
+  }, [selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntity, setSelectedEntities, setActiveModel, toggleExpand, unifiedStoreys, models, isolateEntities, getNodeElements]);
 
   // Compute selection and visibility state for a node
   const computeNodeState = useCallback((node: TreeNode): { isSelected: boolean; nodeHidden: boolean; modelVisible?: boolean } => {
@@ -288,6 +302,7 @@ export function HierarchyPanel() {
     if (node.type === 'element') {
       nodeHidden = hiddenEntities.has(node.expressIds[0]);
     } else if (node.type === 'IfcBuildingStorey' || node.type === 'unified-storey' ||
+               node.type === 'type-group' ||
                (node.type === 'model-header' && node.id.startsWith('contrib-'))) {
       const elements = getNodeElements(node);
       nodeHidden = elements.length > 0 && elements.every(id => hiddenEntities.has(id));
@@ -347,7 +362,32 @@ export function HierarchyPanel() {
   };
 
   // Multi-model layout with resizable split
-  if (isMultiModel) {
+  // Grouping mode toggle component (shared by both layouts)
+  const groupingToggle = (
+    <div className="flex gap-1 mt-2">
+      <Button
+        variant={groupingMode === 'spatial' ? 'default' : 'outline'}
+        size="sm"
+        className="h-6 text-[10px] flex-1 rounded-none uppercase tracking-wider"
+        onClick={() => setGroupingMode('spatial')}
+      >
+        <Building2 className="h-3 w-3 mr-1" />
+        Spatial
+      </Button>
+      <Button
+        variant={groupingMode === 'type' ? 'default' : 'outline'}
+        size="sm"
+        className="h-6 text-[10px] flex-1 rounded-none uppercase tracking-wider"
+        onClick={() => setGroupingMode('type')}
+      >
+        <Layers className="h-3 w-3 mr-1" />
+        By Class
+      </Button>
+    </div>
+  );
+
+  // In type grouping mode, always use flat tree layout (even for multi-model)
+  if (isMultiModel && groupingMode === 'spatial') {
     return (
       <div ref={containerRef} className="h-full flex flex-col border-r-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
         {/* Search Header */}
@@ -359,6 +399,7 @@ export function HierarchyPanel() {
             leftIcon={<Search className="h-4 w-4" />}
             className="h-9 text-sm rounded-none border-2 border-zinc-200 dark:border-zinc-800 focus:border-primary focus:ring-0 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600"
           />
+          {groupingToggle}
         </div>
 
         {/* Resizable content area */}
@@ -454,10 +495,11 @@ export function HierarchyPanel() {
           leftIcon={<Search className="h-4 w-4" />}
           className="h-9 text-sm rounded-none border-2 border-zinc-200 dark:border-zinc-800 focus:border-primary focus:ring-0 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600"
         />
+        {groupingToggle}
       </div>
 
       {/* Section Header */}
-      <SectionHeader icon={Building2} title="Hierarchy" count={filteredNodes.length} />
+      <SectionHeader icon={groupingMode === 'type' ? Layers : Building2} title={groupingMode === 'type' ? 'By Class' : 'Hierarchy'} count={filteredNodes.length} />
 
       {/* Tree */}
       <div ref={parentRef} className="flex-1 overflow-auto scrollbar-thin bg-white dark:bg-black">

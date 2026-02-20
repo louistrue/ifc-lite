@@ -342,6 +342,97 @@ export function buildTreeData(
   return nodes;
 }
 
+/** Build tree data grouped by IFC class instead of spatial hierarchy.
+ *  Only includes entities that have geometry (visible in the 3D viewer).
+ *  @param geometricIds Pre-computed set of global IDs with geometry (memoized by caller). */
+export function buildTypeTree(
+  models: Map<string, FederatedModel>,
+  ifcDataStore: IfcDataStore | null | undefined,
+  expandedNodes: Set<string>,
+  isMultiModel: boolean,
+  geometricIds?: Set<number>,
+): TreeNode[] {
+  // Collect entities grouped by IFC class across all models
+  const typeGroups = new Map<string, Array<{ expressId: number; globalId: number; name: string; modelId: string }>>();
+
+  const processDataStore = (dataStore: IfcDataStore, modelId: string, idOffset: number) => {
+    for (let i = 0; i < dataStore.entities.count; i++) {
+      const expressId = dataStore.entities.expressId[i];
+      const globalId = expressId + idOffset;
+
+      // Only include entities that have geometry
+      if (geometricIds && geometricIds.size > 0 && !geometricIds.has(globalId)) continue;
+
+      const typeName = dataStore.entities.getTypeName(expressId) || 'Unknown';
+      const entityName = dataStore.entities.getName(expressId) || `${typeName} #${expressId}`;
+
+      if (!typeGroups.has(typeName)) {
+        typeGroups.set(typeName, []);
+      }
+      typeGroups.get(typeName)!.push({ expressId, globalId, name: entityName, modelId });
+    }
+  };
+
+  // Process all models
+  if (models.size > 0) {
+    for (const [modelId, model] of models) {
+      if (model.ifcDataStore) {
+        processDataStore(model.ifcDataStore, modelId, model.idOffset ?? 0);
+      }
+    }
+  } else if (ifcDataStore) {
+    processDataStore(ifcDataStore, 'legacy', 0);
+  }
+
+  // Sort types alphabetically
+  const sortedTypes = Array.from(typeGroups.keys()).sort();
+
+  const nodes: TreeNode[] = [];
+  for (const typeName of sortedTypes) {
+    const entities = typeGroups.get(typeName)!;
+    const groupNodeId = `type-${typeName}`;
+    const isExpanded = expandedNodes.has(groupNodeId);
+
+    // Store all globalIds on the group node so getNodeElements is O(1),
+    // avoiding a full entity scan when the group is collapsed.
+    const groupGlobalIds = entities.map(e => e.globalId);
+
+    nodes.push({
+      id: groupNodeId,
+      expressIds: groupGlobalIds,
+      modelIds: [],
+      name: typeName,
+      type: 'type-group',
+      depth: 0,
+      hasChildren: entities.length > 0,
+      isExpanded,
+      isVisible: true,
+      elementCount: entities.length,
+    });
+
+    if (isExpanded) {
+      // Sort elements by name within type group
+      entities.sort((a, b) => a.name.localeCompare(b.name));
+      for (const entity of entities) {
+        const suffix = isMultiModel ? ` [${models.get(entity.modelId)?.name || entity.modelId}]` : '';
+        nodes.push({
+          id: `element-${entity.modelId}-${entity.expressId}`,
+          expressIds: [entity.globalId],
+          modelIds: [entity.modelId],
+          name: entity.name + suffix,
+          type: 'element',
+          depth: 1,
+          hasChildren: false,
+          isExpanded: false,
+          isVisible: true,
+        });
+      }
+    }
+  }
+
+  return nodes;
+}
+
 /** Filter nodes based on search query */
 export function filterNodes(nodes: TreeNode[], searchQuery: string): TreeNode[] {
   if (!searchQuery.trim()) return nodes;

@@ -573,6 +573,71 @@ class RelationshipGraph {
 
 ## @ifc-lite/export
 
+### StepExporter
+
+Export IFC models back to STEP format with optional visible-only filtering.
+
+```typescript
+class StepExporter {
+  constructor(dataStore: IfcDataStore, source: Uint8Array);
+
+  export(options?: StepExportOptions): StepExportResult;
+}
+
+interface StepExportOptions {
+  visibleOnly?: boolean;
+  hiddenEntityIds?: Set<number>;
+  isolatedEntityIds?: Set<number> | null;
+  applyMutations?: boolean;
+  deltaOnly?: boolean;
+}
+
+interface StepExportResult {
+  content: string;
+  stats: { entityCount: number };
+}
+```
+
+### MergedExporter
+
+Merge multiple IFC models into a single STEP file with unified ID space.
+
+```typescript
+class MergedExporter {
+  export(
+    models: MergeModelInput[],
+    options?: MergeExportOptions
+  ): MergeExportResult;
+}
+
+interface MergeModelInput {
+  dataStore: IfcDataStore;
+  source: Uint8Array;
+  name?: string;
+}
+```
+
+### collectReferencedEntityIds / collectStyleEntities
+
+Low-level reference collection for building the entity closure needed for valid STEP export.
+
+```typescript
+// Forward closure walk from root entities
+function collectReferencedEntityIds(
+  store: IfcDataStore,
+  source: Uint8Array,
+  hiddenIds?: Set<number>,
+  isolatedIds?: Set<number> | null
+): Set<number>;
+
+// Reverse pass to collect IfcStyledItem entities
+function collectStyleEntities(
+  store: IfcDataStore,
+  source: Uint8Array,
+  referencedIds: Set<number>
+): Set<number>;
+```
+
 ### GltfExporter
 
 ```typescript

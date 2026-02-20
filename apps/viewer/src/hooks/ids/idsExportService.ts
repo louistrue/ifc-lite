@@ -331,7 +331,7 @@ export function buildReportHTML(report: IDSValidationReport, locale: SupportedLo
           <thead>
             <tr>
               <th class="col-status" onclick="sortTable(${i}, 0)">Status <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
-              <th class="col-type" onclick="sortTable(${i}, 1)">IFC Type <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
+              <th class="col-type" onclick="sortTable(${i}, 1)">IFC Class <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
               <th class="col-name" onclick="sortTable(${i}, 2)">Name <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
               <th class="col-globalid" onclick="sortTable(${i}, 3)">GlobalId <span class="sort-icon">&#x25B4;&#x25BE;</span></th>
               <th class="col-expressid" onclick="sortTable(${i}, 4)">ID <span class="sort-icon">&#x25B4;&#x25BE;</span></th>

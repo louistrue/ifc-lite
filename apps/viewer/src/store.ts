@@ -45,3 +45,6 @@ export type {
 
 // Re-export utility functions for multi-model federation
 export { entityRefToString, stringToEntityRef, entityRefEquals, isIfcxDataStore } from './store/types.js';
+
+// Re-export single source of truth for globalId → EntityRef resolution
+export { resolveEntityRef } from './store/resolveEntityRef.js';

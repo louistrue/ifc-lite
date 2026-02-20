@@ -41,11 +41,12 @@ import {
   AlertTitle,
 } from '@/components/ui/alert';
 import { useViewerStore } from '@/store';
-import { StepExporter } from '@ifc-lite/export';
+import { StepExporter, MergedExporter, type MergeModelInput } from '@ifc-lite/export';
 import { MutablePropertyView } from '@ifc-lite/mutations';
 import { extractPropertiesOnDemand, type IfcDataStore } from '@ifc-lite/parser';
 
 type ExportFormat = 'ifc' | 'ifcx' | 'json';
+type ExportScope = 'single' | 'merged';
 type SchemaVersion = 'IFC2X3' | 'IFC4' | 'IFC4X3';
 
 interface ExportDialogProps {
@@ -58,6 +59,10 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
   const getMutationView = useViewerStore((s) => s.getMutationView);
   const registerMutationView = useViewerStore((s) => s.registerMutationView);
   const getModifiedEntityCount = useViewerStore((s) => s.getModifiedEntityCount);
+  const hiddenEntities = useViewerStore((s) => s.hiddenEntities);
+  const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
+  const hiddenEntitiesByModel = useViewerStore((s) => s.hiddenEntitiesByModel);
+  const isolatedEntitiesByModel = useViewerStore((s) => s.isolatedEntitiesByModel);
   // Also get legacy single-model state for backward compatibility
   const legacyIfcDataStore = useViewerStore((s) => s.ifcDataStore);
   const legacyGeometryResult = useViewerStore((s) => s.geometryResult);
@@ -66,9 +71,11 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
   const [format, setFormat] = useState<ExportFormat>('ifc');
   const [schema, setSchema] = useState<SchemaVersion>('IFC4');
   const [selectedModelId, setSelectedModelId] = useState<string>('');
+  const [exportScope, setExportScope] = useState<ExportScope>('single');
   const [includeGeometry, setIncludeGeometry] = useState(true);
   const [applyMutations, setApplyMutations] = useState(true);
   const [deltaOnly, setDeltaOnly] = useState(false);
+  const [visibleOnly, setVisibleOnly] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportResult, setExportResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -145,22 +152,137 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
     return getModifiedEntityCount();
   }, [getModifiedEntityCount]);
 
+  /**
+   * Convert global visibility state IDs to local expressIds for a given model.
+   * The store uses global IDs (localId + idOffset), but the exporter needs local IDs.
+   */
+  const getLocalHiddenIds = useCallback((modelId: string): Set<number> => {
+    // Legacy single-model path: no federation offset, global IDs = local IDs
+    if (modelId === '__legacy__') {
+      return hiddenEntities;
+    }
+
+    const model = models.get(modelId);
+    if (!model) return new Set();
+    const offset = model.idOffset ?? 0;
+
+    // Prefer per-model visibility state, fall back to legacy global state
+    const modelHidden = hiddenEntitiesByModel.get(modelId);
+    if (modelHidden && modelHidden.size > 0) {
+      return modelHidden; // Already local expressIds
+    }
+
+    // Federated model: convert global IDs to local
+    const localIds = new Set<number>();
+    for (const globalId of hiddenEntities) {
+      const localId = globalId - offset;
+      if (localId > 0 && localId <= model.maxExpressId) {
+        localIds.add(localId);
+      }
+    }
+    return localIds;
+  }, [models, hiddenEntities, hiddenEntitiesByModel]);
+
+  const getLocalIsolatedIds = useCallback((modelId: string): Set<number> | null => {
+    // Legacy single-model path: no federation offset, global IDs = local IDs
+    if (modelId === '__legacy__') {
+      return isolatedEntities;
+    }
+
+    const model = models.get(modelId);
+    if (!model) return null;
+    const offset = model.idOffset ?? 0;
+
+    // Prefer per-model isolation state
+    const modelIsolated = isolatedEntitiesByModel.get(modelId);
+    if (modelIsolated && modelIsolated.size > 0) {
+      return modelIsolated; // Already local expressIds
+    }
+
+    // Federated model: convert global IDs to local
+    if (!isolatedEntities) return null;
+    const localIds = new Set<number>();
+    for (const globalId of isolatedEntities) {
+      const localId = globalId - offset;
+      if (localId > 0 && localId <= model.maxExpressId) {
+        localIds.add(localId);
+      }
+    }
+    return localIds.size > 0 ? localIds : null;
+  }, [models, isolatedEntities, isolatedEntitiesByModel]);
+
   const handleExport = useCallback(async () => {
-    if (!selectedModel) return;
+    if (exportScope === 'single' && !selectedModel) return;
 
     setIsExporting(true);
     setExportResult(null);
 
     try {
+      // Handle merged export of all models
+      if (format === 'ifc' && exportScope === 'merged') {
+        const mergeInputs: MergeModelInput[] = Array.from(models.values()).map((m) => ({
+          id: m.id,
+          name: m.name,
+          dataStore: m.ifcDataStore,
+        }));
+
+        const mergedExporter = new MergedExporter(mergeInputs);
+
+        // Build per-model visibility maps if visible-only export
+        const hiddenByModel = new Map<string, Set<number>>();
+        const isolatedByModel = new Map<string, Set<number> | null>();
+        if (visibleOnly) {
+          for (const m of models.values()) {
+            hiddenByModel.set(m.id, getLocalHiddenIds(m.id));
+            isolatedByModel.set(m.id, getLocalIsolatedIds(m.id));
+          }
+        }
+
+        const result = mergedExporter.export({
+          schema,
+          projectStrategy: 'keep-first',
+          visibleOnly,
+          hiddenEntityIdsByModel: hiddenByModel,
+          isolatedEntityIdsByModel: isolatedByModel,
+          description: `Merged export of ${mergeInputs.length} models from ifc-lite`,
+          application: 'ifc-lite',
+        });
+
+        const blob = new Blob([result.content], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'merged_export.ifc';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        setExportResult({
+          success: true,
+          message: `Merged ${result.stats.modelCount} models, ${result.stats.totalEntityCount} entities`,
+        });
+        return;
+      }
+
+      if (!selectedModel) return;
       const mutationView = getMutationView(selectedModelId);
 
       if (format === 'ifc') {
         const exporter = new StepExporter(selectedModel.ifcDataStore, mutationView || undefined);
+
+        // Build visibility filter for visible-only export
+        const localHidden = visibleOnly ? getLocalHiddenIds(selectedModelId) : undefined;
+        const localIsolated = visibleOnly ? getLocalIsolatedIds(selectedModelId) : undefined;
+
         const result = exporter.export({
           schema,
           includeGeometry,
           applyMutations,
           deltaOnly,
+          visibleOnly,
+          hiddenEntityIds: localHidden,
+          isolatedEntityIds: localIsolated,
           description: `Exported from ifc-lite with ${modifiedCount} modifications`,
           application: 'ifc-lite',
         });
@@ -170,7 +292,8 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${selectedModel.name.replace(/\.[^.]+$/, '')}_modified.ifc`;
+        const suffix = visibleOnly ? '_visible' : '_modified';
+        a.download = `${selectedModel.name.replace(/\.[^.]+$/, '')}${suffix}.ifc`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -240,7 +363,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
     } finally {
       setIsExporting(false);
     }
-  }, [selectedModel, selectedModelId, format, schema, includeGeometry, applyMutations, deltaOnly, getMutationView, modifiedCount]);
+  }, [selectedModel, selectedModelId, format, schema, exportScope, includeGeometry, applyMutations, deltaOnly, visibleOnly, getMutationView, getLocalHiddenIds, getLocalIsolatedIds, modifiedCount, models]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -252,7 +375,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-md overflow-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Download className="h-5 w-5" />
@@ -264,7 +387,24 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
         </DialogHeader>
 
         <div className="grid gap-4 py-4">
-          {/* Model selector */}
+          {/* Export scope selector (only when multiple models loaded) */}
+          {format === 'ifc' && modelList.length > 1 && (
+            <div className="flex items-center gap-4">
+              <Label className="w-32">Scope</Label>
+              <Select value={exportScope} onValueChange={(v) => setExportScope(v as ExportScope)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="single">Single Model</SelectItem>
+                  <SelectItem value="merged">Merged (All Models)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/* Model selector (only for single-model export) */}
+          {exportScope === 'single' && (
           <div className="flex items-center gap-4">
             <Label className="w-32">Model</Label>
             <Select value={selectedModelId} onValueChange={setSelectedModelId}>
@@ -272,21 +412,19 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
                 <SelectValue placeholder="Select model" />
               </SelectTrigger>
               <SelectContent>
-                {modelList.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>
-                    <div className="flex items-center gap-2">
-                      {m.name}
-                      {m.isDirty && (
-                        <Badge variant="secondary" className="text-xs">
-                          modified
-                        </Badge>
-                      )}
-                    </div>
+                {modelList.map((m) => {
+                  const maxLen = 24;
+                  const displayName = m.name.length > maxLen ? m.name.slice(0, maxLen) + '\u2026' : m.name;
+                  return (
+                  <SelectItem key={m.id} value={m.id} title={m.name}>
+                    {displayName}{m.isDirty ? ' *' : ''}
                   </SelectItem>
-                ))}
+                  );
+                })}
               </SelectContent>
             </Select>
           </div>
+          )}
 
           {/* Format selector */}
           <div className="flex items-center gap-4">
@@ -339,6 +477,15 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
           {format === 'ifc' && (
             <>
               <div className="flex items-center justify-between">
+                <div>
+                  <Label>Export Visible Only</Label>
+                  <p className="text-xs text-muted-foreground">Only include entities currently visible in the 3D view</p>
+                </div>
+                <Switch checked={visibleOnly} onCheckedChange={setVisibleOnly} />
+              </div>
+              {exportScope === 'single' && (
+              <>
+              <div className="flex items-center justify-between">
                 <Label>Include Geometry</Label>
                 <Switch checked={includeGeometry} onCheckedChange={setIncludeGeometry} />
               </div>
@@ -350,6 +497,8 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
                 <Label>Export Changes Only (Delta)</Label>
                 <Switch checked={deltaOnly} onCheckedChange={setDeltaOnly} />
               </div>
+              </>
+              )}
             </>
           )}
 

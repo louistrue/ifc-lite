@@ -4,26 +4,59 @@
 
 import { useMemo, useState, useCallback, useEffect } from 'react';
 import type { IfcDataStore } from '@ifc-lite/parser';
+import type { GeometryResult } from '@ifc-lite/geometry';
 import type { FederatedModel } from '@/store';
 import type { TreeNode, UnifiedStorey } from './types';
 import {
   buildUnifiedStoreys,
   getUnifiedStoreyElements as getUnifiedStoreyElementsFn,
   buildTreeData,
+  buildTypeTree,
   filterNodes,
   splitNodes,
 } from './treeDataBuilder';
+
+export type GroupingMode = 'spatial' | 'type';
 
 interface UseHierarchyTreeParams {
   models: Map<string, FederatedModel>;
   ifcDataStore: IfcDataStore | null | undefined;
   isMultiModel: boolean;
+  geometryResult?: GeometryResult | null;
 }
 
-export function useHierarchyTree({ models, ifcDataStore, isMultiModel }: UseHierarchyTreeParams) {
+/**
+ * Build a stable Set of global IDs that have geometry.
+ * Only rebuilds when the actual set of IDs changes, NOT when mesh colors change.
+ */
+function buildGeometricIdSet(
+  models: Map<string, FederatedModel>,
+  legacyGeometry: GeometryResult | null | undefined,
+): Set<number> {
+  const ids = new Set<number>();
+  if (models.size > 0) {
+    for (const [, model] of models) {
+      if (model.geometryResult) {
+        for (const mesh of model.geometryResult.meshes) {
+          ids.add(mesh.expressId);
+        }
+      }
+    }
+  } else if (legacyGeometry) {
+    for (const mesh of legacyGeometry.meshes) {
+      ids.add(mesh.expressId);
+    }
+  }
+  return ids;
+}
+
+export function useHierarchyTree({ models, ifcDataStore, isMultiModel, geometryResult }: UseHierarchyTreeParams) {
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [hasInitializedExpansion, setHasInitializedExpansion] = useState(false);
+  const [groupingMode, setGroupingMode] = useState<GroupingMode>(() =>
+    (typeof window !== 'undefined' && localStorage.getItem('hierarchy-grouping') as GroupingMode) || 'spatial'
+  );
 
   // Build unified storey data for multi-model mode (moved before useEffect that depends on it)
   const unifiedStoreys = useMemo(
@@ -118,11 +151,36 @@ export function useHierarchyTree({ models, ifcDataStore, isMultiModel }: UseHier
     [models]
   );
 
-  // Build the tree data structure
+  // Stable mesh count — only changes when models are added/removed, not on color updates.
+  // Used as a dep proxy so the geometric ID set doesn't rebuild on every color change.
+  const meshCount = useMemo(() => {
+    if (models.size > 0) {
+      let count = 0;
+      for (const [, model] of models) {
+        count += model.geometryResult?.meshes.length ?? 0;
+      }
+      return count;
+    }
+    return geometryResult?.meshes.length ?? 0;
+  }, [models, geometryResult?.meshes.length]);
+
+  // Pre-computed set of global IDs with geometry — stable across color changes
+  const geometricIds = useMemo(
+    () => buildGeometricIdSet(models, geometryResult),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- meshCount is a stable proxy
+    [models, meshCount]
+  );
+
+  // Build the tree data structure based on grouping mode
   // Note: hiddenEntities intentionally NOT in deps - visibility computed lazily for performance
   const treeData = useMemo(
-    (): TreeNode[] => buildTreeData(models, ifcDataStore, expandedNodes, isMultiModel, unifiedStoreys),
-    [models, ifcDataStore, expandedNodes, isMultiModel, unifiedStoreys]
+    (): TreeNode[] => {
+      if (groupingMode === 'type') {
+        return buildTypeTree(models, ifcDataStore, expandedNodes, isMultiModel, geometricIds);
+      }
+      return buildTreeData(models, ifcDataStore, expandedNodes, isMultiModel, unifiedStoreys);
+    },
+    [models, ifcDataStore, expandedNodes, isMultiModel, unifiedStoreys, groupingMode, geometricIds]
   );
 
   // Filter nodes based on search
@@ -149,8 +207,12 @@ export function useHierarchyTree({ models, ifcDataStore, isMultiModel }: UseHier
     });
   }, []);
 
-  // Get all elements for a node (handles unified storeys, single storeys, model contributions, and elements)
+  // Get all elements for a node (handles type groups, unified storeys, single storeys, model contributions, and elements)
   const getNodeElements = useCallback((node: TreeNode): number[] => {
+    if (node.type === 'type-group') {
+      // GlobalIds are pre-stored on the node during tree construction — O(1)
+      return node.expressIds;
+    }
     if (node.type === 'unified-storey') {
       // Get all elements from all models for this unified storey
       const unified = unifiedStoreys.find(u => `unified-${u.key}` === node.id);
@@ -193,9 +255,19 @@ export function useHierarchyTree({ models, ifcDataStore, isMultiModel }: UseHier
     return [];
   }, [models, ifcDataStore, unifiedStoreys, getUnifiedStoreyElements]);
 
+  // Persist grouping mode preference
+  const handleSetGroupingMode = useCallback((mode: GroupingMode) => {
+    setGroupingMode(mode);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('hierarchy-grouping', mode);
+    }
+  }, []);
+
   return {
     searchQuery,
     setSearchQuery,
+    groupingMode,
+    setGroupingMode: handleSetGroupingMode,
     unifiedStoreys,
     treeData,
     filteredNodes,

@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import React, { useRef, useCallback, useMemo } from 'react';
+import React, { useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   FolderOpen,
   Download,
@@ -14,7 +14,8 @@ import {
   Scissors,
   Eye,
   EyeOff,
-  Focus,
+  Equal,
+  Crosshair,
   Home,
   Maximize2,
   Grid3x3,
@@ -33,8 +34,11 @@ import {
   SquareX,
   Building2,
   Plus,
+  Minus,
   MessageSquare,
   ClipboardCheck,
+  Palette,
+  Orbit,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -51,7 +55,8 @@ import {
   DropdownMenuSubContent,
 } from '@/components/ui/dropdown-menu';
 import { Progress } from '@/components/ui/progress';
-import { useViewerStore, isIfcxDataStore } from '@/store';
+import { useViewerStore, isIfcxDataStore, stringToEntityRef } from '@/store';
+import type { EntityRef } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { cn } from '@/lib/utils';
 import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
@@ -60,6 +65,8 @@ import { ExportDialog } from './ExportDialog';
 import { BulkPropertyEditor } from './BulkPropertyEditor';
 import { DataConnector } from './DataConnector';
 import { ExportChangesButton } from './ExportChangesButton';
+import { useFloorplanView } from '@/hooks/useFloorplanView';
+import { recordRecentFiles, cacheFileBlobs } from '@/lib/recent-files';
 
 type Tool = 'select' | 'pan' | 'orbit' | 'walk' | 'measure' | 'section';
 
@@ -141,6 +148,19 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const addModelInputRef = useRef<HTMLInputElement>(null);
   const { loadFile, loading, progress, geometryResult, ifcDataStore, models, clearAllModels, loadFilesSequentially, loadFederatedIfcx, addIfcxOverlays, addModel } = useIfc();
 
+  // Listen for programmatic file-load requests (from command palette recent files)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const file = (e as CustomEvent<File>).detail;
+      if (file) loadFile(file);
+    };
+    window.addEventListener('ifc-lite:load-file', handler);
+    return () => window.removeEventListener('ifc-lite:load-file', handler);
+  }, [loadFile]);
+
+  // Floorplan view
+  const { availableStoreys, activateFloorplan } = useFloorplanView();
+
   // Check if we have models loaded (for showing add model button)
   const hasModelsLoaded = models.size > 0 || (geometryResult?.meshes && geometryResult.meshes.length > 0);
   const activeTool = useViewerStore((state) => state.activeTool);
@@ -148,8 +168,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const theme = useViewerStore((state) => state.theme);
   const toggleTheme = useViewerStore((state) => state.toggleTheme);
   const selectedEntityId = useViewerStore((state) => state.selectedEntityId);
-  const isolateEntity = useViewerStore((state) => state.isolateEntity);
-  const hideEntity = useViewerStore((state) => state.hideEntity);
+  const hideEntities = useViewerStore((state) => state.hideEntities);
   const showAll = useViewerStore((state) => state.showAll);
   const clearStoreySelection = useViewerStore((state) => state.clearStoreySelection);
   const error = useViewerStore((state) => state.error);
@@ -161,11 +180,27 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const resetViewerState = useViewerStore((state) => state.resetViewerState);
   const bcfPanelVisible = useViewerStore((state) => state.bcfPanelVisible);
   const toggleBcfPanel = useViewerStore((state) => state.toggleBcfPanel);
+  const setBcfPanelVisible = useViewerStore((state) => state.setBcfPanelVisible);
   const idsPanelVisible = useViewerStore((state) => state.idsPanelVisible);
   const toggleIdsPanel = useViewerStore((state) => state.toggleIdsPanel);
+  const setIdsPanelVisible = useViewerStore((state) => state.setIdsPanelVisible);
   const listPanelVisible = useViewerStore((state) => state.listPanelVisible);
   const toggleListPanel = useViewerStore((state) => state.toggleListPanel);
   const setRightPanelCollapsed = useViewerStore((state) => state.setRightPanelCollapsed);
+  const projectionMode = useViewerStore((state) => state.projectionMode);
+  const toggleProjectionMode = useViewerStore((state) => state.toggleProjectionMode);
+  // Basket state (= + − isolation basket)
+  const pinboardEntities = useViewerStore((state) => state.pinboardEntities);
+  const setBasket = useViewerStore((state) => state.setBasket);
+  const addToBasket = useViewerStore((state) => state.addToBasket);
+  const removeFromBasket = useViewerStore((state) => state.removeFromBasket);
+  const clearBasket = useViewerStore((state) => state.clearBasket);
+  // NOTE: selectedEntity and selectedEntitiesSet accessed via getState() in callbacks
+  // to avoid re-rendering MainToolbar on every Cmd+Click selection change.
+  // Lens state
+  const lensPanelVisible = useViewerStore((state) => state.lensPanelVisible);
+  const toggleLensPanel = useViewerStore((state) => state.toggleLensPanel);
+  const setLensPanelVisible = useViewerStore((state) => state.setLensPanelVisible);
 
   // Check which type geometries exist across ALL loaded models (federation-aware)
   const typeGeometryExists = useMemo(() => {
@@ -209,6 +244,10 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     );
 
     if (supportedFiles.length === 0) return;
+
+    // Track recently opened files (metadata + blob cache for instant reload)
+    recordRecentFiles(supportedFiles.map(f => ({ name: f.name, size: f.size })));
+    cacheFileBlobs(supportedFiles);
 
     if (supportedFiles.length === 1) {
       // Single file - use loadFile (simpler single-model path)
@@ -267,25 +306,85 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     e.target.value = '';
   }, [loadFilesSequentially, addIfcxOverlays, ifcDataStore]);
 
-  const handleIsolate = useCallback(() => {
-    if (selectedEntityId) {
-      isolateEntity(selectedEntityId);
+  /** Get current selection as EntityRef[] — uses getState() to avoid reactive subscriptions */
+  const getSelectionRefs = useCallback((): EntityRef[] => {
+    const state = useViewerStore.getState();
+    if (state.selectedEntitiesSet.size > 0) {
+      const refs: EntityRef[] = [];
+      for (const str of state.selectedEntitiesSet) {
+        refs.push(stringToEntityRef(str));
+      }
+      return refs;
     }
-  }, [selectedEntityId, isolateEntity]);
+    if (state.selectedEntity) {
+      return [state.selectedEntity];
+    }
+    return [];
+  }, []);
+
+  const hasSelection = selectedEntityId !== null;
+
+  // Basket state
+  const showPinboard = useViewerStore((state) => state.showPinboard);
+
+  // Clear multi-select state after basket operations so subsequent − targets a single entity
+  const clearMultiSelect = useCallback(() => {
+    const state = useViewerStore.getState();
+    if (state.selectedEntitiesSet.size > 0) {
+      useViewerStore.setState({ selectedEntitiesSet: new Set(), selectedEntityIds: new Set() });
+    }
+  }, []);
+
+  // Basket operations
+  const handleSetBasket = useCallback(() => {
+    const state = useViewerStore.getState();
+    // If basket already exists and user hasn't explicitly multi-selected,
+    // re-apply the basket instead of replacing it with a stale single selection.
+    // Only an explicit multi-selection (Ctrl+Click) should replace an existing basket.
+    if (state.pinboardEntities.size > 0 && state.selectedEntitiesSet.size === 0) {
+      showPinboard();
+      return;
+    }
+    const refs = getSelectionRefs();
+    if (refs.length > 0) {
+      setBasket(refs);
+      clearMultiSelect();
+    }
+  }, [getSelectionRefs, setBasket, showPinboard, clearMultiSelect]);
+
+  const handleAddToBasket = useCallback(() => {
+    const refs = getSelectionRefs();
+    if (refs.length > 0) {
+      addToBasket(refs);
+      clearMultiSelect();
+    }
+  }, [getSelectionRefs, addToBasket, clearMultiSelect]);
+
+  const handleRemoveFromBasket = useCallback(() => {
+    const refs = getSelectionRefs();
+    if (refs.length > 0) {
+      removeFromBasket(refs);
+      clearMultiSelect();
+    }
+  }, [getSelectionRefs, removeFromBasket, clearMultiSelect]);
 
   const clearSelection = useViewerStore((state) => state.clearSelection);
 
   const handleHide = useCallback(() => {
-    if (selectedEntityId) {
-      hideEntity(selectedEntityId);
-      // Clear selection after hiding - element is no longer visible
+    // Hide ALL selected entities (multi-select or single)
+    const state = useViewerStore.getState();
+    const ids: number[] = state.selectedEntityIds.size > 0
+      ? Array.from(state.selectedEntityIds)
+      : selectedEntityId !== null ? [selectedEntityId] : [];
+    if (ids.length > 0) {
+      hideEntities(ids);
       clearSelection();
     }
-  }, [selectedEntityId, hideEntity, clearSelection]);
+  }, [selectedEntityId, hideEntities, clearSelection]);
 
   const handleShowAll = useCallback(() => {
-    showAll();
-    clearStoreySelection(); // Also clear storey filtering (matches 'A' keyboard shortcut)
+    showAll();     // Clear hiddenEntities + isolatedEntities (basket contents preserved)
+    clearStoreySelection(); // Also clear storey filtering
   }, [showAll, clearStoreySelection]);
 
   const handleExportGLB = useCallback(() => {
@@ -389,8 +488,9 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
   return (
     <div className="flex items-center gap-1 px-2 h-12 border-b bg-white dark:bg-black border-zinc-200 dark:border-zinc-800 relative z-50">
-      {/* File Operations */}
+      {/* ── File Operations ── */}
       <input
+        id="file-input-open"
         ref={fileInputRef}
         type="file"
         accept=".ifc,.ifcx,.glb"
@@ -543,6 +643,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       {/* Export Changes Button - shows when there are pending mutations */}
       <ExportChangesButton />
 
+      {/* ── Panels ── */}
       {/* BCF Issues Button */}
       <Tooltip>
         <TooltipTrigger asChild>
@@ -551,8 +652,10 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
             size="icon-sm"
             onClick={(e) => {
               (e.currentTarget as HTMLButtonElement).blur();
-              // If BCF is being shown, also expand the right panel
               if (!bcfPanelVisible) {
+                // Close other right-panel content first, then expand
+                setIdsPanelVisible(false);
+                setLensPanelVisible(false);
                 setRightPanelCollapsed(false);
               }
               toggleBcfPanel();
@@ -573,8 +676,10 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
             size="icon-sm"
             onClick={(e) => {
               (e.currentTarget as HTMLButtonElement).blur();
-              // If IDS is being shown, also expand the right panel
               if (!idsPanelVisible) {
+                // Close other right-panel content first, then expand
+                setBcfPanelVisible(false);
+                setLensPanelVisible(false);
                 setRightPanelCollapsed(false);
               }
               toggleIdsPanel();
@@ -595,6 +700,8 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
             size="icon-sm"
             onClick={(e) => {
               (e.currentTarget as HTMLButtonElement).blur();
+              // Close script panel (bottom-panel exclusivity)
+              useViewerStore.getState().setScriptPanelVisible(false);
               if (!listPanelVisible) {
                 setRightPanelCollapsed(false);
               }
@@ -610,7 +717,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 
-      {/* Navigation Tools */}
+      {/* ── Navigation Tools ── */}
       <ToolButton tool="select" icon={MousePointer2} label="Select" shortcut="V" activeTool={activeTool} onToolChange={setActiveTool} />
       <ToolButton tool="pan" icon={Hand} label="Pan" shortcut="P" activeTool={activeTool} onToolChange={setActiveTool} />
       <ToolButton tool="orbit" icon={Rotate3d} label="Orbit" shortcut="O" activeTool={activeTool} onToolChange={setActiveTool} />
@@ -618,16 +725,80 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 
-      {/* Measurement & Section */}
+      {/* ── Measurement & Section ── */}
       <ToolButton tool="measure" icon={Ruler} label="Measure" shortcut="M" activeTool={activeTool} onToolChange={setActiveTool} />
       <ToolButton tool="section" icon={Scissors} label="Section" shortcut="X" activeTool={activeTool} onToolChange={setActiveTool} />
 
+      {/* Floorplan dropdown */}
+      {availableStoreys.length > 0 && (
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm">
+                  <Building2 className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Quick Floorplan</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent>
+            {availableStoreys.map((storey) => (
+              <DropdownMenuItem
+                key={`${storey.modelId}-${storey.expressId}`}
+                onClick={() => activateFloorplan(storey)}
+              >
+                <Building2 className="h-4 w-4 mr-2" />
+                {storey.name}
+                <span className="ml-auto text-xs opacity-60">{storey.elevation.toFixed(1)}m</span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+
       <Separator orientation="vertical" className="h-6 mx-1" />
 
-      {/* Visibility */}
-      <ActionButton icon={Focus} label="Isolate Selection" onClick={handleIsolate} shortcut="I" disabled={!selectedEntityId} />
-      <ActionButton icon={EyeOff} label="Hide Selection" onClick={handleHide} shortcut="Del" disabled={!selectedEntityId} />
+      {/* ── Basket Isolation (= + −) ── */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={pinboardEntities.size > 0 ? 'default' : 'ghost'}
+            size="icon-sm"
+            onClick={(e) => {
+              (e.currentTarget as HTMLButtonElement).blur();
+              handleSetBasket();
+            }}
+            disabled={!hasSelection && pinboardEntities.size === 0}
+            className={cn(
+              pinboardEntities.size > 0 && 'bg-primary text-primary-foreground relative',
+            )}
+          >
+            <Equal className="h-4 w-4" />
+            {pinboardEntities.size > 0 && (
+              <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[9px] font-bold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5 border border-background">
+                {pinboardEntities.size}
+              </span>
+            )}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          Set Basket — isolate selection <span className="ml-2 text-xs opacity-60">(I)</span>
+        </TooltipContent>
+      </Tooltip>
+      <ActionButton icon={Plus} label="Add to Basket" onClick={handleAddToBasket} shortcut="+" disabled={!hasSelection} />
+      <ActionButton icon={Minus} label="Remove from Basket" onClick={handleRemoveFromBasket} shortcut="−" disabled={!hasSelection} />
+
+      <ActionButton icon={EyeOff} label="Hide Selection" onClick={handleHide} shortcut="Del / Space" disabled={!hasSelection} />
       <ActionButton icon={Eye} label="Show All (Reset Filters)" onClick={handleShowAll} shortcut="A" />
+      <ActionButton icon={Maximize2} label="Fit All" onClick={() => cameraCallbacks.fitAll?.()} shortcut="Z" />
+      <ActionButton
+        icon={Crosshair}
+        label="Frame Selection"
+        onClick={() => cameraCallbacks.frameSelection?.()}
+        shortcut="F"
+        disabled={!hasSelection}
+      />
 
       <DropdownMenu>
         <Tooltip>
@@ -638,7 +809,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent>Type Visibility</TooltipContent>
+          <TooltipContent>Class Visibility</TooltipContent>
         </Tooltip>
         <DropdownMenuContent>
           {typeGeometryExists.spaces && (
@@ -671,16 +842,62 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
         </DropdownMenuContent>
       </DropdownMenu>
 
+      {/* Lens (rule-based filtering) */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={lensPanelVisible ? 'default' : 'ghost'}
+            size="icon-sm"
+            onClick={(e) => {
+              (e.currentTarget as HTMLButtonElement).blur();
+              if (!lensPanelVisible) {
+                // Close other right-panel content first, then expand
+                setBcfPanelVisible(false);
+                setIdsPanelVisible(false);
+                setRightPanelCollapsed(false);
+              }
+              toggleLensPanel();
+            }}
+            className={cn(lensPanelVisible && 'bg-primary text-primary-foreground')}
+          >
+            <Palette className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Lens (Color Rules)</TooltipContent>
+      </Tooltip>
+
       <Separator orientation="vertical" className="h-6 mx-1" />
 
-      {/* Display Options */}
+      {/* ── Camera & View ── */}
+      <ActionButton icon={Home} label="Home (Isometric)" onClick={() => cameraCallbacks.home?.()} shortcut="H" />
+
+      {/* Orthographic / Perspective toggle */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={projectionMode === 'orthographic' ? 'default' : 'ghost'}
+            size="icon-sm"
+            onClick={(e) => {
+              (e.currentTarget as HTMLButtonElement).blur();
+              toggleProjectionMode();
+            }}
+            className={cn(projectionMode === 'orthographic' && 'bg-primary text-primary-foreground')}
+          >
+            <Orbit className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          {projectionMode === 'orthographic' ? 'Switch to Perspective' : 'Switch to Orthographic'}
+        </TooltipContent>
+      </Tooltip>
+
+      {/* Hover Tooltips toggle */}
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
             variant={hoverTooltipsEnabled ? 'default' : 'ghost'}
             size="icon-sm"
             onClick={(e) => {
-              // Blur button to close tooltip after click
               (e.currentTarget as HTMLButtonElement).blur();
               toggleHoverTooltips();
             }}
@@ -694,19 +911,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
         </TooltipContent>
       </Tooltip>
 
-      <Separator orientation="vertical" className="h-6 mx-1" />
-
-      {/* Camera */}
-      <ActionButton icon={Home} label="Home (Isometric)" onClick={() => cameraCallbacks.home?.()} shortcut="H" />
-      <ActionButton icon={Maximize2} label="Fit All" onClick={() => cameraCallbacks.fitAll?.()} shortcut="Z" />
-      <ActionButton
-        icon={Focus}
-        label="Frame Selection"
-        onClick={() => cameraCallbacks.frameSelection?.()}
-        shortcut="F"
-        disabled={!selectedEntityId}
-      />
-
+      {/* Preset Views dropdown */}
       <DropdownMenu>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -716,7 +921,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent>Preset Views (0-6)</TooltipContent>
+          <TooltipContent>Preset Views</TooltipContent>
         </Tooltip>
         <DropdownMenuContent>
           <DropdownMenuItem onClick={() => cameraCallbacks.home?.()}>

@@ -35,6 +35,28 @@ export class MathUtils {
     }
 
     /**
+     * Create orthographic projection matrix (reverse-Z)
+     * Uses same reverse-Z convention as perspective for consistent depth buffer behavior.
+     * Depth range: near=1.0, far=0.0 (inverted)
+     */
+    static orthographicReverseZ(left: number, right: number, bottom: number, top: number, near: number, far: number): Mat4 {
+        const m = new Float32Array(16);
+        const lr = 1 / (left - right);
+        const bt = 1 / (bottom - top);
+        // Reverse-Z: swap near and far for depth mapping
+        const nf = 1 / (far - near);
+
+        m[0] = -2 * lr;
+        m[5] = -2 * bt;
+        m[10] = nf;              // Reverse-Z: maps far=0, near=1
+        m[12] = (left + right) * lr;
+        m[13] = (top + bottom) * bt;
+        m[14] = far * nf;        // Reverse-Z offset
+        m[15] = 1;
+        return { m };
+    }
+
+    /**
      * Create reverse-Z perspective projection matrix
      * Reverse-Z distributes depth precision more evenly, eliminating Z-fighting
      * at far distances. Depth range: near=1.0, far=0.0 (inverted)

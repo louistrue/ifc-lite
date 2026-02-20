@@ -58,7 +58,7 @@ export const LIST_PRESETS: ListDefinition[] = [
     [IfcTypeEnum.IfcWall, IfcTypeEnum.IfcWallStandardCase],
     [
       attr('Name'),
-      attr('Type'),
+      attr('Class'),
       attr('ObjectType'),
       prop('Pset_WallCommon', 'IsExternal'),
       prop('Pset_WallCommon', 'FireRating'),
@@ -77,7 +77,7 @@ export const LIST_PRESETS: ListDefinition[] = [
     [IfcTypeEnum.IfcDoor],
     [
       attr('Name'),
-      attr('Type'),
+      attr('Class'),
       attr('ObjectType'),
       prop('Pset_DoorCommon', 'FireRating'),
       prop('Pset_DoorCommon', 'IsExternal'),
@@ -94,7 +94,7 @@ export const LIST_PRESETS: ListDefinition[] = [
     [IfcTypeEnum.IfcWindow],
     [
       attr('Name'),
-      attr('Type'),
+      attr('Class'),
       attr('ObjectType'),
       prop('Pset_WindowCommon', 'IsExternal'),
       prop('Pset_WindowCommon', 'FireRating'),
@@ -134,7 +134,7 @@ export const LIST_PRESETS: ListDefinition[] = [
     ],
     [
       attr('Name'),
-      attr('Type'),
+      attr('Class'),
       attr('GlobalId'),
       attr('Description'),
       attr('ObjectType'),
