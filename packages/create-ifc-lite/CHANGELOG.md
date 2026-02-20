@@ -1,5 +1,17 @@
 # create-ifc-lite
 
+## 1.8.1
+
+### Patch Changes
+
+- [#227](https://github.com/louistrue/ifc-lite/pull/227) [`67c0064`](https://github.com/louistrue/ifc-lite/commit/67c00640a0ca344337e5e79d80888d329df9130d) Thanks [@louistrue](https://github.com/louistrue)! - Fix react template generating wrong `@ifc-lite/*` versions in package.json.
+
+  Previously all workspace dependencies were replaced with the latest version of
+  `@ifc-lite/parser`, which broke installs when a package (e.g. `@ifc-lite/sandbox`)
+  had not yet been published at that version. Each package is now queried
+  individually from the npm registry so the generated package.json always
+  references the actual published version of every dependency.
+
 ## 1.6.1
 
 ### Patch Changes

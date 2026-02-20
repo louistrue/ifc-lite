@@ -89,6 +89,32 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Verify every published package is actually reachable on npm.
+  # Catches packages accidentally skipped during release before users hit them.
+  verify-npm-publish:
+    name: Verify npm publish
+    needs: release
+    if: needs.release.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Verify all packages on npm
+        # Retry up to 5 times with 15 s gaps to allow npm propagation.
+        run: node scripts/verify-npm-publish.js --retries 5 --delay 15000
+
   # Build and upload server binaries for all platforms
   build-server-binaries:
     name: Build Server Binary (${{ matrix.target }})

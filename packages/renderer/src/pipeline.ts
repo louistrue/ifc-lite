@@ -18,8 +18,11 @@ export class RenderPipeline {
     private overlayPipeline: GPURenderPipeline;  // Pipeline for color overlays (lens) - renders at exact same depth
     private depthTexture: GPUTexture;
     private depthTextureView: GPUTextureView;
+    private objectIdTexture: GPUTexture;
+    private objectIdTextureView: GPUTextureView;
     private depthFormat: GPUTextureFormat = 'depth24plus';
     private colorFormat: GPUTextureFormat;
+    private objectIdFormat: GPUTextureFormat = 'rgba8unorm';
     private multisampleTexture: GPUTexture | null = null;
     private multisampleTextureView: GPUTextureView | null = null;
     private sampleCount: number = 4;  // MSAA sample count
@@ -45,10 +48,17 @@ export class RenderPipeline {
         this.depthTexture = this.device.createTexture({
             size: { width, height },
             format: 'depth24plus',
-            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
             sampleCount: this.sampleCount > 1 ? this.sampleCount : 1,
         });
         this.depthTextureView = this.depthTexture.createView();
+        this.objectIdTexture = this.device.createTexture({
+            size: { width, height },
+            format: this.objectIdFormat,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+            sampleCount: this.sampleCount > 1 ? this.sampleCount : 1,
+        });
+        this.objectIdTextureView = this.objectIdTexture.createView();
 
         // Create multisample color texture for MSAA
         if (this.sampleCount > 1) {
@@ -91,20 +101,21 @@ export class RenderPipeline {
           metallicRoughness: vec2<f32>, // x = metallic, y = roughness
           _padding1: vec2<f32>,
           sectionPlane: vec4<f32>,      // xyz = plane normal, w = plane distance
-          flags: vec4<u32>,             // x = isSelected, y = sectionEnabled, z,w = reserved
+          flags: vec4<u32>,             // x = isSelected, y = sectionEnabled, z = edgeEnabled, w = edgeIntensityMilli
         }
         @binding(0) @group(0) var<uniform> uniforms: Uniforms;
 
         struct VertexInput {
           @location(0) position: vec3<f32>,
           @location(1) normal: vec3<f32>,
+          @location(2) entityId: u32,
         }
 
         struct VertexOutput {
           @builtin(position) position: vec4<f32>,
           @location(0) worldPos: vec3<f32>,
           @location(1) normal: vec3<f32>,
-          @location(2) @interpolate(flat) objectId: u32,
+          @location(2) @interpolate(flat) entityId: u32,
           @location(3) viewPos: vec3<f32>,  // For edge detection
         }
 
@@ -115,7 +126,7 @@ export class RenderPipeline {
           output.position = uniforms.viewProj * worldPos;
           output.worldPos = worldPos.xyz;
           output.normal = normalize((uniforms.model * vec4<f32>(input.normal, 0.0)).xyz);
-          output.objectId = instanceIndex;
+          output.entityId = input.entityId;
           // Store view-space position for edge detection
           output.viewPos = (uniforms.viewProj * worldPos).xyz;
           return output;
@@ -150,8 +161,20 @@ export class RenderPipeline {
           return ggx1 * ggx2;
         }
 
+        fn encodeId24(id: u32) -> vec4<f32> {
+          let r = f32((id >> 16u) & 255u) / 255.0;
+          let g = f32((id >> 8u) & 255u) / 255.0;
+          let b = f32(id & 255u) / 255.0;
+          return vec4<f32>(r, g, b, 1.0);
+        }
+
+        struct FragmentOutput {
+          @location(0) color: vec4<f32>,
+          @location(1) objectIdEncoded: vec4<f32>,
+        }
+
         @fragment
-        fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+        fn fs_main(input: VertexOutput) -> FragmentOutput {
           // Section plane clipping - discard fragments ABOVE the plane
           // For Down axis (normal +Y), keeps everything below cut height (look down into building)
           if (uniforms.flags.y == 1u) {
@@ -273,14 +296,21 @@ export class RenderPipeline {
             length(dpdy(input.normal))
           ));
           
-          let edgeFactor = smoothstep(0.0, 0.1, depthGradient * 10.0 + normalGradient * 5.0);
-          let edgeDarken = mix(1.0, 0.92, edgeFactor * 0.4);  // Slightly stronger edge darkening
-          color *= edgeDarken;
+          if (uniforms.flags.z == 1u) {
+            let edgeFactor = smoothstep(0.0, 0.1, depthGradient * 10.0 + normalGradient * 5.0);
+            let edgeIntensity = f32(uniforms.flags.w) / 1000.0;
+            let edgeDarkenStrength = clamp(0.25 * edgeIntensity, 0.0, 0.85);
+            let edgeDarken = mix(1.0, 1.0 - edgeDarkenStrength, edgeFactor);
+            color *= edgeDarken;
+          }
 
           // Gamma correction
           color = pow(color, vec3<f32>(1.0 / 2.2));
 
-          return vec4<f32>(color, finalAlpha);
+          var out: FragmentOutput;
+          out.color = vec4<f32>(color, finalAlpha);
+          out.objectIdEncoded = encodeId24(input.entityId);
+          return out;
         }
       `,
         });
@@ -298,10 +328,11 @@ export class RenderPipeline {
                 entryPoint: 'vs_main',
                 buffers: [
                     {
-                        arrayStride: 24, // 6 floats * 4 bytes
+                        arrayStride: 28, // 7 floats * 4 bytes
                         attributes: [
                             { shaderLocation: 0, offset: 0, format: 'float32x3' }, // position
                             { shaderLocation: 1, offset: 12, format: 'float32x3' }, // normal
+                            { shaderLocation: 2, offset: 24, format: 'uint32' }, // expressId
                         ],
                     },
                 ],
@@ -309,7 +340,7 @@ export class RenderPipeline {
             fragment: {
                 module: shaderModule,
                 entryPoint: 'fs_main',
-                targets: [{ format: this.colorFormat }],
+                targets: [{ format: this.colorFormat }, { format: 'rgba8unorm' }],
             },
             primitive: {
                 topology: 'triangle-list',
@@ -336,10 +367,11 @@ export class RenderPipeline {
                 entryPoint: 'vs_main',
                 buffers: [
                     {
-                        arrayStride: 24,
+                        arrayStride: 28,
                         attributes: [
                             { shaderLocation: 0, offset: 0, format: 'float32x3' },
                             { shaderLocation: 1, offset: 12, format: 'float32x3' },
+                            { shaderLocation: 2, offset: 24, format: 'uint32' },
                         ],
                     },
                 ],
@@ -347,7 +379,7 @@ export class RenderPipeline {
             fragment: {
                 module: shaderModule,
                 entryPoint: 'fs_main',
-                targets: [{ format: this.colorFormat }],
+                targets: [{ format: this.colorFormat }, { format: 'rgba8unorm' }],
             },
             primitive: {
                 topology: 'triangle-list',
@@ -376,10 +408,11 @@ export class RenderPipeline {
                 entryPoint: 'vs_main',
                 buffers: [
                     {
-                        arrayStride: 24,
+                        arrayStride: 28,
                         attributes: [
                             { shaderLocation: 0, offset: 0, format: 'float32x3' },
                             { shaderLocation: 1, offset: 12, format: 'float32x3' },
+                            { shaderLocation: 2, offset: 24, format: 'uint32' },
                         ],
                     },
                 ],
@@ -399,7 +432,7 @@ export class RenderPipeline {
                             dstFactor: 'one-minus-src-alpha',
                         },
                     },
-                }],
+                }, { format: this.objectIdFormat }],
             },
             primitive: {
                 topology: 'triangle-list',
@@ -429,10 +462,11 @@ export class RenderPipeline {
                 entryPoint: 'vs_main',
                 buffers: [
                     {
-                        arrayStride: 24,
+                        arrayStride: 28,
                         attributes: [
                             { shaderLocation: 0, offset: 0, format: 'float32x3' },
                             { shaderLocation: 1, offset: 12, format: 'float32x3' },
+                            { shaderLocation: 2, offset: 24, format: 'uint32' },
                         ],
                     },
                 ],
@@ -440,7 +474,7 @@ export class RenderPipeline {
             fragment: {
                 module: shaderModule,
                 entryPoint: 'fs_main',
-                targets: [{ format: this.colorFormat }],
+                targets: [{ format: this.colorFormat }, { format: 'rgba8unorm' }],
             },
             primitive: {
                 topology: 'triangle-list',
@@ -544,13 +578,21 @@ export class RenderPipeline {
         this.currentHeight = height;
 
         this.depthTexture.destroy();
+        this.objectIdTexture.destroy();
         this.depthTexture = this.device.createTexture({
             size: { width, height },
             format: this.depthFormat,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
             sampleCount: this.sampleCount > 1 ? this.sampleCount : 1,
         });
         this.depthTextureView = this.depthTexture.createView();
+        this.objectIdTexture = this.device.createTexture({
+            size: { width, height },
+            format: this.objectIdFormat,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+            sampleCount: this.sampleCount > 1 ? this.sampleCount : 1,
+        });
+        this.objectIdTextureView = this.objectIdTexture.createView();
 
         // Recreate multisample texture
         if (this.multisampleTexture) {
@@ -588,6 +630,10 @@ export class RenderPipeline {
 
     getDepthTextureView(): GPUTextureView {
         return this.depthTextureView;
+    }
+
+    getObjectIdTextureView(): GPUTextureView {
+        return this.objectIdTextureView;
     }
 
     /**
@@ -628,6 +674,7 @@ export class InstancedRenderPipeline {
     private depthTextureView: GPUTextureView;
     private uniformBuffer: GPUBuffer;
     private colorFormat: GPUTextureFormat;
+    private objectIdFormat: GPUTextureFormat = 'rgba8unorm';
     private currentHeight: number;
 
     constructor(device: WebGPUDevice, width: number = 1, height: number = 1) {
@@ -712,8 +759,20 @@ export class InstancedRenderPipeline {
           return output;
         }
 
+        fn encodeId24(id: u32) -> vec4<f32> {
+          let r = f32((id >> 16u) & 255u) / 255.0;
+          let g = f32((id >> 8u) & 255u) / 255.0;
+          let b = f32(id & 255u) / 255.0;
+          return vec4<f32>(r, g, b, 1.0);
+        }
+
+        struct FragmentOutput {
+          @location(0) color: vec4<f32>,
+          @location(1) objectIdEncoded: vec4<f32>,
+        }
+
         @fragment
-        fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+        fn fs_main(input: VertexOutput) -> FragmentOutput {
           // Section plane clipping - discard fragments ABOVE the plane
           // For Down axis (normal +Y), keeps everything below cut height (look down into building)
           if (uniforms.flags.x == 1u) {
@@ -833,7 +892,12 @@ export class InstancedRenderPipeline {
           // Gamma correction
           color = pow(color, vec3<f32>(1.0 / 2.2));
 
-          return vec4<f32>(color, finalAlpha);
+          var out: FragmentOutput;
+          out.color = vec4<f32>(color, finalAlpha);
+          // Not expressId-accurate for instanced path, but still provides
+          // per-instance boundaries for seam detection.
+          out.objectIdEncoded = encodeId24(input.instanceId + 1u);
+          return out;
         }
       `,
         });
@@ -857,7 +921,7 @@ export class InstancedRenderPipeline {
             fragment: {
                 module: shaderModule,
                 entryPoint: 'fs_main',
-                targets: [{ format: this.colorFormat }],
+                targets: [{ format: this.colorFormat }, { format: this.objectIdFormat }],
             },
             primitive: {
                 topology: 'triangle-list',

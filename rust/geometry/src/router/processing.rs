@@ -157,6 +157,7 @@ impl GeometryRouter {
                         rep_type,
                         "Body"
                             | "SweptSolid"
+                            | "SolidModel"
                             | "Brep"
                             | "CSG"
                             | "Clipping"
@@ -193,6 +194,7 @@ impl GeometryRouter {
                         rep_type,
                         "Body"
                             | "SweptSolid"
+                            | "SolidModel"
                             | "Brep"
                             | "CSG"
                             | "Clipping"
@@ -280,6 +282,7 @@ impl GeometryRouter {
                         rep_type,
                         "Body"
                             | "SweptSolid"
+                            | "SolidModel"
                             | "Brep"
                             | "CSG"
                             | "Clipping"
@@ -313,6 +316,7 @@ impl GeometryRouter {
                         rep_type,
                         "Body"
                             | "SweptSolid"
+                            | "SolidModel"
                             | "Brep"
                             | "CSG"
                             | "Clipping"
@@ -480,6 +484,7 @@ impl GeometryRouter {
                         rep_type,
                         "Body"
                             | "SweptSolid"
+                            | "SolidModel"
                             | "Brep"
                             | "CSG"
                             | "Clipping"
@@ -511,6 +516,7 @@ impl GeometryRouter {
                         rep_type,
                         "Body"
                             | "SweptSolid"
+                            | "SolidModel"
                             | "Brep"
                             | "CSG"
                             | "Clipping"

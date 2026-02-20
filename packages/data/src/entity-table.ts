@@ -9,6 +9,12 @@
 
 import type { StringTable } from './string-table.js';
 import { IfcTypeEnum, EntityFlags, IfcTypeEnumFromString, IfcTypeEnumToString } from './types.js';
+import { IFC_ENTITY_NAMES } from './ifc-entity-names.js';
+
+/** Convert UPPERCASE IFC type name to PascalCase using the generated schema name map */
+function normalizeIfcUpperCase(upper: string): string {
+  return IFC_ENTITY_NAMES[upper] ?? upper;
+}
 
 export interface EntityTable {
   readonly count: number;
@@ -45,7 +51,7 @@ export interface EntityTable {
 export class EntityTableBuilder {
   private count: number = 0;
   private strings: StringTable;
-  
+
   expressId: Uint32Array;
   typeEnum: Uint16Array;
   globalId: Uint32Array;
@@ -56,13 +62,15 @@ export class EntityTableBuilder {
   containedInStorey: Int32Array;
   definedByType: Int32Array;
   geometryIndex: Int32Array;
-  
+  /** Raw type name string index (for fallback display of unknown types) */
+  rawTypeName: Uint32Array;
+
   private typeStarts: Map<IfcTypeEnum, number> = new Map();
   private typeCounts: Map<IfcTypeEnum, number> = new Map();
-  
+
   constructor(capacity: number, strings: StringTable) {
     this.strings = strings;
-    
+
     this.expressId = new Uint32Array(capacity);
     this.typeEnum = new Uint16Array(capacity);
     this.globalId = new Uint32Array(capacity);
@@ -73,6 +81,7 @@ export class EntityTableBuilder {
     this.containedInStorey = new Int32Array(capacity).fill(-1);
     this.definedByType = new Int32Array(capacity).fill(-1);
     this.geometryIndex = new Int32Array(capacity).fill(-1);
+    this.rawTypeName = new Uint32Array(capacity);
   }
   
   add(
@@ -86,7 +95,7 @@ export class EntityTableBuilder {
     isType: boolean = false
   ): void {
     const i = this.count++;
-    
+
     this.expressId[i] = expressId;
     const typeEnum = IfcTypeEnumFromString(type);
     this.typeEnum[i] = typeEnum;
@@ -94,6 +103,8 @@ export class EntityTableBuilder {
     this.name[i] = this.strings.intern(name);
     this.description[i] = this.strings.intern(description);
     this.objectType[i] = this.strings.intern(objectType);
+    // Store normalized raw type name for fallback display of unknown types
+    this.rawTypeName[i] = this.strings.intern(normalizeIfcUpperCase(type));
     
     let flags = 0;
     if (hasGeometry) flags |= EntityFlags.HAS_GEOMETRY;
@@ -144,6 +155,7 @@ export class EntityTableBuilder {
     const containedInStorey = trim(this.containedInStorey);
     const definedByType = trim(this.definedByType);
     const geometryIndex = trim(this.geometryIndex);
+    const rawTypeName = trim(this.rawTypeName);
 
     // PERF: Build idToIndex map for O(1) lookups instead of O(n) linear search
     // This eliminates the linear search in indexOfId() which is called frequently
@@ -196,7 +208,11 @@ export class EntityTableBuilder {
       },
       getTypeName: (id) => {
         const idx = indexOfId(id);
-        return idx >= 0 ? IfcTypeEnumToString(typeEnum[idx]) : 'Unknown';
+        if (idx < 0) return 'Unknown';
+        const enumName = IfcTypeEnumToString(typeEnum[idx]);
+        if (enumName !== 'Unknown') return enumName;
+        // Fallback: use the raw type name for types not in the enum
+        return this.strings.get(rawTypeName[idx]) || 'Unknown';
       },
       hasGeometry: (id) => {
         const idx = indexOfId(id);
