@@ -1,5 +1,15 @@
 # @ifc-lite/export
 
+## 1.9.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.9.0
+  - @ifc-lite/geometry@1.9.0
+  - @ifc-lite/mutations@1.9.0
+  - @ifc-lite/parser@1.9.0
+
 ## 1.8.0
 
 ### Minor Changes

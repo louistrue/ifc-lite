@@ -1,5 +1,7 @@
 # @ifc-lite/lens
 
+## 1.9.0
+
 ## 1.8.0
 
 ### Minor Changes

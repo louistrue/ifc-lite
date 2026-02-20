@@ -1,5 +1,12 @@
 # @ifc-lite/geometry
 
+## 1.9.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/wasm@1.9.0
+
 ## 1.8.0
 
 ### Patch Changes
