@@ -474,6 +474,16 @@ jobs:
         uses: codecov/codecov-action@v3
 ```
 
+### IFC Fixture Strategy
+
+Use a tiered fixture approach so release pipelines stay reliable when Git LFS quota is constrained:
+
+1. Keep release and docs workflows on `actions/checkout` with `lfs: false`.
+2. Keep small smoke-test fixtures in Git (non-LFS) and run them on every PR and release.
+3. Run heavy IFC corpus tests (large geometry/benchmark sets) in dedicated manual or scheduled workflows.
+4. For heavy workflows, fetch only required fixtures with `git lfs pull --include="<paths>"` instead of downloading all LFS objects.
+5. Add caching and checksums for downloaded fixture bundles when using external artifact storage.
+
 ## Next Steps
 
 - [Setup](setup.md) - Development setup
