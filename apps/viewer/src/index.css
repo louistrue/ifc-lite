@@ -4,6 +4,12 @@
 
 @import "tailwindcss";
 
+/* Override Tailwind v4's default media-query dark variant so all dark: utilities
+   respond to the .dark class on <html> instead of prefers-color-scheme.
+   Without this, toggling light mode while the OS is in dark mode leaves all
+   dark: Tailwind utilities active, creating a mixed dark/light UI. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ═══════════════════════════════════════════════════════════════════════════
    TOKYO NIGHT THEME - Dark Stormy Cyberpunk Vibes
    ═══════════════════════════════════════════════════════════════════════════ */
