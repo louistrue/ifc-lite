@@ -79,6 +79,7 @@ type ResolvedVisualEnhancement = {
         radius: number;
     };
     separationLines: {
+        enabled: boolean;
         quality: SeparationLinesQuality;
         intensity: number;
         radius: number;
@@ -103,7 +104,7 @@ export class Renderer {
         enabled: true,
         edgeContrast: { enabled: true, intensity: 1.0 },
         contactShading: { quality: 'off', intensity: 0.3, radius: 1.0 },
-        separationLines: { quality: 'low', intensity: 0.5, radius: 1.0 },
+        separationLines: { enabled: true, quality: 'low', intensity: 0.5, radius: 1.0 },
     };
 
     // Composition: delegate to extracted managers
@@ -161,7 +162,7 @@ export class Renderer {
             enableContactShading: true,
             contactRadius: 1.0,
             contactIntensity: 0.3,
-        });
+        }, this.pipeline.getSampleCount());
         this.camera.setAspect(width / height);
 
         // Update picking manager with initialized picker
@@ -257,6 +258,7 @@ export class Renderer {
                 radius: options.contactShading?.radius ?? this.visualEnhancementState.contactShading.radius,
             },
             separationLines: {
+                enabled: options.separationLines?.enabled ?? this.visualEnhancementState.separationLines.enabled,
                 quality: options.separationLines?.quality ?? this.visualEnhancementState.separationLines.quality,
                 intensity: options.separationLines?.intensity ?? this.visualEnhancementState.separationLines.intensity,
                 radius: options.separationLines?.radius ?? this.visualEnhancementState.separationLines.radius,
@@ -312,6 +314,11 @@ export class Renderer {
         const edgeIntensity = Math.min(3.0, Math.max(0.0, visualEnhancement.edgeContrast.intensity));
         const edgeEnabledU32 = edgeEnabled ? 1 : 0;
         const edgeIntensityMilliU32 = Math.round(edgeIntensity * 1000);
+        const contactEnabled = visualEnhancement.enabled && visualEnhancement.contactShading.quality !== 'off';
+        const separationEnabled = visualEnhancement.enabled
+            && visualEnhancement.separationLines.enabled
+            && visualEnhancement.separationLines.quality !== 'off';
+        const needsObjectIdPass = contactEnabled || separationEnabled;
 
         let meshes = this.scene.getMeshes();
 
@@ -555,7 +562,7 @@ export class Renderer {
                         view: objectIdView,
                         loadOp: 'clear',
                         clearValue: { r: 0, g: 0, b: 0, a: 0 },
-                        storeOp: 'store',
+                        storeOp: needsObjectIdPass ? 'store' : 'discard',
                     },
                 ],
                 depthStencilAttachment: {
@@ -987,11 +994,8 @@ export class Renderer {
 
             pass.end();
 
-            const contactEnabled = visualEnhancement.enabled && visualEnhancement.contactShading.quality !== 'off';
-            const separationEnabled = visualEnhancement.enabled && visualEnhancement.separationLines.quality !== 'off';
             const canRunPostPass = (contactEnabled || separationEnabled)
-                && this.postProcessor !== null
-                && this.pipeline.getSampleCount() > 1;
+                && this.postProcessor !== null;
             if (canRunPostPass && this.postProcessor) {
                 this.postProcessor.updateOptions({
                     enableContactShading: contactEnabled,

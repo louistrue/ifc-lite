@@ -112,6 +112,7 @@ export interface VisualEnhancementOptions {
     radius?: number;
   };
   separationLines?: {
+    enabled?: boolean;
     quality?: SeparationLinesQuality;
     intensity?: number;
     radius?: number;

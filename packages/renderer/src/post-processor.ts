@@ -39,19 +39,30 @@ export class PostProcessor {
     private _device: GPUDevice;
     private options: PostProcessorOptions;
     private colorFormat: GPUTextureFormat;
+    private isMultisampled: boolean;
     private uniformBuffer: GPUBuffer;
+    private uniformStaging: ArrayBuffer;
+    private uniformF32: Float32Array;
+    private uniformU32: Uint32Array;
     private bindGroupLayout: GPUBindGroupLayout;
     private pipeline: GPURenderPipeline;
+    private cachedBindGroup: GPUBindGroup | null = null;
+    private cachedDepthView: GPUTextureView | null = null;
+    private cachedObjectIdView: GPUTextureView | null = null;
 
-    constructor(device: WebGPUDevice, options: PostProcessorOptions = {}) {
+    constructor(device: WebGPUDevice, options: PostProcessorOptions = {}, sampleCount: number = 1) {
         this._device = device.getDevice();
         this.colorFormat = device.getFormat();
+        this.isMultisampled = sampleCount > 1;
         this.options = {
             enableContactShading: false,
             contactRadius: 1.0,
             contactIntensity: 0.3,
             ...options,
         };
+        this.uniformStaging = new ArrayBuffer(48);
+        this.uniformF32 = new Float32Array(this.uniformStaging);
+        this.uniformU32 = new Uint32Array(this.uniformStaging);
 
         this.uniformBuffer = this._device.createBuffer({
             // WGSL uniform layout for Params requires 48 bytes due to 16-byte alignment.
@@ -64,12 +75,12 @@ export class PostProcessor {
                 {
                     binding: 0,
                     visibility: GPUShaderStage.FRAGMENT,
-                    texture: { sampleType: 'depth', viewDimension: '2d', multisampled: true },
+                    texture: { sampleType: 'depth', viewDimension: '2d', multisampled: this.isMultisampled },
                 },
                 {
                     binding: 1,
                     visibility: GPUShaderStage.FRAGMENT,
-                    texture: { sampleType: 'unfilterable-float', viewDimension: '2d', multisampled: true },
+                    texture: { sampleType: 'unfilterable-float', viewDimension: '2d', multisampled: this.isMultisampled },
                 },
                 {
                     binding: 2,
@@ -78,6 +89,19 @@ export class PostProcessor {
                 },
             ],
         });
+
+        const depthTexDecl = this.isMultisampled
+            ? '@group(0) @binding(0) var depthTex: texture_depth_multisampled_2d;'
+            : '@group(0) @binding(0) var depthTex: texture_depth_2d;';
+        const idTexDecl = this.isMultisampled
+            ? '@group(0) @binding(1) var idTex: texture_multisampled_2d<f32>;'
+            : '@group(0) @binding(1) var idTex: texture_2d<f32>;';
+        const depthLoadExpr = this.isMultisampled
+            ? 'textureLoad(depthTex, c, 0u)'
+            : 'textureLoad(depthTex, c, 0)';
+        const idLoadExpr = this.isMultisampled
+            ? 'textureLoad(idTex, c, 0u)'
+            : 'textureLoad(idTex, c, 0)';
 
         const shader = this._device.createShaderModule({
             code: `
@@ -89,8 +113,8 @@ struct Params {
   flags: vec4<u32>, // x=contactQuality y=seamQuality z=seamsEnabled w=reserved
 }
 
-@group(0) @binding(0) var depthTex: texture_depth_multisampled_2d;
-@group(0) @binding(1) var idTex: texture_multisampled_2d<f32>;
+${depthTexDecl}
+${idTexDecl}
 @group(0) @binding(2) var<uniform> params: Params;
 
 struct VsOut {
@@ -111,7 +135,7 @@ fn vs_main(@builtin(vertex_index) v: u32) -> VsOut {
 
 fn sampleDepthClamped(ip: vec2<i32>, dims: vec2<i32>) -> f32 {
   let c = vec2<i32>(clamp(ip.x, 0, dims.x - 1), clamp(ip.y, 0, dims.y - 1));
-  return textureLoad(depthTex, c, 0u);
+  return ${depthLoadExpr};
 }
 
 fn decodeId24(encoded: vec4<f32>) -> u32 {
@@ -123,7 +147,7 @@ fn decodeId24(encoded: vec4<f32>) -> u32 {
 
 fn sampleIdClamped(ip: vec2<i32>, dims: vec2<i32>) -> u32 {
   let c = vec2<i32>(clamp(ip.x, 0, dims.x - 1), clamp(ip.y, 0, dims.y - 1));
-  return decodeId24(textureLoad(idTex, c, 0u));
+  return decodeId24(${idLoadExpr});
 }
 
 @fragment
@@ -248,27 +272,28 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>) -> @location(0) vec4<f32> {
         const seamQualityFlag = options.separationQuality === 'high' ? 1 : 0;
         const contactRadiusPx = options.contactQuality === 'high' ? options.radius : options.radius * 0.5;
         const seamRadiusPx = options.separationQuality === 'high' ? options.separationRadius : 1.0;
-        const uniformBuffer = new ArrayBuffer(48);
-        const f32 = new Float32Array(uniformBuffer);
-        const u32 = new Uint32Array(uniformBuffer);
-        f32[0] = contactRadiusPx;
-        f32[1] = options.intensity;
-        f32[2] = seamRadiusPx;
-        f32[3] = options.separationIntensity;
-        u32[4] = contactQualityFlag;
-        u32[5] = seamQualityFlag;
-        u32[6] = options.enableSeparationLines ? 1 : 0;
-        u32[7] = 0;
-        this._device.queue.writeBuffer(this.uniformBuffer, 0, uniformBuffer);
+        this.uniformF32[0] = contactRadiusPx;
+        this.uniformF32[1] = options.intensity;
+        this.uniformF32[2] = seamRadiusPx;
+        this.uniformF32[3] = options.separationIntensity;
+        this.uniformU32[4] = contactQualityFlag;
+        this.uniformU32[5] = seamQualityFlag;
+        this.uniformU32[6] = options.enableSeparationLines ? 1 : 0;
+        this.uniformU32[7] = 0;
+        this._device.queue.writeBuffer(this.uniformBuffer, 0, this.uniformStaging);
 
-        const bindGroup = this._device.createBindGroup({
-            layout: this.bindGroupLayout,
-            entries: [
-                { binding: 0, resource: options.depthView },
-                { binding: 1, resource: options.objectIdView },
-                { binding: 2, resource: { buffer: this.uniformBuffer } },
-            ],
-        });
+        if (this.cachedDepthView !== options.depthView || this.cachedObjectIdView !== options.objectIdView || this.cachedBindGroup === null) {
+            this.cachedBindGroup = this._device.createBindGroup({
+                layout: this.bindGroupLayout,
+                entries: [
+                    { binding: 0, resource: options.depthView },
+                    { binding: 1, resource: options.objectIdView },
+                    { binding: 2, resource: { buffer: this.uniformBuffer } },
+                ],
+            });
+            this.cachedDepthView = options.depthView;
+            this.cachedObjectIdView = options.objectIdView;
+        }
 
         const pass = commandEncoder.beginRenderPass({
             colorAttachments: [{
@@ -278,7 +303,7 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>) -> @location(0) vec4<f32> {
             }],
         });
         pass.setPipeline(this.pipeline);
-        pass.setBindGroup(0, bindGroup);
+        pass.setBindGroup(0, this.cachedBindGroup);
         pass.draw(3, 1, 0, 0);
         pass.end();
     }

@@ -16,6 +16,9 @@ import type { MeshData } from '@ifc-lite/geometry';
 import type { InstancedGeometry } from '@ifc-lite/wasm';
 import type { Mesh, InstancedMesh } from './types.js';
 
+const MAX_ENCODED_ENTITY_ID = 0xFFFFFF;
+let warnedEntityIdRange = false;
+
 export class GeometryManager {
     private device: WebGPUDevice;
     private scene: Scene;
@@ -364,7 +367,9 @@ export class GeometryManager {
 
         const device = this.device.getDevice();
         const vertexCount = meshData.positions.length / 3;
-        const interleaved = new Float32Array(vertexCount * 7);
+        const interleavedRaw = new ArrayBuffer(vertexCount * 7 * 4);
+        const interleaved = new Float32Array(interleavedRaw);
+        const interleavedU32 = new Uint32Array(interleavedRaw);
 
         for (let i = 0; i < vertexCount; i++) {
             const base = i * 7;
@@ -375,7 +380,15 @@ export class GeometryManager {
             interleaved[base + 3] = meshData.normals[posBase];
             interleaved[base + 4] = meshData.normals[posBase + 1];
             interleaved[base + 5] = meshData.normals[posBase + 2];
-            interleaved[base + 6] = meshData.expressId;
+            let encodedId = meshData.expressId >>> 0;
+            if (encodedId > MAX_ENCODED_ENTITY_ID) {
+                if (!warnedEntityIdRange) {
+                    warnedEntityIdRange = true;
+                    console.warn('[Renderer] expressId exceeds 24-bit seam-ID encoding range; seam lines may collide.');
+                }
+                encodedId = encodedId & MAX_ENCODED_ENTITY_ID;
+            }
+            interleavedU32[base + 6] = encodedId;
         }
 
         const vertexBuffer = device.createBuffer({

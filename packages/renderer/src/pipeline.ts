@@ -108,7 +108,7 @@ export class RenderPipeline {
         struct VertexInput {
           @location(0) position: vec3<f32>,
           @location(1) normal: vec3<f32>,
-          @location(2) entityId: f32,
+          @location(2) entityId: u32,
         }
 
         struct VertexOutput {
@@ -126,7 +126,7 @@ export class RenderPipeline {
           output.position = uniforms.viewProj * worldPos;
           output.worldPos = worldPos.xyz;
           output.normal = normalize((uniforms.model * vec4<f32>(input.normal, 0.0)).xyz);
-          output.entityId = u32(max(input.entityId, 0.0) + 0.5);
+          output.entityId = input.entityId;
           // Store view-space position for edge detection
           output.viewPos = (uniforms.viewProj * worldPos).xyz;
           return output;
@@ -332,7 +332,7 @@ export class RenderPipeline {
                         attributes: [
                             { shaderLocation: 0, offset: 0, format: 'float32x3' }, // position
                             { shaderLocation: 1, offset: 12, format: 'float32x3' }, // normal
-                            { shaderLocation: 2, offset: 24, format: 'float32' }, // expressId
+                            { shaderLocation: 2, offset: 24, format: 'uint32' }, // expressId
                         ],
                     },
                 ],
@@ -371,7 +371,7 @@ export class RenderPipeline {
                         attributes: [
                             { shaderLocation: 0, offset: 0, format: 'float32x3' },
                             { shaderLocation: 1, offset: 12, format: 'float32x3' },
-                            { shaderLocation: 2, offset: 24, format: 'float32' },
+                            { shaderLocation: 2, offset: 24, format: 'uint32' },
                         ],
                     },
                 ],
@@ -412,7 +412,7 @@ export class RenderPipeline {
                         attributes: [
                             { shaderLocation: 0, offset: 0, format: 'float32x3' },
                             { shaderLocation: 1, offset: 12, format: 'float32x3' },
-                            { shaderLocation: 2, offset: 24, format: 'float32' },
+                            { shaderLocation: 2, offset: 24, format: 'uint32' },
                         ],
                     },
                 ],
@@ -466,7 +466,7 @@ export class RenderPipeline {
                         attributes: [
                             { shaderLocation: 0, offset: 0, format: 'float32x3' },
                             { shaderLocation: 1, offset: 12, format: 'float32x3' },
-                            { shaderLocation: 2, offset: 24, format: 'float32' },
+                            { shaderLocation: 2, offset: 24, format: 'uint32' },
                         ],
                     },
                 ],

@@ -11,6 +11,9 @@ import type { MeshData } from '@ifc-lite/geometry';
 import { MathUtils } from './math.js';
 import type { RenderPipeline } from './pipeline.js';
 
+const MAX_ENCODED_ENTITY_ID = 0xFFFFFF;
+let warnedEntityIdRange = false;
+
 interface BoundingBox {
   min: Vec3;
   max: Vec3;
@@ -487,7 +490,9 @@ export class Scene {
     }
 
     // Create merged buffers
-    const vertexData = new Float32Array(totalVertices * 7); // 7 floats per vertex (pos + normal + entityId)
+    const vertexBufferRaw = new ArrayBuffer(totalVertices * 7 * 4);
+    const vertexData = new Float32Array(vertexBufferRaw); // position + normal
+    const vertexDataU32 = new Uint32Array(vertexBufferRaw); // entityId lane
     const indices = new Uint32Array(totalIndices);
 
     let indexOffset = 0;
@@ -501,7 +506,14 @@ export class Scene {
       // Interleave vertex data (position + normal)
       // This loop is O(n) per mesh and unavoidable for interleaving
       let outIdx = vertexBase * 7;
-      const entityId = mesh.expressId;
+      let entityId = mesh.expressId >>> 0;
+      if (entityId > MAX_ENCODED_ENTITY_ID) {
+        if (!warnedEntityIdRange) {
+          warnedEntityIdRange = true;
+          console.warn('[Renderer] expressId exceeds 24-bit seam-ID encoding range; seam lines may collide.');
+        }
+        entityId = entityId & MAX_ENCODED_ENTITY_ID;
+      }
       for (let i = 0; i < vertexCount; i++) {
         const srcIdx = i * 3;
         vertexData[outIdx++] = positions[srcIdx];
@@ -510,7 +522,7 @@ export class Scene {
         vertexData[outIdx++] = normals[srcIdx];
         vertexData[outIdx++] = normals[srcIdx + 1];
         vertexData[outIdx++] = normals[srcIdx + 2];
-        vertexData[outIdx++] = entityId;
+        vertexDataU32[outIdx++] = entityId;
       }
 
       // Copy indices with vertex base offset
