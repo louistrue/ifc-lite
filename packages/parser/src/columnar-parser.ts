@@ -270,7 +270,6 @@ export class ColumnarParser {
                 const attrs = entity.attributes || [];
                 const globalId = typeof attrs[0] === 'string' ? attrs[0] : '';
                 const name = typeof attrs[2] === 'string' ? attrs[2] : '';
-                console.debug(`[ColumnarParser] Spatial #${ref.expressId} ${ref.type}: name=${JSON.stringify(name)}, globalId=${globalId.slice(0, 8)}…`);
                 parsedEntityData.set(ref.expressId, { globalId, name });
             } else {
                 console.warn(`[ColumnarParser] Failed to extract spatial entity #${ref.expressId} (${ref.type})`);
