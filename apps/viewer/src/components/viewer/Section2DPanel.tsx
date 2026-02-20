@@ -52,6 +52,8 @@ export function Section2DPanel({
   // ═══════════════════════════════════════════════════════════════════════════
   const panelVisible = useViewerStore((s) => s.drawing2DPanelVisible);
   const setDrawingPanelVisible = useViewerStore((s) => s.setDrawing2DPanelVisible);
+  const suppressNextSection2DPanelAutoOpen = useViewerStore((s) => s.suppressNextSection2DPanelAutoOpen);
+  const setSuppressNextSection2DPanelAutoOpen = useViewerStore((s) => s.setSuppressNextSection2DPanelAutoOpen);
   const drawing = useViewerStore((s) => s.drawing2D);
   const setDrawing = useViewerStore((s) => s.setDrawing2D);
   const status = useViewerStore((s) => s.drawing2DStatus);
@@ -148,10 +150,15 @@ export function Section2DPanel({
   useEffect(() => {
     // Section tool was just activated
     if (activeTool === 'section' && prevActiveToolRef.current !== 'section' && geometryResult?.meshes) {
+      if (suppressNextSection2DPanelAutoOpen) {
+        setSuppressNextSection2DPanelAutoOpen(false);
+        prevActiveToolRef.current = activeTool;
+        return;
+      }
       setDrawingPanelVisible(true);
     }
     prevActiveToolRef.current = activeTool;
-  }, [activeTool, geometryResult, setDrawingPanelVisible]);
+  }, [activeTool, geometryResult, setDrawingPanelVisible, suppressNextSection2DPanelAutoOpen, setSuppressNextSection2DPanelAutoOpen]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // LOCAL STATE

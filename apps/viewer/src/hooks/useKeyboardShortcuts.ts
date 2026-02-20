@@ -7,19 +7,18 @@
  */
 
 import { useEffect, useCallback } from 'react';
-import { useViewerStore, stringToEntityRef } from '@/store';
-import type { EntityRef } from '@/store';
+import { useViewerStore } from '@/store';
+import { resetVisibilityForHomeFromStore } from '@/store/homeView';
+import {
+  executeBasketIsolate,
+  executeBasketSet,
+  executeBasketAdd,
+  executeBasketRemove,
+  executeBasketSaveView,
+} from '@/store/basket/basketCommands';
 
 interface KeyboardShortcutsOptions {
   enabled?: boolean;
-}
-
-/** Clear multi-select state so subsequent operations use single-entity selectedEntity */
-function clearMultiSelect(): void {
-  const state = useViewerStore.getState();
-  if (state.selectedEntitiesSet.size > 0) {
-    useViewerStore.setState({ selectedEntitiesSet: new Set(), selectedEntityIds: new Set() });
-  }
 }
 
 /** Get all selected global IDs — multi-select if available, else single selectedEntityId */
@@ -34,22 +33,6 @@ function getAllSelectedGlobalIds(): number[] {
   return [];
 }
 
-/** Get current selection as EntityRef[] — multi-select if available, else single */
-function getSelectionRefsFromStore(): EntityRef[] {
-  const state = useViewerStore.getState();
-  if (state.selectedEntitiesSet.size > 0) {
-    const refs: EntityRef[] = [];
-    for (const str of state.selectedEntitiesSet) {
-      refs.push(stringToEntityRef(str));
-    }
-    return refs;
-  }
-  if (state.selectedEntity) {
-    return [state.selectedEntity];
-  }
-  return [];
-}
-
 export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
   const { enabled = true } = options;
 
@@ -58,16 +41,8 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
   const activeTool = useViewerStore((s) => s.activeTool);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
   const hideEntities = useViewerStore((s) => s.hideEntities);
-  const showAll = useViewerStore((s) => s.showAll);
-  const clearStoreySelection = useViewerStore((s) => s.clearStoreySelection);
   const toggleTheme = useViewerStore((s) => s.toggleTheme);
-
-  // Basket actions
-  const setBasket = useViewerStore((s) => s.setBasket);
-  const addToBasket = useViewerStore((s) => s.addToBasket);
-  const removeFromBasket = useViewerStore((s) => s.removeFromBasket);
-  const clearBasket = useViewerStore((s) => s.clearBasket);
-  const showPinboard = useViewerStore((s) => s.showPinboard);
+  const toggleBasketPresentationVisible = useViewerStore((s) => s.toggleBasketPresentationVisible);
 
   // Measure tool specific actions
   const activeMeasurement = useViewerStore((s) => s.activeMeasurement);
@@ -117,45 +92,45 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       setActiveTool('section');
     }
 
-    // Basket / Visibility controls
-    // I = Set basket (isolate selection as basket), or re-apply basket if no selection
+    // Basket controls (automatic context source)
+    // I = Isolate from current context
     if (key === 'i' && !ctrl && !shift) {
-      const state = useViewerStore.getState();
-      // If basket already exists and user hasn't explicitly multi-selected,
-      // re-apply the basket instead of replacing it with a stale single selection.
-      if (state.pinboardEntities.size > 0 && state.selectedEntitiesSet.size === 0) {
-        e.preventDefault();
-        showPinboard();
-      } else {
-        const refs = getSelectionRefsFromStore();
-        if (refs.length > 0) {
-          e.preventDefault();
-          setBasket(refs);
-          // Consume multi-select so subsequent − removes a single entity
-          clearMultiSelect();
-        }
-      }
+      e.preventDefault();
+      executeBasketIsolate();
     }
 
-    // + or = (with shift) = Add to basket
+    // = Set basket from active context
+    if (e.key === '=' && !ctrl && !shift) {
+      e.preventDefault();
+      executeBasketSet();
+    }
+
+    // + Add active context to basket
     if ((e.key === '+' || (e.key === '=' && shift)) && !ctrl) {
       e.preventDefault();
-      const refs = getSelectionRefsFromStore();
-      if (refs.length > 0) {
-        addToBasket(refs);
-        // Consume multi-select so subsequent − removes a single entity
-        clearMultiSelect();
-      }
+      executeBasketAdd();
     }
 
-    // - or _ = Remove from basket
+    // - Remove active context from basket
     if ((e.key === '-' || e.key === '_') && !ctrl) {
       e.preventDefault();
-      const refs = getSelectionRefsFromStore();
-      if (refs.length > 0) {
-        removeFromBasket(refs);
-        // Consume multi-select after removal
-        clearMultiSelect();
+      executeBasketRemove();
+    }
+
+    // D Toggle basket presentation dock
+    if (key === 'd' && !ctrl && !shift) {
+      e.preventDefault();
+      toggleBasketPresentationVisible();
+    }
+
+    // B Save current basket as presentation view with thumbnail
+    if (key === 'b' && !ctrl && !shift) {
+      const state = useViewerStore.getState();
+      if (state.pinboardEntities.size > 0) {
+        e.preventDefault();
+        executeBasketSaveView().catch((err) => {
+          console.error('[useKeyboardShortcuts] Failed to save basket view:', err);
+        });
       }
     }
 
@@ -163,7 +138,6 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       e.preventDefault();
       const ids = getAllSelectedGlobalIds();
       hideEntities(ids);
-      clearMultiSelect();
     }
     // Space to hide — skip when focused on buttons/selects/links where Space has native behavior
     if (key === ' ' && !ctrl && !shift && selectedEntityId) {
@@ -172,13 +146,11 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
         e.preventDefault();
         const ids = getAllSelectedGlobalIds();
         hideEntities(ids);
-        clearMultiSelect();
       }
     }
     if (key === 'a' && !ctrl && !shift) {
       e.preventDefault();
-      showAll();             // Clear hiddenEntities + isolatedEntities (basket preserved)
-      clearStoreySelection(); // Also clear storey filtering
+      resetVisibilityForHomeFromStore();
     }
 
     // Measure tool shortcuts
@@ -213,9 +185,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
     if (key === 'escape') {
       e.preventDefault();
       setSelectedEntityId(null);
-      clearBasket();
-      showAll();
-      clearStoreySelection(); // Also clear storey filtering
+      resetVisibilityForHomeFromStore();
       setActiveTool('select');
     }
 
@@ -232,15 +202,9 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
     setSelectedEntityId,
     activeTool,
     setActiveTool,
-    setBasket,
-    addToBasket,
-    removeFromBasket,
-    clearBasket,
-    showPinboard,
     hideEntities,
-    showAll,
-    clearStoreySelection,
     toggleTheme,
+    toggleBasketPresentationVisible,
     activeMeasurement,
     cancelMeasurement,
     clearMeasurements,
@@ -268,12 +232,15 @@ export const KEYBOARD_SHORTCUTS = [
   { key: 'S', description: 'Toggle snapping (Measure tool)', category: 'Tools' },
   { key: 'Esc', description: 'Cancel measurement (Measure tool)', category: 'Tools' },
   { key: 'Ctrl+C', description: 'Clear measurements (Measure tool)', category: 'Tools' },
-  { key: 'I', description: 'Set basket (isolate selection)', category: 'Visibility' },
-  { key: '+', description: 'Add selection to basket', category: 'Visibility' },
-  { key: '−', description: 'Remove selection from basket', category: 'Visibility' },
+  { key: 'I', description: 'Isolate (set basket from current context)', category: 'Visibility' },
+  { key: '=', description: 'Set basket from current context', category: 'Visibility' },
+  { key: '+', description: 'Add current context to basket', category: 'Visibility' },
+  { key: '−', description: 'Remove current context from basket', category: 'Visibility' },
+  { key: 'D', description: 'Toggle basket presentation dock', category: 'Visibility' },
+  { key: 'B', description: 'Save basket as presentation view', category: 'Visibility' },
   { key: 'Del / Space', description: 'Hide selection', category: 'Visibility' },
-  { key: 'A', description: 'Show all (clear filters, keep basket)', category: 'Visibility' },
-  { key: 'H', description: 'Home (Isometric view)', category: 'Camera' },
+  { key: 'A', description: 'Show all (clear filters and basket)', category: 'Visibility' },
+  { key: 'H', description: 'Home (isometric + reset visibility)', category: 'Camera' },
   { key: 'Z', description: 'Fit all (zoom extents)', category: 'Camera' },
   { key: 'F', description: 'Frame selection', category: 'Camera' },
   { key: '1-6', description: 'Preset views', category: 'Camera' },

@@ -34,11 +34,11 @@ import {
   SquareX,
   Building2,
   Plus,
-  Minus,
   MessageSquare,
   ClipboardCheck,
   Palette,
   Orbit,
+  LayoutTemplate,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -55,8 +55,9 @@ import {
   DropdownMenuSubContent,
 } from '@/components/ui/dropdown-menu';
 import { Progress } from '@/components/ui/progress';
-import { useViewerStore, isIfcxDataStore, stringToEntityRef } from '@/store';
-import type { EntityRef } from '@/store';
+import { useViewerStore, isIfcxDataStore } from '@/store';
+import { goHomeFromStore, resetVisibilityForHomeFromStore } from '@/store/homeView';
+import { executeBasketIsolate } from '@/store/basket/basketCommands';
 import { useIfc } from '@/hooks/useIfc';
 import { cn } from '@/lib/utils';
 import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
@@ -169,8 +170,6 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const toggleTheme = useViewerStore((state) => state.toggleTheme);
   const selectedEntityId = useViewerStore((state) => state.selectedEntityId);
   const hideEntities = useViewerStore((state) => state.hideEntities);
-  const showAll = useViewerStore((state) => state.showAll);
-  const clearStoreySelection = useViewerStore((state) => state.clearStoreySelection);
   const error = useViewerStore((state) => state.error);
   const cameraCallbacks = useViewerStore((state) => state.cameraCallbacks);
   const hoverTooltipsEnabled = useViewerStore((state) => state.hoverTooltipsEnabled);
@@ -189,14 +188,11 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const setRightPanelCollapsed = useViewerStore((state) => state.setRightPanelCollapsed);
   const projectionMode = useViewerStore((state) => state.projectionMode);
   const toggleProjectionMode = useViewerStore((state) => state.toggleProjectionMode);
-  // Basket state (= + − isolation basket)
+  // Basket presentation state
   const pinboardEntities = useViewerStore((state) => state.pinboardEntities);
-  const setBasket = useViewerStore((state) => state.setBasket);
-  const addToBasket = useViewerStore((state) => state.addToBasket);
-  const removeFromBasket = useViewerStore((state) => state.removeFromBasket);
-  const clearBasket = useViewerStore((state) => state.clearBasket);
-  // NOTE: selectedEntity and selectedEntitiesSet accessed via getState() in callbacks
-  // to avoid re-rendering MainToolbar on every Cmd+Click selection change.
+  const basketViewCount = useViewerStore((state) => state.basketViews.length);
+  const basketPresentationVisible = useViewerStore((state) => state.basketPresentationVisible);
+  const toggleBasketPresentationVisible = useViewerStore((state) => state.toggleBasketPresentationVisible);
   // Lens state
   const lensPanelVisible = useViewerStore((state) => state.lensPanelVisible);
   const toggleLensPanel = useViewerStore((state) => state.toggleLensPanel);
@@ -306,67 +302,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     e.target.value = '';
   }, [loadFilesSequentially, addIfcxOverlays, ifcDataStore]);
 
-  /** Get current selection as EntityRef[] — uses getState() to avoid reactive subscriptions */
-  const getSelectionRefs = useCallback((): EntityRef[] => {
-    const state = useViewerStore.getState();
-    if (state.selectedEntitiesSet.size > 0) {
-      const refs: EntityRef[] = [];
-      for (const str of state.selectedEntitiesSet) {
-        refs.push(stringToEntityRef(str));
-      }
-      return refs;
-    }
-    if (state.selectedEntity) {
-      return [state.selectedEntity];
-    }
-    return [];
-  }, []);
-
   const hasSelection = selectedEntityId !== null;
-
-  // Basket state
-  const showPinboard = useViewerStore((state) => state.showPinboard);
-
-  // Clear multi-select state after basket operations so subsequent − targets a single entity
-  const clearMultiSelect = useCallback(() => {
-    const state = useViewerStore.getState();
-    if (state.selectedEntitiesSet.size > 0) {
-      useViewerStore.setState({ selectedEntitiesSet: new Set(), selectedEntityIds: new Set() });
-    }
-  }, []);
-
-  // Basket operations
-  const handleSetBasket = useCallback(() => {
-    const state = useViewerStore.getState();
-    // If basket already exists and user hasn't explicitly multi-selected,
-    // re-apply the basket instead of replacing it with a stale single selection.
-    // Only an explicit multi-selection (Ctrl+Click) should replace an existing basket.
-    if (state.pinboardEntities.size > 0 && state.selectedEntitiesSet.size === 0) {
-      showPinboard();
-      return;
-    }
-    const refs = getSelectionRefs();
-    if (refs.length > 0) {
-      setBasket(refs);
-      clearMultiSelect();
-    }
-  }, [getSelectionRefs, setBasket, showPinboard, clearMultiSelect]);
-
-  const handleAddToBasket = useCallback(() => {
-    const refs = getSelectionRefs();
-    if (refs.length > 0) {
-      addToBasket(refs);
-      clearMultiSelect();
-    }
-  }, [getSelectionRefs, addToBasket, clearMultiSelect]);
-
-  const handleRemoveFromBasket = useCallback(() => {
-    const refs = getSelectionRefs();
-    if (refs.length > 0) {
-      removeFromBasket(refs);
-      clearMultiSelect();
-    }
-  }, [getSelectionRefs, removeFromBasket, clearMultiSelect]);
 
   const clearSelection = useViewerStore((state) => state.clearSelection);
 
@@ -383,9 +319,16 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   }, [selectedEntityId, hideEntities, clearSelection]);
 
   const handleShowAll = useCallback(() => {
-    showAll();     // Clear hiddenEntities + isolatedEntities (basket contents preserved)
-    clearStoreySelection(); // Also clear storey filtering
-  }, [showAll, clearStoreySelection]);
+    resetVisibilityForHomeFromStore();
+  }, []);
+
+  const handleIsolate = useCallback(() => {
+    executeBasketIsolate();
+  }, []);
+
+  const handleHome = useCallback(() => {
+    goHomeFromStore();
+  }, []);
 
   const handleExportGLB = useCallback(() => {
     if (!geometryResult) return;
@@ -759,36 +702,35 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 
-      {/* ── Basket Isolation (= + −) ── */}
+      {/* ── Basket Presentation ── */}
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
-            variant={pinboardEntities.size > 0 ? 'default' : 'ghost'}
+            variant={basketPresentationVisible ? 'default' : 'ghost'}
             size="icon-sm"
             onClick={(e) => {
               (e.currentTarget as HTMLButtonElement).blur();
-              handleSetBasket();
+              toggleBasketPresentationVisible();
             }}
-            disabled={!hasSelection && pinboardEntities.size === 0}
+            disabled={models.size === 0 && !geometryResult}
             className={cn(
-              pinboardEntities.size > 0 && 'bg-primary text-primary-foreground relative',
+              (basketPresentationVisible || pinboardEntities.size > 0) && 'relative',
             )}
           >
-            <Equal className="h-4 w-4" />
-            {pinboardEntities.size > 0 && (
+            <LayoutTemplate className="h-4 w-4" />
+            {(basketViewCount > 0 || pinboardEntities.size > 0) && (
               <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[9px] font-bold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5 border border-background">
-                {pinboardEntities.size}
+                {basketViewCount > 0 ? `${basketViewCount}/${pinboardEntities.size}` : pinboardEntities.size}
               </span>
             )}
           </Button>
         </TooltipTrigger>
         <TooltipContent>
-          Set Basket — isolate selection <span className="ml-2 text-xs opacity-60">(I)</span>
+          Basket Presentation Dock (Views: {basketViewCount}, Entities: {pinboardEntities.size})
         </TooltipContent>
       </Tooltip>
-      <ActionButton icon={Plus} label="Add to Basket" onClick={handleAddToBasket} shortcut="+" disabled={!hasSelection} />
-      <ActionButton icon={Minus} label="Remove from Basket" onClick={handleRemoveFromBasket} shortcut="−" disabled={!hasSelection} />
 
+      <ActionButton icon={Equal} label="Isolate (Set Basket)" onClick={handleIsolate} shortcut="I / =" />
       <ActionButton icon={EyeOff} label="Hide Selection" onClick={handleHide} shortcut="Del / Space" disabled={!hasSelection} />
       <ActionButton icon={Eye} label="Show All (Reset Filters)" onClick={handleShowAll} shortcut="A" />
       <ActionButton icon={Maximize2} label="Fit All" onClick={() => cameraCallbacks.fitAll?.()} shortcut="Z" />
@@ -869,7 +811,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       <Separator orientation="vertical" className="h-6 mx-1" />
 
       {/* ── Camera & View ── */}
-      <ActionButton icon={Home} label="Home (Isometric)" onClick={() => cameraCallbacks.home?.()} shortcut="H" />
+      <ActionButton icon={Home} label="Home (Isometric + Reset Visibility)" onClick={handleHome} shortcut="H" />
 
       {/* Orthographic / Perspective toggle */}
       <Tooltip>
@@ -924,8 +866,8 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
           <TooltipContent>Preset Views</TooltipContent>
         </Tooltip>
         <DropdownMenuContent>
-          <DropdownMenuItem onClick={() => cameraCallbacks.home?.()}>
-            <Box className="h-4 w-4 mr-2" /> Isometric <span className="ml-auto text-xs opacity-60">0</span>
+          <DropdownMenuItem onClick={handleHome}>
+            <Box className="h-4 w-4 mr-2" /> Isometric <span className="ml-auto text-xs opacity-60">H</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => cameraCallbacks.setPresetView?.('top')}>
@@ -988,6 +930,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
         </TooltipTrigger>
         <TooltipContent>Info (?)</TooltipContent>
       </Tooltip>
+
     </div>
   );
 }

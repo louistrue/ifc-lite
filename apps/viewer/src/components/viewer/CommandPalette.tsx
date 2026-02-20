@@ -54,10 +54,19 @@ import {
   Orbit,
   FolderOpen,
   Clock,
+  Save,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useViewerStore, stringToEntityRef } from '@/store';
-import type { EntityRef } from '@/store';
+import { useViewerStore } from '@/store';
+import { goHomeFromStore, resetVisibilityForHomeFromStore } from '@/store/homeView';
+import {
+  executeBasketSet,
+  executeBasketAdd,
+  executeBasketRemove,
+  executeBasketToggleVisibility,
+  executeBasketSaveView,
+  executeBasketClear,
+} from '@/store/basket/basketCommands';
 import { useSandbox } from '@/hooks/useSandbox';
 import { SCRIPT_TEMPLATES } from '@/lib/scripts/templates';
 import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
@@ -172,22 +181,6 @@ function downloadBlob(data: BlobPart, name: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
-function getSelectionRefs(): EntityRef[] {
-  const s = useViewerStore.getState();
-  if (s.selectedEntitiesSet.size > 0) {
-    const refs: EntityRef[] = [];
-    for (const str of s.selectedEntitiesSet) refs.push(stringToEntityRef(str));
-    return refs;
-  }
-  return s.selectedEntity ? [s.selectedEntity] : [];
-}
-
-function clearMultiSelect() {
-  const s = useViewerStore.getState();
-  if (s.selectedEntitiesSet.size > 0)
-    useViewerStore.setState({ selectedEntitiesSet: new Set(), selectedEntityIds: new Set() });
-}
-
 /** Exclusively activate a right-panel content panel (BCF / IDS / Lens).
  *  Closes all others first so the if-else chain in ViewerLayout renders it.
  *  If the target is already active, closes it (back to Properties). */
@@ -294,7 +287,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     // ── View ──
     c.push(
       { id: 'view:home', label: 'Home', keywords: 'isometric reset camera', category: 'View', icon: Home, shortcut: 'H',
-        action: () => { useViewerStore.getState().cameraCallbacks.home?.(); } },
+        action: () => { goHomeFromStore(); } },
       { id: 'view:fit', label: 'Fit All', keywords: 'zoom extents entire model', category: 'View', icon: Maximize2, shortcut: 'Z',
         action: () => { useViewerStore.getState().cameraCallbacks.fitAll?.(); } },
       { id: 'view:frame', label: 'Frame Selection', keywords: 'zoom focus selected', category: 'View', icon: Crosshair, shortcut: 'F',
@@ -340,19 +333,23 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
           if (ids.length > 0) { s.hideEntities(ids); s.clearSelection(); }
         } },
       { id: 'vis:show', label: 'Show All', keywords: 'unhide reset visible', category: 'Visibility', icon: Eye, shortcut: 'A',
-        action: () => { const s = useViewerStore.getState(); s.showAll(); s.clearStoreySelection(); } },
-      { id: 'vis:isolate', label: 'Isolate Selection', keywords: 'basket set pinboard', category: 'Visibility', icon: Equal, shortcut: 'I',
-        action: () => {
-          const s = useViewerStore.getState();
-          if (s.pinboardEntities.size > 0 && s.selectedEntitiesSet.size === 0) { s.showPinboard(); }
-          else { const r = getSelectionRefs(); if (r.length > 0) { s.setBasket(r); clearMultiSelect(); } }
-        } },
-      { id: 'vis:add-iso', label: 'Add to Isolation', keywords: 'basket plus', category: 'Visibility', icon: Plus, shortcut: '+',
-        action: () => { const r = getSelectionRefs(); if (r.length > 0) { useViewerStore.getState().addToBasket(r); clearMultiSelect(); } } },
-      { id: 'vis:remove-iso', label: 'Remove from Isolation', keywords: 'basket minus', category: 'Visibility', icon: Minus, shortcut: '−',
-        action: () => { const r = getSelectionRefs(); if (r.length > 0) { useViewerStore.getState().removeFromBasket(r); clearMultiSelect(); } } },
-      { id: 'vis:clear-iso', label: 'Clear Isolation', keywords: 'basket reset', category: 'Visibility', icon: RotateCcw,
-        action: () => { useViewerStore.getState().clearBasket(); } },
+        action: () => { resetVisibilityForHomeFromStore(); } },
+      { id: 'vis:set-iso', label: 'Isolate (Set Basket)', keywords: 'basket isolate set selection hierarchy view equals', category: 'Visibility', icon: Equal, shortcut: 'I',
+        action: () => executeBasketSet() },
+      { id: 'vis:add-iso', label: 'Add to Basket', keywords: 'basket plus selection hierarchy view', category: 'Visibility', icon: Plus, shortcut: '+',
+        action: () => executeBasketAdd() },
+      { id: 'vis:remove-iso', label: 'Remove from Basket', keywords: 'basket minus selection hierarchy view', category: 'Visibility', icon: Minus, shortcut: '−',
+        action: () => executeBasketRemove() },
+      { id: 'vis:toggle-iso', label: 'Toggle Basket Visibility', keywords: 'basket show hide', category: 'Visibility', icon: Eye,
+        action: () => executeBasketToggleVisibility() },
+      { id: 'vis:save-view', label: 'Save Basket as View', keywords: 'basket presentation thumbnail', category: 'Visibility', icon: Save,
+        action: () => executeBasketSaveView().catch((err) => {
+          console.error('[CommandPalette] Failed to save basket view:', err);
+        }) },
+      { id: 'vis:toggle-presentation', label: 'Toggle Basket Presentation Dock', keywords: 'basket panel carousel thumbnails', category: 'Visibility', icon: Layout,
+        action: () => { useViewerStore.getState().toggleBasketPresentationVisible(); } },
+      { id: 'vis:clear-iso', label: 'Clear Basket', keywords: 'basket clear reset', category: 'Visibility', icon: RotateCcw,
+        action: () => executeBasketClear() },
       { id: 'vis:spaces', label: 'Spaces', keywords: 'IfcSpace rooms show hide', category: 'Visibility', icon: Box,
         action: () => { useViewerStore.getState().toggleTypeVisibility('spaces'); } },
       { id: 'vis:openings', label: 'Openings', keywords: 'IfcOpeningElement show hide', category: 'Visibility', icon: SquareX,

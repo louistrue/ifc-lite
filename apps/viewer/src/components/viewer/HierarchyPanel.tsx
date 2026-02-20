@@ -36,6 +36,7 @@ export function HierarchyPanel() {
   } = useIfc();
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
+  const setSelectedEntityIds = useViewerStore((s) => s.setSelectedEntityIds);
   const setSelectedEntity = useViewerStore((s) => s.setSelectedEntity);
   const setSelectedEntities = useViewerStore((s) => s.setSelectedEntities);
   const setSelectedModelId = useViewerStore((s) => s.setSelectedModelId);
@@ -44,6 +45,7 @@ export function HierarchyPanel() {
   const setStoreysSelection = useViewerStore((s) => s.setStoreysSelection);
   const clearStoreySelection = useViewerStore((s) => s.clearStoreySelection);
   const isolateEntities = useViewerStore((s) => s.isolateEntities);
+  const setHierarchyBasketSelection = useViewerStore((s) => s.setHierarchyBasketSelection);
 
   const hiddenEntities = useViewerStore((s) => s.hiddenEntities);
   const hideEntities = useViewerStore((s) => s.hideEntities);
@@ -180,10 +182,26 @@ export function HierarchyPanel() {
       return;
     }
 
+    const hierarchyRefs: Array<{ modelId: string; expressId: number }> = [];
+    for (const globalId of getNodeElements(node)) {
+      const ref = resolveEntityRef(globalId);
+      if (ref) hierarchyRefs.push(ref);
+    }
+    if (hierarchyRefs.length > 0) {
+      setHierarchyBasketSelection(hierarchyRefs);
+    } else if (isSpatialContainer(node.type) && node.expressIds.length > 0) {
+      setHierarchyBasketSelection([{
+        modelId: node.modelIds[0] || 'legacy',
+        expressId: node.expressIds[0],
+      }]);
+    }
+
     // Type group nodes - click to isolate entities, expand via chevron only
     if (node.type === 'type-group') {
       const elements = getNodeElements(node);
       if (elements.length > 0) {
+        setSelectedEntityIds(elements);
+        setSelectedEntity(resolveEntityRef(elements[0]));
         isolateEntities(elements);
       }
       return;
@@ -284,7 +302,7 @@ export function HierarchyPanel() {
         setSelectedEntity(resolveEntityRef(elementId));
       }
     }
-  }, [selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntity, setSelectedEntities, setActiveModel, toggleExpand, unifiedStoreys, models, isolateEntities, getNodeElements]);
+  }, [selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntityIds, setSelectedEntity, setSelectedEntities, setActiveModel, toggleExpand, unifiedStoreys, models, isolateEntities, getNodeElements, setHierarchyBasketSelection]);
 
   // Compute selection and visibility state for a node
   const computeNodeState = useCallback((node: TreeNode): { isSelected: boolean; nodeHidden: boolean; modelVisible?: boolean } => {
