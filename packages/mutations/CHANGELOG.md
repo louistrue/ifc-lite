@@ -1,5 +1,13 @@
 # @ifc-lite/mutations
 
+## 1.10.0
+
+### Patch Changes
+
+- Updated dependencies [[`3823bd0`](https://github.com/louistrue/ifc-lite/commit/3823bd03bb0b5165d811cfd1ddfed671b8af97d8)]:
+  - @ifc-lite/data@1.10.0
+  - @ifc-lite/parser@1.10.0
+
 ## 1.9.0
 
 ### Patch Changes

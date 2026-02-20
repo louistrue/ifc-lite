@@ -1,6 +1,6 @@
 {
   "name": "create-ifc-lite",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "description": "Create IFC-Lite projects with one command",
   "type": "module",
   "bin": {

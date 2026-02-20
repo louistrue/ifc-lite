@@ -1,5 +1,29 @@
 # @ifc-lite/viewer
 
+## 1.10.0
+
+### Patch Changes
+
+- Updated dependencies [[`3823bd0`](https://github.com/louistrue/ifc-lite/commit/3823bd03bb0b5165d811cfd1ddfed671b8af97d8)]:
+  - @ifc-lite/renderer@1.10.0
+  - @ifc-lite/data@1.10.0
+  - @ifc-lite/parser@1.10.0
+  - @ifc-lite/wasm@1.10.0
+  - @ifc-lite/ids@1.10.0
+  - @ifc-lite/lists@1.10.0
+  - @ifc-lite/bcf@1.10.0
+  - @ifc-lite/cache@1.10.0
+  - @ifc-lite/drawing-2d@1.10.0
+  - @ifc-lite/encoding@1.10.0
+  - @ifc-lite/export@1.10.0
+  - @ifc-lite/geometry@1.10.0
+  - @ifc-lite/lens@1.10.0
+  - @ifc-lite/mutations@1.10.0
+  - @ifc-lite/query@1.10.0
+  - @ifc-lite/sandbox@1.10.0
+  - @ifc-lite/server-client@1.10.0
+  - @ifc-lite/spatial@1.10.0
+
 ## 1.9.0
 
 ### Minor Changes
