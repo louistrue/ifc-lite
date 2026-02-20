@@ -135,6 +135,8 @@ Open http://localhost:5173 and load an IFC file.
 
 > **Note:** Requires Node.js 18+ and pnpm 8+. No Rust toolchain needed - WASM is pre-built.
 >
+> **Git LFS:** Test IFC fixtures are stored with Git LFS. Run `git lfs install && git lfs pull` after cloning.
+>
 > **Important:** The `pnpm build` step is required before running `pnpm dev` because the viewer depends on local packages that need to be compiled first.
 >
 > **📖 Full Guide**: See [Installation](docs/guide/installation.md) for detailed setup options including troubleshooting.
@@ -483,6 +485,7 @@ For contributing to IFClite itself:
 git clone https://github.com/louistrue/ifc-lite.git
 cd ifc-lite
 pnpm install
+git lfs install && git lfs pull
 
 pnpm dev          # Start viewer in dev mode
 pnpm build        # Build all packages

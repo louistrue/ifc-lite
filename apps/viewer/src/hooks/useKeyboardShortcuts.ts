@@ -14,7 +14,6 @@ import {
   executeBasketSet,
   executeBasketAdd,
   executeBasketRemove,
-  executeBasketClear,
   executeBasketSaveView,
 } from '@/store/basket/basketCommands';
 
@@ -118,12 +117,6 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       executeBasketRemove();
     }
 
-    // 0 Clear basket quickly
-    if (e.key === '0' && !ctrl && !shift) {
-      e.preventDefault();
-      executeBasketClear();
-    }
-
     // D Toggle basket presentation dock
     if (key === 'd' && !ctrl && !shift) {
       e.preventDefault();
@@ -135,7 +128,9 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       const state = useViewerStore.getState();
       if (state.pinboardEntities.size > 0) {
         e.preventDefault();
-        void executeBasketSaveView();
+        executeBasketSaveView().catch((err) => {
+          console.error('[useKeyboardShortcuts] Failed to save basket view:', err);
+        });
       }
     }
 
@@ -190,7 +185,6 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
     if (key === 'escape') {
       e.preventDefault();
       setSelectedEntityId(null);
-      executeBasketClear();
       resetVisibilityForHomeFromStore();
       setActiveTool('select');
     }
@@ -209,7 +203,6 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
     activeTool,
     setActiveTool,
     hideEntities,
-    resetVisibilityForHomeFromStore,
     toggleTheme,
     toggleBasketPresentationVisible,
     activeMeasurement,
@@ -243,7 +236,6 @@ export const KEYBOARD_SHORTCUTS = [
   { key: '=', description: 'Set basket from current context', category: 'Visibility' },
   { key: '+', description: 'Add current context to basket', category: 'Visibility' },
   { key: '−', description: 'Remove current context from basket', category: 'Visibility' },
-  { key: '0', description: 'Clear basket', category: 'Visibility' },
   { key: 'D', description: 'Toggle basket presentation dock', category: 'Visibility' },
   { key: 'B', description: 'Save basket as presentation view', category: 'Visibility' },
   { key: 'Del / Space', description: 'Hide selection', category: 'Visibility' },

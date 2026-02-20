@@ -4,6 +4,8 @@
 
 import { useViewerStore } from '../index.js';
 
+const DEFAULT_TRANSITION_MS = 700;
+
 /**
  * Coordinator for activating a saved basket view.
  * Owns camera + section + drawing side effects; delegates entity/isolation to pinboard.
@@ -19,11 +21,12 @@ export function activateBasketViewFromStore(viewId: string): void {
   state.setDrawing2DPanelVisible(false);
   state.updateDrawing2DDisplayOptions({ show3DOverlay: false });
 
-  state.clearEntitySelection?.();
+  state.clearEntitySelection();
   state.restoreBasketEntities(view.entityRefs, viewId);
 
   if (view.viewpoint) {
-    state.cameraCallbacks.applyViewpoint?.(view.viewpoint, true);
+    const transitionMs = view.transitionMs ?? DEFAULT_TRANSITION_MS;
+    state.cameraCallbacks.applyViewpoint?.(view.viewpoint, true, transitionMs);
   }
 
   if (view.section) {

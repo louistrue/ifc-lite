@@ -497,6 +497,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
           selectedId: selectedEntityIdRef.current,
           selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
+          visualEnhancement: visualEnhancementRef.current,
           sectionPlane: activeToolRef.current === 'section' ? {
             ...sectionPlaneRef.current,
             min: sectionRangeRef.current?.min,
@@ -583,7 +584,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
           projectionMode: camera.getProjectionMode(),
           orthoSize: camera.getProjectionMode() === 'orthographic' ? camera.getOrthoSize() : undefined,
         }),
-        applyViewpoint: (viewpoint, animate = true) => {
+        applyViewpoint: (viewpoint, animate = true, durationMs = 300) => {
           camera.setProjectionMode(viewpoint.projectionMode);
           useViewerStore.setState({ projectionMode: viewpoint.projectionMode });
           camera.setFOV(viewpoint.fov);
@@ -596,7 +597,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
           }
 
           if (animate) {
-            camera.animateToWithUp(viewpoint.position, viewpoint.target, viewpoint.up, 300);
+            camera.animateToWithUp(viewpoint.position, viewpoint.target, viewpoint.up, durationMs);
           } else {
             camera.setPosition(viewpoint.position.x, viewpoint.position.y, viewpoint.position.z);
             camera.setTarget(viewpoint.target.x, viewpoint.target.y, viewpoint.target.z);
@@ -617,36 +618,12 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         const w = alignToWebGPU(Math.max(1, Math.floor(rect.width)));
         const h = Math.max(1, Math.floor(rect.height));
         renderer.resize(w, h);
-        renderer.render({
-          hiddenIds: hiddenEntitiesRef.current,
-          isolatedIds: isolatedEntitiesRef.current,
-          selectedId: selectedEntityIdRef.current,
-          selectedModelIndex: selectedModelIndexRef.current,
-          clearColor: clearColorRef.current,
-          visualEnhancement: visualEnhancementRef.current,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
-            min: sectionRangeRef.current?.min,
-            max: sectionRangeRef.current?.max,
-          } : undefined,
-        });
+        renderCurrent();
       });
       resizeObserver.observe(canvas);
 
       // Initial render
-      renderer.render({
-        hiddenIds: hiddenEntitiesRef.current,
-        isolatedIds: isolatedEntitiesRef.current,
-        selectedId: selectedEntityIdRef.current,
-        selectedModelIndex: selectedModelIndexRef.current,
-        clearColor: clearColorRef.current,
-        visualEnhancement: visualEnhancementRef.current,
-        sectionPlane: activeToolRef.current === 'section' ? {
-          ...sectionPlaneRef.current,
-          min: sectionRangeRef.current?.min,
-          max: sectionRangeRef.current?.max,
-        } : undefined,
-      });
+      renderCurrent();
     });
 
     return () => {

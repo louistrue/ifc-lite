@@ -173,7 +173,7 @@ export interface CameraCallbacks {
   toggleProjectionMode?: () => void;
   getProjectionMode?: () => ProjectionMode;
   getViewpoint?: () => CameraViewpoint | null;
-  applyViewpoint?: (viewpoint: CameraViewpoint, animate?: boolean) => void;
+  applyViewpoint?: (viewpoint: CameraViewpoint, animate?: boolean, durationMs?: number) => void;
 }
 
 // ============================================================================

@@ -42,9 +42,9 @@ export function EntityContextMenu() {
 
   // Resolve contextMenu.entityId (globalId) to original expressId and model
   // This is needed because IfcDataStore uses original expressIds, not globalIds
-  const { resolvedExpressId, activeDataStore } = useMemo(() => {
+  const { resolvedExpressId, activeDataStore, contextEntityRef } = useMemo(() => {
     if (!contextMenu.entityId) {
-      return { resolvedExpressId: null, activeDataStore: ifcDataStore };
+      return { resolvedExpressId: null, activeDataStore: ifcDataStore, contextEntityRef: null };
     }
 
     // Single source of truth for globalId → EntityRef resolution
@@ -54,10 +54,15 @@ export function EntityContextMenu() {
       return {
         resolvedExpressId: ref.expressId,
         activeDataStore: model?.ifcDataStore ?? ifcDataStore,
+        contextEntityRef: ref,
       };
     }
 
-    return { resolvedExpressId: contextMenu.entityId, activeDataStore: ifcDataStore };
+    return {
+      resolvedExpressId: contextMenu.entityId,
+      activeDataStore: ifcDataStore,
+      contextEntityRef: null,
+    };
   }, [contextMenu.entityId, models, ifcDataStore]);
 
   // Close menu when clicking outside
@@ -96,8 +101,6 @@ export function EntityContextMenu() {
     closeContextMenu();
   }, [contextMenu.entityId, setSelectedEntityId, cameraCallbacks, closeContextMenu]);
 
-  const contextEntityRef = contextMenu.entityId !== null ? resolveEntityRef(contextMenu.entityId) : null;
-
   // Basket: = Set basket to this entity
   const handleSetBasket = useCallback(() => {
     executeBasketSet(contextEntityRef);
@@ -122,7 +125,9 @@ export function EntityContextMenu() {
       closeContextMenu();
       return;
     }
-    void executeBasketSaveView();
+    executeBasketSaveView().catch((err) => {
+      console.error('[EntityContextMenu] Failed to save basket view:', err);
+    });
     closeContextMenu();
   }, [closeContextMenu]);
 
@@ -136,7 +141,7 @@ export function EntityContextMenu() {
   const handleShowAll = useCallback(() => {
     resetVisibilityForHomeFromStore();
     closeContextMenu();
-  }, [resetVisibilityForHomeFromStore, closeContextMenu]);
+  }, [closeContextMenu]);
 
   const handleSelectSimilar = useCallback(() => {
     // Use resolvedExpressId (original ID) for IfcDataStore lookups

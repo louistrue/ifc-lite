@@ -11,9 +11,12 @@ import {
   EyeOff,
   Minus,
   Pencil,
+  Play,
   Plus,
   RotateCcw,
   Save,
+  Square,
+  Timer,
   Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -34,7 +37,10 @@ export function BasketPresentationDock() {
   const [savingThumbnail, setSavingThumbnail] = useState(false);
   const [editingViewId, setEditingViewId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
+  const [playingAll, setPlayingAll] = useState(false);
   const stripRef = useRef<HTMLDivElement>(null);
+  const stopPlayRef = useRef(false);
+  const loopPlayRef = useRef(false);
 
   const pinboardEntities = useViewerStore((s) => s.pinboardEntities);
   const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
@@ -48,6 +54,7 @@ export function BasketPresentationDock() {
 
   const removeBasketView = useViewerStore((s) => s.removeBasketView);
   const renameBasketView = useViewerStore((s) => s.renameBasketView);
+  const setBasketViewTransitionMs = useViewerStore((s) => s.setBasketViewTransitionMs);
 
   const basketIsVisible = useMemo(
     () => pinboardEntities.size > 0 && isolatedEntities !== null && isBasketIsolationActiveFromStore(),
@@ -95,6 +102,64 @@ export function BasketPresentationDock() {
   const scrollStrip = useCallback((delta: number) => {
     stripRef.current?.scrollBy({ left: delta, behavior: 'smooth' });
   }, []);
+
+  const toTransitionMs = useCallback((value: number | null | undefined) => {
+    if (!value || !Number.isFinite(value) || value <= 0) return 700;
+    return Math.max(150, Math.min(15000, Math.round(value)));
+  }, []);
+
+  const wait = useCallback((ms: number) => new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  }), []);
+
+  const stopPlayAll = useCallback(() => {
+    stopPlayRef.current = true;
+    loopPlayRef.current = false;
+    setPlayingAll(false);
+  }, []);
+
+  const startPlayAll = useCallback(async (loop = false) => {
+    if (playingAll || basketViews.length === 0) return;
+    stopPlayRef.current = false;
+    loopPlayRef.current = loop;
+    setPlayingAll(true);
+
+    try {
+      const orderedViews = [...basketViews];
+      do {
+        for (const view of orderedViews) {
+          if (stopPlayRef.current) break;
+          activateBasketViewFromStore(view.id);
+          const transitionMs = toTransitionMs(view.transitionMs);
+          await wait(transitionMs + 180);
+        }
+      } while (loopPlayRef.current && !stopPlayRef.current && orderedViews.length > 0);
+    } finally {
+      loopPlayRef.current = false;
+      setPlayingAll(false);
+    }
+  }, [basketViews, playingAll, toTransitionMs, wait]);
+
+  const setViewTransitionDuration = useCallback((viewId: string, currentTransitionMs: number | null) => {
+    const defaultSeconds = currentTransitionMs && currentTransitionMs > 0
+      ? (currentTransitionMs / 1000).toFixed(1)
+      : '';
+    const input = window.prompt(
+      'Transition duration in seconds (optional). Leave empty for default smooth transition.',
+      defaultSeconds,
+    );
+    if (input === null) return;
+
+    const trimmed = input.trim();
+    if (!trimmed) {
+      setBasketViewTransitionMs(viewId, null);
+      return;
+    }
+
+    const seconds = Number(trimmed);
+    if (!Number.isFinite(seconds) || seconds <= 0) return;
+    setBasketViewTransitionMs(viewId, Math.round(seconds * 1000));
+  }, [setBasketViewTransitionMs]);
 
   if (!basketPresentationVisible) {
     return (
@@ -182,6 +247,16 @@ export function BasketPresentationDock() {
               title="Save current basket as presentation view"
             >
               <Save className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              variant={playingAll ? 'secondary' : 'outline'}
+              size="icon-sm"
+              onClick={playingAll ? stopPlayAll : (e) => { void startPlayAll(e.shiftKey); }}
+              disabled={basketViews.length === 0}
+              title={playingAll ? 'Stop playback' : 'Play all saved views (Shift+Click to loop)'}
+            >
+              {playingAll ? <Square className="h-4 w-4" /> : <Play className="h-4 w-4" />}
             </Button>
             <Button
               type="button"
@@ -276,7 +351,10 @@ export function BasketPresentationDock() {
                     ) : (
                       <>
                         <div className="text-[12px] font-medium truncate">{view.name}</div>
-                        <div className="text-[10px] opacity-80">{view.entityRefs.length} objects</div>
+                        <div className="text-[10px] opacity-80">
+                          {view.entityRefs.length} objects
+                          {view.transitionMs ? ` · ${(view.transitionMs / 1000).toFixed(1)}s` : ''}
+                        </div>
                       </>
                     )}
                   </div>
@@ -298,10 +376,24 @@ export function BasketPresentationDock() {
                     type="button"
                     variant="secondary"
                     size="icon-xs"
+                    className="absolute top-1 right-[3.25rem]"
+                    title="Set transition duration"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setViewTransitionDuration(view.id, view.transitionMs);
+                    }}
+                  >
+                    <Timer className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="icon-xs"
                     className="absolute top-1 right-1"
                     title="Delete view"
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (playingAll) stopPlayAll();
                       if (editingViewId === view.id) cancelRename();
                       removeBasketView(view.id);
                     }}

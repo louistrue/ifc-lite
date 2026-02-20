@@ -190,7 +190,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const toggleProjectionMode = useViewerStore((state) => state.toggleProjectionMode);
   // Basket presentation state
   const pinboardEntities = useViewerStore((state) => state.pinboardEntities);
-  const basketViews = useViewerStore((state) => state.basketViews);
+  const basketViewCount = useViewerStore((state) => state.basketViews.length);
   const basketPresentationVisible = useViewerStore((state) => state.basketPresentationVisible);
   const toggleBasketPresentationVisible = useViewerStore((state) => state.toggleBasketPresentationVisible);
   // Lens state
@@ -718,15 +718,15 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
             )}
           >
             <LayoutTemplate className="h-4 w-4" />
-            {(basketViews.length > 0 || pinboardEntities.size > 0) && (
+            {(basketViewCount > 0 || pinboardEntities.size > 0) && (
               <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[9px] font-bold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5 border border-background">
-                {basketViews.length > 0 ? basketViews.length : pinboardEntities.size}
+                {basketViewCount > 0 ? `${basketViewCount}/${pinboardEntities.size}` : pinboardEntities.size}
               </span>
             )}
           </Button>
         </TooltipTrigger>
         <TooltipContent>
-          Basket Presentation Dock
+          Basket Presentation Dock (Views: {basketViewCount}, Entities: {pinboardEntities.size})
         </TooltipContent>
       </Tooltip>
 
@@ -867,7 +867,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
         </Tooltip>
         <DropdownMenuContent>
           <DropdownMenuItem onClick={handleHome}>
-            <Box className="h-4 w-4 mr-2" /> Isometric <span className="ml-auto text-xs opacity-60">0</span>
+            <Box className="h-4 w-4 mr-2" /> Isometric <span className="ml-auto text-xs opacity-60">H</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => cameraCallbacks.setPresetView?.('top')}>

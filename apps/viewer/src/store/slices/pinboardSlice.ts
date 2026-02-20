@@ -35,6 +35,8 @@ export interface BasketView {
   name: string;
   entityRefs: string[];
   thumbnailDataUrl: string | null;
+  /** Optional camera transition override for this view (ms). */
+  transitionMs: number | null;
   viewpoint: CameraViewpoint | null;
   section: BasketSectionSnapshot | null;
   source: BasketSource;
@@ -45,6 +47,7 @@ export interface BasketView {
 export interface SaveBasketViewOptions {
   name?: string;
   thumbnailDataUrl?: string | null;
+  transitionMs?: number | null;
   source?: BasketSource;
   viewpoint?: CameraViewpoint | null;
   section?: BasketSectionSnapshot | null;
@@ -126,6 +129,8 @@ export interface PinboardSlice {
   renameBasketView: (viewId: string, name: string) => void;
   /** Refresh thumbnail and viewpoint capture for a saved basket view */
   refreshBasketViewThumbnail: (viewId: string, thumbnailDataUrl: string | null, viewpoint?: CameraViewpoint | null) => void;
+  /** Set optional transition duration for a saved basket view (ms). */
+  setBasketViewTransitionMs: (viewId: string, transitionMs: number | null) => void;
 }
 
 /** Convert basket EntityRefs to global IDs using model offsets */
@@ -386,6 +391,7 @@ export const createPinboardSlice: StateCreator<
       name: options?.name?.trim() || createNextViewName(state.basketViews),
       entityRefs: Array.from(state.pinboardEntities),
       thumbnailDataUrl: options?.thumbnailDataUrl ?? null,
+      transitionMs: options?.transitionMs ?? null,
       viewpoint: options?.viewpoint ?? state.cameraCallbacks.getViewpoint?.() ?? null,
       section: options?.section ?? captureSectionSnapshot(state),
       source: options?.source ?? 'manual',
@@ -455,5 +461,13 @@ export const createPinboardSlice: StateCreator<
         ),
       };
     });
+  },
+
+  setBasketViewTransitionMs: (viewId, transitionMs) => {
+    set((state) => ({
+      basketViews: state.basketViews.map((view) =>
+        view.id === viewId ? { ...view, transitionMs, updatedAt: Date.now() } : view,
+      ),
+    }));
   },
 });

@@ -8,18 +8,14 @@ export function resetVisibilityForHomeFromStore(): void {
   const state = useViewerStore.getState();
   state.showAllInAllModels();
   state.clearStoreySelection();
-  state.clearHierarchyBasketSelection?.();
-  state.clearEntitySelection?.();
-  state.clearBasket?.();
+  state.clearHierarchyBasketSelection();
+  state.clearEntitySelection();
+  state.clearBasket();
   useViewerStore.setState({ activeBasketViewId: null });
 }
 
 export function goHomeFromStore(): void {
+  resetVisibilityForHomeFromStore();
   const state = useViewerStore.getState();
-  state.showAllInAllModels();
-  state.clearStoreySelection();
-  state.clearHierarchyBasketSelection?.();
-  state.clearEntitySelection?.();
-  useViewerStore.setState({ activeBasketViewId: null });
   state.cameraCallbacks.home?.();
 }

@@ -3,6 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import { useViewerStore } from './index.js';
+import { getGlobalRenderer } from '../hooks/useBCF.js';
 
 type BasketViewSource = 'selection' | 'visible' | 'hierarchy' | 'manual';
 
@@ -52,23 +53,40 @@ async function captureCanvasThumbnail(): Promise<string | null> {
   const src = document.querySelector('canvas[data-viewport="main"]') as HTMLCanvasElement | null;
   if (!src) return null;
 
+  // Ensure submitted GPU work is complete before sampling the canvas.
+  const renderer = getGlobalRenderer();
+  const device = renderer?.getGPUDevice();
+  if (device) {
+    await device.queue.onSubmittedWorkDone();
+  }
+
   await new Promise<void>((resolve) =>
     requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
   );
 
   try {
+    // Capture from the WebGPU canvas first (reliable), then downscale.
+    const fullFrameDataUrl = src.toDataURL('image/png');
+
     const thumb = document.createElement('canvas');
     thumb.width = 320;
     thumb.height = 180;
     const ctx = thumb.getContext('2d');
-    if (!ctx) return null;
+    if (!ctx) return fullFrameDataUrl;
 
     // Preserve viewport aspect ratio while filling thumbnail bounds (crop, no stretch).
     ctx.fillStyle = '#0f0f12';
     ctx.fillRect(0, 0, thumb.width, thumb.height);
 
-    const srcW = src.width || src.clientWidth;
-    const srcH = src.height || src.clientHeight;
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('Failed to decode snapshot image'));
+      img.src = fullFrameDataUrl;
+    });
+
+    const srcW = img.naturalWidth || src.width || src.clientWidth;
+    const srcH = img.naturalHeight || src.height || src.clientHeight;
     if (srcW <= 0 || srcH <= 0) return null;
 
     const scale = Math.max(thumb.width / srcW, thumb.height / srcH);
@@ -76,7 +94,7 @@ async function captureCanvasThumbnail(): Promise<string | null> {
     const drawH = Math.round(srcH * scale);
     const offsetX = Math.floor((thumb.width - drawW) / 2);
     const offsetY = Math.floor((thumb.height - drawH) / 2);
-    ctx.drawImage(src, offsetX, offsetY, drawW, drawH);
+    ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
     return thumb.toDataURL('image/jpeg', 0.75);
   } catch {
     return null;

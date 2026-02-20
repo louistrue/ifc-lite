@@ -343,10 +343,12 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       { id: 'vis:toggle-iso', label: 'Toggle Basket Visibility', keywords: 'basket show hide', category: 'Visibility', icon: Eye,
         action: () => executeBasketToggleVisibility() },
       { id: 'vis:save-view', label: 'Save Basket as View', keywords: 'basket presentation thumbnail', category: 'Visibility', icon: Save,
-        action: () => void executeBasketSaveView() },
+        action: () => executeBasketSaveView().catch((err) => {
+          console.error('[CommandPalette] Failed to save basket view:', err);
+        }) },
       { id: 'vis:toggle-presentation', label: 'Toggle Basket Presentation Dock', keywords: 'basket panel carousel thumbnails', category: 'Visibility', icon: Layout,
         action: () => { useViewerStore.getState().toggleBasketPresentationVisible(); } },
-      { id: 'vis:clear-iso', label: 'Clear Basket', keywords: 'basket clear reset', category: 'Visibility', icon: RotateCcw, shortcut: '0',
+      { id: 'vis:clear-iso', label: 'Clear Basket', keywords: 'basket clear reset', category: 'Visibility', icon: RotateCcw,
         action: () => executeBasketClear() },
       { id: 'vis:spaces', label: 'Spaces', keywords: 'IfcSpace rooms show hide', category: 'Visibility', icon: Box,
         action: () => { useViewerStore.getState().toggleTypeVisibility('spaces'); } },
