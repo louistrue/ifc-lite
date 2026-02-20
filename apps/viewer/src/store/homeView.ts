@@ -8,6 +8,10 @@ export function resetVisibilityForHomeFromStore(): void {
   const state = useViewerStore.getState();
   state.showAllInAllModels();
   state.clearStoreySelection();
+  state.clearHierarchyBasketSelection?.();
+  state.clearEntitySelection?.();
+  state.clearBasket?.();
+  useViewerStore.setState({ activeBasketViewId: null });
 }
 
 export function goHomeFromStore(): void {

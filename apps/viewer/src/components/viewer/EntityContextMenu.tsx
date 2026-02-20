@@ -20,9 +20,13 @@ import {
   Save,
 } from 'lucide-react';
 import { useViewerStore, resolveEntityRef } from '@/store';
-import { saveBasketViewWithThumbnailFromStore } from '@/store/basketSave';
 import { resetVisibilityForHomeFromStore } from '@/store/homeView';
-import { getSmartBasketInputFromStore } from '@/store/basketVisibleSet';
+import {
+  executeBasketSet,
+  executeBasketAdd,
+  executeBasketRemove,
+  executeBasketSaveView,
+} from '@/store/basket/basketCommands';
 import { useIfc } from '@/hooks/useIfc';
 
 export function EntityContextMenu() {
@@ -33,10 +37,6 @@ export function EntityContextMenu() {
   const setSelectedEntityIds = useViewerStore((s) => s.setSelectedEntityIds);
   const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
   // Basket actions
-  const setBasket = useViewerStore((s) => s.setBasket);
-  const addToBasket = useViewerStore((s) => s.addToBasket);
-  const removeFromBasket = useViewerStore((s) => s.removeFromBasket);
-  const setBasketPresentationVisible = useViewerStore((s) => s.setBasketPresentationVisible);
   const menuRef = useRef<HTMLDivElement>(null);
   const { ifcDataStore, models } = useIfc();
 
@@ -96,40 +96,25 @@ export function EntityContextMenu() {
     closeContextMenu();
   }, [contextMenu.entityId, setSelectedEntityId, cameraCallbacks, closeContextMenu]);
 
-  const getBasketRefsFromSelectionOrContext = useCallback(() => {
-    const refs = getSmartBasketInputFromStore().refs;
-    if (refs.length > 0) return refs;
-    if (contextMenu.entityId === null) return refs;
-    const fallback = resolveEntityRef(contextMenu.entityId);
-    return fallback ? [fallback] : refs;
-  }, [contextMenu.entityId]);
+  const contextEntityRef = contextMenu.entityId !== null ? resolveEntityRef(contextMenu.entityId) : null;
 
   // Basket: = Set basket to this entity
   const handleSetBasket = useCallback(() => {
-    const refs = getBasketRefsFromSelectionOrContext();
-    if (refs.length > 0) {
-      setBasket(refs);
-    }
+    executeBasketSet(contextEntityRef);
     closeContextMenu();
-  }, [setBasket, closeContextMenu, getBasketRefsFromSelectionOrContext]);
+  }, [contextEntityRef, closeContextMenu]);
 
   // Basket: + Add to basket
   const handleAddToBasket = useCallback(() => {
-    const refs = getBasketRefsFromSelectionOrContext();
-    if (refs.length > 0) {
-      addToBasket(refs);
-    }
+    executeBasketAdd(contextEntityRef);
     closeContextMenu();
-  }, [addToBasket, closeContextMenu, getBasketRefsFromSelectionOrContext]);
+  }, [contextEntityRef, closeContextMenu]);
 
   // Basket: − Remove from basket
   const handleRemoveFromBasket = useCallback(() => {
-    const refs = getBasketRefsFromSelectionOrContext();
-    if (refs.length > 0) {
-      removeFromBasket(refs);
-    }
+    executeBasketRemove(contextEntityRef);
     closeContextMenu();
-  }, [removeFromBasket, closeContextMenu, getBasketRefsFromSelectionOrContext]);
+  }, [contextEntityRef, closeContextMenu]);
 
   const handleSaveBasketView = useCallback(() => {
     const state = useViewerStore.getState();
@@ -137,11 +122,9 @@ export function EntityContextMenu() {
       closeContextMenu();
       return;
     }
-
-    void saveBasketViewWithThumbnailFromStore('manual');
-    setBasketPresentationVisible(true);
+    void executeBasketSaveView();
     closeContextMenu();
-  }, [setBasketPresentationVisible, closeContextMenu]);
+  }, [closeContextMenu]);
 
   const handleHide = useCallback(() => {
     if (contextMenu.entityId) {

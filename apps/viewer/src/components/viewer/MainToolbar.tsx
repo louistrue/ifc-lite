@@ -57,7 +57,7 @@ import {
 import { Progress } from '@/components/ui/progress';
 import { useViewerStore, isIfcxDataStore } from '@/store';
 import { goHomeFromStore, resetVisibilityForHomeFromStore } from '@/store/homeView';
-import { getSmartBasketInputFromStore } from '@/store/basketVisibleSet';
+import { executeBasketIsolate } from '@/store/basket/basketCommands';
 import { useIfc } from '@/hooks/useIfc';
 import { cn } from '@/lib/utils';
 import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
@@ -190,8 +190,6 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const toggleProjectionMode = useViewerStore((state) => state.toggleProjectionMode);
   // Basket presentation state
   const pinboardEntities = useViewerStore((state) => state.pinboardEntities);
-  const setBasket = useViewerStore((state) => state.setBasket);
-  const showPinboard = useViewerStore((state) => state.showPinboard);
   const basketViews = useViewerStore((state) => state.basketViews);
   const basketPresentationVisible = useViewerStore((state) => state.basketPresentationVisible);
   const toggleBasketPresentationVisible = useViewerStore((state) => state.toggleBasketPresentationVisible);
@@ -325,15 +323,8 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   }, []);
 
   const handleIsolate = useCallback(() => {
-    const refs = getSmartBasketInputFromStore().refs;
-    if (refs.length > 0) {
-      setBasket(refs);
-      return;
-    }
-    if (pinboardEntities.size > 0) {
-      showPinboard();
-    }
-  }, [setBasket, pinboardEntities, showPinboard]);
+    executeBasketIsolate();
+  }, []);
 
   const handleHome = useCallback(() => {
     goHomeFromStore();

@@ -9,8 +9,14 @@
 import { useEffect, useCallback } from 'react';
 import { useViewerStore } from '@/store';
 import { resetVisibilityForHomeFromStore } from '@/store/homeView';
-import { saveBasketViewWithThumbnailFromStore } from '@/store/basketSave';
-import { getSmartBasketInputFromStore } from '@/store/basketVisibleSet';
+import {
+  executeBasketIsolate,
+  executeBasketSet,
+  executeBasketAdd,
+  executeBasketRemove,
+  executeBasketClear,
+  executeBasketSaveView,
+} from '@/store/basket/basketCommands';
 
 interface KeyboardShortcutsOptions {
   enabled?: boolean;
@@ -37,14 +43,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
   const hideEntities = useViewerStore((s) => s.hideEntities);
   const toggleTheme = useViewerStore((s) => s.toggleTheme);
-
-  // Basket actions
-  const setBasket = useViewerStore((s) => s.setBasket);
-  const addToBasket = useViewerStore((s) => s.addToBasket);
-  const removeFromBasket = useViewerStore((s) => s.removeFromBasket);
-  const clearBasket = useViewerStore((s) => s.clearBasket);
-  const showPinboard = useViewerStore((s) => s.showPinboard);
-  const setBasketPresentationVisible = useViewerStore((s) => s.setBasketPresentationVisible);
+  const toggleBasketPresentationVisible = useViewerStore((s) => s.toggleBasketPresentationVisible);
 
   // Measure tool specific actions
   const activeMeasurement = useViewerStore((s) => s.activeMeasurement);
@@ -98,45 +97,37 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
     // I = Isolate from current context
     if (key === 'i' && !ctrl && !shift) {
       e.preventDefault();
-      const refs = getSmartBasketInputFromStore().refs;
-      if (refs.length > 0) {
-        setBasket(refs);
-      } else if (useViewerStore.getState().pinboardEntities.size > 0) {
-        showPinboard();
-      }
+      executeBasketIsolate();
     }
 
     // = Set basket from active context
     if (e.key === '=' && !ctrl && !shift) {
       e.preventDefault();
-      const refs = getSmartBasketInputFromStore().refs;
-      if (refs.length > 0) {
-        setBasket(refs);
-      }
+      executeBasketSet();
     }
 
     // + Add active context to basket
     if ((e.key === '+' || (e.key === '=' && shift)) && !ctrl) {
       e.preventDefault();
-      const refs = getSmartBasketInputFromStore().refs;
-      if (refs.length > 0) {
-        addToBasket(refs);
-      }
+      executeBasketAdd();
     }
 
     // - Remove active context from basket
     if ((e.key === '-' || e.key === '_') && !ctrl) {
       e.preventDefault();
-      const refs = getSmartBasketInputFromStore().refs;
-      if (refs.length > 0) {
-        removeFromBasket(refs);
-      }
+      executeBasketRemove();
     }
 
     // 0 Clear basket quickly
     if (e.key === '0' && !ctrl && !shift) {
       e.preventDefault();
-      clearBasket();
+      executeBasketClear();
+    }
+
+    // D Toggle basket presentation dock
+    if (key === 'd' && !ctrl && !shift) {
+      e.preventDefault();
+      toggleBasketPresentationVisible();
     }
 
     // B Save current basket as presentation view with thumbnail
@@ -144,8 +135,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       const state = useViewerStore.getState();
       if (state.pinboardEntities.size > 0) {
         e.preventDefault();
-        void saveBasketViewWithThumbnailFromStore('manual');
-        setBasketPresentationVisible(true);
+        void executeBasketSaveView();
       }
     }
 
@@ -200,7 +190,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
     if (key === 'escape') {
       e.preventDefault();
       setSelectedEntityId(null);
-      clearBasket();
+      executeBasketClear();
       resetVisibilityForHomeFromStore();
       setActiveTool('select');
     }
@@ -218,15 +208,10 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
     setSelectedEntityId,
     activeTool,
     setActiveTool,
-    setBasket,
-    addToBasket,
-    removeFromBasket,
-    clearBasket,
-    showPinboard,
-    setBasketPresentationVisible,
     hideEntities,
     resetVisibilityForHomeFromStore,
     toggleTheme,
+    toggleBasketPresentationVisible,
     activeMeasurement,
     cancelMeasurement,
     clearMeasurements,
@@ -259,9 +244,10 @@ export const KEYBOARD_SHORTCUTS = [
   { key: '+', description: 'Add current context to basket', category: 'Visibility' },
   { key: '−', description: 'Remove current context from basket', category: 'Visibility' },
   { key: '0', description: 'Clear basket', category: 'Visibility' },
+  { key: 'D', description: 'Toggle basket presentation dock', category: 'Visibility' },
   { key: 'B', description: 'Save basket as presentation view', category: 'Visibility' },
   { key: 'Del / Space', description: 'Hide selection', category: 'Visibility' },
-  { key: 'A', description: 'Show all (clear filters, keep basket)', category: 'Visibility' },
+  { key: 'A', description: 'Show all (clear filters and basket)', category: 'Visibility' },
   { key: 'H', description: 'Home (isometric + reset visibility)', category: 'Camera' },
   { key: 'Z', description: 'Fit all (zoom extents)', category: 'Camera' },
   { key: 'F', description: 'Frame selection', category: 'Camera' },

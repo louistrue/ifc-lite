@@ -116,7 +116,9 @@ export interface PinboardSlice {
   toggleBasketPresentationVisible: () => void;
   /** Save current basket as a reusable view preset */
   saveCurrentBasketView: (options?: SaveBasketViewOptions) => string | null;
-  /** Restore a saved basket view into the live basket */
+  /** Restore basket entities and isolation only (no camera/section). Use activateBasketViewFromStore for full restore. */
+  restoreBasketEntities: (entityRefs: string[], viewId: string) => void;
+  /** Restore a saved basket view into the live basket (delegates to activateBasketViewFromStore) */
   activateBasketView: (viewId: string) => void;
   /** Remove a saved basket view */
   removeBasketView: (viewId: string) => void;
@@ -180,7 +182,9 @@ function captureSectionSnapshot(state: PinboardCrossSliceState): BasketSectionSn
 
   return {
     plane: { ...state.sectionPlane },
-    drawing2D: state.drawing2D,
+    // Basket views restore 3D section state only. 2D drawings are derived, mutable,
+    // and global in store state; persisting them per-view causes cross-view leakage.
+    drawing2D: null,
     show3DOverlay: state.drawing2DDisplayOptions.show3DOverlay,
     showHiddenLines: state.drawing2DDisplayOptions.showHiddenLines,
   };
@@ -196,7 +200,7 @@ export const createPinboardSlice: StateCreator<
   pinboardEntities: new Set(),
   basketViews: [],
   activeBasketViewId: null,
-  basketPresentationVisible: true,
+  basketPresentationVisible: false,
   hierarchyBasketSelection: new Set(),
 
   // Legacy actions (kept for backward compat, but now they also sync isolation)
@@ -396,14 +400,10 @@ export const createPinboardSlice: StateCreator<
     return id;
   },
 
-  activateBasketView: (viewId) => {
-    const state = get();
-    const view = state.basketViews.find((item) => item.id === viewId);
-    if (!view) return;
-    get().clearEntitySelection();
-
+  restoreBasketEntities: (entityRefs, viewId) => {
+    get().clearEntitySelection?.();
     set((current) => {
-      const nextPinboard = new Set<string>(view.entityRefs);
+      const nextPinboard = new Set<string>(entityRefs);
       if (nextPinboard.size === 0) {
         return { pinboardEntities: new Set(), isolatedEntities: null, activeBasketViewId: viewId };
       }
@@ -421,28 +421,12 @@ export const createPinboardSlice: StateCreator<
         activeBasketViewId: viewId,
       };
     });
+  },
 
-    if (view.viewpoint) {
-      get().cameraCallbacks.applyViewpoint?.(view.viewpoint, true);
-    }
-
-    if (view.section) {
-      const sectionSnapshot = view.section;
-      set({ sectionPlane: { ...sectionSnapshot.plane } });
-      get().setDrawing2D(sectionSnapshot.plane.enabled ? sectionSnapshot.drawing2D : null);
-      get().updateDrawing2DDisplayOptions({
-        show3DOverlay: sectionSnapshot.show3DOverlay,
-        showHiddenLines: sectionSnapshot.showHiddenLines,
-      });
-      if (sectionSnapshot.plane.enabled) {
-        get().setActiveTool('section');
-      }
-    } else {
-      set((current) => ({ sectionPlane: { ...current.sectionPlane, enabled: false } }));
-      if (get().activeTool === 'section') {
-        get().setActiveTool('select');
-      }
-    }
+  activateBasketView: (viewId) => {
+    void import('../basket/basketViewActivator.js').then(({ activateBasketViewFromStore }) => {
+      activateBasketViewFromStore(viewId);
+    });
   },
 
   removeBasketView: (viewId) => {

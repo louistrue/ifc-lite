@@ -797,6 +797,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   return (
     <canvas
       ref={canvasRef}
+      data-viewport="main"
       className="w-full h-full block"
     />
   );

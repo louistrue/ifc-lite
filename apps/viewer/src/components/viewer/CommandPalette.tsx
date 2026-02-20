@@ -59,11 +59,14 @@ import {
 import { cn } from '@/lib/utils';
 import { useViewerStore } from '@/store';
 import { goHomeFromStore, resetVisibilityForHomeFromStore } from '@/store/homeView';
-import { saveBasketViewWithThumbnailFromStore } from '@/store/basketSave';
 import {
-  getSmartBasketInputFromStore,
-  isBasketIsolationActiveFromStore,
-} from '@/store/basketVisibleSet';
+  executeBasketSet,
+  executeBasketAdd,
+  executeBasketRemove,
+  executeBasketToggleVisibility,
+  executeBasketSaveView,
+  executeBasketClear,
+} from '@/store/basket/basketCommands';
 import { useSandbox } from '@/hooks/useSandbox';
 import { SCRIPT_TEMPLATES } from '@/lib/scripts/templates';
 import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
@@ -176,10 +179,6 @@ function downloadBlob(data: BlobPart, name: string, mime: string) {
   const url = URL.createObjectURL(new Blob([data], { type: mime }));
   Object.assign(document.createElement('a'), { href: url, download: name }).click();
   URL.revokeObjectURL(url);
-}
-
-function getSmartBasketRefs() {
-  return getSmartBasketInputFromStore().refs;
 }
 
 /** Exclusively activate a right-panel content panel (BCF / IDS / Lens).
@@ -336,32 +335,19 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       { id: 'vis:show', label: 'Show All', keywords: 'unhide reset visible', category: 'Visibility', icon: Eye, shortcut: 'A',
         action: () => { resetVisibilityForHomeFromStore(); } },
       { id: 'vis:set-iso', label: 'Isolate (Set Basket)', keywords: 'basket isolate set selection hierarchy view equals', category: 'Visibility', icon: Equal, shortcut: 'I',
-        action: () => { const r = getSmartBasketRefs(); if (r.length > 0) { useViewerStore.getState().setBasket(r); } } },
+        action: () => executeBasketSet() },
       { id: 'vis:add-iso', label: 'Add to Basket', keywords: 'basket plus selection hierarchy view', category: 'Visibility', icon: Plus, shortcut: '+',
-        action: () => { const r = getSmartBasketRefs(); if (r.length > 0) { useViewerStore.getState().addToBasket(r); } } },
+        action: () => executeBasketAdd() },
       { id: 'vis:remove-iso', label: 'Remove from Basket', keywords: 'basket minus selection hierarchy view', category: 'Visibility', icon: Minus, shortcut: '−',
-        action: () => { const r = getSmartBasketRefs(); if (r.length > 0) { useViewerStore.getState().removeFromBasket(r); } } },
+        action: () => executeBasketRemove() },
       { id: 'vis:toggle-iso', label: 'Toggle Basket Visibility', keywords: 'basket show hide', category: 'Visibility', icon: Eye,
-        action: () => {
-          const s = useViewerStore.getState();
-          if (s.pinboardEntities.size === 0) return;
-          if (isBasketIsolationActiveFromStore()) {
-            s.clearIsolation();
-          } else {
-            s.showPinboard();
-          }
-        } },
+        action: () => executeBasketToggleVisibility() },
       { id: 'vis:save-view', label: 'Save Basket as View', keywords: 'basket presentation thumbnail', category: 'Visibility', icon: Save,
-        action: () => {
-          const s = useViewerStore.getState();
-          if (s.pinboardEntities.size === 0) return;
-          void saveBasketViewWithThumbnailFromStore('manual');
-          s.setBasketPresentationVisible(true);
-        } },
+        action: () => void executeBasketSaveView() },
       { id: 'vis:toggle-presentation', label: 'Toggle Basket Presentation Dock', keywords: 'basket panel carousel thumbnails', category: 'Visibility', icon: Layout,
         action: () => { useViewerStore.getState().toggleBasketPresentationVisible(); } },
       { id: 'vis:clear-iso', label: 'Clear Basket', keywords: 'basket clear reset', category: 'Visibility', icon: RotateCcw, shortcut: '0',
-        action: () => { useViewerStore.getState().clearBasket(); } },
+        action: () => executeBasketClear() },
       { id: 'vis:spaces', label: 'Spaces', keywords: 'IfcSpace rooms show hide', category: 'Visibility', icon: Box,
         action: () => { useViewerStore.getState().toggleTypeVisibility('spaces'); } },
       { id: 'vis:openings', label: 'Openings', keywords: 'IfcOpeningElement show hide', category: 'Visibility', icon: SquareX,

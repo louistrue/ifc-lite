@@ -31,6 +31,7 @@ import { createListSlice, type ListSlice } from './slices/listSlice.js';
 import { createPinboardSlice, type PinboardSlice } from './slices/pinboardSlice.js';
 import { createLensSlice, type LensSlice } from './slices/lensSlice.js';
 import { createScriptSlice, type ScriptSlice } from './slices/scriptSlice.js';
+import { invalidateVisibleBasketCache } from './basketVisibleSet.js';
 
 // Import constants for reset function
 import { CAMERA_DEFAULTS, SECTION_PLANE_DEFAULTS, UI_DEFAULTS, TYPE_VISIBILITY_DEFAULTS } from './constants.js';
@@ -122,6 +123,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
   // Reset all viewer state when loading new file
   // Note: Does NOT clear models - use clearAllModels() for that
   resetViewerState: () => {
+    invalidateVisibleBasketCache();
     const [set] = args;
     set({
       // Selection (legacy)
@@ -192,6 +194,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       drawing2DPhase: '',
       drawing2DError: null,
       drawing2DPanelVisible: false,
+      suppressNextSection2DPanelAutoOpen: false,
       drawing2DSvgContent: null,
       drawing2DDisplayOptions: {
         showHiddenLines: true,
@@ -258,7 +261,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       pinboardEntities: new Set<string>(),
       basketViews: [],
       activeBasketViewId: null,
-      basketPresentationVisible: true,
+      basketPresentationVisible: false,
       hierarchyBasketSelection: new Set<string>(),
 
       // Script - reset execution state but keep saved scripts and editor content

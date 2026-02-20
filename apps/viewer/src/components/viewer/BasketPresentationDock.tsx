@@ -20,11 +20,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { useViewerStore } from '@/store';
-import { saveBasketViewWithThumbnailFromStore } from '@/store/basketSave';
 import {
-  getSmartBasketInputFromStore,
-  isBasketIsolationActiveFromStore,
-} from '@/store/basketVisibleSet';
+  executeBasketSet,
+  executeBasketAdd,
+  executeBasketRemove,
+  executeBasketSaveView,
+  executeBasketClear,
+} from '@/store/basket/basketCommands';
+import { activateBasketViewFromStore } from '@/store/basket/basketViewActivator';
+import { getSmartBasketInputFromStore, isBasketIsolationActiveFromStore } from '@/store/basketVisibleSet';
 
 export function BasketPresentationDock() {
   const [savingThumbnail, setSavingThumbnail] = useState(false);
@@ -38,15 +42,10 @@ export function BasketPresentationDock() {
   const activeBasketViewId = useViewerStore((s) => s.activeBasketViewId);
   const basketPresentationVisible = useViewerStore((s) => s.basketPresentationVisible);
 
-  const setBasket = useViewerStore((s) => s.setBasket);
-  const addToBasket = useViewerStore((s) => s.addToBasket);
-  const removeFromBasket = useViewerStore((s) => s.removeFromBasket);
-  const clearBasket = useViewerStore((s) => s.clearBasket);
   const showPinboard = useViewerStore((s) => s.showPinboard);
   const clearIsolation = useViewerStore((s) => s.clearIsolation);
   const setBasketPresentationVisible = useViewerStore((s) => s.setBasketPresentationVisible);
 
-  const activateBasketView = useViewerStore((s) => s.activateBasketView);
   const removeBasketView = useViewerStore((s) => s.removeBasketView);
   const renameBasketView = useViewerStore((s) => s.renameBasketView);
 
@@ -56,13 +55,10 @@ export function BasketPresentationDock() {
   );
 
   const applySource = useCallback((mode: 'set' | 'add' | 'remove') => {
-    const { refs } = getSmartBasketInputFromStore();
-    if (refs.length === 0) return;
-
-    if (mode === 'set') setBasket(refs);
-    else if (mode === 'add') addToBasket(refs);
-    else removeFromBasket(refs);
-  }, [setBasket, addToBasket, removeFromBasket]);
+    if (mode === 'set') executeBasketSet();
+    else if (mode === 'add') executeBasketAdd();
+    else executeBasketRemove();
+  }, []);
 
   const handleSaveCurrent = useCallback(async () => {
     if (pinboardEntities.size === 0 || savingThumbnail) return;
@@ -70,7 +66,7 @@ export function BasketPresentationDock() {
     setSavingThumbnail(true);
     try {
       const { source } = getSmartBasketInputFromStore();
-      await saveBasketViewWithThumbnailFromStore(source === 'empty' ? 'manual' : source);
+      await executeBasketSaveView(source === 'empty' ? 'manual' : source);
     } finally {
       setSavingThumbnail(false);
     }
@@ -170,7 +166,7 @@ export function BasketPresentationDock() {
                 type="button"
                 variant="outline"
                 size="icon-sm"
-                onClick={clearBasket}
+                onClick={executeBasketClear}
                 disabled={pinboardEntities.size === 0}
                 title="Clear active basket"
               >
@@ -228,7 +224,7 @@ export function BasketPresentationDock() {
                     type="button"
                     onClick={() => {
                       if (editingViewId) return;
-                      activateBasketView(view.id);
+                      activateBasketViewFromStore(view.id);
                     }}
                     className={cn(
                       'h-full w-full rounded-md border bg-card text-left overflow-hidden transition-colors',

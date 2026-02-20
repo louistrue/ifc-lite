@@ -26,6 +26,52 @@ type BasketVisibleStats = {
 
 export type BasketInputSource = 'selection' | 'hierarchy' | 'visible' | 'empty';
 
+type CacheEntry = { key: string; refs: EntityRef[] };
+let _visibleCache: CacheEntry | null = null;
+
+function digestNumberSet(values: Iterable<number>): string {
+  let count = 0;
+  let xor = 0;
+  let sum = 0;
+  for (const v of values) {
+    const n = Number.isFinite(v) ? (v | 0) : 0;
+    count++;
+    xor ^= n;
+    sum = (sum + (n >>> 0)) >>> 0;
+  }
+  return `${count}:${xor >>> 0}:${sum >>> 0}`;
+}
+
+function digestModelEntityMap(map: Map<string, Set<number>>): string {
+  if (map.size === 0) return '0';
+  const parts: string[] = [];
+  for (const [modelId, ids] of map) {
+    parts.push(`${modelId}:${digestNumberSet(ids)}`);
+  }
+  parts.sort();
+  return parts.join('|');
+}
+
+function visibilityFingerprint(state: ViewerStateSnapshot): string {
+  const tv = state.typeVisibility;
+  return [
+    digestNumberSet(state.hiddenEntities),
+    state.isolatedEntities ? digestNumberSet(state.isolatedEntities) : 'none',
+    digestNumberSet(state.lensHiddenIds),
+    digestModelEntityMap(state.hiddenEntitiesByModel),
+    digestModelEntityMap(state.isolatedEntitiesByModel),
+    tv.spaces ? 1 : 0,
+    tv.openings ? 1 : 0,
+    tv.site ? 1 : 0,
+    state.models.size,
+    state.activeBasketViewId ?? 'none',
+  ].join(':');
+}
+
+export function invalidateVisibleBasketCache(): void {
+  _visibleCache = null;
+}
+
 const STOREY_TYPE = 'IfcBuildingStorey';
 const SPATIAL_CONTAINER_TYPES = new Set(['IfcProject', 'IfcSite', 'IfcBuilding']);
 
@@ -138,12 +184,7 @@ function globalIdToRef(state: ViewerStateSnapshot, globalId: number): EntityRef 
     return { modelId: resolved.modelId, expressId: resolved.expressId };
   }
 
-  if (state.models.size > 0) {
-    const firstModelId = state.models.keys().next().value as string | undefined;
-    if (firstModelId) {
-      return { modelId: firstModelId, expressId: globalId };
-    }
-  }
+  if (state.models.size > 0) return null;
 
   if (state.ifcDataStore) {
     return { modelId: 'legacy', expressId: globalId };
@@ -325,8 +366,14 @@ function getVisibleGlobalIds(state: ViewerStateSnapshot): Set<number> {
 
 export function getVisibleBasketEntityRefsFromStore(): EntityRef[] {
   const state = useViewerStore.getState();
+  const key = visibilityFingerprint(state);
+  if (_visibleCache?.key === key) return _visibleCache.refs;
+
   const visibleIds = getVisibleGlobalIds(state);
-  if (visibleIds.size === 0) return [];
+  if (visibleIds.size === 0) {
+    _visibleCache = { key, refs: [] };
+    return [];
+  }
 
   const refs: EntityRef[] = [];
   for (const globalId of visibleIds) {
@@ -337,7 +384,9 @@ export function getVisibleBasketEntityRefsFromStore(): EntityRef[] {
       refs.push({ modelId: 'legacy', expressId: globalId });
     }
   }
-  return dedupeRefs(refs);
+  const result = dedupeRefs(refs);
+  _visibleCache = { key, refs: result };
+  return result;
 }
 
 /**

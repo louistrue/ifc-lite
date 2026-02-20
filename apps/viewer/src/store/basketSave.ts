@@ -49,16 +49,35 @@ function restoreSelectionState(snapshot: SelectionSnapshot): void {
 }
 
 async function captureCanvasThumbnail(): Promise<string | null> {
-  const canvas = document.querySelector('canvas');
-  if (!canvas) return null;
+  const src = document.querySelector('canvas[data-viewport="main"]') as HTMLCanvasElement | null;
+  if (!src) return null;
 
-  // Wait two frames so render updates after selection clear are reflected.
   await new Promise<void>((resolve) =>
     requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
   );
 
   try {
-    return canvas.toDataURL('image/png');
+    const thumb = document.createElement('canvas');
+    thumb.width = 320;
+    thumb.height = 180;
+    const ctx = thumb.getContext('2d');
+    if (!ctx) return null;
+
+    // Preserve viewport aspect ratio while filling thumbnail bounds (crop, no stretch).
+    ctx.fillStyle = '#0f0f12';
+    ctx.fillRect(0, 0, thumb.width, thumb.height);
+
+    const srcW = src.width || src.clientWidth;
+    const srcH = src.height || src.clientHeight;
+    if (srcW <= 0 || srcH <= 0) return null;
+
+    const scale = Math.max(thumb.width / srcW, thumb.height / srcH);
+    const drawW = Math.round(srcW * scale);
+    const drawH = Math.round(srcH * scale);
+    const offsetX = Math.floor((thumb.width - drawW) / 2);
+    const offsetY = Math.floor((thumb.height - drawH) / 2);
+    ctx.drawImage(src, offsetX, offsetY, drawW, drawH);
+    return thumb.toDataURL('image/jpeg', 0.75);
   } catch {
     return null;
   }
