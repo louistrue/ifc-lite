@@ -8,7 +8,7 @@
 //! IfcPolygonalFaceSet (polygon meshes requiring triangulation).
 
 use crate::{Error, Mesh, Result};
-use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcSchema, IfcType};
+use ifc_lite_core::{AttributeValue, DecodedEntity, EntityDecoder, IfcSchema, IfcType};
 
 use crate::router::GeometryProcessor;
 
@@ -125,21 +125,45 @@ impl PolygonalFaceSetProcessor {
         Self
     }
 
-    /// Triangulate a polygon using ear-clipping algorithm (earcutr)
+    #[inline]
+    fn parse_index_loop(indices: &[AttributeValue], pn_index: Option<&[u32]>) -> Vec<u32> {
+        indices
+            .iter()
+            .filter_map(|value| {
+                let idx = value.as_int()?;
+                if idx <= 0 {
+                    return None;
+                }
+                let idx = idx as usize;
+
+                if let Some(remap) = pn_index {
+                    remap.get(idx - 1).copied().filter(|mapped| *mapped > 0)
+                } else {
+                    Some(idx as u32)
+                }
+            })
+            .collect()
+    }
+
+    /// Triangulate a polygon (optionally with holes) using ear-clipping (earcutr)
     /// This works correctly for both convex and concave polygons
     /// IFC indices are 1-based, so we subtract 1 to get 0-based indices
     /// positions is flattened [x0, y0, z0, x1, y1, z1, ...]
     fn triangulate_polygon(
-        face_indices: &[u32],
+        outer_indices: &[u32],
+        inner_indices: &[Vec<u32>],
         positions: &[f32],
         output: &mut Vec<u32>,
     ) {
-        if face_indices.len() < 3 {
+        if outer_indices.len() < 3 {
             return;
         }
 
         // Helper to get 3D position from flattened array
         let get_pos = |idx: u32| -> Option<(f32, f32, f32)> {
+            if idx == 0 {
+                return None;
+            }
             let base = ((idx - 1) * 3) as usize;
             if base + 2 < positions.len() {
                 Some((positions[base], positions[base + 1], positions[base + 2]))
@@ -158,28 +182,28 @@ impl PolygonalFaceSetProcessor {
         let mut sum_z = 0.0f64;
 
         // Calculate centroid-based normal approximation using Newell's method
-        for i in 0..face_indices.len() {
-            let v0 = match get_pos(face_indices[i]) {
+        for i in 0..outer_indices.len() {
+            let v0 = match get_pos(outer_indices[i]) {
                 Some(p) => p,
                 None => {
                     // Fallback to fan triangulation if indices are invalid
-                    let first = face_indices[0] - 1;
-                    for j in 1..face_indices.len() - 1 {
+                    let first = outer_indices[0] - 1;
+                    for j in 1..outer_indices.len() - 1 {
                         output.push(first);
-                        output.push(face_indices[j] - 1);
-                        output.push(face_indices[j + 1] - 1);
+                        output.push(outer_indices[j] - 1);
+                        output.push(outer_indices[j + 1] - 1);
                     }
                     return;
                 }
             };
-            let v1 = match get_pos(face_indices[(i + 1) % face_indices.len()]) {
+            let v1 = match get_pos(outer_indices[(i + 1) % outer_indices.len()]) {
                 Some(p) => p,
                 None => {
-                    let first = face_indices[0] - 1;
-                    for j in 1..face_indices.len() - 1 {
+                    let first = outer_indices[0] - 1;
+                    for j in 1..outer_indices.len() - 1 {
                         output.push(first);
-                        output.push(face_indices[j] - 1);
-                        output.push(face_indices[j + 1] - 1);
+                        output.push(outer_indices[j] - 1);
+                        output.push(outer_indices[j + 1] - 1);
                     }
                     return;
                 }
@@ -192,6 +216,9 @@ impl PolygonalFaceSetProcessor {
         let expected_normal = (sum_x, sum_y, sum_z);
 
         let mut push_oriented_triangle = |a: u32, b: u32, c: u32| {
+            if a == 0 || b == 0 || c == 0 {
+                return;
+            }
             let i0 = a - 1;
             let mut i1 = b - 1;
             let mut i2 = c - 1;
@@ -228,15 +255,15 @@ impl PolygonalFaceSetProcessor {
         };
 
         // For triangles, no triangulation needed (but still enforce orientation)
-        if face_indices.len() == 3 {
-            push_oriented_triangle(face_indices[0], face_indices[1], face_indices[2]);
+        if inner_indices.is_empty() && outer_indices.len() == 3 {
+            push_oriented_triangle(outer_indices[0], outer_indices[1], outer_indices[2]);
             return;
         }
 
         // For quads, use fan triangulation with orientation correction
-        if face_indices.len() == 4 {
-            push_oriented_triangle(face_indices[0], face_indices[1], face_indices[2]);
-            push_oriented_triangle(face_indices[0], face_indices[2], face_indices[3]);
+        if inner_indices.is_empty() && outer_indices.len() == 4 {
+            push_oriented_triangle(outer_indices[0], outer_indices[1], outer_indices[2]);
+            push_oriented_triangle(outer_indices[0], outer_indices[2], outer_indices[3]);
             return;
         }
 
@@ -245,23 +272,28 @@ impl PolygonalFaceSetProcessor {
         let abs_y = sum_y.abs();
         let abs_z = sum_z.abs();
 
-        // Project 3D points to 2D for triangulation
-        let mut coords_2d: Vec<f64> = Vec::with_capacity(face_indices.len() * 2);
+        let valid_holes: Vec<&[u32]> = inner_indices
+            .iter()
+            .filter(|loop_indices| loop_indices.len() >= 3)
+            .map(|loop_indices| loop_indices.as_slice())
+            .collect();
 
-        for &idx in face_indices {
-            let p = match get_pos(idx) {
-                Some(pos) => pos,
-                None => {
-                    // Fallback to fan triangulation
-                    let first = face_indices[0] - 1;
-                    for j in 1..face_indices.len() - 1 {
-                        output.push(first);
-                        output.push(face_indices[j] - 1);
-                        output.push(face_indices[j + 1] - 1);
-                    }
-                    return;
+        // Flatten all loops for earcut (outer ring first, then holes)
+        let total_vertices =
+            outer_indices.len() + valid_holes.iter().map(|loop_indices| loop_indices.len()).sum::<usize>();
+        let mut coords_2d: Vec<f64> = Vec::with_capacity(total_vertices * 2);
+        let mut flattened_indices: Vec<u32> = Vec::with_capacity(total_vertices);
+        let mut hole_starts: Vec<usize> = Vec::with_capacity(valid_holes.len());
+
+        for &idx in outer_indices {
+            let Some(p) = get_pos(idx) else {
+                let first = outer_indices[0];
+                for i in 1..outer_indices.len() - 1 {
+                    push_oriented_triangle(first, outer_indices[i], outer_indices[i + 1]);
                 }
+                return;
             };
+            flattened_indices.push(idx);
 
             // Project to 2D based on dominant normal axis
             if abs_z >= abs_x && abs_z >= abs_y {
@@ -279,34 +311,89 @@ impl PolygonalFaceSetProcessor {
             }
         }
 
+        for hole in valid_holes {
+            hole_starts.push(flattened_indices.len());
+            for &idx in hole {
+                let Some(p) = get_pos(idx) else {
+                    let first = outer_indices[0];
+                    for i in 1..outer_indices.len() - 1 {
+                        push_oriented_triangle(first, outer_indices[i], outer_indices[i + 1]);
+                    }
+                    return;
+                };
+                flattened_indices.push(idx);
+
+                // Project to 2D based on dominant normal axis
+                if abs_z >= abs_x && abs_z >= abs_y {
+                    // XY plane (Z is dominant)
+                    coords_2d.push(p.0 as f64);
+                    coords_2d.push(p.1 as f64);
+                } else if abs_y >= abs_x {
+                    // XZ plane (Y is dominant)
+                    coords_2d.push(p.0 as f64);
+                    coords_2d.push(p.2 as f64);
+                } else {
+                    // YZ plane (X is dominant)
+                    coords_2d.push(p.1 as f64);
+                    coords_2d.push(p.2 as f64);
+                }
+            }
+        }
+
+        if flattened_indices.len() < 3 {
+            return;
+        }
+
         // Run ear-clipping triangulation
-        let hole_indices: Vec<usize> = vec![]; // No holes for simple faces
-        match earcutr::earcut(&coords_2d, &hole_indices, 2) {
+        match earcutr::earcut(&coords_2d, &hole_starts, 2) {
             Ok(tri_indices) => {
-                // Map local triangle indices back to original face indices.
                 for tri in tri_indices.chunks(3) {
                     if tri.len() != 3
-                        || tri[0] >= face_indices.len()
-                        || tri[1] >= face_indices.len()
-                        || tri[2] >= face_indices.len()
+                        || tri[0] >= flattened_indices.len()
+                        || tri[1] >= flattened_indices.len()
+                        || tri[2] >= flattened_indices.len()
                     {
                         continue;
                     }
                     push_oriented_triangle(
-                        face_indices[tri[0]],
-                        face_indices[tri[1]],
-                        face_indices[tri[2]],
+                        flattened_indices[tri[0]],
+                        flattened_indices[tri[1]],
+                        flattened_indices[tri[2]],
                     );
                 }
             }
             Err(_) => {
-                // Fallback to fan triangulation if ear-clipping fails
-                let first = face_indices[0];
-                for i in 1..face_indices.len() - 1 {
-                    push_oriented_triangle(first, face_indices[i], face_indices[i + 1]);
+                // Fallback to fan triangulation on the outer loop
+                let first = outer_indices[0];
+                for i in 1..outer_indices.len() - 1 {
+                    push_oriented_triangle(first, outer_indices[i], outer_indices[i + 1]);
                 }
             }
         }
+    }
+
+    #[inline]
+    fn parse_face_inner_indices(face_entity: &DecodedEntity, pn_index: Option<&[u32]>) -> Vec<Vec<u32>> {
+        if face_entity.ifc_type != IfcType::IfcIndexedPolygonalFaceWithVoids {
+            return Vec::new();
+        }
+
+        let Some(inner_attr) = face_entity.get(1).and_then(|a| a.as_list()) else {
+            return Vec::new();
+        };
+
+        let mut result = Vec::with_capacity(inner_attr.len());
+        for loop_attr in inner_attr {
+            let Some(loop_values) = loop_attr.as_list() else {
+                continue;
+            };
+            let parsed = Self::parse_index_loop(loop_values, pn_index);
+            if parsed.len() >= 3 {
+                result.push(parsed);
+            }
+        }
+
+        result
     }
 
     #[inline]
@@ -485,7 +572,6 @@ impl GeometryProcessor for PolygonalFaceSetProcessor {
             let coord_list = coord_list_attr
                 .as_list()
                 .ok_or_else(|| Error::geometry("Expected coordinate list".to_string()))?;
-            use ifc_lite_core::AttributeValue;
             AttributeValue::parse_coordinate_list_3d(coord_list)
         };
 
@@ -501,6 +587,19 @@ impl GeometryProcessor for PolygonalFaceSetProcessor {
         let face_refs = faces_attr
             .as_list()
             .ok_or_else(|| Error::geometry("Expected faces list".to_string()))?;
+
+        // Optional point remapping list for IfcPolygonalFaceSet.
+        // CoordIndex values refer to this list when present.
+        let pn_index = entity
+            .get(3)
+            .and_then(|attr| attr.as_list())
+            .map(|list| {
+                list.iter()
+                    .filter_map(|value| value.as_int())
+                    .filter(|v| *v > 0)
+                    .map(|v| v as u32)
+                    .collect::<Vec<u32>>()
+            });
 
         // Pre-allocate indices - estimate 2 triangles per face average
         let mut indices = Vec::with_capacity(face_refs.len() * 6);
@@ -523,14 +622,17 @@ impl GeometryProcessor for PolygonalFaceSetProcessor {
                 .as_list()
                 .ok_or_else(|| Error::geometry("Expected coord index list".to_string()))?;
 
-            // Parse face indices (1-based in IFC)
-            let face_indices: Vec<u32> = coord_indices
-                .iter()
-                .filter_map(|v| v.as_int().map(|i| i as u32))
-                .collect();
+            // Parse face indices (1-based in IFC), with optional PnIndex remapping.
+            let face_indices = Self::parse_index_loop(coord_indices, pn_index.as_deref());
+            if face_indices.len() < 3 {
+                continue;
+            }
 
-            // Triangulate the polygon (using ear-clipping for complex polygons)
-            Self::triangulate_polygon(&face_indices, &positions, &mut indices);
+            // Parse optional inner loops for IfcIndexedPolygonalFaceWithVoids.
+            let inner_indices = Self::parse_face_inner_indices(&face_entity, pn_index.as_deref());
+
+            // Triangulate the polygon face (including holes when present).
+            Self::triangulate_polygon(&face_indices, &inner_indices, &positions, &mut indices);
         }
 
         // Closed shells from some exporters may be consistently inward.

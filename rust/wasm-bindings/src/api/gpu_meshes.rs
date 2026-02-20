@@ -136,92 +136,158 @@ impl IfcAPI {
                     continue;
                 }
 
-                // Use process_element_with_voids for ALL elements (simplified from separate paths)
-                // This ensures RTC offset is consistently applied via transform_mesh
+                // Preserve sub-mesh colors for multi-material elements (windows/doors).
+                // Elements with openings still use merged void-subtracted geometry.
+                let has_openings = void_index.contains_key(&id);
+                let default_color = get_default_color_for_type(&entity.ifc_type);
+                let ifc_type_name = entity.ifc_type.name().to_string();
+                let mut added_any_mesh = false;
 
-                match router.process_element_with_voids(&entity, &mut decoder, &void_index) {
-                Err(e) => {
-                    // Log the specific error for debugging
-                    web_sys::console::warn_1(&format!(
-                        "[IFC-LITE] Failed to process #{} ({}): {}",
-                        id, entity.ifc_type.name(), e
-                    ).into());
-                    stats.process_failed += 1;
-                }
-                Ok(mut mesh) => {
-                    if !mesh.is_empty() {
-                        // Calculate normals if not present or incomplete
-                        // CSG operations may produce partial normals, so check for matching count
-                        if mesh.normals.len() != mesh.positions.len() {
-                            calculate_normals(&mut mesh);
+                let mut push_mesh_if_valid = |mesh: &mut ifc_lite_geometry::Mesh, color: [f32; 4]| {
+                    if mesh.is_empty() {
+                        return;
+                    }
+
+                    // Calculate normals if not present or incomplete
+                    if mesh.normals.len() != mesh.positions.len() {
+                        calculate_normals(mesh);
+                    }
+
+                    // Safety filter: exclude meshes with unreasonable coordinates after RTC
+                    const MAX_REASONABLE_OFFSET: f32 = 50_000.0; // 50km from RTC center
+                    let mut max_coord = 0.0f32;
+                    let mut outlier_vertex_count = 0;
+                    let mut has_non_finite = false;
+
+                    for chunk in mesh.positions.chunks_exact(3) {
+                        let x = chunk[0];
+                        let y = chunk[1];
+                        let z = chunk[2];
+
+                        if !x.is_finite() || !y.is_finite() || !z.is_finite() {
+                            outlier_vertex_count += 1;
+                            has_non_finite = true;
+                            continue;
                         }
 
-                        // Try to get color from style index, otherwise use default
-                        let color = style_index
-                            .get(&id)
-                            .copied()
-                            .unwrap_or_else(|| get_default_color_for_type(&entity.ifc_type));
-
-                        // Safety filter: exclude meshes with unreasonable coordinates after RTC
-                        const MAX_REASONABLE_OFFSET: f32 = 50_000.0; // 50km from RTC center
-                        let mut max_coord = 0.0f32;
-                        let mut outlier_vertex_count = 0;
-                        let mut has_non_finite = false;
-
-                        for chunk in mesh.positions.chunks_exact(3) {
-                            let x = chunk[0];
-                            let y = chunk[1];
-                            let z = chunk[2];
-
-                            // Check for NaN/inf coordinates - treat as outliers
-                            if !x.is_finite() || !y.is_finite() || !z.is_finite() {
-                                outlier_vertex_count += 1;
-                                has_non_finite = true;
-                                continue; // Don't update max_coord with non-finite values
-                            }
-
-                            let coord_mag = x.abs().max(y.abs()).max(z.abs());
-                            max_coord = max_coord.max(coord_mag);
-                            if coord_mag > MAX_REASONABLE_OFFSET {
-                                outlier_vertex_count += 1;
-                            }
+                        let coord_mag = x.abs().max(y.abs()).max(z.abs());
+                        max_coord = max_coord.max(coord_mag);
+                        if coord_mag > MAX_REASONABLE_OFFSET {
+                            outlier_vertex_count += 1;
                         }
+                    }
 
-                        // Warn about non-finite coordinates
-                        if has_non_finite {
-                            web_sys::console::warn_1(&format!(
+                    if has_non_finite {
+                        web_sys::console::warn_1(
+                            &format!(
                                 "[WASM FILTER] Mesh #{} ({}) contains NaN/Inf coordinates",
-                                id, entity.ifc_type.name()
-                            ).into());
-                        }
+                                id,
+                                entity.ifc_type.name()
+                            )
+                            .into(),
+                        );
+                    }
 
-                        // Skip meshes where >90% of vertices are outliers (likely corrupted)
-                        let total_vertices = mesh.positions.len() / 3;
-                        let outlier_ratio = if total_vertices > 0 {
-                            outlier_vertex_count as f32 / total_vertices as f32
-                        } else {
-                            0.0
-                        };
-
-                        // Only filter if >90% outliers OR if max coord is extremely large (>200km)
-                        if outlier_ratio > 0.9 || max_coord > MAX_REASONABLE_OFFSET * 4.0 {
-                            web_sys::console::warn_1(&format!(
-                                "[WASM FILTER] Excluding mesh #{} ({}) - {:.1}% outliers, max coord: {:.2}m",
-                                id, entity.ifc_type.name(), outlier_ratio * 100.0, max_coord
-                            ).into());
-                            stats.outlier_filtered += 1;
-                            continue; // Skip this mesh
-                        }
-
-                        // Create mesh data with express ID, IFC type, and color
-                        let ifc_type_name = entity.ifc_type.name().to_string();
-                        let mesh_data = MeshDataJs::new(id, ifc_type_name, mesh, color);
-                        mesh_collection.add(mesh_data);
-                        stats.success += 1;
+                    let total_vertices = mesh.positions.len() / 3;
+                    let outlier_ratio = if total_vertices > 0 {
+                        outlier_vertex_count as f32 / total_vertices as f32
                     } else {
-                        stats.empty_mesh += 1;
+                        0.0
+                    };
+
+                    if outlier_ratio > 0.9 || max_coord > MAX_REASONABLE_OFFSET * 4.0 {
+                        web_sys::console::warn_1(
+                            &format!(
+                                "[WASM FILTER] Excluding mesh #{} ({}) - {:.1}% outliers, max coord: {:.2}m",
+                                id,
+                                entity.ifc_type.name(),
+                                outlier_ratio * 100.0,
+                                max_coord
+                            )
+                            .into(),
+                        );
+                        stats.outlier_filtered += 1;
+                        return;
+                    }
+
+                    let mesh_data = MeshDataJs::new(id, ifc_type_name.clone(), mesh.clone(), color);
+                    mesh_collection.add(mesh_data);
+                    added_any_mesh = true;
+                };
+
+                if has_openings {
+                    match router.process_element_with_voids(&entity, &mut decoder, &void_index) {
+                        Err(e) => {
+                            web_sys::console::warn_1(
+                                &format!(
+                                    "[IFC-LITE] Failed to process #{} ({}): {}",
+                                    id,
+                                    entity.ifc_type.name(),
+                                    e
+                                )
+                                .into(),
+                            );
+                            stats.process_failed += 1;
+                        }
+                        Ok(mut mesh) => {
+                            let color = style_index.get(&id).copied().unwrap_or(default_color);
+                            push_mesh_if_valid(&mut mesh, color);
+                        }
+                    }
+                } else {
+                    let skip_submesh = matches!(entity.ifc_type, ifc_lite_core::IfcType::IfcSite);
+                    let sub_meshes_result = if skip_submesh {
+                        Err(ifc_lite_geometry::Error::geometry(
+                            "Skip submesh for IfcSite".to_string(),
+                        ))
+                    } else {
+                        router.process_element_with_submeshes(&entity, &mut decoder)
+                    };
+
+                    let has_submeshes = sub_meshes_result
+                        .as_ref()
+                        .map(|s| !s.is_empty())
+                        .unwrap_or(false);
+
+                    if has_submeshes {
+                        let sub_meshes = sub_meshes_result.unwrap();
+                        for sub in sub_meshes.sub_meshes {
+                            let mut mesh = sub.mesh;
+                            let color = find_color_for_geometry(
+                                sub.geometry_id,
+                                &geometry_styles,
+                                &mut decoder,
+                            )
+                            .or_else(|| style_index.get(&id).copied())
+                            .unwrap_or(default_color);
+                            push_mesh_if_valid(&mut mesh, color);
+                        }
+                    } else {
+                        match router.process_element(&entity, &mut decoder) {
+                            Err(e) => {
+                                web_sys::console::warn_1(
+                                    &format!(
+                                        "[IFC-LITE] Failed to process #{} ({}): {}",
+                                        id,
+                                        entity.ifc_type.name(),
+                                        e
+                                    )
+                                    .into(),
+                                );
+                                stats.process_failed += 1;
+                            }
+                            Ok(mut mesh) => {
+                                let color = style_index.get(&id).copied().unwrap_or(default_color);
+                                push_mesh_if_valid(&mut mesh, color);
+                            }
+                        }
                     }
                 }
+
+                if added_any_mesh {
+                    stats.success += 1;
+                } else {
+                    stats.empty_mesh += 1;
                 }
             } else {
                 stats.decode_failed += 1;
