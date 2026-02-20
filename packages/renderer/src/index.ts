@@ -48,7 +48,14 @@ import { Camera } from './camera.js';
 import { Scene } from './scene.js';
 import { Picker } from './picker.js';
 import { FrustumUtils } from '@ifc-lite/spatial';
-import type { RenderOptions, PickOptions, PickResult, Mesh } from './types.js';
+import type {
+    RenderOptions,
+    PickOptions,
+    PickResult,
+    Mesh,
+    VisualEnhancementOptions,
+    ContactShadingQuality,
+} from './types.js';
 import { SectionPlaneRenderer } from './section-plane.js';
 import { Section2DOverlayRenderer, type CutPolygon2D, type DrawingLine2D } from './section-2d-overlay.js';
 import type { InstancedGeometry } from '@ifc-lite/wasm';
@@ -57,6 +64,20 @@ import { SnapDetector, type SnapTarget, type SnapOptions, type EdgeLockInput, ty
 import { GeometryManager } from './geometry-manager.js';
 import { PickingManager } from './picking-manager.js';
 import { RaycastEngine } from './raycast-engine.js';
+import { PostProcessor } from './post-processor.js';
+
+type ResolvedVisualEnhancement = {
+    enabled: boolean;
+    edgeContrast: {
+        enabled: boolean;
+        intensity: number;
+    };
+    contactShading: {
+        quality: ContactShadingQuality;
+        intensity: number;
+        radius: number;
+    };
+};
 
 /**
  * Main renderer class
@@ -71,6 +92,12 @@ export class Renderer {
     private canvas: HTMLCanvasElement;
     private sectionPlaneRenderer: SectionPlaneRenderer | null = null;
     private section2DOverlayRenderer: Section2DOverlayRenderer | null = null;
+    private postProcessor: PostProcessor | null = null;
+    private visualEnhancementState: ResolvedVisualEnhancement = {
+        enabled: true,
+        edgeContrast: { enabled: true, intensity: 1.0 },
+        contactShading: { quality: 'off', intensity: 0.3, radius: 1.0 },
+    };
 
     // Composition: delegate to extracted managers
     private geometryManager: GeometryManager;
@@ -123,6 +150,11 @@ export class Renderer {
             this.device.getFormat(),
             this.pipeline.getSampleCount()
         );
+        this.postProcessor = new PostProcessor(this.device, {
+            enableContactShading: true,
+            contactRadius: 1.0,
+            contactIntensity: 0.3,
+        });
         this.camera.setAspect(width / height);
 
         // Update picking manager with initialized picker
@@ -202,6 +234,26 @@ export class Renderer {
         this.geometryManager.ensureMeshResources(this.pipeline);
     }
 
+    private resolveVisualEnhancement(options?: VisualEnhancementOptions): ResolvedVisualEnhancement {
+        if (!options) {
+            return this.visualEnhancementState;
+        }
+        const merged: ResolvedVisualEnhancement = {
+            enabled: options.enabled ?? this.visualEnhancementState.enabled,
+            edgeContrast: {
+                enabled: options.edgeContrast?.enabled ?? this.visualEnhancementState.edgeContrast.enabled,
+                intensity: options.edgeContrast?.intensity ?? this.visualEnhancementState.edgeContrast.intensity,
+            },
+            contactShading: {
+                quality: options.contactShading?.quality ?? this.visualEnhancementState.contactShading.quality,
+                intensity: options.contactShading?.intensity ?? this.visualEnhancementState.contactShading.intensity,
+                radius: options.contactShading?.radius ?? this.visualEnhancementState.contactShading.radius,
+            },
+        };
+        this.visualEnhancementState = merged;
+        return merged;
+    }
+
     /**
      * Render frame
      */
@@ -243,6 +295,11 @@ export class Renderer {
 
         const device = this.device.getDevice();
         const viewProj = this.camera.getViewProjMatrix().m;
+        const visualEnhancement = this.resolveVisualEnhancement(options.visualEnhancement);
+        const edgeEnabled = visualEnhancement.enabled && visualEnhancement.edgeContrast.enabled;
+        const edgeIntensity = Math.min(3.0, Math.max(0.0, visualEnhancement.edgeContrast.intensity));
+        const edgeEnabledU32 = edgeEnabled ? 1 : 0;
+        const edgeIntensityMilliU32 = Math.round(edgeIntensity * 1000);
 
         let meshes = this.scene.getMeshes();
 
@@ -456,8 +513,8 @@ export class Renderer {
                     // Flags (offset 44-47 as u32)
                     flagBuffer[0] = isSelected ? 1 : 0;
                     flagBuffer[1] = sectionPlaneData?.enabled ? 1 : 0;
-                    flagBuffer[2] = 0;
-                    flagBuffer[3] = 0;
+                    flagBuffer[2] = edgeEnabledU32;
+                    flagBuffer[3] = edgeIntensityMilliU32;
 
                     device.queue.writeBuffer(mesh.uniformBuffer, 0, buffer);
                 }
@@ -616,8 +673,8 @@ export class Renderer {
                     // Flags (not selected - batches render normally, selected meshes rendered separately)
                     flagBuffer[0] = 0;
                     flagBuffer[1] = sectionPlaneData?.enabled ? 1 : 0;
-                    flagBuffer[2] = 0;
-                    flagBuffer[3] = 0;
+                    flagBuffer[2] = edgeEnabledU32;
+                    flagBuffer[3] = edgeIntensityMilliU32;
 
                     device.queue.writeBuffer(batch.uniformBuffer, 0, buffer);
 
@@ -762,8 +819,8 @@ export class Renderer {
                     // Flags (selected)
                     flagBuffer[0] = 1; // isSelected
                     flagBuffer[1] = sectionPlaneData?.enabled ? 1 : 0;
-                    flagBuffer[2] = 0;
-                    flagBuffer[3] = 0;
+                    flagBuffer[2] = edgeEnabledU32;
+                    flagBuffer[3] = edgeIntensityMilliU32;
 
                     device.queue.writeBuffer(mesh.uniformBuffer, 0, buffer);
 
@@ -811,8 +868,8 @@ export class Renderer {
                         // Flags (not selected, transparent)
                         flagBuffer[0] = 0;
                         flagBuffer[1] = sectionPlaneData?.enabled ? 1 : 0;
-                        flagBuffer[2] = 0;
-                        flagBuffer[3] = 0;
+                        flagBuffer[2] = edgeEnabledU32;
+                        flagBuffer[3] = edgeIntensityMilliU32;
 
                         device.queue.writeBuffer(mesh.uniformBuffer, 0, buffer);
 
@@ -910,6 +967,25 @@ export class Renderer {
             }
 
             pass.end();
+
+            const contactEnabled = visualEnhancement.enabled && visualEnhancement.contactShading.quality !== 'off';
+            const canRunContactPass = contactEnabled
+                && this.postProcessor !== null
+                && this.pipeline.getSampleCount() > 1;
+            if (canRunContactPass && this.postProcessor) {
+                this.postProcessor.updateOptions({
+                    enableContactShading: true,
+                    contactRadius: visualEnhancement.contactShading.radius,
+                    contactIntensity: visualEnhancement.contactShading.intensity,
+                });
+                this.postProcessor.apply(encoder, {
+                    targetView: textureView,
+                    depthView: this.pipeline.getDepthTextureView(),
+                    quality: visualEnhancement.contactShading.quality === 'high' ? 'high' : 'low',
+                    radius: Math.max(1.0, visualEnhancement.contactShading.radius),
+                    intensity: Math.min(1.0, Math.max(0.0, visualEnhancement.contactShading.intensity)),
+                });
+            }
 
             device.queue.submit([encoder.finish()]);
         } catch (error) {

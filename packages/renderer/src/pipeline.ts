@@ -45,7 +45,7 @@ export class RenderPipeline {
         this.depthTexture = this.device.createTexture({
             size: { width, height },
             format: 'depth24plus',
-            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
             sampleCount: this.sampleCount > 1 ? this.sampleCount : 1,
         });
         this.depthTextureView = this.depthTexture.createView();
@@ -91,7 +91,7 @@ export class RenderPipeline {
           metallicRoughness: vec2<f32>, // x = metallic, y = roughness
           _padding1: vec2<f32>,
           sectionPlane: vec4<f32>,      // xyz = plane normal, w = plane distance
-          flags: vec4<u32>,             // x = isSelected, y = sectionEnabled, z,w = reserved
+          flags: vec4<u32>,             // x = isSelected, y = sectionEnabled, z = edgeEnabled, w = edgeIntensityMilli
         }
         @binding(0) @group(0) var<uniform> uniforms: Uniforms;
 
@@ -273,9 +273,13 @@ export class RenderPipeline {
             length(dpdy(input.normal))
           ));
           
-          let edgeFactor = smoothstep(0.0, 0.1, depthGradient * 10.0 + normalGradient * 5.0);
-          let edgeDarken = mix(1.0, 0.92, edgeFactor * 0.4);  // Slightly stronger edge darkening
-          color *= edgeDarken;
+          if (uniforms.flags.z == 1u) {
+            let edgeFactor = smoothstep(0.0, 0.1, depthGradient * 10.0 + normalGradient * 5.0);
+            let edgeIntensity = f32(uniforms.flags.w) / 1000.0;
+            let edgeDarkenStrength = clamp(0.25 * edgeIntensity, 0.0, 0.85);
+            let edgeDarken = mix(1.0, 1.0 - edgeDarkenStrength, edgeFactor);
+            color *= edgeDarken;
+          }
 
           // Gamma correction
           color = pow(color, vec3<f32>(1.0 / 2.2));
@@ -547,7 +551,7 @@ export class RenderPipeline {
         this.depthTexture = this.device.createTexture({
             size: { width, height },
             format: this.depthFormat,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
             sampleCount: this.sampleCount > 1 ? this.sampleCount : 1,
         });
         this.depthTextureView = this.depthTexture.createView();

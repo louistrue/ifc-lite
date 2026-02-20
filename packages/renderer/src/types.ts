@@ -97,6 +97,21 @@ export interface SectionPlane {
   max?: number;      // Optional override for max range value
 }
 
+export type ContactShadingQuality = 'off' | 'low' | 'high';
+
+export interface VisualEnhancementOptions {
+  enabled?: boolean;
+  edgeContrast?: {
+    enabled?: boolean;
+    intensity?: number;
+  };
+  contactShading?: {
+    quality?: ContactShadingQuality;
+    intensity?: number;
+    radius?: number;
+  };
+}
+
 export interface RenderOptions {
   clearColor?: [number, number, number, number];
   enableDepthTest?: boolean;
@@ -112,6 +127,8 @@ export interface RenderOptions {
   selectedModelIndex?: number;    // Model index for multi-model selection (must match mesh.modelIndex)
   // Section plane clipping
   sectionPlane?: SectionPlane;
+  // Optional visual effects for better subelement readability
+  visualEnhancement?: VisualEnhancementOptions;
   // Streaming state
   isStreaming?: boolean;          // If true, skip expensive operations like picker
 }

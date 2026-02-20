@@ -8,7 +8,7 @@
  */
 
 import { useEffect, type MutableRefObject } from 'react';
-import type { Renderer, CutPolygon2D, DrawingLine2D } from '@ifc-lite/renderer';
+import type { Renderer, CutPolygon2D, DrawingLine2D, VisualEnhancementOptions } from '@ifc-lite/renderer';
 import type { CoordinateInfo } from '@ifc-lite/geometry';
 import type { Drawing2D } from '@ifc-lite/drawing-2d';
 import type { SectionPlane } from '@/store';
@@ -21,6 +21,7 @@ export interface UseRenderUpdatesParams {
   // Theme
   theme: string;
   clearColorRef: MutableRefObject<[number, number, number, number]>;
+  visualEnhancementRef: MutableRefObject<VisualEnhancementOptions>;
 
   // Visibility/selection state (reactive values, not refs)
   hiddenEntities: Set<number>;
@@ -54,6 +55,7 @@ export function useRenderUpdates(params: UseRenderUpdatesParams): void {
     isInitialized,
     theme,
     clearColorRef,
+    visualEnhancementRef,
     hiddenEntities,
     isolatedEntities,
     selectedEntityId,
@@ -88,6 +90,7 @@ export function useRenderUpdates(params: UseRenderUpdatesParams): void {
         selectedId: selectedEntityIdRef.current,
         selectedModelIndex: selectedModelIndexRef.current,
         clearColor: clearColorRef.current,
+        visualEnhancement: visualEnhancementRef.current,
       });
     }
   }, [theme, isInitialized]);
@@ -132,6 +135,7 @@ export function useRenderUpdates(params: UseRenderUpdatesParams): void {
       selectedIds: selectedEntityIdsRef.current,
       selectedModelIndex: selectedModelIndexRef.current,
       clearColor: clearColorRef.current,
+      visualEnhancement: visualEnhancementRef.current,
       sectionPlane: activeTool === 'section' ? {
         ...sectionPlane,
         min: sectionRangeRef.current?.min,
@@ -152,6 +156,7 @@ export function useRenderUpdates(params: UseRenderUpdatesParams): void {
       selectedIds: selectedEntityIds,
       selectedModelIndex,
       clearColor: clearColorRef.current,
+      visualEnhancement: visualEnhancementRef.current,
       sectionPlane: activeTool === 'section' ? {
         ...sectionPlane,
         min: sectionRange?.min,

@@ -8,7 +8,7 @@
  */
 
 import { useEffect, type MutableRefObject, type RefObject } from 'react';
-import type { Renderer } from '@ifc-lite/renderer';
+import type { Renderer, VisualEnhancementOptions } from '@ifc-lite/renderer';
 import type { SectionPlane } from '@/store';
 
 export interface UseAnimationLoopParams {
@@ -24,6 +24,7 @@ export interface UseAnimationLoopParams {
   selectedEntityIdRef: MutableRefObject<number | null>;
   selectedModelIndexRef: MutableRefObject<number | undefined>;
   clearColorRef: MutableRefObject<[number, number, number, number]>;
+  visualEnhancementRef: MutableRefObject<VisualEnhancementOptions>;
   sectionPlaneRef: MutableRefObject<SectionPlane>;
   sectionRangeRef: MutableRefObject<{ min: number; max: number } | null>;
   lastCameraStateRef: MutableRefObject<{
@@ -53,6 +54,7 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
     selectedEntityIdRef,
     selectedModelIndexRef,
     clearColorRef,
+    visualEnhancementRef,
     sectionPlaneRef,
     sectionRangeRef,
     lastCameraStateRef,
@@ -87,6 +89,7 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
           selectedId: selectedEntityIdRef.current,
           selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
+          visualEnhancement: visualEnhancementRef.current,
           sectionPlane: activeToolRef.current === 'section' ? {
             ...sectionPlaneRef.current,
             min: sectionRangeRef.current?.min,

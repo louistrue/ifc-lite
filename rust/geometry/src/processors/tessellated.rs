@@ -138,26 +138,6 @@ impl PolygonalFaceSetProcessor {
             return;
         }
 
-        // For triangles, no triangulation needed
-        if face_indices.len() == 3 {
-            output.push(face_indices[0] - 1);
-            output.push(face_indices[1] - 1);
-            output.push(face_indices[2] - 1);
-            return;
-        }
-
-        // For quads and simple cases, use fan triangulation (fast path)
-        if face_indices.len() == 4 {
-            let first = face_indices[0] - 1;
-            output.push(first);
-            output.push(face_indices[1] - 1);
-            output.push(face_indices[2] - 1);
-            output.push(first);
-            output.push(face_indices[2] - 1);
-            output.push(face_indices[3] - 1);
-            return;
-        }
-
         // Helper to get 3D position from flattened array
         let get_pos = |idx: u32| -> Option<(f32, f32, f32)> {
             let base = ((idx - 1) * 3) as usize;
@@ -209,6 +189,56 @@ impl PolygonalFaceSetProcessor {
             sum_y += (v0.2 - v1.2) as f64 * (v0.0 + v1.0) as f64;
             sum_z += (v0.0 - v1.0) as f64 * (v0.1 + v1.1) as f64;
         }
+        let expected_normal = (sum_x, sum_y, sum_z);
+
+        let mut push_oriented_triangle = |a: u32, b: u32, c: u32| {
+            let i0 = a - 1;
+            let mut i1 = b - 1;
+            let mut i2 = c - 1;
+
+            if expected_normal.0.abs() + expected_normal.1.abs() + expected_normal.2.abs() > 1e-12 {
+                if let (Some(p0), Some(p1), Some(p2)) = (get_pos(a), get_pos(b), get_pos(c)) {
+                    let e1 = (
+                        (p1.0 - p0.0) as f64,
+                        (p1.1 - p0.1) as f64,
+                        (p1.2 - p0.2) as f64,
+                    );
+                    let e2 = (
+                        (p2.0 - p0.0) as f64,
+                        (p2.1 - p0.1) as f64,
+                        (p2.2 - p0.2) as f64,
+                    );
+                    let tri_normal = (
+                        e1.1 * e2.2 - e1.2 * e2.1,
+                        e1.2 * e2.0 - e1.0 * e2.2,
+                        e1.0 * e2.1 - e1.1 * e2.0,
+                    );
+                    let dot = tri_normal.0 * expected_normal.0
+                        + tri_normal.1 * expected_normal.1
+                        + tri_normal.2 * expected_normal.2;
+                    if dot < 0.0 {
+                        std::mem::swap(&mut i1, &mut i2);
+                    }
+                }
+            }
+
+            output.push(i0);
+            output.push(i1);
+            output.push(i2);
+        };
+
+        // For triangles, no triangulation needed (but still enforce orientation)
+        if face_indices.len() == 3 {
+            push_oriented_triangle(face_indices[0], face_indices[1], face_indices[2]);
+            return;
+        }
+
+        // For quads, use fan triangulation with orientation correction
+        if face_indices.len() == 4 {
+            push_oriented_triangle(face_indices[0], face_indices[1], face_indices[2]);
+            push_oriented_triangle(face_indices[0], face_indices[2], face_indices[3]);
+            return;
+        }
 
         // Choose projection plane based on dominant axis
         let abs_x = sum_x.abs();
@@ -253,22 +283,168 @@ impl PolygonalFaceSetProcessor {
         let hole_indices: Vec<usize> = vec![]; // No holes for simple faces
         match earcutr::earcut(&coords_2d, &hole_indices, 2) {
             Ok(tri_indices) => {
-                // Map local triangle indices back to original face indices
-                for tri_idx in tri_indices {
-                    if tri_idx < face_indices.len() {
-                        output.push(face_indices[tri_idx] - 1);
+                // Map local triangle indices back to original face indices.
+                for tri in tri_indices.chunks(3) {
+                    if tri.len() != 3
+                        || tri[0] >= face_indices.len()
+                        || tri[1] >= face_indices.len()
+                        || tri[2] >= face_indices.len()
+                    {
+                        continue;
                     }
+                    push_oriented_triangle(
+                        face_indices[tri[0]],
+                        face_indices[tri[1]],
+                        face_indices[tri[2]],
+                    );
                 }
             }
             Err(_) => {
                 // Fallback to fan triangulation if ear-clipping fails
-                let first = face_indices[0] - 1;
+                let first = face_indices[0];
                 for i in 1..face_indices.len() - 1 {
-                    output.push(first);
-                    output.push(face_indices[i] - 1);
-                    output.push(face_indices[i + 1] - 1);
+                    push_oriented_triangle(first, face_indices[i], face_indices[i + 1]);
                 }
             }
+        }
+    }
+
+    #[inline]
+    fn orient_closed_shell_outward(positions: &[f32], indices: &mut [u32]) {
+        if indices.len() < 3 || positions.len() < 9 {
+            return;
+        }
+
+        let vertex_count = positions.len() / 3;
+        if vertex_count == 0 {
+            return;
+        }
+
+        // Mesh centroid
+        let mut cx = 0.0f64;
+        let mut cy = 0.0f64;
+        let mut cz = 0.0f64;
+        for p in positions.chunks_exact(3) {
+            cx += p[0] as f64;
+            cy += p[1] as f64;
+            cz += p[2] as f64;
+        }
+        let inv_n = 1.0 / vertex_count as f64;
+        cx *= inv_n;
+        cy *= inv_n;
+        cz *= inv_n;
+
+        let mut sign_accum = 0.0f64;
+        for tri in indices.chunks_exact(3) {
+            let i0 = tri[0] as usize;
+            let i1 = tri[1] as usize;
+            let i2 = tri[2] as usize;
+            if i0 >= vertex_count || i1 >= vertex_count || i2 >= vertex_count {
+                continue;
+            }
+
+            let p0 = (
+                positions[i0 * 3] as f64,
+                positions[i0 * 3 + 1] as f64,
+                positions[i0 * 3 + 2] as f64,
+            );
+            let p1 = (
+                positions[i1 * 3] as f64,
+                positions[i1 * 3 + 1] as f64,
+                positions[i1 * 3 + 2] as f64,
+            );
+            let p2 = (
+                positions[i2 * 3] as f64,
+                positions[i2 * 3 + 1] as f64,
+                positions[i2 * 3 + 2] as f64,
+            );
+
+            let e1 = (p1.0 - p0.0, p1.1 - p0.1, p1.2 - p0.2);
+            let e2 = (p2.0 - p0.0, p2.1 - p0.1, p2.2 - p0.2);
+            let n = (
+                e1.1 * e2.2 - e1.2 * e2.1,
+                e1.2 * e2.0 - e1.0 * e2.2,
+                e1.0 * e2.1 - e1.1 * e2.0,
+            );
+
+            let tc = (
+                (p0.0 + p1.0 + p2.0) / 3.0,
+                (p0.1 + p1.1 + p2.1) / 3.0,
+                (p0.2 + p1.2 + p2.2) / 3.0,
+            );
+            let out = (tc.0 - cx, tc.1 - cy, tc.2 - cz);
+            sign_accum += n.0 * out.0 + n.1 * out.1 + n.2 * out.2;
+        }
+
+        // If most triangles point inward, flip all winding.
+        if sign_accum < 0.0 {
+            for tri in indices.chunks_exact_mut(3) {
+                tri.swap(1, 2);
+            }
+        }
+    }
+
+    #[inline]
+    fn build_flat_shaded_mesh(positions: &[f32], indices: &[u32]) -> Mesh {
+        let mut flat_positions: Vec<f32> = Vec::with_capacity(indices.len() * 3);
+        let mut flat_normals: Vec<f32> = Vec::with_capacity(indices.len() * 3);
+        let mut flat_indices: Vec<u32> = Vec::with_capacity(indices.len());
+
+        let vertex_count = positions.len() / 3;
+        let mut next_index: u32 = 0;
+
+        for tri in indices.chunks_exact(3) {
+            let i0 = tri[0] as usize;
+            let i1 = tri[1] as usize;
+            let i2 = tri[2] as usize;
+            if i0 >= vertex_count || i1 >= vertex_count || i2 >= vertex_count {
+                continue;
+            }
+
+            let p0 = (
+                positions[i0 * 3] as f64,
+                positions[i0 * 3 + 1] as f64,
+                positions[i0 * 3 + 2] as f64,
+            );
+            let p1 = (
+                positions[i1 * 3] as f64,
+                positions[i1 * 3 + 1] as f64,
+                positions[i1 * 3 + 2] as f64,
+            );
+            let p2 = (
+                positions[i2 * 3] as f64,
+                positions[i2 * 3 + 1] as f64,
+                positions[i2 * 3 + 2] as f64,
+            );
+
+            let e1 = (p1.0 - p0.0, p1.1 - p0.1, p1.2 - p0.2);
+            let e2 = (p2.0 - p0.0, p2.1 - p0.1, p2.2 - p0.2);
+            let nx = e1.1 * e2.2 - e1.2 * e2.1;
+            let ny = e1.2 * e2.0 - e1.0 * e2.2;
+            let nz = e1.0 * e2.1 - e1.1 * e2.0;
+            let len = (nx * nx + ny * ny + nz * nz).sqrt();
+            let (nx, ny, nz) = if len > 1e-12 {
+                (nx / len, ny / len, nz / len)
+            } else {
+                (0.0, 0.0, 1.0)
+            };
+
+            for &idx in &[i0, i1, i2] {
+                flat_positions.push(positions[idx * 3]);
+                flat_positions.push(positions[idx * 3 + 1]);
+                flat_positions.push(positions[idx * 3 + 2]);
+                flat_normals.push(nx as f32);
+                flat_normals.push(ny as f32);
+                flat_normals.push(nz as f32);
+                flat_indices.push(next_index);
+                next_index += 1;
+            }
+        }
+
+        Mesh {
+            positions: flat_positions,
+            normals: flat_normals,
+            indices: flat_indices,
         }
     }
 }
@@ -357,11 +533,18 @@ impl GeometryProcessor for PolygonalFaceSetProcessor {
             Self::triangulate_polygon(&face_indices, &positions, &mut indices);
         }
 
-        Ok(Mesh {
-            positions,
-            normals: Vec::new(), // Will be computed later
-            indices,
-        })
+        // Closed shells from some exporters may be consistently inward.
+        // Flip globally to outward winding when needed.
+        let is_closed = entity
+            .get(1)
+            .and_then(|a| a.as_enum())
+            .map(|v| v == "T")
+            .unwrap_or(false);
+        if is_closed {
+            Self::orient_closed_shell_outward(&positions, &mut indices);
+        }
+
+        Ok(Self::build_flat_shaded_mesh(&positions, &indices))
     }
 
     fn supported_types(&self) -> Vec<IfcType> {

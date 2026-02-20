@@ -66,6 +66,18 @@ export const UI_DEFAULTS = {
   THEME: getInitialTheme(),
   /** Default hover tooltips state */
   HOVER_TOOLTIPS_ENABLED: false,
+  /** Global visual enhancement kill switch */
+  VISUAL_ENHANCEMENTS_ENABLED: true,
+  /** Edge contrast enhancement default */
+  EDGE_CONTRAST_ENABLED: true,
+  /** Edge contrast intensity */
+  EDGE_CONTRAST_INTENSITY: 1.2,
+  /** Contact shading quality preset */
+  CONTACT_SHADING_QUALITY: 'low' as const,
+  /** Contact shading intensity */
+  CONTACT_SHADING_INTENSITY: 0.35,
+  /** Contact shading radius in pixels */
+  CONTACT_SHADING_RADIUS: 1.5,
 } as const;
 
 // ============================================================================

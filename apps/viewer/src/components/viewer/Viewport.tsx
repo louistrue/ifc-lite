@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
-import { Renderer } from '@ifc-lite/renderer';
+import { Renderer, type VisualEnhancementOptions } from '@ifc-lite/renderer';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 import { useViewerStore, resolveEntityRef, type MeasurePoint, type SnapVisualization } from '@/store';
 import {
@@ -158,7 +158,16 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   const { updateCameraRotationRealtime, updateScaleRealtime, setCameraCallbacks } = useCameraState();
 
   // Theme state
-  const { theme } = useThemeState();
+  const {
+    theme,
+    isMobile,
+    visualEnhancementsEnabled,
+    edgeContrastEnabled,
+    edgeContrastIntensity,
+    contactShadingQuality,
+    contactShadingIntensity,
+    contactShadingRadius,
+  } = useThemeState();
 
   // Hover state
   const { hoverTooltipsEnabled, setHoverState, clearHover } = useHoverState();
@@ -215,6 +224,27 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   // Theme-aware clear color ref (updated when theme changes)
   // Tokyo Night storm: #1a1b26 = rgb(26, 27, 38)
   const clearColorRef = useRef<[number, number, number, number]>([0.102, 0.106, 0.149, 1]);
+  const visualEnhancement = useMemo<VisualEnhancementOptions>(() => ({
+    enabled: visualEnhancementsEnabled,
+    edgeContrast: {
+      enabled: edgeContrastEnabled,
+      intensity: edgeContrastIntensity,
+    },
+    contactShading: {
+      quality: isMobile ? 'off' : contactShadingQuality,
+      intensity: contactShadingIntensity,
+      radius: contactShadingRadius,
+    },
+  }), [
+    visualEnhancementsEnabled,
+    edgeContrastEnabled,
+    edgeContrastIntensity,
+    isMobile,
+    contactShadingQuality,
+    contactShadingIntensity,
+    contactShadingRadius,
+  ]);
+  const visualEnhancementRef = useRef<VisualEnhancementOptions>(visualEnhancement);
 
   // Animation frame ref
   const animationFrameRef = useRef<number | null>(null);
@@ -330,6 +360,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   useEffect(() => { measurementConstraintEdgeRef.current = measurementConstraintEdge; }, [measurementConstraintEdge]);
   useEffect(() => { sectionPlaneRef.current = sectionPlane; }, [sectionPlane]);
   useEffect(() => { sectionRangeRef.current = sectionRange; }, [sectionRange]);
+  useEffect(() => { visualEnhancementRef.current = visualEnhancement; }, [visualEnhancement]);
   useEffect(() => {
     geometryRef.current = geometry;
   }, [geometry]);
@@ -459,6 +490,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
             selectedId: selectedEntityIdRef.current,
             selectedModelIndex: selectedModelIndexRef.current,
             clearColor: clearColorRef.current,
+            visualEnhancement: visualEnhancementRef.current,
             sectionPlane: activeToolRef.current === 'section' ? {
               ...sectionPlaneRef.current,
               min: sectionRangeRef.current?.min,
@@ -485,6 +517,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
             selectedId: selectedEntityIdRef.current,
             selectedModelIndex: selectedModelIndexRef.current,
             clearColor: clearColorRef.current,
+            visualEnhancement: visualEnhancementRef.current,
             sectionPlane: activeToolRef.current === 'section' ? {
               ...sectionPlaneRef.current,
               min: sectionRangeRef.current?.min,
@@ -501,6 +534,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
             selectedId: selectedEntityIdRef.current,
             selectedModelIndex: selectedModelIndexRef.current,
             clearColor: clearColorRef.current,
+            visualEnhancement: visualEnhancementRef.current,
             sectionPlane: activeToolRef.current === 'section' ? {
               ...sectionPlaneRef.current,
               min: sectionRangeRef.current?.min,
@@ -534,6 +568,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
             selectedId: selectedEntityIdRef.current,
             selectedModelIndex: selectedModelIndexRef.current,
             clearColor: clearColorRef.current,
+            visualEnhancement: visualEnhancementRef.current,
             sectionPlane: activeToolRef.current === 'section' ? {
               ...sectionPlaneRef.current,
               min: sectionRangeRef.current?.min,
@@ -557,6 +592,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
             selectedId: selectedEntityIdRef.current,
             selectedModelIndex: selectedModelIndexRef.current,
             clearColor: clearColorRef.current,
+            visualEnhancement: visualEnhancementRef.current,
             sectionPlane: activeToolRef.current === 'section' ? {
               ...sectionPlaneRef.current,
               min: sectionRangeRef.current?.min,
@@ -573,6 +609,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
             selectedId: selectedEntityIdRef.current,
             selectedModelIndex: selectedModelIndexRef.current,
             clearColor: clearColorRef.current,
+            visualEnhancement: visualEnhancementRef.current,
             sectionPlane: activeToolRef.current === 'section' ? {
               ...sectionPlaneRef.current,
               min: sectionRangeRef.current?.min,
@@ -598,6 +635,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
           selectedId: selectedEntityIdRef.current,
           selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
+          visualEnhancement: visualEnhancementRef.current,
           sectionPlane: activeToolRef.current === 'section' ? {
             ...sectionPlaneRef.current,
             min: sectionRangeRef.current?.min,
@@ -614,6 +652,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
         selectedId: selectedEntityIdRef.current,
         selectedModelIndex: selectedModelIndexRef.current,
         clearColor: clearColorRef.current,
+        visualEnhancement: visualEnhancementRef.current,
         sectionPlane: activeToolRef.current === 'section' ? {
           ...sectionPlaneRef.current,
           min: sectionRangeRef.current?.min,
@@ -767,6 +806,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     clearColorRef,
     sectionPlaneRef,
     sectionRangeRef,
+    visualEnhancementRef,
     lastCameraStateRef,
     updateCameraRotationRealtime,
     calculateScale,
@@ -791,6 +831,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     isInitialized,
     theme,
     clearColorRef,
+    visualEnhancementRef,
     hiddenEntities,
     isolatedEntities,
     selectedEntityId,
