@@ -55,6 +55,7 @@ function createMockBackend() {
   const exportNs = {
     csv: vi.fn(() => ''),
     json: vi.fn(() => []),
+    ifc: vi.fn(() => 'ISO-10303-21;\nEND-ISO-10303-21;'),
     download: vi.fn(),
   };
   const lens = {
@@ -223,6 +224,23 @@ describe('ExportNamespace', () => {
     expect(data).toHaveLength(1);
     expect(data[0]).toEqual({ name: 'Wall 1', type: 'IfcWall' });
   });
+
+  it('ifc() delegates to backend export.ifc', () => {
+    const { backend, export: exportNs } = createMockBackend();
+    const bim = createBimContext({ backend });
+
+    const content = bim.export.ifc(
+      [{ modelId: 'model-1', expressId: 1 }],
+      { schema: 'IFC4X3' },
+    );
+
+    expect(content).toContain('ISO-10303-21');
+    expect(exportNs.ifc).toHaveBeenCalledWith(
+      [{ modelId: 'model-1', expressId: 1 }],
+      { schema: 'IFC4X3' },
+    );
+  });
+
 });
 
 describe('ViewerNamespace', () => {

@@ -271,6 +271,7 @@ export interface SpatialBackendMethods {
 export interface ExportBackendMethods {
   csv(refs: unknown, options: unknown): string;
   json(refs: unknown, columns: unknown): Record<string, unknown>[];
+  ifc(refs: unknown, options: unknown): string;
   download(content: string, filename: string, mimeType: string): void;
 }
 
