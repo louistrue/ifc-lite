@@ -1,5 +1,12 @@
 # @ifc-lite/geometry
 
+## 1.11.0
+
+### Patch Changes
+
+- Updated dependencies [[`ca7fd20`](https://github.com/louistrue/ifc-lite/commit/ca7fd2015923e5a1a330ccbc4e95d259f9ce9c6f)]:
+  - @ifc-lite/wasm@1.11.0
+
 ## 1.10.0
 
 ### Patch Changes

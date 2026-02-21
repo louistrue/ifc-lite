@@ -1,6 +1,6 @@
 {
   "name": "@ifc-lite/embed-protocol",
-  "version": "0.1.0",
+  "version": "1.11.0",
   "description": "Shared postMessage protocol types for ifc-lite embed viewer and SDK",
   "type": "module",
   "main": "src/index.ts",

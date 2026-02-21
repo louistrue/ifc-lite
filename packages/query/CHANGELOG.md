@@ -1,5 +1,15 @@
 # @ifc-lite/query
 
+## 1.11.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.11.0
+  - @ifc-lite/geometry@1.11.0
+  - @ifc-lite/parser@1.11.0
+  - @ifc-lite/spatial@1.11.0
+
 ## 1.10.0
 
 ### Patch Changes

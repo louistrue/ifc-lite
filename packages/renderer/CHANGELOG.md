@@ -1,5 +1,20 @@
 # @ifc-lite/renderer
 
+## 1.11.0
+
+### Minor Changes
+
+- [#220](https://github.com/louistrue/ifc-lite/pull/220) [`5a18e6c`](https://github.com/louistrue/ifc-lite/commit/5a18e6cccbc94d244c78a571b9f2c4863326190d) Thanks [@louistrue](https://github.com/louistrue)! - Add basket presentation system with saved views, smart input sources, and presentation dock UI. The basket (pinboard) now supports saving named views with camera viewpoints, section plane state, and canvas thumbnails. Smart input resolution automatically picks the best source (selection, hierarchy, or visible scene) for basket operations. A new floating presentation dock provides set/add/remove controls and a scrollable strip of saved views for rapid scene navigation.
+
+### Patch Changes
+
+- [#232](https://github.com/louistrue/ifc-lite/pull/232) [`ca7fd20`](https://github.com/louistrue/ifc-lite/commit/ca7fd2015923e5a1a330ccbc4e95d259f9ce9c6f) Thanks [@louistrue](https://github.com/louistrue)! - Fix window rendering and interaction regressions for multi-part tessellated elements. The WASM geometry pipeline now correctly triangulates `IfcIndexedPolygonalFaceWithVoids` (including inner loops) and respects optional `PnIndex` remapping, restoring correct window cutouts and subelement colors. Renderer picking, CPU raycasting, and selected-mesh lazy creation now handle all submesh pieces per element/model instead of collapsing to a single piece, and selected highlights are rendered after transparent passes so glass receives the same selection highlight as frames.
+
+- Updated dependencies [[`ca7fd20`](https://github.com/louistrue/ifc-lite/commit/ca7fd2015923e5a1a330ccbc4e95d259f9ce9c6f)]:
+  - @ifc-lite/wasm@1.11.0
+  - @ifc-lite/geometry@1.11.0
+  - @ifc-lite/spatial@1.11.0
+
 ## 1.10.0
 
 ### Minor Changes
