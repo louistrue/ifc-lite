@@ -46,6 +46,10 @@ describe('DataSlice', () => {
     it('should have null pendingColorUpdates', () => {
       assert.strictEqual(state.pendingColorUpdates, null);
     });
+
+    it('should have null pendingMeshColorUpdates', () => {
+      assert.strictEqual(state.pendingMeshColorUpdates, null);
+    });
   });
 
   describe('setIfcDataStore', () => {
@@ -136,9 +140,11 @@ describe('DataSlice', () => {
       state.updateMeshColors(updates);
 
       assert.deepStrictEqual(state.geometryResult?.meshes[0].color, [0, 1, 0, 1]);
+      assert.strictEqual(state.pendingColorUpdates, null);
+      assert.deepStrictEqual(state.pendingMeshColorUpdates?.get(1), [0, 1, 0, 1]);
     });
 
-    it('should clone the updates Map to prevent external mutation', () => {
+    it('should clone updates and avoid mutating state from external map writes', () => {
       const mesh = createMockMesh(1);
       state.appendGeometryBatch([mesh] as any);
 
@@ -151,16 +157,20 @@ describe('DataSlice', () => {
       updates.set(1, [1, 1, 1, 1]);
 
       // State should not be affected
-      assert.notStrictEqual(state.pendingColorUpdates, updates);
+      assert.deepStrictEqual(state.geometryResult?.meshes[0].color, [0, 1, 0, 1]);
+      assert.strictEqual(state.pendingColorUpdates, null);
+      assert.deepStrictEqual(state.pendingMeshColorUpdates?.get(1), [0, 1, 0, 1]);
     });
 
-    it('should not update when no geometry result', () => {
+    it('should skip mesh mutation but still set pendingMeshColorUpdates when no geometry result', () => {
       const updates = new Map<number, [number, number, number, number]>();
       updates.set(1, [0, 1, 0, 1]);
 
       state.updateMeshColors(updates);
 
       assert.strictEqual(state.geometryResult, null);
+      assert.strictEqual(state.pendingColorUpdates, null);
+      assert.deepStrictEqual(state.pendingMeshColorUpdates?.get(1), [0, 1, 0, 1]);
     });
 
     it('should preserve unaffected meshes', () => {
@@ -185,11 +195,50 @@ describe('DataSlice', () => {
 
       const updates = new Map<number, [number, number, number, number]>();
       updates.set(1, [0, 1, 0, 1]);
-      state.updateMeshColors(updates);
+      state.setPendingColorUpdates(updates);
 
       state.clearPendingColorUpdates();
 
       assert.strictEqual(state.pendingColorUpdates, null);
+    });
+  });
+
+  describe('clearPendingMeshColorUpdates', () => {
+    it('should clear pending mesh color updates', () => {
+      const mesh = createMockMesh(1);
+      state.appendGeometryBatch([mesh] as any);
+
+      const updates = new Map<number, [number, number, number, number]>();
+      updates.set(1, [0, 1, 0, 1]);
+      state.updateMeshColors(updates);
+
+      state.clearPendingMeshColorUpdates();
+
+      assert.strictEqual(state.pendingMeshColorUpdates, null);
+    });
+  });
+
+  describe('setPendingColorUpdates', () => {
+    it('should clone pending color updates map', () => {
+      const updates = new Map<number, [number, number, number, number]>();
+      updates.set(1, [0, 1, 0, 1]);
+      state.setPendingColorUpdates(updates);
+
+      updates.set(1, [1, 1, 1, 1]);
+      assert.notStrictEqual(state.pendingColorUpdates, updates);
+      assert.deepStrictEqual(state.pendingColorUpdates?.get(1), [0, 1, 0, 1]);
+    });
+
+    it('should not mutate persisted geometry colors', () => {
+      const mesh = createMockMesh(1, [0.2, 0.2, 0.2, 1]);
+      state.appendGeometryBatch([mesh] as any);
+      const updates = new Map<number, [number, number, number, number]>();
+      updates.set(1, [1, 0, 1, 0.5]);
+
+      state.setPendingColorUpdates(updates);
+
+      assert.deepStrictEqual(state.geometryResult?.meshes[0].color, [0.2, 0.2, 0.2, 1]);
+      assert.deepStrictEqual(state.pendingColorUpdates?.get(1), [1, 0, 1, 0.5]);
     });
   });
 

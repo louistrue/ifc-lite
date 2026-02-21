@@ -150,6 +150,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
 
       // Data
       pendingColorUpdates: null,
+      pendingMeshColorUpdates: null,
 
       // Hover/Context
       hoverState: { entityId: null, screenX: 0, screenY: 0 },
