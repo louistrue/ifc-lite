@@ -162,7 +162,7 @@ describe('DataSlice', () => {
       assert.deepStrictEqual(state.pendingMeshColorUpdates?.get(1), [0, 1, 0, 1]);
     });
 
-    it('should no-op when no geometry result', () => {
+    it('should skip mesh mutation but still set pendingMeshColorUpdates when no geometry result', () => {
       const updates = new Map<number, [number, number, number, number]>();
       updates.set(1, [0, 1, 0, 1]);
 

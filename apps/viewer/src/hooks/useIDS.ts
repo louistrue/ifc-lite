@@ -433,13 +433,9 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
   }, [report, models, displayOptions, defaultFailedColor, defaultPassedColor, setPendingColorUpdates]);
 
   const clearColors = useCallback(() => {
-    const colorUpdates = buildRestoreColorUpdates(originalColorsRef.current);
-    if (colorUpdates && colorUpdates.size > 0) {
-      setPendingColorUpdates(colorUpdates);
-      return;
-    }
-    // Fallback: empty map signals overlay clear.
+    // Empty map signals overlay clear immediately.
     setPendingColorUpdates(new Map());
+    originalColorsRef.current.clear();
   }, [setPendingColorUpdates]);
 
   // Ref to store applyColors for stable useEffect (prevents infinite loops)

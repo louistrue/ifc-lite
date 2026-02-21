@@ -395,10 +395,8 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     const pipeline = renderer.getPipeline();
     const scene = renderer.getScene();
 
-    if (device && pipeline) {
-      if (pendingMeshColorUpdates.size > 0) {
-        scene.updateMeshColors(pendingMeshColorUpdates, device, pipeline);
-      }
+    if (device && pipeline && pendingMeshColorUpdates.size > 0) {
+      scene.updateMeshColors(pendingMeshColorUpdates, device, pipeline);
       renderer.render({
         clearColor: clearColorRef.current,
       });

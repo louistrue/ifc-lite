@@ -38,9 +38,19 @@ describe('applyColorUpdatesToMeshes', () => {
     assert.deepStrictEqual(meshes[1].color, [0.6, 0.2, 0.8, 0.4]);
   });
 
-  it('is a no-op for empty inputs', () => {
+  it('is a no-op for empty updates', () => {
     const meshes = [createMesh(10, [0.2, 0.2, 0.2, 1])];
     applyColorUpdatesToMeshes(meshes, new Map());
     assert.deepStrictEqual(meshes[0].color, [0.2, 0.2, 0.2, 1]);
+  });
+
+  it('is a no-op for empty meshes', () => {
+    const meshes: MeshData[] = [];
+    const updates = new Map<number, [number, number, number, number]>([
+      [10, [0.3, 0.4, 0.5, 1]],
+    ]);
+
+    assert.doesNotThrow(() => applyColorUpdatesToMeshes(meshes, updates));
+    assert.strictEqual(meshes.length, 0);
   });
 });
