@@ -907,7 +907,14 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
       {/* Right Side Actions */}
       <div className="flex items-center gap-2 ml-2 pl-2 border-l border-zinc-200 dark:border-zinc-700/60">
-        <ThemeSwitch />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div>
+              <ThemeSwitch />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>Toggle theme</TooltipContent>
+        </Tooltip>
 
         <Tooltip>
           <TooltipTrigger asChild>
