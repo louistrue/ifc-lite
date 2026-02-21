@@ -913,11 +913,11 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
-              size="icon-sm"
+              size="icon"
               className="rounded-full"
               onClick={() => onShowShortcuts?.()}
             >
-              <HelpCircle className="!h-[18px] !w-[18px]" />
+              <HelpCircle className="!h-[22px] !w-[22px]" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>Info (?)</TooltipContent>
