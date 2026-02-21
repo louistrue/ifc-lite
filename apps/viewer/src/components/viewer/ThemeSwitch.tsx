@@ -24,7 +24,7 @@ export function ThemeSwitch() {
 
     const toggle = new ThemeToggle({
       element: containerRef.current,
-      size: 80,
+      size: 28,
       initialState: currentTheme,
       onChange: (state) => {
         useViewerStore.getState().setTheme(state);
@@ -51,5 +51,5 @@ export function ThemeSwitch() {
     };
   }, []);
 
-  return <div ref={containerRef} />;
+  return <div ref={containerRef} className="flex items-center cursor-pointer opacity-80 hover:opacity-100 transition-opacity" />;
 }

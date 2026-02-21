@@ -906,20 +906,23 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       )}
 
       {/* Right Side Actions */}
-      <ThemeSwitch />
+      <div className="flex items-center gap-2 ml-2 pl-2 border-l border-zinc-200 dark:border-zinc-700/60">
+        <ThemeSwitch />
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => onShowShortcuts?.()}
-          >
-            <HelpCircle className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Info (?)</TooltipContent>
-      </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="rounded-full"
+              onClick={() => onShowShortcuts?.()}
+            >
+              <HelpCircle className="h-5 w-5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Info (?)</TooltipContent>
+        </Tooltip>
+      </div>
 
     </div>
   );
