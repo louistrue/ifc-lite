@@ -24,6 +24,7 @@ export function ThemeSwitch() {
 
     const toggle = new ThemeToggle({
       element: containerRef.current,
+      size: 80,
       initialState: currentTheme,
       onChange: (state) => {
         useViewerStore.getState().setTheme(state);
@@ -50,5 +51,5 @@ export function ThemeSwitch() {
     };
   }, []);
 
-  return <div ref={containerRef} style={{ width: 80 }} />;
+  return <div ref={containerRef} />;
 }
