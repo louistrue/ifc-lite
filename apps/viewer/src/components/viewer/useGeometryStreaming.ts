@@ -18,7 +18,9 @@ export interface UseGeometryStreamingParams {
   coordinateInfo?: CoordinateInfo;
   isStreaming: boolean;
   geometryBoundsRef: MutableRefObject<{ min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } }>;
+  pendingMeshColorUpdates: Map<number, [number, number, number, number]> | null;
   pendingColorUpdates: Map<number, [number, number, number, number]> | null;
+  clearPendingMeshColorUpdates: () => void;
   clearPendingColorUpdates: () => void;
   // Clear color ref — color update renders must preserve theme background
   clearColorRef: MutableRefObject<[number, number, number, number]>;
@@ -32,7 +34,9 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     coordinateInfo,
     isStreaming,
     geometryBoundsRef,
+    pendingMeshColorUpdates,
     pendingColorUpdates,
+    clearPendingMeshColorUpdates,
     clearPendingColorUpdates,
     clearColorRef,
   } = params;
@@ -379,6 +383,29 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
   // Uses scene.setColorOverrides() which builds overlay batches rendered on top
   // of original geometry via depthCompare 'equal'. Original batches are NEVER
   // modified, so clearing lens is instant (no batch rebuild).
+  useEffect(() => {
+    if (pendingMeshColorUpdates === null) return;
+
+    if (!isInitialized) return;
+
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+
+    const device = renderer.getGPUDevice();
+    const pipeline = renderer.getPipeline();
+    const scene = renderer.getScene();
+
+    if (device && pipeline) {
+      if (pendingMeshColorUpdates.size > 0) {
+        scene.updateMeshColors(pendingMeshColorUpdates, device, pipeline);
+      }
+      renderer.render({
+        clearColor: clearColorRef.current,
+      });
+      clearPendingMeshColorUpdates();
+    }
+  }, [pendingMeshColorUpdates, isInitialized, clearPendingMeshColorUpdates]);
+
   useEffect(() => {
     if (pendingColorUpdates === null) return;
 
