@@ -209,7 +209,7 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
   const models = useViewerStore((s) => s.models);
   const ifcDataStore = useViewerStore((s) => s.ifcDataStore);
   const activeModelId = useViewerStore((s) => s.activeModelId);
-  const updateMeshColors = useViewerStore((s) => s.updateMeshColors);
+  const setPendingColorUpdates = useViewerStore((s) => s.setPendingColorUpdates);
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
   const setSelectedEntity = useViewerStore((s) => s.setSelectedEntity);
   const setIsolatedEntities = useViewerStore((s) => s.setIsolatedEntities);
@@ -428,16 +428,19 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     );
 
     if (colorUpdates.size > 0) {
-      updateMeshColors(colorUpdates);
+      setPendingColorUpdates(colorUpdates);
     }
-  }, [report, models, displayOptions, defaultFailedColor, defaultPassedColor, updateMeshColors]);
+  }, [report, models, displayOptions, defaultFailedColor, defaultPassedColor, setPendingColorUpdates]);
 
   const clearColors = useCallback(() => {
     const colorUpdates = buildRestoreColorUpdates(originalColorsRef.current);
     if (colorUpdates && colorUpdates.size > 0) {
-      updateMeshColors(colorUpdates);
+      setPendingColorUpdates(colorUpdates);
+      return;
     }
-  }, [updateMeshColors]);
+    // Fallback: empty map signals overlay clear.
+    setPendingColorUpdates(new Map());
+  }, [setPendingColorUpdates]);
 
   // Ref to store applyColors for stable useEffect (prevents infinite loops)
   const applyColorsRef = useRef(applyColors);

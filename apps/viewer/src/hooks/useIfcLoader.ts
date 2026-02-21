@@ -25,6 +25,7 @@ import {
   calculateStoreyHeights,
   normalizeColor,
 } from '../utils/localParsingUtils.js';
+import { applyColorUpdatesToMeshes } from './meshColorUpdates.js';
 
 // Cache hook
 import { useIfcCache, getCached } from './useIfcCache.js';
@@ -333,6 +334,8 @@ export function useIfcLoader() {
       let finalCoordinateInfo: CoordinateInfo | null = null;
       // Capture RTC offset from WASM for proper multi-model alignment
       let capturedRtcOffset: { x: number; y: number; z: number } | null = null;
+      // Track all deferred style updates so cache data always uses final colors.
+      const cumulativeColorUpdates = new Map<number, [number, number, number, number]>();
 
       // Clear existing geometry result
       setGeometryResult(null);
@@ -375,8 +378,14 @@ export function useIfcLoader() {
               console.log(`[useIfc] Model opened at ${modelOpenMs.toFixed(0)}ms`);
               break;
             case 'colorUpdate': {
-              // Update colors for already-rendered meshes
+              // Persist parser style/material colors in store (non-overlay path).
               updateMeshColors(event.updates);
+              // Keep local mesh snapshots in sync for cache serialization.
+              for (const [expressId, color] of event.updates) {
+                cumulativeColorUpdates.set(expressId, color);
+              }
+              applyColorUpdatesToMeshes(allMeshes, event.updates);
+              applyColorUpdatesToMeshes(pendingMeshes, event.updates);
               break;
             }
             case 'rtcOffset': {
@@ -476,6 +485,8 @@ export function useIfcLoader() {
 
                 // Cache the result in the background (for files above threshold)
                 if (buffer.byteLength >= CACHE_SIZE_THRESHOLD && allMeshes.length > 0 && finalCoordinateInfo) {
+                  // Final safety pass so cache always contains post-style colors.
+                  applyColorUpdatesToMeshes(allMeshes, cumulativeColorUpdates);
                   const geometryData: GeometryData = {
                     meshes: allMeshes,
                     totalVertices: allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0),
