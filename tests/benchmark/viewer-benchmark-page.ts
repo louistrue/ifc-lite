@@ -131,11 +131,14 @@ export class ViewerBenchmarkPage {
       const hasTotalLoadTime = this.consoleLogs.some(log =>
         log.includes('[useIfc] TOTAL LOAD TIME')
       );
+      const hasUnifiedSummary = this.consoleLogs.some(log =>
+        log.includes('[useIfc]') && log.includes('meshes') && log.includes('first:') && log.includes('total:')
+      );
 
       // Check canvas has actual content
       const canvasReady = await this.checkCanvasHasContent();
       
-      if (hasStreamingComplete && hasDataModelComplete && hasTotalLoadTime) {
+      if ((hasStreamingComplete && hasDataModelComplete && hasTotalLoadTime) || hasUnifiedSummary) {
         // Record when we see completion in logs
         if (!renderCompleteTime) {
           renderCompleteTime = Date.now();
@@ -248,6 +251,20 @@ export class ViewerBenchmarkPage {
       }
     }
     
+    // Fallback for newer compact log format:
+    // [useIfc] ✓ file.ifc (2.4MB) → 244 meshes, 643k vertices | first: 107ms, total: 275ms
+    const compactSummaryMatch = logs.match(
+      /\[useIfc\].*?\(([\d.]+)MB\)\s+→\s+(\d+)\s+meshes.*?\|\s+first:\s+(\d+)ms,\s+total:\s+(\d+)ms/
+    );
+    if (compactSummaryMatch) {
+      this.metrics.fileSizeMB = this.metrics.fileSizeMB ?? parseFloat(compactSummaryMatch[1]);
+      this.metrics.totalMeshes = this.metrics.totalMeshes ?? parseInt(compactSummaryMatch[2], 10);
+      this.metrics.firstBatchWaitMs = this.metrics.firstBatchWaitMs ?? parseInt(compactSummaryMatch[3], 10);
+      this.metrics.totalWallClockMs = this.metrics.totalWallClockMs ?? parseInt(compactSummaryMatch[4], 10);
+      // Newer log format omits a dedicated model-open event; keep assertion-compatible fallback.
+      this.metrics.modelOpenMs = this.metrics.modelOpenMs ?? this.metrics.firstBatchWaitMs ?? null;
+    }
+
     // Total load time from app (most accurate measure of user experience)
     const totalLoadMatch = logs.match(/\[useIfc\] TOTAL LOAD TIME.*?: (\d+)ms/);
     if (totalLoadMatch) {

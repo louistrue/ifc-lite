@@ -117,8 +117,8 @@ test.describe('Viewer Performance Benchmarks', () => {
     ? ifcFilesEnv.split(',').map((f) => f.trim())
     : [
         'tests/models/ara3d/AC20-FZK-Haus.ifc',  // Small, fast, has cutouts - ideal for boolean testing
-        'tests/models/01_Snowdon_Towers_Sample_Structural(1).ifc',
-        'tests/models/O-S1-BWK-BIM architectural - BIM bouwkundig.ifc',
+        'tests/models/various/01_Snowdon_Towers_Sample_Structural(1).ifc',
+        'tests/models/various/O-S1-BWK-BIM architectural - BIM bouwkundig.ifc',
         'tests/models/ara3d/ISSUE_053_20181220Holter_Tower_10.ifc',
       ];
 

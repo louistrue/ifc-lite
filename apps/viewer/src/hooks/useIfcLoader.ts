@@ -101,8 +101,11 @@ export function useIfcLoader() {
       setProgress({ phase: 'Loading file', percent: 0 });
 
       // Read file from disk
+      const fileReadStart = performance.now();
       const buffer = await file.arrayBuffer();
+      const fileReadMs = performance.now() - fileReadStart;
       const fileSizeMB = buffer.byteLength / (1024 * 1024);
+      console.log(`[useIfc] File: ${file.name}, size: ${fileSizeMB.toFixed(2)}MB, read in ${fileReadMs.toFixed(0)}ms`);
 
       // Detect file format (IFCX/IFC5 vs IFC4 STEP vs GLB)
       const format = detectFormat(buffer);
@@ -341,6 +344,8 @@ export function useIfcLoader() {
       let totalWaitTime = 0; // Time waiting for WASM to yield batches
       let totalProcessTime = 0; // Time processing batches in JS
       let firstGeometryTime = 0; // Time to first rendered geometry
+      let modelOpenMs = 0;
+      let lastTotalMeshes = 0;
 
       // OPTIMIZATION: Accumulate meshes and batch state updates
       // First batch renders immediately, then accumulate for throughput
@@ -366,6 +371,8 @@ export function useIfcLoader() {
               break;
             case 'model-open':
               setProgress({ phase: 'Processing geometry', percent: 50 });
+              modelOpenMs = performance.now() - totalStartTime;
+              console.log(`[useIfc] Model opened at ${modelOpenMs.toFixed(0)}ms`);
               break;
             case 'colorUpdate': {
               // Update colors for already-rendered meshes
@@ -386,6 +393,7 @@ export function useIfcLoader() {
               // Track time to first geometry
               if (batchCount === 1) {
                 firstGeometryTime = performance.now() - totalStartTime;
+                console.log(`[useIfc] Batch #1: ${event.meshes.length} meshes, wait: ${firstGeometryTime.toFixed(0)}ms`);
               }
 
               const processStart = performance.now();
@@ -394,6 +402,7 @@ export function useIfcLoader() {
               for (let i = 0; i < event.meshes.length; i++) allMeshes.push(event.meshes[i]);
               finalCoordinateInfo = event.coordinateInfo ?? null;
               totalMeshes = event.totalSoFar;
+              lastTotalMeshes = event.totalSoFar;
 
               // Accumulate meshes for batched rendering
               for (let i = 0; i < event.meshes.length; i++) pendingMeshes.push(event.meshes[i]);
@@ -438,6 +447,9 @@ export function useIfcLoader() {
               updateCoordinateInfo(finalCoordinateInfo);
 
               setProgress({ phase: 'Complete', percent: 100 });
+              console.log(`[useIfc] Geometry streaming complete: ${batchCount} batches, ${lastTotalMeshes} meshes`);
+              console.log(`Total wait (WASM): ${totalWaitTime.toFixed(0)}ms`);
+              console.log(`Total process (JS): ${totalProcessTime.toFixed(0)}ms`);
 
               // Build spatial index and cache in background (non-blocking)
               // Wait for data model to complete first
@@ -494,6 +506,7 @@ export function useIfcLoader() {
         `${allMeshes.length} meshes, ${(totalVertices / 1000).toFixed(0)}k vertices | ` +
         `first: ${firstGeometryTime.toFixed(0)}ms, total: ${totalElapsedMs.toFixed(0)}ms`
       );
+      console.log(`[useIfc] TOTAL LOAD TIME (local): ${totalElapsedMs.toFixed(0)}ms (${(totalElapsedMs / 1000).toFixed(1)}s)`);
 
       setLoading(false);
     } catch (err) {
