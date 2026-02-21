@@ -1,5 +1,15 @@
 # @ifc-lite/export
 
+## 1.11.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.11.1
+  - @ifc-lite/geometry@1.11.1
+  - @ifc-lite/mutations@1.11.1
+  - @ifc-lite/parser@1.11.1
+
 ## 1.11.0
 
 ### Patch Changes

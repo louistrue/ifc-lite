@@ -1,5 +1,13 @@
 # @ifc-lite/parser
 
+## 1.11.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.11.1
+  - @ifc-lite/ifcx@1.11.1
+
 ## 1.11.0
 
 ### Patch Changes
