@@ -24,8 +24,6 @@ import {
   ArrowLeft,
   ArrowRight,
   Box,
-  Sun,
-  Moon,
   HelpCircle,
   Loader2,
   Camera,
@@ -68,6 +66,7 @@ import { DataConnector } from './DataConnector';
 import { ExportChangesButton } from './ExportChangesButton';
 import { useFloorplanView } from '@/hooks/useFloorplanView';
 import { recordRecentFiles, cacheFileBlobs } from '@/lib/recent-files';
+import { ThemeSwitch } from './ThemeSwitch';
 
 type Tool = 'select' | 'pan' | 'orbit' | 'walk' | 'measure' | 'section';
 
@@ -166,8 +165,6 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const hasModelsLoaded = models.size > 0 || (geometryResult?.meshes && geometryResult.meshes.length > 0);
   const activeTool = useViewerStore((state) => state.activeTool);
   const setActiveTool = useViewerStore((state) => state.setActiveTool);
-  const theme = useViewerStore((state) => state.theme);
-  const toggleTheme = useViewerStore((state) => state.toggleTheme);
   const selectedEntityId = useViewerStore((state) => state.selectedEntityId);
   const hideEntities = useViewerStore((state) => state.hideEntities);
   const error = useViewerStore((state) => state.error);
@@ -909,14 +906,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       )}
 
       {/* Right Side Actions */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button variant="ghost" size="icon-sm" onClick={toggleTheme}>
-            {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Toggle Theme</TooltipContent>
-      </Tooltip>
+      <ThemeSwitch />
 
       <Tooltip>
         <TooltipTrigger asChild>
