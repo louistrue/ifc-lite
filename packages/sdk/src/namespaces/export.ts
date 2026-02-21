@@ -23,8 +23,10 @@ export interface ExportGltfOptions {
 }
 
 export interface ExportStepOptions {
+  schema?: 'IFC2X3' | 'IFC4' | 'IFC4X3';
   filename?: string;
   includeMutations?: boolean;
+  visibleOnly?: boolean;
 }
 
 /** bim.export — Data export in multiple formats */
@@ -170,6 +172,18 @@ export class ExportNamespace {
     }
 
     return result;
+  }
+
+  /**
+   * Export entities to IFC STEP format.
+   * Supports IFC2X3, IFC4, and IFC4X3 (IFC 4.3) schemas.
+   */
+  ifc(refs: EntityRef[], options: ExportStepOptions = {}): string {
+    const content = this.backend.export.ifc(refs, options);
+    if (options.filename) {
+      this.backend.export.download(content, options.filename, 'application/x-step;charset=utf-8;');
+    }
+    return content;
   }
 
   private escapeCsv(value: string, sep: string): string {
