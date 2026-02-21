@@ -115,8 +115,9 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
 
       - name: Verify all packages on npm
-        # Retry up to 5 times with 15 s gaps to allow npm propagation.
-        run: node scripts/verify-npm-publish.js --retries 5 --delay 15000
+        # New packages can take longer to appear in npm metadata after publish.
+        # Retry for up to ~4 minutes before failing.
+        run: node scripts/verify-npm-publish.js --retries 12 --delay 20000
 
   # Build and upload server binaries for all platforms
   build-server-binaries:
