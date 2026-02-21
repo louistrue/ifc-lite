@@ -33,10 +33,10 @@ The benchmark suite includes 4 models covering different scenarios:
 
 | Model | Size | Purpose | Key Metrics |
 |-------|------|---------|-------------|
-| **FZK-Haus** | 2.5MB | Cutout/boolean testing | Window/door openings must be visible |
-| **Snowdon Towers** | 8MB | Structural elements | Fast loading baseline |
-| **BWK-BIM** | 327MB | Large architectural | Stress test for streaming |
-| **Holter Tower** | 169MB | Complex geometry | Crash prevention (MAX_OPENINGS safeguard) |
+| **FZK-Haus** | 2.4MB | Cutout/boolean testing | Window/door openings must be visible |
+| **Snowdon Towers** | 8.3MB | Structural elements | Fast loading baseline |
+| **BWK-BIM** | 326.8MB | Large architectural | Stress test for streaming |
+| **Holter Tower** | 169.2MB | Complex geometry | Crash prevention (MAX_OPENINGS safeguard) |
 
 ## Establishing Baseline
 
@@ -55,12 +55,15 @@ The benchmark suite includes 4 models covering different scenarios:
 
 ## Metrics Captured
 
+Primary metrics captured in the current benchmark log format:
+
 - **firstBatchWaitMs**: Time until first geometry appears (user-perceived speed)
-- **wasmWaitMs**: Total WASM processing time
-- **geometryStreamingMs**: Total geometry streaming time
-- **entityScanMs**: Entity scanning overhead
-- **dataModelParseMs**: Data model parsing time
+- **totalWallClockMs**: End-to-end load time for the model
 - **totalMeshes**: Total mesh count (geometry correctness check)
+- **fileSizeMB**: Model size used for comparisons
+- **wasmWaitMs**: Total WASM processing wait time during geometry streaming
+- **entityScanMs**: Fast entity scanning time
+- **dataModelParseMs**: Data model parse time
 
 ## Geometry Correctness Validation
 
@@ -72,23 +75,24 @@ The benchmark suite includes mesh count validation to detect geometry regression
 
 ## Performance Targets
 
-Based on baseline.json:
+Baseline updated from local run on 2026-02-21:
 
-| Model | First Batch | WASM Wait | Total Time |
-|-------|-------------|-----------|------------|
-| FZK-Haus | < 150ms | < 500ms | < 1s |
-| Snowdon | < 60ms | < 600ms | < 2s |
-| BWK-BIM | < 1.2s | < 10s | < 25s |
-| Holter | < 800ms | < 8s | < 25s |
+| Model | First Geometry (`firstBatchWaitMs`) | Total Time (`totalWallClockMs`) | WASM Wait (`wasmWaitMs`) | Meshes |
+|-------|--------------------------------------|----------------------------------|---------------------------|--------|
+| FZK-Haus | ~202ms | ~0.25s | ~14ms | 244 |
+| Snowdon | ~217ms | ~0.59s | ~292ms | 1,556 |
+| BWK-BIM | ~5.43s | ~11.89s | ~2.98s | 39,146 |
+| Holter | ~3.05s | ~11.04s | ~5.60s | 108,551 |
 
 ## CI Integration
 
-Benchmarks run automatically in CI on PRs that modify:
-- `rust/**` (geometry processing)
-- `packages/geometry/**`
-- `packages/wasm/**`
+Viewer benchmark CI mode is available via:
 
-CI uses headless mode with software rendering (`--use-angle=swiftshader`).
+```bash
+pnpm test:benchmark:viewer:ci
+```
+
+This runs headless with software rendering (`--use-angle=swiftshader`) and is useful for reproducible CI-style timing checks.
 
 ## Troubleshooting
 

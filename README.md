@@ -50,7 +50,7 @@
 | **Clean DX** | Columnar data structures, TypedArrays, consistent API. Built from scratch for clarity |
 | **STEP/IFC Parsing** | Zero-copy tokenization with full IFC4X3 schema support (876 entities) |
 | **IFC5 (IFCX) Support** | Native parsing of JSON-based IFC5 format with ECS composition and USD geometry |
-| **Streaming Pipeline** | Progressive geometry processing. First triangles in 300-500ms |
+| **Streaming Pipeline** | See geometry fast, not after a long wait: first render in ~202ms to ~5.43s, depending on model size |
 | **WebGPU Rendering** | Modern GPU-accelerated 3D with depth testing and frustum culling |
 | **Zero-Copy GPU** | Direct WASM memory to GPU buffers, 60-70% less RAM |
 | **Multi-Model Federation** | Load multiple IFC files with unified selection, visibility, and ID management |
@@ -194,7 +194,7 @@ renderer.render();
 | [**Desktop App**](docs/guide/desktop.md) | Native Tauri app with multi-threading and filesystem access |
 | [**Tutorials**](docs/tutorials/building-viewer.md) | Build a viewer, custom queries, extend the parser |
 | [**Architecture**](docs/architecture/overview.md) | System design with detailed diagrams |
-| [**API Reference**](docs/api/typescript.md) | TypeScript (18 packages), Rust, and WASM API docs |
+| [**API Reference**](docs/api/typescript.md) | TypeScript (25 packages), Rust, and WASM API docs |
 | [**Contributing**](docs/contributing/setup.md) | Development setup, testing, and release process |
 
 ## Architecture
@@ -310,7 +310,7 @@ ifc-lite/
 │   ├── geometry/              # Geometry processing
 │   └── wasm-bindings/         # JavaScript API
 │
-├── packages/                  # TypeScript packages (18)
+├── packages/                  # TypeScript packages (25)
 │   ├── parser/                # High-level IFC parser
 │   ├── ifcx/                  # IFC5 (IFCX) JSON parser
 │   ├── geometry/              # Geometry bridge (WASM)
@@ -318,8 +318,12 @@ ifc-lite/
 │   ├── data/                  # Columnar data structures
 │   ├── spatial/               # Spatial indexing
 │   ├── query/                 # Query system
+│   ├── sdk/                   # Scripting SDK (bim.* automation API)
+│   ├── lens/                  # Rule-based filtering and colorization
+│   ├── lists/                 # Configurable property tables and schedules
 │   ├── cache/                 # Binary cache format
 │   ├── export/                # Export formats (glTF, Parquet)
+│   ├── encoding/              # IFC string/value encoding helpers
 │   ├── bcf/                   # BIM Collaboration Format
 │   ├── ids/                   # IDS validation
 │   ├── mutations/             # Property editing & change tracking
@@ -328,6 +332,9 @@ ifc-lite/
 │   ├── wasm/                  # WASM bindings package
 │   ├── server-client/         # Server SDK (caching, streaming)
 │   ├── server-bin/            # Pre-built server binary
+│   ├── embed-sdk/             # iframe embedding SDK
+│   ├── embed-protocol/        # Shared embed protocol types
+│   ├── sandbox/               # QuickJS-in-WASM sandbox runtime
 │   └── create-ifc-lite/       # Project scaffolding CLI
 │
 ├── apps/
@@ -348,15 +355,17 @@ ifc-lite/
 | web-ifc | 1.1 MB | 0.4 MB |
 | IfcOpenShell | 15 MB | - |
 
-### Parse Performance
+### Viewer Benchmark Baseline (2026-02-21)
 
-| Model Size | IFClite | Notes |
-|------------|----------|-------|
-| 10 MB | ~100-200ms | Small models |
-| 50 MB | ~600-700ms | Typical models |
-| 100+ MB | ~1.5-2s | Complex geometry |
+| Model | Size | First Geometry | Total Time | Meshes |
+|-------|------|----------------|------------|--------|
+| FZK-Haus | 2.4MB | ~202ms | ~0.25s | 244 |
+| Snowdon Towers | 8.3MB | ~217ms | ~0.59s | 1,556 |
+| BWK-BIM | 326.8MB | ~5.43s | ~11.89s | 39,146 |
+| Holter Tower | 169.2MB | ~3.05s | ~11.04s | 108,551 |
 
-*Based on [benchmark results](tests/benchmark/benchmark-results.json) across 67 IFC files.*
+*Source: local `pnpm test:benchmark:viewer` run with results stored in `tests/benchmark/benchmark-results/`.*
+*For benchmark workflow and regression checks, see `tests/benchmark/README.md`.*
 
 ### Zero-Copy GPU Pipeline
 
@@ -369,7 +378,7 @@ ifc-lite/
 
 - **Up to 5x faster** overall than web-ifc (median 2.18x, up to 104x on some files)
 - Streaming pipeline with batched processing (100 meshes/batch)
-- First triangles visible in **300-500ms**
+- First geometry appears in **~202ms to ~5.43s** on current baseline models
 
 ### On-Demand Property Extraction (Client-Side)
 
@@ -385,16 +394,16 @@ When using `@ifc-lite/parser` directly in the browser:
 
 End-to-end loading times measured with Playwright in headed Chrome (M1 MacBook Pro):
 
-| Model | Size | Entities | Total Load | First Batch | Geometry | Data Model |
-|-------|------|----------|------------|-------------|----------|------------|
-| Large architectural | 327 MB | 4.4M | **17s** | 1.2s | 9s | 5s |
-| Tower complex | 169 MB | 2.8M | **14s** | 0.8s | 7s | 3s |
-| Small model | 8 MB | 147K | **1.0s** | 50ms | 500ms | 200ms |
+| Model | Size | Entities | Total Load | First Batch | Geometry (WASM Wait) | Data Model Parse |
+|-------|------|----------|------------|-------------|-----------------------|------------------|
+| Large architectural | 327 MB | 4.4M | **11.9s** | 5.43s | 2.98s | 3.16s |
+| Tower complex | 169 MB | 2.8M | **11.0s** | 3.05s | 5.60s | 2.07s |
+| Small model | 8.3 MB | 147K | **0.59s** | 217ms | 292ms | 110ms |
 
 **Architecture:**
 - **Dedicated geometry worker**: Large files (>50MB) use a Web Worker for geometry processing
 - **True parallelism**: Geometry streams from worker while data model parses on main thread
-- **First batch < 1.5s**: Users see geometry within 1-1.5 seconds, even for 327MB files
+- **Model-dependent first batch**: Small files can render in ~200ms; very large files can take several seconds
 - **Zero-copy transfer**: ArrayBuffers transferred (not copied) between worker and main thread
 
 Run benchmarks on your hardware:
@@ -501,6 +510,8 @@ bash scripts/build-wasm.sh  # Rebuild WASM after Rust changes
 
 ## Packages
 
+Status indicators are updated against the current workspace package set and recent commit activity.
+
 | Package | Description | Status | Docs |
 |---------|-------------|--------|------|
 | `create-ifc-lite` | Project scaffolding CLI | ✅ Stable | [API](docs/api/typescript.md#create-ifc-lite) |
@@ -509,18 +520,26 @@ bash scripts/build-wasm.sh  # Rebuild WASM after Rust changes
 | `@ifc-lite/geometry` | Geometry processing bridge | ✅ Stable | [API](docs/api/typescript.md#geometry) |
 | `@ifc-lite/renderer` | WebGPU rendering pipeline | ✅ Stable | [API](docs/api/typescript.md#renderer) |
 | `@ifc-lite/data` | Columnar data structures | ✅ Stable | [API](docs/api/typescript.md#data) |
-| `@ifc-lite/spatial` | Spatial indexing & culling | 🚧 Beta | [API](docs/api/typescript.md#spatial) |
-| `@ifc-lite/query` | Fluent & SQL query system | 🚧 Beta | [API](docs/api/typescript.md#query) |
+| `@ifc-lite/spatial` | Spatial indexing & culling | ✅ Stable | [API](docs/api/typescript.md#spatial) |
+| `@ifc-lite/query` | Fluent & SQL query system | ✅ Stable | [API](docs/api/typescript.md#query) |
+| `@ifc-lite/sdk` | Scripting SDK (`bim.*` automation API) | 🚧 Beta | [API](docs/api/typescript.md) |
+| `@ifc-lite/lens` | Rule-based 3D filtering and colorization | ✅ Stable | [API](docs/api/typescript.md) |
+| `@ifc-lite/lists` | Configurable property tables and schedules | ✅ Stable | [API](docs/api/typescript.md) |
 | `@ifc-lite/cache` | Binary cache for instant loading | ✅ Stable | [API](docs/api/typescript.md#cache) |
-| `@ifc-lite/export` | Export (glTF, Parquet, IFC) with visible-only filtering | 🚧 Beta | [API](docs/api/typescript.md#export) |
-| `@ifc-lite/bcf` | BIM Collaboration Format (topics, viewpoints) | 🚧 Beta | [Guide](docs/guide/bcf.md) |
-| `@ifc-lite/ids` | IDS validation against IFC data | 🚧 Beta | [Guide](docs/guide/ids.md) |
-| `@ifc-lite/mutations` | Property editing & change tracking | 🚧 Beta | [Guide](docs/guide/mutations.md) |
-| `@ifc-lite/drawing-2d` | 2D section cuts, floor plans, elevations | 🚧 Beta | [Guide](docs/guide/drawing-2d.md) |
-| `@ifc-lite/wasm` | WASM bindings for Rust core | ✅ Stable | [API](docs/api/wasm.md) |
-| `@ifc-lite/codegen` | Code generation from EXPRESS schemas | ✅ Stable | [API](docs/api/typescript.md#codegen) |
+| `@ifc-lite/export` | Export (glTF, Parquet, IFC) with visible-only filtering | ✅ Stable | [API](docs/api/typescript.md#export) |
+| `@ifc-lite/encoding` | IFC string encoding/decoding and value parsing | ✅ Stable | [API](docs/api/typescript.md) |
+| `@ifc-lite/bcf` | BIM Collaboration Format (topics, viewpoints) | ✅ Stable | [Guide](docs/guide/bcf.md) |
+| `@ifc-lite/ids` | IDS validation against IFC data | ✅ Stable | [Guide](docs/guide/ids.md) |
+| `@ifc-lite/mutations` | Property editing & change tracking | ✅ Stable | [Guide](docs/guide/mutations.md) |
+| `@ifc-lite/drawing-2d` | 2D section cuts, floor plans, elevations | ✅ Stable | [Guide](docs/guide/drawing-2d.md) |
+| `@ifc-lite/embed-sdk` | iframe embedding SDK for web integration | ✅ Stable | [API](docs/api/typescript.md) |
+| `@ifc-lite/embed-protocol` | Shared postMessage protocol for embedding | ✅ Stable | [API](docs/api/typescript.md) |
 | `@ifc-lite/server-client` | Server SDK with caching & streaming | ✅ Stable | [API](docs/api/typescript.md#server-client) |
 | `@ifc-lite/server-bin` | Pre-built server binary distribution | ✅ Stable | [Guide](docs/guide/server.md) |
+| `@ifc-lite/wasm` | WASM bindings for Rust core | ✅ Stable | [API](docs/api/wasm.md) |
+| `@ifc-lite/codegen` | Code generation from EXPRESS schemas | ✅ Stable | [API](docs/api/typescript.md#codegen) |
+| `@ifc-lite/sandbox` | QuickJS-in-WASM sandboxed script execution | 🧪 Experimental | [API](docs/api/typescript.md) |
+| `@ifc-lite/viewer` | Viewer application package | ✅ Stable | [Guide](docs/guide/quickstart.md) |
 
 ## Rust Crates
 
