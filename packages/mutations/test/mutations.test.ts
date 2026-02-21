@@ -23,6 +23,19 @@ import { MutablePropertyView, BulkQueryEngine } from '../src/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+function hasMaterializedIfcContent(filePath: string): boolean {
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    // Git LFS pointer files start with this header and do not contain IFC payload data.
+    if (content.startsWith('version https://git-lfs.github.com/spec/v1')) {
+      return false;
+    }
+    return content.includes('ISO-10303-21');
+  } catch {
+    return false;
+  }
+}
+
 // Find test IFC file
 const monorepoRoot = path.resolve(__dirname, '../../..');
 const testFiles = [
@@ -34,7 +47,7 @@ const testFiles = [
 
 let testFile: string | null = null;
 for (const file of testFiles) {
-  if (fs.existsSync(file)) {
+  if (fs.existsSync(file) && hasMaterializedIfcContent(file)) {
     testFile = file;
     break;
   }
