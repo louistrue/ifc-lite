@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IFC Live Connection Test</title>
+    <style>
+      body { font-family: sans-serif; padding: 16px; }
+      pre { background: #111; color: #0f0; padding: 12px; border-radius: 8px; min-height: 180px; }
+      code { background: #f2f2f2; padding: 2px 6px; border-radius: 6px; }
+    </style>
+  </head>
+  <body>
+    <h2>IFC Live Connection Test</h2>
+    <p>
+      Use <code>?relay=wss://ifc-live-relay.louis-truempler.workers.dev</code>
+      to override relay URL.
+    </p>
+    <pre id="log"></pre>
+    <script type="module">
+      import * as Y from "https://cdn.jsdelivr.net/npm/yjs@13/+esm";
+      import { WebsocketProvider } from "https://cdn.jsdelivr.net/npm/y-websocket@2/+esm";
+
+      const params = new URLSearchParams(location.search);
+      const relay = params.get("relay") || "wss://ifc-live-relay.louis-truempler.workers.dev";
+      const room = "connection-test-" + Date.now();
+      const logEl = document.getElementById("log");
+      const log = (msg) => (logEl.textContent += msg + "\n");
+
+      const doc = new Y.Doc();
+      const provider = new WebsocketProvider(`${relay}/room`, room, doc);
+      const map = doc.getMap("test");
+
+      provider.on("status", ({ status }) => log(`Status: ${status}`));
+      provider.on("sync", (synced) => log(`Synced: ${synced}`));
+      provider.awareness.on("change", () => log(`Peers: ${provider.awareness.getStates().size}`));
+
+      provider.awareness.setLocalStateField("user", { name: "Test User", role: "editor" });
+      map.observe(() => log(`Map: ${JSON.stringify(Object.fromEntries(map.entries()))}`));
+      map.set("hello", "world");
+
+      log(`Relay: ${relay}`);
+      log(`Room: ${room}`);
+      log("Open this same page in another tab to validate sync.");
+    </script>
+  </body>
+</html>
