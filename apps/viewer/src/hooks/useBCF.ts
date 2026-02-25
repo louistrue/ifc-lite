@@ -292,7 +292,7 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
       }
 
       // Convert section plane state
-      const viewerSectionPlane: ViewerSectionPlane | undefined = sectionPlane.enabled
+      const viewerSectionPlane: ViewerSectionPlane | undefined = sectionPlane.enabled && sectionPlane.mode === 'axis'
         ? {
             axis: sectionPlane.axis,
             position: sectionPlane.position,

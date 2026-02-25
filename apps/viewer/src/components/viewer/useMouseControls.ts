@@ -9,7 +9,7 @@
 
 import { useEffect, type MutableRefObject, type RefObject } from 'react';
 import type { Renderer, PickResult, SnapTarget } from '@ifc-lite/renderer';
-import type { MeshData } from '@ifc-lite/geometry';
+import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 import type {
   MeasurePoint,
   SnapVisualization,
@@ -17,8 +17,9 @@ import type {
   EdgeLockState,
   SectionPlane,
 } from '@/store';
+import { useViewerStore } from '@/store';
 import type { MeasurementConstraintEdge, OrthogonalAxis, Vec3 } from '@/store/types.js';
-import { getEntityCenter } from '../../utils/viewportUtils.js';
+import { calculateProjectionRange, getEntityCenter, projectionToPercentage, toRendererSectionPlane } from '../../utils/viewportUtils.js';
 
 export interface MouseState {
   isDragging: boolean;
@@ -56,6 +57,7 @@ export interface UseMouseControlsParams {
   // Section/geometry refs
   sectionPlaneRef: MutableRefObject<SectionPlane>;
   sectionRangeRef: MutableRefObject<{ min: number; max: number } | null>;
+  coordinateInfoRef: MutableRefObject<CoordinateInfo | undefined>;
   geometryRef: MutableRefObject<MeshData[] | null>;
 
   // Measure raycast refs
@@ -188,6 +190,7 @@ export function useMouseControls(params: UseMouseControlsParams): void {
     clearColorRef,
     sectionPlaneRef,
     sectionRangeRef,
+    coordinateInfoRef,
     geometryRef,
     measureRaycastPendingRef,
     measureRaycastFrameRef,
@@ -716,11 +719,9 @@ export function useMouseControls(params: UseMouseControlsParams): void {
             selectedId: selectedEntityIdRef.current,
             selectedModelIndex: selectedModelIndexRef.current,
             clearColor: clearColorRef.current,
-            sectionPlane: activeToolRef.current === 'section' ? {
-              ...sectionPlaneRef.current,
-              min: sectionRangeRef.current?.min,
-              max: sectionRangeRef.current?.max,
-            } : undefined,
+            sectionPlane: activeToolRef.current === 'section'
+              ? toRendererSectionPlane(sectionPlaneRef.current, sectionRangeRef.current ?? undefined)
+              : undefined,
           });
           // Update ViewCube rotation in real-time during drag
           updateCameraRotationRealtime(camera.getRotation());
@@ -737,11 +738,9 @@ export function useMouseControls(params: UseMouseControlsParams): void {
               selectedId: selectedEntityIdRef.current,
               selectedModelIndex: selectedModelIndexRef.current,
               clearColor: clearColorRef.current,
-              sectionPlane: activeToolRef.current === 'section' ? {
-                ...sectionPlaneRef.current,
-                min: sectionRangeRef.current?.min,
-                max: sectionRangeRef.current?.max,
-              } : undefined,
+              sectionPlane: activeToolRef.current === 'section'
+                ? toRendererSectionPlane(sectionPlaneRef.current, sectionRangeRef.current ?? undefined)
+                : undefined,
             });
             updateCameraRotationRealtime(camera.getRotation());
             calculateScale();
@@ -896,11 +895,9 @@ export function useMouseControls(params: UseMouseControlsParams): void {
         selectedId: selectedEntityIdRef.current,
         selectedModelIndex: selectedModelIndexRef.current,
         clearColor: clearColorRef.current,
-        sectionPlane: activeToolRef.current === 'section' ? {
-          ...sectionPlaneRef.current,
-          min: sectionRangeRef.current?.min,
-          max: sectionRangeRef.current?.max,
-        } : undefined,
+        sectionPlane: activeToolRef.current === 'section'
+          ? toRendererSectionPlane(sectionPlaneRef.current, sectionRangeRef.current ?? undefined)
+          : undefined,
       });
       // Update measurement screen coordinates immediately during zoom (only in measure mode)
       if (activeToolRef.current === 'measure') {
@@ -944,6 +941,25 @@ export function useMouseControls(params: UseMouseControlsParams): void {
       // Measure tool now uses drag interaction (see mousedown/mousemove/mouseup)
       if (tool === 'measure') {
         return; // Skip click handling for measure tool
+      }
+
+      if (tool === 'section' && sectionPlaneRef.current.mode === 'surface') {
+        const hit = renderer.raycastScene(x, y, {
+          hiddenIds: hiddenEntitiesRef.current,
+          isolatedIds: isolatedEntitiesRef.current,
+        });
+
+        if (hit?.intersection) {
+          const { normal, point } = hit.intersection;
+          const range = coordinateInfoRef.current?.shiftedBounds
+            ? calculateProjectionRange(coordinateInfoRef.current.shiftedBounds, normal)
+            : null;
+          const projection = point.x * normal.x + point.y * normal.y + point.z * normal.z;
+          const position = range ? projectionToPercentage(projection, range) : 50;
+
+          useViewerStore.getState().setSectionPlaneFromSurface({ normal, point }, position);
+        }
+        return;
       }
 
       const now = Date.now();

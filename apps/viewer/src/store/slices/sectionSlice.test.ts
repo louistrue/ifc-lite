@@ -28,10 +28,12 @@ describe('SectionSlice', () => {
 
   describe('initial state', () => {
     it('should have default section plane values', () => {
+      assert.strictEqual(state.sectionPlane.mode, 'axis');
       assert.strictEqual(state.sectionPlane.axis, SECTION_PLANE_DEFAULTS.AXIS);
       assert.strictEqual(state.sectionPlane.position, SECTION_PLANE_DEFAULTS.POSITION);
       assert.strictEqual(state.sectionPlane.enabled, SECTION_PLANE_DEFAULTS.ENABLED);
       assert.strictEqual(state.sectionPlane.flipped, SECTION_PLANE_DEFAULTS.FLIPPED);
+      assert.strictEqual(state.sectionPlane.surface, null);
     });
   });
 
@@ -43,9 +45,36 @@ describe('SectionSlice', () => {
 
     it('should preserve other section plane properties', () => {
       state.sectionPlane.position = 75;
+      state.sectionPlane.surface = {
+        normal: { x: 0, y: 1, z: 0 },
+        point: { x: 0, y: 0, z: 0 },
+      };
       state.setSectionPlaneAxis('side');
       assert.strictEqual(state.sectionPlane.axis, 'side');
+      assert.strictEqual(state.sectionPlane.mode, 'axis');
       assert.strictEqual(state.sectionPlane.position, 75);
+      assert.strictEqual(state.sectionPlane.surface, null);
+    });
+  });
+
+  describe('surface mode', () => {
+    it('should switch mode', () => {
+      state.setSectionPlaneMode('surface');
+      assert.strictEqual(state.sectionPlane.mode, 'surface');
+    });
+
+    it('should set section plane from surface hit', () => {
+      state.setSectionPlaneFromSurface({
+        normal: { x: 0, y: 0, z: 1 },
+        point: { x: 1, y: 2, z: 3 },
+      }, 62.5);
+
+      assert.strictEqual(state.sectionPlane.mode, 'surface');
+      assert.strictEqual(state.sectionPlane.position, 62.5);
+      assert.deepStrictEqual(state.sectionPlane.surface, {
+        normal: { x: 0, y: 0, z: 1 },
+        point: { x: 1, y: 2, z: 3 },
+      });
     });
   });
 
@@ -108,18 +137,25 @@ describe('SectionSlice', () => {
     it('should reset to default values', () => {
       // Modify state
       state.sectionPlane = {
+        mode: 'surface',
         axis: 'side',
         position: 25,
         enabled: false,
         flipped: true,
+        surface: {
+          normal: { x: 1, y: 0, z: 0 },
+          point: { x: 5, y: 0, z: 0 },
+        },
       };
 
       state.resetSectionPlane();
 
+      assert.strictEqual(state.sectionPlane.mode, 'axis');
       assert.strictEqual(state.sectionPlane.axis, SECTION_PLANE_DEFAULTS.AXIS);
       assert.strictEqual(state.sectionPlane.position, SECTION_PLANE_DEFAULTS.POSITION);
       assert.strictEqual(state.sectionPlane.enabled, SECTION_PLANE_DEFAULTS.ENABLED);
       assert.strictEqual(state.sectionPlane.flipped, SECTION_PLANE_DEFAULTS.FLIPPED);
+      assert.strictEqual(state.sectionPlane.surface, null);
     });
   });
 });

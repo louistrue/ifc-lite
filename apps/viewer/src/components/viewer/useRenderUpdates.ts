@@ -12,7 +12,7 @@ import type { Renderer, CutPolygon2D, DrawingLine2D, VisualEnhancementOptions } 
 import type { CoordinateInfo } from '@ifc-lite/geometry';
 import type { Drawing2D } from '@ifc-lite/drawing-2d';
 import type { SectionPlane } from '@/store';
-import { getThemeClearColor } from '../../utils/viewportUtils.js';
+import { getThemeClearColor, toRendererSectionPlane } from '../../utils/viewportUtils.js';
 
 export interface UseRenderUpdatesParams {
   rendererRef: MutableRefObject<Renderer | null>;
@@ -103,7 +103,7 @@ export function useRenderUpdates(params: UseRenderUpdatesParams): void {
     if (!renderer || !isInitialized) return;
 
     // Only show overlay when section tool is active, we have a drawing, AND 3D overlay is enabled
-    if (activeTool === 'section' && drawing2D && drawing2D.cutPolygons.length > 0 && show3DOverlay) {
+    if (activeTool === 'section' && sectionPlane.mode === 'axis' && drawing2D && drawing2D.cutPolygons.length > 0 && show3DOverlay) {
       // Convert Drawing2D format to renderer format
       const polygons: CutPolygon2D[] = drawing2D.cutPolygons.map((cp) => ({
         polygon: cp.polygon,
@@ -143,11 +143,9 @@ export function useRenderUpdates(params: UseRenderUpdatesParams): void {
       selectedModelIndex: selectedModelIndexRef.current,
       clearColor: clearColorRef.current,
       visualEnhancement: visualEnhancementRef.current,
-      sectionPlane: activeTool === 'section' ? {
-        ...sectionPlane,
-        min: sectionRangeRef.current?.min,
-        max: sectionRangeRef.current?.max,
-      } : undefined,
+      sectionPlane: activeTool === 'section'
+        ? toRendererSectionPlane(sectionPlane, sectionRangeRef.current ?? undefined)
+        : undefined,
     });
   }, [drawing2D, activeTool, sectionPlane, isInitialized, coordinateInfo, show3DOverlay, showHiddenLines]);
 
@@ -164,11 +162,9 @@ export function useRenderUpdates(params: UseRenderUpdatesParams): void {
       selectedModelIndex,
       clearColor: clearColorRef.current,
       visualEnhancement: visualEnhancementRef.current,
-      sectionPlane: activeTool === 'section' ? {
-        ...sectionPlane,
-        min: sectionRange?.min,
-        max: sectionRange?.max,
-      } : undefined,
+      sectionPlane: activeTool === 'section'
+        ? toRendererSectionPlane(sectionPlane, sectionRange ?? undefined)
+        : undefined,
       buildingRotation: coordinateInfo?.buildingRotation,
     });
   }, [hiddenEntities, isolatedEntities, selectedEntityId, selectedEntityIds, selectedModelIndex, isInitialized, sectionPlane, activeTool, sectionRange, coordinateInfo?.buildingRotation]);

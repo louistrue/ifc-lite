@@ -12,7 +12,7 @@ import type { Renderer } from '@ifc-lite/renderer';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 import type { SectionPlane } from '@/store';
 import { goHomeFromStore } from '@/store/homeView';
-import { getEntityBounds } from '../../utils/viewportUtils.js';
+import { getEntityBounds, toRendererSectionPlane } from '../../utils/viewportUtils.js';
 
 export interface UseKeyboardControlsParams {
   rendererRef: MutableRefObject<Renderer | null>;
@@ -98,11 +98,9 @@ export function useKeyboardControls(params: UseKeyboardControlsParams): void {
           selectedId: selectedEntityIdRef.current,
           selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
-            min: sectionRangeRef.current?.min,
-            max: sectionRangeRef.current?.max,
-          } : undefined,
+          sectionPlane: activeToolRef.current === 'section'
+            ? toRendererSectionPlane(sectionPlaneRef.current, sectionRangeRef.current ?? undefined)
+            : undefined,
         });
         updateCameraRotationRealtime(camera.getRotation());
         calculateScale();
@@ -193,11 +191,9 @@ export function useKeyboardControls(params: UseKeyboardControlsParams): void {
           selectedId: selectedEntityIdRef.current,
           selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
-            min: sectionRangeRef.current?.min,
-            max: sectionRangeRef.current?.max,
-          } : undefined,
+          sectionPlane: activeToolRef.current === 'section'
+            ? toRendererSectionPlane(sectionPlaneRef.current, sectionRangeRef.current ?? undefined)
+            : undefined,
         });
       }
       moveFrameId = requestAnimationFrame(keyboardMove);

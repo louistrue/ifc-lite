@@ -7,7 +7,7 @@
  */
 
 import type { StateCreator } from 'zustand';
-import type { SectionPlane, SectionPlaneAxis } from '../types.js';
+import type { SectionPlane, SectionPlaneAxis, SectionPlaneMode, SectionPlaneSurface } from '../types.js';
 import { SECTION_PLANE_DEFAULTS } from '../constants.js';
 
 export interface SectionSlice {
@@ -16,6 +16,8 @@ export interface SectionSlice {
 
   // Actions
   setSectionPlaneAxis: (axis: SectionPlaneAxis) => void;
+  setSectionPlaneMode: (mode: SectionPlaneMode) => void;
+  setSectionPlaneFromSurface: (surface: SectionPlaneSurface, position: number) => void;
   setSectionPlanePosition: (position: number) => void;
   toggleSectionPlane: () => void;
   flipSectionPlane: () => void;
@@ -23,10 +25,12 @@ export interface SectionSlice {
 }
 
 const getDefaultSectionPlane = (): SectionPlane => ({
+  mode: 'axis',
   axis: SECTION_PLANE_DEFAULTS.AXIS,
   position: SECTION_PLANE_DEFAULTS.POSITION,
   enabled: SECTION_PLANE_DEFAULTS.ENABLED,
   flipped: SECTION_PLANE_DEFAULTS.FLIPPED,
+  surface: null,
 });
 
 export const createSectionSlice: StateCreator<SectionSlice, [], [], SectionSlice> = (set) => ({
@@ -35,7 +39,24 @@ export const createSectionSlice: StateCreator<SectionSlice, [], [], SectionSlice
 
   // Actions
   setSectionPlaneAxis: (axis) => set((state) => ({
-    sectionPlane: { ...state.sectionPlane, axis },
+    sectionPlane: { ...state.sectionPlane, mode: 'axis', axis, surface: null },
+  })),
+
+  setSectionPlaneMode: (mode) => set((state) => ({
+    sectionPlane: {
+      ...state.sectionPlane,
+      mode,
+      surface: mode === 'surface' ? state.sectionPlane.surface : null,
+    },
+  })),
+
+  setSectionPlaneFromSurface: (surface, position) => set((state) => ({
+    sectionPlane: {
+      ...state.sectionPlane,
+      mode: 'surface',
+      surface,
+      position: Math.min(100, Math.max(0, Number(position) || 0)),
+    },
   })),
 
   setSectionPlanePosition: (position) => set((state) => {

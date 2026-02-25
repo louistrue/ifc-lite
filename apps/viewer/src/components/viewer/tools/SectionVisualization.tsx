@@ -11,10 +11,11 @@ import { AXIS_INFO } from './sectionConstants';
 interface SectionPlaneVisualizationProps {
   axis: 'down' | 'front' | 'side';
   enabled: boolean;
+  mode?: 'axis' | 'surface';
 }
 
 // Section plane visual indicator component
-export function SectionPlaneVisualization({ axis, enabled }: SectionPlaneVisualizationProps) {
+export function SectionPlaneVisualization({ axis, enabled, mode = 'axis' }: SectionPlaneVisualizationProps) {
   // Get the axis color
   const axisColors = {
     down: '#03A9F4',  // Light blue for horizontal cuts
@@ -22,7 +23,7 @@ export function SectionPlaneVisualization({ axis, enabled }: SectionPlaneVisuali
     side: '#FF9800',  // Orange for side cuts
   };
 
-  const color = axisColors[axis];
+  const color = mode === 'surface' ? '#A855F7' : axisColors[axis];
 
   return (
     <svg
@@ -56,7 +57,7 @@ export function SectionPlaneVisualization({ axis, enabled }: SectionPlaneVisuali
           fontSize="11"
           fontWeight="bold"
         >
-          {AXIS_INFO[axis].label.toUpperCase()}
+          {mode === 'surface' ? 'SURF' : AXIS_INFO[axis].label.toUpperCase()}
         </text>
         {/* Active indicator */}
         {enabled && (

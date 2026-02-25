@@ -174,6 +174,54 @@ export function getEntityCenter(
  * @param meshes - Array of mesh data
  * @returns Combined bounding box
  */
+
+export interface PlaneNormal3D {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/**
+ * Calculate min/max projection values of a bounding box onto a plane normal.
+ */
+export function calculateProjectionRange(bounds: BoundingBox3D, normal: PlaneNormal3D): { min: number; max: number } | null {
+  const corners: Point3D[] = [
+    { x: bounds.min.x, y: bounds.min.y, z: bounds.min.z },
+    { x: bounds.min.x, y: bounds.min.y, z: bounds.max.z },
+    { x: bounds.min.x, y: bounds.max.y, z: bounds.min.z },
+    { x: bounds.min.x, y: bounds.max.y, z: bounds.max.z },
+    { x: bounds.max.x, y: bounds.min.y, z: bounds.min.z },
+    { x: bounds.max.x, y: bounds.min.y, z: bounds.max.z },
+    { x: bounds.max.x, y: bounds.max.y, z: bounds.min.z },
+    { x: bounds.max.x, y: bounds.max.y, z: bounds.max.z },
+  ];
+
+  let min = Infinity;
+  let max = -Infinity;
+
+  for (const corner of corners) {
+    const projection = corner.x * normal.x + corner.y * normal.y + corner.z * normal.z;
+    min = Math.min(min, projection);
+    max = Math.max(max, projection);
+  }
+
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return null;
+  }
+
+  return { min, max };
+}
+
+/**
+ * Convert a point projected onto a normal vector to percentage position in a range.
+ */
+export function projectionToPercentage(value: number, range: { min: number; max: number }): number {
+  const length = range.max - range.min;
+  if (!Number.isFinite(length) || Math.abs(length) < 1e-6) {
+    return 50;
+  }
+  return Math.min(100, Math.max(0, ((value - range.min) / length) * 100));
+}
 export function calculateGeometryBounds(meshes: MeshData[]): BoundingBox3D {
   if (meshes.length === 0) {
     return {
@@ -226,6 +274,44 @@ export function calculateGeometryBounds(meshes: MeshData[]): BoundingBox3D {
   return {
     min: { x: minX, y: minY, z: minZ },
     max: { x: maxX, y: maxY, z: maxZ },
+  };
+}
+
+
+/**
+ * Convert viewer section plane state to renderer section plane format.
+ */
+export function toRendererSectionPlane(
+  sectionPlane: {
+    mode: 'axis' | 'surface';
+    axis: 'down' | 'front' | 'side';
+    position: number;
+    enabled: boolean;
+    flipped: boolean;
+    surface: { normal: PlaneNormal3D; point: Point3D } | null;
+  },
+  sectionRange?: { min?: number; max?: number }
+): {
+  mode: 'axis' | 'surface';
+  axis: 'down' | 'front' | 'side';
+  position: number;
+  enabled: boolean;
+  flipped: boolean;
+  min?: number;
+  max?: number;
+  normal?: PlaneNormal3D;
+  point?: Point3D;
+} {
+  return {
+    mode: sectionPlane.mode,
+    axis: sectionPlane.axis,
+    position: sectionPlane.position,
+    enabled: sectionPlane.enabled,
+    flipped: sectionPlane.flipped,
+    min: sectionRange?.min,
+    max: sectionRange?.max,
+    normal: sectionPlane.mode === 'surface' ? sectionPlane.surface?.normal : undefined,
+    point: sectionPlane.mode === 'surface' ? sectionPlane.surface?.point : undefined,
   };
 }
 

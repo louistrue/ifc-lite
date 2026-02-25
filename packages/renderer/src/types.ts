@@ -88,13 +88,18 @@ export interface BatchedMesh {
 // Section plane for clipping
 // Semantic axis names: down (Y), front (Z), side (X) for intuitive user experience
 export type SectionPlaneAxis = 'down' | 'front' | 'side';
+export type SectionPlaneMode = 'axis' | 'surface';
+
 export interface SectionPlane {
+  mode?: SectionPlaneMode;
   axis: SectionPlaneAxis;
   position: number; // 0-100 percentage of model bounds
   enabled: boolean;
   flipped?: boolean; // If true, show the opposite side of the cut
   min?: number;      // Optional override for min range value
   max?: number;      // Optional override for max range value
+  normal?: { x: number; y: number; z: number };
+  point?: { x: number; y: number; z: number };
 }
 
 export type ContactShadingQuality = 'off' | 'low' | 'high';
