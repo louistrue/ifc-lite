@@ -16,6 +16,7 @@ import { SectionPlaneVisualization } from './SectionVisualization';
 export function SectionOverlay() {
   const sectionPlane = useViewerStore((s) => s.sectionPlane);
   const setSectionPlaneAxis = useViewerStore((s) => s.setSectionPlaneAxis);
+  const setSectionPlaneMode = useViewerStore((s) => s.setSectionPlaneMode);
   const setSectionPlanePosition = useViewerStore((s) => s.setSectionPlanePosition);
   const toggleSectionPlane = useViewerStore((s) => s.toggleSectionPlane);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
@@ -32,6 +33,10 @@ export function SectionOverlay() {
     setSectionPlaneAxis(axis);
   }, [setSectionPlaneAxis]);
 
+  const handleModeChange = useCallback((mode: 'axis' | 'surface') => {
+    setSectionPlaneMode(mode);
+  }, [setSectionPlaneMode]);
+
   const handlePositionChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const value = Number(e.target.value);
     if (!Number.isNaN(value)) {
@@ -44,10 +49,13 @@ export function SectionOverlay() {
   }, []);
 
   const handleView2D = useCallback(() => {
+    if (sectionPlane.mode !== 'axis') {
+      return;
+    }
     // Clear existing drawing to force regeneration with current settings
     clearDrawing();
     setDrawingPanelVisible(true);
-  }, [clearDrawing, setDrawingPanelVisible]);
+  }, [clearDrawing, sectionPlane.mode, setDrawingPanelVisible]);
 
   return (
     <>
@@ -63,7 +71,8 @@ export function SectionOverlay() {
             <span className="font-medium text-sm">Section</span>
             {sectionPlane.enabled && (
               <span className="text-xs text-primary font-mono">
-                {AXIS_INFO[sectionPlane.axis].label} <span className="inline-block w-12 text-right tabular-nums">{sectionPlane.position.toFixed(1)}%</span>
+                {sectionPlane.mode === 'axis' ? AXIS_INFO[sectionPlane.axis].label : 'Surface'}{' '}
+                <span className="inline-block w-12 text-right tabular-nums">{sectionPlane.position.toFixed(1)}%</span>
               </span>
             )}
             <ChevronDown className={`h-3 w-3 transition-transform ${isPanelCollapsed ? '-rotate-90' : ''}`} />
@@ -86,6 +95,28 @@ export function SectionOverlay() {
           <div className="border-t px-3 pb-3 min-w-64">
             {/* Direction Selection */}
             <div className="mt-3">
+              <label className="text-xs text-muted-foreground mb-2 block">Mode</label>
+              <div className="flex gap-1 mb-3">
+                <Button
+                  variant={sectionPlane.mode === 'axis' ? 'default' : 'outline'}
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => handleModeChange('axis')}
+                >
+                  Axis
+                </Button>
+                <Button
+                  variant={sectionPlane.mode === 'surface' ? 'default' : 'outline'}
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => handleModeChange('surface')}
+                >
+                  Surface
+                </Button>
+              </div>
+
+              {sectionPlane.mode === 'axis' ? (
+                <>
               <label className="text-xs text-muted-foreground mb-2 block">Direction</label>
               <div className="flex gap-1">
                 {(['down', 'front', 'side'] as const).map((axis) => (
@@ -100,6 +131,12 @@ export function SectionOverlay() {
                   </Button>
                 ))}
               </div>
+                </>
+              ) : (
+                <p className="text-xs text-muted-foreground rounded border border-dashed p-2">
+                  Click any surface in the 3D view to align the section plane to that face.
+                </p>
+              )}
             </div>
 
             {/* Position Slider */}
@@ -135,6 +172,7 @@ export function SectionOverlay() {
                   size="sm"
                   className="w-full"
                   onClick={handleView2D}
+                  disabled={sectionPlane.mode !== 'axis'}
                 >
                   <FileImage className="h-4 w-4 mr-2" />
                   Open 2D Drawing
@@ -156,7 +194,9 @@ export function SectionOverlay() {
       >
         <span className="font-mono text-xs uppercase tracking-wide">
           {sectionPlane.enabled
-            ? `Cutting ${AXIS_INFO[sectionPlane.axis].label.toLowerCase()} at ${sectionPlane.position.toFixed(1)}%`
+            ? sectionPlane.mode === 'axis'
+              ? `Cutting ${AXIS_INFO[sectionPlane.axis].label.toLowerCase()} at ${sectionPlane.position.toFixed(1)}%`
+              : `Cutting surface normal at ${sectionPlane.position.toFixed(1)}%`
             : 'Preview mode'}
         </span>
       </div>

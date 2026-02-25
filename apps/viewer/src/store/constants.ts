@@ -22,6 +22,8 @@ export const CAMERA_DEFAULTS = {
 // ============================================================================
 
 export const SECTION_PLANE_DEFAULTS = {
+  /** Default section plane mode */
+  MODE: 'axis' as const,
   /** Default section plane axis */
   AXIS: 'down' as const,
   /** Default section plane position (percentage of model bounds) */

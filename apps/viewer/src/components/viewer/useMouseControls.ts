@@ -87,6 +87,10 @@ export interface UseMouseControlsParams {
 
   // Callbacks
   handlePickForSelection: (pickResult: PickResult | null) => void;
+  onSectionSurfacePick: (
+    point: { x: number; y: number; z: number },
+    normal: { x: number; y: number; z: number }
+  ) => void;
   setHoverState: (state: { entityId: number; screenX: number; screenY: number }) => void;
   clearHover: () => void;
   openContextMenu: (entityId: number | null, screenX: number, screenY: number) => void;
@@ -201,6 +205,7 @@ export function useMouseControls(params: UseMouseControlsParams): void {
     lastClickPosRef,
     lastCameraStateRef,
     handlePickForSelection,
+    onSectionSurfacePick,
     setHoverState,
     clearHover,
     openContextMenu,
@@ -944,6 +949,22 @@ export function useMouseControls(params: UseMouseControlsParams): void {
       // Measure tool now uses drag interaction (see mousedown/mousemove/mouseup)
       if (tool === 'measure') {
         return; // Skip click handling for measure tool
+      }
+
+      if (tool === 'section' && sectionPlaneRef.current.mode === 'surface') {
+        const result = renderer.raycastScene(x, y, {
+          ...getPickOptions(),
+          snapOptions: {
+            snapToVertices: false,
+            snapToEdges: false,
+            snapToFaces: false,
+          },
+        });
+
+        if (result?.intersection) {
+          onSectionSurfacePick(result.intersection.point, result.intersection.normal);
+        }
+        return;
       }
 
       const now = Date.now();

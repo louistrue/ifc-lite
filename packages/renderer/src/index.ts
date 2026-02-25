@@ -453,16 +453,31 @@ export class Renderer {
 
                 // Only calculate clipping data if section is enabled
                 if (options.sectionPlane.enabled) {
-                    // Calculate plane normal based on semantic axis
-                    // down = Y axis (horizontal cut), front = Z axis, side = X axis
+                    // Calculate plane normal based on semantic axis or custom user-picked surface normal
                     let normal: [number, number, number] = [0, 0, 0];
-                    if (options.sectionPlane.axis === 'side') normal[0] = 1;        // X axis
-                    else if (options.sectionPlane.axis === 'down') normal[1] = 1;   // Y axis (horizontal)
-                    else normal[2] = 1;                                              // Z axis (front)
+                    if (options.sectionPlane.customNormal) {
+                        normal[0] = options.sectionPlane.customNormal.x;
+                        normal[1] = options.sectionPlane.customNormal.y;
+                        normal[2] = options.sectionPlane.customNormal.z;
+                    } else if (options.sectionPlane.axis === 'side') {
+                        normal[0] = 1; // X axis
+                    } else if (options.sectionPlane.axis === 'down') {
+                        normal[1] = 1; // Y axis (horizontal)
+                    } else {
+                        normal[2] = 1; // Z axis (front)
+                    }
+
+                    // Normalize to maintain unit length
+                    const normalLen = Math.sqrt(normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]);
+                    if (normalLen > 0.0001) {
+                        normal[0] /= normalLen;
+                        normal[1] /= normalLen;
+                        normal[2] /= normalLen;
+                    }
 
                     // Apply building rotation if present (rotate normal around Y axis)
                     // Building rotation is in X-Y plane (Z is up in IFC, Y is up in WebGL)
-                    if (options.buildingRotation !== undefined && options.buildingRotation !== 0) {
+                    if (!options.sectionPlane.customNormal && options.buildingRotation !== undefined && options.buildingRotation !== 0) {
                         const cosR = Math.cos(options.buildingRotation);
                         const sinR = Math.sin(options.buildingRotation);
                         // Rotate normal vector around Y axis (vertical)
@@ -480,11 +495,36 @@ export class Renderer {
                         }
                     }
 
-                    // Get axis-specific range based on semantic axis
-                    // Use min/max overrides from sectionPlane if provided (storey-based range)
-                    const axisIdx = options.sectionPlane.axis === 'side' ? 'x' : options.sectionPlane.axis === 'down' ? 'y' : 'z';
-                    const minVal = options.sectionPlane.min ?? boundsMin[axisIdx];
-                    const maxVal = options.sectionPlane.max ?? boundsMax[axisIdx];
+                    // Use explicit overrides when available. For custom normals, derive range by
+                    // projecting the 8 AABB corners onto the normal.
+                    let minVal: number;
+                    let maxVal: number;
+                    if (options.sectionPlane.min !== undefined && options.sectionPlane.max !== undefined) {
+                        minVal = options.sectionPlane.min;
+                        maxVal = options.sectionPlane.max;
+                    } else if (options.sectionPlane.customNormal) {
+                        const corners: Array<[number, number, number]> = [
+                            [boundsMin.x, boundsMin.y, boundsMin.z],
+                            [boundsMin.x, boundsMin.y, boundsMax.z],
+                            [boundsMin.x, boundsMax.y, boundsMin.z],
+                            [boundsMin.x, boundsMax.y, boundsMax.z],
+                            [boundsMax.x, boundsMin.y, boundsMin.z],
+                            [boundsMax.x, boundsMin.y, boundsMax.z],
+                            [boundsMax.x, boundsMax.y, boundsMin.z],
+                            [boundsMax.x, boundsMax.y, boundsMax.z],
+                        ];
+                        minVal = Infinity;
+                        maxVal = -Infinity;
+                        for (const [x, y, z] of corners) {
+                            const projection = x * normal[0] + y * normal[1] + z * normal[2];
+                            minVal = Math.min(minVal, projection);
+                            maxVal = Math.max(maxVal, projection);
+                        }
+                    } else {
+                        const axisIdx = options.sectionPlane.axis === 'side' ? 'x' : options.sectionPlane.axis === 'down' ? 'y' : 'z';
+                        minVal = boundsMin[axisIdx];
+                        maxVal = boundsMax[axisIdx];
+                    }
 
                     // Calculate plane distance from position percentage
                     const range = maxVal - minVal;
@@ -963,6 +1003,7 @@ export class Renderer {
                     {
                         axis: options.sectionPlane.axis,
                         position: options.sectionPlane.position,
+                        customNormal: options.sectionPlane.customNormal,
                         bounds: modelBounds,
                         viewProj,
                         isPreview: !options.sectionPlane.enabled, // Preview mode when not enabled

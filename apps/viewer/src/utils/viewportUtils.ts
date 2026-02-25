@@ -22,6 +22,12 @@ export interface Point3D {
   z: number;
 }
 
+export interface Vector3D {
+  x: number;
+  y: number;
+  z: number;
+}
+
 /**
  * Bounding box in 3D space
  */
@@ -227,6 +233,44 @@ export function calculateGeometryBounds(meshes: MeshData[]): BoundingBox3D {
     min: { x: minX, y: minY, z: minZ },
     max: { x: maxX, y: maxY, z: maxZ },
   };
+}
+
+/**
+ * Project an axis-aligned bounding box onto an arbitrary unit normal.
+ * Returns min/max signed distance values in world coordinates.
+ */
+export function calculateProjectedRangeFromBounds(
+  bounds: BoundingBox3D,
+  normal: Vector3D
+): { min: number; max: number } {
+  const corners: Point3D[] = [
+    { x: bounds.min.x, y: bounds.min.y, z: bounds.min.z },
+    { x: bounds.min.x, y: bounds.min.y, z: bounds.max.z },
+    { x: bounds.min.x, y: bounds.max.y, z: bounds.min.z },
+    { x: bounds.min.x, y: bounds.max.y, z: bounds.max.z },
+    { x: bounds.max.x, y: bounds.min.y, z: bounds.min.z },
+    { x: bounds.max.x, y: bounds.min.y, z: bounds.max.z },
+    { x: bounds.max.x, y: bounds.max.y, z: bounds.min.z },
+    { x: bounds.max.x, y: bounds.max.y, z: bounds.max.z },
+  ];
+
+  let min = Infinity;
+  let max = -Infinity;
+
+  for (const corner of corners) {
+    const projection =
+      corner.x * normal.x +
+      corner.y * normal.y +
+      corner.z * normal.z;
+    min = Math.min(min, projection);
+    max = Math.max(max, projection);
+  }
+
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return { min: -100, max: 100 };
+  }
+
+  return { min, max };
 }
 
 // ============================================================================

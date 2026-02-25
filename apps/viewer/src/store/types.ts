@@ -85,14 +85,24 @@ export interface EdgeLockState {
 
 /** Semantic axis names: down (Y), front (Z), side (X) for intuitive user experience */
 export type SectionPlaneAxis = 'down' | 'front' | 'side';
+export type SectionPlaneMode = 'axis' | 'surface';
+
+export interface SectionPlaneNormal {
+  x: number;
+  y: number;
+  z: number;
+}
 
 export interface SectionPlane {
+  mode: SectionPlaneMode;
   axis: SectionPlaneAxis;
   /** 0-100 percentage of model bounds */
   position: number;
   enabled: boolean;
   /** If true, show the opposite side of the cut */
   flipped: boolean;
+  /** User-picked surface normal for free-angle section mode */
+  customNormal: SectionPlaneNormal | null;
 }
 
 // ============================================================================

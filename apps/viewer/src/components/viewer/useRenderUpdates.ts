@@ -103,7 +103,7 @@ export function useRenderUpdates(params: UseRenderUpdatesParams): void {
     if (!renderer || !isInitialized) return;
 
     // Only show overlay when section tool is active, we have a drawing, AND 3D overlay is enabled
-    if (activeTool === 'section' && drawing2D && drawing2D.cutPolygons.length > 0 && show3DOverlay) {
+    if (activeTool === 'section' && sectionPlane.mode === 'axis' && drawing2D && drawing2D.cutPolygons.length > 0 && show3DOverlay) {
       // Convert Drawing2D format to renderer format
       const polygons: CutPolygon2D[] = drawing2D.cutPolygons.map((cp) => ({
         polygon: cp.polygon,

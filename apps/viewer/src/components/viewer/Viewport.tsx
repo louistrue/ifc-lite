@@ -27,6 +27,7 @@ import {
   getEntityBounds,
   getEntityCenter,
   getThemeClearColor,
+  calculateProjectedRangeFromBounds,
   type ViewportStateRefs,
 } from '../../utils/viewportUtils.js';
 import { setGlobalCanvasRef, setGlobalRendererRef, clearGlobalRefs } from '../../hooks/useBCF.js';
@@ -153,6 +154,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
 
   // Tool state
   const { activeTool, sectionPlane } = useToolState();
+  const setSectionPlaneFromSurface = useViewerStore((s) => s.setSectionPlaneFromSurface);
 
   // Camera state
   const { updateCameraRotationRealtime, updateScaleRealtime, setCameraCallbacks } = useCameraState();
@@ -221,6 +223,10 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
 
     const bounds = coordinateInfo.shiftedBounds;
 
+    if (sectionPlane.mode === 'surface' && sectionPlane.customNormal) {
+      return calculateProjectedRangeFromBounds(bounds, sectionPlane.customNormal);
+    }
+
     // Map semantic axis to coordinate axis
     const axisKey = sectionPlane.axis === 'side' ? 'x' : sectionPlane.axis === 'down' ? 'y' : 'z';
 
@@ -228,7 +234,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     const max = bounds.max[axisKey];
 
     return Number.isFinite(min) && Number.isFinite(max) ? { min, max } : null;
-  }, [coordinateInfo, sectionPlane.axis]);
+  }, [coordinateInfo, sectionPlane.axis, sectionPlane.mode, sectionPlane.customNormal]);
 
   // Theme-aware clear color ref (updated when theme changes)
   // Tokyo Night storm: #1a1b26 = rgb(26, 27, 38)
@@ -696,6 +702,15 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     lastClickPosRef,
     lastCameraStateRef,
     handlePickForSelection: (pickResult) => handlePickForSelectionRef.current(pickResult),
+    onSectionSurfacePick: (point, normal) => {
+      if (!coordinateInfo?.shiftedBounds) return;
+      const range = calculateProjectedRangeFromBounds(coordinateInfo.shiftedBounds, normal);
+      const rangeSize = range.max - range.min;
+      if (rangeSize < 0.000001) return;
+      const distance = point.x * normal.x + point.y * normal.y + point.z * normal.z;
+      const position = ((distance - range.min) / rangeSize) * 100;
+      setSectionPlaneFromSurface(normal, position);
+    },
     setHoverState,
     clearHover,
     openContextMenu,

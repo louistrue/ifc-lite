@@ -9,6 +9,7 @@
 export interface SectionPlaneRenderOptions {
   axis: 'down' | 'front' | 'side';  // Semantic axis names: down (Y), front (Z), side (X)
   position: number; // 0-100 percentage
+  customNormal?: { x: number; y: number; z: number } | null;
   bounds: {
     min: { x: number; y: number; z: number };
     max: { x: number; y: number; z: number };
@@ -232,7 +233,7 @@ export class SectionPlaneRenderer {
       return;
     }
 
-    const { axis, position, bounds, viewProj, isPreview, min: minOverride, max: maxOverride } = options;
+    const { axis, position, customNormal, bounds, viewProj, isPreview, min: minOverride, max: maxOverride } = options;
 
     // Only draw section plane in preview mode - hide it during active cutting
     if (!isPreview) {
@@ -240,7 +241,7 @@ export class SectionPlaneRenderer {
     }
 
     // Calculate plane vertices based on axis and bounds
-    const vertices = this.calculatePlaneVertices(axis, position, bounds, 0, minOverride, maxOverride);
+    const vertices = this.calculatePlaneVertices(axis, position, bounds, customNormal ?? null, 0, minOverride, maxOverride);
     this.device.queue.writeBuffer(this.vertexBuffer, 0, vertices);
 
     // Update uniforms
@@ -249,7 +250,11 @@ export class SectionPlaneRenderer {
 
     // Axis-specific colors for better identification
     // down (Y) = light blue, front (Z) = green, side (X) = orange
-    if (axis === 'down') {
+    if (customNormal) {
+      uniforms[16] = 0.608;
+      uniforms[17] = 0.349;
+      uniforms[18] = 0.714;
+    } else if (axis === 'down') {
       uniforms[16] = 0.012; // R - #03A9F4
       uniforms[17] = 0.663; // G
       uniforms[18] = 0.957; // B
@@ -277,6 +282,7 @@ export class SectionPlaneRenderer {
     axis: 'down' | 'front' | 'side',
     position: number,
     bounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } },
+    customNormal: { x: number; y: number; z: number } | null,
     inset: number = 0,  // 0 = full size, 0.15 = 15% smaller on each side
     minOverride?: number,
     maxOverride?: number
@@ -300,6 +306,94 @@ export class SectionPlaneRenderer {
     const axisMax = maxOverride ?? max[axisIdx];
 
     let vertices: number[] = [];
+
+    if (customNormal) {
+      const normalLength = Math.sqrt(customNormal.x * customNormal.x + customNormal.y * customNormal.y + customNormal.z * customNormal.z);
+      if (normalLength < 0.000001) {
+        return new Float32Array(30);
+      }
+
+      const n = {
+        x: customNormal.x / normalLength,
+        y: customNormal.y / normalLength,
+        z: customNormal.z / normalLength,
+      };
+
+      let ref = { x: 0, y: 1, z: 0 };
+      if (Math.abs(n.y) > 0.95) {
+        ref = { x: 1, y: 0, z: 0 };
+      }
+
+      const uRaw = {
+        x: n.y * ref.z - n.z * ref.y,
+        y: n.z * ref.x - n.x * ref.z,
+        z: n.x * ref.y - n.y * ref.x,
+      };
+      const uLen = Math.sqrt(uRaw.x * uRaw.x + uRaw.y * uRaw.y + uRaw.z * uRaw.z);
+      const u = uLen > 0.000001
+        ? { x: uRaw.x / uLen, y: uRaw.y / uLen, z: uRaw.z / uLen }
+        : { x: 1, y: 0, z: 0 };
+
+      const v = {
+        x: n.y * u.z - n.z * u.y,
+        y: n.z * u.x - n.x * u.z,
+        z: n.x * u.y - n.y * u.x,
+      };
+
+      const corners: Array<{ x: number; y: number; z: number }> = [
+        { x: min.x, y: min.y, z: min.z },
+        { x: min.x, y: min.y, z: max.z },
+        { x: min.x, y: max.y, z: min.z },
+        { x: min.x, y: max.y, z: max.z },
+        { x: max.x, y: min.y, z: min.z },
+        { x: max.x, y: min.y, z: max.z },
+        { x: max.x, y: max.y, z: min.z },
+        { x: max.x, y: max.y, z: max.z },
+      ];
+
+      let customMin = Infinity;
+      let customMax = -Infinity;
+      let maxExtentU = 0;
+      let maxExtentV = 0;
+      for (const corner of corners) {
+        const projN = corner.x * n.x + corner.y * n.y + corner.z * n.z;
+        const projU = corner.x * u.x + corner.y * u.y + corner.z * u.z;
+        const projV = corner.x * v.x + corner.y * v.y + corner.z * v.z;
+        customMin = Math.min(customMin, projN);
+        customMax = Math.max(customMax, projN);
+        maxExtentU = Math.max(maxExtentU, Math.abs(projU));
+        maxExtentV = Math.max(maxExtentV, Math.abs(projV));
+      }
+
+      const planeMin = minOverride ?? customMin;
+      const planeMax = maxOverride ?? customMax;
+      const distance = planeMin + (position / 100) * (planeMax - planeMin);
+
+      const center = {
+        x: n.x * distance,
+        y: n.y * distance,
+        z: n.z * distance,
+      };
+
+      const halfU = maxExtentU * 1.1;
+      const halfV = maxExtentV * 1.1;
+
+      const p00 = { x: center.x - u.x * halfU - v.x * halfV, y: center.y - u.y * halfU - v.y * halfV, z: center.z - u.z * halfU - v.z * halfV };
+      const p10 = { x: center.x + u.x * halfU - v.x * halfV, y: center.y + u.y * halfU - v.y * halfV, z: center.z + u.z * halfU - v.z * halfV };
+      const p11 = { x: center.x + u.x * halfU + v.x * halfV, y: center.y + u.y * halfU + v.y * halfV, z: center.z + u.z * halfU + v.z * halfV };
+      const p01 = { x: center.x - u.x * halfU + v.x * halfV, y: center.y - u.y * halfU + v.y * halfV, z: center.z - u.z * halfU + v.z * halfV };
+
+      vertices = [
+        p00.x, p00.y, p00.z, 0, 0,
+        p10.x, p10.y, p10.z, 1, 0,
+        p11.x, p11.y, p11.z, 1, 1,
+        p00.x, p00.y, p00.z, 0, 0,
+        p11.x, p11.y, p11.z, 1, 1,
+        p01.x, p01.y, p01.z, 0, 1,
+      ];
+
+      return new Float32Array(vertices);
+    }
 
     if (axis === 'side') {
       // Side = X axis (YZ plane)
