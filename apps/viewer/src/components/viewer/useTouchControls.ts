@@ -11,7 +11,7 @@ import { useEffect, type MutableRefObject, type RefObject } from 'react';
 import type { Renderer, PickResult } from '@ifc-lite/renderer';
 import type { MeshData } from '@ifc-lite/geometry';
 import type { SectionPlane } from '@/store';
-import { getEntityCenter } from '../../utils/viewportUtils.js';
+import { getEntityCenter, toRendererSectionPlane } from '../../utils/viewportUtils.js';
 
 export interface TouchState {
   touches: Touch[];
@@ -150,11 +150,9 @@ export function useTouchControls(params: UseTouchControlsParams): void {
           selectedId: selectedEntityIdRef.current,
           selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
-            min: sectionRangeRef.current?.min,
-            max: sectionRangeRef.current?.max,
-          } : undefined,
+          sectionPlane: activeToolRef.current === 'section'
+            ? toRendererSectionPlane(sectionPlaneRef.current, sectionRangeRef.current ?? undefined)
+            : undefined,
         });
       } else if (touchState.touches.length === 2) {
         const dx1 = touchState.touches[1].clientX - touchState.touches[0].clientX;
@@ -179,11 +177,9 @@ export function useTouchControls(params: UseTouchControlsParams): void {
           selectedId: selectedEntityIdRef.current,
           selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
-            min: sectionRangeRef.current?.min,
-            max: sectionRangeRef.current?.max,
-          } : undefined,
+          sectionPlane: activeToolRef.current === 'section'
+            ? toRendererSectionPlane(sectionPlaneRef.current, sectionRangeRef.current ?? undefined)
+            : undefined,
         });
       }
     };

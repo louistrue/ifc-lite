@@ -8,6 +8,7 @@
 
 export interface SectionPlaneRenderOptions {
   axis: 'down' | 'front' | 'side';  // Semantic axis names: down (Y), front (Z), side (X)
+  mode?: 'axis' | 'surface';
   position: number; // 0-100 percentage
   bounds: {
     min: { x: number; y: number; z: number };
@@ -18,6 +19,7 @@ export interface SectionPlaneRenderOptions {
   isPreview?: boolean; // If true, render as preview (less opacity)
   min?: number;      // Optional override for min range value
   max?: number;      // Optional override for max range value
+  normal?: { x: number; y: number; z: number };
 }
 
 export class SectionPlaneRenderer {
@@ -232,7 +234,7 @@ export class SectionPlaneRenderer {
       return;
     }
 
-    const { axis, position, bounds, viewProj, isPreview, min: minOverride, max: maxOverride } = options;
+    const { axis, mode, position, bounds, viewProj, isPreview, min: minOverride, max: maxOverride, normal } = options;
 
     // Only draw section plane in preview mode - hide it during active cutting
     if (!isPreview) {
@@ -240,7 +242,7 @@ export class SectionPlaneRenderer {
     }
 
     // Calculate plane vertices based on axis and bounds
-    const vertices = this.calculatePlaneVertices(axis, position, bounds, 0, minOverride, maxOverride);
+    const vertices = this.calculatePlaneVertices(axis, position, bounds, 0, minOverride, maxOverride, mode, normal);
     this.device.queue.writeBuffer(this.vertexBuffer, 0, vertices);
 
     // Update uniforms
@@ -249,7 +251,11 @@ export class SectionPlaneRenderer {
 
     // Axis-specific colors for better identification
     // down (Y) = light blue, front (Z) = green, side (X) = orange
-    if (axis === 'down') {
+    if (mode === 'surface') {
+      uniforms[16] = 0.659;
+      uniforms[17] = 0.333;
+      uniforms[18] = 0.969;
+    } else if (axis === 'down') {
       uniforms[16] = 0.012; // R - #03A9F4
       uniforms[17] = 0.663; // G
       uniforms[18] = 0.957; // B
@@ -279,7 +285,9 @@ export class SectionPlaneRenderer {
     bounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } },
     inset: number = 0,  // 0 = full size, 0.15 = 15% smaller on each side
     minOverride?: number,
-    maxOverride?: number
+    maxOverride?: number,
+    mode?: 'axis' | 'surface',
+    normal?: { x: number; y: number; z: number }
   ): Float32Array {
     const { min, max } = bounds;
 
@@ -300,6 +308,52 @@ export class SectionPlaneRenderer {
     const axisMax = maxOverride ?? max[axisIdx];
 
     let vertices: number[] = [];
+
+    if (mode === 'surface' && normal) {
+      const planeMin = minOverride ?? -1;
+      const planeMax = maxOverride ?? 1;
+      const planeDistance = planeMin + t * (planeMax - planeMin);
+
+      const nLen = Math.sqrt(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z) || 1;
+      const nx = normal.x / nLen;
+      const ny = normal.y / nLen;
+      const nz = normal.z / nLen;
+
+      const pointX = nx * planeDistance;
+      const pointY = ny * planeDistance;
+      const pointZ = nz * planeDistance;
+
+      const helper = Math.abs(ny) < 0.9 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 };
+      const ux = ny * helper.z - nz * helper.y;
+      const uy = nz * helper.x - nx * helper.z;
+      const uz = nx * helper.y - ny * helper.x;
+      const uLen = Math.sqrt(ux * ux + uy * uy + uz * uz) || 1;
+      const uxn = ux / uLen;
+      const uyn = uy / uLen;
+      const uzn = uz / uLen;
+
+      const vx = ny * uzn - nz * uyn;
+      const vy = nz * uxn - nx * uzn;
+      const vz = nx * uyn - ny * uxn;
+
+      const radius = Math.max(sizeX, sizeY, sizeZ) * 0.7;
+
+      const p0 = [pointX - uxn * radius - vx * radius, pointY - uyn * radius - vy * radius, pointZ - uzn * radius - vz * radius];
+      const p1 = [pointX + uxn * radius - vx * radius, pointY + uyn * radius - vy * radius, pointZ + uzn * radius - vz * radius];
+      const p2 = [pointX + uxn * radius + vx * radius, pointY + uyn * radius + vy * radius, pointZ + uzn * radius + vz * radius];
+      const p3 = [pointX - uxn * radius + vx * radius, pointY - uyn * radius + vy * radius, pointZ - uzn * radius + vz * radius];
+
+      vertices = [
+        p0[0], p0[1], p0[2], 0, 0,
+        p1[0], p1[1], p1[2], 1, 0,
+        p2[0], p2[1], p2[2], 1, 1,
+        p0[0], p0[1], p0[2], 0, 0,
+        p2[0], p2[1], p2[2], 1, 1,
+        p3[0], p3[1], p3[2], 0, 1,
+      ];
+
+      return new Float32Array(vertices);
+    }
 
     if (axis === 'side') {
       // Side = X axis (YZ plane)

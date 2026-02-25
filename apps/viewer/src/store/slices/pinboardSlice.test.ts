@@ -13,7 +13,7 @@ function createMockCrossSlice() {
     hiddenEntities: new Set<number>(),
     models: new Map<string, { idOffset: number }>([['legacy', { idOffset: 0 }]]),
     cameraCallbacks: { getViewpoint: () => null },
-    sectionPlane: { axis: 'front' as const, position: 50, enabled: false, flipped: false },
+    sectionPlane: { mode: 'axis' as const, axis: 'front' as const, position: 50, enabled: false, flipped: false, surface: null },
     drawing2D: null,
     drawing2DDisplayOptions: { show3DOverlay: true, showHiddenLines: true },
     setDrawing2D: () => {},
@@ -109,7 +109,7 @@ describe('PinboardSlice', () => {
     it('captures section plane but not 2D drawing payload', () => {
       state.setBasket([{ modelId: 'legacy', expressId: 100 }]);
       state.activeTool = 'section';
-      state.sectionPlane = { axis: 'front', position: 42, enabled: true, flipped: false };
+      state.sectionPlane = { mode: 'axis', axis: 'front', position: 42, enabled: true, flipped: false, surface: null };
       state.drawing2D = {
         lines: [{ line: { start: { x: 0, y: 0 }, end: { x: 1, y: 1 } }, visibility: 'visible', category: 'solid' }],
         cutPolygons: [],

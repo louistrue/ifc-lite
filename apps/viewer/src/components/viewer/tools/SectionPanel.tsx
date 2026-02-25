@@ -7,7 +7,7 @@
  */
 
 import React, { useCallback, useState } from 'react';
-import { X, Slice, ChevronDown, FileImage } from 'lucide-react';
+import { X, Slice, ChevronDown, FileImage, MousePointerClick } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useViewerStore } from '@/store';
 import { AXIS_INFO } from './sectionConstants';
@@ -16,6 +16,7 @@ import { SectionPlaneVisualization } from './SectionVisualization';
 export function SectionOverlay() {
   const sectionPlane = useViewerStore((s) => s.sectionPlane);
   const setSectionPlaneAxis = useViewerStore((s) => s.setSectionPlaneAxis);
+  const setSectionPlaneMode = useViewerStore((s) => s.setSectionPlaneMode);
   const setSectionPlanePosition = useViewerStore((s) => s.setSectionPlanePosition);
   const toggleSectionPlane = useViewerStore((s) => s.toggleSectionPlane);
   const setActiveTool = useViewerStore((s) => s.setActiveTool);
@@ -31,6 +32,10 @@ export function SectionOverlay() {
   const handleAxisChange = useCallback((axis: 'down' | 'front' | 'side') => {
     setSectionPlaneAxis(axis);
   }, [setSectionPlaneAxis]);
+
+  const handleModeChange = useCallback((mode: 'axis' | 'surface') => {
+    setSectionPlaneMode(mode);
+  }, [setSectionPlaneMode]);
 
   const handlePositionChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const value = Number(e.target.value);
@@ -70,7 +75,7 @@ export function SectionOverlay() {
           </button>
           <div className="flex items-center gap-1">
             {/* Only show 2D button when panel is closed */}
-            {!drawingPanelVisible && (
+            {!drawingPanelVisible && sectionPlane.mode === 'axis' && (
               <Button variant="ghost" size="icon-sm" onClick={handleView2D} title="Open 2D Drawing Panel">
                 <FileImage className="h-3 w-3" />
               </Button>
@@ -84,6 +89,29 @@ export function SectionOverlay() {
         {/* Expandable content */}
         {!isPanelCollapsed && (
           <div className="border-t px-3 pb-3 min-w-64">
+            {/* Mode Selection */}
+            <div className="mt-3">
+              <label className="text-xs text-muted-foreground mb-2 block">Mode</label>
+              <div className="flex gap-1">
+                <Button
+                  variant={sectionPlane.mode === 'axis' ? 'default' : 'outline'}
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => handleModeChange('axis')}
+                >
+                  Axis
+                </Button>
+                <Button
+                  variant={sectionPlane.mode === 'surface' ? 'default' : 'outline'}
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => handleModeChange('surface')}
+                >
+                  Surface
+                </Button>
+              </div>
+            </div>
+
             {/* Direction Selection */}
             <div className="mt-3">
               <label className="text-xs text-muted-foreground mb-2 block">Direction</label>
@@ -94,6 +122,7 @@ export function SectionOverlay() {
                     variant={sectionPlane.axis === axis ? 'default' : 'outline'}
                     size="sm"
                     className="flex-1 flex-col h-auto py-1.5"
+                    disabled={sectionPlane.mode !== 'axis'}
                     onClick={() => handleAxisChange(axis)}
                   >
                     <span className="text-xs font-medium">{AXIS_INFO[axis].label}</span>
@@ -101,6 +130,13 @@ export function SectionOverlay() {
                 ))}
               </div>
             </div>
+
+            {sectionPlane.mode === 'surface' && (
+              <div className="mt-2 text-[11px] text-muted-foreground flex items-start gap-1.5">
+                <MousePointerClick className="h-3 w-3 mt-0.5 shrink-0" />
+                <span>Click a visible face in the model to align the cut plane to that surface normal.</span>
+              </div>
+            )}
 
             {/* Position Slider */}
             <div className="mt-3">
@@ -128,7 +164,7 @@ export function SectionOverlay() {
             </div>
 
             {/* Show 2D panel button - only when panel is closed */}
-            {!drawingPanelVisible && (
+            {!drawingPanelVisible && sectionPlane.mode === 'axis' && (
               <div className="mt-3 pt-3 border-t">
                 <Button
                   variant="outline"
@@ -156,7 +192,7 @@ export function SectionOverlay() {
       >
         <span className="font-mono text-xs uppercase tracking-wide">
           {sectionPlane.enabled
-            ? `Cutting ${AXIS_INFO[sectionPlane.axis].label.toLowerCase()} at ${sectionPlane.position.toFixed(1)}%`
+            ? `Cutting ${sectionPlane.mode === 'surface' ? 'surface' : AXIS_INFO[sectionPlane.axis].label.toLowerCase()} at ${sectionPlane.position.toFixed(1)}%`
             : 'Preview mode'}
         </span>
       </div>
@@ -177,7 +213,7 @@ export function SectionOverlay() {
       </div>
 
       {/* Section plane visualization overlay */}
-      <SectionPlaneVisualization axis={sectionPlane.axis} enabled={sectionPlane.enabled} />
+      <SectionPlaneVisualization axis={sectionPlane.axis} enabled={sectionPlane.enabled} mode={sectionPlane.mode} />
     </>
   );
 }

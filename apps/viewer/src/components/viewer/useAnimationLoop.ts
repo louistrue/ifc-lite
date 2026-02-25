@@ -10,6 +10,7 @@
 import { useEffect, type MutableRefObject, type RefObject } from 'react';
 import type { Renderer, VisualEnhancementOptions } from '@ifc-lite/renderer';
 import type { SectionPlane } from '@/store';
+import { toRendererSectionPlane } from '../../utils/viewportUtils.js';
 
 export interface UseAnimationLoopParams {
   canvasRef: RefObject<HTMLCanvasElement | null>;
@@ -90,11 +91,9 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
           selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
           visualEnhancement: visualEnhancementRef.current,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
-            min: sectionRangeRef.current?.min,
-            max: sectionRangeRef.current?.max,
-          } : undefined,
+          sectionPlane: activeToolRef.current === 'section'
+            ? toRendererSectionPlane(sectionPlaneRef.current, sectionRangeRef.current ?? undefined)
+            : undefined,
         });
         // Update ViewCube during camera animation (e.g., preset view transitions)
         updateCameraRotationRealtime(camera.getRotation());

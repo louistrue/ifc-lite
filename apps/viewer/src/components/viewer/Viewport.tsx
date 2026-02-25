@@ -27,6 +27,8 @@ import {
   getEntityBounds,
   getEntityCenter,
   getThemeClearColor,
+  calculateProjectionRange,
+  toRendererSectionPlane,
   type ViewportStateRefs,
 } from '../../utils/viewportUtils.js';
 import { setGlobalCanvasRef, setGlobalRendererRef, clearGlobalRefs } from '../../hooks/useBCF.js';
@@ -221,6 +223,10 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
 
     const bounds = coordinateInfo.shiftedBounds;
 
+    if (sectionPlane.mode === 'surface' && sectionPlane.surface) {
+      return calculateProjectionRange(bounds, sectionPlane.surface.normal);
+    }
+
     // Map semantic axis to coordinate axis
     const axisKey = sectionPlane.axis === 'side' ? 'x' : sectionPlane.axis === 'down' ? 'y' : 'z';
 
@@ -228,7 +234,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     const max = bounds.max[axisKey];
 
     return Number.isFinite(min) && Number.isFinite(max) ? { min, max } : null;
-  }, [coordinateInfo, sectionPlane.axis]);
+  }, [coordinateInfo, sectionPlane.mode, sectionPlane.surface, sectionPlane.axis]);
 
   // Theme-aware clear color ref (updated when theme changes)
   // Tokyo Night storm: #1a1b26 = rgb(26, 27, 38)
@@ -503,11 +509,9 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
           selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
           visualEnhancement: visualEnhancementRef.current,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
-            min: sectionRangeRef.current?.min,
-            max: sectionRangeRef.current?.max,
-          } : undefined,
+          sectionPlane: activeToolRef.current === 'section'
+            ? toRendererSectionPlane(sectionPlaneRef.current, sectionRangeRef.current ?? undefined)
+            : undefined,
         });
       };
 
@@ -683,6 +687,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     clearColorRef,
     sectionPlaneRef,
     sectionRangeRef,
+    coordinateInfoRef,
     geometryRef,
     measureRaycastPendingRef,
     measureRaycastFrameRef,
