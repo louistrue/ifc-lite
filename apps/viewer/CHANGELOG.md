@@ -1,5 +1,33 @@
 # @ifc-lite/viewer
 
+## 1.11.1
+
+### Patch Changes
+
+- [#240](https://github.com/louistrue/ifc-lite/pull/240) [`a423e83`](https://github.com/louistrue/ifc-lite/commit/a423e8390afcb78f2de57203b26715df726335ed) Thanks [@louistrue](https://github.com/louistrue)! - Fix deferred IFC style colors not applying on first load by separating persistent mesh color updates from transient overlay color updates.
+
+  This restores expected glass transparency and keeps first-load and cache-load colors consistent.
+
+- Updated dependencies [[`02876ac`](https://github.com/louistrue/ifc-lite/commit/02876ac97748ca9aaabfc3e5882ef9d2a37ca437)]:
+  - @ifc-lite/geometry@1.11.1
+  - @ifc-lite/bcf@1.11.1
+  - @ifc-lite/cache@1.11.1
+  - @ifc-lite/data@1.11.1
+  - @ifc-lite/drawing-2d@1.11.1
+  - @ifc-lite/encoding@1.11.1
+  - @ifc-lite/export@1.11.1
+  - @ifc-lite/ids@1.11.1
+  - @ifc-lite/lens@1.11.1
+  - @ifc-lite/lists@1.11.1
+  - @ifc-lite/mutations@1.11.1
+  - @ifc-lite/parser@1.11.1
+  - @ifc-lite/query@1.11.1
+  - @ifc-lite/renderer@1.11.1
+  - @ifc-lite/sandbox@1.11.1
+  - @ifc-lite/server-client@1.11.1
+  - @ifc-lite/spatial@1.11.1
+  - @ifc-lite/wasm@1.11.1
+
 ## 1.11.0
 
 ### Patch Changes
