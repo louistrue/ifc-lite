@@ -54,8 +54,9 @@ export class Scene {
 
   // Streaming optimization: track pending batch rebuilds
   private pendingBatchKeys: Set<string> = new Set();
-  private lastBatchRebuildTime: number = 0;
-  private batchRebuildThrottleMs: number = 100; // Rebuild batches at most every 100ms during streaming
+  // Temporary fragment batches created during streaming for immediate rendering.
+  // Destroyed and replaced by proper merged batches in finalizeStreaming().
+  private streamingFragments: BatchedMesh[] = [];
 
   /**
    * Add mesh to scene
@@ -233,9 +234,10 @@ export class Scene {
    * Append meshes to color batches incrementally
    * Merges new meshes into existing color groups or creates new ones
    *
-   * OPTIMIZATION: Throttles batch rebuilding during streaming to avoid O(N²) cost
-   * - Mesh data is accumulated immediately (fast)
-   * - GPU buffers are rebuilt at most every batchRebuildThrottleMs (expensive)
+   * STREAMING OPTIMIZATION: During streaming, creates lightweight "fragment"
+   * batches from ONLY the new meshes instead of re-merging all accumulated
+   * data. This reduces streaming from O(N²) to O(N). Call finalizeStreaming()
+   * when streaming completes to do one O(N) full merge.
    */
   appendToBatches(meshDataArray: MeshData[], device: GPUDevice, pipeline: RenderPipeline, isStreaming: boolean = false): void {
     // Cache max buffer size on first call
@@ -248,34 +250,35 @@ export class Scene {
       const baseKey = this.colorKey(meshData.color);
       const bucketKey = this.resolveActiveBucket(baseKey, meshData);
 
-      // Accumulate mesh data in the bucket
+      // Accumulate mesh data in the bucket (always — needed for final merge)
       let bucket = this.batchedMeshData.get(bucketKey);
       if (!bucket) {
         bucket = [];
         this.batchedMeshData.set(bucketKey, bucket);
       }
       bucket.push(meshData);
-      this.pendingBatchKeys.add(bucketKey);
 
       // Track reverse mapping for O(1) batch removal in updateMeshColors
       this.meshDataBatchKey.set(meshData, bucketKey);
 
       // Also store individual mesh data for visibility filtering
-      // This allows individual meshes to be created lazily when needed
       this.addMeshData(meshData);
+
+      // Track pending keys for non-streaming rebuild only
+      if (!isStreaming) {
+        this.pendingBatchKeys.add(bucketKey);
+      }
     }
 
-    // During streaming, throttle batch rebuilding to reduce O(N²) cost
-    // This allows mesh data to accumulate before expensive buffer recreation
-    const now = performance.now();
-    const timeSinceLastRebuild = now - this.lastBatchRebuildTime;
-
-    if (isStreaming && timeSinceLastRebuild < this.batchRebuildThrottleMs) {
-      // Skip rebuild - data is accumulated, will be rebuilt later
+    if (isStreaming) {
+      // STREAMING: Create small fragment batches from ONLY the new meshes.
+      // Avoids the O(N²) cost of re-merging all accumulated data every batch.
+      // finalizeStreaming() destroys fragments and does one O(N) full merge.
+      this.createStreamingFragments(meshDataArray, device, pipeline);
       return;
     }
 
-    // Rebuild pending batches
+    // NON-STREAMING: Rebuild full batches immediately
     this.rebuildPendingBatches(device, pipeline);
   }
 
@@ -340,7 +343,6 @@ export class Scene {
     }
 
     this.pendingBatchKeys.clear();
-    this.lastBatchRebuildTime = performance.now();
   }
 
   /**
@@ -348,6 +350,77 @@ export class Scene {
    */
   hasPendingBatches(): boolean {
     return this.pendingBatchKeys.size > 0;
+  }
+
+  /**
+   * Create lightweight fragment batches from a single streaming batch.
+   * Fragments are grouped by color and added to batchedMeshes for immediate
+   * rendering, but tracked separately for cleanup in finalizeStreaming().
+   */
+  private createStreamingFragments(meshDataArray: MeshData[], device: GPUDevice, pipeline: RenderPipeline): void {
+    if (meshDataArray.length === 0) return;
+
+    // Group new meshes by color for efficient fragment batches
+    const colorGroups = new Map<string, MeshData[]>();
+    for (const meshData of meshDataArray) {
+      const key = this.colorKey(meshData.color);
+      let group = colorGroups.get(key);
+      if (!group) {
+        group = [];
+        colorGroups.set(key, group);
+      }
+      group.push(meshData);
+    }
+
+    // Create one fragment batch per color group (with buffer limit splitting)
+    for (const [, group] of colorGroups) {
+      const chunks = this.splitMeshDataForBufferLimit(group, this.cachedMaxBufferSize);
+      for (const chunk of chunks) {
+        const color = chunk[0].color;
+        const fragment = this.createBatchedMesh(chunk, color, device, pipeline);
+        this.batchedMeshes.push(fragment);
+        this.streamingFragments.push(fragment);
+      }
+    }
+  }
+
+  /**
+   * Finalize streaming: destroy temporary fragment batches and do one full
+   * O(N) merge of all accumulated mesh data into proper batches.
+   * Call this when streaming completes instead of rebuildPendingBatches().
+   */
+  finalizeStreaming(device: GPUDevice, pipeline: RenderPipeline): void {
+    if (this.streamingFragments.length === 0) return;
+
+    // 1. Destroy all fragment GPU resources
+    const fragmentSet = new Set(this.streamingFragments);
+    for (const fragment of this.streamingFragments) {
+      fragment.vertexBuffer.destroy();
+      fragment.indexBuffer.destroy();
+      if (fragment.uniformBuffer) {
+        fragment.uniformBuffer.destroy();
+      }
+    }
+    this.streamingFragments = [];
+
+    // 2. Remove fragments from batchedMeshes, keep any pre-existing proper batches
+    this.batchedMeshes = this.batchedMeshes.filter(b => !fragmentSet.has(b));
+
+    // 3. Rebuild index map to match filtered array
+    this.batchedMeshIndex.clear();
+    for (let i = 0; i < this.batchedMeshes.length; i++) {
+      this.batchedMeshIndex.set(this.batchedMeshes[i].colorKey, i);
+    }
+
+    // 4. Mark all non-empty accumulated buckets as pending for one full merge
+    for (const [key, data] of this.batchedMeshData) {
+      if (data.length > 0) {
+        this.pendingBatchKeys.add(key);
+      }
+    }
+
+    // 5. One O(N) full rebuild
+    this.rebuildPendingBatches(device, pipeline);
   }
 
   /**
@@ -890,6 +963,8 @@ export class Scene {
         batch.uniformBuffer.destroy();
       }
     }
+    // Destroy streaming fragments (already included in batchedMeshes, but tracked separately)
+    this.streamingFragments = [];
     this.destroyOverrideBatches();
     this.colorOverrides = null;
     this.meshes = [];
@@ -907,7 +982,6 @@ export class Scene {
     this.pendingBatchKeys.clear();
     this.partialBatchCache.clear();
     this.partialBatchCacheKeys.clear();
-    this.lastBatchRebuildTime = 0;
   }
 
   /**
