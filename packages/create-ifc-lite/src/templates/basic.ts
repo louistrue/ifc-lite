@@ -25,6 +25,7 @@ export function createBasicTemplate(targetDir: string, projectName: string) {
       '@ifc-lite/parser': latestVersion,
     },
     devDependencies: {
+      '@types/node': '^22.0.0',
       typescript: '^5.3.0',
       tsx: '^4.0.0',
     },
@@ -40,6 +41,7 @@ export function createBasicTemplate(targetDir: string, projectName: string) {
       esModuleInterop: true,
       skipLibCheck: true,
       outDir: 'dist',
+      types: ['node'],
     },
     include: ['src'],
   }, null, 2));
@@ -60,7 +62,13 @@ if (!ifcPath) {
   process.exit(1);
 }
 
-const buffer = readFileSync(ifcPath);
+// readFileSync returns a Node Buffer (Uint8Array subclass); extract the underlying ArrayBuffer
+const nodeBuffer = readFileSync(ifcPath);
+const buffer = nodeBuffer.buffer.slice(
+  nodeBuffer.byteOffset,
+  nodeBuffer.byteOffset + nodeBuffer.byteLength,
+) as ArrayBuffer;
+
 const parser = new IfcParser();
 
 console.log('Parsing IFC file...');
