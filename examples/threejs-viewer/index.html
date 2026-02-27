@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IFC-Lite + Three.js</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #fff; overflow: hidden; }
+    #app { display: flex; flex-direction: column; height: 100vh; }
+    header {
+      padding: 0.75rem 1rem;
+      background: #16213e;
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      border-bottom: 1px solid #0f3460;
+      z-index: 10;
+    }
+    header h1 { font-size: 1rem; font-weight: 600; color: #e94560; }
+    #file-input {
+      padding: 0.4rem 0.8rem;
+      background: #0f3460;
+      border: 1px solid #533483;
+      border-radius: 4px;
+      color: #fff;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    #status { color: #888; font-size: 0.85rem; }
+    #canvas-container { flex: 1; position: relative; }
+    canvas { display: block; width: 100%; height: 100%; }
+    #info {
+      position: absolute;
+      bottom: 1rem;
+      left: 1rem;
+      background: rgba(22, 33, 62, 0.9);
+      padding: 0.5rem 0.75rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      color: #aaa;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>IFC-Lite + Three.js</h1>
+      <input type="file" id="file-input" accept=".ifc" />
+      <span id="status">Drop an IFC file to view</span>
+    </header>
+    <div id="canvas-container">
+      <canvas id="viewer"></canvas>
+      <div id="info">Orbit: left-click drag &middot; Pan: right-click drag &middot; Zoom: scroll</div>
+    </div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

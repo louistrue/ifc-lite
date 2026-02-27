@@ -141,6 +141,7 @@ nav:
     - WASM Bindings: api/wasm.md
   - Tutorials:
     - Building a Viewer: tutorials/building-viewer.md
+    - Three.js Integration: tutorials/threejs-integration.md
     - Custom Queries: tutorials/custom-queries.md
     - Extending the Parser: tutorials/extending-parser.md
   - Contributing:
