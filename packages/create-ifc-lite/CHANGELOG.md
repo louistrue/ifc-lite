@@ -1,5 +1,11 @@
 # create-ifc-lite
 
+## 1.11.5
+
+### Patch Changes
+
+- [#262](https://github.com/louistrue/ifc-lite/pull/262) [`d204ed8`](https://github.com/louistrue/ifc-lite/commit/d204ed807484a3a6b337a1186dcea311626493ad) Thanks [@louistrue](https://github.com/louistrue)! - Fix WASM loading in threejs template: revert to `optimizeDeps.exclude: ['@ifc-lite/wasm']` (matching the working example). `vite-plugin-wasm` was incorrect — the wasm-bindgen `new URL('ifc-lite_bg.wasm', import.meta.url)` pattern works correctly when the package is excluded from Vite pre-bundling.
+
 ## 1.11.4
 
 ### Patch Changes
