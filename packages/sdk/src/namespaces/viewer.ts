@@ -30,8 +30,8 @@ export class ViewerNamespace {
 
   /** Ghost entities — fade them to semi-transparent for context */
   ghost(refs: EntityRef[]): void {
-    // Overlay with mostly-white at high alpha to "wash out" the geometry
-    const ghostColor: RGBAColor = [1.0, 1.0, 1.0, 0.85];
+    // Faint gray at low opacity — makes geometry barely visible for context
+    const ghostColor: RGBAColor = [0.6, 0.6, 0.6, 0.15];
     this.backend.viewer.colorize(refs, ghostColor);
   }
 
