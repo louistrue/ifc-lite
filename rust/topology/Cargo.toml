@@ -1,0 +1,34 @@
+[package]
+name = "ifc-lite-topology"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Non-manifold topology (NMT) data structure for IFC spatial reasoning"
+keywords = ["ifc", "bim", "topology", "nmt", "aec"]
+categories = ["data-structures", "science"]
+readme = "../../README.md"
+
+[dependencies]
+# Math library — same as ifc-lite-geometry
+nalgebra = { version = "0.33", default-features = false, features = ["std"] }
+
+# Triangulation — same as ifc-lite-geometry
+earcutr = "0.4"
+
+# Arena-based storage with stable keys
+slotmap = "1.0"
+
+# Fast hashing
+rustc-hash = "1.1"
+
+# Error handling
+thiserror = "1.0"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dev-dependencies]
+approx = "0.5"
