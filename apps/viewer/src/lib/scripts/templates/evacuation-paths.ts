@@ -3,10 +3,10 @@ export {} // module boundary (stripped by transpiler)
 // ── Evacuation Path Visualization ─────────────────────────────────────
 // Stakeholder: Fire Safety Engineer / Building Inspector
 //
-// For every room, finds the corner furthest from the nearest door,
-// computes the evacuation path through doors and corridors to the
-// nearest exit, and draws colored 3D lines representing the full
-// escape route. Lines are colored by length: red = longest (most
+// For every room, computes the evacuation path through doors and
+// corridors to the nearest exit, calculates real path lengths from
+// centroid-to-centroid distances, and draws colored 3D lines.
+// Lines are colored by total path length: red = longest (most
 // dangerous), green = shortest, with a smooth gradient between.
 // ────────────────────────────────────────────────────────────────────────
 
@@ -25,8 +25,6 @@ if (spaces.length === 0) {
   console.log('evacuation paths through the building.')
   throw new Error('no spaces')
 }
-
-bim.viewer.isolate(spaces)
 
 const graph = bim.topology.buildGraph()
 const adjacency = bim.topology.adjacency()
@@ -60,27 +58,22 @@ for (const m of metrics) {
   }
 }
 
-// ── 3. Find door positions (centroids of shared door entities) ───────
-// For each adjacency pair, find doors and compute their approximate position
-interface DoorConnection {
-  space1Key: string
-  space2Key: string
-  doorRefs: EntityRef[]
-  doorTypes: string[]
+// ── 3. Euclidean distance helper ─────────────────────────────────────
+function dist3d(a: [number, number, number], b: [number, number, number]): number {
+  const dx = a[0] - b[0]
+  const dy = a[1] - b[1]
+  const dz = a[2] - b[2]
+  return Math.sqrt(dx * dx + dy * dy + dz * dz)
 }
 
-const doorConnections: DoorConnection[] = []
+// ── 4. Find door entities ────────────────────────────────────────────
 const doorEntityRefs: EntityRef[] = []
 const seenDoors = new Set<string>()
 
 for (const pair of adjacency) {
-  const doorRefs: EntityRef[] = []
-  const doorTypes: string[] = []
   for (let i = 0; i < pair.sharedTypes.length; i++) {
     const t = pair.sharedTypes[i].toLowerCase()
     if (t.includes('door') || t.includes('opening')) {
-      doorRefs.push(pair.sharedRefs[i])
-      doorTypes.push(pair.sharedTypes[i])
       const dk = pair.sharedRefs[i].modelId + ':' + pair.sharedRefs[i].expressId
       if (!seenDoors.has(dk)) {
         seenDoors.add(dk)
@@ -88,31 +81,11 @@ for (const pair of adjacency) {
       }
     }
   }
-  if (doorRefs.length > 0) {
-    doorConnections.push({
-      space1Key: pair.space1.modelId + ':' + pair.space1.expressId,
-      space2Key: pair.space2.modelId + ':' + pair.space2.expressId,
-      doorRefs,
-      doorTypes,
-    })
-  }
-}
-
-// Show doors alongside spaces
-const doorEntities: BimEntity[] = []
-for (const ref of doorEntityRefs) {
-  const e = bim.query.entity(ref.modelId, ref.expressId)
-  if (e) doorEntities.push(e)
-}
-if (doorEntities.length > 0) {
-  bim.viewer.show(doorEntities)
 }
 
 console.log('Doors found: ' + doorEntityRefs.length)
 
-// ── 4. Identify exits (spaces with fewest connections = likely exits) ─
-// Heuristic: spaces connected to the exterior or with "exit"/"entrance"
-// in their name. Fallback: spaces with degree=1 (dead ends at perimeter).
+// ── 5. Identify exits ────────────────────────────────────────────────
 const degreeMap: Record<string, number> = {}
 for (const pair of adjacency) {
   const k1 = pair.space1.modelId + ':' + pair.space1.expressId
@@ -121,7 +94,6 @@ for (const pair of adjacency) {
   degreeMap[k2] = (degreeMap[k2] || 0) + 1
 }
 
-// Try to find explicitly named exits
 const exitSpaceKeys: string[] = []
 for (const m of metrics) {
   const key = m.ref.modelId + ':' + m.ref.expressId
@@ -134,7 +106,6 @@ for (const m of metrics) {
   }
 }
 
-// Fallback: use leaf nodes (degree 1) or spaces with lowest degree
 if (exitSpaceKeys.length === 0) {
   const sortedByDegree = Object.entries(degreeMap)
     .sort((a, b) => a[1] - b[1])
@@ -147,22 +118,44 @@ if (exitSpaceKeys.length === 0) {
 
 console.log('Exit candidates: ' + exitSpaceKeys.length)
 
-// ── 5. Compute evacuation paths from every space to nearest exit ─────
+// ── 6. Detect length unit from model ─────────────────────────────────
+// IFC geometry is in model units. Most IFC files use meters, but some
+// use millimeters. We check typical space dimensions to decide.
+let unitLabel = 'm'
+let unitScale = 1.0
+
+// Sample a few spaces to detect if coordinates are in mm
+const sampleCentroids = Object.values(centroidMap).slice(0, 5)
+if (sampleCentroids.length >= 2) {
+  const sampleDist = dist3d(sampleCentroids[0], sampleCentroids[1])
+  if (sampleDist > 100) {
+    // Likely millimeters — typical room-to-room distance > 100mm = unreasonable in meters
+    unitLabel = 'mm'
+    unitScale = 0.001 // convert to meters for display
+  }
+}
+
+// ── 7. Compute evacuation paths with real distances ──────────────────
 interface EvacPath {
   spaceKey: string
   exitKey: string
   path: EntityRef[]
   hops: number
-  weight: number
+  totalLength: number // real Euclidean path length in model units
+  segments: Array<{
+    from: [number, number, number]
+    to: [number, number, number]
+    length: number
+  }>
 }
 
 const evacPaths: EvacPath[] = []
-let maxHops = 0
-let minHops = Infinity
+let maxLength = 0
+let minLength = Infinity
 
 for (const m of metrics) {
   const spaceKey = m.ref.modelId + ':' + m.ref.expressId
-  if (exitSpaceKeys.includes(spaceKey)) continue // exits don't need paths
+  if (exitSpaceKeys.includes(spaceKey)) continue
 
   let bestPath: EvacPath | null = null
 
@@ -172,46 +165,70 @@ for (const m of metrics) {
       expressId: Number(exitKey.split(':')[1]),
     }
     const result = bim.topology.shortestPath(m.ref, exitRef)
-    if (result && (!bestPath || result.hops < bestPath.hops)) {
+    if (!result) continue
+
+    // Compute real path length from centroid distances
+    const segments: EvacPath['segments'] = []
+    let totalLength = 0
+
+    for (let i = 0; i < result.path.length - 1; i++) {
+      const fromKey = result.path[i].modelId + ':' + result.path[i].expressId
+      const toKey = result.path[i + 1].modelId + ':' + result.path[i + 1].expressId
+      const fromC = centroidMap[fromKey]
+      const toC = centroidMap[toKey]
+      if (fromC && toC) {
+        const segLen = dist3d(fromC, toC)
+        segments.push({ from: fromC, to: toC, length: segLen })
+        totalLength += segLen
+      }
+    }
+
+    if (!bestPath || totalLength < bestPath.totalLength) {
       bestPath = {
         spaceKey,
         exitKey,
         path: result.path,
         hops: result.hops,
-        weight: result.totalWeight,
+        totalLength,
+        segments,
       }
     }
   }
 
-  if (bestPath) {
+  if (bestPath && bestPath.segments.length > 0) {
     evacPaths.push(bestPath)
-    if (bestPath.hops > maxHops) maxHops = bestPath.hops
-    if (bestPath.hops < minHops) minHops = bestPath.hops
+    if (bestPath.totalLength > maxLength) maxLength = bestPath.totalLength
+    if (bestPath.totalLength < minLength) minLength = bestPath.totalLength
   }
 }
 
-console.log('Evacuation paths: ' + evacPaths.length)
-console.log('Shortest path:    ' + minHops + ' hops')
-console.log('Longest path:     ' + maxHops + ' hops')
+// Convert for display
+const displayMin = unitLabel === 'mm' ? (minLength * unitScale).toFixed(2) : minLength.toFixed(2)
+const displayMax = unitLabel === 'mm' ? (maxLength * unitScale).toFixed(2) : maxLength.toFixed(2)
+const displayUnit = unitLabel === 'mm' ? 'm' : unitLabel
 
-// ── 6. Build 3D lines from paths using space centroids ───────────────
+console.log('')
+console.log('Evacuation paths: ' + evacPaths.length)
+console.log('Shortest path:    ' + displayMin + ' ' + displayUnit)
+console.log('Longest path:     ' + displayMax + ' ' + displayUnit)
+
+// ── 8. Build colored 3D lines ────────────────────────────────────────
 interface Line3D {
   start: [number, number, number]
   end: [number, number, number]
   color: string
 }
 
-function hopsToColor(hops: number): string {
-  // Gradient from green (short/safe) to yellow to red (long/dangerous)
-  const range = Math.max(maxHops - minHops, 1)
-  const t = (hops - minHops) / range // 0 = shortest, 1 = longest
+function lengthToColor(length: number): string {
+  // Gradient from green (short/safe) → yellow → red (long/dangerous)
+  const range = Math.max(maxLength - minLength, 0.001)
+  const t = (length - minLength) / range // 0 = shortest, 1 = longest
 
   // Green (120°) → Yellow (60°) → Red (0°) in HSL
   const hue = Math.round(120 * (1 - t))
   const saturation = 90
-  const lightness = 45
+  const lightness = 50
 
-  // Convert HSL to hex
   const h = hue / 360
   const s = saturation / 100
   const l = lightness / 100
@@ -236,74 +253,34 @@ function hopsToColor(hops: number): string {
 }
 
 const allLines: Line3D[] = []
-const pathLengths: Array<{ spaceKey: string; hops: number; exitKey: string }> = []
 
 for (const evac of evacPaths) {
-  const color = hopsToColor(evac.hops)
-  pathLengths.push({ spaceKey: evac.spaceKey, hops: evac.hops, exitKey: evac.exitKey })
+  const color = lengthToColor(evac.totalLength)
 
-  // Draw lines between consecutive spaces in the path
-  for (let i = 0; i < evac.path.length - 1; i++) {
-    const fromKey = evac.path[i].modelId + ':' + evac.path[i].expressId
-    const toKey = evac.path[i + 1].modelId + ':' + evac.path[i + 1].expressId
-    const fromCentroid = centroidMap[fromKey]
-    const toCentroid = centroidMap[toKey]
-
-    if (fromCentroid && toCentroid) {
-      allLines.push({
-        start: fromCentroid,
-        end: toCentroid,
-        color,
-      })
-    }
+  for (const seg of evac.segments) {
+    allLines.push({
+      start: seg.from,
+      end: seg.to,
+      color,
+    })
   }
 }
 
-// Draw all lines at once
-if (allLines.length > 0) {
-  bim.viewer.drawLines(allLines)
-  console.log('')
-  console.log('Drew ' + allLines.length + ' line segments')
+// ── 9. Set up visibility: hide spaces, show structure + lines ────────
+// Hide rooms so lines are visible. Show walls, doors, slabs instead.
+bim.viewer.hide(spaces)
+
+// Show doors
+const doorEntities: BimEntity[] = []
+for (const ref of doorEntityRefs) {
+  const e = bim.query.entity(ref.modelId, ref.expressId)
+  if (e) doorEntities.push(e)
+}
+if (doorEntities.length > 0) {
+  bim.viewer.show(doorEntities)
 }
 
-// ── 7. Color-code spaces by evacuation distance ─────────────────────
-const hopsBySpace: Record<string, number> = {}
-for (const p of pathLengths) {
-  hopsBySpace[p.spaceKey] = p.hops
-}
-
-// Group spaces by hop count for batch colorization
-const hopBuckets: Record<number, BimEntity[]> = {}
-for (const [key, hops] of Object.entries(hopsBySpace)) {
-  const entity = entityMap[key]
-  if (!entity) continue
-  if (!hopBuckets[hops]) hopBuckets[hops] = []
-  hopBuckets[hops].push(entity)
-}
-
-const colorBatches: Array<{ entities: BimEntity[]; color: string }> = []
-for (const [hopsStr, entities] of Object.entries(hopBuckets)) {
-  colorBatches.push({
-    entities,
-    color: hopsToColor(Number(hopsStr)),
-  })
-}
-
-// Color exit spaces in blue
-const exitEntities: BimEntity[] = []
-for (const key of exitSpaceKeys) {
-  const entity = entityMap[key]
-  if (entity) exitEntities.push(entity)
-}
-if (exitEntities.length > 0) {
-  colorBatches.push({ entities: exitEntities, color: '#3498db' })
-}
-
-if (colorBatches.length > 0) {
-  bim.viewer.colorizeAll(colorBatches)
-}
-
-// Show boundary elements (walls between spaces)
+// Show boundary elements (walls, slabs between spaces)
 const boundaryEntities: BimEntity[] = []
 const seenBoundary = new Set<string>()
 for (const pair of adjacency) {
@@ -319,26 +296,32 @@ if (boundaryEntities.length > 0) {
   bim.viewer.show(boundaryEntities)
 }
 
+// Draw all lines
+if (allLines.length > 0) {
+  bim.viewer.drawLines(allLines)
+  console.log('Drew ' + allLines.length + ' line segments')
+}
+
 bim.viewer.flyTo(spaces)
 
-// ── 8. Report ────────────────────────────────────────────────────────
+// ── 10. Report ───────────────────────────────────────────────────────
 console.log('')
 console.log('── Visualization Legend ──')
-console.log('  Spaces colored by evacuation distance:')
-console.log('    Green  = close to exit (safe)')
+console.log('  3D lines show evacuation paths between rooms:')
+console.log('    Green  = short path to exit (safe)')
 console.log('    Yellow = moderate distance')
-console.log('    Red    = far from exit (dangerous)')
-console.log('    Blue   = exit / egress point')
-console.log('  3D lines show evacuation paths between rooms')
+console.log('    Red    = long path to exit (dangerous)')
+console.log('  Spaces are hidden to reveal path lines.')
+console.log('  Walls, doors, and slabs remain visible.')
 console.log('')
 
-// ── 9. Evacuation schedule ───────────────────────────────────────────
+// ── 11. Evacuation distance schedule ─────────────────────────────────
 console.log('── Evacuation Distance Schedule ──')
-console.log('Space                   | Hops | Exit via')
-console.log('------------------------+------+------------------')
+console.log('Space                   | Distance   | Hops | Exit via')
+console.log('------------------------+------------+------+------------------')
 
-const sorted = [...pathLengths].sort((a, b) => b.hops - a.hops)
-for (const p of sorted.slice(0, 25)) {
+const sorted = [...evacPaths].sort((a, b) => b.totalLength - a.totalLength)
+for (const p of sorted.slice(0, 30)) {
   const spaceName = metrics.find(m =>
     m.ref.modelId + ':' + m.ref.expressId === p.spaceKey
   )?.name || '?'
@@ -346,28 +329,55 @@ for (const p of sorted.slice(0, 25)) {
     m.ref.modelId + ':' + m.ref.expressId === p.exitKey
   )?.name || '?'
 
+  const displayLen = unitLabel === 'mm'
+    ? (p.totalLength * unitScale).toFixed(2) + ' m'
+    : p.totalLength.toFixed(2) + ' ' + unitLabel
   const nameCol = (spaceName + '                        ').slice(0, 24)
+  const distCol = (displayLen + '            ').slice(0, 12)
   const hopsCol = (p.hops + '    ').slice(0, 4)
   const exitCol = exitName.slice(0, 18)
-  console.log(nameCol + '| ' + hopsCol + ' | ' + exitCol)
+  console.log(nameCol + '| ' + distCol + '| ' + hopsCol + ' | ' + exitCol)
 }
 
-if (sorted.length > 25) {
-  console.log('... and ' + (sorted.length - 25) + ' more spaces')
+if (sorted.length > 30) {
+  console.log('... and ' + (sorted.length - 30) + ' more spaces')
 }
 
-// ── 10. Highlight critical paths ─────────────────────────────────────
-const dangerousSpaces = sorted.filter(p => p.hops === maxHops)
-if (dangerousSpaces.length > 0) {
+// ── 12. Summary statistics ───────────────────────────────────────────
+const totalPathLength = evacPaths.reduce((sum, p) => sum + p.totalLength, 0)
+const avgLength = totalPathLength / Math.max(evacPaths.length, 1)
+const displayAvg = unitLabel === 'mm' ? (avgLength * unitScale).toFixed(2) : avgLength.toFixed(2)
+
+console.log('')
+console.log('── Summary ──')
+console.log('  Total paths:     ' + evacPaths.length)
+console.log('  Shortest path:   ' + displayMin + ' ' + displayUnit)
+console.log('  Longest path:    ' + displayMax + ' ' + displayUnit)
+console.log('  Average path:    ' + displayAvg + ' ' + displayUnit)
+console.log('  Total exits:     ' + exitSpaceKeys.length)
+console.log('  Doors traversed: ' + doorEntityRefs.length)
+
+// ── 13. Highlight critical paths ─────────────────────────────────────
+// Find and select the spaces with longest evacuation distance
+const dangerThreshold = minLength + (maxLength - minLength) * 0.8 // top 20%
+const dangerousPaths = sorted.filter(p => p.totalLength >= dangerThreshold)
+if (dangerousPaths.length > 0) {
+  // Show the dangerous spaces and color them red
   const dangerEntities: BimEntity[] = []
-  for (const p of dangerousSpaces) {
+  for (const p of dangerousPaths) {
     const entity = entityMap[p.spaceKey]
     if (entity) dangerEntities.push(entity)
   }
   if (dangerEntities.length > 0) {
+    bim.viewer.show(dangerEntities)
+    bim.viewer.colorize(dangerEntities, '#e74c3c')
     bim.viewer.select(dangerEntities)
+
+    const worstLen = unitLabel === 'mm'
+      ? (dangerousPaths[0].totalLength * unitScale).toFixed(1)
+      : dangerousPaths[0].totalLength.toFixed(1)
     console.log('')
-    console.warn('Selected ' + dangerEntities.length + ' space(s) with LONGEST evacuation path (' + maxHops + ' hops)')
-    console.warn('These rooms are furthest from any exit — review for fire safety.')
+    console.warn(dangerEntities.length + ' space(s) exceed 80% of max evacuation distance')
+    console.warn('Worst: ' + worstLen + ' ' + displayUnit + ' — review for fire safety compliance.')
   }
 }
