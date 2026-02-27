@@ -1,5 +1,13 @@
 # @ifc-lite/ifcx
 
+## 1.11.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.11.3
+  - @ifc-lite/mutations@1.11.3
+
 ## 1.11.1
 
 ### Patch Changes

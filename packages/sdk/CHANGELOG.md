@@ -1,5 +1,23 @@
 # @ifc-lite/sdk
 
+## 1.11.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/bcf@1.11.3
+  - @ifc-lite/data@1.11.3
+  - @ifc-lite/drawing-2d@1.11.3
+  - @ifc-lite/encoding@1.11.3
+  - @ifc-lite/export@1.11.3
+  - @ifc-lite/ids@1.11.3
+  - @ifc-lite/lens@1.11.3
+  - @ifc-lite/lists@1.11.3
+  - @ifc-lite/mutations@1.11.3
+  - @ifc-lite/parser@1.11.3
+  - @ifc-lite/query@1.11.3
+  - @ifc-lite/spatial@1.11.3
+
 ## 1.11.1
 
 ### Patch Changes

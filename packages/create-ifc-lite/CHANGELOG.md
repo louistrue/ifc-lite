@@ -1,5 +1,16 @@
 # create-ifc-lite
 
+## 1.11.3
+
+### Patch Changes
+
+- [#257](https://github.com/louistrue/ifc-lite/pull/257) [`025d3b1`](https://github.com/louistrue/ifc-lite/commit/025d3b14161e63045f8c79b58b49c7da4d91594b) Thanks [@louistrue](https://github.com/louistrue)! - Fix all template TypeScript errors caught by new CI audit:
+
+  - basic template: add `@types/node` + `types: ["node"]` in tsconfig; fix `Buffer` → `ArrayBuffer` conversion when calling `IfcParser.parse()`
+  - Add `test-templates.yml` CI workflow that scaffolds every template, runs `npm install` + `tsc --noEmit` (+ `vite build` for threejs) on every PR touching `packages/create-ifc-lite`
+
+- [#257](https://github.com/louistrue/ifc-lite/pull/257) [`b1dd28b`](https://github.com/louistrue/ifc-lite/commit/b1dd28beccbec361651dc61d71a9b32d12b03071) Thanks [@louistrue](https://github.com/louistrue)! - Fix TypeScript error in generated Three.js template: use non-null assertions on DOM element declarations so type narrowing works across function boundaries.
+
 ## 1.11.2
 
 ### Patch Changes

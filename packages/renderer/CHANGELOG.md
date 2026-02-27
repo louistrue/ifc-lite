@@ -1,5 +1,14 @@
 # @ifc-lite/renderer
 
+## 1.11.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/geometry@1.11.3
+  - @ifc-lite/spatial@1.11.3
+  - @ifc-lite/wasm@1.11.3
+
 ## 1.11.1
 
 ### Patch Changes
