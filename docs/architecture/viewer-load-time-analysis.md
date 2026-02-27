@@ -197,44 +197,58 @@ If called during streaming with a large accumulated array, this is O(n) over all
 
 ## 11. Full cost breakdown (estimated)
 
-| # | Bottleneck | Est. cost | Blocking? | Fixable? |
-|---|-----------|-----------|-----------|----------|
-| 1 | `appendGeometryBatch` O(n²) spread | 2–4 s | Yes | High priority |
-| 2 | React re-renders × batches | 2–3 s | Yes | High priority |
-| 3 | Parser competing on main thread | 1–2 s | Yes | Easy win |
-| 4 | IndexedDB cache write (400–500 MB) | 3–5 s | No (post-load) | Threshold/worker |
-| 5 | BVH spatial index (39k meshes) | 0.5–1 s | No (idle) | Worker |
-| 6 | WebGPU pipeline compilation | 0.3–0.7 s | Yes (startup) | Hard, driver |
-| 7 | `applyColorUpdatesToMeshes` all meshes | 0.2–0.5 s | Yes | Medium |
-| 8 | `updateMeshColors` full array clone | 0.1–0.3 s | Yes | Medium |
-| 9 | Minor state updates | ~0.1 s | Yes | Low |
+| # | Bottleneck | Est. cost | Blocking? | Fixable? | Status |
+|---|-----------|-----------|-----------|----------|--------|
+| 1 | `appendGeometryBatch` O(n) `.reduce()` × 2 per batch | 1–2 s | Yes | High priority | **Fixed** |
+| 2 | React re-renders × batches | 2–3 s | Yes | High priority | Mitigated (throttle) |
+| 3 | Parser competing on main thread | 1–2 s | Yes | Easy win | **Fixed** |
+| 4 | IndexedDB cache write (400–500 MB) | 3–5 s | No (post-load) | Threshold/worker | **Fixed** |
+| 5 | BVH spatial index (39k meshes) | 0.5–1 s | No (idle) | Worker | Future |
+| 6 | WebGPU pipeline compilation | 0.3–0.7 s | Yes (startup) | Hard, driver | N/A |
+| 7 | `applyColorUpdatesToMeshes` all meshes | 0.2–0.5 s | Yes | Medium | **Fixed** |
+| 8 | `updateMeshColors` full array clone | 0.1–0.3 s | Yes | Medium | **Fixed** |
+| 9 | Minor state updates | ~0.1 s | Yes | Low | N/A |
 
-**Total recoverable on critical path: ~5–9 s** — enough to reach parity with the Three.js baseline.
+**Total recoverable on critical path: ~3–5 s** with implemented fixes.
 
 ---
 
 ## 12. Prioritized action plan
 
-### P0 — Fix `appendGeometryBatch` (biggest single win)
+### P0 — Fix `appendGeometryBatch` .reduce() bottleneck — DONE
 
-Use a **local mutable array** for streaming accumulation; call `setGeometryResult(final)` once at `'complete'`. Eliminates the O(n²) spreads and all mid-stream React reconciliations at once.
+The O(n) array spread is actually cheap (~6 μs for 39k pointer copies) and **required** by
+`useGeometryStreaming` which uses `geometry` reference equality in its `useEffect` deps to detect
+changes. The real bottleneck was two `.reduce()` calls per batch that traversed the entire
+accumulated array doing property chasing (`mesh.indices.length`, `mesh.positions.length`).
 
-### P0 — Defer parser to after `'complete'`
+**Fix applied:** Replace `.reduce()` with incremental `batchTriangles`/`batchVertices` counters
+summed into `state.geometryResult.totalTriangles + batchTriangles`. Each batch is now O(batch_size)
+for the totals computation.
 
-Change `setTimeout(startDataModelParsing, 0)` to fire only inside the `'complete'` branch. Zero code complexity, ~1–2 s free.
+### P0 — Defer parser to after `'complete'` — DONE
 
-### P1 — Raise/skip cache for huge files
+Changed `setTimeout(startDataModelParsing, 0)` to fire inside the `'complete'` branch. The parser
+no longer competes with WASM for main-thread CPU during geometry streaming. ~1–2 s free.
 
-Set `CACHE_SIZE_THRESHOLD` to e.g. 100 MB, or skip storing `sourceBuffer` for files > 150 MB. The IFC source is already on disk — caching it in IDB for a 326 MB file costs more than it saves.
+### P1 — Skip source buffer in cache for huge files — DONE
 
-### P1 — Move BVH + parser to Web Workers
+Added `CACHE_MAX_SOURCE_SIZE = 150 MB`. Files above this threshold still cache geometry + data model
+but skip storing the raw IFC source buffer. For a 326 MB file, this halves the IndexedDB write from
+~500 MB to ~170 MB. The user still has the file on disk for on-demand property extraction.
 
-Both are CPU-bound, pure-JS, and have no DOM/renderer dependencies. Worker-ising them removes all remaining main-thread competition.
+### P1 — Move BVH + parser to Web Workers — FUTURE
 
-### P2 — Colour updates: lazy accumulation
+Both are CPU-bound, pure-JS, and have no DOM/renderer dependencies. Worker-ising them removes all
+remaining main-thread competition.
 
-Accumulate colour update maps during streaming; apply a single pass at `'complete'` rather than re-scanning all accumulated meshes on every `colorUpdate` event.
+### P2 — Colour updates: lazy accumulation — DONE
 
-### P2 — Reduce `setProgress` frequency
+Colour update maps are now accumulated locally during streaming; a single `updateMeshColors()` fires
+at `'complete'` instead of per-`colorUpdate` event. This eliminates N redundant React reconciliations
+and N × O(all_meshes) scans during streaming.
 
-Batch progress updates; a single `setProgress` per second during streaming instead of per batch saves ~10 React reconciliations for large files.
+### P2 — Reduce `setProgress` frequency — N/A
+
+Already mitigated by the existing adaptive throttle (`getRenderIntervalMs`). Progress updates
+piggyback on the same throttle schedule as `appendGeometryBatch` calls, so no additional work needed.
