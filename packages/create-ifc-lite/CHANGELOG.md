@@ -1,5 +1,11 @@
 # create-ifc-lite
 
+## 1.11.4
+
+### Patch Changes
+
+- [#260](https://github.com/louistrue/ifc-lite/pull/260) [`e342a43`](https://github.com/louistrue/ifc-lite/commit/e342a430c07b4611b94225a74776e9855bf1450a) Thanks [@louistrue](https://github.com/louistrue)! - Fix WASM loading in threejs template: add `vite-plugin-wasm` and `vite-plugin-top-level-await` to vite config. Without these plugins Vite cannot serve the `.wasm` file with the correct `application/wasm` MIME type, causing a `CompileError: wasm validation error` at runtime.
+
 ## 1.11.3
 
 ### Patch Changes
