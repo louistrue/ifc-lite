@@ -10,7 +10,8 @@
  *  meshDataToThree          — one Mesh per entity (simple, good for picking)
  *  geometryResultToBatched  — merge by color (fewer draw calls, moderate)
  *  batchWithVertexColors    — merge ALL opaque into one draw call via vertex
- *                             colors; transparent grouped by alpha (best perf)
+ *                             colors; transparent grouped by alpha (best perf).
+ *                             Returns a triangleMaps index for entity picking.
  */
 
 import * as THREE from 'three';
@@ -18,6 +19,18 @@ import type { MeshData, GeometryResult } from '@ifc-lite/geometry';
 
 /** Map from expressId → Three.js mesh, for picking / highlighting */
 export type ExpressIdMap = Map<number, THREE.Mesh>;
+
+/**
+ * Maps a contiguous triangle range within a merged mesh back to an expressId.
+ * `start` and `count` are in triangle units (i.e. faceIndex from Raycaster).
+ */
+export type TriangleRange = { expressId: number; start: number; count: number };
+
+/**
+ * Per-mesh triangle → entity lookup table produced by batchWithVertexColors.
+ * Keys are the actual Three.js Mesh objects added to the scene.
+ */
+export type TriangleMaps = Map<THREE.Mesh, TriangleRange[]>;
 
 /**
  * Convert a single MeshData into a Three.js Mesh.
@@ -87,7 +100,6 @@ export function geometryResultToBatched(result: GeometryResult): {
   const group = new THREE.Group();
   const expressIdMap: ExpressIdMap = new Map();
 
-  // Group meshes by color key
   const colorBuckets = new Map<string, MeshData[]>();
   for (const mesh of result.meshes) {
     const key = mesh.color.join(',');
@@ -158,32 +170,34 @@ export function geometryResultToBatched(result: GeometryResult): {
  * Highest-performance batching strategy for large models.
  *
  * Merges ALL opaque meshes into a single draw call using a vertex color
- * attribute. Transparent meshes are grouped by alpha value into a small
- * number of additional draw calls. For a typical large IFC model this
- * takes render cost from thousands of draw calls down to 1–10.
+ * attribute. Transparent meshes are grouped by alpha value. Alongside the
+ * scene group, returns a `triangleMaps` index so individual entities can be
+ * identified by their Three.js Raycaster faceIndex after the fact — enabling
+ * object picking without a separate per-entity geometry layer.
  *
- * Trade-off: per-entity color changes (highlight/select) require updating
- * the color buffer rather than swapping material. Use meshDataToThree for
- * interactive picking workflows; use this for pure display performance.
+ * Trade-off: per-entity color changes require updating the color buffer.
+ * Use meshDataToThree for interactive-editing workflows.
  */
 export function batchWithVertexColors(meshes: MeshData[]): {
   group: THREE.Group;
   expressIdMap: ExpressIdMap;
+  triangleMaps: TriangleMaps;
 } {
   const group = new THREE.Group();
   const expressIdMap: ExpressIdMap = new Map();
+  const triangleMaps: TriangleMaps = new Map();
 
   const opaque = meshes.filter((m) => m.color[3] >= 1);
   const transparent = meshes.filter((m) => m.color[3] < 1);
 
   if (opaque.length > 0) {
-    const mesh = mergeWithVertexColors(opaque, false);
+    const { mesh, triangleRanges } = mergeWithVertexColors(opaque, false);
     group.add(mesh);
+    triangleMaps.set(mesh, triangleRanges);
     for (const m of opaque) expressIdMap.set(m.expressId, mesh);
   }
 
   if (transparent.length > 0) {
-    // Group transparent meshes by alpha (2 d.p.) to minimise draw calls
     const alphaGroups = new Map<number, MeshData[]>();
     for (const m of transparent) {
       const alpha = Math.round(m.color[3] * 100) / 100;
@@ -195,13 +209,39 @@ export function batchWithVertexColors(meshes: MeshData[]): {
       bucket.push(m);
     }
     for (const [alpha, group_] of alphaGroups) {
-      const mesh = mergeWithVertexColors(group_, true, alpha);
+      const { mesh, triangleRanges } = mergeWithVertexColors(group_, true, alpha);
       group.add(mesh);
+      triangleMaps.set(mesh, triangleRanges);
       for (const m of group_) expressIdMap.set(m.expressId, mesh);
     }
   }
 
-  return { group, expressIdMap };
+  return { group, expressIdMap, triangleMaps };
+}
+
+/**
+ * Find the expressId for the entity whose triangles contain `faceIndex`.
+ * Uses binary search — O(log n) per pick operation.
+ * Returns null if not found.
+ */
+export function findEntityByFace(
+  ranges: TriangleRange[],
+  faceIndex: number,
+): number | null {
+  let lo = 0;
+  let hi = ranges.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >>> 1;
+    const r = ranges[mid];
+    if (faceIndex < r.start) {
+      hi = mid - 1;
+    } else if (faceIndex >= r.start + r.count) {
+      lo = mid + 1;
+    } else {
+      return r.expressId;
+    }
+  }
+  return null;
 }
 
 /** Merge an array of MeshData into one Mesh with per-vertex RGB colors. */
@@ -209,7 +249,7 @@ function mergeWithVertexColors(
   meshes: MeshData[],
   transparent: boolean,
   opacity = 1,
-): THREE.Mesh {
+): { mesh: THREE.Mesh; triangleRanges: TriangleRange[] } {
   let totalVertices = 0;
   let totalIndices = 0;
   for (const m of meshes) {
@@ -222,11 +262,14 @@ function mergeWithVertexColors(
   const colors = new Float32Array(totalVertices * 3);
   const indices = new Uint32Array(totalIndices);
 
-  let vOffset = 0; // running vertex count
-  let iOffset = 0; // running index count
+  const triangleRanges: TriangleRange[] = [];
+  let vOffset = 0;
+  let iOffset = 0;
 
   for (const m of meshes) {
     const vertCount = m.positions.length / 3;
+    const triCount = m.indices.length / 3;
+
     positions.set(m.positions, vOffset * 3);
     normals.set(m.normals, vOffset * 3);
 
@@ -240,6 +283,8 @@ function mergeWithVertexColors(
     for (let i = 0; i < m.indices.length; i++) {
       indices[iOffset + i] = m.indices[i] + vOffset;
     }
+
+    triangleRanges.push({ expressId: m.expressId, start: iOffset / 3, count: triCount });
 
     vOffset += vertCount;
     iOffset += m.indices.length;
@@ -260,7 +305,7 @@ function mergeWithVertexColors(
     depthWrite: !transparent,
   });
 
-  return new THREE.Mesh(geometry, material);
+  return { mesh: new THREE.Mesh(geometry, material), triangleRanges };
 }
 
 /**

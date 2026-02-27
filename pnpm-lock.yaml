@@ -449,6 +449,9 @@ importers:
       '@ifc-lite/geometry':
         specifier: ^1.11.0
         version: 1.11.0
+      '@ifc-lite/parser':
+        specifier: ^1.11.0
+        version: 1.11.0
       three:
         specifier: ^0.183.0
         version: 0.183.1
@@ -1326,6 +1329,15 @@ packages:
 
   '@ifc-lite/geometry@1.11.0':
     resolution: {integrity: sha512-rCk/XhQJCOU4bROG2PE25euf/qX2QjPqfFjjkpwNeFeYm3up2bpXI1OhxYWZihERwUFSLMNyMWR0wbAoMPaqww==}
+
+  '@ifc-lite/ifcx@1.11.0':
+    resolution: {integrity: sha512-qVwknS0UcmVXCxePWvjLvGsWpsTEeDqCZ9viUBA1yuNnsacKMmmxb8NKYMoGVdUvWgHCTpCsGHcdB7EdM1RTxw==}
+
+  '@ifc-lite/mutations@1.11.0':
+    resolution: {integrity: sha512-FEaj4jjkT044HHW/kdS77r97Y8MCkR/wZtZhSU/JTA391y8/Ibr8AWfpQBCPkFde/ZbjKp/Supl3n/P0R2Mdjg==}
+
+  '@ifc-lite/parser@1.11.0':
+    resolution: {integrity: sha512-eGMOrog0B+U+YifniNIH9cWmseM0qcmLbi+9pPr6VD1CISiOI77JrMW8+4JBT1HHzjxlclnz7JjfzQDDSTi41Q==}
 
   '@ifc-lite/wasm@1.11.0':
     resolution: {integrity: sha512-M+kJvR7wBfqsGjmSW2at8U5NfUyFL3MvVh7kzS2pPrgQhEwHK4xFw9IzEy8gyH0MMqAPjT5v+epk2ywzC4RpjA==}
@@ -4094,6 +4106,21 @@ snapshots:
       '@ifc-lite/wasm': 1.11.0
     optionalDependencies:
       '@tauri-apps/api': 2.9.1
+
+  '@ifc-lite/ifcx@1.11.0':
+    dependencies:
+      '@ifc-lite/data': 1.11.0
+      '@ifc-lite/mutations': 1.11.0
+
+  '@ifc-lite/mutations@1.11.0':
+    dependencies:
+      '@ifc-lite/data': 1.11.0
+      '@ifc-lite/parser': 1.11.0
+
+  '@ifc-lite/parser@1.11.0':
+    dependencies:
+      '@ifc-lite/data': 1.11.0
+      '@ifc-lite/ifcx': 1.11.0
 
   '@ifc-lite/wasm@1.11.0': {}
 
