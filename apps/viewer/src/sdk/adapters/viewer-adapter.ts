@@ -20,30 +20,18 @@ const STORE_TO_AXIS: Record<string, 'x' | 'y' | 'z'> = {
 type RGBA = [number, number, number, number];
 
 export function createViewerAdapter(store: StoreApi): ViewerBackendMethods {
-  // Track original mesh colors so resetColors() can restore them.
-  // This is needed because updateMeshColors permanently changes mesh batch colors.
-  const savedOriginalColors = new Map<number, RGBA>();
+  // Accumulated overlay colors for the current script execution.
+  // Uses the overlay pipeline (with alpha blending) so ghost transparency works.
+  // Each colorize/ghost call merges into this map; React effect flushes once.
+  let overlayAccumulator = new Map<number, RGBA>();
 
-  /** Save original mesh colors before overriding (only saves once per ID). */
-  function saveOriginals(colorMap: Map<number, RGBA>): void {
-    const state = store.getState();
-    if (state.models.size > 0) {
-      for (const [, model] of state.models) {
-        const geo = model.geometryResult;
-        if (!geo?.meshes) continue;
-        for (const mesh of geo.meshes) {
-          if (colorMap.has(mesh.expressId) && !savedOriginalColors.has(mesh.expressId)) {
-            savedOriginalColors.set(mesh.expressId, [...mesh.color] as RGBA);
-          }
-        }
-      }
-    } else if (state.geometryResult?.meshes) {
-      for (const mesh of state.geometryResult.meshes) {
-        if (colorMap.has(mesh.expressId) && !savedOriginalColors.has(mesh.expressId)) {
-          savedOriginalColors.set(mesh.expressId, [...mesh.color] as RGBA);
-        }
-      }
+  /** Merge entries into the accumulator and push to the store overlay system. */
+  function pushOverlayColors(entries: Map<number, RGBA>): void {
+    for (const [id, color] of entries) {
+      overlayAccumulator.set(id, color);
     }
+    const state = store.getState();
+    state.setPendingColorUpdates(overlayAccumulator);
   }
 
   return {
@@ -56,8 +44,7 @@ export function createViewerAdapter(store: StoreApi): ViewerBackendMethods {
           colorMap.set(ref.expressId + model.idOffset, color);
         }
       }
-      saveOriginals(colorMap);
-      state.updateMeshColors(colorMap);
+      pushOverlayColors(colorMap);
       return undefined;
     },
     colorizeAll(batches: Array<{ refs: EntityRef[]; color: RGBA }>) {
@@ -71,16 +58,13 @@ export function createViewerAdapter(store: StoreApi): ViewerBackendMethods {
           }
         }
       }
-      saveOriginals(batchMap);
-      state.updateMeshColors(batchMap);
+      pushOverlayColors(batchMap);
       return undefined;
     },
     resetColors() {
+      overlayAccumulator = new Map();
       const state = store.getState();
-      if (savedOriginalColors.size > 0) {
-        state.updateMeshColors(savedOriginalColors);
-        savedOriginalColors.clear();
-      }
+      state.setPendingColorUpdates(new Map());
       return undefined;
     },
     flyTo() {
