@@ -17,13 +17,41 @@ const STORE_TO_AXIS: Record<string, 'x' | 'y' | 'z'> = {
   front: 'z',
 };
 
+type RGBA = [number, number, number, number];
+
 export function createViewerAdapter(store: StoreApi): ViewerBackendMethods {
+  // Track original mesh colors so resetColors() can restore them.
+  // This is needed because updateMeshColors permanently changes mesh batch colors.
+  const savedOriginalColors = new Map<number, RGBA>();
+
+  /** Save original mesh colors before overriding (only saves once per ID). */
+  function saveOriginals(colorMap: Map<number, RGBA>): void {
+    const state = store.getState();
+    if (state.models.size > 0) {
+      for (const [, model] of state.models) {
+        const geo = model.geometryResult;
+        if (!geo?.meshes) continue;
+        for (const mesh of geo.meshes) {
+          if (colorMap.has(mesh.expressId) && !savedOriginalColors.has(mesh.expressId)) {
+            savedOriginalColors.set(mesh.expressId, [...mesh.color] as RGBA);
+          }
+        }
+      }
+    } else if (state.geometryResult?.meshes) {
+      for (const mesh of state.geometryResult.meshes) {
+        if (colorMap.has(mesh.expressId) && !savedOriginalColors.has(mesh.expressId)) {
+          savedOriginalColors.set(mesh.expressId, [...mesh.color] as RGBA);
+        }
+      }
+    }
+  }
+
   return {
-    colorize(refs: EntityRef[], color: [number, number, number, number]) {
+    colorize(refs: EntityRef[], color: RGBA) {
       const state = store.getState();
       // Merge with existing pending colors (supports multiple colorize calls per script)
       const existing = state.pendingColorUpdates;
-      const colorMap = existing ? new Map(existing) : new Map<number, [number, number, number, number]>();
+      const colorMap = existing ? new Map(existing) : new Map<number, RGBA>();
       for (const ref of refs) {
         const model = getModelForRef(state, ref.modelId);
         if (model) {
@@ -31,14 +59,16 @@ export function createViewerAdapter(store: StoreApi): ViewerBackendMethods {
           colorMap.set(globalId, color);
         }
       }
+      // Use both approaches: updateMeshColors handles transparent meshes (IfcSpace etc.)
+      // by moving them from transparent to opaque batches. The overlay handles opaque meshes.
+      saveOriginals(colorMap);
+      state.updateMeshColors(colorMap);
       state.setPendingColorUpdates(colorMap);
       return undefined;
     },
-    colorizeAll(batches: Array<{ refs: EntityRef[]; color: [number, number, number, number] }>) {
+    colorizeAll(batches: Array<{ refs: EntityRef[]; color: RGBA }>) {
       const state = store.getState();
-      // Batch colorize: build the complete color map in a single call.
-      // Avoids accumulation issues when React effects fire between calls.
-      const batchMap = new Map<number, [number, number, number, number]>();
+      const batchMap = new Map<number, RGBA>();
       for (const batch of batches) {
         for (const ref of batch.refs) {
           const model = getModelForRef(state, ref.modelId);
@@ -47,12 +77,20 @@ export function createViewerAdapter(store: StoreApi): ViewerBackendMethods {
           }
         }
       }
+      // Use both: mesh color update (for transparent entities) + overlay (for opaque entities)
+      saveOriginals(batchMap);
+      state.updateMeshColors(batchMap);
       state.setPendingColorUpdates(batchMap);
       return undefined;
     },
     resetColors() {
       const state = store.getState();
-      // Set empty map to trigger scene.clearColorOverrides() (null skips the effect)
+      // Restore original mesh colors (reverses transparent→opaque batch moves)
+      if (savedOriginalColors.size > 0) {
+        state.updateMeshColors(savedOriginalColors);
+        savedOriginalColors.clear();
+      }
+      // Clear overlay (empty map triggers clearColorOverrides; null would skip the effect)
       state.setPendingColorUpdates(new Map());
       return undefined;
     },
