@@ -26,12 +26,12 @@ export function createThreejsTemplate(targetDir: string, projectName: string) {
     },
     dependencies: {
       '@ifc-lite/geometry': geometryVersion,
-      three: '^0.170.0',
+      three: '^0.183.0',
     },
     devDependencies: {
-      '@types/three': '^0.170.0',
+      '@types/three': '^0.183.0',
       typescript: '^5.3.0',
-      vite: '^6.0.0',
+      vite: '^7.0.0',
     },
   }, null, 2));
 
@@ -137,9 +137,12 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GeometryProcessor } from '@ifc-lite/geometry';
 import { meshDataToThree } from './ifc-to-threejs.js';
 
-const canvas = document.getElementById('viewer') as HTMLCanvasElement;
-const fileInput = document.getElementById('file-input') as HTMLInputElement;
-const status = document.getElementById('status') as HTMLSpanElement;
+const canvas = document.getElementById('viewer');
+const fileInput = document.getElementById('file-input');
+const status = document.getElementById('status');
+if (!canvas || !fileInput || !status) {
+  throw new Error('Required DOM elements not found: viewer, file-input, or status');
+}
 
 // Three.js setup
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -166,10 +169,9 @@ const geometry = new GeometryProcessor();
 
 // Resize
 function resize() {
-  const w = canvas.parentElement!.clientWidth;
-  const h = canvas.parentElement!.clientHeight;
-  renderer.setSize(w, h);
-  camera.aspect = w / h;
+  const container = canvas.parentElement ?? document.body;
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  camera.aspect = container.clientWidth / container.clientHeight;
   camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize);
@@ -193,10 +195,23 @@ fileInput.addEventListener('change', async () => {
     await geometry.init();
     const buffer = new Uint8Array(await file.arrayBuffer());
 
-    // Clear previous model
-    scene.children
-      .filter((c) => c instanceof THREE.Mesh || c instanceof THREE.Group)
-      .forEach((c) => scene.remove(c));
+    // Clear previous model and release GPU resources
+    const toRemove = scene.children.filter(
+      (c) => c instanceof THREE.Mesh || c instanceof THREE.Group
+    );
+    for (const obj of toRemove) {
+      scene.remove(obj);
+      obj.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          if (Array.isArray(child.material)) {
+            child.material.forEach((m) => m.dispose());
+          } else {
+            child.material.dispose();
+          }
+        }
+      });
+    }
 
     // Stream geometry
     let count = 0;

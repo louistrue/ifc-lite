@@ -28,6 +28,7 @@
       font-size: 0.85rem;
     }
     #status { color: #888; font-size: 0.85rem; }
+    .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
     #canvas-container { flex: 1; position: relative; }
     canvas { display: block; width: 100%; height: 100%; }
     #info {
@@ -46,6 +47,7 @@
   <div id="app">
     <header>
       <h1>IFC-Lite + Three.js</h1>
+      <label for="file-input" class="visually-hidden">Select IFC file</label>
       <input type="file" id="file-input" accept=".ifc" />
       <span id="status">Drop an IFC file to view</span>
     </header>

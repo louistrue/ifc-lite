@@ -309,6 +309,10 @@ let hoveredMesh: THREE.Mesh | null = null;
 const highlightColor = new THREE.Color(0x4f46e5);
 
 canvas.addEventListener('pointermove', (event) => {
+  const rect = canvas.getBoundingClientRect();
+  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
   // Reset previous
   if (hoveredMesh) {
     const orig = hoveredMesh.userData.originalColor;

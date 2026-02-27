@@ -19,9 +19,13 @@ import {
 } from './ifc-to-threejs.js';
 
 // ── DOM elements ──────────────────────────────────────────────────────
-const canvas = document.getElementById('viewer') as HTMLCanvasElement;
-const fileInput = document.getElementById('file-input') as HTMLInputElement;
-const status = document.getElementById('status') as HTMLSpanElement;
+const canvas = document.getElementById('viewer');
+const fileInput = document.getElementById('file-input');
+const status = document.getElementById('status');
+
+if (!canvas || !fileInput || !status) {
+  throw new Error('Required DOM elements not found: viewer, file-input, or status');
+}
 
 // ── Three.js setup ────────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -57,11 +61,9 @@ const expressIdMap: ExpressIdMap = new Map();
 
 // ── Resize handling ───────────────────────────────────────────────────
 function resize() {
-  const container = canvas.parentElement!;
-  const w = container.clientWidth;
-  const h = container.clientHeight;
-  renderer.setSize(w, h);
-  camera.aspect = w / h;
+  const container = canvas.parentElement ?? document.body;
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  camera.aspect = container.clientWidth / container.clientHeight;
   camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize);
@@ -115,15 +117,21 @@ fileInput.addEventListener('change', async () => {
 
 // ── Helpers ───────────────────────────────────────────────────────────
 function clearScene() {
-  // Remove all groups/meshes but keep lights
-  const toRemove: THREE.Object3D[] = [];
-  scene.traverse((obj) => {
-    if (obj instanceof THREE.Mesh || obj instanceof THREE.Group) {
-      toRemove.push(obj);
-    }
-  });
+  const toRemove = scene.children.filter(
+    (obj) => obj instanceof THREE.Mesh || obj instanceof THREE.Group,
+  );
   for (const obj of toRemove) {
-    if (obj.parent === scene) scene.remove(obj);
+    scene.remove(obj);
+    obj.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.geometry.dispose();
+        if (Array.isArray(child.material)) {
+          child.material.forEach((m) => m.dispose());
+        } else {
+          child.material.dispose();
+        }
+      }
+    });
   }
   expressIdMap.clear();
 }

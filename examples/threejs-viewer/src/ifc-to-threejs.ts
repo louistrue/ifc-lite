@@ -147,10 +147,11 @@ export function geometryResultToBatched(result: GeometryResult): {
     const batchedMesh = new THREE.Mesh(geometry, material);
     group.add(batchedMesh);
 
-    // Still track individual meshes for picking (un-batched references)
+    // Map every expressId in this batch to the shared batched mesh.
+    // For per-entity highlight/selection use the expressId stored in userData
+    // of hit objects from raycasting, then look up metadata from the source MeshData.
     for (const m of meshes) {
-      const individual = meshDataToThree(m);
-      expressIdMap.set(m.expressId, individual);
+      expressIdMap.set(m.expressId, batchedMesh);
     }
   }
 
