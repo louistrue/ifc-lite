@@ -202,14 +202,18 @@ export function useContextMenuState() {
 export function useColorUpdateState() {
   const pendingColorUpdates = useViewerStore((state) => state.pendingColorUpdates);
   const pendingMeshColorUpdates = useViewerStore((state) => state.pendingMeshColorUpdates);
+  const pendingLines = useViewerStore((state) => state.pendingLines);
   const clearPendingColorUpdates = useViewerStore((state) => state.clearPendingColorUpdates);
   const clearPendingMeshColorUpdates = useViewerStore((state) => state.clearPendingMeshColorUpdates);
+  const clearPendingLines = useViewerStore((state) => state.clearPendingLines);
 
   return {
     pendingColorUpdates,
     pendingMeshColorUpdates,
+    pendingLines,
     clearPendingColorUpdates,
     clearPendingMeshColorUpdates,
+    clearPendingLines,
   };
 }
 

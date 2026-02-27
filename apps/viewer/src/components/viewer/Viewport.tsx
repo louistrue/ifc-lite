@@ -208,8 +208,10 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   const {
     pendingColorUpdates,
     pendingMeshColorUpdates,
+    pendingLines,
     clearPendingColorUpdates,
     clearPendingMeshColorUpdates,
+    clearPendingLines,
   } = useColorUpdateState();
 
   // IFC data state
@@ -794,8 +796,10 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     geometryBoundsRef,
     pendingColorUpdates,
     pendingMeshColorUpdates,
+    pendingLines,
     clearPendingColorUpdates,
     clearPendingMeshColorUpdates,
+    clearPendingLines,
     clearColorRef,
   });
 

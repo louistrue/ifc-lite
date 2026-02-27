@@ -39,6 +39,57 @@ interface BimModelInfo {
   fileSize: number;
 }
 
+// ── Topology types ────────────────────────────────────────────────────
+
+interface EntityRef {
+  modelId: string;
+  expressId: number;
+}
+
+interface TopologyNode {
+  ref: EntityRef;
+  name: string;
+  type: string;
+  area: number | null;
+  volume: number | null;
+  centroid: [number, number, number] | null;
+}
+
+interface TopologyEdge {
+  source: EntityRef;
+  target: EntityRef;
+  weight: number;
+  sharedType: string;
+}
+
+interface TopologyGraph {
+  nodes: TopologyNode[];
+  edges: TopologyEdge[];
+}
+
+interface AdjacencyPair {
+  space1: EntityRef;
+  space2: EntityRef;
+  sharedRefs: EntityRef[];
+  sharedTypes: string[];
+  /** Centroids of shared boundary elements (doors, stairs) — same index as sharedRefs */
+  sharedCentroids: ([number, number, number] | null)[];
+}
+
+interface CentralityResult {
+  ref: EntityRef;
+  name: string;
+  degree: number;
+  closeness: number;
+  betweenness: number;
+}
+
+interface PathResult {
+  path: EntityRef[];
+  totalWeight: number;
+  hops: number;
+}
+
 // ── Namespace declarations ──────────────────────────────────────────────
 
 declare const bim: {
@@ -70,6 +121,8 @@ declare const bim: {
     colorize(entities: BimEntity[], color: string): void;
     /** Batch colorize with [{entities, color}] */
     colorizeAll(batches: Array<{ entities: BimEntity[]; color: string }>): void;
+    /** Ghost entities — fade to semi-transparent for context */
+    ghost(entities: BimEntity[]): void;
     /** Hide entities */
     hide(entities: BimEntity[]): void;
     /** Show entities */
@@ -84,6 +137,12 @@ declare const bim: {
     resetColors(): void;
     /** Reset all visibility */
     resetVisibility(): void;
+    /** Force IfcSpace entities visible (overrides global toggle) */
+    showSpaces(): void;
+    /** Draw 3D line segments (paths, connections) with colors */
+    drawLines(lines: Array<{ start: [number, number, number]; end: [number, number, number]; color: string }>): void;
+    /** Clear all drawn 3D lines */
+    clearLines(): void;
   };
   /** Property editing */
   mutate: {
@@ -107,5 +166,24 @@ declare const bim: {
     csv(entities: BimEntity[], options: { columns: string[]; filename?: string; separator?: string }): string;
     /** Export entities to JSON array */
     json(entities: BimEntity[], columns: string[]): Record<string, unknown>[];
+  };
+  /** Spatial topology analysis */
+  topology: {
+    /** Build dual graph from IfcSpace entities and their boundary relationships */
+    buildGraph(): TopologyGraph;
+    /** Get all pairs of adjacent spaces with shared boundary elements */
+    adjacency(): AdjacencyPair[];
+    /** Find shortest path between two spaces (Dijkstra) */
+    shortestPath(sourceRef: EntityRef, targetRef: EntityRef): PathResult | null;
+    /** Compute degree, closeness, and betweenness centrality for all spaces */
+    centrality(): CentralityResult[];
+    /** Get area, volume, and centroid metrics for all spaces */
+    metrics(): TopologyNode[];
+    /** Get external boundary elements (building envelope) */
+    envelope(): EntityRef[];
+    /** Get groups of spaces reachable from each other */
+    connectedComponents(): EntityRef[][];
+    /** Get centroid of any entity with mesh geometry (doors, stairs, walls, etc.) */
+    entityCentroid(ref: EntityRef): [number, number, number] | null;
   };
 };

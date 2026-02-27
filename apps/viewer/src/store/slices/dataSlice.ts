@@ -11,6 +11,13 @@ import type { IfcDataStore } from '@ifc-lite/parser';
 import type { GeometryResult, CoordinateInfo } from '@ifc-lite/geometry';
 import { DATA_DEFAULTS } from '../constants.js';
 
+/** A colored 3D line segment for path visualization. */
+export interface LineSegment3D {
+  start: [number, number, number];
+  end: [number, number, number];
+  color: [number, number, number, number];
+}
+
 export interface DataSlice {
   // State
   ifcDataStore: IfcDataStore | null;
@@ -19,6 +26,8 @@ export interface DataSlice {
   pendingColorUpdates: Map<number, [number, number, number, number]> | null;
   /** Persistent mesh color updates (IFC deferred style/material colors). */
   pendingMeshColorUpdates: Map<number, [number, number, number, number]> | null;
+  /** 3D line segments for path/connection visualization. */
+  pendingLines: LineSegment3D[] | null;
 
   // Actions
   setIfcDataStore: (result: IfcDataStore | null) => void;
@@ -32,6 +41,10 @@ export interface DataSlice {
   setPendingColorUpdates: (updates: Map<number, [number, number, number, number]>) => void;
   clearPendingColorUpdates: () => void;
   clearPendingMeshColorUpdates: () => void;
+  /** Set 3D line segments for the renderer to draw. */
+  setPendingLines: (lines: LineSegment3D[]) => void;
+  /** Clear all pending lines. */
+  clearPendingLines: () => void;
   updateCoordinateInfo: (coordinateInfo: CoordinateInfo) => void;
 }
 
@@ -55,6 +68,7 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
   geometryResult: null,
   pendingColorUpdates: null,
   pendingMeshColorUpdates: null,
+  pendingLines: null,
 
   // Actions
   setIfcDataStore: (ifcDataStore) => set({ ifcDataStore }),
@@ -120,6 +134,9 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
   clearPendingColorUpdates: () => set({ pendingColorUpdates: null }),
 
   clearPendingMeshColorUpdates: () => set({ pendingMeshColorUpdates: null }),
+
+  setPendingLines: (lines) => set({ pendingLines: lines }),
+  clearPendingLines: () => set({ pendingLines: null }),
 
   updateCoordinateInfo: (coordinateInfo) => set((state) => {
     if (!state.geometryResult) return {};

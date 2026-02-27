@@ -1,6 +1,7 @@
 export {} // module boundary (stripped by transpiler)
 
-// Reset colors and visibility
+// Reset colors, visibility, and drawn lines
 bim.viewer.resetColors()
 bim.viewer.resetVisibility()
-console.log('View reset — all colors and visibility restored')
+bim.viewer.clearLines()
+console.log('View reset — all colors, visibility, and lines restored')

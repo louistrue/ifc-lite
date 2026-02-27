@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import type { EntityRef, SectionPlane, CameraState, ViewerBackendMethods, RGBAColor } from '@ifc-lite/sdk';
+import type { EntityRef, SectionPlane, CameraState, ViewerBackendMethods, LineSegment3D } from '@ifc-lite/sdk';
 import type { StoreApi } from './types.js';
 import { getModelForRef } from './model-compat.js';
 
@@ -17,28 +17,39 @@ const STORE_TO_AXIS: Record<string, 'x' | 'y' | 'z'> = {
   front: 'z',
 };
 
+type RGBA = [number, number, number, number];
+
 export function createViewerAdapter(store: StoreApi): ViewerBackendMethods {
+  // Accumulated overlay colors for the current script execution.
+  // Uses the overlay pipeline (with alpha blending) so ghost transparency works.
+  // Each colorize/ghost call merges into this map; React effect flushes once.
+  let overlayAccumulator = new Map<number, RGBA>();
+
+  /** Merge entries into the accumulator and push to the store overlay system. */
+  function pushOverlayColors(entries: Map<number, RGBA>): void {
+    for (const [id, color] of entries) {
+      overlayAccumulator.set(id, color);
+    }
+    const state = store.getState();
+    state.setPendingColorUpdates(overlayAccumulator);
+  }
+
   return {
-    colorize(refs: EntityRef[], color: [number, number, number, number]) {
+    colorize(refs: EntityRef[], color: RGBA) {
       const state = store.getState();
-      // Merge with existing pending colors (supports multiple colorize calls per script)
-      const existing = state.pendingColorUpdates;
-      const colorMap = existing ? new Map(existing) : new Map<number, [number, number, number, number]>();
+      const colorMap = new Map<number, RGBA>();
       for (const ref of refs) {
         const model = getModelForRef(state, ref.modelId);
         if (model) {
-          const globalId = ref.expressId + model.idOffset;
-          colorMap.set(globalId, color);
+          colorMap.set(ref.expressId + model.idOffset, color);
         }
       }
-      state.setPendingColorUpdates(colorMap);
+      pushOverlayColors(colorMap);
       return undefined;
     },
-    colorizeAll(batches: Array<{ refs: EntityRef[]; color: [number, number, number, number] }>) {
+    colorizeAll(batches: Array<{ refs: EntityRef[]; color: RGBA }>) {
       const state = store.getState();
-      // Batch colorize: build the complete color map in a single call.
-      // Avoids accumulation issues when React effects fire between calls.
-      const batchMap = new Map<number, [number, number, number, number]>();
+      const batchMap = new Map<number, RGBA>();
       for (const batch of batches) {
         for (const ref of batch.refs) {
           const model = getModelForRef(state, ref.modelId);
@@ -47,12 +58,12 @@ export function createViewerAdapter(store: StoreApi): ViewerBackendMethods {
           }
         }
       }
-      state.setPendingColorUpdates(batchMap);
+      pushOverlayColors(batchMap);
       return undefined;
     },
     resetColors() {
+      overlayAccumulator = new Map();
       const state = store.getState();
-      // Set empty map to trigger scene.clearColorOverrides() (null skips the effect)
       state.setPendingColorUpdates(new Map());
       return undefined;
     },
@@ -98,6 +109,20 @@ export function createViewerAdapter(store: StoreApi): ViewerBackendMethods {
     getCamera() {
       const state = store.getState();
       return { mode: state.projectionMode ?? 'perspective' };
+    },
+    drawLines(lines: LineSegment3D[]) {
+      const state = store.getState();
+      state.setPendingLines(lines.map(l => ({
+        start: l.start,
+        end: l.end,
+        color: l.color as [number, number, number, number],
+      })));
+      return undefined;
+    },
+    clearLines() {
+      const state = store.getState();
+      state.clearPendingLines();
+      return undefined;
     },
   };
 }

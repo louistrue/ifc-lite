@@ -28,6 +28,13 @@ export class ViewerNamespace {
     this.backend.viewer.colorizeAll(resolved);
   }
 
+  /** Ghost entities — fade them to semi-transparent for context */
+  ghost(refs: EntityRef[]): void {
+    // High-alpha white overlay: 93% white + 7% original → very faint geometry
+    const ghostColor: RGBAColor = [1.0, 1.0, 1.0, 0.93];
+    this.backend.viewer.colorize(refs, ghostColor);
+  }
+
   /** Reset color overrides */
   resetColors(refs?: EntityRef[]): void {
     this.backend.viewer.resetColors(refs);
@@ -53,6 +60,11 @@ export class ViewerNamespace {
   /** Reset all visibility to default */
   resetVisibility(): void {
     this.backend.visibility.reset();
+  }
+
+  /** Force IfcSpace entities to be visible (overrides global type toggle) */
+  showSpaces(): void {
+    this.backend.visibility.showSpaces();
   }
 
   // ── Selection ──────────────────────────────────────────────
@@ -109,5 +121,22 @@ export class ViewerNamespace {
   /** Remove section plane */
   clearSection(): void {
     this.backend.viewer.setSection(null);
+  }
+
+  // ── Line drawing ──────────────────────────────────────────
+
+  /** Draw 3D line segments (paths, connections, etc.) */
+  drawLines(lines: Array<{ start: [number, number, number]; end: [number, number, number]; color: string }>): void {
+    const resolved = lines.map(l => ({
+      start: l.start,
+      end: l.end,
+      color: hexToRgba(l.color, 1.0),
+    }));
+    this.backend.viewer.drawLines(resolved);
+  }
+
+  /** Clear all drawn lines */
+  clearLines(): void {
+    this.backend.viewer.clearLines();
   }
 }

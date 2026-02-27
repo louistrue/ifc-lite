@@ -57,5 +57,12 @@ export function createVisibilityAdapter(store: StoreApi): VisibilityBackendMetho
       state.showAllInAllModels?.();
       return undefined;
     },
+    showSpaces() {
+      const state = store.getState();
+      if (!state.typeVisibility.spaces) {
+        state.toggleTypeVisibility('spaces');
+      }
+      return undefined;
+    },
   };
 }

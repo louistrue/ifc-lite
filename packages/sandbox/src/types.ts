@@ -20,6 +20,8 @@ export interface SandboxPermissions {
   lens?: boolean;
   /** Allow bim.export.* (data export) */
   export?: boolean;
+  /** Allow bim.topology.* (spatial topology analysis) */
+  topology?: boolean;
 }
 
 /** Resource limits for sandbox execution */
@@ -65,6 +67,7 @@ export const DEFAULT_PERMISSIONS: Required<SandboxPermissions> = {
   mutate: false,    // Read-only by default
   lens: true,
   export: true,
+  topology: true,
 };
 
 /** Default resource limits */
