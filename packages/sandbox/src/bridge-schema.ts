@@ -440,6 +440,77 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
       },
     ],
   },
+
+  // ── bim.topology ────────────────────────────────────────────
+  {
+    name: 'topology',
+    doc: 'Spatial topology analysis',
+    permission: 'topology',
+    methods: [
+      {
+        name: 'buildGraph',
+        doc: 'Build dual graph from IfcSpace entities and their boundary relationships',
+        args: [],
+        tsReturn: 'TopologyGraph',
+        call: (sdk) => sdk.topology.buildGraph(),
+        returns: 'value',
+      },
+      {
+        name: 'adjacency',
+        doc: 'Get all pairs of adjacent spaces with shared boundary elements',
+        args: [],
+        tsReturn: 'AdjacencyPair[]',
+        call: (sdk) => sdk.topology.adjacency(),
+        returns: 'value',
+      },
+      {
+        name: 'shortestPath',
+        doc: 'Find shortest path between two spaces (Dijkstra)',
+        args: ['dump', 'dump'],
+        paramNames: ['sourceRef', 'targetRef'],
+        tsParamTypes: ['EntityRef', 'EntityRef'],
+        tsReturn: 'PathResult | null',
+        call: (sdk, args) => {
+          const source = args[0] as EntityRef;
+          const target = args[1] as EntityRef;
+          return sdk.topology.shortestPath(source, target);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'centrality',
+        doc: 'Compute degree, closeness, and betweenness centrality for all spaces',
+        args: [],
+        tsReturn: 'CentralityResult[]',
+        call: (sdk) => sdk.topology.centrality(),
+        returns: 'value',
+      },
+      {
+        name: 'metrics',
+        doc: 'Get area, volume, and centroid metrics for all spaces',
+        args: [],
+        tsReturn: 'TopologyNode[]',
+        call: (sdk) => sdk.topology.metrics(),
+        returns: 'value',
+      },
+      {
+        name: 'envelope',
+        doc: 'Get external boundary elements (building envelope)',
+        args: [],
+        tsReturn: 'EntityRef[]',
+        call: (sdk) => sdk.topology.envelope(),
+        returns: 'value',
+      },
+      {
+        name: 'connectedComponents',
+        doc: 'Get groups of spaces reachable from each other',
+        args: [],
+        tsReturn: 'EntityRef[][]',
+        call: (sdk) => sdk.topology.connectedComponents(),
+        returns: 'value',
+      },
+    ],
+  },
 ];
 
 // ============================================================================

@@ -23,6 +23,7 @@ import type {
   SpatialBackendMethods,
   ExportBackendMethods,
   LensBackendMethods,
+  TopologyBackendMethods,
 } from '../types.js';
 
 function makeRemoteProxy<T extends object>(namespace: string): T {
@@ -48,6 +49,7 @@ export class RemoteBackend implements BimBackend {
   readonly spatial: SpatialBackendMethods = makeRemoteProxy('spatial');
   readonly export: ExportBackendMethods = makeRemoteProxy('export');
   readonly lens: LensBackendMethods = makeRemoteProxy('lens');
+  readonly topology: TopologyBackendMethods = makeRemoteProxy('topology');
 
   constructor(private transport: Transport) {}
 

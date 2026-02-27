@@ -156,6 +156,66 @@ import type { Lens, LensRule, LensCriteria, RGBAColor } from '@ifc-lite/lens';
 export type { Lens, LensRule, LensCriteria, RGBAColor };
 
 // ============================================================================
+// Topology Types
+// ============================================================================
+
+/** A node in the topology graph (typically an IfcSpace) */
+export interface TopologyNode {
+  ref: EntityRef;
+  name: string;
+  type: string;
+  area: number | null;
+  volume: number | null;
+  centroid: [number, number, number] | null;
+}
+
+/** An edge in the topology graph (shared boundary between two spaces) */
+export interface TopologyEdge {
+  source: EntityRef;
+  target: EntityRef;
+  /** Weight — shared boundary area, or 1.0 if unknown */
+  weight: number;
+  /** IFC type of the shared boundary element (e.g., 'IfcWall', 'IfcSlab') */
+  sharedType: string;
+}
+
+/** Full dual graph: spaces as nodes, shared boundaries as edges */
+export interface TopologyGraph {
+  nodes: TopologyNode[];
+  edges: TopologyEdge[];
+}
+
+/** A pair of adjacent spaces with the elements between them */
+export interface AdjacencyPair {
+  space1: EntityRef;
+  space2: EntityRef;
+  sharedRefs: EntityRef[];
+  sharedTypes: string[];
+}
+
+/** Centrality metrics for a single node */
+export interface CentralityResult {
+  ref: EntityRef;
+  name: string;
+  /** Number of direct connections / (n-1) */
+  degree: number;
+  /** (n-1) / sum(shortest distances) */
+  closeness: number;
+  /** Fraction of shortest paths passing through this node */
+  betweenness: number;
+}
+
+/** Result of a shortest-path query */
+export interface PathResult {
+  /** Ordered list of entity refs from source to target */
+  path: EntityRef[];
+  /** Sum of edge weights along the path */
+  totalWeight: number;
+  /** Number of hops (edges traversed) */
+  hops: number;
+}
+
+// ============================================================================
 // Mutation Types
 // ============================================================================
 
@@ -282,6 +342,16 @@ export interface LensBackendMethods {
   getActive(): string | null;
 }
 
+export interface TopologyBackendMethods {
+  buildGraph(): TopologyGraph;
+  adjacency(): AdjacencyPair[];
+  shortestPath(sourceRef: EntityRef, targetRef: EntityRef): PathResult | null;
+  centrality(): CentralityResult[];
+  metrics(): TopologyNode[];
+  envelope(): EntityRef[];
+  connectedComponents(): EntityRef[][];
+}
+
 // ============================================================================
 // Backend Interface (implemented by local store or remote proxy)
 // ============================================================================
@@ -305,6 +375,7 @@ export interface BimBackend {
   readonly spatial: SpatialBackendMethods;
   readonly export: ExportBackendMethods;
   readonly lens: LensBackendMethods;
+  readonly topology: TopologyBackendMethods;
 
   /** Subscribe to viewer events */
   subscribe(event: BimEventType, handler: (data: unknown) => void): () => void;

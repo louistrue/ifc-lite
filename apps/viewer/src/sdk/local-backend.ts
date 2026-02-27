@@ -21,6 +21,7 @@ import type {
   SpatialBackendMethods,
   ExportBackendMethods,
   LensBackendMethods,
+  TopologyBackendMethods,
 } from '@ifc-lite/sdk';
 import type { StoreApi } from './adapters/types.js';
 import { LEGACY_MODEL_ID } from './adapters/model-compat.js';
@@ -33,6 +34,7 @@ import { createMutateAdapter } from './adapters/mutate-adapter.js';
 import { createSpatialAdapter } from './adapters/spatial-adapter.js';
 import { createLensAdapter } from './adapters/lens-adapter.js';
 import { createExportAdapter } from './adapters/export-adapter.js';
+import { createTopologyAdapter } from './adapters/topology-adapter.js';
 
 export class LocalBackend implements BimBackend {
   readonly model: ModelBackendMethods;
@@ -44,6 +46,7 @@ export class LocalBackend implements BimBackend {
   readonly spatial: SpatialBackendMethods;
   readonly export: ExportBackendMethods;
   readonly lens: LensBackendMethods;
+  readonly topology: TopologyBackendMethods;
 
   private store: StoreApi;
 
@@ -58,6 +61,7 @@ export class LocalBackend implements BimBackend {
     this.spatial = createSpatialAdapter(store);
     this.lens = createLensAdapter(store);
     this.export = createExportAdapter(store);
+    this.topology = createTopologyAdapter(store);
   }
 
   subscribe(event: BimEventType, handler: (data: unknown) => void): () => void {

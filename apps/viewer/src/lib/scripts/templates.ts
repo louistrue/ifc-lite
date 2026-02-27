@@ -22,6 +22,9 @@ import envelopeCheck from './templates/envelope-check.ts?raw';
 import mepEquipmentSchedule from './templates/mep-equipment-schedule.ts?raw';
 import spaceValidation from './templates/space-validation.ts?raw';
 import federationCompare from './templates/federation-compare.ts?raw';
+import topologyAdjacency from './templates/topology-adjacency.ts?raw';
+import topologyWayfinding from './templates/topology-wayfinding.ts?raw';
+import topologyEnvelope from './templates/topology-envelope.ts?raw';
 import resetView from './templates/reset-view.ts?raw';
 
 export interface ScriptTemplate {
@@ -77,6 +80,24 @@ export const SCRIPT_TEMPLATES: ScriptTemplate[] = [
     description:
       'Project Manager — compare multiple loaded models side by side: entity counts, type coverage, naming consistency, coordination issues',
     code: stripModuleLine(federationCompare),
+  },
+  {
+    name: 'Topology: room adjacency',
+    description:
+      'Architect — build dual graph from IfcSpace boundaries; visualize room connectivity as a heat map; identify clusters and shared walls',
+    code: stripModuleLine(topologyAdjacency),
+  },
+  {
+    name: 'Topology: wayfinding & centrality',
+    description:
+      'Safety Engineer — compute betweenness/closeness centrality to find critical corridors, bottlenecks, and shortest paths between spaces',
+    code: stripModuleLine(topologyWayfinding),
+  },
+  {
+    name: 'Topology: envelope & energy',
+    description:
+      'Energy Consultant — classify internal vs external boundaries, compute surface-to-volume ratios, render ASCII adjacency matrix, check thermal data',
+    code: stripModuleLine(topologyEnvelope),
   },
   {
     name: 'Reset view',

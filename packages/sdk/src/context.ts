@@ -24,6 +24,7 @@ import { BCFNamespace } from './namespaces/bcf.js';
 import { DrawingNamespace } from './namespaces/drawing.js';
 import { ListNamespace } from './namespaces/list.js';
 import { SpatialNamespace } from './namespaces/spatial.js';
+import { TopologyNamespace } from './namespaces/topology.js';
 import { EventsNamespace } from './namespaces/events.js';
 import { RemoteBackend } from './transport/remote-backend.js';
 
@@ -38,6 +39,7 @@ export class BimContext {
   readonly drawing: DrawingNamespace;
   readonly list: ListNamespace;
   readonly spatial: SpatialNamespace;
+  readonly topology: TopologyNamespace;
   readonly events: EventsNamespace;
 
   private _queryNamespace: QueryNamespace;
@@ -64,6 +66,7 @@ export class BimContext {
     this.drawing = new DrawingNamespace();
     this.list = new ListNamespace();
     this.spatial = new SpatialNamespace(this._backend);
+    this.topology = new TopologyNamespace(this._backend);
     this.events = new EventsNamespace(this._backend);
     // Cache the bound function so every access returns the same reference
     this._boundOn = this.events.on.bind(this.events);

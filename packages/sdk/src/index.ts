@@ -63,6 +63,14 @@ export type {
   SpatialPlane,
   SpatialFrustum,
 
+  // Topology
+  TopologyGraph,
+  TopologyNode,
+  TopologyEdge,
+  AdjacencyPair,
+  CentralityResult,
+  PathResult,
+
   // Mutation
   MutationRecord,
 
@@ -91,6 +99,7 @@ export type {
   SpatialBackendMethods,
   ExportBackendMethods,
   LensBackendMethods,
+  TopologyBackendMethods,
 } from './types.js';
 
 export { entityRefToString, stringToEntityRef, dispatchToBackend } from './types.js';
@@ -114,6 +123,7 @@ export { DrawingNamespace } from './namespaces/drawing.js';
 export type { SectionCutOptions, FloorPlanOptions } from './namespaces/drawing.js';
 export { ListNamespace } from './namespaces/list.js';
 export { SpatialNamespace } from './namespaces/spatial.js';
+export { TopologyNamespace } from './namespaces/topology.js';
 export { EventsNamespace } from './namespaces/events.js';
 
 // ============================================================================

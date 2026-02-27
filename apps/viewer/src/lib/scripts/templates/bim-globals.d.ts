@@ -39,6 +39,55 @@ interface BimModelInfo {
   fileSize: number;
 }
 
+// ── Topology types ────────────────────────────────────────────────────
+
+interface EntityRef {
+  modelId: string;
+  expressId: number;
+}
+
+interface TopologyNode {
+  ref: EntityRef;
+  name: string;
+  type: string;
+  area: number | null;
+  volume: number | null;
+  centroid: [number, number, number] | null;
+}
+
+interface TopologyEdge {
+  source: EntityRef;
+  target: EntityRef;
+  weight: number;
+  sharedType: string;
+}
+
+interface TopologyGraph {
+  nodes: TopologyNode[];
+  edges: TopologyEdge[];
+}
+
+interface AdjacencyPair {
+  space1: EntityRef;
+  space2: EntityRef;
+  sharedRefs: EntityRef[];
+  sharedTypes: string[];
+}
+
+interface CentralityResult {
+  ref: EntityRef;
+  name: string;
+  degree: number;
+  closeness: number;
+  betweenness: number;
+}
+
+interface PathResult {
+  path: EntityRef[];
+  totalWeight: number;
+  hops: number;
+}
+
 // ── Namespace declarations ──────────────────────────────────────────────
 
 declare const bim: {
@@ -107,5 +156,22 @@ declare const bim: {
     csv(entities: BimEntity[], options: { columns: string[]; filename?: string; separator?: string }): string;
     /** Export entities to JSON array */
     json(entities: BimEntity[], columns: string[]): Record<string, unknown>[];
+  };
+  /** Spatial topology analysis */
+  topology: {
+    /** Build dual graph from IfcSpace entities and their boundary relationships */
+    buildGraph(): TopologyGraph;
+    /** Get all pairs of adjacent spaces with shared boundary elements */
+    adjacency(): AdjacencyPair[];
+    /** Find shortest path between two spaces (Dijkstra) */
+    shortestPath(sourceRef: EntityRef, targetRef: EntityRef): PathResult | null;
+    /** Compute degree, closeness, and betweenness centrality for all spaces */
+    centrality(): CentralityResult[];
+    /** Get area, volume, and centroid metrics for all spaces */
+    metrics(): TopologyNode[];
+    /** Get external boundary elements (building envelope) */
+    envelope(): EntityRef[];
+    /** Get groups of spaces reachable from each other */
+    connectedComponents(): EntityRef[][];
   };
 };
