@@ -137,9 +137,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GeometryProcessor } from '@ifc-lite/geometry';
 import { meshDataToThree } from './ifc-to-threejs.js';
 
-const canvas = document.getElementById('viewer') as HTMLCanvasElement | null;
-const fileInput = document.getElementById('file-input') as HTMLInputElement | null;
-const status = document.getElementById('status');
+const canvas = document.getElementById('viewer') as HTMLCanvasElement;
+const fileInput = document.getElementById('file-input') as HTMLInputElement;
+const status = document.getElementById('status')!;
 if (!canvas || !fileInput || !status) {
   throw new Error('Required DOM elements not found: viewer, file-input, or status');
 }
