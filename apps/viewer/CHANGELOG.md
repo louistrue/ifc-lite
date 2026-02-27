@@ -1,5 +1,36 @@
 # @ifc-lite/viewer
 
+## 1.11.3
+
+### Patch Changes
+
+- [#258](https://github.com/louistrue/ifc-lite/pull/258) [`6c5f36d`](https://github.com/louistrue/ifc-lite/commit/6c5f36ddb4ae1879788f433a45c8bab5eabeb496) Thanks [@louistrue](https://github.com/louistrue)! - Improve large-file load performance targeting ~3–5 s savings on a 326 MB IFC file.
+
+  - Replace O(total_accumulated) `.reduce()` calls in `appendGeometryBatch` with O(batch_size) incremental totals
+  - Defer data model parser to after geometry streaming completes (no main-thread CPU contention with WASM)
+  - Accumulate color updates locally during streaming; apply single `updateMeshColors()` at complete
+  - Disable IndexedDB caching for files above 150 MB (source buffer required for on-demand extraction)
+
+- Updated dependencies []:
+  - @ifc-lite/bcf@1.11.3
+  - @ifc-lite/cache@1.11.3
+  - @ifc-lite/data@1.11.3
+  - @ifc-lite/drawing-2d@1.11.3
+  - @ifc-lite/encoding@1.11.3
+  - @ifc-lite/export@1.11.3
+  - @ifc-lite/geometry@1.11.3
+  - @ifc-lite/ids@1.11.3
+  - @ifc-lite/lens@1.11.3
+  - @ifc-lite/lists@1.11.3
+  - @ifc-lite/mutations@1.11.3
+  - @ifc-lite/parser@1.11.3
+  - @ifc-lite/query@1.11.3
+  - @ifc-lite/renderer@1.11.3
+  - @ifc-lite/sandbox@1.11.3
+  - @ifc-lite/server-client@1.11.3
+  - @ifc-lite/spatial@1.11.3
+  - @ifc-lite/wasm@1.11.3
+
 ## 1.11.1
 
 ### Patch Changes

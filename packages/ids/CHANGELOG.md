@@ -1,5 +1,12 @@
 # @ifc-lite/ids
 
+## 1.11.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.11.3
+
 ## 1.11.1
 
 ### Patch Changes
