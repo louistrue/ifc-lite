@@ -304,6 +304,13 @@ export interface VisibilityBackendMethods {
   showSpaces(): void;
 }
 
+/** A colored 3D line segment for path/connection visualization. */
+export interface LineSegment3D {
+  start: [number, number, number];
+  end: [number, number, number];
+  color: RGBAColor;
+}
+
 export interface ViewerBackendMethods {
   colorize(refs: EntityRef[], color: RGBAColor): void;
   colorizeAll(batches: Array<{ refs: EntityRef[]; color: RGBAColor }>): void;
@@ -313,6 +320,10 @@ export interface ViewerBackendMethods {
   getSection(): SectionPlane | null;
   setCamera(state: Partial<CameraState>): void;
   getCamera(): CameraState;
+  /** Draw 3D line segments in the viewer (paths, connections, etc.) */
+  drawLines(lines: LineSegment3D[]): void;
+  /** Clear all drawn lines. */
+  clearLines(): void;
 }
 
 export interface MutateBackendMethods {

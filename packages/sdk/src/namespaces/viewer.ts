@@ -115,4 +115,21 @@ export class ViewerNamespace {
   clearSection(): void {
     this.backend.viewer.setSection(null);
   }
+
+  // ── Line drawing ──────────────────────────────────────────
+
+  /** Draw 3D line segments (paths, connections, etc.) */
+  drawLines(lines: Array<{ start: [number, number, number]; end: [number, number, number]; color: string }>): void {
+    const resolved = lines.map(l => ({
+      start: l.start,
+      end: l.end,
+      color: hexToRgba(l.color, 1.0),
+    }));
+    this.backend.viewer.drawLines(resolved);
+  }
+
+  /** Clear all drawn lines */
+  clearLines(): void {
+    this.backend.viewer.clearLines();
+  }
 }

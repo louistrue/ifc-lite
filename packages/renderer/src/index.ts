@@ -14,6 +14,8 @@ export { Scene } from './scene.js';
 export { Picker } from './picker.js';
 export { MathUtils } from './math.js';
 export { SectionPlaneRenderer } from './section-plane.js';
+export { LineRenderer } from './line-renderer.js';
+export type { LineSegment } from './line-renderer.js';
 export { Section2DOverlayRenderer } from './section-2d-overlay.js';
 export type { Section2DOverlayOptions, CutPolygon2D, DrawingLine2D } from './section-2d-overlay.js';
 export { Raycaster } from './raycaster.js';
@@ -66,6 +68,7 @@ import { GeometryManager } from './geometry-manager.js';
 import { PickingManager } from './picking-manager.js';
 import { RaycastEngine } from './raycast-engine.js';
 import { PostProcessor } from './post-processor.js';
+import { LineRenderer, type LineSegment } from './line-renderer.js';
 
 type ResolvedVisualEnhancement = {
     enabled: boolean;
@@ -99,6 +102,7 @@ export class Renderer {
     private canvas: HTMLCanvasElement;
     private sectionPlaneRenderer: SectionPlaneRenderer | null = null;
     private section2DOverlayRenderer: Section2DOverlayRenderer | null = null;
+    private lineRenderer: LineRenderer | null = null;
     private postProcessor: PostProcessor | null = null;
     private visualEnhancementState: ResolvedVisualEnhancement = {
         enabled: true,
@@ -154,6 +158,16 @@ export class Renderer {
             this.pipeline.getSampleCount()
         );
         this.section2DOverlayRenderer = new Section2DOverlayRenderer(
+            this.device.getDevice(),
+            this.device.getFormat(),
+            this.pipeline.getSampleCount()
+        );
+        this.lineRenderer = new LineRenderer(
+            this.device.getDevice(),
+            this.device.getFormat(),
+            this.pipeline.getSampleCount()
+        );
+        this.lineRenderer = new LineRenderer(
             this.device.getDevice(),
             this.device.getFormat(),
             this.pipeline.getSampleCount()
@@ -954,6 +968,11 @@ export class Renderer {
                 }
             }
 
+            // Draw 3D line segments (paths, connections, etc.) on top of all geometry
+            if (this.lineRenderer?.hasLines()) {
+                this.lineRenderer.draw(pass, viewProj);
+            }
+
             // Draw section plane visual BEFORE pass.end() (within same MSAA render pass)
             // Always show plane when sectionPlane options are provided (as preview or active)
             const modelBounds = this.geometryManager.getModelBounds();
@@ -1160,6 +1179,20 @@ export class Renderer {
      */
     hasSection2DOverlay(): boolean {
         return this.section2DOverlayRenderer?.hasGeometry() ?? false;
+    }
+
+    /**
+     * Set 3D line segments for visualization (paths, connections, etc.)
+     */
+    setLines(lines: LineSegment[]): void {
+        this.lineRenderer?.setLines(lines);
+    }
+
+    /**
+     * Clear all line segments.
+     */
+    clearLines(): void {
+        this.lineRenderer?.clearLines();
     }
 
     /**

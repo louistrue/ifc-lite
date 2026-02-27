@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import type { EntityRef, SectionPlane, CameraState, ViewerBackendMethods } from '@ifc-lite/sdk';
+import type { EntityRef, SectionPlane, CameraState, ViewerBackendMethods, LineSegment3D } from '@ifc-lite/sdk';
 import type { StoreApi } from './types.js';
 import { getModelForRef } from './model-compat.js';
 
@@ -125,6 +125,20 @@ export function createViewerAdapter(store: StoreApi): ViewerBackendMethods {
     getCamera() {
       const state = store.getState();
       return { mode: state.projectionMode ?? 'perspective' };
+    },
+    drawLines(lines: LineSegment3D[]) {
+      const state = store.getState();
+      state.setPendingLines(lines.map(l => ({
+        start: l.start,
+        end: l.end,
+        color: l.color as [number, number, number, number],
+      })));
+      return undefined;
+    },
+    clearLines() {
+      const state = store.getState();
+      state.clearPendingLines();
+      return undefined;
     },
   };
 }

@@ -330,6 +330,28 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         },
         returns: 'void',
       },
+      {
+        name: 'drawLines',
+        doc: 'Draw 3D line segments (paths, connections) with colors',
+        args: ['dump'],
+        paramNames: ['lines'],
+        tsParamTypes: ['Array<{ start: [number, number, number]; end: [number, number, number]; color: string }>'],
+        tsReturn: 'void',
+        call: (sdk, args) => {
+          const raw = args[0] as Array<{ start: [number, number, number]; end: [number, number, number]; color: string }>;
+          sdk.viewer.drawLines(raw);
+        },
+        returns: 'void',
+      },
+      {
+        name: 'clearLines',
+        doc: 'Clear all drawn 3D lines',
+        args: [],
+        call: (sdk) => {
+          sdk.viewer.clearLines();
+        },
+        returns: 'void',
+      },
     ],
   },
 

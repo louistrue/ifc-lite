@@ -20,8 +20,10 @@ export interface UseGeometryStreamingParams {
   geometryBoundsRef: MutableRefObject<{ min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } }>;
   pendingMeshColorUpdates: Map<number, [number, number, number, number]> | null;
   pendingColorUpdates: Map<number, [number, number, number, number]> | null;
+  pendingLines: Array<{ start: [number, number, number]; end: [number, number, number]; color: [number, number, number, number] }> | null;
   clearPendingMeshColorUpdates: () => void;
   clearPendingColorUpdates: () => void;
+  clearPendingLines: () => void;
   // Clear color ref — color update renders must preserve theme background
   clearColorRef: MutableRefObject<[number, number, number, number]>;
 }
@@ -36,8 +38,10 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     geometryBoundsRef,
     pendingMeshColorUpdates,
     pendingColorUpdates,
+    pendingLines,
     clearPendingMeshColorUpdates,
     clearPendingColorUpdates,
+    clearPendingLines,
     clearColorRef,
   } = params;
 
@@ -438,6 +442,23 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
       clearPendingColorUpdates();
     }
   }, [pendingColorUpdates, isInitialized, clearPendingColorUpdates]);
+
+  // Apply pending 3D line segments to the renderer
+  useEffect(() => {
+    if (pendingLines === null) return;
+    if (!isInitialized) return;
+
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+
+    if (pendingLines.length === 0) {
+      renderer.clearLines();
+    } else {
+      renderer.setLines(pendingLines);
+    }
+    renderer.render({ clearColor: clearColorRef.current });
+    clearPendingLines();
+  }, [pendingLines, isInitialized, clearPendingLines]);
 }
 
 export default useGeometryStreaming;

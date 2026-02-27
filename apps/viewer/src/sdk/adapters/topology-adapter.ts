@@ -183,6 +183,9 @@ export function createTopologyAdapter(store: StoreApi): TopologyBackendMethods {
       buildAdjacencyFromContainment(store, nodeMap, adj);
     }
 
+    // Populate centroids from mesh geometry
+    populateCentroids(store, nodeMap);
+
     return { nodeMap, adj };
   }
 
@@ -482,6 +485,46 @@ export function createTopologyAdapter(store: StoreApi): TopologyBackendMethods {
   };
 }
 
+// ── Centroid computation from mesh geometry ───────────────────────────
+
+/** Populate centroid on each TopologyNode from mesh vertex positions. */
+function populateCentroids(
+  store: StoreApi,
+  nodeMap: Map<string, TopologyNode>,
+): void {
+  const state = store.getState();
+
+  // Multi-model federation
+  if (state.models.size > 0) {
+    for (const [modelId, model] of state.models) {
+      const geo = model.geometryResult;
+      if (!geo?.meshes) continue;
+      const offset = model.idOffset;
+      for (const mesh of geo.meshes) {
+        if (!mesh.positions || mesh.positions.length === 0) continue;
+        const originalId = mesh.expressId - offset;
+        const key = `${modelId}:${originalId}`;
+        const node = nodeMap.get(key);
+        if (node && !node.centroid) {
+          node.centroid = computeCentroid(mesh.positions);
+        }
+      }
+    }
+  }
+
+  // Legacy single-model fallback
+  if (state.geometryResult?.meshes) {
+    for (const mesh of state.geometryResult.meshes) {
+      if (!mesh.positions || mesh.positions.length === 0) continue;
+      const key = `default:${mesh.expressId}`;
+      const node = nodeMap.get(key);
+      if (node && !node.centroid) {
+        node.centroid = computeCentroid(mesh.positions);
+      }
+    }
+  }
+}
+
 // ── Fallback: geometry-proximity adjacency ────────────────────────────
 
 /** AABB type for bounding box calculations */
@@ -517,6 +560,28 @@ function computeBounds(positions: Float32Array): AABB {
     if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
   }
   return { min: [minX, minY, minZ], max: [maxX, maxY, maxZ] };
+}
+
+/** Compute centroid (average vertex position) from mesh positions. */
+function computeCentroid(positions: Float32Array): [number, number, number] | null {
+  if (positions.length === 0) return null;
+  let sumX = 0, sumY = 0, sumZ = 0;
+  const vertexCount = positions.length / 3;
+  for (let i = 0; i < positions.length; i += 3) {
+    sumX += positions[i];
+    sumY += positions[i + 1];
+    sumZ += positions[i + 2];
+  }
+  return [sumX / vertexCount, sumY / vertexCount, sumZ / vertexCount];
+}
+
+/** Compute AABB center (fast fallback when mesh positions are unavailable). */
+function aabbCenter(b: AABB): [number, number, number] {
+  return [
+    (b.min[0] + b.max[0]) / 2,
+    (b.min[1] + b.max[1]) / 2,
+    (b.min[2] + b.max[2]) / 2,
+  ];
 }
 
 /**

@@ -135,6 +135,10 @@ declare const bim: {
     resetVisibility(): void;
     /** Force IfcSpace entities visible (overrides global toggle) */
     showSpaces(): void;
+    /** Draw 3D line segments (paths, connections) with colors */
+    drawLines(lines: Array<{ start: [number, number, number]; end: [number, number, number]; color: string }>): void;
+    /** Clear all drawn 3D lines */
+    clearLines(): void;
   };
   /** Property editing */
   mutate: {

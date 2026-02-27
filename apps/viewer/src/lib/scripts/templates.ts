@@ -25,6 +25,7 @@ import federationCompare from './templates/federation-compare.ts?raw';
 import topologyAdjacency from './templates/topology-adjacency.ts?raw';
 import topologyWayfinding from './templates/topology-wayfinding.ts?raw';
 import topologyEnvelope from './templates/topology-envelope.ts?raw';
+import evacuationPaths from './templates/evacuation-paths.ts?raw';
 import resetView from './templates/reset-view.ts?raw';
 
 export interface ScriptTemplate {
@@ -98,6 +99,12 @@ export const SCRIPT_TEMPLATES: ScriptTemplate[] = [
     description:
       'Energy Consultant — classify internal vs external boundaries, compute surface-to-volume ratios, render ASCII adjacency matrix, check thermal data',
     code: stripModuleLine(topologyEnvelope),
+  },
+  {
+    name: 'Evacuation paths',
+    description:
+      'Fire Safety — compute evacuation routes from every room to nearest exit; draw 3D path lines colored by distance (red=far, green=close)',
+    code: stripModuleLine(evacuationPaths),
   },
   {
     name: 'Reset view',

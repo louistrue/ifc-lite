@@ -71,6 +71,9 @@ export type {
   CentralityResult,
   PathResult,
 
+  // Lines
+  LineSegment3D,
+
   // Mutation
   MutationRecord,
 
