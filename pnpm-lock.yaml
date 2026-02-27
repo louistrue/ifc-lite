@@ -443,9 +443,12 @@ importers:
 
   examples/threejs-viewer:
     dependencies:
+      '@ifc-lite/data':
+        specifier: ^1.11.0
+        version: 1.11.0
       '@ifc-lite/geometry':
-        specifier: workspace:^
-        version: link:../../packages/geometry
+        specifier: ^1.11.0
+        version: 1.11.0
       three:
         specifier: ^0.170.0
         version: 0.170.0
@@ -1470,6 +1473,15 @@ packages:
 
   '@floating-ui/utils@0.2.10':
     resolution: {integrity: sha512-aGTxbpbg8/b5JfU1HXSrbH3wXZuLPJcNEcZQFMxLs3oSzgtVu6nFPkbbGGUvBcUjKV2YyB9Wxxabo+HEH9tcRQ==}
+
+  '@ifc-lite/data@1.11.0':
+    resolution: {integrity: sha512-ADSzsFV60MXxFLL2+/7OiAKeQ6B5zGj97lRFJPsZ2CwCjoxMCcqmzYr83KIebbm0GTjUJ6cvY3+DMBLHVAQN7Q==}
+
+  '@ifc-lite/geometry@1.11.0':
+    resolution: {integrity: sha512-rCk/XhQJCOU4bROG2PE25euf/qX2QjPqfFjjkpwNeFeYm3up2bpXI1OhxYWZihERwUFSLMNyMWR0wbAoMPaqww==}
+
+  '@ifc-lite/wasm@1.11.0':
+    resolution: {integrity: sha512-M+kJvR7wBfqsGjmSW2at8U5NfUyFL3MvVh7kzS2pPrgQhEwHK4xFw9IzEy8gyH0MMqAPjT5v+epk2ywzC4RpjA==}
 
   '@inquirer/external-editor@1.0.3':
     resolution: {integrity: sha512-RWbSrDiYmO4LbejWY7ttpxczuwQyZLBUyygsA9Nsv95hpzUWwnNTVQmAq3xuh7vNwCp07UTmE5i11XAEExx4RA==}
@@ -4308,6 +4320,16 @@ snapshots:
       react-dom: 18.3.1(react@18.3.1)
 
   '@floating-ui/utils@0.2.10': {}
+
+  '@ifc-lite/data@1.11.0': {}
+
+  '@ifc-lite/geometry@1.11.0':
+    dependencies:
+      '@ifc-lite/wasm': 1.11.0
+    optionalDependencies:
+      '@tauri-apps/api': 2.9.1
+
+  '@ifc-lite/wasm@1.11.0': {}
 
   '@inquirer/external-editor@1.0.3(@types/node@20.19.28)':
     dependencies:
