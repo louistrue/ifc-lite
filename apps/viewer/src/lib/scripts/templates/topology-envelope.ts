@@ -13,14 +13,10 @@ export {} // module boundary (stripped by transpiler)
 bim.viewer.resetColors()
 bim.viewer.resetVisibility()
 
-// ── 1. Gather topology data ───────────────────────────────────────────
-const graph = bim.topology.buildGraph()
-const metrics = bim.topology.metrics()
-const adjacency = bim.topology.adjacency()
-const envelope = bim.topology.envelope()
-const components = bim.topology.connectedComponents()
+// ── 1. Get spaces and show them ───────────────────────────────────────
+const spaces = bim.query.byType('IfcSpace')
 
-if (graph.nodes.length === 0) {
+if (spaces.length === 0) {
   console.warn('No IfcSpace entities found in this model.')
   console.log('')
   console.log('This script requires IfcSpace entities to analyze')
@@ -28,11 +24,21 @@ if (graph.nodes.length === 0) {
   throw new Error('no spaces')
 }
 
+// Isolate spaces so they're visible
+bim.viewer.isolate(spaces)
+
+// ── 2. Gather topology data ───────────────────────────────────────────
+const graph = bim.topology.buildGraph()
+const metrics = bim.topology.metrics()
+const adjacency = bim.topology.adjacency()
+const envelope = bim.topology.envelope()
+const components = bim.topology.connectedComponents()
+
 console.log('═══════════════════════════════════════')
 console.log('  BUILDING ENVELOPE & ENERGY TOPOLOGY')
 console.log('═══════════════════════════════════════')
 
-// ── 2. Space metrics summary ──────────────────────────────────────────
+// ── 3. Space metrics summary ──────────────────────────────────────────
 let totalArea = 0
 let totalVolume = 0
 let spacesWithArea = 0
@@ -46,96 +52,58 @@ for (const m of metrics) {
 console.log('')
 console.log('── Space Metrics ──')
 console.log('  Total spaces:    ' + metrics.length)
-console.log('  Total area:      ' + totalArea.toFixed(1) + ' m² (' + spacesWithArea + ' spaces with data)')
-console.log('  Total volume:    ' + totalVolume.toFixed(1) + ' m³ (' + spacesWithVolume + ' spaces with data)')
+console.log('  Total area:      ' + totalArea.toFixed(1) + ' m2 (' + spacesWithArea + ' spaces with data)')
+console.log('  Total volume:    ' + totalVolume.toFixed(1) + ' m3 (' + spacesWithVolume + ' spaces with data)')
 if (totalArea > 0 && totalVolume > 0) {
   console.log('  Avg ceiling ht:  ' + (totalVolume / totalArea).toFixed(2) + ' m')
 }
 
-// ── 3. Classify boundary elements ─────────────────────────────────────
-// Internal = shared between 2+ spaces (walls between rooms)
-// External = bounds only 1 space (exterior envelope)
-
-// Count how many spaces each boundary element serves
-const elementSpaceCount: Record<string, number> = {}
-const elementTypes: Record<string, string> = {}
-
-for (const pair of adjacency) {
-  for (let i = 0; i < pair.sharedRefs.length; i++) {
-    const ref = pair.sharedRefs[i]
-    const key = ref.modelId + ':' + ref.expressId
-    elementSpaceCount[key] = (elementSpaceCount[key] || 0) + 2 // shared by 2 spaces
-    elementTypes[key] = pair.sharedTypes[i] || 'Unknown'
-  }
+// ── 4. Build entity lookup ────────────────────────────────────────────
+const entityMap: Record<string, BimEntity> = {}
+for (const s of spaces) {
+  entityMap[s.ref.modelId + ':' + s.ref.expressId] = s
 }
 
-// Envelope elements bound only 1 space
-const envelopeByType: Record<string, number> = {}
-for (const ref of envelope) {
-  const entity = bim.query.entity(ref.modelId, ref.expressId)
-  const type = entity?.Type || 'Unknown'
-  envelopeByType[type] = (envelopeByType[type] || 0) + 1
-}
-
-const internalByType: Record<string, number> = {}
-for (const [key, type] of Object.entries(elementTypes)) {
-  internalByType[type] = (internalByType[type] || 0) + 1
-}
-
-console.log('')
-console.log('── Boundary Classification ──')
-console.log('  Internal (shared):  ' + Object.values(elementSpaceCount).length + ' elements')
-console.log('  External (envelope): ' + envelope.length + ' elements')
-
-if (Object.keys(envelopeByType).length > 0) {
-  console.log('')
-  console.log('  Envelope breakdown:')
-  for (const [type, count] of Object.entries(envelopeByType).sort((a, b) => b[1] - a[1])) {
-    console.log('    ' + type + ': ' + count)
-  }
-}
-
-if (Object.keys(internalByType).length > 0) {
-  console.log('')
-  console.log('  Internal breakdown:')
-  for (const [type, count] of Object.entries(internalByType).sort((a, b) => b[1] - a[1])) {
-    console.log('    ' + type + ': ' + count)
-  }
-}
-
-// ── 4. Color-code: envelope vs internal vs spaces ─────────────────────
-const colorEnvelope = '#e74c3c'   // red — exterior envelope
-const colorInternal = '#3498db'   // blue — internal boundaries
-const colorSpaceLarge = '#2ecc71' // green — large spaces
-const colorSpaceSmall = '#f1c40f' // yellow — small spaces
-const colorIsolated = '#9b59b6'   // purple — isolated spaces
-
-// Colorize envelope elements
-const envelopeEntities: BimEntity[] = []
-for (const ref of envelope) {
-  const e = bim.query.entity(ref.modelId, ref.expressId)
-  if (e) envelopeEntities.push(e)
-}
-
-// Classify spaces by area
-const medianArea = totalArea / Math.max(spacesWithArea, 1)
-const largeSpaces: BimEntity[] = []
-const smallSpaces: BimEntity[] = []
-const isolatedSpaces: BimEntity[] = []
-
-// Find which spaces have adjacency
+// ── 5. Classify adjacency ─────────────────────────────────────────────
 const connectedSpaceKeys = new Set<string>()
 for (const pair of adjacency) {
   connectedSpaceKeys.add(pair.space1.modelId + ':' + pair.space1.expressId)
   connectedSpaceKeys.add(pair.space2.modelId + ':' + pair.space2.expressId)
 }
 
+const boundaryTypes: Record<string, number> = {}
+for (const pair of adjacency) {
+  for (const t of pair.sharedTypes) {
+    boundaryTypes[t] = (boundaryTypes[t] || 0) + 1
+  }
+}
+
+console.log('')
+console.log('── Boundary Classification ──')
+console.log('  Adjacent pairs:     ' + adjacency.length)
+console.log('  Connected spaces:   ' + connectedSpaceKeys.size + ' / ' + spaces.length)
+console.log('  Envelope elements:  ' + envelope.length)
+
+if (Object.keys(boundaryTypes).length > 0) {
+  console.log('')
+  console.log('  Boundary types:')
+  for (const [type, count] of Object.entries(boundaryTypes).sort((a, b) => b[1] - a[1])) {
+    console.log('    ' + type + ': ' + count)
+  }
+}
+
+// ── 6. Color-code spaces ──────────────────────────────────────────────
+const medianArea = spacesWithArea > 0 ? totalArea / spacesWithArea : 0
+const largeSpaces: BimEntity[] = []
+const smallSpaces: BimEntity[] = []
+const isolatedSpaces: BimEntity[] = []
+
 for (const m of metrics) {
-  const entity = bim.query.entity(m.ref.modelId, m.ref.expressId)
+  const key = m.ref.modelId + ':' + m.ref.expressId
+  const entity = entityMap[key]
   if (!entity) continue
 
-  const key = m.ref.modelId + ':' + m.ref.expressId
-  if (!connectedSpaceKeys.has(key)) {
+  if (!connectedSpaceKeys.has(key) && adjacency.length > 0) {
     isolatedSpaces.push(entity)
   } else if (m.area !== null && m.area >= medianArea) {
     largeSpaces.push(entity)
@@ -145,32 +113,56 @@ for (const m of metrics) {
 }
 
 const vizBatches: Array<{ entities: BimEntity[]; color: string }> = []
-if (envelopeEntities.length > 0) vizBatches.push({ entities: envelopeEntities, color: colorEnvelope })
-if (largeSpaces.length > 0) vizBatches.push({ entities: largeSpaces, color: colorSpaceLarge })
-if (smallSpaces.length > 0) vizBatches.push({ entities: smallSpaces, color: colorSpaceSmall })
-if (isolatedSpaces.length > 0) vizBatches.push({ entities: isolatedSpaces, color: colorIsolated })
+
+// If we have adjacency data, color by connectivity
+if (adjacency.length > 0) {
+  if (largeSpaces.length > 0) vizBatches.push({ entities: largeSpaces, color: '#2ecc71' })
+  if (smallSpaces.length > 0) vizBatches.push({ entities: smallSpaces, color: '#f1c40f' })
+  if (isolatedSpaces.length > 0) vizBatches.push({ entities: isolatedSpaces, color: '#9b59b6' })
+} else {
+  // No adjacency — color by area instead
+  const sortedByArea = [...metrics].sort((a, b) => (b.area ?? 0) - (a.area ?? 0))
+  const top25pct = Math.ceil(sortedByArea.length * 0.25)
+  const bottom25pct = Math.ceil(sortedByArea.length * 0.75)
+
+  const largeBucket: BimEntity[] = []
+  const medBucket: BimEntity[] = []
+  const smallBucket: BimEntity[] = []
+
+  for (let i = 0; i < sortedByArea.length; i++) {
+    const key = sortedByArea[i].ref.modelId + ':' + sortedByArea[i].ref.expressId
+    const entity = entityMap[key]
+    if (!entity) continue
+
+    if (i < top25pct) largeBucket.push(entity)
+    else if (i < bottom25pct) medBucket.push(entity)
+    else smallBucket.push(entity)
+  }
+
+  if (largeBucket.length > 0) vizBatches.push({ entities: largeBucket, color: '#2ecc71' })
+  if (medBucket.length > 0) vizBatches.push({ entities: medBucket, color: '#3498db' })
+  if (smallBucket.length > 0) vizBatches.push({ entities: smallBucket, color: '#f1c40f' })
+}
+
 if (vizBatches.length > 0) bim.viewer.colorizeAll(vizBatches)
+bim.viewer.flyTo(spaces)
 
 console.log('')
-console.log('── Visualization Legend ──')
-console.log('  Envelope elements: ' + envelopeEntities.length + '  ● red')
-console.log('  Large spaces:      ' + largeSpaces.length + '  ● green (≥ ' + medianArea.toFixed(0) + ' m²)')
-console.log('  Small spaces:      ' + smallSpaces.length + '  ● yellow')
-console.log('  Isolated spaces:   ' + isolatedSpaces.length + '  ● purple')
+console.log('── Visualization ──')
+if (adjacency.length > 0) {
+  console.log('  Large spaces (>= ' + medianArea.toFixed(0) + ' m2): ' + largeSpaces.length + '  ● green')
+  console.log('  Small spaces:                ' + smallSpaces.length + '  ● yellow')
+  console.log('  Isolated:                    ' + isolatedSpaces.length + '  ● purple')
+} else {
+  console.log('  Spaces colored by area (large=green, medium=blue, small=yellow)')
+}
 
-// ── 5. ASCII topology diagram ─────────────────────────────────────────
+// ── 7. ASCII topology diagram ─────────────────────────────────────────
 console.log('')
-console.log('── Topology Diagram (Adjacency Graph) ──')
+console.log('── Topology Diagram ──')
 console.log('')
 
-// Build ASCII adjacency visualization for up to 20 nodes
-const displayNodes = graph.nodes.slice(0, 20)
-const nodeNames = displayNodes.map(n => {
-  const short = (n.name || '?').slice(0, 12)
-  return short
-})
-
-// Create an adjacency indicator
+const displayNodes = graph.nodes.slice(0, 15)
 const adjSet = new Set<string>()
 for (const pair of adjacency) {
   const k1 = pair.space1.modelId + ':' + pair.space1.expressId
@@ -179,65 +171,53 @@ for (const pair of adjacency) {
   adjSet.add(k2 + '|' + k1)
 }
 
-if (displayNodes.length <= 15) {
-  // Compact matrix view
-  const header = '              ' + nodeNames.map((_, i) => ((i + 1) + '  ').slice(0, 3)).join('')
+if (adjacency.length > 0 && displayNodes.length <= 15) {
+  // Matrix view
+  const nodeNames = displayNodes.map(n => (n.name || '?').slice(0, 8))
+  const header = '           ' + nodeNames.map((_, i) => ((i + 1) + '  ').slice(0, 3)).join('')
   console.log(header)
-  console.log('              ' + '---'.repeat(displayNodes.length))
 
   for (let i = 0; i < displayNodes.length; i++) {
-    const label = ((i + 1) + '. ' + nodeNames[i] + '              ').slice(0, 14)
+    const label = ((i + 1) + '.' + nodeNames[i] + '           ').slice(0, 11)
     let row = ''
     for (let j = 0; j < displayNodes.length; j++) {
-      if (i === j) {
-        row += ' · '
-      } else {
-        const ki = displayNodes[i].ref.modelId + ':' + displayNodes[i].ref.expressId
-        const kj = displayNodes[j].ref.modelId + ':' + displayNodes[j].ref.expressId
-        row += adjSet.has(ki + '|' + kj) ? ' ■ ' : ' · '
-      }
+      if (i === j) { row += ' . '; continue }
+      const ki = displayNodes[i].ref.modelId + ':' + displayNodes[i].ref.expressId
+      const kj = displayNodes[j].ref.modelId + ':' + displayNodes[j].ref.expressId
+      row += adjSet.has(ki + '|' + kj) ? ' X ' : ' . '
     }
     console.log(label + row)
   }
   console.log('')
-  console.log('  ■ = adjacent (shared boundary)   · = not adjacent')
+  console.log('  X = adjacent   . = not adjacent')
 } else {
-  // List view for larger graphs
-  for (const node of displayNodes) {
+  // List view
+  for (const node of displayNodes.slice(0, 20)) {
     const key = node.ref.modelId + ':' + node.ref.expressId
     const neighbors: string[] = []
     for (const pair of adjacency) {
       const k1 = pair.space1.modelId + ':' + pair.space1.expressId
       const k2 = pair.space2.modelId + ':' + pair.space2.expressId
-      if (k1 === key) {
-        const n = graph.nodes.find(n => n.ref.modelId === pair.space2.modelId && n.ref.expressId === pair.space2.expressId)
-        neighbors.push((n?.name || '?').slice(0, 10))
-      }
-      if (k2 === key) {
-        const n = graph.nodes.find(n => n.ref.modelId === pair.space1.modelId && n.ref.expressId === pair.space1.expressId)
-        neighbors.push((n?.name || '?').slice(0, 10))
-      }
+      if (k1 === key) neighbors.push(graph.nodes.find(n => n.ref.modelId === pair.space2.modelId && n.ref.expressId === pair.space2.expressId)?.name?.slice(0, 10) || '?')
+      if (k2 === key) neighbors.push(graph.nodes.find(n => n.ref.modelId === pair.space1.modelId && n.ref.expressId === pair.space1.expressId)?.name?.slice(0, 10) || '?')
     }
     const name = ((node.name || '?') + '                ').slice(0, 16)
-    console.log('  ' + name + ' ── ' + (neighbors.length > 0 ? neighbors.join(', ') : '(isolated)'))
+    console.log('  ' + name + (neighbors.length > 0 ? '-- ' + neighbors.join(', ') : '(isolated)'))
   }
 }
 
-// ── 6. Energy metrics ─────────────────────────────────────────────────
-const envelopeRatio = envelope.length > 0 && Object.keys(elementSpaceCount).length > 0
-  ? envelope.length / (envelope.length + Object.keys(elementSpaceCount).length)
-  : 0
-
+// ── 8. Energy metrics ─────────────────────────────────────────────────
 console.log('')
 console.log('── Energy-Relevant Metrics ──')
-console.log('  Surface-to-volume ratio:  ' + (totalVolume > 0 ? (totalArea / totalVolume).toFixed(3) + ' m²/m³' : 'N/A'))
-console.log('  Envelope-to-internal:     ' + (envelopeRatio * 100).toFixed(1) + '% envelope')
-console.log('  Compactness factor:       ' + (components.length === 1 ? 'Connected (good)' : components.length + ' disconnected zones'))
+console.log('  Surface-to-volume ratio:  ' + (totalVolume > 0 ? (totalArea / totalVolume).toFixed(3) + ' m2/m3' : 'N/A'))
+console.log('  Compactness:              ' + (components.length === 1 ? 'Fully connected' : components.length + ' zones'))
+console.log('  Connectivity:             ' + adjacency.length + ' shared boundaries')
 
-// Check for thermal properties on envelope
+// Check thermal properties
 let withThermal = 0
 let withoutThermal = 0
-for (const ref of envelope.slice(0, 50)) {
+const envelopeSample = envelope.slice(0, 50)
+for (const ref of envelopeSample) {
   const entity = bim.query.entity(ref.modelId, ref.expressId)
   if (!entity) continue
   const psets = bim.query.properties(entity)
@@ -256,24 +236,17 @@ for (const ref of envelope.slice(0, 50)) {
   else withoutThermal++
 }
 
-if (envelope.length > 0) {
-  const sampled = Math.min(envelope.length, 50)
+if (envelopeSample.length > 0) {
   console.log('')
-  console.log('── Thermal Data Coverage (sampled ' + sampled + '/' + envelope.length + ' envelope elements) ──')
-  console.log('  With thermal properties:    ' + withThermal)
-  console.log('  Without thermal properties: ' + withoutThermal)
+  console.log('── Thermal Data (sampled ' + envelopeSample.length + '/' + envelope.length + ' envelope elements) ──')
+  console.log('  With thermal data:    ' + withThermal)
+  console.log('  Without thermal data: ' + withoutThermal)
   if (withoutThermal > 0) {
-    const pct = (withoutThermal / sampled * 100).toFixed(0)
-    console.warn('  ' + pct + '% of envelope elements missing thermal transmittance data')
+    console.warn('  ' + (withoutThermal / envelopeSample.length * 100).toFixed(0) + '% missing thermal transmittance')
   }
 }
 
-// ── 7. Space schedule with topology data ──────────────────────────────
-console.log('')
-console.log('── Space Schedule (with topology) ──')
-console.log('Name                | Area m²  | Vol m³   | Adj | Zone')
-console.log('--------------------+----------+----------+-----+------')
-
+// ── 9. Space schedule ─────────────────────────────────────────────────
 // Count adjacency per space
 const adjCount: Record<string, number> = {}
 for (const pair of adjacency) {
@@ -291,8 +264,13 @@ for (let i = 0; i < components.length; i++) {
   }
 }
 
+console.log('')
+console.log('── Space Schedule ──')
+console.log('Name                | Area m2  | Vol m3   | Adj | Zone')
+console.log('--------------------+----------+----------+-----+------')
+
 const sortedMetrics = [...metrics].sort((a, b) => (b.area ?? 0) - (a.area ?? 0))
-for (const m of sortedMetrics.slice(0, 30)) {
+for (const m of sortedMetrics.slice(0, 25)) {
   const key = m.ref.modelId + ':' + m.ref.expressId
   const name = ((m.name || '<unnamed>') + '                    ').slice(0, 20)
   const area = m.area !== null ? (m.area.toFixed(1) + '        ').slice(0, 8) : '-       '
@@ -302,6 +280,6 @@ for (const m of sortedMetrics.slice(0, 30)) {
   console.log(name + '| ' + area + ' | ' + vol + ' | ' + adj + ' | ' + zone)
 }
 
-if (metrics.length > 30) {
-  console.log('... and ' + (metrics.length - 30) + ' more spaces')
+if (metrics.length > 25) {
+  console.log('... and ' + (metrics.length - 25) + ' more spaces')
 }

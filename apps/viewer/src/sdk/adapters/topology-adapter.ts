@@ -43,8 +43,8 @@ function keyToRef(key: string): EntityRef {
   return { modelId: key.slice(0, idx), expressId: Number(key.slice(idx + 1)) };
 }
 
-/** IFC types to search for spaces (IfcSpace + common subtypes) */
-const SPACE_TYPES = ['IFCSPACE', 'IFCSPACETYPE'];
+/** IFC types to search for spaces */
+const SPACE_TYPES = ['IFCSPACE'];
 
 // ── Adapter factory ───────────────────────────────────────────────────
 
@@ -108,14 +108,20 @@ export function createTopologyAdapter(store: StoreApi): TopologyBackendMethods {
         const ref = keyToRef(nodeKey);
         if (ref.modelId !== modelId) continue;
 
-        // IfcRelSpaceBoundary: forward goes from space → bounding elements
-        const boundaryElementIds = ds.relationships.getRelated(
-          ref.expressId,
-          RelationshipType.SpaceBoundary,
-          'forward',
+        // Try both directions — parser may store edges either way
+        const forwardIds = ds.relationships.getRelated(
+          ref.expressId, RelationshipType.SpaceBoundary, 'forward',
+        );
+        const inverseIds = ds.relationships.getRelated(
+          ref.expressId, RelationshipType.SpaceBoundary, 'inverse',
         );
 
+        const boundaryElementIds = forwardIds.length > 0 ? forwardIds : inverseIds;
+
         for (const elemId of boundaryElementIds) {
+          // Skip if the target is itself a space (we want building elements, not spaces)
+          if (spaceKeys.has(`${modelId}:${elemId}`)) continue;
+
           const elemKey = `${modelId}:${elemId}`;
           if (!elementToSpaces.has(elemKey)) {
             elementToSpaces.set(elemKey, new Set());
@@ -419,9 +425,13 @@ export function createTopologyAdapter(store: StoreApi): TopologyBackendMethods {
         for (const typeName of SPACE_TYPES) {
           const ids = ds.entityIndex.byType.get(typeName) ?? [];
           for (const spaceId of ids) {
-            const boundaryIds = ds.relationships.getRelated(
+            const fwd = ds.relationships.getRelated(
               spaceId, RelationshipType.SpaceBoundary, 'forward',
             );
+            const inv = ds.relationships.getRelated(
+              spaceId, RelationshipType.SpaceBoundary, 'inverse',
+            );
+            const boundaryIds = fwd.length > 0 ? fwd : inv;
             for (const elemId of boundaryIds) {
               const elemKey = `${modelId}:${elemId}`;
               if (!sharedElements.has(elemKey)) {
@@ -475,9 +485,12 @@ export function createTopologyAdapter(store: StoreApi): TopologyBackendMethods {
 // ── Fallback: containment-based adjacency ─────────────────────────────
 
 /**
- * When IfcRelSpaceBoundary isn't present, infer adjacency from spatial containment.
- * Spaces on the same storey that are contained by the same structural element
- * are assumed to potentially be adjacent (connected with weight 1).
+ * When IfcRelSpaceBoundary isn't present, infer adjacency from spatial hierarchy.
+ *
+ * IFC spatial hierarchy: Site → Building → BuildingStorey → Space
+ * connected via IfcRelAggregates (NOT IfcRelContainedInSpatialStructure).
+ *
+ * Spaces on the same storey are assumed to be adjacent (weight 1).
  */
 function buildAdjacencyFromContainment(
   store: StoreApi,
@@ -487,7 +500,7 @@ function buildAdjacencyFromContainment(
   const state = store.getState();
   const modelEntries = getAllModelEntries(state);
 
-  // Group spaces by their containing storey
+  // Group spaces by their parent storey
   const storeyToSpaces = new Map<string, string[]>();
 
   for (const [modelId, model] of modelEntries) {
@@ -498,18 +511,29 @@ function buildAdjacencyFromContainment(
       const ref = keyToRef(key);
       if (ref.modelId !== modelId) continue;
 
-      // Walk up containment: space → storey
-      const containers = ds.relationships.getRelated(
+      // IFC spatial hierarchy uses IfcRelAggregates: Storey → Space (forward)
+      // So from a space, use INVERSE to find parent storey
+      const parents = ds.relationships.getRelated(
         ref.expressId,
-        RelationshipType.ContainsElements,
+        RelationshipType.Aggregates,
         'inverse',
       );
-      for (const containerId of containers) {
-        const containerKey = `${modelId}:${containerId}`;
-        if (!storeyToSpaces.has(containerKey)) {
-          storeyToSpaces.set(containerKey, []);
+
+      // Also try ContainsElements inverse (some exporters use this for spaces)
+      const containers = parents.length > 0
+        ? parents
+        : ds.relationships.getRelated(
+            ref.expressId,
+            RelationshipType.ContainsElements,
+            'inverse',
+          );
+
+      for (const parentId of containers) {
+        const parentKey = `${modelId}:${parentId}`;
+        if (!storeyToSpaces.has(parentKey)) {
+          storeyToSpaces.set(parentKey, []);
         }
-        storeyToSpaces.get(containerKey)!.push(key);
+        storeyToSpaces.get(parentKey)!.push(key);
       }
     }
   }
