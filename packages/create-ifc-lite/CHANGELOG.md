@@ -1,5 +1,11 @@
 # create-ifc-lite
 
+## 1.11.2
+
+### Patch Changes
+
+- [#251](https://github.com/louistrue/ifc-lite/pull/251) [`a13e5c0`](https://github.com/louistrue/ifc-lite/commit/a13e5c04eaf6369815eb66af5174a724a4e38937) Thanks [@louistrue](https://github.com/louistrue)! - Fix TypeScript errors in generated Three.js template: add explicit type casts for `HTMLCanvasElement` and `HTMLInputElement` DOM queries; disable OrbitControls damping for sharp camera stops.
+
 ## 1.8.1
 
 ### Patch Changes
