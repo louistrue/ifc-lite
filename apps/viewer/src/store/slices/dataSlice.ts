@@ -62,27 +62,35 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
   setGeometryResult: (geometryResult) => set({ geometryResult }),
 
   appendGeometryBatch: (meshes, coordinateInfo) => set((state) => {
+    // Compute batch totals (O(batch_size), NOT O(total_accumulated))
+    let batchTriangles = 0;
+    let batchVertices = 0;
+    for (let i = 0; i < meshes.length; i++) {
+      batchTriangles += meshes[i].indices.length / 3;
+      batchVertices += meshes[i].positions.length / 3;
+    }
+
     if (!state.geometryResult) {
-      const totalTriangles = meshes.reduce((sum, m) => sum + (m.indices.length / 3), 0);
-      const totalVertices = meshes.reduce((sum, m) => sum + (m.positions.length / 3), 0);
       return {
         geometryResult: {
-          meshes,
-          totalTriangles,
-          totalVertices,
+          meshes: meshes.slice(),
+          totalTriangles: batchTriangles,
+          totalVertices: batchVertices,
           coordinateInfo: coordinateInfo || getDefaultCoordinateInfo(),
         },
       };
     }
-    const allMeshes = [...state.geometryResult.meshes, ...meshes];
-    const totalTriangles = allMeshes.reduce((sum, m) => sum + (m.indices.length / 3), 0);
-    const totalVertices = allMeshes.reduce((sum, m) => sum + (m.positions.length / 3), 0);
+
+    // O(batch_size) push instead of O(total) spread + re-allocate
+    const existing = state.geometryResult.meshes;
+    for (let i = 0; i < meshes.length; i++) existing.push(meshes[i]);
+
     return {
       geometryResult: {
         ...state.geometryResult,
-        meshes: allMeshes,
-        totalTriangles,
-        totalVertices,
+        meshes: existing,
+        totalTriangles: state.geometryResult.totalTriangles + batchTriangles,
+        totalVertices: state.geometryResult.totalVertices + batchVertices,
         coordinateInfo: coordinateInfo || state.geometryResult.coordinateInfo,
       },
     };
@@ -98,18 +106,18 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
       return { pendingMeshColorUpdates: clonedUpdates };
     }
 
-    // Legacy/single mode: update the persisted mesh colors.
-    const updatedMeshes = state.geometryResult.meshes.map(mesh => {
+    // In-place color update: O(n) scan but no array/object allocation per mesh
+    const meshes = state.geometryResult.meshes;
+    for (const mesh of meshes) {
       const newColor = clonedUpdates.get(mesh.expressId);
       if (newColor) {
-        return { ...mesh, color: newColor };
+        mesh.color = newColor;
       }
-      return mesh;
-    });
+    }
     return {
       geometryResult: {
         ...state.geometryResult,
-        meshes: updatedMeshes,
+        meshes,
       },
       pendingMeshColorUpdates: clonedUpdates,
     };

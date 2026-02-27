@@ -39,6 +39,12 @@ export const USE_SERVER = SERVER_URL !== '' && import.meta.env.VITE_USE_SERVER =
 /** Minimum file size to cache (10MB) - smaller files parse quickly anyway */
 export const CACHE_SIZE_THRESHOLD = 10 * 1024 * 1024;
 
+/** Maximum source buffer size to store in cache (150MB).
+ *  For files above this, we still cache geometry + data model but skip the raw
+ *  IFC source buffer.  This halves the IndexedDB write for huge files
+ *  (e.g. 326 MB IFC → ~500 MB total write becomes ~170 MB). */
+export const CACHE_MAX_SOURCE_SIZE = 150 * 1024 * 1024;
+
 /** File size thresholds for various optimizations */
 export const THRESHOLDS = {
   /** Use streaming Parquet above this (150MB) */

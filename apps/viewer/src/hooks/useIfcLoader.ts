@@ -17,7 +17,7 @@ import { GeometryProcessor, GeometryQuality, type MeshData, type CoordinateInfo 
 import { buildSpatialIndex } from '@ifc-lite/spatial';
 import { type GeometryData, loadGLBToMeshData } from '@ifc-lite/cache';
 
-import { SERVER_URL, USE_SERVER, CACHE_SIZE_THRESHOLD, getDynamicBatchConfig } from '../utils/ifcConfig.js';
+import { SERVER_URL, USE_SERVER, CACHE_SIZE_THRESHOLD, CACHE_MAX_SOURCE_SIZE, getDynamicBatchConfig } from '../utils/ifcConfig.js';
 import {
   calculateMeshBounds,
   createCoordinateInfo,
@@ -324,8 +324,9 @@ export function useIfcLoader() {
         });
       };
 
-      // Schedule data model parsing to start after geometry begins streaming
-      setTimeout(startDataModelParsing, 0);
+      // Data model parsing is deferred to the 'complete' event (see below).
+      // Running it concurrently with geometry streaming steals main-thread cycles
+      // from the WASM↔JS bridge, adding ~1-2s to geometry completion time.
 
       // Use adaptive processing: sync for small files, streaming for large files
       let estimatedTotal = 0;
@@ -378,12 +379,14 @@ export function useIfcLoader() {
               console.log(`[useIfc] Model opened at ${modelOpenMs.toFixed(0)}ms`);
               break;
             case 'colorUpdate': {
-              // Persist parser style/material colors in store (non-overlay path).
-              updateMeshColors(event.updates);
-              // Keep local mesh snapshots in sync for cache serialization.
+              // Accumulate color updates locally during streaming.
+              // We apply them in a single pass at 'complete' instead of
+              // calling updateMeshColors() per event (which triggers a
+              // React reconciliation each time + O(n) scan over all meshes).
               for (const [expressId, color] of event.updates) {
                 cumulativeColorUpdates.set(expressId, color);
               }
+              // Keep local mesh snapshots in sync for cache serialization.
               applyColorUpdatesToMeshes(allMeshes, event.updates);
               applyColorUpdatesToMeshes(pendingMeshes, event.updates);
               break;
@@ -447,6 +450,16 @@ export function useIfcLoader() {
 
               finalCoordinateInfo = event.coordinateInfo ?? null;
 
+              // Start data model parsing NOW — after geometry streaming is done
+              // so the parser doesn't compete with WASM for main-thread CPU.
+              startDataModelParsing();
+
+              // Apply all accumulated color updates in a single store update
+              // instead of one updateMeshColors() call per colorUpdate event.
+              if (cumulativeColorUpdates.size > 0) {
+                updateMeshColors(cumulativeColorUpdates);
+              }
+
               // Store captured RTC offset in coordinate info for multi-model alignment
               if (finalCoordinateInfo && capturedRtcOffset) {
                 finalCoordinateInfo.wasmRtcOffset = capturedRtcOffset;
@@ -493,7 +506,11 @@ export function useIfcLoader() {
                     totalTriangles: allMeshes.reduce((sum, m) => sum + m.indices.length / 3, 0),
                     coordinateInfo: finalCoordinateInfo,
                   };
-                  saveToCache(cacheKey, dataStore, geometryData, buffer, file.name);
+                  // Skip storing the raw IFC source for files above 150 MB —
+                  // the IDB write is dominated by this buffer and the user still
+                  // has the file on disk for on-demand property extraction.
+                  const cacheSourceBuffer = buffer.byteLength <= CACHE_MAX_SOURCE_SIZE ? buffer : new ArrayBuffer(0);
+                  saveToCache(cacheKey, dataStore, geometryData, cacheSourceBuffer, file.name);
                 }
               }).catch(err => {
                 // Data model parsing failed - spatial index and caching skipped
