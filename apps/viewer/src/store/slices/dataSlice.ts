@@ -62,7 +62,7 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
   setGeometryResult: (geometryResult) => set({ geometryResult }),
 
   appendGeometryBatch: (meshes, coordinateInfo) => set((state) => {
-    // Compute batch totals (O(batch_size), NOT O(total_accumulated))
+    // Incremental totals: O(batch_size) instead of O(total_accumulated) .reduce()
     let batchTriangles = 0;
     let batchVertices = 0;
     for (let i = 0; i < meshes.length; i++) {
@@ -81,14 +81,13 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
       };
     }
 
-    // O(batch_size) push instead of O(total) spread + re-allocate
-    const existing = state.geometryResult.meshes;
-    for (let i = 0; i < meshes.length; i++) existing.push(meshes[i]);
-
+    // New array reference (required for React/Zustand change detection) but
+    // only O(n) pointer copies — the expensive part was the .reduce() calls
+    // which are now replaced by the incremental counters above.
     return {
       geometryResult: {
         ...state.geometryResult,
-        meshes: existing,
+        meshes: [...state.geometryResult.meshes, ...meshes],
         totalTriangles: state.geometryResult.totalTriangles + batchTriangles,
         totalVertices: state.geometryResult.totalVertices + batchVertices,
         coordinateInfo: coordinateInfo || state.geometryResult.coordinateInfo,
@@ -106,18 +105,19 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
       return { pendingMeshColorUpdates: clonedUpdates };
     }
 
-    // In-place color update: O(n) scan but no array/object allocation per mesh
-    const meshes = state.geometryResult.meshes;
-    for (const mesh of meshes) {
+    // New array reference so useGeometryStreaming's useEffect detects the change.
+    // Only runs once at 'complete' (not per-batch), so O(n) .map() is fine.
+    const updatedMeshes = state.geometryResult.meshes.map(mesh => {
       const newColor = clonedUpdates.get(mesh.expressId);
       if (newColor) {
-        mesh.color = newColor;
+        return { ...mesh, color: newColor };
       }
-    }
+      return mesh;
+    });
     return {
       geometryResult: {
         ...state.geometryResult,
-        meshes,
+        meshes: updatedMeshes,
       },
       pendingMeshColorUpdates: clonedUpdates,
     };
