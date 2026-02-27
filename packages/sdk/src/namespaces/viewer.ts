@@ -55,6 +55,11 @@ export class ViewerNamespace {
     this.backend.visibility.reset();
   }
 
+  /** Force IfcSpace entities to be visible (overrides global type toggle) */
+  showSpaces(): void {
+    this.backend.visibility.showSpaces();
+  }
+
   // ── Selection ──────────────────────────────────────────────
 
   /** Set the selection to given entities */

@@ -133,6 +133,8 @@ declare const bim: {
     resetColors(): void;
     /** Reset all visibility */
     resetVisibility(): void;
+    /** Force IfcSpace entities visible (overrides global toggle) */
+    showSpaces(): void;
   };
   /** Property editing */
   mutate: {

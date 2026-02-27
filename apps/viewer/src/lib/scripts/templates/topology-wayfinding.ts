@@ -13,7 +13,8 @@ export {} // module boundary (stripped by transpiler)
 bim.viewer.resetColors()
 bim.viewer.resetVisibility()
 
-// ── 1. Get spaces and show them ───────────────────────────────────────
+// ── 1. Force IfcSpace visibility & get spaces ───────────────────────
+bim.viewer.showSpaces()
 const spaces = bim.query.byType('IfcSpace')
 
 if (spaces.length === 0) {
@@ -27,7 +28,7 @@ if (spaces.length === 0) {
 // Isolate spaces so they're visible
 bim.viewer.isolate(spaces)
 
-// ── 2. Build graph & compute centrality ───────────────────────────────
+// ── 2. Build graph & compute centrality ─────────────────────────────
 const graph = bim.topology.buildGraph()
 
 if (graph.edges.length === 0) {
@@ -35,13 +36,15 @@ if (graph.edges.length === 0) {
   bim.viewer.colorize(spaces, '#9b59b6')
   bim.viewer.flyTo(spaces)
   console.warn('No adjacency relationships found between spaces.')
-  console.log('The model may not have IfcRelSpaceBoundary relationships.')
+  console.log('The model may not have IfcRelSpaceBoundary relationships')
+  console.log('or space geometry for proximity detection.')
   console.log('')
   console.log('Showing ' + spaces.length + ' spaces (purple) without connectivity data.')
   throw new Error('no edges')
 }
 
 const centrality = bim.topology.centrality()
+const adjacency = bim.topology.adjacency()
 
 console.log('═══════════════════════════════════════')
 console.log('  SPATIAL CONNECTIVITY & WAYFINDING')
@@ -50,7 +53,7 @@ console.log('')
 console.log('Spaces:      ' + graph.nodes.length)
 console.log('Connections: ' + graph.edges.length)
 
-// ── 3. Classify by betweenness centrality ─────────────────────────────
+// ── 3. Classify by betweenness centrality ─────────────────────────
 const sortedByBetweenness = [...centrality].sort((a, b) => b.betweenness - a.betweenness)
 const maxBetweenness = sortedByBetweenness[0]?.betweenness ?? 0
 
@@ -73,7 +76,7 @@ for (const c of sortedByBetweenness) {
   else terminal.push(c)
 }
 
-// ── 4. Color-code by centrality ───────────────────────────────────────
+// ── 4. Color-code by centrality ─────────────────────────────────────
 const colors = {
   critical: '#e74c3c',
   important: '#e67e22',
@@ -97,18 +100,36 @@ function refsToEntities(results: CentralityResult[]): BimEntity[] {
   return entities
 }
 
-const batches: Array<{ entities: BimEntity[]; color: string }> = []
-if (critical.length > 0) batches.push({ entities: refsToEntities(critical), color: colors.critical })
-if (important.length > 0) batches.push({ entities: refsToEntities(important), color: colors.important })
-if (moderate.length > 0) batches.push({ entities: refsToEntities(moderate), color: colors.moderate })
-if (peripheral.length > 0) batches.push({ entities: refsToEntities(peripheral), color: colors.peripheral })
-if (terminal.length > 0) batches.push({ entities: refsToEntities(terminal), color: colors.terminal })
-if (batches.length > 0) bim.viewer.colorizeAll(batches)
+const vizBatches: Array<{ entities: BimEntity[]; color: string }> = []
+if (critical.length > 0) vizBatches.push({ entities: refsToEntities(critical), color: colors.critical })
+if (important.length > 0) vizBatches.push({ entities: refsToEntities(important), color: colors.important })
+if (moderate.length > 0) vizBatches.push({ entities: refsToEntities(moderate), color: colors.moderate })
+if (peripheral.length > 0) vizBatches.push({ entities: refsToEntities(peripheral), color: colors.peripheral })
+if (terminal.length > 0) vizBatches.push({ entities: refsToEntities(terminal), color: colors.terminal })
+
+// Also show shared boundary elements (walls/slabs between spaces)
+const boundaryEntities: BimEntity[] = []
+const seenBoundary = new Set<string>()
+for (const pair of adjacency) {
+  for (const ref of pair.sharedRefs) {
+    const key = ref.modelId + ':' + ref.expressId
+    if (seenBoundary.has(key)) continue
+    seenBoundary.add(key)
+    const entity = bim.query.entity(ref.modelId, ref.expressId)
+    if (entity) boundaryEntities.push(entity)
+  }
+}
+if (boundaryEntities.length > 0) {
+  vizBatches.push({ entities: boundaryEntities, color: '#bdc3c7' })
+  bim.viewer.show(boundaryEntities)
+}
+
+if (vizBatches.length > 0) bim.viewer.colorizeAll(vizBatches)
 
 // Fly to spaces
 bim.viewer.flyTo(spaces)
 
-// ── 5. Centrality legend ──────────────────────────────────────────────
+// ── 5. Centrality legend ──────────────────────────────────────────
 console.log('')
 console.log('── Betweenness Centrality (Circulation Importance) ──')
 console.log('  Critical corridors:   ' + critical.length + '  ● red')
@@ -116,8 +137,11 @@ console.log('  Important connectors: ' + important.length + '  ● orange')
 console.log('  Moderate:             ' + moderate.length + '  ● yellow')
 console.log('  Peripheral:           ' + peripheral.length + '  ● green')
 console.log('  Terminal / dead ends: ' + terminal.length + '  ● blue')
+if (boundaryEntities.length > 0) {
+  console.log('  Shared boundaries:    ' + boundaryEntities.length + '  ● grey')
+}
 
-// ── 6. Top spaces by centrality ───────────────────────────────────────
+// ── 6. Top spaces by centrality ───────────────────────────────────
 console.log('')
 console.log('── Top 10 by Betweenness (most paths pass through) ──')
 console.log('Name                    | Between. | Close.  | Degree  | Role')
@@ -140,7 +164,7 @@ for (const c of sortedByBetweenness.slice(0, 10)) {
   console.log(name + '| ' + bw + ' | ' + cl + ' | ' + dg + ' | ' + role)
 }
 
-// ── 7. Closeness centrality ───────────────────────────────────────────
+// ── 7. Closeness centrality ───────────────────────────────────────
 const sortedByCloseness = [...centrality].sort((a, b) => b.closeness - a.closeness)
 
 console.log('')
@@ -150,7 +174,7 @@ for (const c of sortedByCloseness.slice(0, 10)) {
   console.log('  ' + name + '  closeness=' + c.closeness.toFixed(4))
 }
 
-// ── 8. Shortest path demo ─────────────────────────────────────────────
+// ── 8. Shortest path demo with visual highlight ───────────────────
 if (sortedByBetweenness.length >= 2) {
   const hub = sortedByBetweenness[0]
   const leaf = sortedByBetweenness[sortedByBetweenness.length - 1]
@@ -175,21 +199,40 @@ if (sortedByBetweenness.length >= 2) {
       console.log(prefix + (node?.name || 'Space #' + ref.expressId))
     }
 
-    // Highlight path entities
+    // Highlight path entities with selection (blue fresnel glow)
     const pathEntities: BimEntity[] = []
     for (const ref of pathResult.path) {
       const e = entityMap[ref.modelId + ':' + ref.expressId]
       if (e) pathEntities.push(e)
     }
+
+    // Also find walls along the path
+    for (let i = 0; i < pathResult.path.length - 1; i++) {
+      const k1 = pathResult.path[i].modelId + ':' + pathResult.path[i].expressId
+      const k2 = pathResult.path[i + 1].modelId + ':' + pathResult.path[i + 1].expressId
+      for (const pair of adjacency) {
+        const pk1 = pair.space1.modelId + ':' + pair.space1.expressId
+        const pk2 = pair.space2.modelId + ':' + pair.space2.expressId
+        if ((pk1 === k1 && pk2 === k2) || (pk1 === k2 && pk2 === k1)) {
+          for (const ref of pair.sharedRefs) {
+            const wall = bim.query.entity(ref.modelId, ref.expressId)
+            if (wall) pathEntities.push(wall)
+          }
+        }
+      }
+    }
+
     if (pathEntities.length > 0) {
       bim.viewer.select(pathEntities)
+      console.log('')
+      console.log('Selected ' + pathEntities.length + ' entities along path (highlighted with blue glow)')
     }
   } else {
     console.warn('No path found! Spaces are in disconnected components.')
   }
 }
 
-// ── 9. Diameter estimation ────────────────────────────────────────────
+// ── 9. Diameter estimation ────────────────────────────────────────
 const components = bim.topology.connectedComponents()
 if (components.length > 0 && components[0].length >= 2) {
   const mainComponent = components[0]
@@ -225,7 +268,7 @@ if (components.length > 0 && components[0].length >= 2) {
   }
 }
 
-// ── 10. Bottleneck analysis ───────────────────────────────────────────
+// ── 10. Bottleneck analysis ───────────────────────────────────────
 const bottlenecks = centrality
   .filter(c => c.betweenness > 0 && c.degree <= 0.3)
   .sort((a, b) => b.betweenness - a.betweenness)

@@ -13,7 +13,8 @@ export {} // module boundary (stripped by transpiler)
 bim.viewer.resetColors()
 bim.viewer.resetVisibility()
 
-// ── 1. Get all spaces and show them ───────────────────────────────────
+// ── 1. Force IfcSpace visibility & get spaces ───────────────────────
+bim.viewer.showSpaces()
 const spaces = bim.query.byType('IfcSpace')
 
 if (spaces.length === 0) {
@@ -27,10 +28,10 @@ if (spaces.length === 0) {
   throw new Error('no spaces')
 }
 
-// Isolate spaces so they're visible in the 3D view
+// Isolate spaces + their boundary elements
 bim.viewer.isolate(spaces)
 
-// ── 2. Build the topology graph ───────────────────────────────────────
+// ── 2. Build the topology graph ───────────────────────────────────
 const graph = bim.topology.buildGraph()
 const adjacency = bim.topology.adjacency()
 
@@ -42,7 +43,7 @@ console.log('Spaces:      ' + graph.nodes.length)
 console.log('Connections: ' + graph.edges.length)
 console.log('Adjacencies: ' + adjacency.length)
 
-// ── 3. Compute degree for each space ──────────────────────────────────
+// ── 3. Compute degree for each space ──────────────────────────────
 const degreeMap: Record<string, number> = {}
 const nameMap: Record<string, string> = {}
 const refMap: Record<string, BimEntity> = {}
@@ -66,7 +67,7 @@ for (const space of spaces) {
   refMap[key] = space
 }
 
-// ── 4. Color-code by connectivity (heat map) ──────────────────────────
+// ── 4. Color-code by connectivity (heat map) ──────────────────────
 const heatColors = [
   '#3498db',  // 0 connections — isolated (blue)
   '#2ecc71',  // low (green)
@@ -103,12 +104,34 @@ for (let i = 0; i < tiers.length; i++) {
     batches.push({ entities: tiers[i], color: heatColors[i] })
   }
 }
+
+// ── 5. Also colorize shared boundary elements ─────────────────────
+// Collect unique boundary elements from adjacency pairs
+const boundaryEntities: BimEntity[] = []
+const seenBoundary = new Set<string>()
+for (const pair of adjacency) {
+  for (const ref of pair.sharedRefs) {
+    const key = ref.modelId + ':' + ref.expressId
+    if (seenBoundary.has(key)) continue
+    seenBoundary.add(key)
+    const entity = bim.query.entity(ref.modelId, ref.expressId)
+    if (entity) boundaryEntities.push(entity)
+  }
+}
+
+if (boundaryEntities.length > 0) {
+  // Show walls between spaces with a neutral color
+  batches.push({ entities: boundaryEntities, color: '#95a5a6' })
+  // Also make boundary elements visible
+  bim.viewer.show(boundaryEntities)
+}
+
 if (batches.length > 0) bim.viewer.colorizeAll(batches)
 
 // Fly to all spaces to frame them
 bim.viewer.flyTo(spaces)
 
-// ── 5. Heat map legend ────────────────────────────────────────────────
+// ── 6. Heat map legend ──────────────────────────────────────────────
 console.log('')
 console.log('── Connectivity Heat Map ──')
 for (let i = 0; i < tiers.length; i++) {
@@ -116,8 +139,11 @@ for (let i = 0; i < tiers.length; i++) {
     console.log('  ' + tierNames[i] + ': ' + tiers[i].length + ' spaces  ● ' + heatColors[i])
   }
 }
+if (boundaryEntities.length > 0) {
+  console.log('  Shared boundaries: ' + boundaryEntities.length + ' elements  ● grey')
+}
 
-// ── 6. Top connected spaces table ─────────────────────────────────────
+// ── 7. Top connected spaces table ─────────────────────────────────
 console.log('')
 console.log('── Top Connected Spaces ──')
 console.log('Name                    | Connections | Adjacent to')
@@ -142,7 +168,7 @@ for (const [key, deg] of sorted) {
   console.log(name + '| ' + degStr + ' | ' + neighborStr)
 }
 
-// ── 7. Shared boundary breakdown ──────────────────────────────────────
+// ── 8. Shared boundary breakdown ──────────────────────────────────
 const boundaryTypes: Record<string, number> = {}
 for (const pair of adjacency) {
   for (const t of pair.sharedTypes) {
@@ -159,7 +185,7 @@ if (Object.keys(boundaryTypes).length > 0) {
   }
 }
 
-// ── 8. Connected components ───────────────────────────────────────────
+// ── 9. Connected components ───────────────────────────────────────
 const components = bim.topology.connectedComponents()
 
 console.log('')
@@ -182,7 +208,26 @@ if (components.length > 1) {
   console.warn('topologically disconnected from each other.')
 }
 
-// ── 9. Statistics ─────────────────────────────────────────────────────
+// ── 10. Select most connected space for visual highlight ──────────
+if (sorted.length > 0) {
+  const hubKey = sorted[0][0]
+  const hubEntity = refMap[hubKey]
+  if (hubEntity) {
+    // Select the hub + its neighbors for fresnel highlight
+    const highlightEntities: BimEntity[] = [hubEntity]
+    for (const pair of adjacency) {
+      const k1 = pair.space1.modelId + ':' + pair.space1.expressId
+      const k2 = pair.space2.modelId + ':' + pair.space2.expressId
+      if (k1 === hubKey && refMap[k2]) highlightEntities.push(refMap[k2])
+      if (k2 === hubKey && refMap[k1]) highlightEntities.push(refMap[k1])
+    }
+    bim.viewer.select(highlightEntities)
+    console.log('')
+    console.log('Selected: ' + (nameMap[hubKey] || '?') + ' + ' + (highlightEntities.length - 1) + ' neighbors (highlighted in viewer)')
+  }
+}
+
+// ── 11. Statistics ────────────────────────────────────────────────
 const avgDeg = degrees.length > 0 ? degrees.reduce((a, b) => a + b, 0) / degrees.length : 0
 const density = graph.nodes.length > 1
   ? (2 * graph.edges.length) / (graph.nodes.length * (graph.nodes.length - 1))

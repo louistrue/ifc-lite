@@ -321,6 +321,15 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         },
         returns: 'void',
       },
+      {
+        name: 'showSpaces',
+        doc: 'Force IfcSpace entities visible (overrides global toggle)',
+        args: [],
+        call: (sdk) => {
+          sdk.viewer.showSpaces();
+        },
+        returns: 'void',
+      },
     ],
   },
 

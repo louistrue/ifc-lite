@@ -482,15 +482,48 @@ export function createTopologyAdapter(store: StoreApi): TopologyBackendMethods {
   };
 }
 
-// ── Fallback: containment-based adjacency ─────────────────────────────
+// ── Fallback: geometry-proximity adjacency ────────────────────────────
+
+/** AABB type for bounding box calculations */
+interface AABB {
+  min: [number, number, number];
+  max: [number, number, number];
+}
+
+/** Proximity threshold in meters — typical wall thickness */
+const PROXIMITY_THRESHOLD = 0.5;
 
 /**
- * When IfcRelSpaceBoundary isn't present, infer adjacency from spatial hierarchy.
- *
- * IFC spatial hierarchy: Site → Building → BuildingStorey → Space
- * connected via IfcRelAggregates (NOT IfcRelContainedInSpatialStructure).
- *
- * Spaces on the same storey are assumed to be adjacent (weight 1).
+ * Compute AABB gap distance between two bounding boxes.
+ * Returns 0 when boxes overlap; positive distance otherwise.
+ */
+function aabbGapDistance(a: AABB, b: AABB): number {
+  const dx = Math.max(0, a.min[0] - b.max[0], b.min[0] - a.max[0]);
+  const dy = Math.max(0, a.min[1] - b.max[1], b.min[1] - a.max[1]);
+  const dz = Math.max(0, a.min[2] - b.max[2], b.min[2] - a.max[2]);
+  return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+/**
+ * Compute bounding box from mesh positions.
+ */
+function computeBounds(positions: Float32Array): AABB {
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (let i = 0; i < positions.length; i += 3) {
+    const x = positions[i], y = positions[i + 1], z = positions[i + 2];
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+    if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+  }
+  return { min: [minX, minY, minZ], max: [maxX, maxY, maxZ] };
+}
+
+/**
+ * When IfcRelSpaceBoundary isn't present, infer adjacency using geometry
+ * proximity. Spaces whose bounding boxes are within wall-thickness distance
+ * of each other are connected. Falls back to storey grouping if no mesh
+ * geometry is available.
  */
 function buildAdjacencyFromContainment(
   store: StoreApi,
@@ -500,7 +533,7 @@ function buildAdjacencyFromContainment(
   const state = store.getState();
   const modelEntries = getAllModelEntries(state);
 
-  // Group spaces by their parent storey
+  // ── 1. Group spaces by storey ──────────────────────────────────────
   const storeyToSpaces = new Map<string, string[]>();
 
   for (const [modelId, model] of modelEntries) {
@@ -511,21 +544,13 @@ function buildAdjacencyFromContainment(
       const ref = keyToRef(key);
       if (ref.modelId !== modelId) continue;
 
-      // IFC spatial hierarchy uses IfcRelAggregates: Storey → Space (forward)
-      // So from a space, use INVERSE to find parent storey
       const parents = ds.relationships.getRelated(
-        ref.expressId,
-        RelationshipType.Aggregates,
-        'inverse',
+        ref.expressId, RelationshipType.Aggregates, 'inverse',
       );
-
-      // Also try ContainsElements inverse (some exporters use this for spaces)
       const containers = parents.length > 0
         ? parents
         : ds.relationships.getRelated(
-            ref.expressId,
-            RelationshipType.ContainsElements,
-            'inverse',
+            ref.expressId, RelationshipType.ContainsElements, 'inverse',
           );
 
       for (const parentId of containers) {
@@ -538,15 +563,188 @@ function buildAdjacencyFromContainment(
     }
   }
 
-  // Connect all spaces on the same storey
-  for (const spaces of storeyToSpaces.values()) {
+  // ── 2. Build bounding-box map from mesh geometry ───────────────────
+  const spaceBounds = new Map<string, AABB>();
+
+  // Try multi-model federation first
+  if (state.models.size > 0) {
+    for (const [modelId, model] of state.models) {
+      const geo = model.geometryResult;
+      if (!geo?.meshes) continue;
+      const offset = model.idOffset;
+      for (const mesh of geo.meshes) {
+        if (!mesh.positions || mesh.positions.length === 0) continue;
+        const originalId = mesh.expressId - offset;
+        const key = `${modelId}:${originalId}`;
+        if (nodeMap.has(key)) {
+          spaceBounds.set(key, computeBounds(mesh.positions));
+        }
+      }
+    }
+  }
+  // Legacy single-model fallback
+  if (spaceBounds.size === 0 && state.geometryResult?.meshes) {
+    for (const mesh of state.geometryResult.meshes) {
+      if (!mesh.positions || mesh.positions.length === 0) continue;
+      const key = `default:${mesh.expressId}`;
+      if (nodeMap.has(key)) {
+        spaceBounds.set(key, computeBounds(mesh.positions));
+      }
+    }
+  }
+
+  // ── 3. Find walls/slabs on each storey for shared boundary info ────
+  const storeyWalls = new Map<string, Array<{ ref: EntityRef; type: string; bounds: AABB | null }>>();
+  const WALL_TYPES = ['IFCWALL', 'IFCWALLSTANDARDCASE', 'IFCSLAB', 'IFCDOOR', 'IFCCURTAINWALL'];
+
+  for (const [modelId, model] of modelEntries) {
+    if (!model?.ifcDataStore) continue;
+    const ds = model.ifcDataStore;
+    const offset = model.idOffset;
+
+    // Build mesh bounds for walls
+    const wallBoundsMap = new Map<number, AABB>();
+    const geoSource = state.models.size > 0
+      ? state.models.get(modelId)?.geometryResult
+      : state.geometryResult;
+    if (geoSource?.meshes) {
+      for (const mesh of geoSource.meshes) {
+        if (!mesh.positions || mesh.positions.length === 0) continue;
+        const originalId = state.models.size > 0 ? mesh.expressId - offset : mesh.expressId;
+        wallBoundsMap.set(originalId, computeBounds(mesh.positions));
+      }
+    }
+
+    // For each storey, find contained walls
+    for (const storeyKey of storeyToSpaces.keys()) {
+      const ref = keyToRef(storeyKey);
+      if (ref.modelId !== modelId) continue;
+
+      const contained = ds.relationships.getRelated(
+        ref.expressId, RelationshipType.ContainsElements, 'forward',
+      );
+
+      const walls: Array<{ ref: EntityRef; type: string; bounds: AABB | null }> = [];
+      for (const elemId of contained) {
+        try {
+          const elemNode = new EntityNode(ds, elemId);
+          const elemType = elemNode.type.toUpperCase();
+          if (WALL_TYPES.some(t => elemType.includes(t.replace('IFC', '')))) {
+            walls.push({
+              ref: { modelId, expressId: elemId },
+              type: elemNode.type,
+              bounds: wallBoundsMap.get(elemId) ?? null,
+            });
+          }
+        } catch { /* skip non-entity IDs */ }
+      }
+      if (walls.length > 0) {
+        storeyWalls.set(storeyKey, walls);
+      }
+    }
+  }
+
+  // ── 4. Connect spaces using proximity ──────────────────────────────
+  let connectionsFromGeometry = 0;
+
+  for (const [storeyKey, spaces] of storeyToSpaces) {
+    const walls = storeyWalls.get(storeyKey) ?? [];
+
     for (let i = 0; i < spaces.length; i++) {
       for (let j = i + 1; j < spaces.length; j++) {
         const a = spaces[i];
         const b = spaces[j];
-        if (!adj.get(a)?.has(b)) {
-          adj.get(a)!.set(b, { weight: 1, sharedRefs: [], sharedTypes: ['IfcBuildingStorey'] });
-          adj.get(b)!.set(a, { weight: 1, sharedRefs: [], sharedTypes: ['IfcBuildingStorey'] });
+        const boundsA = spaceBounds.get(a);
+        const boundsB = spaceBounds.get(b);
+
+        if (boundsA && boundsB) {
+          const gap = aabbGapDistance(boundsA, boundsB);
+          if (gap <= PROXIMITY_THRESHOLD) {
+            // Find walls between these two spaces
+            const sharedWalls: EntityRef[] = [];
+            const sharedTypes: string[] = [];
+            for (const wall of walls) {
+              if (!wall.bounds) continue;
+              // Wall is "between" two spaces if it's close to both
+              const gapToA = aabbGapDistance(wall.bounds, boundsA);
+              const gapToB = aabbGapDistance(wall.bounds, boundsB);
+              if (gapToA <= PROXIMITY_THRESHOLD && gapToB <= PROXIMITY_THRESHOLD) {
+                sharedWalls.push(wall.ref);
+                sharedTypes.push(wall.type);
+              }
+            }
+
+            const weight = Math.max(1, sharedWalls.length);
+            const types = sharedTypes.length > 0 ? sharedTypes : ['proximity'];
+            adj.get(a)!.set(b, { weight, sharedRefs: sharedWalls, sharedTypes: types });
+            adj.get(b)!.set(a, { weight, sharedRefs: sharedWalls, sharedTypes: types });
+            connectionsFromGeometry++;
+          }
+        }
+      }
+    }
+  }
+
+  // ── 5. If geometry didn't help, use inter-storey connections only ───
+  // (Don't create per-storey complete graphs — they're useless for analysis)
+  if (connectionsFromGeometry === 0 && spaceBounds.size === 0) {
+    // No geometry available — connect spaces to nearest neighbors by expressId
+    // (a rough proxy for spatial order in the IFC file)
+    for (const spaces of storeyToSpaces.values()) {
+      // Sort by expressId as rough spatial proxy
+      spaces.sort((a, b) => {
+        const refA = keyToRef(a);
+        const refB = keyToRef(b);
+        return refA.expressId - refB.expressId;
+      });
+
+      // Chain: connect each to the next 1-2 neighbors
+      for (let i = 0; i < spaces.length; i++) {
+        for (let k = 1; k <= 2 && i + k < spaces.length; k++) {
+          const a = spaces[i];
+          const b = spaces[i + k];
+          if (!adj.get(a)?.has(b)) {
+            adj.get(a)!.set(b, { weight: 1, sharedRefs: [], sharedTypes: ['estimated'] });
+            adj.get(b)!.set(a, { weight: 1, sharedRefs: [], sharedTypes: ['estimated'] });
+          }
+        }
+      }
+    }
+  }
+
+  // ── 6. Connect storeys vertically ──────────────────────────────────
+  // Link spaces across floors via vertical proximity (stairs/elevators)
+  const storeyKeys = [...storeyToSpaces.keys()];
+  if (storeyKeys.length > 1 && spaceBounds.size > 0) {
+    for (let si = 0; si < storeyKeys.length; si++) {
+      for (let sj = si + 1; sj < storeyKeys.length; sj++) {
+        const spacesI = storeyToSpaces.get(storeyKeys[si])!;
+        const spacesJ = storeyToSpaces.get(storeyKeys[sj])!;
+
+        // Find closest vertical pair between floors
+        let bestGap = Infinity;
+        let bestA = '';
+        let bestB = '';
+
+        for (const a of spacesI) {
+          const bA = spaceBounds.get(a);
+          if (!bA) continue;
+          for (const b of spacesJ) {
+            const bB = spaceBounds.get(b);
+            if (!bB) continue;
+            const gap = aabbGapDistance(bA, bB);
+            if (gap < bestGap) {
+              bestGap = gap;
+              bestA = a;
+              bestB = b;
+            }
+          }
+        }
+
+        // Connect if reasonably close (slab thickness ~0.3m + some tolerance)
+        if (bestGap <= 1.0 && bestA && bestB && !adj.get(bestA)?.has(bestB)) {
+          adj.get(bestA)!.set(bestB, { weight: 2, sharedRefs: [], sharedTypes: ['vertical'] });
+          adj.get(bestB)!.set(bestA, { weight: 2, sharedRefs: [], sharedTypes: ['vertical'] });
         }
       }
     }

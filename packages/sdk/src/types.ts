@@ -300,6 +300,8 @@ export interface VisibilityBackendMethods {
   show(refs: EntityRef[]): void;
   isolate(refs: EntityRef[]): void;
   reset(): void;
+  /** Force IfcSpace type visibility on (overrides global toggle) */
+  showSpaces(): void;
 }
 
 export interface ViewerBackendMethods {

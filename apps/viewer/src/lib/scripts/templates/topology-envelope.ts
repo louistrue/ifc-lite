@@ -13,7 +13,8 @@ export {} // module boundary (stripped by transpiler)
 bim.viewer.resetColors()
 bim.viewer.resetVisibility()
 
-// ── 1. Get spaces and show them ───────────────────────────────────────
+// ── 1. Force IfcSpace visibility & get spaces ───────────────────────
+bim.viewer.showSpaces()
 const spaces = bim.query.byType('IfcSpace')
 
 if (spaces.length === 0) {
@@ -27,7 +28,7 @@ if (spaces.length === 0) {
 // Isolate spaces so they're visible
 bim.viewer.isolate(spaces)
 
-// ── 2. Gather topology data ───────────────────────────────────────────
+// ── 2. Gather topology data ─────────────────────────────────────────
 const graph = bim.topology.buildGraph()
 const metrics = bim.topology.metrics()
 const adjacency = bim.topology.adjacency()
@@ -38,7 +39,7 @@ console.log('══════════════════════�
 console.log('  BUILDING ENVELOPE & ENERGY TOPOLOGY')
 console.log('═══════════════════════════════════════')
 
-// ── 3. Space metrics summary ──────────────────────────────────────────
+// ── 3. Space metrics summary ──────────────────────────────────────
 let totalArea = 0
 let totalVolume = 0
 let spacesWithArea = 0
@@ -58,13 +59,13 @@ if (totalArea > 0 && totalVolume > 0) {
   console.log('  Avg ceiling ht:  ' + (totalVolume / totalArea).toFixed(2) + ' m')
 }
 
-// ── 4. Build entity lookup ────────────────────────────────────────────
+// ── 4. Build entity lookup ────────────────────────────────────────
 const entityMap: Record<string, BimEntity> = {}
 for (const s of spaces) {
   entityMap[s.ref.modelId + ':' + s.ref.expressId] = s
 }
 
-// ── 5. Classify adjacency ─────────────────────────────────────────────
+// ── 5. Classify adjacency ─────────────────────────────────────────
 const connectedSpaceKeys = new Set<string>()
 for (const pair of adjacency) {
   connectedSpaceKeys.add(pair.space1.modelId + ':' + pair.space1.expressId)
@@ -92,7 +93,7 @@ if (Object.keys(boundaryTypes).length > 0) {
   }
 }
 
-// ── 6. Color-code spaces ──────────────────────────────────────────────
+// ── 6. Color-code spaces + show boundary elements ──────────────────
 const medianArea = spacesWithArea > 0 ? totalArea / spacesWithArea : 0
 const largeSpaces: BimEntity[] = []
 const smallSpaces: BimEntity[] = []
@@ -114,7 +115,7 @@ for (const m of metrics) {
 
 const vizBatches: Array<{ entities: BimEntity[]; color: string }> = []
 
-// If we have adjacency data, color by connectivity
+// Color spaces by connectivity/size
 if (adjacency.length > 0) {
   if (largeSpaces.length > 0) vizBatches.push({ entities: largeSpaces, color: '#2ecc71' })
   if (smallSpaces.length > 0) vizBatches.push({ entities: smallSpaces, color: '#f1c40f' })
@@ -144,6 +145,36 @@ if (adjacency.length > 0) {
   if (smallBucket.length > 0) vizBatches.push({ entities: smallBucket, color: '#f1c40f' })
 }
 
+// Show and color shared boundary elements
+const sharedBoundaryEntities: BimEntity[] = []
+const seenShared = new Set<string>()
+for (const pair of adjacency) {
+  for (const ref of pair.sharedRefs) {
+    const key = ref.modelId + ':' + ref.expressId
+    if (seenShared.has(key)) continue
+    seenShared.add(key)
+    const entity = bim.query.entity(ref.modelId, ref.expressId)
+    if (entity) sharedBoundaryEntities.push(entity)
+  }
+}
+
+if (sharedBoundaryEntities.length > 0) {
+  vizBatches.push({ entities: sharedBoundaryEntities, color: '#95a5a6' })
+  bim.viewer.show(sharedBoundaryEntities)
+}
+
+// Show and color envelope elements (external boundary)
+const envelopeEntities: BimEntity[] = []
+for (const ref of envelope.slice(0, 200)) {
+  const entity = bim.query.entity(ref.modelId, ref.expressId)
+  if (entity) envelopeEntities.push(entity)
+}
+
+if (envelopeEntities.length > 0) {
+  vizBatches.push({ entities: envelopeEntities, color: '#e74c3c' })
+  bim.viewer.show(envelopeEntities)
+}
+
 if (vizBatches.length > 0) bim.viewer.colorizeAll(vizBatches)
 bim.viewer.flyTo(spaces)
 
@@ -156,8 +187,14 @@ if (adjacency.length > 0) {
 } else {
   console.log('  Spaces colored by area (large=green, medium=blue, small=yellow)')
 }
+if (sharedBoundaryEntities.length > 0) {
+  console.log('  Shared boundaries:           ' + sharedBoundaryEntities.length + '  ● grey')
+}
+if (envelopeEntities.length > 0) {
+  console.log('  Envelope elements:           ' + envelopeEntities.length + '  ● red')
+}
 
-// ── 7. ASCII topology diagram ─────────────────────────────────────────
+// ── 7. ASCII topology diagram ─────────────────────────────────────
 console.log('')
 console.log('── Topology Diagram ──')
 console.log('')
@@ -206,7 +243,7 @@ if (adjacency.length > 0 && displayNodes.length <= 15) {
   }
 }
 
-// ── 8. Energy metrics ─────────────────────────────────────────────────
+// ── 8. Energy metrics ─────────────────────────────────────────────
 console.log('')
 console.log('── Energy-Relevant Metrics ──')
 console.log('  Surface-to-volume ratio:  ' + (totalVolume > 0 ? (totalArea / totalVolume).toFixed(3) + ' m2/m3' : 'N/A'))
@@ -246,7 +283,7 @@ if (envelopeSample.length > 0) {
   }
 }
 
-// ── 9. Space schedule ─────────────────────────────────────────────────
+// ── 9. Space schedule ─────────────────────────────────────────────
 // Count adjacency per space
 const adjCount: Record<string, number> = {}
 for (const pair of adjacency) {
@@ -282,4 +319,11 @@ for (const m of sortedMetrics.slice(0, 25)) {
 
 if (metrics.length > 25) {
   console.log('... and ' + (metrics.length - 25) + ' more spaces')
+}
+
+// ── 10. Select envelope elements for visual highlight ─────────────
+if (envelopeEntities.length > 0) {
+  bim.viewer.select(envelopeEntities.slice(0, 50))
+  console.log('')
+  console.log('Selected ' + Math.min(envelopeEntities.length, 50) + ' envelope elements (highlighted with blue glow)')
 }
