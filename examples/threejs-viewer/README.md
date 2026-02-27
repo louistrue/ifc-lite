@@ -25,6 +25,10 @@ npm install
 npm run dev
 ```
 
+> **Note:** `@ifc-lite/data` is listed as an explicit dependency here as a workaround —
+> `@ifc-lite/geometry@1.11.0` uses it internally but omitted it from its own `dependencies`.
+> It will be declared transitively in the next patch release and can be removed then.
+
 Open `http://localhost:5173` and drop an IFC file.
 
 ## Key files
