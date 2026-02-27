@@ -5,9 +5,12 @@
 /**
  * Converts @ifc-lite/geometry MeshData into Three.js objects.
  *
- * This is the key integration layer — it consumes the engine-agnostic
- * geometry output (Float32Array positions/normals, Uint32Array indices,
- * RGBA color) and builds Three.js BufferGeometry + MeshStandardMaterial.
+ * Three rendering strategies are provided:
+ *
+ *  meshDataToThree          — one Mesh per entity (simple, good for picking)
+ *  geometryResultToBatched  — merge by color (fewer draw calls, moderate)
+ *  batchWithVertexColors    — merge ALL opaque into one draw call via vertex
+ *                             colors; transparent grouped by alpha (best perf)
  */
 
 import * as THREE from 'three';
@@ -31,6 +34,7 @@ export function meshDataToThree(mesh: MeshData): THREE.Mesh {
     new THREE.BufferAttribute(mesh.normals, 3),
   );
   geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
+  geometry.computeBoundingSphere();
 
   const [r, g, b, a] = mesh.color;
   const material = new THREE.MeshStandardMaterial({
@@ -96,36 +100,30 @@ export function geometryResultToBatched(result: GeometryResult): {
   }
 
   for (const [, meshes] of colorBuckets) {
-    // Calculate total buffer sizes
     let totalPositions = 0;
-    let totalNormals = 0;
     let totalIndices = 0;
     for (const m of meshes) {
       totalPositions += m.positions.length;
-      totalNormals += m.normals.length;
       totalIndices += m.indices.length;
     }
 
     const positions = new Float32Array(totalPositions);
-    const normals = new Float32Array(totalNormals);
+    const normals = new Float32Array(totalPositions);
     const indices = new Uint32Array(totalIndices);
 
     let posOffset = 0;
-    let normOffset = 0;
     let idxOffset = 0;
     let vertexOffset = 0;
 
     for (const m of meshes) {
       positions.set(m.positions, posOffset);
-      normals.set(m.normals, normOffset);
+      normals.set(m.normals, posOffset);
 
-      // Offset indices by accumulated vertex count
       for (let i = 0; i < m.indices.length; i++) {
         indices[idxOffset + i] = m.indices[i] + vertexOffset;
       }
 
       posOffset += m.positions.length;
-      normOffset += m.normals.length;
       idxOffset += m.indices.length;
       vertexOffset += m.positions.length / 3;
     }
@@ -134,6 +132,7 @@ export function geometryResultToBatched(result: GeometryResult): {
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+    geometry.computeBoundingSphere();
 
     const [r, g, b, a] = meshes[0].color;
     const material = new THREE.MeshStandardMaterial({
@@ -147,15 +146,121 @@ export function geometryResultToBatched(result: GeometryResult): {
     const batchedMesh = new THREE.Mesh(geometry, material);
     group.add(batchedMesh);
 
-    // Map every expressId in this batch to the shared batched mesh.
-    // For per-entity highlight/selection use the expressId stored in userData
-    // of hit objects from raycasting, then look up metadata from the source MeshData.
     for (const m of meshes) {
       expressIdMap.set(m.expressId, batchedMesh);
     }
   }
 
   return { group, expressIdMap };
+}
+
+/**
+ * Highest-performance batching strategy for large models.
+ *
+ * Merges ALL opaque meshes into a single draw call using a vertex color
+ * attribute. Transparent meshes are grouped by alpha value into a small
+ * number of additional draw calls. For a typical large IFC model this
+ * takes render cost from thousands of draw calls down to 1–10.
+ *
+ * Trade-off: per-entity color changes (highlight/select) require updating
+ * the color buffer rather than swapping material. Use meshDataToThree for
+ * interactive picking workflows; use this for pure display performance.
+ */
+export function batchWithVertexColors(meshes: MeshData[]): {
+  group: THREE.Group;
+  expressIdMap: ExpressIdMap;
+} {
+  const group = new THREE.Group();
+  const expressIdMap: ExpressIdMap = new Map();
+
+  const opaque = meshes.filter((m) => m.color[3] >= 1);
+  const transparent = meshes.filter((m) => m.color[3] < 1);
+
+  if (opaque.length > 0) {
+    const mesh = mergeWithVertexColors(opaque, false);
+    group.add(mesh);
+    for (const m of opaque) expressIdMap.set(m.expressId, mesh);
+  }
+
+  if (transparent.length > 0) {
+    // Group transparent meshes by alpha (2 d.p.) to minimise draw calls
+    const alphaGroups = new Map<number, MeshData[]>();
+    for (const m of transparent) {
+      const alpha = Math.round(m.color[3] * 100) / 100;
+      let bucket = alphaGroups.get(alpha);
+      if (!bucket) {
+        bucket = [];
+        alphaGroups.set(alpha, bucket);
+      }
+      bucket.push(m);
+    }
+    for (const [alpha, group_] of alphaGroups) {
+      const mesh = mergeWithVertexColors(group_, true, alpha);
+      group.add(mesh);
+      for (const m of group_) expressIdMap.set(m.expressId, mesh);
+    }
+  }
+
+  return { group, expressIdMap };
+}
+
+/** Merge an array of MeshData into one Mesh with per-vertex RGB colors. */
+function mergeWithVertexColors(
+  meshes: MeshData[],
+  transparent: boolean,
+  opacity = 1,
+): THREE.Mesh {
+  let totalVertices = 0;
+  let totalIndices = 0;
+  for (const m of meshes) {
+    totalVertices += m.positions.length / 3;
+    totalIndices += m.indices.length;
+  }
+
+  const positions = new Float32Array(totalVertices * 3);
+  const normals = new Float32Array(totalVertices * 3);
+  const colors = new Float32Array(totalVertices * 3);
+  const indices = new Uint32Array(totalIndices);
+
+  let vOffset = 0; // running vertex count
+  let iOffset = 0; // running index count
+
+  for (const m of meshes) {
+    const vertCount = m.positions.length / 3;
+    positions.set(m.positions, vOffset * 3);
+    normals.set(m.normals, vOffset * 3);
+
+    const [r, g, b] = m.color;
+    for (let v = 0; v < vertCount; v++) {
+      colors[(vOffset + v) * 3 + 0] = r;
+      colors[(vOffset + v) * 3 + 1] = g;
+      colors[(vOffset + v) * 3 + 2] = b;
+    }
+
+    for (let i = 0; i < m.indices.length; i++) {
+      indices[iOffset + i] = m.indices[i] + vOffset;
+    }
+
+    vOffset += vertCount;
+    iOffset += m.indices.length;
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.computeBoundingSphere();
+
+  const material = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    transparent,
+    opacity,
+    side: transparent ? THREE.DoubleSide : THREE.FrontSide,
+    depthWrite: !transparent,
+  });
+
+  return new THREE.Mesh(geometry, material);
 }
 
 /**

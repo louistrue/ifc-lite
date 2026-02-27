@@ -5,6 +5,13 @@
 /**
  * Minimal IFC viewer: @ifc-lite/geometry + Three.js
  *
+ * Loading strategy:
+ *  1. Each streaming batch is vertex-color-batched and added to the scene
+ *     immediately — the model appears progressively as it streams in.
+ *  2. On 'complete', the full model is rebuilt as a single optimised mesh
+ *     (1 opaque draw call + a few transparent ones). The batch groups are
+ *     disposed one frame later so there is no visual pop.
+ *
  * This example demonstrates how to use @ifc-lite/geometry (the
  * engine-agnostic geometry layer) with Three.js instead of the
  * built-in WebGPU renderer.
@@ -12,9 +19,9 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GeometryProcessor } from '@ifc-lite/geometry';
+import { GeometryProcessor, type MeshData } from '@ifc-lite/geometry';
 import {
-  addStreamingBatchToScene,
+  batchWithVertexColors,
   type ExpressIdMap,
 } from './ifc-to-threejs.js';
 
@@ -29,7 +36,8 @@ if (!canvas || !fileInput || !status) {
 
 // ── Three.js setup ────────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(window.devicePixelRatio);
+// Cap pixel ratio — retina at full res is expensive on large models
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 
@@ -40,8 +48,8 @@ const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 10000);
 camera.position.set(20, 15, 20);
 
 const controls = new OrbitControls(camera, canvas);
-controls.enableDamping = true;
-controls.dampingFactor = 0.1;
+// No damping — camera stops sharply when the user releases
+controls.enableDamping = false;
 
 // ── Lighting ──────────────────────────────────────────────────────────
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -85,28 +93,59 @@ fileInput.addEventListener('change', async () => {
   status.textContent = `Loading ${file.name}...`;
 
   try {
-    // Initialise WASM on first load
     await geometry.init();
 
     const buffer = new Uint8Array(await file.arrayBuffer());
 
-    // Clear previous model
     clearScene();
 
-    // Stream geometry — batches appear progressively
-    let meshCount = 0;
+    // allMeshes accumulates every entity for the final optimised merge.
+    // batchGroups tracks the per-batch preview meshes added during streaming.
+    const allMeshes: MeshData[] = [];
+    const batchGroups: THREE.Group[] = [];
+
     for await (const event of geometry.processStreaming(buffer)) {
       switch (event.type) {
-        case 'batch':
-          addStreamingBatchToScene(event.meshes, scene, expressIdMap);
-          meshCount += event.meshes.length;
-          status.textContent = `Loaded ${meshCount} meshes...`;
-          break;
+        case 'batch': {
+          allMeshes.push(...event.meshes);
 
-        case 'complete':
-          fitCameraToScene();
-          status.textContent = `${file.name} — ${event.totalMeshes} meshes`;
+          // Each batch is immediately batched by vertex color and shown —
+          // the model appears progressively while streaming continues.
+          const { group } = batchWithVertexColors(event.meshes);
+          scene.add(group);
+          batchGroups.push(group);
+
+          status.textContent = `Streaming… ${allMeshes.length} meshes`;
           break;
+        }
+
+        case 'complete': {
+          // Build the single optimised mesh for the whole model:
+          // opaque → 1 draw call, transparent → grouped by alpha.
+          const { group: finalGroup, expressIdMap: newMap } =
+            batchWithVertexColors(allMeshes);
+
+          scene.add(finalGroup);
+          for (const [id, mesh] of newMap) expressIdMap.set(id, mesh);
+
+          fitCameraToScene();
+
+          // Dispose the per-batch preview groups one frame later so
+          // there is no visual gap between the two representations.
+          requestAnimationFrame(() => {
+            for (const g of batchGroups) {
+              scene.remove(g);
+              disposeGroup(g);
+            }
+            batchGroups.length = 0;
+
+            renderer.render(scene, camera);
+            const calls = renderer.info.render.calls;
+            status.textContent =
+              `${file.name} — ${event.totalMeshes} meshes · ${calls} draw calls`;
+          });
+          break;
+        }
       }
     }
   } catch (err) {
@@ -122,18 +161,23 @@ function clearScene() {
   );
   for (const obj of toRemove) {
     scene.remove(obj);
-    obj.traverse((child) => {
-      if (child instanceof THREE.Mesh) {
-        child.geometry.dispose();
-        if (Array.isArray(child.material)) {
-          child.material.forEach((m) => m.dispose());
-        } else {
-          child.material.dispose();
-        }
-      }
-    });
+    disposeGroup(obj);
   }
   expressIdMap.clear();
+}
+
+/** Recursively dispose geometry and materials of a scene subtree. */
+function disposeGroup(obj: THREE.Object3D) {
+  obj.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      child.geometry.dispose();
+      if (Array.isArray(child.material)) {
+        child.material.forEach((m) => m.dispose());
+      } else {
+        child.material.dispose();
+      }
+    }
+  });
 }
 
 function fitCameraToScene() {
