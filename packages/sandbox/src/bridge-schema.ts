@@ -550,6 +550,19 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         call: (sdk) => sdk.topology.connectedComponents(),
         returns: 'value',
       },
+      {
+        name: 'entityCentroid',
+        doc: 'Get centroid of any entity with mesh geometry (doors, stairs, walls, etc.)',
+        args: ['dump'],
+        paramNames: ['ref'],
+        tsParamTypes: ['EntityRef'],
+        tsReturn: '[number, number, number] | null',
+        call: (sdk, args) => {
+          const ref = args[0] as EntityRef;
+          return sdk.topology.entityCentroid(ref);
+        },
+        returns: 'value',
+      },
     ],
   },
 ];

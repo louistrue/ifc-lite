@@ -365,6 +365,8 @@ export interface TopologyBackendMethods {
   metrics(): TopologyNode[];
   envelope(): EntityRef[];
   connectedComponents(): EntityRef[][];
+  /** Get centroid of any entity with mesh geometry (doors, stairs, walls, etc.) */
+  entityCentroid(ref: EntityRef): [number, number, number] | null;
 }
 
 // ============================================================================

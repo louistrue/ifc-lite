@@ -510,6 +510,11 @@ export function createTopologyAdapter(store: StoreApi): TopologyBackendMethods {
       components.sort((a, b) => b.length - a.length);
       return components;
     },
+
+    entityCentroid(ref: EntityRef): [number, number, number] | null {
+      const { allCentroids } = buildGraphData();
+      return allCentroids.get(refKey(ref)) ?? null;
+    },
   };
 }
 

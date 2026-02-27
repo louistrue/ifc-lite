@@ -183,5 +183,7 @@ declare const bim: {
     envelope(): EntityRef[];
     /** Get groups of spaces reachable from each other */
     connectedComponents(): EntityRef[][];
+    /** Get centroid of any entity with mesh geometry (doors, stairs, walls, etc.) */
+    entityCentroid(ref: EntityRef): [number, number, number] | null;
   };
 };

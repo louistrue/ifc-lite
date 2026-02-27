@@ -95,7 +95,7 @@ function dist3d(a: [number, number, number], b: [number, number, number]): numbe
   return Math.sqrt(dx * dx + dy * dy + dz * dz)
 }
 
-// ── 4. Find door entities ────────────────────────────────────────────
+// ── 4. Find door entities and external exit doors ───────────────────
 const doorEntityRefs: EntityRef[] = []
 const seenDoors = new Set<string>()
 
@@ -112,36 +112,84 @@ for (const pair of adjacency) {
   }
 }
 
-console.log('Doors found: ' + doorEntityRefs.length)
-
-// ── 5. Identify exits ────────────────────────────────────────────────
-const degreeMap: Record<string, number> = {}
-for (const pair of adjacency) {
-  const k1 = pair.space1.modelId + ':' + pair.space1.expressId
-  const k2 = pair.space2.modelId + ':' + pair.space2.expressId
-  degreeMap[k1] = (degreeMap[k1] || 0) + 1
-  degreeMap[k2] = (degreeMap[k2] || 0) + 1
-}
-
-const exitSpaceKeys: string[] = []
-for (const m of metrics) {
-  const key = m.ref.modelId + ':' + m.ref.expressId
-  const lower = (m.name || '').toLowerCase()
-  if (lower.includes('exit') || lower.includes('entrance') ||
-      lower.includes('lobby') || lower.includes('stair') ||
-      lower.includes('treppe') || lower.includes('flur') ||
-      lower.includes('corridor') || lower.includes('hall')) {
-    exitSpaceKeys.push(key)
+// Find external doors from the building envelope.
+// Envelope elements border only ONE space (exterior on the other side).
+const envelopeRefs = bim.topology.envelope()
+const exitDoors: Array<{ ref: EntityRef; centroid: [number, number, number] }> = []
+for (const ref of envelopeRefs) {
+  const entity = bim.query.entity(ref.modelId, ref.expressId)
+  if (!entity) continue
+  const t = entity.type.toLowerCase()
+  if (t.includes('door') || t.includes('opening')) {
+    const c = bim.topology.entityCentroid(ref)
+    if (c) {
+      exitDoors.push({ ref, centroid: c })
+    }
   }
 }
 
+console.log('Doors found: ' + doorEntityRefs.length)
+console.log('Exit doors:  ' + exitDoors.length)
+
+// ── 5. Identify exits ────────────────────────────────────────────────
+// Find exit spaces: spaces that contain or are adjacent to external doors.
+// For each exit door, find the nearest space centroid.
+const exitSpaceKeys: string[] = []
+const exitSpaceKeySet = new Set<string>()
+
+// Map each exit door to the nearest space — that space becomes an exit
+const exitDoorBySpace: Record<string, { ref: EntityRef; centroid: [number, number, number] }> = {}
+for (const ed of exitDoors) {
+  let bestKey = ''
+  let bestDist = Infinity
+  for (const m of metrics) {
+    if (!m.centroid) continue
+    const key = m.ref.modelId + ':' + m.ref.expressId
+    const d = dist3d(m.centroid, ed.centroid)
+    if (d < bestDist) { bestDist = d; bestKey = key }
+  }
+  if (bestKey && !exitSpaceKeySet.has(bestKey)) {
+    exitSpaceKeySet.add(bestKey)
+    exitSpaceKeys.push(bestKey)
+    exitDoorBySpace[bestKey] = ed
+  }
+}
+
+// Fallback: if no external doors found, use name-based heuristic
 if (exitSpaceKeys.length === 0) {
-  const sortedByDegree = Object.entries(degreeMap)
-    .sort((a, b) => a[1] - b[1])
-  const minDegree = sortedByDegree[0]?.[1] ?? 1
-  for (const [key, deg] of sortedByDegree) {
-    if (deg <= minDegree) exitSpaceKeys.push(key)
-    if (exitSpaceKeys.length >= 3) break
+  const degreeMap: Record<string, number> = {}
+  for (const pair of adjacency) {
+    const k1 = pair.space1.modelId + ':' + pair.space1.expressId
+    const k2 = pair.space2.modelId + ':' + pair.space2.expressId
+    degreeMap[k1] = (degreeMap[k1] || 0) + 1
+    degreeMap[k2] = (degreeMap[k2] || 0) + 1
+  }
+
+  for (const m of metrics) {
+    const key = m.ref.modelId + ':' + m.ref.expressId
+    const lower = (m.name || '').toLowerCase()
+    if (lower.includes('exit') || lower.includes('entrance') ||
+        lower.includes('lobby') || lower.includes('treppe') ||
+        lower.includes('flur') || lower.includes('hall')) {
+      if (!exitSpaceKeySet.has(key)) {
+        exitSpaceKeySet.add(key)
+        exitSpaceKeys.push(key)
+      }
+    }
+  }
+
+  // Last resort: lowest-degree spaces
+  if (exitSpaceKeys.length === 0) {
+    const sortedByDegree = Object.entries(degreeMap)
+      .sort((a, b) => a[1] - b[1])
+    const minDegree = sortedByDegree[0]?.[1] ?? 1
+    for (const [key, deg] of sortedByDegree) {
+      if (deg <= minDegree && !exitSpaceKeySet.has(key)) {
+        exitSpaceKeySet.add(key)
+        exitSpaceKeys.push(key)
+      }
+      if (exitSpaceKeys.length >= 3) break
+    }
   }
 }
 
@@ -208,10 +256,11 @@ for (const m of metrics) {
     if (!result) continue
 
     // Build segments that route through doors and stair flights.
-    // Distance measurement STOPS at the last exit door — anything
+    // Distance measurement STOPS at the external exit door — anything
     // past it is drawn visually but not counted.
     const segments: EvacPath['segments'] = []
     let totalLength = 0
+    const extDoor = exitDoorBySpace[exitKey]
 
     for (let i = 0; i < result.path.length - 1; i++) {
       const fromKey = result.path[i].modelId + ':' + result.path[i].expressId
@@ -222,33 +271,6 @@ for (const m of metrics) {
 
       const wp = waypointMap[fromKey + '|' + toKey]
       const dz = Math.abs(toC[2] - fromC[2])
-      const isLastHop = i === result.path.length - 2
-
-      // ── Last hop to exit: measure TO the exit door, then extend past ──
-      if (isLastHop && wp && wp.type === 'door') {
-        const doorPos: [number, number, number] = [
-          wp.centroid[0], wp.centroid[1], (fromC[2] + toC[2]) / 2
-        ]
-
-        // Measured segment: space centroid → exit door
-        const len = dist3d(fromC, doorPos)
-        segments.push({ from: fromC, to: doorPos, length: len })
-        totalLength += len
-
-        // Visual-only extension past exit door (length=0 → not counted)
-        const dx = doorPos[0] - fromC[0]
-        const dy = doorPos[1] - fromC[1]
-        const hLen = Math.sqrt(dx * dx + dy * dy)
-        if (hLen > 0.01) {
-          const extEnd: [number, number, number] = [
-            doorPos[0] + (dx / hLen) * EXIT_EXTENSION,
-            doorPos[1] + (dy / hLen) * EXIT_EXTENSION,
-            doorPos[2],
-          ]
-          segments.push({ from: doorPos, to: extEnd, length: 0 })
-        }
-        continue
-      }
 
       // ── Inter-floor via stair ──
       if (dz > FLOOR_Z_THRESHOLD && wp) {
@@ -296,6 +318,36 @@ for (const m of metrics) {
           segments.push({ from: fromC, to: toC, length: segLen })
           totalLength += segLen
         }
+      }
+    }
+
+    // ── Final segment: route through the external exit door ──────────
+    // The path so far ends at the exit space centroid. Now extend
+    // through the actual external door and a few meters past it.
+    if (extDoor && segments.length > 0) {
+      const lastPt = segments[segments.length - 1].to
+      const exitDoorPos: [number, number, number] = [
+        extDoor.centroid[0], extDoor.centroid[1], lastPt[2]
+      ]
+
+      // Measured: exit space centroid → external door
+      const lenToDoor = dist3d(lastPt, exitDoorPos)
+      if (lenToDoor > 0.01) {
+        segments.push({ from: lastPt, to: exitDoorPos, length: lenToDoor })
+        totalLength += lenToDoor
+      }
+
+      // Visual-only: extend 3m past external door (not counted)
+      const dx = exitDoorPos[0] - lastPt[0]
+      const dy = exitDoorPos[1] - lastPt[1]
+      const hLen = Math.sqrt(dx * dx + dy * dy)
+      if (hLen > 0.01) {
+        const extEnd: [number, number, number] = [
+          exitDoorPos[0] + (dx / hLen) * EXIT_EXTENSION,
+          exitDoorPos[1] + (dy / hLen) * EXIT_EXTENSION,
+          exitDoorPos[2],
+        ]
+        segments.push({ from: exitDoorPos, to: extEnd, length: 0 })
       }
     }
 

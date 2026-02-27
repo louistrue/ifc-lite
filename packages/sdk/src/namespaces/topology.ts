@@ -61,4 +61,9 @@ export class TopologyNamespace {
   connectedComponents(): EntityRef[][] {
     return this.backend.topology.connectedComponents();
   }
+
+  /** Get centroid of any entity with mesh geometry (doors, stairs, walls, etc.) */
+  entityCentroid(ref: EntityRef): [number, number, number] | null {
+    return this.backend.topology.entityCentroid(ref);
+  }
 }
