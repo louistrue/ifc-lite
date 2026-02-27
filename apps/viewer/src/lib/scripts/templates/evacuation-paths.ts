@@ -166,8 +166,14 @@ if (sampleCentroids.length >= 2) {
 
 // Typical stair slope: ~33° → walking distance ≈ 1.83× rise
 const STAIR_WALK_FACTOR = 1.83
+// Scale factor: how many model units per meter
+const MODEL_UNITS_PER_M = unitLabel === 'mm' ? 1000 : 1
 // Floor height threshold to detect inter-floor transitions
-const FLOOR_Z_THRESHOLD = 1.5
+const FLOOR_Z_THRESHOLD = 1.5 * MODEL_UNITS_PER_M
+// Max allowed evacuation distance (fire safety code)
+const MAX_EVAC_DISTANCE = 35 * MODEL_UNITS_PER_M // 35 m
+// Visual extension past exit door (not counted in distance)
+const EXIT_EXTENSION = 3 * MODEL_UNITS_PER_M // 3 m
 
 // ── 7. Compute evacuation paths with stair-aware distances ───────────
 interface EvacPath {
@@ -201,7 +207,9 @@ for (const m of metrics) {
     const result = bim.topology.shortestPath(m.ref, exitRef)
     if (!result) continue
 
-    // Build segments that route through doors and stair flights
+    // Build segments that route through doors and stair flights.
+    // Distance measurement STOPS at the last exit door — anything
+    // past it is drawn visually but not counted.
     const segments: EvacPath['segments'] = []
     let totalLength = 0
 
@@ -214,33 +222,57 @@ for (const m of metrics) {
 
       const wp = waypointMap[fromKey + '|' + toKey]
       const dz = Math.abs(toC[2] - fromC[2])
+      const isLastHop = i === result.path.length - 2
 
+      // ── Last hop to exit: measure TO the exit door, then extend past ──
+      if (isLastHop && wp && wp.type === 'door') {
+        const doorPos: [number, number, number] = [
+          wp.centroid[0], wp.centroid[1], (fromC[2] + toC[2]) / 2
+        ]
+
+        // Measured segment: space centroid → exit door
+        const len = dist3d(fromC, doorPos)
+        segments.push({ from: fromC, to: doorPos, length: len })
+        totalLength += len
+
+        // Visual-only extension past exit door (length=0 → not counted)
+        const dx = doorPos[0] - fromC[0]
+        const dy = doorPos[1] - fromC[1]
+        const hLen = Math.sqrt(dx * dx + dy * dy)
+        if (hLen > 0.01) {
+          const extEnd: [number, number, number] = [
+            doorPos[0] + (dx / hLen) * EXIT_EXTENSION,
+            doorPos[1] + (dy / hLen) * EXIT_EXTENSION,
+            doorPos[2],
+          ]
+          segments.push({ from: doorPos, to: extEnd, length: 0 })
+        }
+        continue
+      }
+
+      // ── Inter-floor via stair ──
       if (dz > FLOOR_Z_THRESHOLD && wp) {
-        // Inter-floor via stair: route through stair entry/exit points
-        // Use stair XY position, but project Z to each floor level
         const stairEntry: [number, number, number] = [wp.centroid[0], wp.centroid[1], fromC[2]]
         const stairExit: [number, number, number] = [wp.centroid[0], wp.centroid[1], toC[2]]
 
-        // Horizontal to stair entrance on source floor
         const len1 = dist3d(fromC, stairEntry)
         if (len1 > 0.01) {
           segments.push({ from: fromC, to: stairEntry, length: len1 })
           totalLength += len1
         }
 
-        // Up/down the stair (walking distance = rise × stair factor)
         const stairLen = dz * STAIR_WALK_FACTOR
         segments.push({ from: stairEntry, to: stairExit, length: stairLen })
         totalLength += stairLen
 
-        // Horizontal from stair exit to target on destination floor
         const len3 = dist3d(stairExit, toC)
         if (len3 > 0.01) {
           segments.push({ from: stairExit, to: toC, length: len3 })
           totalLength += len3
         }
+
+      // ── Same floor via door ──
       } else if (wp && wp.type === 'door') {
-        // Same floor via door: route through the actual door position
         const doorPos: [number, number, number] = [
           wp.centroid[0], wp.centroid[1], (fromC[2] + toC[2]) / 2
         ]
@@ -252,11 +284,11 @@ for (const m of metrics) {
         const len2 = dist3d(doorPos, toC)
         segments.push({ from: doorPos, to: toC, length: len2 })
         totalLength += len2
+
+      // ── Fallback: direct line ──
       } else {
-        // No waypoint — fallback to direct line
         const segLen = dist3d(fromC, toC)
         if (dz > FLOOR_Z_THRESHOLD) {
-          // Still adjust distance for stair walking
           const stairLen = Math.max(segLen, dz * STAIR_WALK_FACTOR)
           segments.push({ from: fromC, to: toC, length: stairLen })
           totalLength += stairLen
@@ -305,8 +337,8 @@ interface Line3D {
 
 function lengthToColor(length: number): string {
   // Gradient from green (short/safe) → yellow → red (long/dangerous)
-  const range = Math.max(maxLength - minLength, 0.001)
-  const t = (length - minLength) / range // 0 = shortest, 1 = longest
+  // Scale against the 35 m regulatory limit, not the actual max
+  const t = Math.min(length / MAX_EVAC_DISTANCE, 1) // 0 = 0 m, 1 = 35 m+
 
   // Green (120°) → Yellow (60°) → Red (0°) in HSL
   const hue = Math.round(120 * (1 - t))
@@ -424,19 +456,20 @@ bim.viewer.flyTo(spaces)
 // ── 11. Report ───────────────────────────────────────────────────────
 console.log('')
 console.log('── Visualization Legend ──')
-console.log('  All elements hidden except doors, stairs & spaces.')
+console.log('  Distance measured to exit door (not room centroid).')
+console.log('  Max allowed distance: 35 m')
 console.log('  3D path lines overlaid (always visible):')
-console.log('    Green  = short path to exit (safe)')
+console.log('    Green  = short path to exit door (safe)')
 console.log('    Yellow = moderate distance')
-console.log('    Red    = long path to exit (dangerous)')
+console.log('    Red    = approaching or exceeding 35 m limit')
 console.log('  Spaces colored by evacuation distance.')
 console.log('    Blue   = exit / egress point')
 console.log('')
 
 // ── 12. Evacuation distance schedule ─────────────────────────────────
-console.log('── Evacuation Distance Schedule ──')
-console.log('Space                   | Distance   | Hops | Exit via')
-console.log('------------------------+------------+------+------------------')
+console.log('── Evacuation Distance Schedule (to exit door) ──')
+console.log('Space                   | Distance   | Status | Exit via')
+console.log('------------------------+------------+--------+------------------')
 
 const sorted = [...evacPaths].sort((a, b) => b.totalLength - a.totalLength)
 for (const p of sorted.slice(0, 30)) {
@@ -450,11 +483,13 @@ for (const p of sorted.slice(0, 30)) {
   const displayLen = unitLabel === 'mm'
     ? (p.totalLength * unitScale).toFixed(2) + ' m'
     : p.totalLength.toFixed(2) + ' ' + unitLabel
+  const pass = p.totalLength <= MAX_EVAC_DISTANCE
   const nameCol = (spaceName + '                        ').slice(0, 24)
   const distCol = (displayLen + '            ').slice(0, 12)
-  const hopsCol = (p.hops + '    ').slice(0, 4)
+  const statusCol = pass ? 'OK     ' : 'FAIL   '
   const exitCol = exitName.slice(0, 18)
-  console.log(nameCol + '| ' + distCol + '| ' + hopsCol + ' | ' + exitCol)
+  const logFn = pass ? console.log : console.warn
+  logFn(nameCol + '| ' + distCol + '| ' + statusCol + '| ' + exitCol)
 }
 
 if (sorted.length > 30) {
@@ -472,29 +507,40 @@ console.log('  Total paths:     ' + evacPaths.length)
 console.log('  Shortest path:   ' + displayMin + ' ' + displayUnit)
 console.log('  Longest path:    ' + displayMax + ' ' + displayUnit)
 console.log('  Average path:    ' + displayAvg + ' ' + displayUnit)
+console.log('  Max allowed:     35.00 ' + displayUnit)
 console.log('  Total exits:     ' + exitSpaceKeys.length)
 console.log('  Doors traversed: ' + doorEntityRefs.length)
 
-// ── 14. Highlight critical paths ─────────────────────────────────────
-// Find and select the spaces with longest evacuation distance
-const dangerThreshold = minLength + (maxLength - minLength) * 0.8 // top 20%
-const dangerousPaths = sorted.filter(p => p.totalLength >= dangerThreshold)
-if (dangerousPaths.length > 0) {
-  // Show the dangerous spaces and color them red
-  const dangerEntities: BimEntity[] = []
-  for (const p of dangerousPaths) {
-    const entity = entityMap[p.spaceKey]
-    if (entity) dangerEntities.push(entity)
-  }
-  if (dangerEntities.length > 0) {
-    bim.viewer.colorize(dangerEntities, '#e74c3c')
-    bim.viewer.select(dangerEntities)
+// ── 14. Fire safety compliance — 35 m max evacuation distance ────────
+const nonCompliant = sorted.filter(p => p.totalLength > MAX_EVAC_DISTANCE)
+const compliant = sorted.filter(p => p.totalLength <= MAX_EVAC_DISTANCE)
 
-    const worstLen = unitLabel === 'mm'
-      ? (dangerousPaths[0].totalLength * unitScale).toFixed(1)
-      : dangerousPaths[0].totalLength.toFixed(1)
-    console.log('')
-    console.warn(dangerEntities.length + ' space(s) exceed 80% of max evacuation distance')
-    console.warn('Worst: ' + worstLen + ' ' + displayUnit + ' — review for fire safety compliance.')
+console.log('')
+console.log('── Fire Safety Compliance (35 m max) ──')
+console.log('  PASS: ' + compliant.length + ' space(s) within 35 m')
+
+if (nonCompliant.length > 0) {
+  const failEntities: BimEntity[] = []
+  for (const p of nonCompliant) {
+    const entity = entityMap[p.spaceKey]
+    if (entity) failEntities.push(entity)
   }
+  if (failEntities.length > 0) {
+    bim.viewer.colorize(failEntities, '#e74c3c')
+    bim.viewer.select(failEntities)
+  }
+
+  console.warn('  FAIL: ' + nonCompliant.length + ' space(s) EXCEED 35 m limit!')
+  for (const p of nonCompliant.slice(0, 10)) {
+    const name = metrics.find(m =>
+      m.ref.modelId + ':' + m.ref.expressId === p.spaceKey
+    )?.name || '?'
+    const dist = unitLabel === 'mm'
+      ? (p.totalLength * unitScale).toFixed(1)
+      : p.totalLength.toFixed(1)
+    console.warn('    ' + name + ': ' + dist + ' ' + displayUnit)
+  }
+  console.warn('  Review these spaces for fire safety compliance.')
+} else {
+  console.log('  All spaces comply with the 35 m evacuation limit.')
 }
