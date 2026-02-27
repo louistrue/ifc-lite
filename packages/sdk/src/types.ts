@@ -191,6 +191,8 @@ export interface AdjacencyPair {
   space2: EntityRef;
   sharedRefs: EntityRef[];
   sharedTypes: string[];
+  /** Centroids of shared boundary elements (doors, stairs) — same index as sharedRefs */
+  sharedCentroids: ([number, number, number] | null)[];
 }
 
 /** Centrality metrics for a single node */

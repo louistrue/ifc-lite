@@ -32,6 +32,8 @@ interface GraphData {
   nodeMap: Map<string, TopologyNode>;
   /** Adjacency list: nodeKey → Map<neighborKey, edge> */
   adj: Map<string, Map<string, { weight: number; sharedRefs: EntityRef[]; sharedTypes: string[] }>>;
+  /** Centroids for ALL entities with mesh geometry (doors, stairs, walls, etc.) */
+  allCentroids: Map<string, [number, number, number]>;
 }
 
 function refKey(ref: EntityRef): string {
@@ -183,10 +185,30 @@ export function createTopologyAdapter(store: StoreApi): TopologyBackendMethods {
       buildAdjacencyFromContainment(store, nodeMap, adj);
     }
 
-    // Populate centroids from mesh geometry
-    populateCentroids(store, nodeMap);
+    // Populate centroids from mesh geometry (spaces + all boundary elements)
+    const allCentroids = populateAllCentroids(store, nodeMap);
 
-    return { nodeMap, adj };
+    // Fill missing space centroids from neighbor averages
+    for (const [key, node] of nodeMap) {
+      if (node.centroid) continue;
+      const neighbors = adj.get(key);
+      if (!neighbors || neighbors.size === 0) continue;
+      let sumX = 0, sumY = 0, sumZ = 0, count = 0;
+      for (const [nKey] of neighbors) {
+        const neighbor = nodeMap.get(nKey);
+        if (neighbor?.centroid) {
+          sumX += neighbor.centroid[0];
+          sumY += neighbor.centroid[1];
+          sumZ += neighbor.centroid[2];
+          count++;
+        }
+      }
+      if (count > 0) {
+        node.centroid = [sumX / count, sumY / count, sumZ / count];
+      }
+    }
+
+    return { nodeMap, adj, allCentroids };
   }
 
   // ── Public methods ───────────────────────────────────────────────────
@@ -217,7 +239,7 @@ export function createTopologyAdapter(store: StoreApi): TopologyBackendMethods {
     },
 
     adjacency(): AdjacencyPair[] {
-      const { adj } = buildGraphData();
+      const { adj, allCentroids } = buildGraphData();
       const pairs: AdjacencyPair[] = [];
       const seen = new Set<string>();
 
@@ -227,11 +249,17 @@ export function createTopologyAdapter(store: StoreApi): TopologyBackendMethods {
           if (seen.has(pairId)) continue;
           seen.add(pairId);
 
+          // Look up centroids for each shared boundary element
+          const sharedCentroids: ([number, number, number] | null)[] = data.sharedRefs.map(
+            ref => allCentroids.get(refKey(ref)) ?? null,
+          );
+
           pairs.push({
             space1: keyToRef(sourceKey),
             space2: keyToRef(targetKey),
             sharedRefs: data.sharedRefs,
             sharedTypes: data.sharedTypes,
+            sharedCentroids,
           });
         }
       }
@@ -487,12 +515,17 @@ export function createTopologyAdapter(store: StoreApi): TopologyBackendMethods {
 
 // ── Centroid computation from mesh geometry ───────────────────────────
 
-/** Populate centroid on each TopologyNode from mesh vertex positions. */
-function populateCentroids(
+/**
+ * Compute centroids for ALL entities with mesh geometry.
+ * Populates space centroids on TopologyNode objects and returns a map
+ * of all entity centroids (doors, stairs, walls, etc.) for use as path waypoints.
+ */
+function populateAllCentroids(
   store: StoreApi,
   nodeMap: Map<string, TopologyNode>,
-): void {
+): Map<string, [number, number, number]> {
   const state = store.getState();
+  const allCentroids = new Map<string, [number, number, number]>();
 
   // Multi-model federation
   if (state.models.size > 0) {
@@ -504,9 +537,14 @@ function populateCentroids(
         if (!mesh.positions || mesh.positions.length === 0) continue;
         const originalId = mesh.expressId - offset;
         const key = `${modelId}:${originalId}`;
-        const node = nodeMap.get(key);
-        if (node && !node.centroid) {
-          node.centroid = computeCentroid(mesh.positions);
+        const centroid = computeCentroid(mesh.positions);
+        if (centroid) {
+          allCentroids.set(key, centroid);
+          // Also populate space nodes
+          const node = nodeMap.get(key);
+          if (node && !node.centroid) {
+            node.centroid = centroid;
+          }
         }
       }
     }
@@ -517,12 +555,18 @@ function populateCentroids(
     for (const mesh of state.geometryResult.meshes) {
       if (!mesh.positions || mesh.positions.length === 0) continue;
       const key = `default:${mesh.expressId}`;
-      const node = nodeMap.get(key);
-      if (node && !node.centroid) {
-        node.centroid = computeCentroid(mesh.positions);
+      const centroid = computeCentroid(mesh.positions);
+      if (centroid) {
+        allCentroids.set(key, centroid);
+        const node = nodeMap.get(key);
+        if (node && !node.centroid) {
+          node.centroid = centroid;
+        }
       }
     }
   }
+
+  return allCentroids;
 }
 
 // ── Fallback: geometry-proximity adjacency ────────────────────────────

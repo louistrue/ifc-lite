@@ -58,6 +58,35 @@ for (const m of metrics) {
   }
 }
 
+// Build waypoint lookup: for each pair of adjacent spaces, find the
+// door or stair that connects them so we can route lines through it.
+const waypointMap: Record<string, { centroid: [number, number, number]; type: string }> = {}
+for (const pair of adjacency) {
+  const k1 = pair.space1.modelId + ':' + pair.space1.expressId
+  const k2 = pair.space2.modelId + ':' + pair.space2.expressId
+
+  // Pick the best waypoint: prefer doors over stairs over anything else
+  let bestWaypoint: { centroid: [number, number, number]; type: string } | null = null
+  for (let i = 0; i < pair.sharedTypes.length; i++) {
+    const t = pair.sharedTypes[i].toLowerCase()
+    const c = pair.sharedCentroids[i]
+    if (!c) continue
+
+    if (t.includes('door') || t.includes('opening')) {
+      bestWaypoint = { centroid: c, type: 'door' }
+      break // doors are the ideal waypoint
+    }
+    if ((t.includes('stair') || t === 'vertical') && !bestWaypoint) {
+      bestWaypoint = { centroid: c, type: 'stair' }
+    }
+  }
+
+  if (bestWaypoint) {
+    waypointMap[k1 + '|' + k2] = bestWaypoint
+    waypointMap[k2 + '|' + k1] = bestWaypoint
+  }
+}
+
 // ── 3. Euclidean distance helper ─────────────────────────────────────
 function dist3d(a: [number, number, number], b: [number, number, number]): number {
   const dx = a[0] - b[0]
@@ -172,7 +201,7 @@ for (const m of metrics) {
     const result = bim.topology.shortestPath(m.ref, exitRef)
     if (!result) continue
 
-    // Compute path length — inter-floor segments use stair walking distance
+    // Build segments that route through doors and stair flights
     const segments: EvacPath['segments'] = []
     let totalLength = 0
 
@@ -181,23 +210,57 @@ for (const m of metrics) {
       const toKey = result.path[i + 1].modelId + ':' + result.path[i + 1].expressId
       const fromC = centroidMap[fromKey]
       const toC = centroidMap[toKey]
-      if (fromC && toC) {
-        const dz = Math.abs(toC[2] - fromC[2])
+      if (!fromC || !toC) continue
 
+      const wp = waypointMap[fromKey + '|' + toKey]
+      const dz = Math.abs(toC[2] - fromC[2])
+
+      if (dz > FLOOR_Z_THRESHOLD && wp) {
+        // Inter-floor via stair: route through stair entry/exit points
+        // Use stair XY position, but project Z to each floor level
+        const stairEntry: [number, number, number] = [wp.centroid[0], wp.centroid[1], fromC[2]]
+        const stairExit: [number, number, number] = [wp.centroid[0], wp.centroid[1], toC[2]]
+
+        // Horizontal to stair entrance on source floor
+        const len1 = dist3d(fromC, stairEntry)
+        if (len1 > 0.01) {
+          segments.push({ from: fromC, to: stairEntry, length: len1 })
+          totalLength += len1
+        }
+
+        // Up/down the stair (walking distance = rise × stair factor)
+        const stairLen = dz * STAIR_WALK_FACTOR
+        segments.push({ from: stairEntry, to: stairExit, length: stairLen })
+        totalLength += stairLen
+
+        // Horizontal from stair exit to target on destination floor
+        const len3 = dist3d(stairExit, toC)
+        if (len3 > 0.01) {
+          segments.push({ from: stairExit, to: toC, length: len3 })
+          totalLength += len3
+        }
+      } else if (wp && wp.type === 'door') {
+        // Same floor via door: route through the actual door position
+        const doorPos: [number, number, number] = [
+          wp.centroid[0], wp.centroid[1], (fromC[2] + toC[2]) / 2
+        ]
+
+        const len1 = dist3d(fromC, doorPos)
+        segments.push({ from: fromC, to: doorPos, length: len1 })
+        totalLength += len1
+
+        const len2 = dist3d(doorPos, toC)
+        segments.push({ from: doorPos, to: toC, length: len2 })
+        totalLength += len2
+      } else {
+        // No waypoint — fallback to direct line
+        const segLen = dist3d(fromC, toC)
         if (dz > FLOOR_Z_THRESHOLD) {
-          // Inter-floor transition via stairwell
-          // Draw direct line (topology now routes through stairwell spaces
-          // which are at the stair XY position), but use realistic stair
-          // walking distance instead of straight-line euclidean
-          const euclidean = dist3d(fromC, toC)
-          const stairWalkDist = dz * STAIR_WALK_FACTOR
-          // Use the greater of euclidean and stair walk distance
-          const segLen = Math.max(euclidean, stairWalkDist)
-          segments.push({ from: fromC, to: toC, length: segLen })
-          totalLength += segLen
+          // Still adjust distance for stair walking
+          const stairLen = Math.max(segLen, dz * STAIR_WALK_FACTOR)
+          segments.push({ from: fromC, to: toC, length: stairLen })
+          totalLength += stairLen
         } else {
-          // Same floor — direct centroid-to-centroid line
-          const segLen = dist3d(fromC, toC)
           segments.push({ from: fromC, to: toC, length: segLen })
           totalLength += segLen
         }
