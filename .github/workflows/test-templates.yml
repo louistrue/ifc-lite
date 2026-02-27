@@ -42,9 +42,9 @@ jobs:
       - name: Scaffold ${{ matrix.template }} template
         run: |
           mkdir -p /tmp/scaffold
-          node packages/create-ifc-lite/dist/index.js test-${{ matrix.template }} \
-            --template ${{ matrix.template }}
-        working-directory: /tmp/scaffold
+          cd /tmp/scaffold
+          node $GITHUB_WORKSPACE/packages/create-ifc-lite/dist/index.js \
+            test-${{ matrix.template }} --template ${{ matrix.template }}
 
       - name: Install template deps (npm, as a real user would)
         run: npm install --prefer-offline
