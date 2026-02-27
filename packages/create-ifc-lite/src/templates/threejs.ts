@@ -137,8 +137,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GeometryProcessor } from '@ifc-lite/geometry';
 import { meshDataToThree } from './ifc-to-threejs.js';
 
-const canvas = document.getElementById('viewer');
-const fileInput = document.getElementById('file-input');
+const canvas = document.getElementById('viewer') as HTMLCanvasElement | null;
+const fileInput = document.getElementById('file-input') as HTMLInputElement | null;
 const status = document.getElementById('status');
 if (!canvas || !fileInput || !status) {
   throw new Error('Required DOM elements not found: viewer, file-input, or status');
@@ -156,7 +156,7 @@ const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 10000);
 camera.position.set(20, 15, 20);
 
 const controls = new OrbitControls(camera, canvas);
-controls.enableDamping = true;
+controls.enableDamping = false;
 
 // Lighting
 scene.add(new THREE.AmbientLight(0xffffff, 0.6));
