@@ -10,6 +10,7 @@ import type { Mesh, InstancedMesh, BatchedMesh, Vec3 } from './types.js';
 import type { MeshData } from '@ifc-lite/geometry';
 import { MathUtils } from './math.js';
 import type { RenderPipeline } from './pipeline.js';
+import { BATCH_CONSTANTS } from './constants.js';
 
 const MAX_ENCODED_ENTITY_ID = 0xFFFFFF;
 let warnedEntityIdRange = false;
@@ -23,10 +24,10 @@ export class Scene {
   private meshes: Mesh[] = [];
   private instancedMeshes: InstancedMesh[] = [];
   private batchedMeshes: BatchedMesh[] = [];
-  private batchedMeshMap: Map<string, BatchedMesh> = new Map(); // Map colorKey -> BatchedMesh
+  private batchedMeshMap: Map<string, BatchedMesh[]> = new Map(); // Map colorKey -> BatchedMesh[] (split when buffer exceeds GPU limit)
   private batchedMeshData: Map<string, MeshData[]> = new Map(); // Map colorKey -> accumulated MeshData[]
-  private batchedMeshIndex: Map<string, number> = new Map(); // Map colorKey -> index in batchedMeshes array (O(1) lookup)
   private meshDataMap: Map<number, MeshData[]> = new Map(); // Map expressId -> MeshData[] (for lazy buffer creation, accumulates multiple pieces)
+  private nextBatchId: number = 0; // Monotonic counter for unique batch IDs
   private meshDataBatchKey: Map<MeshData, string> = new Map(); // Reverse lookup: MeshData -> colorKey (O(1) removal in updateMeshColors)
   private boundingBoxes: Map<number, BoundingBox> = new Map(); // Map expressId -> bounding box (computed lazily)
 
@@ -265,41 +266,53 @@ export class Scene {
 
   /**
    * Rebuild all pending batches (call this after streaming completes)
+   *
+   * Splits oversized batches into multiple sub-batches so that no single
+   * GPU buffer exceeds the device's maxBufferSize limit (typically 256 MB).
    */
   rebuildPendingBatches(device: GPUDevice, pipeline: RenderPipeline): void {
     if (this.pendingBatchKeys.size === 0) return;
 
+    const maxBufferSize = this.getMaxBufferSize(device);
+
     for (const key of this.pendingBatchKeys) {
       const meshDataForKey = this.batchedMeshData.get(key);
-      if (!meshDataForKey || meshDataForKey.length === 0) continue;
 
-      const existingBatch = this.batchedMeshMap.get(key);
-
-      if (existingBatch) {
-        // Destroy old batch buffers
-        existingBatch.vertexBuffer.destroy();
-        existingBatch.indexBuffer.destroy();
-        if (existingBatch.uniformBuffer) {
-          existingBatch.uniformBuffer.destroy();
+      // Destroy old batch(es) for this color key
+      const existingBatches = this.batchedMeshMap.get(key);
+      if (existingBatches) {
+        for (const batch of existingBatches) {
+          batch.vertexBuffer.destroy();
+          batch.indexBuffer.destroy();
+          if (batch.uniformBuffer) {
+            batch.uniformBuffer.destroy();
+          }
         }
       }
 
-      // Create new batch with all accumulated meshes for this color
-      const color = meshDataForKey[0].color;
-      const batchedMesh = this.createBatchedMesh(meshDataForKey, color, device, pipeline);
-      this.batchedMeshMap.set(key, batchedMesh);
-
-      // Update array using O(1) index lookup instead of O(N) findIndex
-      const existingIndex = this.batchedMeshIndex.get(key);
-      if (existingIndex !== undefined) {
-        this.batchedMeshes[existingIndex] = batchedMesh;
-      } else {
-        const newIndex = this.batchedMeshes.length;
-        this.batchedMeshes.push(batchedMesh);
-        this.batchedMeshIndex.set(key, newIndex);
+      if (!meshDataForKey || meshDataForKey.length === 0) {
+        // Color group is now empty — remove from map
+        this.batchedMeshMap.delete(key);
+        continue;
       }
+
+      // Split mesh data into chunks that fit within GPU buffer size limits
+      const chunks = this.splitMeshDataForBufferLimit(meshDataForKey, maxBufferSize);
+      const color = meshDataForKey[0].color;
+
+      const newBatches: BatchedMesh[] = [];
+      for (let i = 0; i < chunks.length; i++) {
+        const batchId = chunks.length === 1
+          ? key                         // Single chunk: batchId === colorKey (no suffix)
+          : `${key}:s${this.nextBatchId++}`;  // Split: unique batchId
+        newBatches.push(this.createBatchedMesh(chunks[i], color, device, pipeline, batchId));
+      }
+
+      this.batchedMeshMap.set(key, newBatches);
     }
 
+    // Rebuild flat array from map
+    this.rebuildBatchedMeshesArray();
     this.pendingBatchKeys.clear();
     this.lastBatchRebuildTime = performance.now();
   }
@@ -385,38 +398,10 @@ export class Scene {
       this.pendingBatchKeys.add(key);
     }
 
-    // Rebuild affected batches
+    // Rebuild affected batches (rebuildPendingBatches handles empty-key removal
+    // and flat-array reconstruction internally)
     if (this.pendingBatchKeys.size > 0) {
       this.rebuildPendingBatches(device, pipeline);
-
-      // Remove empty batches
-      for (const key of affectedOldKeys) {
-        const batchData = this.batchedMeshData.get(key);
-        if (!batchData || batchData.length === 0) {
-          const batch = this.batchedMeshMap.get(key);
-          if (batch) {
-            batch.vertexBuffer.destroy();
-            batch.indexBuffer.destroy();
-            if (batch.uniformBuffer) {
-              batch.uniformBuffer.destroy();
-            }
-            this.batchedMeshMap.delete(key);
-            // Use O(1) indexed removal instead of O(N) findIndex
-            const arrayIdx = this.batchedMeshIndex.get(key);
-            if (arrayIdx !== undefined) {
-              // Swap with last element to avoid shifting the array
-              const lastIdx = this.batchedMeshes.length - 1;
-              if (arrayIdx !== lastIdx) {
-                const lastBatch = this.batchedMeshes[lastIdx];
-                this.batchedMeshes[arrayIdx] = lastBatch;
-                this.batchedMeshIndex.set(lastBatch.colorKey, arrayIdx);
-              }
-              this.batchedMeshes.pop();
-              this.batchedMeshIndex.delete(key);
-            }
-          }
-        }
-      }
     }
   }
 
@@ -427,10 +412,13 @@ export class Scene {
     meshDataArray: MeshData[],
     color: [number, number, number, number],
     device: GPUDevice,
-    pipeline: RenderPipeline
+    pipeline: RenderPipeline,
+    batchId?: string
   ): BatchedMesh {
     const merged = this.mergeGeometry(meshDataArray);
     const expressIds = meshDataArray.map(m => m.expressId);
+    const key = this.colorKey(color);
+    const id = batchId ?? key;
 
     // Create vertex buffer (interleaved positions + normals)
     const vertexBuffer = device.createBuffer({
@@ -464,7 +452,8 @@ export class Scene {
     });
 
     return {
-      colorKey: this.colorKey(color),
+      batchId: id,
+      colorKey: key,
       vertexBuffer,
       indexBuffer,
       indexCount: merged.indices.length,
@@ -546,25 +535,103 @@ export class Scene {
   }
 
   /**
+   * Get the effective max buffer size for this GPU device, with a safety margin.
+   */
+  private getMaxBufferSize(device: GPUDevice): number {
+    const deviceMax = device.limits?.maxBufferSize ?? BATCH_CONSTANTS.FALLBACK_MAX_BUFFER_SIZE;
+    return Math.floor(deviceMax * BATCH_CONSTANTS.BUFFER_SIZE_SAFETY_FACTOR);
+  }
+
+  /**
+   * Split a meshDataArray into chunks where each chunk's largest buffer
+   * (vertex or index) stays within maxBufferSize.
+   *
+   * Each mesh is kept intact — we never split a single element's geometry.
+   * If a single mesh exceeds the limit on its own it is placed in a solo chunk
+   * (WebGPU will clamp or error, but we don't silently drop geometry).
+   */
+  private splitMeshDataForBufferLimit(meshDataArray: MeshData[], maxBufferSize: number): MeshData[][] {
+    // Fast path: estimate total size — if it fits, no splitting needed
+    let totalVertexBytes = 0;
+    let totalIndexBytes = 0;
+    for (const mesh of meshDataArray) {
+      totalVertexBytes += (mesh.positions.length / 3) * BATCH_CONSTANTS.BYTES_PER_VERTEX;
+      totalIndexBytes += mesh.indices.length * BATCH_CONSTANTS.BYTES_PER_INDEX;
+    }
+    if (totalVertexBytes <= maxBufferSize && totalIndexBytes <= maxBufferSize) {
+      return [meshDataArray];
+    }
+
+    // Slow path: partition into chunks
+    const chunks: MeshData[][] = [];
+    let currentChunk: MeshData[] = [];
+    let currentVertexBytes = 0;
+    let currentIndexBytes = 0;
+
+    for (const mesh of meshDataArray) {
+      const meshVertexBytes = (mesh.positions.length / 3) * BATCH_CONSTANTS.BYTES_PER_VERTEX;
+      const meshIndexBytes = mesh.indices.length * BATCH_CONSTANTS.BYTES_PER_INDEX;
+
+      // Would adding this mesh exceed the limit? Start a new chunk.
+      // (Skip check when chunk is empty — a single mesh must always be included.)
+      if (
+        currentChunk.length > 0 &&
+        (currentVertexBytes + meshVertexBytes > maxBufferSize ||
+         currentIndexBytes + meshIndexBytes > maxBufferSize)
+      ) {
+        chunks.push(currentChunk);
+        currentChunk = [];
+        currentVertexBytes = 0;
+        currentIndexBytes = 0;
+      }
+
+      currentChunk.push(mesh);
+      currentVertexBytes += meshVertexBytes;
+      currentIndexBytes += meshIndexBytes;
+    }
+
+    if (currentChunk.length > 0) {
+      chunks.push(currentChunk);
+    }
+
+    return chunks;
+  }
+
+  /**
+   * Rebuild the flat batchedMeshes array from the batchedMeshMap.
+   * Called after batch map mutations (rebuild, removal, color update).
+   */
+  private rebuildBatchedMeshesArray(): void {
+    this.batchedMeshes = [];
+    for (const batches of this.batchedMeshMap.values()) {
+      for (const batch of batches) {
+        this.batchedMeshes.push(batch);
+      }
+    }
+  }
+
+  /**
    * Get or create a partial batch for a subset of visible elements from a batch
    *
    * PERFORMANCE FIX: Instead of creating 10,000+ individual meshes for partially visible batches,
    * this creates a single sub-batch containing only the visible elements.
    * The sub-batch is cached and reused until visibility changes.
    *
-   * @param colorKey - The color key of the original batch
+   * @param batchId - Unique batch identifier (for cache keying — handles split batches correctly)
+   * @param colorKey - The color key of the original batch (for filtering mesh pieces by color)
    * @param visibleIds - Set of visible expressIds from this batch
    * @param device - GPU device for buffer creation
    * @param pipeline - Rendering pipeline
    * @returns BatchedMesh containing only visible elements, or undefined if no visible elements
    */
   getOrCreatePartialBatch(
+    batchId: string,
     colorKey: string,
     visibleIds: Set<number>,
     device: GPUDevice,
     pipeline: RenderPipeline
   ): BatchedMesh | undefined {
-    // Create cache key from colorKey + deterministic hash of all visible IDs
+    // Create cache key from batchId + deterministic hash of all visible IDs
     // Using a proper hash over all IDs to avoid collisions when middle IDs differ
     const sortedIds = Array.from(visibleIds).sort((a, b) => a - b);
 
@@ -576,16 +643,16 @@ export class Scene {
       hash = hash >>> 0; // Convert to unsigned 32-bit
     }
     const idsHash = `${sortedIds.length}:${hash.toString(16)}`;
-    const cacheKey = `${colorKey}:${idsHash}`;
+    const cacheKey = `${batchId}:${idsHash}`;
 
     // Check if we already have this exact partial batch cached
-    const currentCacheKey = this.partialBatchCacheKeys.get(colorKey);
+    const currentCacheKey = this.partialBatchCacheKeys.get(batchId);
     if (currentCacheKey === cacheKey) {
       const cached = this.partialBatchCache.get(cacheKey);
       if (cached) return cached;
     }
 
-    // Invalidate old cache for this colorKey if visibility changed
+    // Invalidate old cache for this batchId if visibility changed
     if (currentCacheKey && currentCacheKey !== cacheKey) {
       const oldBatch = this.partialBatchCache.get(currentCacheKey);
       if (oldBatch) {
@@ -623,7 +690,7 @@ export class Scene {
 
     // Cache it
     this.partialBatchCache.set(cacheKey, partialBatch);
-    this.partialBatchCacheKeys.set(colorKey, cacheKey);
+    this.partialBatchCacheKeys.set(batchId, cacheKey);
 
     return partialBatch;
   }
@@ -638,6 +705,9 @@ export class Scene {
    * Set color overrides for lens coloring.
    * Builds overlay batches grouped by override color.
    * Original batches are NEVER modified — clearing is instant.
+   *
+   * Applies the same buffer-size splitting as regular batches to prevent
+   * GPU buffer overflow on large models.
    */
   setColorOverrides(
     overrides: Map<number, [number, number, number, number]>,
@@ -672,11 +742,15 @@ export class Scene {
       }
     }
 
-    // Build one overlay batch per override color
+    // Build overlay batches per override color, splitting if buffers would exceed GPU limit
+    const maxBufferSize = this.getMaxBufferSize(device);
     for (const [, { color, meshData }] of colorGroups) {
       if (meshData.length === 0) continue;
-      const batch = this.createBatchedMesh(meshData, color, device, pipeline);
-      this.overrideBatches.push(batch);
+      const chunks = this.splitMeshDataForBufferLimit(meshData, maxBufferSize);
+      for (const chunk of chunks) {
+        const batch = this.createBatchedMesh(chunk, color, device, pipeline);
+        this.overrideBatches.push(batch);
+      }
     }
   }
 
@@ -742,11 +816,13 @@ export class Scene {
       mesh.indexBuffer.destroy();
       mesh.instanceBuffer.destroy();
     }
-    for (const batch of this.batchedMeshes) {
-      batch.vertexBuffer.destroy();
-      batch.indexBuffer.destroy();
-      if (batch.uniformBuffer) {
-        batch.uniformBuffer.destroy();
+    for (const batches of this.batchedMeshMap.values()) {
+      for (const batch of batches) {
+        batch.vertexBuffer.destroy();
+        batch.indexBuffer.destroy();
+        if (batch.uniformBuffer) {
+          batch.uniformBuffer.destroy();
+        }
       }
     }
     // Clear partial batch cache
@@ -764,7 +840,6 @@ export class Scene {
     this.batchedMeshes = [];
     this.batchedMeshMap.clear();
     this.batchedMeshData.clear();
-    this.batchedMeshIndex.clear();
     this.meshDataMap.clear();
     this.meshDataBatchKey.clear();
     this.boundingBoxes.clear();

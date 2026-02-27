@@ -71,8 +71,14 @@ export interface InstancedMesh {
 /**
  * Batched mesh - groups multiple meshes with same color into single draw call
  * Reduces draw calls from N meshes to ~100-500 batches
+ *
+ * When a single color group's geometry exceeds the GPU's maxBufferSize limit,
+ * the batch is split into multiple BatchedMesh instances sharing the same colorKey
+ * but with unique batchIds. The colorKey is used for color-based grouping/lookups,
+ * while batchId is used for rendering identity (visibility maps, cache keys).
  */
 export interface BatchedMesh {
+  batchId: string;   // Unique identifier per batch (colorKey for single, colorKey:s0/s1/... for splits)
   colorKey: string;  // Color hash for grouping
   vertexBuffer: GPUBuffer;
   indexBuffer: GPUBuffer;
