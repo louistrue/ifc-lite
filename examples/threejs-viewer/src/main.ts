@@ -119,7 +119,7 @@ function clearScene() {
   const toRemove: THREE.Object3D[] = [];
   scene.traverse((obj) => {
     if (obj instanceof THREE.Mesh || obj instanceof THREE.Group) {
-      if (obj !== scene) toRemove.push(obj);
+      toRemove.push(obj);
     }
   });
   for (const obj of toRemove) {
