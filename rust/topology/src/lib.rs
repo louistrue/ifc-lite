@@ -19,19 +19,27 @@
 //! based on published computational topology algorithms.
 
 pub mod arena;
+pub mod builders;
 pub mod construction;
+pub mod content;
 pub mod dictionary;
 pub mod error;
 pub mod geometry;
+pub mod graph;
 pub mod keys;
+pub mod query;
 pub mod serialization;
+pub mod spatial;
 pub mod transform;
 pub mod traversal;
 
 pub use arena::TopologyArena;
+pub use content::{Aperture, ContextCoordinates};
 pub use dictionary::{DictValue, Dictionary};
 pub use error::{Error, Result};
+pub use graph::TopologyGraph;
 pub use keys::{
     CellComplexKey, CellKey, EdgeKey, FaceKey, ShellKey, TopologyKey, TopologyType, VertexKey,
     WireKey,
 };
+pub use spatial::SpatialIndex;

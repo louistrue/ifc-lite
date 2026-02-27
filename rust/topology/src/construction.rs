@@ -52,26 +52,39 @@ impl TopologyArena {
         // Determine orientations by checking connectivity
         let mut orientations = Vec::with_capacity(edge_keys.len());
 
-        // First edge is always forward
-        orientations.push(true);
+        if edge_keys.len() == 1 {
+            orientations.push(true);
+        } else {
+            // Determine first edge orientation by looking at the second edge
+            let first = &self.edges[edge_keys[0]];
+            let second = &self.edges[edge_keys[1]];
 
-        for i in 1..edge_keys.len() {
-            let prev_edge = &self.edges[edge_keys[i - 1]];
-            let curr_edge = &self.edges[edge_keys[i]];
-
-            // End vertex of previous edge (respecting orientation)
-            let prev_end = if orientations[i - 1] {
-                prev_edge.end
-            } else {
-                prev_edge.start
-            };
-
-            if prev_end == curr_edge.start {
+            if first.end == second.start || first.end == second.end {
                 orientations.push(true); // forward
-            } else if prev_end == curr_edge.end {
+            } else if first.start == second.start || first.start == second.end {
                 orientations.push(false); // reversed
             } else {
-                return Err(Error::DisconnectedWire(i - 1, i));
+                return Err(Error::DisconnectedWire(0, 1));
+            }
+
+            for i in 1..edge_keys.len() {
+                let prev_edge = &self.edges[edge_keys[i - 1]];
+                let curr_edge = &self.edges[edge_keys[i]];
+
+                // End vertex of previous edge (respecting orientation)
+                let prev_end = if orientations[i - 1] {
+                    prev_edge.end
+                } else {
+                    prev_edge.start
+                };
+
+                if prev_end == curr_edge.start {
+                    orientations.push(true); // forward
+                } else if prev_end == curr_edge.end {
+                    orientations.push(false); // reversed
+                } else {
+                    return Err(Error::DisconnectedWire(i - 1, i));
+                }
             }
         }
 

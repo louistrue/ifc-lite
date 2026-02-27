@@ -112,6 +112,10 @@ pub struct TopologyArena {
 
     // Metadata
     pub(crate) dictionaries: FxHashMap<TopologyKey, Dictionary>,
+
+    // Content / Aperture (IFC spatial relationships)
+    pub(crate) contents: FxHashMap<TopologyKey, Vec<(TopologyKey, Option<crate::content::ContextCoordinates>)>>,
+    pub(crate) apertures: FxHashMap<FaceKey, Vec<crate::content::Aperture>>,
 }
 
 impl TopologyArena {
@@ -134,6 +138,9 @@ impl TopologyArena {
             cell_to_complexes: FxHashMap::default(),
 
             dictionaries: FxHashMap::default(),
+
+            contents: FxHashMap::default(),
+            apertures: FxHashMap::default(),
         }
     }
 
