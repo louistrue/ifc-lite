@@ -548,6 +548,16 @@ function aabbGapDistance(a: AABB, b: AABB): number {
 }
 
 /**
+ * Compute AABB gap distance in XY plane only (ignoring Z / height).
+ * Used to match spaces to stair footprints regardless of floor level.
+ */
+function aabbXYGapDistance(a: AABB, b: AABB): number {
+  const dx = Math.max(0, a.min[0] - b.max[0], b.min[0] - a.max[0]);
+  const dy = Math.max(0, a.min[1] - b.max[1], b.min[1] - a.max[1]);
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+/**
  * Compute bounding box from mesh positions.
  */
 function computeBounds(positions: Float32Array): AABB {
@@ -777,16 +787,96 @@ function buildAdjacencyFromContainment(
     }
   }
 
-  // ── 6. Connect storeys vertically ──────────────────────────────────
-  // Link spaces across floors via vertical proximity (stairs/elevators)
+  // ── 6. Connect storeys via actual stair geometry ──────────────────────
+  // Find IfcStair / IfcStairFlight entities and their bounding boxes,
+  // then connect spaces on different floors through stair XY footprint overlap.
+  // Falls back to closest vertical pair if no stair geometry is found.
+  const STAIR_IFC_TYPES = ['IFCSTAIR', 'IFCSTAIRFLIGHT'];
+  const stairEntities: Array<{ ref: EntityRef; bounds: AABB }> = [];
+
+  for (const [modelId, model] of modelEntries) {
+    if (!model?.ifcDataStore) continue;
+    const ds = model.ifcDataStore;
+
+    // Build mesh bounds lookup for this model
+    const offset = state.models.size > 0 ? (state.models.get(modelId)?.idOffset ?? 0) : 0;
+    const geoSource = state.models.size > 0
+      ? state.models.get(modelId)?.geometryResult
+      : state.geometryResult;
+
+    const meshBoundsForModel = new Map<number, AABB>();
+    if (geoSource?.meshes) {
+      for (const mesh of geoSource.meshes) {
+        if (!mesh.positions || mesh.positions.length === 0) continue;
+        const originalId = state.models.size > 0 ? mesh.expressId - offset : mesh.expressId;
+        meshBoundsForModel.set(originalId, computeBounds(mesh.positions));
+      }
+    }
+
+    // Find stair entities with geometry
+    for (const typeName of STAIR_IFC_TYPES) {
+      const ids = ds.entityIndex.byType.get(typeName) ?? [];
+      for (const stairId of ids) {
+        if (stairId === 0) continue;
+        const bounds = meshBoundsForModel.get(stairId);
+        if (bounds) {
+          stairEntities.push({ ref: { modelId, expressId: stairId }, bounds });
+        }
+      }
+    }
+  }
+
   const storeyKeys = [...storeyToSpaces.keys()];
-  if (storeyKeys.length > 1 && spaceBounds.size > 0) {
+  let stairConnectionsMade = 0;
+
+  if (stairEntities.length > 0 && storeyKeys.length > 1 && spaceBounds.size > 0) {
+    const STAIR_XY_PROXIMITY = 1.0; // meters — max XY gap to stair footprint
+
     for (let si = 0; si < storeyKeys.length; si++) {
       for (let sj = si + 1; sj < storeyKeys.length; sj++) {
         const spacesI = storeyToSpaces.get(storeyKeys[si])!;
         const spacesJ = storeyToSpaces.get(storeyKeys[sj])!;
 
-        // Find closest vertical pair between floors
+        for (const stair of stairEntities) {
+          // Find closest space on each floor to this stair's XY footprint
+          let bestA = '';
+          let bestAGap = Infinity;
+          let bestB = '';
+          let bestBGap = Infinity;
+
+          for (const a of spacesI) {
+            const bA = spaceBounds.get(a);
+            if (!bA) continue;
+            const gap = aabbXYGapDistance(bA, stair.bounds);
+            if (gap < bestAGap) { bestAGap = gap; bestA = a; }
+          }
+
+          for (const b of spacesJ) {
+            const bB = spaceBounds.get(b);
+            if (!bB) continue;
+            const gap = aabbXYGapDistance(bB, stair.bounds);
+            if (gap < bestBGap) { bestBGap = gap; bestB = b; }
+          }
+
+          // Connect if both spaces overlap (or are very close to) the stair footprint
+          if (bestA && bestB && bestAGap <= STAIR_XY_PROXIMITY && bestBGap <= STAIR_XY_PROXIMITY
+              && !adj.get(bestA)?.has(bestB)) {
+            adj.get(bestA)!.set(bestB, { weight: 2, sharedRefs: [stair.ref], sharedTypes: ['IfcStair'] });
+            adj.get(bestB)!.set(bestA, { weight: 2, sharedRefs: [stair.ref], sharedTypes: ['IfcStair'] });
+            stairConnectionsMade++;
+          }
+        }
+      }
+    }
+  }
+
+  // Fallback: if no stair geometry found, use closest vertical pair heuristic
+  if (stairConnectionsMade === 0 && storeyKeys.length > 1 && spaceBounds.size > 0) {
+    for (let si = 0; si < storeyKeys.length; si++) {
+      for (let sj = si + 1; sj < storeyKeys.length; sj++) {
+        const spacesI = storeyToSpaces.get(storeyKeys[si])!;
+        const spacesJ = storeyToSpaces.get(storeyKeys[sj])!;
+
         let bestGap = Infinity;
         let bestA = '';
         let bestB = '';
@@ -798,15 +888,10 @@ function buildAdjacencyFromContainment(
             const bB = spaceBounds.get(b);
             if (!bB) continue;
             const gap = aabbGapDistance(bA, bB);
-            if (gap < bestGap) {
-              bestGap = gap;
-              bestA = a;
-              bestB = b;
-            }
+            if (gap < bestGap) { bestGap = gap; bestA = a; bestB = b; }
           }
         }
 
-        // Connect if reasonably close (slab thickness ~0.3m + some tolerance)
         if (bestGap <= 1.0 && bestA && bestB && !adj.get(bestA)?.has(bestB)) {
           adj.get(bestA)!.set(bestB, { weight: 2, sharedRefs: [], sharedTypes: ['vertical'] });
           adj.get(bestB)!.set(bestA, { weight: 2, sharedRefs: [], sharedTypes: ['vertical'] });

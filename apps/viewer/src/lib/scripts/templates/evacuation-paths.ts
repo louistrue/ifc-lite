@@ -135,24 +135,12 @@ if (sampleCentroids.length >= 2) {
   }
 }
 
-// ── 7. Build adjacency lookup for stair routing ─────────────────────
-// When two consecutive path spaces are on different floors, we need to
-// route the line through the staircase instead of drawing a diagonal.
-// Build a fast lookup from space-pair → shared boundary types.
-const adjLookup: Record<string, { sharedTypes: string[] }> = {}
-for (const pair of adjacency) {
-  const k1 = pair.space1.modelId + ':' + pair.space1.expressId
-  const k2 = pair.space2.modelId + ':' + pair.space2.expressId
-  adjLookup[k1 + '|' + k2] = { sharedTypes: pair.sharedTypes }
-  adjLookup[k2 + '|' + k1] = { sharedTypes: pair.sharedTypes }
-}
-
-// Typical stair slope: ~33° → horizontal run ≈ 1.54× rise
-const STAIR_RUN_RATIO = 1.54
+// Typical stair slope: ~33° → walking distance ≈ 1.83× rise
+const STAIR_WALK_FACTOR = 1.83
 // Floor height threshold to detect inter-floor transitions
 const FLOOR_Z_THRESHOLD = 1.5
 
-// ── 8. Compute evacuation paths with stair-aware distances ───────────
+// ── 7. Compute evacuation paths with stair-aware distances ───────────
 interface EvacPath {
   spaceKey: string
   exitKey: string
@@ -184,7 +172,7 @@ for (const m of metrics) {
     const result = bim.topology.shortestPath(m.ref, exitRef)
     if (!result) continue
 
-    // Compute path length, routing inter-floor transitions through stairs
+    // Compute path length — inter-floor segments use stair walking distance
     const segments: EvacPath['segments'] = []
     let totalLength = 0
 
@@ -197,57 +185,16 @@ for (const m of metrics) {
         const dz = Math.abs(toC[2] - fromC[2])
 
         if (dz > FLOOR_Z_THRESHOLD) {
-          // Inter-floor transition — route through stair geometry
-          // 1. Horizontal segment on source floor to stair column
-          // 2. Sloped stair segment (following realistic stair angle)
-          // 3. Horizontal segment on target floor from stair column
-          const stairX = (fromC[0] + toC[0]) / 2
-          const stairY = (fromC[1] + toC[1]) / 2
-
-          // Stair horizontal run along the direction from source to target
-          const dirX = toC[0] - fromC[0]
-          const dirY = toC[1] - fromC[1]
-          const hDist = Math.sqrt(dirX * dirX + dirY * dirY)
-          const stairRun = dz * STAIR_RUN_RATIO
-          // Normalize direction (or use arbitrary if spaces are directly above each other)
-          let nX = 0
-          let nY = 1
-          if (hDist > 0.1) {
-            nX = dirX / hDist
-            nY = dirY / hDist
-          }
-
-          // Bottom of stair: near source side, at source Z
-          const stairBot: [number, number, number] = [
-            stairX - nX * stairRun * 0.5,
-            stairY - nY * stairRun * 0.5,
-            fromC[2],
-          ]
-          // Top of stair: near target side, at target Z
-          const stairTop: [number, number, number] = [
-            stairX + nX * stairRun * 0.5,
-            stairY + nY * stairRun * 0.5,
-            toC[2],
-          ]
-
-          // Segment 1: horizontal to stair base
-          const len1 = dist3d(fromC, stairBot)
-          if (len1 > 0.01) {
-            segments.push({ from: fromC, to: stairBot, length: len1 })
-            totalLength += len1
-          }
-
-          // Segment 2: along stair slope
-          const stairLen = Math.sqrt(dz * dz + stairRun * stairRun)
-          segments.push({ from: stairBot, to: stairTop, length: stairLen })
-          totalLength += stairLen
-
-          // Segment 3: horizontal from stair top to target
-          const len3 = dist3d(stairTop, toC)
-          if (len3 > 0.01) {
-            segments.push({ from: stairTop, to: toC, length: len3 })
-            totalLength += len3
-          }
+          // Inter-floor transition via stairwell
+          // Draw direct line (topology now routes through stairwell spaces
+          // which are at the stair XY position), but use realistic stair
+          // walking distance instead of straight-line euclidean
+          const euclidean = dist3d(fromC, toC)
+          const stairWalkDist = dz * STAIR_WALK_FACTOR
+          // Use the greater of euclidean and stair walk distance
+          const segLen = Math.max(euclidean, stairWalkDist)
+          segments.push({ from: fromC, to: toC, length: segLen })
+          totalLength += segLen
         } else {
           // Same floor — direct centroid-to-centroid line
           const segLen = dist3d(fromC, toC)
