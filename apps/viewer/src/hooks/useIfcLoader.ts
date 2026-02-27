@@ -17,7 +17,7 @@ import { GeometryProcessor, GeometryQuality, type MeshData, type CoordinateInfo 
 import { buildSpatialIndex } from '@ifc-lite/spatial';
 import { type GeometryData, loadGLBToMeshData } from '@ifc-lite/cache';
 
-import { SERVER_URL, USE_SERVER, CACHE_SIZE_THRESHOLD, getDynamicBatchConfig } from '../utils/ifcConfig.js';
+import { SERVER_URL, USE_SERVER, CACHE_SIZE_THRESHOLD, CACHE_MAX_SOURCE_SIZE, getDynamicBatchConfig } from '../utils/ifcConfig.js';
 import {
   calculateMeshBounds,
   createCoordinateInfo,
@@ -324,8 +324,9 @@ export function useIfcLoader() {
         });
       };
 
-      // Schedule data model parsing to start after geometry begins streaming
-      setTimeout(startDataModelParsing, 0);
+      // Data model parsing is deferred to the 'complete' event (see below).
+      // Running it concurrently with geometry streaming steals main-thread cycles
+      // from the WASM↔JS bridge, adding ~1-2s to geometry completion time.
 
       // Use adaptive processing: sync for small files, streaming for large files
       let estimatedTotal = 0;
@@ -378,12 +379,14 @@ export function useIfcLoader() {
               console.log(`[useIfc] Model opened at ${modelOpenMs.toFixed(0)}ms`);
               break;
             case 'colorUpdate': {
-              // Persist parser style/material colors in store (non-overlay path).
-              updateMeshColors(event.updates);
-              // Keep local mesh snapshots in sync for cache serialization.
+              // Accumulate color updates locally during streaming.
+              // We apply them in a single pass at 'complete' instead of
+              // calling updateMeshColors() per event (which triggers a
+              // React reconciliation each time + O(n) scan over all meshes).
               for (const [expressId, color] of event.updates) {
                 cumulativeColorUpdates.set(expressId, color);
               }
+              // Keep local mesh snapshots in sync for cache serialization.
               applyColorUpdatesToMeshes(allMeshes, event.updates);
               applyColorUpdatesToMeshes(pendingMeshes, event.updates);
               break;
@@ -447,6 +450,16 @@ export function useIfcLoader() {
 
               finalCoordinateInfo = event.coordinateInfo ?? null;
 
+              // Start data model parsing NOW — after geometry streaming is done
+              // so the parser doesn't compete with WASM for main-thread CPU.
+              startDataModelParsing();
+
+              // Apply all accumulated color updates in a single store update
+              // instead of one updateMeshColors() call per colorUpdate event.
+              if (cumulativeColorUpdates.size > 0) {
+                updateMeshColors(cumulativeColorUpdates);
+              }
+
               // Store captured RTC offset in coordinate info for multi-model alignment
               if (finalCoordinateInfo && capturedRtcOffset) {
                 finalCoordinateInfo.wasmRtcOffset = capturedRtcOffset;
@@ -483,8 +496,17 @@ export function useIfcLoader() {
                   }
                 }
 
-                // Cache the result in the background (for files above threshold)
-                if (buffer.byteLength >= CACHE_SIZE_THRESHOLD && allMeshes.length > 0 && finalCoordinateInfo) {
+                // Cache the result in the background (files between 10 MB and 150 MB).
+                // Files above CACHE_MAX_SOURCE_SIZE are not cached because the
+                // source buffer is required for on-demand property/quantity
+                // extraction, spatial hierarchy elevations, and IFC re-export.
+                // Caching without it would silently degrade those features.
+                if (
+                  buffer.byteLength >= CACHE_SIZE_THRESHOLD &&
+                  buffer.byteLength <= CACHE_MAX_SOURCE_SIZE &&
+                  allMeshes.length > 0 &&
+                  finalCoordinateInfo
+                ) {
                   // Final safety pass so cache always contains post-style colors.
                   applyColorUpdatesToMeshes(allMeshes, cumulativeColorUpdates);
                   const geometryData: GeometryData = {

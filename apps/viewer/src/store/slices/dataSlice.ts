@@ -62,27 +62,34 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
   setGeometryResult: (geometryResult) => set({ geometryResult }),
 
   appendGeometryBatch: (meshes, coordinateInfo) => set((state) => {
+    // Incremental totals: O(batch_size) instead of O(total_accumulated) .reduce()
+    let batchTriangles = 0;
+    let batchVertices = 0;
+    for (let i = 0; i < meshes.length; i++) {
+      batchTriangles += meshes[i].indices.length / 3;
+      batchVertices += meshes[i].positions.length / 3;
+    }
+
     if (!state.geometryResult) {
-      const totalTriangles = meshes.reduce((sum, m) => sum + (m.indices.length / 3), 0);
-      const totalVertices = meshes.reduce((sum, m) => sum + (m.positions.length / 3), 0);
       return {
         geometryResult: {
-          meshes,
-          totalTriangles,
-          totalVertices,
+          meshes: meshes.slice(),
+          totalTriangles: batchTriangles,
+          totalVertices: batchVertices,
           coordinateInfo: coordinateInfo || getDefaultCoordinateInfo(),
         },
       };
     }
-    const allMeshes = [...state.geometryResult.meshes, ...meshes];
-    const totalTriangles = allMeshes.reduce((sum, m) => sum + (m.indices.length / 3), 0);
-    const totalVertices = allMeshes.reduce((sum, m) => sum + (m.positions.length / 3), 0);
+
+    // New array reference (required for React/Zustand change detection) but
+    // only O(n) pointer copies — the expensive part was the .reduce() calls
+    // which are now replaced by the incremental counters above.
     return {
       geometryResult: {
         ...state.geometryResult,
-        meshes: allMeshes,
-        totalTriangles,
-        totalVertices,
+        meshes: [...state.geometryResult.meshes, ...meshes],
+        totalTriangles: state.geometryResult.totalTriangles + batchTriangles,
+        totalVertices: state.geometryResult.totalVertices + batchVertices,
         coordinateInfo: coordinateInfo || state.geometryResult.coordinateInfo,
       },
     };
@@ -98,7 +105,8 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
       return { pendingMeshColorUpdates: clonedUpdates };
     }
 
-    // Legacy/single mode: update the persisted mesh colors.
+    // New array reference so useGeometryStreaming's useEffect detects the change.
+    // Only runs once at 'complete' (not per-batch), so O(n) .map() is fine.
     const updatedMeshes = state.geometryResult.meshes.map(mesh => {
       const newColor = clonedUpdates.get(mesh.expressId);
       if (newColor) {
