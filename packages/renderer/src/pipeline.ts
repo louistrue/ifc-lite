@@ -474,7 +474,19 @@ export class RenderPipeline {
             fragment: {
                 module: shaderModule,
                 entryPoint: 'fs_main',
-                targets: [{ format: this.colorFormat }, { format: 'rgba8unorm' }],
+                targets: [{
+                    format: this.colorFormat,
+                    blend: {
+                        color: {
+                            srcFactor: 'src-alpha',
+                            dstFactor: 'one-minus-src-alpha',
+                        },
+                        alpha: {
+                            srcFactor: 'one',
+                            dstFactor: 'one-minus-src-alpha',
+                        },
+                    },
+                }, { format: 'rgba8unorm' }],
             },
             primitive: {
                 topology: 'triangle-list',

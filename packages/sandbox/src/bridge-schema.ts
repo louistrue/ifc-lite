@@ -254,6 +254,16 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         returns: 'void',
       },
       {
+        name: 'ghost',
+        doc: 'Ghost entities — fade to semi-transparent for context',
+        args: ['entityRefs'],
+        paramNames: ['entities'],
+        call: (sdk, args) => {
+          sdk.viewer.ghost(args[0] as EntityRef[]);
+        },
+        returns: 'void',
+      },
+      {
         name: 'hide',
         doc: 'Hide entities',
         args: ['entityRefs'],

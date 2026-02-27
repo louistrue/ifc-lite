@@ -267,9 +267,23 @@ for (const evac of evacPaths) {
 }
 
 // ── 9. Visualization setup ───────────────────────────────────────────
-// Lines render as overlays on top of all geometry (always visible).
-// Color spaces by evacuation distance so the building shows context.
-// Group spaces by distance bucket for batch colorization.
+// Ghost non-space building elements so paths are visible through them.
+// Color spaces by evacuation distance. Lines overlay on top of everything.
+const allEntities = bim.query.all()
+const spaceKeySet = new Set<string>()
+for (const s of spaces) {
+  spaceKeySet.add(s.ref.modelId + ':' + s.ref.expressId)
+}
+const nonSpaceEntities: BimEntity[] = []
+for (const e of allEntities) {
+  const key = e.ref.modelId + ':' + e.ref.expressId
+  if (!spaceKeySet.has(key)) nonSpaceEntities.push(e)
+}
+if (nonSpaceEntities.length > 0) {
+  bim.viewer.ghost(nonSpaceEntities)
+}
+
+// Color spaces by evacuation distance bucket
 const distBySpace: Record<string, number> = {}
 for (const p of evacPaths) {
   distBySpace[p.spaceKey] = p.totalLength
@@ -320,7 +334,8 @@ bim.viewer.flyTo(spaces)
 // ── 10. Report ───────────────────────────────────────────────────────
 console.log('')
 console.log('── Visualization Legend ──')
-console.log('  3D path lines overlaid on building (always visible):')
+console.log('  Building elements ghosted to reveal path lines.')
+console.log('  3D path lines overlaid (always visible):')
 console.log('    Green  = short path to exit (safe)')
 console.log('    Yellow = moderate distance')
 console.log('    Red    = long path to exit (dangerous)')

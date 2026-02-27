@@ -119,6 +119,8 @@ declare const bim: {
     colorize(entities: BimEntity[], color: string): void;
     /** Batch colorize with [{entities, color}] */
     colorizeAll(batches: Array<{ entities: BimEntity[]; color: string }>): void;
+    /** Ghost entities — fade to semi-transparent for context */
+    ghost(entities: BimEntity[]): void;
     /** Hide entities */
     hide(entities: BimEntity[]): void;
     /** Show entities */
