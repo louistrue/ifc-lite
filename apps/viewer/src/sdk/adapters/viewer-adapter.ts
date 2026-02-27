@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import type { EntityRef, SectionPlane, CameraState, ViewerBackendMethods, RGBAColor } from '@ifc-lite/sdk';
+import type { EntityRef, SectionPlane, CameraState, ViewerBackendMethods } from '@ifc-lite/sdk';
 import type { StoreApi } from './types.js';
 import { getModelForRef } from './model-compat.js';
 
@@ -49,21 +49,15 @@ export function createViewerAdapter(store: StoreApi): ViewerBackendMethods {
   return {
     colorize(refs: EntityRef[], color: RGBA) {
       const state = store.getState();
-      // Merge with existing pending colors (supports multiple colorize calls per script)
-      const existing = state.pendingColorUpdates;
-      const colorMap = existing ? new Map(existing) : new Map<number, RGBA>();
+      const colorMap = new Map<number, RGBA>();
       for (const ref of refs) {
         const model = getModelForRef(state, ref.modelId);
         if (model) {
-          const globalId = ref.expressId + model.idOffset;
-          colorMap.set(globalId, color);
+          colorMap.set(ref.expressId + model.idOffset, color);
         }
       }
-      // Use both approaches: updateMeshColors handles transparent meshes (IfcSpace etc.)
-      // by moving them from transparent to opaque batches. The overlay handles opaque meshes.
       saveOriginals(colorMap);
       state.updateMeshColors(colorMap);
-      state.setPendingColorUpdates(colorMap);
       return undefined;
     },
     colorizeAll(batches: Array<{ refs: EntityRef[]; color: RGBA }>) {
@@ -77,21 +71,16 @@ export function createViewerAdapter(store: StoreApi): ViewerBackendMethods {
           }
         }
       }
-      // Use both: mesh color update (for transparent entities) + overlay (for opaque entities)
       saveOriginals(batchMap);
       state.updateMeshColors(batchMap);
-      state.setPendingColorUpdates(batchMap);
       return undefined;
     },
     resetColors() {
       const state = store.getState();
-      // Restore original mesh colors (reverses transparent→opaque batch moves)
       if (savedOriginalColors.size > 0) {
         state.updateMeshColors(savedOriginalColors);
         savedOriginalColors.clear();
       }
-      // Clear overlay (empty map triggers clearColorOverrides; null would skip the effect)
-      state.setPendingColorUpdates(new Map());
       return undefined;
     },
     flyTo() {
