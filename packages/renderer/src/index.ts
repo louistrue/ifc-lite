@@ -585,8 +585,6 @@ export class Renderer {
                 // Pre-compute visibility for each batch (only when filtering is active)
                 // A batch is visible if ANY of its elements are visible
                 // A batch is fully visible if ALL of its elements are visible
-                // Uses batchId (not colorKey) as the map key so that split batches
-                // with the same color but different element subsets are tracked independently.
                 const batchVisibility = new Map<string, { visible: boolean; fullyVisible: boolean }>();
 
                 if (hasVisibilityFiltering) {
@@ -602,7 +600,7 @@ export class Renderer {
                             }
                         }
 
-                        batchVisibility.set(batch.batchId, {
+                        batchVisibility.set(batch.colorKey, {
                             visible: visibleCount > 0,
                             fullyVisible: visibleCount === total,
                         });
@@ -618,16 +616,15 @@ export class Renderer {
                 // PERFORMANCE FIX: Track partially visible batches for sub-batch rendering
                 // Instead of creating 10,000+ individual meshes, we create cached sub-batches
                 const partiallyVisibleBatches: Array<{
-                    batchId: string;
                     colorKey: string;
                     visibleIds: Set<number>;
                     color: [number, number, number, number];
                 }> = [];
 
                 for (const batch of allBatchedMeshes) {
-                    // Check visibility (keyed by batchId to handle split batches correctly)
+                    // Check visibility
                     if (hasVisibilityFiltering) {
-                        const vis = batchVisibility.get(batch.batchId);
+                        const vis = batchVisibility.get(batch.colorKey);
                         if (!vis || !vis.visible) continue; // Skip completely hidden batches
 
                         // Handle partially visible batches - create sub-batches instead of individual meshes
@@ -643,7 +640,6 @@ export class Renderer {
                             }
                             if (visibleIds.size > 0) {
                                 partiallyVisibleBatches.push({
-                                    batchId: batch.batchId,
                                     colorKey: batch.colorKey,
                                     visibleIds,
                                     color: batch.color,
@@ -733,10 +729,9 @@ export class Renderer {
                 }
 
                 if (partiallyVisibleBatches.length > 0) {
-                    for (const { batchId, colorKey, visibleIds, color } of partiallyVisibleBatches) {
+                    for (const { colorKey, visibleIds, color } of partiallyVisibleBatches) {
                         // Get or create a cached sub-batch for this visibility state
                         const subBatch = this.scene.getOrCreatePartialBatch(
-                            batchId,
                             colorKey,
                             visibleIds,
                             device,
