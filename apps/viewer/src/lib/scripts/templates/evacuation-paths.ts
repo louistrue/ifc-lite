@@ -267,20 +267,26 @@ for (const evac of evacPaths) {
 }
 
 // ── 9. Visualization setup ───────────────────────────────────────────
-// Ghost non-space building elements so paths are visible through them.
-// Color spaces by evacuation distance. Lines overlay on top of everything.
-const allEntities = bim.query.all()
-const spaceKeySet = new Set<string>()
-for (const s of spaces) {
-  spaceKeySet.add(s.ref.modelId + ':' + s.ref.expressId)
-}
-const nonSpaceEntities: BimEntity[] = []
-for (const e of allEntities) {
+// Hide all building elements except doors, stairs, and spaces so paths
+// are clearly visible. Spaces are colored by evacuation distance below.
+const doors = bim.query.byType('IfcDoor')
+const stairs = bim.query.byType('IfcStairFlight')
+const stairStructures = bim.query.byType('IfcStair')
+const keepVisible: BimEntity[] = [...spaces, ...doors, ...stairs, ...stairStructures]
+
+// Deduplicate by ref key
+const visibleKeys = new Set<string>()
+const dedupedVisible: BimEntity[] = []
+for (const e of keepVisible) {
   const key = e.ref.modelId + ':' + e.ref.expressId
-  if (!spaceKeySet.has(key)) nonSpaceEntities.push(e)
+  if (!visibleKeys.has(key)) {
+    visibleKeys.add(key)
+    dedupedVisible.push(e)
+  }
 }
-if (nonSpaceEntities.length > 0) {
-  bim.viewer.ghost(nonSpaceEntities)
+
+if (dedupedVisible.length > 0) {
+  bim.viewer.isolate(dedupedVisible)
 }
 
 // Color spaces by evacuation distance bucket
@@ -334,7 +340,7 @@ bim.viewer.flyTo(spaces)
 // ── 10. Report ───────────────────────────────────────────────────────
 console.log('')
 console.log('── Visualization Legend ──')
-console.log('  Building elements ghosted to reveal path lines.')
+console.log('  All elements hidden except doors, stairs & spaces.')
 console.log('  3D path lines overlaid (always visible):')
 console.log('    Green  = short path to exit (safe)')
 console.log('    Yellow = moderate distance')
