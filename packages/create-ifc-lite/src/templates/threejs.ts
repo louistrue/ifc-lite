@@ -32,6 +32,8 @@ export function createThreejsTemplate(targetDir: string, projectName: string) {
       '@types/three': '^0.183.0',
       typescript: '^5.3.0',
       vite: '^7.0.0',
+      'vite-plugin-wasm': '^3.0.0',
+      'vite-plugin-top-level-await': '^1.0.0',
     },
   }, null, 2));
 
@@ -51,16 +53,19 @@ export function createThreejsTemplate(targetDir: string, projectName: string) {
 
   // vite.config.ts
   writeFileSync(join(targetDir, 'vite.config.ts'), `import { defineConfig } from 'vite';
+import wasm from 'vite-plugin-wasm';
+import topLevelAwait from 'vite-plugin-top-level-await';
 
 export default defineConfig({
-  optimizeDeps: {
-    exclude: ['@ifc-lite/wasm'],
-  },
+  plugins: [wasm(), topLevelAwait()],
   server: {
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
     },
+  },
+  build: {
+    target: 'esnext',
   },
 });
 `);
