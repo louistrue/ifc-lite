@@ -266,37 +266,50 @@ for (const evac of evacPaths) {
   }
 }
 
-// ── 9. Set up visibility: hide spaces, show structure + lines ────────
-// Hide rooms so lines are visible. Show walls, doors, slabs instead.
-bim.viewer.hide(spaces)
-
-// Show doors
-const doorEntities: BimEntity[] = []
-for (const ref of doorEntityRefs) {
-  const e = bim.query.entity(ref.modelId, ref.expressId)
-  if (e) doorEntities.push(e)
-}
-if (doorEntities.length > 0) {
-  bim.viewer.show(doorEntities)
+// ── 9. Visualization setup ───────────────────────────────────────────
+// Lines render as overlays on top of all geometry (always visible).
+// Color spaces by evacuation distance so the building shows context.
+// Group spaces by distance bucket for batch colorization.
+const distBySpace: Record<string, number> = {}
+for (const p of evacPaths) {
+  distBySpace[p.spaceKey] = p.totalLength
 }
 
-// Show boundary elements (walls, slabs between spaces)
-const boundaryEntities: BimEntity[] = []
-const seenBoundary = new Set<string>()
-for (const pair of adjacency) {
-  for (const ref of pair.sharedRefs) {
-    const key = ref.modelId + ':' + ref.expressId
-    if (seenBoundary.has(key)) continue
-    seenBoundary.add(key)
-    const entity = bim.query.entity(ref.modelId, ref.expressId)
-    if (entity) boundaryEntities.push(entity)
+const bucketCount = 8
+const bucketSize = (maxLength - minLength) / bucketCount
+const colorBatches: Array<{ entities: BimEntity[]; color: string }> = []
+
+for (let b = 0; b < bucketCount; b++) {
+  const lo = minLength + b * bucketSize
+  const hi = lo + bucketSize
+  const entities: BimEntity[] = []
+  for (const [key, dist] of Object.entries(distBySpace)) {
+    if (dist >= lo && (b === bucketCount - 1 ? dist <= hi : dist < hi)) {
+      const entity = entityMap[key]
+      if (entity) entities.push(entity)
+    }
+  }
+  if (entities.length > 0) {
+    const midDist = lo + bucketSize / 2
+    colorBatches.push({ entities, color: lengthToColor(midDist) })
   }
 }
-if (boundaryEntities.length > 0) {
-  bim.viewer.show(boundaryEntities)
+
+// Color exit spaces blue
+const exitEntities: BimEntity[] = []
+for (const key of exitSpaceKeys) {
+  const entity = entityMap[key]
+  if (entity) exitEntities.push(entity)
+}
+if (exitEntities.length > 0) {
+  colorBatches.push({ entities: exitEntities, color: '#3498db' })
 }
 
-// Draw all lines
+if (colorBatches.length > 0) {
+  bim.viewer.colorizeAll(colorBatches)
+}
+
+// Draw all path lines (rendered as overlay on top of geometry)
 if (allLines.length > 0) {
   bim.viewer.drawLines(allLines)
   console.log('Drew ' + allLines.length + ' line segments')
@@ -307,12 +320,12 @@ bim.viewer.flyTo(spaces)
 // ── 10. Report ───────────────────────────────────────────────────────
 console.log('')
 console.log('── Visualization Legend ──')
-console.log('  3D lines show evacuation paths between rooms:')
+console.log('  3D path lines overlaid on building (always visible):')
 console.log('    Green  = short path to exit (safe)')
 console.log('    Yellow = moderate distance')
 console.log('    Red    = long path to exit (dangerous)')
-console.log('  Spaces are hidden to reveal path lines.')
-console.log('  Walls, doors, and slabs remain visible.')
+console.log('  Spaces colored by evacuation distance.')
+console.log('    Blue   = exit / egress point')
 console.log('')
 
 // ── 11. Evacuation distance schedule ─────────────────────────────────
@@ -369,7 +382,6 @@ if (dangerousPaths.length > 0) {
     if (entity) dangerEntities.push(entity)
   }
   if (dangerEntities.length > 0) {
-    bim.viewer.show(dangerEntities)
     bim.viewer.colorize(dangerEntities, '#e74c3c')
     bim.viewer.select(dangerEntities)
 

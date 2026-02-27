@@ -133,7 +133,7 @@ export class LineRenderer {
       depthStencil: {
         format: 'depth24plus',
         depthWriteEnabled: false,
-        depthCompare: 'greater-equal' as const, // Reverse-Z, draw on top like selection
+        depthCompare: 'always' as const, // Always draw — lines are overlays visible through geometry
       },
       multisample: {
         count: this.sampleCount,

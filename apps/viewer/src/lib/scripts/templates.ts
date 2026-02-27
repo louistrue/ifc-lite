@@ -101,9 +101,9 @@ export const SCRIPT_TEMPLATES: ScriptTemplate[] = [
     code: stripModuleLine(topologyEnvelope),
   },
   {
-    name: 'Evacuation paths',
+    name: 'Topology: evacuation paths',
     description:
-      'Fire Safety — compute evacuation routes from every room to nearest exit; draw 3D path lines colored by distance (red=far, green=close)',
+      'Fire Safety — compute evacuation routes from every room to nearest exit; draw 3D path lines colored by real distance (red=far, green=close)',
     code: stripModuleLine(evacuationPaths),
   },
   {
