@@ -1,5 +1,18 @@
 # @ifc-lite/geometry
 
+## 1.11.1
+
+### Patch Changes
+
+- [#250](https://github.com/louistrue/ifc-lite/pull/250) [`02876ac`](https://github.com/louistrue/ifc-lite/commit/02876ac97748ca9aaabfc3e5882ef9d2a37ca437) Thanks [@louistrue](https://github.com/louistrue)! - Declare `@ifc-lite/data` as a runtime dependency.
+
+  The package already imported `createLogger` from `@ifc-lite/data` but did not list
+  it in `dependencies`, causing resolution failures for consumers installing from npm.
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.11.1
+  - @ifc-lite/wasm@1.11.1
+
 ## 1.11.0
 
 ### Patch Changes

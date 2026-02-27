@@ -1,5 +1,15 @@
 # @ifc-lite/query
 
+## 1.11.1
+
+### Patch Changes
+
+- Updated dependencies [[`02876ac`](https://github.com/louistrue/ifc-lite/commit/02876ac97748ca9aaabfc3e5882ef9d2a37ca437)]:
+  - @ifc-lite/geometry@1.11.1
+  - @ifc-lite/data@1.11.1
+  - @ifc-lite/parser@1.11.1
+  - @ifc-lite/spatial@1.11.1
+
 ## 1.11.0
 
 ### Patch Changes
