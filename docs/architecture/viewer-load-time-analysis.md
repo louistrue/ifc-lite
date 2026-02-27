@@ -231,11 +231,14 @@ for the totals computation.
 Changed `setTimeout(startDataModelParsing, 0)` to fire inside the `'complete'` branch. The parser
 no longer competes with WASM for main-thread CPU during geometry streaming. ~1–2 s free.
 
-### P1 — Skip source buffer in cache for huge files — DONE
+### P1 — Disable caching for files above 150 MB — DONE
 
-Added `CACHE_MAX_SOURCE_SIZE = 150 MB`. Files above this threshold still cache geometry + data model
-but skip storing the raw IFC source buffer. For a 326 MB file, this halves the IndexedDB write from
-~500 MB to ~170 MB. The user still has the file on disk for on-demand property extraction.
+Files above `CACHE_MAX_SOURCE_SIZE` (150 MB) are not cached at all. The source buffer is required on
+cache reload for on-demand property/quantity extraction, spatial hierarchy elevations, IFC re-export,
+and attribute extraction (Description, ObjectType, Tag). Caching without it silently degrades all of
+these features. Including it would make the IndexedDB write prohibitively large (~500 MB for a 326 MB
+file). Skipping the cache entirely is the safest trade-off — these files still load via WASM streaming
+with all features intact.
 
 ### P1 — Move BVH + parser to Web Workers — FUTURE
 

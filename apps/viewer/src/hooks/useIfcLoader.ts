@@ -496,8 +496,17 @@ export function useIfcLoader() {
                   }
                 }
 
-                // Cache the result in the background (for files above threshold)
-                if (buffer.byteLength >= CACHE_SIZE_THRESHOLD && allMeshes.length > 0 && finalCoordinateInfo) {
+                // Cache the result in the background (files between 10 MB and 150 MB).
+                // Files above CACHE_MAX_SOURCE_SIZE are not cached because the
+                // source buffer is required for on-demand property/quantity
+                // extraction, spatial hierarchy elevations, and IFC re-export.
+                // Caching without it would silently degrade those features.
+                if (
+                  buffer.byteLength >= CACHE_SIZE_THRESHOLD &&
+                  buffer.byteLength <= CACHE_MAX_SOURCE_SIZE &&
+                  allMeshes.length > 0 &&
+                  finalCoordinateInfo
+                ) {
                   // Final safety pass so cache always contains post-style colors.
                   applyColorUpdatesToMeshes(allMeshes, cumulativeColorUpdates);
                   const geometryData: GeometryData = {
@@ -506,11 +515,7 @@ export function useIfcLoader() {
                     totalTriangles: allMeshes.reduce((sum, m) => sum + m.indices.length / 3, 0),
                     coordinateInfo: finalCoordinateInfo,
                   };
-                  // Skip storing the raw IFC source for files above 150 MB —
-                  // the IDB write is dominated by this buffer and the user still
-                  // has the file on disk for on-demand property extraction.
-                  const cacheSourceBuffer = buffer.byteLength <= CACHE_MAX_SOURCE_SIZE ? buffer : new ArrayBuffer(0);
-                  saveToCache(cacheKey, dataStore, geometryData, cacheSourceBuffer, file.name);
+                  saveToCache(cacheKey, dataStore, geometryData, buffer, file.name);
                 }
               }).catch(err => {
                 // Data model parsing failed - spatial index and caching skipped
