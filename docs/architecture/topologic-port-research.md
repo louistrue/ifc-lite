@@ -459,3 +459,173 @@ computational topology — not patentable or copyrightable.
 | `Face.Area` | `topologic.FaceUtility.Area()` |
 | `Face.Normal` | `topologic.FaceUtility.NormalAtParameters()` |
 | `Face.Triangulate` | `topologic.FaceUtility.Triangulate()` |
+
+---
+
+## 10. Alternative Approach: Drop-In `topologic_core` Replacement
+
+> Instead of porting TopologicPy into ifc-lite, create a **separate Rust/PyO3
+> backend** that replaces `topologic_core` so TopologicPy's 80K lines of Python
+> work unchanged.
+
+### 10.1 Architecture
+
+```
+topologicpy (80K lines Python — UNCHANGED)
+       │
+       ▼  import topologic_core as topologic
+topologic_core_lite (Rust + PyO3)     ← NEW, replaces C++/OCC
+       │
+       ▼
+ifc-lite-topology (Rust crate)        ← NEW NMT data structure
+       │
+       ▼
+ifc-lite-geometry (Rust crate)        ← EXISTING (csgrs, nalgebra, earcutr)
+```
+
+### 10.2 Injection Point
+
+Every TopologicPy file does `import topologic_core as topologic` at line 17.
+This is the **single injection point**. A PyO3 module exposing the same name and
+class hierarchy is a drop-in swap.
+
+### 10.3 OCC Coupling Assessment
+
+**OCC is NOT abstracted — it IS the data model.** From analysis of all C++ source
+and binding files:
+
+- **1,918 OCC references** across the C++ codebase (731 `TopoDS_*`, 277
+  `BRep*`, 511 `TopTools_*`, 211 `Geom_*`, 188 `BOPAlgo_*`)
+- Every topology class stores an OCC type as its member (`Vertex→TopoDS_Vertex`,
+  `Edge→TopoDS_Edge`, `Face→TopoDS_Face`, `Cell→TopoDS_Solid`)
+- The base class `Topology` has pure virtual `GetOcctShape()` returning OCC types
+- `Graph` uses `std::map<TopoDS_Vertex, TopTools_MapOfShape>` internally
+- OCC types **leak into the Python API**: `TopoDS_Shape` is registered as a
+  Python class, `Topology.ByOcctShape()` takes it as a parameter
+- 15 OCC libraries linked at build time
+
+**Conclusion**: Cannot wrap or extend existing C++. Must be a clean-room rewrite.
+
+### 10.4 pybind11 API Surface (What Must Be Replicated)
+
+From direct analysis of all 28 binding files in `TopologicPythonBindings/src/`:
+
+| Category | Count | Examples |
+|----------|-------|---------|
+| **TRIVIAL** (data, types, dict) | ~30 | `Vertex.X()`, `GetType()`, `Dictionary.Keys()`, `isinstance` |
+| **EASY** (topology traversal) | ~35 | `.Vertices()`, `.Faces()`, `.ExternalBoundary()`, adjacency queries |
+| **MODERATE** (comp. geometry) | ~20 | `Area()`, `Volume()`, `Translate/Rotate/Scale`, `NormalAtParameters()` |
+| **HARD** (need B-rep kernel) | ~25 | `Shell.ByFaces()`, `Cell.ByFaces()`, `CellComplex.ByCells()`, booleans |
+| **VERY HARD** (advanced OCC) | ~10 | `TrimByWire()`, NURBS `Triangulate()`, `ByBREPString()` serialization |
+| **Total** | **~120** | |
+
+### 10.5 ifc-lite Geometry Capabilities (What Already Exists)
+
+| Capability | ifc-lite Status | TopologicPy Need |
+|-----------|----------------|-----------------|
+| Linear algebra (nalgebra) | Full | Translate, Rotate, Scale, Transform |
+| 2D triangulation (earcutr) | Full | Face triangulation (planar) |
+| 3D CSG (csgrs) | Partial (difference works; union/intersect limited) | Boolean ops |
+| 2D booleans (i_overlay) | Full | Profile-level operations |
+| B-rep read (IFC shells) | Full | Reading IFC geometry |
+| Face sewing | **MISSING** | `Shell.ByFaces()`, `Cell.ByFaces()` |
+| NMT data structure | **MISSING** | Core topological hierarchy |
+| BREP serialization | **MISSING** | `ByBREPString()` / `BREPString()` |
+| NURBS evaluation | **MISSING** | Curved face operations |
+
+### 10.6 Tiered Implementation Strategy
+
+#### Tier 1: "IFC Graph Mode" (~5K lines Rust, 3-4 months)
+
+Replace `topologic_core` for IFC spatial reasoning **only**:
+
+- `Vertex.ByCoordinates()`, `.X()/.Y()/.Z()` — trivial
+- `Edge.ByStartVertexEndVertex()` — trivial
+- `Graph.ByVerticesEdges()` — adjacency list in Rust
+- All topology traversal (`.Vertices()`, `.Faces()`, etc.) — NMT arena walk
+- `Dictionary`/`Attribute` types — HashMap wrapper
+- `TopologyUtility.Translate/Rotate/Scale` — nalgebra
+- All graph operations (Dijkstra, centrality) — already pure Python in `Graph.py`
+- `Graph.ByIFCFile()` — already bypasses OCC (pure Python)
+
+**Value**: ~70%. Users get `Graph.ByIFCFile()` → spatial analysis at 100-1000x
+speed, no OCC install, pip-installable wheels for all platforms.
+
+#### Tier 2: "Planar Construction Mode" (~4K lines Rust, +2-3 months)
+
+Add planar face sewing:
+
+- `Face.ByExternalBoundary(wire)` — planar polygon from vertex loop
+- `Shell.ByFaces(faces, tol)` — tolerance vertex merging + edge matching
+- `Cell.ByFaces(faces, tol)` — closed shell → solid
+- `CellComplex.ByCells(cells)` — face identity matching
+- `FaceUtility.Area/NormalAtParameters/Triangulate` — triangle sums, cross products
+- `CellUtility.Volume/Contains` — signed tetrahedra, ray casting
+
+**Value**: ~85%. Programmatic topology construction for planar geometry (buildings).
+
+#### Tier 3: "Full Boolean Mode" (~5K lines Rust, +3-6 months)
+
+Add boolean operations:
+
+- `.Union/.Difference/.Intersect/.Merge` — enhanced `csgrs` or `truck` B-rep crate
+- `.Slice/.Impose/.Imprint` — `BOPAlgo_CellsBuilder` equivalent (hardest)
+- `Topology.ByBREPString()/BREPString()` — custom serialization
+- `FaceUtility.TrimByWire()` — 2D clipping on face plane
+
+**Value**: ~95%. Full TopologicPy compatibility for planar geometry.
+
+#### Permanently Out of Scope (~5%)
+
+- NURBS/BSpline surface evaluation
+- `Topology.ByOcctShape()` / `GetOcctShape()` (OCC-specific interop)
+- `Topology.Geometry()` (returns OCC `Geom_Geometry` handles)
+- `FaceUtility.UVSamplePoints()` on parametric surfaces
+
+**None of these are needed for IFC building analysis.**
+
+### 10.7 Comparison: Drop-In Backend vs Port Into ifc-lite
+
+| Factor | Drop-In Backend | Port Into ifc-lite |
+|--------|----------------|-------------------|
+| TopologicPy compatibility | ~95% (Python API preserved) | 0% (new TypeScript API) |
+| User migration effort | `pip install topologic-core-lite` | Rewrite all Python code |
+| Browser support | No (Python only) | Yes (WASM/TypeScript) |
+| ifc-lite codebase impact | Zero (separate project) | Large (new crate + package) |
+| Collaboration with Wassim | Natural (drop-in for his users) | Separate ecosystem |
+| License | MPL-2.0 Rust + GPLv3 Python (OK) | MPL-2.0 only |
+| Community reach | All TopologicPy users | Only ifc-lite users |
+| Performance (Python) | 10-100x faster (Rust vs C++/OCC) | N/A |
+| Performance (Browser) | N/A | Native WASM speed |
+
+### 10.8 Recommended Dual Strategy
+
+**Do both, in sequence — the Rust NMT crate serves both paths:**
+
+1. **Phase A** (NOW): Build `topologic_core_lite` as Tier 1 drop-in. This
+   benefits the entire TopologicPy community immediately. The shared Rust
+   `ifc-lite-topology` crate provides the NMT data structure.
+
+2. **Phase B** (LATER): Expose the same Rust NMT crate to TypeScript/WASM via
+   `wasm-bindgen` inside ifc-lite. Build a browser-native graph engine on top.
+
+```
+ifc-lite-topology (Rust NMT crate)
+       │                    │
+       ▼                    ▼
+  PyO3 bindings       wasm-bindgen bindings
+  (topologic_core_lite)  (@ifc-lite/topology)
+       │                    │
+       ▼                    ▼
+  TopologicPy users    ifc-lite browser users
+```
+
+### 10.9 Key Risks
+
+| Risk | Severity | Mitigation |
+|------|----------|-----------|
+| Face sewing without OCC | HIGH | For IFC, faces come pre-defined; use tolerance vertex merging |
+| Boolean robustness (csgrs) | MEDIUM | BSP known infinite-recursion risk; add safety limits |
+| `isinstance` check compatibility | LOW | PyO3 handles this correctly |
+| OCC-leaked API methods | LOW | Only ~3 places in TopologicPy use `GetOcctShape()` |
+| Serialization format mismatch | MEDIUM | Define new format; old BREP strings won't deserialize |
