@@ -135,13 +135,30 @@ if (sampleCentroids.length >= 2) {
   }
 }
 
-// ── 7. Compute evacuation paths with real distances ──────────────────
+// ── 7. Build adjacency lookup for stair routing ─────────────────────
+// When two consecutive path spaces are on different floors, we need to
+// route the line through the staircase instead of drawing a diagonal.
+// Build a fast lookup from space-pair → shared boundary types.
+const adjLookup: Record<string, { sharedTypes: string[] }> = {}
+for (const pair of adjacency) {
+  const k1 = pair.space1.modelId + ':' + pair.space1.expressId
+  const k2 = pair.space2.modelId + ':' + pair.space2.expressId
+  adjLookup[k1 + '|' + k2] = { sharedTypes: pair.sharedTypes }
+  adjLookup[k2 + '|' + k1] = { sharedTypes: pair.sharedTypes }
+}
+
+// Typical stair slope: ~33° → horizontal run ≈ 1.54× rise
+const STAIR_RUN_RATIO = 1.54
+// Floor height threshold to detect inter-floor transitions
+const FLOOR_Z_THRESHOLD = 1.5
+
+// ── 8. Compute evacuation paths with stair-aware distances ───────────
 interface EvacPath {
   spaceKey: string
   exitKey: string
   path: EntityRef[]
   hops: number
-  totalLength: number // real Euclidean path length in model units
+  totalLength: number // walking distance (stair-adjusted)
   segments: Array<{
     from: [number, number, number]
     to: [number, number, number]
@@ -167,7 +184,7 @@ for (const m of metrics) {
     const result = bim.topology.shortestPath(m.ref, exitRef)
     if (!result) continue
 
-    // Compute real path length from centroid distances
+    // Compute path length, routing inter-floor transitions through stairs
     const segments: EvacPath['segments'] = []
     let totalLength = 0
 
@@ -177,9 +194,66 @@ for (const m of metrics) {
       const fromC = centroidMap[fromKey]
       const toC = centroidMap[toKey]
       if (fromC && toC) {
-        const segLen = dist3d(fromC, toC)
-        segments.push({ from: fromC, to: toC, length: segLen })
-        totalLength += segLen
+        const dz = Math.abs(toC[2] - fromC[2])
+
+        if (dz > FLOOR_Z_THRESHOLD) {
+          // Inter-floor transition — route through stair geometry
+          // 1. Horizontal segment on source floor to stair column
+          // 2. Sloped stair segment (following realistic stair angle)
+          // 3. Horizontal segment on target floor from stair column
+          const stairX = (fromC[0] + toC[0]) / 2
+          const stairY = (fromC[1] + toC[1]) / 2
+
+          // Stair horizontal run along the direction from source to target
+          const dirX = toC[0] - fromC[0]
+          const dirY = toC[1] - fromC[1]
+          const hDist = Math.sqrt(dirX * dirX + dirY * dirY)
+          const stairRun = dz * STAIR_RUN_RATIO
+          // Normalize direction (or use arbitrary if spaces are directly above each other)
+          let nX = 0
+          let nY = 1
+          if (hDist > 0.1) {
+            nX = dirX / hDist
+            nY = dirY / hDist
+          }
+
+          // Bottom of stair: near source side, at source Z
+          const stairBot: [number, number, number] = [
+            stairX - nX * stairRun * 0.5,
+            stairY - nY * stairRun * 0.5,
+            fromC[2],
+          ]
+          // Top of stair: near target side, at target Z
+          const stairTop: [number, number, number] = [
+            stairX + nX * stairRun * 0.5,
+            stairY + nY * stairRun * 0.5,
+            toC[2],
+          ]
+
+          // Segment 1: horizontal to stair base
+          const len1 = dist3d(fromC, stairBot)
+          if (len1 > 0.01) {
+            segments.push({ from: fromC, to: stairBot, length: len1 })
+            totalLength += len1
+          }
+
+          // Segment 2: along stair slope
+          const stairLen = Math.sqrt(dz * dz + stairRun * stairRun)
+          segments.push({ from: stairBot, to: stairTop, length: stairLen })
+          totalLength += stairLen
+
+          // Segment 3: horizontal from stair top to target
+          const len3 = dist3d(stairTop, toC)
+          if (len3 > 0.01) {
+            segments.push({ from: stairTop, to: toC, length: len3 })
+            totalLength += len3
+          }
+        } else {
+          // Same floor — direct centroid-to-centroid line
+          const segLen = dist3d(fromC, toC)
+          segments.push({ from: fromC, to: toC, length: segLen })
+          totalLength += segLen
+        }
       }
     }
 
@@ -212,7 +286,7 @@ console.log('Evacuation paths: ' + evacPaths.length)
 console.log('Shortest path:    ' + displayMin + ' ' + displayUnit)
 console.log('Longest path:     ' + displayMax + ' ' + displayUnit)
 
-// ── 8. Build colored 3D lines ────────────────────────────────────────
+// ── 9. Build colored 3D lines ────────────────────────────────────────
 interface Line3D {
   start: [number, number, number]
   end: [number, number, number]
@@ -266,7 +340,7 @@ for (const evac of evacPaths) {
   }
 }
 
-// ── 9. Visualization setup ───────────────────────────────────────────
+// ── 10. Visualization setup ──────────────────────────────────────────
 // Hide all building elements except doors, stairs, and spaces so paths
 // are clearly visible. Spaces are colored by evacuation distance below.
 const doors = bim.query.byType('IfcDoor')
@@ -337,7 +411,7 @@ if (allLines.length > 0) {
 
 bim.viewer.flyTo(spaces)
 
-// ── 10. Report ───────────────────────────────────────────────────────
+// ── 11. Report ───────────────────────────────────────────────────────
 console.log('')
 console.log('── Visualization Legend ──')
 console.log('  All elements hidden except doors, stairs & spaces.')
@@ -349,7 +423,7 @@ console.log('  Spaces colored by evacuation distance.')
 console.log('    Blue   = exit / egress point')
 console.log('')
 
-// ── 11. Evacuation distance schedule ─────────────────────────────────
+// ── 12. Evacuation distance schedule ─────────────────────────────────
 console.log('── Evacuation Distance Schedule ──')
 console.log('Space                   | Distance   | Hops | Exit via')
 console.log('------------------------+------------+------+------------------')
@@ -377,7 +451,7 @@ if (sorted.length > 30) {
   console.log('... and ' + (sorted.length - 30) + ' more spaces')
 }
 
-// ── 12. Summary statistics ───────────────────────────────────────────
+// ── 13. Summary statistics ───────────────────────────────────────────
 const totalPathLength = evacPaths.reduce((sum, p) => sum + p.totalLength, 0)
 const avgLength = totalPathLength / Math.max(evacPaths.length, 1)
 const displayAvg = unitLabel === 'mm' ? (avgLength * unitScale).toFixed(2) : avgLength.toFixed(2)
@@ -391,7 +465,7 @@ console.log('  Average path:    ' + displayAvg + ' ' + displayUnit)
 console.log('  Total exits:     ' + exitSpaceKeys.length)
 console.log('  Doors traversed: ' + doorEntityRefs.length)
 
-// ── 13. Highlight critical paths ─────────────────────────────────────
+// ── 14. Highlight critical paths ─────────────────────────────────────
 // Find and select the spaces with longest evacuation distance
 const dangerThreshold = minLength + (maxLength - minLength) * 0.8 // top 20%
 const dangerousPaths = sorted.filter(p => p.totalLength >= dangerThreshold)
