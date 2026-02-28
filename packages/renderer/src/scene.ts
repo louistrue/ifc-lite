@@ -435,6 +435,16 @@ export class Scene {
     this.activeBucketKey.clear();
     this.bucketVertexBytes.clear();
     this.pendingBatchKeys.clear();
+    // Destroy cached partial batches — their colorKeys are now stale
+    for (const batch of this.partialBatchCache.values()) {
+      batch.vertexBuffer.destroy();
+      batch.indexBuffer.destroy();
+      if (batch.uniformBuffer) {
+        batch.uniformBuffer.destroy();
+      }
+    }
+    this.partialBatchCache.clear();
+    this.partialBatchCacheKeys.clear();
 
     // 5. Re-group ALL meshData by their CURRENT color.
     //    meshData.color may have been mutated in-place since the mesh was
