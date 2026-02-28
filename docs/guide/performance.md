@@ -87,6 +87,5 @@ Results are saved to `tests/benchmark/benchmark-results/` with automatic regress
 ## Further Reading
 
 - [Architecture Overview](../architecture/overview.md) for system design and data flow
-- [Viewer Load Time Analysis](../architecture/viewer-load-time-analysis.md) for a deep dive into loading bottlenecks and optimizations
 - [Rendering Guide](rendering.md) for WebGPU pipeline details
 - [Server Guide](server.md) for server-side processing and caching
