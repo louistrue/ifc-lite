@@ -9,6 +9,7 @@ import { join } from 'path';
 
 import { createBasicTemplate } from './templates/basic.js';
 import { createThreejsTemplate } from './templates/threejs.js';
+import { createBabylonjsTemplate } from './templates/babylonjs.js';
 import { createServerTemplate } from './templates/server.js';
 import { createServerNativeTemplate } from './templates/server-native.js';
 import { fixViewerTemplate } from './utils/config-fixers.js';
@@ -17,6 +18,7 @@ import { downloadViewer } from './utils/download.js';
 const TEMPLATES = {
   basic: 'basic',
   threejs: 'threejs',
+  babylonjs: 'babylonjs',
   react: 'react',
   server: 'server',
   'server-native': 'server-native',
@@ -38,6 +40,7 @@ function printUsage() {
   Examples:
     npx create-ifc-lite my-ifc-app
     npx create-ifc-lite my-viewer --template threejs
+    npx create-ifc-lite my-viewer --template babylonjs
     npx create-ifc-lite my-viewer --template react
     npx create-ifc-lite my-backend --template server
     npx create-ifc-lite my-backend --template server-native
@@ -45,6 +48,7 @@ function printUsage() {
   Templates:
     basic          Minimal TypeScript project for parsing IFC files
     threejs        Three.js viewer (WebGL, no WebGPU required)
+    babylonjs      Babylon.js viewer (WebGL, no WebGPU required)
     react          Full-featured React + Vite viewer with WebGPU rendering
     server         Docker-based IFC processing server with TypeScript client
     server-native  Native binary server (no Docker required)
@@ -70,7 +74,7 @@ async function main() {
       if (t && t in TEMPLATES) {
         template = t;
       } else {
-        console.error(`Invalid template: ${t}. Available: basic, threejs, react, server, server-native`);
+        console.error(`Invalid template: ${t}. Available: basic, threejs, babylonjs, react, server, server-native`);
         process.exit(1);
       }
     } else if (!arg.startsWith('-')) {
@@ -90,6 +94,9 @@ async function main() {
   if (template === 'threejs') {
     mkdirSync(targetDir, { recursive: true });
     createThreejsTemplate(targetDir, projectName);
+  } else if (template === 'babylonjs') {
+    mkdirSync(targetDir, { recursive: true });
+    createBabylonjsTemplate(targetDir, projectName);
   } else if (template === 'react') {
     // Download the actual viewer from GitHub
     const success = await downloadViewer(targetDir, projectName);
@@ -124,7 +131,7 @@ async function main() {
     console.log(`\n  Server will be available at http://localhost:8080`);
   } else {
     console.log(`    npm install`);
-    if (template === 'react' || template === 'threejs') {
+    if (template === 'react' || template === 'threejs' || template === 'babylonjs') {
       console.log(`    npm run dev`);
     } else {
       console.log(`    npm run parse ./your-model.ifc`);

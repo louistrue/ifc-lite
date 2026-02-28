@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IFC-Lite + Babylon.js</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-deep:   #0d1b2a;
+      --bg-dark:   #1a1a2e;
+      --bg-panel:  #16213e;
+      --bg-card:   #0f3460;
+      --accent:    #533483;
+      --accent2:   #e94560;
+      --border:    rgba(83,52,131,0.35);
+      --text:      #d8dde8;
+      --text-muted:#778;
+      --text-dim:  #445;
+      --hover:     rgba(83,52,131,0.2);
+      --selected:  rgba(79,70,229,0.25);
+      --selected-border: #4f46e5;
+    }
+
+    html, body { height: 100%; font-family: system-ui, -apple-system, sans-serif; font-size: 13px; background: var(--bg-deep); color: var(--text); overflow: hidden; }
+
+    #app { display: flex; flex-direction: column; height: 100vh; }
+
+    /* ── Top header bar ─────────────────────────────────────────── */
+    header {
+      height: 44px;
+      padding: 0 12px;
+      background: var(--bg-panel);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+      z-index: 20;
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 13px; font-weight: 700; color: var(--accent2); letter-spacing: 0.02em; }
+    header .divider { width: 1px; height: 20px; background: var(--border); }
+
+    #file-input {
+      padding: 4px 10px;
+      background: var(--bg-card);
+      border: 1px solid var(--accent);
+      border-radius: 5px;
+      color: var(--text);
+      cursor: pointer;
+      font-size: 12px;
+    }
+    #file-input:hover { background: var(--accent); }
+
+    #status { color: var(--text-muted); font-size: 12px; margin-left: auto; }
+
+    .visually-hidden {
+      position: absolute; width: 1px; height: 1px;
+      padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0;
+    }
+
+    /* ── Main row: spatial | canvas | properties ─────────────────── */
+    #viewport-row {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ── Left: Spatial hierarchy panel ──────────────────────────── */
+    #spatial-panel {
+      width: 256px;
+      flex-shrink: 0;
+      background: var(--bg-panel);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #spatial-panel-header {
+      height: 36px;
+      padding: 0 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    #spatial-panel-header span {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+    }
+    #spatial-panel-header .count-badge {
+      margin-left: auto;
+      font-size: 10px;
+      background: var(--accent);
+      color: #e0d4ff;
+      padding: 1px 6px;
+      border-radius: 9px;
+    }
+
+    #spatial-search-row {
+      padding: 6px 8px;
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
+    }
+    #spatial-search {
+      width: 100%;
+      background: var(--bg-deep);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 5px 8px;
+      color: var(--text);
+      font-size: 12px;
+      outline: none;
+    }
+    #spatial-search:focus { border-color: var(--accent); }
+    #spatial-search::placeholder { color: var(--text-dim); }
+
+    #spatial-tree {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 0;
+      scrollbar-width: thin;
+      scrollbar-color: var(--bg-card) transparent;
+    }
+    #spatial-tree::-webkit-scrollbar { width: 4px; }
+    #spatial-tree::-webkit-scrollbar-track { background: transparent; }
+    #spatial-tree::-webkit-scrollbar-thumb { background: var(--bg-card); border-radius: 2px; }
+
+    /* Empty / loading states */
+    .spatial-placeholder {
+      padding: 16px 12px;
+      color: var(--text-dim);
+      font-size: 12px;
+      font-style: italic;
+      text-align: center;
+    }
+
+    /* ── Tree nodes ──────────────────────────────────────────────── */
+    .tree-node { user-select: none; }
+
+    .tree-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px 4px calc(8px + var(--tree-depth, 0) * 16px);
+      cursor: pointer;
+      border-radius: 3px;
+      margin: 0 4px;
+      transition: background 0.1s;
+      min-height: 28px;
+    }
+    .tree-row:hover { background: var(--hover); }
+    .tree-row.selected { background: var(--selected); }
+    .tree-row.selected .tree-label { color: #a5b4fc; }
+
+    .tree-toggle {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-dim);
+      font-size: 9px;
+      transition: transform 0.15s;
+      border-radius: 2px;
+    }
+    .tree-toggle:hover { color: var(--text); }
+    .tree-toggle.expanded { transform: rotate(90deg); }
+    .tree-toggle.leaf { cursor: default; opacity: 0; }
+
+    .tree-icon {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      font-weight: 700;
+    }
+    .icon-project  { background: #e94560; color: #fff; }
+    .icon-site     { background: #533483; color: #e0d4ff; }
+    .icon-building { background: #0f3460; color: #7ab3ff; border: 1px solid #1a5a9e; }
+    .icon-storey   { background: #1a3a6e; color: #7ab3ff; }
+    .icon-space    { background: #0d2a4e; color: #778; border: 1px solid #1a3a6e; }
+    .icon-type     { background: rgba(83,52,131,0.3); color: #a89eca; }
+    .icon-element  { width: 8px; height: 8px; border-radius: 50%; border: none; flex-shrink: 0; }
+
+    .tree-label {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      color: var(--text);
+    }
+    .tree-label.dim { color: var(--text-muted); }
+
+    .tree-sublabel {
+      font-size: 10px;
+      color: var(--text-dim);
+      margin-left: 2px;
+      flex-shrink: 0;
+    }
+
+    .tree-count {
+      flex-shrink: 0;
+      font-size: 10px;
+      color: var(--text-dim);
+      background: rgba(255,255,255,0.05);
+      padding: 1px 5px;
+      border-radius: 8px;
+      min-width: 20px;
+      text-align: center;
+    }
+
+    .tree-children { display: none; }
+    .tree-children.open { display: block; }
+
+    /* ── Center: 3-D Viewport ────────────────────────────────────── */
+    #canvas-container {
+      flex: 1;
+      min-width: 0;
+      position: relative;
+    }
+    canvas { display: block; width: 100%; height: 100%; cursor: crosshair; outline: none; }
+    canvas.hovering { cursor: pointer; }
+    canvas.dragging { cursor: grabbing; }
+
+    #viewport-info {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      background: rgba(13,27,42,0.85);
+      padding: 5px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      color: var(--text-muted);
+      pointer-events: none;
+      backdrop-filter: blur(4px);
+      border: 1px solid var(--border);
+    }
+
+    /* ── Right: Properties panel ─────────────────────────────────── */
+    #selection-panel {
+      width: 300px;
+      flex-shrink: 0;
+      background: var(--bg-panel);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transform: translateX(100%);
+      margin-right: -300px;
+      transition: transform 0.2s ease, margin-right 0.2s ease;
+    }
+    #selection-panel.open {
+      transform: translateX(0);
+      margin-right: 0;
+    }
+
+    #panel-header {
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      padding: 8px 10px;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    #panel-title { flex: 1; min-width: 0; }
+    #entity-type-badge {
+      display: inline-block;
+      padding: 2px 7px;
+      background: var(--accent);
+      border-radius: 3px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #e0d4ff;
+      margin-bottom: 3px;
+      word-break: break-all;
+    }
+    #entity-id { display: block; font-size: 10px; color: var(--text-muted); }
+    #panel-close {
+      background: none; border: none; color: var(--text-muted);
+      cursor: pointer; font-size: 14px; padding: 0 4px;
+      border-radius: 3px; flex-shrink: 0; line-height: 1;
+    }
+    #panel-close:hover { background: var(--hover); color: var(--text); }
+
+    #panel-body {
+      flex: 1; overflow-y: auto; padding: 8px;
+      scrollbar-width: thin; scrollbar-color: var(--bg-card) transparent;
+    }
+    #panel-body::-webkit-scrollbar { width: 4px; }
+    #panel-body::-webkit-scrollbar-thumb { background: var(--bg-card); border-radius: 2px; }
+
+    /* ── Attribute rows ──────────────────────────────────────────── */
+    .attr-section { margin-bottom: 10px; }
+    .attr-section h3 {
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--text-dim); margin-bottom: 4px; padding: 0 2px;
+    }
+    .attr-row {
+      display: flex; gap: 6px; align-items: baseline;
+      padding: 3px 2px; border-bottom: 1px solid rgba(255,255,255,0.04);
+      font-size: 11px;
+    }
+    .attr-row:last-child { border-bottom: none; }
+    .attr-label { color: var(--text-muted); min-width: 84px; flex-shrink: 0; }
+    .attr-value { color: var(--text); word-break: break-all; }
+    .attr-value.empty { color: var(--text-dim); font-style: italic; }
+
+    /* ── Pset accordions ─────────────────────────────────────────── */
+    .pset-section { margin-bottom: 4px; }
+    .pset-toggle {
+      width: 100%; background: rgba(15,52,96,0.4); border: 1px solid var(--border);
+      border-radius: 4px; padding: 5px 7px; display: flex; align-items: center;
+      justify-content: space-between; cursor: pointer; color: var(--text);
+      font-size: 11px; font-weight: 500; text-align: left;
+    }
+    .pset-toggle:hover { background: rgba(15,52,96,0.7); }
+    .pset-chevron { font-size: 9px; color: var(--text-dim); transition: transform 0.15s; }
+    .pset-toggle.open .pset-chevron { transform: rotate(90deg); }
+    .pset-body {
+      display: none; padding: 3px 4px 2px; font-size: 11px;
+      background: rgba(13,27,42,0.6); border: 1px solid var(--border); border-top: none;
+      border-radius: 0 0 4px 4px;
+    }
+    .pset-body.open { display: block; }
+    .pset-prop {
+      display: flex; gap: 6px; padding: 3px 2px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    .pset-prop:last-child { border-bottom: none; }
+    .pset-prop-name { color: var(--text-muted); min-width: 84px; flex-shrink: 0; }
+    .pset-prop-value { color: var(--text); word-break: break-all; }
+
+    .no-data { color: var(--text-dim); font-size: 11px; font-style: italic; padding: 4px 2px; }
+    .loading-data { color: var(--text-dim); font-size: 11px; padding: 4px 2px; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>IFC-Lite + Babylon.js</h1>
+      <div class="divider"></div>
+      <label for="file-input" class="visually-hidden">Select IFC file</label>
+      <input type="file" id="file-input" accept=".ifc" />
+      <span id="status">Drop an IFC file to view</span>
+    </header>
+
+    <div id="viewport-row">
+
+      <!-- Left: Spatial hierarchy panel -->
+      <div id="spatial-panel">
+        <div id="spatial-panel-header">
+          <span>Structure</span>
+          <span class="count-badge" id="spatial-entity-count" style="display:none"></span>
+        </div>
+        <div id="spatial-search-row">
+          <input id="spatial-search" type="search" placeholder="Search elements…" autocomplete="off" />
+        </div>
+        <div id="spatial-tree">
+          <p class="spatial-placeholder">Open an IFC file to explore its structure.</p>
+        </div>
+      </div>
+
+      <!-- Center: 3D Viewport -->
+      <div id="canvas-container">
+        <canvas id="viewer"></canvas>
+        <div id="viewport-info">
+          Orbit: left-drag &nbsp;·&nbsp; Pan: right-drag &nbsp;·&nbsp; Zoom: scroll &nbsp;·&nbsp; Click: select
+        </div>
+      </div>
+
+      <!-- Right: Properties panel -->
+      <div id="selection-panel">
+        <div id="panel-header">
+          <div id="panel-title">
+            <span id="entity-type-badge"></span>
+            <span id="entity-id"></span>
+          </div>
+          <button id="panel-close" title="Close (Esc)">✕</button>
+        </div>
+        <div id="panel-body"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
