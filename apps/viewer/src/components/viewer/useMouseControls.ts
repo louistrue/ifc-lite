@@ -121,6 +121,9 @@ export interface UseMouseControlsParams {
   updateFaceSectionDistance: (distance: number) => void;
   setFaceSectionDragging: (dragging: boolean) => void;
 
+  // Shared section plane options builder (single source of truth)
+  getSectionPlaneOpts: () => import('@ifc-lite/renderer').SectionPlane | undefined;
+
   // Constants
   HOVER_SNAP_THROTTLE_MS: number;
   SLOW_RAYCAST_THRESHOLD_MS: number;
@@ -241,6 +244,7 @@ export function useMouseControls(params: UseMouseControlsParams): void {
     confirmFaceSection,
     updateFaceSectionDistance,
     setFaceSectionDragging,
+    getSectionPlaneOpts,
     HOVER_SNAP_THROTTLE_MS,
     SLOW_RAYCAST_THRESHOLD_MS,
     hoverThrottleMs,
@@ -749,25 +753,14 @@ export function useMouseControls(params: UseMouseControlsParams): void {
           const newDistance = faceSection.distance + moveDelta;
           updateFaceSectionDistance(newDistance);
 
-          // Re-render with updated section
+          // Re-render with updated section (getSectionPlaneOpts reads from refs, which were just updated)
           renderer.render({
             hiddenIds: hiddenEntitiesRef.current,
             isolatedIds: isolatedEntitiesRef.current,
             selectedId: selectedEntityIdRef.current,
             selectedModelIndex: selectedModelIndexRef.current,
             clearColor: clearColorRef.current,
-            sectionPlane: {
-              ...sectionPlaneRef.current,
-              customNormal: faceSection.normal,
-              customDistance: newDistance,
-              customPoint: {
-                x: faceSection.normal.x * newDistance,
-                y: faceSection.normal.y * newDistance,
-                z: faceSection.normal.z * newDistance,
-              },
-              faceConfirmed: true,
-              enabled: true,
-            },
+            sectionPlane: getSectionPlaneOpts(),
           });
           canvas.style.cursor = 'grabbing';
         }
@@ -819,11 +812,7 @@ export function useMouseControls(params: UseMouseControlsParams): void {
             selectedId: selectedEntityIdRef.current,
             selectedModelIndex: selectedModelIndexRef.current,
             clearColor: clearColorRef.current,
-            sectionPlane: activeToolRef.current === 'section' ? {
-              ...sectionPlaneRef.current,
-              min: sectionRangeRef.current?.min,
-              max: sectionRangeRef.current?.max,
-            } : undefined,
+            sectionPlane: getSectionPlaneOpts(),
           });
           // Update ViewCube rotation in real-time during drag
           updateCameraRotationRealtime(camera.getRotation());
@@ -840,11 +829,7 @@ export function useMouseControls(params: UseMouseControlsParams): void {
               selectedId: selectedEntityIdRef.current,
               selectedModelIndex: selectedModelIndexRef.current,
               clearColor: clearColorRef.current,
-              sectionPlane: activeToolRef.current === 'section' ? {
-                ...sectionPlaneRef.current,
-                min: sectionRangeRef.current?.min,
-                max: sectionRangeRef.current?.max,
-              } : undefined,
+              sectionPlane: getSectionPlaneOpts(),
             });
             updateCameraRotationRealtime(camera.getRotation());
             calculateScale();
@@ -1029,11 +1014,7 @@ export function useMouseControls(params: UseMouseControlsParams): void {
         selectedId: selectedEntityIdRef.current,
         selectedModelIndex: selectedModelIndexRef.current,
         clearColor: clearColorRef.current,
-        sectionPlane: activeToolRef.current === 'section' ? {
-          ...sectionPlaneRef.current,
-          min: sectionRangeRef.current?.min,
-          max: sectionRangeRef.current?.max,
-        } : undefined,
+        sectionPlane: getSectionPlaneOpts(),
       });
       // Update measurement screen coordinates immediately during zoom (only in measure mode)
       if (activeToolRef.current === 'measure') {

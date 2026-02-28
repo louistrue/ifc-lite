@@ -9,7 +9,6 @@
 
 import { useEffect, type MutableRefObject, type RefObject } from 'react';
 import type { Renderer, VisualEnhancementOptions } from '@ifc-lite/renderer';
-import type { SectionPlane, SectionMode, FaceSectionPlane, FaceSectionHover } from '@/store';
 
 export interface UseAnimationLoopParams {
   canvasRef: RefObject<HTMLCanvasElement | null>;
@@ -25,11 +24,7 @@ export interface UseAnimationLoopParams {
   selectedModelIndexRef: MutableRefObject<number | undefined>;
   clearColorRef: MutableRefObject<[number, number, number, number]>;
   visualEnhancementRef: MutableRefObject<VisualEnhancementOptions>;
-  sectionPlaneRef: MutableRefObject<SectionPlane>;
-  sectionRangeRef: MutableRefObject<{ min: number; max: number } | null>;
-  sectionModeRef: MutableRefObject<SectionMode>;
-  faceSectionPlaneRef: MutableRefObject<FaceSectionPlane | null>;
-  faceSectionHoverRef: MutableRefObject<FaceSectionHover | null>;
+  getSectionPlaneOpts: () => Record<string, unknown> | undefined;
   lastCameraStateRef: MutableRefObject<{
     position: { x: number; y: number; z: number };
     rotation: { azimuth: number; elevation: number };
@@ -58,11 +53,7 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
     selectedModelIndexRef,
     clearColorRef,
     visualEnhancementRef,
-    sectionPlaneRef,
-    sectionRangeRef,
-    sectionModeRef,
-    faceSectionPlaneRef,
-    faceSectionHoverRef,
+    getSectionPlaneOpts,
     lastCameraStateRef,
     updateCameraRotationRealtime,
     calculateScale,
@@ -89,35 +80,6 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
 
       const isAnimating = camera.update(deltaTime);
       if (isAnimating) {
-        // Build section plane options (handles both axis-aligned and face modes)
-        let sectionOpts: ReturnType<typeof Object.assign> | undefined;
-        if (activeToolRef.current === 'section') {
-          const mode = sectionModeRef.current;
-          const faceSection = faceSectionPlaneRef.current;
-          const faceHover = faceSectionHoverRef.current;
-          if (mode === 'face' && faceSection?.confirmed) {
-            sectionOpts = {
-              ...sectionPlaneRef.current,
-              customNormal: faceSection.normal,
-              customDistance: faceSection.distance,
-              customPoint: faceSection.point,
-              faceConfirmed: true,
-              enabled: faceSection.enabled,
-            };
-          } else if (mode === 'face' && faceHover) {
-            sectionOpts = {
-              ...sectionPlaneRef.current,
-              faceHover: { normal: faceHover.normal, point: faceHover.point },
-              enabled: false,
-            };
-          } else if (mode !== 'face') {
-            sectionOpts = {
-              ...sectionPlaneRef.current,
-              min: sectionRangeRef.current?.min,
-              max: sectionRangeRef.current?.max,
-            };
-          }
-        }
         renderer.render({
           hiddenIds: hiddenEntitiesRef.current,
           isolatedIds: isolatedEntitiesRef.current,
@@ -125,7 +87,7 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
           selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
           visualEnhancement: visualEnhancementRef.current,
-          sectionPlane: sectionOpts,
+          sectionPlane: getSectionPlaneOpts(),
         });
         // Update ViewCube during camera animation (e.g., preset view transitions)
         updateCameraRotationRealtime(camera.getRotation());

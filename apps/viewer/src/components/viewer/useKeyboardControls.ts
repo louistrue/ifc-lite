@@ -10,7 +10,6 @@
 import { useEffect, type MutableRefObject } from 'react';
 import type { Renderer } from '@ifc-lite/renderer';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
-import type { SectionPlane } from '@/store';
 import { goHomeFromStore } from '@/store/homeView';
 import { getEntityBounds } from '../../utils/viewportUtils.js';
 
@@ -31,10 +30,9 @@ export interface UseKeyboardControlsParams {
   selectedModelIndexRef: MutableRefObject<number | undefined>;
   clearColorRef: MutableRefObject<[number, number, number, number]>;
   activeToolRef: MutableRefObject<string>;
-  sectionPlaneRef: MutableRefObject<SectionPlane>;
-  sectionRangeRef: MutableRefObject<{ min: number; max: number } | null>;
   updateCameraRotationRealtime: (rotation: { azimuth: number; elevation: number }) => void;
   calculateScale: () => void;
+  getSectionPlaneOpts: () => Record<string, unknown> | undefined;
 }
 
 export function useKeyboardControls(params: UseKeyboardControlsParams): void {
@@ -52,10 +50,9 @@ export function useKeyboardControls(params: UseKeyboardControlsParams): void {
     selectedModelIndexRef,
     clearColorRef,
     activeToolRef,
-    sectionPlaneRef,
-    sectionRangeRef,
     updateCameraRotationRealtime,
     calculateScale,
+    getSectionPlaneOpts,
   } = params;
 
   useEffect(() => {
@@ -98,11 +95,7 @@ export function useKeyboardControls(params: UseKeyboardControlsParams): void {
           selectedId: selectedEntityIdRef.current,
           selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
-            min: sectionRangeRef.current?.min,
-            max: sectionRangeRef.current?.max,
-          } : undefined,
+          sectionPlane: getSectionPlaneOpts(),
         });
         updateCameraRotationRealtime(camera.getRotation());
         calculateScale();
@@ -193,11 +186,7 @@ export function useKeyboardControls(params: UseKeyboardControlsParams): void {
           selectedId: selectedEntityIdRef.current,
           selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
-            min: sectionRangeRef.current?.min,
-            max: sectionRangeRef.current?.max,
-          } : undefined,
+          sectionPlane: getSectionPlaneOpts(),
         });
       }
       moveFrameId = requestAnimationFrame(keyboardMove);

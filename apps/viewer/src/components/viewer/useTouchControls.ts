@@ -10,7 +10,6 @@
 import { useEffect, type MutableRefObject, type RefObject } from 'react';
 import type { Renderer, PickResult } from '@ifc-lite/renderer';
 import type { MeshData } from '@ifc-lite/geometry';
-import type { SectionPlane } from '@/store';
 import { getEntityCenter } from '../../utils/viewportUtils.js';
 
 export interface TouchState {
@@ -34,11 +33,10 @@ export interface UseTouchControlsParams {
   selectedEntityIdRef: MutableRefObject<number | null>;
   selectedModelIndexRef: MutableRefObject<number | undefined>;
   clearColorRef: MutableRefObject<[number, number, number, number]>;
-  sectionPlaneRef: MutableRefObject<SectionPlane>;
-  sectionRangeRef: MutableRefObject<{ min: number; max: number } | null>;
   geometryRef: MutableRefObject<MeshData[] | null>;
   handlePickForSelection: (pickResult: PickResult | null) => void;
   getPickOptions: () => { isStreaming: boolean; hiddenIds: Set<number>; isolatedIds: Set<number> | null };
+  getSectionPlaneOpts: () => Record<string, unknown> | undefined;
 }
 
 export function useTouchControls(params: UseTouchControlsParams): void {
@@ -53,11 +51,10 @@ export function useTouchControls(params: UseTouchControlsParams): void {
     selectedEntityIdRef,
     selectedModelIndexRef,
     clearColorRef,
-    sectionPlaneRef,
-    sectionRangeRef,
     geometryRef,
     handlePickForSelection,
     getPickOptions,
+    getSectionPlaneOpts,
   } = params;
 
   useEffect(() => {
@@ -150,11 +147,7 @@ export function useTouchControls(params: UseTouchControlsParams): void {
           selectedId: selectedEntityIdRef.current,
           selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
-            min: sectionRangeRef.current?.min,
-            max: sectionRangeRef.current?.max,
-          } : undefined,
+          sectionPlane: getSectionPlaneOpts(),
         });
       } else if (touchState.touches.length === 2) {
         const dx1 = touchState.touches[1].clientX - touchState.touches[0].clientX;
@@ -179,11 +172,7 @@ export function useTouchControls(params: UseTouchControlsParams): void {
           selectedId: selectedEntityIdRef.current,
           selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
-            min: sectionRangeRef.current?.min,
-            max: sectionRangeRef.current?.max,
-          } : undefined,
+          sectionPlane: getSectionPlaneOpts(),
         });
       }
     };

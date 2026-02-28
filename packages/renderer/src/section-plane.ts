@@ -45,8 +45,15 @@ export class SectionPlaneRenderer {
   private sampleCount: number;
   private initialized = false;
 
-  // Face plane: larger vertex buffer for arrow gizmo
+  // Face plane buffers (separate from arrow to avoid writeBuffer overwrite within same render pass)
   private faceVertexBuffer: GPUBuffer | null = null;
+  private faceUniformBuffer: GPUBuffer | null = null;
+  private faceBindGroup: GPUBindGroup | null = null;
+
+  // Arrow gizmo: separate buffers so plane and arrow can coexist in same render pass
+  private arrowVertexBuffer: GPUBuffer | null = null;
+  private arrowUniformBuffer: GPUBuffer | null = null;
+  private arrowBindGroup: GPUBindGroup | null = null;
 
   constructor(device: GPUDevice, format: GPUTextureFormat, sampleCount: number = 4) {
     this.device = device;
@@ -218,13 +225,44 @@ export class SectionPlaneRenderer {
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
 
-    // Face vertex buffer: larger to accommodate plane + arrow gizmo (up to 60 vertices)
+    // Face vertex buffer: 6 vertices for plane quad
     this.faceVertexBuffer = this.device.createBuffer({
+      size: 6 * 5 * 4, // 6 vertices * 5 floats * 4 bytes
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+
+    // Face uniform buffer (separate from axis-aligned uniform buffer)
+    this.faceUniformBuffer = this.device.createBuffer({
+      size: 80,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    this.faceBindGroup = this.device.createBindGroup({
+      layout: this.bindGroupLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.faceUniformBuffer } },
+      ],
+    });
+
+    // Arrow gizmo: separate vertex + uniform buffers (up to 60 vertices)
+    this.arrowVertexBuffer = this.device.createBuffer({
       size: 60 * 5 * 4, // 60 vertices * 5 floats * 4 bytes
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
 
-    // Create uniform buffer
+    this.arrowUniformBuffer = this.device.createBuffer({
+      size: 80,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    this.arrowBindGroup = this.device.createBindGroup({
+      layout: this.bindGroupLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.arrowUniformBuffer } },
+      ],
+    });
+
+    // Create uniform buffer (for axis-aligned section plane)
     this.uniformBuffer = this.device.createBuffer({
       size: 80, // mat4x4 (64) + vec4 (16) = 80 bytes
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -304,7 +342,9 @@ export class SectionPlaneRenderer {
   ): void {
     this.init();
 
-    if (!this.previewPipeline || !this.cutPipeline || !this.faceVertexBuffer || !this.uniformBuffer || !this.bindGroup) {
+    if (!this.previewPipeline || !this.cutPipeline ||
+        !this.faceVertexBuffer || !this.faceUniformBuffer || !this.faceBindGroup ||
+        !this.arrowVertexBuffer || !this.arrowUniformBuffer || !this.arrowBindGroup) {
       return;
     }
 
@@ -327,35 +367,31 @@ export class SectionPlaneRenderer {
     // Build plane quad vertices (6 vertices = 2 triangles)
     const planeVertices = this.buildOrientedQuad(point, tangent, bitangent, halfSize);
 
-    // Write plane vertices
+    // Write plane data to FACE-specific buffers (separate from arrow buffers)
     this.device.queue.writeBuffer(this.faceVertexBuffer, 0, planeVertices);
 
-    // Update uniforms with face section color
-    const uniforms = new Float32Array(20);
-    uniforms.set(viewProj, 0);
+    const planeUniforms = new Float32Array(20);
+    planeUniforms.set(viewProj, 0);
 
     if (isConfirmed) {
       // Confirmed: magenta/pink color (distinct from axis-aligned colors)
-      uniforms[16] = 0.914; // R - #E91E63
-      uniforms[17] = 0.118; // G
-      uniforms[18] = 0.388; // B
-      uniforms[19] = 0.3;   // Higher opacity for confirmed
+      planeUniforms[16] = 0.914; // R - #E91E63
+      planeUniforms[17] = 0.118; // G
+      planeUniforms[18] = 0.388; // B
+      planeUniforms[19] = 0.3;   // Higher opacity for confirmed
     } else {
       // Hover preview: cyan/teal color
-      uniforms[16] = 0.0;   // R - #00BCD4
-      uniforms[17] = 0.737; // G
-      uniforms[18] = 0.831; // B
-      uniforms[19] = 0.2;   // Low opacity for preview
+      planeUniforms[16] = 0.0;   // R - #00BCD4
+      planeUniforms[17] = 0.737; // G
+      planeUniforms[18] = 0.831; // B
+      planeUniforms[19] = 0.2;   // Low opacity for preview
     }
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
+    this.device.queue.writeBuffer(this.faceUniformBuffer, 0, planeUniforms);
 
-    // Draw plane quad with preview pipeline
-    pass.setPipeline(this.previewPipeline!);
-    pass.setBindGroup(0, this.bindGroup);
-    pass.setVertexBuffer(0, this.faceVertexBuffer);
-    pass.draw(6); // Plane quad
-
-    // Draw arrow gizmo for confirmed face sections
+    // Draw arrow gizmo for confirmed face sections (write to SEPARATE arrow buffers)
+    // Must write arrow data BEFORE drawing plane, since WebGPU processes all writeBuffer
+    // calls before the render pass executes on GPU.
+    let arrowVertexCount = 0;
     if (isConfirmed) {
       const arrowLength = modelSize * 0.08;
       const arrowRadius = modelSize * 0.012;
@@ -373,20 +409,30 @@ export class SectionPlaneRenderer {
         headRadius
       );
 
-      this.device.queue.writeBuffer(this.faceVertexBuffer, 0, arrowVertices);
+      this.device.queue.writeBuffer(this.arrowVertexBuffer, 0, arrowVertices);
+      arrowVertexCount = arrowVertices.length / 5;
 
-      // Arrow color: same magenta but more opaque
-      uniforms[16] = 0.914; // R
-      uniforms[17] = 0.118; // G
-      uniforms[18] = 0.388; // B
-      uniforms[19] = 0.45;  // Semi-transparent
-      this.device.queue.writeBuffer(this.uniformBuffer, 0, uniforms);
+      const arrowUniforms = new Float32Array(20);
+      arrowUniforms.set(viewProj, 0);
+      arrowUniforms[16] = 0.914; // R - same magenta but more opaque
+      arrowUniforms[17] = 0.118; // G
+      arrowUniforms[18] = 0.388; // B
+      arrowUniforms[19] = 0.45;  // Semi-transparent
+      this.device.queue.writeBuffer(this.arrowUniformBuffer, 0, arrowUniforms);
+    }
 
-      // Draw arrow with cut pipeline (always visible, on top)
+    // Draw plane quad with preview pipeline (using face-specific buffers)
+    pass.setPipeline(this.previewPipeline!);
+    pass.setBindGroup(0, this.faceBindGroup!);
+    pass.setVertexBuffer(0, this.faceVertexBuffer);
+    pass.draw(6); // Plane quad
+
+    // Draw arrow with cut pipeline (using arrow-specific buffers, always visible on top)
+    if (isConfirmed && arrowVertexCount > 0) {
       pass.setPipeline(this.cutPipeline!);
-      pass.setBindGroup(0, this.bindGroup);
-      pass.setVertexBuffer(0, this.faceVertexBuffer);
-      pass.draw(arrowVertices.length / 5); // Dynamic vertex count
+      pass.setBindGroup(0, this.arrowBindGroup!);
+      pass.setVertexBuffer(0, this.arrowVertexBuffer!);
+      pass.draw(arrowVertexCount);
     }
   }
 

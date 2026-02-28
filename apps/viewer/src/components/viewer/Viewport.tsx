@@ -488,6 +488,44 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     return state.measurements.length > 0 || state.activeMeasurement !== null;
   };
 
+  // Shared helper: build section plane render options (single source of truth)
+  // Used by ALL render calls (orbit, pan, wheel, keyboard, touch, animation loop, etc.)
+  const getSectionPlaneOpts = () => {
+    if (activeToolRef.current !== 'section') return undefined;
+
+    const mode = sectionModeRef.current;
+    const faceSection = faceSectionPlaneRef.current;
+    const faceHover = faceSectionHoverRef.current;
+
+    if (mode === 'face') {
+      if (faceSection?.confirmed) {
+        return {
+          ...sectionPlaneRef.current,
+          customNormal: faceSection.normal,
+          customDistance: faceSection.distance,
+          customPoint: faceSection.point,
+          faceConfirmed: true,
+          enabled: faceSection.enabled,
+        };
+      }
+      if (faceHover) {
+        return {
+          ...sectionPlaneRef.current,
+          faceHover: { normal: faceHover.normal, point: faceHover.point },
+          enabled: false,
+        };
+      }
+      return undefined;
+    }
+
+    // Axis-aligned mode
+    return {
+      ...sectionPlaneRef.current,
+      min: sectionRangeRef.current?.min,
+      max: sectionRangeRef.current?.max,
+    };
+  };
+
   // ===== Renderer initialization =====
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -524,47 +562,6 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
       setIsInitialized(true);
 
       const camera = renderer.getCamera();
-      const buildSectionPlaneOptions = () => {
-        if (activeToolRef.current !== 'section') return undefined;
-
-        const mode = sectionModeRef.current;
-        const faceSection = faceSectionPlaneRef.current;
-        const faceHover = faceSectionHoverRef.current;
-
-        // Face section mode
-        if (mode === 'face') {
-          if (faceSection?.confirmed) {
-            return {
-              ...sectionPlaneRef.current,
-              customNormal: faceSection.normal,
-              customDistance: faceSection.distance,
-              customPoint: faceSection.point,
-              faceConfirmed: true,
-              enabled: faceSection.enabled,
-            };
-          }
-          if (faceHover) {
-            return {
-              ...sectionPlaneRef.current,
-              faceHover: {
-                normal: faceHover.normal,
-                point: faceHover.point,
-              },
-              enabled: false,
-            };
-          }
-          // Face mode but no hover/confirmed - don't show anything
-          return undefined;
-        }
-
-        // Axis-aligned mode
-        return {
-          ...sectionPlaneRef.current,
-          min: sectionRangeRef.current?.min,
-          max: sectionRangeRef.current?.max,
-        };
-      };
-
       const renderCurrent = () => {
         renderer.render({
           hiddenIds: hiddenEntitiesRef.current,
@@ -573,7 +570,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
           selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
           visualEnhancement: visualEnhancementRef.current,
-          sectionPlane: buildSectionPlaneOptions(),
+          sectionPlane: getSectionPlaneOpts(),
         });
       };
 
@@ -789,6 +786,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     confirmFaceSection,
     updateFaceSectionDistance,
     setFaceSectionDragging,
+    getSectionPlaneOpts,
     HOVER_SNAP_THROTTLE_MS,
     SLOW_RAYCAST_THRESHOLD_MS,
     hoverThrottleMs,
@@ -808,11 +806,10 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     selectedEntityIdRef,
     selectedModelIndexRef,
     clearColorRef,
-    sectionPlaneRef,
-    sectionRangeRef,
     geometryRef,
     handlePickForSelection: (pickResult) => handlePickForSelectionRef.current(pickResult),
     getPickOptions,
+    getSectionPlaneOpts,
   });
 
   useKeyboardControls({
@@ -829,10 +826,9 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     selectedModelIndexRef,
     clearColorRef,
     activeToolRef,
-    sectionPlaneRef,
-    sectionRangeRef,
     updateCameraRotationRealtime,
     calculateScale,
+    getSectionPlaneOpts,
   });
 
   useAnimationLoop({
@@ -848,12 +844,8 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     selectedEntityIdRef,
     selectedModelIndexRef,
     clearColorRef,
-    sectionPlaneRef,
-    sectionRangeRef,
-    sectionModeRef,
-    faceSectionPlaneRef,
-    faceSectionHoverRef,
     visualEnhancementRef,
+    getSectionPlaneOpts,
     lastCameraStateRef,
     updateCameraRotationRealtime,
     calculateScale,
@@ -898,9 +890,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     sectionPlaneRef,
     sectionRangeRef,
     activeToolRef,
-    sectionModeRef,
-    faceSectionPlaneRef,
-    faceSectionHoverRef,
+    getSectionPlaneOpts,
     sectionMode,
     faceSectionPlane,
     faceSectionHover,
