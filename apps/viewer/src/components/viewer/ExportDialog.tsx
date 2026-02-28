@@ -41,7 +41,7 @@ import {
   AlertTitle,
 } from '@/components/ui/alert';
 import { useViewerStore } from '@/store';
-import { StepExporter, MergedExporter, type MergeModelInput } from '@ifc-lite/export';
+import { StepExporter, MergedExporter, Ifc5Exporter, type MergeModelInput } from '@ifc-lite/export';
 import { MutablePropertyView } from '@ifc-lite/mutations';
 import { extractPropertiesOnDemand, type IfcDataStore } from '@ifc-lite/parser';
 
@@ -268,7 +268,48 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
       if (!selectedModel) return;
       const mutationView = getMutationView(selectedModelId);
 
-      if (format === 'ifc') {
+      // IFC5 schema or IFCX format → use Ifc5Exporter for proper IFCX JSON + USD geometry
+      if (schema === 'IFC5' || format === 'ifcx') {
+        const federatedModel = models.get(selectedModelId);
+        const idOffset = federatedModel?.idOffset ?? 0;
+
+        const exporter = new Ifc5Exporter(
+          selectedModel.ifcDataStore,
+          selectedModel.geometryResult,
+          mutationView || undefined,
+          idOffset,
+        );
+
+        const localHidden = visibleOnly ? getLocalHiddenIds(selectedModelId) : undefined;
+        const localIsolated = visibleOnly ? getLocalIsolatedIds(selectedModelId) : undefined;
+
+        const result = exporter.export({
+          includeGeometry,
+          includeProperties: true,
+          applyMutations,
+          visibleOnly,
+          hiddenEntityIds: localHidden,
+          isolatedEntityIds: localIsolated ?? undefined,
+          author: 'ifc-lite',
+        });
+
+        // Download as .ifcx
+        const blob = new Blob([result.content], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const suffix = visibleOnly ? '_visible' : '_export';
+        a.download = `${selectedModel.name.replace(/\.[^.]+$/, '')}${suffix}.ifcx`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        setExportResult({
+          success: true,
+          message: `Exported IFCX: ${result.stats.nodeCount} nodes, ${result.stats.meshCount} meshes, ${result.stats.propertyCount} properties`,
+        });
+      } else if (format === 'ifc') {
         const exporter = new StepExporter(selectedModel.ifcDataStore, mutationView || undefined);
 
         // Build visibility filter for visible-only export
@@ -302,31 +343,6 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
         setExportResult({
           success: true,
           message: `Exported ${result.stats.entityCount} entities (${result.stats.modifiedEntityCount} modified)`,
-        });
-      } else if (format === 'ifcx') {
-        // Export as IFCX JSON
-        const data = {
-          format: 'ifcx',
-          modelId: selectedModelId,
-          modelName: selectedModel.name,
-          schemaVersion: 'IFC5',
-          mutations: mutationView?.getMutations() || [],
-          exportedAt: new Date().toISOString(),
-        };
-
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${selectedModel.name.replace(/\.[^.]+$/, '')}_modified.ifcx`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-
-        setExportResult({
-          success: true,
-          message: `Exported IFCX with ${mutationView?.getMutations().length || 0} mutations`,
         });
       } else {
         // Export mutations as JSON
@@ -456,11 +472,11 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
             </Select>
           </div>
 
-          {/* Schema version (for IFC format) */}
-          {format === 'ifc' && (
+          {/* Schema version (for IFC and IFCX formats) */}
+          {(format === 'ifc' || format === 'ifcx') && (
             <div className="flex items-center gap-4">
               <Label className="w-32">Schema</Label>
-              <Select value={schema} onValueChange={(v) => setSchema(v as SchemaVersion)}>
+              <Select value={format === 'ifcx' ? 'IFC5' : schema} onValueChange={(v) => setSchema(v as SchemaVersion)} disabled={format === 'ifcx'}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -474,8 +490,19 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
             </div>
           )}
 
+          {/* IFC5 info banner */}
+          {(schema === 'IFC5' || format === 'ifcx') && (
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>IFC5 Export</AlertTitle>
+              <AlertDescription>
+                Outputs IFCX (JSON) with USD geometry. Entity types are converted to IFC5 schema.
+              </AlertDescription>
+            </Alert>
+          )}
+
           {/* Options */}
-          {format === 'ifc' && (
+          {(format === 'ifc' || format === 'ifcx') && (
             <>
               <div className="flex items-center justify-between">
                 <div>
