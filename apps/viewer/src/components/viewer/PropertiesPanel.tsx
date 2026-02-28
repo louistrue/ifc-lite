@@ -432,6 +432,76 @@ export function PropertiesPanel() {
     };
   }, [selectedEntity, model, ifcDataStore]);
 
+  // Spatial containment info for spatial containers (Project, Site, Building, Storey)
+  const spatialContainment = useMemo(() => {
+    if (!selectedEntity) return null;
+    const dataStore = model?.ifcDataStore ?? ifcDataStore;
+    if (!dataStore?.spatialHierarchy) return null;
+
+    const expressId = selectedEntity.expressId;
+    const hierarchy = dataStore.spatialHierarchy;
+    const typeName = dataStore.entities.getTypeName(expressId);
+
+    // Only show for spatial containers
+    const spatialTypes = ['IfcProject', 'IfcSite', 'IfcBuilding', 'IfcBuildingStorey', 'IfcSpace'];
+    if (!spatialTypes.includes(typeName)) return null;
+
+    const stats: Array<{ label: string; value: string | number }> = [];
+
+    // Find the SpatialNode for this entity
+    const findNode = (node: { expressId: number; children: { expressId: number; children: unknown[]; elements: number[]; name: string; type: number }[]; elements: number[]; name: string; type: number }, targetId: number): typeof node | null => {
+      if (node.expressId === targetId) return node;
+      for (const child of node.children) {
+        const found = findNode(child as typeof node, targetId);
+        if (found) return found;
+      }
+      return null;
+    };
+    const spatialNode = findNode(hierarchy.project as Parameters<typeof findNode>[0], expressId);
+
+    if (spatialNode) {
+      // Direct children (spatial sub-structure)
+      if (spatialNode.children.length > 0) {
+        const childTypes = new Map<string, number>();
+        for (const child of spatialNode.children) {
+          const ct = dataStore.entities.getTypeName(child.expressId);
+          childTypes.set(ct, (childTypes.get(ct) || 0) + 1);
+        }
+        for (const [ct, count] of childTypes) {
+          stats.push({ label: ct, value: count });
+        }
+      }
+      // Direct contained elements
+      if (spatialNode.elements.length > 0) {
+        stats.push({ label: 'Contained Elements', value: spatialNode.elements.length });
+      }
+    }
+
+    // Also count from containment maps
+    const mapSources: Array<[string, Map<number, number[]> | undefined]> = [
+      ['Elements (Site)', hierarchy.bySite],
+      ['Elements (Building)', hierarchy.byBuilding],
+      ['Elements (Storey)', hierarchy.byStorey],
+      ['Elements (Space)', hierarchy.bySpace],
+    ];
+    for (const [label, map] of mapSources) {
+      const elements = map?.get(expressId);
+      if (elements && elements.length > 0 && !stats.some(s => s.label === 'Contained Elements')) {
+        stats.push({ label, value: elements.length });
+      }
+    }
+
+    // Elevation for storeys
+    if (typeName === 'IfcBuildingStorey') {
+      const elevation = hierarchy.storeyElevations.get(expressId);
+      if (elevation !== undefined) {
+        stats.push({ label: 'Elevation', value: `${elevation.toFixed(2)} m` });
+      }
+    }
+
+    return stats.length > 0 ? stats : null;
+  }, [selectedEntity, model, ifcDataStore]);
+
   // Merge instance-level and type-level property sets into a single unified list.
   // - Same-named psets: instance properties take precedence, type-level props are appended (deduped by name)
   // - Type-only psets: added to the main list (no separate "Type" section)
@@ -737,6 +807,27 @@ export function PropertiesPanel() {
                       {attr.value}
                     </span>
                   </div>
+                </div>
+              ))}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+
+      {/* Spatial Containment - for spatial containers (Project, Site, Building, Storey) */}
+      {spatialContainment && (
+        <Collapsible defaultOpen className="border-b">
+          <CollapsibleTrigger className="flex items-center gap-2 w-full p-3 hover:bg-muted/50 text-left">
+            <Layers className="h-4 w-4 text-emerald-600" />
+            <span className="font-medium text-sm">Structure</span>
+            <span className="text-xs text-muted-foreground ml-auto">{spatialContainment.length}</span>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="divide-y border-t">
+              {spatialContainment.map((item) => (
+                <div key={item.label} className="grid grid-cols-[minmax(80px,1fr)_minmax(0,2fr)] gap-2 px-3 py-1.5 text-sm">
+                  <span className="text-muted-foreground truncate" title={item.label}>{item.label}</span>
+                  <span className="font-medium font-mono">{item.value}</span>
                 </div>
               ))}
             </div>

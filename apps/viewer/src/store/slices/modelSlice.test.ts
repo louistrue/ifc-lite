@@ -19,6 +19,8 @@ function createMockModel(id: string, name: string): FederatedModel {
     schemaVersion: 'IFC4',
     loadedAt: Date.now(),
     fileSize: 1024,
+    idOffset: 0,
+    maxExpressId: 0,
   };
 }
 

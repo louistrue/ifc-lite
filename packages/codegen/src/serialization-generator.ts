@@ -194,7 +194,7 @@ export function generateHeader(options: {
   author?: string;
   organization?: string;
   application?: string;
-  schema: 'IFC2X3' | 'IFC4' | 'IFC4X3';
+  schema: 'IFC2X3' | 'IFC4' | 'IFC4X3' | 'IFC5';
   filename?: string;
 }): string {
   const now = new Date().toISOString().replace(/[-:]/g, '').split('.')[0];

@@ -67,6 +67,7 @@ import { ExportChangesButton } from './ExportChangesButton';
 import { useFloorplanView } from '@/hooks/useFloorplanView';
 import { recordRecentFiles, cacheFileBlobs } from '@/lib/recent-files';
 import { ThemeSwitch } from './ThemeSwitch';
+import { toast } from '@/components/ui/toast';
 
 type Tool = 'select' | 'pan' | 'orbit' | 'walk' | 'measure' | 'section';
 
@@ -332,7 +333,6 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     try {
       const exporter = new GLTFExporter(geometryResult);
       const glb = exporter.exportGLB({ includeMetadata: true });
-      // Create a new Uint8Array from the buffer to ensure correct typing
       const blob = new Blob([new Uint8Array(glb)], { type: 'model/gltf-binary' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -340,8 +340,10 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       a.download = 'model.glb';
       a.click();
       URL.revokeObjectURL(url);
+      toast.success(`Exported GLB (${(blob.size / 1024).toFixed(0)} KB)`);
     } catch (err) {
       console.error('Export failed:', err);
+      toast.error(`GLB export failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   }, [geometryResult]);
 
@@ -354,8 +356,10 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       a.href = dataUrl;
       a.download = 'screenshot.png';
       a.click();
+      toast.success('Screenshot saved');
     } catch (err) {
       console.error('Screenshot failed:', err);
+      toast.error('Screenshot failed');
     }
   }, []);
 
@@ -392,15 +396,16 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
+      toast.success(`Exported ${type} CSV`);
     } catch (err) {
       console.error('CSV export failed:', err);
+      toast.error(`CSV export failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   }, [ifcDataStore]);
 
   const handleExportJSON = useCallback(() => {
     if (!ifcDataStore) return;
     try {
-      // Export basic JSON structure of entities
       const entities: Record<string, unknown>[] = [];
       for (let i = 0; i < ifcDataStore.entities.count; i++) {
         const id = ifcDataStore.entities.expressId[i];
@@ -421,8 +426,10 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       a.download = 'model-data.json';
       a.click();
       URL.revokeObjectURL(url);
+      toast.success(`Exported ${entities.length} entities as JSON`);
     } catch (err) {
       console.error('JSON export failed:', err);
+      toast.error(`JSON export failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   }, [ifcDataStore]);
 

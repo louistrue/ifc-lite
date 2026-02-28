@@ -178,7 +178,7 @@ export function generateHeader(options: {
   author?: string;
   organization?: string;
   application?: string;
-  schema: 'IFC2X3' | 'IFC4' | 'IFC4X3';
+  schema: 'IFC2X3' | 'IFC4' | 'IFC4X3' | 'IFC5';
   filename?: string;
 }): string {
   const now = new Date().toISOString().replace(/[-:]/g, '').split('.')[0];
@@ -188,11 +188,14 @@ export function generateHeader(options: {
   const app = options.application || 'ifc-lite';
   const filename = options.filename || 'output.ifc';
 
+  // IFC5 uses a different file schema identifier (alpha)
+  const schemaId = options.schema === 'IFC5' ? 'IFC5' : options.schema;
+
   return `ISO-10303-21;
 HEADER;
 FILE_DESCRIPTION('${desc}','2;1');
 FILE_NAME('${filename}','${now}',('${author}'),('${org}'),'${app}','${app}','');
-FILE_SCHEMA(('${options.schema}'));
+FILE_SCHEMA(('${schemaId}'));
 ENDSEC;
 `;
 }

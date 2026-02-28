@@ -22,13 +22,14 @@ import type { MutablePropertyView } from '@ifc-lite/mutations';
 import type { PropertySet, Property } from '@ifc-lite/data';
 import { PropertyValueType } from '@ifc-lite/data';
 import { collectReferencedEntityIds, getVisibleEntityIds, collectStyleEntities } from './reference-collector.js';
+import { convertStepLine, needsConversion, type IfcSchemaVersion } from './schema-converter.js';
 
 /**
  * Options for STEP export
  */
 export interface StepExportOptions {
-  /** IFC schema version */
-  schema: 'IFC2X3' | 'IFC4' | 'IFC4X3';
+  /** IFC schema version for the output file (any version, will convert if needed) */
+  schema: 'IFC2X3' | 'IFC4' | 'IFC4X3' | 'IFC5';
   /** File description */
   description?: string;
   /** Author name */
@@ -104,8 +105,10 @@ export class StepExporter {
     let newEntityCount = 0;
     let modifiedEntityCount = 0;
 
-    // Determine schema from data store if not specified
-    const schema = options.schema || (this.dataStore.schemaVersion as 'IFC2X3' | 'IFC4' | 'IFC4X3') || 'IFC4';
+    // Determine target schema from options, source schema from data store
+    const schema = options.schema || (this.dataStore.schemaVersion as IfcSchemaVersion) || 'IFC4';
+    const sourceSchema = (this.dataStore.schemaVersion as IfcSchemaVersion) || 'IFC4';
+    const converting = needsConversion(sourceSchema, schema);
 
     // Generate header
     const header = generateHeader({
@@ -249,7 +252,16 @@ export class StepExporter {
           source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength)
         );
 
-        entities.push(entityText);
+        // Apply schema conversion if exporting to a different schema version
+        if (converting) {
+          const converted = convertStepLine(entityText, sourceSchema, schema);
+          if (converted !== null) {
+            entities.push(converted);
+          }
+          // null means entity should be skipped (no valid representation in target schema)
+        } else {
+          entities.push(entityText);
+        }
       }
     }
 

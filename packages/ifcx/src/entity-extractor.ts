@@ -92,6 +92,10 @@ export function extractEntities(
  * Extract entity name from node attributes.
  */
 function extractName(node: ComposedNode): string | null {
+  // Try direct IFC name attribute (written by IFCX exporter/writer)
+  const ifcName = node.attributes.get('bsi::ifc::name');
+  if (typeof ifcName === 'string') return ifcName;
+
   // Try common property patterns
   const name = node.attributes.get('bsi::ifc::prop::Name');
   if (typeof name === 'string') return name;

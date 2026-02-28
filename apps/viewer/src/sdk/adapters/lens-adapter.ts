@@ -14,7 +14,7 @@ function isLensConfig(v: unknown): v is Record<string, unknown> {
 export function createLensAdapter(store: StoreApi): LensBackendMethods {
   return {
     presets() {
-      return BUILTIN_LENSES;
+      return [...BUILTIN_LENSES];
     },
     create(config: unknown) {
       if (!isLensConfig(config)) {
