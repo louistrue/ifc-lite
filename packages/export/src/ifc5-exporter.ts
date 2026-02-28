@@ -99,6 +99,10 @@ export class Ifc5Exporter {
   private mutationView: MutablePropertyView | null;
   private geometryResult: GeometryResult | null;
   private idOffset: number;
+  /** Unique path segment name per entity (with _<id> suffix when siblings collide) */
+  private segmentNames = new Map<number, string>();
+  /** Spatial container children (Project→Sites, Site→Buildings, etc.) */
+  private spatialChildIds = new Map<number, number[]>();
 
   constructor(
     dataStore: IfcDataStore,
@@ -273,7 +277,23 @@ export class Ifc5Exporter {
       }
     };
 
-    // spatialHierarchy has bySite, byBuilding, byStorey, bySpace
+    // Add spatial container hierarchy from the project tree first
+    // (Project→Site, Site→Building, Building→Storey, Storey→Space)
+    this.spatialChildIds.clear();
+    if (spatialHierarchy.project) {
+      const walkTree = (node: { expressId: number; children: { expressId: number; name: string; children: unknown[] }[] }) => {
+        const childIds: number[] = [];
+        for (const child of node.children) {
+          parentOf.set(child.expressId, node.expressId);
+          childIds.push(child.expressId);
+          walkTree(child);
+        }
+        this.spatialChildIds.set(node.expressId, childIds);
+      };
+      walkTree(spatialHierarchy.project);
+    }
+
+    // Add element containment from flat maps (element→storey/building/site/space)
     if (spatialHierarchy.bySite) {
       for (const [siteId, children] of spatialHierarchy.bySite) {
         processChildren(siteId, children);
@@ -319,7 +339,7 @@ export class Ifc5Exporter {
     }
 
     // Pre-compute unique segment names: append _<expressId> when siblings share a name
-    const segmentName = new Map<number, string>();
+    this.segmentNames.clear();
     for (const [, siblings] of childrenOf) {
       // Count how many siblings share each sanitised name
       const nameCount = new Map<string, number>();
@@ -331,7 +351,7 @@ export class Ifc5Exporter {
       for (const id of siblings) {
         const raw = entityNameById.get(id) || `e${id}`;
         const safe = raw.replace(/[/\\]/g, '_').replace(/\s+/g, '_');
-        segmentName.set(id, nameCount.get(safe)! > 1 ? `${safe}_${id}` : safe);
+        this.segmentNames.set(id, nameCount.get(safe)! > 1 ? `${safe}_${id}` : safe);
       }
     }
 
@@ -347,7 +367,7 @@ export class Ifc5Exporter {
         if (visited.has(current)) break; // cycle protection
         visited.add(current);
 
-        segments.unshift(segmentName.get(current) || `e${current}`);
+        segments.unshift(this.segmentNames.get(current) || `e${current}`);
 
         const parent = parentOf.get(current);
         if (parent === undefined) break;
@@ -428,28 +448,43 @@ export class Ifc5Exporter {
 
   /**
    * Get children for a spatial entity.
+   * IFCX children format: { childName: childPath }
    */
   private getChildrenForEntity(
     entityId: number,
     entityPaths: Map<number, string>,
   ): Record<string, string | null> {
     const children: Record<string, string | null> = {};
+
+    const addChild = (childId: number) => {
+      const childPath = entityPaths.get(childId);
+      if (!childPath) return;
+      const childName = this.segmentNames.get(childId) || `e${childId}`;
+      children[childName] = childPath;
+    };
+
+    // Spatial container children (Project→Sites, Site→Buildings, etc.)
+    const spatialKids = this.spatialChildIds.get(entityId);
+    if (spatialKids) {
+      for (const childId of spatialKids) {
+        addChild(childId);
+      }
+    }
+
+    // Element children from containment maps
     const { spatialHierarchy } = this.dataStore;
-    if (!spatialHierarchy) return children;
-
-    // Check all hierarchy maps for children of this entity
-    const childSets = [
-      spatialHierarchy.bySite?.get(entityId),
-      spatialHierarchy.byBuilding?.get(entityId),
-      spatialHierarchy.byStorey?.get(entityId),
-      spatialHierarchy.bySpace?.get(entityId),
-    ];
-
-    for (const childSet of childSets) {
-      if (!childSet) continue;
-      for (const childId of childSet) {
-        const childPath = entityPaths.get(childId) || `element:${childId}`;
-        children[childPath] = null;
+    if (spatialHierarchy) {
+      const childSets = [
+        spatialHierarchy.bySite?.get(entityId),
+        spatialHierarchy.byBuilding?.get(entityId),
+        spatialHierarchy.byStorey?.get(entityId),
+        spatialHierarchy.bySpace?.get(entityId),
+      ];
+      for (const childSet of childSets) {
+        if (!childSet) continue;
+        for (const childId of childSet) {
+          addChild(childId);
+        }
       }
     }
 
