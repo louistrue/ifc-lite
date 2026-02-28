@@ -1,5 +1,48 @@
 # @ifc-lite/viewer
 
+## 1.12.0
+
+### Minor Changes
+
+- [#268](https://github.com/louistrue/ifc-lite/pull/268) [`2562382`](https://github.com/louistrue/ifc-lite/commit/25623821fa6d7e94b094772563811fb01ce066c7) Thanks [@louistrue](https://github.com/louistrue)! - Add IFC5 (IFCX) export with full schema conversion and USD geometry
+
+  New `Ifc5Exporter` converts IFC data from any schema (IFC2X3/IFC4/IFC4X3) to the IFC5 IFCX JSON format:
+
+  - Entity types converted to IFC5 naming (aligned with IFC4X3)
+  - Properties mapped to IFCX attribute namespaces (`bsi::ifc::prop::`)
+  - Tessellated geometry converted to USD mesh format with Z-up coordinates
+  - Spatial hierarchy mapped to IFCX path-based node structure
+  - Color and presentation exported as USD attributes
+
+  The export dialog is simplified: schema selection now drives the output format automatically (IFC5 → `.ifcx`, others → `.ifc`). No separate format picker needed.
+
+  Schema converter fixes:
+
+  - Skipped entities become IFCPROXY placeholders instead of being dropped, preventing dangling STEP references
+  - Alignment entities (IFCALIGNMENTCANT, etc.) are preserved for IFC4X3/IFC5 targets
+
+### Patch Changes
+
+- Updated dependencies [[`2562382`](https://github.com/louistrue/ifc-lite/commit/25623821fa6d7e94b094772563811fb01ce066c7)]:
+  - @ifc-lite/export@1.12.0
+  - @ifc-lite/bcf@1.12.0
+  - @ifc-lite/cache@1.12.0
+  - @ifc-lite/data@1.12.0
+  - @ifc-lite/drawing-2d@1.12.0
+  - @ifc-lite/encoding@1.12.0
+  - @ifc-lite/geometry@1.12.0
+  - @ifc-lite/ids@1.12.0
+  - @ifc-lite/lens@1.12.0
+  - @ifc-lite/lists@1.12.0
+  - @ifc-lite/mutations@1.12.0
+  - @ifc-lite/parser@1.12.0
+  - @ifc-lite/query@1.12.0
+  - @ifc-lite/renderer@1.12.0
+  - @ifc-lite/sandbox@1.12.0
+  - @ifc-lite/server-client@1.12.0
+  - @ifc-lite/spatial@1.12.0
+  - @ifc-lite/wasm@1.12.0
+
 ## 1.11.3
 
 ### Patch Changes

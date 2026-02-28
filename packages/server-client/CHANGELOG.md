@@ -1,5 +1,7 @@
 # @ifc-lite/server-client
 
+## 1.12.0
+
 ## 1.11.3
 
 ## 1.11.1
