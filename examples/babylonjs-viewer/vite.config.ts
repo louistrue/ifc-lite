@@ -6,7 +6,7 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   optimizeDeps: {
-    exclude: ['@ifc-lite/wasm'],
+    exclude: ['@ifc-lite/wasm', '@ifc-lite/geometry', '@ifc-lite/parser', '@ifc-lite/data'],
   },
   server: {
     headers: {

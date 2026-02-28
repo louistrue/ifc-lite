@@ -55,7 +55,7 @@ export function meshDataToBabylon(meshData: MeshData, scene: Scene): Mesh {
   const [r, g, b, a] = meshData.color;
   const material = new StandardMaterial(`mat-${meshData.expressId}`, scene);
   material.diffuseColor = new Color3(r, g, b);
-  material.specularColor = new Color3(0.15, 0.15, 0.15);
+  material.specularColor = new Color3(0, 0, 0);
   if (a < 1) {
     material.alpha = a;
     material.backFaceCulling = false;
@@ -130,7 +130,7 @@ export function geometryResultToBatched(result: GeometryResult, scene: Scene): {
     const [r, g, b, a] = meshes[0].color;
     const material = new StandardMaterial(`batch-mat-${bucketIndex}`, scene);
     material.diffuseColor = new Color3(r, g, b);
-    material.specularColor = new Color3(0.15, 0.15, 0.15);
+    material.specularColor = new Color3(0, 0, 0);
     if (a < 1) {
       material.alpha = a;
       material.backFaceCulling = false;
@@ -278,10 +278,11 @@ function mergeWithVertexColors(
   vertexData.indices = indices;
   vertexData.applyToMesh(mesh);
 
-  // White diffuse so vertex colors pass through as the actual surface color
+  // White diffuse so vertex colors pass through as the actual surface color.
+  // Black specular — no per-fragment specular highlights on large merged meshes.
   const material = new StandardMaterial('batched-mat', scene);
   material.diffuseColor = new Color3(1, 1, 1);
-  material.specularColor = new Color3(0.15, 0.15, 0.15);
+  material.specularColor = new Color3(0, 0, 0);
 
   if (transparent) {
     material.alpha = opacity;

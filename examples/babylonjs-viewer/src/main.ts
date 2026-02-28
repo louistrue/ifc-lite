@@ -72,37 +72,43 @@ if (!canvas || !fileInput || !status || !selectionPanel || !panelBody || !panelC
 }
 
 // ── Babylon.js setup ──────────────────────────────────────────────────
-const engine = new Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+// preserveDrawingBuffer: false  — no GPU→CPU readback every frame (major perf win)
+// stencil: false                — stencil buffer unused, saves memory bandwidth
+const engine = new Engine(canvas, true, { preserveDrawingBuffer: false, stencil: false });
 const scene  = new Scene(engine);
 scene.clearColor = new Color4(0.051, 0.106, 0.165, 1); // #0d1b2a
+// Skip Babylon's own pointer-move picking — we do our own rAF-throttled hover
+scene.skipPointerMovePicking = true;
 
 const camera = new ArcRotateCamera(
   'camera',
-  -Math.PI / 4,   // alpha (horizontal rotation)
-  Math.PI / 3,    // beta  (vertical rotation)
+  -Math.PI / 4,           // alpha (horizontal rotation) - south-west home view
+  (65 * Math.PI) / 180,   // beta  (vertical) -> ~25deg elevation above horizon
   50,             // radius
   Vector3.Zero(), // target
   scene,
 );
 camera.attachControl(canvas, true);
+camera.inertia = 0;              // sharp stop on pointer release
 camera.minZ = 0.1;
 camera.maxZ = 10000;
-camera.wheelPrecision = 10;     // scroll sensitivity
-camera.panningSensibility = 200; // right-drag pan speed
+// Match Three.js OrbitControls feel — lower = more sensitive
+camera.wheelPrecision = 3;       // zoom: default 3, was 10 (too sluggish)
+camera.panningSensibility = 100; // pan: lower = more pan per drag
+camera.angularSensibilityX = 300; // orbit: lower = more rotation per drag
+camera.angularSensibilityY = 300;
+const HOME_ALPHA = -Math.PI / 4;
+const HOME_BETA = (65 * Math.PI) / 180;
 
-// ── Lighting ──────────────────────────────────────────────────────────
+// ── Lighting — hemispheric + one directional is plenty ────────────────
 const hemiLight = new HemisphericLight('hemiLight', new Vector3(0, 1, 0), scene);
-hemiLight.intensity = 0.6;
+hemiLight.intensity = 0.7;
 hemiLight.diffuse = new Color3(1, 1, 1);
 hemiLight.groundColor = new Color3(0.3, 0.3, 0.35);
 
 const dirLight = new DirectionalLight('dirLight', new Vector3(-1, -2, -1).normalize(), scene);
-dirLight.intensity = 0.8;
+dirLight.intensity = 0.9;
 dirLight.position = new Vector3(50, 80, 50);
-
-const fillLight = new DirectionalLight('fillLight', new Vector3(1, -0.3, 0.7).normalize(), scene);
-fillLight.intensity = 0.3;
-fillLight.diffuse = new Color3(0.69, 0.77, 0.87); // #b0c4de
 
 // ── State ─────────────────────────────────────────────────────────────
 const geometryProc           = new GeometryProcessor();
@@ -114,6 +120,8 @@ let spatialRoot: SpatialTreeNode | null = null;
 
 /** Root TransformNode for all final geometry — quick clearScene disposal */
 let modelRoot: TransformNode | null = null;
+/** Root TransformNode for progressively streamed batch geometry. */
+let streamRoot: TransformNode | null = null;
 
 let selectedExpressId: number | null = null;
 let hoveredId: number | null = null;
@@ -122,10 +130,8 @@ let selectionHighlight: Mesh | null = null;
 // ── Resize ────────────────────────────────────────────────────────────
 window.addEventListener('resize', () => engine.resize());
 
-// ── Render loop ───────────────────────────────────────────────────────
-engine.runRenderLoop(() => {
-  scene.render();
-});
+// ── Render loop (continuous, like Three.js) ────────────────────────────
+engine.runRenderLoop(() => scene.render());
 
 // ── Picking helper ───────────────────────────────────────────────────
 function pickAt(clientX: number, clientY: number): number | null {
@@ -197,6 +203,7 @@ canvas.addEventListener('mouseleave', () => {
   canvas.classList.remove('hovering', 'dragging');
 });
 
+
 // ── Click → pick (only on genuine clicks, not after a drag) ───────────
 canvas.addEventListener('click', (e) => {
   if (didDrag) return; // orbit/pan completed — not a selection click
@@ -251,23 +258,65 @@ fileInput.addEventListener('change', async () => {
     let geometryMs      = 0; // set at 'complete'
     let finalMeshCount  = 0;
 
-    // Fit camera to whatever geometry is visible, but at most once per 800 ms
-    // so the camera doesn't jerk on every tiny batch during streaming.
-    const FIT_INTERVAL_MS = 800;
-    let lastFitAt = 0;
+    // Low-overhead stream fit: running bounds from raw mesh data + sparse refits.
+    const STREAM_FIT_BATCH_INTERVAL = 26;
+    let streamMinX = Infinity, streamMinY = Infinity, streamMinZ = Infinity;
+    let streamMaxX = -Infinity, streamMaxY = -Infinity, streamMaxZ = -Infinity;
+    let hasStreamBounds = false;
 
-    function fitIfDue() {
-      const now = performance.now();
-      if (now - lastFitAt < FIT_INTERVAL_MS) return;
-      lastFitAt = now;
-      fitCameraToScene();
+    function expandStreamBoundsFromMeshes(meshes: MeshData[]) {
+      for (const m of meshes) {
+        const p = m.positions;
+        for (let i = 0; i < p.length; i += 3) {
+          const x = p[i];
+          const y = p[i + 1];
+          const z = p[i + 2];
+          if (x < streamMinX) streamMinX = x;
+          if (y < streamMinY) streamMinY = y;
+          if (z < streamMinZ) streamMinZ = z;
+          if (x > streamMaxX) streamMaxX = x;
+          if (y > streamMaxY) streamMaxY = y;
+          if (z > streamMaxZ) streamMaxZ = z;
+        }
+      }
+      hasStreamBounds = true;
     }
 
+    function getStreamBounds(): { center: Vector3; maxDim: number } | null {
+      if (!hasStreamBounds) return null;
+      const center = new Vector3(
+        (streamMinX + streamMaxX) / 2,
+        (streamMinY + streamMaxY) / 2,
+        (streamMinZ + streamMaxZ) / 2,
+      );
+      const sizeX = streamMaxX - streamMinX;
+      const sizeY = streamMaxY - streamMinY;
+      const sizeZ = streamMaxZ - streamMinZ;
+      const maxDim = Math.max(sizeX, sizeY, sizeZ);
+      if (maxDim <= 0 || !isFinite(maxDim)) return null;
+      return { center, maxDim };
+    }
+
+    function fitIfDue() {
+      const bounds = getStreamBounds();
+      if (!bounds) return;
+      applyCameraFit(bounds.center, bounds.maxDim, false);
+    }
+
+    streamRoot = new TransformNode('stream-root', scene);
+
+    // The WASM `parseMeshesAsync` calls onBatch synchronously, so the entire
+    // for-await drains as microtasks — requestAnimationFrame never fires between
+    // batches. We fix this by explicitly yielding to the next animation frame
+    // inside each batch case. The main render loop then fires once per frame,
+    // painting accumulated geometry before we process the next batch.
     for await (const event of geometryProc.processStreaming(buffer)) {
       switch (event.type) {
         case 'batch': {
           allMeshes.push(...event.meshes);
+          expandStreamBoundsFromMeshes(event.meshes);
           const { root } = batchWithVertexColors(event.meshes, scene);
+          root.parent = streamRoot;
           batchRoots.push(root);
 
           batchCount++;
@@ -277,7 +326,14 @@ fileInput.addEventListener('change', async () => {
           }
 
           status.textContent = `Streaming… ${allMeshes.length} meshes`;
-          fitIfDue();
+          if (batchCount === 1 || batchCount % STREAM_FIT_BATCH_INTERVAL === 0) {
+            fitIfDue();
+          }
+
+          // Yield to the next animation frame — breaks the microtask chain so
+          // the render loop above can fire and paint this batch before we
+          // continue processing more geometry.
+          await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
           break;
         }
 
@@ -303,10 +359,24 @@ fileInput.addEventListener('change', async () => {
 
           fitCameraToScene();
 
-          // Dispose batch groups one frame later so there's no visual pop
+          // Dispose batch groups one frame later so there's no visual pop,
+          // then freeze world matrices and materials for orbit performance.
           requestAnimationFrame(() => {
             for (const root of batchRoots) disposeNode(root);
             batchRoots.length = 0;
+            if (streamRoot) {
+              streamRoot.dispose();
+              streamRoot = null;
+            }
+
+            // Model is static — skip world matrix recalculation every frame
+            for (const mesh of scene.meshes) {
+              mesh.freezeWorldMatrix();
+            }
+            // Static materials — skip shader dirty checks every frame
+            for (const mat of scene.materials) {
+              mat.freeze();
+            }
 
             const activeMeshes = scene.meshes.filter((m) => m.isEnabled());
             status.textContent = `${file.name} — ${finalMeshCount} meshes · ${activeMeshes.length} draw calls`;
@@ -403,6 +473,7 @@ function applyHighlight(md: MeshData) {
   highlightMesh.material = mat;
   highlightMesh.renderingGroupId = 1; // render after main geometry
   highlightMesh.isPickable = false;   // don't interfere with entity picking
+  highlightMesh.freezeWorldMatrix();  // static once placed
 
   selectionHighlight = highlightMesh;
 }
@@ -758,6 +829,10 @@ function clearScene() {
     disposeNode(modelRoot);
     modelRoot = null;
   }
+  if (streamRoot) {
+    streamRoot.dispose();
+    streamRoot = null;
+  }
 
   // Dispose any remaining non-camera, non-light meshes
   const toDispose = scene.meshes.slice();
@@ -768,18 +843,49 @@ function clearScene() {
 }
 
 function fitCameraToScene() {
-  if (!modelRoot) return;
+  fitCameraToRoot(modelRoot, true);
+}
 
-  const childMeshes = modelRoot.getChildMeshes();
-  if (childMeshes.length === 0) return;
+function getBoundsForRoot(root: TransformNode | null): { center: Vector3; maxDim: number } | null {
+  if (!root) return null;
 
-  const { center, maxDim } = computeBounds(modelRoot);
-  if (maxDim === 0 || !isFinite(maxDim)) return;
+  const childMeshes = root.getChildMeshes();
+  if (childMeshes.length === 0) return null;
 
+  const { center, maxDim } = computeBounds(root);
+  if (maxDim === 0 || !isFinite(maxDim)) return null;
+
+  return { center, maxDim };
+}
+
+function applyCameraFit(center: Vector3, maxDim: number, immediate: boolean) {
+  const radius = maxDim * 1.5;
+  const minZ = maxDim * 0.001;
+  const maxZ = maxDim * 100;
+
+  if (immediate) {
+    // Always snap final post-stream fit to the canonical home orientation.
+    camera.alpha = HOME_ALPHA;
+    camera.beta = HOME_BETA;
+    camera.target = center;
+    camera.radius = radius;
+    camera.minZ = minZ;
+    camera.maxZ = maxZ;
+    return;
+  }
+
+  // Stream updates: preserve current orbit orientation and just reframe.
   camera.target = center;
-  camera.radius = maxDim * 1.5;
-  camera.minZ = maxDim * 0.001;
-  camera.maxZ = maxDim * 100;
+  camera.radius = radius;
+  camera.minZ = minZ;
+  camera.maxZ = maxZ;
+}
+
+function fitCameraToRoot(root: TransformNode | null, immediate = false) {
+  const bounds = getBoundsForRoot(root);
+  if (!bounds) return;
+
+  applyCameraFit(bounds.center, bounds.maxDim, immediate);
 }
 
 // ── Misc ──────────────────────────────────────────────────────────────

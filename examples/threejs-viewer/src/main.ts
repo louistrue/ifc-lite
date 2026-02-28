@@ -92,6 +92,8 @@ let spatialRoot: SpatialTreeNode | null = null;
 let selectedExpressId: number | null = null;
 let hoveredId: number | null = null;
 let selectionHighlight: THREE.Mesh | null = null;
+let modelRoot: THREE.Group | null = null;
+let streamRoot: THREE.Group | null = null;
 
 // ── Resize ────────────────────────────────────────────────────────────
 function resize() {
@@ -232,31 +234,66 @@ fileInput.addEventListener('change', async () => {
 
     const allMeshes: MeshData[] = [];
     const batchGroups: THREE.Group[] = [];
+    streamRoot = new THREE.Group();
+    streamRoot.name = 'stream-root';
+    scene.add(streamRoot);
 
     // Per-batch timing
     let batchCount      = 0;
     let firstBatchMs    = 0;
     let geometryMs      = 0; // set at 'complete'
     let finalMeshCount  = 0;
+    const STREAM_FIT_BATCH_INTERVAL = 26;
+    let streamMinX = Infinity, streamMinY = Infinity, streamMinZ = Infinity;
+    let streamMaxX = -Infinity, streamMaxY = -Infinity, streamMaxZ = -Infinity;
+    let hasStreamBounds = false;
 
-    // Fit camera to whatever geometry is visible, but at most once per 800 ms
-    // so the camera doesn't jerk on every tiny batch during streaming.
-    const FIT_INTERVAL_MS = 800;
-    let lastFitAt = 0;
+    function expandStreamBoundsFromMeshes(meshes: MeshData[]) {
+      for (const m of meshes) {
+        const p = m.positions;
+        for (let i = 0; i < p.length; i += 3) {
+          const x = p[i];
+          const y = p[i + 1];
+          const z = p[i + 2];
+          if (x < streamMinX) streamMinX = x;
+          if (y < streamMinY) streamMinY = y;
+          if (z < streamMinZ) streamMinZ = z;
+          if (x > streamMaxX) streamMaxX = x;
+          if (y > streamMaxY) streamMaxY = y;
+          if (z > streamMaxZ) streamMaxZ = z;
+        }
+      }
+      hasStreamBounds = true;
+    }
+
+    function getStreamBounds(): { center: THREE.Vector3; maxDim: number } | null {
+      if (!hasStreamBounds) return null;
+      const center = new THREE.Vector3(
+        (streamMinX + streamMaxX) / 2,
+        (streamMinY + streamMaxY) / 2,
+        (streamMinZ + streamMaxZ) / 2,
+      );
+      const sizeX = streamMaxX - streamMinX;
+      const sizeY = streamMaxY - streamMinY;
+      const sizeZ = streamMaxZ - streamMinZ;
+      const maxDim = Math.max(sizeX, sizeY, sizeZ);
+      if (maxDim <= 0 || !isFinite(maxDim)) return null;
+      return { center, maxDim };
+    }
 
     function fitIfDue() {
-      const now = performance.now();
-      if (now - lastFitAt < FIT_INTERVAL_MS) return;
-      lastFitAt = now;
-      fitCameraToScene();
+      const bounds = getStreamBounds();
+      if (!bounds) return;
+      applyCameraFit(bounds.center, bounds.maxDim, false);
     }
 
     for await (const event of geometry.processStreaming(buffer)) {
       switch (event.type) {
         case 'batch': {
           allMeshes.push(...event.meshes);
+          expandStreamBoundsFromMeshes(event.meshes);
           const { group } = batchWithVertexColors(event.meshes);
-          scene.add(group);
+          streamRoot.add(group);
           batchGroups.push(group);
 
           batchCount++;
@@ -266,7 +303,9 @@ fileInput.addEventListener('change', async () => {
           }
 
           status.textContent = `Streaming… ${allMeshes.length} meshes`;
-          fitIfDue();
+          if (batchCount === 1 || batchCount % STREAM_FIT_BATCH_INTERVAL === 0) {
+            fitIfDue();
+          }
           break;
         }
 
@@ -283,7 +322,8 @@ fileInput.addEventListener('change', async () => {
           const { group: finalGroup, expressIdMap: newMap, triangleMaps: newMaps } =
             batchWithVertexColors(allMeshes);
 
-          scene.add(finalGroup);
+          modelRoot = finalGroup;
+          scene.add(modelRoot);
           for (const [id, mesh] of newMap) expressIdMap.set(id, mesh);
           triangleMaps = newMaps;
 
@@ -295,6 +335,10 @@ fileInput.addEventListener('change', async () => {
           requestAnimationFrame(() => {
             for (const g of batchGroups) { scene.remove(g); disposeGroup(g); }
             batchGroups.length = 0;
+            if (streamRoot) {
+              scene.remove(streamRoot);
+              streamRoot = null;
+            }
             renderer.render(scene, camera);
             const calls = renderer.info.render.calls;
             status.textContent = `${file.name} — ${finalMeshCount} meshes · ${calls} draw calls`;
@@ -744,6 +788,12 @@ function clearScene() {
   meshDataByExpressId.clear();
   dataStore   = null;
   spatialRoot = null;
+  modelRoot = null;
+  if (streamRoot) {
+    scene.remove(streamRoot);
+    disposeGroup(streamRoot);
+    streamRoot = null;
+  }
 
   const toRemove = scene.children.filter(
     (o) => o instanceof THREE.Mesh || o instanceof THREE.Group,
@@ -765,24 +815,60 @@ function disposeGroup(obj: THREE.Object3D) {
 }
 
 function fitCameraToScene() {
-  const box = new THREE.Box3().setFromObject(scene);
-  if (box.isEmpty()) return;
+  const fitObject = modelRoot ?? streamRoot;
+  if (!fitObject) return;
+  const bounds = getBoundsForObject(fitObject);
+  if (!bounds) return;
+  applyCameraFit(bounds.center, bounds.maxDim, true);
+}
+
+function getBoundsForObject(root: THREE.Object3D | null): { center: THREE.Vector3; maxDim: number } | null {
+  if (!root) return null;
+  const box = new THREE.Box3().setFromObject(root);
+  if (box.isEmpty()) return null;
   const center = box.getCenter(new THREE.Vector3());
-  const size   = box.getSize(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z);
-  const dist   = maxDim * 1.5;
+  if (maxDim <= 0 || !isFinite(maxDim)) return null;
+  return { center, maxDim };
+}
 
-  camera.position.set(
-    center.x + dist * 0.5,
-    center.y + dist * 0.5,
-    center.z + dist * 0.5,
-  );
+function applyCameraFit(center: THREE.Vector3, maxDim: number, immediate: boolean) {
+  const distance = maxDim * 1.5;
+  const near = maxDim * 0.001;
+  const far = maxDim * 100;
+
+  if (immediate) {
+    // Final home view: south-west, ~25deg elevation.
+    const elevRad = THREE.MathUtils.degToRad(25);
+    const planar = Math.cos(elevRad);
+    const offset = new THREE.Vector3(
+      planar * distance * Math.SQRT1_2,
+      Math.sin(elevRad) * distance,
+      -planar * distance * Math.SQRT1_2,
+    );
+    controls.target.copy(center);
+    camera.position.copy(center).add(offset);
+    controls.update();
+    camera.near = near;
+    camera.far = far;
+    camera.updateProjectionMatrix();
+    return;
+  }
+
+  // Stream updates: keep current orbit orientation and only reframe distance/target.
+  const dir = camera.position.clone().sub(controls.target);
+  if (dir.lengthSq() < 1e-8) {
+    dir.set(1, 1, -1).normalize();
+  } else {
+    dir.normalize();
+  }
   controls.target.copy(center);
-  controls.update();
-
-  camera.near = maxDim * 0.001;
-  camera.far  = maxDim * 100;
+  camera.position.copy(center).add(dir.multiplyScalar(distance));
+  camera.near = near;
+  camera.far = far;
   camera.updateProjectionMatrix();
+  controls.update();
 }
 
 // ── Misc ──────────────────────────────────────────────────────────────

@@ -232,6 +232,7 @@
       flex: 1;
       min-width: 0;
       position: relative;
+      overflow: hidden;
     }
     canvas { display: block; width: 100%; height: 100%; cursor: crosshair; outline: none; }
     canvas.hovering { cursor: pointer; }
@@ -251,22 +252,24 @@
       border: 1px solid var(--border);
     }
 
-    /* ── Right: Properties panel ─────────────────────────────────── */
+    /* ── Right: Properties panel — overlay, never resizes the canvas ─ */
     #selection-panel {
+      position: absolute;
+      top: 0;
+      right: 0;
       width: 300px;
-      flex-shrink: 0;
+      height: 100%;
       background: var(--bg-panel);
       border-left: 1px solid var(--border);
       display: flex;
       flex-direction: column;
       overflow: hidden;
       transform: translateX(100%);
-      margin-right: -300px;
-      transition: transform 0.2s ease, margin-right 0.2s ease;
+      transition: transform 0.2s ease;
+      z-index: 10;
     }
     #selection-panel.open {
       transform: translateX(0);
-      margin-right: 0;
     }
 
     #panel-header {
@@ -376,24 +379,24 @@
         </div>
       </div>
 
-      <!-- Center: 3D Viewport -->
+      <!-- Center: 3D Viewport + overlay panels -->
       <div id="canvas-container">
         <canvas id="viewer"></canvas>
         <div id="viewport-info">
           Orbit: left-drag &nbsp;·&nbsp; Pan: right-drag &nbsp;·&nbsp; Zoom: scroll &nbsp;·&nbsp; Click: select
         </div>
-      </div>
 
-      <!-- Right: Properties panel -->
-      <div id="selection-panel">
-        <div id="panel-header">
-          <div id="panel-title">
-            <span id="entity-type-badge"></span>
-            <span id="entity-id"></span>
+        <!-- Properties panel overlays the canvas, never resizes it -->
+        <div id="selection-panel">
+          <div id="panel-header">
+            <div id="panel-title">
+              <span id="entity-type-badge"></span>
+              <span id="entity-id"></span>
+            </div>
+            <button id="panel-close" title="Close (Esc)">✕</button>
           </div>
-          <button id="panel-close" title="Close (Esc)">✕</button>
+          <div id="panel-body"></div>
         </div>
-        <div id="panel-body"></div>
       </div>
 
     </div>
