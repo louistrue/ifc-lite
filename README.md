@@ -4,7 +4,7 @@
 <h1>
 <img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=700&size=48&duration=2000&pause=5000&color=6366F1&vCenter=true&width=300&height=55&lines=IFClite" alt="IFClite">
 </h1>
-Open, view, and work with IFC files — right in the browser.
+Open, view, and work with IFC files. Right in the browser.
 </td>
 <td width="120" align="center" valign="middle">
 <img src="docs/assets/logo.png" alt="" width="100">
@@ -27,12 +27,14 @@ Open, view, and work with IFC files — right in the browser.
 
 ## What is IFClite?
 
-IFClite is an open-source toolkit for working with IFC files. It lets you load, view, query, and export BIM models from a web browser, a server, or a desktop app — no plugins or installs needed.
+IFClite is an open-source toolkit for working with IFC files. It lets you load, view, query, and export BIM models from a web browser, a server, or a desktop app. No plugins or installs needed.
+
+Try it at [ifclite.com](https://www.ifclite.com/) to see it in action.
 
 - **View 3D models** in the browser with a fast WebGPU renderer
-- **Extract data** — properties, quantities, spatial structure, relationships
+- **Extract data** like properties, quantities, spatial structure, and relationships
 - **Check compliance** against IDS (Information Delivery Specification) rules
-- **Generate 2D drawings** — floor plans, sections, and elevations from 3D
+- **Generate 2D drawings** like floor plans, sections, and elevations from 3D
 - **Collaborate** with BCF (BIM Collaboration Format) for issues and viewpoints
 - **Export** to glTF, IFC, or Parquet
 
@@ -114,8 +116,8 @@ You don't need all 25 packages. Here's what to grab for common tasks:
 
 Ready-to-run projects in the [`examples/`](examples/) folder:
 
-- **[Three.js Viewer](examples/threejs-viewer/)** — load and display IFC models with Three.js (WebGL)
-- **[Babylon.js Viewer](examples/babylonjs-viewer/)** — load and display IFC models with Babylon.js (WebGL)
+- **[Three.js Viewer](examples/threejs-viewer/)** - IFC viewer using Three.js (WebGL)
+- **[Babylon.js Viewer](examples/babylonjs-viewer/)** - IFC viewer using Babylon.js (WebGL)
 
 ## Documentation
 
@@ -130,7 +132,7 @@ Ready-to-run projects in the [`examples/`](examples/) folder:
 
 ## Contributing
 
-We welcome contributions! No Rust toolchain needed — WASM comes pre-built.
+We welcome contributions! No Rust toolchain needed, WASM comes pre-built.
 
 ```bash
 git clone https://github.com/louistrue/ifc-lite.git

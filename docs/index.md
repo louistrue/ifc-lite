@@ -14,7 +14,7 @@
 
     ---
 
-    Use IFClite with Three.js or Babylon.js — WebGL, no WebGPU required.
+    Use IFClite with Three.js or Babylon.js. WebGL, no WebGPU required.
 
     [:octicons-arrow-right-24: Three.js](tutorials/threejs-integration.md) · [:octicons-arrow-right-24: Babylon.js](tutorials/babylonjs-integration.md)
 
@@ -42,14 +42,14 @@
 
 **What you can do with it:**
 
-- **View 3D models** in the browser — load IFC files and navigate them with a WebGPU renderer
-- **Use your own 3D engine** — parse IFC geometry and render it with Three.js, Babylon.js, or any WebGL engine
-- **Extract data** — query properties, quantities, relationships, and spatial structure
-- **Validate models** — check IFC files against IDS (Information Delivery Specification) rules
-- **Generate 2D drawings** — floor plans, sections, and elevations from 3D models
-- **Collaborate** — BCF support for issues, viewpoints, and comments
-- **Export** — save as glTF, IFC, or Parquet
-- **Work with multiple models** — load several IFC files at once with federated selection and visibility
+- **View 3D models** in the browser with a WebGPU renderer
+- **Use your own 3D engine** - parse IFC geometry and render it with Three.js, Babylon.js, or any WebGL engine
+- **Extract data** like properties, quantities, relationships, and spatial structure
+- **Validate models** against IDS (Information Delivery Specification) rules
+- **Generate 2D drawings** like floor plans, sections, and elevations from 3D models
+- **Collaborate** with BCF support for issues, viewpoints, and comments
+- **Export** to glTF, IFC, or Parquet
+- **Work with multiple models** at once with federated selection and visibility
 
 Supports **IFC4 / IFC4X3** (876 entities) and **IFC5 (IFCX)** JSON format. ~260 KB gzipped.
 
@@ -148,7 +148,7 @@ flowchart TD
 
     const client = new IfcServerClient({ baseUrl: 'https://your-server.com' });
 
-    // Caches automatically — skips upload if the file was processed before
+    // Caches automatically, skips upload if the file was processed before
     const result = await client.parseParquet(file);
 
     // Or stream geometry for large files
