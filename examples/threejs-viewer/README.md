@@ -89,17 +89,7 @@ const data = getEntityData(store, expressId, 'IfcWall');
 // data.name, data.globalId, data.propertySets, data.quantitySets …
 ```
 
-The returned `EntityData` contains everything shown in the properties panel:
-
-| Field | Source | Description |
-|-------|--------|-------------|
-| `globalId` | IFC attribute | Unique GUID across all IFC files |
-| `name` | IFC attribute | Human-readable element name |
-| `description` | IFC attribute | Optional description text |
-| `objectType` | IFC attribute | Type classification string |
-| `tag` | IFC attribute | External system reference tag |
-| `propertySets` | `IfcPropertySet` | Named groups of key-value properties |
-| `quantitySets` | `IfcElementQuantity` | Measured quantities (area, volume, length) |
+`getEntityData` returns: `globalId`, `name`, `description`, `objectType`, `tag`, `propertySets` (from `IfcPropertySet`), and `quantitySets` (from `IfcElementQuantity`).
 
 ### 5. Spatial hierarchy tree
 
@@ -108,44 +98,11 @@ import { buildDataStore, buildSpatialTreeFromStore } from './ifc-data';
 
 const store = await buildDataStore(rawBuffer);
 const tree = buildSpatialTreeFromStore(store);
-
-// tree.name          → "My Project"
-// tree.children      → [Site → Building → Storey → ...]
-// tree.elementGroups → [{ typeName: "IfcWall", ids: [101, 102, ...] }, ...]
-// tree.totalElements → 1234
+// tree: Project → Site → Building → Storey → Elements (grouped by IFC type)
+// Each node: { children, elementGroups, elevation, totalElements }
 ```
 
-The spatial tree mirrors the IFC hierarchy: **Project → Site → Building → Storey → Elements** (grouped by IFC type). Each node provides:
-
-- `children` — child spatial containers (Site, Building, Storey, Space)
-- `elementGroups` — elements at this level, grouped by IFC type and sorted by count
-- `elevation` — metres above project base (storeys only)
-- `totalElements` — recursive element count for display badges
-
-### 6. Storey ↔ element lookup
-
-```typescript
-// Find which storey contains an element
-const storeyId = store.spatialHierarchy?.elementToStorey.get(expressId);
-```
-
-This reverse map enables two-way sync between the 3D view and spatial tree — clicking an entity in 3D reveals it in the tree, and vice versa.
-
-## Data flow
-
-Both pipelines run in parallel from the same IFC buffer:
-
-```
-IFC File (ArrayBuffer)
-  ├─ @ifc-lite/geometry  →  MeshData[]  →  Three.js scene (progressive streaming)
-  └─ @ifc-lite/parser    →  IfcDataStore
-                               ├─ Entity attributes (Name, GlobalId, …)
-                               ├─ Property sets (Pset_WallCommon, …)
-                               ├─ Quantity sets (Qto_WallBaseQuantities, …)
-                               └─ Spatial hierarchy (Project → Site → Building → Storey → Elements)
-```
-
-See the [Three.js Integration tutorial](https://louistrue.github.io/ifc-lite/tutorials/threejs-integration/) for a detailed guide covering all of these patterns.
+Use `store.spatialHierarchy.elementToStorey.get(expressId)` for reverse lookup (element → storey), enabling two-way sync between the 3D view and spatial tree.
 
 ## License
 

@@ -412,57 +412,31 @@ for await (const event of processor.processInstancedStreaming(buffer)) {
 
 Geometry alone is just triangles — to build a useful BIM viewer you also need **entity attributes**, **property sets**, **quantity sets**, and the **spatial hierarchy**. The `@ifc-lite/parser` package provides all of this from the same IFC buffer, no server required.
 
-### Install
-
 ```bash
 npm install @ifc-lite/parser @ifc-lite/data
 ```
 
-### Architecture
+Both pipelines run in parallel from the same buffer — geometry streams into the scene while the parser builds its data index in the background:
 
 ```mermaid
 flowchart LR
-    subgraph IFC["Same IFC Buffer"]
-        Buffer["Uint8Array"]
-    end
+    Buffer["IFC Buffer"] --> GP["@ifc-lite/geometry"]
+    GP -->|"MeshData[]"| Scene["Three.js Scene"]
 
-    subgraph Geometry["@ifc-lite/geometry"]
-        GP["GeometryProcessor"]
-    end
+    Buffer --> Parser["@ifc-lite/parser"]
+    Parser --> Store["IfcDataStore"]
 
-    subgraph Parser["@ifc-lite/parser"]
-        Tokenizer["StepTokenizer"]
-        ColParser["ColumnarParser"]
-    end
+    Store -->|"on click"| Panel["Properties Panel"]
+    Store -->|"on load"| Tree["Spatial Tree"]
 
-    subgraph DataStore["IfcDataStore"]
-        Entities["Entity Table"]
-        Props["Property Sets"]
-        Quants["Quantity Sets"]
-        Spatial["Spatial Hierarchy"]
-    end
-
-    Buffer --> GP
-    GP -->|"MeshData[]"| ThreeJS["Three.js Scene"]
-
-    Buffer --> Tokenizer
-    Tokenizer --> ColParser
-    ColParser --> DataStore
-
-    DataStore -->|"on click"| Panel["Properties Panel"]
-    DataStore -->|"on load"| Tree["Spatial Tree"]
-
-    style IFC fill:#6366f1,stroke:#312e81,color:#fff
-    style Geometry fill:#10b981,stroke:#064e3b,color:#fff
+    style GP fill:#10b981,stroke:#064e3b,color:#fff
     style Parser fill:#f59e0b,stroke:#78350f,color:#fff
-    style DataStore fill:#a855f7,stroke:#581c87,color:#fff
+    style Store fill:#a855f7,stroke:#581c87,color:#fff
 ```
-
-Both pipelines run in parallel — geometry streams into the scene while the parser builds its data index in the background.
 
 ### Building the Data Store
 
-The data store is built once after loading the file. It scans the raw IFC STEP text and creates a columnar index for fast lookups:
+The data store scans the raw IFC STEP text once and creates a columnar index for fast lookups. It is pure JavaScript — no WASM required.
 
 ```typescript
 import {
@@ -475,17 +449,9 @@ import {
 } from '@ifc-lite/parser';
 
 async function buildDataStore(buffer: ArrayBuffer): Promise<IfcDataStore> {
-  const uint8Buffer = new Uint8Array(buffer);
-  const tokenizer = new StepTokenizer(uint8Buffer);
+  const tokenizer = new StepTokenizer(new Uint8Array(buffer));
 
-  const entityRefs: Array<{
-    expressId: number;
-    type: string;
-    byteOffset: number;
-    byteLength: number;
-    lineNumber: number;
-  }> = [];
-
+  const entityRefs = [];
   for (const ref of tokenizer.scanEntities()) {
     entityRefs.push({
       expressId: ref.expressId,
@@ -496,261 +462,107 @@ async function buildDataStore(buffer: ArrayBuffer): Promise<IfcDataStore> {
     });
   }
 
-  const parser = new ColumnarParser();
-  return parser.parseLite(buffer, entityRefs);
+  return new ColumnarParser().parseLite(buffer, entityRefs);
 }
-
-// Build in parallel with geometry streaming
-const rawBuffer = await file.arrayBuffer();
-const store = await buildDataStore(rawBuffer);
 ```
 
-!!! tip "Pure JS — no WASM required"
-    `StepTokenizer` and `ColumnarParser` are pure JavaScript. They run without WASM initialisation, so you can start parsing before `GeometryProcessor.init()` completes.
+### Querying Entity Data
 
-### Querying Entity Attributes
-
-Once the store is built, extract attributes for any entity by its expressId:
+Once the store is built, extract attributes, property sets, and quantity sets for any entity:
 
 ```typescript
+// Attributes (GlobalId, Name, Description, ObjectType, Tag)
 const attrs = extractEntityAttributesOnDemand(store, expressId);
+console.log(attrs.name);       // "Basic Wall:Generic - 200mm"
+console.log(attrs.globalId);   // "2O2Fr$t4X7Zf8NOew3FLOH"
 
-console.log(attrs.globalId);     // "2O2Fr$t4X7Zf8NOew3FLOH"
-console.log(attrs.name);         // "Basic Wall:Generic - 200mm"
-console.log(attrs.description);  // "Interior partition wall"
-console.log(attrs.objectType);   // "Basic Wall:Generic - 200mm"
-console.log(attrs.tag);          // "Tag_12345"
-```
-
-!!! warning "Performance: avoid large loops"
-    `extractEntityAttributesOnDemand` re-parses the source buffer on each call. For bulk lookups, use `store.entities.getName(id)` and `store.entities.getTypeName(id)` which read from the pre-built columnar index in O(1).
-
-### Querying Property Sets
-
-Property sets (Psets) contain domain-specific properties attached to entities:
-
-```typescript
+// Property sets (e.g. Pset_WallCommon → IsExternal, FireRating, …)
 const psets = extractPropertiesOnDemand(store, expressId);
-
 for (const pset of psets) {
-  console.log(`Property Set: ${pset.name}`);
-  //  e.g. "Pset_WallCommon"
-
   for (const prop of pset.properties) {
-    console.log(`  ${prop.name} = ${prop.value}`);
-    //  e.g. "IsExternal = true"
-    //  e.g. "FireRating = 60"
+    console.log(`${pset.name}: ${prop.name} = ${prop.value}`);
   }
 }
-```
 
-### Querying Quantity Sets
-
-Quantity sets (Qtos) contain measured quantities like area, volume, and length:
-
-```typescript
+// Quantity sets (e.g. Qto_WallBaseQuantities → NetSideArea, GrossVolume, …)
 const qsets = extractQuantitiesOnDemand(store, expressId);
-
 for (const qset of qsets) {
-  console.log(`Quantity Set: ${qset.name}`);
-  //  e.g. "Qto_WallBaseQuantities"
-
   for (const q of qset.quantities) {
-    console.log(`  ${q.name} = ${q.value}`);
-    //  e.g. "NetSideArea = 12.500"
-    //  e.g. "GrossVolume = 2.500"
+    console.log(`${qset.name}: ${q.name} = ${q.value}`);
   }
 }
 ```
 
-### Wiring It Together: Click → Properties Panel
+!!! warning "Performance"
+    `extractEntityAttributesOnDemand` re-parses the source buffer on each call. For bulk lookups, use `store.entities.getName(id)` and `store.entities.getTypeName(id)` which read from the columnar index in O(1).
 
-Combine geometry picking with data extraction to show a properties panel when the user clicks an entity:
+### Click → Properties Panel
+
+Combine picking with data extraction:
 
 ```typescript
-import { GeometryProcessor, type MeshData } from '@ifc-lite/geometry';
-
-// Keep a map of expressId → MeshData for IFC type lookup
-const meshDataByExpressId = new Map<number, MeshData>();
-let dataStore: IfcDataStore | null = null;
-
-// After geometry loads:
-for (const mesh of allMeshes) {
-  meshDataByExpressId.set(mesh.expressId, mesh);
-}
-
-// After parser completes:
-dataStore = await buildDataStore(rawBuffer);
-
-// On click — pick an entity and show its data:
 canvas.addEventListener('click', (event) => {
   const expressId = pickAt(event.clientX, event.clientY);
   if (expressId == null || !dataStore) return;
 
-  const mesh = meshDataByExpressId.get(expressId);
-  const ifcType = mesh?.ifcType ?? 'IfcProduct';
-
-  // Extract all data for this entity
   const attrs = extractEntityAttributesOnDemand(dataStore, expressId);
   const psets = extractPropertiesOnDemand(dataStore, expressId);
   const qsets = extractQuantitiesOnDemand(dataStore, expressId);
-
-  console.log(`Selected: ${ifcType} #${expressId}`);
-  console.log(`  Name: ${attrs.name}`);
-  console.log(`  GlobalId: ${attrs.globalId}`);
-  console.log(`  Property Sets: ${psets.length}`);
-  console.log(`  Quantity Sets: ${qsets.length}`);
-
-  // Render into your UI panel...
+  // Render attrs, psets, qsets into your UI panel
 });
 ```
 
 ## Extracting Spatial Structure
 
-The **spatial hierarchy** organises IFC elements into a tree: Project → Site → Building → Storey → Elements. This is the same structure shown in the spatial/model tree panel of BIM viewers.
-
-### Reading the Spatial Hierarchy
-
-The data store includes a pre-parsed `spatialHierarchy` with the full tree:
+The data store includes a pre-parsed **spatial hierarchy** — the Project → Site → Building → Storey → Elements tree shown in the model tree panel of BIM viewers.
 
 ```typescript
-import { IfcTypeEnum, type SpatialNode } from '@ifc-lite/data';
+import { type SpatialNode } from '@ifc-lite/data';
 
-const store = await buildDataStore(rawBuffer);
 const hierarchy = store.spatialHierarchy;
-
 if (hierarchy) {
-  const project = hierarchy.project;
-  console.log(`Project: ${project.name} (#${project.expressId})`);
+  const project = hierarchy.project; // SpatialNode (root)
 
-  // Walk the tree
-  for (const site of project.children) {
-    console.log(`  Site: ${site.name}`);
-    for (const building of site.children) {
-      console.log(`    Building: ${building.name}`);
-      for (const storey of building.children) {
-        console.log(`      Storey: ${storey.name} (elevation: ${storey.elevation}m)`);
-        console.log(`        Elements: ${storey.elements.length}`);
-      }
-    }
+  // Walk: project.children → sites → buildings → storeys
+  for (const storey of building.children) {
+    console.log(`${storey.name} (${storey.elevation}m) — ${storey.elements.length} elements`);
   }
 }
 ```
 
-### The SpatialNode Interface
+Each `SpatialNode` has:
 
-Each node in the hierarchy has this shape:
+- `expressId`, `name`, `type` (IfcProject / IfcSite / IfcBuilding / IfcBuildingStorey / IfcSpace)
+- `elevation` — metres above project base (storeys only)
+- `children` — child spatial containers
+- `elements` — expressIds of directly contained elements
 
-```typescript
-interface SpatialNode {
-  expressId: number;
-  name: string;
-  type: IfcTypeEnum;           // IfcProject, IfcSite, IfcBuilding, IfcBuildingStorey, IfcSpace
-  elevation?: number;          // metres above project base (storeys only)
-  children: SpatialNode[];     // child spatial containers
-  elements: number[];          // expressIds of elements directly contained here
-}
-```
+### Storey Lookup and Selection Sync
 
-### Building a UI Tree
-
-Convert the raw hierarchy into a view model suited for rendering:
+The hierarchy provides a reverse map from any element to its containing storey, enabling two-way sync between the 3D view and a spatial tree UI:
 
 ```typescript
-interface SpatialTreeNode {
-  expressId: number;
-  name: string;
-  type: IfcTypeEnum;
-  elevation?: number;
-  children: SpatialTreeNode[];
-  /** Elements grouped by IFC type, sorted by count descending */
-  elementGroups: Array<{ typeName: string; ids: number[] }>;
-  totalElements: number;
-}
-
-function buildSpatialTree(
-  node: SpatialNode,
-  store: IfcDataStore,
-): SpatialTreeNode {
-  const children = node.children.map((c) => buildSpatialTree(c, store));
-
-  // Group elements by IFC type for display
-  const typeMap = new Map<string, number[]>();
-  for (const id of node.elements) {
-    const typeName = store.entities.getTypeName(id) || 'IfcBuildingElement';
-    let arr = typeMap.get(typeName);
-    if (!arr) { arr = []; typeMap.set(typeName, arr); }
-    arr.push(id);
-  }
-
-  const elementGroups = [...typeMap.entries()]
-    .sort((a, b) => b[1].length - a[1].length)
-    .map(([typeName, ids]) => ({ typeName, ids }));
-
-  const ownCount = node.elements.length;
-  const childCount = children.reduce((s, c) => s + c.totalElements, 0);
-
-  return {
-    expressId: node.expressId,
-    name: node.name,
-    type: node.type as IfcTypeEnum,
-    elevation: node.elevation,
-    children,
-    elementGroups,
-    totalElements: ownCount + childCount,
-  };
-}
-
-// Usage:
-const tree = buildSpatialTree(hierarchy.project, store);
-```
-
-### Storey → Element Lookup
-
-The spatial hierarchy also provides a reverse map from any element to its containing storey:
-
-```typescript
-const hierarchy = store.spatialHierarchy;
-
-// Find which storey an element belongs to
+// Find which storey contains an element
 const storeyId = hierarchy.elementToStorey.get(expressId);
-if (storeyId != null) {
-  const storeyName = store.entities.getName(storeyId);
-  console.log(`Element #${expressId} is on storey: ${storeyName}`);
-}
-```
 
-### Two-Way Selection Sync
-
-With both geometry picking and the spatial tree, you can wire up two-way selection — clicking a 3D entity highlights it in the tree, and clicking a tree node highlights it in 3D:
-
-```typescript
 // 3D click → reveal in tree
 function onEntityClicked(expressId: number) {
-  // Highlight in 3D scene (see Entity Picking section above)
   applyHighlight(meshDataByExpressId.get(expressId));
-
-  // Expand the tree to show the element's storey, then highlight the row
-  const storeyId = store.spatialHierarchy?.elementToStorey.get(expressId);
-  if (storeyId != null) {
-    expandTreeNode(storeyId);
-  }
+  const storeyId = hierarchy.elementToStorey.get(expressId);
+  if (storeyId != null) expandTreeNode(storeyId);
   highlightTreeRow(expressId);
 }
 
-// Tree click → select in 3D
+// Tree click → highlight in 3D
 function onTreeElementClicked(expressId: number) {
-  const meshData = meshDataByExpressId.get(expressId);
-  if (meshData) {
-    applyHighlight(meshData);
-    showPropertiesPanel(expressId);
-  }
+  applyHighlight(meshDataByExpressId.get(expressId));
+  showPropertiesPanel(expressId);
 }
 ```
 
-## Complete Data Flow
+For a full implementation of the spatial tree UI (grouping elements by IFC type, search/filter, expand/collapse), see [`examples/threejs-viewer/src/ifc-data.ts`](https://github.com/louistrue/ifc-lite/tree/main/examples/threejs-viewer/src/ifc-data.ts) and the `renderSpatialPanel()` function in [`src/main.ts`](https://github.com/louistrue/ifc-lite/tree/main/examples/threejs-viewer/src/main.ts).
 
-Here's how all three data streams (geometry, properties, spatial) fit together in the example viewer:
+## Complete Data Flow
 
 ```mermaid
 sequenceDiagram
@@ -761,28 +573,20 @@ sequenceDiagram
     participant Scene as Three.js Scene
 
     User->>App: Drop IFC file
-    App->>App: Read ArrayBuffer
 
     par Geometry Pipeline
         App->>Geometry: processStreaming(buffer)
-        loop Each batch
-            Geometry->>Scene: Add batch meshes
-        end
-        Geometry->>Scene: Rebuild as optimised mesh
+        Geometry->>Scene: Stream batch meshes
     and Data Pipeline
-        App->>Parser: StepTokenizer.scanEntities()
-        Parser->>Parser: ColumnarParser.parseLite()
-        Parser->>App: IfcDataStore (entities, psets, spatial)
+        App->>Parser: StepTokenizer + ColumnarParser
+        Parser->>App: IfcDataStore
         App->>App: Build spatial tree UI
     end
 
     User->>Scene: Click entity
     Scene->>App: expressId (via raycaster)
-    App->>Parser: extractEntityAttributesOnDemand()
-    App->>Parser: extractPropertiesOnDemand()
-    App->>Parser: extractQuantitiesOnDemand()
-    App->>User: Show properties panel
-    App->>App: Reveal in spatial tree
+    App->>App: extractAttributes / Properties / Quantities
+    App->>User: Show properties panel + reveal in tree
 ```
 
 ## Vite Configuration
