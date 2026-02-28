@@ -307,16 +307,36 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
           idOffset,
         );
 
-        const localHidden = visibleOnly ? getLocalHiddenIds(selectedModelId) : undefined;
-        const localIsolated = visibleOnly ? getLocalIsolatedIds(selectedModelId) : undefined;
+        // When changesOnly, restrict to mutated entities and force applyMutations
+        let localHidden: Set<number> | undefined;
+        let localIsolated: Set<number> | undefined;
+        let effectiveVisibleOnly = visibleOnly;
+        let effectiveApplyMutations = applyMutations;
+
+        if (changesOnly && mutationView) {
+          // Compute the set of entity IDs that have mutations
+          const mutations = mutationView.getMutations();
+          const mutatedEntityIds = new Set<number>();
+          for (const m of mutations) {
+            mutatedEntityIds.add(m.entityId);
+          }
+          // Use isolatedEntityIds as an allowlist to export only mutated entities
+          localIsolated = mutatedEntityIds;
+          effectiveVisibleOnly = true;
+          effectiveApplyMutations = true;
+        } else if (visibleOnly) {
+          localHidden = getLocalHiddenIds(selectedModelId);
+          localIsolated = getLocalIsolatedIds(selectedModelId) ?? undefined;
+          effectiveVisibleOnly = true;
+        }
 
         const result = exporter.export({
           includeGeometry: changesOnly ? false : includeGeometry,
           includeProperties: true,
-          applyMutations,
-          visibleOnly,
+          applyMutations: effectiveApplyMutations,
+          visibleOnly: effectiveVisibleOnly,
           hiddenEntityIds: localHidden,
-          isolatedEntityIds: localIsolated ?? undefined,
+          isolatedEntityIds: localIsolated,
           author: 'ifc-lite',
         });
 

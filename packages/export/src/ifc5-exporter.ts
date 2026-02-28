@@ -145,7 +145,7 @@ export class Ifc5Exporter {
       if (visibleIds && !visibleIds.has(expressId)) continue;
 
       const typeEnum = entities.typeEnum[i];
-      const typeName = IfcTypeEnumToString(typeEnum as IfcTypeEnum) || `IfcElement_${typeEnum}`;
+      const typeName = IfcTypeEnumToString(typeEnum as IfcTypeEnum) || 'IfcElement';
 
       // Convert entity type to IFC5 (aligned with IFC4X3)
       const ifc5Type = convertEntityType(
