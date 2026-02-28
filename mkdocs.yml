@@ -142,6 +142,7 @@ nav:
   - Tutorials:
     - Building a Viewer: tutorials/building-viewer.md
     - Three.js Integration: tutorials/threejs-integration.md
+    - Babylon.js Integration: tutorials/babylonjs-integration.md
     - Custom Queries: tutorials/custom-queries.md
     - Extending the Parser: tutorials/extending-parser.md
   - Contributing:

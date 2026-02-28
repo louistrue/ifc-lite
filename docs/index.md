@@ -42,6 +42,14 @@
 
     [:octicons-arrow-right-24: Federation Guide](guide/federation.md)
 
+-   :material-cube-outline:{ .lg .middle } __Three.js & Babylon.js__
+
+    ---
+
+    Use IFC-Lite with your preferred 3D engine — no WebGPU required.
+
+    [:octicons-arrow-right-24: Three.js](tutorials/threejs-integration.md) · [:octicons-arrow-right-24: Babylon.js](tutorials/babylonjs-integration.md)
+
 -   :material-check-decagram:{ .lg .middle } __BCF, IDS & 2D Drawings__
 
     ---
@@ -120,9 +128,15 @@ IFClite supports two processing paradigms:
     npx create-ifc-lite my-app
     cd my-app && npm install && npm run parse
 
-    # Or create a React viewer
+    # Or create a React viewer (WebGPU)
     npx create-ifc-lite my-viewer --template react
     cd my-viewer && npm install && npm run dev
+
+    # Or a Three.js viewer (WebGL)
+    npx create-ifc-lite my-viewer --template threejs
+
+    # Or a Babylon.js viewer (WebGL)
+    npx create-ifc-lite my-viewer --template babylonjs
 
     # Or create a server backend
     npx create-ifc-lite my-backend --template server
@@ -232,6 +246,10 @@ Chrome 113+ · Edge 113+ · Firefox 127+ · Safari 18+ (all with WebGPU)
 -   [:material-school: __Tutorials__](tutorials/building-viewer.md)
 
     Build a complete IFC viewer from scratch
+
+-   [:material-cube-outline: __Three.js / Babylon.js__](tutorials/threejs-integration.md)
+
+    Use IFC-Lite with Three.js or Babylon.js (WebGL, no WebGPU)
 
 -   [:material-file-document: __Parsing Guide__](guide/parsing.md)
 

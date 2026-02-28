@@ -11,6 +11,9 @@ The built-in `@ifc-lite/renderer` uses WebGPU for maximum performance, but you m
 - **react-three-fiber** — declarative 3D with React
 - **Custom rendering** — shadow maps, custom shaders, physics, XR
 
+!!! tip "Prefer Babylon.js?"
+    The same `MeshData` typed arrays work with any engine. See the [Babylon.js Integration](babylonjs-integration.md) tutorial for the Babylon.js equivalent.
+
 ## Architecture
 
 ```mermaid
@@ -56,7 +59,16 @@ You only need `@ifc-lite/geometry` (and its dependency `@ifc-lite/wasm`) — ski
 
 ## Quick Start
 
-### Install
+### Scaffold a project
+
+```bash
+npx create-ifc-lite my-viewer --template threejs
+cd my-viewer
+npm install
+npm run dev
+```
+
+### Or install manually
 
 ```bash
 npm install @ifc-lite/geometry three
@@ -435,6 +447,7 @@ See [`examples/threejs-viewer/`](https://github.com/louistrue/ifc-lite/tree/main
 
 ## Next Steps
 
+- [Babylon.js Integration](babylonjs-integration.md) — Same workflow with Babylon.js
 - [Building a Viewer](building-viewer.md) — Full viewer with WebGPU
 - [Geometry Processing](../guide/geometry.md) — Geometry API details
 - [API Reference](../api/typescript.md) — Complete API docs
