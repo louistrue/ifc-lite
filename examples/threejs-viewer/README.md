@@ -89,6 +89,21 @@ const data = getEntityData(store, expressId, 'IfcWall');
 // data.name, data.globalId, data.propertySets, data.quantitySets …
 ```
 
+`getEntityData` returns: `globalId`, `name`, `description`, `objectType`, `tag`, `propertySets` (from `IfcPropertySet`), and `quantitySets` (from `IfcElementQuantity`).
+
+### 5. Spatial hierarchy tree
+
+```typescript
+import { buildDataStore, buildSpatialTreeFromStore } from './ifc-data';
+
+const store = await buildDataStore(rawBuffer);
+const tree = buildSpatialTreeFromStore(store);
+// tree: Project → Site → Building → Storey → Elements (grouped by IFC type)
+// Each node: { children, elementGroups, elevation, totalElements }
+```
+
+Use `store.spatialHierarchy.elementToStorey.get(expressId)` for reverse lookup (element → storey), enabling two-way sync between the 3D view and spatial tree.
+
 ## License
 
 MPL-2.0
