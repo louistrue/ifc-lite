@@ -91,17 +91,37 @@ describe('schema-converter', () => {
       // IFC4 IfcWall has 9 attrs, IFC2X3 has 8 (no PredefinedType)
       const line = "#5=IFCWALL('guid',$,'Wall 1',$,$,$,$,'tag',.STANDARD.);";
       const result = convertStepLine(line, 'IFC4', 'IFC2X3');
-      expect(result).not.toBeNull();
       // Should not contain PredefinedType (.STANDARD.)
       expect(result).not.toContain('.STANDARD.');
       // Should still have 8 attrs
       expect(result).toContain('IFCWALL(');
     });
 
-    it('returns null for entities that should be skipped', () => {
+    it('replaces skipped entities with IFCPROXY placeholder to prevent dangling references', () => {
       const line = "#99=IFCALIGNMENTCANT('guid',$,$,$,$,$,$,$);";
       const result = convertStepLine(line, 'IFC4X3', 'IFC4');
-      expect(result).toBeNull();
+      expect(result).toContain('#99=IFCPROXY(');
+      expect(result).toContain('IFCALIGNMENTCANT');
+      expect(result).toContain('.NOTDEFINED.');
+    });
+
+    it('preserves alignment entities when converting IFC4X3 → IFC5', () => {
+      const line = "#99=IFCALIGNMENTCANT('guid',$,'Cant1',$,$,$,$,$);";
+      const result = convertStepLine(line, 'IFC4X3', 'IFC5');
+      // Should preserve the original entity, not proxy it
+      expect(result).toContain('IFCALIGNMENTCANT(');
+      expect(result).not.toContain('IFCPROXY');
+    });
+
+    it('preserves alignment entities when converting IFC4X3 → IFC4X3', () => {
+      const line = "#50=IFCALIGNMENTHORIZONTAL('guid',$,'HAlign',$,$,$,$,$);";
+      expect(convertStepLine(line, 'IFC4X3', 'IFC4X3')).toBe(line);
+    });
+
+    it('replaces alignment entities with proxy when converting to IFC2X3', () => {
+      const line = "#99=IFCALIGNMENTVERTICAL('guid',$,$,$,$,$,$,$);";
+      const result = convertStepLine(line, 'IFC4X3', 'IFC2X3');
+      expect(result).toContain('#99=IFCPROXY(');
     });
 
     it('passes through non-entity lines unchanged', () => {
@@ -113,34 +133,30 @@ describe('schema-converter', () => {
       // Attributes with nested parentheses and strings
       const line = "#10=IFCWALL('2O2Fr$t4X7Zf8NOew3FLOH',$,'Basic Wall:Interior - 79mm Partition (1-hr):128475',$,'Basic Wall:Interior - 79mm Partition (1-hr)',$,#8,#9,.STANDARD.);";
       const result = convertStepLine(line, 'IFC4', 'IFC2X3');
-      expect(result).not.toBeNull();
       // Entity type stays IFCWALL
-      expect(result!).toContain('IFCWALL(');
+      expect(result).toContain('IFCWALL(');
       // Last attribute (.STANDARD.) should be trimmed for IFC2X3 (8 attrs max)
-      expect(result!).not.toContain('.STANDARD.');
+      expect(result).not.toContain('.STANDARD.');
     });
 
     it('converts IFC4X3-specific types and preserves attributes', () => {
       const line = "#20=IFCPAVEMENT('guid',$,'Sidewalk',$,$,$,$,'tag');";
       const result = convertStepLine(line, 'IFC4X3', 'IFC4');
-      expect(result).not.toBeNull();
-      expect(result!).toContain('IFCSLAB(');
-      expect(result!).toContain("'Sidewalk'");
+      expect(result).toContain('IFCSLAB(');
+      expect(result).toContain("'Sidewalk'");
     });
 
     it('handles IFC5 target schema', () => {
       const line = "#1=IFCWALL('guid',$,'Wall',$,$,$,$,$,.NOTDEFINED.);";
       const result = convertStepLine(line, 'IFC4', 'IFC5');
-      expect(result).not.toBeNull();
-      expect(result!).toContain('IFCWALL(');
+      expect(result).toContain('IFCWALL(');
     });
 
     it('handles strings with escaped single quotes', () => {
       const line = "#10=IFCWALL('guid',$,'Wall''s Name',$,$,$,$,'tag',.STANDARD.);";
       const result = convertStepLine(line, 'IFC4', 'IFC2X3');
-      expect(result).not.toBeNull();
       // Preserved escaped quote
-      expect(result!).toContain("'Wall''s Name'");
+      expect(result).toContain("'Wall''s Name'");
     });
   });
 

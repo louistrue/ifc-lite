@@ -264,13 +264,13 @@ function chainMaps(
  * @param line - Raw STEP entity line (e.g., "#1=IFCWALL('guid',...);")
  * @param fromSchema - Source schema version
  * @param toSchema - Target schema version
- * @returns Converted line, or null if entity should be skipped
+ * @returns Converted line (entities without valid target representation become IFCPROXY placeholders)
  */
 export function convertStepLine(
   line: string,
   fromSchema: IfcSchemaVersion,
   toSchema: IfcSchemaVersion,
-): string | null {
+): string {
   if (fromSchema === toSchema) return line;
 
   // Parse: #ID=TYPE(attrs);
@@ -284,9 +284,10 @@ export function convertStepLine(
   // Convert entity type
   const newType = convertEntityType(entityType, fromSchema, toSchema);
 
-  // Skip entity types that indicate alignment/positioning concepts not valid in target
+  // Replace entities that have no valid representation in the target schema
+  // with IFCPROXY placeholders to preserve EXPRESS IDs and prevent dangling references
   if (shouldSkipEntity(newType, toSchema)) {
-    return null;
+    return `${prefix}IFCPROXY('${generatePlaceholderId()}',$,'${entityType}',$,$,$,$,.NOTDEFINED.,$);`;
   }
 
   // Adjust attribute count if downgrading to IFC2X3
@@ -305,9 +306,17 @@ export function convertStepLine(
  * Check if an entity type should be skipped for the target schema.
  * Some IFC4X3 types (alignment, positioning) have no valid STEP representation
  * in older schemas even as proxies.
+ *
+ * Alignment entities are valid in IFC4X3 and IFC5, so they are only skipped
+ * when targeting older schemas (IFC2X3, IFC4).
  */
-function shouldSkipEntity(entityType: string, _toSchema: IfcSchemaVersion): boolean {
-  // Alignment segment entities are too schema-specific to convert meaningfully
+function shouldSkipEntity(entityType: string, toSchema: IfcSchemaVersion): boolean {
+  // Alignment entities are native to IFC4X3 and IFC5 — preserve them
+  if (toSchema === 'IFC4X3' || toSchema === 'IFC5') {
+    return false;
+  }
+
+  // For older schemas, these alignment types have no meaningful representation
   const skipTypes = new Set([
     'IFCALIGNMENTCANT',
     'IFCALIGNMENTHORIZONTAL',
@@ -414,4 +423,21 @@ export function describeConversion(
   return warnings.length > 0
     ? `Converting ${fromSchema} → ${toSchema}: ${warnings.join('; ')}`
     : `Converting ${fromSchema} → ${toSchema}`;
+}
+
+/**
+ * Generate a compact placeholder GlobalId for IFCPROXY entities.
+ * Not a true IFC GlobalId (base64 of GUID) but unique enough for placeholder use.
+ */
+let _placeholderCounter = 0;
+function generatePlaceholderId(): string {
+  const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$';
+  const counter = _placeholderCounter++;
+  let result = 'PROXY_';
+  let n = counter;
+  for (let i = 0; i < 16; i++) {
+    result += chars[n % 64];
+    n = Math.floor(n / 64) + i;
+  }
+  return result;
 }
