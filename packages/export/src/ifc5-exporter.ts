@@ -281,7 +281,8 @@ export class Ifc5Exporter {
     // (Project→Site, Site→Building, Building→Storey, Storey→Space)
     this.spatialChildIds.clear();
     if (spatialHierarchy.project) {
-      const walkTree = (node: { expressId: number; children: { expressId: number; name: string; children: unknown[] }[] }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const walkTree = (node: { expressId: number; children: any[] }) => {
         const childIds: number[] = [];
         for (const child of node.children) {
           parentOf.set(child.expressId, node.expressId);
