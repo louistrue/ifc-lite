@@ -214,6 +214,10 @@ Three.js and Babylon.js integrations work with WebGL and don't require WebGPU. S
 
     Load multiple models at once
 
+-   [:material-speedometer: __Performance__](guide/performance.md)
+
+    Benchmarks, bundle size, and optimization details
+
 -   [:material-cog: __Architecture__](architecture/overview.md)
 
     How IFClite works under the hood

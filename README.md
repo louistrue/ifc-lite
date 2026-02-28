@@ -42,7 +42,7 @@ Works with **IFC4 / IFC4X3** and the new **IFC5 (IFCX)** format.
 
 ## Why IFClite?
 
-- **Fast.** First triangles on screen in ~200ms. Geometry processing up to 5x faster than the next best option.
+- **Fast.** First triangles on screen in ~200ms. Geometry processing up to 5x faster than the next best option. See [benchmarks](docs/guide/performance.md).
 - **Small.** ~260 KB gzipped. Designed to stay lightweight so your app stays lightweight.
 - **Complete.** Full IFC4X3 schema (876 entities), IFC5, BCF, IDS, 2D drawings, federation, property editing, and export. Parsing is just the start.
 - **Built for the web.** Rust + WASM core, WebGPU rendering, streaming pipelines, consistent TypeScript API across all packages.
@@ -134,7 +134,7 @@ Ready-to-run projects in the [`examples/`](examples/) folder:
 | **Guides** | [Parsing](docs/guide/parsing.md) · [Geometry](docs/guide/geometry.md) · [Rendering](docs/guide/rendering.md) · [Querying](docs/guide/querying.md) · [Exporting](docs/guide/exporting.md) |
 | **BIM features** | [Federation](docs/guide/federation.md) · [BCF](docs/guide/bcf.md) · [IDS Validation](docs/guide/ids.md) · [2D Drawings](docs/guide/drawing-2d.md) · [Property Editing](docs/guide/mutations.md) |
 | **Tutorials** | [Build a Viewer](docs/tutorials/building-viewer.md) · [Three.js](docs/tutorials/threejs-integration.md) · [Babylon.js](docs/tutorials/babylonjs-integration.md) · [Custom Queries](docs/tutorials/custom-queries.md) |
-| **Deep dives** | [Architecture](docs/architecture/overview.md) · [Data Flow](docs/architecture/data-flow.md) · [Performance](tests/benchmark/) |
+| **Deep dives** | [Architecture](docs/architecture/overview.md) · [Data Flow](docs/architecture/data-flow.md) · [Performance](docs/guide/performance.md) |
 | **API** | [TypeScript](docs/api/typescript.md) · [Rust](docs/api/rust.md) · [WASM](docs/api/wasm.md) |
 
 ## Contributing
