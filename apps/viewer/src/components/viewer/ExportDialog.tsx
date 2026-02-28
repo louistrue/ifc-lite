@@ -148,6 +148,13 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
     registerMutationView(selectedModelId, mutationView);
   }, [selectedModel, selectedModelId, getMutationView, registerMutationView]);
 
+  // Reset scope to single when switching to IFCX/IFC5 (merged not supported)
+  useEffect(() => {
+    if (format !== 'ifc' || schema === 'IFC5') {
+      setExportScope('single');
+    }
+  }, [format, schema]);
+
   const modifiedCount = useMemo(() => {
     return getModifiedEntityCount();
   }, [getModifiedEntityCount]);
@@ -218,8 +225,8 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
     setExportResult(null);
 
     try {
-      // Handle merged export of all models
-      if (format === 'ifc' && exportScope === 'merged') {
+      // Handle merged export of all models (STEP only, not IFC5/IFCX)
+      if (format === 'ifc' && exportScope === 'merged' && schema !== 'IFC5') {
         const mergeInputs: MergeModelInput[] = Array.from(models.values()).map((m) => ({
           id: m.id,
           name: m.name,
