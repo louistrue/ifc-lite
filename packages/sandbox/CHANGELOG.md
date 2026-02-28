@@ -1,5 +1,12 @@
 # @ifc-lite/sandbox
 
+## 1.13.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/sdk@1.13.0
+
 ## 1.12.0
 
 ### Patch Changes
