@@ -71,9 +71,14 @@ export interface InstancedMesh {
 /**
  * Batched mesh - groups multiple meshes with same color into single draw call
  * Reduces draw calls from N meshes to ~100-500 batches
+ *
+ * When a single color group's geometry would exceed the GPU's maxBufferSize
+ * limit, the data is automatically split across multiple buckets at
+ * accumulation time. Each bucket gets a unique colorKey (base key or
+ * "base#N"), so the rest of the pipeline stays unchanged.
  */
 export interface BatchedMesh {
-  colorKey: string;  // Color hash for grouping
+  colorKey: string;  // Unique batch key (base color hash, or "hash#N" for overflow buckets)
   vertexBuffer: GPUBuffer;
   indexBuffer: GPUBuffer;
   indexCount: number;

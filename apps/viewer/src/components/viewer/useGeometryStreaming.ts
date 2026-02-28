@@ -362,15 +362,15 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     const renderer = rendererRef.current;
     if (!renderer || !isInitialized) return;
 
-    // If streaming just completed (was streaming, now not), rebuild pending batches and render
+    // If streaming just completed (was streaming, now not), finalize and render
     if (prevIsStreamingRef.current && !isStreaming) {
       const device = renderer.getGPUDevice();
       const pipeline = renderer.getPipeline();
       const scene = renderer.getScene();
 
-      // Rebuild any pending batches that were deferred during streaming
-      if (device && pipeline && scene.hasPendingBatches()) {
-        scene.rebuildPendingBatches(device, pipeline);
+      // Finalize streaming: destroy temporary fragments and do one O(N) full merge
+      if (device && pipeline) {
+        scene.finalizeStreaming(device, pipeline);
       }
 
       renderer.render();

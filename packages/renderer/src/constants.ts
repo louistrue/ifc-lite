@@ -136,6 +136,21 @@ export const LIGHTING_CONSTANTS = {
 } as const;
 
 // ============================================================================
+// Batch Buffer Constants
+// ============================================================================
+
+export const BATCH_CONSTANTS = {
+  /** Safety factor for GPU buffer size — use 90% of device limit to leave headroom */
+  BUFFER_SIZE_SAFETY_FACTOR: 0.9,
+  /** Fallback max buffer size when device limit is unavailable (256 MB) */
+  FALLBACK_MAX_BUFFER_SIZE: 256 * 1024 * 1024,
+  /** Bytes per vertex in the interleaved layout (pos3 + norm3 + entityId1 = 7 × 4) */
+  BYTES_PER_VERTEX: 7 * 4,
+  /** Bytes per index (uint32) */
+  BYTES_PER_INDEX: 4,
+} as const;
+
+// ============================================================================
 // Pick Constants
 // ============================================================================
 
