@@ -38,7 +38,16 @@ Try it at [ifclite.com](https://www.ifclite.com/) to see it in action.
 - **Collaborate** with BCF (BIM Collaboration Format) for issues and viewpoints
 - **Export** to glTF, IFC, or Parquet
 
-Works with **IFC4 / IFC4X3** and the new **IFC5 (IFCX)** format. ~260 KB gzipped.
+Works with **IFC4 / IFC4X3** and the new **IFC5 (IFCX)** format.
+
+## Why IFClite?
+
+There are other IFC libraries out there, but none of them cover the full picture on the web.
+
+- **Fast.** 2.6x faster parsing than web-ifc, up to 5x faster geometry processing. First triangles on screen in ~200ms for small models.
+- **Small.** ~260 KB gzipped. That's 40% smaller than web-ifc and a fraction of IfcOpenShell.
+- **Complete.** Full IFC4X3 schema (876 entities), not a subset. Plus IFC5, BCF, IDS, 2D drawings, federation, property editing, and export.
+- **Clean DX.** Consistent API, TypedArrays, streaming pipelines. Built from scratch for the web, not ported from C++.
 
 ## Get Started
 
