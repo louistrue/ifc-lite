@@ -47,7 +47,7 @@ import { extractPropertiesOnDemand, type IfcDataStore } from '@ifc-lite/parser';
 
 type ExportFormat = 'ifc' | 'ifcx' | 'json';
 type ExportScope = 'single' | 'merged';
-type SchemaVersion = 'IFC2X3' | 'IFC4' | 'IFC4X3';
+type SchemaVersion = 'IFC2X3' | 'IFC4' | 'IFC4X3' | 'IFC5';
 
 interface ExportDialogProps {
   trigger?: React.ReactNode;
@@ -468,6 +468,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
                   <SelectItem value="IFC2X3">IFC2X3</SelectItem>
                   <SelectItem value="IFC4">IFC4</SelectItem>
                   <SelectItem value="IFC4X3">IFC4X3</SelectItem>
+                  <SelectItem value="IFC5">IFC5 (Alpha)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
