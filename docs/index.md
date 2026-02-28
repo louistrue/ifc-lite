@@ -2,189 +2,156 @@
 
 <div class="grid cards" markdown>
 
--   :material-rocket-launch:{ .lg .middle } __Get Started Quickly__
+-   :material-rocket-launch:{ .lg .middle } __Get Started__
 
     ---
 
-    Create a new project with `create-ifc-lite` or parse your first IFC file in under 5 minutes.
+    Create a project with `create-ifc-lite` or parse your first IFC file in under 5 minutes.
 
     [:octicons-arrow-right-24: Quick Start](guide/quickstart.md)
-
--   :material-server:{ .lg .middle } __Server or Client?__
-
-    ---
-
-    Choose between client-side WASM parsing or server-based processing with caching.
-
-    [:octicons-arrow-right-24: Server Guide](guide/server.md)
-
--   :material-cog:{ .lg .middle } __Architecture__
-
-    ---
-
-    Understand the system design, data flow, and server/client paradigms.
-
-    [:octicons-arrow-right-24: Architecture](architecture/overview.md)
-
--   :material-api:{ .lg .middle } __API Reference__
-
-    ---
-
-    Complete API documentation for all 18 TypeScript packages.
-
-    [:octicons-arrow-right-24: API Reference](api/typescript.md)
-
--   :material-layers-triple:{ .lg .middle } __Multi-Model Federation__
-
-    ---
-
-    Load multiple IFC files simultaneously with unified selection and visibility.
-
-    [:octicons-arrow-right-24: Federation Guide](guide/federation.md)
 
 -   :material-cube-outline:{ .lg .middle } __Three.js & Babylon.js__
 
     ---
 
-    Use IFC-Lite with your preferred 3D engine — no WebGPU required.
+    Use IFClite with Three.js or Babylon.js. WebGL, no WebGPU required.
 
     [:octicons-arrow-right-24: Three.js](tutorials/threejs-integration.md) · [:octicons-arrow-right-24: Babylon.js](tutorials/babylonjs-integration.md)
 
--   :material-check-decagram:{ .lg .middle } __BCF, IDS & 2D Drawings__
+-   :material-server:{ .lg .middle } __Server Setup__
 
     ---
 
-    Collaboration, validation, and 2D drawing generation from 3D models.
+    Rust server with caching and parallel processing for teams and large files.
 
-    [:octicons-arrow-right-24: BCF Guide](guide/bcf.md)
+    [:octicons-arrow-right-24: Server Guide](guide/server.md)
+
+-   :material-monitor:{ .lg .middle } __Desktop App__
+
+    ---
+
+    Native Tauri app for offline use, large files, and multi-threaded performance.
+
+    [:octicons-arrow-right-24: Desktop Guide](guide/desktop.md)
 
 </div>
 
 ## What is IFClite?
 
-**IFClite** is a high-performance IFC (Industry Foundation Classes) platform that runs in browsers, on servers, and as native desktop applications.
+**IFClite** is an open-source toolkit for working with IFC (Industry Foundation Classes) files. It runs in the browser, on a server, or as a native desktop app.
 
-- **Two Paradigms** - Client-side WASM or server-based processing with caching
-- **Full IFC Support** - IFC4X3 (876 entities) + native IFC5 (IFCX) JSON format
-- **Fast Rendering** - WebGPU with first triangles in 300-500ms
-- **Tiny Bundle** - ~260 KB gzipped, 40% smaller than alternatives
-- **Multi-Model** - Load and federate multiple IFC files with unified interactions
-- **BIM Workflows** - BCF collaboration, IDS validation, 2D drawings, property editing
+**What you can do with it:**
 
-## Choose Your Path
+- **View 3D models** in the browser with a WebGPU renderer
+- **Use your own 3D engine** - parse IFC geometry and render it with Three.js, Babylon.js, or any WebGL engine
+- **Extract data** like properties, quantities, relationships, and spatial structure
+- **Validate models** against IDS (Information Delivery Specification) rules
+- **Generate 2D drawings** like floor plans, sections, and elevations from 3D models
+- **Collaborate** with BCF support for issues, viewpoints, and comments
+- **Export** to glTF, IFC, or Parquet
+- **Work with multiple models** at once with federated selection and visibility
+
+Supports **IFC4 / IFC4X3** (876 entities) and **IFC5 (IFCX)** JSON format. ~260 KB gzipped.
+
+## Choose Your Setup
+
+Not sure how to use IFClite? This diagram helps you pick:
 
 ```mermaid
-flowchart LR
-    Start[Start] --> Q1{One-time view?}
-    Q1 -->|Yes| Client[Client-Side]
-    Q1 -->|No| Q2{Team/shared cache?}
-    Q2 -->|Yes| Server[Server]
-    Q2 -->|No| Q3{Large files?}
-    Q3 -->|Yes| Stream[Server + Streaming]
-    Q3 -->|No| Client
-    Client --> Q4{Desktop app?}
-    Q4 -->|Yes| Tauri[Tauri]
-    Q4 -->|No| Done[Ready!]
-    Server --> Done
-    Stream --> Done
-    Tauri --> Done
+flowchart TD
+    Start[I want to work with IFC files] --> Q1{Do I need 3D viewing?}
+    Q1 -->|No, just data| Parser["Use @ifc-lite/parser"]
+    Q1 -->|Yes| Q2{Do I already have a 3D engine?}
+    Q2 -->|Yes, Three.js or Babylon.js| Integration[Use @ifc-lite/geometry + your engine]
+    Q2 -->|No, start fresh| Q3{Where will it run?}
+    Q3 -->|Browser| WebGPU["Use the built-in WebGPU viewer"]
+    Q3 -->|Desktop| Tauri["Use the Tauri desktop app"]
+    Q3 -->|Server for my team| Server["Set up the Rust server"]
 ```
 
-## System Overview
-
-IFClite supports two processing paradigms:
-
-=== "Client-Side (WASM)"
-
-    Process IFC files entirely in the browser using WebAssembly. Best for offline use, privacy-sensitive data, and simple deployments.
-
-    ```mermaid
-    flowchart LR
-        IFC[IFC File] --> WASM[WASM Parser]
-        WASM --> Tables[Columnar Tables]
-        WASM --> Geometry[Geometry Buffers]
-        Tables --> Query[Query API]
-        Geometry --> Renderer[WebGPU Renderer]
-    ```
-
-=== "Server-Side (Rust)"
-
-    Process IFC files on a high-performance Rust server with parallel processing and intelligent caching. Best for team collaboration, large files, and production deployments.
-
-    ```mermaid
-    flowchart LR
-        Upload[Upload IFC] --> Cache[(Cache)]
-        Cache -->|hit| Viewer[Viewer]
-        Upload -->|miss| Parse[Parse]
-        Parse --> Cache
-    ```
+| Setup | Best for | Getting started |
+|-------|----------|-----------------|
+| **Browser (WebGPU)** | Viewing and inspecting models, client-side only | [Quick Start](guide/quickstart.md) |
+| **Three.js** | Adding IFC to an existing Three.js app (WebGL) | [Three.js Tutorial](tutorials/threejs-integration.md) |
+| **Babylon.js** | Adding IFC to an existing Babylon.js app (WebGL) | [Babylon.js Tutorial](tutorials/babylonjs-integration.md) |
+| **Server** | Teams, large files (100 MB+), caching for repeat access | [Server Guide](guide/server.md) |
+| **Desktop (Tauri)** | Offline use, very large files (500 MB+), multi-threading | [Desktop Guide](guide/desktop.md) |
 
 ## Quick Examples
 
-=== "Create New Project"
+=== "Parse an IFC file"
 
     ```bash
-    # Create a new project (recommended)
     npx create-ifc-lite my-app
     cd my-app && npm install && npm run parse
-
-    # Or create a React viewer (WebGPU)
-    npx create-ifc-lite my-viewer --template react
-    cd my-viewer && npm install && npm run dev
-
-    # Or a Three.js viewer (WebGL)
-    npx create-ifc-lite my-viewer --template threejs
-
-    # Or a Babylon.js viewer (WebGL)
-    npx create-ifc-lite my-viewer --template babylonjs
-
-    # Or create a server backend
-    npx create-ifc-lite my-backend --template server
-    cd my-backend && npm run server:start
     ```
 
-=== "Client-Side Parsing"
+    Or in your own code:
+
+    ```typescript
+    import { IfcParser } from '@ifc-lite/parser';
+
+    const parser = new IfcParser();
+    const result = await parser.parse(buffer);
+    console.log(`Found ${result.entityCount} entities`);
+    ```
+
+=== "3D viewer (WebGPU)"
+
+    ```bash
+    npx create-ifc-lite my-viewer --template react
+    cd my-viewer && npm install && npm run dev
+    ```
+
+    Or set it up manually:
 
     ```typescript
     import { IfcParser } from '@ifc-lite/parser';
     import { GeometryProcessor } from '@ifc-lite/geometry';
     import { Renderer } from '@ifc-lite/renderer';
 
-    // Initialize renderer and geometry processor
     const renderer = new Renderer(canvas);
     await renderer.init();
     const geometry = new GeometryProcessor();
     await geometry.init();
 
-    // Parse IFC file in browser
     const parser = new IfcParser();
-    const store = await parser.parseColumnar(buffer, {
-      onProgress: ({ phase, percent }) => console.log(`${phase}: ${percent}%`)
-    });
-
-    // Query entities
-    const walls = store.entityIndex.byType.get('IFCWALL') ?? [];
-    console.log(`Found ${walls.length} walls`);
-
-    // Process and render geometry
+    const store = await parser.parseColumnar(buffer);
     const geometryResult = await geometry.process(new Uint8Array(buffer));
+
     renderer.loadGeometry(geometryResult);
     renderer.fitToView();
     renderer.render();
     ```
 
-=== "Server + Client"
+=== "Three.js / Babylon.js"
+
+    ```bash
+    npx create-ifc-lite my-viewer --template threejs     # Three.js
+    npx create-ifc-lite my-viewer --template babylonjs    # Babylon.js
+    ```
+
+    These templates include a working viewer. See the full tutorials:
+
+    - [Three.js Integration](tutorials/threejs-integration.md)
+    - [Babylon.js Integration](tutorials/babylonjs-integration.md)
+
+=== "Server backend"
+
+    ```bash
+    npx create-ifc-lite my-backend --template server
+    cd my-backend && npm run server:start
+    ```
 
     ```typescript
     import { IfcServerClient } from '@ifc-lite/server-client';
 
-    // Connect to server
     const client = new IfcServerClient({ baseUrl: 'https://your-server.com' });
 
-    // Parse with intelligent caching (skips upload if cached)
+    // Caches automatically, skips upload if the file was processed before
     const result = await client.parseParquet(file);
 
-    // Or stream for large files
+    // Or stream geometry for large files
     for await (const event of client.parseStream(file)) {
       if (event.type === 'batch') {
         renderer.addMeshes(event.meshes);
@@ -192,36 +159,28 @@ IFClite supports two processing paradigms:
     }
     ```
 
-=== "IFC5 (IFCX) Format"
+## What Do I Install?
 
-    ```typescript
-    import { parseAuto } from '@ifc-lite/parser';
+You don't need all packages. Here's what to grab for common tasks:
 
-    // Auto-detect IFC4 (STEP) or IFC5 (IFCX JSON)
-    const result = await parseAuto(buffer);
+| I want to... | Packages |
+|--------------|----------|
+| Parse an IFC file | `@ifc-lite/parser` |
+| View a 3D model (WebGPU) | + `@ifc-lite/geometry` + `@ifc-lite/renderer` |
+| Use Three.js or Babylon.js | + `@ifc-lite/geometry` (you handle the rendering) |
+| Query properties and types | + `@ifc-lite/query` |
+| Validate against IDS rules | + `@ifc-lite/ids` |
+| Generate 2D drawings | + `@ifc-lite/drawing-2d` |
+| Export to glTF / IFC / Parquet | + `@ifc-lite/export` |
+| Connect to a server backend | + `@ifc-lite/server-client` |
 
-    if (result.format === 'ifcx') {
-      // IFC5 with ECS composition and USD geometry
-      console.log('IFC5 file with', result.meshes.length, 'meshes');
-    } else {
-      // IFC4 STEP format (result.data is IfcDataStore)
-      console.log('IFC4 file with', result.data.entityCount, 'entities');
-    }
-    ```
-
-## Packages
-
-**Core:** `@ifc-lite/parser` · `@ifc-lite/ifcx` · `@ifc-lite/geometry` · `@ifc-lite/renderer` · `@ifc-lite/data` · `@ifc-lite/spatial` · `@ifc-lite/wasm`
-
-**Features:** `@ifc-lite/bcf` · `@ifc-lite/ids` · `@ifc-lite/mutations` · `@ifc-lite/drawing-2d` · `@ifc-lite/query` · `@ifc-lite/export` · `@ifc-lite/cache`
-
-**Infrastructure:** `@ifc-lite/server-client` · `@ifc-lite/server-bin` · `@ifc-lite/codegen` · `create-ifc-lite`
-
-**Rust:** `ifc-lite-core` · `ifc-lite-geometry` · `ifc-lite-wasm` · `ifc-lite-server`
+> Full list: [TypeScript API Reference](api/typescript.md) (25 packages) · [Rust API Reference](api/rust.md) (4 crates)
 
 ## Browser Support
 
 Chrome 113+ · Edge 113+ · Firefox 127+ · Safari 18+ (all with WebGPU)
+
+Three.js and Babylon.js integrations work with WebGL and don't require WebGPU. See [Browser Requirements](guide/browser-requirements.md) for details.
 
 ## Next Steps
 
@@ -229,38 +188,38 @@ Chrome 113+ · Edge 113+ · Firefox 127+ · Safari 18+ (all with WebGPU)
 
 -   [:material-download: __Installation__](guide/installation.md)
 
-    Multiple ways to install: npm, Cargo, Docker, or create-ifc-lite
+    npm, Cargo, Docker, or create-ifc-lite
 
 -   [:material-play: __Quick Start__](guide/quickstart.md)
 
-    Parse your first IFC file with client or server
+    Parse your first IFC file
+
+-   [:material-cube-outline: __Three.js Tutorial__](tutorials/threejs-integration.md)
+
+    Build an IFC viewer with Three.js
 
 -   [:material-server: __Server Guide__](guide/server.md)
 
-    Set up server-based processing with caching
+    Set up server-based processing
 
 -   [:material-monitor: __Desktop App__](guide/desktop.md)
 
-    Native Tauri app with multi-threading and filesystem access
+    Native app for large files
 
--   [:material-school: __Tutorials__](tutorials/building-viewer.md)
+-   [:material-school: __Build a Viewer__](tutorials/building-viewer.md)
 
-    Build a complete IFC viewer from scratch
-
--   [:material-cube-outline: __Three.js / Babylon.js__](tutorials/threejs-integration.md)
-
-    Use IFC-Lite with Three.js or Babylon.js (WebGL, no WebGPU)
-
--   [:material-file-document: __Parsing Guide__](guide/parsing.md)
-
-    Deep dive into parsing modes and IFC5 support
+    Step-by-step viewer tutorial
 
 -   [:material-layers-triple: __Federation__](guide/federation.md)
 
-    Load multiple models simultaneously
+    Load multiple models at once
 
--   [:material-github: __Source Code__](https://github.com/louistrue/ifc-lite)
+-   [:material-speedometer: __Performance__](guide/performance.md)
 
-    View on GitHub
+    Benchmarks, bundle size, and optimization details
+
+-   [:material-cog: __Architecture__](architecture/overview.md)
+
+    How IFClite works under the hood
 
 </div>
