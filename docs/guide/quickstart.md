@@ -20,14 +20,37 @@ Process IFC files entirely in the browser using WebAssembly.
 
 ### 1. Create a New Project
 
-```bash
-npx create-ifc-lite my-viewer --template react
-cd my-viewer
-npm install
-npm run dev
-```
+=== "React + WebGPU"
 
-Open `http://localhost:3000` and drag an IFC file onto the viewer.
+    ```bash
+    npx create-ifc-lite my-viewer --template react
+    cd my-viewer
+    npm install
+    npm run dev
+    ```
+
+=== "Three.js (WebGL)"
+
+    ```bash
+    npx create-ifc-lite my-viewer --template threejs
+    cd my-viewer
+    npm install
+    npm run dev
+    ```
+
+=== "Babylon.js (WebGL)"
+
+    ```bash
+    npx create-ifc-lite my-viewer --template babylonjs
+    cd my-viewer
+    npm install
+    npm run dev
+    ```
+
+Open `http://localhost:5173` and drag an IFC file onto the viewer.
+
+!!! tip "No WebGPU? Use Three.js or Babylon.js"
+    The `threejs` and `babylonjs` templates use WebGL, which works in all modern browsers. See the [Three.js](../tutorials/threejs-integration.md) and [Babylon.js](../tutorials/babylonjs-integration.md) integration guides for details.
 
 ### 2. Or Add to Existing Project
 
@@ -536,6 +559,8 @@ try {
 
 ## Next Steps
 
+- [Three.js Integration](../tutorials/threejs-integration.md) - Use IFC-Lite with Three.js (WebGL)
+- [Babylon.js Integration](../tutorials/babylonjs-integration.md) - Use IFC-Lite with Babylon.js (WebGL)
 - [Server Guide](server.md) - Deep dive into server architecture
 - [Parsing Guide](parsing.md) - Advanced parsing options
 - [Geometry Guide](geometry.md) - Geometry processing details

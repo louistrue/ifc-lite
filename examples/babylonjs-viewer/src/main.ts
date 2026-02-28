@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 /**
- * IFC viewer: @ifc-lite/geometry + Three.js
+ * IFC viewer: @ifc-lite/geometry + Babylon.js
  *
  * Loading strategy:
  *  1. Geometry streams progressively via @ifc-lite/geometry WASM.
@@ -14,22 +14,36 @@
  *     entity attributes, property sets, and the spatial hierarchy tree.
  *
  * Interaction model:
- *  • Hover  → raycaster updates cursor (crosshair → pointer, frame-throttled)
- *  • Orbit  → grabbing cursor via OrbitControls events
+ *  • Hover  → scene.pick updates cursor (crosshair → pointer, frame-throttled)
+ *  • Orbit  → grabbing cursor via pointer event tracking
  *  • Click  → pick entity → highlight + open properties panel + reveal in tree
  *  • Escape → clear selection
  *  • Tree   → click spatial node to select / two-way sync with 3D selection
  */
 
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import {
+  Engine,
+  Scene,
+  ArcRotateCamera,
+  HemisphericLight,
+  DirectionalLight,
+  Vector3,
+  Color3,
+  Color4,
+  Mesh,
+  VertexData,
+  StandardMaterial,
+  TransformNode,
+} from '@babylonjs/core';
 import { GeometryProcessor, type MeshData } from '@ifc-lite/geometry';
 import {
   batchWithVertexColors,
   findEntityByFace,
+  disposeNode,
+  computeBounds,
   type ExpressIdMap,
   type TriangleMaps,
-} from './ifc-to-threejs.js';
+} from './ifc-to-babylon.js';
 import {
   buildDataStore,
   buildSpatialTreeFromStore,
@@ -57,75 +71,78 @@ if (!canvas || !fileInput || !status || !selectionPanel || !panelBody || !panelC
   throw new Error('Required DOM elements missing — check index.html');
 }
 
-// ── Three.js setup ────────────────────────────────────────────────────
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
+// ── Babylon.js setup ──────────────────────────────────────────────────
+// preserveDrawingBuffer: false  — no GPU→CPU readback every frame (major perf win)
+// stencil: false                — stencil buffer unused, saves memory bandwidth
+const engine = new Engine(canvas, true, { preserveDrawingBuffer: false, stencil: false });
+const scene  = new Scene(engine);
+scene.clearColor = new Color4(0.051, 0.106, 0.165, 1); // #0d1b2a
+// Skip Babylon's own pointer-move picking — we do our own rAF-throttled hover
+scene.skipPointerMovePicking = true;
 
-const scene  = new THREE.Scene();
-scene.background = new THREE.Color(0x0d1b2a);
+const camera = new ArcRotateCamera(
+  'camera',
+  -Math.PI / 4,           // alpha (horizontal rotation) - south-west home view
+  (65 * Math.PI) / 180,   // beta  (vertical) -> ~25deg elevation above horizon
+  50,             // radius
+  Vector3.Zero(), // target
+  scene,
+);
+camera.attachControl(canvas, true);
+camera.inertia = 0;              // sharp stop on pointer release
+camera.minZ = 0.1;
+camera.maxZ = 10000;
+// Match Three.js OrbitControls feel — lower = more sensitive
+camera.wheelPrecision = 3;       // zoom: default 3, was 10 (too sluggish)
+camera.panningSensibility = 100; // pan: lower = more pan per drag
+camera.angularSensibilityX = 300; // orbit: lower = more rotation per drag
+camera.angularSensibilityY = 300;
+const HOME_ALPHA = -Math.PI / 4;
+const HOME_BETA = (65 * Math.PI) / 180;
 
-const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 10000);
-camera.position.set(20, 15, 20);
+// ── Lighting — hemispheric + one directional is plenty ────────────────
+const hemiLight = new HemisphericLight('hemiLight', new Vector3(0, 1, 0), scene);
+hemiLight.intensity = 0.7;
+hemiLight.diffuse = new Color3(1, 1, 1);
+hemiLight.groundColor = new Color3(0.3, 0.3, 0.35);
 
-const controls = new OrbitControls(camera, canvas);
-controls.enableDamping = false; // sharp stop on release
-
-// ── Lighting ──────────────────────────────────────────────────────────
-scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-dirLight.position.set(50, 80, 50);
-scene.add(dirLight);
-const fillLight = new THREE.DirectionalLight(0xb0c4de, 0.3);
-fillLight.position.set(-30, 10, -20);
-scene.add(fillLight);
+const dirLight = new DirectionalLight('dirLight', new Vector3(-1, -2, -1).normalize(), scene);
+dirLight.intensity = 0.9;
+dirLight.position = new Vector3(50, 80, 50);
 
 // ── State ─────────────────────────────────────────────────────────────
-const geometry           = new GeometryProcessor();
+const geometryProc           = new GeometryProcessor();
 const expressIdMap: ExpressIdMap = new Map();
 const meshDataByExpressId = new Map<number, MeshData>();
 let triangleMaps: TriangleMaps  = new Map();
 let dataStore: IfcDataStore | null = null;
 let spatialRoot: SpatialTreeNode | null = null;
 
+/** Root TransformNode for all final geometry — quick clearScene disposal */
+let modelRoot: TransformNode | null = null;
+/** Root TransformNode for progressively streamed batch geometry. */
+let streamRoot: TransformNode | null = null;
+
 let selectedExpressId: number | null = null;
 let hoveredId: number | null = null;
-let selectionHighlight: THREE.Mesh | null = null;
-let modelRoot: THREE.Group | null = null;
-let streamRoot: THREE.Group | null = null;
+let selectionHighlight: Mesh | null = null;
 
 // ── Resize ────────────────────────────────────────────────────────────
-function resize() {
-  const el = canvas.parentElement ?? document.body;
-  renderer.setSize(el.clientWidth, el.clientHeight);
-  camera.aspect = el.clientWidth / el.clientHeight;
-  camera.updateProjectionMatrix();
-}
-window.addEventListener('resize', resize);
-resize();
+window.addEventListener('resize', () => engine.resize());
 
-// ── Render loop ───────────────────────────────────────────────────────
-(function animate() {
-  requestAnimationFrame(animate);
-  controls.update();
-  renderer.render(scene, camera);
-})();
+// ── Render loop (continuous, like Three.js) ────────────────────────────
+engine.runRenderLoop(() => scene.render());
 
-// ── Raycasting helpers ────────────────────────────────────────────────
-const raycaster = new THREE.Raycaster();
-const pointer   = new THREE.Vector2();
-
+// ── Picking helper ───────────────────────────────────────────────────
 function pickAt(clientX: number, clientY: number): number | null {
   if (triangleMaps.size === 0) return null;
   const rect = canvas.getBoundingClientRect();
-  pointer.x = ((clientX - rect.left) / rect.width)  * 2 - 1;
-  pointer.y = -((clientY - rect.top)  / rect.height) * 2 + 1;
-  raycaster.setFromCamera(pointer, camera);
-  const hits = raycaster.intersectObjects([...triangleMaps.keys()], false);
-  if (!hits.length || hits[0].faceIndex == null) return null;
-  const ranges = triangleMaps.get(hits[0].object as THREE.Mesh);
-  return ranges ? findEntityByFace(ranges, hits[0].faceIndex) : null;
+  const x = clientX - rect.left;
+  const y = clientY - rect.top;
+  const pickResult = scene.pick(x, y);
+  if (!pickResult.hit || !pickResult.pickedMesh || pickResult.faceId < 0) return null;
+  const ranges = triangleMaps.get(pickResult.pickedMesh as Mesh);
+  return ranges ? findEntityByFace(ranges, pickResult.faceId) : null;
 }
 
 // ── Pointer / cursor management ───────────────────────────────────────
@@ -134,8 +151,8 @@ function pickAt(clientX: number, clientY: number): number | null {
 //   • only show `grabbing` cursor when the pointer actually moves (not on a mere click)
 //   • skip the selection handler after a genuine drag/orbit
 //
-// OrbitControls 'start'/'end' fire on every pointerdown/up — even plain clicks —
-// so we do NOT use those events for cursor control.
+// ArcRotateCamera handles orbit/pan/zoom internally; our listeners are
+// purely for cursor control and click-to-select.
 
 const DRAG_THRESHOLD_PX = 4;
 let pointerDownX = 0;
@@ -167,7 +184,6 @@ canvas.addEventListener('pointermove', (e) => {
   // No button held — update hover cursor once per frame
   if (hoverRafPending) return;
   hoverRafPending = true;
-  // Capture coords now so they're correct inside the rAF callback
   const cx = e.clientX;
   const cy = e.clientY;
   requestAnimationFrame(() => {
@@ -186,6 +202,7 @@ canvas.addEventListener('mouseleave', () => {
   hoveredId = null;
   canvas.classList.remove('hovering', 'dragging');
 });
+
 
 // ── Click → pick (only on genuine clicks, not after a drag) ───────────
 canvas.addEventListener('click', (e) => {
@@ -219,30 +236,29 @@ fileInput.addEventListener('change', async () => {
   const totalStartTime = performance.now();
 
   try {
-    await geometry.init();
+    await geometryProc.init();
 
     // ── File read ─────────────────────────────────────────────────
     const fileReadStart = performance.now();
     const rawBuffer     = await file.arrayBuffer();
     const fileReadMs    = performance.now() - fileReadStart;
     const fileSizeMB    = rawBuffer.byteLength / (1024 * 1024);
-    console.log(`[ThreeJS] File: ${file.name}, size: ${fileSizeMB.toFixed(2)} MB, read in ${fileReadMs.toFixed(0)} ms`);
+    console.log(`[BabylonJS] File: ${file.name}, size: ${fileSizeMB.toFixed(2)} MB, read in ${fileReadMs.toFixed(0)} ms`);
 
     const buffer = new Uint8Array(rawBuffer);
 
     clearScene();
 
     const allMeshes: MeshData[] = [];
-    const batchGroups: THREE.Group[] = [];
-    streamRoot = new THREE.Group();
-    streamRoot.name = 'stream-root';
-    scene.add(streamRoot);
+    const batchRoots: TransformNode[] = [];
 
     // Per-batch timing
     let batchCount      = 0;
     let firstBatchMs    = 0;
     let geometryMs      = 0; // set at 'complete'
     let finalMeshCount  = 0;
+
+    // Low-overhead stream fit: running bounds from raw mesh data + sparse refits.
     const STREAM_FIT_BATCH_INTERVAL = 26;
     let streamMinX = Infinity, streamMinY = Infinity, streamMinZ = Infinity;
     let streamMaxX = -Infinity, streamMaxY = -Infinity, streamMaxZ = -Infinity;
@@ -266,9 +282,9 @@ fileInput.addEventListener('change', async () => {
       hasStreamBounds = true;
     }
 
-    function getStreamBounds(): { center: THREE.Vector3; maxDim: number } | null {
+    function getStreamBounds(): { center: Vector3; maxDim: number } | null {
       if (!hasStreamBounds) return null;
-      const center = new THREE.Vector3(
+      const center = new Vector3(
         (streamMinX + streamMaxX) / 2,
         (streamMinY + streamMaxY) / 2,
         (streamMinZ + streamMaxZ) / 2,
@@ -287,25 +303,37 @@ fileInput.addEventListener('change', async () => {
       applyCameraFit(bounds.center, bounds.maxDim, false);
     }
 
-    for await (const event of geometry.processStreaming(buffer)) {
+    streamRoot = new TransformNode('stream-root', scene);
+
+    // The WASM `parseMeshesAsync` calls onBatch synchronously, so the entire
+    // for-await drains as microtasks — requestAnimationFrame never fires between
+    // batches. We fix this by explicitly yielding to the next animation frame
+    // inside each batch case. The main render loop then fires once per frame,
+    // painting accumulated geometry before we process the next batch.
+    for await (const event of geometryProc.processStreaming(buffer)) {
       switch (event.type) {
         case 'batch': {
           allMeshes.push(...event.meshes);
           expandStreamBoundsFromMeshes(event.meshes);
-          const { group } = batchWithVertexColors(event.meshes);
-          streamRoot.add(group);
-          batchGroups.push(group);
+          const { root } = batchWithVertexColors(event.meshes, scene);
+          root.parent = streamRoot;
+          batchRoots.push(root);
 
           batchCount++;
           if (batchCount === 1) {
             firstBatchMs = performance.now() - totalStartTime;
-            console.log(`[ThreeJS] Batch #1: ${event.meshes.length} meshes, wait: ${firstBatchMs.toFixed(0)} ms`);
+            console.log(`[BabylonJS] Batch #1: ${event.meshes.length} meshes, wait: ${firstBatchMs.toFixed(0)} ms`);
           }
 
           status.textContent = `Streaming… ${allMeshes.length} meshes`;
           if (batchCount === 1 || batchCount % STREAM_FIT_BATCH_INTERVAL === 0) {
             fitIfDue();
           }
+
+          // Yield to the next animation frame — breaks the microtask chain so
+          // the render loop above can fire and paint this batch before we
+          // continue processing more geometry.
+          await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
           break;
         }
 
@@ -315,15 +343,14 @@ fileInput.addEventListener('change', async () => {
 
           const totalVertices = allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0);
           console.log(
-            `[ThreeJS] Geometry streaming complete: ${batchCount} batches, ` +
+            `[BabylonJS] Geometry streaming complete: ${batchCount} batches, ` +
             `${finalMeshCount} meshes, ${(totalVertices / 1000).toFixed(0)}k vertices in ${geometryMs.toFixed(0)} ms`
           );
 
-          const { group: finalGroup, expressIdMap: newMap, triangleMaps: newMaps } =
-            batchWithVertexColors(allMeshes);
+          const { root: finalRoot, expressIdMap: newMap, triangleMaps: newMaps } =
+            batchWithVertexColors(allMeshes, scene);
 
-          modelRoot = finalGroup;
-          scene.add(modelRoot);
+          modelRoot = finalRoot;
           for (const [id, mesh] of newMap) expressIdMap.set(id, mesh);
           triangleMaps = newMaps;
 
@@ -332,16 +359,27 @@ fileInput.addEventListener('change', async () => {
 
           fitCameraToScene();
 
+          // Dispose batch groups one frame later so there's no visual pop,
+          // then freeze world matrices and materials for orbit performance.
           requestAnimationFrame(() => {
-            for (const g of batchGroups) { scene.remove(g); disposeGroup(g); }
-            batchGroups.length = 0;
+            for (const root of batchRoots) disposeNode(root);
+            batchRoots.length = 0;
             if (streamRoot) {
-              scene.remove(streamRoot);
+              streamRoot.dispose();
               streamRoot = null;
             }
-            renderer.render(scene, camera);
-            const calls = renderer.info.render.calls;
-            status.textContent = `${file.name} — ${finalMeshCount} meshes · ${calls} draw calls`;
+
+            // Model is static — skip world matrix recalculation every frame
+            for (const mesh of scene.meshes) {
+              mesh.freezeWorldMatrix();
+            }
+            // Static materials — skip shader dirty checks every frame
+            for (const mat of scene.materials) {
+              mat.freeze();
+            }
+
+            const activeMeshes = scene.meshes.filter((m) => m.isEnabled());
+            status.textContent = `${file.name} — ${finalMeshCount} meshes · ${activeMeshes.length} draw calls`;
           });
 
           // Build property + spatial data store (last async phase — defines TOTAL end time)
@@ -365,16 +403,16 @@ fileInput.addEventListener('change', async () => {
 
               // ── Final summary — matches main viewer style ──────────────
               console.log(
-                `[ThreeJS] ✓ ${file.name} (${fileSizeMB.toFixed(1)} MB) → ` +
+                `[BabylonJS] Done ${file.name} (${fileSizeMB.toFixed(1)} MB) -> ` +
                 `${finalMeshCount} meshes, ${(totalVerts / 1000).toFixed(0)}k vertices | ` +
                 `file: ${fileReadMs.toFixed(0)} ms, ` +
                 `first batch: ${firstBatchMs.toFixed(0)} ms, ` +
                 `geometry: ${geometryMs.toFixed(0)} ms, ` +
                 `parser: ${parserMs.toFixed(0)} ms`
               );
-              console.log(`[ThreeJS] TOTAL LOAD TIME: ${totalMs.toFixed(0)} ms (${(totalMs / 1000).toFixed(1)} s)`);
+              console.log(`[BabylonJS] TOTAL LOAD TIME: ${totalMs.toFixed(0)} ms (${(totalMs / 1000).toFixed(1)} s)`);
             })
-            .catch((err) => console.warn('[ThreeJS] buildDataStore failed:', err));
+            .catch((err) => console.warn('[BabylonJS] buildDataStore failed:', err));
 
           break;
         }
@@ -419,32 +457,31 @@ function clearSelection() {
 function applyHighlight(md: MeshData) {
   removeHighlight();
 
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(md.positions, 3));
-  geo.setAttribute('normal',   new THREE.BufferAttribute(md.normals,   3));
-  geo.setIndex(new THREE.BufferAttribute(md.indices, 1));
-  geo.computeBoundingSphere();
+  const highlightMesh = new Mesh('selection-highlight', scene);
+  const vertexData = new VertexData();
+  vertexData.positions = md.positions;
+  vertexData.normals   = md.normals;
+  vertexData.indices   = md.indices;
+  vertexData.applyToMesh(highlightMesh);
 
-  const mat = new THREE.MeshStandardMaterial({
-    color: 0x4f46e5,
-    emissive: 0x4f46e5,
-    emissiveIntensity: 0.45,
-    transparent: true,
-    opacity: 0.72,
-    side: THREE.DoubleSide,
-    depthTest: true,
-  });
+  const mat = new StandardMaterial('highlight-mat', scene);
+  mat.diffuseColor  = new Color3(0.31, 0.27, 0.90);  // #4f46e5
+  mat.emissiveColor = new Color3(0.14, 0.12, 0.40);   // emissive tint
+  mat.alpha = 0.72;
+  mat.backFaceCulling = false;
 
-  selectionHighlight = new THREE.Mesh(geo, mat);
-  selectionHighlight.renderOrder = 1;
-  scene.add(selectionHighlight);
+  highlightMesh.material = mat;
+  highlightMesh.renderingGroupId = 1; // render after main geometry
+  highlightMesh.isPickable = false;   // don't interfere with entity picking
+  highlightMesh.freezeWorldMatrix();  // static once placed
+
+  selectionHighlight = highlightMesh;
 }
 
 function removeHighlight() {
   if (!selectionHighlight) return;
-  scene.remove(selectionHighlight);
-  selectionHighlight.geometry.dispose();
-  (selectionHighlight.material as THREE.Material).dispose();
+  if (selectionHighlight.material) selectionHighlight.material.dispose();
+  selectionHighlight.dispose();
   selectionHighlight = null;
 }
 
@@ -555,7 +592,6 @@ function resetSpatialPanel() {
 
 /** Build the HTML for a spatial node and all its descendants. */
 function buildNodeHtml(node: SpatialTreeNode, depth: number, store: IfcDataStore): string {
-  const isSpatialContainer = depth < 4; // Project/Site/Building/Storey level
   const hasChildren = node.children.length > 0 || node.elementGroups.length > 0;
   const { icon, abbr } = spatialNodeMeta(node.type);
   const nameText = node.name || store.entities.getName(node.expressId) || `#${node.expressId}`;
@@ -574,7 +610,7 @@ function buildNodeHtml(node: SpatialTreeNode, depth: number, store: IfcDataStore
 
   return `
 <div class="tree-node" id="sn-${node.expressId}">
-  <div class="tree-row${autoOpen ? '' : ''}"
+  <div class="tree-row"
        data-express-id="${node.expressId}"
        data-spatial="1"
        style="--tree-depth:${depth}">
@@ -788,87 +824,68 @@ function clearScene() {
   meshDataByExpressId.clear();
   dataStore   = null;
   spatialRoot = null;
-  modelRoot = null;
+
+  if (modelRoot) {
+    disposeNode(modelRoot);
+    modelRoot = null;
+  }
   if (streamRoot) {
-    scene.remove(streamRoot);
-    disposeGroup(streamRoot);
+    streamRoot.dispose();
     streamRoot = null;
   }
 
-  const toRemove = scene.children.filter(
-    (o) => o instanceof THREE.Mesh || o instanceof THREE.Group,
-  );
-  for (const o of toRemove) { scene.remove(o); disposeGroup(o); }
-}
-
-function disposeGroup(obj: THREE.Object3D) {
-  obj.traverse((child) => {
-    if (child instanceof THREE.Mesh) {
-      child.geometry.dispose();
-      if (Array.isArray(child.material)) {
-        (child.material as THREE.Material[]).forEach((m) => m.dispose());
-      } else {
-        (child.material as THREE.Material).dispose();
-      }
-    }
-  });
+  // Dispose any remaining non-camera, non-light meshes
+  const toDispose = scene.meshes.slice();
+  for (const mesh of toDispose) {
+    if (mesh.material) mesh.material.dispose();
+    mesh.dispose();
+  }
 }
 
 function fitCameraToScene() {
-  const fitObject = modelRoot ?? streamRoot;
-  if (!fitObject) return;
-  const bounds = getBoundsForObject(fitObject);
-  if (!bounds) return;
-  applyCameraFit(bounds.center, bounds.maxDim, true);
+  fitCameraToRoot(modelRoot, true);
 }
 
-function getBoundsForObject(root: THREE.Object3D | null): { center: THREE.Vector3; maxDim: number } | null {
+function getBoundsForRoot(root: TransformNode | null): { center: Vector3; maxDim: number } | null {
   if (!root) return null;
-  const box = new THREE.Box3().setFromObject(root);
-  if (box.isEmpty()) return null;
-  const center = box.getCenter(new THREE.Vector3());
-  const size = box.getSize(new THREE.Vector3());
-  const maxDim = Math.max(size.x, size.y, size.z);
-  if (maxDim <= 0 || !isFinite(maxDim)) return null;
+
+  const childMeshes = root.getChildMeshes();
+  if (childMeshes.length === 0) return null;
+
+  const { center, maxDim } = computeBounds(root);
+  if (maxDim === 0 || !isFinite(maxDim)) return null;
+
   return { center, maxDim };
 }
 
-function applyCameraFit(center: THREE.Vector3, maxDim: number, immediate: boolean) {
-  const distance = maxDim * 1.5;
-  const near = maxDim * 0.001;
-  const far = maxDim * 100;
+function applyCameraFit(center: Vector3, maxDim: number, immediate: boolean) {
+  const radius = maxDim * 1.5;
+  const minZ = maxDim * 0.001;
+  const maxZ = maxDim * 100;
 
   if (immediate) {
-    // Final home view: south-west, ~25deg elevation.
-    const elevRad = THREE.MathUtils.degToRad(25);
-    const planar = Math.cos(elevRad);
-    const offset = new THREE.Vector3(
-      planar * distance * Math.SQRT1_2,
-      Math.sin(elevRad) * distance,
-      -planar * distance * Math.SQRT1_2,
-    );
-    controls.target.copy(center);
-    camera.position.copy(center).add(offset);
-    controls.update();
-    camera.near = near;
-    camera.far = far;
-    camera.updateProjectionMatrix();
+    // Always snap final post-stream fit to the canonical home orientation.
+    camera.alpha = HOME_ALPHA;
+    camera.beta = HOME_BETA;
+    camera.target = center;
+    camera.radius = radius;
+    camera.minZ = minZ;
+    camera.maxZ = maxZ;
     return;
   }
 
-  // Stream updates: keep current orbit orientation and only reframe distance/target.
-  const dir = camera.position.clone().sub(controls.target);
-  if (dir.lengthSq() < 1e-8) {
-    dir.set(1, 1, -1).normalize();
-  } else {
-    dir.normalize();
-  }
-  controls.target.copy(center);
-  camera.position.copy(center).add(dir.multiplyScalar(distance));
-  camera.near = near;
-  camera.far = far;
-  camera.updateProjectionMatrix();
-  controls.update();
+  // Stream updates: preserve current orbit orientation and just reframe.
+  camera.target = center;
+  camera.radius = radius;
+  camera.minZ = minZ;
+  camera.maxZ = maxZ;
+}
+
+function fitCameraToRoot(root: TransformNode | null, immediate = false) {
+  const bounds = getBoundsForRoot(root);
+  if (!bounds) return;
+
+  applyCameraFit(bounds.center, bounds.maxDim, immediate);
 }
 
 // ── Misc ──────────────────────────────────────────────────────────────

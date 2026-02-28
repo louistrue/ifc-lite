@@ -24,6 +24,24 @@ The fastest way to get started is using the `create-ifc-lite` CLI:
     npm run dev
     ```
 
+=== "Three.js Viewer"
+
+    ```bash
+    npx create-ifc-lite my-viewer --template threejs
+    cd my-viewer
+    npm install
+    npm run dev
+    ```
+
+=== "Babylon.js Viewer"
+
+    ```bash
+    npx create-ifc-lite my-viewer --template babylonjs
+    cd my-viewer
+    npm install
+    npm run dev
+    ```
+
 === "Server Backend (Docker)"
 
     ```bash
@@ -47,7 +65,9 @@ The fastest way to get started is using the `create-ifc-lite` CLI:
 | Template | Description | Use Case |
 |----------|-------------|----------|
 | `basic` (default) | Minimal TypeScript parser project | CLI tools, data extraction |
-| `react` | React + Vite + WebGPU viewer | Web applications |
+| `threejs` | Three.js viewer (WebGL) | Three.js / react-three-fiber apps |
+| `babylonjs` | Babylon.js viewer (WebGL) | Babylon.js apps |
+| `react` | React + Vite + WebGPU viewer | Full-featured web applications |
 | `server` | Docker-based Rust server | Production deployments |
 | `server-native` | Native binary server | Non-Docker environments |
 
