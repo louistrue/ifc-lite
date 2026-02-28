@@ -388,6 +388,12 @@ export class Scene {
    * Finalize streaming: destroy temporary fragment batches and do one full
    * O(N) merge of all accumulated mesh data into proper batches.
    * Call this when streaming completes instead of rebuildPendingBatches().
+   *
+   * IMPORTANT: During streaming, external code (applyColorUpdatesToMeshes)
+   * may mutate meshData.color in-place for deferred style/material colors.
+   * This means the bucket keys (computed at insertion time from the ORIGINAL
+   * color) no longer match the meshes' current colors. We must re-group all
+   * meshData by their CURRENT color to produce correct batches.
    */
   finalizeStreaming(device: GPUDevice, pipeline: RenderPipeline): void {
     if (this.streamingFragments.length === 0) return;
@@ -403,23 +409,51 @@ export class Scene {
     }
     this.streamingFragments = [];
 
-    // 2. Remove fragments from batchedMeshes, keep any pre-existing proper batches
-    this.batchedMeshes = this.batchedMeshes.filter(b => !fragmentSet.has(b));
-
-    // 3. Rebuild index map to match filtered array
-    this.batchedMeshIndex.clear();
-    for (let i = 0; i < this.batchedMeshes.length; i++) {
-      this.batchedMeshIndex.set(this.batchedMeshes[i].colorKey, i);
-    }
-
-    // 4. Mark all non-empty accumulated buckets as pending for one full merge
-    for (const [key, data] of this.batchedMeshData) {
-      if (data.length > 0) {
-        this.pendingBatchKeys.add(key);
+    // 2. Destroy any pre-existing proper batches (non-fragments)
+    for (const batch of this.batchedMeshes) {
+      if (!fragmentSet.has(batch)) {
+        batch.vertexBuffer.destroy();
+        batch.indexBuffer.destroy();
+        if (batch.uniformBuffer) {
+          batch.uniformBuffer.destroy();
+        }
       }
     }
 
-    // 5. One O(N) full rebuild
+    // 3. Collect ALL accumulated meshData before clearing state
+    const allMeshData: MeshData[] = [];
+    for (const data of this.batchedMeshData.values()) {
+      for (const md of data) allMeshData.push(md);
+    }
+
+    // 4. Clear all bucket/batch state for a clean rebuild
+    this.batchedMeshes = [];
+    this.batchedMeshMap.clear();
+    this.batchedMeshIndex.clear();
+    this.batchedMeshData.clear();
+    this.meshDataBatchKey.clear();
+    this.activeBucketKey.clear();
+    this.bucketVertexBytes.clear();
+    this.pendingBatchKeys.clear();
+
+    // 5. Re-group ALL meshData by their CURRENT color.
+    //    meshData.color may have been mutated in-place since the mesh was
+    //    first bucketed, so the original bucket key is stale. Re-grouping
+    //    by current color ensures batches render with correct colors.
+    for (const meshData of allMeshData) {
+      const baseKey = this.colorKey(meshData.color);
+      const bucketKey = this.resolveActiveBucket(baseKey, meshData);
+      let bucket = this.batchedMeshData.get(bucketKey);
+      if (!bucket) {
+        bucket = [];
+        this.batchedMeshData.set(bucketKey, bucket);
+      }
+      bucket.push(meshData);
+      this.meshDataBatchKey.set(meshData, bucketKey);
+      this.pendingBatchKeys.add(bucketKey);
+    }
+
+    // 6. One O(N) full rebuild from correctly-grouped data
     this.rebuildPendingBatches(device, pipeline);
   }
 
@@ -455,8 +489,10 @@ export class Scene {
       for (const meshData of meshDataList) {
         // Use reverse-map for O(1) old bucket key lookup
         const oldBucketKey = this.meshDataBatchKey.get(meshData) ?? this.colorKey(meshData.color);
-        // Compare base color keys (ignore bucket suffix) to detect actual color changes
-        const oldBaseKey = this.colorKey(meshData.color);
+        // Derive old color from bucket key, NOT meshData.color.
+        // meshData.color may have been mutated in-place by external code
+        // (applyColorUpdatesToMeshes), making it unreliable for change detection.
+        const oldBaseKey = this.baseColorKey(oldBucketKey);
 
         if (oldBaseKey !== newBaseKey) {
           // Route into the correct (possibly new) bucket for the target color
