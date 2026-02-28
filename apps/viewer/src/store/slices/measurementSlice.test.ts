@@ -47,7 +47,7 @@ describe('MeasurementSlice', () => {
 
   describe('addMeasurePoint', () => {
     it('should set pending measure point', () => {
-      const point = { x: 1, y: 2, z: 3 };
+      const point = { x: 1, y: 2, z: 3, screenX: 0, screenY: 0 };
       state.addMeasurePoint(point);
       assert.deepStrictEqual(state.pendingMeasurePoint, point);
     });
@@ -55,8 +55,8 @@ describe('MeasurementSlice', () => {
 
   describe('completeMeasurement', () => {
     it('should create measurement when pending point exists', () => {
-      const startPoint = { x: 0, y: 0, z: 0 };
-      const endPoint = { x: 3, y: 4, z: 0 };
+      const startPoint = { x: 0, y: 0, z: 0, screenX: 0, screenY: 0 };
+      const endPoint = { x: 3, y: 4, z: 0, screenX: 0, screenY: 0 };
 
       state.addMeasurePoint(startPoint);
       state.completeMeasurement(endPoint);
@@ -69,14 +69,14 @@ describe('MeasurementSlice', () => {
     });
 
     it('should not create measurement when no pending point', () => {
-      const endPoint = { x: 1, y: 1, z: 1 };
+      const endPoint = { x: 1, y: 1, z: 1, screenX: 0, screenY: 0 };
       state.completeMeasurement(endPoint);
       assert.strictEqual(state.measurements.length, 0);
     });
 
     it('should generate unique IDs for rapid measurements', () => {
-      const point1 = { x: 0, y: 0, z: 0 };
-      const point2 = { x: 1, y: 0, z: 0 };
+      const point1 = { x: 0, y: 0, z: 0, screenX: 0, screenY: 0 };
+      const point2 = { x: 1, y: 0, z: 0, screenX: 0, screenY: 0 };
 
       state.addMeasurePoint(point1);
       state.completeMeasurement(point2);
@@ -91,7 +91,7 @@ describe('MeasurementSlice', () => {
 
   describe('startMeasurement', () => {
     it('should initialize active measurement', () => {
-      const point = { x: 1, y: 2, z: 3 };
+      const point = { x: 1, y: 2, z: 3, screenX: 0, screenY: 0 };
       state.startMeasurement(point);
 
       assert.deepStrictEqual(state.activeMeasurement?.start, point);
@@ -102,8 +102,8 @@ describe('MeasurementSlice', () => {
 
   describe('updateMeasurement', () => {
     it('should update current point and distance', () => {
-      const startPoint = { x: 0, y: 0, z: 0 };
-      const currentPoint = { x: 3, y: 4, z: 0 };
+      const startPoint = { x: 0, y: 0, z: 0, screenX: 0, screenY: 0 };
+      const currentPoint = { x: 3, y: 4, z: 0, screenX: 0, screenY: 0 };
 
       state.startMeasurement(startPoint);
       state.updateMeasurement(currentPoint);
@@ -114,7 +114,7 @@ describe('MeasurementSlice', () => {
     });
 
     it('should not update when no active measurement', () => {
-      const point = { x: 1, y: 1, z: 1 };
+      const point = { x: 1, y: 1, z: 1, screenX: 0, screenY: 0 };
       state.updateMeasurement(point);
       assert.strictEqual(state.activeMeasurement, null);
     });
@@ -122,8 +122,8 @@ describe('MeasurementSlice', () => {
 
   describe('finalizeMeasurement', () => {
     it('should add completed measurement to list', () => {
-      const startPoint = { x: 0, y: 0, z: 0 };
-      const endPoint = { x: 1, y: 0, z: 0 };
+      const startPoint = { x: 0, y: 0, z: 0, screenX: 0, screenY: 0 };
+      const endPoint = { x: 1, y: 0, z: 0, screenX: 0, screenY: 0 };
 
       state.startMeasurement(startPoint);
       state.updateMeasurement(endPoint);
@@ -143,7 +143,7 @@ describe('MeasurementSlice', () => {
 
   describe('cancelMeasurement', () => {
     it('should clear active measurement', () => {
-      state.startMeasurement({ x: 0, y: 0, z: 0 });
+      state.startMeasurement({ x: 0, y: 0, z: 0, screenX: 0, screenY: 0 });
       state.cancelMeasurement();
       assert.strictEqual(state.activeMeasurement, null);
     });
@@ -157,8 +157,8 @@ describe('MeasurementSlice', () => {
 
   describe('deleteMeasurement', () => {
     it('should remove measurement by id', () => {
-      state.startMeasurement({ x: 0, y: 0, z: 0 });
-      state.updateMeasurement({ x: 1, y: 0, z: 0 });
+      state.startMeasurement({ x: 0, y: 0, z: 0, screenX: 0, screenY: 0 });
+      state.updateMeasurement({ x: 1, y: 0, z: 0, screenX: 0, screenY: 0 });
       state.finalizeMeasurement();
 
       const id = state.measurements[0].id;
@@ -169,12 +169,12 @@ describe('MeasurementSlice', () => {
 
     it('should not affect other measurements', () => {
       // Create two measurements
-      state.startMeasurement({ x: 0, y: 0, z: 0 });
-      state.updateMeasurement({ x: 1, y: 0, z: 0 });
+      state.startMeasurement({ x: 0, y: 0, z: 0, screenX: 0, screenY: 0 });
+      state.updateMeasurement({ x: 1, y: 0, z: 0, screenX: 0, screenY: 0 });
       state.finalizeMeasurement();
 
-      state.startMeasurement({ x: 0, y: 0, z: 0 });
-      state.updateMeasurement({ x: 2, y: 0, z: 0 });
+      state.startMeasurement({ x: 0, y: 0, z: 0, screenX: 0, screenY: 0 });
+      state.updateMeasurement({ x: 2, y: 0, z: 0, screenX: 0, screenY: 0 });
       state.finalizeMeasurement();
 
       const firstId = state.measurements[0].id;
@@ -187,11 +187,11 @@ describe('MeasurementSlice', () => {
 
   describe('clearMeasurements', () => {
     it('should clear all measurements and state', () => {
-      state.startMeasurement({ x: 0, y: 0, z: 0 });
-      state.updateMeasurement({ x: 1, y: 0, z: 0 });
+      state.startMeasurement({ x: 0, y: 0, z: 0, screenX: 0, screenY: 0 });
+      state.updateMeasurement({ x: 1, y: 0, z: 0, screenX: 0, screenY: 0 });
       state.finalizeMeasurement();
 
-      state.addMeasurePoint({ x: 5, y: 5, z: 5 });
+      state.addMeasurePoint({ x: 5, y: 5, z: 5, screenX: 0, screenY: 0 });
 
       state.clearMeasurements();
 
