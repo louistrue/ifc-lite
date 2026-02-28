@@ -1,5 +1,13 @@
 # create-ifc-lite
 
+## 1.13.0
+
+### Minor Changes
+
+- [#270](https://github.com/louistrue/ifc-lite/pull/270) [`3bc1cda`](https://github.com/louistrue/ifc-lite/commit/3bc1cdabcff1d9992ec6799ddbd83a169152fa3c) Thanks [@louistrue](https://github.com/louistrue)! - Add Babylon.js viewer template to create-ifc-lite scaffolding
+
+  New `babylonjs` template option for `create-ifc-lite` that generates a complete Babylon.js-based IFC viewer with geometry streaming, selection, and camera controls. Includes full example project and documentation tutorial.
+
 ## 1.11.5
 
 ### Patch Changes

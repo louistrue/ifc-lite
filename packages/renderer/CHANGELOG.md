@@ -1,5 +1,25 @@
 # @ifc-lite/renderer
 
+## 1.13.0
+
+### Minor Changes
+
+- [#270](https://github.com/louistrue/ifc-lite/pull/270) [`3bc1cda`](https://github.com/louistrue/ifc-lite/commit/3bc1cdabcff1d9992ec6799ddbd83a169152fa3c) Thanks [@louistrue](https://github.com/louistrue)! - Fix GPU buffer overflow on large models and optimize streaming performance
+
+  - Automatically split color-grouped batches into sub-batches that fit within WebGPU's maxBufferSize limit, preventing createBuffer() failures on large IFC models (1+ GB with 10M+ elements)
+  - Introduce lightweight fragment batches during streaming to eliminate O(N²) rebuild cost — fragments render immediately and are merged into final batches on stream completion
+
+### Patch Changes
+
+- [#270](https://github.com/louistrue/ifc-lite/pull/270) [`3bc1cda`](https://github.com/louistrue/ifc-lite/commit/3bc1cdabcff1d9992ec6799ddbd83a169152fa3c) Thanks [@louistrue](https://github.com/louistrue)! - Fix mesh batching to handle in-place color mutations during streaming
+
+  Color array references could be reused and mutated in-place between streaming batches, causing incorrect vertex colors when geometry was merged. The fix clones color data at accumulation time to prevent cross-batch contamination.
+
+- Updated dependencies []:
+  - @ifc-lite/geometry@1.13.0
+  - @ifc-lite/spatial@1.13.0
+  - @ifc-lite/wasm@1.13.0
+
 ## 1.12.0
 
 ### Patch Changes

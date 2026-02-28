@@ -1,5 +1,20 @@
 # @ifc-lite/desktop
 
+## 1.13.0
+
+### Patch Changes
+
+- Updated dependencies [[`3bc1cda`](https://github.com/louistrue/ifc-lite/commit/3bc1cdabcff1d9992ec6799ddbd83a169152fa3c), [`3bc1cda`](https://github.com/louistrue/ifc-lite/commit/3bc1cdabcff1d9992ec6799ddbd83a169152fa3c)]:
+  - @ifc-lite/renderer@1.13.0
+  - @ifc-lite/cache@1.13.0
+  - @ifc-lite/data@1.13.0
+  - @ifc-lite/export@1.13.0
+  - @ifc-lite/geometry@1.13.0
+  - @ifc-lite/parser@1.13.0
+  - @ifc-lite/query@1.13.0
+  - @ifc-lite/spatial@1.13.0
+  - @ifc-lite/wasm@1.13.0
+
 ## 1.12.0
 
 ### Patch Changes
