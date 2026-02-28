@@ -30,7 +30,12 @@ export const SECTION_PLANE_DEFAULTS = {
   ENABLED: true,
   /** Default flipped state */
   FLIPPED: false,
+  /** Default section mode */
+  MODE: 'down' as const,
 } as const;
+
+/** Offset applied to face section cuts to avoid coplanar z-fighting (0.1mm) */
+export const FACE_SECTION_OFFSET = 0.0001;
 
 // ============================================================================
 // Edge Lock / Magnetic Snapping

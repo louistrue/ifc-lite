@@ -40,7 +40,7 @@ import { CAMERA_DEFAULTS, SECTION_PLANE_DEFAULTS, UI_DEFAULTS, TYPE_VISIBILITY_D
 export type * from './types.js';
 
 // Explicitly re-export multi-model types that need to be imported by name
-export type { EntityRef, SchemaVersion, FederatedModel, MeasurementConstraintEdge, OrthogonalAxis } from './types.js';
+export type { EntityRef, SchemaVersion, FederatedModel, MeasurementConstraintEdge, OrthogonalAxis, SectionMode, FaceSectionPlane, FaceSectionHover } from './types.js';
 
 // Re-export utility functions for entity references
 export { entityRefToString, stringToEntityRef, entityRefEquals, isIfcxDataStore } from './types.js';
@@ -177,6 +177,10 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
         enabled: SECTION_PLANE_DEFAULTS.ENABLED,
         flipped: SECTION_PLANE_DEFAULTS.FLIPPED,
       },
+      sectionMode: SECTION_PLANE_DEFAULTS.MODE,
+      faceSectionPlane: null,
+      faceSectionHover: null,
+      faceSectionDragging: false,
 
       // Camera
       cameraRotation: {

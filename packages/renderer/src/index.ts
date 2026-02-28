@@ -14,6 +14,7 @@ export { Scene } from './scene.js';
 export { Picker } from './picker.js';
 export { MathUtils } from './math.js';
 export { SectionPlaneRenderer } from './section-plane.js';
+export type { FacePlaneRenderOptions } from './section-plane.js';
 export { Section2DOverlayRenderer } from './section-2d-overlay.js';
 export type { Section2DOverlayOptions, CutPolygon2D, DrawingLine2D } from './section-2d-overlay.js';
 export { Raycaster } from './raycaster.js';
@@ -453,44 +454,54 @@ export class Renderer {
 
                 // Only calculate clipping data if section is enabled
                 if (options.sectionPlane.enabled) {
-                    // Calculate plane normal based on semantic axis
-                    // down = Y axis (horizontal cut), front = Z axis, side = X axis
-                    let normal: [number, number, number] = [0, 0, 0];
-                    if (options.sectionPlane.axis === 'side') normal[0] = 1;        // X axis
-                    else if (options.sectionPlane.axis === 'down') normal[1] = 1;   // Y axis (horizontal)
-                    else normal[2] = 1;                                              // Z axis (front)
+                    // Face section mode: use custom normal and distance directly
+                    if (options.sectionPlane.customNormal && options.sectionPlane.customDistance !== undefined) {
+                        const cn = options.sectionPlane.customNormal;
+                        sectionPlaneData = {
+                            normal: [cn.x, cn.y, cn.z],
+                            distance: options.sectionPlane.customDistance,
+                            enabled: true,
+                        };
+                    } else {
+                        // Axis-aligned mode: calculate plane normal based on semantic axis
+                        // down = Y axis (horizontal cut), front = Z axis, side = X axis
+                        let normal: [number, number, number] = [0, 0, 0];
+                        if (options.sectionPlane.axis === 'side') normal[0] = 1;        // X axis
+                        else if (options.sectionPlane.axis === 'down') normal[1] = 1;   // Y axis (horizontal)
+                        else normal[2] = 1;                                              // Z axis (front)
 
-                    // Apply building rotation if present (rotate normal around Y axis)
-                    // Building rotation is in X-Y plane (Z is up in IFC, Y is up in WebGL)
-                    if (options.buildingRotation !== undefined && options.buildingRotation !== 0) {
-                        const cosR = Math.cos(options.buildingRotation);
-                        const sinR = Math.sin(options.buildingRotation);
-                        // Rotate normal vector around Y axis (vertical)
-                        // For X-Z plane rotation: x' = x*cos - z*sin, z' = x*sin + z*cos, y' = y
-                        const x = normal[0];
-                        const z = normal[2];
-                        normal[0] = x * cosR - z * sinR;
-                        normal[2] = x * sinR + z * cosR;
-                        // Normalize to maintain unit length
-                        const len = Math.sqrt(normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]);
-                        if (len > 0.0001) {
-                            normal[0] /= len;
-                            normal[1] /= len;
-                            normal[2] /= len;
+                        // Apply building rotation if present (rotate normal around Y axis)
+                        // Building rotation is in X-Y plane (Z is up in IFC, Y is up in WebGL)
+                        if (options.buildingRotation !== undefined && options.buildingRotation !== 0) {
+                            const cosR = Math.cos(options.buildingRotation);
+                            const sinR = Math.sin(options.buildingRotation);
+                            // Rotate normal vector around Y axis (vertical)
+                            // For X-Z plane rotation: x' = x*cos - z*sin, z' = x*sin + z*cos, y' = y
+                            const x = normal[0];
+                            const z = normal[2];
+                            normal[0] = x * cosR - z * sinR;
+                            normal[2] = x * sinR + z * cosR;
+                            // Normalize to maintain unit length
+                            const len = Math.sqrt(normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]);
+                            if (len > 0.0001) {
+                                normal[0] /= len;
+                                normal[1] /= len;
+                                normal[2] /= len;
+                            }
                         }
+
+                        // Get axis-specific range based on semantic axis
+                        // Use min/max overrides from sectionPlane if provided (storey-based range)
+                        const axisIdx = options.sectionPlane.axis === 'side' ? 'x' : options.sectionPlane.axis === 'down' ? 'y' : 'z';
+                        const minVal = options.sectionPlane.min ?? boundsMin[axisIdx];
+                        const maxVal = options.sectionPlane.max ?? boundsMax[axisIdx];
+
+                        // Calculate plane distance from position percentage
+                        const range = maxVal - minVal;
+                        const distance = minVal + (options.sectionPlane.position / 100) * range;
+
+                        sectionPlaneData = { normal, distance, enabled: true };
                     }
-
-                    // Get axis-specific range based on semantic axis
-                    // Use min/max overrides from sectionPlane if provided (storey-based range)
-                    const axisIdx = options.sectionPlane.axis === 'side' ? 'x' : options.sectionPlane.axis === 'down' ? 'y' : 'z';
-                    const minVal = options.sectionPlane.min ?? boundsMin[axisIdx];
-                    const maxVal = options.sectionPlane.max ?? boundsMax[axisIdx];
-
-                    // Calculate plane distance from position percentage
-                    const range = maxVal - minVal;
-                    const distance = minVal + (options.sectionPlane.position / 100) * range;
-
-                    sectionPlaneData = { normal, distance, enabled: true };
                 }
             }
 
@@ -958,21 +969,51 @@ export class Renderer {
             // Always show plane when sectionPlane options are provided (as preview or active)
             const modelBounds = this.geometryManager.getModelBounds();
             if (options.sectionPlane && this.sectionPlaneRenderer && modelBounds) {
-                this.sectionPlaneRenderer.draw(
-                    pass,
-                    {
-                        axis: options.sectionPlane.axis,
-                        position: options.sectionPlane.position,
-                        bounds: modelBounds,
-                        viewProj,
-                        isPreview: !options.sectionPlane.enabled, // Preview mode when not enabled
-                        min: options.sectionPlane.min,
-                        max: options.sectionPlane.max,
-                    }
-                );
+                // Face section mode: draw face plane (hover preview or confirmed)
+                if (options.sectionPlane.customNormal) {
+                    this.sectionPlaneRenderer.drawFacePlane(
+                        pass,
+                        {
+                            normal: options.sectionPlane.customNormal,
+                            point: options.sectionPlane.customPoint || { x: 0, y: 0, z: 0 },
+                            distance: options.sectionPlane.customDistance ?? 0,
+                            bounds: modelBounds,
+                            viewProj,
+                            isConfirmed: options.sectionPlane.faceConfirmed ?? false,
+                        }
+                    );
+                } else if (options.sectionPlane.faceHover) {
+                    // Face hover preview (small plane at hover position)
+                    this.sectionPlaneRenderer.drawFacePlane(
+                        pass,
+                        {
+                            normal: options.sectionPlane.faceHover.normal,
+                            point: options.sectionPlane.faceHover.point,
+                            distance: 0,
+                            bounds: modelBounds,
+                            viewProj,
+                            isConfirmed: false,
+                        }
+                    );
+                } else {
+                    // Axis-aligned mode
+                    this.sectionPlaneRenderer.draw(
+                        pass,
+                        {
+                            axis: options.sectionPlane.axis,
+                            position: options.sectionPlane.position,
+                            bounds: modelBounds,
+                            viewProj,
+                            isPreview: !options.sectionPlane.enabled,
+                            min: options.sectionPlane.min,
+                            max: options.sectionPlane.max,
+                        }
+                    );
+                }
 
                 // Draw 2D section overlay on the section plane (when section is active, not preview)
-                if (options.sectionPlane.enabled && this.section2DOverlayRenderer?.hasGeometry()) {
+                // Only for axis-aligned modes (not face section)
+                if (options.sectionPlane.enabled && !options.sectionPlane.customNormal && this.section2DOverlayRenderer?.hasGeometry()) {
                     this.section2DOverlayRenderer.draw(
                         pass,
                         {

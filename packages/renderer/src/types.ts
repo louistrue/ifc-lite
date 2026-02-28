@@ -100,6 +100,19 @@ export interface SectionPlane {
   flipped?: boolean; // If true, show the opposite side of the cut
   min?: number;      // Optional override for min range value
   max?: number;      // Optional override for max range value
+  /** Face section: custom normal for arbitrary plane orientation */
+  customNormal?: { x: number; y: number; z: number };
+  /** Face section: signed distance from origin along the custom normal */
+  customDistance?: number;
+  /** Face section: the original click point (for plane visual positioning) */
+  customPoint?: { x: number; y: number; z: number };
+  /** Face section: hover preview (small plane, not confirmed yet) */
+  faceHover?: {
+    normal: { x: number; y: number; z: number };
+    point: { x: number; y: number; z: number };
+  };
+  /** Face section: whether the face cut is confirmed (affects visual style) */
+  faceConfirmed?: boolean;
 }
 
 export type ContactShadingQuality = 'off' | 'low' | 'high';

@@ -50,10 +50,28 @@ export function useVisibilityState() {
 export function useToolState() {
   const activeTool = useViewerStore((state) => state.activeTool);
   const sectionPlane = useViewerStore((state) => state.sectionPlane);
+  const sectionMode = useViewerStore((state) => state.sectionMode);
+  const faceSectionPlane = useViewerStore((state) => state.faceSectionPlane);
+  const faceSectionHover = useViewerStore((state) => state.faceSectionHover);
+  const faceSectionDragging = useViewerStore((state) => state.faceSectionDragging);
+  const setFaceSectionHover = useViewerStore((state) => state.setFaceSectionHover);
+  const confirmFaceSection = useViewerStore((state) => state.confirmFaceSection);
+  const clearFaceSection = useViewerStore((state) => state.clearFaceSection);
+  const updateFaceSectionDistance = useViewerStore((state) => state.updateFaceSectionDistance);
+  const setFaceSectionDragging = useViewerStore((state) => state.setFaceSectionDragging);
 
   return {
     activeTool,
     sectionPlane,
+    sectionMode,
+    faceSectionPlane,
+    faceSectionHover,
+    faceSectionDragging,
+    setFaceSectionHover,
+    confirmFaceSection,
+    clearFaceSection,
+    updateFaceSectionDistance,
+    setFaceSectionDragging,
   };
 }
 

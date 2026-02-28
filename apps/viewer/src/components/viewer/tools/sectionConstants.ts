@@ -12,3 +12,15 @@ export const AXIS_INFO = {
   front: { label: 'Front', description: 'Vertical cut (elevation view)', icon: '\u2192' },
   side: { label: 'Side', description: 'Vertical cut (side elevation)', icon: '\u2299' },
 } as const;
+
+// Section mode info (includes face pick mode)
+export const MODE_INFO = {
+  down: { label: 'Down', description: 'Horizontal cut (floor plan view)', icon: '\u2193' },
+  front: { label: 'Front', description: 'Vertical cut (elevation view)', icon: '\u2192' },
+  side: { label: 'Side', description: 'Vertical cut (side elevation)', icon: '\u2299' },
+  face: { label: 'Face', description: 'Click any face to cut', icon: '\u25A3' },
+} as const;
+
+// Face section color
+export const FACE_SECTION_COLOR = '#E91E63'; // Magenta/pink
+export const FACE_HOVER_COLOR = '#00BCD4';   // Cyan/teal

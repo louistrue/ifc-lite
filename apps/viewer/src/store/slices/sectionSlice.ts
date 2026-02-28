@@ -7,12 +7,20 @@
  */
 
 import type { StateCreator } from 'zustand';
-import type { SectionPlane, SectionPlaneAxis } from '../types.js';
-import { SECTION_PLANE_DEFAULTS } from '../constants.js';
+import type { SectionPlane, SectionPlaneAxis, SectionMode, FaceSectionPlane, FaceSectionHover, Vec3 } from '../types.js';
+import { SECTION_PLANE_DEFAULTS, FACE_SECTION_OFFSET } from '../constants.js';
 
 export interface SectionSlice {
   // State
   sectionPlane: SectionPlane;
+  /** Current section mode: axis-aligned or face-pick */
+  sectionMode: SectionMode;
+  /** Face-picked section plane (independent from axis-aligned) */
+  faceSectionPlane: FaceSectionPlane | null;
+  /** Hover preview for face section mode */
+  faceSectionHover: FaceSectionHover | null;
+  /** Whether the user is dragging the face section plane */
+  faceSectionDragging: boolean;
 
   // Actions
   setSectionPlaneAxis: (axis: SectionPlaneAxis) => void;
@@ -20,6 +28,20 @@ export interface SectionSlice {
   toggleSectionPlane: () => void;
   flipSectionPlane: () => void;
   resetSectionPlane: () => void;
+  /** Set section mode (down/front/side/face) */
+  setSectionMode: (mode: SectionMode) => void;
+  /** Set face section hover preview */
+  setFaceSectionHover: (hover: FaceSectionHover | null) => void;
+  /** Confirm face section cut at the given face */
+  confirmFaceSection: (normal: Vec3, point: Vec3) => void;
+  /** Clear face section */
+  clearFaceSection: () => void;
+  /** Toggle face section enabled state */
+  toggleFaceSection: () => void;
+  /** Update face section distance (for drag-to-move) */
+  updateFaceSectionDistance: (distance: number) => void;
+  /** Set face section dragging state */
+  setFaceSectionDragging: (dragging: boolean) => void;
 }
 
 const getDefaultSectionPlane = (): SectionPlane => ({
@@ -32,10 +54,15 @@ const getDefaultSectionPlane = (): SectionPlane => ({
 export const createSectionSlice: StateCreator<SectionSlice, [], [], SectionSlice> = (set) => ({
   // Initial state
   sectionPlane: getDefaultSectionPlane(),
+  sectionMode: SECTION_PLANE_DEFAULTS.MODE,
+  faceSectionPlane: null,
+  faceSectionHover: null,
+  faceSectionDragging: false,
 
   // Actions
   setSectionPlaneAxis: (axis) => set((state) => ({
     sectionPlane: { ...state.sectionPlane, axis },
+    sectionMode: axis,
   })),
 
   setSectionPlanePosition: (position) => set((state) => {
@@ -54,5 +81,65 @@ export const createSectionSlice: StateCreator<SectionSlice, [], [], SectionSlice
     sectionPlane: { ...state.sectionPlane, flipped: !state.sectionPlane.flipped },
   })),
 
-  resetSectionPlane: () => set({ sectionPlane: getDefaultSectionPlane() }),
+  resetSectionPlane: () => set({
+    sectionPlane: getDefaultSectionPlane(),
+    sectionMode: SECTION_PLANE_DEFAULTS.MODE,
+    faceSectionPlane: null,
+    faceSectionHover: null,
+    faceSectionDragging: false,
+  }),
+
+  setSectionMode: (mode) => set({ sectionMode: mode }),
+
+  setFaceSectionHover: (hover) => set({ faceSectionHover: hover }),
+
+  confirmFaceSection: (normal, point) => {
+    // Compute signed distance from origin with 0.1mm offset
+    const dot = normal.x * point.x + normal.y * point.y + normal.z * point.z;
+    const distance = dot + FACE_SECTION_OFFSET;
+    set({
+      faceSectionPlane: {
+        normal,
+        point,
+        distance,
+        enabled: true,
+        confirmed: true,
+      },
+      faceSectionHover: null,
+    });
+  },
+
+  clearFaceSection: () => set({
+    faceSectionPlane: null,
+    faceSectionHover: null,
+    faceSectionDragging: false,
+  }),
+
+  toggleFaceSection: () => set((state) => {
+    if (!state.faceSectionPlane) return {};
+    return {
+      faceSectionPlane: {
+        ...state.faceSectionPlane,
+        enabled: !state.faceSectionPlane.enabled,
+      },
+    };
+  }),
+
+  updateFaceSectionDistance: (distance) => set((state) => {
+    if (!state.faceSectionPlane) return {};
+    return {
+      faceSectionPlane: {
+        ...state.faceSectionPlane,
+        distance,
+        // Update the point to match the new distance
+        point: {
+          x: state.faceSectionPlane.normal.x * distance,
+          y: state.faceSectionPlane.normal.y * distance,
+          z: state.faceSectionPlane.normal.z * distance,
+        },
+      },
+    };
+  }),
+
+  setFaceSectionDragging: (dragging) => set({ faceSectionDragging: dragging }),
 });

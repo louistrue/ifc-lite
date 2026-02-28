@@ -11,7 +11,7 @@ import { useEffect, type MutableRefObject } from 'react';
 import type { Renderer, CutPolygon2D, DrawingLine2D, VisualEnhancementOptions } from '@ifc-lite/renderer';
 import type { CoordinateInfo } from '@ifc-lite/geometry';
 import type { Drawing2D } from '@ifc-lite/drawing-2d';
-import type { SectionPlane } from '@/store';
+import type { SectionPlane, SectionMode, FaceSectionPlane, FaceSectionHover } from '@/store';
 import { getThemeClearColor } from '../../utils/viewportUtils.js';
 
 export interface UseRenderUpdatesParams {
@@ -43,6 +43,13 @@ export interface UseRenderUpdatesParams {
   sectionPlaneRef: MutableRefObject<SectionPlane>;
   sectionRangeRef: MutableRefObject<{ min: number; max: number } | null>;
   activeToolRef: MutableRefObject<string>;
+  sectionModeRef: MutableRefObject<SectionMode>;
+  faceSectionPlaneRef: MutableRefObject<FaceSectionPlane | null>;
+  faceSectionHoverRef: MutableRefObject<FaceSectionHover | null>;
+  // Reactive face section values (for re-render triggers)
+  sectionMode: SectionMode;
+  faceSectionPlane: FaceSectionPlane | null;
+  faceSectionHover: FaceSectionHover | null;
 
   // Drawing 2D
   drawing2D: Drawing2D | null;
@@ -74,10 +81,47 @@ export function useRenderUpdates(params: UseRenderUpdatesParams): void {
     sectionPlaneRef,
     sectionRangeRef,
     activeToolRef,
+    sectionModeRef,
+    faceSectionPlaneRef,
+    faceSectionHoverRef,
+    sectionMode,
+    faceSectionPlane: faceSectionPlaneReactive,
+    faceSectionHover: faceSectionHoverReactive,
     drawing2D,
     show3DOverlay,
     showHiddenLines,
   } = params;
+
+  // Helper to build section plane render options (handles both axis-aligned and face modes)
+  const buildSectionOpts = () => {
+    if (activeToolRef.current !== 'section') return undefined;
+    const mode = sectionModeRef.current;
+    const faceSection = faceSectionPlaneRef.current;
+    const faceHover = faceSectionHoverRef.current;
+    if (mode === 'face' && faceSection?.confirmed) {
+      return {
+        ...sectionPlaneRef.current,
+        customNormal: faceSection.normal,
+        customDistance: faceSection.distance,
+        customPoint: faceSection.point,
+        faceConfirmed: true,
+        enabled: faceSection.enabled,
+      };
+    } else if (mode === 'face' && faceHover) {
+      return {
+        ...sectionPlaneRef.current,
+        faceHover: { normal: faceHover.normal, point: faceHover.point },
+        enabled: false,
+      };
+    } else if (mode !== 'face') {
+      return {
+        ...sectionPlaneRef.current,
+        min: sectionRangeRef.current?.min,
+        max: sectionRangeRef.current?.max,
+      };
+    }
+    return undefined;
+  };
 
   // Theme-aware clear color update
   useEffect(() => {
@@ -143,11 +187,7 @@ export function useRenderUpdates(params: UseRenderUpdatesParams): void {
       selectedModelIndex: selectedModelIndexRef.current,
       clearColor: clearColorRef.current,
       visualEnhancement: visualEnhancementRef.current,
-      sectionPlane: activeTool === 'section' ? {
-        ...sectionPlane,
-        min: sectionRangeRef.current?.min,
-        max: sectionRangeRef.current?.max,
-      } : undefined,
+      sectionPlane: buildSectionOpts(),
     });
   }, [drawing2D, activeTool, sectionPlane, isInitialized, coordinateInfo, show3DOverlay, showHiddenLines]);
 
@@ -164,14 +204,10 @@ export function useRenderUpdates(params: UseRenderUpdatesParams): void {
       selectedModelIndex,
       clearColor: clearColorRef.current,
       visualEnhancement: visualEnhancementRef.current,
-      sectionPlane: activeTool === 'section' ? {
-        ...sectionPlane,
-        min: sectionRange?.min,
-        max: sectionRange?.max,
-      } : undefined,
+      sectionPlane: buildSectionOpts(),
       buildingRotation: coordinateInfo?.buildingRotation,
     });
-  }, [hiddenEntities, isolatedEntities, selectedEntityId, selectedEntityIds, selectedModelIndex, isInitialized, sectionPlane, activeTool, sectionRange, coordinateInfo?.buildingRotation]);
+  }, [hiddenEntities, isolatedEntities, selectedEntityId, selectedEntityIds, selectedModelIndex, isInitialized, sectionPlane, activeTool, sectionRange, sectionMode, faceSectionPlaneReactive, faceSectionHoverReactive, coordinateInfo?.buildingRotation]);
 }
 
 export default useRenderUpdates;

@@ -152,7 +152,18 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   const isolatedEntities = computedIsolatedIds ?? storeIsolatedEntities ?? null;
 
   // Tool state
-  const { activeTool, sectionPlane } = useToolState();
+  const {
+    activeTool,
+    sectionPlane,
+    sectionMode,
+    faceSectionPlane,
+    faceSectionHover,
+    faceSectionDragging,
+    setFaceSectionHover,
+    confirmFaceSection,
+    updateFaceSectionDistance,
+    setFaceSectionDragging,
+  } = useToolState();
 
   // Camera state
   const { updateCameraRotationRealtime, updateScaleRealtime, setCameraCallbacks } = useCameraState();
@@ -332,6 +343,12 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   const sectionRangeRef = useRef<{ min: number; max: number } | null>(null);
   const geometryRef = useRef<MeshData[] | null>(geometry);
 
+  // Face section refs
+  const sectionModeRef = useRef(sectionMode);
+  const faceSectionPlaneRef = useRef(faceSectionPlane);
+  const faceSectionHoverRef = useRef(faceSectionHover);
+  const faceSectionDraggingRef = useRef(faceSectionDragging);
+
   // Hover throttling
   const lastHoverCheckRef = useRef<number>(0);
   const hoverThrottleMs = 50; // Check hover every 50ms
@@ -379,6 +396,10 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
   useEffect(() => { measurementConstraintEdgeRef.current = measurementConstraintEdge; }, [measurementConstraintEdge]);
   useEffect(() => { sectionPlaneRef.current = sectionPlane; }, [sectionPlane]);
   useEffect(() => { sectionRangeRef.current = sectionRange; }, [sectionRange]);
+  useEffect(() => { sectionModeRef.current = sectionMode; }, [sectionMode]);
+  useEffect(() => { faceSectionPlaneRef.current = faceSectionPlane; }, [faceSectionPlane]);
+  useEffect(() => { faceSectionHoverRef.current = faceSectionHover; }, [faceSectionHover]);
+  useEffect(() => { faceSectionDraggingRef.current = faceSectionDragging; }, [faceSectionDragging]);
   useEffect(() => { visualEnhancementRef.current = visualEnhancement; }, [visualEnhancement]);
   useEffect(() => {
     geometryRef.current = geometry;
@@ -409,15 +430,23 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
       }
     }
 
+    // Clear face section hover when leaving section tool
+    if (activeTool !== 'section') {
+      setFaceSectionHover(null);
+      setFaceSectionDragging(false);
+    }
+
     // Set cursor based on active tool
     if (activeTool === 'measure') {
       canvas.style.cursor = 'crosshair';
+    } else if (activeTool === 'section' && sectionMode === 'face') {
+      canvas.style.cursor = faceSectionPlane?.confirmed ? 'grab' : 'crosshair';
     } else if (activeTool === 'pan' || activeTool === 'orbit') {
       canvas.style.cursor = 'grab';
     } else {
       canvas.style.cursor = 'default';
     }
-  }, [activeTool, activeMeasurement, cancelMeasurement]);
+  }, [activeTool, activeMeasurement, cancelMeasurement, sectionMode, faceSectionPlane, setFaceSectionHover, setFaceSectionDragging]);
 
   // Helper: calculate scale bar value (world-space size for 96px scale bar)
   const calculateScale = () => {
@@ -495,6 +524,47 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
       setIsInitialized(true);
 
       const camera = renderer.getCamera();
+      const buildSectionPlaneOptions = () => {
+        if (activeToolRef.current !== 'section') return undefined;
+
+        const mode = sectionModeRef.current;
+        const faceSection = faceSectionPlaneRef.current;
+        const faceHover = faceSectionHoverRef.current;
+
+        // Face section mode
+        if (mode === 'face') {
+          if (faceSection?.confirmed) {
+            return {
+              ...sectionPlaneRef.current,
+              customNormal: faceSection.normal,
+              customDistance: faceSection.distance,
+              customPoint: faceSection.point,
+              faceConfirmed: true,
+              enabled: faceSection.enabled,
+            };
+          }
+          if (faceHover) {
+            return {
+              ...sectionPlaneRef.current,
+              faceHover: {
+                normal: faceHover.normal,
+                point: faceHover.point,
+              },
+              enabled: false,
+            };
+          }
+          // Face mode but no hover/confirmed - don't show anything
+          return undefined;
+        }
+
+        // Axis-aligned mode
+        return {
+          ...sectionPlaneRef.current,
+          min: sectionRangeRef.current?.min,
+          max: sectionRangeRef.current?.max,
+        };
+      };
+
       const renderCurrent = () => {
         renderer.render({
           hiddenIds: hiddenEntitiesRef.current,
@@ -503,11 +573,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
           selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
           visualEnhancement: visualEnhancementRef.current,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
-            min: sectionRangeRef.current?.min,
-            max: sectionRangeRef.current?.max,
-          } : undefined,
+          sectionPlane: buildSectionPlaneOptions(),
         });
       };
 
@@ -716,6 +782,13 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     calculateScale,
     getPickOptions,
     hasPendingMeasurements,
+    sectionModeRef,
+    faceSectionPlaneRef,
+    faceSectionDraggingRef,
+    setFaceSectionHover,
+    confirmFaceSection,
+    updateFaceSectionDistance,
+    setFaceSectionDragging,
     HOVER_SNAP_THROTTLE_MS,
     SLOW_RAYCAST_THRESHOLD_MS,
     hoverThrottleMs,
@@ -777,6 +850,9 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     clearColorRef,
     sectionPlaneRef,
     sectionRangeRef,
+    sectionModeRef,
+    faceSectionPlaneRef,
+    faceSectionHoverRef,
     visualEnhancementRef,
     lastCameraStateRef,
     updateCameraRotationRealtime,
@@ -822,6 +898,12 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     sectionPlaneRef,
     sectionRangeRef,
     activeToolRef,
+    sectionModeRef,
+    faceSectionPlaneRef,
+    faceSectionHoverRef,
+    sectionMode,
+    faceSectionPlane,
+    faceSectionHover,
     drawing2D,
     show3DOverlay,
     showHiddenLines,

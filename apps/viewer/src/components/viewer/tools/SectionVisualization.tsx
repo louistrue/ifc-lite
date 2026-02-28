@@ -6,15 +6,16 @@
  * Section plane visual indicator/gizmo
  */
 
-import { AXIS_INFO } from './sectionConstants';
+import { AXIS_INFO, FACE_SECTION_COLOR, FACE_HOVER_COLOR } from './sectionConstants';
 
 interface SectionPlaneVisualizationProps {
   axis: 'down' | 'front' | 'side';
   enabled: boolean;
+  isFaceMode?: boolean;
 }
 
 // Section plane visual indicator component
-export function SectionPlaneVisualization({ axis, enabled }: SectionPlaneVisualizationProps) {
+export function SectionPlaneVisualization({ axis, enabled, isFaceMode }: SectionPlaneVisualizationProps) {
   // Get the axis color
   const axisColors = {
     down: '#03A9F4',  // Light blue for horizontal cuts
@@ -22,7 +23,11 @@ export function SectionPlaneVisualization({ axis, enabled }: SectionPlaneVisuali
     side: '#FF9800',  // Orange for side cuts
   };
 
-  const color = axisColors[axis];
+  const color = isFaceMode
+    ? (enabled ? FACE_SECTION_COLOR : FACE_HOVER_COLOR)
+    : axisColors[axis];
+
+  const label = isFaceMode ? 'FACE' : AXIS_INFO[axis].label.toUpperCase();
 
   return (
     <svg
@@ -53,10 +58,10 @@ export function SectionPlaneVisualization({ axis, enabled }: SectionPlaneVisuali
           dominantBaseline="central"
           fill={color}
           fontFamily="monospace"
-          fontSize="11"
+          fontSize={isFaceMode ? '9' : '11'}
           fontWeight="bold"
         >
-          {AXIS_INFO[axis].label.toUpperCase()}
+          {label}
         </text>
         {/* Active indicator */}
         {enabled && (

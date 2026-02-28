@@ -16,8 +16,10 @@ import type {
   ActiveMeasurement,
   EdgeLockState,
   SectionPlane,
+  SectionMode,
+  FaceSectionPlane,
 } from '@/store';
-import type { MeasurementConstraintEdge, OrthogonalAxis, Vec3 } from '@/store/types.js';
+import type { MeasurementConstraintEdge, OrthogonalAxis, Vec3, FaceSectionHover } from '@/store/types.js';
 import { getEntityCenter } from '../../utils/viewportUtils.js';
 
 export interface MouseState {
@@ -57,6 +59,11 @@ export interface UseMouseControlsParams {
   sectionPlaneRef: MutableRefObject<SectionPlane>;
   sectionRangeRef: MutableRefObject<{ min: number; max: number } | null>;
   geometryRef: MutableRefObject<MeshData[] | null>;
+
+  // Face section refs
+  sectionModeRef: MutableRefObject<SectionMode>;
+  faceSectionPlaneRef: MutableRefObject<FaceSectionPlane | null>;
+  faceSectionDraggingRef: MutableRefObject<boolean>;
 
   // Measure raycast refs
   measureRaycastPendingRef: MutableRefObject<boolean>;
@@ -107,6 +114,12 @@ export interface UseMouseControlsParams {
   calculateScale: () => void;
   getPickOptions: () => { isStreaming: boolean; hiddenIds: Set<number>; isolatedIds: Set<number> | null };
   hasPendingMeasurements: () => boolean;
+
+  // Face section callbacks
+  setFaceSectionHover: (hover: FaceSectionHover | null) => void;
+  confirmFaceSection: (normal: Vec3, point: Vec3) => void;
+  updateFaceSectionDistance: (distance: number) => void;
+  setFaceSectionDragging: (dragging: boolean) => void;
 
   // Constants
   HOVER_SNAP_THROTTLE_MS: number;
@@ -221,6 +234,13 @@ export function useMouseControls(params: UseMouseControlsParams): void {
     calculateScale,
     getPickOptions,
     hasPendingMeasurements,
+    sectionModeRef,
+    faceSectionPlaneRef,
+    faceSectionDraggingRef,
+    setFaceSectionHover,
+    confirmFaceSection,
+    updateFaceSectionDistance,
+    setFaceSectionDragging,
     HOVER_SNAP_THROTTLE_MS,
     SLOW_RAYCAST_THRESHOLD_MS,
     hoverThrottleMs,
@@ -318,6 +338,17 @@ export function useMouseControls(params: UseMouseControlsParams): void {
 
       // Determine action based on active tool and mouse button
       const tool = activeToolRef.current;
+
+      // Face section: initiate drag-to-move when clicking on confirmed face section
+      if (tool === 'section' && sectionModeRef.current === 'face' && e.button === 0) {
+        const faceSection = faceSectionPlaneRef.current;
+        if (faceSection?.confirmed) {
+          // Start dragging the face section plane
+          setFaceSectionDragging(true);
+          canvas.style.cursor = 'grabbing';
+          return; // Don't process as orbit/pan
+        }
+      }
 
       const willOrbit = !(tool === 'pan' || e.button === 1 || e.button === 2 ||
         (tool === 'select' && e.shiftKey) ||
@@ -671,6 +702,78 @@ export function useMouseControls(params: UseMouseControlsParams): void {
         return; // Don't fall through to other tool handlers
       }
 
+      // Handle face section hover preview (when section tool is active + face mode)
+      if (tool === 'section' && sectionModeRef.current === 'face' && !mouseState.isDragging) {
+        // Throttle face hover raycasting
+        const now = Date.now();
+        if (now - lastHoverCheckRef.current > 80) {
+          lastHoverCheckRef.current = now;
+
+          // Only show hover preview when no face section is confirmed yet
+          if (!faceSectionPlaneRef.current?.confirmed) {
+            const result = renderer.raycastScene(x, y, {
+              hiddenIds: hiddenEntitiesRef.current,
+              isolatedIds: isolatedEntitiesRef.current,
+            });
+
+            if (result?.intersection) {
+              setFaceSectionHover({
+                normal: result.intersection.normal,
+                point: result.intersection.point,
+              });
+              canvas.style.cursor = 'crosshair';
+            } else {
+              setFaceSectionHover(null);
+              canvas.style.cursor = 'default';
+            }
+          } else {
+            canvas.style.cursor = 'grab';
+          }
+        }
+        return; // Don't fall through to orbit/pan
+      }
+
+      // Handle face section drag-to-move (dragging confirmed plane along normal)
+      if (tool === 'section' && sectionModeRef.current === 'face' && mouseState.isDragging && faceSectionDraggingRef.current) {
+        const faceSection = faceSectionPlaneRef.current;
+        if (faceSection?.confirmed) {
+          const dy = e.clientY - mouseState.lastY;
+          mouseState.lastX = e.clientX;
+          mouseState.lastY = e.clientY;
+          mouseState.didDrag = true;
+
+          // Move the section plane along its normal based on vertical mouse movement
+          // Scale movement by camera distance for consistent feel
+          const cameraDistance = camera.getDistance();
+          const moveDelta = -dy * cameraDistance * 0.002;
+          const newDistance = faceSection.distance + moveDelta;
+          updateFaceSectionDistance(newDistance);
+
+          // Re-render with updated section
+          renderer.render({
+            hiddenIds: hiddenEntitiesRef.current,
+            isolatedIds: isolatedEntitiesRef.current,
+            selectedId: selectedEntityIdRef.current,
+            selectedModelIndex: selectedModelIndexRef.current,
+            clearColor: clearColorRef.current,
+            sectionPlane: {
+              ...sectionPlaneRef.current,
+              customNormal: faceSection.normal,
+              customDistance: newDistance,
+              customPoint: {
+                x: faceSection.normal.x * newDistance,
+                y: faceSection.normal.y * newDistance,
+                z: faceSection.normal.z * newDistance,
+              },
+              faceConfirmed: true,
+              enabled: true,
+            },
+          });
+          canvas.style.cursor = 'grabbing';
+        }
+        return;
+      }
+
       // Handle orbit/pan for other tools (or measure tool with shift+drag or no active measurement)
       if (mouseState.isDragging && (tool !== 'measure' || !activeMeasurementRef.current)) {
         const dx = e.clientX - mouseState.lastX;
@@ -767,6 +870,36 @@ export function useMouseControls(params: UseMouseControlsParams): void {
 
     const handleMouseUp = (e: MouseEvent) => {
       const tool = activeToolRef.current;
+
+      // Handle face section drag end or click-to-confirm
+      if (tool === 'section' && sectionModeRef.current === 'face') {
+        if (faceSectionDraggingRef.current) {
+          // End face section drag
+          setFaceSectionDragging(false);
+          canvas.style.cursor = 'grab';
+          mouseState.isDragging = false;
+          return;
+        }
+
+        // Face section click-to-confirm (only if we didn't drag)
+        if (!mouseState.didDrag && e.button === 0 && !faceSectionPlaneRef.current?.confirmed) {
+          const rect = canvas.getBoundingClientRect();
+          const mx = e.clientX - rect.left;
+          const my = e.clientY - rect.top;
+
+          const result = renderer.raycastScene(mx, my, {
+            hiddenIds: hiddenEntitiesRef.current,
+            isolatedIds: isolatedEntitiesRef.current,
+          });
+
+          if (result?.intersection) {
+            confirmFaceSection(result.intersection.normal, result.intersection.point);
+          }
+
+          mouseState.isDragging = false;
+          return;
+        }
+      }
 
       // Handle measure tool completion
       if (tool === 'measure' && activeMeasurementRef.current) {

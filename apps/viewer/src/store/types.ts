@@ -86,6 +86,9 @@ export interface EdgeLockState {
 /** Semantic axis names: down (Y), front (Z), side (X) for intuitive user experience */
 export type SectionPlaneAxis = 'down' | 'front' | 'side';
 
+/** Section mode includes axis-aligned and face-pick modes */
+export type SectionMode = SectionPlaneAxis | 'face';
+
 export interface SectionPlane {
   axis: SectionPlaneAxis;
   /** 0-100 percentage of model bounds */
@@ -93,6 +96,28 @@ export interface SectionPlane {
   enabled: boolean;
   /** If true, show the opposite side of the cut */
   flipped: boolean;
+}
+
+/** State for face-picked section plane (independent from axis-aligned) */
+export interface FaceSectionPlane {
+  /** Face normal direction (unit vector) */
+  normal: Vec3;
+  /** Point on the face where the user clicked */
+  point: Vec3;
+  /** Signed distance from origin along the normal (includes 0.1mm offset) */
+  distance: number;
+  /** Whether the section cut is active */
+  enabled: boolean;
+  /** Whether the user has confirmed the cut (clicked) */
+  confirmed: boolean;
+}
+
+/** Hover preview state for face section mode */
+export interface FaceSectionHover {
+  /** Face normal at hover point */
+  normal: Vec3;
+  /** World position of hover point */
+  point: Vec3;
 }
 
 // ============================================================================
