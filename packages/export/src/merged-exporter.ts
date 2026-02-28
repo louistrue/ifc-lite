@@ -13,6 +13,7 @@
 import type { IfcDataStore } from '@ifc-lite/parser';
 import { generateHeader } from '@ifc-lite/parser';
 import { collectReferencedEntityIds, getVisibleEntityIds, collectStyleEntities } from './reference-collector.js';
+import { convertStepLine, needsConversion, type IfcSchemaVersion } from './schema-converter.js';
 
 /** Regex to match #ID references in STEP entity text. */
 const STEP_REF_REGEX = /#(\d+)/g;
@@ -50,8 +51,8 @@ export interface MergeModelInput {
  * Options for merged STEP export
  */
 export interface MergeExportOptions {
-  /** IFC schema version for the output file */
-  schema: 'IFC2X3' | 'IFC4' | 'IFC4X3';
+  /** IFC schema version for the output file (any version, will convert if needed) */
+  schema: 'IFC2X3' | 'IFC4' | 'IFC4X3' | 'IFC5';
   /** File description */
   description?: string;
   /** Author name */
@@ -118,7 +119,7 @@ export class MergedExporter {
   }
 
   export(options: MergeExportOptions): MergeExportResult {
-    const schema = options.schema || 'IFC4';
+    const schema = (options.schema || 'IFC4') as IfcSchemaVersion;
 
     // Generate header
     const header = generateHeader({
@@ -237,11 +238,22 @@ export class MergedExporter {
         );
 
         // Remap IDs if this is not the first model or if offset is non-zero
+        let finalText: string;
         if (offset === 0 && sharedRemap.size === 0) {
-          allEntityLines.push(entityText);
+          finalText = entityText;
         } else {
-          const remapped = this.remapEntityText(entityText, offset, sharedRemap);
-          allEntityLines.push(remapped);
+          finalText = this.remapEntityText(entityText, offset, sharedRemap);
+        }
+
+        // Apply schema conversion if target differs from source
+        const sourceSchema = (model.dataStore.schemaVersion as IfcSchemaVersion) || 'IFC4';
+        if (needsConversion(sourceSchema, schema)) {
+          const converted = convertStepLine(finalText, sourceSchema, schema);
+          if (converted !== null) {
+            allEntityLines.push(converted);
+          }
+        } else {
+          allEntityLines.push(finalText);
         }
       }
 

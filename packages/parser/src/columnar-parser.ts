@@ -180,6 +180,7 @@ function detectSchemaVersion(buffer: Uint8Array): IfcDataStore['schemaVersion'] 
     const headerEnd = Math.min(buffer.length, 2000);
     const headerText = new TextDecoder().decode(buffer.subarray(0, headerEnd)).toUpperCase();
 
+    if (headerText.includes('IFC5')) return 'IFC5';
     if (headerText.includes('IFC4X3')) return 'IFC4X3';
     if (headerText.includes('IFC4')) return 'IFC4';
     if (headerText.includes('IFC2X3')) return 'IFC2X3';

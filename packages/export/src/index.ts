@@ -13,3 +13,4 @@ export { JSONLDExporter, type JSONLDExportOptions } from './jsonld-exporter.js';
 export { StepExporter, exportToStep, type StepExportOptions, type StepExportResult } from './step-exporter.js';
 export { MergedExporter, type MergeModelInput, type MergeExportOptions, type MergeExportResult } from './merged-exporter.js';
 export { collectReferencedEntityIds, getVisibleEntityIds, collectStyleEntities } from './reference-collector.js';
+export { convertEntityType, convertStepLine, needsConversion, describeConversion, type IfcSchemaVersion } from './schema-converter.js';
