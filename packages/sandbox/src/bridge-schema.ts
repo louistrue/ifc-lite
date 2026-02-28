@@ -17,7 +17,33 @@
 
 import type { QuickJSContext, QuickJSHandle } from 'quickjs-emscripten';
 import type { BimContext, EntityRef, EntityData } from '@ifc-lite/sdk';
+import { IfcCreator } from '@ifc-lite/sdk';
 import type { SandboxPermissions } from './types.js';
+
+// ============================================================================
+// Creator Registry (stateful IfcCreator instances for sandbox sessions)
+// ============================================================================
+
+/** Simple registry for IfcCreator instances managed by the sandbox */
+const creatorRegistry = (() => {
+  let nextHandle = 1;
+  const creators = new Map<number, IfcCreator>();
+  return {
+    register(creator: IfcCreator): number {
+      const handle = nextHandle++;
+      creators.set(handle, creator);
+      return handle;
+    },
+    get(handle: number): IfcCreator {
+      const creator = creators.get(handle);
+      if (!creator) throw new Error(`Invalid creator handle: ${handle}`);
+      return creator;
+    },
+    remove(handle: number): void {
+      creators.delete(handle);
+    },
+  };
+})();
 
 // ============================================================================
 // Schema Types
@@ -397,6 +423,161 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         args: [],
         tsReturn: 'unknown[]',
         call: (sdk) => sdk.lens.presets(),
+        returns: 'value',
+      },
+    ],
+  },
+
+  // ── bim.create ─────────────────────────────────────────────
+  {
+    name: 'create',
+    doc: 'IFC creation from scratch',
+    permission: 'export',  // reuses export permission — creation produces files
+    methods: [
+      {
+        name: 'project',
+        doc: 'Create a new IFC project. Returns a creator handle (number).',
+        args: ['dump'],
+        paramNames: ['params'],
+        tsParamTypes: ['{ Name?: string; Description?: string; Schema?: string; LengthUnit?: string; Author?: string; Organization?: string }'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const params = (args[0] ?? {}) as Record<string, unknown>;
+          const creator = new IfcCreator(params as any);
+          return creatorRegistry.register(creator);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addStorey',
+        doc: 'Add a building storey. Returns storey expressId.',
+        args: ['number', 'dump'],
+        paramNames: ['handle', 'params'],
+        tsParamTypes: [undefined, '{ Name?: string; Description?: string; Elevation: number }'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addStorey(args[1] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addWall',
+        doc: 'Add a wall to a storey. Returns wall expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsParamTypes: [undefined, undefined, '{ Start: [number,number,number]; End: [number,number,number]; Thickness: number; Height: number; Name?: string; Openings?: Array<{ Width: number; Height: number; Position: [number,number,number]; Name?: string }> }'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addWall(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addSlab',
+        doc: 'Add a slab to a storey. Returns slab expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsParamTypes: [undefined, undefined, '{ Position: [number,number,number]; Thickness: number; Width?: number; Depth?: number; Profile?: [number,number][]; Name?: string; Openings?: Array<{ Width: number; Height: number; Position: [number,number,number]; Name?: string }> }'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addSlab(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addColumn',
+        doc: 'Add a column to a storey. Returns column expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsParamTypes: [undefined, undefined, '{ Position: [number,number,number]; Width: number; Depth: number; Height: number; Name?: string }'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addColumn(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addBeam',
+        doc: 'Add a beam to a storey. Returns beam expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsParamTypes: [undefined, undefined, '{ Start: [number,number,number]; End: [number,number,number]; Width: number; Height: number; Name?: string }'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addBeam(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addStair',
+        doc: 'Add a stair to a storey. Returns stair expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsParamTypes: [undefined, undefined, '{ Position: [number,number,number]; NumberOfRisers: number; RiserHeight: number; TreadLength: number; Width: number; Direction?: number; Name?: string }'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addStair(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addRoof',
+        doc: 'Add a roof to a storey. Returns roof expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsParamTypes: [undefined, undefined, '{ Position: [number,number,number]; Width: number; Depth: number; Thickness: number; Slope?: number; Name?: string }'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addRoof(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addPropertySet',
+        doc: 'Attach a property set to an element. Returns pset expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'elementId', 'pset'],
+        tsParamTypes: [undefined, undefined, '{ Name: string; Properties: Array<{ Name: string; NominalValue: string | number | boolean; Type?: string }> }'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addPropertySet(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addQuantitySet',
+        doc: 'Attach element quantities to an element. Returns qset expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'elementId', 'qset'],
+        tsParamTypes: [undefined, undefined, '{ Name: string; Quantities: Array<{ Name: string; Value: number; Kind: string }> }'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addQuantitySet(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'toIfc',
+        doc: 'Generate the IFC STEP file content. Returns { content, entities, stats }.',
+        args: ['number'],
+        paramNames: ['handle'],
+        tsReturn: '{ content: string; entities: Array<{ expressId: number; type: string; Name?: string }>; stats: { entityCount: number; fileSize: number } }',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          const result = creator.toIfc();
+          // Clean up the creator after export
+          creatorRegistry.remove(args[0] as number);
+          return result;
+        },
         returns: 'value',
       },
     ],

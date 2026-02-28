@@ -101,6 +101,31 @@ declare const bim: {
     /** Get built-in lens presets */
     presets(): unknown[];
   };
+  /** IFC creation from scratch */
+  create: {
+    /** Create a new IFC project. Returns a creator handle (number). */
+    project(params?: { Name?: string; Description?: string; Schema?: string; LengthUnit?: string; Author?: string; Organization?: string }): number;
+    /** Add a building storey. Returns storey expressId. */
+    addStorey(handle: number, params: { Name?: string; Description?: string; Elevation: number }): number;
+    /** Add a wall to a storey. Returns wall expressId. */
+    addWall(handle: number, storeyId: number, params: { Start: [number,number,number]; End: [number,number,number]; Thickness: number; Height: number; Name?: string; Openings?: Array<{ Width: number; Height: number; Position: [number,number,number]; Name?: string }> }): number;
+    /** Add a slab to a storey. Returns slab expressId. */
+    addSlab(handle: number, storeyId: number, params: { Position: [number,number,number]; Thickness: number; Width?: number; Depth?: number; Profile?: [number,number][]; Name?: string; Openings?: Array<{ Width: number; Height: number; Position: [number,number,number]; Name?: string }> }): number;
+    /** Add a column to a storey. Returns column expressId. */
+    addColumn(handle: number, storeyId: number, params: { Position: [number,number,number]; Width: number; Depth: number; Height: number; Name?: string }): number;
+    /** Add a beam to a storey. Returns beam expressId. */
+    addBeam(handle: number, storeyId: number, params: { Start: [number,number,number]; End: [number,number,number]; Width: number; Height: number; Name?: string }): number;
+    /** Add a stair to a storey. Returns stair expressId. */
+    addStair(handle: number, storeyId: number, params: { Position: [number,number,number]; NumberOfRisers: number; RiserHeight: number; TreadLength: number; Width: number; Direction?: number; Name?: string }): number;
+    /** Add a roof to a storey. Returns roof expressId. */
+    addRoof(handle: number, storeyId: number, params: { Position: [number,number,number]; Width: number; Depth: number; Thickness: number; Slope?: number; Name?: string }): number;
+    /** Attach a property set to an element. Returns pset expressId. */
+    addPropertySet(handle: number, elementId: number, pset: { Name: string; Properties: Array<{ Name: string; NominalValue: string | number | boolean; Type?: string }> }): number;
+    /** Attach element quantities to an element. Returns qset expressId. */
+    addQuantitySet(handle: number, elementId: number, qset: { Name: string; Quantities: Array<{ Name: string; Value: number; Kind: string }> }): number;
+    /** Generate the IFC STEP file content. Returns { content, entities, stats }. */
+    toIfc(handle: number): { content: string; entities: Array<{ expressId: number; type: string; Name?: string }>; stats: { entityCount: number; fileSize: number } };
+  };
   /** Data export */
   export: {
     /** Export entities to CSV string */

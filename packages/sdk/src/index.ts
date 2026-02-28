@@ -115,6 +115,16 @@ export type { SectionCutOptions, FloorPlanOptions } from './namespaces/drawing.j
 export { ListNamespace } from './namespaces/list.js';
 export { SpatialNamespace } from './namespaces/spatial.js';
 export { EventsNamespace } from './namespaces/events.js';
+export { CreateNamespace } from './namespaces/create.js';
+
+// Re-export creation types for convenience
+export { IfcCreator } from '@ifc-lite/create';
+export type {
+  WallParams, SlabParams, ColumnParams, BeamParams, StairParams, RoofParams,
+  ProjectParams, StoreyParams, PropertySetDef, QuantitySetDef,
+  PropertyDef, QuantityDef, CreatedEntity, CreateResult,
+  Point3D, Point2D, RectangularOpening,
+} from '@ifc-lite/create';
 
 // ============================================================================
 // Transport
