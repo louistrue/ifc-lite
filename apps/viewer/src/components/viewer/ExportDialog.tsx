@@ -47,6 +47,7 @@ import {
   AlertTitle,
 } from '@/components/ui/alert';
 import { useViewerStore } from '@/store';
+import { toast } from '@/components/ui/toast';
 import { StepExporter, MergedExporter, Ifc5Exporter, type MergeModelInput } from '@ifc-lite/export';
 import { MutablePropertyView } from '@ifc-lite/mutations';
 import { extractPropertiesOnDemand, type IfcDataStore } from '@ifc-lite/parser';
@@ -284,10 +285,9 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
-        setExportResult({
-          success: true,
-          message: `Merged ${result.stats.modelCount} models, ${result.stats.totalEntityCount} entities`,
-        });
+        const msg = `Merged ${result.stats.modelCount} models, ${result.stats.totalEntityCount} entities`;
+        setExportResult({ success: true, message: msg });
+        toast.success(msg);
         return;
       }
 
@@ -331,10 +331,9 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
-        setExportResult({
-          success: true,
-          message: `Exported IFCX: ${result.stats.nodeCount} nodes, ${result.stats.meshCount} meshes, ${result.stats.propertyCount} properties`,
-        });
+        const ifcxMsg = `Exported IFCX: ${result.stats.nodeCount} nodes, ${result.stats.meshCount} meshes, ${result.stats.propertyCount} properties`;
+        setExportResult({ success: true, message: ifcxMsg });
+        toast.success(ifcxMsg);
 
       // ── Changes only (pre-IFC5) → JSON ───────────────────────────────
       } else if (changesOnly) {
@@ -357,10 +356,9 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
-        setExportResult({
-          success: true,
-          message: `Exported ${mutations.length} changes as JSON`,
-        });
+        const jsonMsg = `Exported ${mutations.length} changes as JSON`;
+        setExportResult({ success: true, message: jsonMsg });
+        toast.success(jsonMsg);
 
       // ── Pre-IFC5 full export → STEP ──────────────────────────────────
       } else {
@@ -391,17 +389,15 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
-        setExportResult({
-          success: true,
-          message: `Exported ${result.stats.entityCount} entities (${result.stats.modifiedEntityCount} modified)`,
-        });
+        const stepMsg = `Exported ${result.stats.entityCount} entities (${result.stats.modifiedEntityCount} modified)`;
+        setExportResult({ success: true, message: stepMsg });
+        toast.success(stepMsg);
       }
     } catch (error) {
       console.error('Export failed:', error);
-      setExportResult({
-        success: false,
-        message: `Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      });
+      const errMsg = `Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      setExportResult({ success: false, message: errMsg });
+      toast.error(errMsg);
     } finally {
       setIsExporting(false);
     }

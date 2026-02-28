@@ -16,6 +16,7 @@ import { useViewerStore } from '@/store';
 import { StepExporter } from '@ifc-lite/export';
 import { MutablePropertyView } from '@ifc-lite/mutations';
 import { extractPropertiesOnDemand, type IfcDataStore } from '@ifc-lite/parser';
+import { toast } from '@/components/ui/toast';
 
 interface ExportChangesButtonProps {
   /** Optional custom class name */
@@ -147,11 +148,12 @@ export function ExportChangesButton({ className }: ExportChangesButtonProps) {
       // Reset status after 2 seconds
       setTimeout(() => setExportStatus('idle'), 2000);
 
-      console.log(`[ExportChangesButton] Exported ${result.stats.entityCount} entities (${result.stats.modifiedEntityCount} modified)`);
+      toast.success(`Exported ${result.stats.entityCount} entities (${result.stats.modifiedEntityCount} modified)`);
     } catch (error) {
       console.error('[ExportChangesButton] Export failed:', error);
       setExportStatus('error');
       setTimeout(() => setExportStatus('idle'), 3000);
+      toast.error(`Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsExporting(false);
     }

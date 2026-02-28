@@ -171,11 +171,11 @@ export class Ifc5Exporter {
         attributes['bsi::ifc::globalId'] = globalId;
       }
 
-      // Name
-      const name = strings.get(entities.name[i]);
-      if (name) {
-        attributes['bsi::ifc::name'] = name;
-      }
+      // Name - use entity table name, or segment name from path building (has fallbacks)
+      const name = strings.get(entities.name[i])
+        || this.segmentNames.get(expressId)
+        || ifc5Class;
+      attributes['bsi::ifc::name'] = name;
 
       // Description
       const description = strings.get(entities.description[i]);
@@ -279,10 +279,16 @@ export class Ifc5Exporter {
 
     // Add spatial container hierarchy from the project tree first
     // (Project→Site, Site→Building, Building→Storey, Storey→Space)
+    // Also collect spatial node names (SpatialNode.name is often more reliable
+    // than the entity table for spatial containers)
     this.spatialChildIds.clear();
+    const spatialNodeNames = new Map<number, string>();
     if (spatialHierarchy.project) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const walkTree = (node: { expressId: number; children: any[] }) => {
+      const walkTree = (node: { expressId: number; name?: string; children: any[] }) => {
+        if (node.name) {
+          spatialNodeNames.set(node.expressId, node.name);
+        }
         const childIds: number[] = [];
         for (const child of node.children) {
           parentOf.set(child.expressId, node.expressId);
@@ -316,11 +322,23 @@ export class Ifc5Exporter {
       }
     }
 
-    // Build index lookup for entity names
+    // Build index lookup for entity names.
+    // Priority: entity table name → spatial node name → IFC type name fallback
     const entityNameById = new Map<number, string>();
     for (let i = 0; i < entities.count; i++) {
       const id = entities.expressId[i];
-      const name = strings.get(entities.name[i]) || '';
+      let name = strings.get(entities.name[i]) || '';
+      // For entities with empty names, try spatial node name (from hierarchy tree)
+      if (!name) {
+        name = spatialNodeNames.get(id) || '';
+      }
+      // Last resort: use the IFC type name so paths are readable (e.g. "IfcProject")
+      if (!name) {
+        const typeName = IfcTypeEnumToString(entities.typeEnum[i] as IfcTypeEnum);
+        if (typeName !== 'Unknown') {
+          name = typeName;
+        }
+      }
       entityNameById.set(id, name);
     }
 

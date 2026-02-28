@@ -8,11 +8,13 @@
 
 import { ViewerLayout } from './components/viewer/ViewerLayout';
 import { BimProvider } from './sdk/BimProvider';
+import { Toaster } from './components/ui/toast';
 
 export function App() {
   return (
     <BimProvider>
       <ViewerLayout />
+      <Toaster />
     </BimProvider>
   );
 }
