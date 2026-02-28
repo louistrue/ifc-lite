@@ -101,6 +101,8 @@ export class Ifc5Exporter {
   private idOffset: number;
   /** Unique path segment name per entity (with _<id> suffix when siblings collide) */
   private segmentNames = new Map<number, string>();
+  /** Real names from SpatialNode tree (reliable for spatial containers) */
+  private spatialNodeNames = new Map<number, string>();
   /** Spatial container children (Project→Sites, Site→Buildings, etc.) */
   private spatialChildIds = new Map<number, number[]>();
 
@@ -171,11 +173,12 @@ export class Ifc5Exporter {
         attributes['bsi::ifc::globalId'] = globalId;
       }
 
-      // Name - use entity table name, or segment name from path building (has fallbacks)
+      // Name - only write when real data exists (don't fabricate names)
       const name = strings.get(entities.name[i])
-        || this.segmentNames.get(expressId)
-        || ifc5Class;
-      attributes['bsi::ifc::name'] = name;
+        || this.spatialNodeNames.get(expressId);
+      if (name) {
+        attributes['bsi::ifc::name'] = name;
+      }
 
       // Description
       const description = strings.get(entities.description[i]);
@@ -282,12 +285,12 @@ export class Ifc5Exporter {
     // Also collect spatial node names (SpatialNode.name is often more reliable
     // than the entity table for spatial containers)
     this.spatialChildIds.clear();
-    const spatialNodeNames = new Map<number, string>();
+    this.spatialNodeNames.clear();
     if (spatialHierarchy.project) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const walkTree = (node: { expressId: number; name?: string; children: any[] }) => {
         if (node.name) {
-          spatialNodeNames.set(node.expressId, node.name);
+          this.spatialNodeNames.set(node.expressId, node.name);
         }
         const childIds: number[] = [];
         for (const child of node.children) {
@@ -330,7 +333,7 @@ export class Ifc5Exporter {
       let name = strings.get(entities.name[i]) || '';
       // For entities with empty names, try spatial node name (from hierarchy tree)
       if (!name) {
-        name = spatialNodeNames.get(id) || '';
+        name = this.spatialNodeNames.get(id) || '';
       }
       // Last resort: use the IFC type name so paths are readable (e.g. "IfcProject")
       if (!name) {
