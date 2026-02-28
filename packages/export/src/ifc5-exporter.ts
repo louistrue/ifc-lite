@@ -20,6 +20,7 @@ import type { MutablePropertyView } from '@ifc-lite/mutations';
 import type { MeshData, GeometryResult } from '@ifc-lite/geometry';
 import {
   IfcTypeEnumToString,
+  IfcTypeEnumFromString,
   type IfcTypeEnum,
   PropertyValueType,
 } from '@ifc-lite/data';
@@ -302,6 +303,38 @@ export class Ifc5Exporter {
       entityNameById.set(id, name);
     }
 
+    // Build children-per-parent map so we can detect name collisions among siblings
+    const childrenOf = new Map<number | undefined, number[]>();
+    for (const [childId, parentId] of parentOf) {
+      if (!childrenOf.has(parentId)) childrenOf.set(parentId, []);
+      childrenOf.get(parentId)!.push(childId);
+    }
+    // Also collect root entities (those not in parentOf)
+    for (let i = 0; i < entities.count; i++) {
+      const id = entities.expressId[i];
+      if (!parentOf.has(id)) {
+        if (!childrenOf.has(undefined)) childrenOf.set(undefined, []);
+        childrenOf.get(undefined)!.push(id);
+      }
+    }
+
+    // Pre-compute unique segment names: append _<expressId> when siblings share a name
+    const segmentName = new Map<number, string>();
+    for (const [, siblings] of childrenOf) {
+      // Count how many siblings share each sanitised name
+      const nameCount = new Map<string, number>();
+      for (const id of siblings) {
+        const raw = entityNameById.get(id) || `e${id}`;
+        const safe = raw.replace(/[/\\]/g, '_').replace(/\s+/g, '_');
+        nameCount.set(safe, (nameCount.get(safe) || 0) + 1);
+      }
+      for (const id of siblings) {
+        const raw = entityNameById.get(id) || `e${id}`;
+        const safe = raw.replace(/[/\\]/g, '_').replace(/\s+/g, '_');
+        segmentName.set(id, nameCount.get(safe)! > 1 ? `${safe}_${id}` : safe);
+      }
+    }
+
     // Generate path for each entity by walking up to root
     const getPath = (expressId: number): string => {
       if (paths.has(expressId)) return paths.get(expressId)!;
@@ -314,10 +347,7 @@ export class Ifc5Exporter {
         if (visited.has(current)) break; // cycle protection
         visited.add(current);
 
-        const name = entityNameById.get(current) || `e${current}`;
-        // Sanitize for path (replace / and spaces)
-        const safeName = name.replace(/[/\\]/g, '_').replace(/\s+/g, '_');
-        segments.unshift(safeName);
+        segments.unshift(segmentName.get(current) || `e${current}`);
 
         const parent = parentOf.get(current);
         if (parent === undefined) break;
@@ -557,9 +587,13 @@ export class Ifc5Exporter {
 
 /**
  * Convert STEP uppercase type name (e.g. "IFCWALL") to PascalCase class name (e.g. "IfcWall").
+ * Uses the IFC type enum lookup for canonical casing (e.g. "IfcRelAggregates", not "Ifcrelaggregates").
  */
 function stepTypeToClassName(stepType: string): string {
-  // Handle IFCXXX format → IfcXxx
+  const enumVal = IfcTypeEnumFromString(stepType);
+  const name = IfcTypeEnumToString(enumVal);
+  if (name !== 'Unknown') return name;
+  // Fallback for types not in the enum: simple prefix normalisation
   const lower = stepType.toLowerCase();
   if (lower.startsWith('ifc')) {
     return 'Ifc' + lower.charAt(3).toUpperCase() + lower.slice(4);
