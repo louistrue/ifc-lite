@@ -20,6 +20,8 @@ import {
   AlertCircle,
   Check,
   Loader2,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -74,7 +76,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
   const legacyGeometryResult = useViewerStore((s) => s.geometryResult);
 
   const [open, setOpen] = useState(false);
-  const [schema, setSchema] = useState<SchemaVersion>('IFC4');
+  const [schema, setSchema] = useState<SchemaVersion | ''>('');
   const [selectedModelId, setSelectedModelId] = useState<string>('');
   const [exportScope, setExportScope] = useState<ExportScope>('single');
   const [includeGeometry, setIncludeGeometry] = useState(true);
@@ -155,6 +157,26 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
     // Register the mutation view
     registerMutationView(selectedModelId, mutationView);
   }, [selectedModel, selectedModelId, getMutationView, registerMutationView]);
+
+  // Default schema to selected model's schema version
+  useEffect(() => {
+    if (!selectedModel) return;
+    const modelSchema = selectedModel.schemaVersion as SchemaVersion;
+    if (modelSchema) {
+      setSchema(modelSchema);
+    }
+  }, [selectedModel?.schemaVersion]);
+
+  // Determine schema conversion direction
+  const sourceSchema = (selectedModel?.schemaVersion as SchemaVersion) || '';
+  const schemaConversion = useMemo(() => {
+    if (!sourceSchema || !schema) return null;
+    const order: Record<string, number> = { IFC2X3: 1, IFC4: 2, IFC4X3: 3, IFC5: 4 };
+    const src = order[sourceSchema] ?? 0;
+    const dst = order[schema] ?? 0;
+    if (src === dst) return null;
+    return src < dst ? 'upgrade' as const : 'downgrade' as const;
+  }, [sourceSchema, schema]);
 
   // Reset scope to single when switching to IFC5 (merged not supported)
   useEffect(() => {
@@ -239,6 +261,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
   }, [isIfc5, changesOnly]);
 
   const handleExport = useCallback(async () => {
+    if (!schema) return;
     if (exportScope === 'single' && !selectedModel) return;
 
     setIsExporting(true);
@@ -475,7 +498,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
                   const displayName = m.name.length > maxLen ? m.name.slice(0, maxLen) + '\u2026' : m.name;
                   return (
                   <SelectItem key={m.id} value={m.id} title={m.name}>
-                    {displayName}{m.isDirty ? ' *' : ''}
+                    {displayName}{m.isDirty ? ' *' : ''}{m.schemaVersion ? ` (${m.schemaVersion})` : ''}
                   </SelectItem>
                   );
                 })}
@@ -492,13 +515,35 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="IFC2X3">IFC2X3</SelectItem>
-                <SelectItem value="IFC4">IFC4</SelectItem>
-                <SelectItem value="IFC4X3">IFC4X3</SelectItem>
-                <SelectItem value="IFC5">IFC5 (Alpha)</SelectItem>
+                {(['IFC2X3', 'IFC4', 'IFC4X3', 'IFC5'] as const).map((v) => (
+                  <SelectItem key={v} value={v}>
+                    {v === 'IFC5' ? 'IFC5 (Alpha)' : v}
+                    {v === sourceSchema ? ' (current)' : ''}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
+
+          {/* Schema conversion warning */}
+          {schemaConversion && (
+            <Alert variant={schemaConversion === 'downgrade' ? 'destructive' : 'default'}>
+              {schemaConversion === 'upgrade' ? (
+                <ArrowUp className="h-4 w-4" />
+              ) : (
+                <ArrowDown className="h-4 w-4" />
+              )}
+              <AlertTitle>
+                Schema {schemaConversion === 'upgrade' ? 'Upgrade' : 'Downgrade'}
+              </AlertTitle>
+              <AlertDescription>
+                Converting from {sourceSchema} to {schema}.
+                {schemaConversion === 'downgrade'
+                  ? ' Some data may be lost in the conversion to an older schema.'
+                  : ' Entity types will be mapped to the newer schema.'}
+              </AlertDescription>
+            </Alert>
+          )}
 
           {/* Output format indicator */}
           <div className="flex items-center gap-4">
@@ -571,7 +616,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
           <Button variant="outline" onClick={() => setOpen(false)}>
             Cancel
           </Button>
-          <Button onClick={handleExport} disabled={isExporting || !selectedModel}>
+          <Button onClick={handleExport} disabled={isExporting || !selectedModel || !schema}>
             {isExporting ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
