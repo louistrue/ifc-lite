@@ -15,6 +15,9 @@ export interface UseGeometryStreamingParams {
   rendererRef: MutableRefObject<Renderer | null>;
   isInitialized: boolean;
   geometry: MeshData[] | null;
+  /** Monotonic counter — triggers the streaming effect even when the geometry
+   *  array reference is stable (incremental filtering reuses the same array). */
+  geometryVersion?: number;
   coordinateInfo?: CoordinateInfo;
   isStreaming: boolean;
   geometryBoundsRef: MutableRefObject<{ min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } }>;
@@ -31,6 +34,7 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     rendererRef,
     isInitialized,
     geometry,
+    geometryVersion,
     coordinateInfo,
     isStreaming,
     geometryBoundsRef,
@@ -354,7 +358,7 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
       renderer.render();
       lastStreamRenderTimeRef.current = now;
     }
-  }, [geometry, coordinateInfo, isInitialized, isStreaming]);
+  }, [geometry, geometryVersion, coordinateInfo, isInitialized, isStreaming]);
 
   // Force render when streaming completes (progress goes from <100% to 100% or null)
   const prevIsStreamingRef = useRef(isStreaming);

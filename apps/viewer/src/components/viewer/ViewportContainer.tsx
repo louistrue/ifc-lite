@@ -173,46 +173,68 @@ export function ViewportContainer() {
   // Check if any models are loaded (even if hidden) - used to show empty 3D vs starting UI
   const hasLoadedModels = storeModels.size > 0 || (geometryResult?.meshes && geometryResult.meshes.length > 0);
 
-  // Filter geometry based on type visibility only
-  // PERFORMANCE FIX: Don't filter by storey or hiddenEntities here
-  // Instead, let the renderer handle visibility filtering at the batch level
-  // This avoids expensive batch rebuilding when visibility changes
+  // PERF: Incremental geometry filtering using refs.
+  // Instead of creating a new 200K+ element array every batch (~200ms),
+  // we push ONLY new meshes into a cached array — O(batch_size) not O(total).
+  // A version counter triggers downstream re-renders via the Viewport prop.
+  const filteredCacheRef = useRef<MeshData[]>([]);
+  const filteredSourceLenRef = useRef(0);
+  const filteredTypeVisRef = useRef(typeVisibility);
+  const filteredVersionRef = useRef(0);
+
   const filteredGeometry = useMemo(() => {
     if (!mergedGeometryResult?.meshes) {
+      filteredCacheRef.current = [];
+      filteredSourceLenRef.current = 0;
+      filteredVersionRef.current = 0;
       return null;
     }
 
     const allMeshes = mergedGeometryResult.meshes;
+    const cache = filteredCacheRef.current;
+
+    // Full rebuild if: type visibility changed, source shrunk (new file), or empty cache
+    const typeVisChanged = filteredTypeVisRef.current !== typeVisibility;
+    if (typeVisChanged || allMeshes.length < filteredSourceLenRef.current) {
+      cache.length = 0;
+      filteredSourceLenRef.current = 0;
+      filteredTypeVisRef.current = typeVisibility;
+    }
+
     const needsFilter = !typeVisibility.spaces || !typeVisibility.openings || !typeVisibility.site;
 
-    // PERF FIX: Single pass combining filter + transparency instead of
-    // separate .filter() + .map() which each iterate ALL meshes.
-    // For 176K meshes, this halves iterations per batch (saves ~176K ops).
-    const result: MeshData[] = [];
-    for (let i = 0; i < allMeshes.length; i++) {
+    // Only process NEW meshes since last run — O(batch_size) not O(total)
+    for (let i = filteredSourceLenRef.current; i < allMeshes.length; i++) {
       const mesh = allMeshes[i];
       const ifcType = mesh.ifcType;
 
-      // Filter by type visibility
       if (needsFilter) {
         if (ifcType === 'IfcSpace' && !typeVisibility.spaces) continue;
         if (ifcType === 'IfcOpeningElement' && !typeVisibility.openings) continue;
         if (ifcType === 'IfcSite' && !typeVisibility.site) continue;
       }
 
-      // Apply transparency for spatial elements (inline instead of separate .map())
       if (ifcType === 'IfcSpace' || ifcType === 'IfcOpeningElement') {
-        result.push({
+        cache.push({
           ...mesh,
           color: [mesh.color[0], mesh.color[1], mesh.color[2], Math.min(mesh.color[3] * 0.3, 0.3)],
         });
       } else {
-        result.push(mesh);
+        cache.push(mesh);
       }
     }
 
-    return result;
+    filteredSourceLenRef.current = allMeshes.length;
+    filteredVersionRef.current++;
+
+    // Return the same array reference — downstream change detection uses
+    // geometryVersion (which increments each batch) instead of array identity.
+    return cache;
   }, [mergedGeometryResult, typeVisibility]);
+
+  // Version counter that changes every batch — triggers useGeometryStreaming
+  // without requiring a new geometry array reference.
+  const geometryVersion = filteredVersionRef.current;
 
   // Compute combined isolation set (storeys + manual isolation)
   // This is passed to the renderer for batch-level visibility filtering
@@ -569,6 +591,7 @@ export function ViewportContainer() {
 
       <Viewport
         geometry={filteredGeometry}
+        geometryVersion={geometryVersion}
         coordinateInfo={mergedGeometryResult?.coordinateInfo}
         computedIsolatedIds={computedIsolatedIds}
         modelIdToIndex={modelIdToIndex}
