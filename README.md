@@ -33,14 +33,14 @@ Try it at [ifclite.com](https://www.ifclite.com/) to see it in action.
 
 - **View 3D models** in the browser with a fast WebGPU renderer
 - **Extract data** like properties, quantities, spatial structure, and relationships
-- **Create IFC files** programmatically — walls, slabs, columns, beams, stairs, roofs with properties and quantities
-- **Look up bSDD** (buildingSMART Data Dictionary) to discover and add standard properties for any IFC type
 - **Check compliance** against IDS (Information Delivery Specification) rules
 - **Generate 2D drawings** like floor plans, sections, and elevations from 3D
 - **Collaborate** with BCF (BIM Collaboration Format) for issues and viewpoints
-- **Export** to glTF, IFC, or Parquet
+- **Create IFC files** programmatically: walls, slabs, columns, beams, stairs, roofs with properties and quantities
+- **Look up bSDD** (buildingSMART Data Dictionary) to discover and add standard properties for any IFC entity
+- **Export** to IFC, CSV & JSON, glTF or Parquet
 
-Works with **IFC4 / IFC4X3** and the new **IFC5 (IFCX)** format.
+Works with **IFC4 / IFC4X3** and the new **Alpha IFC5 (IFCX)**.
 
 ## Why IFClite?
 
