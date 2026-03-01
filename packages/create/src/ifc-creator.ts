@@ -324,30 +324,29 @@ export class IfcCreator {
 
   /**
    * Create a straight-run stair.
-   * Position is the nose of the first tread. Treads go along +X (rotated by Direction).
+   * Position is the nose of the first tread. Treads advance along local +X
+   * (rotated into world space by Direction). Width extends along local +Y.
    */
   addStair(storeyId: number, params: StairParams): number {
+    const direction = params.Direction ?? 0;
+    // Use LocalPlacement rotation so both step positions AND profiles rotate together
     const placementId = this.addLocalPlacement(this.worldPlacementId, {
       Location: params.Position,
+      RefDirection: direction !== 0 ? [Math.cos(direction), Math.sin(direction), 0] : undefined,
     });
 
     const stepSolids: number[] = [];
-    const direction = params.Direction ?? 0;
-    const cosD = Math.cos(direction);
-    const sinD = Math.sin(direction);
 
     for (let i = 0; i < params.NumberOfRisers; i++) {
-      const stepX = i * params.TreadLength;
-      const stepZ = i * params.RiserHeight;
-
+      // Steps in stair-local coordinates: +X = run direction, +Z = up
       const stepOriginId = this.addCartesianPoint([
-        stepX * cosD,
-        stepX * sinD,
-        stepZ,
+        i * params.TreadLength,
+        0,
+        i * params.RiserHeight,
       ]);
       const stepAxis2Id = this.addAxis2Placement3D(stepOriginId);
 
-      // Profile offset so tread starts at step origin, not centered on it
+      // Profile: TreadLength along local X, Width along local Y, offset from origin corner
       const profileId = this.addRectangleProfile(
         params.TreadLength, params.Width,
         [params.TreadLength / 2, params.Width / 2],

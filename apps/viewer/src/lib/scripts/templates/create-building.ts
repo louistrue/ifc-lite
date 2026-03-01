@@ -208,9 +208,10 @@ const numRisers = 17;
 const riserH = 0.176;
 const treadL = 0.28;
 const stairW = 1.0;
+// Run along +Y (the 8 m axis) so the 4.76 m run fits comfortably
 const stairId = bim.create.addStair(h, gf, {
   Name: 'ST-01 Main Stair', Description: 'Straight-run concrete stair', ObjectType: 'Stair:Concrete - Straight Run',
-  Position: [1, 2, 0],
+  Position: [1.5, 1, 0], Direction: Math.PI / 2,
   NumberOfRisers: numRisers, RiserHeight: riserH, TreadLength: treadL, Width: stairW,
 });
 bim.create.setColor(h, stairId, 'Concrete - Warm', [0.80, 0.78, 0.74]);
