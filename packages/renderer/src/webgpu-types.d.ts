@@ -65,6 +65,7 @@ interface GPUDevice extends EventTarget {
   readonly queue: GPUQueue;
   createShaderModule(descriptor: GPUShaderModuleDescriptor): GPUShaderModule;
   createRenderPipeline(descriptor: GPURenderPipelineDescriptor): GPURenderPipeline;
+  createComputePipeline(descriptor: GPUComputePipelineDescriptor): GPUComputePipeline;
   createPipelineLayout(descriptor: GPUPipelineLayoutDescriptor): GPUPipelineLayout;
   createCommandEncoder(descriptor?: GPUCommandEncoderDescriptor): GPUCommandEncoder;
   createBuffer(descriptor: GPUBufferDescriptor): GPUBuffer;
@@ -120,7 +121,9 @@ interface GPURenderPipeline {
 
 interface GPUCommandEncoder {
   beginRenderPass(descriptor: GPURenderPassDescriptor): GPURenderPassEncoder;
+  beginComputePass(descriptor?: GPUComputePassDescriptor): GPUComputePassEncoder;
   finish(): GPUCommandBuffer;
+  copyBufferToBuffer(source: GPUBuffer, sourceOffset: number, destination: GPUBuffer, destinationOffset: number, size: number): void;
   copyTextureToBuffer(source: GPUImageCopyTexture, destination: GPUImageCopyBuffer, copySize: GPUExtent3D): void;
 }
 
@@ -138,7 +141,7 @@ interface GPUBuffer {
   readonly size: number;
   readonly usage: number;
   readonly label?: string;
-  mapAsync(mode: GPUMapMode): Promise<void>;
+  mapAsync(mode: GPUMapModeFlags): Promise<void>;
   getMappedRange(offset?: number, size?: number): ArrayBuffer;
   unmap(): void;
   destroy(): void;
@@ -395,7 +398,7 @@ type GPUTextureFormat = string;
 type GPULoadOp = 'load' | 'clear';
 type GPUStoreOp = 'store' | 'discard';
 type GPUColorWriteFlags = number;
-type GPUMapMode = number; // WebGPU uses numeric enums: READ = 1, WRITE = 2
+type GPUMapModeFlags = number;
 
 interface GPUAdapterDescriptor {
   powerPreference?: 'low-power' | 'high-performance';
@@ -517,3 +520,36 @@ interface GPUBindGroup {
 interface GPUBindGroupLayout {
   readonly label?: string;
 }
+
+interface GPUComputePipeline {
+  readonly label?: string;
+  getBindGroupLayout(index: number): GPUBindGroupLayout;
+}
+
+interface GPUComputePipelineDescriptor {
+  layout?: GPUPipelineLayout | 'auto';
+  compute: GPUProgrammableStage;
+  label?: string;
+}
+
+interface GPUProgrammableStage {
+  module: GPUShaderModule;
+  entryPoint?: string;
+  constants?: Record<string, number>;
+}
+
+interface GPUComputePassEncoder {
+  setPipeline(pipeline: GPUComputePipeline): void;
+  setBindGroup(index: number, bindGroup: GPUBindGroup | null, dynamicOffsets?: number[]): void;
+  dispatchWorkgroups(workgroupCountX: number, workgroupCountY?: number, workgroupCountZ?: number): void;
+  end(): void;
+}
+
+interface GPUComputePassDescriptor {
+  label?: string;
+}
+
+declare const GPUMapMode: {
+  readonly READ: number;
+  readonly WRITE: number;
+};

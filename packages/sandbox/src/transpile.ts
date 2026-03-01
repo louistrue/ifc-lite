@@ -41,7 +41,7 @@ function getEsbuild(): Promise<EsbuildLike | null> {
       let wasmURL: string | undefined;
       try {
         // Vite: import the .wasm as a URL asset (works in dev + production)
-        // @ts-expect-error — Vite-specific ?url suffix for asset imports
+        // @ts-ignore — Vite-specific ?url suffix for asset imports
         const wasmMod = await import('esbuild-wasm/esbuild.wasm?url');
         wasmURL = (wasmMod as { default: string }).default;
       } catch {

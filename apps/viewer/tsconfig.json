@@ -15,7 +15,18 @@
       "@ifc-lite/export": ["../../packages/export/src"],
       "@ifc-lite/cache": ["../../packages/cache/src"],
       "@ifc-lite/sdk": ["../../packages/sdk/src"],
-      "@ifc-lite/lens": ["../../packages/lens/src"]
+      "@ifc-lite/lens": ["../../packages/lens/src"],
+      "@ifc-lite/bcf": ["../../packages/bcf/src"],
+      "@ifc-lite/mutations": ["../../packages/mutations/src"],
+      "@ifc-lite/drawing-2d": ["../../packages/drawing-2d/src"],
+      "@ifc-lite/server-client": ["../../packages/server-client/src"],
+      "@ifc-lite/ifcx": ["../../packages/ifcx/src"],
+      "@ifc-lite/create": ["../../packages/create/src"],
+      "@ifc-lite/ids": ["../../packages/ids/src"],
+      "@ifc-lite/encoding": ["../../packages/encoding/src"],
+      "@ifc-lite/lists": ["../../packages/lists/src"],
+      "@ifc-lite/sandbox": ["../../packages/sandbox/src"],
+      "@ifc-lite/sandbox/schema": ["../../packages/sandbox/src/bridge-schema"]
     }
   },
   "include": ["src/**/*", "../../packages/renderer/src/webgpu-types.d.ts"],

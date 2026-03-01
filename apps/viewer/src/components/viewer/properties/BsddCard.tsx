@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Badge } from '@/components/ui/badge';
 import { useViewerStore } from '@/store';
-import { PropertyValueType, QuantityType } from '@ifc-lite/data';
+import { type PropertyValue, PropertyValueType, QuantityType } from '@ifc-lite/data';
 import {
   fetchClassInfo,
   bsddDataTypeLabel,
@@ -59,7 +59,7 @@ function toPropertyValueType(bsddType: string | null): PropertyValueType {
   return PropertyValueType.Label;
 }
 
-function defaultValue(_bsddType: string | null): unknown {
+function defaultValue(_bsddType: string | null): PropertyValue {
   // Always return empty string – user fills in values manually
   return '';
 }

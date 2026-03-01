@@ -350,7 +350,7 @@ export class IfcLiteMeshCollector {
       log.warn(
         `WASM streaming returned 0 batches for ${sizeMB}MB file - ` +
         `this may indicate insufficient memory for large file processing`,
-        { operation: 'collectMeshesStreaming', contentLength: this.content.length },
+        { operation: 'collectMeshesStreaming', data: { contentLength: this.content.length } },
       );
     }
 
@@ -480,7 +480,7 @@ export class IfcLiteMeshCollector {
       log.warn(
         `WASM instanced streaming returned 0 batches for ${sizeMB}MB file - ` +
         `this may indicate insufficient memory for large file processing`,
-        { operation: 'collectInstancedGeometryStreaming', contentLength: this.content.length },
+        { operation: 'collectInstancedGeometryStreaming', data: { contentLength: this.content.length } },
       );
     }
 
