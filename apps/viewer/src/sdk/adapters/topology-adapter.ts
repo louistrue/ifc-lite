@@ -51,6 +51,33 @@ const SPACE_TYPES = ['IFCSPACE'];
 // ── Adapter factory ───────────────────────────────────────────────────
 
 export function createTopologyAdapter(store: StoreApi): TopologyBackendMethods {
+  // ── Graph data cache ────────────────────────────────────────────────
+  // Cache the expensive buildGraphData() result so that multiple topology
+  // calls within a single script execution reuse the same graph.
+  // Invalidated when model state changes (new model loaded/removed).
+  let _cachedGraph: GraphData | null = null;
+  let _cachedModelsRef: unknown = null;
+  let _cachedLegacyDs: unknown = null;
+  let _cachedLegacyGeo: unknown = null;
+
+  function getGraphData(): GraphData {
+    const state = store.getState();
+    // Return cached result if model state hasn't changed
+    if (
+      _cachedGraph &&
+      _cachedModelsRef === state.models &&
+      _cachedLegacyDs === state.ifcDataStore &&
+      _cachedLegacyGeo === state.geometryResult
+    ) {
+      return _cachedGraph;
+    }
+    _cachedModelsRef = state.models;
+    _cachedLegacyDs = state.ifcDataStore;
+    _cachedLegacyGeo = state.geometryResult;
+    _cachedGraph = buildGraphData();
+    return _cachedGraph;
+  }
+
   /** Build the raw graph data from the current model state. */
   function buildGraphData(): GraphData {
     const state = store.getState();
@@ -215,7 +242,7 @@ export function createTopologyAdapter(store: StoreApi): TopologyBackendMethods {
 
   return {
     buildGraph(): TopologyGraph {
-      const { nodeMap, adj } = buildGraphData();
+      const { nodeMap, adj } = getGraphData();
       const nodes = [...nodeMap.values()];
       const edges: TopologyEdge[] = [];
       const seen = new Set<string>();
@@ -239,7 +266,7 @@ export function createTopologyAdapter(store: StoreApi): TopologyBackendMethods {
     },
 
     adjacency(): AdjacencyPair[] {
-      const { adj, allCentroids } = buildGraphData();
+      const { adj, allCentroids } = getGraphData();
       const pairs: AdjacencyPair[] = [];
       const seen = new Set<string>();
 
@@ -268,7 +295,7 @@ export function createTopologyAdapter(store: StoreApi): TopologyBackendMethods {
     },
 
     shortestPath(sourceRef: EntityRef, targetRef: EntityRef): PathResult | null {
-      const { nodeMap, adj } = buildGraphData();
+      const { nodeMap, adj } = getGraphData();
       const srcKey = refKey(sourceRef);
       const tgtKey = refKey(targetRef);
       if (!nodeMap.has(srcKey) || !nodeMap.has(tgtKey)) return null;
@@ -323,7 +350,7 @@ export function createTopologyAdapter(store: StoreApi): TopologyBackendMethods {
     },
 
     centrality(): CentralityResult[] {
-      const { nodeMap, adj } = buildGraphData();
+      const { nodeMap, adj } = getGraphData();
       const keys = [...nodeMap.keys()];
       const n = keys.length;
       if (n === 0) return [];
@@ -423,12 +450,12 @@ export function createTopologyAdapter(store: StoreApi): TopologyBackendMethods {
     },
 
     metrics(): TopologyNode[] {
-      const { nodeMap } = buildGraphData();
+      const { nodeMap } = getGraphData();
       return [...nodeMap.values()];
     },
 
     envelope(): EntityRef[] {
-      const { adj } = buildGraphData();
+      const { adj } = getGraphData();
       // Collect all shared boundary elements
       const sharedElements = new Set<string>();
       const allElements = new Map<string, EntityRef>();
@@ -480,7 +507,7 @@ export function createTopologyAdapter(store: StoreApi): TopologyBackendMethods {
     },
 
     connectedComponents(): EntityRef[][] {
-      const { nodeMap, adj } = buildGraphData();
+      const { nodeMap, adj } = getGraphData();
       const visited = new Set<string>();
       const components: EntityRef[][] = [];
 
@@ -512,7 +539,7 @@ export function createTopologyAdapter(store: StoreApi): TopologyBackendMethods {
     },
 
     entityCentroid(ref: EntityRef): [number, number, number] | null {
-      const { allCentroids } = buildGraphData();
+      const { allCentroids } = getGraphData();
       return allCentroids.get(refKey(ref)) ?? null;
     },
   };
