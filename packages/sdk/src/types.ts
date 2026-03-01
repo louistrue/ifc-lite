@@ -220,6 +220,7 @@ export interface SdkEvent {
 export interface ModelBackendMethods {
   list(): ModelInfo[];
   activeId(): string | null;
+  loadIfc(content: string, filename: string): void;
 }
 
 export interface QueryBackendMethods {

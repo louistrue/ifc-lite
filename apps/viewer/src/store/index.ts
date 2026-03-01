@@ -275,8 +275,8 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       basketPresentationVisible: false,
       hierarchyBasketSelection: new Set<string>(),
 
-      // Script - reset execution state but keep saved scripts and editor content
-      scriptPanelVisible: false,
+      // Script - reset execution state but keep saved scripts, editor content, and panel visibility
+      // (scripts that create-and-load a model should not close the panel)
       scriptExecutionState: 'idle' as const,
       scriptLastResult: null,
       scriptLastError: null,

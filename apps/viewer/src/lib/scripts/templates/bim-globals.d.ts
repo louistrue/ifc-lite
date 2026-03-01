@@ -50,6 +50,8 @@ declare const bim: {
     active(): BimModelInfo | null;
     /** Get active model ID */
     activeId(): string | null;
+    /** Load IFC content into the 3D viewer for preview */
+    loadIfc(content: string, filename?: string): void;
   };
   /** Query entities */
   query: {
@@ -101,11 +103,42 @@ declare const bim: {
     /** Get built-in lens presets */
     presets(): unknown[];
   };
+  /** IFC creation from scratch */
+  create: {
+    /** Create a new IFC project. Returns a creator handle (number). */
+    project(params?: { Name?: string; Description?: string; Schema?: string; LengthUnit?: string; Author?: string; Organization?: string }): number;
+    /** Add a building storey. Returns storey expressId. */
+    addIfcBuildingStorey(handle: number, params: { Name?: string; Description?: string; Elevation: number }): number;
+    /** Add a wall to a storey. Returns wall expressId. */
+    addIfcWall(handle: number, storeyId: number, params: { Start: [number,number,number]; End: [number,number,number]; Thickness: number; Height: number; Name?: string; Openings?: Array<{ Width: number; Height: number; Position: [number,number,number]; Name?: string }> }): number;
+    /** Add a slab to a storey. Returns slab expressId. */
+    addIfcSlab(handle: number, storeyId: number, params: { Position: [number,number,number]; Thickness: number; Width?: number; Depth?: number; Profile?: [number,number][]; Name?: string; Openings?: Array<{ Width: number; Height: number; Position: [number,number,number]; Name?: string }> }): number;
+    /** Add a column to a storey. Returns column expressId. */
+    addIfcColumn(handle: number, storeyId: number, params: { Position: [number,number,number]; Width: number; Depth: number; Height: number; Name?: string }): number;
+    /** Add a beam to a storey. Returns beam expressId. */
+    addIfcBeam(handle: number, storeyId: number, params: { Start: [number,number,number]; End: [number,number,number]; Width: number; Height: number; Name?: string }): number;
+    /** Add a stair to a storey. Returns stair expressId. */
+    addIfcStair(handle: number, storeyId: number, params: { Position: [number,number,number]; NumberOfRisers: number; RiserHeight: number; TreadLength: number; Width: number; Direction?: number; Name?: string }): number;
+    /** Add a roof to a storey. Returns roof expressId. */
+    addIfcRoof(handle: number, storeyId: number, params: { Position: [number,number,number]; Width: number; Depth: number; Thickness: number; Slope?: number; Name?: string }): number;
+    /** Assign a named colour to an element. Call before toIfc(). */
+    setColor(handle: number, elementId: number, name: string, rgb: [number, number, number]): void;
+    /** Assign an IFC material (simple or layered) to an element. */
+    addIfcMaterial(handle: number, elementId: number, material: { Name: string; Category?: string; Layers?: Array<{ Name: string; Thickness: number; Category?: string; IsVentilated?: boolean }> }): void;
+    /** Attach a property set to an element. Returns pset expressId. */
+    addIfcPropertySet(handle: number, elementId: number, pset: { Name: string; Properties: Array<{ Name: string; NominalValue: string | number | boolean; Type?: string }> }): number;
+    /** Attach element quantities to an element. Returns qset expressId. */
+    addIfcElementQuantity(handle: number, elementId: number, qset: { Name: string; Quantities: Array<{ Name: string; Value: number; Kind: 'IfcQuantityLength' | 'IfcQuantityArea' | 'IfcQuantityVolume' | 'IfcQuantityCount' | 'IfcQuantityWeight' }> }): number;
+    /** Generate the IFC STEP file content. Returns { content, entities, stats }. */
+    toIfc(handle: number): { content: string; entities: Array<{ expressId: number; type: string; Name?: string }>; stats: { entityCount: number; fileSize: number } };
+  };
   /** Data export */
   export: {
     /** Export entities to CSV string */
     csv(entities: BimEntity[], options: { columns: string[]; filename?: string; separator?: string }): string;
     /** Export entities to JSON array */
     json(entities: BimEntity[], columns: string[]): Record<string, unknown>[];
+    /** Trigger a browser file download with raw content */
+    download(content: string, filename: string, mimeType?: string): void;
   };
 };

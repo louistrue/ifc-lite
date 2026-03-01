@@ -1,7 +1,7 @@
 {
-  "name": "@ifc-lite/sdk",
+  "name": "@ifc-lite/create",
   "version": "1.13.0",
-  "description": "Scripting SDK for ifc-lite — the bim.* API for BIM automation",
+  "description": "IFC creation from scratch — walls, slabs, beams, columns, stairs, roofs with geometry, properties and quantities",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -16,21 +16,7 @@
     "dev": "tsc --watch",
     "test": "vitest run"
   },
-  "dependencies": {
-    "@ifc-lite/create": "workspace:^",
-    "@ifc-lite/data": "workspace:^",
-    "@ifc-lite/parser": "workspace:^",
-    "@ifc-lite/query": "workspace:^",
-    "@ifc-lite/lens": "workspace:^",
-    "@ifc-lite/ids": "workspace:^",
-    "@ifc-lite/bcf": "workspace:^",
-    "@ifc-lite/lists": "workspace:^",
-    "@ifc-lite/mutations": "workspace:^",
-    "@ifc-lite/export": "workspace:^",
-    "@ifc-lite/drawing-2d": "workspace:^",
-    "@ifc-lite/encoding": "workspace:^",
-    "@ifc-lite/spatial": "workspace:^"
-  },
+  "dependencies": {},
   "devDependencies": {
     "typescript": "^5.3.0",
     "vitest": "^1.6.0"
@@ -40,16 +26,15 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/louistrue/ifc-lite.git",
-    "directory": "packages/sdk"
+    "directory": "packages/create"
   },
   "homepage": "https://louistrue.github.io/ifc-lite/",
   "bugs": "https://github.com/louistrue/ifc-lite/issues",
   "keywords": [
     "ifc",
     "bim",
-    "sdk",
-    "scripting",
-    "automation",
+    "create",
+    "geometry",
     "aec"
   ],
   "publishConfig": {

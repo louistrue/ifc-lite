@@ -28,5 +28,13 @@ export function createModelAdapter(store: StoreApi): ModelBackendMethods {
       // For legacy single-model, return the sentinel ID when no active model is set
       return state.activeModelId ?? (state.models.size === 0 && state.ifcDataStore ? LEGACY_MODEL_ID : null);
     },
+
+    loadIfc(content: string, filename: string) {
+      // Create a File from IFC content and dispatch the standard load event.
+      // MainToolbar listens for 'ifc-lite:load-file' and routes to loadFile().
+      const blob = new Blob([content], { type: 'application/x-step' });
+      const file = new File([blob], filename || 'created.ifc', { type: 'application/x-step' });
+      window.dispatchEvent(new CustomEvent('ifc-lite:load-file', { detail: file }));
+    },
   };
 }

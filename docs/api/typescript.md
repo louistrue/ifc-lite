@@ -1329,6 +1329,220 @@ interface DrawingSheet {
 
 ---
 
+## @ifc-lite/create
+
+Build valid IFC4 STEP files programmatically with building elements, geometry, property sets, quantities, and materials.
+
+### IfcCreator
+
+Main class for creating IFC files from scratch.
+
+```typescript
+import { IfcCreator } from '@ifc-lite/create';
+
+const creator = new IfcCreator({ Name: 'My Project' });
+const storey = creator.addIfcBuildingStorey({ Name: 'Ground Floor', Elevation: 0 });
+creator.addIfcWall(storey, {
+  Start: [0, 0, 0], End: [5, 0, 0],
+  Thickness: 0.2, Height: 3,
+});
+const { content } = creator.toIfc();
+```
+
+```typescript
+class IfcCreator {
+  constructor(params?: ProjectParams);
+
+  // Spatial structure
+  addIfcBuildingStorey(params: StoreyParams): number;
+
+  // Building elements (returns expressId)
+  addIfcWall(storeyId: number, params: WallParams): number;
+  addIfcSlab(storeyId: number, params: SlabParams): number;
+  addIfcColumn(storeyId: number, params: ColumnParams): number;
+  addIfcBeam(storeyId: number, params: BeamParams): number;
+  addIfcStair(storeyId: number, params: StairParams): number;
+  addIfcRoof(storeyId: number, params: RoofParams): number;
+
+  // Properties, quantities, materials
+  addIfcPropertySet(elementId: number, pset: PropertySetDef): number;
+  addIfcElementQuantity(elementId: number, qset: QuantitySetDef): number;
+  addIfcMaterial(elementId: number, material: MaterialDef): void;
+
+  // Appearance
+  setColor(elementId: number, name: string, rgb: [number, number, number]): void;
+
+  // Generate STEP file
+  toIfc(): CreateResult;
+}
+```
+
+#### ProjectParams
+
+```typescript
+interface ProjectParams {
+  Name?: string;
+  Description?: string;
+  Schema?: 'IFC2X3' | 'IFC4' | 'IFC4X3';
+  LengthUnit?: string;  // 'METRE' (default), 'MILLIMETRE', 'FOOT'
+  Author?: string;
+  Organization?: string;
+}
+```
+
+#### StoreyParams
+
+```typescript
+interface StoreyParams {
+  Name?: string;
+  Description?: string;
+  Elevation: number;
+}
+```
+
+#### WallParams
+
+```typescript
+interface WallParams {
+  Start: [number, number, number];
+  End: [number, number, number];
+  Thickness: number;
+  Height: number;
+  Name?: string;
+  Openings?: RectangularOpening[];
+}
+```
+
+#### SlabParams
+
+```typescript
+interface SlabParams {
+  Position: [number, number, number];
+  Thickness: number;
+  Width?: number;      // X dimension (omit when using Profile)
+  Depth?: number;      // Y dimension (omit when using Profile)
+  Profile?: [number, number][];  // Arbitrary closed outline
+  Name?: string;
+  Openings?: RectangularOpening[];
+}
+```
+
+#### ColumnParams
+
+```typescript
+interface ColumnParams {
+  Position: [number, number, number];
+  Width: number;
+  Depth: number;
+  Height: number;
+  Name?: string;
+}
+```
+
+#### BeamParams
+
+```typescript
+interface BeamParams {
+  Start: [number, number, number];
+  End: [number, number, number];
+  Width: number;
+  Height: number;
+  Name?: string;
+}
+```
+
+#### StairParams
+
+```typescript
+interface StairParams {
+  Position: [number, number, number];
+  NumberOfRisers: number;
+  RiserHeight: number;
+  TreadLength: number;
+  Width: number;
+  Direction?: number;  // Angle in radians, 0 = +X
+  Name?: string;
+}
+```
+
+#### RoofParams
+
+```typescript
+interface RoofParams {
+  Position: [number, number, number];
+  Width: number;
+  Depth: number;
+  Thickness: number;
+  Slope?: number;  // Angle in radians, 0 = flat
+  Name?: string;
+}
+```
+
+#### RectangularOpening
+
+```typescript
+interface RectangularOpening {
+  Width: number;
+  Height: number;
+  Position: [number, number, number];  // Relative to host element
+  Name?: string;
+}
+```
+
+#### PropertySetDef
+
+```typescript
+interface PropertySetDef {
+  Name: string;
+  Properties: Array<{
+    Name: string;
+    NominalValue: string | number | boolean;
+    Type?: 'IfcLabel' | 'IfcText' | 'IfcReal' | 'IfcInteger' | 'IfcBoolean';
+  }>;
+}
+```
+
+#### QuantitySetDef
+
+```typescript
+interface QuantitySetDef {
+  Name: string;
+  Quantities: Array<{
+    Name: string;
+    Value: number;
+    Kind: 'IfcQuantityLength' | 'IfcQuantityArea' | 'IfcQuantityVolume'
+        | 'IfcQuantityCount' | 'IfcQuantityWeight';
+  }>;
+}
+```
+
+#### MaterialDef
+
+```typescript
+interface MaterialDef {
+  Name: string;
+  Category?: string;
+  Layers?: Array<{
+    Name: string;
+    Thickness: number;
+    Category?: string;
+    IsVentilated?: boolean;
+  }>;
+}
+```
+
+#### CreateResult
+
+```typescript
+interface CreateResult {
+  content: string;
+  entities: Array<{ expressId: number; type: string; Name?: string }>;
+  stats: { entityCount: number; fileSize: number };
+}
+```
+
+---
+
 ## @ifc-lite/codegen
 
 Code generation from IFC EXPRESS schemas.

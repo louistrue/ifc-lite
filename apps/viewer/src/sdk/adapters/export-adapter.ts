@@ -354,6 +354,9 @@ export function createExportAdapter(store: StoreApi): ExportBackendMethods {
 
 /** Trigger a browser file download */
 function triggerDownload(content: string, filename: string, mimeType: string): void {
+  if (typeof document === 'undefined') {
+    throw new Error('download() requires a browser environment (document is unavailable)');
+  }
   const blob = new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
