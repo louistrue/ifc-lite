@@ -210,10 +210,12 @@ const numRisers = 17;
 const riserH = 0.176;
 const treadL = 0.28;
 const stairW = 1.0;
-// Run along +Y (the 8 m axis) so the 4.76 m run fits comfortably
+// Run along +Y (the 8 m axis) so the 4.76 m run fits comfortably.
+// Position is stair origin; with Direction = PI/2 the width extends toward −X.
+// Place at x = stairW so the stair sits flush against the west wall (x = 0).
 const stairId = bim.create.addStair(h, gf, {
   Name: 'ST-01 Main Stair', Description: 'Straight-run concrete stair', ObjectType: 'Stair:Concrete - Straight Run',
-  Position: [1.5, 1, 0], Direction: Math.PI / 2,
+  Position: [stairW, 1, 0], Direction: Math.PI / 2,
   NumberOfRisers: numRisers, RiserHeight: riserH, TreadLength: treadL, Width: stairW,
 });
 bim.create.setColor(h, stairId, 'Concrete - Warm', [0.80, 0.78, 0.74]);
@@ -252,7 +254,7 @@ const ffSlab = bim.create.addSlab(h, ff, {
   Name: 'First Floor Slab', Description: 'Reinforced concrete floor slab', ObjectType: 'Floor:Concrete - 300mm',
   Position: [0, 0, 2.7], Thickness: 0.3, Width: 5, Depth: 8,
   Openings: [
-    { Name: 'Stair Opening', Width: stairW + 0.2, Height: stairOpenLen, Position: [1.5, stairOpenY, 0] },
+    { Name: 'Stair Opening', Width: stairW + 0.2, Height: stairOpenLen, Position: [stairW / 2, stairOpenY, 0] },
   ],
 });
 bim.create.setColor(h, ffSlab, 'Concrete - Grey', [0.65, 0.65, 0.65]);
