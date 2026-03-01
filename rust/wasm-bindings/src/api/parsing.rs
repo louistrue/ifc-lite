@@ -27,9 +27,13 @@ impl IfcAPI {
         use futures_util::StreamExt;
         use ifc_lite_core::StreamConfig;
 
+        // Use Option::take() to move ownership into the closure without cloning.
+        // This avoids doubling WASM memory usage for large files.
+        let mut content = Some(content);
+        let mut callback = Some(callback);
         let promise = Promise::new(&mut |resolve, reject| {
-            let content = content.clone();
-            let callback = callback.clone();
+            let content = content.take().expect("content already taken");
+            let callback = callback.take().expect("callback already taken");
             let reject = reject.clone();
             spawn_local(async move {
                 let config = StreamConfig::default();
@@ -71,8 +75,10 @@ impl IfcAPI {
     /// ```
     #[wasm_bindgen]
     pub fn parse(&self, content: String) -> Promise {
+        // Use Option::take() to move ownership into the closure without cloning.
+        let mut content = Some(content);
         let promise = Promise::new(&mut |resolve, reject| {
-            let content = content.clone();
+            let content = content.take().expect("content already taken");
             let reject = reject.clone();
             spawn_local(async move {
                 // Quick scan to get entity count
