@@ -128,7 +128,7 @@ declare const bim: {
     /** Attach a property set to an element. Returns pset expressId. */
     addPropertySet(handle: number, elementId: number, pset: { Name: string; Properties: Array<{ Name: string; NominalValue: string | number | boolean; Type?: string }> }): number;
     /** Attach element quantities to an element. Returns qset expressId. */
-    addQuantitySet(handle: number, elementId: number, qset: { Name: string; Quantities: Array<{ Name: string; Value: number; Kind: string }> }): number;
+    addQuantitySet(handle: number, elementId: number, qset: { Name: string; Quantities: Array<{ Name: string; Value: number; Kind: 'IfcQuantityLength' | 'IfcQuantityArea' | 'IfcQuantityVolume' | 'IfcQuantityCount' | 'IfcQuantityWeight' }> }): number;
     /** Generate the IFC STEP file content. Returns { content, entities, stats }. */
     toIfc(handle: number): { content: string; entities: Array<{ expressId: number; type: string; Name?: string }>; stats: { entityCount: number; fileSize: number } };
   };

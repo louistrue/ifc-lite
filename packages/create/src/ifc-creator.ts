@@ -51,9 +51,11 @@ function stepLine(id: number, type: string, args: string): string {
   return `#${id}=${type}(${args});`;
 }
 
-/** Serialize a number in STEP format (always with decimal point) */
+/** Serialize a number in STEP format (always with decimal point, no exponent notation) */
 function num(v: number): string {
+  // Exponent notation (e.g. 1e-7) is not valid STEP — use fixed decimal
   const s = v.toString();
+  if (s.includes('e') || s.includes('E')) return v.toFixed(10).replace(/0+$/, '0');
   return s.includes('.') ? s : s + '.';
 }
 
@@ -101,6 +103,9 @@ export class IfcCreator {
   private dirX = 0;
   private worldPlacementId = 0;
   private unitAssignmentId = 0;
+
+  // Guard against repeated toIfc() calls (relationships are not idempotent)
+  private finalized = false;
 
   // Default surface style (applied to elements without custom color)
   private defaultStyleId = 0;
@@ -243,7 +248,7 @@ export class IfcCreator {
 
     if (params.Openings) {
       for (const opening of params.Openings) {
-        this.addSlabOpening(slabId, placementId, opening);
+        this.addSlabOpening(slabId, placementId, opening, params.Thickness);
       }
     }
 
@@ -328,6 +333,11 @@ export class IfcCreator {
    * (rotated into world space by Direction). Width extends along local +Y.
    */
   addStair(storeyId: number, params: StairParams): number {
+    if (params.NumberOfRisers <= 0) throw new Error('addStair: NumberOfRisers must be > 0');
+    if (params.RiserHeight <= 0) throw new Error('addStair: RiserHeight must be > 0');
+    if (params.TreadLength <= 0) throw new Error('addStair: TreadLength must be > 0');
+    if (params.Width <= 0) throw new Error('addStair: Width must be > 0');
+
     const direction = params.Direction ?? 0;
     // Use LocalPlacement rotation so both step positions AND profiles rotate together
     const placementId = this.addLocalPlacement(this.worldPlacementId, {
@@ -539,8 +549,11 @@ export class IfcCreator {
   // Public API — Export
   // ============================================================================
 
-  /** Generate the complete IFC STEP file */
+  /** Generate the complete IFC STEP file. May only be called once. */
   toIfc(): CreateResult {
+    if (this.finalized) throw new Error('toIfc() has already been called — creator is not reusable');
+    this.finalized = true;
+
     this.finalizeStyles();
     this.finalizeMaterials();
     this.finalizeRelationships();
@@ -569,7 +582,7 @@ export class IfcCreator {
 
     return `ISO-10303-21;
 HEADER;
-FILE_DESCRIPTION('${desc}','2;1');
+FILE_DESCRIPTION(('${esc(desc)}'),'2;1');
 FILE_NAME('${filename}','${now}',('${esc(author)}'),('${esc(org)}'),'${app}','${app}','');
 FILE_SCHEMA(('${this.schema}'));
 ENDSEC;
@@ -946,13 +959,14 @@ ENDSEC;
    * Opening Position: [x_offset, y_offset, 0] relative to slab placement.
    * The opening extrudes through the slab along Z.
    */
-  private addSlabOpening(hostId: number, hostPlacementId: number, opening: RectangularOpening): number {
+  private addSlabOpening(hostId: number, hostPlacementId: number, opening: RectangularOpening, slabThickness: number): number {
     const placementId = this.addLocalPlacement(hostPlacementId, {
       Location: opening.Position,
     });
 
     const profileId = this.addRectangleProfile(opening.Width, opening.Height);
-    const solidId = this.addExtrudedAreaSolid(profileId, 10); // cut through
+    const extrusionDepth = slabThickness + 0.1; // enough to cut clean through
+    const solidId = this.addExtrudedAreaSolid(profileId, extrusionDepth);
     const shapeId = this.addShapeRepresentation('Body', [solidId]);
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
@@ -1002,7 +1016,7 @@ ENDSEC;
       case 'IfcQuantityWeight':
         return `$,${num(qty.Value)}`;
       case 'IfcQuantityCount':
-        return `$,${Math.round(qty.Value)}.`;
+        return `$,${Math.round(qty.Value)}`;
       default:
         return `$,${num(qty.Value)}`;
     }

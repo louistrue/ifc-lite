@@ -591,7 +591,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         doc: 'Attach element quantities to an element. Returns qset expressId.',
         args: ['number', 'number', 'dump'],
         paramNames: ['handle', 'elementId', 'qset'],
-        tsParamTypes: [undefined, undefined, '{ Name: string; Quantities: Array<{ Name: string; Value: number; Kind: string }> }'],
+        tsParamTypes: [undefined, undefined, "{ Name: string; Quantities: Array<{ Name: string; Value: number; Kind: 'IfcQuantityLength' | 'IfcQuantityArea' | 'IfcQuantityVolume' | 'IfcQuantityCount' | 'IfcQuantityWeight' }> }"],
         tsReturn: 'number',
         call: (_sdk, args) => {
           const creator = creatorRegistry.get(args[0] as number);
@@ -606,11 +606,14 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         paramNames: ['handle'],
         tsReturn: '{ content: string; entities: Array<{ expressId: number; type: string; Name?: string }>; stats: { entityCount: number; fileSize: number } }',
         call: (_sdk, args) => {
-          const creator = creatorRegistry.get(args[0] as number);
-          const result = creator.toIfc();
-          // Clean up the creator after export
-          creatorRegistry.remove(args[0] as number);
-          return result;
+          const handle = args[0] as number;
+          try {
+            const creator = creatorRegistry.get(handle);
+            return creator.toIfc();
+          } finally {
+            // Always clean up the creator, even if toIfc() throws
+            creatorRegistry.remove(handle);
+          }
         },
         returns: 'value',
       },
