@@ -133,7 +133,7 @@ export class RenderPipeline {
           let worldNormal = normalize((uniforms.model * vec4<f32>(input.normal, 0.0)).xyz);
           let cameraFwd = normalize(vec3(uniforms.viewProj[0][3], uniforms.viewProj[1][3], uniforms.viewProj[2][3]));
           let NdotV = abs(dot(worldNormal, cameraFwd));
-          let slopeFactor = clamp(1.0 / max(NdotV, 0.1), 1.0, 10.0);
+          let slopeFactor = 1.0 / max(NdotV, 0.03);
           let zHash = (input.entityId * 2654435761u) & 255u;
           output.position.z *= 1.0 + f32(zHash) * 1e-6 * slopeFactor;
           output.worldPos = worldPos.xyz;
@@ -767,7 +767,7 @@ export class InstancedRenderPipeline {
           let worldNormal = normalize(normalYUp);
           let cameraFwd = normalize(vec3(uniforms.viewProj[0][3], uniforms.viewProj[1][3], uniforms.viewProj[2][3]));
           let NdotV = abs(dot(worldNormal, cameraFwd));
-          let slopeFactor = clamp(1.0 / max(NdotV, 0.1), 1.0, 10.0);
+          let slopeFactor = 1.0 / max(NdotV, 0.03);
           let zHash = (instanceIndex * 2654435761u) & 255u;
           output.position.z *= 1.0 + f32(zHash) * 1e-6 * slopeFactor;
           output.worldPos = worldPos.xyz;
