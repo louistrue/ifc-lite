@@ -131,7 +131,13 @@ export class RenderPipeline {
           // enough to separate coplanar entities at all viewing angles
           // because inter-draw-call rasterizer jitter is eliminated.
           let zHash = (input.entityId * 2654435761u) & 255u;
-          output.position.z *= 1.0 + f32(zHash) * 5e-6;
+          // For selection (flags.x == 1), boost nudge to max+1 so the
+          // selected entity always passes greater-equal at coplanar pixels
+          // where another entity "won" the merged buffer depth test.
+          // Selection pipeline has depthWriteEnabled: false, so this
+          // doesn't corrupt the depth buffer.
+          let nudgeHash = select(f32(zHash), 256.0, uniforms.flags.x == 1u);
+          output.position.z *= 1.0 + nudgeHash * 5e-6;
           output.worldPos = worldPos.xyz;
           output.normal = normalize((uniforms.model * vec4<f32>(input.normal, 0.0)).xyz);
           output.entityId = input.entityId;
