@@ -48,9 +48,18 @@ const westWall = bim.create.addWall(h, gf, {
   Start: [0, 8, 0], End: [0, 0, 0], Thickness: 0.2, Height: 3,
 });
 
-// Wall colours — warm plaster beige
+// Wall colours and materials
 for (const wId of [southWall, eastWall, northWall, westWall]) {
   bim.create.setColor(h, wId, 'Plaster - Beige', [0.92, 0.88, 0.80]);
+  bim.create.addMaterial(h, wId, {
+    Name: 'Exterior Wall Assembly',
+    Layers: [
+      { Name: 'Gypsum Board', Thickness: 0.013, Category: 'Finish' },
+      { Name: 'Mineral Wool Insulation', Thickness: 0.08, Category: 'Insulation' },
+      { Name: 'Concrete C30/37', Thickness: 0.2, Category: 'Structural' },
+      { Name: 'External Render', Thickness: 0.015, Category: 'Finish' },
+    ],
+  });
 }
 
 // Wall properties & quantities (all walls share the same spec)
@@ -90,6 +99,14 @@ const slab = bim.create.addSlab(h, gf, {
   Position: [0, 0, -0.3], Thickness: 0.3, Width: 5, Depth: 8,
 });
 bim.create.setColor(h, slab, 'Concrete - Grey', [0.65, 0.65, 0.65]);
+bim.create.addMaterial(h, slab, {
+  Name: 'Floor Slab Assembly',
+  Layers: [
+    { Name: 'Ceramic Tile', Thickness: 0.01, Category: 'Finish' },
+    { Name: 'Screed', Thickness: 0.05, Category: 'Finish' },
+    { Name: 'Reinforced Concrete C30/37', Thickness: 0.24, Category: 'Structural' },
+  ],
+});
 bim.create.addPropertySet(h, slab, {
   Name: 'Pset_SlabCommon',
   Properties: [
@@ -126,6 +143,7 @@ for (const [cName, cx, cy] of columnPositions) {
     Position: [cx, cy, 0], Width: 0.3, Depth: 0.3, Height: 3,
   });
   bim.create.setColor(h, colId, 'Concrete - Light', [0.72, 0.72, 0.74]);
+  bim.create.addMaterial(h, colId, { Name: 'Reinforced Concrete C30/37', Category: 'Concrete' });
   bim.create.addPropertySet(h, colId, {
     Name: 'Pset_ColumnCommon',
     Properties: [
@@ -162,6 +180,7 @@ for (const [bName, bStart, bEnd] of beamDefs) {
     Start: bStart, End: bEnd, Width: 0.2, Height: 0.4,
   });
   bim.create.setColor(h, beamId, 'Steel - Grey', [0.55, 0.55, 0.58]);
+  bim.create.addMaterial(h, beamId, { Name: 'Structural Steel S235', Category: 'Steel' });
   bim.create.addPropertySet(h, beamId, {
     Name: 'Pset_BeamCommon',
     Properties: [
@@ -195,6 +214,7 @@ const stairId = bim.create.addStair(h, gf, {
   NumberOfRisers: numRisers, RiserHeight: riserH, TreadLength: treadL, Width: stairW,
 });
 bim.create.setColor(h, stairId, 'Concrete - Warm', [0.80, 0.78, 0.74]);
+bim.create.addMaterial(h, stairId, { Name: 'Reinforced Concrete C25/30', Category: 'Concrete' });
 bim.create.addPropertySet(h, stairId, {
   Name: 'Pset_StairCommon',
   Properties: [
@@ -223,6 +243,15 @@ const roofId = bim.create.addRoof(h, gf, {
   Position: [0, 0, 3], Width: 5, Depth: 8, Thickness: 0.25,
 });
 bim.create.setColor(h, roofId, 'Bitumen - Dark', [0.30, 0.28, 0.26]);
+bim.create.addMaterial(h, roofId, {
+  Name: 'Flat Roof Assembly',
+  Layers: [
+    { Name: 'Bitumen Membrane', Thickness: 0.01, Category: 'Waterproofing' },
+    { Name: 'XPS Insulation', Thickness: 0.12, Category: 'Insulation' },
+    { Name: 'Vapour Barrier', Thickness: 0.002, Category: 'Membrane' },
+    { Name: 'Reinforced Concrete C30/37', Thickness: 0.2, Category: 'Structural' },
+  ],
+});
 bim.create.addPropertySet(h, roofId, {
   Name: 'Pset_RoofCommon',
   Properties: [

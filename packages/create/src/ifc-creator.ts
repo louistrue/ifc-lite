@@ -23,6 +23,7 @@ import type {
   WallParams, SlabParams, ColumnParams, BeamParams, StairParams, RoofParams,
   ProjectParams, SiteParams, BuildingParams, StoreyParams,
   PropertySetDef, PropertyDef, QuantitySetDef, QuantityDef,
+  MaterialDef, MaterialLayerDef,
   CreatedEntity, CreateResult,
 } from './types.js';
 
@@ -107,6 +108,10 @@ export class IfcCreator {
   // Per-element style tracking (deferred to finalization)
   private elementSolids: Map<number, number[]> = new Map();
   private elementColors: Map<number, { name: string; rgb: [number, number, number] }> = new Map();
+
+  // Material tracking (deferred IfcRelAssociatesMaterial at finalization)
+  private materialCache: Map<string, number> = new Map();       // name → IfcMaterial id
+  private elementMaterials: Map<number, number> = new Map();     // elementId → materialRefId
 
   // Tracking for spatial aggregation
   private storeyIds: number[] = [];
@@ -491,12 +496,54 @@ export class IfcCreator {
   }
 
   // ============================================================================
+  // Public API — Materials
+  // ============================================================================
+
+  /**
+   * Assign an IFC material to an element. Creates proper IfcMaterial entities
+   * and links them via IfcRelAssociatesMaterial during finalization.
+   *
+   * Simple material:   `{ Name: 'Concrete', Category: 'Structural' }`
+   * Layered material:  `{ Name: 'Wall Assembly', Layers: [{ Name: 'Concrete', Thickness: 0.2 }, …] }`
+   */
+  addMaterial(elementId: number, def: MaterialDef): void {
+    let materialRefId: number;
+
+    if (def.Layers && def.Layers.length > 0) {
+      // IfcMaterialLayerSet path
+      const layerIds: number[] = [];
+      for (const layer of def.Layers) {
+        const matId = this.getOrCreateMaterial(layer.Name, layer.Category);
+        const layerId = this.id();
+        const ventilated = layer.IsVentilated ? '.T.' : '.F.';
+        const layerName = `'${esc(layer.Name)}'`;
+        const layerCategory = layer.Category ? `'${esc(layer.Category)}'` : '$';
+        // IFC4: Material, LayerThickness, IsVentilated, Name, Description, Category, Priority
+        this.line(layerId, 'IFCMATERIALLAYER',
+          `#${matId},${num(layer.Thickness)},${ventilated},${layerName},$,${layerCategory},$`);
+        layerIds.push(layerId);
+      }
+      const layerRefs = layerIds.map(id => `#${id}`).join(',');
+      materialRefId = this.id();
+      // IFC4: MaterialLayers, LayerSetName, Description
+      this.line(materialRefId, 'IFCMATERIALLAYERSET',
+        `(${layerRefs}),'${esc(def.Name)}',$`);
+    } else {
+      // Simple IfcMaterial
+      materialRefId = this.getOrCreateMaterial(def.Name, def.Category);
+    }
+
+    this.elementMaterials.set(elementId, materialRefId);
+  }
+
+  // ============================================================================
   // Public API — Export
   // ============================================================================
 
   /** Generate the complete IFC STEP file */
   toIfc(): CreateResult {
     this.finalizeStyles();
+    this.finalizeMaterials();
     this.finalizeRelationships();
 
     const header = this.buildHeader();
@@ -693,6 +740,41 @@ ENDSEC;
     const styleId = this.id();
     this.line(styleId, 'IFCSURFACESTYLE', `'${esc(name)}',.BOTH.,(#${renderingId})`);
     return styleId;
+  }
+
+  // ============================================================================
+  // Internal — Material helpers
+  // ============================================================================
+
+  /** Get or create a shared IfcMaterial entity (IFC4: Name, Description, Category) */
+  private getOrCreateMaterial(name: string, category?: string): number {
+    const cached = this.materialCache.get(name);
+    if (cached !== undefined) return cached;
+
+    const matId = this.id();
+    const cat = category ? `'${esc(category)}'` : '$';
+    this.line(matId, 'IFCMATERIAL', `'${esc(name)}',$,${cat}`);
+    this.materialCache.set(name, matId);
+    return matId;
+  }
+
+  /** Create IfcRelAssociatesMaterial entities — one per unique material ref (batched) */
+  private finalizeMaterials(): void {
+    // Group elements by materialRefId so elements sharing a material get one rel
+    const groups = new Map<number, number[]>();
+    for (const [elementId, materialRefId] of this.elementMaterials) {
+      const group = groups.get(materialRefId);
+      if (group) group.push(elementId);
+      else groups.set(materialRefId, [elementId]);
+    }
+
+    for (const [materialRefId, elementIds] of groups) {
+      const relId = this.id();
+      const globalId = newGlobalId();
+      const refs = elementIds.map(id => `#${id}`).join(',');
+      this.line(relId, 'IFCRELASSOCIATESMATERIAL',
+        `'${globalId}',#${this.ownerHistoryId},$,$,(${refs}),#${materialRefId}`);
+    }
   }
 
   // ============================================================================

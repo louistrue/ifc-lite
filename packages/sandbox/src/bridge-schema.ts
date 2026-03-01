@@ -561,6 +561,19 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         returns: 'void',
       },
       {
+        name: 'addMaterial',
+        doc: 'Assign an IFC material (simple or layered) to an element.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'elementId', 'material'],
+        tsParamTypes: [undefined, undefined, '{ Name: string; Category?: string; Layers?: Array<{ Name: string; Thickness: number; Category?: string; IsVentilated?: boolean }> }'],
+        tsReturn: 'void',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          creator.addMaterial(args[1] as number, args[2] as any);
+        },
+        returns: 'void',
+      },
+      {
         name: 'addPropertySet',
         doc: 'Attach a property set to an element. Returns pset expressId.',
         args: ['number', 'number', 'dump'],

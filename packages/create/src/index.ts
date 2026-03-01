@@ -50,6 +50,10 @@ export type {
   QuantityDef,
   QuantitySetDef,
 
+  // Materials
+  MaterialLayerDef,
+  MaterialDef,
+
   // Spatial structure
   ProjectParams,
   SiteParams,

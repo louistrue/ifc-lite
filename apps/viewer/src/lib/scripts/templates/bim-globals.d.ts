@@ -123,6 +123,8 @@ declare const bim: {
     addRoof(handle: number, storeyId: number, params: { Position: [number,number,number]; Width: number; Depth: number; Thickness: number; Slope?: number; Name?: string }): number;
     /** Assign a named colour to an element. Call before toIfc(). */
     setColor(handle: number, elementId: number, name: string, rgb: [number, number, number]): void;
+    /** Assign an IFC material (simple or layered) to an element. */
+    addMaterial(handle: number, elementId: number, material: { Name: string; Category?: string; Layers?: Array<{ Name: string; Thickness: number; Category?: string; IsVentilated?: boolean }> }): void;
     /** Attach a property set to an element. Returns pset expressId. */
     addPropertySet(handle: number, elementId: number, pset: { Name: string; Properties: Array<{ Name: string; NominalValue: string | number | boolean; Type?: string }> }): number;
     /** Attach element quantities to an element. Returns qset expressId. */

@@ -184,6 +184,32 @@ export interface QuantitySetDef {
 }
 
 // ============================================================================
+// Material definitions
+// ============================================================================
+
+/** A single layer within a material layer set */
+export interface MaterialLayerDef {
+  /** Material name for this layer */
+  Name: string;
+  /** Layer thickness in metres */
+  Thickness: number;
+  /** Category (e.g. 'Structural', 'Insulation', 'Finish') */
+  Category?: string;
+  /** Whether the layer allows airflow */
+  IsVentilated?: boolean;
+}
+
+/** Material definition — simple or layered */
+export interface MaterialDef {
+  /** Material or layer-set name */
+  Name: string;
+  /** Category (used for simple materials without layers) */
+  Category?: string;
+  /** If provided, creates IfcMaterialLayerSet; otherwise simple IfcMaterial */
+  Layers?: MaterialLayerDef[];
+}
+
+// ============================================================================
 // Spatial structure
 // ============================================================================
 

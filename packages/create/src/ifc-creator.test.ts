@@ -243,6 +243,66 @@ describe('IfcCreator', () => {
     expect(result.content).toContain("'Qto_SlabBaseQuantities'");
   });
 
+  it('attaches a simple material via IfcRelAssociatesMaterial', () => {
+    const creator = new IfcCreator();
+    const storey = creator.addStorey({ Name: 'GF', Elevation: 0 });
+    const colId = creator.addColumn(storey, {
+      Position: [0, 0, 0], Width: 0.3, Depth: 0.3, Height: 3,
+    });
+
+    creator.addMaterial(colId, { Name: 'Concrete C30/37', Category: 'Concrete' });
+    const result = creator.toIfc();
+
+    expect(result.content).toContain('IFCMATERIAL');
+    expect(result.content).toContain("'Concrete C30/37'");
+    expect(result.content).toContain("'Concrete'");
+    expect(result.content).toContain('IFCRELASSOCIATESMATERIAL');
+  });
+
+  it('attaches a layered material set', () => {
+    const creator = new IfcCreator();
+    const storey = creator.addStorey({ Name: 'GF', Elevation: 0 });
+    const wallId = creator.addWall(storey, {
+      Start: [0, 0, 0], End: [5, 0, 0], Thickness: 0.2, Height: 3,
+    });
+
+    creator.addMaterial(wallId, {
+      Name: 'Wall Assembly',
+      Layers: [
+        { Name: 'Gypsum', Thickness: 0.013, Category: 'Finish' },
+        { Name: 'Concrete', Thickness: 0.2, Category: 'Structural' },
+      ],
+    });
+    const result = creator.toIfc();
+
+    expect(result.content).toContain('IFCMATERIAL');
+    expect(result.content).toContain('IFCMATERIALLAYER');
+    expect(result.content).toContain('IFCMATERIALLAYERSET');
+    expect(result.content).toContain("'Wall Assembly'");
+    expect(result.content).toContain("'Gypsum'");
+    expect(result.content).toContain("'Concrete'");
+    expect(result.content).toContain('IFCRELASSOCIATESMATERIAL');
+  });
+
+  it('shares IfcMaterial entities across elements with same material name', () => {
+    const creator = new IfcCreator();
+    const storey = creator.addStorey({ Name: 'GF', Elevation: 0 });
+    const col1 = creator.addColumn(storey, { Position: [0, 0, 0], Width: 0.3, Depth: 0.3, Height: 3 });
+    const col2 = creator.addColumn(storey, { Position: [5, 0, 0], Width: 0.3, Depth: 0.3, Height: 3 });
+
+    creator.addMaterial(col1, { Name: 'Concrete' });
+    creator.addMaterial(col2, { Name: 'Concrete' });
+    const result = creator.toIfc();
+
+    // Only one IFCMATERIAL('Concrete'...) should be created, shared between both
+    const materialMatches = result.content.match(/IFCMATERIAL\('Concrete'/g) ?? [];
+    expect(materialMatches.length).toBe(1);
+
+    // But one IfcRelAssociatesMaterial should link both elements
+    const relMatches = result.content.match(/IFCRELASSOCIATESMATERIAL/g) ?? [];
+    expect(relMatches.length).toBe(1);
+  });
+
   it('produces valid STEP header', () => {
     const creator = new IfcCreator({ Schema: 'IFC4' });
     const result = creator.toIfc();
