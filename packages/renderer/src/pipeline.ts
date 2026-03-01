@@ -456,8 +456,8 @@ export class RenderPipeline {
         // geometry wrote depth (equal) AND where transparent entities didn't write depth
         // (overlay depth > 0.0 clear value).  This fixes colorize for IfcSpace entities
         // which are rendered as transparent (alpha 0.3) and don't write depth.
-        // depthWriteEnabled: true — overlay writes depth so transparent passes behind
-        // the overlay are correctly occluded.
+        // depthWriteEnabled: false — keep overlay non-occluding so transparent passes
+        // and 3D lines still render through colored spaces.
         const overlayPipelineDescriptor: GPURenderPipelineDescriptor = {
             layout: pipelineLayout,
             vertex: {
@@ -497,7 +497,7 @@ export class RenderPipeline {
             },
             depthStencil: {
                 format: this.depthFormat,
-                depthWriteEnabled: true,
+                depthWriteEnabled: false,
                 depthCompare: 'greater-equal',  // Reverse-Z: renders where depth matches (opaque) OR where no depth was written (transparent entities like IfcSpace)
             },
             multisample: {

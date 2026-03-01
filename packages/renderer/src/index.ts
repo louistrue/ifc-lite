@@ -772,8 +772,8 @@ export class Renderer {
                 // Placed AFTER partial batches so depth buffer is complete for opaque geometry.
                 // Uses 'greater-equal' depth compare (reverse-Z) — paints where original
                 // geometry wrote depth (opaque entities) AND where no depth was written
-                // (transparent entities like IfcSpace).  Writes depth so the subsequent
-                // transparent pass doesn't render behind the overlay.
+                // (transparent entities like IfcSpace).  Does NOT write depth so 3D lines
+                // and transparent passes can still render through colored spaces.
                 const overrideBatches = this.scene.getOverrideBatches();
                 if (overrideBatches.length > 0) {
                     pass.setPipeline(this.pipeline.getOverlayPipeline());
