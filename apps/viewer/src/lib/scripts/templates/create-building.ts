@@ -239,7 +239,126 @@ bim.create.addQuantitySet(h, stairId, {
   ],
 });
 
-// ─── 8. Parametric timber gridshell roof ─────────────────────────────
+// ─── 8. Second floor ─────────────────────────────────────────────────
+
+const ff = bim.create.addStorey(h, { Name: 'First Floor', Elevation: 3 });
+
+// Floor slab at z = 3 with stair opening
+const ffSlab = bim.create.addSlab(h, ff, {
+  Name: 'First Floor Slab', Description: 'Reinforced concrete floor slab', ObjectType: 'Floor:Concrete - 300mm',
+  Position: [0, 0, 2.7], Thickness: 0.3, Width: 5, Depth: 8,
+  Openings: [
+    { Name: 'Stair Opening', Width: stairW + 0.2, Height: numRisers * treadL + 0.2, Position: [1.5, 1 + numRisers * treadL / 2, 0] },
+  ],
+});
+bim.create.setColor(h, ffSlab, 'Concrete - Grey', [0.65, 0.65, 0.65]);
+bim.create.addMaterial(h, ffSlab, {
+  Name: 'Floor Slab Assembly',
+  Layers: [
+    { Name: 'Ceramic Tile', Thickness: 0.01, Category: 'Finish' },
+    { Name: 'Screed', Thickness: 0.05, Category: 'Finish' },
+    { Name: 'Reinforced Concrete C30/37', Thickness: 0.24, Category: 'Structural' },
+  ],
+});
+bim.create.addPropertySet(h, ffSlab, {
+  Name: 'Pset_SlabCommon',
+  Properties: [
+    { Name: 'Reference', NominalValue: 'Concrete - 300mm', Type: 'IfcIdentifier' },
+    { Name: 'IsExternal', NominalValue: false, Type: 'IfcBoolean' },
+    { Name: 'LoadBearing', NominalValue: true, Type: 'IfcBoolean' },
+    { Name: 'FireRating', NominalValue: 'REI90', Type: 'IfcLabel' },
+  ],
+});
+
+// Second floor walls — same footprint, window on east instead of door
+const ffSouthWall = bim.create.addWall(h, ff, {
+  Name: 'South Wall', Description: 'Exterior south façade', ObjectType: 'Basic Wall:Exterior - 200mm',
+  Start: [0, 0, 3], End: [5, 0, 3], Thickness: 0.2, Height: 3,
+  Openings: [
+    { Name: 'W-03 Window', Width: 1.2, Height: 1.5, Position: [1.5, 0, 0.9] },
+  ],
+});
+const ffEastWall = bim.create.addWall(h, ff, {
+  Name: 'East Wall', Description: 'Exterior east façade', ObjectType: 'Basic Wall:Exterior - 200mm',
+  Start: [5, 0, 3], End: [5, 8, 3], Thickness: 0.2, Height: 3,
+  Openings: [
+    { Name: 'W-04 Window', Width: 1.4, Height: 1.5, Position: [3, 0, 0.9] },
+  ],
+});
+const ffNorthWall = bim.create.addWall(h, ff, {
+  Name: 'North Wall', Description: 'Exterior north façade', ObjectType: 'Basic Wall:Exterior - 200mm',
+  Start: [5, 8, 3], End: [0, 8, 3], Thickness: 0.2, Height: 3,
+  Openings: [
+    { Name: 'W-05 Window', Width: 1.4, Height: 1.5, Position: [1.8, 0, 0.9] },
+  ],
+});
+const ffWestWall = bim.create.addWall(h, ff, {
+  Name: 'West Wall', Description: 'Exterior west façade', ObjectType: 'Basic Wall:Exterior - 200mm',
+  Start: [0, 8, 3], End: [0, 0, 3], Thickness: 0.2, Height: 3,
+});
+
+for (const wId of [ffSouthWall, ffEastWall, ffNorthWall, ffWestWall]) {
+  bim.create.setColor(h, wId, 'Plaster - Beige', [0.92, 0.88, 0.80]);
+  bim.create.addMaterial(h, wId, {
+    Name: 'Exterior Wall Assembly',
+    Layers: [
+      { Name: 'Gypsum Board', Thickness: 0.013, Category: 'Finish' },
+      { Name: 'Mineral Wool Insulation', Thickness: 0.08, Category: 'Insulation' },
+      { Name: 'Concrete C30/37', Thickness: 0.2, Category: 'Structural' },
+      { Name: 'External Render', Thickness: 0.015, Category: 'Finish' },
+    ],
+  });
+}
+
+for (const [wId, wName, wLen] of [
+  [ffSouthWall, 'South Wall', 5],
+  [ffEastWall, 'East Wall', 8],
+  [ffNorthWall, 'North Wall', 5],
+  [ffWestWall, 'West Wall', 8],
+] as [number, string, number][]) {
+  bim.create.addPropertySet(h, wId, {
+    Name: 'Pset_WallCommon',
+    Properties: [
+      { Name: 'Reference', NominalValue: 'Exterior - 200mm', Type: 'IfcIdentifier' },
+      { Name: 'IsExternal', NominalValue: true, Type: 'IfcBoolean' },
+      { Name: 'LoadBearing', NominalValue: true, Type: 'IfcBoolean' },
+      { Name: 'FireRating', NominalValue: 'REI60', Type: 'IfcLabel' },
+      { Name: 'ThermalTransmittance', NominalValue: 0.25, Type: 'IfcReal' },
+    ],
+  });
+  bim.create.addQuantitySet(h, wId, {
+    Name: 'Qto_WallBaseQuantities',
+    Quantities: [
+      { Name: 'Length', Value: wLen, Kind: 'IfcQuantityLength' },
+      { Name: 'Height', Value: 3, Kind: 'IfcQuantityLength' },
+      { Name: 'Width', Value: 0.2, Kind: 'IfcQuantityLength' },
+      { Name: 'GrossSideArea', Value: wLen * 3, Kind: 'IfcQuantityArea' },
+      { Name: 'GrossVolume', Value: wLen * 3 * 0.2, Kind: 'IfcQuantityVolume' },
+    ],
+  });
+}
+
+// Second floor columns
+for (const [cName, cx, cy] of columnPositions) {
+  const colId = bim.create.addColumn(h, ff, {
+    Name: cName, Description: 'Reinforced concrete column', ObjectType: 'Column:Concrete 300x300',
+    Position: [cx, cy, 3], Width: 0.3, Depth: 0.3, Height: 3,
+  });
+  bim.create.setColor(h, colId, 'Concrete - Light', [0.72, 0.72, 0.74]);
+  bim.create.addMaterial(h, colId, { Name: 'Reinforced Concrete C30/37', Category: 'Concrete' });
+}
+
+// Second floor beams
+for (const [bName, bStart, bEnd] of beamDefs) {
+  const beamId = bim.create.addBeam(h, ff, {
+    Name: bName, Description: 'Steel I-beam', ObjectType: 'Beam:IPE 200',
+    Start: [bStart[0], bStart[1], 6], End: [bEnd[0], bEnd[1], 6], Width: 0.2, Height: 0.4,
+  });
+  bim.create.setColor(h, beamId, 'Steel - Grey', [0.55, 0.55, 0.58]);
+  bim.create.addMaterial(h, beamId, { Name: 'Structural Steel S235', Category: 'Steel' });
+}
+
+// ─── 9. Parametric timber gridshell roof ─────────────────────────────
 //
 // A doubly-curved gridshell spanning the 5 × 8 m footprint.
 // Two families of diagonal timber laths form a diamond lattice.
@@ -247,7 +366,7 @@ bim.create.addQuantitySet(h, stairId, {
 
 const ROOF_W = 5;           // building width (X)
 const ROOF_D = 8;           // building depth (Y)
-const WALL_H = 3;           // wall-top elevation
+const WALL_H = 6;           // wall-top elevation (2 storeys × 3 m)
 const CROWN  = 1.8;         // rise above walls
 const NU     = 10;          // grid divisions along X
 const NV     = 16;          // grid divisions along Y
@@ -295,7 +414,7 @@ for (let d = -NV; d <= NU; d++) {
     const j = i - d;
     if (j < 0 || j >= NV) continue;
     const s = grid[i][j], e = grid[i + 1][j + 1];
-    const id = bim.create.addBeam(h, gf, {
+    const id = bim.create.addBeam(h, ff, {
       Name: `GL-A${(d + NV).toString().padStart(2, '0')}/${i - i0}`,
       Description: 'Gridshell lath family A', ObjectType: 'Timber Lath:GL24h 60x80',
       Start: s, End: e, Width: LATH_W, Height: LATH_D,
@@ -314,7 +433,7 @@ for (let s = 0; s <= NU + NV; s++) {
     const j = s - i;
     if (j <= 0 || j > NV) continue;
     const p0 = grid[i][j], p1 = grid[i + 1][j - 1];
-    const id = bim.create.addBeam(h, gf, {
+    const id = bim.create.addBeam(h, ff, {
       Name: `GL-B${s.toString().padStart(2, '0')}/${i - i0}`,
       Description: 'Gridshell lath family B', ObjectType: 'Timber Lath:GL24h 60x80',
       Start: p0, End: p1, Width: LATH_W, Height: LATH_D,
@@ -335,7 +454,7 @@ for (let j = NV - 1; j >= 1; j--) ringPts.push(grid[0][j]);   // west edge
 for (let k = 0; k < ringPts.length; k++) {
   const rStart = ringPts[k];
   const rEnd = ringPts[(k + 1) % ringPts.length];
-  const rId = bim.create.addBeam(h, gf, {
+  const rId = bim.create.addBeam(h, ff, {
     Name: `GL-Ring/${k.toString().padStart(2, '0')}`,
     Description: 'Gridshell perimeter ring beam', ObjectType: 'Beam:GL28h 120x200',
     Start: rStart, End: rEnd, Width: 0.12, Height: 0.20,
@@ -346,7 +465,7 @@ for (let k = 0; k < ringPts.length; k++) {
 
 console.log(`Gridshell roof: ${lathCount} laths + ${ringPts.length} ring segments`);
 
-// ─── 9. Generate, preview, download ─────────────────────────────────────
+// ─── 10. Generate, preview, download ────────────────────────────────────
 
 const result = bim.create.toIfc(h);
 
