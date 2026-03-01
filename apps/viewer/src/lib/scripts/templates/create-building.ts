@@ -242,8 +242,8 @@ bim.create.addQuantitySet(h, stairId, {
 // ─── 8. Parametric timber gridshell roof ─────────────────────────────
 //
 // A doubly-curved gridshell spanning the 5 × 8 m footprint.
-// Two families of diagonal timber laths form a diamond lattice that
-// rises 1.8 m above the wall top to a crown at z = 4.8 m.
+// Two families of diagonal timber laths form a diamond lattice.
+// Three surface shapes are provided — uncomment one at a time.
 
 const ROOF_W = 5;           // building width (X)
 const ROOF_D = 8;           // building depth (Y)
@@ -254,10 +254,26 @@ const NV     = 16;          // grid divisions along Y
 const LATH_W = 0.06;        // lath width  60 mm
 const LATH_D = 0.08;        // lath depth  80 mm
 
-// Surface: sinusoidal dome on rectangle, z = WALL_H at edges, peak at centre
+// ── Shape A: sinusoidal dome — smooth symmetric shell ──────────────
+// function roofZ(u: number, v: number): number {
+//   return WALL_H + CROWN * Math.sin(Math.PI * u) * Math.sin(Math.PI * v);
+// }
+
+// ── Shape B: rolling dunes — three asymmetric peaks ────────────────
 function roofZ(u: number, v: number): number {
-  return WALL_H + CROWN * Math.sin(Math.PI * u) * Math.sin(Math.PI * v);
+  const env = Math.sin(Math.PI * u) * Math.sin(Math.PI * v);
+  const p1 = 1.0  * Math.exp(-((u - 0.3) ** 2 + (v - 0.30) ** 2) / 0.04);
+  const p2 = 0.65 * Math.exp(-((u - 0.72) ** 2 + (v - 0.55) ** 2) / 0.06);
+  const p3 = 0.45 * Math.exp(-((u - 0.40) ** 2 + (v - 0.80) ** 2) / 0.03);
+  return WALL_H + CROWN * env * (0.25 + p1 + p2 + p3);
 }
+
+// ── Shape C: twisted hypar — saddle with raised diagonal corners ───
+// function roofZ(u: number, v: number): number {
+//   const env = Math.sin(Math.PI * u) * Math.sin(Math.PI * v);
+//   const twist = (2 * u - 1) * (2 * v - 1);
+//   return WALL_H + CROWN * env * (1.0 + 0.8 * twist);
+// }
 // Build grid of surface points
 const grid: [number, number, number][][] = [];
 for (let i = 0; i <= NU; i++) {
