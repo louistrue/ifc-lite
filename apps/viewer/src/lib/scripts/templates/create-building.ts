@@ -246,9 +246,11 @@ bim.create.addQuantitySet(h, stairId, {
 const ff = bim.create.addStorey(h, { Name: 'First Floor', Elevation: 3 });
 
 // Floor slab at z = 3 with stair opening
-// Opening sized for stairwell: stair width + clearance, ~2.8 m long for headroom
+// Opening must be long enough for headroom (≥ 2.1 m) over the ascending stair.
+// At the slab level the stair is still rising, so the opening needs to extend
+// back far enough that a person standing on a lower step has full clearance.
 const stairRunEnd = 1 + numRisers * treadL;       // y ≈ 5.76
-const stairOpenLen = 2.8;                          // standard stairwell length
+const stairOpenLen = 4.2;                          // ~1.5 × run ensures headroom
 const stairOpenY = stairRunEnd - stairOpenLen / 2; // center near arrival end
 const ffSlab = bim.create.addSlab(h, ff, {
   Name: 'First Floor Slab', Description: 'Reinforced concrete floor slab', ObjectType: 'Floor:Concrete - 300mm',
