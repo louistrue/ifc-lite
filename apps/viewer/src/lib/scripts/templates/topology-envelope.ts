@@ -12,6 +12,7 @@ export {} // module boundary (stripped by transpiler)
 
 bim.viewer.resetColors()
 bim.viewer.resetVisibility()
+bim.viewer.clearLines()
 
 // ── 1. Force IfcSpace visibility & get spaces ───────────────────────
 bim.viewer.showSpaces()
