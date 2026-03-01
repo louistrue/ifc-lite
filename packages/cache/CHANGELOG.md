@@ -1,5 +1,13 @@
 # @ifc-lite/cache
 
+## 1.14.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.14.0
+  - @ifc-lite/geometry@1.14.0
+
 ## 1.13.0
 
 ### Patch Changes
