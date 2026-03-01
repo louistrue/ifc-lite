@@ -165,12 +165,14 @@ export function useHierarchyTree({ models, ifcDataStore, isMultiModel, geometryR
   }, [models, geometryResult?.meshes.length]);
 
   // Pre-computed set of global IDs with geometry — stable across color changes.
-  // PERF: Skip during streaming (ifcDataStore is null) since the tree can't
-  // render without data anyway. This avoids 330× O(N) scans of 208K meshes.
+  // PERF: Skip when no geometry source exists (during initial streaming before
+  // any data is ready). Gate on models OR ifcDataStore so federated scenarios
+  // (models.size > 0 but ifcDataStore is null) still build the set correctly.
+  const hasGeometrySource = models.size > 0 || !!ifcDataStore;
   const geometricIds = useMemo(
-    () => ifcDataStore ? buildGeometricIdSet(models, geometryResult) : new Set<number>(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- meshCount is a stable proxy; ifcDataStore gates streaming
-    [models, ifcDataStore ? meshCount : 0]
+    () => hasGeometrySource ? buildGeometricIdSet(models, geometryResult) : new Set<number>(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- meshCount is a stable proxy; hasGeometrySource gates streaming
+    [models, hasGeometrySource ? meshCount : 0]
   );
 
   // Build the tree data structure based on grouping mode

@@ -194,7 +194,11 @@ export function ViewportContainer() {
     const cache = filteredCacheRef.current;
 
     // Full rebuild if: type visibility changed, source shrunk (new file), or empty cache
-    const typeVisChanged = filteredTypeVisRef.current !== typeVisibility;
+    const prevVis = filteredTypeVisRef.current;
+    const typeVisChanged =
+      prevVis.spaces !== typeVisibility.spaces ||
+      prevVis.openings !== typeVisibility.openings ||
+      prevVis.site !== typeVisibility.site;
     if (typeVisChanged || allMeshes.length < filteredSourceLenRef.current) {
       cache.length = 0;
       filteredSourceLenRef.current = 0;
@@ -202,6 +206,7 @@ export function ViewportContainer() {
     }
 
     const needsFilter = !typeVisibility.spaces || !typeVisibility.openings || !typeVisibility.site;
+    const prevCacheLen = cache.length;
 
     // Only process NEW meshes since last run — O(batch_size) not O(total)
     for (let i = filteredSourceLenRef.current; i < allMeshes.length; i++) {
@@ -225,7 +230,12 @@ export function ViewportContainer() {
     }
 
     filteredSourceLenRef.current = allMeshes.length;
-    filteredVersionRef.current++;
+
+    // Only bump version when cache content actually changed — avoids
+    // unnecessary downstream re-renders when memo runs with same data.
+    if (cache.length !== prevCacheLen || typeVisChanged) {
+      filteredVersionRef.current++;
+    }
 
     // Return the same array reference — downstream change detection uses
     // geometryVersion (which increments each batch) instead of array identity.

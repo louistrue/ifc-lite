@@ -65,12 +65,15 @@ export class CoordinateHandler {
     /**
      * Calculate bounding box from all meshes (filtering out corrupted values)
      * @param meshes - Meshes to calculate bounds from
-     * @param maxCoord - Optional max coordinate threshold (default: MAX_REASONABLE_COORD)
+     * @param maxCoord - Optional max coordinate threshold (default: MAX_REASONABLE_COORD).
+     *   NOTE: Ignored when WASM RTC is active — coordinates are already guaranteed
+     *   small and valid by the WASM layer, so the fast sampling path is used instead.
      */
     calculateBounds(meshes: MeshData[], maxCoord?: number): AABB {
         // PERF: When WASM RTC is detected, coordinates are already small and valid.
         // Skip per-vertex Number.isFinite + Math.abs checks (saves ~6 calls per vertex
         // across 63.5M vertices = ~380M function calls avoided).
+        // maxCoord is intentionally unused here — WASM RTC guarantees valid bounds.
         if (this.wasmRtcDetected && this.shiftCalculated) {
             return this.calculateBoundsFast(meshes);
         }

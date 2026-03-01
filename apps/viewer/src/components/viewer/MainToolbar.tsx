@@ -199,18 +199,24 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   // Check which type geometries exist across ALL loaded models (federation-aware).
   // PERF: Use meshes.length as dep proxy instead of full geometryResult, and
   // scan incrementally — once a type is found it stays found, so we only scan
-  // NEW meshes since the last check. Avoids 330× O(N) scans during streaming.
-  const typeGeomScanRef = useRef({ spaces: false, openings: false, site: false, lastLen: 0 });
+  // NEW meshes since the last check. Per-model cursors ensure federated models
+  // each track their own scan position independently.
+  const typeGeomScanRef = useRef({
+    spaces: false, openings: false, site: false,
+    legacyLastLen: 0,
+    modelLastLen: new Map<string | number, number>(),
+  });
   const meshLen = geometryResult?.meshes.length ?? 0;
   const typeGeometryExists = useMemo(() => {
     const scan = typeGeomScanRef.current;
 
-    // Reset if meshes array shrunk (new file loaded)
-    if (meshLen < scan.lastLen) {
+    // Reset if legacy meshes array shrunk (new file loaded)
+    if (meshLen < scan.legacyLastLen) {
       scan.spaces = false;
       scan.openings = false;
       scan.site = false;
-      scan.lastLen = 0;
+      scan.legacyLastLen = 0;
+      scan.modelLastLen.clear();
     }
 
     // Already found all types — nothing to do
@@ -218,25 +224,30 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       return { spaces: scan.spaces, openings: scan.openings, site: scan.site };
     }
 
-    // Check federated models (scan only new meshes in each)
+    // Check federated models (scan only new meshes per model)
     if (models.size > 0) {
-      for (const [, model] of models) {
+      for (const [modelId, model] of models) {
         const meshes = model.geometryResult?.meshes;
         if (!meshes) continue;
-        for (let i = scan.lastLen; i < meshes.length; i++) {
+        const modelStart = scan.modelLastLen.get(modelId) ?? 0;
+        // Reset cursor if model was reloaded (mesh array shrunk)
+        const start = meshes.length < modelStart ? 0 : modelStart;
+        for (let i = start; i < meshes.length; i++) {
           const t = meshes[i].ifcType;
           if (t === 'IfcSpace') scan.spaces = true;
           else if (t === 'IfcOpeningElement') scan.openings = true;
           else if (t === 'IfcSite') scan.site = true;
           if (scan.spaces && scan.openings && scan.site) break;
         }
+        scan.modelLastLen.set(modelId, meshes.length);
+        if (scan.spaces && scan.openings && scan.site) break;
       }
     }
 
     // Legacy single-model path (scan only new meshes)
     if (geometryResult?.meshes) {
       const meshes = geometryResult.meshes;
-      for (let i = scan.lastLen; i < meshes.length; i++) {
+      for (let i = scan.legacyLastLen; i < meshes.length; i++) {
         const t = meshes[i].ifcType;
         if (t === 'IfcSpace') scan.spaces = true;
         else if (t === 'IfcOpeningElement') scan.openings = true;
@@ -245,7 +256,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       }
     }
 
-    scan.lastLen = meshLen;
+    scan.legacyLastLen = meshLen;
     return { spaces: scan.spaces, openings: scan.openings, site: scan.site };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- meshLen is a stable proxy for geometryResult
   }, [models, meshLen]);
