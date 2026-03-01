@@ -182,47 +182,36 @@ export function ViewportContainer() {
       return null;
     }
 
-    let meshes = mergedGeometryResult.meshes;
+    const allMeshes = mergedGeometryResult.meshes;
+    const needsFilter = !typeVisibility.spaces || !typeVisibility.openings || !typeVisibility.site;
 
-    // Filter by type visibility (spatial elements)
-    meshes = meshes.filter(mesh => {
+    // PERF FIX: Single pass combining filter + transparency instead of
+    // separate .filter() + .map() which each iterate ALL meshes.
+    // For 176K meshes, this halves iterations per batch (saves ~176K ops).
+    const result: MeshData[] = [];
+    for (let i = 0; i < allMeshes.length; i++) {
+      const mesh = allMeshes[i];
       const ifcType = mesh.ifcType;
 
-      // Check type visibility
-      if (ifcType === 'IfcSpace' && !typeVisibility.spaces) {
-        return false;
-      }
-      if (ifcType === 'IfcOpeningElement' && !typeVisibility.openings) {
-        return false;
-      }
-      if (ifcType === 'IfcSite' && !typeVisibility.site) {
-        return false;
+      // Filter by type visibility
+      if (needsFilter) {
+        if (ifcType === 'IfcSpace' && !typeVisibility.spaces) continue;
+        if (ifcType === 'IfcOpeningElement' && !typeVisibility.openings) continue;
+        if (ifcType === 'IfcSite' && !typeVisibility.site) continue;
       }
 
-      return true;
-    });
-
-    // Apply transparency for spatial elements
-    meshes = meshes.map(mesh => {
-      const ifcType = mesh.ifcType;
-      const isSpace = ifcType === 'IfcSpace';
-      const isOpening = ifcType === 'IfcOpeningElement';
-
-      if (isSpace || isOpening) {
-        // Create a new color array with reduced opacity
-        const newColor: [number, number, number, number] = [
-          mesh.color[0],
-          mesh.color[1],
-          mesh.color[2],
-          Math.min(mesh.color[3] * 0.3, 0.3), // Semi-transparent (30% opacity max)
-        ];
-        return { ...mesh, color: newColor };
+      // Apply transparency for spatial elements (inline instead of separate .map())
+      if (ifcType === 'IfcSpace' || ifcType === 'IfcOpeningElement') {
+        result.push({
+          ...mesh,
+          color: [mesh.color[0], mesh.color[1], mesh.color[2], Math.min(mesh.color[3] * 0.3, 0.3)],
+        });
+      } else {
+        result.push(mesh);
       }
+    }
 
-      return mesh;
-    });
-
-    return meshes;
+    return result;
   }, [mergedGeometryResult, typeVisibility]);
 
   // Compute combined isolation set (storeys + manual isolation)

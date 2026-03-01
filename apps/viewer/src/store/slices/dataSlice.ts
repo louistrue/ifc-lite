@@ -81,13 +81,18 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
       };
     }
 
-    // New array reference (required for React/Zustand change detection) but
-    // only O(n) pointer copies — the expensive part was the .reduce() calls
-    // which are now replaced by the incremental counters above.
+    // PERF FIX: Push into existing array — O(batch_size) instead of O(total).
+    // The old [...old, ...new] spread copied ALL accumulated meshes every batch,
+    // causing O(N²) total work (e.g., 176K meshes × 350 batches = 31M copies).
+    // Zustand detects changes via the new geometryResult object reference below.
+    const existing = state.geometryResult.meshes;
+    for (let i = 0; i < meshes.length; i++) {
+      existing.push(meshes[i]);
+    }
+
     return {
       geometryResult: {
         ...state.geometryResult,
-        meshes: [...state.geometryResult.meshes, ...meshes],
         totalTriangles: state.geometryResult.totalTriangles + batchTriangles,
         totalVertices: state.geometryResult.totalVertices + batchVertices,
         coordinateInfo: coordinateInfo || state.geometryResult.coordinateInfo,
