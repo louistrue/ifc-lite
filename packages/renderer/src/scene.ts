@@ -52,6 +52,10 @@ export class Scene {
   private overrideBatches: BatchedMesh[] = [];
   private colorOverrides: Map<number, [number, number, number, number]> | null = null;
 
+  // Merged opaque buffer: ALL opaque batches combined into a single draw call.
+  // Eliminates inter-batch z-fighting for coplanar surfaces of different colors.
+  private mergedOpaqueBatch: BatchedMesh | null = null;
+
   // Streaming optimization: track pending batch rebuilds
   private pendingBatchKeys: Set<string> = new Set();
   // Temporary fragment batches created during streaming for immediate rendering.
@@ -91,6 +95,10 @@ export class Scene {
    */
   getBatchedMeshes(): BatchedMesh[] {
     return this.batchedMeshes;
+  }
+
+  getMergedOpaqueBatch(): BatchedMesh | null {
+    return this.mergedOpaqueBatch;
   }
 
   /**
@@ -343,6 +351,45 @@ export class Scene {
     }
 
     this.pendingBatchKeys.clear();
+
+    // Rebuild merged opaque buffer (single draw call for all opaques)
+    this.buildMergedOpaqueBuffer(device, pipeline);
+  }
+
+  /**
+   * Build a single merged vertex/index buffer containing ALL opaque batches.
+   * Rendering this as one draw call eliminates inter-batch z-fighting entirely
+   * because the GPU rasterizer is deterministic within a single draw call.
+   */
+  private buildMergedOpaqueBuffer(device: GPUDevice, pipeline: RenderPipeline): void {
+    // Destroy previous merged buffer
+    if (this.mergedOpaqueBatch) {
+      this.mergedOpaqueBatch.vertexBuffer.destroy();
+      this.mergedOpaqueBatch.indexBuffer.destroy();
+      if (this.mergedOpaqueBatch.uniformBuffer) {
+        this.mergedOpaqueBatch.uniformBuffer.destroy();
+      }
+      this.mergedOpaqueBatch = null;
+    }
+
+    // Collect all opaque MeshData from all batches
+    const allOpaqueMeshData: MeshData[] = [];
+    for (const [, meshDataArray] of this.batchedMeshData) {
+      if (meshDataArray.length === 0) continue;
+      const alpha = meshDataArray[0].color[3];
+      if (alpha >= 0.99) {
+        allOpaqueMeshData.push(...meshDataArray);
+      }
+    }
+
+    if (allOpaqueMeshData.length === 0) return;
+
+    this.mergedOpaqueBatch = this.createBatchedMesh(
+      allOpaqueMeshData,
+      [1, 1, 1, 1], // dummy color — per-vertex color is used
+      device,
+      pipeline
+    );
   }
 
   /**
@@ -445,6 +492,15 @@ export class Scene {
     }
     this.partialBatchCache.clear();
     this.partialBatchCacheKeys.clear();
+    // Destroy merged opaque buffer — will be rebuilt in rebuildPendingBatches
+    if (this.mergedOpaqueBatch) {
+      this.mergedOpaqueBatch.vertexBuffer.destroy();
+      this.mergedOpaqueBatch.indexBuffer.destroy();
+      if (this.mergedOpaqueBatch.uniformBuffer) {
+        this.mergedOpaqueBatch.uniformBuffer.destroy();
+      }
+      this.mergedOpaqueBatch = null;
+    }
 
     // 5. Re-group ALL meshData by their CURRENT color.
     //    meshData.color may have been mutated in-place since the mesh was
@@ -643,10 +699,10 @@ export class Scene {
       totalIndices += mesh.indices.length;
     }
 
-    // Create merged buffers
-    const vertexBufferRaw = new ArrayBuffer(totalVertices * 7 * 4);
-    const vertexData = new Float32Array(vertexBufferRaw); // position + normal
-    const vertexDataU32 = new Uint32Array(vertexBufferRaw); // entityId lane
+    // 8 values per vertex: position(3) + normal(3) + entityId(u32) + color(rgba8 packed u32)
+    const vertexBufferRaw = new ArrayBuffer(totalVertices * 8 * 4);
+    const vertexData = new Float32Array(vertexBufferRaw);
+    const vertexDataU32 = new Uint32Array(vertexBufferRaw);
     const indices = new Uint32Array(totalIndices);
 
     let indexOffset = 0;
@@ -657,9 +713,7 @@ export class Scene {
       const normals = mesh.normals;
       const vertexCount = positions.length / 3;
 
-      // Interleave vertex data (position + normal)
-      // This loop is O(n) per mesh and unavoidable for interleaving
-      let outIdx = vertexBase * 7;
+      let outIdx = vertexBase * 8;
       let entityId = mesh.expressId >>> 0;
       if (entityId > MAX_ENCODED_ENTITY_ID) {
         if (!warnedEntityIdRange) {
@@ -668,6 +722,15 @@ export class Scene {
         }
         entityId = entityId & MAX_ENCODED_ENTITY_ID;
       }
+      // Pack color as rgba8unorm into a u32
+      const c = mesh.color;
+      const colorPacked = (
+        (Math.round(c[0] * 255)) |
+        (Math.round(c[1] * 255) << 8) |
+        (Math.round(c[2] * 255) << 16) |
+        (Math.round(c[3] * 255) << 24)
+      ) >>> 0;
+
       for (let i = 0; i < vertexCount; i++) {
         const srcIdx = i * 3;
         vertexData[outIdx++] = positions[srcIdx];
@@ -677,10 +740,9 @@ export class Scene {
         vertexData[outIdx++] = normals[srcIdx + 1];
         vertexData[outIdx++] = normals[srcIdx + 2];
         vertexDataU32[outIdx++] = entityId;
+        vertexDataU32[outIdx++] = colorPacked;
       }
 
-      // Copy indices with vertex base offset
-      // Use subarray for slightly better cache locality
       const meshIndices = mesh.indices;
       const indexCount = meshIndices.length;
       for (let i = 0; i < indexCount; i++) {
@@ -1011,6 +1073,15 @@ export class Scene {
     }
     // Destroy streaming fragments (already included in batchedMeshes, but tracked separately)
     this.streamingFragments = [];
+    // Destroy merged opaque buffer
+    if (this.mergedOpaqueBatch) {
+      this.mergedOpaqueBatch.vertexBuffer.destroy();
+      this.mergedOpaqueBatch.indexBuffer.destroy();
+      if (this.mergedOpaqueBatch.uniformBuffer) {
+        this.mergedOpaqueBatch.uniformBuffer.destroy();
+      }
+      this.mergedOpaqueBatch = null;
+    }
     this.destroyOverrideBatches();
     this.colorOverrides = null;
     this.meshes = [];

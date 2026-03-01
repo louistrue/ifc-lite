@@ -667,16 +667,15 @@ export class Renderer {
                     }
                 }
 
-                // Helper function to render a batch
-                const renderBatch = (batch: typeof allBatchedMeshes[0]) => {
+                // Helper function to render a batch.
+                // flagsX: 0 = normal (per-vertex color), 2 = overlay (uniform color)
+                const renderBatch = (batch: typeof allBatchedMeshes[0], flagsX: number = 0) => {
                     if (!batch.bindGroup || !batch.uniformBuffer) return;
 
-                    // Update uniform buffer for this batch
                     const buffer = new Float32Array(48);
                     const flagBuffer = new Uint32Array(buffer.buffer, 176, 4);
 
                     buffer.set(viewProj, 0);
-                    // Identity transform for batched meshes (positions already in world space)
                     buffer.set([
                         1, 0, 0, 0,
                         0, 1, 0, 0,
@@ -688,7 +687,6 @@ export class Renderer {
                     buffer[36] = 0.0; // metallic
                     buffer[37] = 0.6; // roughness
 
-                    // Section plane data
                     if (sectionPlaneData) {
                         buffer[40] = sectionPlaneData.normal[0];
                         buffer[41] = sectionPlaneData.normal[1];
@@ -696,32 +694,32 @@ export class Renderer {
                         buffer[43] = sectionPlaneData.distance;
                     }
 
-                    // Flags (not selected - batches render normally, selected meshes rendered separately)
-                    flagBuffer[0] = 0;
+                    flagBuffer[0] = flagsX;
                     flagBuffer[1] = sectionPlaneData?.enabled ? 1 : 0;
                     flagBuffer[2] = edgeEnabledU32;
                     flagBuffer[3] = edgeIntensityMilliU32;
 
                     device.queue.writeBuffer(batch.uniformBuffer, 0, buffer);
 
-                    // Single draw call for entire batch!
                     pass.setBindGroup(0, batch.bindGroup);
                     pass.setVertexBuffer(0, batch.vertexBuffer);
                     pass.setIndexBuffer(batch.indexBuffer, 'uint32');
                     pass.drawIndexed(batch.indexCount);
                 };
 
-                // Render opaque batches, alternating between main and biased
-                // pipelines so coplanar faces from different batches always
-                // land on different pipelines. The biased pipeline uses GPU
-                // hardware polygon offset (depthBiasSlopeScale) which scales
-                // per-fragment with the depth slope — eliminating z-fighting
-                // at all viewing angles including extreme grazing.
-                const mainPipeline = this.pipeline.getPipeline();
-                const biasedPipeline = this.pipeline.getBiasedPipeline();
-                for (let i = 0; i < opaqueBatches.length; i++) {
-                    pass.setPipeline(i % 2 === 0 ? mainPipeline : biasedPipeline);
-                    renderBatch(opaqueBatches[i]);
+                // Render all opaques. When no visibility filtering is active,
+                // use the merged buffer (single draw call) — this eliminates
+                // inter-batch z-fighting because the GPU rasterizer is
+                // deterministic within a single draw call. Per-vertex color
+                // carries each entity's color so no uniform switching needed.
+                pass.setPipeline(this.pipeline.getPipeline());
+                const mergedBatch = this.scene.getMergedOpaqueBatch();
+                if (!hasVisibilityFiltering && mergedBatch) {
+                    renderBatch(mergedBatch);
+                } else {
+                    for (const batch of opaqueBatches) {
+                        renderBatch(batch);
+                    }
                 }
 
                 // PERFORMANCE FIX: Render partially visible batches as sub-batches (not individual meshes!)
@@ -736,9 +734,7 @@ export class Renderer {
                 }
 
                 if (partiallyVisibleBatches.length > 0) {
-                    for (let pi = 0; pi < partiallyVisibleBatches.length; pi++) {
-                        const { colorKey, visibleIds, color } = partiallyVisibleBatches[pi];
-                        // Get or create a cached sub-batch for this visibility state
+                    for (const { colorKey, visibleIds, color } of partiallyVisibleBatches) {
                         const subBatch = this.scene.getOrCreatePartialBatch(
                             colorKey,
                             visibleIds,
@@ -747,19 +743,13 @@ export class Renderer {
                         );
 
                         if (subBatch) {
-                            // Use opaque or transparent pipeline based on alpha
                             const isTransparent = color[3] < 0.99;
-                            if (isTransparent) {
-                                pass.setPipeline(this.pipeline.getTransparentPipeline());
-                            } else {
-                                // Alternate main/biased like opaque batches
-                                pass.setPipeline(pi % 2 === 0 ? mainPipeline : biasedPipeline);
-                            }
-                            // Render the sub-batch as a single draw call
+                            pass.setPipeline(isTransparent
+                                ? this.pipeline.getTransparentPipeline()
+                                : this.pipeline.getPipeline());
                             renderBatch(subBatch);
                         }
                     }
-                    // Reset to opaque pipeline for subsequent rendering
                     pass.setPipeline(this.pipeline.getPipeline());
                 }
 
@@ -771,7 +761,7 @@ export class Renderer {
                 if (overrideBatches.length > 0) {
                     pass.setPipeline(this.pipeline.getOverlayPipeline());
                     for (const batch of overrideBatches) {
-                        renderBatch(batch);
+                        renderBatch(batch, 2); // flags.x=2: use uniform baseColor for overlay
                     }
                     pass.setPipeline(this.pipeline.getPipeline());
                 }

@@ -367,12 +367,21 @@ export class GeometryManager {
 
         const device = this.device.getDevice();
         const vertexCount = meshData.positions.length / 3;
-        const interleavedRaw = new ArrayBuffer(vertexCount * 7 * 4);
+        const interleavedRaw = new ArrayBuffer(vertexCount * 8 * 4);
         const interleaved = new Float32Array(interleavedRaw);
         const interleavedU32 = new Uint32Array(interleavedRaw);
 
+        // Pack color as rgba8unorm into a u32
+        const c = meshData.color;
+        const colorPacked = (
+            (Math.round(c[0] * 255)) |
+            (Math.round(c[1] * 255) << 8) |
+            (Math.round(c[2] * 255) << 16) |
+            (Math.round(c[3] * 255) << 24)
+        ) >>> 0;
+
         for (let i = 0; i < vertexCount; i++) {
-            const base = i * 7;
+            const base = i * 8;
             const posBase = i * 3;
             interleaved[base] = meshData.positions[posBase];
             interleaved[base + 1] = meshData.positions[posBase + 1];
@@ -389,6 +398,7 @@ export class GeometryManager {
                 encodedId = encodedId & MAX_ENCODED_ENTITY_ID;
             }
             interleavedU32[base + 6] = encodedId;
+            interleavedU32[base + 7] = colorPacked;
         }
 
         const vertexBuffer = device.createBuffer({

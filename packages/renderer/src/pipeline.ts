@@ -13,7 +13,6 @@ export class RenderPipeline {
     private device: GPUDevice;
     private webgpuDevice: WebGPUDevice;
     private pipeline: GPURenderPipeline;
-    private biasedPipeline: GPURenderPipeline;  // Pipeline with depth bias for coplanar z-fighting (alternates with main)
     private selectionPipeline: GPURenderPipeline;  // Pipeline for selected meshes (renders on top)
     private transparentPipeline: GPURenderPipeline;  // Pipeline for transparent meshes with alpha blending
     private overlayPipeline: GPURenderPipeline;  // Pipeline for color overlays (lens) - renders at exact same depth
@@ -110,6 +109,7 @@ export class RenderPipeline {
           @location(0) position: vec3<f32>,
           @location(1) normal: vec3<f32>,
           @location(2) entityId: u32,
+          @location(3) color: vec4<f32>,    // per-vertex color (packed unorm8x4)
         }
 
         struct VertexOutput {
@@ -118,6 +118,7 @@ export class RenderPipeline {
           @location(1) normal: vec3<f32>,
           @location(2) @interpolate(flat) entityId: u32,
           @location(3) viewPos: vec3<f32>,  // For edge detection
+          @location(4) color: vec4<f32>,
         }
 
         @vertex
@@ -125,21 +126,16 @@ export class RenderPipeline {
           var output: VertexOutput;
           let worldPos = uniforms.model * vec4<f32>(input.position, 1.0);
           output.position = uniforms.viewProj * worldPos;
-          // Anti z-fighting: slope-aware depth nudge per entity.
-          // Knuth hash spreads sequential IDs across 0-255.
-          // Nudge scales with depth slope (1/|N·V|) so coplanar faces
-          // from different entities are separated even at grazing angles.
-          // Camera forward is extracted from row 3 of viewProj (= -V_row2
-          // for reverse-Z perspective where P[2][3] = -1).
-          let worldNormal = normalize((uniforms.model * vec4<f32>(input.normal, 0.0)).xyz);
-          let cameraFwd = normalize(vec3(uniforms.viewProj[0][3], uniforms.viewProj[1][3], uniforms.viewProj[2][3]));
-          let NdotV = abs(dot(worldNormal, cameraFwd));
-          let slopeFactor = 1.0 / max(NdotV, 0.03);
+          // Anti z-fighting: per-entity depth nudge via Knuth hash.
+          // Within a single draw call (merged opaque buffer), this is
+          // enough to separate coplanar entities at all viewing angles
+          // because inter-draw-call rasterizer jitter is eliminated.
           let zHash = (input.entityId * 2654435761u) & 255u;
-          output.position.z *= 1.0 + f32(zHash) * 1e-6 * slopeFactor;
+          output.position.z *= 1.0 + f32(zHash) * 5e-6;
           output.worldPos = worldPos.xyz;
-          output.normal = worldNormal;
+          output.normal = normalize((uniforms.model * vec4<f32>(input.normal, 0.0)).xyz);
           output.entityId = input.entityId;
+          output.color = input.color;
           // Store view-space position for edge detection
           output.viewPos = (uniforms.viewProj * worldPos).xyz;
           return output;
@@ -225,8 +221,10 @@ export class RenderPipeline {
           let NdotRim = max(dot(N, rimLight), 0.0);
           let rim = pow(NdotRim, 4.0) * 0.15;
 
-          var baseColor = uniforms.baseColor.rgb;
-          
+          // Per-vertex color is the primary source.
+          // flags.x == 2 signals overlay/lens mode: use uniform baseColor instead.
+          var baseColor = select(input.color.rgb, uniforms.baseColor.rgb, uniforms.flags.x == 2u);
+
           // Detect if the color is close to white/gray (low saturation)
           let baseGray = dot(baseColor, vec3<f32>(0.299, 0.587, 0.114));
           let baseSaturation = length(baseColor - vec3<f32>(baseGray)) / max(baseGray, 0.001);
@@ -248,7 +246,7 @@ export class RenderPipeline {
           }
 
           // Beautiful fresnel effect for transparent materials (glass)
-          var finalAlpha = uniforms.baseColor.a;
+          var finalAlpha = select(input.color.a, uniforms.baseColor.a, uniforms.flags.x == 2u);
           if (finalAlpha < 0.99) {
             // Calculate view direction for fresnel
             let V = normalize(-input.worldPos);
@@ -334,21 +332,23 @@ export class RenderPipeline {
         });
 
         // Create render pipeline descriptor
+        // Shared vertex buffer layout: pos(12) + normal(12) + entityId(4) + color(4) = 32 bytes
+        const vertexBufferLayout: GPUVertexBufferLayout = {
+            arrayStride: 32,
+            attributes: [
+                { shaderLocation: 0, offset: 0, format: 'float32x3' },  // position
+                { shaderLocation: 1, offset: 12, format: 'float32x3' }, // normal
+                { shaderLocation: 2, offset: 24, format: 'uint32' },    // expressId
+                { shaderLocation: 3, offset: 28, format: 'unorm8x4' },  // color (rgba8)
+            ],
+        };
+
         const pipelineDescriptor: GPURenderPipelineDescriptor = {
             layout: pipelineLayout,
             vertex: {
                 module: shaderModule,
                 entryPoint: 'vs_main',
-                buffers: [
-                    {
-                        arrayStride: 28, // 7 floats * 4 bytes
-                        attributes: [
-                            { shaderLocation: 0, offset: 0, format: 'float32x3' }, // position
-                            { shaderLocation: 1, offset: 12, format: 'float32x3' }, // normal
-                            { shaderLocation: 2, offset: 24, format: 'uint32' }, // expressId
-                        ],
-                    },
-                ],
+                buffers: [vertexBufferLayout],
             },
             fragment: {
                 module: shaderModule,
@@ -372,46 +372,13 @@ export class RenderPipeline {
 
         this.pipeline = this.device.createRenderPipeline(pipelineDescriptor);
 
-        // Biased pipeline: identical to main but with hardware polygon offset.
-        // Used for alternating batches so coplanar faces from different draw
-        // calls land on different pipelines. depthBiasSlopeScale adds a per-
-        // fragment bias proportional to the screen-space depth slope — computed
-        // by the rasterizer, not the vertex shader — so it scales correctly at
-        // all viewing angles including extreme grazing.
-        //
-        // Values are intentionally tiny to avoid depth-ordering artifacts:
-        //   depthBias: 8        → 8 ULPs constant offset (handles head-on views)
-        //   slopeScale: 0.02    → 2% of max depth slope per pixel
-        //     At 50m, 60°: ~1mm shift.  At 10m, 88°: ~3.4µm shift.
-        //     Both well below the visual separation threshold (~2 pixels of
-        //     world depth at any distance), so non-coplanar ordering is safe.
-        this.biasedPipeline = this.device.createRenderPipeline({
-            ...pipelineDescriptor,
-            depthStencil: {
-                format: this.depthFormat,
-                depthWriteEnabled: true,
-                depthCompare: 'greater',
-                depthBias: 8,
-                depthBiasSlopeScale: 0.02,
-            },
-        } as GPURenderPipelineDescriptor);
-
         // Create selection pipeline descriptor
         const selectionPipelineDescriptor: GPURenderPipelineDescriptor = {
             layout: pipelineLayout,
             vertex: {
                 module: shaderModule,
                 entryPoint: 'vs_main',
-                buffers: [
-                    {
-                        arrayStride: 28,
-                        attributes: [
-                            { shaderLocation: 0, offset: 0, format: 'float32x3' },
-                            { shaderLocation: 1, offset: 12, format: 'float32x3' },
-                            { shaderLocation: 2, offset: 24, format: 'uint32' },
-                        ],
-                    },
-                ],
+                buffers: [vertexBufferLayout],
             },
             fragment: {
                 module: shaderModule,
@@ -443,16 +410,7 @@ export class RenderPipeline {
             vertex: {
                 module: shaderModule,
                 entryPoint: 'vs_main',
-                buffers: [
-                    {
-                        arrayStride: 28,
-                        attributes: [
-                            { shaderLocation: 0, offset: 0, format: 'float32x3' },
-                            { shaderLocation: 1, offset: 12, format: 'float32x3' },
-                            { shaderLocation: 2, offset: 24, format: 'uint32' },
-                        ],
-                    },
-                ],
+                buffers: [vertexBufferLayout],
             },
             fragment: {
                 module: shaderModule,
@@ -497,16 +455,7 @@ export class RenderPipeline {
             vertex: {
                 module: shaderModule,
                 entryPoint: 'vs_main',
-                buffers: [
-                    {
-                        arrayStride: 28,
-                        attributes: [
-                            { shaderLocation: 0, offset: 0, format: 'float32x3' },
-                            { shaderLocation: 1, offset: 12, format: 'float32x3' },
-                            { shaderLocation: 2, offset: 24, format: 'uint32' },
-                        ],
-                    },
-                ],
+                buffers: [vertexBufferLayout],
             },
             fragment: {
                 module: shaderModule,
@@ -651,10 +600,6 @@ export class RenderPipeline {
 
     getPipeline(): GPURenderPipeline {
         return this.pipeline;
-    }
-
-    getBiasedPipeline(): GPURenderPipeline {
-        return this.biasedPipeline;
     }
 
     getSelectionPipeline(): GPURenderPipeline {
