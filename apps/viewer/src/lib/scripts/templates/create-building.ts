@@ -112,5 +112,10 @@ bim.create.addQuantitySet(h, slab, {
 // 11. Generate the IFC file
 const result = bim.create.toIfc(h);
 
-console.log(`✓ Created IFC file: ${result.stats.entityCount} entities, ${(result.stats.fileSize / 1024).toFixed(1)} KB`);
-console.log(`  Elements: ${result.entities.filter(e => !['IfcProject','IfcSite','IfcBuilding','IfcBuildingStorey','IfcOpeningElement'].includes(e.type)).map(e => e.type).join(', ')}`);
+console.log(`Created ${result.stats.entityCount} entities, ${(result.stats.fileSize / 1024).toFixed(1)} KB`);
+
+// 12. Load into the 3D viewer for preview
+bim.model.loadIfc(result.content, 'sample-building.ifc');
+
+// 13. Download the file
+bim.export.download(result.content, 'sample-building.ifc', 'application/x-step');

@@ -50,6 +50,8 @@ declare const bim: {
     active(): BimModelInfo | null;
     /** Get active model ID */
     activeId(): string | null;
+    /** Load IFC content into the 3D viewer for preview */
+    loadIfc(content: string, filename?: string): void;
   };
   /** Query entities */
   query: {
@@ -132,5 +134,7 @@ declare const bim: {
     csv(entities: BimEntity[], options: { columns: string[]; filename?: string; separator?: string }): string;
     /** Export entities to JSON array */
     json(entities: BimEntity[], columns: string[]): Record<string, unknown>[];
+    /** Trigger a browser file download with raw content */
+    download(content: string, filename: string, mimeType?: string): void;
   };
 };

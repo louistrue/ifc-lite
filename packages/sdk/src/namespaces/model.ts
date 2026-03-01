@@ -29,4 +29,12 @@ export class ModelNamespace {
   get(modelId: string): ModelInfo | null {
     return this.list().find(m => m.id === modelId) ?? null;
   }
+
+  /**
+   * Load IFC content into the 3D viewer.
+   * Triggers the full parsing + geometry pipeline.
+   */
+  loadIfc(content: string, filename?: string): void {
+    this.backend.model.loadIfc(content, filename ?? 'created.ifc');
+  }
 }

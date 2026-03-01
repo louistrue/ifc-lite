@@ -166,6 +166,14 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         call: (sdk) => sdk.model.activeId(),
         returns: 'value',
       },
+      {
+        name: 'loadIfc',
+        doc: 'Load IFC content into the 3D viewer for preview',
+        args: ['string', 'string'],
+        paramNames: ['content', 'filename'],
+        call: (sdk, args) => { sdk.model.loadIfc(args[0] as string, args[1] as string); },
+        returns: 'void',
+      },
     ],
   },
 
@@ -618,6 +626,20 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
           );
         },
         returns: 'value',
+      },
+      {
+        name: 'download',
+        doc: 'Trigger a browser file download with the given content',
+        args: ['string', 'string', 'string'],
+        paramNames: ['content', 'filename', 'mimeType'],
+        call: (sdk, args) => {
+          sdk.export.download(
+            args[0] as string,
+            args[1] as string,
+            (args[2] as string) || 'text/plain',
+          );
+        },
+        returns: 'void',
       },
     ],
   },

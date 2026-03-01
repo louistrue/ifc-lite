@@ -186,6 +186,13 @@ export class ExportNamespace {
     return content;
   }
 
+  /**
+   * Trigger a browser file download with raw content.
+   */
+  download(content: string, filename: string, mimeType?: string): void {
+    this.backend.export.download(content, filename, mimeType ?? 'text/plain');
+  }
+
   private escapeCsv(value: string, sep: string): string {
     if (value.includes(sep) || value.includes('"') || value.includes('\n')) {
       return `"${value.replace(/"/g, '""')}"`;
