@@ -372,24 +372,15 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
       const pipeline = renderer.getPipeline();
       const scene = renderer.getScene();
 
-      // Render immediately with existing fragment batches (already visible)
+      // Finalize streaming: destroy temporary fragments and do one O(N) full merge.
+      // Must run synchronously BEFORE pendingMeshColorUpdates effect — otherwise
+      // fragment batches with stale colors render alongside new proper batches.
+      if (device && pipeline) {
+        scene.finalizeStreaming(device, pipeline);
+      }
+
       renderer.render();
       lastStreamRenderTimeRef.current = Date.now();
-
-      // PERF: Defer the O(N) full merge to an idle callback so the browser
-      // paints the streaming-complete state first. finalizeStreaming re-merges
-      // all 208K meshes into proper batches (~1-2s for 63.5M vertices).
-      if (device && pipeline) {
-        const finalizeAndRender = () => {
-          scene.finalizeStreaming(device, pipeline);
-          renderer.render();
-        };
-        if (typeof requestIdleCallback === 'function') {
-          requestIdleCallback(finalizeAndRender, { timeout: 2000 });
-        } else {
-          setTimeout(finalizeAndRender, 100);
-        }
-      }
     }
     prevIsStreamingRef.current = isStreaming;
   }, [isStreaming, isInitialized]);
