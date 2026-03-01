@@ -302,9 +302,9 @@ export class GeometryProcessor {
 
       // Use WASM batches directly - no JS accumulation layer
       // WASM already prioritizes simple geometry (walls, slabs) for fast first frame
-      // PERF: Very large files (>300MB) use 1500 to cut generator/Promise overhead
-      // (330 yields × ~5ms each → 139 yields saves ~1s)
-      const wasmBatchSize = fileSizeMB < 10 ? 100 : fileSizeMB < 50 ? 200 : fileSizeMB < 100 ? 300 : fileSizeMB < 300 ? 500 : 1500;
+      // PERF: Larger batches dramatically reduce WASM↔JS boundary crossing overhead.
+      // 487MB file: batch 500→1500 cut WASM wait from 79s to 39s.
+      const wasmBatchSize = fileSizeMB < 10 ? 100 : fileSizeMB < 50 ? 200 : fileSizeMB < 100 ? 300 : fileSizeMB < 300 ? 500 : fileSizeMB < 500 ? 1500 : 3000;
 
       // Use WASM batches directly for maximum throughput
       for await (const item of collector.collectMeshesStreaming(wasmBatchSize)) {
