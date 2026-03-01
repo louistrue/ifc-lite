@@ -905,7 +905,12 @@ ENDSEC;
     // Then: local X = [1,0,0], local Y = cross([0,-1,0],[1,0,0]) = [0,0,1], local Z = [0,-1,0].
     // Profile XY: X = along wall (Width), Y = up (Height). Extrusion Z = through wall.
 
-    const openingOriginId = this.addCartesianPoint(opening.Position);
+    // Offset Y so extrusion starts just outside the +Y face and cuts clean through
+    const openingOriginId = this.addCartesianPoint([
+      opening.Position[0],
+      wallThickness / 2 + 0.05,
+      opening.Position[2],
+    ]);
     const openingAxisId = this.addDirection([0, -1, 0]);
     const openingRefDirId = this.addDirection([1, 0, 0]);
     const openingAxis2Id = this.addAxis2Placement3D(openingOriginId, openingAxisId, openingRefDirId);
