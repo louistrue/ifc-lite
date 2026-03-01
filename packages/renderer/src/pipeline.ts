@@ -124,11 +124,12 @@ export class RenderPipeline {
           var output: VertexOutput;
           let worldPos = uniforms.model * vec4<f32>(input.position, 1.0);
           output.position = uniforms.viewProj * worldPos;
-          // Anti z-fighting: tiny deterministic depth nudge per entity.
-          // Coplanar faces from different entities get different depths,
-          // ensuring one consistently wins the depth test (no flicker).
-          // The nudge scales with depth so world-space offset is sub-mm at all distances.
-          output.position.z *= 1.0 + f32(input.entityId & 255u) * 1e-7;
+          // Anti z-fighting: deterministic depth nudge per entity.
+          // Knuth multiplicative hash spreads sequential IDs across 0-255
+          // so coplanar faces from different entities always get distinct depths.
+          // At 1e-6 per step the max world-space offset is <3mm at 10m — invisible.
+          let zHash = (input.entityId * 2654435761u) & 255u;
+          output.position.z *= 1.0 + f32(zHash) * 1e-6;
           output.worldPos = worldPos.xyz;
           output.normal = normalize((uniforms.model * vec4<f32>(input.normal, 0.0)).xyz);
           output.entityId = input.entityId;
@@ -756,7 +757,8 @@ export class InstancedRenderPipeline {
 
           output.position = uniforms.viewProj * worldPos;
           // Anti z-fighting: deterministic depth nudge per instance
-          output.position.z *= 1.0 + f32(instanceIndex & 255u) * 1e-7;
+          let zHash = (instanceIndex * 2654435761u) & 255u;
+          output.position.z *= 1.0 + f32(zHash) * 1e-6;
           output.worldPos = worldPos.xyz;
           output.normal = normalize(normalYUp);
           output.color = inst.color;
