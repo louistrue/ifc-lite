@@ -63,6 +63,8 @@ declare const bim: {
     properties(entity: BimEntity): BimPropertySet[];
     /** Get all IfcElementQuantity data for an entity */
     quantities(entity: BimEntity): BimQuantitySet[];
+    /** Compute volume, surface area, and bounding box from element mesh geometry */
+    computedQuantities(entity: BimEntity): { volume: number; surfaceArea: number; bboxDx: number; bboxDy: number; bboxDz: number } | null;
   };
   /** Viewer control */
   viewer: {

@@ -69,6 +69,27 @@ impl MeshDataJs {
     pub fn triangle_count(&self) -> usize {
         self.indices.len() / 3
     }
+
+    /// Compute the mesh volume using the signed tetrahedron method.
+    /// Returns the volume in cubic model units (typically m³).
+    #[wasm_bindgen]
+    pub fn volume(&self) -> f64 {
+        compute_volume(&self.positions, &self.indices)
+    }
+
+    /// Compute the total surface area of the mesh.
+    /// Returns the area in square model units (typically m²).
+    #[wasm_bindgen(js_name = surfaceArea)]
+    pub fn surface_area(&self) -> f64 {
+        compute_surface_area(&self.positions, &self.indices)
+    }
+
+    /// Compute bounding box dimensions [width, depth, height].
+    /// Returns [dx, dy, dz] in model units (typically meters).
+    #[wasm_bindgen(js_name = boundingBoxDimensions)]
+    pub fn bounding_box_dimensions(&self) -> Vec<f32> {
+        compute_bbox_dimensions(&self.positions)
+    }
 }
 
 impl MeshDataJs {
@@ -838,6 +859,119 @@ impl Default for SymbolicRepresentationCollection {
     fn default() -> Self {
         Self::new()
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STANDALONE GEOMETRY QUANTITY FUNCTIONS
+// Operate on raw position/index slices without creating a Mesh.
+// ═══════════════════════════════════════════════════════════════════════════
+
+use nalgebra::Vector3;
+
+/// Compute volume from positions and triangle indices using the signed
+/// tetrahedron method (divergence theorem).
+fn compute_volume(positions: &[f32], indices: &[u32]) -> f64 {
+    if indices.len() < 3 {
+        return 0.0;
+    }
+    let mut sum = 0.0f64;
+    for tri in indices.chunks_exact(3) {
+        let (i0, i1, i2) = (tri[0] as usize, tri[1] as usize, tri[2] as usize);
+        if i0 * 3 + 2 >= positions.len()
+            || i1 * 3 + 2 >= positions.len()
+            || i2 * 3 + 2 >= positions.len()
+        {
+            continue;
+        }
+        let v0 = Vector3::new(
+            positions[i0 * 3] as f64,
+            positions[i0 * 3 + 1] as f64,
+            positions[i0 * 3 + 2] as f64,
+        );
+        let v1 = Vector3::new(
+            positions[i1 * 3] as f64,
+            positions[i1 * 3 + 1] as f64,
+            positions[i1 * 3 + 2] as f64,
+        );
+        let v2 = Vector3::new(
+            positions[i2 * 3] as f64,
+            positions[i2 * 3 + 1] as f64,
+            positions[i2 * 3 + 2] as f64,
+        );
+        sum += v0.cross(&v1).dot(&v2);
+    }
+    (sum / 6.0).abs()
+}
+
+/// Compute total surface area from positions and triangle indices.
+fn compute_surface_area(positions: &[f32], indices: &[u32]) -> f64 {
+    if indices.len() < 3 {
+        return 0.0;
+    }
+    let mut sum = 0.0f64;
+    for tri in indices.chunks_exact(3) {
+        let (i0, i1, i2) = (tri[0] as usize, tri[1] as usize, tri[2] as usize);
+        if i0 * 3 + 2 >= positions.len()
+            || i1 * 3 + 2 >= positions.len()
+            || i2 * 3 + 2 >= positions.len()
+        {
+            continue;
+        }
+        let p0x = positions[i0 * 3] as f64;
+        let p0y = positions[i0 * 3 + 1] as f64;
+        let p0z = positions[i0 * 3 + 2] as f64;
+        let edge1 = Vector3::new(
+            positions[i1 * 3] as f64 - p0x,
+            positions[i1 * 3 + 1] as f64 - p0y,
+            positions[i1 * 3 + 2] as f64 - p0z,
+        );
+        let edge2 = Vector3::new(
+            positions[i2 * 3] as f64 - p0x,
+            positions[i2 * 3 + 1] as f64 - p0y,
+            positions[i2 * 3 + 2] as f64 - p0z,
+        );
+        sum += edge1.cross(&edge2).norm() * 0.5;
+    }
+    sum
+}
+
+/// Compute bounding box dimensions [dx, dy, dz] from positions.
+fn compute_bbox_dimensions(positions: &[f32]) -> Vec<f32> {
+    if positions.len() < 3 {
+        return vec![0.0, 0.0, 0.0];
+    }
+    let mut min = [f32::MAX; 3];
+    let mut max = [f32::MIN; 3];
+    for chunk in positions.chunks_exact(3) {
+        for i in 0..3 {
+            min[i] = min[i].min(chunk[i]);
+            max[i] = max[i].max(chunk[i]);
+        }
+    }
+    vec![max[0] - min[0], max[1] - min[1], max[2] - min[2]]
+}
+
+/// Compute geometric quantities from raw mesh data (called from TypeScript).
+///
+/// Takes positions (Float32Array) and indices (Uint32Array), returns an
+/// object with { volume, surfaceArea, bboxDx, bboxDy, bboxDz }.
+#[wasm_bindgen(js_name = computeMeshQuantities)]
+pub fn compute_mesh_quantities(
+    positions: &[f32],
+    indices: &[u32],
+) -> JsValue {
+    let volume = compute_volume(positions, indices);
+    let area = compute_surface_area(positions, indices);
+    let bbox = compute_bbox_dimensions(positions);
+
+    // Return as a JS object
+    let obj = js_sys::Object::new();
+    let _ = js_sys::Reflect::set(&obj, &"volume".into(), &JsValue::from_f64(volume));
+    let _ = js_sys::Reflect::set(&obj, &"surfaceArea".into(), &JsValue::from_f64(area));
+    let _ = js_sys::Reflect::set(&obj, &"bboxDx".into(), &JsValue::from_f64(bbox[0] as f64));
+    let _ = js_sys::Reflect::set(&obj, &"bboxDy".into(), &JsValue::from_f64(bbox[1] as f64));
+    let _ = js_sys::Reflect::set(&obj, &"bboxDz".into(), &JsValue::from_f64(bbox[2] as f64));
+    obj.into()
 }
 
 /// Get WASM memory to allow JavaScript to create TypedArray views

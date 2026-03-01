@@ -215,6 +215,20 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         },
         returns: 'value',
       },
+      {
+        name: 'computedQuantities',
+        doc: 'Compute volume, surface area, and bounding box from element mesh geometry',
+        args: ['dump'],
+        paramNames: ['entity'],
+        tsParamTypes: ['BimEntity'],
+        tsReturn: '{ volume: number; surfaceArea: number; bboxDx: number; bboxDy: number; bboxDz: number } | null',
+        call: (sdk, args) => {
+          const ref = toRef(args[0]);
+          if (!ref) return null;
+          return sdk.computedQuantities(ref);
+        },
+        returns: 'value',
+      },
     ],
   },
 

@@ -43,6 +43,7 @@ export type {
   PropertyData,
   QuantitySetData,
   QuantityData,
+  ComputedQuantities,
 
   // Model
   ModelInfo,

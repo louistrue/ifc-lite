@@ -339,6 +339,102 @@ impl Mesh {
         )
     }
 
+    /// Calculate the signed volume of the mesh using the divergence theorem.
+    ///
+    /// For each triangle, form a tetrahedron with the origin and compute
+    /// its signed volume as `(v0 × v1) · v2 / 6`. The sum over all
+    /// triangles gives the total enclosed volume (assuming a closed,
+    /// consistently-wound mesh).
+    ///
+    /// Returns the absolute value so that winding direction does not matter.
+    pub fn volume(&self) -> f64 {
+        if self.indices.len() < 3 {
+            return 0.0;
+        }
+
+        let mut sum = 0.0f64;
+        for tri in self.indices.chunks_exact(3) {
+            let (i0, i1, i2) = (tri[0] as usize, tri[1] as usize, tri[2] as usize);
+            if i0 * 3 + 2 >= self.positions.len()
+                || i1 * 3 + 2 >= self.positions.len()
+                || i2 * 3 + 2 >= self.positions.len()
+            {
+                continue;
+            }
+
+            let v0 = Vector3::new(
+                self.positions[i0 * 3] as f64,
+                self.positions[i0 * 3 + 1] as f64,
+                self.positions[i0 * 3 + 2] as f64,
+            );
+            let v1 = Vector3::new(
+                self.positions[i1 * 3] as f64,
+                self.positions[i1 * 3 + 1] as f64,
+                self.positions[i1 * 3 + 2] as f64,
+            );
+            let v2 = Vector3::new(
+                self.positions[i2 * 3] as f64,
+                self.positions[i2 * 3 + 1] as f64,
+                self.positions[i2 * 3 + 2] as f64,
+            );
+
+            // Signed tetrahedron volume: (v0 × v1) · v2 / 6
+            sum += v0.cross(&v1).dot(&v2);
+        }
+
+        (sum / 6.0).abs()
+    }
+
+    /// Calculate the total surface area of the mesh.
+    ///
+    /// Sums the area of every triangle: `||(v1 - v0) × (v2 - v0)|| / 2`.
+    pub fn surface_area(&self) -> f64 {
+        if self.indices.len() < 3 {
+            return 0.0;
+        }
+
+        let mut sum = 0.0f64;
+        for tri in self.indices.chunks_exact(3) {
+            let (i0, i1, i2) = (tri[0] as usize, tri[1] as usize, tri[2] as usize);
+            if i0 * 3 + 2 >= self.positions.len()
+                || i1 * 3 + 2 >= self.positions.len()
+                || i2 * 3 + 2 >= self.positions.len()
+            {
+                continue;
+            }
+
+            let v0 = Point3::new(
+                self.positions[i0 * 3] as f64,
+                self.positions[i0 * 3 + 1] as f64,
+                self.positions[i0 * 3 + 2] as f64,
+            );
+            let v1 = Point3::new(
+                self.positions[i1 * 3] as f64,
+                self.positions[i1 * 3 + 1] as f64,
+                self.positions[i1 * 3 + 2] as f64,
+            );
+            let v2 = Point3::new(
+                self.positions[i2 * 3] as f64,
+                self.positions[i2 * 3 + 1] as f64,
+                self.positions[i2 * 3 + 2] as f64,
+            );
+
+            let edge1 = v1 - v0;
+            let edge2 = v2 - v0;
+            sum += edge1.cross(&edge2).norm() * 0.5;
+        }
+
+        sum
+    }
+
+    /// Calculate bounding box dimensions (width, depth, height).
+    ///
+    /// Returns `(dx, dy, dz)` where each is the extent along that axis.
+    pub fn dimensions(&self) -> (f32, f32, f32) {
+        let (min, max) = self.bounds();
+        (max.x - min.x, max.y - min.y, max.z - min.z)
+    }
+
     /// Clear the mesh
     #[inline]
     pub fn clear(&mut self) {
@@ -549,6 +645,82 @@ mod tests {
         assert!((centroid.x - 10.0).abs() < 0.001);
         assert!((centroid.y - 10.0).abs() < 0.001);
         assert!((centroid.z - 10.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_volume_unit_cube() {
+        // Unit cube: 8 vertices, 12 triangles
+        let mut mesh = Mesh::new();
+        mesh.positions = vec![
+            0.0, 0.0, 0.0,  // 0
+            1.0, 0.0, 0.0,  // 1
+            1.0, 1.0, 0.0,  // 2
+            0.0, 1.0, 0.0,  // 3
+            0.0, 0.0, 1.0,  // 4
+            1.0, 0.0, 1.0,  // 5
+            1.0, 1.0, 1.0,  // 6
+            0.0, 1.0, 1.0,  // 7
+        ];
+        mesh.normals = vec![0.0; 24];
+        // 12 triangles (2 per face, consistent winding)
+        mesh.indices = vec![
+            // Front (z=1)
+            4, 5, 6,  4, 6, 7,
+            // Back (z=0)
+            0, 3, 2,  0, 2, 1,
+            // Right (x=1)
+            1, 2, 6,  1, 6, 5,
+            // Left (x=0)
+            0, 4, 7,  0, 7, 3,
+            // Top (y=1)
+            3, 7, 6,  3, 6, 2,
+            // Bottom (y=0)
+            0, 1, 5,  0, 5, 4,
+        ];
+
+        let vol = mesh.volume();
+        assert!((vol - 1.0).abs() < 0.001, "Volume should be ~1.0, got {}", vol);
+    }
+
+    #[test]
+    fn test_surface_area_unit_cube() {
+        let mut mesh = Mesh::new();
+        mesh.positions = vec![
+            0.0, 0.0, 0.0,
+            1.0, 0.0, 0.0,
+            1.0, 1.0, 0.0,
+            0.0, 1.0, 0.0,
+            0.0, 0.0, 1.0,
+            1.0, 0.0, 1.0,
+            1.0, 1.0, 1.0,
+            0.0, 1.0, 1.0,
+        ];
+        mesh.normals = vec![0.0; 24];
+        mesh.indices = vec![
+            4, 5, 6,  4, 6, 7,
+            0, 3, 2,  0, 2, 1,
+            1, 2, 6,  1, 6, 5,
+            0, 4, 7,  0, 7, 3,
+            3, 7, 6,  3, 6, 2,
+            0, 1, 5,  0, 5, 4,
+        ];
+
+        let area = mesh.surface_area();
+        assert!((area - 6.0).abs() < 0.001, "Surface area should be ~6.0, got {}", area);
+    }
+
+    #[test]
+    fn test_dimensions() {
+        let mut mesh = Mesh::new();
+        mesh.positions = vec![
+            0.0, 0.0, 0.0,
+            2.0, 3.0, 5.0,
+        ];
+        mesh.normals = vec![0.0; 6];
+        let (dx, dy, dz) = mesh.dimensions();
+        assert!((dx - 2.0).abs() < 0.001);
+        assert!((dy - 3.0).abs() < 0.001);
+        assert!((dz - 5.0).abs() < 0.001);
     }
 
     #[test]

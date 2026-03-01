@@ -17,6 +17,7 @@ function createMockBackend() {
     entityData: vi.fn(() => null),
     properties: vi.fn(() => []),
     quantities: vi.fn(() => []),
+    computedQuantities: vi.fn(() => null),
     related: vi.fn(() => []),
   };
   const selection = {
@@ -120,6 +121,36 @@ describe('BimContext', () => {
     const bim = createBimContext({ backend });
 
     const result = bim.entity({ modelId: 'test', expressId: 999 });
+    expect(result).toBeNull();
+  });
+
+  it('computedQuantities() delegates to query backend', () => {
+    const { backend, query } = createMockBackend();
+    query.computedQuantities.mockReturnValue({
+      volume: 1.0,
+      surfaceArea: 6.0,
+      bboxDx: 1.0,
+      bboxDy: 1.0,
+      bboxDz: 1.0,
+    });
+    const bim = createBimContext({ backend });
+
+    const result = bim.computedQuantities({ modelId: 'test', expressId: 1 });
+    expect(result).toEqual({
+      volume: 1.0,
+      surfaceArea: 6.0,
+      bboxDx: 1.0,
+      bboxDy: 1.0,
+      bboxDz: 1.0,
+    });
+    expect(query.computedQuantities).toHaveBeenCalledWith({ modelId: 'test', expressId: 1 });
+  });
+
+  it('computedQuantities() returns null when no geometry available', () => {
+    const { backend } = createMockBackend();
+    const bim = createBimContext({ backend });
+
+    const result = bim.computedQuantities({ modelId: 'test', expressId: 999 });
     expect(result).toBeNull();
   });
 

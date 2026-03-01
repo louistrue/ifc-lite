@@ -7,13 +7,92 @@ import type {
   EntityData,
   PropertySetData,
   QuantitySetData,
+  ComputedQuantities,
   QueryDescriptor,
   QueryBackendMethods,
 } from '@ifc-lite/sdk';
 import type { StoreApi } from './types.js';
+import type { MeshData } from '@ifc-lite/geometry';
 import { EntityNode } from '@ifc-lite/query';
 import { RelationshipType, IfcTypeEnum, IfcTypeEnumFromString } from '@ifc-lite/data';
 import { getModelForRef, getAllModelEntries } from './model-compat.js';
+
+// ── Geometry-based quantity computation ──────────────────────────────
+// These mirror the Rust Mesh::volume() / Mesh::surface_area() algorithms.
+
+/** Compute volume using the signed tetrahedron (divergence theorem) method. */
+function computeVolume(positions: Float32Array, indices: Uint32Array): number {
+  let sum = 0;
+  for (let t = 0; t < indices.length; t += 3) {
+    const i0 = indices[t] * 3;
+    const i1 = indices[t + 1] * 3;
+    const i2 = indices[t + 2] * 3;
+    if (i0 + 2 >= positions.length || i1 + 2 >= positions.length || i2 + 2 >= positions.length) continue;
+
+    // v0 × v1 · v2
+    const ax = positions[i0], ay = positions[i0 + 1], az = positions[i0 + 2];
+    const bx = positions[i1], by = positions[i1 + 1], bz = positions[i1 + 2];
+    const cx = positions[i2], cy = positions[i2 + 1], cz = positions[i2 + 2];
+
+    // cross(a, b) = (ay*bz - az*by, az*bx - ax*bz, ax*by - ay*bx)
+    const crossX = ay * bz - az * by;
+    const crossY = az * bx - ax * bz;
+    const crossZ = ax * by - ay * bx;
+
+    sum += crossX * cx + crossY * cy + crossZ * cz;
+  }
+  return Math.abs(sum / 6);
+}
+
+/** Compute total surface area by summing all triangle areas. */
+function computeSurfaceArea(positions: Float32Array, indices: Uint32Array): number {
+  let sum = 0;
+  for (let t = 0; t < indices.length; t += 3) {
+    const i0 = indices[t] * 3;
+    const i1 = indices[t + 1] * 3;
+    const i2 = indices[t + 2] * 3;
+    if (i0 + 2 >= positions.length || i1 + 2 >= positions.length || i2 + 2 >= positions.length) continue;
+
+    // edge1 = v1 - v0, edge2 = v2 - v0
+    const e1x = positions[i1] - positions[i0];
+    const e1y = positions[i1 + 1] - positions[i0 + 1];
+    const e1z = positions[i1 + 2] - positions[i0 + 2];
+    const e2x = positions[i2] - positions[i0];
+    const e2y = positions[i2 + 1] - positions[i0 + 1];
+    const e2z = positions[i2 + 2] - positions[i0 + 2];
+
+    // |cross(e1, e2)| / 2
+    const cx = e1y * e2z - e1z * e2y;
+    const cy = e1z * e2x - e1x * e2z;
+    const cz = e1x * e2y - e1y * e2x;
+    sum += Math.sqrt(cx * cx + cy * cy + cz * cz) * 0.5;
+  }
+  return sum;
+}
+
+/** Find the mesh for a given expressId across all geometry stores. */
+function findMeshForEntity(store: StoreApi, ref: EntityRef): MeshData | null {
+  const state = store.getState();
+
+  // Federation mode: check models Map
+  const model = state.models.get(ref.modelId);
+  if (model?.geometryResult) {
+    const mesh = model.geometryResult.meshes.find(
+      (m: MeshData) => m.expressId === ref.expressId,
+    );
+    if (mesh) return mesh;
+  }
+
+  // Legacy single-model mode
+  if (state.geometryResult) {
+    const mesh = state.geometryResult.meshes.find(
+      (m: MeshData) => m.expressId === ref.expressId,
+    );
+    if (mesh) return mesh;
+  }
+
+  return null;
+}
 
 /** Map IFC relationship entity names to internal RelationshipType enum.
  * Keys use proper IFC schema names (e.g. IfcRelAggregates, not "Aggregates"). */
@@ -223,11 +302,37 @@ export function createQueryAdapter(store: StoreApi): QueryBackendMethods {
     return filtered;
   }
 
+  function getComputedQuantities(ref: EntityRef): ComputedQuantities | null {
+    const mesh = findMeshForEntity(store, ref);
+    if (!mesh || mesh.positions.length < 9) return null;
+
+    const volume = computeVolume(mesh.positions, mesh.indices);
+    const surfaceArea = computeSurfaceArea(mesh.positions, mesh.indices);
+
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      const x = mesh.positions[i], y = mesh.positions[i + 1], z = mesh.positions[i + 2];
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+    }
+
+    return {
+      volume,
+      surfaceArea,
+      bboxDx: maxX - minX,
+      bboxDy: maxY - minY,
+      bboxDz: maxZ - minZ,
+    };
+  }
+
   return {
     entities: queryEntities,
     entityData: getEntityData,
     properties: getProperties,
     quantities: getQuantities,
+    computedQuantities: getComputedQuantities,
     related(ref: EntityRef, relType: string, direction: 'forward' | 'inverse') {
       const state = store.getState();
       const model = getModelForRef(state, ref.modelId);

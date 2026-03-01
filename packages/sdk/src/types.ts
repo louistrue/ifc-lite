@@ -89,6 +89,20 @@ export interface QuantityData {
   value: number;
 }
 
+/** Quantities computed from element mesh geometry (signed tetrahedron / triangle area) */
+export interface ComputedQuantities {
+  /** Mesh volume in model units³ (typically m³) */
+  volume: number;
+  /** Total surface area in model units² (typically m²) */
+  surfaceArea: number;
+  /** Bounding box width (X extent) */
+  bboxDx: number;
+  /** Bounding box depth (Y extent) */
+  bboxDy: number;
+  /** Bounding box height (Z extent) */
+  bboxDz: number;
+}
+
 // ============================================================================
 // Query Types
 // ============================================================================
@@ -227,6 +241,7 @@ export interface QueryBackendMethods {
   entityData(ref: EntityRef): EntityData | null;
   properties(ref: EntityRef): PropertySetData[];
   quantities(ref: EntityRef): QuantitySetData[];
+  computedQuantities(ref: EntityRef): ComputedQuantities | null;
   related(ref: EntityRef, relType: string, direction: 'forward' | 'inverse'): EntityRef[];
 }
 

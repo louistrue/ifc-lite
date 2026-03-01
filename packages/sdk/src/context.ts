@@ -12,7 +12,7 @@
  *   bim.viewer.colorize(refs, '#ff0000')
  */
 
-import type { BimBackend, BimContextOptions, Transport, EntityData, EntityRef, PropertySetData, QuantitySetData } from './types.js';
+import type { BimBackend, BimContextOptions, Transport, EntityData, EntityRef, PropertySetData, QuantitySetData, ComputedQuantities } from './types.js';
 import { ModelNamespace } from './namespaces/model.js';
 import { QueryNamespace, QueryBuilder } from './namespaces/query.js';
 import { ViewerNamespace } from './namespaces/viewer.js';
@@ -98,6 +98,13 @@ export class BimContext {
    */
   quantities(ref: EntityRef): QuantitySetData[] {
     return this._queryNamespace.quantities(ref);
+  }
+
+  /**
+   * Get geometry-computed quantities for an entity (volume, surface area, bbox).
+   */
+  computedQuantities(ref: EntityRef): ComputedQuantities | null {
+    return this._queryNamespace.computedQuantities(ref);
   }
 
   /**

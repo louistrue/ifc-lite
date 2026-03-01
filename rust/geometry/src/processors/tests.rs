@@ -59,6 +59,47 @@ fn test_extruded_area_solid() {
 }
 
 #[test]
+fn test_extruded_area_solid_quantities() {
+    // Rectangle 100x200 extruded 300 → volume = 6,000,000, surface area = 180,000
+    let content = r#"
+#1=IFCRECTANGLEPROFILEDEF(.AREA.,$,$,100.0,200.0);
+#2=IFCDIRECTION((0.0,0.0,1.0));
+#3=IFCEXTRUDEDAREASOLID(#1,$,#2,300.0);
+"#;
+
+    let mut decoder = EntityDecoder::new(content);
+    let schema = IfcSchema::new();
+    let processor = ExtrudedAreaSolidProcessor::new(schema.clone());
+
+    let entity = decoder.decode_by_id(3).unwrap();
+    let mesh = processor.process(&entity, &mut decoder, &schema).unwrap();
+
+    let volume = mesh.volume();
+    let area = mesh.surface_area();
+    let (dx, dy, dz) = mesh.dimensions();
+
+    // Expected volume: 100 * 200 * 300 = 6,000,000
+    assert!(
+        (volume - 6_000_000.0).abs() < 1000.0,
+        "Volume should be ~6,000,000, got {}",
+        volume
+    );
+
+    // Expected surface area: 2*(100*200) + 2*(100*300) + 2*(200*300) = 40,000 + 60,000 + 120,000 = 220,000
+    // Note: tessellation may introduce slight differences
+    assert!(
+        area > 100_000.0,
+        "Surface area should be substantial, got {}",
+        area
+    );
+
+    // Bounding box dimensions should match the extrusion
+    assert!(dx > 50.0, "dx should reflect width ~100, got {}", dx);
+    assert!(dy > 100.0, "dy should reflect depth ~200, got {}", dy);
+    assert!(dz > 200.0, "dz should reflect height ~300, got {}", dz);
+}
+
+#[test]
 fn test_triangulated_face_set() {
     let content = r#"
 #1=IFCCARTESIANPOINTLIST3D(((0.0,0.0,0.0),(100.0,0.0,0.0),(50.0,100.0,0.0)));

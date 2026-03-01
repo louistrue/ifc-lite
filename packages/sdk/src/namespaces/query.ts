@@ -8,6 +8,7 @@ import type {
   EntityData,
   PropertySetData,
   QuantitySetData,
+  ComputedQuantities,
   QueryDescriptor,
   QueryFilter,
   ComparisonOp,
@@ -121,6 +122,11 @@ export class QueryNamespace {
   /** Get all quantity sets for an entity */
   quantities(ref: EntityRef): QuantitySetData[] {
     return this.backend.query.quantities(ref);
+  }
+
+  /** Get geometry-computed quantities (volume, surface area, bounding box) */
+  computedQuantities(ref: EntityRef): ComputedQuantities | null {
+    return this.backend.query.computedQuantities(ref);
   }
 
   /** Get a single quantity value */
