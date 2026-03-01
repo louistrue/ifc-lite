@@ -101,8 +101,12 @@ export class IfcCreator {
   private worldPlacementId = 0;
   private unitAssignmentId = 0;
 
-  // Default surface style (applied to all elements)
+  // Default surface style (applied to elements without custom color)
   private defaultStyleId = 0;
+
+  // Per-element style tracking (deferred to finalization)
+  private elementSolids: Map<number, number[]> = new Map();
+  private elementColors: Map<number, { name: string; rgb: [number, number, number] }> = new Map();
 
   // Tracking for spatial aggregation
   private storeyIds: number[] = [];
@@ -181,7 +185,7 @@ export class IfcCreator {
     this.line(wallId, 'IFCWALL',
       `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.STANDARD.`);
 
-    this.assignStyle(wallId, solidId);
+    this.elementSolids.set(wallId, [solidId]);
     this.trackElement(storeyId, wallId);
     this.entities.push({ expressId: wallId, type: 'IfcWall', Name: name });
 
@@ -228,7 +232,7 @@ export class IfcCreator {
     this.line(slabId, 'IFCSLAB',
       `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.FLOOR.`);
 
-    this.assignStyle(slabId, solidId);
+    this.elementSolids.set(slabId, [solidId]);
     this.trackElement(storeyId, slabId);
     this.entities.push({ expressId: slabId, type: 'IfcSlab', Name: name });
 
@@ -266,7 +270,7 @@ export class IfcCreator {
     this.line(colId, 'IFCCOLUMN',
       `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.COLUMN.`);
 
-    this.assignStyle(colId, solidId);
+    this.elementSolids.set(colId, [solidId]);
     this.trackElement(storeyId, colId);
     this.entities.push({ expressId: colId, type: 'IfcColumn', Name: name });
     return colId;
@@ -307,7 +311,7 @@ export class IfcCreator {
     this.line(beamId, 'IFCBEAM',
       `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.BEAM.`);
 
-    this.assignStyle(beamId, solidId);
+    this.elementSolids.set(beamId, [solidId]);
     this.trackElement(storeyId, beamId);
     this.entities.push({ expressId: beamId, type: 'IfcBeam', Name: name });
     return beamId;
@@ -362,9 +366,7 @@ export class IfcCreator {
     this.line(stairId, 'IFCSTAIR',
       `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.STRAIGHT_RUN_STAIR.`);
 
-    if (stepSolids.length > 0) {
-      this.assignStyle(stairId, stepSolids[0]);
-    }
+    this.elementSolids.set(stairId, [...stepSolids]);
     this.trackElement(storeyId, stairId);
     this.entities.push({ expressId: stairId, type: 'IfcStair', Name: name });
     return stairId;
@@ -410,7 +412,7 @@ export class IfcCreator {
     this.line(roofId, 'IFCROOF',
       `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.FLAT_ROOF.`);
 
-    this.assignStyle(roofId, solidId);
+    this.elementSolids.set(roofId, [solidId]);
     this.trackElement(storeyId, roofId);
     this.entities.push({ expressId: roofId, type: 'IfcRoof', Name: name });
     return roofId;
@@ -473,11 +475,28 @@ export class IfcCreator {
   }
 
   // ============================================================================
+  // Public API — Styling
+  // ============================================================================
+
+  /**
+   * Assign a named colour to an element. Call before toIfc().
+   * Elements without a custom colour get the default grey.
+   *
+   * @param elementId The expressId returned by addWall/addSlab/…
+   * @param name      Material name shown in IFC viewers (e.g. 'Concrete')
+   * @param rgb       [r, g, b] each 0‒1
+   */
+  setColor(elementId: number, name: string, rgb: [number, number, number]): void {
+    this.elementColors.set(elementId, { name, rgb });
+  }
+
+  // ============================================================================
   // Public API — Export
   // ============================================================================
 
   /** Generate the complete IFC STEP file */
   toIfc(): CreateResult {
+    this.finalizeStyles();
     this.finalizeRelationships();
 
     const header = this.buildHeader();
@@ -636,11 +655,44 @@ ENDSEC;
     return styleId;
   }
 
-  /** Assign the default surface style to a solid's representation item via IfcStyledItem */
-  private assignStyle(productId: number, solidId: number): void {
-    // IfcPresentationStyleAssignment (IFC4: use direct style reference in IfcStyledItem)
-    const styledItemId = this.id();
-    this.line(styledItemId, 'IFCSTYLEDITEM', `#${solidId},(#${this.defaultStyleId}),$`);
+  /** Create all IfcStyledItem entities — custom colour or default per element */
+  private finalizeStyles(): void {
+    // Cache: colour key → styleId so identical colours share one style entity
+    const styleCache = new Map<string, number>();
+    for (const [elementId, solidIds] of this.elementSolids) {
+      const color = this.elementColors.get(elementId);
+      let styleId: number;
+      if (color) {
+        const key = `${color.name}|${color.rgb.join(',')}`;
+        const cached = styleCache.get(key);
+        if (cached !== undefined) {
+          styleId = cached;
+        } else {
+          styleId = this.buildColorStyle(color.name, color.rgb);
+          styleCache.set(key, styleId);
+        }
+      } else {
+        styleId = this.defaultStyleId;
+      }
+      for (const solidId of solidIds) {
+        const styledItemId = this.id();
+        this.line(styledItemId, 'IFCSTYLEDITEM', `#${solidId},(#${styleId}),$`);
+      }
+    }
+  }
+
+  /** Create a named IfcSurfaceStyle with the given RGB colour */
+  private buildColorStyle(name: string, rgb: [number, number, number]): number {
+    const colourId = this.id();
+    this.line(colourId, 'IFCCOLOURRGB', `$,${num(rgb[0])},${num(rgb[1])},${num(rgb[2])}`);
+
+    const renderingId = this.id();
+    this.line(renderingId, 'IFCSURFACESTYLERENDERING',
+      `#${colourId},0.,$,$,$,$,IFCNORMALISEDRATIOMEASURE(0.5),IFCSPECULAREXPONENT(64.),.NOTDEFINED.`);
+
+    const styleId = this.id();
+    this.line(styleId, 'IFCSURFACESTYLE', `'${esc(name)}',.BOTH.,(#${renderingId})`);
+    return styleId;
   }
 
   // ============================================================================

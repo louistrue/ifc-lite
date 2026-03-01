@@ -548,6 +548,19 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         returns: 'value',
       },
       {
+        name: 'setColor',
+        doc: 'Assign a named colour to an element. Call before toIfc().',
+        args: ['number', 'number', 'string', 'dump'],
+        paramNames: ['handle', 'elementId', 'name', 'rgb'],
+        tsParamTypes: [undefined, undefined, undefined, '[number, number, number]'],
+        tsReturn: 'void',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          creator.setColor(args[1] as number, args[2] as string, args[3] as [number, number, number]);
+        },
+        returns: 'void',
+      },
+      {
         name: 'addPropertySet',
         doc: 'Attach a property set to an element. Returns pset expressId.',
         args: ['number', 'number', 'dump'],
