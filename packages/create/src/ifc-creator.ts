@@ -5,17 +5,17 @@
 /**
  * IfcCreator — build valid IFC4 STEP files from scratch.
  *
- * Produces a complete IFC file with spatial structure, building elements
- * (walls, slabs, columns, beams, stairs, roofs), openings, and
- * attached property sets / element quantities.
+ * Coordinate convention (construction-standard):
+ * - Walls: Start/End define the wall centerline axis in plan.
+ *   The wall solid goes exactly from Start to End, centered on thickness.
+ * - Slabs/Roofs: Position is the minimum corner (bottom-left in plan).
+ *   Width extends along +X, Depth along +Y, Thickness along +Z.
+ * - Columns: Position is the base center. Width(X) × Depth(Y) × Height(Z).
+ * - Beams: Start/End define the beam axis. Cross-section centered on axis.
+ * - Stairs: Position is the nose of the first tread, treads go along +X.
+ * - Openings: Position is relative to host element. [along_axis, 0, sill_height].
  *
- * Usage:
- * ```ts
- * const creator = new IfcCreator({ Name: 'My Project' });
- * const storey = creator.addStorey({ Name: 'Ground Floor', Elevation: 0 });
- * creator.addWall(storey, { Start: [0,0,0], End: [5,0,0], Thickness: 0.2, Height: 3 });
- * const ifc = creator.toIfc();
- * ```
+ * All values in metres unless LengthUnit is overridden.
  */
 
 import type {
@@ -101,6 +101,9 @@ export class IfcCreator {
   private worldPlacementId = 0;
   private unitAssignmentId = 0;
 
+  // Default surface style (applied to all elements)
+  private defaultStyleId = 0;
+
   // Tracking for spatial aggregation
   private storeyIds: number[] = [];
   private storeyElements: Map<number, number[]> = new Map();
@@ -138,35 +141,36 @@ export class IfcCreator {
   // Public API — Building Elements
   // ============================================================================
 
-  /** Create a wall from start/end axis, thickness, and height. */
+  /**
+   * Create a wall from Start to End with given Thickness and Height.
+   *
+   * Geometry: placement at Start. Profile offset so the solid extends
+   * exactly from Start to End, centered on the thickness axis. Extruded
+   * upward by Height.
+   */
   addWall(storeyId: number, params: WallParams): number {
-    // Compute wall direction and perpendicular
     const dx = params.End[0] - params.Start[0];
     const dy = params.End[1] - params.Start[1];
     const dz = params.End[2] - params.Start[2];
     const wallLen = Math.sqrt(dx * dx + dy * dy + dz * dz);
     const dir: Point3D = vecNorm([dx, dy, dz]);
 
-    // Wall origin is at Start, offset by half-thickness perpendicular
-    const perp: Point3D = vecNorm(vecCross(dir, [0, 0, 1]));
-
-    // Placement at start point
+    // Placement at Start. Local X = wall direction, Z = up (default).
     const placementId = this.addLocalPlacement(this.worldPlacementId, {
       Location: params.Start,
       RefDirection: dir,
     });
 
-    // Rectangle profile (thickness x wallLen in local XY, extruded along Z)
-    const profileId = this.addRectangleProfile(wallLen, params.Thickness);
+    // Rectangle profile centered at (wallLen/2, 0) so it spans 0..wallLen along local X
+    // and -thickness/2..+thickness/2 along local Y.
+    const profileId = this.addRectangleProfile(wallLen, params.Thickness, [wallLen / 2, 0]);
 
-    // Extruded solid along Z by Height
+    // Extrude along Z (up) by Height
     const solidId = this.addExtrudedAreaSolid(profileId, params.Height);
 
-    // Shape representation
     const shapeId = this.addShapeRepresentation('Body', [solidId]);
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
-    // Wall entity
     const wallId = this.id();
     const globalId = newGlobalId();
     const name = params.Name ?? 'Wall';
@@ -177,20 +181,24 @@ export class IfcCreator {
     this.line(wallId, 'IFCWALL',
       `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.STANDARD.`);
 
+    this.assignStyle(wallId, solidId);
     this.trackElement(storeyId, wallId);
     this.entities.push({ expressId: wallId, type: 'IfcWall', Name: name });
 
     // Add openings
     if (params.Openings) {
       for (const opening of params.Openings) {
-        this.addOpening(wallId, placementId, opening);
+        this.addWallOpening(wallId, placementId, opening, params.Thickness);
       }
     }
 
     return wallId;
   }
 
-  /** Create a slab (floor/ceiling). */
+  /**
+   * Create a slab. Position is the minimum corner.
+   * Width along +X, Depth along +Y, Thickness extruded along +Z.
+   */
   addSlab(storeyId: number, params: SlabParams): number {
     const placementId = this.addLocalPlacement(this.worldPlacementId, {
       Location: params.Position,
@@ -202,7 +210,8 @@ export class IfcCreator {
     } else {
       const w = params.Width ?? 5;
       const d = params.Depth ?? 5;
-      profileId = this.addRectangleProfile(w, d);
+      // Profile centered at (w/2, d/2) so slab starts at Position corner
+      profileId = this.addRectangleProfile(w, d, [w / 2, d / 2]);
     }
 
     const solidId = this.addExtrudedAreaSolid(profileId, params.Thickness);
@@ -219,24 +228,29 @@ export class IfcCreator {
     this.line(slabId, 'IFCSLAB',
       `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.FLOOR.`);
 
+    this.assignStyle(slabId, solidId);
     this.trackElement(storeyId, slabId);
     this.entities.push({ expressId: slabId, type: 'IfcSlab', Name: name });
 
     if (params.Openings) {
       for (const opening of params.Openings) {
-        this.addOpening(slabId, placementId, opening);
+        this.addSlabOpening(slabId, placementId, opening);
       }
     }
 
     return slabId;
   }
 
-  /** Create a column. */
+  /**
+   * Create a column. Position is the base center.
+   * Cross-section centered, extruded upward by Height.
+   */
   addColumn(storeyId: number, params: ColumnParams): number {
     const placementId = this.addLocalPlacement(this.worldPlacementId, {
       Location: params.Position,
     });
 
+    // Centered profile — column base center = Position
     const profileId = this.addRectangleProfile(params.Width, params.Depth);
     const solidId = this.addExtrudedAreaSolid(profileId, params.Height);
     const shapeId = this.addShapeRepresentation('Body', [solidId]);
@@ -252,12 +266,16 @@ export class IfcCreator {
     this.line(colId, 'IFCCOLUMN',
       `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.COLUMN.`);
 
+    this.assignStyle(colId, solidId);
     this.trackElement(storeyId, colId);
     this.entities.push({ expressId: colId, type: 'IfcColumn', Name: name });
     return colId;
   }
 
-  /** Create a beam between two points. */
+  /**
+   * Create a beam from Start to End.
+   * Cross-section (Width × Height) centered on the beam axis.
+   */
   addBeam(storeyId: number, params: BeamParams): number {
     const dx = params.End[0] - params.Start[0];
     const dy = params.End[1] - params.Start[1];
@@ -265,14 +283,15 @@ export class IfcCreator {
     const beamLen = Math.sqrt(dx * dx + dy * dy + dz * dz);
     const dir: Point3D = vecNorm([dx, dy, dz]);
 
-    // Beam is extruded along its length (local X), cross-section in YZ
-    // We orient the local Z to point along the beam axis
+    // Local Z = beam direction, so extrusion along Z = along beam.
+    // Local X, Y define the cross-section plane.
     const placementId = this.addLocalPlacement(this.worldPlacementId, {
       Location: params.Start,
       Axis: dir,
       RefDirection: this.computeRefDirection(dir),
     });
 
+    // Centered cross-section
     const profileId = this.addRectangleProfile(params.Width, params.Height);
     const solidId = this.addExtrudedAreaSolid(profileId, beamLen);
     const shapeId = this.addShapeRepresentation('Body', [solidId]);
@@ -288,25 +307,27 @@ export class IfcCreator {
     this.line(beamId, 'IFCBEAM',
       `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.BEAM.`);
 
+    this.assignStyle(beamId, solidId);
     this.trackElement(storeyId, beamId);
     this.entities.push({ expressId: beamId, type: 'IfcBeam', Name: name });
     return beamId;
   }
 
-  /** Create a simplified straight-run stair. */
+  /**
+   * Create a straight-run stair.
+   * Position is the nose of the first tread. Treads go along +X (rotated by Direction).
+   */
   addStair(storeyId: number, params: StairParams): number {
     const placementId = this.addLocalPlacement(this.worldPlacementId, {
       Location: params.Position,
     });
 
-    // Build stair geometry as a series of step extrusions combined via IfcShapeRepresentation
     const stepSolids: number[] = [];
     const direction = params.Direction ?? 0;
     const cosD = Math.cos(direction);
     const sinD = Math.sin(direction);
 
     for (let i = 0; i < params.NumberOfRisers; i++) {
-      // Each step: a rectangle at the right height, extruded up by RiserHeight
       const stepX = i * params.TreadLength;
       const stepZ = i * params.RiserHeight;
 
@@ -317,7 +338,11 @@ export class IfcCreator {
       ]);
       const stepAxis2Id = this.addAxis2Placement3D(stepOriginId);
 
-      const profileId = this.addRectangleProfile(params.TreadLength, params.Width);
+      // Profile offset so tread starts at step origin, not centered on it
+      const profileId = this.addRectangleProfile(
+        params.TreadLength, params.Width,
+        [params.TreadLength / 2, params.Width / 2],
+      );
       const solidId = this.id();
       this.line(solidId, 'IFCEXTRUDEDAREASOLID',
         `#${profileId},#${stepAxis2Id},#${this.dirZ},${num(params.RiserHeight)}`);
@@ -337,20 +362,25 @@ export class IfcCreator {
     this.line(stairId, 'IFCSTAIR',
       `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.STRAIGHT_RUN_STAIR.`);
 
+    if (stepSolids.length > 0) {
+      this.assignStyle(stairId, stepSolids[0]);
+    }
     this.trackElement(storeyId, stairId);
     this.entities.push({ expressId: stairId, type: 'IfcStair', Name: name });
     return stairId;
   }
 
-  /** Create a roof slab with optional slope. */
+  /**
+   * Create a roof. Position is the minimum corner.
+   * Width along +X, Depth along +Y, Thickness extruded upward.
+   * Optional Slope rotates the extrusion around the Y axis.
+   */
   addRoof(storeyId: number, params: RoofParams): number {
     const slope = params.Slope ?? 0;
 
-    // If slope > 0, tilt the local Z axis
     let axis: Point3D = [0, 0, 1];
     let refDir: Point3D = [1, 0, 0];
     if (slope > 0) {
-      // Rotate around Y axis by slope angle
       axis = [Math.sin(slope), 0, Math.cos(slope)];
       refDir = [Math.cos(slope), 0, -Math.sin(slope)];
     }
@@ -361,7 +391,11 @@ export class IfcCreator {
       RefDirection: refDir,
     });
 
-    const profileId = this.addRectangleProfile(params.Width, params.Depth);
+    // Profile from corner, like slab
+    const profileId = this.addRectangleProfile(
+      params.Width, params.Depth,
+      [params.Width / 2, params.Depth / 2],
+    );
     const solidId = this.addExtrudedAreaSolid(profileId, params.Thickness);
     const shapeId = this.addShapeRepresentation('Body', [solidId]);
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
@@ -376,6 +410,7 @@ export class IfcCreator {
     this.line(roofId, 'IFCROOF',
       `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.FLAT_ROOF.`);
 
+    this.assignStyle(roofId, solidId);
     this.trackElement(storeyId, roofId);
     this.entities.push({ expressId: roofId, type: 'IfcRoof', Name: name });
     return roofId;
@@ -403,7 +438,6 @@ export class IfcCreator {
     this.line(psetId, 'IFCPROPERTYSET',
       `'${globalId}',#${this.ownerHistoryId},'${esc(pset.Name)}',$,(${refs})`);
 
-    // IfcRelDefinesByProperties
     const relId = this.id();
     const relGlobalId = newGlobalId();
     this.line(relId, 'IFCRELDEFINESBYPROPERTIES',
@@ -430,7 +464,6 @@ export class IfcCreator {
     this.line(qsetId, 'IFCELEMENTQUANTITY',
       `'${globalId}',#${this.ownerHistoryId},'${esc(qset.Name)}',$,$,(${refs})`);
 
-    // IfcRelDefinesByProperties to link quantity set
     const relId = this.id();
     const relGlobalId = newGlobalId();
     this.line(relId, 'IFCRELDEFINESBYPROPERTIES',
@@ -445,11 +478,9 @@ export class IfcCreator {
 
   /** Generate the complete IFC STEP file */
   toIfc(): CreateResult {
-    // Finalize spatial structure relationships
     this.finalizeRelationships();
 
     const header = this.buildHeader();
-
     const data = this.lines.join('\n');
     const content = `${header}DATA;\n${data}\nENDSEC;\nEND-ISO-10303-21;\n`;
 
@@ -481,11 +512,10 @@ ENDSEC;
   }
 
   // ============================================================================
-  // Internal — Preamble (project, site, building, contexts, units)
+  // Internal — Preamble (project, site, building, contexts, units, style)
   // ============================================================================
 
   private buildPreamble(params: ProjectParams): void {
-    // IfcPerson, IfcOrganization, IfcPersonAndOrganization, IfcApplication, IfcOwnerHistory
     const personId = this.id();
     this.line(personId, 'IFCPERSON', "$,$,'',$,$,$,$,$");
 
@@ -531,6 +561,9 @@ ENDSEC;
     // Units
     this.unitAssignmentId = this.buildUnits(params.LengthUnit ?? 'METRE');
 
+    // Default surface style — light grey with some specularity
+    this.defaultStyleId = this.buildDefaultStyle();
+
     // IfcProject
     this.projectId = this.id();
     const projectGlobalId = newGlobalId();
@@ -556,7 +589,6 @@ ENDSEC;
   }
 
   private buildUnits(lengthUnit: string): number {
-    // SI units
     const dimExpId = this.id();
     this.line(dimExpId, 'IFCDIMENSIONALEXPONENTS', '0,0,0,0,0,0,0');
 
@@ -584,6 +616,31 @@ ENDSEC;
       `(#${lengthUnitId},#${siAreaId},#${siVolumeId},#${siAngleId})`);
 
     return assignmentId;
+  }
+
+  /** Create a default IfcSurfaceStyle with a neutral colour (RGB 0.75, 0.73, 0.68) */
+  private buildDefaultStyle(): number {
+    // IfcColourRgb — warm concrete grey
+    const colourId = this.id();
+    this.line(colourId, 'IFCCOLOURRGB', `$,0.75,0.73,0.68`);
+
+    // IfcSurfaceStyleRendering — surface + specular
+    const renderingId = this.id();
+    this.line(renderingId, 'IFCSURFACESTYLERENDERING',
+      `#${colourId},0.,$,$,$,$,IFCNORMALISEDRATIOMEASURE(0.5),IFCSPECULAREXPONENT(64.),.NOTDEFINED.`);
+
+    // IfcSurfaceStyle
+    const styleId = this.id();
+    this.line(styleId, 'IFCSURFACESTYLE', `'Default',.BOTH.,(#${renderingId})`);
+
+    return styleId;
+  }
+
+  /** Assign the default surface style to a solid's representation item via IfcStyledItem */
+  private assignStyle(productId: number, solidId: number): void {
+    // IfcPresentationStyleAssignment (IFC4: use direct style reference in IfcStyledItem)
+    const styledItemId = this.id();
+    this.line(styledItemId, 'IFCSTYLEDITEM', `#${solidId},(#${this.defaultStyleId}),$`);
   }
 
   // ============================================================================
@@ -635,8 +692,16 @@ ENDSEC;
     return id;
   }
 
-  private addRectangleProfile(xDim: number, yDim: number): number {
-    const profileOriginId = this.addCartesianPoint2D([0, 0]);
+  /**
+   * Create a rectangle profile.
+   * @param xDim Width of rectangle
+   * @param yDim Height of rectangle
+   * @param center Optional 2D offset for the profile centre. Default [0,0] = centred at origin.
+   */
+  private addRectangleProfile(xDim: number, yDim: number, center?: Point2D): number {
+    const cx = center?.[0] ?? 0;
+    const cy = center?.[1] ?? 0;
+    const profileOriginId = this.addCartesianPoint2D([cx, cy]);
     const profileAxis2dId = this.id();
     this.line(profileAxis2dId, 'IFCAXIS2PLACEMENT2D', `#${profileOriginId},$`);
 
@@ -647,9 +712,8 @@ ENDSEC;
 
   private addArbitraryProfile(points: Point2D[]): number {
     const pointIds = points.map(p => this.addCartesianPoint2D(p));
-    // Close the polyline
     if (points.length > 0) {
-      pointIds.push(pointIds[0]);
+      pointIds.push(pointIds[0]); // close the polyline
     }
     const refs = pointIds.map(id => `#${id}`).join(',');
     const polylineId = this.id();
@@ -660,13 +724,14 @@ ENDSEC;
     return id;
   }
 
-  private addExtrudedAreaSolid(profileId: number, depth: number): number {
+  private addExtrudedAreaSolid(profileId: number, depth: number, extrusionDir?: number): number {
     const originId = this.addCartesianPoint([0, 0, 0]);
     const axis2Id = this.addAxis2Placement3D(originId);
 
+    const dirRef = extrusionDir ?? this.dirZ;
     const id = this.id();
     this.line(id, 'IFCEXTRUDEDAREASOLID',
-      `#${profileId},#${axis2Id},#${this.dirZ},${num(depth)}`);
+      `#${profileId},#${axis2Id},#${dirRef},${num(depth)}`);
     return id;
   }
 
@@ -688,14 +753,68 @@ ENDSEC;
     return id;
   }
 
-  private addOpening(hostId: number, hostPlacementId: number, opening: RectangularOpening): number {
-    // Opening placement relative to host
+  // ============================================================================
+  // Internal — Openings
+  // ============================================================================
+
+  /**
+   * Add an opening in a wall.
+   * Opening Position: [distance_along_wall, 0, sill_height]
+   * The opening extrudes through the wall perpendicular to its face (local Y).
+   */
+  private addWallOpening(hostId: number, hostPlacementId: number, opening: RectangularOpening, wallThickness: number): number {
+    // In wall local CS: X = along wall, Y = thickness, Z = up.
+    // Opening needs to cut through the wall in the Y direction.
+    // So we orient the opening's local Z = wall's local Y = [0,1,0],
+    // and opening's local X = wall's local X = [1,0,0].
+    // Opening local Y then = cross(Z,X) = cross([0,1,0],[1,0,0]) = [0,0,-1].
+    // To get Y pointing up, flip: Axis = [0,-1,0].
+    // Then: local X = [1,0,0], local Y = cross([0,-1,0],[1,0,0]) = [0,0,1], local Z = [0,-1,0].
+    // Profile XY: X = along wall (Width), Y = up (Height). Extrusion Z = through wall.
+
+    const openingOriginId = this.addCartesianPoint(opening.Position);
+    const openingAxisId = this.addDirection([0, -1, 0]);
+    const openingRefDirId = this.addDirection([1, 0, 0]);
+    const openingAxis2Id = this.addAxis2Placement3D(openingOriginId, openingAxisId, openingRefDirId);
+
+    const openingPlacementId = this.id();
+    this.line(openingPlacementId, 'IFCLOCALPLACEMENT', `#${hostPlacementId},#${openingAxis2Id}`);
+
+    // Profile: Width along wall (X), Height upward (Y), centered on position.
+    // Extrude through wall thickness + margin.
+    const profileId = this.addRectangleProfile(opening.Width, opening.Height, [0, opening.Height / 2]);
+    const extrusionDepth = wallThickness + 0.1; // enough to cut clean through
+    const solidId = this.addExtrudedAreaSolid(profileId, extrusionDepth);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const openingId = this.id();
+    const globalId = newGlobalId();
+    const name = opening.Name ?? 'Opening';
+    this.line(openingId, 'IFCOPENINGELEMENT',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',$,$,#${openingPlacementId},#${prodShapeId},$,.OPENING.`);
+
+    const relId = this.id();
+    const relGlobalId = newGlobalId();
+    this.line(relId, 'IFCRELVOIDSELEMENT',
+      `'${relGlobalId}',#${this.ownerHistoryId},$,$,#${hostId},#${openingId}`);
+
+    this.entities.push({ expressId: openingId, type: 'IfcOpeningElement', Name: name });
+    return openingId;
+  }
+
+  /**
+   * Add an opening in a slab.
+   * Opening Position: [x_offset, y_offset, 0] relative to slab placement.
+   * The opening extrudes through the slab along Z.
+   */
+  private addSlabOpening(hostId: number, hostPlacementId: number, opening: RectangularOpening): number {
     const placementId = this.addLocalPlacement(hostPlacementId, {
       Location: opening.Position,
     });
 
     const profileId = this.addRectangleProfile(opening.Width, opening.Height);
-    const solidId = this.addExtrudedAreaSolid(profileId, 10); // Extrude through the element
+    const solidId = this.addExtrudedAreaSolid(profileId, 10); // cut through
     const shapeId = this.addShapeRepresentation('Body', [solidId]);
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
@@ -705,7 +824,6 @@ ENDSEC;
     this.line(openingId, 'IFCOPENINGELEMENT',
       `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',$,$,#${placementId},#${prodShapeId},$,.OPENING.`);
 
-    // IfcRelVoidsElement
     const relId = this.id();
     const relGlobalId = newGlobalId();
     this.line(relId, 'IFCRELVOIDSELEMENT',
@@ -739,22 +857,14 @@ ENDSEC;
   }
 
   private quantityValueField(qty: QuantityDef): string {
-    // IfcQuantityLength(Name, Description, Unit, LengthValue)
-    // IfcQuantityArea(Name, Description, Unit, AreaValue)
-    // etc — we already have Name in the caller, so just the value fields:
-    // Actually the full entity is: Kind(Name, Description, Unit, <Value>)
-    // But our line() already includes the Name. Let's return the remaining args.
     switch (qty.Kind) {
       case 'IfcQuantityLength':
-        return `$,${num(qty.Value)}`;
       case 'IfcQuantityArea':
-        return `$,${num(qty.Value)}`;
       case 'IfcQuantityVolume':
+      case 'IfcQuantityWeight':
         return `$,${num(qty.Value)}`;
       case 'IfcQuantityCount':
         return `$,${Math.round(qty.Value)}.`;
-      case 'IfcQuantityWeight':
-        return `$,${num(qty.Value)}`;
       default:
         return `$,${num(qty.Value)}`;
     }
@@ -765,18 +875,13 @@ ENDSEC;
   // ============================================================================
 
   private finalizeRelationships(): void {
-    // IfcRelAggregates: Project → Site
     this.addRelAggregates(this.projectId, [this.siteId]);
-
-    // IfcRelAggregates: Site → Building
     this.addRelAggregates(this.siteId, [this.buildingId]);
 
-    // IfcRelAggregates: Building → Storeys
     if (this.storeyIds.length > 0) {
       this.addRelAggregates(this.buildingId, this.storeyIds);
     }
 
-    // IfcRelContainedInSpatialStructure: Storey → Elements
     for (const [storeyId, elementIds] of this.storeyElements) {
       if (elementIds.length > 0) {
         this.addRelContainedInSpatialStructure(storeyId, elementIds);
@@ -821,7 +926,6 @@ ENDSEC;
 
   /** Compute a stable RefDirection perpendicular to a given Axis */
   private computeRefDirection(axis: Point3D): Point3D {
-    // Pick a reference vector not parallel to axis
     const up: Point3D = Math.abs(axis[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
     const cross = vecCross(up, axis);
     return vecNorm(cross);
