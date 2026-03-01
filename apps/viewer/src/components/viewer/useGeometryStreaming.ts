@@ -430,11 +430,9 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
         scene.setColorOverrides(pendingColorUpdates, device, pipeline);
       }
       // Re-render with current theme background — render() without options
-      // defaults to black background.  Do NOT pass hiddenIds/isolatedIds here:
-      // visibility filtering causes partial batches which write depth only for
-      // visible elements, but overlay batches cover all geometry.  Without
-      // filtering, all original batches write depth for every entity, ensuring
-      // depthCompare 'equal' matches exactly for the overlay pass.
+      // defaults to black background.  The overlay pipeline uses 'greater-equal'
+      // depth compare, so it works for both opaque entities (depth already written)
+      // and transparent entities like IfcSpace (no depth written).
       // The next render from useRenderUpdates will apply the correct visibility.
       renderer.render({
         clearColor: clearColorRef.current,

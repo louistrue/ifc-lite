@@ -768,10 +768,12 @@ export class Renderer {
                     pass.setPipeline(this.pipeline.getPipeline());
                 }
 
-                // Render color overlay batches (lens coloring) on top of ALL opaque geometry.
-                // Placed AFTER partial batches so depth buffer is complete for both full
-                // and partial batches. Uses 'equal' depth compare — only paints where
-                // original geometry wrote depth, so hidden entities never leak through.
+                // Render color overlay batches (lens/script coloring) on top of geometry.
+                // Placed AFTER partial batches so depth buffer is complete for opaque geometry.
+                // Uses 'greater-equal' depth compare (reverse-Z) — paints where original
+                // geometry wrote depth (opaque entities) AND where no depth was written
+                // (transparent entities like IfcSpace).  Writes depth so the subsequent
+                // transparent pass doesn't render behind the overlay.
                 const overrideBatches = this.scene.getOverrideBatches();
                 if (overrideBatches.length > 0) {
                     pass.setPipeline(this.pipeline.getOverlayPipeline());

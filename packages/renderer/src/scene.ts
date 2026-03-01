@@ -36,9 +36,10 @@ export class Scene {
   private partialBatchCache: Map<string, BatchedMesh> = new Map();
   private partialBatchCacheKeys: Map<string, string> = new Map(); // colorKey -> current cache key (for invalidation)
 
-  // Color overlay system for lens coloring — NEVER modifies original batches.
-  // Overlay batches render on top using depthCompare 'equal', so they only
-  // paint where original geometry already wrote depth. Clearing is instant.
+  // Color overlay system for lens/script coloring — NEVER modifies original batches.
+  // Overlay batches render on top using depthCompare 'greater-equal' (reverse-Z),
+  // so they paint where geometry wrote depth AND where transparent entities didn't.
+  // Clearing is instant.
   private overrideBatches: BatchedMesh[] = [];
   private colorOverrides: Map<number, [number, number, number, number]> | null = null;
 

@@ -451,10 +451,13 @@ export class RenderPipeline {
 
         this.transparentPipeline = this.device.createRenderPipeline(transparentPipelineDescriptor);
 
-        // Create overlay pipeline for lens color overrides
-        // Uses depthCompare 'equal' so it ONLY renders where original geometry already wrote depth.
-        // This prevents hidden entities from "leaking through" overlay batches.
-        // depthWriteEnabled: false — don't disturb the depth buffer for subsequent passes.
+        // Create overlay pipeline for lens/script color overrides.
+        // Uses depthCompare 'greater-equal' (reverse-Z) so it renders where original
+        // geometry wrote depth (equal) AND where transparent entities didn't write depth
+        // (overlay depth > 0.0 clear value).  This fixes colorize for IfcSpace entities
+        // which are rendered as transparent (alpha 0.3) and don't write depth.
+        // depthWriteEnabled: true — overlay writes depth so transparent passes behind
+        // the overlay are correctly occluded.
         const overlayPipelineDescriptor: GPURenderPipelineDescriptor = {
             layout: pipelineLayout,
             vertex: {
@@ -494,8 +497,8 @@ export class RenderPipeline {
             },
             depthStencil: {
                 format: this.depthFormat,
-                depthWriteEnabled: false,
-                depthCompare: 'equal',  // Only draw where depth matches exactly (same geometry)
+                depthWriteEnabled: true,
+                depthCompare: 'greater-equal',  // Reverse-Z: renders where depth matches (opaque) OR where no depth was written (transparent entities like IfcSpace)
             },
             multisample: {
                 count: this.sampleCount,
