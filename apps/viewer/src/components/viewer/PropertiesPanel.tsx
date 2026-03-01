@@ -19,6 +19,7 @@ import {
   FileBox,
   PenLine,
   Crosshair,
+  BookOpen,
 } from 'lucide-react';
 import { EditToolbar } from './PropertyEditor';
 import { Button } from '@/components/ui/button';
@@ -42,6 +43,7 @@ import { MaterialCard } from './properties/MaterialCard';
 import { DocumentCard } from './properties/DocumentCard';
 import { RelationshipsCard } from './properties/RelationshipsCard';
 import type { PropertySet, QuantitySet } from './properties/encodingUtils';
+import { BsddCard } from './properties/BsddCard';
 
 export function PropertiesPanel() {
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
@@ -545,6 +547,17 @@ export function PropertiesPanel() {
     return result;
   }, [properties, typeProperties]);
 
+  // Build a set of existing property keys ("PsetName:PropName") for bSDD deduplication
+  const existingProps = useMemo(() => {
+    const keys = new Set<string>();
+    for (const pset of mergedProperties) {
+      for (const prop of pset.properties) {
+        keys.add(`${pset.name}:${prop.name}`);
+      }
+    }
+    return keys;
+  }, [mergedProperties]);
+
   // Model metadata display (when clicking top-level model in hierarchy)
   if (selectedModelId) {
     const selectedModel = models.get(selectedModelId);
@@ -852,6 +865,13 @@ export function PropertiesPanel() {
             <Calculator className="h-3.5 w-3.5 mr-2" />
             Quantities
           </TabsTrigger>
+          <TabsTrigger
+            value="bsdd"
+            className="tab-trigger flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-xs tracking-wider h-full"
+          >
+            <BookOpen className="h-3.5 w-3.5 mr-2" />
+            bSDD
+          </TabsTrigger>
         </TabsList>
 
         <ScrollArea className="flex-1 bg-white dark:bg-black">
@@ -942,6 +962,18 @@ export function PropertiesPanel() {
                   <QuantitySetCard key={qset.name} qset={qset} />
                 ))}
               </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="bsdd" className="m-0 p-3 overflow-hidden">
+            {selectedEntity && (
+              <BsddCard
+                entityType={entityType}
+                modelId={selectedEntity.modelId}
+                entityId={selectedEntity.expressId}
+                existingPsets={mergedProperties.map(p => p.name)}
+                existingProps={existingProps}
+              />
             )}
           </TabsContent>
         </ScrollArea>
