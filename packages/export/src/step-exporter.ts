@@ -19,8 +19,8 @@ import {
   type StepEntity,
 } from '@ifc-lite/parser';
 import type { MutablePropertyView } from '@ifc-lite/mutations';
-import type { PropertySet, Property } from '@ifc-lite/data';
-import { PropertyValueType } from '@ifc-lite/data';
+import type { PropertySet, Property, QuantitySet } from '@ifc-lite/data';
+import { PropertyValueType, QuantityType } from '@ifc-lite/data';
 import { collectReferencedEntityIds, getVisibleEntityIds, collectStyleEntities } from './reference-collector.js';
 import { convertStepLine, needsConversion, type IfcSchemaVersion } from './schema-converter.js';
 
@@ -124,6 +124,7 @@ export class StepExporter {
     const modifiedEntities = new Set<number>();
     const modifiedPsets = new Map<number, Set<string>>(); // entityId -> psetNames being modified
     const newPropertySets: Array<{ entityId: number; psets: PropertySet[] }> = [];
+    const newQuantitySets: Array<{ entityId: number; qsets: QuantitySet[] }> = [];
 
     // Track property set IDs and relationship IDs to skip
     const skipPropertySetIds = new Set<number>();
@@ -133,19 +134,23 @@ export class StepExporter {
     if (this.mutationView && (options.applyMutations !== false)) {
       const mutations = this.mutationView.getMutations();
 
-      // Group mutations by entity
-      const entityMutations = new Map<number, Set<string>>();
+      // Group mutations by entity, separating property vs quantity mutations
+      const entityPropMutations = new Map<number, Set<string>>();
+      const entityQuantMutations = new Map<number, Set<string>>();
       for (const mutation of mutations) {
-        if (!entityMutations.has(mutation.entityId)) {
-          entityMutations.set(mutation.entityId, new Set());
+        if (!mutation.psetName) continue;
+
+        const isQuantity = mutation.type === 'CREATE_QUANTITY' || mutation.type === 'UPDATE_QUANTITY' || mutation.type === 'DELETE_QUANTITY';
+        const targetMap = isQuantity ? entityQuantMutations : entityPropMutations;
+
+        if (!targetMap.has(mutation.entityId)) {
+          targetMap.set(mutation.entityId, new Set());
         }
-        if (mutation.psetName) {
-          entityMutations.get(mutation.entityId)!.add(mutation.psetName);
-        }
+        targetMap.get(mutation.entityId)!.add(mutation.psetName);
       }
 
       // Collect modified property sets and find original psets to skip
-      for (const [entityId, psetNames] of entityMutations) {
+      for (const [entityId, psetNames] of entityPropMutations) {
         modifiedEntities.add(entityId);
         modifiedPsets.set(entityId, psetNames);
         modifiedEntityCount++;
@@ -177,6 +182,40 @@ export class StepExporter {
                 const propIds = this.getPropertyIdsInSet(relatedPsetId);
                 for (const propId of propIds) {
                   skipPropertySetIds.add(propId);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Collect modified quantity sets
+      for (const [entityId, qsetNames] of entityQuantMutations) {
+        modifiedEntities.add(entityId);
+        if (!modifiedPsets.has(entityId)) modifiedEntityCount++;
+
+        const allQsets = this.mutationView.getQuantitiesForEntity(entityId);
+        const relevantQsets = allQsets.filter(qset => qsetNames.has(qset.name));
+
+        if (relevantQsets.length > 0) {
+          newQuantitySets.push({ entityId, qsets: relevantQsets });
+        }
+
+        // Skip original quantity set entities (IfcElementQuantity)
+        for (const [relId, relRef] of this.dataStore.entityIndex.byId) {
+          const relType = relRef.type.toUpperCase();
+          if (relType === 'IFCRELDEFINESBYPROPERTIES') {
+            const relatedEntities = this.getRelatedEntities(relId);
+            const relatedPsetId = this.getRelatedPropertySet(relId);
+
+            if (relatedEntities.includes(entityId) && relatedPsetId) {
+              const qsetName = this.getElementQuantityName(relatedPsetId);
+              if (qsetName && qsetNames.has(qsetName)) {
+                skipRelationshipIds.add(relId);
+                skipPropertySetIds.add(relatedPsetId);
+                const quantIds = this.getPropertyIdsInSet(relatedPsetId);
+                for (const quantId of quantIds) {
+                  skipPropertySetIds.add(quantId);
                 }
               }
             }
@@ -272,6 +311,13 @@ export class StepExporter {
       newEntityCount += newEntities.count;
     }
 
+    // Generate new quantity entities for mutations
+    for (const { entityId, qsets } of newQuantitySets) {
+      const newEntities = this.generateQuantitySetEntities(entityId, qsets);
+      entities.push(...newEntities.lines);
+      newEntityCount += newEntities.count;
+    }
+
     // Assemble final file
     const dataSection = entities.join('\n');
     const content = `${header}DATA;\n${dataSection}\nENDSEC;\nEND-ISO-10303-21;\n`;
@@ -347,6 +393,68 @@ export class StepExporter {
     }
 
     return { lines, count };
+  }
+
+  /**
+   * Generate STEP entities for quantity sets (IfcElementQuantity)
+   */
+  private generateQuantitySetEntities(
+    entityId: number,
+    qsets: QuantitySet[]
+  ): { lines: string[]; count: number } {
+    const lines: string[] = [];
+    let count = 0;
+
+    for (const qset of qsets) {
+      const quantityIds: number[] = [];
+
+      for (const q of qset.quantities) {
+        const qId = this.nextExpressId++;
+        count++;
+
+        const ifcType = this.quantityTypeToIfcType(q.type);
+        // #ID=IFCQUANTITYLENGTH('Name',$,$,Value,$);
+        const line = `#${qId}=${ifcType}('${this.escapeStepString(q.name)}',$,$,${q.value},$);`;
+        lines.push(line);
+        quantityIds.push(qId);
+      }
+
+      // Create IfcElementQuantity
+      const qsetId = this.nextExpressId++;
+      count++;
+
+      const quantRefs = quantityIds.map(id => `#${id}`).join(',');
+      const globalId = this.generateGlobalId();
+
+      // #ID=IFCELEMENTQUANTITY('GlobalId',$,'Name',$,$,(#quants));
+      const qsetLine = `#${qsetId}=IFCELEMENTQUANTITY('${globalId}',$,'${this.escapeStepString(qset.name)}',$,$,(${quantRefs}));`;
+      lines.push(qsetLine);
+
+      // Create IfcRelDefinesByProperties to link qset to entity
+      const relId = this.nextExpressId++;
+      count++;
+
+      const relGlobalId = this.generateGlobalId();
+      const relLine = `#${relId}=IFCRELDEFINESBYPROPERTIES('${relGlobalId}',$,$,$,(#${entityId}),#${qsetId});`;
+      lines.push(relLine);
+    }
+
+    return { lines, count };
+  }
+
+  /**
+   * Map QuantityType to IFC STEP entity type
+   */
+  private quantityTypeToIfcType(type: QuantityType): string {
+    switch (type) {
+      case QuantityType.Length: return 'IFCQUANTITYLENGTH';
+      case QuantityType.Area: return 'IFCQUANTITYAREA';
+      case QuantityType.Volume: return 'IFCQUANTITYVOLUME';
+      case QuantityType.Count: return 'IFCQUANTITYCOUNT';
+      case QuantityType.Weight: return 'IFCQUANTITYWEIGHT';
+      case QuantityType.Time: return 'IFCQUANTITYTIME';
+      default: return 'IFCQUANTITYCOUNT';
+    }
   }
 
   /**
@@ -533,6 +641,24 @@ export class StepExporter {
 
     // Parse: IFCPROPERTYSET('guid',$,'Name',$,...) - Name is 3rd argument
     const match = entityText.match(/IFCPROPERTYSET\s*\([^,]*,[^,]*,'([^']*)'/i);
+    if (!match) return null;
+    return match[1];
+  }
+
+  /**
+   * Get the name of an element quantity set by parsing the entity
+   */
+  private getElementQuantityName(entityId: number): string | null {
+    const entityRef = this.dataStore.entityIndex.byId.get(entityId);
+    if (!entityRef || !this.dataStore.source) return null;
+
+    const decoder = new TextDecoder();
+    const entityText = decoder.decode(
+      this.dataStore.source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength)
+    );
+
+    // Parse: IFCELEMENTQUANTITY('guid',$,'Name',...) - Name is 3rd argument
+    const match = entityText.match(/IFCELEMENTQUANTITY\s*\([^,]*,[^,]*,'([^']*)'/i);
     if (!match) return null;
     return match[1];
   }

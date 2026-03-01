@@ -31,7 +31,7 @@ import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { IfcQuery } from '@ifc-lite/query';
 import { MutablePropertyView } from '@ifc-lite/mutations';
-import { extractPropertiesOnDemand, extractClassificationsOnDemand, extractMaterialsOnDemand, extractTypePropertiesOnDemand, extractDocumentsOnDemand, extractRelationshipsOnDemand, type IfcDataStore } from '@ifc-lite/parser';
+import { extractPropertiesOnDemand, extractQuantitiesOnDemand, extractClassificationsOnDemand, extractMaterialsOnDemand, extractTypePropertiesOnDemand, extractDocumentsOnDemand, extractRelationshipsOnDemand, type IfcDataStore } from '@ifc-lite/parser';
 import type { EntityRef, FederatedModel } from '@/store/types';
 
 import { CoordVal, CoordRow } from './properties/CoordinateDisplay';
@@ -96,6 +96,13 @@ export function PropertiesPanel() {
     if (dataStore.onDemandPropertyMap && dataStore.source?.length > 0) {
       mutationView.setOnDemandExtractor((entityId: number) => {
         return extractPropertiesOnDemand(dataStore as IfcDataStore, entityId);
+      });
+    }
+
+    // Set up on-demand quantity extractor if available
+    if (dataStore.onDemandQuantityMap && dataStore.source?.length > 0) {
+      mutationView.setQuantityExtractor((entityId: number) => {
+        return extractQuantitiesOnDemand(dataStore as IfcDataStore, entityId);
       });
     }
 
@@ -369,9 +376,22 @@ export function PropertiesPanel() {
   }, [entityNode, selectedEntity, mutationViews, mutationVersion]);
 
   const quantities: QuantitySet[] = useMemo(() => {
+    let modelId = selectedEntity?.modelId;
+    const expressId = selectedEntity?.expressId;
+
+    if (modelId === 'legacy') modelId = '__legacy__';
+
+    // Try mutation view first to include added quantities from bSDD
+    const mutationView = modelId ? mutationViews.get(modelId) : null;
+    if (mutationView && expressId) {
+      const merged = mutationView.getQuantitiesForEntity(expressId);
+      if (merged.length > 0) return merged;
+    }
+
+    // Fallback to entity node quantities
     if (!entityNode) return [];
     return entityNode.quantities();
-  }, [entityNode]);
+  }, [entityNode, selectedEntity, mutationViews, mutationVersion]);
 
   // Build attributes array for display - must be before early return to maintain hook order
   // Uses schema-aware extraction to show ALL string/enum attributes for the entity type.
@@ -557,6 +577,17 @@ export function PropertiesPanel() {
     }
     return keys;
   }, [mergedProperties]);
+
+  // Build a set of existing quantity keys ("QsetName:QuantName") for bSDD deduplication
+  const existingQuants = useMemo(() => {
+    const keys = new Set<string>();
+    for (const qset of quantities) {
+      for (const q of qset.quantities) {
+        keys.add(`${qset.name}:${q.name}`);
+      }
+    }
+    return keys;
+  }, [quantities]);
 
   // Model metadata display (when clicking top-level model in hierarchy)
   if (selectedModelId) {
@@ -973,6 +1004,8 @@ export function PropertiesPanel() {
                 entityId={selectedEntity.expressId}
                 existingPsets={mergedProperties.map(p => p.name)}
                 existingProps={existingProps}
+                existingQsets={quantities.map(q => q.name)}
+                existingQuants={existingQuants}
               />
             )}
           </TabsContent>

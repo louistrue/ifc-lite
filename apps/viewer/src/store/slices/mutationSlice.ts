@@ -10,7 +10,7 @@ import { type StateCreator } from 'zustand';
 import type { ViewerState } from '../index.js';
 import type { MutablePropertyView } from '@ifc-lite/mutations';
 import type { Mutation, ChangeSet, PropertyValue } from '@ifc-lite/mutations';
-import { PropertyValueType } from '@ifc-lite/data';
+import { PropertyValueType, QuantityType } from '@ifc-lite/data';
 
 export interface MutationSlice {
   // State
@@ -66,6 +66,25 @@ export interface MutationSlice {
     modelId: string,
     entityId: number,
     psetName: string
+  ) => Mutation | null;
+
+  // Actions - Quantity Mutations
+  /** Set a quantity value */
+  setQuantity: (
+    modelId: string,
+    entityId: number,
+    qsetName: string,
+    quantName: string,
+    value: number,
+    quantityType?: QuantityType,
+    unit?: string
+  ) => Mutation | null;
+  /** Create a new quantity set */
+  createQuantitySet: (
+    modelId: string,
+    entityId: number,
+    qsetName: string,
+    quantities: Array<{ name: string; value: number; quantityType: QuantityType; unit?: string }>
   ) => Mutation | null;
 
   // Actions - Undo/Redo
@@ -243,6 +262,63 @@ export const createMutationSlice: StateCreator<
     if (!view) return null;
 
     const mutation = view.deletePropertySet(entityId, psetName);
+
+    set((state) => {
+      const newUndoStacks = new Map(state.undoStacks);
+      const stack = newUndoStacks.get(modelId) || [];
+      newUndoStacks.set(modelId, [...stack, mutation]);
+
+      const newRedoStacks = new Map(state.redoStacks);
+      newRedoStacks.set(modelId, []);
+
+      const newDirty = new Set(state.dirtyModels);
+      newDirty.add(modelId);
+
+      return {
+        undoStacks: newUndoStacks,
+        redoStacks: newRedoStacks,
+        dirtyModels: newDirty,
+        mutationVersion: state.mutationVersion + 1,
+      };
+    });
+
+    return mutation;
+  },
+
+  // Quantity Mutations
+  setQuantity: (modelId, entityId, qsetName, quantName, value, quantityType = QuantityType.Count, unit) => {
+    const view = get().mutationViews.get(modelId);
+    if (!view) return null;
+
+    const mutation = view.setQuantity(entityId, qsetName, quantName, value, quantityType, unit);
+
+    set((state) => {
+      const newUndoStacks = new Map(state.undoStacks);
+      const stack = newUndoStacks.get(modelId) || [];
+      newUndoStacks.set(modelId, [...stack, mutation]);
+
+      const newRedoStacks = new Map(state.redoStacks);
+      newRedoStacks.set(modelId, []);
+
+      const newDirty = new Set(state.dirtyModels);
+      newDirty.add(modelId);
+
+      return {
+        undoStacks: newUndoStacks,
+        redoStacks: newRedoStacks,
+        dirtyModels: newDirty,
+        mutationVersion: state.mutationVersion + 1,
+      };
+    });
+
+    return mutation;
+  },
+
+  createQuantitySet: (modelId, entityId, qsetName, quantities) => {
+    const view = get().mutationViews.get(modelId);
+    if (!view) return null;
+
+    const mutation = view.createQuantitySet(entityId, qsetName, quantities);
 
     set((state) => {
       const newUndoStacks = new Map(state.undoStacks);

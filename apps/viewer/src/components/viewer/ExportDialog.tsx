@@ -52,7 +52,7 @@ import { useViewerStore } from '@/store';
 import { toast } from '@/components/ui/toast';
 import { StepExporter, MergedExporter, Ifc5Exporter, type MergeModelInput } from '@ifc-lite/export';
 import { MutablePropertyView } from '@ifc-lite/mutations';
-import { extractPropertiesOnDemand, type IfcDataStore } from '@ifc-lite/parser';
+import { extractPropertiesOnDemand, extractQuantitiesOnDemand, type IfcDataStore } from '@ifc-lite/parser';
 
 type ExportScope = 'single' | 'merged';
 type SchemaVersion = 'IFC2X3' | 'IFC4' | 'IFC4X3' | 'IFC5';
@@ -151,6 +151,13 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
     if (dataStore.onDemandPropertyMap && dataStore.source?.length > 0) {
       mutationView.setOnDemandExtractor((entityId: number) => {
         return extractPropertiesOnDemand(dataStore as IfcDataStore, entityId);
+      });
+    }
+
+    // Set up on-demand quantity extraction if the data store supports it
+    if (dataStore.onDemandQuantityMap && dataStore.source?.length > 0) {
+      mutationView.setQuantityExtractor((entityId: number) => {
+        return extractQuantitiesOnDemand(dataStore as IfcDataStore, entityId);
       });
     }
 
