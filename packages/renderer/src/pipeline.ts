@@ -124,14 +124,20 @@ export class RenderPipeline {
           var output: VertexOutput;
           let worldPos = uniforms.model * vec4<f32>(input.position, 1.0);
           output.position = uniforms.viewProj * worldPos;
-          // Anti z-fighting: deterministic depth nudge per entity.
-          // Knuth multiplicative hash spreads sequential IDs across 0-255
-          // so coplanar faces from different entities always get distinct depths.
-          // At 1e-6 per step the max world-space offset is <3mm at 10m — invisible.
+          // Anti z-fighting: slope-aware depth nudge per entity.
+          // Knuth hash spreads sequential IDs across 0-255.
+          // Nudge scales with depth slope (1/|N·V|) so coplanar faces
+          // from different entities are separated even at grazing angles.
+          // Camera forward is extracted from row 3 of viewProj (= -V_row2
+          // for reverse-Z perspective where P[2][3] = -1).
+          let worldNormal = normalize((uniforms.model * vec4<f32>(input.normal, 0.0)).xyz);
+          let cameraFwd = normalize(vec3(uniforms.viewProj[0][3], uniforms.viewProj[1][3], uniforms.viewProj[2][3]));
+          let NdotV = abs(dot(worldNormal, cameraFwd));
+          let slopeFactor = clamp(1.0 / max(NdotV, 0.1), 1.0, 10.0);
           let zHash = (input.entityId * 2654435761u) & 255u;
-          output.position.z *= 1.0 + f32(zHash) * 1e-6;
+          output.position.z *= 1.0 + f32(zHash) * 1e-6 * slopeFactor;
           output.worldPos = worldPos.xyz;
-          output.normal = normalize((uniforms.model * vec4<f32>(input.normal, 0.0)).xyz);
+          output.normal = worldNormal;
           output.entityId = input.entityId;
           // Store view-space position for edge detection
           output.viewPos = (uniforms.viewProj * worldPos).xyz;
@@ -757,11 +763,15 @@ export class InstancedRenderPipeline {
           let normalYUp = (zToYUp * vec4<f32>(normalZUp, 0.0)).xyz;
 
           output.position = uniforms.viewProj * worldPos;
-          // Anti z-fighting: deterministic depth nudge per instance
+          // Anti z-fighting: slope-aware depth nudge per instance
+          let worldNormal = normalize(normalYUp);
+          let cameraFwd = normalize(vec3(uniforms.viewProj[0][3], uniforms.viewProj[1][3], uniforms.viewProj[2][3]));
+          let NdotV = abs(dot(worldNormal, cameraFwd));
+          let slopeFactor = clamp(1.0 / max(NdotV, 0.1), 1.0, 10.0);
           let zHash = (instanceIndex * 2654435761u) & 255u;
-          output.position.z *= 1.0 + f32(zHash) * 1e-6;
+          output.position.z *= 1.0 + f32(zHash) * 1e-6 * slopeFactor;
           output.worldPos = worldPos.xyz;
-          output.normal = normalize(normalYUp);
+          output.normal = worldNormal;
           output.color = inst.color;
           output.instanceId = instanceIndex;
           // Store view-space position for edge detection
