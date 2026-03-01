@@ -20,7 +20,7 @@ export class RenderPipeline {
     private depthTextureView: GPUTextureView;
     private objectIdTexture: GPUTexture;
     private objectIdTextureView: GPUTextureView;
-    private depthFormat: GPUTextureFormat = 'depth24plus';
+    private depthFormat: GPUTextureFormat = 'depth32float';
     private colorFormat: GPUTextureFormat;
     private objectIdFormat: GPUTextureFormat = 'rgba8unorm';
     private multisampleTexture: GPUTexture | null = null;
@@ -47,7 +47,7 @@ export class RenderPipeline {
         // Create depth texture with MSAA support
         this.depthTexture = this.device.createTexture({
             size: { width, height },
-            format: 'depth24plus',
+            format: this.depthFormat,
             usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
             sampleCount: this.sampleCount > 1 ? this.sampleCount : 1,
         });
@@ -124,6 +124,11 @@ export class RenderPipeline {
           var output: VertexOutput;
           let worldPos = uniforms.model * vec4<f32>(input.position, 1.0);
           output.position = uniforms.viewProj * worldPos;
+          // Anti z-fighting: tiny deterministic depth nudge per entity.
+          // Coplanar faces from different entities get different depths,
+          // ensuring one consistently wins the depth test (no flicker).
+          // The nudge scales with depth so world-space offset is sub-mm at all distances.
+          output.position.z *= 1.0 + f32(input.entityId & 255u) * 1e-7;
           output.worldPos = worldPos.xyz;
           output.normal = normalize((uniforms.model * vec4<f32>(input.normal, 0.0)).xyz);
           output.entityId = input.entityId;
@@ -685,7 +690,7 @@ export class InstancedRenderPipeline {
         // Create depth texture
         this.depthTexture = this.device.createTexture({
             size: { width, height },
-            format: 'depth24plus',
+            format: 'depth32float',
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
         });
         this.depthTextureView = this.depthTexture.createView();
@@ -740,16 +745,18 @@ export class InstancedRenderPipeline {
         fn vs_main(input: VertexInput, @builtin(instance_index) instanceIndex: u32) -> VertexOutput {
           var output: VertexOutput;
           let inst = instances[instanceIndex];
-          
+
           // Transform to world space (still in Z-up coordinates)
           let worldPosZUp = inst.transform * vec4<f32>(input.position, 1.0);
           let normalZUp = (inst.transform * vec4<f32>(input.normal, 0.0)).xyz;
-          
+
           // Convert from Z-up to Y-up for the viewer
           let worldPos = zToYUp * worldPosZUp;
           let normalYUp = (zToYUp * vec4<f32>(normalZUp, 0.0)).xyz;
-          
+
           output.position = uniforms.viewProj * worldPos;
+          // Anti z-fighting: deterministic depth nudge per instance
+          output.position.z *= 1.0 + f32(instanceIndex & 255u) * 1e-7;
           output.worldPos = worldPos.xyz;
           output.normal = normalize(normalYUp);
           output.color = inst.color;
@@ -928,7 +935,7 @@ export class InstancedRenderPipeline {
                 cullMode: 'none',
             },
             depthStencil: {
-                format: 'depth24plus',  // Will be updated if reverse-Z is enabled
+                format: 'depth32float',
                 depthWriteEnabled: true,
                 depthCompare: 'greater',  // Reverse-Z: greater instead of less
             },
@@ -975,7 +982,7 @@ export class InstancedRenderPipeline {
         this.depthTexture.destroy();
         this.depthTexture = this.device.createTexture({
             size: { width, height },
-            format: 'depth24plus',  // Default format for instanced pipeline
+            format: 'depth32float',
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
         });
         this.depthTextureView = this.depthTexture.createView();
