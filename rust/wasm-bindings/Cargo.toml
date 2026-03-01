@@ -11,7 +11,7 @@ categories = ["wasm", "parsing"]
 readme = "../../README.md"
 
 [package.metadata.wasm-pack.profile.release]
-wasm-opt = ["-Os"]
+wasm-opt = false  # Optimization done by scripts/build-wasm.sh with correct feature flags
 
 [lib]
 crate-type = ["cdylib", "rlib"]
