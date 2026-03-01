@@ -414,7 +414,8 @@ export class StepExporter {
 
         const ifcType = this.quantityTypeToIfcType(q.type);
         // #ID=IFCQUANTITYLENGTH('Name',$,$,Value,$);
-        const line = `#${qId}=${ifcType}('${this.escapeStepString(q.name)}',$,$,${q.value},$);`;
+        const val = isNaN(q.value) ? 0. : q.value;
+        const line = `#${qId}=${ifcType}('${this.escapeStepString(q.name)}',$,$,${val},$);`;
         lines.push(line);
         quantityIds.push(qId);
       }

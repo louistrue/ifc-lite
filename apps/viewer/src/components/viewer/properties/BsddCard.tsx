@@ -59,12 +59,8 @@ function toPropertyValueType(bsddType: string | null): PropertyValueType {
   return PropertyValueType.Label;
 }
 
-function defaultValue(bsddType: string | null): unknown {
-  if (!bsddType) return '';
-  const lower = bsddType.toLowerCase();
-  if (lower === 'boolean') return false;
-  if (lower === 'real' || lower === 'number') return 0.0;
-  if (lower === 'integer') return 0;
+function defaultValue(_bsddType: string | null): unknown {
+  // Always return empty string – user fills in values manually
   return '';
 }
 
@@ -194,7 +190,7 @@ export function BsddCard({
 
         if (!qsetExists) {
           createQuantitySet(normalizedModelId, entityId, psetName, [
-            { name: prop.name, value: 0, quantityType: qType, unit: prop.units?.[0] },
+            { name: prop.name, value: NaN, quantityType: qType, unit: prop.units?.[0] },
           ]);
         } else {
           setQuantity(
@@ -202,7 +198,7 @@ export function BsddCard({
             entityId,
             psetName,
             prop.name,
-            0,
+            NaN,
             qType,
             prop.units?.[0],
           );
@@ -275,7 +271,7 @@ export function BsddCard({
             psetName,
             toAdd.map((p) => ({
               name: p.name,
-              value: 0,
+              value: NaN,
               quantityType: inferQuantityType(p.units),
               unit: p.units?.[0],
             })),
@@ -287,7 +283,7 @@ export function BsddCard({
               entityId,
               psetName,
               p.name,
-              0,
+              NaN,
               inferQuantityType(p.units),
               p.units?.[0],
             );
