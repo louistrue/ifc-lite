@@ -51,7 +51,7 @@ export const SCRIPT_TEMPLATES: ScriptTemplate[] = [
   {
     name: 'Quantity takeoff',
     description:
-      'Cost Estimator — aggregate area, volume, and length quantities across all element types; generate material takeoff table and CSV',
+      'Cost Estimator — template-driven quantity takeoff using IFC4 standard Qto sets; validates data completeness per entity type; aggregates and exports all quantities with color-coded completeness',
     code: stripModuleLine(quantityTakeoff),
   },
   {
