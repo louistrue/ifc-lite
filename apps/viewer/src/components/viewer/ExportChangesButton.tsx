@@ -15,7 +15,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useViewerStore } from '@/store';
 import { StepExporter } from '@ifc-lite/export';
 import { MutablePropertyView } from '@ifc-lite/mutations';
-import { extractPropertiesOnDemand, type IfcDataStore } from '@ifc-lite/parser';
+import { extractPropertiesOnDemand, extractQuantitiesOnDemand, type IfcDataStore } from '@ifc-lite/parser';
 import { toast } from '@/components/ui/toast';
 
 interface ExportChangesButtonProps {
@@ -84,6 +84,13 @@ export function ExportChangesButton({ className }: ExportChangesButtonProps) {
     if (dataStore.onDemandPropertyMap && dataStore.source?.length > 0) {
       mutationView.setOnDemandExtractor((entityId: number) => {
         return extractPropertiesOnDemand(dataStore as IfcDataStore, entityId);
+      });
+    }
+
+    // Set up on-demand quantity extraction
+    if (dataStore.onDemandQuantityMap && dataStore.source?.length > 0) {
+      mutationView.setQuantityExtractor((entityId: number) => {
+        return extractQuantitiesOnDemand(dataStore as IfcDataStore, entityId);
       });
     }
 

@@ -23,6 +23,7 @@ const QUANTITY_TYPE_NAMES: Record<number, string> = {
 
 export function QuantitySetCard({ qset }: { qset: QuantitySet }) {
   const formatValue = (value: number, type: number): string => {
+    if (isNaN(value)) return '\u2014'; // em-dash for empty values
     const formatted = value.toLocaleString(undefined, { maximumFractionDigits: 3 });
     switch (type) {
       case 0: return `${formatted} m`;

@@ -30,7 +30,7 @@ import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { IfcQuery } from '@ifc-lite/query';
 import { MutablePropertyView } from '@ifc-lite/mutations';
-import { extractPropertiesOnDemand, extractClassificationsOnDemand, extractMaterialsOnDemand, extractTypePropertiesOnDemand, extractDocumentsOnDemand, extractRelationshipsOnDemand, type IfcDataStore } from '@ifc-lite/parser';
+import { extractPropertiesOnDemand, extractQuantitiesOnDemand, extractClassificationsOnDemand, extractMaterialsOnDemand, extractTypePropertiesOnDemand, extractDocumentsOnDemand, extractRelationshipsOnDemand, type IfcDataStore } from '@ifc-lite/parser';
 import type { EntityRef, FederatedModel } from '@/store/types';
 
 import { CoordVal, CoordRow } from './properties/CoordinateDisplay';
@@ -42,6 +42,7 @@ import { MaterialCard } from './properties/MaterialCard';
 import { DocumentCard } from './properties/DocumentCard';
 import { RelationshipsCard } from './properties/RelationshipsCard';
 import type { PropertySet, QuantitySet } from './properties/encodingUtils';
+import { BsddCard } from './properties/BsddCard';
 
 export function PropertiesPanel() {
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
@@ -94,6 +95,13 @@ export function PropertiesPanel() {
     if (dataStore.onDemandPropertyMap && dataStore.source?.length > 0) {
       mutationView.setOnDemandExtractor((entityId: number) => {
         return extractPropertiesOnDemand(dataStore as IfcDataStore, entityId);
+      });
+    }
+
+    // Set up on-demand quantity extractor if available
+    if (dataStore.onDemandQuantityMap && dataStore.source?.length > 0) {
+      mutationView.setQuantityExtractor((entityId: number) => {
+        return extractQuantitiesOnDemand(dataStore as IfcDataStore, entityId);
       });
     }
 
@@ -367,17 +375,56 @@ export function PropertiesPanel() {
   }, [entityNode, selectedEntity, mutationViews, mutationVersion]);
 
   const quantities: QuantitySet[] = useMemo(() => {
+    let modelId = selectedEntity?.modelId;
+    const expressId = selectedEntity?.expressId;
+
+    if (modelId === 'legacy') modelId = '__legacy__';
+
+    // Try mutation view first to include added quantities from bSDD
+    const mutationView = modelId ? mutationViews.get(modelId) : null;
+    if (mutationView && expressId) {
+      const merged = mutationView.getQuantitiesForEntity(expressId);
+      if (merged.length > 0) return merged;
+    }
+
+    // Fallback to entity node quantities
     if (!entityNode) return [];
     return entityNode.quantities();
-  }, [entityNode]);
+  }, [entityNode, selectedEntity, mutationViews, mutationVersion]);
 
   // Build attributes array for display - must be before early return to maintain hook order
   // Uses schema-aware extraction to show ALL string/enum attributes for the entity type.
+  // Merges mutated attributes (from bSDD) into the base attribute list.
   // Note: GlobalId is intentionally excluded since it's shown in the dedicated GUID field above
   const attributes = useMemo(() => {
-    if (!entityNode) return [];
-    return entityNode.allAttributes();
-  }, [entityNode]);
+    const base = entityNode ? entityNode.allAttributes() : [];
+
+    // Merge mutated attributes from bSDD
+    let modelId = selectedEntity?.modelId;
+    const expressId = selectedEntity?.expressId;
+    if (modelId === 'legacy') modelId = '__legacy__';
+    const mutationView = modelId ? mutationViews.get(modelId) : null;
+    if (mutationView && expressId) {
+      const mutatedAttrs = mutationView.getAttributeMutationsForEntity(expressId);
+      if (mutatedAttrs.length > 0) {
+        const baseNames = new Set(base.map(a => a.name));
+        const merged = [...base];
+        for (const ma of mutatedAttrs) {
+          if (baseNames.has(ma.name)) {
+            // Update existing attribute value
+            const idx = merged.findIndex(a => a.name === ma.name);
+            if (idx >= 0) merged[idx] = { name: ma.name, value: ma.value };
+          } else {
+            // Add new attribute
+            merged.push({ name: ma.name, value: ma.value });
+          }
+        }
+        return merged;
+      }
+    }
+
+    return base;
+  }, [entityNode, selectedEntity, mutationViews, mutationVersion]);
 
   // Extract classifications for the selected entity from the IFC data store
   const classifications = useMemo(() => {
@@ -544,6 +591,37 @@ export function PropertiesPanel() {
 
     return result;
   }, [properties, typeProperties]);
+
+  // Build a set of existing property keys ("PsetName:PropName") for bSDD deduplication
+  const existingProps = useMemo(() => {
+    const keys = new Set<string>();
+    for (const pset of mergedProperties) {
+      for (const prop of pset.properties) {
+        keys.add(`${pset.name}:${prop.name}`);
+      }
+    }
+    return keys;
+  }, [mergedProperties]);
+
+  // Build a set of existing quantity keys ("QsetName:QuantName") for bSDD deduplication
+  const existingQuants = useMemo(() => {
+    const keys = new Set<string>();
+    for (const qset of quantities) {
+      for (const q of qset.quantities) {
+        keys.add(`${qset.name}:${q.name}`);
+      }
+    }
+    return keys;
+  }, [quantities]);
+
+  // Build a set of existing attribute names for bSDD deduplication
+  const existingAttributeNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const attr of attributes) {
+      if (attr.value) names.add(attr.name);
+    }
+    return names;
+  }, [attributes]);
 
   // Model metadata display (when clicking top-level model in hierarchy)
   if (selectedModelId) {
@@ -795,6 +873,7 @@ export function PropertiesPanel() {
           <CollapsibleTrigger className="flex items-center gap-2 w-full p-3 hover:bg-muted/50 text-left">
             <Tag className="h-4 w-4 text-muted-foreground" />
             <span className="font-medium text-sm">Attributes</span>
+            {editMode && <PenLine className="h-3 w-3 text-purple-500 ml-1" />}
             <span className="text-xs text-muted-foreground ml-auto">{attributes.length}</span>
           </CollapsibleTrigger>
           <CollapsibleContent>
@@ -802,11 +881,20 @@ export function PropertiesPanel() {
               {attributes.map((attr) => (
                 <div key={attr.name} className="grid grid-cols-[minmax(80px,1fr)_minmax(0,2fr)] gap-2 px-3 py-1.5 text-sm">
                   <span className="text-muted-foreground truncate" title={attr.name}>{attr.name}</span>
-                  <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700 min-w-0">
-                    <span className="font-medium whitespace-nowrap" title={attr.value}>
-                      {attr.value}
-                    </span>
-                  </div>
+                  {editMode && selectedEntity ? (
+                    <AttributeEditorField
+                      modelId={selectedEntity.modelId}
+                      entityId={selectedEntity.expressId}
+                      attrName={attr.name}
+                      currentValue={attr.value}
+                    />
+                  ) : (
+                    <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700 min-w-0">
+                      <span className="font-medium whitespace-nowrap" title={attr.value}>
+                        {attr.value}
+                      </span>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -837,20 +925,24 @@ export function PropertiesPanel() {
 
       {/* Tabs */}
       <Tabs defaultValue="properties" className="flex-1 flex flex-col overflow-hidden">
-        <TabsList className="tabs-list w-full justify-start rounded-none h-10 p-0" style={{ backgroundColor: 'var(--tabs-bg)', borderBottom: '1px solid var(--tabs-border)' }}>
+        <TabsList className="tabs-list w-full justify-start rounded-none h-9 p-0 shrink-0 flex" style={{ backgroundColor: 'var(--tabs-bg)', borderBottom: '1px solid var(--tabs-border)' }}>
           <TabsTrigger
             value="properties"
-            className="tab-trigger flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-xs tracking-wider h-full"
+            className="tab-trigger flex-1 min-w-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-[11px] tracking-wide h-full px-2"
           >
-            <FileText className="h-3.5 w-3.5 mr-2" />
             Properties
           </TabsTrigger>
           <TabsTrigger
             value="quantities"
-            className="tab-trigger flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-xs tracking-wider h-full"
+            className="tab-trigger flex-1 min-w-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-[11px] tracking-wide h-full px-2"
           >
-            <Calculator className="h-3.5 w-3.5 mr-2" />
             Quantities
+          </TabsTrigger>
+          <TabsTrigger
+            value="bsdd"
+            className="tab-trigger flex-1 min-w-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-[11px] tracking-wide h-full px-2"
+          >
+            bSDD
           </TabsTrigger>
         </TabsList>
 
@@ -944,8 +1036,110 @@ export function PropertiesPanel() {
               </div>
             )}
           </TabsContent>
+
+          <TabsContent value="bsdd" className="m-0 p-3 overflow-hidden">
+            {selectedEntity && (
+              <BsddCard
+                entityType={entityType}
+                modelId={selectedEntity.modelId}
+                entityId={selectedEntity.expressId}
+                existingPsets={mergedProperties.map(p => p.name)}
+                existingProps={existingProps}
+                existingQsets={quantities.map(q => q.name)}
+                existingQuants={existingQuants}
+                existingAttributes={existingAttributeNames}
+              />
+            )}
+          </TabsContent>
         </ScrollArea>
       </Tabs>
+    </div>
+  );
+}
+
+/** Inline attribute editor — pen icon to enter edit mode, input + save/cancel */
+function AttributeEditorField({
+  modelId,
+  entityId,
+  attrName,
+  currentValue,
+}: {
+  modelId: string;
+  entityId: number;
+  attrName: string;
+  currentValue: string;
+}) {
+  const setAttribute = useViewerStore((s) => s.setAttribute);
+  const bumpMutationVersion = useViewerStore((s) => s.bumpMutationVersion);
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(currentValue);
+  const inputRef = useCallback((node: HTMLInputElement | null) => {
+    if (node) { node.focus(); node.select(); }
+  }, []);
+
+  const save = useCallback(() => {
+    let normalizedModelId = modelId;
+    if (modelId === 'legacy') normalizedModelId = '__legacy__';
+    setAttribute(normalizedModelId, entityId, attrName, value, currentValue || undefined);
+    bumpMutationVersion();
+    setEditing(false);
+  }, [modelId, entityId, attrName, value, currentValue, setAttribute, bumpMutationVersion]);
+
+  const cancel = useCallback(() => {
+    setValue(currentValue);
+    setEditing(false);
+  }, [currentValue]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') { e.preventDefault(); save(); }
+    else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+  }, [save, cancel]);
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1 min-w-0">
+        <input
+          ref={inputRef}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={save}
+          className="flex-1 min-w-0 h-6 px-1.5 text-sm font-mono bg-white dark:bg-zinc-900 border border-purple-300 dark:border-purple-700 outline-none focus:ring-1 focus:ring-purple-400"
+        />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-5 w-5 p-0 shrink-0 hover:bg-emerald-100 dark:hover:bg-emerald-900/30"
+          onClick={save}
+        >
+          <Check className="h-3 w-3 text-emerald-500" />
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1 min-w-0 group/attr">
+      <span
+        className="font-medium whitespace-nowrap truncate flex-1 min-w-0 cursor-text"
+        title={currentValue}
+        onClick={() => setEditing(true)}
+      >
+        {currentValue || <span className="text-zinc-400 italic">empty</span>}
+      </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-5 w-5 p-0 shrink-0 opacity-0 group-hover/attr:opacity-100 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-opacity"
+            onClick={() => setEditing(true)}
+          >
+            <PenLine className="h-3 w-3 text-purple-500" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="left">Edit attribute</TooltipContent>
+      </Tooltip>
     </div>
   );
 }

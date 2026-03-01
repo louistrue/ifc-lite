@@ -201,6 +201,13 @@ export default defineConfig({
     fs: {
       allow: ['../..'],
     },
+    proxy: {
+      '/api/bsdd': {
+        target: 'https://api.bsdd.buildingsmart.org',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/api\/bsdd/, ''),
+      },
+    },
   },
   build: {
     target: 'esnext',

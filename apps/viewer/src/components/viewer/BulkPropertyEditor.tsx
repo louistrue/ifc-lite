@@ -61,7 +61,7 @@ import {
   type BulkQueryPreview,
   type BulkQueryResult,
 } from '@ifc-lite/mutations';
-import { extractPropertiesOnDemand, type IfcDataStore } from '@ifc-lite/parser';
+import { extractPropertiesOnDemand, extractQuantitiesOnDemand, type IfcDataStore } from '@ifc-lite/parser';
 
 // Common IFC type enum IDs (from IFC schema)
 // These correspond to the typeEnum values in EntityTable
@@ -242,6 +242,13 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
     if (dataStore.onDemandPropertyMap && dataStore.source?.length > 0) {
       mutationView.setOnDemandExtractor((entityId: number) => {
         return extractPropertiesOnDemand(dataStore as IfcDataStore, entityId);
+      });
+    }
+
+    // Set up on-demand quantity extraction if the data store supports it
+    if (dataStore.onDemandQuantityMap && dataStore.source?.length > 0) {
+      mutationView.setQuantityExtractor((entityId: number) => {
+        return extractQuantitiesOnDemand(dataStore as IfcDataStore, entityId);
       });
     }
 

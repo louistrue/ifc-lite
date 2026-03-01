@@ -4,6 +4,12 @@
   "outputDirectory": "apps/viewer/dist",
   "installCommand": "pnpm install",
   "framework": "vite",
+  "rewrites": [
+    {
+      "source": "/api/bsdd/:path*",
+      "destination": "https://api.bsdd.buildingsmart.org/:path*"
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)\\.wasm",

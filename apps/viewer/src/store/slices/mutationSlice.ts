@@ -10,7 +10,7 @@ import { type StateCreator } from 'zustand';
 import type { ViewerState } from '../index.js';
 import type { MutablePropertyView } from '@ifc-lite/mutations';
 import type { Mutation, ChangeSet, PropertyValue } from '@ifc-lite/mutations';
-import { PropertyValueType } from '@ifc-lite/data';
+import { PropertyValueType, QuantityType } from '@ifc-lite/data';
 
 export interface MutationSlice {
   // State
@@ -66,6 +66,35 @@ export interface MutationSlice {
     modelId: string,
     entityId: number,
     psetName: string
+  ) => Mutation | null;
+
+  // Actions - Quantity Mutations
+  /** Set a quantity value */
+  setQuantity: (
+    modelId: string,
+    entityId: number,
+    qsetName: string,
+    quantName: string,
+    value: number,
+    quantityType?: QuantityType,
+    unit?: string
+  ) => Mutation | null;
+  /** Create a new quantity set */
+  createQuantitySet: (
+    modelId: string,
+    entityId: number,
+    qsetName: string,
+    quantities: Array<{ name: string; value: number; quantityType: QuantityType; unit?: string }>
+  ) => Mutation | null;
+
+  // Actions - Attribute Mutations
+  /** Set an entity attribute value */
+  setAttribute: (
+    modelId: string,
+    entityId: number,
+    attrName: string,
+    value: string,
+    oldValue?: string
   ) => Mutation | null;
 
   // Actions - Undo/Redo
@@ -266,6 +295,92 @@ export const createMutationSlice: StateCreator<
     return mutation;
   },
 
+  // Quantity Mutations
+  setQuantity: (modelId, entityId, qsetName, quantName, value, quantityType = QuantityType.Count, unit) => {
+    const view = get().mutationViews.get(modelId);
+    if (!view) return null;
+
+    const mutation = view.setQuantity(entityId, qsetName, quantName, value, quantityType, unit);
+
+    set((state) => {
+      const newUndoStacks = new Map(state.undoStacks);
+      const stack = newUndoStacks.get(modelId) || [];
+      newUndoStacks.set(modelId, [...stack, mutation]);
+
+      const newRedoStacks = new Map(state.redoStacks);
+      newRedoStacks.set(modelId, []);
+
+      const newDirty = new Set(state.dirtyModels);
+      newDirty.add(modelId);
+
+      return {
+        undoStacks: newUndoStacks,
+        redoStacks: newRedoStacks,
+        dirtyModels: newDirty,
+        mutationVersion: state.mutationVersion + 1,
+      };
+    });
+
+    return mutation;
+  },
+
+  createQuantitySet: (modelId, entityId, qsetName, quantities) => {
+    const view = get().mutationViews.get(modelId);
+    if (!view) return null;
+
+    const mutation = view.createQuantitySet(entityId, qsetName, quantities);
+
+    set((state) => {
+      const newUndoStacks = new Map(state.undoStacks);
+      const stack = newUndoStacks.get(modelId) || [];
+      newUndoStacks.set(modelId, [...stack, mutation]);
+
+      const newRedoStacks = new Map(state.redoStacks);
+      newRedoStacks.set(modelId, []);
+
+      const newDirty = new Set(state.dirtyModels);
+      newDirty.add(modelId);
+
+      return {
+        undoStacks: newUndoStacks,
+        redoStacks: newRedoStacks,
+        dirtyModels: newDirty,
+        mutationVersion: state.mutationVersion + 1,
+      };
+    });
+
+    return mutation;
+  },
+
+  // Attribute Mutations
+  setAttribute: (modelId, entityId, attrName, value, oldValue) => {
+    const view = get().mutationViews.get(modelId);
+    if (!view) return null;
+
+    const mutation = view.setAttribute(entityId, attrName, value, oldValue);
+
+    set((state) => {
+      const newUndoStacks = new Map(state.undoStacks);
+      const stack = newUndoStacks.get(modelId) || [];
+      newUndoStacks.set(modelId, [...stack, mutation]);
+
+      const newRedoStacks = new Map(state.redoStacks);
+      newRedoStacks.set(modelId, []);
+
+      const newDirty = new Set(state.dirtyModels);
+      newDirty.add(modelId);
+
+      return {
+        undoStacks: newUndoStacks,
+        redoStacks: newRedoStacks,
+        dirtyModels: newDirty,
+        mutationVersion: state.mutationVersion + 1,
+      };
+    });
+
+    return mutation;
+  },
+
   // Undo/Redo
   undo: (modelId) => {
     const state = get();
@@ -302,6 +417,29 @@ export const createMutationSlice: StateCreator<
           undefined,
           true // skipHistory
         );
+      }
+    } else if (mutation.type === 'CREATE_QUANTITY') {
+      // Undo creation: remove the quantity mutation
+      view.removeQuantityMutation(mutation.entityId, mutation.psetName!, mutation.propName);
+    } else if (mutation.type === 'UPDATE_QUANTITY') {
+      if (mutation.psetName && mutation.propName && mutation.oldValue !== undefined && mutation.oldValue !== null) {
+        view.setQuantity(
+          mutation.entityId,
+          mutation.psetName,
+          mutation.propName,
+          Number(mutation.oldValue),
+          undefined,
+          undefined,
+          true // skipHistory
+        );
+      }
+    } else if (mutation.type === 'UPDATE_ATTRIBUTE') {
+      if (mutation.attributeName) {
+        if (mutation.oldValue !== undefined && mutation.oldValue !== null) {
+          view.setAttribute(mutation.entityId, mutation.attributeName, String(mutation.oldValue), undefined, true);
+        } else {
+          view.removeAttributeMutation(mutation.entityId, mutation.attributeName);
+        }
       }
     }
 
@@ -346,6 +484,22 @@ export const createMutationSlice: StateCreator<
     } else if (mutation.type === 'DELETE_PROPERTY') {
       if (mutation.psetName && mutation.propName) {
         view.deleteProperty(mutation.entityId, mutation.psetName, mutation.propName, true);
+      }
+    } else if (mutation.type === 'CREATE_QUANTITY' || mutation.type === 'UPDATE_QUANTITY') {
+      if (mutation.psetName && mutation.propName && mutation.newValue !== undefined) {
+        view.setQuantity(
+          mutation.entityId,
+          mutation.psetName,
+          mutation.propName,
+          Number(mutation.newValue),
+          undefined,
+          undefined,
+          true // skipHistory
+        );
+      }
+    } else if (mutation.type === 'UPDATE_ATTRIBUTE') {
+      if (mutation.attributeName && mutation.newValue !== undefined) {
+        view.setAttribute(mutation.entityId, mutation.attributeName, String(mutation.newValue), undefined, true);
       }
     }
 

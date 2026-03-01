@@ -57,8 +57,8 @@ export interface Mutation {
   unit?: string;
 
   // Attribute specific fields
-  /** Attribute name (name, description, objectType) */
-  attributeName?: 'name' | 'description' | 'objectType';
+  /** Attribute name (IFC entity attributes like Name, Description, ObjectType, Tag, etc.) */
+  attributeName?: string;
 }
 
 /**
@@ -109,8 +109,8 @@ export interface QuantityMutation {
  * Attribute mutation for overlay tracking
  */
 export interface AttributeMutation {
-  /** Attribute name */
-  attribute: 'name' | 'description' | 'objectType';
+  /** Attribute name (IFC entity attributes like Name, Description, ObjectType, Tag, etc.) */
+  attribute: string;
   /** New value */
   value: string;
   /** Previous value (for undo) */

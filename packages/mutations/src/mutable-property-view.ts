@@ -12,10 +12,10 @@
  * for optimal performance with large models.
  */
 
-import type { PropertyTable, PropertySet, Property } from '@ifc-lite/data';
-import { PropertyValueType } from '@ifc-lite/data';
-import type { PropertyValue, PropertyMutation, Mutation } from './types.js';
-import { propertyKey, generateMutationId } from './types.js';
+import type { PropertyTable, PropertySet, Property, QuantitySet, Quantity } from '@ifc-lite/data';
+import { PropertyValueType, QuantityType } from '@ifc-lite/data';
+import type { PropertyValue, PropertyMutation, QuantityMutation, AttributeMutation, Mutation } from './types.js';
+import { propertyKey, quantityKey, attributeKey, generateMutationId } from './types.js';
 
 /**
  * Function type for on-demand property extraction
@@ -27,12 +27,22 @@ export type PropertyExtractor = (entityId: number) => Array<{
   properties: Array<{ name: string; type: number; value: unknown }>;
 }>;
 
+/**
+ * Function type for on-demand quantity extraction
+ */
+export type QuantityExtractor = (entityId: number) => QuantitySet[];
+
 export class MutablePropertyView {
   private baseTable: PropertyTable | null;
   private onDemandExtractor: PropertyExtractor | null = null;
+  private quantityExtractor: QuantityExtractor | null = null;
   private propertyMutations: Map<string, PropertyMutation> = new Map();
+  private quantityMutations: Map<string, QuantityMutation> = new Map();
   private deletedPsets: Set<string> = new Set(); // `${entityId}:${psetName}`
+  private deletedQsets: Set<string> = new Set(); // `${entityId}:${qsetName}`
   private newPsets: Map<number, Map<string, PropertySet>> = new Map(); // entityId -> psetName -> PropertySet
+  private newQsets: Map<number, Map<string, QuantitySet>> = new Map(); // entityId -> qsetName -> QuantitySet
+  private attributeMutations: Map<string, AttributeMutation> = new Map(); // `${entityId}:attr:${attrName}`
   private mutationHistory: Mutation[] = [];
   private modelId: string;
 
@@ -47,6 +57,13 @@ export class MutablePropertyView {
    */
   setOnDemandExtractor(extractor: PropertyExtractor): void {
     this.onDemandExtractor = extractor;
+  }
+
+  /**
+   * Set an on-demand quantity extractor function
+   */
+  setQuantityExtractor(extractor: QuantityExtractor): void {
+    this.quantityExtractor = extractor;
   }
 
   /**
@@ -207,11 +224,9 @@ export class MutablePropertyView {
     skipHistory: boolean = false
   ): Mutation {
     const key = propertyKey(entityId, psetName, propName);
-    console.log('[MutablePropertyView.setProperty] entityId:', entityId, 'pset:', psetName, 'prop:', propName, 'value:', value, 'key:', key);
 
     // Get old value for undo
     const oldValue = this.getPropertyValue(entityId, psetName, propName);
-    console.log('[MutablePropertyView.setProperty] oldValue:', oldValue);
 
     // Check if this pset exists in base
     const basePsets = this.getBasePropertiesForEntity(entityId);
@@ -405,6 +420,300 @@ export class MutablePropertyView {
     return mutation;
   }
 
+  // ---------------------------------------------------------------------------
+  // Quantity mutations
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Get base quantities for an entity (before mutations)
+   */
+  private getBaseQuantitiesForEntity(entityId: number): QuantitySet[] {
+    if (this.quantityExtractor) {
+      return this.quantityExtractor(entityId);
+    }
+    return [];
+  }
+
+  /**
+   * Get all quantity sets for an entity, with mutations applied
+   */
+  getQuantitiesForEntity(entityId: number): QuantitySet[] {
+    const result: QuantitySet[] = [];
+    const seenQsets = new Set<string>();
+
+    const baseQsets = this.getBaseQuantitiesForEntity(entityId);
+
+    for (const qset of baseQsets) {
+      if (this.deletedQsets.has(`${entityId}:${qset.name}`)) continue;
+
+      seenQsets.add(qset.name);
+
+      const mutatedQuantities: Quantity[] = [];
+      for (const q of qset.quantities) {
+        const key = quantityKey(entityId, qset.name, q.name);
+        const mutation = this.quantityMutations.get(key);
+
+        if (mutation) {
+          if (mutation.operation === 'DELETE') continue;
+          mutatedQuantities.push({
+            name: q.name,
+            type: mutation.quantityType ?? q.type,
+            value: mutation.value ?? q.value,
+            unit: mutation.unit ?? q.unit,
+          });
+        } else {
+          mutatedQuantities.push(q);
+        }
+      }
+
+      // Check for new quantities added to this qset
+      for (const [key, mutation] of this.quantityMutations) {
+        if (key.startsWith(`${entityId}:${qset.name}:`) && mutation.operation === 'SET') {
+          const quantName = key.split(':')[2];
+          if (!mutatedQuantities.some(q => q.name === quantName)) {
+            mutatedQuantities.push({
+              name: quantName,
+              type: mutation.quantityType ?? QuantityType.Count,
+              value: mutation.value ?? 0,
+              unit: mutation.unit,
+            });
+          }
+        }
+      }
+
+      if (mutatedQuantities.length > 0) {
+        result.push({ name: qset.name, quantities: mutatedQuantities });
+      }
+    }
+
+    // Add new quantity sets that don't exist in base
+    const newQsetsForEntity = this.newQsets.get(entityId);
+    if (newQsetsForEntity) {
+      for (const [qsetName, qset] of newQsetsForEntity) {
+        if (!seenQsets.has(qsetName)) {
+          result.push(qset);
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Create a new quantity set
+   */
+  createQuantitySet(
+    entityId: number,
+    qsetName: string,
+    quantities: Array<{ name: string; value: number; quantityType: QuantityType; unit?: string }>
+  ): Mutation {
+    let entityQsets = this.newQsets.get(entityId);
+    if (!entityQsets) {
+      entityQsets = new Map();
+      this.newQsets.set(entityId, entityQsets);
+    }
+
+    const qset: QuantitySet = {
+      name: qsetName,
+      quantities: quantities.map(q => ({
+        name: q.name,
+        type: q.quantityType,
+        value: q.value,
+        unit: q.unit,
+      })),
+    };
+
+    entityQsets.set(qsetName, qset);
+
+    // Track individual quantity mutations
+    for (const q of quantities) {
+      const key = quantityKey(entityId, qsetName, q.name);
+      this.quantityMutations.set(key, {
+        operation: 'SET',
+        value: q.value,
+        quantityType: q.quantityType,
+        unit: q.unit,
+      });
+    }
+
+    const mutation: Mutation = {
+      id: generateMutationId(),
+      type: 'CREATE_QUANTITY',
+      timestamp: Date.now(),
+      modelId: this.modelId,
+      entityId,
+      psetName: qsetName,
+      newValue: quantities as unknown as PropertyValue,
+    };
+
+    this.mutationHistory.push(mutation);
+    return mutation;
+  }
+
+  /**
+   * Set a single quantity value (add to existing or new quantity set)
+   */
+  setQuantity(
+    entityId: number,
+    qsetName: string,
+    quantName: string,
+    value: number,
+    qType: QuantityType = QuantityType.Count,
+    unit?: string,
+    skipHistory: boolean = false,
+  ): Mutation {
+    const key = quantityKey(entityId, qsetName, quantName);
+
+    // Check if qset exists
+    const baseQsets = this.getBaseQuantitiesForEntity(entityId);
+    const qsetExistsInBase = baseQsets.some(q => q.name === qsetName);
+    const qsetExistsInNew = this.newQsets.get(entityId)?.has(qsetName);
+
+    if (!qsetExistsInBase && !qsetExistsInNew) {
+      let entityQsets = this.newQsets.get(entityId);
+      if (!entityQsets) {
+        entityQsets = new Map();
+        this.newQsets.set(entityId, entityQsets);
+      }
+      entityQsets.set(qsetName, {
+        name: qsetName,
+        quantities: [{ name: quantName, type: qType, value, unit }],
+      });
+    } else if (qsetExistsInNew) {
+      const entityQsets = this.newQsets.get(entityId)!;
+      const qset = entityQsets.get(qsetName)!;
+      const idx = qset.quantities.findIndex(q => q.name === quantName);
+      if (idx >= 0) {
+        qset.quantities[idx] = { name: quantName, type: qType, value, unit };
+      } else {
+        qset.quantities.push({ name: quantName, type: qType, value, unit });
+      }
+    }
+
+    // Get old value for undo and to determine CREATE vs UPDATE
+    const existingMutation = this.quantityMutations.get(key);
+    const oldValue = existingMutation?.value ?? null;
+    const isUpdate = existingMutation != null || qsetExistsInBase;
+
+    this.quantityMutations.set(key, {
+      operation: 'SET',
+      value,
+      quantityType: qType,
+      unit,
+    });
+
+    const mutation: Mutation = {
+      id: generateMutationId(),
+      type: isUpdate ? 'UPDATE_QUANTITY' : 'CREATE_QUANTITY',
+      timestamp: Date.now(),
+      modelId: this.modelId,
+      entityId,
+      psetName: qsetName,
+      propName: quantName,
+      oldValue: oldValue as PropertyValue,
+      newValue: value,
+    };
+
+    if (!skipHistory) {
+      this.mutationHistory.push(mutation);
+    }
+    return mutation;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Attribute mutations
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Set an entity attribute value (Name, Description, ObjectType, Tag, etc.)
+   */
+  setAttribute(
+    entityId: number,
+    attrName: string,
+    value: string,
+    oldValue?: string,
+    skipHistory: boolean = false,
+  ): Mutation {
+    const key = attributeKey(entityId, attrName);
+
+    this.attributeMutations.set(key, {
+      attribute: attrName,
+      value,
+      oldValue,
+    });
+
+    const mutation: Mutation = {
+      id: generateMutationId(),
+      type: 'UPDATE_ATTRIBUTE',
+      timestamp: Date.now(),
+      modelId: this.modelId,
+      entityId,
+      attributeName: attrName,
+      newValue: value,
+      oldValue: oldValue ?? null,
+    };
+
+    if (!skipHistory) {
+      this.mutationHistory.push(mutation);
+    }
+    return mutation;
+  }
+
+  /**
+   * Get mutated attributes for an entity.
+   * Returns only attributes that have been added/modified via mutations.
+   */
+  getAttributeMutationsForEntity(entityId: number): Array<{ name: string; value: string }> {
+    const result: Array<{ name: string; value: string }> = [];
+    for (const [key, mutation] of this.attributeMutations) {
+      if (key.startsWith(`${entityId}:attr:`)) {
+        result.push({ name: mutation.attribute, value: mutation.value });
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Remove a quantity mutation (used by undo for newly created quantities)
+   */
+  removeQuantityMutation(entityId: number, qsetName: string, quantName?: string): void {
+    if (quantName) {
+      const key = quantityKey(entityId, qsetName, quantName);
+      this.quantityMutations.delete(key);
+      // Also remove from newQsets if present
+      const entityQsets = this.newQsets.get(entityId);
+      if (entityQsets) {
+        const qset = entityQsets.get(qsetName);
+        if (qset) {
+          qset.quantities = qset.quantities.filter(q => q.name !== quantName);
+          if (qset.quantities.length === 0) {
+            entityQsets.delete(qsetName);
+          }
+        }
+      }
+    } else {
+      // Remove entire quantity set
+      const entityQsets = this.newQsets.get(entityId);
+      if (entityQsets) {
+        entityQsets.delete(qsetName);
+      }
+      // Remove all quantity mutations for this qset
+      for (const key of [...this.quantityMutations.keys()]) {
+        if (key.startsWith(`${entityId}:${qsetName}:`)) {
+          this.quantityMutations.delete(key);
+        }
+      }
+    }
+  }
+
+  /**
+   * Remove an attribute mutation (used by undo for newly set attributes)
+   */
+  removeAttributeMutation(entityId: number, attrName: string): void {
+    const key = attributeKey(entityId, attrName);
+    this.attributeMutations.delete(key);
+  }
+
   /**
    * Get all mutations applied to this view
    */
@@ -445,8 +754,12 @@ export class MutablePropertyView {
    */
   clear(): void {
     this.propertyMutations.clear();
+    this.quantityMutations.clear();
+    this.attributeMutations.clear();
     this.deletedPsets.clear();
+    this.deletedQsets.clear();
     this.newPsets.clear();
+    this.newQsets.clear();
     this.mutationHistory = [];
   }
 
@@ -478,6 +791,19 @@ export class MutablePropertyView {
         case 'DELETE_PROPERTY_SET':
           if (mutation.psetName) {
             this.deletePropertySet(mutation.entityId, mutation.psetName);
+          }
+          break;
+
+        case 'CREATE_QUANTITY':
+        case 'UPDATE_QUANTITY':
+          if (mutation.psetName && mutation.propName && mutation.newValue !== undefined) {
+            this.setQuantity(
+              mutation.entityId,
+              mutation.psetName,
+              mutation.propName,
+              Number(mutation.newValue),
+              QuantityType.Count,
+            );
           }
           break;
       }
