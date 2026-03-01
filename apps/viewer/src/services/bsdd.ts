@@ -117,7 +117,10 @@ export function ifcClassUri(ifcType: string): string {
 /**
  * Fetch full class info (including properties) for an IFC entity type.
  *
- * Uses the `/api/Class/v1` endpoint with `includeClassProperties=true`.
+ * Uses the `/api/Class/v1` endpoint with `IncludeClassProperties=true`
+ * (PascalCase parameter names per the bSDD OpenAPI spec).
+ * Falls back to the paginated `/api/Class/Properties/v1` endpoint when
+ * the inline property list comes back empty.
  */
 export async function fetchClassInfo(
   ifcType: string,
@@ -127,11 +130,46 @@ export async function fetchClassInfo(
   if (cached) return cached;
 
   try {
+    // Parameter names must be PascalCase per the bSDD OpenAPI spec
     const raw = await fetchJson<Record<string, unknown>>(
-      `${BSDD_API}/api/Class/v1?uri=${encodeURIComponent(uri)}&includeClassProperties=true&includeClassRelations=true`,
+      `${BSDD_API}/api/Class/v1?Uri=${encodeURIComponent(uri)}&IncludeClassProperties=true&IncludeClassRelations=true`,
     );
 
-    const info = mapClassResponse(raw, true);
+    let info = mapClassResponse(raw, true);
+
+    // Fallback: if inline classProperties came back empty, try the
+    // dedicated paginated properties endpoint
+    if (info.classProperties.length === 0) {
+      const propsRaw = await fetchJson<Record<string, unknown>>(
+        `${BSDD_API}/api/Class/Properties/v1?ClassUri=${encodeURIComponent(uri)}`,
+      ).catch(() => null);
+
+      if (propsRaw) {
+        const propsList = propsRaw.classProperties as Array<Record<string, unknown>> | undefined;
+        if (propsList && propsList.length > 0) {
+          info = {
+            ...info,
+            classProperties: propsList.map((p) => ({
+              name: String(p.name ?? p.propertyCode ?? ''),
+              uri: String(p.propertyUri ?? p.uri ?? ''),
+              description: p.description ? String(p.description) : null,
+              dataType: p.dataType ? String(p.dataType) : null,
+              propertySet: p.propertySet ? String(p.propertySet) : null,
+              allowedValues: Array.isArray(p.allowedValues)
+                ? p.allowedValues.map((v: Record<string, unknown>) => ({
+                    uri: v.uri ? String(v.uri) : undefined,
+                    value: String(v.value ?? ''),
+                    description: v.description ? String(v.description) : undefined,
+                  }))
+                : null,
+              units: Array.isArray(p.units) ? (p.units as string[]) : null,
+              isIfcStandard: true,
+            })),
+          };
+        }
+      }
+    }
+
     setCache(uri, info);
     return info;
   } catch {
@@ -144,6 +182,7 @@ export async function fetchClassInfo(
  * Search bSDD for classes related to a given IFC entity type across all
  * dictionaries (not just the IFC dictionary).
  *
+ * Uses `/api/Class/Search/v1` with a RelatedIfcEntities filter.
  * Returns lightweight results. Call `fetchClassInfo` on a specific result
  * to get full properties.
  */
@@ -151,8 +190,10 @@ export async function searchRelatedClasses(
   ifcType: string,
 ): Promise<BsddSearchResult[]> {
   try {
-    const raw = await fetchJson<{ classes?: Array<Record<string, unknown>> }>(
-      `${BSDD_API}/api/SearchListOpen/v2?RelatedIfcEntity=${encodeURIComponent(ifcType)}`,
+    const raw = await fetchJson<{
+      classes?: Array<Record<string, unknown>>;
+    }>(
+      `${BSDD_API}/api/Class/Search/v1?SearchText=${encodeURIComponent(ifcType)}&RelatedIfcEntities=${encodeURIComponent(ifcType)}`,
     );
     return (raw.classes ?? []).map((c) => ({
       uri: String(c.uri ?? ''),
@@ -181,7 +222,9 @@ function mapClassResponse(
     code: String(raw.code ?? raw.name ?? ''),
     name: String(raw.name ?? ''),
     definition: raw.definition ? String(raw.definition) : null,
-    parentClassUri: raw.parentClassUri ? String(raw.parentClassUri) : null,
+    parentClassUri: raw.parentClassReference
+      ? String((raw.parentClassReference as Record<string, unknown>).uri ?? '')
+      : null,
     relatedIfcEntityNames: raw.relatedIfcEntityNames as string[] | null,
     classProperties: (props ?? []).map((p) => ({
       name: String(p.name ?? p.propertyCode ?? ''),
