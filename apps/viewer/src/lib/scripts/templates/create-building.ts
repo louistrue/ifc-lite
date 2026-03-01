@@ -244,11 +244,15 @@ bim.create.addQuantitySet(h, stairId, {
 const ff = bim.create.addStorey(h, { Name: 'First Floor', Elevation: 3 });
 
 // Floor slab at z = 3 with stair opening
+// Opening sized for stairwell: stair width + clearance, ~2.8 m long for headroom
+const stairRunEnd = 1 + numRisers * treadL;       // y ≈ 5.76
+const stairOpenLen = 2.8;                          // standard stairwell length
+const stairOpenY = stairRunEnd - stairOpenLen / 2; // center near arrival end
 const ffSlab = bim.create.addSlab(h, ff, {
   Name: 'First Floor Slab', Description: 'Reinforced concrete floor slab', ObjectType: 'Floor:Concrete - 300mm',
   Position: [0, 0, 2.7], Thickness: 0.3, Width: 5, Depth: 8,
   Openings: [
-    { Name: 'Stair Opening', Width: stairW + 0.2, Height: numRisers * treadL + 0.2, Position: [1.5, 1 + numRisers * treadL / 2, 0] },
+    { Name: 'Stair Opening', Width: stairW + 0.2, Height: stairOpenLen, Position: [1.5, stairOpenY, 0] },
   ],
 });
 bim.create.setColor(h, ffSlab, 'Concrete - Grey', [0.65, 0.65, 0.65]);
