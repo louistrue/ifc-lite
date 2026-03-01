@@ -19,7 +19,6 @@ import {
   FileBox,
   PenLine,
   Crosshair,
-  BookOpen,
 } from 'lucide-react';
 import { EditToolbar } from './PropertyEditor';
 import { Button } from '@/components/ui/button';
@@ -874,6 +873,7 @@ export function PropertiesPanel() {
           <CollapsibleTrigger className="flex items-center gap-2 w-full p-3 hover:bg-muted/50 text-left">
             <Tag className="h-4 w-4 text-muted-foreground" />
             <span className="font-medium text-sm">Attributes</span>
+            {editMode && <PenLine className="h-3 w-3 text-purple-500 ml-1" />}
             <span className="text-xs text-muted-foreground ml-auto">{attributes.length}</span>
           </CollapsibleTrigger>
           <CollapsibleContent>
@@ -881,11 +881,20 @@ export function PropertiesPanel() {
               {attributes.map((attr) => (
                 <div key={attr.name} className="grid grid-cols-[minmax(80px,1fr)_minmax(0,2fr)] gap-2 px-3 py-1.5 text-sm">
                   <span className="text-muted-foreground truncate" title={attr.name}>{attr.name}</span>
-                  <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700 min-w-0">
-                    <span className="font-medium whitespace-nowrap" title={attr.value}>
-                      {attr.value}
-                    </span>
-                  </div>
+                  {editMode && selectedEntity ? (
+                    <AttributeEditorField
+                      modelId={selectedEntity.modelId}
+                      entityId={selectedEntity.expressId}
+                      attrName={attr.name}
+                      currentValue={attr.value}
+                    />
+                  ) : (
+                    <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700 min-w-0">
+                      <span className="font-medium whitespace-nowrap" title={attr.value}>
+                        {attr.value}
+                      </span>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -916,26 +925,23 @@ export function PropertiesPanel() {
 
       {/* Tabs */}
       <Tabs defaultValue="properties" className="flex-1 flex flex-col overflow-hidden">
-        <TabsList className="tabs-list w-full justify-start rounded-none h-10 p-0 overflow-x-auto overflow-y-hidden shrink-0" style={{ backgroundColor: 'var(--tabs-bg)', borderBottom: '1px solid var(--tabs-border)' }}>
+        <TabsList className="tabs-list w-full justify-start rounded-none h-9 p-0 shrink-0 flex" style={{ backgroundColor: 'var(--tabs-bg)', borderBottom: '1px solid var(--tabs-border)' }}>
           <TabsTrigger
             value="properties"
-            className="tab-trigger shrink-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-xs tracking-wider h-full px-3"
+            className="tab-trigger flex-1 min-w-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-[11px] tracking-wide h-full px-2"
           >
-            <FileText className="h-3.5 w-3.5 mr-1.5" />
             Properties
           </TabsTrigger>
           <TabsTrigger
             value="quantities"
-            className="tab-trigger shrink-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-xs tracking-wider h-full px-3"
+            className="tab-trigger flex-1 min-w-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-[11px] tracking-wide h-full px-2"
           >
-            <Calculator className="h-3.5 w-3.5 mr-1.5" />
             Quantities
           </TabsTrigger>
           <TabsTrigger
             value="bsdd"
-            className="tab-trigger shrink-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-xs tracking-wider h-full px-3"
+            className="tab-trigger flex-1 min-w-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-[11px] tracking-wide h-full px-2"
           >
-            <BookOpen className="h-3.5 w-3.5 mr-1.5" />
             bSDD
           </TabsTrigger>
         </TabsList>
@@ -1047,6 +1053,93 @@ export function PropertiesPanel() {
           </TabsContent>
         </ScrollArea>
       </Tabs>
+    </div>
+  );
+}
+
+/** Inline attribute editor — pen icon to enter edit mode, input + save/cancel */
+function AttributeEditorField({
+  modelId,
+  entityId,
+  attrName,
+  currentValue,
+}: {
+  modelId: string;
+  entityId: number;
+  attrName: string;
+  currentValue: string;
+}) {
+  const setAttribute = useViewerStore((s) => s.setAttribute);
+  const bumpMutationVersion = useViewerStore((s) => s.bumpMutationVersion);
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(currentValue);
+  const inputRef = useCallback((node: HTMLInputElement | null) => {
+    if (node) { node.focus(); node.select(); }
+  }, []);
+
+  const save = useCallback(() => {
+    let normalizedModelId = modelId;
+    if (modelId === 'legacy') normalizedModelId = '__legacy__';
+    setAttribute(normalizedModelId, entityId, attrName, value, currentValue || undefined);
+    bumpMutationVersion();
+    setEditing(false);
+  }, [modelId, entityId, attrName, value, currentValue, setAttribute, bumpMutationVersion]);
+
+  const cancel = useCallback(() => {
+    setValue(currentValue);
+    setEditing(false);
+  }, [currentValue]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') { e.preventDefault(); save(); }
+    else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+  }, [save, cancel]);
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1 min-w-0">
+        <input
+          ref={inputRef}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={save}
+          className="flex-1 min-w-0 h-6 px-1.5 text-sm font-mono bg-white dark:bg-zinc-900 border border-purple-300 dark:border-purple-700 outline-none focus:ring-1 focus:ring-purple-400"
+        />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-5 w-5 p-0 shrink-0 hover:bg-emerald-100 dark:hover:bg-emerald-900/30"
+          onClick={save}
+        >
+          <Check className="h-3 w-3 text-emerald-500" />
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1 min-w-0 group/attr">
+      <span
+        className="font-medium whitespace-nowrap truncate flex-1 min-w-0 cursor-text"
+        title={currentValue}
+        onClick={() => setEditing(true)}
+      >
+        {currentValue || <span className="text-zinc-400 italic">empty</span>}
+      </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-5 w-5 p-0 shrink-0 opacity-0 group-hover/attr:opacity-100 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-opacity"
+            onClick={() => setEditing(true)}
+          >
+            <PenLine className="h-3 w-3 text-purple-500" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="left">Edit attribute</TooltipContent>
+      </Tooltip>
     </div>
   );
 }

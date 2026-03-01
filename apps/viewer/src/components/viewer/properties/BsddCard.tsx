@@ -397,7 +397,7 @@ export function BsddCard({
           >
             {/* Pset header */}
             <button
-              className="flex items-center gap-2 w-full p-2.5 hover:bg-sky-50 dark:hover:bg-sky-900/20 text-left transition-colors"
+              className="flex items-center gap-1.5 w-full p-2 hover:bg-sky-50 dark:hover:bg-sky-900/20 text-left transition-colors overflow-hidden"
               onClick={() => togglePset(psetName)}
             >
               {isExpanded ? (
@@ -408,40 +408,30 @@ export function BsddCard({
               <span className="font-bold text-xs text-sky-800 dark:text-sky-300 truncate flex-1 min-w-0">
                 {psetName}
               </span>
-              <div className="flex items-center gap-1.5 shrink-0">
-                {psetExistsOnEntity && (
-                  <Badge
-                    variant="secondary"
-                    className="h-4 px-1 text-[9px] bg-sky-100 dark:bg-sky-900/50 text-sky-600 dark:text-sky-400 border-sky-200 dark:border-sky-700"
-                  >
-                    exists
-                  </Badge>
-                )}
-                <span className="text-[10px] font-mono bg-sky-100 dark:bg-sky-900/50 px-1.5 py-0.5 border border-sky-200 dark:border-sky-800 text-sky-600 dark:text-sky-400">
-                  {props.length}
-                </span>
-                {addableCount > 0 && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-5 w-5 p-0 hover:bg-sky-200 dark:hover:bg-sky-800"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleAddAllInPset(psetName, props);
-                        }}
-                      >
-                        <Plus className="h-3 w-3 text-sky-600 dark:text-sky-400" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Add all {addableCount} properties</TooltipContent>
-                  </Tooltip>
-                )}
-                {allAlreadyExist && (
-                  <Check className="h-3 w-3 text-emerald-500" />
-                )}
-              </div>
+              <span className="text-[10px] font-mono bg-sky-100 dark:bg-sky-900/50 px-1 py-0.5 border border-sky-200 dark:border-sky-800 text-sky-600 dark:text-sky-400 shrink-0">
+                {props.length}
+              </span>
+              {addableCount > 0 && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5 p-0 shrink-0 hover:bg-sky-200 dark:hover:bg-sky-800"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAddAllInPset(psetName, props);
+                      }}
+                    >
+                      <Plus className="h-3 w-3 text-sky-600 dark:text-sky-400" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Add all {addableCount} properties</TooltipContent>
+                </Tooltip>
+              )}
+              {allAlreadyExist && (
+                <Check className="h-3 w-3 text-emerald-500 shrink-0" />
+              )}
             </button>
 
             {/* Properties */}
@@ -455,42 +445,27 @@ export function BsddCard({
                   return (
                     <div
                       key={prop.name}
-                      className={`flex items-start gap-2 px-3 py-2 text-xs ${
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs overflow-hidden ${
                         alreadyExists
                           ? 'bg-emerald-50/30 dark:bg-emerald-950/10'
                           : 'hover:bg-sky-50/50 dark:hover:bg-sky-900/20'
                       }`}
                     >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="font-medium text-zinc-600 dark:text-zinc-400 cursor-help truncate">
-                                {prop.name}
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" className="max-w-xs text-[10px]">
-                              {prop.description || 'No description available'}
-                            </TooltipContent>
-                          </Tooltip>
-                          {prop.dataType && (
-                            <Badge
-                              variant="outline"
-                              className="h-4 px-1 text-[9px] border-sky-300 dark:border-sky-700 text-sky-600 dark:text-sky-400 shrink-0"
-                            >
-                              {bsddDataTypeLabel(prop.dataType)}
-                            </Badge>
-                          )}
-                        </div>
-                        {prop.description && (
-                          <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-0.5 line-clamp-2">
-                            {prop.description}
-                          </p>
-                        )}
-                      </div>
-                      {/* Add button */}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="font-medium text-zinc-600 dark:text-zinc-400 cursor-help truncate flex-1 min-w-0">
+                            {prop.name}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-xs text-[10px]">
+                          <p className="font-medium">{prop.name}</p>
+                          {prop.description && <p className="mt-0.5 text-zinc-400">{prop.description}</p>}
+                          {prop.dataType && <p className="mt-0.5 text-sky-400">{bsddDataTypeLabel(prop.dataType)}</p>}
+                        </TooltipContent>
+                      </Tooltip>
+                      {/* Add button - always visible on right */}
                       {alreadyExists ? (
-                        <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                        <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
                       ) : (
                         <Tooltip>
                           <TooltipTrigger asChild>
