@@ -31,7 +31,7 @@ export class Picker {
 
     this.depthTexture = this.device.createTexture({
       size: { width, height },
-      format: 'depth24plus',
+      format: 'depth32float',
       usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
 
@@ -109,7 +109,7 @@ export class Picker {
         cullMode: 'back',
       },
       depthStencil: {
-        format: 'depth24plus',
+        format: 'depth32float',
         depthWriteEnabled: true,
         depthCompare: 'greater',  // Reverse-Z: greater instead of less
       },
@@ -157,7 +157,7 @@ export class Picker {
 
       this.depthTexture = this.device.createTexture({
         size: { width, height },
-        format: 'depth24plus',
+        format: 'depth32float',
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
       });
     }

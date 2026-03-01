@@ -215,7 +215,7 @@ export class Section2DOverlayRenderer {
         cullMode: 'none' as const,
       },
       depthStencil: {
-        format: 'depth24plus' as const,
+        format: 'depth32float' as const,
         depthWriteEnabled: false,
         depthCompare: 'always' as const,  // Always draw - overlay is positioned with fixed offset
       },
@@ -251,7 +251,7 @@ export class Section2DOverlayRenderer {
         cullMode: 'none' as const,
       },
       depthStencil: {
-        format: 'depth24plus' as const,
+        format: 'depth32float' as const,
         depthWriteEnabled: false,
         depthCompare: 'always' as const,  // Always draw - overlay is positioned with fixed offset
       },

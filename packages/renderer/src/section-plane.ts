@@ -180,7 +180,7 @@ export class SectionPlaneRenderer {
     this.previewPipeline = this.device.createRenderPipeline({
       ...pipelineBase,
       depthStencil: {
-        format: 'depth24plus',
+        format: 'depth32float',
         depthWriteEnabled: false,
         depthCompare: 'greater',  // Only draw where plane is behind geometry (empty space)
       },
@@ -190,7 +190,7 @@ export class SectionPlaneRenderer {
     this.cutPipeline = this.device.createRenderPipeline({
       ...pipelineBase,
       depthStencil: {
-        format: 'depth24plus',
+        format: 'depth32float',
         depthWriteEnabled: false,
         depthCompare: 'always',  // Always draw on top
       },

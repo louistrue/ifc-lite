@@ -20,7 +20,7 @@ export class RenderPipeline {
     private depthTextureView: GPUTextureView;
     private objectIdTexture: GPUTexture;
     private objectIdTextureView: GPUTextureView;
-    private depthFormat: GPUTextureFormat = 'depth24plus';
+    private depthFormat: GPUTextureFormat = 'depth32float';
     private colorFormat: GPUTextureFormat;
     private objectIdFormat: GPUTextureFormat = 'rgba8unorm';
     private multisampleTexture: GPUTexture | null = null;
@@ -47,7 +47,7 @@ export class RenderPipeline {
         // Create depth texture with MSAA support
         this.depthTexture = this.device.createTexture({
             size: { width, height },
-            format: 'depth24plus',
+            format: this.depthFormat,
             usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
             sampleCount: this.sampleCount > 1 ? this.sampleCount : 1,
         });
@@ -124,6 +124,12 @@ export class RenderPipeline {
           var output: VertexOutput;
           let worldPos = uniforms.model * vec4<f32>(input.position, 1.0);
           output.position = uniforms.viewProj * worldPos;
+          // Anti z-fighting: deterministic depth nudge per entity.
+          // Knuth multiplicative hash spreads sequential IDs across 0-255
+          // so coplanar faces from different entities always get distinct depths.
+          // At 1e-6 per step the max world-space offset is <3mm at 10m — invisible.
+          let zHash = (input.entityId * 2654435761u) & 255u;
+          output.position.z *= 1.0 + f32(zHash) * 1e-6;
           output.worldPos = worldPos.xyz;
           output.normal = normalize((uniforms.model * vec4<f32>(input.normal, 0.0)).xyz);
           output.entityId = input.entityId;
@@ -674,6 +680,7 @@ export class InstancedRenderPipeline {
     private depthTextureView: GPUTextureView;
     private uniformBuffer: GPUBuffer;
     private colorFormat: GPUTextureFormat;
+    private depthFormat: GPUTextureFormat = 'depth32float';
     private objectIdFormat: GPUTextureFormat = 'rgba8unorm';
     private currentHeight: number;
 
@@ -685,7 +692,7 @@ export class InstancedRenderPipeline {
         // Create depth texture
         this.depthTexture = this.device.createTexture({
             size: { width, height },
-            format: 'depth24plus',
+            format: this.depthFormat,
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
         });
         this.depthTextureView = this.depthTexture.createView();
@@ -740,16 +747,19 @@ export class InstancedRenderPipeline {
         fn vs_main(input: VertexInput, @builtin(instance_index) instanceIndex: u32) -> VertexOutput {
           var output: VertexOutput;
           let inst = instances[instanceIndex];
-          
+
           // Transform to world space (still in Z-up coordinates)
           let worldPosZUp = inst.transform * vec4<f32>(input.position, 1.0);
           let normalZUp = (inst.transform * vec4<f32>(input.normal, 0.0)).xyz;
-          
+
           // Convert from Z-up to Y-up for the viewer
           let worldPos = zToYUp * worldPosZUp;
           let normalYUp = (zToYUp * vec4<f32>(normalZUp, 0.0)).xyz;
-          
+
           output.position = uniforms.viewProj * worldPos;
+          // Anti z-fighting: deterministic depth nudge per instance
+          let zHash = (instanceIndex * 2654435761u) & 255u;
+          output.position.z *= 1.0 + f32(zHash) * 1e-6;
           output.worldPos = worldPos.xyz;
           output.normal = normalize(normalYUp);
           output.color = inst.color;
@@ -928,7 +938,7 @@ export class InstancedRenderPipeline {
                 cullMode: 'none',
             },
             depthStencil: {
-                format: 'depth24plus',  // Will be updated if reverse-Z is enabled
+                format: this.depthFormat,
                 depthWriteEnabled: true,
                 depthCompare: 'greater',  // Reverse-Z: greater instead of less
             },
@@ -975,7 +985,7 @@ export class InstancedRenderPipeline {
         this.depthTexture.destroy();
         this.depthTexture = this.device.createTexture({
             size: { width, height },
-            format: 'depth24plus',  // Default format for instanced pipeline
+            format: this.depthFormat,
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
         });
         this.depthTextureView = this.depthTexture.createView();
