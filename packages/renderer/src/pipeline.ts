@@ -680,6 +680,7 @@ export class InstancedRenderPipeline {
     private depthTextureView: GPUTextureView;
     private uniformBuffer: GPUBuffer;
     private colorFormat: GPUTextureFormat;
+    private depthFormat: GPUTextureFormat = 'depth32float';
     private objectIdFormat: GPUTextureFormat = 'rgba8unorm';
     private currentHeight: number;
 
@@ -691,7 +692,7 @@ export class InstancedRenderPipeline {
         // Create depth texture
         this.depthTexture = this.device.createTexture({
             size: { width, height },
-            format: 'depth32float',
+            format: this.depthFormat,
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
         });
         this.depthTextureView = this.depthTexture.createView();
@@ -937,7 +938,7 @@ export class InstancedRenderPipeline {
                 cullMode: 'none',
             },
             depthStencil: {
-                format: 'depth32float',
+                format: this.depthFormat,
                 depthWriteEnabled: true,
                 depthCompare: 'greater',  // Reverse-Z: greater instead of less
             },
@@ -984,7 +985,7 @@ export class InstancedRenderPipeline {
         this.depthTexture.destroy();
         this.depthTexture = this.device.createTexture({
             size: { width, height },
-            format: 'depth32float',
+            format: this.depthFormat,
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
         });
         this.depthTextureView = this.depthTexture.createView();
