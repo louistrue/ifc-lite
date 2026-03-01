@@ -150,6 +150,7 @@ export function useTouchControls(params: UseTouchControlsParams): void {
           selectedId: selectedEntityIdRef.current,
           selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
+          isInteracting: true,
           sectionPlane: activeToolRef.current === 'section' ? {
             ...sectionPlaneRef.current,
             min: sectionRangeRef.current?.min,
@@ -179,6 +180,7 @@ export function useTouchControls(params: UseTouchControlsParams): void {
           selectedId: selectedEntityIdRef.current,
           selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
+          isInteracting: true,
           sectionPlane: activeToolRef.current === 'section' ? {
             ...sectionPlaneRef.current,
             min: sectionRangeRef.current?.min,

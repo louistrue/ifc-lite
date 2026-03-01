@@ -621,6 +621,7 @@ export class Scene {
       expressIds,
       bindGroup,
       uniformBuffer,
+      bounds: merged.bounds,
     };
   }
 
@@ -633,6 +634,7 @@ export class Scene {
   private mergeGeometry(meshDataArray: MeshData[]): {
     vertexData: Float32Array;
     indices: Uint32Array;
+    bounds: { min: [number, number, number]; max: [number, number, number] };
   } {
     let totalVertices = 0;
     let totalIndices = 0;
@@ -648,6 +650,10 @@ export class Scene {
     const vertexData = new Float32Array(vertexBufferRaw); // position + normal
     const vertexDataU32 = new Uint32Array(vertexBufferRaw); // entityId lane
     const indices = new Uint32Array(totalIndices);
+
+    // Track bounds during merge (avoids a second pass)
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
 
     let indexOffset = 0;
     let vertexBase = 0;
@@ -670,13 +676,24 @@ export class Scene {
       }
       for (let i = 0; i < vertexCount; i++) {
         const srcIdx = i * 3;
-        vertexData[outIdx++] = positions[srcIdx];
-        vertexData[outIdx++] = positions[srcIdx + 1];
-        vertexData[outIdx++] = positions[srcIdx + 2];
+        const px = positions[srcIdx];
+        const py = positions[srcIdx + 1];
+        const pz = positions[srcIdx + 2];
+        vertexData[outIdx++] = px;
+        vertexData[outIdx++] = py;
+        vertexData[outIdx++] = pz;
         vertexData[outIdx++] = normals[srcIdx];
         vertexData[outIdx++] = normals[srcIdx + 1];
         vertexData[outIdx++] = normals[srcIdx + 2];
         vertexDataU32[outIdx++] = entityId;
+
+        // Update bounds
+        if (px < minX) minX = px;
+        if (py < minY) minY = py;
+        if (pz < minZ) minZ = pz;
+        if (px > maxX) maxX = px;
+        if (py > maxY) maxY = py;
+        if (pz > maxZ) maxZ = pz;
       }
 
       // Copy indices with vertex base offset
@@ -691,7 +708,14 @@ export class Scene {
       indexOffset += indexCount;
     }
 
-    return { vertexData, indices };
+    return {
+      vertexData,
+      indices,
+      bounds: {
+        min: [minX, minY, minZ],
+        max: [maxX, maxY, maxZ],
+      },
+    };
   }
 
   /**
