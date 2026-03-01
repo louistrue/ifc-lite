@@ -24,7 +24,7 @@ import spaceValidation from './templates/space-validation.ts?raw';
 import federationCompare from './templates/federation-compare.ts?raw';
 import resetView from './templates/reset-view.ts?raw';
 import createBuilding from './templates/create-building.ts?raw';
-import gridshellPavilion from './templates/gridshell-pavilion.ts?raw';
+
 
 export interface ScriptTemplate {
   name: string;
@@ -83,14 +83,8 @@ export const SCRIPT_TEMPLATES: ScriptTemplate[] = [
   {
     name: 'Create building (IFC from scratch)',
     description:
-      'Developer — generate a complete IFC file programmatically with walls, slab, columns, beams, stair, roof, properties, and quantities',
+      'Developer — generate a complete IFC file with walls, slab, columns, beams, stair, and parametric timber gridshell roof with diamond lattice',
     code: stripModuleLine(createBuilding),
-  },
-  {
-    name: 'Gridshell pavilion (IFC from scratch)',
-    description:
-      'Developer — parametric timber gridshell with doubly-curved surface, two-directional lath lattice, steel nodes, and elliptical ring beam',
-    code: stripModuleLine(gridshellPavilion),
   },
   {
     name: 'Reset view',

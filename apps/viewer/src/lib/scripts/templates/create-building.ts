@@ -3,8 +3,10 @@ export {} // module boundary for type checking
  * Create IFC from scratch — generate a fully attributed building
  *
  * Demonstrates the bim.create API: build a complete IFC file with
- * walls, slab, columns, beams, stair, roof — each with material colours,
- * standard IFC property sets, and base quantities.
+ * walls, slab, columns, beams, stair, and a parametric timber gridshell
+ * roof — each with material colours, standard IFC property sets, and
+ * base quantities. The roof is a doubly-curved diamond lattice of
+ * small-diameter timber laths generated from a mathematical surface.
  */
 
 // ─── 1. Project ─────────────────────────────────────────────────────────
@@ -237,40 +239,96 @@ bim.create.addQuantitySet(h, stairId, {
   ],
 });
 
-// ─── 8. Roof ────────────────────────────────────────────────────────────
+// ─── 8. Parametric timber gridshell roof ─────────────────────────────
+//
+// A doubly-curved gridshell spanning the 5 × 8 m footprint.
+// Two families of diagonal timber laths form a diamond lattice that
+// rises 1.8 m above the wall top to a crown at z = 4.8 m.
 
-const roofId = bim.create.addRoof(h, gf, {
-  Name: 'R-01 Flat Roof', Description: 'Insulated flat roof assembly', ObjectType: 'Roof:Flat - 250mm',
-  Position: [0, 0, 3], Width: 5, Depth: 8, Thickness: 0.25,
-});
-bim.create.setColor(h, roofId, 'Bitumen - Dark', [0.30, 0.28, 0.26]);
-bim.create.addMaterial(h, roofId, {
-  Name: 'Flat Roof Assembly',
-  Layers: [
-    { Name: 'Bitumen Membrane', Thickness: 0.01, Category: 'Waterproofing' },
-    { Name: 'XPS Insulation', Thickness: 0.12, Category: 'Insulation' },
-    { Name: 'Vapour Barrier', Thickness: 0.002, Category: 'Membrane' },
-    { Name: 'Reinforced Concrete C30/37', Thickness: 0.2, Category: 'Structural' },
-  ],
-});
-bim.create.addPropertySet(h, roofId, {
-  Name: 'Pset_RoofCommon',
-  Properties: [
-    { Name: 'Reference', NominalValue: 'Flat - 250mm', Type: 'IfcIdentifier' },
-    { Name: 'IsExternal', NominalValue: true, Type: 'IfcBoolean' },
-    { Name: 'FireRating', NominalValue: 'REI30', Type: 'IfcLabel' },
-    { Name: 'ThermalTransmittance', NominalValue: 0.18, Type: 'IfcReal' },
-    { Name: 'ProjectedArea', NominalValue: 40, Type: 'IfcReal' },
-  ],
-});
-bim.create.addQuantitySet(h, roofId, {
-  Name: 'Qto_RoofBaseQuantities',
-  Quantities: [
-    { Name: 'GrossArea', Value: 40, Kind: 'IfcQuantityArea' },
-    { Name: 'NetArea', Value: 40, Kind: 'IfcQuantityArea' },
-    { Name: 'GrossVolume', Value: 10, Kind: 'IfcQuantityVolume' },
-  ],
-});
+const ROOF_W = 5;           // building width (X)
+const ROOF_D = 8;           // building depth (Y)
+const WALL_H = 3;           // wall-top elevation
+const CROWN  = 1.8;         // rise above walls
+const NU     = 10;          // grid divisions along X
+const NV     = 16;          // grid divisions along Y
+const LATH_W = 0.06;        // lath width  60 mm
+const LATH_D = 0.08;        // lath depth  80 mm
+
+// Surface: sinusoidal dome on rectangle, z = WALL_H at edges, peak at centre
+function roofZ(u: number, v: number): number {
+  return WALL_H + CROWN * Math.sin(Math.PI * u) * Math.sin(Math.PI * v);
+}
+// Build grid of surface points
+const grid: [number, number, number][][] = [];
+for (let i = 0; i <= NU; i++) {
+  const row: [number, number, number][] = [];
+  for (let j = 0; j <= NV; j++) {
+    const u = i / NU, v = j / NV;
+    row.push([u * ROOF_W, v * ROOF_D, roofZ(u, v)]);
+  }
+  grid.push(row);
+}
+
+let lathCount = 0;
+
+// Family A — diagonal (i+1, j+1): warm larch tone
+for (let d = -NV; d <= NU; d++) {
+  const i0 = Math.max(0, d);
+  const i1 = Math.min(NU, NV + d);
+  for (let i = i0; i < i1; i++) {
+    const j = i - d;
+    if (j < 0 || j >= NV) continue;
+    const s = grid[i][j], e = grid[i + 1][j + 1];
+    const id = bim.create.addBeam(h, gf, {
+      Name: `GL-A${(d + NV).toString().padStart(2, '0')}/${i - i0}`,
+      Description: 'Gridshell lath family A', ObjectType: 'Timber Lath:GL24h 60x80',
+      Start: s, End: e, Width: LATH_W, Height: LATH_D,
+    });
+    bim.create.setColor(h, id, 'Timber - Larch', [0.82, 0.62, 0.38]);
+    bim.create.addMaterial(h, id, { Name: 'Glulam GL24h Spruce', Category: 'Timber' });
+    lathCount++;
+  }
+}
+
+// Family B — diagonal (i+1, j-1): darker oak tone
+for (let s = 0; s <= NU + NV; s++) {
+  const i0 = Math.max(0, s - NV);
+  const i1 = Math.min(NU, s);
+  for (let i = i0; i < i1; i++) {
+    const j = s - i;
+    if (j <= 0 || j > NV) continue;
+    const p0 = grid[i][j], p1 = grid[i + 1][j - 1];
+    const id = bim.create.addBeam(h, gf, {
+      Name: `GL-B${s.toString().padStart(2, '0')}/${i - i0}`,
+      Description: 'Gridshell lath family B', ObjectType: 'Timber Lath:GL24h 60x80',
+      Start: p0, End: p1, Width: LATH_W, Height: LATH_D,
+    });
+    bim.create.setColor(h, id, 'Timber - Oak', [0.72, 0.52, 0.30]);
+    bim.create.addMaterial(h, id, { Name: 'Glulam GL24h Spruce', Category: 'Timber' });
+    lathCount++;
+  }
+}
+
+// Perimeter ring beam at wall top — ties laths together
+const RING_N = 2 * (NU + NV);
+const ringPts: [number, number, number][] = [];
+for (let i = 0; i <= NU; i++) ringPts.push(grid[i][0]);       // south edge
+for (let j = 1; j <= NV; j++) ringPts.push(grid[NU][j]);      // east edge
+for (let i = NU - 1; i >= 0; i--) ringPts.push(grid[i][NV]);  // north edge
+for (let j = NV - 1; j >= 1; j--) ringPts.push(grid[0][j]);   // west edge
+for (let k = 0; k < ringPts.length; k++) {
+  const rStart = ringPts[k];
+  const rEnd = ringPts[(k + 1) % ringPts.length];
+  const rId = bim.create.addBeam(h, gf, {
+    Name: `GL-Ring/${k.toString().padStart(2, '0')}`,
+    Description: 'Gridshell perimeter ring beam', ObjectType: 'Beam:GL28h 120x200',
+    Start: rStart, End: rEnd, Width: 0.12, Height: 0.20,
+  });
+  bim.create.setColor(h, rId, 'Timber - Dark', [0.45, 0.32, 0.20]);
+  bim.create.addMaterial(h, rId, { Name: 'Glulam GL28h Larch', Category: 'Timber' });
+}
+
+console.log(`Gridshell roof: ${lathCount} laths + ${ringPts.length} ring segments`);
 
 // ─── 9. Generate, preview, download ─────────────────────────────────────
 
