@@ -1017,6 +1017,11 @@ impl IfcAPI {
                 let mut total_triangles = 0;
                 let mut batch_meshes: Vec<MeshDataJs> = Vec::with_capacity(batch_size);
 
+                // Cache IFC type name strings: ~30 unique types repeated across 200K+ meshes.
+                // Avoids 200K+ String allocations in MeshDataJs::new.
+                let mut type_name_cache: rustc_hash::FxHashMap<ifc_lite_core::IfcType, String> =
+                    rustc_hash::FxHashMap::default();
+
                 // PRE-PASS: Build void relationship index (host → openings)
                 let mut scanner = EntityScanner::new(&content);
                 let mut faceted_brep_ids: Vec<u32> = Vec::new();
@@ -1096,7 +1101,10 @@ impl IfcAPI {
                                         total_vertices += mesh.positions.len() / 3;
                                         total_triangles += mesh.indices.len() / 3;
 
-                                        let ifc_type_name = ifc_type.name().to_string();
+                                        let ifc_type_name = type_name_cache
+                                            .entry(ifc_type)
+                                            .or_insert_with(|| ifc_type.name().to_string())
+                                            .clone();
                                         let mesh_data =
                                             MeshDataJs::new(id, ifc_type_name, mesh, color);
                                         batch_meshes.push(mesh_data);
@@ -1163,7 +1171,10 @@ impl IfcAPI {
                 for (id, start, end, ifc_type) in deferred_complex {
                     if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                         let has_openings = void_index.contains_key(&id);
-                        let ifc_type_name = ifc_type.name().to_string();
+                        let ifc_type_name = type_name_cache
+                            .entry(ifc_type)
+                            .or_insert_with(|| ifc_type.name().to_string())
+                            .clone();
                         let default_color = get_default_color_for_type(&ifc_type);
 
                         if has_openings {

@@ -108,6 +108,10 @@ export class StepTokenizer {
     let pos = 0;
     let line = 1;
 
+    // Cache type name strings: IFC files have ~776 unique types repeated
+    // across 8M+ entities. Caching avoids millions of String.fromCharCode allocations.
+    const typeCache = new Map<number, string>();
+
     while (pos < len) {
       const char = buf[pos];
 
@@ -168,8 +172,17 @@ export class StepTokenizer {
 
         if (pos === typeStart) continue;
 
-        // Decode type name
-        const type = String.fromCharCode(...buf.subarray(typeStart, pos));
+        // Decode type name with caching — IFC files repeat ~776 types across 8M+ entities.
+        // Hash the bytes to avoid 8M+ String.fromCharCode allocations (only ~776 created).
+        let typeHash = pos - typeStart;
+        for (let i = typeStart; i < pos; i++) {
+          typeHash = (typeHash * 31 + buf[i]) | 0;
+        }
+        let type = typeCache.get(typeHash);
+        if (type === undefined) {
+          type = String.fromCharCode(...buf.subarray(typeStart, pos));
+          typeCache.set(typeHash, type);
+        }
 
         // Skip whitespace
         while (pos < len) {
