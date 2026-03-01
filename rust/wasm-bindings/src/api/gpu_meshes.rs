@@ -591,7 +591,7 @@ impl IfcAPI {
                                 router.process_element_with_transform(&entity, &mut decoder)
                             {
                                 if !mesh.is_empty() {
-                                    if mesh.normals.is_empty() {
+                                    if mesh.normals.len() != mesh.positions.len() {
                                         calculate_normals(&mut mesh);
                                     }
 
@@ -1174,7 +1174,7 @@ impl IfcAPI {
                                 &void_index,
                             ) {
                                 if !mesh.is_empty() {
-                                    if mesh.normals.is_empty() {
+                                    if mesh.normals.len() != mesh.positions.len() {
                                         calculate_normals(&mut mesh);
                                     }
 
@@ -1215,7 +1215,7 @@ impl IfcAPI {
                                     if mesh.is_empty() {
                                         continue;
                                     }
-                                    if mesh.normals.is_empty() {
+                                    if mesh.normals.len() != mesh.positions.len() {
                                         calculate_normals(&mut mesh);
                                     }
 
@@ -1840,7 +1840,7 @@ impl IfcAPI {
                     router.process_element_with_transform(&entity, &mut decoder)
                 {
                     if !mesh.is_empty() {
-                        if mesh.normals.is_empty() {
+                        if mesh.normals.len() != mesh.positions.len() {
                             calculate_normals(&mut mesh);
                         }
 

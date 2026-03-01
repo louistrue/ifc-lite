@@ -11,8 +11,7 @@ categories = ["wasm", "parsing"]
 readme = "../../README.md"
 
 [package.metadata.wasm-pack.profile.release]
-# Temporarily disabled due to network issues downloading binaryen
-wasm-opt = false
+wasm-opt = ["-Os"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
