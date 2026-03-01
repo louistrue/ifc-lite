@@ -15,6 +15,9 @@ export interface UseGeometryStreamingParams {
   rendererRef: MutableRefObject<Renderer | null>;
   isInitialized: boolean;
   geometry: MeshData[] | null;
+  /** Monotonic counter — triggers the streaming effect even when the geometry
+   *  array reference is stable (incremental filtering reuses the same array). */
+  geometryVersion?: number;
   coordinateInfo?: CoordinateInfo;
   isStreaming: boolean;
   geometryBoundsRef: MutableRefObject<{ min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } }>;
@@ -31,6 +34,7 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     rendererRef,
     isInitialized,
     geometry,
+    geometryVersion,
     coordinateInfo,
     isStreaming,
     geometryBoundsRef,
@@ -196,28 +200,28 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
       lastGeometryRef.current = geometry;
     }
 
-    // FIX: When not streaming (type visibility toggle), new meshes can be ANYWHERE in the array,
-    // not just at the end. During streaming, new meshes ARE appended, so slice is safe.
-    // After streaming completes, filter changes can insert meshes at any position.
-    const meshesToAdd = isStreaming
-      ? geometry.slice(lastGeometryLengthRef.current)  // Streaming: new meshes at end
-      : geometry;  // Post-streaming: scan entire array for unprocessed meshes
-
-    // Filter out already processed meshes
-    // NOTE: Multiple meshes can share the same expressId AND same color (e.g., door inner framing pieces),
-    // so we use expressId + array index as a compound key to ensure all submeshes are processed.
-    const newMeshes: MeshData[] = [];
-    const startIndex = isStreaming ? lastGeometryLengthRef.current : 0;
-    for (let i = 0; i < meshesToAdd.length; i++) {
-      const meshData = meshesToAdd[i];
-      // Use expressId + global array index as key to ensure each mesh is unique
-      // (same expressId can have multiple submeshes with same color, e.g., door framing)
-      const globalIndex = startIndex + i;
-      const compoundKey = `${meshData.expressId}:${globalIndex}`;
-
-      if (!processedMeshIdsRef.current.has(compoundKey)) {
-        newMeshes.push(meshData);
-        processedMeshIdsRef.current.add(compoundKey);
+    // PERF: During streaming, new meshes are ALWAYS appended at the end.
+    // Skip the compound key dedup (208K string allocations + Set lookups)
+    // and array copy (.slice()). Use index-based iteration directly.
+    // Post-streaming: filter changes can insert meshes anywhere, so scan entire array.
+    let newMeshes: MeshData[];
+    if (isStreaming) {
+      // Fast path: no dedup needed, iterate from lastLength to current directly
+      const start = lastGeometryLengthRef.current;
+      newMeshes = [];
+      for (let i = start; i < geometry.length; i++) {
+        newMeshes.push(geometry[i]);
+      }
+    } else {
+      // Slow path: type visibility toggle — scan entire array for unprocessed meshes
+      newMeshes = [];
+      for (let i = 0; i < geometry.length; i++) {
+        const meshData = geometry[i];
+        const compoundKey = `${meshData.expressId}:${i}`;
+        if (!processedMeshIdsRef.current.has(compoundKey)) {
+          newMeshes.push(meshData);
+          processedMeshIdsRef.current.add(compoundKey);
+        }
       }
     }
 
@@ -354,7 +358,7 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
       renderer.render();
       lastStreamRenderTimeRef.current = now;
     }
-  }, [geometry, coordinateInfo, isInitialized, isStreaming]);
+  }, [geometry, geometryVersion, coordinateInfo, isInitialized, isStreaming]);
 
   // Force render when streaming completes (progress goes from <100% to 100% or null)
   const prevIsStreamingRef = useRef(isStreaming);
@@ -368,13 +372,24 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
       const pipeline = renderer.getPipeline();
       const scene = renderer.getScene();
 
-      // Finalize streaming: destroy temporary fragments and do one O(N) full merge
-      if (device && pipeline) {
-        scene.finalizeStreaming(device, pipeline);
-      }
-
+      // Render immediately with existing fragment batches (already visible)
       renderer.render();
       lastStreamRenderTimeRef.current = Date.now();
+
+      // PERF: Defer the O(N) full merge to an idle callback so the browser
+      // paints the streaming-complete state first. finalizeStreaming re-merges
+      // all 208K meshes into proper batches (~1-2s for 63.5M vertices).
+      if (device && pipeline) {
+        const finalizeAndRender = () => {
+          scene.finalizeStreaming(device, pipeline);
+          renderer.render();
+        };
+        if (typeof requestIdleCallback === 'function') {
+          requestIdleCallback(finalizeAndRender, { timeout: 2000 });
+        } else {
+          setTimeout(finalizeAndRender, 100);
+        }
+      }
     }
     prevIsStreamingRef.current = isStreaming;
   }, [isStreaming, isInitialized]);

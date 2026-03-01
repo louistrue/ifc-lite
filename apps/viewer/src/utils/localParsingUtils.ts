@@ -171,7 +171,9 @@ export function createCoordinateInfo(
  * @returns Render interval in milliseconds
  */
 export function getRenderIntervalMs(fileSizeMB: number): number {
-  if (fileSizeMB > 100) {
+  if (fileSizeMB > 300) {
+    return 500;  // Very large files: 2 updates/sec (fewer GPU fragment creations)
+  } else if (fileSizeMB > 100) {
     return 200;  // Huge files: 5 updates/sec
   } else if (fileSizeMB > 50) {
     return 100;  // Large files: 10 updates/sec

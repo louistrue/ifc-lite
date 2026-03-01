@@ -494,9 +494,13 @@ impl IfcAPI {
         use rustc_hash::{FxHashMap, FxHasher};
         use std::hash::{Hash, Hasher};
 
+        // Use Option::take() to move ownership into the closure without cloning.
+        // This avoids doubling WASM memory usage for large files (700MB+ saves ~700MB).
+        let mut content = Some(content);
+        let mut options = Some(options);
         let promise = js_sys::Promise::new(&mut |resolve, _reject| {
-            let content = content.clone();
-            let options = options.clone();
+            let content = content.take().expect("content already taken");
+            let options = options.take().expect("options already taken");
 
             spawn_local(async move {
                 // Parse options
@@ -937,9 +941,13 @@ impl IfcAPI {
         use ifc_lite_core::{EntityDecoder, EntityScanner};
         use ifc_lite_geometry::{calculate_normals, GeometryRouter};
 
+        // Use Option::take() to move ownership into the closure without cloning.
+        // This avoids doubling WASM memory usage for large files (700MB+ saves ~700MB).
+        let mut content = Some(content);
+        let mut options = Some(options);
         let promise = js_sys::Promise::new(&mut |resolve, _reject| {
-            let content = content.clone();
-            let options = options.clone();
+            let content = content.take().expect("content already taken");
+            let options = options.take().expect("options already taken");
 
             spawn_local(async move {
                 // Parse options - smaller default batch size for faster first frame
@@ -1525,9 +1533,13 @@ impl IfcAPI {
         use ifc_lite_core::{build_entity_index, EntityDecoder, EntityScanner};
         use ifc_lite_geometry::{calculate_normals, GeometryRouter};
 
+        // Use Option::take() to move ownership into the closure without cloning.
+        // This avoids doubling WASM memory usage for large files (700MB+ saves ~700MB).
+        let mut content = Some(content);
+        let mut options = Some(options);
         let promise = js_sys::Promise::new(&mut |resolve, _reject| {
-            let content = content.clone();
-            let options = options.clone();
+            let content = content.take().expect("content already taken");
+            let options = options.take().expect("options already taken");
 
             spawn_local(async move {
                 // Parse options

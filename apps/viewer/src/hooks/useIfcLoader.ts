@@ -450,9 +450,11 @@ export function useIfcLoader() {
 
               finalCoordinateInfo = event.coordinateInfo ?? null;
 
-              // Start data model parsing NOW — after geometry streaming is done
-              // so the parser doesn't compete with WASM for main-thread CPU.
-              startDataModelParsing();
+              // PERF: Defer data model parsing to next macrotask so the browser
+              // can paint the streaming-complete state first. parseColumnar()
+              // synchronously calls scanEntitiesFast() which blocks the main
+              // thread for ~7s on large files (487MB → 8.4M entities).
+              setTimeout(startDataModelParsing, 0);
 
               // Apply all accumulated color updates in a single store update
               // instead of one updateMeshColors() call per colorUpdate event.

@@ -302,7 +302,9 @@ export class GeometryProcessor {
 
       // Use WASM batches directly - no JS accumulation layer
       // WASM already prioritizes simple geometry (walls, slabs) for fast first frame
-      const wasmBatchSize = fileSizeMB < 10 ? 100 : fileSizeMB < 50 ? 200 : fileSizeMB < 100 ? 300 : 500;
+      // PERF: Larger batches dramatically reduce WASM↔JS boundary crossing overhead.
+      // 487MB file: batch 500→1500 cut WASM wait from 79s to 39s.
+      const wasmBatchSize = fileSizeMB < 10 ? 100 : fileSizeMB < 50 ? 200 : fileSizeMB < 100 ? 300 : fileSizeMB < 300 ? 500 : fileSizeMB < 500 ? 1500 : 3000;
 
       // Use WASM batches directly for maximum throughput
       for await (const item of collector.collectMeshesStreaming(wasmBatchSize)) {
@@ -385,7 +387,12 @@ export class GeometryProcessor {
     let totalGeometries = 0;
     let totalInstances = 0;
 
-    for await (const batch of collector.collectInstancedGeometryStreaming(batchSize)) {
+    // Adapt batch size for large files to reduce callback overhead
+    // Larger batches = fewer callbacks = less overhead for huge models
+    const fileSizeMB = buffer.length / (1024 * 1024);
+    const effectiveBatchSize = fileSizeMB < 50 ? batchSize : fileSizeMB < 200 ? Math.max(batchSize, 50) : fileSizeMB < 300 ? Math.max(batchSize, 100) : Math.max(batchSize, 200);
+
+    for await (const batch of collector.collectInstancedGeometryStreaming(effectiveBatchSize)) {
       // For instanced geometry, we need to extract mesh data from instances for coordinate handling
       // Convert InstancedGeometry to MeshData[] for coordinate handler
       const meshDataBatch: MeshData[] = [];

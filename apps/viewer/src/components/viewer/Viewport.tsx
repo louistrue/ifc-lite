@@ -40,12 +40,15 @@ import { useRenderUpdates } from './useRenderUpdates.js';
 
 interface ViewportProps {
   geometry: MeshData[] | null;
+  /** Monotonic counter that increments when geometry changes — used to trigger
+   *  streaming effects even when the geometry array reference is stable. */
+  geometryVersion?: number;
   coordinateInfo?: CoordinateInfo;
   computedIsolatedIds?: Set<number> | null;
   modelIdToIndex?: Map<string, number>;
 }
 
-export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelIdToIndex }: ViewportProps) {
+export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIsolatedIds, modelIdToIndex }: ViewportProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<Renderer | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -789,6 +792,7 @@ export function Viewport({ geometry, coordinateInfo, computedIsolatedIds, modelI
     rendererRef,
     isInitialized,
     geometry,
+    geometryVersion,
     coordinateInfo,
     isStreaming,
     geometryBoundsRef,
