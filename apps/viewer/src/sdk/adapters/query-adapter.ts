@@ -188,7 +188,7 @@ export function createQueryAdapter(store: StoreApi): QueryBackendMethods {
     if (!model?.ifcDataStore) return [];
 
     const node = new EntityNode(model.ifcDataStore, ref.expressId);
-    return node.properties().map((pset: { name: string; globalId?: string; properties: Array<{ name: string; type: number; value: string | number | boolean | null }> }) => ({
+    const base = node.properties().map((pset: { name: string; globalId?: string; properties: Array<{ name: string; type: number; value: string | number | boolean | null }> }) => ({
       name: pset.name,
       globalId: pset.globalId,
       properties: pset.properties.map((p: { name: string; type: number; value: string | number | boolean | null }) => ({
@@ -197,6 +197,30 @@ export function createQueryAdapter(store: StoreApi): QueryBackendMethods {
         value: p.value,
       })),
     }));
+
+    // Merge mutations (non-Qto sets)
+    const mutationView = state.mutationViews?.get(ref.modelId);
+    if (!mutationView) return base;
+    const merged = mutationView.getForEntity(ref.expressId);
+    if (merged.length === 0) return base;
+
+    // Add mutated psets that don't exist in base (skip Qto_ — those go to quantities)
+    const baseNames = new Set(base.map(p => p.name));
+    for (const pset of merged) {
+      if (pset.name.startsWith('Qto_')) continue;
+      if (!baseNames.has(pset.name)) {
+        base.push({
+          name: pset.name,
+          globalId: pset.globalId,
+          properties: pset.properties.map((p: { name: string; type: number; value: unknown }) => ({
+            name: p.name,
+            type: p.type,
+            value: p.value as string | number | boolean | null,
+          })),
+        });
+      }
+    }
+    return base;
   }
 
   function getQuantities(ref: EntityRef): QuantitySetData[] {
@@ -205,7 +229,7 @@ export function createQueryAdapter(store: StoreApi): QueryBackendMethods {
     if (!model?.ifcDataStore) return [];
 
     const node = new EntityNode(model.ifcDataStore, ref.expressId);
-    return node.quantities().map(qset => ({
+    const base = node.quantities().map(qset => ({
       name: qset.name,
       quantities: qset.quantities.map(q => ({
         name: q.name,
@@ -213,6 +237,45 @@ export function createQueryAdapter(store: StoreApi): QueryBackendMethods {
         value: q.value,
       })),
     }));
+
+    // Merge mutated Qto sets so CSV export picks up computed quantities
+    const mutationView = state.mutationViews?.get(ref.modelId);
+    if (!mutationView) return base;
+    const merged = mutationView.getForEntity(ref.expressId);
+    const mutatedQtos = merged.filter((p: { name: string }) => p.name.startsWith('Qto_'));
+    if (mutatedQtos.length === 0) return base;
+
+    const inferType = (name: string): number => {
+      const n = name.toLowerCase();
+      if (n.includes('volume')) return 2;
+      if (n.includes('area')) return 1;
+      if (n.includes('weight')) return 4;
+      if (n.includes('count')) return 3;
+      return 0;
+    };
+
+    const seen = new Set(base.map(q => q.name));
+    for (const mp of mutatedQtos) {
+      if (seen.has(mp.name)) {
+        // Merge new quantities into existing base set
+        const existing = base.find(q => q.name === mp.name)!;
+        const existingNames = new Set(existing.quantities.map(q => q.name));
+        for (const p of mp.properties) {
+          if (!existingNames.has(p.name) && typeof p.value === 'number') {
+            existing.quantities.push({ name: p.name, type: inferType(p.name), value: p.value });
+          }
+        }
+      } else {
+        // Add entirely new Qto set
+        base.push({
+          name: mp.name,
+          quantities: mp.properties
+            .filter((p: { value: unknown }) => typeof p.value === 'number')
+            .map((p: { name: string; value: unknown }) => ({ name: p.name, type: inferType(p.name), value: p.value as number })),
+        });
+      }
+    }
+    return base;
   }
 
   function queryEntities(descriptor: QueryDescriptor): EntityData[] {

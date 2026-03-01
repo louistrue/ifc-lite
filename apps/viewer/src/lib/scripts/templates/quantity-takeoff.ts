@@ -302,6 +302,7 @@ let totalComputed = 0
 let totalExpected = 0
 let geometryHits = 0
 let geometryMisses = 0
+let mutationCount = 0
 
 for (const ifcType of ALL_TYPES) {
   const entities = bim.query.byType(ifcType)
@@ -354,6 +355,8 @@ for (const ifcType of ALL_TYPES) {
       }
 
       // 3. For each expected quantity: use IFC value, or fall back to geometry
+      //    When filling from geometry, MUTATE the value into the model so
+      //    the user sees it in the quantities panel with an "edited" badge.
       for (const qdef of qtoSetDef.quantities) {
         const agg = report.quantities.get(qdef.name)!
         const ifcVal = ifcValues.get(qdef.name)
@@ -365,8 +368,13 @@ for (const ifcType of ALL_TYPES) {
           // Try to fill from geometry computation
           const geoField = GEOMETRY_MAP[qdef.name]
           if (geoField && geo[geoField] > 0) {
-            agg.computedSum += geo[geoField]
+            const computedValue = geo[geoField]
+            agg.computedSum += computedValue
             agg.computedCount++
+            // Persist the computed quantity into the model so it shows
+            // in the quantities panel with a "computed" badge
+            bim.mutate.setProperty(entity, qtoSetDef.name, qdef.name, computedValue)
+            mutationCount++
           }
         }
       }
@@ -402,6 +410,9 @@ if (reports.length === 0) {
 // ── Geometry Engine Stats ────────────────────────────────────────────
 console.log('Scanned ' + totalElements + ' elements across ' + reports.length + ' type/Qto-set combinations')
 console.log('Geometry engine: ' + geometryHits + ' meshes resolved, ' + geometryMisses + ' without geometry')
+if (mutationCount > 0) {
+  console.log('Wrote ' + mutationCount + ' computed quantities into the model (click any element to see them)')
+}
 console.log('')
 
 // ── Detailed Report ──────────────────────────────────────────────────
@@ -532,10 +543,22 @@ if (colorBatches.length > 0) {
 // ── CSV Export ────────────────────────────────────────────────────────
 const allElements = bim.query.byType(...ALL_TYPES)
 if (allElements.length > 0) {
+  // Build quantity columns from all Qto sets encountered
+  const qtyColumns: string[] = []
+  const seenCols = new Set<string>()
+  for (const r of reports) {
+    for (const [qName] of r.quantities) {
+      const col = r.qtoSetName + '.' + qName
+      if (!seenCols.has(col)) {
+        seenCols.add(col)
+        qtyColumns.push(col)
+      }
+    }
+  }
   bim.export.csv(allElements, {
-    columns: ['Name', 'Type', 'ObjectType', 'GlobalId'],
+    columns: ['Name', 'Type', 'GlobalId', ...qtyColumns],
     filename: 'quantity-takeoff.csv'
   })
   console.log('')
-  console.log('Exported ' + allElements.length + ' elements to quantity-takeoff.csv')
+  console.log('Exported ' + allElements.length + ' elements with ' + qtyColumns.length + ' quantity columns to quantity-takeoff.csv')
 }

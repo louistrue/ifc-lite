@@ -25,5 +25,6 @@ export interface PropertySet {
 
 export interface QuantitySet {
   name: string;
-  quantities: Array<{ name: string; value: number; type: number }>;
+  quantities: Array<{ name: string; value: number; type: number; isMutated?: boolean }>;
+  isNewQset?: boolean;
 }

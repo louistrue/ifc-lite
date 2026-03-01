@@ -342,16 +342,19 @@ export function PropertiesPanel() {
       }
 
       // If mutation view returned properties, use them
+      // Filter out Qto_ psets — those are shown in the Quantities tab instead
       if (mergedProps.length > 0) {
-        return mergedProps.map(pset => ({
-          name: pset.name,
-          properties: pset.properties.map(p => ({
-            name: p.name,
-            value: p.value,
-            isMutated: mutatedKeys.has(`${pset.name}:${p.name}`),
-          })),
-          isNewPset: newPsetNames.has(pset.name),
-        }));
+        return mergedProps
+          .filter(pset => !pset.name.startsWith('Qto_'))
+          .map(pset => ({
+            name: pset.name,
+            properties: pset.properties.map(p => ({
+              name: p.name,
+              value: p.value,
+              isMutated: mutatedKeys.has(`${pset.name}:${p.name}`),
+            })),
+            isNewPset: newPsetNames.has(pset.name),
+          }));
       }
     }
 
@@ -367,9 +370,88 @@ export function PropertiesPanel() {
   }, [entityNode, selectedEntity, mutationViews, mutationVersion]);
 
   const quantities: QuantitySet[] = useMemo(() => {
-    if (!entityNode) return [];
-    return entityNode.quantities();
-  }, [entityNode]);
+    // Start with base quantities from IFC data
+    const base: QuantitySet[] = entityNode ? entityNode.quantities() : [];
+
+    // Merge mutated Qto sets from the mutation layer
+    let modelId = selectedEntity?.modelId;
+    const expressId = selectedEntity?.expressId;
+    if (modelId === 'legacy') modelId = '__legacy__';
+
+    const mutationView = modelId ? mutationViews.get(modelId) : null;
+    if (!mutationView || !expressId) return base;
+
+    const mutations = mutationView.getMutationsForEntity(expressId);
+    if (mutations.length === 0) return base;
+
+    // Find Qto-prefixed psets that were created or modified
+    const qtoMutatedKeys = new Set<string>();
+    const qtoNewSets = new Set<string>();
+    for (const m of mutations) {
+      if (!m.psetName?.startsWith('Qto_')) continue;
+      if (m.propName) qtoMutatedKeys.add(`${m.psetName}:${m.propName}`);
+      if (m.type === 'CREATE_PROPERTY_SET' || m.type === 'CREATE_PROPERTY') {
+        const existsInBase = base.some(q => q.name === m.psetName);
+        if (!existsInBase) qtoNewSets.add(m.psetName!);
+      }
+    }
+
+    if (qtoMutatedKeys.size === 0 && qtoNewSets.size === 0) return base;
+
+    // Infer QuantityType from quantity name
+    const inferType = (name: string): number => {
+      const n = name.toLowerCase();
+      if (n.includes('volume')) return 2;
+      if (n.includes('area')) return 1;
+      if (n.includes('weight')) return 4;
+      if (n.includes('count')) return 3;
+      return 0; // Length
+    };
+
+    // Get mutated Qto psets from mutation view
+    const allMerged = mutationView.getForEntity(expressId);
+    const mutatedQtos = allMerged.filter(p => p.name.startsWith('Qto_'));
+
+    // Build result: base quantities with mutations merged in
+    const result: QuantitySet[] = [];
+    const seen = new Set<string>();
+
+    for (const bq of base) {
+      seen.add(bq.name);
+      const mutatedPset = mutatedQtos.find(p => p.name === bq.name);
+      if (!mutatedPset) {
+        result.push(bq);
+        continue;
+      }
+      // Merge: base quantities + mutated/new ones
+      const existingNames = new Set(bq.quantities.map(q => q.name));
+      const merged = bq.quantities.map(q => ({
+        ...q,
+        isMutated: qtoMutatedKeys.has(`${bq.name}:${q.name}`),
+      }));
+      // Add new quantities from mutations not in base
+      for (const p of mutatedPset.properties) {
+        if (!existingNames.has(p.name) && typeof p.value === 'number') {
+          merged.push({ name: p.name, value: p.value, type: inferType(p.name), isMutated: true });
+        }
+      }
+      result.push({ name: bq.name, quantities: merged, isNewQset: qtoNewSets.has(bq.name) });
+    }
+
+    // Add entirely new Qto sets from mutations
+    for (const mp of mutatedQtos) {
+      if (seen.has(mp.name)) continue;
+      result.push({
+        name: mp.name,
+        isNewQset: true,
+        quantities: mp.properties
+          .filter(p => typeof p.value === 'number')
+          .map(p => ({ name: p.name, value: p.value as number, type: inferType(p.name), isMutated: true })),
+      });
+    }
+
+    return result;
+  }, [entityNode, selectedEntity, mutationViews, mutationVersion]);
 
   // Build attributes array for display - must be before early return to maintain hook order
   // Uses schema-aware extraction to show ALL string/enum attributes for the entity type.

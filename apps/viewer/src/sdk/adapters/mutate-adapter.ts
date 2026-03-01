@@ -3,13 +3,19 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import type { EntityRef, MutateBackendMethods } from '@ifc-lite/sdk';
+import { PropertyValueType } from '@ifc-lite/data';
 import type { StoreApi } from './types.js';
 
 export function createMutateAdapter(store: StoreApi): MutateBackendMethods {
   return {
     setProperty(ref: EntityRef, psetName: string, propName: string, value: string | number | boolean) {
       const state = store.getState();
-      state.setProperty?.(ref.modelId, ref.expressId, psetName, propName, value);
+      // Auto-detect PropertyValueType from value type so that numeric
+      // quantities stored via setProperty are persisted as Real, not String.
+      const valueType = typeof value === 'number' ? PropertyValueType.Real
+        : typeof value === 'boolean' ? PropertyValueType.Boolean
+        : PropertyValueType.String;
+      state.setProperty?.(ref.modelId, ref.expressId, psetName, propName, value, valueType);
       return undefined;
     },
     deleteProperty(ref: EntityRef, psetName: string, propName: string) {
