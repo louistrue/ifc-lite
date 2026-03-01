@@ -143,6 +143,10 @@ export interface RenderOptions {
   visualEnhancement?: VisualEnhancementOptions;
   // Streaming state
   isStreaming?: boolean;          // If true, skip expensive operations like picker
+  // When true, skips the post-processing pass (contact shading / separation lines)
+  // for faster frame times during rapid camera movement (zoom, orbit, pan).
+  // The post-processing is restored automatically on the next non-interacting frame.
+  isInteracting?: boolean;
 }
 
 /**

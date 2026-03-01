@@ -323,7 +323,7 @@ export class Renderer {
         const separationEnabled = visualEnhancement.enabled
             && visualEnhancement.separationLines.enabled
             && visualEnhancement.separationLines.quality !== 'off';
-        const needsObjectIdPass = contactEnabled || separationEnabled;
+        const needsObjectIdPass = (contactEnabled || separationEnabled) && !options.isInteracting;
 
         let meshes = this.scene.getMeshes();
 
@@ -1003,8 +1003,12 @@ export class Renderer {
 
             pass.end();
 
+            // Skip post-processing during rapid camera movement (zoom, orbit, pan)
+            // for significantly faster frame times. Post-effects are subtle and
+            // unnoticeable during motion; they are restored on the next idle frame.
             const canRunPostPass = (contactEnabled || separationEnabled)
-                && this.postProcessor !== null;
+                && this.postProcessor !== null
+                && !options.isInteracting;
             if (canRunPostPass && this.postProcessor) {
                 this.postProcessor.updateOptions({
                     enableContactShading: contactEnabled,
