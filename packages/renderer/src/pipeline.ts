@@ -13,6 +13,7 @@ export class RenderPipeline {
     private device: GPUDevice;
     private webgpuDevice: WebGPUDevice;
     private pipeline: GPURenderPipeline;
+    private biasedPipeline: GPURenderPipeline;  // Pipeline with depth bias for coplanar z-fighting (alternates with main)
     private selectionPipeline: GPURenderPipeline;  // Pipeline for selected meshes (renders on top)
     private transparentPipeline: GPURenderPipeline;  // Pipeline for transparent meshes with alpha blending
     private overlayPipeline: GPURenderPipeline;  // Pipeline for color overlays (lens) - renders at exact same depth
@@ -371,6 +372,23 @@ export class RenderPipeline {
 
         this.pipeline = this.device.createRenderPipeline(pipelineDescriptor);
 
+        // Biased pipeline: identical to main but with hardware polygon offset.
+        // Used for alternating batches so coplanar faces from different draw
+        // calls land on different pipelines. depthBiasSlopeScale adds a per-
+        // fragment bias proportional to the screen-space depth slope — computed
+        // by the rasterizer, not the vertex shader — so it scales correctly at
+        // all viewing angles including extreme grazing.
+        this.biasedPipeline = this.device.createRenderPipeline({
+            ...pipelineDescriptor,
+            depthStencil: {
+                format: this.depthFormat,
+                depthWriteEnabled: true,
+                depthCompare: 'greater',
+                depthBias: 2,
+                depthBiasSlopeScale: 1.0,
+            },
+        } as GPURenderPipelineDescriptor);
+
         // Create selection pipeline descriptor
         const selectionPipelineDescriptor: GPURenderPipelineDescriptor = {
             layout: pipelineLayout,
@@ -626,6 +644,10 @@ export class RenderPipeline {
 
     getPipeline(): GPURenderPipeline {
         return this.pipeline;
+    }
+
+    getBiasedPipeline(): GPURenderPipeline {
+        return this.biasedPipeline;
     }
 
     getSelectionPipeline(): GPURenderPipeline {

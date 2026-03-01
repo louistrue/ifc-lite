@@ -711,10 +711,17 @@ export class Renderer {
                     pass.drawIndexed(batch.indexCount);
                 };
 
-                // Render opaque batches first with opaque pipeline
-                pass.setPipeline(this.pipeline.getPipeline());
-                for (const batch of opaqueBatches) {
-                    renderBatch(batch);
+                // Render opaque batches, alternating between main and biased
+                // pipelines so coplanar faces from different batches always
+                // land on different pipelines. The biased pipeline uses GPU
+                // hardware polygon offset (depthBiasSlopeScale) which scales
+                // per-fragment with the depth slope — eliminating z-fighting
+                // at all viewing angles including extreme grazing.
+                const mainPipeline = this.pipeline.getPipeline();
+                const biasedPipeline = this.pipeline.getBiasedPipeline();
+                for (let i = 0; i < opaqueBatches.length; i++) {
+                    pass.setPipeline(i % 2 === 0 ? mainPipeline : biasedPipeline);
+                    renderBatch(opaqueBatches[i]);
                 }
 
                 // PERFORMANCE FIX: Render partially visible batches as sub-batches (not individual meshes!)
@@ -729,7 +736,8 @@ export class Renderer {
                 }
 
                 if (partiallyVisibleBatches.length > 0) {
-                    for (const { colorKey, visibleIds, color } of partiallyVisibleBatches) {
+                    for (let pi = 0; pi < partiallyVisibleBatches.length; pi++) {
+                        const { colorKey, visibleIds, color } = partiallyVisibleBatches[pi];
                         // Get or create a cached sub-batch for this visibility state
                         const subBatch = this.scene.getOrCreatePartialBatch(
                             colorKey,
@@ -744,7 +752,8 @@ export class Renderer {
                             if (isTransparent) {
                                 pass.setPipeline(this.pipeline.getTransparentPipeline());
                             } else {
-                                pass.setPipeline(this.pipeline.getPipeline());
+                                // Alternate main/biased like opaque batches
+                                pass.setPipeline(pi % 2 === 0 ? mainPipeline : biasedPipeline);
                             }
                             // Render the sub-batch as a single draw call
                             renderBatch(subBatch);
