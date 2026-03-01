@@ -1,5 +1,12 @@
 # @ifc-lite/drawing-2d
 
+## 1.14.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/geometry@1.14.0
+
 ## 1.13.0
 
 ### Patch Changes
