@@ -12,7 +12,10 @@
  * API docs: https://app.swaggerhub.com/apis/buildingSMART/Dictionaries/v1
  */
 
-const BSDD_API = 'https://api.bsdd.buildingsmart.org';
+// Proxy through our own origin to avoid CORS issues.
+// In dev Vite proxies /api/bsdd → https://api.bsdd.buildingsmart.org,
+// in production Vercel rewrites do the same.
+const BSDD_API = '/api/bsdd';
 const IFC_DICTIONARY_URI =
   'https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3';
 
